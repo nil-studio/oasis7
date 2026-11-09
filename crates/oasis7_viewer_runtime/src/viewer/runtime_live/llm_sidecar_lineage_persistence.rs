@@ -1,5 +1,5 @@
 #[path = "llm_sidecar_lineage_checkpoint_write.rs"]
-mod checkpoint_write;
+pub(in crate::viewer::runtime_live) mod checkpoint_write;
 
 use super::*;
 use crate::runtime::{World as RuntimeWorld, WorldCommitRecordV1};
@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const LEGACY_PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 1;
 const PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 2;
@@ -663,9 +662,11 @@ impl RuntimeLlmSidecar {
             .map(|wake| (wake.wake_id.clone(), wake))
             .collect();
         if self.provider_service_required {
+            self.classify_hosted_orphans();
             self.pending_runtime_wakes = pending_runtime_wakes;
             self.provider_lineage_binding = checkpoint.runtime_binding;
             self.provider_lineage_restored = true;
+            self.persist_provider_lineage()?;
             // Signed pending intents are validated before installation. Only
             // canonical Lookup/read-view may reconcile them after restart.
             return Ok(());

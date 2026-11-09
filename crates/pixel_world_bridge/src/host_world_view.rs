@@ -72,7 +72,16 @@ pub(super) fn adapt_input(input: &Value) -> Option<Value> {
             provenance.get("geometry_source").and_then(Value::as_str),
             Some("authoritative" | "location_derived")
         ) && provenance.get("freshness").and_then(Value::as_str) == Some("current")
-            && provenance.get("valid_at_source_cut") == view.get("source_cut")
+            && view
+                .get("source_cut")
+                .and_then(Value::as_str)
+                .filter(|cut| !cut.is_empty())
+                .is_some_and(|cut| {
+                    provenance
+                        .get("valid_at_source_cut")
+                        .and_then(Value::as_str)
+                        == Some(cut)
+                })
             && !input
                 .get("worldViewStale")
                 .and_then(Value::as_bool)
@@ -94,7 +103,7 @@ pub(super) fn adapt_input(input: &Value) -> Option<Value> {
                         json!({"type":"location","data":{"location_id":record["location_id"]}})
                     };
                     facilities.insert(id.into(), json!({"entity_id":id,"module_id":"runtime_factory",
-                        "kind":"factory","label":record.get("name").or_else(||record.get("label")),"anchor":anchor}));
+                        "kind":"factory","factory_kind":record.get("kind").and_then(Value::as_str),"label":record.get("name").or_else(||record.get("label")),"anchor":anchor}));
                 }
             }
             _ => (),
@@ -129,6 +138,52 @@ pub(super) fn adapt_input(input: &Value) -> Option<Value> {
 mod tests {
     use super::*;
     #[test]
+    fn equal_missing_or_invalid_cuts_never_make_geometry_current() {
+        let input = json!({"snapshot":{"model":{}},"worldView":{"source_cut":"C","entities":[
+            {"kind":"agent","entity_id":"A","render_record":{"pos":{"x_cm":1,"y_cm":2,"z_cm":0},"location_id":"L","fragment_profile":{"blocks":[]}},"provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}},
+            {"kind":"factory","entity_id":"F","render_record":{"pos":{"x_cm":1,"y_cm":2,"z_cm":0},"kind":"factory.smelter.mk1"},"provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}}
+        ]}});
+        let current = adapt_input(&input).unwrap();
+        assert!(current["lists"]["agents"][0]["pos"].is_object());
+        assert!(current["snapshot"]["model"]["module_visual_entities"]["F"].is_object());
+        for cut in [
+            None,
+            Some(Value::Null),
+            Some(json!("")),
+            Some(json!(7)),
+            Some(json!(false)),
+        ] {
+            let mut source = input.clone();
+            if let Some(cut) = cut {
+                source["worldView"]["source_cut"] = cut.clone();
+                for entity in source["worldView"]["entities"].as_array_mut().unwrap() {
+                    entity["provenance"]["valid_at_source_cut"] = cut.clone();
+                }
+            } else {
+                source["worldView"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("source_cut");
+                for entity in source["worldView"]["entities"].as_array_mut().unwrap() {
+                    entity["provenance"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("valid_at_source_cut");
+                }
+            }
+            let unknown = adapt_input(&source).unwrap();
+            for field in ["pos", "location_id", "fragment_profile"] {
+                assert!(unknown["lists"]["agents"][0][field].is_null());
+            }
+            assert!(
+                unknown["snapshot"]["model"]["module_visual_entities"]
+                    .as_object()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+    #[test]
     fn projection_preserves_receipt_and_world_basis_but_suppresses_unknown_positions() {
         let input = json!({"snapshot":{"config":{"space":{"width_cm":100,"depth_cm":200,"height_cm":20}},"model":{}},"gameplay":{"actionReceipt":{"id":"original"}},"selected":{"id":"A","pos":{"x_cm":10,"y_cm":20,"z_cm":0}},"worldView":{"source_cut":"cut","entities":[{"entity_id":"A","kind":"agent","render_record":{"id":"A","pos":{"x_cm":"10","y_cm":"20","z_cm":"0"}},"provenance":{"freshness":"unknown"}}]}});
         let result = adapt_input(&input).unwrap();
@@ -148,6 +203,41 @@ mod tests {
         assert!(facilities.get("private").is_none());
         input["navigation"]["mode"] = json!("follow");
         assert_eq!(adapt_input(&input).unwrap()["navigation"]["mode"], "stop");
+        input["worldView"]["entities"][0]["provenance"]["freshness"] = json!("expired");
+        assert!(
+            adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn factory_type_is_explicit_and_never_inferred_from_label() {
+        let mut input = json!({"worldView":{"source_cut":"C","entities":[{"entity_id":"F","kind":"factory","render_record":{"name":"Smelter Mk1","kind":"factory.smelter.mk1","pos":{"x_cm":10,"y_cm":20,"z_cm":0}},"provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}}]}});
+        let adapted = adapt_input(&input).unwrap();
+        let factory = &adapted["snapshot"]["model"]["module_visual_entities"]["F"];
+        assert_eq!(factory["kind"], "factory");
+        assert_eq!(factory["factory_kind"], "factory.smelter.mk1");
+        let state = super::super::build_render_state(&input);
+        let entities: Vec<crate::ModuleVisualEntity> =
+            serde_json::from_value(state["module_visual_entities"].clone()).unwrap();
+        assert_eq!(
+            entities[0].factory_kind.as_deref(),
+            Some("factory.smelter.mk1")
+        );
+        assert_eq!(entities[0].kind, "factory");
+
+        input["worldView"]["entities"][0]["render_record"]
+            .as_object_mut()
+            .unwrap()
+            .remove("kind");
+        assert!(adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]["F"]["factory_kind"].is_null());
+        input["worldView"]["entities"][0]["render_record"]["kind"] = json!("unsupported");
+        assert_eq!(
+            adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]["F"]["factory_kind"],
+            "unsupported"
+        );
         input["worldView"]["entities"][0]["provenance"]["freshness"] = json!("expired");
         assert!(
             adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]

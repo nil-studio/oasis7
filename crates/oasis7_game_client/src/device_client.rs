@@ -399,17 +399,42 @@ impl Client {
         )?;
         self.submit_and_poll(&request)
     }
+    pub(crate) fn check_tool_deadline(deadline: Option<std::time::Instant>) -> Result<(), String> {
+        if deadline.is_some_and(|deadline| crate::request_deadline::now() >= deadline) {
+            return Err("tool deadline elapsed; retain original operation".into());
+        }
+        Ok(())
+    }
     pub fn submit_action(
         &self,
         operation: &str,
         action: crate_action::Action,
     ) -> Result<IntentResponse<Value>, String> {
+        self.submit_action_bounded(operation, action, None)
+    }
+    pub fn submit_action_until(
+        &self,
+        operation: &str,
+        action: crate_action::Action,
+        deadline: std::time::Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        self.submit_action_bounded(operation, action, Some(deadline))
+    }
+    fn submit_action_bounded(
+        &self,
+        operation: &str,
+        action: crate_action::Action,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<IntentResponse<Value>, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
+        Self::check_tool_deadline(deadline)?;
         let request =
             if let Some(request) = self.cached_intent(ClientStateKind::Action, operation)? {
                 validate_original_action(&request, &action)?;
                 request
             } else {
-                let captured = self.captured(operation)?;
+                let captured = self.captured_bounded(operation, deadline)?;
+                Self::check_tool_deadline(deadline)?;
                 let signed = self.sign("cognition", cognition_intent(&captured, action)?)?;
                 self.cache_intent(
                     ClientStateKind::Action,
@@ -417,7 +442,37 @@ impl Client {
                     WorldServicePayloadV1::Cognition(signed),
                 )?
             };
-        self.submit_and_poll(&request)
+        match deadline {
+            Some(deadline) => self.submit_and_poll_until(&request, deadline),
+            None => self.submit_and_poll(&request),
+        }
+    }
+    /// First attempt for the trusted tool journal only. Existing originals are
+    /// recovery-only and can never enter this single-send path.
+    #[cfg(unix)]
+    pub(crate) fn submit_new_action_until(
+        &self,
+        operation: &str,
+        action: crate_action::Action,
+        deadline: std::time::Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        let _scope = crate::request_deadline::Scope::enter(deadline);
+        Self::check_tool_deadline(Some(deadline))?;
+        if self
+            .cached_intent(ClientStateKind::Action, operation)?
+            .is_some()
+        {
+            return Err("original action exists; query its result".into());
+        }
+        let captured = self.captured_until(operation, deadline)?;
+        Self::check_tool_deadline(Some(deadline))?;
+        let signed = self.sign("cognition", cognition_intent(&captured, action)?)?;
+        let request = self.cache_intent(
+            ClientStateKind::Action,
+            operation,
+            WorldServicePayloadV1::Cognition(signed),
+        )?;
+        self.submit_new_and_poll_until(&request, deadline)
     }
     pub fn task_fence(&self) -> Result<GameTaskFenceV1, String> {
         let view = self
@@ -558,6 +613,22 @@ impl Client {
         &self,
         operation: &str,
     ) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
+        self.prefix_bounded(operation, None)
+    }
+    pub fn prefix_until(
+        &self,
+        operation: &str,
+        deadline: std::time::Instant,
+    ) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
+        self.prefix_bounded(operation, Some(deadline))
+    }
+    fn prefix_bounded(
+        &self,
+        operation: &str,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
+        Self::check_tool_deadline(deadline)?;
         if let Some(request) = self.cached_intent(ClientStateKind::Prefix, operation)? {
             let WorldServicePayloadV1::Scheduler(signed) = &request.signed_payload else {
                 return Err("invalid cached context prefix".into());
@@ -574,7 +645,12 @@ impl Client {
             return Ok(request);
         }
         let original = self.original_prepare(operation)?;
-        let prepared = self.prepare_original(&original)?;
+        Self::check_tool_deadline(deadline)?;
+        let prepared = match deadline {
+            Some(_) => self.prepare_original_bounded(&original, deadline)?,
+            None => self.prepare_original(&original)?,
+        };
+        Self::check_tool_deadline(deadline)?;
         let signed = self.sign("scheduler", public_prefix(&prepared)?)?;
         self.cache_intent(
             ClientStateKind::Prefix,
@@ -608,8 +684,28 @@ impl Client {
         )
     }
     pub fn captured(&self, operation: &str) -> Result<CapturedTaskContextV1, String> {
+        self.captured_bounded(operation, None)
+    }
+    pub fn captured_until(
+        &self,
+        operation: &str,
+        deadline: std::time::Instant,
+    ) -> Result<CapturedTaskContextV1, String> {
+        self.captured_bounded(operation, Some(deadline))
+    }
+    fn captured_bounded(
+        &self,
+        operation: &str,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<CapturedTaskContextV1, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
+        Self::check_tool_deadline(deadline)?;
         let signed = self.context_read_proof(operation)?;
-        self.read_context_original(&signed).map_err(|error| {
+        let result = match deadline {
+            Some(_) => self.read_context_original_bounded(&signed, deadline),
+            None => self.read_context_original(&signed),
+        };
+        result.map_err(|error| {
             format!(
                 "private context {}; query original results and refresh",
                 failure_tag(&error)

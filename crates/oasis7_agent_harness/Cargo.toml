@@ -17,5 +17,8 @@ unicode-normalization = "0.1"
 oasis7_game_client = { version = "0.1.0", path = "../oasis7_game_client" }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
 
+[dev-dependencies]
+oasis7_agent_api = { version = "0.1.0", path = "../oasis7_agent_api", features = ["test-support"] }
+
 [lints]
 workspace = true

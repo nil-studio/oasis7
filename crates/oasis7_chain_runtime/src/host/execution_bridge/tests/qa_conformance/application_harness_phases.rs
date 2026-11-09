@@ -118,6 +118,12 @@ pub(super) fn validate_application_output_and_remove_fixture(
             "PRE2_HOSTED_FRESH_ADMISSION_CANONICAL_RECEIPT_PASSED"
         } else if admission_mode == "repeated-turns" {
             "PRE2_HOSTED_REPEATED_TURNS_PASSED"
+        } else if admission_mode == "checkpoint-fairness" {
+            "PRE2_CHECKPOINT_PUBLICATION_FAIRNESS_PASSED"
+        } else if admission_mode == "checkpoint-scope-fence" {
+            "PRE2_CHECKPOINT_SCOPE_FENCE_PASSED"
+        } else if admission_mode == "checkpoint-pause-resume" {
+            "PRE2_CHECKPOINT_PAUSE_RESUME_PASSED"
         } else if admission_mode == "slow-consumer" {
             "PRE2_SLOW_CONSUMER_FAIRNESS_PASSED"
         } else if admission_mode == "missing-store" {

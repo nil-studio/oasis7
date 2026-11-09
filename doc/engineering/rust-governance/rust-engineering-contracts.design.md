@@ -9,7 +9,7 @@
 
 ## 1. 问题、目标与非目标
 
-目前共享 Cargo 配置只覆盖部分依赖；架构边界分散在专业设计与局部检查中；Rust wire、服务 OpenAPI 和未来跨语言消费者之间还没有统一的产物生命周期。三个问题分别需要配置等价、结构检查和协议证据，不能由一次全 workspace 构建或一次 schema 生成共同代替。
+当前已有部分 workspace 共性配置、Cargo 边界检查和 signed-read bootstrap 产物生命周期。剩余增量包括未迁移成员、Cargo 图无法表达的模块内部错误决策边界，以及尚未进入真实 handler 的唯一 typed HTTP component。配置等价、结构约束、错误传播和协议兼容各有证明范围，不能由一次全 workspace 构建或一次 schema 生成共同代替。
 
 目标是让维护者可追溯地回答：共享设置在哪里改、依赖为什么被禁止、协议文件从哪里生成，以及当前检查证明了哪些配置和行为。设计要求可渐进实施、可独立回滚，保留现有语义 owner。
 
@@ -28,6 +28,8 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 | Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；[AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002) | 按 package identity、kind、target/features 计算声明与激活闭包；产品适用性：N/A；reason=新增结构检查机制；scope=依赖图解析 | [架构规则](rust-engineering-contracts.design.md#architecture-rules) | Cargo 固定工具链与实际支持矩阵 | 不代替权限和运行行为验证 |
 | Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；[AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002) | 保留原方向、服务组合与合法测试范围；产品适用性：N/A；reason=结构规则表达；scope=首批边界矩阵 | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | 各模块专业设计与 crate owner | 不按包名统一禁止所有 client/server/dev 关系 |
 | Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；[AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002) | 检查不完整与违规区分，诊断可复现；产品适用性：N/A；reason=检查覆盖与结果合同；scope=选定规则和必需组合 | [检查合同](rust-engineering-contracts.design.md#inspection-contract) | engineering；既有 CI scope/required 选择 | 文档采纳不启用新门禁 |
+| Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；[AC-RUST-004](rust-engineering-contracts.prd.md#ac-rust-004) | 模块内部的 typed 错误事实到实际决策不受诊断措辞支配；产品适用性：N/A；reason=保护已有实现；scope=Node 网络错误分类及其兼容入口 | [模块内部与错误保真](rust-engineering-contracts.design.md#module-error-boundary) | Node/Net owner 与 engineering；已有 typed failure 回归 | 不重做已完成迁移，不拥有 Node capability 或玩家展示重构，不证明线上恢复 |
+| Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；[AC-RUST-004](rust-engineering-contracts.prd.md#ac-rust-004) | 精确作用域、语法能力、诊断级别与实际执行一致；产品适用性：N/A；reason=开发期检查治理；scope=登记源级规则及接线 | [源级检查接线](rust-engineering-contracts.design.md#source-rule-enforcement) | engineering 与既有 CI scope/required owner | 文档不启用新门禁，不宣称全程序类型/数据流分析 |
 | [Runtime 状态与投影边界](../../world-runtime/design.md#状态与服务投影的编译边界) | 下层状态/投影不回拉上层执行，保留 Game Client 验证核心复用；产品适用性：N/A；reason=继承专业编译边界；scope=State/Projection/Runtime 结构 | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | Runtime、State、Projection owner | 不改变 patch、准入、恢复资格或 codec 所有权 |
 | [宿主与轻量入口](../../world-runtime/design.md#1-设计定位) | 轻量生产与真实宿主/测试职责分别表达；产品适用性：N/A；reason=继承宿主编译边界；scope=Launcher、协议工具与组合入口 | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | Launcher、Protocol Tools 与宿主 owner | 不清除实际执行本地世界的合法依赖 |
 | Trace refs: O7-REQ-ad3ea59c-596c-4c50-8da8-fe47608c6f01；[共享客户端要求](../../product/agents-world-simulation/provider-agent-experience-continuity.prd.md#req-agent-parity-003) | Game Client/Harness 不反向拥有主应用或世界实现 | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | Game Client/Harness/Service owner；DES-AGC-001 | 结构检查不证明完整内外执行方行为等价 |
@@ -35,6 +37,7 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 | Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；[AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003) | 生成确定、check 只读、完整集合与冲突恢复明确；产品适用性：N/A；reason=开发期产物治理；scope=已登记 profile | [产物合同](rust-engineering-contracts.design.md#artifact-contract) | 生成工具/profile owner 与真实消费者 | 未登记 profile、自动发布与运行期生成 |
 | Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b；[游戏 API 要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-012) | 对已实施 bootstrap 提供同版本、编码准确的可发现派生合同 | [协议权威](rust-engineering-contracts.design.md#protocol-authority) | Game API owner；现有 OpenAPI/parser/handler | 仅承接合同一致性子义务，不证明完整行动闭环 |
 | Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；[AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003) | 生成不改变整数、字段、canonical JSON/CBOR 或签名语义；产品适用性：N/A；reason=协议产物兼容管理；scope=实际触及的 wire/profile | [Wire 保持](rust-engineering-contracts.design.md#wire-preservation) | 原 wire/codec owner 与新旧消费者 | 未实现 lossless codec 不发布 JS 签名能力 |
+| Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；[AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003) | 迁移生成来源前先使唯一 DTO 参与真实 handler；产品适用性：N/A；reason=单一来源与消费者一致性治理；scope=bootstrap ReadError component | [真实 DTO 增量](rust-engineering-contracts.design.md#real-dto-increment) | Agent API、Viewer Runtime 与 protocol generator owner | 不同时迁移所有 envelope、动态世界 schema 或签名 codec |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[安全调用要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-013) | 生成/消费不得授予权限、改变原请求或安全恢复 | [运行约束](rust-engineering-contracts.design.md#runtime-constraints) | 原 parser、signer、World Service 与 Runtime | schema/TS 不证明认证、幂等或真实恢复完成 |
 
 <a id="baseline-gap"></a>
@@ -46,7 +49,8 @@ engineering 维护者拥有共性配置与检查工具；crate owner 确认 feat
 | --- | --- | --- | --- |
 | Workspace | [根 manifest](../../../Cargo.toml) 集中共性依赖、`workspace.package` / `workspace.lints`，首批 6 个成员显式继承；[工具链](../../../rust-toolchain.toml) 固定为 `1.96.0` | 可继承的共性与显式成员差异 | 其余成员尚未迁移；每批仍须等价检查，不修改 resolver/profiles/patch |
 | Lint | [ci-tests.sh](../../../scripts/ci-tests.sh) 使用 `-D warnings`、`-D clippy::correctness`、`-D clippy::suspicious` | 相同规则定义可在本地消费，CI 强度继续明确 | 首批继承保持 correctness=deny、suspicious=warn 的本地级别；CI 继续升级，普通 clippy 不等于所有 CI 组合 |
-| 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh) 使用 host、`--no-default-features` 的局部 `cargo tree` | 有作用域的规则、声明与解析闭包检查 | 首版检查器已有 9 条规则、37 个显式 profile，逐根声明/闭包与编译核查；不证明未登记平台或 Viewer/Service 全量配置 |
+| 架构 | [Runtime](../../world-runtime/design.md#实现边界与共享值所有权) 与 [Agent/SDK](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001) 已有边界；[Cargo 检查器](../../../scripts/cargo-dev-architecture.py)按[当前配置](../../../scripts/cargo-dev-architecture.json)核对声明/闭包及编译；[Launcher 检查](../../../scripts/check-launcher-p2p-dependency-surface.sh)保留原范围 | 有作用域的规则、声明与解析闭包检查 | 规则/profile 集合以配置为准，包含后续 custody 边界；现有 Cargo 图不能表达同一 crate 内的错误决策依赖，不证明未登记组合 |
+| 错误事实 | [FormalReadError](../../../crates/oasis7_world_service/src/formal_read_error.rs)已有拒绝/未就绪/历史缺失/内部/完整性分类；[Node 分类](../../../crates/oasis7_node/src/network_error_classification.rs)已有 typed facts，[legacy adapter](../../../crates/oasis7_node/src/network_error_legacy.rs)保留旧文本解释 | 保护已完成的类别传播，源级约束只补可定位的内部缺口 | 已有[typed failure 回归](../../../crates/oasis7_node/src/network_bridge_typed_failure_tests.rs)；本文新增的源级规则与接线尚未实施，不将文本兼容字段列为待删除债务 |
 | HTTP bootstrap | [OpenAPI](../../../crates/oasis7_agent_api/src/game/read_bootstrap.openapi.json) 是人工维护的 OpenAPI 3.1；API revision 1、read schema revision 5、五条 GET；[handler](../../../crates/oasis7_viewer_runtime/src/game_read_api.rs) 按实际能力收窄 | 首版已从此 profile 生成 TS/JSON Schema，真实 handler fixtures 与 TS consumer 校验 profile | `ReadInfo`、`ReadProjection`、`ReadError` 目前由 `json!` 组装，不能假定已有同名 Rust struct 可直接 derive |
 | Rust wire 与测试 | [game.rs](../../../crates/oasis7_agent_api/src/game.rs)、[World Service wire](../../../crates/oasis7_client_api/src/world_service_wire.rs)、[Viewer](../../../crates/oasis7_proto/src/viewer.rs) 分别拥有合同；已有编码/签名测试 | 明确登记根类型和消费者，未来按需生成共享 components | 现有 DTO 不自动代表 HTTP 能力；仅 signed-read bootstrap 已有生成闭环，其他 profile 未登记 |
 
@@ -130,9 +134,40 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc、O7-REQ-ad3ea59c-596c-4
 
 后续有跨语言复用需要时，可先提取真实 handler 使用的唯一 typed DTO，以既有 JSON fixtures 证明同义，再将该 component 的输入权威迁到 Rust。profile 继续拥有 routes/auth/error/limits 与业务收窄；同一 component 的人工定义和生成定义不能同时成为可编辑真源。
 
+<a id="real-dto-increment"></a>
+#### 真实 DTO 增量：先收敛 bootstrap 错误 envelope
+
+Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；细化 [REQ-RUST-003](rust-engineering-contracts.prd.md#req-rust-003)，以下两个切片均为待实施方案。
+
+第一片只提取 `game_read_api.rs::render_response` 实际输出的 `ReadError` component：在 Agent API 的 bootstrap 合同位置声明唯一 `ReadBootstrapError`，保留 `code: string`、`retryable: boolean` 的 JSON 字段与类型，handler 的正常错误与 response-limit 分支都构造它，再进入原响应序列化流程。名称用于区分已有通用游戏错误，不改变公开 JSON 字段；不新增错误枚举、HTTP 状态映射或默认重试。当前普通 429/503 为 retryable，`response_limit_exceeded` 即使返回 503 仍为 false；这一差异由 handler 的既有业务判定保留，DTO 不根据 status 自行猜测。`ReadInfo`、`ReadProjection` 和动态 `data` 留在原范围。
+
+第二片才迁移该 component 的生成来源。复用 API 已有可选 `schema` / `schemars` 能力，在开发期导出上述真实 DTO，登记 Rust 根、schema feature、固定工具链/锁文件、输入闭包与输出；正常运行不引入生成依赖。`code` 非空、响应允许扩展及所用 Serde 表达须与当前 component 一致，profile 继续拥有路由、认证、状态、限制与业务收窄。迁移时把人工 OpenAPI 的这个 component 定义替换为明确受管的生成引用/装配结果，不留下两份可编辑结构真源；其他人工 profile 内容继续保留。现有生成器尚不支持这一输入，不能只加 derive 或把手写 schema 改名即宣称迁移完成。
+
+以[真实 handler fixture 测试](../../../crates/oasis7_viewer_runtime/src/game_read_api_protocol_fixtures_tests.rs)、[提交的响应夹具](../../../crates/oasis7_viewer_runtime/tests/fixtures/signed_read_bootstrap.json)和[实际 TS 消费样例](../../../crates/oasis7_agent_api/protocol_conformance/consumer.ts)为独立对照。先证明 DTO 提取前后的响应字节和判据保持，再验证生成组件、operation/status 关联和消费者。保留整个 bootstrap 的 DecimalU64 上界、缺省/null、未知字段和签名拒绝回归；不因本次 envelope 只有 string/bool 就删去整数防线。现有只读 `check`、完整集、冲突与中断检测一直保留；新输入未完整接通前，人工 OpenAPI 仍是生成器唯一输入，不能提前撤掉其漂移检查。
+
 Bootstrap `ReadWorldViewRequest.fixed_commit` 可缺省或为 null，实际 handler 拒绝非 null 的历史读；嵌套未知请求字段由严格 parser/`serde_ignored` 拒绝。响应 `ReadInfo`/`ReadProjection`/`ReadError` 保留原 `additionalProperties=true`，不能把请求严格性扩大为所有响应禁止扩展。底层 World Service DTO 可以表达更宽范围，不能覆盖 profile 收窄。动态投影 `data` 只导出实际已说明的有界 JSON/`unknown`；签名 proof header 在首切片保持 opaque hex string，不附赠未经验证的 JS 签名或 codec。
 
 生成器是独立开发工具，依赖轻量合同/profile 输入；普通运行包不反向依赖它，不在服务启动、请求处理或常规 `build.rs` 自动运行。未来 schema/TS derives 若使用可选 feature，默认关闭且不得进入未选择生成能力的 normal/build 图。具体工具包名属于实施选择，工具职责和以下操作合同必须保持。
+
+<a id="module-error-boundary"></a>
+### 4.5 模块内部与错误保真：Node 网络分类试点
+
+Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；承接 [REQ-RUST-004](rust-engineering-contracts.prd.md#req-rust-004)。
+
+试点保护现有 `WorldError → NodeError::ReplicationNetwork → NetworkFailure → fallback` 路径。这里的 cause 指 `FailureCause` 等已有语义事实，不要求所有错误都包装成新的 `std::error::Error::source()` 链。不得把已完成的 `FormalReadError`、网络类型化与快照兼容迁移重新当作实施缺口；新增价值是明确内部边界并使回归容易定位。
+
+| 局部责任与真实位置 | 允许依赖与行为 | 约束或准确例外 |
+| --- | --- | --- |
+| 事实合同：[Proto NetworkFailure](../../../crates/oasis7_proto/src/network_failure.rs) 与 [WorldError](../../../crates/oasis7_proto/src/world_error.rs) | 使用既有 origin、evidence、cause、requested_protocol 与 conservative 规则 | 诊断文本或远端自述不因转成 enum 就升级为本地观测；不重新定义重试/权限合同 |
+| 输入适配：[network_bridge_error.rs](../../../crates/oasis7_node/src/network_bridge_error.rs) 的 `network_err_with_request_protocol` | 先取得结构化 facts，构造 typed Node error；保留原诊断供显示 | `render_network_error` 及诊断 detail helper 可以格式化/读取文本；不得让诊断格式覆盖已经取得的事实 |
+| 策略：[network_error_classification.rs](../../../crates/oasis7_node/src/network_error_classification.rs) 的类别/协议谓词 | 经 `replication_network_failure` 取得事实；匹配原因、来源和精确请求协议；实际消费者为 `world_head_lookup_can_fallback` 及 [replication_probe_gate.rs](../../../crates/oasis7_node/src/replication_probe_gate.rs) 的 fallback/waitable 判定 | 不在这些谓词内重新读取或格式化错误文本作决策；保留当前函数接口，不为了规则增加 trait、动态 adapter 或额外分配 |
+| 兼容：[network_error_legacy.rs](../../../crates/oasis7_node/src/network_error_legacy.rs)、`persisted_network_reason` | 旧 `NodeError::Replication` 和持久 `blocked_reason` 经有界 adapter 解释；版本后缀保留原 snapshot 字段 | 恢复标为 `LegacyInterpretation`，坏后缀/冲突保守处理；这里的字符串解析/JSON 编码是允许的明确边界，不能全目录豁免新策略 |
+
+拟登记的首条规则 `node-network-policy-facts` 只选择 `network_error_classification.rs` 内的 `replication_network_error_is_*`、`replication_network_error_mentions_protocol` 与 `replication_network_error_should_keep_timeout_over_provider_gap` 函数。禁止这些函数直接解构旧 `NodeError::Replication` 的诊断、调用 `replication_reason`/`diagnostic_source`，或把错误 `to_string`/`format!` 后用于分类；允许调用当前 typed 提取器和 facts 方法。`replication_network_failure` 中单一 legacy 入口、kind label、持久序列化、Net wrapper 和测试不是这些谓词，按上表保留，不以整个文件是否出现字符串作判断。改变函数范围或增加解释入口时同步规则与反例，不自动扫描所有相似命名代码。
+
+真实反例是在超时谓词内改回 `err.to_string().contains("timed out")`：同一 typed Timeout 只改诊断文案就会改变 fallback，现有 typed failure 测试中的诊断变化和协议不匹配可检出。另核对 Rejected/Validation/Unknown、remote claim、publish 与坏持久后缀不被压成“可重试网络故障”；保留 `LegacyInterpretation` 的合法恢复正例。不要仅对错误 enum 做 equality 单测而跳过真实 `world_head_lookup_can_fallback`、provider-aware fallback 与 waitable 消费方。
+
+检查只补 Cargo 图不能表达的部分。工程维护者拥有规则实现，Node/Net owner 拥有事实与决策语义；本试点不接管 Node capability 重构评估、玩家能力展示、完整 Node 架构或状态存储迁移。需要跨层 UI/Agent 映射的后续任务沿实际调用链独立验证，不能由本 Node 试点宣称覆盖。
 
 ## 5. 关键运行流程
 
@@ -164,6 +199,14 @@ Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。
 
 完整声明检查及全部登记 profile 的依赖图始终执行。普通源码变化的必需编译集合为：可信 BASE 选择器从 base/source/tested（含实际 merge parents）归属及嵌入输入得到的直接受影响包，与每个 profile 的实际 Cargo 图相交的 root/profile；图包括 normal/build，测试配置另含 root dev，host build/proc-macro 与 target 条件及 features 由 Cargo 解析。编译选择使用未豁免的完整图，精确互操作允许关系只影响违规判定，不能使构建输入漏选。未选中编译明确报告 `not_required`，图通过与编译成功分别记录，不能声称执行过未选项。
 
+[普通快速合同](../../testing/ci/ci-tiered-execution.design.md#pr-快速反馈与周期完整回归设计)可以显式调整编译分层。可信 scope 配置声明 `architecture_build_policy_version=1`，且完整计划是有效的 targeted inline、包含 baseline/Rust baseline/native 三个必需组、没有额外 WASM/Formal、测试政策迁移或必要加测例外时，选择器才可输出 `architecture.build_policy_version=1`、`build_policy=ordinary-targets`。全部直接 architecture 输入必须非空，并完整包含于已验证快速 target 的 package owner 集合；不另维护一份覆盖名单。混有 custody、平台或其他未被快速目标承接的直接输入时，整份架构计划沿用原编译选择。
+
+可同时保留由这些直接输入的真实反向消费者产生的 `consensus/distfs/net/node` 组。选择器以 `architecture.consumer_groups` 记录额外组及对应的非空消费者包集合；这些包须来自受影响集合，不能是借用其他快速目标的未覆盖直接输入，额外组也不能由路径规则直接命中或显式加测产生。最终组集合必须恰为三个必需组与已证明的消费者组并集；没有额外组时不要求该字段。消费者从固定 `policy_sha` 的 scope 配置核对包到组的归属，并以实际 Cargo 依赖关系复核反向可达性；缺包、未知组、错误归属、空集合或不完整证明返回 `inspection_error`。额外消费者组仍真实执行并进入原结果汇总，不能用架构编译延期替代其行为测试。
+
+消费者复用执行层对完整计划、精确目标及 source/tested 的校验。合法快速计划仍检查全部声明和全部登记 profile 的 Cargo 图；原本因输入交集要求编译的 profile 改记 `deferred_to_full`，由 periodic-full/candidate-full 执行原命令。当轮必需 native 构建与真实测试、strict Clippy 继续验证计划中的全部快速目标，任一失败由原 required gate 阻断。此分工允许仅在上层消费者或扩展 feature 中暴露的兼容编译错误由周期 full 发现，不声称无默认 feature 的 required 变体等价于 default/full/test-support/wasmtime/WASM 矩阵。
+
+缺少或未知整数版本的编译分层能力时沿用既有编译选择；已知版本的非法字段、缺失必需组、输入未覆盖或身份不符返回 `inspection_error`。脏工作区恢复完整编译矩阵，不能消费延期能力。full 与共享控制计划不产生该能力；完整入口实际执行全部原矩阵，不能以快速目标成功抵扣。`--graphs-only` 和 `--profile` 的原有缺口判定不受此能力影响。
+
 Cargo manifest/lock/build script/toolchain、检查器/规则/profile 或 CI 控制变化，显式 full，以及可信计划缺失、旧版或已登记输入解析不确定时，执行完整登记编译矩阵。未登记路径仍由可信 scope 明确拒绝；full 或候选配置不能用于自行登记。候选图解析失败返回 inspection_error，不借缩小集合规避失败。可信 BASE 旧选择器没有局部字段时完整执行，待登记合入后才启用局部收益。排障 `--profile`/`--graphs-only` 仍产生 coverage_gap，不能代替可信必需集合。
 
 报告包含可信输入集合、选择理由、实际图/编译项及两阶段耗时。profile 的整体状态汇总图违规与构建结果；构建成功不能覆盖闭包违规。协议 handler/fixture 的 workspace-support 保留原完整选择，因为同时承担 Rust handler 与其他消费者回归，不仅是 TS 输入。
@@ -181,8 +224,26 @@ Cargo manifest/lock/build script/toolchain、检查器/规则/profile 或 CI 控
 | `violation` | 已证明禁入关系可达或直接声明违规 | 定位规则、root、禁止对象及依赖路径，返回非零 |
 | `inspection_error` | 元数据、工具链、输入或缓存使检查未完成 | 不能变成 pass；修复环境/输入后重跑，返回非零 |
 | `coverage_gap` | 必需组合未注册、未检查或检查范围不足 | 明示缺口；正式启用后的必需检查返回非零 |
+| `deferred_to_full` | 可信普通快速合同明确将该 profile 的额外编译安排到完整层 | 仅用于 build 视图，记录 profile、分层依据与承接入口；不表示编译成功或平台不适用，图违规仍失败 |
 
 每项诊断包含 source HEAD、lockfile digest、规则/工具版本、实际命令、root、host/target、features、edge kind、声明位置、上游条款和采用的例外；违规给出最短或足以定位的具体路径。不把完整巨大 cargo tree 当唯一诊断，不在报告中写凭据。声明检查通过与解析闭包通过分别呈现。
+
+<a id="source-rule-enforcement"></a>
+#### 源级规则的级别、能力限制与接线
+
+Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164。
+
+当前 `cargo-dev-architecture.py` 实际执行 Cargo 声明/图与编译检查，没有上述源级规则。实施优先扩展其配置和诊断入口，复用 [plan-rust-required-scope.py](../../../scripts/plan-rust-required-scope.py) 的 `rust_source_inputs` 词法读取能力；该 helper 能区分注释、字符串和括号，不是 Rust 类型解析器。若需要抽取可复用 helper，保持原 scope 选择器合同和反例，不并行另造一套 Rust 正则解析。规则登记精确文件/函数、禁止语法、允许入口、依据与 owner；测试夹具中的示例字符串不能被误判为调用。
+
+| 阶段/级别 | 执行与结果 | 是否阻断 |
+| --- | --- | --- |
+| 当前文档方案 | 只说明目标和验收，无新源级命令或规则执行 | 不新增门禁 |
+| 实现评估 / warning | 在限定范围运行并报告命中、误报、遗留例外及未覆盖项；warning 保持独立诊断级别 | 仅该 warning 不使 required 失败；不借现有 Clippy `-D warnings` 暗中升级另一工具的结果 |
+| 经验证的首条规则 / error | Node 当前选定谓词没有需保留的文本分类；真实正反例、例外及输入解析通过后，按现有 CI 变更接入实际选中的检查 | 只有接线生效的范围内，违规与 `inspection_error`、必需覆盖缺口才返回非零并由原 required 汇总阻断 |
+
+增量按已登记边界整段核查，不只扫描改动行；旧文本 adapter 的稳定允许范围不是“待修违规”。其他发现先记录 warning 或未覆盖，不借试点全仓清债；临时例外应指向具体符号/用途/owner 与重新判断触发，不能 blanket allow。源级结果与 Cargo 图、行为回归分开呈现。
+
+词法匹配不能证明所有别名、宏展开、跨函数数据流或任意 feature 组合的语义。规则实现必须给出实际支持语法；注册文件/函数消失、重复或无法解析属于检查不完整，不能静默少扫。依赖未支持宏展开才能判断的注册边界报告覆盖缺口；未登记间接 helper 的文本传播仍需行为测试与代码审阅，不宣称全程序证明。首次接入复用[现有 scope/汇总验收](rust-engineering-contracts.manual.md#architecture-scope)，核对源文件、规则、词法 helper 和反例路径都能选择真实执行；尚未生效的候选检查不能自行替代已有门禁。
 
 <a id="artifact-contract"></a>
 ### 6.2 Profile 与受管产物
@@ -260,6 +321,8 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 3. **Bootstrap 产物**：保留并补齐人工 OpenAPI 的机器约束，增加受管 TS/schema/manifest 与只读漂移检查，接入前述 TS 协议一致性样例的编译及运行时校验。首切片不替换现有 signer/codec；只有完整集合通过才可打包。工具回滚恢复上一已知完整生成集合与匹配的生成配置。
 4. **按需求扩展**：只有明确跨语言消费者时才提取 handler 使用的唯一 typed DTO 或登记新的具体 Rust profile。先保持 golden wire，再迁移 component 来源；生产包默认不引入生成工具依赖。不同 target/features 若改变 wire，必须成为显式命名 profile，不能随生成机器改变输出。
 
+新增边界按两个独立方向继续交付小而完整的 PR：源级方向先交付精确规则、真实语法反例与已有 Node 消费回归，再完成实际 scope/required 接线；若两者不能独立正确则同片交付。协议方向先交付真实 handler 使用的 `ReadBootstrapError` 和不变 fixtures，再接 Rust component 输入及同一 TS 消费者；不得留下仅供未来生成使用的空 DTO。每片固定依赖版本、共享文件写入者和受影响验收。文档 PR 仅交付设计，实施、接线与最终组合验收继续保留在原 Issue，按现有五类合同转代码任务；不以设计完成关闭实施义务。
+
 生成漂移、协议兼容和部署版本是不同维度。纯产物修正不自动增加 API revision；实际 wire 变化按原接口 owner 的版本协商、旧读新/新读旧、未知枚举和签名兼容合同处理。增字段不被自动认定为兼容，也不把 Cargo package 版本当 API 版本。
 
 本专题的首切片不迁移世界数据或持久化格式，回滚不需要世界状态回退。后续真实协议变化若已被外部消费者或持久数据采用，不能以回滚生成文件恢复兼容；必须按原协议/存储 owner 处理旧消费者与旧数据，再决定可回退范围。已经发布的产物不可通过改写 Git 历史撤销。
@@ -277,6 +340,8 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 | Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；[AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002) | [架构规则](rust-engineering-contracts.design.md#architecture-rules) | 直接、间接、host build、alias 与 feature/target 不能绕过 | [架构正反例](rust-engineering-contracts.manual.md#architecture-regressions)；RG-A01（检查器实施后执行）：真实最小 Cargo workspace 注入 normal/中转/build/optional、Windows/wasm、别名与继承边，固定 Cargo 实际解析 | 检查器真实解析测试与候选 CI artifact | fake Cargo 参数测试不证明实际图；未支持组合单列缺口 |
 | Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；[AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002) | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | 合法组合通过，测试互操作不放行生产 | [方向与例外验证](rust-engineering-contracts.manual.md#architecture-regressions)；RG-A02（实施后执行）：核对 Projection/Service/Provider 合法边；Protocol Tools dev 通过而同边 normal 失败；production/test-support 分开 | 规则正反例与真实候选报告 | 不证明服务授权或真实 Runtime 互操作行为 |
 | Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；[AC-RUST-002](rust-engineering-contracts.prd.md#ac-rust-002) | [检查合同](rust-engineering-contracts.design.md#inspection-contract) | 不完整检查不能通过；CI 覆盖工具自身和输入 | [检查覆盖与接线验证](rust-engineering-contracts.manual.md#architecture-scope)；RG-A03/A04（实施后执行）：注入缺 lock/root、解析失败和覆盖缺口，验证非零状态及 scope/required 接线 | 负例、selector/gate 测试与实际检查记录 | 接线 fixture 不代替真实依赖图 |
+| Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；[AC-RUST-004](rust-engineering-contracts.prd.md#ac-rust-004) | [模块内部与错误保真](rust-engineering-contracts.design.md#module-error-boundary) | typed facts 到实际 fallback 保真，诊断变化不影响策略，合法 legacy 例外保留 | [源级与错误验证](rust-engineering-contracts.manual.md#source-error-regressions)；RG-S02：复用诊断变体、协议/来源冲突、坏快照及实际消费者回归，按缺口补断言 | 实施 PR 的 Node 真实回归与候选结果 | 不重做类型化，不证明线上恢复或玩家展示 |
+| Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；[AC-RUST-004](rust-engineering-contracts.prd.md#ac-rust-004) | [源级检查接线](rust-engineering-contracts.design.md#source-rule-enforcement) | 支持语法、准确例外、诊断级别及实际执行匹配 | [源级与错误验证](rust-engineering-contracts.manual.md#source-error-regressions)；RG-S01（检查实施后执行）：真实函数违规、注释字符串正例、未解析/缺失范围及 warning/error 接线 | 实施 PR 的源码诊断、scope/required 结果 | 当前无源级门禁；词法扫描不证明全程序或全部宏/别名 |
 | [Runtime 状态与投影边界](../../world-runtime/design.md#状态与服务投影的编译边界) | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | 下层状态、投影与 Runtime 保持原依赖方向 | [架构 owner 复核](rust-engineering-contracts.manual.md#architecture-regressions)；RG-A02：对候选 rule 逐行核对专业合同、实际 manifest、测试归属和支持组合，审阅误报/漏报反例 | 实施 PR 的 Runtime owner 审阅与规则 diff | 不证明 patch 权限、snapshot 恢复资格或重编收益 |
 | [宿主与轻量入口](../../world-runtime/design.md#1-设计定位) | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | 宿主职责与生产/测试例外的范围准确 | [轻量与宿主例外复核](rust-engineering-contracts.manual.md#architecture-regressions)；RG-A02：核对 Launcher、Protocol Tools、Client CLI、Provider tools 的生产/测试图，保留原 Launcher 版本限定 | 实施 PR 的接口/宿主 owner 审阅及依赖报告 | 不声称所有 CLI 都无世界依赖或所有 target 已覆盖 |
 | Trace refs: O7-REQ-ad3ea59c-596c-4c50-8da8-fe47608c6f01；[共享客户端要求](../../product/agents-world-simulation/provider-agent-experience-continuity.prd.md#req-agent-parity-003) | [方向矩阵](rust-engineering-contracts.design.md#boundary-matrix) | Game Client/Harness 隔离，真实世界测试留在适当 owner | [客户端隔离验证](rust-engineering-contracts.manual.md#architecture-regressions)；RG-A02：按真实 manifest/target/features 构建 SDK/Harness，核对无世界/Viewer 回流和 backend dev 绕路 | 实际构建/边界报告与代码审阅 | 不证明完整内外执行方等价、玩法闭环或全部平台 |
@@ -284,6 +349,7 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 | Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；[AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003) | [产物合同](rust-engineering-contracts.design.md#artifact-contract) | 可重现、check 只读、完整集合与失败恢复 | [产物生成验证](rust-engineering-contracts.manual.md#protocol-generation)；RG-P01/P02（生成器实施后执行）：两临时路径比较全字节；增删改、输入冲突、中断、symlink、未知 serde/ref 与容量边界，核对人工源和混合集保护 | 生成器测试、manifest/diff、候选 CI 与首次 scope 接线 | 不证明 wire 兼容、服务可用或多文件原子发布 |
 | Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b；[游戏 API 要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-012) | [协议权威](rust-engineering-contracts.design.md#protocol-authority) | Bootstrap 类型、版本、数值与实际服务响应一致 | [Bootstrap 一致性验证](rust-engineering-contracts.manual.md#bootstrap-conformance)；RG-P03：复用现有 game_wire/handler tests，验证五 GET、revision/limits、fixed_commit、未知字段与递归投影；真实 TS 消费者编译和正负响应校验 | profile fixtures、消费者测试与候选 CI | TS 编译不证明网络可信；首切片不证明完整 Game API |
 | Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；[AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003) | [Wire 保持](rust-engineering-contracts.design.md#wire-preservation) | 原 JSON/CBOR、字段缺省和签名字节保持 | [Wire 兼容验证](rust-engineering-contracts.manual.md#wire-compatibility)；RG-P04：按受影响 profile 运行原 wire/World Service/signing fixtures，覆盖数值边界、旧读新/新读旧和生成表达；未触及 profile 不扩写覆盖 | 固定 golden 字节、消费者版本与真实测试结果 | schema diff 不证明签名/权限，未有 codec 不声明跨语言签名 |
+| Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；[AC-RUST-003](rust-engineering-contracts.prd.md#ac-rust-003) | [真实 DTO 增量](rust-engineering-contracts.design.md#real-dto-increment) | ReadError 唯一结构参与实际 handler，再迁移 component 来源，保留 503 的不同 retryable 语义 | [真实 DTO 迁移验证](rust-engineering-contracts.manual.md#real-dto-regressions)；RG-P06（实施后执行）：提取前后字节/consumer 比较、错误 schema 反例、只读 drift 与完整集检查 | 固定 handler fixtures、Rust/TS 消费者及生成器结果 | 尚未提取/接入 Rust 根，不代表完整游戏 API、世界 schema 或 JS 签名能力 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[安全调用要求](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-013) | [运行约束](rust-engineering-contracts.design.md#runtime-constraints) | 生成与消费者不改变 parser、认证和原操作恢复 | [安全语义保持验证](rust-engineering-contracts.manual.md#security-preservation)；RG-P05：复用真实 handler 重复 key、未知字段、深度/字节、历史读和签名负例；触及请求/重试时验证原标识、未知结果与拒绝语义 | 接口/客户端实施 PR 的定向行为测试与审阅 | 不由生成成功推导全部鉴权、远程恢复或世界最终性 |
 
 设计/导航变更使用现有 `scripts/doc-governance-check.sh` 与 `git diff --check`，并人工复核 authority、相对路径/anchor、状态措辞和例外范围。实现变化复用仓库现有 required/full 选择，不把文档检查、fixture 或局部编译扩写为端到端交付证据。
@@ -305,3 +371,5 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 ### 参考与适用边界
 
 设计借鉴 [openai/codex@d6817454d76885e9d0e118bbf82e507aed6f715a](https://github.com/openai/codex/tree/d6817454d76885e9d0e118bbf82e507aed6f715a) 的 [workspace 共性](https://github.com/openai/codex/blob/d6817454d76885e9d0e118bbf82e507aed6f715a/codex-rs/Cargo.toml)、[manifest 检查](https://github.com/openai/codex/blob/d6817454d76885e9d0e118bbf82e507aed6f715a/.github/scripts/verify_cargo_workspace_manifests.py)、[TUI/Core 边界检查](https://github.com/openai/codex/blob/d6817454d76885e9d0e118bbf82e507aed6f715a/.github/scripts/verify_tui_core_boundary.py) 和 [app-server-protocol](https://github.com/openai/codex/tree/d6817454d76885e9d0e118bbf82e507aed6f715a/codex-rs/app-server-protocol) 的协议产物实践。采纳的是共性配置、可执行边界与可重现产物的方法；具体依赖、profile、版本、测试和合入条件以上述 oasis7 主责合同为准。
+
+模块内部和协议增量参考 [Macro 固定版本的 Rust 边界规则](https://github.com/macro-inc/macro/blob/7d9c4968f4dbf841b200f4eb958f4a0d276ba47c/.agents/rules/rust/architecture.md)、[上游错误分类](https://github.com/macro-inc/macro/blob/7d9c4968f4dbf841b200f4eb958f4a0d276ba47c/crates/upstream_error/src/lib.rs)和[真实协议类型导出](https://github.com/macro-inc/macro/blob/7d9c4968f4dbf841b200f4eb958f4a0d276ba47c/crates/agent_runtime_protocol/src/bin/export_types.rs)。其部分规则仅为 warning；本设计借鉴有界检查和唯一类型输入，不照搬 HTTP 状态、目录模板、ast-grep 或 Specta 依赖，也不由外部规则存在推断本仓已启用。

@@ -21,13 +21,7 @@ fn runtime_replication_storage_challenge_gate_provider_lookup_timeout_fallback_w
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 121));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let network_impl = Arc::new(ProviderLookupFailureConnectedPeerTrapNetwork::new());
     let network: Arc<
@@ -120,13 +114,7 @@ fn runtime_replication_storage_challenge_gate_provider_lookup_timeout_fallback_c
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 124));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 124),
@@ -220,13 +208,7 @@ fn runtime_replication_storage_challenge_gate_empty_provider_lookup_uses_generic
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 126));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 126),
@@ -324,13 +306,7 @@ fn runtime_replication_storage_challenge_gate_empty_provider_lookup_generic_not_
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 127));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let network_impl = Arc::new(ProviderLookupFailureGenericBlobNetwork::new(HashMap::new()));
     let network: Arc<
@@ -424,13 +400,7 @@ fn runtime_replication_storage_challenge_gate_unavailable_primary_uses_old_sampl
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 129));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 129),
@@ -527,13 +497,7 @@ fn runtime_replication_storage_challenge_gate_empty_provider_lookup_wrong_generi
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 128));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let network_impl = Arc::new(ProviderRouteFailureGenericTrapNetwork::new());
     let network: Arc<
@@ -620,13 +584,7 @@ fn runtime_replication_storage_challenge_gate_provider_lookup_timeout_fallback_l
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 125));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 125),

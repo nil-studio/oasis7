@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Capacity assessment source, completeness and resource-boundary regressions."""
 import importlib.util
+import csv
 import json
 import hashlib
 import os
@@ -28,7 +29,7 @@ def workflow_steps():
 
 class Capacity(unittest.TestCase):
     def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
-        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.CAPACITY_SOURCE):
+        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.PROFILE_SOURCE,m.CALLEE_SOURCE,m.PREVIOUS_CAPACITY_SOURCE,m.CAPACITY_SOURCE):
             with tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); source=root/"source";source.mkdir()
                 argv=["capacity","capture","--source",str(source),"--database",str(root/"db"),"--output",str(root/"out"),"--work",str(root/"work"),"--sarif",str(root/"sarif"),"--deadline",str(time.time()+300)]
@@ -244,8 +245,54 @@ class Capacity(unittest.TestCase):
         with self.assertRaises(RuntimeError):m.validate('CallsLegacy',[row],ROOT,roots)
         with self.assertRaises(RuntimeError):m.validate('CallsCandidate',[row[:3]+['/registry/libp2p/src/builder.rs']],ROOT,roots)
 
+    def test_semantic_failure_preserves_later_results_and_still_fails_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);database=root/'db';results=database/'results';results.mkdir(parents=True)
+            out=root/'out';out.mkdir();names=('CallsCandidate','PeerLegacy','CallsLegacy')
+            for name in names:(results/(name+'.bqrs')).write_bytes(b'computed')
+            decoded=[]
+            def run(argv,name,limit):
+                selected=Path(argv[3]).stem;decoded.append(selected)
+                rows=[['derive-df','1'],['derive-ast','1'],['closure-flow','1']] if selected=='PeerLegacy' else []
+                with (out/(name+'.log')).open('w') as stream:
+                    writer=csv.writer(stream);writer.writerow(['label','value']);writer.writerows(rows)
+            terminal={'public_semantics':'RUNNING'}
+            with self.assertRaisesRegex(RuntimeError,'public semantic validation failed: CallsCandidate, CallsLegacy'):
+                m.decode_semantic_results(database,names,ROOT,{},out,Path('/codeql'),run,terminal)
+            self.assertEqual(decoded,list(names))
+            self.assertEqual(terminal['public_semantics'],'FAIL')
+            self.assertEqual(set(terminal['public_semantic_failures']),{'CallsCandidate','CallsLegacy'})
+            self.assertEqual(set(terminal['public_semantic_tables']),{'PeerLegacy'})
+            for name,status in (('CallsCandidate','FAIL'),('PeerLegacy','PASS'),('CallsLegacy','FAIL')):
+                self.assertEqual(json.loads((out/('semantic-'+name+'-terminal.json')).read_text())['status'],status)
+
+    def test_semantic_decode_timeout_stops_without_starting_more_children(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);results=root/'db/results';results.mkdir(parents=True);out=root/'out';out.mkdir()
+            for name in ('CallsCandidate','PeerLegacy'):(results/(name+'.bqrs')).write_bytes(b'computed')
+            calls=[]
+            def run(*args):
+                calls.append(args)
+                raise TimeoutError('decode deadline')
+            terminal={'public_semantics':'RUNNING'}
+            with self.assertRaisesRegex(TimeoutError,'decode deadline'):
+                m.decode_semantic_results(root/'db',('CallsCandidate','PeerLegacy'),ROOT,{},out,Path('/codeql'),run,terminal)
+            self.assertEqual(len(calls),1)
+            self.assertFalse(list(out.glob('semantic-*-terminal.json')))
+            self.assertEqual(terminal['public_semantic_tables'],{})
+
     def test_research_prepare_never_generates_or_compiles_custom_queries(self):
         self.research_prepare_case()
+
+    def test_prepare_binds_current_capacity_and_historical_profile_bundles(self):
+        self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.4')
+        self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.3')
+        self.research_prepare_case(mode='capacity',source_sha=m.PREVIOUS_CAPACITY_SOURCE,actual_version='2.27.3')
+
+    def test_prepare_rejects_cli_from_the_other_assessment_configuration(self):
+        self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.3',wrong_cli=True)
+        self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.4',wrong_cli=True)
+        self.research_prepare_case(actual_version='2.27.4',wrong_cli=True)
 
     def test_metadata_created_lock_stops_before_analysis_even_if_git_gate_is_clean(self):
         self.research_prepare_case(create_lock=True)
@@ -262,13 +309,17 @@ class Capacity(unittest.TestCase):
     def test_native_prerequisite_failure_stops_before_metadata_or_analysis(self):
         self.research_prepare_case(native_failure=True)
 
-    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False):
+    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False,
+                              mode='official-default-research',source_sha=None,actual_version='2.27.3',wrong_cli=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
             official=root/'official';suite=official/'qlpacks/codeql/rust-queries/1/codeql-suites/rust-code-scanning.qls'
             suite.parent.mkdir(parents=True);suite.write_text('official')
             query=suite.parent.parent/'official.ql';query.write_text('/** @id rust/official */')
+            rust_all='0.2.25' if actual_version=='2.27.4' else '0.2.24'
+            library=official/'qlpacks/codeql/rust-all'/rust_all
+            closure={'codeql/rust-all':{'root':str(library),'version':rust_all}}
             action=root/'action';action.mkdir();(action/'config').write_text('{}')
             (source/'Cargo.toml').write_text('[workspace]\n')
             (source/'Cargo.lock').write_text('initial lock')
@@ -282,26 +333,37 @@ class Capacity(unittest.TestCase):
                 commands.append(argv)
                 if native_failure and argv[0]=="pkg-config":raise RuntimeError("native prerequisite failed")
                 if create_lock and argv[0]=='cargo':(source/'Cargo.lock').write_text('created during metadata')
-                self.assertNotIn('compile',argv)
-                value={'version':m.BUNDLE} if 'version' in argv else ({'resolve':{'nodes':[1]}} if argv[0]=='cargo' else [str(query)])
+                if mode=='official-default-research':self.assertNotIn('compile',argv)
+                value={'version':actual_version} if 'version' in argv else ({'resolve':{'nodes':[1]}} if argv[0]=='cargo' else [str(query)])
+                if 'library-path' in argv:
+                    public=Path(next(arg.split('=',1)[1] for arg in argv if arg.startswith('--query=')))
+                    value={'libraryPath':[str(public.parent),str(library)],'dbscheme':str(library/'rust.dbscheme'),
+                        'compilationCache':[],'relativeName':'oasis7/rust-capacity/'+public.name,'qlPackName':'oasis7/rust-capacity'}
                 output.write_text(json.dumps(value))
                 if metadata_failure and argv[0]=='cargo':raise RuntimeError('original metadata failure')
                 return {'exit':0}
-            patches=[patch.object(sys,'argv',['capacity','prepare','--mode','official-default-research',
+            job_seconds=21600 if mode=='official-default-research' else (5400 if source_sha==m.CAPACITY_SOURCE else 3600)
+            patches=[patch.object(sys,'argv',['capacity','prepare','--mode',mode,'--source-sha',source_sha or m.EXCLUSION_SOURCE,
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
-                '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+21600)]),
+                '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+job_seconds)]),
                 patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs'),'GITHUB_ENV':str(root/'github-env')}),
                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}),
                 patch.object(m.evidence,'capture_identity',side_effect=[{'status':'PASS'},{'status':'PARTIAL'}] if identity_failure else None,return_value={'status':'PASS'}),
                 patch.object(m,'snapshot',return_value=frozen),patch.object(m.plan,'inventory',return_value=(manifests,None)),
-                patch.object(m,'official_snapshot',return_value={}),patch.object(m.bundle,'bundle_closure',return_value={}),
+                patch.object(m,'official_snapshot',return_value={}),patch.object(m.bundle,'bundle_closure',return_value=closure),
                 patch.object(m.model,'verify_metadata',return_value=Path('/libp2p')),
                 patch.object(m,'verify_action_config'),patch.object(m.runtime,'run',side_effect=run),
-                patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'}),
-                patch.object(m,'semantic_queries',side_effect=AssertionError('custom queries forbidden'))]
+                patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'})]
+            if mode=='official-default-research':patches.append(patch.object(m,'semantic_queries',side_effect=AssertionError('custom queries forbidden')))
             for item in patches:stack.enter_context(item)
             # Layout admission still precedes expensive work.
             out.mkdir();(out/'collection-layout.json').write_text('{"status":"PASS"}')
+            if wrong_cli:
+                with self.assertRaisesRegex(RuntimeError,'wrong official CLI'):m.main()
+                self.assertFalse(any(argv[0]=='cargo' for argv in commands))
+                m.bundle.bundle_closure.assert_not_called()
+                self.assertFalse((root/'outputs').exists())
+                return
             if missing_vendor:
                 with self.assertRaisesRegex(RuntimeError,'independent workspace locks are not frozen'):m.main()
                 self.assertEqual(commands,[])
@@ -331,14 +393,21 @@ class Capacity(unittest.TestCase):
                 self.assertEqual(observed['dependency_resolution_impact'],'UNKNOWN')
                 return
             m.main()
-            self.assertFalse((work/'queries').exists())
+            m.bundle.bundle_closure.assert_called_once_with(official,actual_version)
+            if mode=='official-default-research':self.assertFalse((work/'queries').exists())
+            else:
+                self.assertIn('codeql/rust-all: '+rust_all+'\n',(work/'queries/qlpack.yml').read_text())
+                self.assertEqual(len(list((work/'queries').glob('*.ql'))),7)
+                self.assertTrue(any('compile' in argv for argv in commands))
             self.assertEqual([call.kwargs['prefix'] for call in m.evidence.capture_identity.call_args_list],
                 ['prepare','after-metadata-workspace','after-metadata-candidate',
                  'after-metadata-legacy','after-metadata-common','pre-analyze'])
             terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
-            self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
+            self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED' if mode=='official-default-research' else 'NOT_REACHED')
+            self.assertEqual(terminal['expected_bundle_version'],actual_version)
             self.assertEqual(terminal['production_capacity'],'UNKNOWN')
-            self.assertGreater(terminal['analysis_minutes'],300)
+            if mode=='official-default-research':self.assertGreater(terminal['analysis_minutes'],300)
+            else:self.assertEqual(terminal['analysis_minutes'],75 if source_sha==m.CAPACITY_SOURCE else 45)
             self.assertEqual(terminal['native_preparation'],'PASS')
             native_index=next(i for i,argv in enumerate(commands) if argv[0]=='pkg-config')
             metadata_index=next(i for i,argv in enumerate(commands) if argv[0]=='cargo')
@@ -422,6 +491,49 @@ class Capacity(unittest.TestCase):
             self.assertEqual(terminal['lock_observation_gate'],'FAIL')
             self.assertEqual(json.loads((out/'input-observation-post-analyze.json').read_text())['changed_locks'],['Cargo.lock'])
 
+    def test_core_lock_receipt_is_saved_before_log_capture(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
+            db=root/'db';(db/'log').mkdir(parents=True)
+            deadline=time.time()+1000;end=time.monotonic()+1000
+            (out/'manifest-inventory.json').write_text('["Cargo.toml"]')
+            initial=m.evidence.lock_inventory(source,['Cargo.toml'],out,end,m.SOURCE,stage='initial',fixed_deadline=deadline)
+            m.observe_inputs(source,out,end,deadline,['Cargo.toml'],initial,'pre-analyze',identity={'status':'PASS'})
+            observed=[]
+            def logs(*args,**kw):
+                receipt=out/'input-observation-post-analyze.json'
+                observed.append(receipt.is_file())
+                # Optional logs exhaust their write gate, not the terminal reserve.
+                (out/'large-log').write_bytes(b'x'*max(0,m.runtime.WRITE_CAP-m.runtime.output_bytes(out)))
+                return {'status':'PARTIAL','files':[]}
+            with patch.object(m.evidence,'capture_identity',return_value={'status':'PASS'}),patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14570}),patch.object(m.evidence,'collect_logs',side_effect=logs),patch.object(m.runtime,'CAP',1024**2),patch.object(m.runtime,'WRITE_CAP',900*1024):
+                m.capture_failure_evidence(SimpleNamespace(database=db,deadline=deadline),source,out,end,{}, {'secondary_errors':[]})
+            self.assertEqual(observed,[True])
+            self.assertEqual(json.loads((out/'capacity-capture-terminal.json').read_text())['lock_observation_gate'],'PASS')
+            self.assertTrue((out/'input-observation-post-analyze.json').is_file())
+
+    def test_core_terminal_write_failure_does_not_skip_logs(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';source.mkdir();out=root/'out';out.mkdir()
+            db=root/'db';(db/'log').mkdir(parents=True)
+            deadline=time.time()+1000;end=time.monotonic()+1000
+            (out/'manifest-inventory.json').write_text('["Cargo.toml"]')
+            initial=m.evidence.lock_inventory(source,['Cargo.toml'],out,end,m.SOURCE,stage='initial',fixed_deadline=deadline)
+            m.observe_inputs(source,out,end,deadline,['Cargo.toml'],initial,'pre-analyze',identity={'status':'PASS'})
+            original=m.runtime.save;failed=[]
+            def save(path,*a,**kw):
+                if path.name=='capacity-capture-terminal.json' and not failed:
+                    failed.append(True);raise OSError('injected ENOSPC')
+                return original(path,*a,**kw)
+            with patch.object(m.evidence,'capture_identity',return_value={'status':'PASS'}),patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14570}),patch.object(m.evidence,'collect_logs',return_value={'status':'PARTIAL','files':[]}) as logs,patch.object(m.runtime,'save',side_effect=save):
+                m.capture_failure_evidence(SimpleNamespace(database=db,deadline=deadline),source,out,end,{}, {'secondary_errors':[]})
+            logs.assert_called_once()
+            terminal=json.loads((out/'capacity-capture-terminal.json').read_text())
+            self.assertEqual(terminal['core_receipt_gate'],'FAIL')
+            self.assertTrue(any(item['stage']=='core-receipt' for item in terminal['secondary_errors']))
+
     def test_research_allocation_is_distinct_and_bounded(self):
         self.assertEqual(m.analysis_budget('capacity',2547)['analysis_allocated_minutes'],32)
         research=m.analysis_budget('official-default-research',21400)
@@ -430,19 +542,27 @@ class Capacity(unittest.TestCase):
         self.assertEqual(research['post_analysis_reserve_seconds'],600)
         with self.assertRaises(ValueError):m.analysis_budget('unknown',21400)
 
-    def test_capacity_40_minute_analysis_preserves_global_reserve(self):
-        for remaining,minutes in ((3300,40),(3110,40),(2999,39),(660,1),(600,0)):
+    def test_capacity_45_minute_analysis_preserves_global_reserve(self):
+        for remaining,minutes in ((3600,45),(3435,45),(3300,45),(3299,44),(3110,41),(3059,40),(2999,39),(660,1),(600,0)):
             budget=m.analysis_budget('capacity',remaining)
-            self.assertEqual(budget['job_budget_seconds'],3300)
+            self.assertEqual(budget['job_budget_seconds'],3600)
             self.assertEqual(budget['analysis_allocated_minutes'],minutes)
             self.assertEqual(budget['post_analysis_reserve_seconds'],600)
             self.assertLessEqual(minutes*60+600,remaining)
+
+    def test_current_capacity_75_minute_analysis_preserves_global_reserve(self):
+        for remaining, minutes in ((5400, 75), (5100, 75), (5099, 74), (4800, 70), (660, 1), (600, 0)):
+            budget = m.analysis_budget('capacity', remaining, m.CAPACITY_SOURCE)
+            self.assertEqual(budget['job_budget_seconds'], 5400)
+            self.assertEqual(budget['analysis_allocated_minutes'], minutes)
+            self.assertEqual(budget['post_analysis_reserve_seconds'], 600)
+            self.assertLessEqual(minutes * 60 + 600, remaining)
 
     def test_research_workflow_does_not_change_default_contract(self):
         text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
         self.assertIn('default: capacity',text)
         self.assertIn('official-default-research',text)
-        self.assertIn("inputs.mode == 'official-default-research' && 360 || 55",text)
+        self.assertIn("inputs.mode == 'official-default-research' && 360 || 90",text)
         self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),3)
 
     def test_mode_specific_source_selection_preserves_research_pin(self):
@@ -453,6 +573,15 @@ class Capacity(unittest.TestCase):
         self.assertEqual(text.count('--source-sha "$CAPACITY_SOURCE"'),4)
         self.assertEqual(text.count('ref: ${{ env.CAPACITY_SOURCE }}'),1)
         self.assertNotEqual(m.CAPACITY_SOURCE,m.EXCLUSION_SOURCE)
+
+    def test_workflow_download_binds_version_and_digest_to_each_mode(self):
+        text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
+        pins={name:(research,capacity) for name,research,capacity in re.findall(
+            r"^      (CAPACITY_BUNDLE_(?:VERSION|SHA256)): \$\{\{ inputs.mode == 'official-default-research' && '([^']+)' \|\| '([^']+)' \}\}$",text,re.MULTILINE)}
+        self.assertEqual(pins['CAPACITY_BUNDLE_VERSION'],('2.27.3','2.27.4'))
+        self.assertEqual(pins['CAPACITY_BUNDLE_SHA256'],tuple(m.bundle.BUNDLES[v]['sha256'] for v in ('2.27.3','2.27.4')))
+        self.assertIn('codeql-bundle-v${CAPACITY_BUNDLE_VERSION}/codeql-bundle-rust-linux64.tar.zst',text)
+        self.assertIn('echo "$CAPACITY_BUNDLE_SHA256  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check',text)
 
     def test_manifest_discovery_is_not_semantic_coverage(self):
         text='INFO found manifests:\n[build-stdout]   /frozen/Cargo.toml\nINFO next\n'
@@ -556,10 +685,11 @@ assert value['found_manifests']==[]
 
     def test_upload_preserves_hidden_guard_controls_in_sealed_evidence(self):
         steps,by_id=workflow_steps()
-        upload=[s for s in steps if s.startswith("uses: actions/upload-artifact@")]
-        self.assertEqual(len(upload),1)
-        self.assertIn("          include-hidden-files: true",upload[0])
-        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload[0])
+        upload=by_id['official_artifact']
+        self.assertIn("uses: actions/upload-artifact@",upload)
+        self.assertIn("          include-hidden-files: true",upload)
+        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload)
+        self.assertEqual(sum('path: ${{ runner.temp }}/rust-capacity-evidence\n' in step for step in steps),1)
         script=textwrap.dedent(by_id["evidence"].split("python3 - <<'PY'\n",1)[1].split("          PY",1)[0])
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/"rust-capacity-evidence";audit=root/"cargo-guard-calls";audit.mkdir(parents=True)
@@ -603,14 +733,14 @@ assert value['found_manifests']==[]
         text=workflow.read_text()
         self.assertIn('default: false',text);self.assertIn('inputs.execute == true',text)
         self.assertNotIn('pull_request:',text);self.assertNotIn('schedule:',text)
-        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 55 }}",text)
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 90 }}",text)
         self.assertIn('source-root: ${{ github.workspace }}',text)
         self.assertIn('checkout_path: ${{ github.workspace }}',text)
         self.assertNotIn('/capacity-source',text)
         self.assertIn('upload: never',text);self.assertIn('upload-database: false',text)
         self.assertIn('trap-caching: false',text);self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none',text)
         self.assertNotIn('security-events: write',text);self.assertNotIn('upload-sarif@',text)
-        self.assertIn("budget=21600 if mode=='official-default-research' else 3300",text);self.assertIn('start+budget',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
+        self.assertIn("budget=21600 if mode=='official-default-research' else 5400",text);self.assertIn('local_now+budget-age',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
 def load_tests(loader, tests, pattern):

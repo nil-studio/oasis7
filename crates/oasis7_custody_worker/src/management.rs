@@ -16,7 +16,8 @@ fn unavailable() -> Result<Response> {
     Ok(Response::from_json(&ErrorResponse::new(ErrorCode::NotReady))?.with_status(503))
 }
 pub(crate) fn is_management_path(path: &str) -> bool {
-    path == "/v1/management/session-status"
+    path == oasis7_custody_core::management_metadata::PARENTS_QUERY_PATH
+        || path == "/v1/management/session-status"
         || path == "/v1/account-provisions"
         || path.starts_with("/v1/account-provisions/")
         || path == "/v1/manager-revocations"
@@ -27,6 +28,10 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
         return Response::error("not found", 404);
     }
     let path = url.path();
+    if path == oasis7_custody_core::management_metadata::PARENTS_QUERY_PATH {
+        return crate::management_metadata::handle(request, env).await;
+    }
+
     let status_route = path == "/v1/management/session-status";
     let draft = path == "/v1/account-provisions";
     let freeze = path == "/v1/manager-revocations";
@@ -617,7 +622,11 @@ pub(crate) async fn handle(request: Request, env: Env) -> Result<Response> {
             return unavailable();
         }
     } else if let Some(id) = session_basis {
-        let value: TestSessionBasisV1 = serde_json::from_str(&raw)?;
+        let response: TestSessionBasisResponseV1 = serde_json::from_str(&raw)?;
+        if response.validate().is_err() {
+            return unavailable();
+        }
+        let value = response.basis;
         if value.api_version != 1
             || value.provision_id != id
             || value.custody_account_id != value.authority.custody_account_id

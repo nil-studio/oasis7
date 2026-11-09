@@ -1,5 +1,12 @@
 use super::*;
 
+pub(super) fn reset_if_detached(runtime: &mut BevyRuntimeState, state: Option<&RenderState>) {
+    if state.is_none() {
+        runtime.pending_fit_bounds = None;
+        runtime.overview.retire_seen();
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub(super) struct Navigation {
     pub(super) request_id: String,
@@ -7,6 +14,41 @@ pub(super) struct Navigation {
     target: Option<Selection>,
     #[serde(default)]
     bounds: Option<Value>,
+    #[serde(default)]
+    pub(super) overview_query: overview_query::Declaration,
+}
+
+fn overview_allowed(runtime: &BevyRuntimeState, state: &RenderState, nav: &Navigation) -> bool {
+    overview_query::permits(&nav.overview_query, state)
+        && (matches!(nav.overview_query, overview_query::Declaration::Legacy)
+            || (nav.request_id.parse::<u64>().is_ok_and(|id| {
+                id > runtime.overview.retired_generation
+                    && id >= runtime.overview.navigation_highwater
+            })))
+}
+
+pub(super) fn retire_overview_after_manual_camera(runtime: &mut BevyRuntimeState) {
+    runtime.overview.pending_result = None;
+    if let Some(nav) = runtime
+        .render_state
+        .as_ref()
+        .and_then(|s| s.navigation.as_ref())
+        && nav.mode == "overview"
+        && !matches!(nav.overview_query, overview_query::Declaration::Legacy)
+    {
+        runtime.overview.retire(&nav.request_id);
+    }
+}
+
+pub(super) fn finish_overview(runtime: &mut BevyRuntimeState, status: &str) {
+    let Some(request_id) = runtime.overview.pending_result.take() else {
+        return;
+    };
+    #[cfg(target_arch = "wasm32")]
+    let _ = emit_event_value(&json!({"type":"navigation_result","request_id":request_id,
+        "status":status,"render_version":runtime.render_version}));
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (request_id, status);
 }
 
 fn available(state: &RenderState, target: &FocusTarget) -> bool {
@@ -33,9 +75,27 @@ pub(super) fn prepare_camera(
     state: Option<&RenderState>,
     version: u64,
 ) -> bool {
+    if let Some(id) = state
+        .and_then(|s| s.navigation.as_ref())
+        .and_then(|n| n.request_id.parse::<u64>().ok())
+    {
+        runtime.overview.navigation_highwater = runtime.overview.navigation_highwater.max(id);
+    }
+    if let Some((state, nav)) = state.and_then(|s| s.navigation.as_ref().map(|n| (s, n)))
+        && nav.mode == "overview"
+        && overview_query::terminally_invalid(&nav.overview_query, state)
+    {
+        runtime.overview.retire(&nav.request_id);
+        runtime.overview.pending_result = None;
+    }
     let navigation_changed = state
         .and_then(|state| state.navigation.as_ref())
         .is_some_and(|next| {
+            if next.mode == "overview"
+                && !matches!(next.overview_query, overview_query::Declaration::Legacy)
+            {
+                return state.is_some_and(|state| overview_allowed(runtime, state, next));
+            }
             runtime
                 .render_state
                 .as_ref()
@@ -81,17 +141,28 @@ pub(super) fn apply(runtime: &mut BevyRuntimeState, state: Option<&RenderState>,
         .as_ref()
         .and_then(|state| state.navigation.as_ref());
     let command = state.navigation.as_ref().filter(|command| {
+        if command.mode == "overview"
+            && !matches!(command.overview_query, overview_query::Declaration::Legacy)
+        {
+            return !command.request_id.is_empty() && overview_allowed(runtime, state, command);
+        }
         !command.request_id.is_empty()
             && previous.is_none_or(|old| old.request_id != command.request_id)
     });
     if let Some(command) = command {
+        runtime.overview.pending_result = None;
         runtime.active_follow_target = None;
         runtime.pending_focus_target = None;
         runtime.pending_fit_bounds = None;
         match command.mode.as_str() {
             "overview" => {
+                if !matches!(command.overview_query, overview_query::Declaration::Legacy) {
+                    runtime.overview.retire(&command.request_id);
+                    runtime.overview.pending_result = Some(command.request_id.clone());
+                }
                 runtime.camera_fit_version = 0;
                 runtime.last_canvas_size = None;
+                runtime.last_canvas_css = None;
                 runtime.camera_user_override = false;
             }
             "fit_bounds" => {
@@ -161,7 +232,7 @@ pub(super) fn apply_pending_fit_bounds(runtime: &mut BevyRuntimeState, width: f6
         return;
     }
     let project = |x, y| {
-        to_canvas_point(
+        to_canvas_point_unsnapped(
             &Position {
                 x_cm: x,
                 y_cm: y,

@@ -105,7 +105,7 @@ impl AuthorityDefinitionV1 {
         hash_hex(&self.recovery_policy_digest)?;
         if self.schema_version != 1
             || self.profile != FORMAL_PROFILE
-            || !matches!(self.profile_version, 1 | 2)
+            || !matches!(self.profile_version, 1..=3)
             || self.epoch == 0
             || self.valid_from_position == 0
         {
@@ -200,18 +200,50 @@ impl CanonicalRecordV1 {
         self.world.validate()?;
         if !matches!(
             (self.schema_version, &self.durable_set_transition_digest),
-            (1, None) | (2, Some(_)) | (3, None) | (4, Some(_)) | (5, None) | (6, Some(_))
-        ) || (!matches!(self.schema_version, 1 | 5)
+            (1, None)
+                | (2, Some(_))
+                | (3, None)
+                | (4, Some(_))
+                | (5, None)
+                | (6, Some(_))
+                | (7, None)
+                | (8, Some(_))
+        ) || (!matches!(self.schema_version, 1 | 5 | 7)
             && self.kind != FormalRecordKindV1::Execution)
             || self.position == 0
             || self.original_epoch == 0
-            || self.artifact_roots.len() != if self.schema_version >= 5 { 10 } else { 9 }
+            || self.artifact_roots.len()
+                != if super::incremental::is_iws_record(self.schema_version) {
+                    9
+                } else if self.schema_version >= 5 {
+                    10
+                } else {
+                    9
+                }
             || self
                 .artifact_roots
                 .contains_key(&ArtifactRole::NativeExecutionEnvironment)
                 != (self.schema_version >= 5)
         {
             return Err(invalid("formal record version/position/closure roots"));
+        }
+        if super::incremental::is_iws_record(self.schema_version) {
+            if self.artifact_roots.get(&ArtifactRole::Input) != Some(&self.payload_digest) {
+                return Err(invalid("incremental record original input root"));
+            }
+            super::incremental::validate_roots(
+                &self.artifact_roots,
+                false,
+                &self.world,
+                &self.after_state_root,
+                &self.runtime_manifest_digest,
+            )?;
+        } else if self
+            .artifact_roots
+            .keys()
+            .any(|role| super::incremental::is_iws_role(*role))
+        {
+            return Err(invalid("legacy record cannot carry incremental roots"));
         }
         if let Some(digest) = &self.durable_set_transition_digest {
             hash_hex(digest)?;
@@ -283,6 +315,11 @@ pub fn verify_record_material_retaining_snapshot(
     material: &ClosedRecord,
 ) -> Result<Option<Vec<u8>>, FormalError> {
     record.validate()?;
+    if super::incremental::is_iws_record(record.schema_version) {
+        return Err(invalid(
+            "incremental record requires bounded typed material verification",
+        ));
+    }
     material.validate().map_err(|e| invalid(e.to_string()))?;
     if record.payload_digest != material.payload_digest
         || record.before_state_root != material.before_state_root

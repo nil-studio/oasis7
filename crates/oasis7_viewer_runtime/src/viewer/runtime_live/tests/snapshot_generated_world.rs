@@ -50,6 +50,15 @@ fn generated_world_sidecar_initializes_runtime_live_snapshot_map() {
             .any(|location| location.fragment_profile.is_some()),
         "generated asteroid locations should survive viewer runtime-live mapping"
     );
+    let terrain_authority = server.world_view_source_authority("public");
+    assert!(
+        snapshot
+            .model
+            .locations
+            .values()
+            .any(|location| terrain_authority.terrain_current(location)),
+        "generated terrain must be bound to its loaded local source"
+    );
     let first_agent = snapshot
         .model
         .agents

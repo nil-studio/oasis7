@@ -74,6 +74,8 @@ fn hosted_passkey_virtual_authenticator_fixture() {
         "viewer_auth_crypto.js",
         "software_safe_constants.js",
         "viewer_imported_key.js",
+        "viewer_custody_owner_setup_panel.js",
+        "viewer_custody_owner_setup_client.js",
     ] {
         std::fs::copy(source.join(name), root.join(name)).unwrap();
     }

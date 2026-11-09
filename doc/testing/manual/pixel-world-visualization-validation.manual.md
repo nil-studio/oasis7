@@ -132,6 +132,8 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-2ede7851-f1c0-4
 
 IME合成期间Escape不关闭页面表面；非合成时先最内层drawer再Focus。聊天/文本输入不被画布快捷键截获。数据刷新不抢焦点，不逐实体洪泛辅助播报，原结果不重复宣布为新成功。对象名称按文本处理，含HTML样式输入不能变为脚本/原始HTML执行。
 
+原生CJK字形回归复用 `npm --prefix crates/oasis7_viewer run test:pixel-world:cjk:visual`，必须显式提供 `AGENT_CJK_ARTIFACT_ROOT`（不可变产物目录）与 `AGENT_CJK_SOURCE_HEAD`（实际构建提交），前提为 agent-browser、Python/Pillow。脚本先以实际Agent atlas确认已绘制，再以相同中文A/A像素不变、不同中文A/B像素有差的成对控制检查native label，保存长中文/Latin数字标点及真实context loss→Reload后的同一检查。检查前后产物SHA须不变；桌面、窄屏、DPR2逐一记录实际尺寸。该受控输入仅证明所采字形/输入与恢复，不代签全部Unicode、真实授权或原operation身份。`AGENT_CJK_MODE=cold-observation`分别记录bridge ready与实际atlas可见时点，只是单次观察；正式冷/热启动样本、网络和缓存方法仍按§9执行。
+
 记录实际键盘/触控操作与辅助语义，不用DOM节点存在代签真实可达；截图审读沿既有[S6](web-ui-agent-browser-closure-manual.manual.md)及[视觉评审SOP](model-visual-review-sop-2026-05-29.manual.md)，不新建另一套视觉放行机制。
 
 <a id="pw-readability"></a>
@@ -163,6 +165,54 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 - 持续交互：在F4里连续平移/缩放、选择、退出跟随和事件突发至少5分钟，记录可见帧间隔、输入反馈和query。静止的按需不渲染、后台节流和Runtime完成时间分别报告。
 - 长稳：同一已稳定负载执行30分钟区域往返/选择/过滤与恢复。比较预热后相同阶段的初/末窗口，记录JS、WASM、应用缓存及可获得的GPU/进程资源；无法测量的分量标unknown，不用JS heap代替全部内存。
 
+### 局部工具证据边界
+
+性能探查先检查 canonical `viewer_terminal_shell.css`：响应成功且 MIME 为 `text/css`、浏览器实际加载有规则的 stylesheet、非活动 renderer hit-only target 的背景图为 none、背景与边框透明、阴影为 none。该前置保存为 `canonical-style-prerequisite.json`；不满足时判入口无效并停止，不将缺样式造成的额外绘制耗时写作生产预算违约，也不让后续阈值通过覆盖无效入口。前置通过只证明测量入口正确，不能代签性能预算通过。
+
+`node crates/oasis7_viewer/scripts/viewer-performance-probe.mjs --agents 1000 --interaction-samples 20 --max-interaction-p95-ms 100` 使用 gated visual fixture 的正常身份对齐，再将本项受控 Agent 绑定到该身份；不建立真实服务授权。原生 Enter 的可信 keydown 时间到目标 `data-selected` 更新及两次 rAF 作为选择反馈探查，逐样本记录身份、时间和真实输入。两次 rAF 只是绘制机会，不等于屏幕光子或世界 Runtime 完成；未覆盖平移、缩放、stop、五分钟和正式 A/B。输入为空、null 或无目标时必须失败，不能用零延迟补样本。`actualProjection` 的 DTO 与 native target 数单独报告，不能从 `--agents` 的源对象数量推断可见密度。rAF 间隔也不能单独证明世界实际渲染 FPS。
+
+扩展交互测量使用 `--paint-trace` 分开保留三种终点：可信输入后 `data-selected` 首次变true的观察时间（末端core选中身份另核）、同目标/时间关联且带 interaction ID 的 browser EventTiming next-rendering estimate、原有 DOM 后两次 rAF 绘制机会。DOM 接受不是可见绘制；EventTiming 也不是世界 GPU fence 或 Runtime 结果。[W3C Event Timing](https://www.w3.org/TR/2026/WD-event-timing-20260223/) 的事件暴露下限为16ms、duration以8ms粒度呈现，因此缺条目记 unknown、不补零；保留±4ms区间，并核对选中变化不晚于关联绘制区间下界（中心−4ms），且直到区间上界（中心+4ms）未撤销。不选取较快的一组替换旧门槛或代签正式P6。selected DOM观测按每批回调的最终connected节点真值记录状态变化，覆盖属性更新、预置选中节点插入、移除与身份替换；不推断未观测的中间真值。保留DOM记录数、活动索引峰值和回调耗时，成本不从延迟扣除；索引/trace仍有界且溢出失败。PerformanceEventTiming若未暴露同目标，paint继续unknown，不以时间戳替代身份，不用pending ACK代替selected，也不事后补写旧raw。
+
+`--interaction-window-ms 300000 --mixed-camera --snapshot-feed` 使首个可信输入到最后反馈的实际浏览器时间跨越至少五分钟，期间使用原生pan/zoom与受控snapshot的2Hz/有限10Hz更新；snapshot更新不是WorldFeed事件，未协商的follow/stop/query不得用QA的Stop updates冒充。用独立窗口遵守适用[发布性能合同](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-verification)的重复要求，逐窗报告与保留最差一次，不以平均数掩盖失败。`--compact-scene --agents 476 --locations 24 --min-viewport-markers 500` 只用于既有500 marker边界，逐段对账真实投影与屏内DOM几何，不旁路256KiB/500 marker或100 label的硬上限。100 label是上限而非实测负载/可读保证；没有原生实际label计数时标unknown。此500子集不覆盖[独立worldView显示profile](../../world-simulator/viewer/external-agent-world-view.design.md#world-view-render-density-profile)的1000/200，不能把旧入口上限或本工具结果当作正式负载验收。
+
+worldView密度回归用 `DENSITY_QA_ARTIFACT_ROOT=<immutable-dist> DENSITY_QA_SOURCE_HEAD=<actual-built-commit> node crates/oasis7_viewer/scripts/pixel-world-world-view-density-visual.mjs`，需要仓库固定的ws开发依赖、agent-browser与Python/Pillow。owned loopback WS仅作为受控只读peer，借现有runtime config/hello协商与标准request_world_view五页200项取得1000记录；snapshot基底无对象，不注入worldView或修改客户端cap/权限。它不证明signed WorldService、真实玩家授权、operation身份或P5。该helper是受控observer/debug技术探针，显式记录既有trusted_local_only技术配置与owned density-qa.localhost、authReady=false及无playerId/publicKey/bound Agent、无identity请求；不将已退出普通用户流程的模式重新暴露给玩家。正常hosted_public_join登录门禁保留，其未登录拒绝是预期；技术场景不代签正常玩家认证后的端到端体验。
+
+只读 `readPixelWorldDisplayMetrics()` 限test_api=1，从已挂载实例读取PostUpdate布局/可见性统计，不初始化第二实例。只采 `observed` 且render_version/source_cut与同次capture前后一致的帧；pending不借旧数。分别记录projected marker、独立查询Sprite组件得到的实际Agent body/相机内body数、budget visible、in-view与有glyph布局数、实际CSS/F/DPR及≤200诊断bbox；frame_entity只稳定于该帧，bbox不是GPU fence或遮挡证明。以公开名称normal→零宽名称负控→normal恢复，保持相机/几何等非名称输入相同，逐bbox比较真实PNG；不能只看到配置label_cap=200就签200个已绘字形。保留partial页、mixed-cut、删除、旧回应、新scope/拒绝、能力移除时清理、真实context loss/显式Reload的实际结果。缺新scope证明的legacy回切只可称清理/锁定，不以QA直接授权冒充恢复。
+
+
+#5605 的提示布局回归可执行 `PENDING_LAYOUT_ARTIFACT_ROOT=<冻结visual目录> PENDING_LAYOUT_SOURCE_HEAD=<实际构建源> node crates/oasis7_viewer/scripts/pixel-world-pending-status-layout.mjs`。此项在真实shell中复制Selected A和pending/unavailable状态，覆盖桌面/窄屏与Feed开闭，比较透明文字负控的真实像素、文本边界、可信指针穿透及Canvas CSS/backing尺寸不变；产物SHA前后核对。它是明确的DOM-only布局验证，不连接WS，不证明pending状态机、获准后页选择、玩家授权或性能；逻辑另跑 `pixel_world_pending_selection*.test.js`，真实标准WS/原生输入与性能沿同一固定生产组合另验，不能把pending冒充selected。
+
+同一冻结组合可设 `DENSITY_QA_SOURCE_HEAD=<实际生产源> DENSITY_QA_ARTIFACT_ROOT=<冻结目录> DENSITY_QA_SCOPE=baseline DENSITY_QA_PENDING=1 DENSITY_QA_PENDING_CASE=confirm node crates/oasis7_viewer/scripts/pixel-world-world-view-density-visual.mjs` 运行真实WS挂页探针；可选case为 `confirm|replace|absence|scope`，输入为 `DENSITY_QA_PENDING_INPUT=keyboard|mouse`。组合产物另传 `DENSITY_QA_COMPOSED_MANIFEST=<清单>` 并核每文件SHA，不把复用Rust产物称为新canonical build。工具只在实际观察到1000场景/目标附着后，用正常rAF边界对齐响应、收到第三请求的协议因果和owned CDP可信输入记录真实partial→旧呈现窄窗；不暂停rAF/renderer、不改DTO、不重试失败输入。未命中窗口须非零退出并保留unmeasured，不能把支持scope分支等同已测。`absence`为新cut旧cursor拒绝与完整授权投影缺失，不把普通Agent省略称为world_deleted；预算与正常玩家P5另验。
+
+剩余取消接缝可另运行有限夹具：`SCOPE_PENDING_ARTIFACT_ROOT=<冻结visual目录> SCOPE_PENDING_SOURCE_HEAD=<实际构建源> SCOPE_PENDING_COMPOSED_MANIFEST=<组合清单> node crates/oasis7_viewer/scripts/scope-pending-visual.mjs`。仅协商world_view/pins，关闭delta轮询，以A/C/B三实体每响应一条分页（客户端请求上限仍200）保留真实Host/WS/WASM；收到第三请求后只发一次可信输入，必须实际看到pending且B未selected。默认在同connection、同request_generation上返回标准scope_unavailable，验证可见unavailable及原已准备晚页不得复活B，随后普通拒绝连接清理/恢复另记。独立设置`SCOPE_PENDING_RESET_CASE=1`，只验证pending期间连接代际重置和旧包拒绝，不把它改称authorization-epoch撤销。窄窗未命中须非零保存unmeasured并停止；不得冻结renderer/rAF、重试输入、造身份或grant。该有限夹具不签1000/200、真实授权撤销、权威删除、P5或P6，不覆盖或改标原1k探针miss及五分钟原始结果。
+
+worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENSITY_QA_PERFORMANCE_MS=300000`，用 `world-view-density-performance.mjs` 复用严格 DOM/EventTiming matcher。选择只观察现有 renderer target 的 `data-selected`，不把空间检查写成业务 core 选择；默认旧 sampler 仍使用 core 身份。renderer测量与挂页探针通过唯一匹配owned页面的CDP发送可信Enter，仅使用key/code与标准Windows虚拟码，不指定平台nativeVirtualKeyCode；默认core入口仍用原CLI。失败记录armed状态、实际焦点与同目标是否仍附着，不换目标重试，也不把输入未送达记为已选中延迟。每个真实 keydown 同时记录只读 metrics 及其观测耗时，分别保留确认1000/200、pending未知与真实partial输入，全部输入和确认密度子集的分布各自报告；不从延迟扣观测耗时，不把未知补零或静默丢样本。250ms密度监测、原生pan/zoom的实际相机变化、标准WS完整分页及获准资源变更另外落盘。原生滚轮采用实际固定倍率，越过本fixture的合法密度区间前只经真实World overview恢复并记录该动作，不修改相机DTO、producer LOD或目标数量。
+
+预算失败、DOM/paint未知或无法证明全部输入密度时，工具在保留raw后非零退出。输入或采集失败时，先保存原始错误、performance-window、可取得的monitor和完整paint trace，再尝试评分；评分异常单列scoringError，不覆盖原输入错误。overflow仍失败且不清标记，不过滤异常条目后重新签通过；未取得的采集项明确记录collectionErrors，不补空数据冒充完整。EventTiming量化区间跨越主责阈值时另列不确定性，不据中心估计宣称确定的真实显示超时。`DENSITY_QA_PERFORMANCE_TRACE=1` 仅开启有界Chrome DevTools trace根因诊断，其开销与未开trace的预算窗口分开；rAF机会、长任务和trace都不单独证明世界GPU提交/物理呈现帧率。分页中的partial或pending使全程恒定1000/200尚未证明，不能因窗口跨越五分钟就签完整P6。
+
+长期分量探针复用同一技术入口：`DENSITY_QA_SCOPE=baseline DENSITY_QA_MEMORY_MS=1800000`（短方法校准可先设1），与performance/pending/frame模式互斥。固定构建/runner/18资产与可选组合清单后，先三周期预热，再执行可信键盘选择、6CSS像素有界视口往返/滚轮（不称广域多区探索覆盖）、真实搜索10条与清空恢复1000条；相机变化须有实际WS查询bounds对应，不写DTO。每周期至少等待10s，流式保存数字分量与原始wire，内存中只留初/末各6个同home阶段样本；本地实例/范围序号、当前query与cut比对、页面timeOrigin和相机必须匹配，不在末端GC/清缓存/Reload。客户端统计的逻辑UTF-8编码/唯一对象不是heap或全缓存；quiescent采样不证明分页峰值及64MiB总缓存上限。JS heap/DOM读取前后用便宜stamp括定；同scope/cut正常poll跨读保存全部原值并标未匹配，该窗口对应内存分量unknown，不重采/挑低值。身份、实例/范围/页面或实际负载前置丢失则保存后停止。
+
+采集容量前瞻注册为固定512MiB raw wire上限：先前四周期约11.28MB、计量周期14.457s，30分钟外推约361MB；按10s最低等待的粗上界接近516MB，仍可能触顶，触顶时保跨界原行后terminal拒绝新source，不丢行续跑或临时放宽。该容量不是产品64MiB/10%预算。JSONL数字、原始协议、实际写入字节与错误分栏；采集IO/阶段原错优先于cleanup或summary写盘失败。只有至少30分钟、初末各6且不重叠才比较已知内存分量10%增长；逻辑字节/对象与JS保留容量仅趋势。未知WASM线性/renderer/GPU/owned RSS不补零，CLI 0仅表示方法完成且已知分量无已证违反，不能签整体P6、正式8GiB A/B或真实P5授权。详见[只读保留观测](../../world-simulator/viewer/external-agent-world-view.design.md#view-retention-observation)。
+
+测量必须显式声明实际构建 `AGENT_VISUAL_SOURCE_HEAD` 和冻结的 `AGENT_VISUAL_ARTIFACT_ROOT`，保存全部产物与runner内容hash、tracked dirty状态、真实设备/电源/viewport/DPR和采样窗口。移除QA专用计数面板及其周期读数时用 `--dispose-fixture-controls` 明示，不能删除产品HUD/世界目标或裁剪权限。浏览器rAF仍只作为heartbeat观察，不能单独判世界实际帧预算；16GiB/headless/loopback子集不代签8GiB A/B、物理显示、50k query或30分钟长稳。
+
+组合材料恢复可运行 `AGENT_VISUAL_SOURCE_HEAD=<固定构建源> MATERIAL_VISUAL_SCOPE=recovery node crates/oasis7_viewer/scripts/agent-browser-material-visual-test.mjs`。本地 HTTP QA shim 只包装原 gated `material_shells` 工厂，在每次真正页面 Reload 前提供当前受控 known/removed 输入；不保存或恢复私有 DTO，不新增生产权限 API。三个视口分别真实触发 context loss，检查失效目标清空、无自动 Reload、原生 Enter 显式重载、非空 fixture 身份及 receipt target 连续、无世界 Command 或变更 HTTP。PNG oracle 检查工厂全部源色与删除负对照，Depot 避开既有 Location 右下角框的源区域仍覆盖全部八色；矿纹使用结构化侧带检查组合画面恢复，独立矿纹消费须另用同底色 runtime oracle。它们不代签真实服务撤权、原 operation 身份或正式 P6 预算。
+
+<a id="pw-local-feedback-measurement"></a>
+### 本地接受与最终确认的前置测量计划
+
+权威端点和预算沿[WorldView本地反馈](../../world-simulator/viewer/external-agent-world-view.design.md#view-local-feedback-measurement)及[9.2质量预算](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)。以下是待实现/验证的方法，不声明当前helper已取得完整ACK证据；旧strict selected列、阈值和unknown继续保留，旧466样本不重新标记。通用发行profile与WorldView专项分别报告。
+
+1. **采样前注册。** 固定生产/runner/观测脚本及资产hash、设备/浏览器/电源/viewport/DPR、schema/profile、输入集合、端点、字形校准和失败判据。每个计划输入保留，明确区分本地接受状态、可见ACK、selected最终确认、网络/Runtime完成；不得事后挑较快的一列替换原结果。错误目标/无可信输入/无新反馈/代际不符/时间或可见性缺证据均有独立unknown原因，不填零。
+2. **真实关联。** 保存实际native输入的ref、timeStamp/timeOrigin及同world/scope的显式用户意图代。反馈所有者需提供同一次意图的只读关联，不能由QA写入或从邻近时间猜测。现有泛pending文本/role=status不足以绑定输入；连续旧pending不因不可见token更新就算新的可见响应。字段缺失时只报告状态观察，不开始完整ACK预算计分。新增观测不保存旧实体/权限事实、不发pin或命令，不暴露私有authority key。
+3. **可见性校准。** 在实际shell中先覆盖桌面/窄屏、声明DPR、Feed开闭及遮挡/裁切反例。固定相同候选/字体/文本的完整语义字形区域；A/A稳定正控、透明文本和遮挡负控须能区分有效字形与背景变化，再冻结覆盖与噪声门槛。此校准在计时外单独留证；计时内只观察真实反馈，不复制节点、改文本/样式、隐藏HUD/目标或降低密度。DOM rect、aria-live和非零像素差本身不证明可见ACK。
+4. **短能力核对先行。** 每轮至多三组预声明的短探查，先测直接selected、本查询partial的pending→后页确认、旧徽标/错误代际负控；错误目标、快速替换、换scope与未送达另有确定性负例。只用原有标准读查询，实际输入窄窗未命中即保存unmeasured停止，不重试求pass、不造grant、不冻renderer/rAF。先验证当前Chrome实际提供的图像、正常产生的合成帧关联和前后时钟锚；保存协议版本/trace字段，传播时钟误差到逐样本区间。不把Paint/DrawFrame或截图API返回当作呈现，不强制paint，不用缺帧证明此前无ACK；条件不足时可见时间unknown。trace开销与无trace预算窗口分开，不从时延扣除。
+5. **分列判定。** 记录反馈类型、意图绑定、输入前基线、DOM状态时间、可见性检查/字形证据、帧与时钟区间、密度、撤销/更新状态及未知原因。图像必须对应同意图、同scope且状态持续的完整区间，不能跨代借图。新ACK列按主责上界/连续无响应判据评估；原selected DOM/EventTiming/额外rAF分布与原gate不动。ACK合格也不把target=null的selected unknown改成通过，不代签P6整体。
+
+首轮实施限定为能力探查：由owned Chrome读取Browser版本和`Tracing.getCategories`，只使用实际支持的timeline/图像/UserTiming记录；每组trace预设短时限，前后以`performance.mark`及其调用时间区间建立可审计时钟锚。归档原始字段/图像及映射误差，不假定某个截图事件天然带可用呈现时间。若采集会主动推进帧，或只有稀疏截图而不能证明同帧/时钟关系，该数据只作诊断，ACK可见时延不计合格。既有pending布局helper只能供非计时校准，不能提供真实意图接受证据。
+
+`DENSITY_QA_FRAME_OBSERVATION_MS=3000` 在既有冻结source/artifact、真实WS与1000/200字形前置后运行1–10秒能力探针；与performance、memory、pending模式互斥。工具session只有一个managed tab不证明整个Chrome独占：browser-wide只读枚举每次重新核对唯一owned page；额外newtab/其他页导致该项unavailable，不关闭未知页、不启动global trace。独立page-target screencast只接attached session的正常图像与原始swap metadata，保存page performance/timeOrigin/wall锚；600图/64 MiB上限，任何overflow、采集或清理错误保留且非零退出。稀疏图像不证明每帧覆盖或物理显示，缺world render-version→GPU完成→合成映射时帧预算仍unknown，未校准输入/字形可见性前不计ACK。图像/metadata保全不改变原selected oracle。
+
 ### 9.2 容量与过载反例
 
 测试100/1000/1001可见实体、200/201突出labels、200/201单页、2 MiB边界和超额事件；世界总量固定50000但不每帧传全量。授权后再聚合，记录实际绘制数量、关系端点和cache。关键选中/目标/blocker在裁剪后仍可达，partial不伪装对象不存在。
@@ -172,6 +222,20 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 不达标保留原失败与样本，修复后同fixture比较；预算调整须有实测依据和owner决定，不能为通过临时改门槛。该专项不新增统一CI gate；普通CI覆盖算法/容量边界，实测组合由适用实现和发行验证运行。
 
 <a id="pw-platform"></a>
+### 9.3 P6剩余工作与依赖次序
+
+下表是同一P6义务的实施顺序，不新增阈值、通用CI gate或已完成声明；数值沿[专项质量预算](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)与本节原测量窗口。测试资源按Cargo/CPU/GPU串行协调，未知分量不补零。
+
+| 优先级/项 | 本机可执行部分 | 必要依赖与仍不能代签的范围 |
+| --- | --- | --- |
+| 先做：反馈合同与短观测 | 独立审定上述端点，再补真实意图只读关联/可辨反馈及至多三组短校准。 | 同意图/可见时钟缺证据先unknown；定义未定不再运行五分钟，不借旧466样本。 |
+| 随后：真实世界帧间隔 | 在冻结硬件加速候选上先做短连续pan/zoom能力核对，分别确认world pass提交、GPU完成、浏览器合成/呈现的实际信号与关联。 | 当前PostUpdate metrics和rAF不是世界呈现fence；原生UI刷新或重复旧texture不能充世界帧。缺实际世界帧关联不签帧率；可能需要Render/浏览器只读观测实现。 |
+| 可独立准备：30分钟长稳 | 固定预热后同负载、区域往返/选择/过滤/恢复序列；初末匹配同阶段，分别采JS、WASM线性内存、应用缓存对象/字节、可取得的GPU及owned进程资源。 | 需先补缺失的只读计数与有界长期采集；不长期累积诊断trace把工具缓存算产品增长，不在末端清缓存/重载伪造下降。缺GPU/进程/缓存分量标unknown；M3/16GiB子集不代签8GiB目标机。 |
+| 条件具备后：退出跟随/stop | 只读follow/退出可先做受控UI技术回归，保实际位置/失效与手动导航语义。 | 正常hosted及真实可停止操作沿P5的合法owner/原operation/receipt；guest或假授权Stop不证明可用Stop预算，UI接受仍不等于世界已停止。 |
+| 外部与发布前置：A/B、冷/热与50k query | 可先核实际encoded字节/响应头/cache语义，准备固定样本/网络和50000对象获准scope夹具。 | 正式8GiB CPU/GPU/OS与两条真实受控链路缺失时不能用16GiB或CPU节流冒充；WS/HTTP的实际RTT/带宽分别核，假page延迟不是链路。冷/热样本数、重复窗口、真实50k索引/授权与query耗时均沿原合同；1000对象fake peer或热cache不代签服务端50k。 |
+
+组件可测不等于整项完成。正式headed硬件加速与目标机要求不能由headless子集代签；普通Web、原生容器和正常玩家认证各沿自身环境。同候选/frame/内存记录不替代P5或发布就绪。新增可并行实施片段另按原生子Issue/独立owner领取，不在本表重复创建已归属的义务。
+
 ## 10. PW-PLATFORM：Web与原生各自通过
 
 Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
@@ -194,3 +258,9 @@ Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
 | PW-ACCESSIBILITY、PW-READABILITY | viewer-primary、viewer-dual | AC-AGENT-STAGE-001/003/004 |
 
 报告只记录实际执行的PASS/FAIL/BLOCKED/NOT RUN、source/build/环境、fixture、输入/操作、预期与实际、原始证据位置和未覆盖边界。没有运行不填PASS，不凭HTTP200、动画、截图文件存在或一次重跑成功覆盖先前失败。普通CI、真实Runtime、GPU/S6、原生、真人理解分别结论；Task/PR保存运行记录，长期文档不追加每轮计数和CI流水。
+
+### 当前查询总览的有限浏览器回归
+
+按[当前查询总览合同](../../world-simulator/viewer/external-agent-world-view.design.md#overview-query-fit)，设置 `QUERY_OVERVIEW_ARTIFACT_ROOT=<冻结visual目录>`、`QUERY_OVERVIEW_SOURCE_HEAD=<实际构建源>`、`QUERY_OVERVIEW_COMPOSED_MANIFEST=<逐文件size/SHA清单>`，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:query-overview`。清单名兼容组合产物，summary保留其实际kind；canonical不得改标旧source。`QUERY_OVERVIEW_CASE=complete|cancel|terminal` 分别独立执行一次；`QUERY_OVERVIEW_WIDTH=390` 覆盖窄屏complete及状态文本边界，缺省1440。夹具仅用三个获准观察实体、每响应一条且请求上限仍200，在真实Host/WS/WASM中挂第三页。验证原生手动平移后，partial总览保持相机、不清搜索、不新增查询；同绑定complete实际应用一次，后台full不抢手动相机；取消及终止partial保持相机。每阶段最多12秒，无输入重试、无renderer/rAF冻结，失败保raw并非零退出。
+
+此回归只证明受控技术观察入口的分页导航与指定视口布局。`navigation_result`是主Update消费，不是GPU fence；旧缺schema兼容另由Rust确定性回归覆盖，不能冒称旧入口GPU已验。该工具不证明原内存长窗触发时刻的因果，不代签真实玩家授权、P5、五分钟/30分钟或P6。产物SHA前后核对，记录实际构建源和runner分别身份；不改标已保留失败或旧QA头的raw。

@@ -34,7 +34,7 @@ use oasis7_simulator::{
     WorldConfig, WorldModel, WorldScenario,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 #[cfg(test)]
 use std::path::Path;
@@ -47,10 +47,15 @@ mod agent_service_io;
 mod agent_service_io_diagnostics;
 mod agent_service_phase;
 mod agent_service_pump;
+mod agent_service_result;
+#[cfg(any(test, feature = "test_tier_required"))]
+mod agent_service_worker_cleanup;
 mod periodic_connection_diagnostic;
 mod periodic_service_io;
+mod request_frame;
 mod response_outbox;
 mod stream_budget_diagnostics;
+mod world_service_client_cache;
 use tracing::Level;
 
 #[cfg(test)]
@@ -82,6 +87,7 @@ mod control_feedback;
 mod control_mode;
 #[path = "runtime_live/control_plane.rs"]
 mod control_plane;
+mod control_state;
 #[path = "runtime_live/control_utils.rs"]
 mod control_utils;
 #[path = "runtime_live/decision_trace.rs"]
@@ -113,6 +119,15 @@ mod player_gameplay;
 mod power_projection;
 mod power_sale_quote;
 mod prompt_control_result;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "runtime_live/provider_original_store.rs"]
+mod provider_original_store;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "runtime_live/provider_original_store_codec.rs"]
+mod provider_original_store_codec;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "runtime_live/provider_original_store_fs.rs"]
+mod provider_original_store_fs;
 mod recovery;
 mod recovery_audit;
 mod recovery_compensation;
@@ -170,6 +185,10 @@ use player_agency_projection::{
     PlayerGameplayCausalitySignal, player_gameplay_causality_from_runtime_events,
 };
 use prompt_control_result::PromptControlRuntimeAuthority;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub use provider_original_store::{
+    ProviderOriginalMaterialOwnerV1, install_provider_original_material_owner,
+};
 use runtime_script::RuntimeLiveScript;
 use session_policy::{
     RuntimeSessionPolicy, RuntimeSessionRevokeMetadata, location_id_for_pos,
@@ -187,10 +206,12 @@ pub struct ViewerRuntimeLiveServer {
     world: RuntimeWorld,
     initial_world_time: u64,
     auto_play_paused: bool,
+    control_state: control_state::ControlStatePublisher,
     next_auto_play_step_at: Option<Instant>,
     last_chain_committed_height: u64,
     verified_world_view: Option<crate::world_service::verified_view::VerifiedWorldView>,
     world_service_query_state: crate::world_service::client::WorldServiceQueryState,
+    world_service_clients: world_service_client_cache::ClientCache,
     periodic_service_executor: Option<Arc<periodic_service_io::Executor>>,
     prepared_owner_read: Option<Box<owner_read::PreparedOwnerRead>>,
     prepared_safe_alternative: Option<Result<serde_json::Value, String>>,
@@ -272,13 +293,9 @@ impl ViewerRuntimeLiveServer {
                 "Agent signer requires a world service connection".into(),
             ));
         }
-        #[cfg(not(test))]
-        if config.chain_status_bind.is_some() && config.world_service.is_none() {
-            return Err(ViewerRuntimeLiveServerError::Init(
-                "node-directory chain sync is closed; configure the authenticated world service"
-                    .into(),
-            ));
-        }
+        config
+            .validate_connection_mode()
+            .map_err(ViewerRuntimeLiveServerError::Init)?;
         config
             .validate_prompt_result_limits()
             .map_err(ViewerRuntimeLiveServerError::Init)?;
@@ -416,9 +433,14 @@ impl ViewerRuntimeLiveServer {
                 &generation.session_side_effects,
             );
         }
+        // Construct TLS/HTTP and validate configured credentials before this
+        // server is published behind its shared serving mutex.
+        let world_service_clients =
+            world_service_client_cache::ClientCache::new(config.world_service.as_ref())?;
         let next_virtual_event_id = latest_runtime_event_seq(&world).saturating_add(1).max(1);
         let mut server = Self {
             auto_play_paused: !config.auto_play_on_connect,
+            control_state: control_state::ControlStatePublisher::new(!config.auto_play_on_connect)?,
             config,
             world,
             initial_world_time,
@@ -426,6 +448,7 @@ impl ViewerRuntimeLiveServer {
             last_chain_committed_height: 0,
             verified_world_view: None,
             world_service_query_state,
+            world_service_clients,
             periodic_service_executor: None,
             prepared_owner_read: None,
             prepared_safe_alternative: None,
@@ -605,22 +628,22 @@ impl ViewerRuntimeLiveServer {
         Option<crate::world_service::client::RemoteWorldServiceClient>,
         ViewerRuntimeLiveServerError,
     > {
-        self.config
-            .world_service
-            .clone()
-            .map(
-                |config| -> Result<_, crate::world_service::client::WorldServiceClientError> {
-                    let formal = config.formal_read_trust.is_some();
-                    let client =
-                        crate::world_service::client::RemoteWorldServiceClient::new(config)?;
-                    if formal && let Some(view) = &self.verified_world_view {
-                        client.resume_formal_view(view)?;
-                    }
-                    Ok(client.with_query_state(self.world_service_query_state.clone()))
-                },
-            )
-            .transpose()
-            .map_err(|error| ViewerRuntimeLiveServerError::Init(error.to_string()))
+        let Some(client) = self
+            .world_service_clients
+            .get(self.config.world_service.as_ref())?
+        else {
+            return Ok(None);
+        };
+        if client.config().formal_read_trust.is_some()
+            && let Some(view) = &self.verified_world_view
+        {
+            client
+                .resume_formal_view(view)
+                .map_err(|error| ViewerRuntimeLiveServerError::Init(error.to_string()))?;
+        }
+        Ok(Some(
+            client.with_query_state(self.world_service_query_state.clone()),
+        ))
     }
 
     fn supports_agent_chat(&self) -> bool {
@@ -696,6 +719,7 @@ impl ViewerRuntimeLiveServer {
 
         let reader_stream = stream.try_clone()?;
         let mut reader = BufReader::new(reader_stream);
+        let mut frame = request_frame::RequestFrame::default();
         let mut socket = stream;
         let limits = {
             let server = lock_shared_server(&shared)?;
@@ -711,20 +735,19 @@ impl ViewerRuntimeLiveServer {
                 let _phase = stream_budget_diagnostics::phase(2);
                 Self::start_agent_service_pump(&shared)?;
             }
-            let mut line = String::new();
             let read_result = {
                 let _phase = stream_budget_diagnostics::phase(3);
-                reader.read_line(&mut line)
+                frame.read(&mut reader)
             };
             match read_result {
-                Ok(0) => {
+                Ok(None) => {
                     if let Some(connection) = &connection {
                         connection
                             .set_close_reason(periodic_connection_diagnostic::CloseReason::Eof);
                     }
                     return Ok(());
                 }
-                Ok(_) => {
+                Ok(Some(line)) => {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
                         let mut output = response_outbox::ResponseOutbox::new(limits);
@@ -820,7 +843,13 @@ impl ViewerRuntimeLiveServer {
                         }
                     }
                 }
-                Err(err) if is_timeout_error(&err) => {}
+                Err(err) if is_timeout_error(&err) =>
+                {
+                    #[cfg(test)]
+                    if let Some(connection) = &connection {
+                        connection.emit_read_timeout(frame.buffered_bytes());
+                    }
+                }
                 Err(err) if is_expected_disconnect_error(&err) => {
                     if let Some(connection) = &connection {
                         connection.set_close_reason(
@@ -883,6 +912,7 @@ impl ViewerRuntimeLiveServer {
             let driven = {
                 let mut server = lock_shared_server(&shared)?;
                 agent_presence.observe(&mut server, &session);
+                server.publish_live_control_state(&mut session, &mut output, None, false)?;
                 if server.authoritative_recovery_write_fence.is_none()
                     && server.config.world_service.is_none()
                 {

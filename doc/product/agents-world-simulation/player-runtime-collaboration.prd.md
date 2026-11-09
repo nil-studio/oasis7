@@ -8,7 +8,7 @@
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
 - 专业域权威：[Continuous Harness](../../world-simulator/llm/continuous-agent-harness.prd.md)、[Runtime lifecycle](../../world-runtime/runtime/agent-cognition-lifecycle.prd.md)、[Viewer](../../world-simulator/viewer/README.md)
-- Last reviewed：2026-10-10
+- Last reviewed：2026-11-04
 
 本文细化[外部 Runtime 游玩](external-agent-runtime-play.prd.md)中的目标应用、玩家指导与持续执行：Web/桌面玩家如何把目标交给 OpenClaw/Codex，如何得到回应、处理授权并在离线后继续。本文只定义产品合同，不表示消息通道、适配器、托管执行或真实协作已经实现。
 
@@ -74,7 +74,7 @@
 | COL-F-008 | 回复关联与过时问题处理 | 回答绑定原问题，旧目标的问题不会自动改变新任务 | 首期协作 | [REQ-COLLAB-004](#req-collab-004) / [AC-COLLAB-004](#ac-collab-004) |
 | COL-F-009 | 超范围决策申请 | Runtime 提出有对象、成本、风险和有效期的授权请求 | 首期协作 | [REQ-COLLAB-005](#req-collab-005) / [AC-COLLAB-005](#ac-collab-005) |
 | COL-F-010 | 批准、拒绝、过期与撤销反馈 | 只有当前有效决定可以授权后续行动，拒绝或不回复不默认同意 | 首期协作 | [REQ-COLLAB-005](#req-collab-005) / [AC-COLLAB-005](#ac-collab-005) |
-| COL-F-011 | 离线消息与任务恢复 | 离开后回来不丢当前目标、未答问题、未决申请与世界结果 | 首期协作 | [REQ-COLLAB-006](#req-collab-006) / [AC-COLLAB-006](#ac-collab-006) |
+| COL-F-011 | 离线消息与任务恢复 | 离开后回来不丢当前目标、未完问答（含已答待处理）、未决申请与世界结果 | 首期协作 | [REQ-COLLAB-006](#req-collab-006) / [AC-COLLAB-006](#ac-collab-006) |
 | COL-F-012 | 重复、迟到与事件缺口恢复 | 消息可补送但不重复改变目标、批准或世界效果 | 首期协作 | [REQ-COLLAB-006](#req-collab-006) / [AC-COLLAB-006](#ac-collab-006) |
 | COL-F-013 | 执行可用性与唤醒条件 | 能区分服务可连、等待执行方、正在决策和等待世界结果 | 首期协作 | [REQ-COLLAB-007](#req-collab-007) / [AC-COLLAB-007](#ac-collab-007) |
 | COL-F-014 | 停止与执行方重新接入 | 停止新的委托工作但保留待决结果；重启或交接后先核对再继续 | 首期协作 | [REQ-COLLAB-007](#req-collab-007) / [AC-COLLAB-007](#ac-collab-007) |
@@ -115,7 +115,7 @@
 
 单次 CLI 会话结束、执行器停止或机器关闭后，不承诺仍产生新决策，也不由网页静默启动本机程序。界面应区分“最近通信正常”“执行状态未知”“等待执行方”“正在决策”和“等待世界/玩家”，并标明状态时效；一次健康检查成功不能证明 Agent 正在工作。
 
-消息补送不承诺传输层永不重复。接收侧应按稳定关联去重，重复回复、确认、批准不能产生第二个语义效果；同一消息身份对应不同内容应拒绝并提示冲突。游标失效或事件历史有缺口时，重新获取当前目标、委托、未答问题、待决申请与权威结果，并明确缺口，不能假称“没有新事件”。
+消息补送不承诺传输层永不重复。接收侧应按稳定关联去重，重复回复、确认、批准不能产生第二个语义效果；同一消息身份对应不同内容应拒绝并提示冲突。游标失效或事件历史有缺口时，重新获取当前目标、委托、未完问答（含已答但尚未完成处理的答案）、待决申请与权威结果，并明确缺口，不能假称“没有新事件”。
 
 Runtime 重启或交接先校验当前执行方资格，取最新目标与未决结果再继续；过时目标保留历史但不依次重演。停止后续委托应阻止新的受限提交，不删除消息或回执，已有 pending 先核对；恢复资格需重新检查，不能以旧已读、旧批准或 session 恢复替代授权。
 
@@ -127,12 +127,15 @@ Runtime 重启或交接先校验当前执行方资格，取最新目标与未决
 Trace ID: O7-REQ-62007da5-b12a-4b8c-98bb-82ab53a35069
 
 - 功能点：[REQ-COLLAB-001](#req-collab-001)；适用范围沿本条原条件与 [AC-COLLAB-001](#ac-collab-001)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-binding)覆盖唯一任务/执行方、旧fence隔离和私有受众；同文件需求承接/验证表反链本条AC。剩余：Web/桌面共享可恢复任务、当前执行方显示与快照/恢复的双表面消费尚需精确组合承接；不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[唯一任务、当前执行方与权限](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-binding)及[双表面同任务的完整消费与恢复](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-shared-surfaces)按原 Trace 接收 Web/native 的同一 world/Agent/task、当前 executor、完整同切点基线与 after-S、当前受众及旧 fence 隔离。两端回访分别重新取得合法完整状态，身份或执行方变化不拼旧页、不续旧写权，也不新建任务或抹历史；设计覆盖不代表实现或发布。
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L295)：原生TaskControl/executor fence与私有context主体绑定；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余Web/native协作显示、完整TaskSnapshot与跨客户端隐私，不推导端到端完成。
 - 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：Web/桌面共享可恢复任务、当前执行方显示与快照/恢复的双表面消费尚需精确组合承接；实现/验证：Web/native协作显示、完整TaskSnapshot与跨客户端隐私。
+- 剩余范围：设计已准确组合接收原绑定、快照/恢复与双表面消费者；实现/验证仍为Web/native协作显示、完整TaskSnapshot与跨客户端隐私，须按实际声明组合取得同候选证据，不能以单端截图或两份无关联样例代签。
+
+- 设计验证方法：[同任务双表面绑定与交接](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-bind)分别核合法回访、E1→E2、分页中 authority/goal/fence 变化、错身份/Agent/旧执行方和原 operation 连续性；同案对比准确主体与时点，组件 fixture 与正式双端证据分开。
+- 设计补核日期与基线：2026-11-05；已合入 main `b3658f94a7755fc766fbefe95e83a24566e6068c` 及本次专业接收。原历史实现、候选与 cleanup 失败记录不变；本次静态审阅，未运行 Runtime、浏览器、游戏或真人验收。
 
 - 要求：Web/桌面玩家与外部 Runtime 必须共享可恢复的世界、Agent、任务及执行绑定，显示当前合法执行方；未经授权的其他客户端、Agent 或旧执行方不能读取私有协作内容、修改目标或提交新行动。
 - 理由：跨设备继续不依赖原聊天窗口，也不能因此扩大权限。
@@ -211,12 +214,13 @@ Trace refs: O7-REQ-b100c55e-5c35-46dc-aaf6-e66c02b323d8；承接[REQ-COLLAB-003]
 Trace ID: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a
 
 - 功能点：[REQ-COLLAB-004](#req-collab-004)；适用范围沿本条原条件与 [AC-COLLAB-004](#ac-collab-004)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业设计](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-content)§5.3承接问答身份与旧回答不授权，§6.1和§7.2承接同切点snapshot/after-S增量与先持久化inbox再确认；逐条后续处理确认的完整语义仍需核对，维持部分覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[逐条问答交付](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-question-delivery)、[Game API 问答合同](../../world-simulator/llm/external-agent-game-api.design.md#api-question-delivery)与[执行器消费](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-question-delivery)定义双向角色、服务保存/接收报告/处理报告、竞答与幂等、当前归属和失效，并承接未完线程恢复与消费者。此为目标设计覆盖，不证明两个 Runtime 或 Web/桌面问答已经可用。
+- 产品表达与验证方法：[玩家问答表达](player-runtime-collaboration.design.md#collaboration-question-delivery)与[逐条交付核验](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery)分别承接界面正文和成功/失败/恢复方法；当前态恢复同时消费 COLLAB-006 的[同切点分页](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-snapshot-pages)。
 - 实现状态：未核实
 - 实现与验证依据：[私有路由分派](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_goal.rs#L380-L431)与[共享存储实际schema](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_client_api/src/world_service/client_state.rs#L8-L27)的真实身份是context operation，既有GoalExecutionSnapshot为控制/完整目标/授权观察，未承载question_id/message_id/in_reply_to集合；[实际HTTP读面](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_viewer_runtime/src/game_read_api.rs#L124-L156)仅消费当前task-control。迁移后的private_goal_store/client_state直接委托oasis7_client_storage，保留原prepare签名及操作恢复，而非协作inbox。[两Runtime声明profile](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/doc/world-simulator/llm/external-agent-runtime-adapter.design.md#L71-L79)各自仍需绑定声明profile到实际问答producer/consumer；普通chat、PromptControl ack与Skill自然语言汇报不充当该链。
 - 核对日期与基线：2026-10-17；状态卡按 A `0901927131b3e7c919fc6b092e77ae8895579989`，静态生产源码固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`，22个引用/闭包源逐 Git blob 校验；另比较 `5d503f0ca79bcc68708a32672a48a2786ad51395` 迁移前源码。未运行模型、Runtime、浏览器或行为验收，未把测试源码当本轮PASS。
-- 剩余范围：已查清迁移不增加问答存储/确认；仍需两个Runtime各自问题/回答生产、持久inbox及接收/后续处理ack、goal revision旧消息隔离和Web/桌面读取闭包。未穷尽其他adapter，不能把当前native切片的缺项判作整条未实现。
+- 剩余范围：设计：本条的接收、后续处理及恢复已由上述专业合同承接，设计审读基线为 `a23bc41943893da72dbbd78df65214a8a0ae964c`（2026-11-04）。实现/验证：仍需两个 Runtime 各自问题/回答生产、持久 inbox 与回执、完整未完线程快照、旧消息隔离和 Web/桌面读取闭包；上列历史实现证据保持原范围。未穷尽其他 adapter，不将当前 native 子集缺项判作整条未实现。
 
 - 要求：玩家与 Runtime 必须能围绕同一任务提出问题、回复并核对接收/后续处理；回答绑定原问题及适用目标，已过时问题或普通聊天不得自动改写目标、批准权限或产生世界动作。
 - 理由：异步协作不依赖玩家与模型同时在线，也不把自然语言回复当作授权凭据。
@@ -232,6 +236,8 @@ Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；承接[REQ-COLLAB-004]
 - 给定：Runtime 提问后离线、玩家从另一表面回复，以及目标已变更的问题和无权回复者。
 - 当：执行方恢复读取，并重复取得同一回复。
 - 则：回复只进入原任务且不重复产生效果，过时问题标明需重评估；无权回复被拒绝，聊天“同意”不变成授权或持续目标修改。
+
+接收和处理须分别验证：答案已保存但尚未处理时，即使增量窗口已压缩，完整当前快照仍能恢复原线程；两个设备竞答或保存/回执响应丢失不会覆盖原答案或生成第二次语义效果。玩家窗口收到不等于人已查看，执行器报告处理不等于模型理解或世界成功；Stop、失权和旧执行方回执不能恢复已撤销的权限。
 
 <a id="req-collab-005"></a>
 ### REQ-COLLAB-005：关键选择必须通过可追踪的有效授权协作
@@ -272,9 +278,9 @@ Trace ID: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L322)：原prepare及原签名行动安全恢复；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余未答问题/待决审批的快照分页、补送与重复批准，不推导端到端完成。
 - 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：本条范围及主要失败边界已有专业承接；实现/验证：未答问题/待决审批的快照分页、补送与重复批准。
+- 剩余范围：设计：本条范围及主要失败边界已有专业承接；实现/验证：未完问答（含已答待处理）/待决审批的快照分页、补送与重复批准。
 
-- 要求：双方断线后必须能恢复当前目标、委托、未答问题、待决申请及世界结果，并识别重复、迟到、过时和历史缺口；消息补送不得导致重复批准、旧目标复活或第二次世界效果。
+- 要求：双方断线后必须能恢复当前目标、委托、未完问答（含已答待处理）、待决申请及世界结果，并识别重复、迟到、过时和历史缺口；消息补送不得导致重复批准、旧目标复活或第二次世界效果。
 - 理由：持续协作需要可信的当前状态，而不是机械重放所有历史消息。
 - 上位承诺：[根 SC-14](prd.md#external-runtime-play)；消费[断连恢复](external-agent-runtime-play.prd.md#req-ext-008)。
 - 验收：[AC-COLLAB-006](#ac-collab-006)。
@@ -295,12 +301,15 @@ Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；承接[REQ-COLLAB-006]
 Trace ID: O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685
 
 - 功能点：[REQ-COLLAB-007](#req-collab-007)；适用范围沿本条原条件与 [AC-COLLAB-007](#ac-collab-007)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-runtime-journey)已承接同任务真实Runtime组合验收场景；同文件需求承接/验证表反链本条AC。剩余：实际driver启动/等待唤醒/恢复与协作fence的运行设计组合仍须核对；collab-runtime-journey为同任务验收设计，不代替完整运行合同。 不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[实际 Runtime 的运行合同组合](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-runtime-operation)及[同任务异步协作经历](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-runtime-journey)按原 Trace 接收真实 driver/用户启动、控制与决策循环、等待/唤醒、有限预算、观战/执行方/任务/世界四层事实、Stop/offline 更新与当前资格恢复。运行合同沿已有 adapter/Game API 消费，验收另核各真实 Runtime；不将 journey 方法本身当作已启动执行方，设计覆盖不代表实现或发布。
 - 实现状态：部分实现
 - 实现与验证依据：[交付 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定静态源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L295)核实原生当前executor fence读回/校验及消费。历史prepared-world固定候选 `b59d010556e39beaf1928eb1e95aa9aad099e180` 的两次真实目标决策、正式Skill使用及原结果回放只由[历史运行记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)支持；其中原cleanup失败保持不变，不能外推当前main或完整首局。剩余每个Runtime持续运行、等待/唤醒、离线更新和组合恢复，不推导端到端完成。
 - 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：实际driver启动/等待唤醒/恢复与协作fence的运行设计组合仍须核对；collab-runtime-journey为同任务验收设计，不代替完整运行合同；实现/验证：每个Runtime持续运行、等待/唤醒、离线更新和组合恢复。
+- 剩余范围：设计已准确接收原 driver、控制循环、等待/唤醒、恢复和协作 fence 的完整关系；实现/验证仍为每个Runtime持续运行、等待/唤醒、离线更新和组合恢复，真实版本/环境与声明表面分别取证，保留历史样本原范围和失败事实。
+
+- 设计验证方法：[同任务真实异步协作](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-session)复用原 adapter-loop、adapter-liveness、adapter-private-context-recovery 与 collab-executor 方法，在同一任务关联关闭观战、Stop、离线 G2、E2 重启、问答、明确授权及唯一世界效果；OpenClaw 与 Codex 各自取得原范围证据。
+- 设计补核日期与基线：2026-11-05；已合入 main `b3658f94a7755fc766fbefe95e83a24566e6068c` 及本次专业接收。原历史实现、候选与 cleanup 失败记录不变；本次静态审阅，未运行 Runtime、浏览器、游戏或真人验收。
 
 - 要求：每个受支持 Runtime 组合必须提供实际启动、接收更新、等待/唤醒与恢复路径，准确区分观战连接、执行方可用性、任务状态和世界状态；执行方停止后不得承诺新决策，停止或替换执行方必须保留世界历史并重新核验资格。
 - 理由：Skill 是说明而非常驻进程，关闭 GUI 与关闭执行方是不同操作。

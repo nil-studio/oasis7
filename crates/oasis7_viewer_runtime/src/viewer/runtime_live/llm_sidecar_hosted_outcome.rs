@@ -7,6 +7,7 @@ impl RuntimeLlmSidecar {
         &mut self,
         world: &RuntimeWorld,
     ) -> Result<Option<async_support::RuntimeLlmDecision>, String> {
+        self.checkpoint_hosted_outcomes()?;
         let Some(runner) = self
             .runner
             .as_mut()
@@ -47,6 +48,8 @@ impl RuntimeLlmSidecar {
                     .ok_or("hosted provider outcome missing response artifact")?,
                 cognition_lease: Some(lease),
                 memory_write_intents: outcome.memory_write_intents.clone(),
+                provider_original_material_refs: outcome.provider_original_material_refs.clone(),
+                provider_response_context_lease: outcome.provider_response_context_lease,
             };
             let decision = async_support::RuntimeLlmDecision {
                 agent_id: outcome.agent_id,
@@ -58,9 +61,11 @@ impl RuntimeLlmSidecar {
                 memory_write_intents: outcome.memory_write_intents,
                 continuation_admitted: false,
             };
-            self.provider_completed_decisions.push_back(decision);
+            self.retain_hosted_outcome(decision);
         }
-        self.persist_provider_lineage()?;
+        // An empty poll cannot renew the publication fence immediately after
+        // its ACK. Newly captured original outcomes still publish before use.
+        self.checkpoint_hosted_outcomes()?;
         let Some(decision) = self.provider_completed_decisions.front() else {
             return Ok(None);
         };
@@ -71,6 +76,29 @@ impl RuntimeLlmSidecar {
             return Err("hosted provider outcome validation failed; original turn retained".into());
         }
         Ok(Some(decision.clone()))
+    }
+
+    fn retain_hosted_outcome(&mut self, decision: async_support::RuntimeLlmDecision) {
+        self.provider_completed_decisions.push_back(decision);
+        // Set immediately: a later outcome may fail validation before the
+        // end-of-batch checkpoint. The already captured original stays pending.
+        self.hosted_outcome_checkpoint_pending = true;
+    }
+
+    fn checkpoint_hosted_outcomes(&mut self) -> Result<(), String> {
+        if self.hosted_outcome_checkpoint_pending {
+            self.persist_provider_lineage()?;
+            self.hosted_outcome_checkpoint_pending = false;
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(in crate::viewer::runtime_live) fn test_retain_hosted_outcome(
+        &mut self,
+        decision: async_support::RuntimeLlmDecision,
+    ) {
+        self.retain_hosted_outcome(decision);
     }
 
     pub(in crate::viewer::runtime_live) fn retire_hosted_provider_outcome(

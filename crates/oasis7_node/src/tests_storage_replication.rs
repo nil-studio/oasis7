@@ -20,6 +20,8 @@ mod storage_replication_high_checkpoint_timeout_tests;
 mod storage_replication_peer_head_tests;
 #[path = "tests_storage_replication_progress.rs"]
 mod storage_replication_progress_tests;
+#[path = "tests_storage_replication_diagnostics.rs"]
+mod storage_replication_diagnostics;
 #[path = "tests_storage_replication_recovery.rs"]
 mod storage_replication_recovery_tests;
 
@@ -781,7 +783,9 @@ fn runtime_gossip_replication_with_signature_applies_files() {
     let files = store_b.list_files().expect("list files");
     assert!(
         replicated,
-        "expected signed gossip replication to apply commit files, got {files:?}"
+        "expected signed gossip replication to apply commit files, got {files:?}; a={} b={}",
+        storage_replication_diagnostics::summary(&runtime_a, &dir_a),
+        storage_replication_diagnostics::summary(&runtime_b, &dir_b)
     );
 
     runtime_a.stop().expect("stop a");

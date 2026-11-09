@@ -16,6 +16,7 @@ pub(super) fn schemas() -> Value {
         "ClientPairingBindingV1":schemars::schema_for!(ClientPairingBindingV1),
         "TestSessionBasisRequestV1":schemars::schema_for!(TestSessionBasisRequestV1),
         "TestSessionBasisV1":schemars::schema_for!(TestSessionBasisV1),
+        "TestSessionBasisResponseV1":schemars::schema_for!(TestSessionBasisResponseV1),
         "TestSessionPrepareRequestV1":schemars::schema_for!(TestSessionPrepareRequestV1),
         "TestSessionPrepareResponseV1":schemars::schema_for!(TestSessionPrepareResponseV1),
         "TestSessionApproveRequestV1":schemars::schema_for!(TestSessionApproveRequestV1),
@@ -188,6 +189,8 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
         allowed_resource_refs: serde_json::from_value(intent["allowed_resource_refs"].clone())
             .unwrap(),
     };
+    let basis_response = TestSessionBasisResponseV1::new(basis.clone()).unwrap();
+    basis_response.validate().unwrap();
     let plan = session_plan_fixture(&basis, &created, &intent);
     plan.validate().unwrap();
     let prepare = TestSessionPrepareRequestV1 {
@@ -232,7 +235,7 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
     closing.stop_status = TestSessionTerminationStatusV1::Unknown;
     closing.pending_operations = vec!["stop-one".into()];
     fixtures.as_object_mut().unwrap().extend(
-    json!({"TestSessionBasisRequestV1":[TestSessionBasisRequestV1{api_version:1,request_id:basis.request_id.clone(),enrollment_id:"enrollment-one".into(),cleanup_until:UnixMillis::new(601000)}],"TestSessionBasisV1":[basis],"TestSessionPrepareRequestV1":[prepare],"TestSessionPrepareResponseV1":[options],"TestSessionApproveRequestV1":[approve],"TestSessionContinueRequestV1":[TestSessionContinueRequestV1{api_version:1,session_id:"session-one".into()}],"TestSessionProgressV1":[progress,active,closing]}).as_object().unwrap().clone());
+    json!({"TestSessionBasisRequestV1":[TestSessionBasisRequestV1{api_version:1,request_id:basis.request_id.clone(),enrollment_id:"enrollment-one".into(),cleanup_until:UnixMillis::new(601000)}],"TestSessionBasisV1":[basis],"TestSessionBasisResponseV1":[basis_response],"TestSessionPrepareRequestV1":[prepare],"TestSessionPrepareResponseV1":[options],"TestSessionApproveRequestV1":[approve],"TestSessionContinueRequestV1":[TestSessionContinueRequestV1{api_version:1,session_id:"session-one".into()}],"TestSessionProgressV1":[progress,active,closing]}).as_object().unwrap().clone());
     fixtures
 }
 

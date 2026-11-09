@@ -119,6 +119,9 @@ impl NodeRuntime {
                 node_id: self.config.node_id.clone(),
             });
         }
+        if let Some(selected) = &self.bft_v3_config {
+            selected.rotation_requests.close();
+        }
         let (_, committed_signal) = &*self.committed_action_batches;
         committed_signal.notify_all();
         if let Some(stop_tx) = self.stop_tx.take() {
@@ -161,6 +164,9 @@ impl NodeRuntime {
 
 impl Drop for NodeRuntime {
     fn drop(&mut self) {
+        if let Some(selected) = &self.bft_v3_config {
+            selected.rotation_requests.close();
+        }
         if self.worker.is_some() {
             if let Some(stop_tx) = self.stop_tx.take() {
                 let _ = stop_tx.send(());

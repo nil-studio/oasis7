@@ -60,6 +60,26 @@ jobs:
             echo "matrix=${matrix}"
           } >> "${GITHUB_OUTPUT}"
 
+  full-regression-qualification:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require complete CI for the exact package source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA"
+
   release_gate_runtime_core:
     name: release-gate-runtime-core
     needs: plan
@@ -121,7 +141,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -198,7 +218,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -265,7 +285,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -412,7 +432,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -766,6 +786,7 @@ jobs:
       - plan
       - package-native
       - build-web-dist
+      - full-regression-qualification
     runs-on: ubuntu-24.04
     steps:
       - name: Download mainnet package artifacts

@@ -52,6 +52,32 @@ impl TestSessionBasisV1 {
         digest(&("oasis7.custody.test-session-basis.v1", self))
     }
 }
+/// Closed management response. The digest is produced by Rust and echoed into
+/// the plan; consistency alone is not an authority or approval grant.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestSessionBasisResponseV1 {
+    pub basis: TestSessionBasisV1,
+    pub basis_digest: String,
+}
+impl TestSessionBasisResponseV1 {
+    pub fn new(basis: TestSessionBasisV1) -> Result<Self> {
+        let basis_digest = basis.digest()?;
+        Ok(Self {
+            basis,
+            basis_digest,
+        })
+    }
+    /// Checks only the metadata commitment. Current authority remains checked
+    /// by the management and prepare paths, never by this response wrapper.
+    pub fn validate(&self) -> Result<()> {
+        if self.basis_digest != self.basis.digest()? {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+}
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -329,7 +329,8 @@ impl World {
                 | GovernanceEvent::ValidatorAdmissionSubmitted { .. }
                 | GovernanceEvent::ValidatorAdmissionApproved { .. }
                 | GovernanceEvent::ValidatorAdmissionActivated { .. }
-                | GovernanceEvent::ValidatorAdmissionRevoked { .. }),
+                | GovernanceEvent::ValidatorAdmissionRevoked { .. }
+                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }),
             ) => Some(PreparedEventStateDelta::GovernanceRegistry(
                 self.prepare_governance_registry_event(event)?,
             )),
@@ -339,6 +340,7 @@ impl World {
                 | CapabilityAuthorizationEvent::AuthorityInstalledWithProof { .. }
                 | CapabilityAuthorizationEvent::AgentIdentityInstalled { .. }
                 | CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { .. }
+                | CapabilityAuthorizationEvent::TaskTerminalRecordedV2 { .. }
                 | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }
                 | CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { .. }
                 | CapabilityAuthorizationEvent::SafeAlternativeOutcomeRecorded { .. }

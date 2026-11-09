@@ -93,6 +93,7 @@ impl RuntimeLlmSidecar {
                     .and_then(|view| view.runtime_binding.as_ref())
                     .ok_or("canonical scheduler settlement requires verified current binding")?
             };
+            let sign_phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(48);
             let signed = sign_read_request(
                 "scheduler",
                 SchedulerIntentV1 {
@@ -118,6 +119,7 @@ impl RuntimeLlmSidecar {
                 },
                 &signer.private_key_hex,
             )?;
+            drop(sign_phase);
             let payload = WorldServicePayloadV1::Scheduler(signed);
             let correlation =
                 crate::world_service::derive_correlation(config.expected_world.clone(), &payload)?;
@@ -127,8 +129,15 @@ impl RuntimeLlmSidecar {
                 correlation,
                 payload,
             };
-            self.provider_scheduler_pending.insert(id, pending.clone());
-            self.persist_provider_lineage()?;
+            self.provider_scheduler_pending
+                .insert(id.clone(), pending.clone());
+            if let Err(error) = self.persist_provider_lineage() {
+                // No transport may observe a newly prepared capsule before
+                // persistence succeeds. Do not let same-process retry mistake
+                // this in-memory-only original for an existing durable intent.
+                self.provider_scheduler_pending.remove(&id);
+                return Err(error);
+            }
             pending
         };
         Ok((pending, existing.is_some()))

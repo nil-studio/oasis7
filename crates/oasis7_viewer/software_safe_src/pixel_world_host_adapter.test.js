@@ -18,11 +18,15 @@ describe("pixel world host adapter lifecycle", () => {
   it("ignores old runtime events and failures after a newer mount", async () => {
     const callbacks = []; const first = runtime(), second = runtime();
     mock.load = async options => { callbacks.push(options); return callbacks.length === 1 ? first : second; };
-    const select = vi.fn(), fatal = vi.fn(); const adapter = createPixelWorldHostAdapter({onSelectEntity:select,onFatal:fatal});
+    const select = vi.fn(), fatal = vi.fn(), navigation = vi.fn(); const adapter = createPixelWorldHostAdapter({onSelectEntity:select,onFatal:fatal,onNavigationResult:navigation});
     await adapter.mount({}, {}); await adapter.mount({}, {});
     callbacks[0].onEvent({type:"select_entity",selection:{kind:"agent",id:"old"}});
     callbacks[0].onFatal({code:"late_failure"});
+    callbacks[0].onEvent({type:"navigation_result",request_id:'1',status:'applied',render_version:1});
     expect(select).not.toHaveBeenCalled(); expect(fatal).not.toHaveBeenCalled();
+    expect(navigation).not.toHaveBeenCalled();
+    const result={type:"navigation_result",request_id:'2',status:'applied',render_version:2};
+    callbacks[1].onEvent(result);expect(navigation).toHaveBeenCalledWith(result);
     expect(first.bridge.unmount).toHaveBeenCalled();
   });
   it("does not resurrect a render result when mount resolves after scope invalidation", async () => {

@@ -1,18 +1,36 @@
 #!/usr/bin/env python3
 """Real, offline Cargo fixtures for RG-A01 through RG-A04 (no Cargo stubs)."""
 import importlib.util
+import copy
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('architecture', HERE / 'cargo-dev-architecture.py')
 checker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
+
+
+class RepositoryUpstreams(unittest.TestCase):
+    def test_markdown_rules_reference_defined_anchors(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        for rule in rules:
+            path, anchor = rule['upstream'].split('#')
+            if not path.endswith('.md'):
+                continue
+            with self.subTest(rule=rule['key'], upstream=rule['upstream']):
+                source = (HERE.parent / path).read_text(encoding='utf-8')
+                anchors = set(re.findall(r'<a\s+(?:id|name)=["\']([^"\']+)["\']', source))
+                for heading in re.findall(r'^#{1,6}\s+(.+)$', source, re.MULTILINE):
+                    anchors.add(re.sub(r'[^\w\- ]', '', heading.strip()).lower().replace(' ', '-'))
+                self.assertIn(anchor, anchors, 'upstream must name a defined anchor, not a historical link')
 
 
 class CargoBoundaries(unittest.TestCase):
@@ -438,6 +456,290 @@ class CargoBoundaries(unittest.TestCase):
         check_error()  # real Cargo resolver error
         self.package('root', '[dependencies]\nnot_cached_5023="=999.0.0"\n')
         check_error()  # real offline resolution failure
+
+
+class OrdinaryTargetBuildPolicy(unittest.TestCase):
+    write = CargoBoundaries.write
+    package = CargoBoundaries.package
+    command = CargoBoundaries.command
+
+    def setUp(self):
+        CargoBoundaries.setUp(self)
+        self.write('.gitignore', '/target/\n')
+        self.runtime_manifest = ('[package]\nname="oasis7_runtime"\nversion="0.1.0"\nedition="2024"\n'
+                                 '[features]\ndefault=[]\ntest_tier_required=[]\n')
+        self.write('middle/Cargo.toml', self.runtime_manifest)
+        self.write('middle/src/lib.rs', '#[cfg(test)] mod tests { #[test] fn fast_contract() { assert_eq!(2 + 2, 4); } }\n')
+        self.write('other/Cargo.toml', '[package]\nname="oasis7_custody"\nversion="0.1.0"\nedition="2024"\n')
+        self.consumer_manifest = ('[dependencies]\nruntime={package="oasis7_runtime",path="../middle"}\n'
+                                  '[features]\ndefault=[]\nfull=[]\ntest-support=[]\nwasmtime=[]\n')
+        self.package('root', self.consumer_manifest)
+        self.rule['profiles'] = [
+            dict(id='native', target='host', default_features=False, features=[], mode='production'),
+            dict(id='full', target='host', default_features=True, features=['full'], mode='production'),
+            dict(id='tests', target='host', default_features=False, features=['test-support'], mode='test'),
+            dict(id='wasmtime', target='host', default_features=False, features=['wasmtime'], mode='production'),
+            dict(id='wasm', target='wasm32-unknown-unknown', default_features=False, features=[], mode='production')]
+        self.rule['required_profiles'] = [profile['id'] for profile in self.rule['profiles']]
+        self.config = dict(revision=1, rules=[self.rule])
+        self.commit()
+
+    def commit(self):
+        self.command('cargo', 'generate-lockfile', '--offline')
+        self.command('git', 'add', 'Cargo.toml', 'Cargo.lock', '.gitignore', 'owner.md',
+                     'root', 'middle', 'forbidden', 'other')
+        self.command('git', '-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture',
+                     'commit', '--allow-empty', '-qm', 'committed architecture inputs')
+        self.sha = self.command('git', 'rev-parse', 'HEAD').strip()
+
+    def plan(self):
+        return dict(fast_plan_version=1, fast_execution_version=1, execution_profile='pr-fast', scope='targeted',
+                    ordinary_execution='inline', ordinary_clippy_group='rust_baseline',
+                    groups=['baseline', 'rust_baseline', 'oasis7_required'], rust_baseline_checks=[],
+                    source_sha=self.sha, tested_sha=self.sha, policy_sha=self.sha, test_policy_changed=False,
+                    fast_plan_exceptions=[], formal_suites=[], oasis7_required_wasm_packages=[],
+                    oasis7_required_packages=['oasis7_runtime'], fast_test_inventory_version=1,
+                    ordinary_fast_targets=[dict(package='oasis7_runtime', target_kind='lib',
+                        target_name='oasis7_runtime', default_features=False,
+                        features=['test_tier_required'], cases=['tests::fast_contract'])],
+                    architecture=dict(version=1, mode='targeted', packages=['oasis7_runtime'],
+                        base=self.sha, source=self.sha, tested=self.sha,
+                        build_policy_version=1, build_policy='ordinary-targets'))
+
+    def inspect(self, plan=None, **options):
+        with patch.dict(os.environ, SOURCE_SHA=self.sha):
+            return checker.inspect(self.root, self.config, plan=self.plan() if plan is None else plan, **options)
+
+    def cli(self, plan, *args, **environment):
+        self.write('rules.json', json.dumps(self.config))
+        return subprocess.run([sys.executable, str(HERE / 'cargo-dev-architecture.py'), '--repo-root', str(self.root),
+            '--rules', str(self.root / 'rules.json'), '--plan', json.dumps(plan), *args], text=True, capture_output=True,
+            env=dict(os.environ, SOURCE_SHA=self.sha) | environment)
+
+    def test_real_fast_target_passes_while_full_only_and_upper_consumer_errors_are_deferred(self):
+        for source in ('#[cfg(feature="full")] compile_error!("full compatibility sentinel");\n',
+                       'compile_error!("upper consumer compatibility sentinel");\n'):
+            self.write('root/src/lib.rs', source)
+            self.commit()
+            fast = self.command('cargo', 'test', '--offline', '--locked', '-p', 'oasis7_runtime', '--lib',
+                                '--no-default-features', '--features', 'test_tier_required')
+            self.assertIn('1 passed', fast)
+            report = self.inspect()
+            self.assertEqual(report['timings']['graph_profiles'], 5)
+            self.assertEqual(report['timings']['build_profiles'], 0)
+            self.assertEqual(report['timings']['deferred_build_profiles'], 5)
+            builds = [row for row in report['results'] if row.get('view') == 'build']
+            self.assertEqual({row['status'] for row in builds}, {'deferred_to_full'})
+            self.assertTrue(all(row['deferred_command'][:2] == ['cargo', 'check'] for row in builds))
+            self.assertFalse(any(command[:2] == ['cargo', 'check'] for command in report['commands']))
+            self.assertEqual(self.cli(self.plan()).returncode, 0)
+            for profile in ('pr-fast', 'periodic-full', 'candidate-full'):
+                full = self.plan()
+                del full['architecture']['build_policy_version']
+                del full['architecture']['build_policy']
+                if profile != 'pr-fast':
+                    full.update(execution_profile=profile, scope='explicit-full')
+                    full['architecture'].update(mode='full', packages=[])
+                    for key in ('fast_execution_version', 'ordinary_execution', 'ordinary_clippy_group'):
+                        del full[key]
+                report = self.inspect(full)
+                with self.subTest(source=source, profile=profile):
+                    self.assertEqual(report['timings']['build_profiles'], 5)
+                    self.assertEqual(report['timings']['deferred_build_profiles'], 0)
+                    self.assertTrue(any(row['status'] == 'inspection_error' and 'compatibility sentinel' in row['reason']
+                                        for row in report['results']))
+                    self.assertNotEqual(self.cli(full).returncode, 0)
+
+    def test_every_graph_and_forbidden_declaration_remains_blocking(self):
+        cases = ('normal', 'optional', 'target', 'build', 'transitive')
+        for kind in cases:
+            self.write('middle/Cargo.toml', self.runtime_manifest)
+            self.package('root', self.consumer_manifest)
+            if kind == 'transitive':
+                self.write('middle/Cargo.toml', self.runtime_manifest + '[dependencies]\nforbidden={path="../forbidden"}\n')
+            else:
+                table = {'normal': '[dependencies]', 'optional': '[dependencies]',
+                         'target': "[target.'cfg(target_arch = \"wasm32\")'.dependencies]",
+                         'build': '[build-dependencies]'}[kind]
+                addition = '\nrenamed={package="forbidden",path="../forbidden"' + (',optional=true' if kind == 'optional' else '') + '}\n'
+                manifest = self.consumer_manifest.replace('[dependencies]', table + addition, 1) if kind in ('normal', 'optional') else self.consumer_manifest + table + addition
+                self.package('root', manifest)
+                if kind == 'build':
+                    self.write('root/build.rs', 'fn main() {}\n')
+            self.commit()
+            report = self.inspect()
+            with self.subTest(kind=kind):
+                self.assertEqual(report['timings']['graph_profiles'], 5)
+                failures = [row for row in report['results'] if row['status'] == 'violation']
+                self.assertTrue(failures, report)
+                self.assertTrue(any(row['view'] == ('closure' if kind == 'transitive' else 'declaration') for row in failures))
+                self.assertEqual(report['timings']['build_profiles'], 0)
+                self.assertNotEqual(self.cli(self.plan()).returncode, 0)
+
+    def test_unknown_and_dirty_plans_preserve_real_compilation_and_diagnostics_keep_gaps(self):
+        self.write('root/src/lib.rs', 'compile_error!("old matrix sentinel");\n')
+        self.commit()
+        for version in (None, 2):
+            selected = self.plan()
+            if version is None:
+                del selected['architecture']['build_policy_version']
+            else:
+                selected['architecture']['build_policy_version'] = version
+            report = self.inspect(selected)
+            self.assertEqual(report['timings']['build_profiles'], 5)
+            self.assertEqual(report['timings']['deferred_build_profiles'], 0)
+            self.assertTrue(any(row['status'] == 'inspection_error' and 'old matrix sentinel' in row['reason']
+                                for row in report['results']))
+        self.write('root/src/lib.rs', 'compile_error!("dirty matrix sentinel");\n')
+        report = self.inspect()
+        self.assertEqual(report['evidence']['selection']['mode'], 'full')
+        self.assertEqual(report['timings']['build_profiles'], 5)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 0)
+        self.assertTrue(any(row['status'] == 'inspection_error' and 'dirty matrix sentinel' in row['reason'] for row in report['results']))
+        self.commit()
+        for args in (['--graphs-only'], ['--profile', 'native']):
+            result = self.cli(self.plan(), *args)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(any(row['status'] == 'coverage_gap' for row in json.loads(result.stdout)['results']))
+
+    def test_mixed_custody_inputs_cannot_defer_even_when_other_fast_inputs_are_covered(self):
+        selected = self.plan()
+        selected['architecture']['packages'].append('oasis7_custody')
+        with self.assertRaisesRegex(checker.InspectionError, 'every direct architecture input'):
+            self.inspect(selected)
+        del selected['architecture']['build_policy_version']
+        report = self.inspect(selected)
+        self.assertEqual(report['timings']['build_profiles'], 5)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 0)
+
+    def native_consumer_plan(self):
+        self.write('scripts/ci-required-scope.json', json.dumps({'package_groups': {
+            'root': ['distfs', 'net', 'node'], 'oasis7_custody': ['net']}}))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.commit()
+        plan = self.plan()
+        plan['groups'].extend(['distfs', 'net', 'node'])
+        plan['affected_packages'] = ['oasis7_runtime', 'root']
+        plan['architecture']['consumer_groups'] = {group: ['root'] for group in ('distfs', 'net', 'node')}
+        return plan
+
+    def test_native_reverse_consumer_groups_preserve_all_graphs_and_required_jobs(self):
+        selected = self.native_consumer_plan()
+        report = self.inspect(selected)
+        self.assertEqual(set(selected['groups']),
+                         {'baseline', 'rust_baseline', 'oasis7_required', 'distfs', 'net', 'node'})
+        self.assertEqual(report['timings']['graph_profiles'], 5)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 5)
+        self.assertEqual(report['timings']['build_profiles'], 0)
+        self.assertFalse(any(command[:2] == ['cargo', 'check'] for command in report['commands']))
+        self.assertEqual(self.cli(selected).returncode, 0)
+
+    def test_extra_group_proofs_reject_missing_unmapped_duplicate_and_nonconsumer_owners(self):
+        original = self.native_consumer_plan()
+        cases = [None, {}, {'net': ['root']},
+                 {'distfs': ['root'], 'net': [], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['root', 'root'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['missing'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['oasis7_custody'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['oasis7_runtime'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['root'], 'node': ['root'], 'workspace_support': ['root']}]
+        for groups in cases:
+            selected = copy.deepcopy(original)
+            selected['architecture']['consumer_groups'] = groups
+            selected['affected_packages'].extend(['missing', 'oasis7_custody'])
+            with self.subTest(groups=groups), self.assertRaises(checker.InspectionError):
+                self.inspect(selected)
+        for removed in ('net', 'node', 'distfs', 'oasis7_required', 'rust_baseline'):
+            selected = copy.deepcopy(original)
+            selected['groups'].remove(removed)
+            with self.subTest(removed=removed), self.assertRaises(checker.InspectionError):
+                self.inspect(selected)
+        selected = copy.deepcopy(original)
+        selected['affected_packages'] = ['oasis7_runtime']
+        with self.assertRaises(checker.InspectionError):
+            self.inspect(selected)
+
+    def test_native_consumer_proof_uses_pinned_policy_and_actual_cargo_edges(self):
+        original = self.native_consumer_plan()
+        policy = self.sha
+        # A candidate policy cannot lend an absent BASE package/group mapping.
+        self.write('scripts/ci-required-scope.json', json.dumps({'package_groups': {'root': ['consensus']}}))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.commit()
+        selected = self.plan()
+        selected['policy_sha'] = policy
+        selected['groups'].append('consensus')
+        selected['affected_packages'] = ['oasis7_runtime', 'root']
+        selected['architecture']['consumer_groups'] = {'consensus': ['root']}
+        with self.assertRaisesRegex(checker.InspectionError, 'consumer'):
+            self.inspect(selected)
+
+        # Keeping names in the plan does not preserve a removed dependency edge.
+        self.package('root', '[features]\ndefault=[]\nfull=[]\ntest-support=[]\nwasmtime=[]\n')
+        self.commit()
+        selected = self.plan()
+        selected['policy_sha'] = policy
+        selected['groups'] = original['groups']
+        selected['affected_packages'] = original['affected_packages']
+        selected['architecture']['consumer_groups'] = original['architecture']['consumer_groups']
+        with self.assertRaisesRegex(checker.InspectionError, 'consumer'):
+            self.inspect(selected)
+
+    def test_dirty_consumer_dependencies_restore_complete_profile_compilation(self):
+        selected = self.native_consumer_plan()
+        self.package('root', '[features]\ndefault=[]\nfull=[]\ntest-support=[]\nwasmtime=[]\n')
+        self.command('cargo', 'generate-lockfile', '--offline')
+        report = self.inspect(selected)
+        self.assertEqual(report['evidence']['selection']['mode'], 'full')
+        self.assertEqual(report['timings']['graph_profiles'], 5)
+        self.assertEqual(report['timings']['build_profiles'], 5)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 0)
+
+    def test_known_malformed_policy_and_identity_fail_before_any_deferral(self):
+        invalid = [('architecture.build_policy_version', True), ('architecture.build_policy_version', '1'),
+                   ('architecture.version', True), ('architecture.version', 2), ('architecture.mode', 'full'),
+                   ('architecture.build_policy', 'graphs-only'), ('architecture.packages', []),
+                   ('architecture.packages', ['oasis7_runtime', 'oasis7_runtime']),
+                   ('architecture.source', '0' * 40), ('architecture.tested', '0' * 40),
+                   ('source_sha', '0' * 40), ('tested_sha', '0' * 40),
+                   ('groups', ['baseline', 'oasis7_required']), ('groups', ['baseline', 'rust_baseline']),
+                   ('groups', ['baseline', 'rust_baseline', 'oasis7_required', 'workspace_support']),
+                   ('ordinary_fast_targets', []), ('ordinary_clippy_group', 'other'),
+                   ('ordinary_execution', 'artifact'), ('fast_execution_version', 2),
+                   ('execution_profile', 'periodic-full'), ('scope', 'full'),
+                   ('test_policy_changed', True), ('fast_plan_exceptions', ['necessary check']),
+                   ('formal_suites', ['storage-recovery']), ('oasis7_required_wasm_packages', ['oasis7_viewer_runtime'])]
+        for field, value in invalid:
+            selected = self.plan()
+            container, key = (selected['architecture'], field.split('.')[1]) if '.' in field else (selected, field)
+            container[key] = value
+            with self.subTest(field=field, value=value), self.assertRaises(checker.InspectionError):
+                self.inspect(selected)
+        for field in ('source_sha', 'tested_sha'):
+            selected = self.plan()
+            del selected[field]
+            result = self.cli(selected)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout)['results'][0]['status'], 'inspection_error')
+        selected = self.plan()
+        selected['source_sha'] = selected['architecture']['source'] = '0' * 40
+        with self.assertRaisesRegex(checker.InspectionError, 'identity mismatch: source'):
+            self.inspect(selected)
+
+    def test_preview_identity_uses_validated_source_env_and_unaffected_profiles_stay_unrequired(self):
+        self.write('event.json', json.dumps({'pull_request': {'head': {'sha': 'f' * 40}}}))
+        result = self.cli(self.plan(), GITHUB_EVENT_PATH=str(self.root / 'event.json'), GITHUB_WORKSPACE=str(self.root))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['evidence']['source_sha'], self.sha)
+        rule = copy.deepcopy(self.rule)
+        rule.update(key='unaffected', roots=[dict(name='oasis7_custody', source=None)],
+                    profiles=[dict(id='native', target='host', default_features=False, features=[], mode='production')],
+                    required_profiles=['native'])
+        self.config['rules'].append(rule)
+        report = self.inspect()
+        build = next(row for row in report['results'] if row['rule'] == 'unaffected' and row.get('view') == 'build')
+        self.assertEqual(build['status'], 'not_required')
+        self.assertEqual(report['timings']['graph_profiles'], 6)
 
 
 if __name__ == '__main__':

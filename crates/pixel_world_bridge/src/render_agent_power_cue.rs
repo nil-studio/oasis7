@@ -170,7 +170,9 @@ pub(super) fn reconcile_agent_power_cues(
             .as_ref()
             .is_some_and(|selection| selection.kind == "agent" && selection.id == agent.id);
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
-        let body_size = agent_unanimated_size_px(agent, is_selected) as f32;
+        let canvas_y =
+            canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64;
+        let body_size = style.size_px as f32 * agent_pixel_scale(width, height).y;
         for spec in power_cue_specs(power_state, body_size) {
             let key = (agent.id.clone(), spec.part);
             active_keys.insert(key.clone());

@@ -738,6 +738,8 @@ fn committed_marker_recovery_settles_provider_lease_before_clearing_mirror() {
                 summary: "restore committed memory intent".to_string(),
                 tags: vec!["crash".to_string()],
             }],
+            provider_original_material_refs: None,
+            provider_response_context_lease: None,
         };
     first.provider_held_decisions.insert(
         "agent-a".to_string(),
@@ -1173,3 +1175,6 @@ fn provider_lineage_hydrates_sequences_and_session_from_runtime_projection() {
     assert_eq!(sidecar.provider_context_seq.get("agent-0"), Some(&2));
     assert_eq!(sidecar.provider_feedback_seq.get("agent-0"), Some(&8));
 }
+
+#[path = "llm_sidecar_service_orphan_recovery_tests.rs"]
+mod service_orphan_recovery_tests;

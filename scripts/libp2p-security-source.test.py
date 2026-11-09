@@ -43,10 +43,14 @@ class NetworkSourceContract(unittest.TestCase):
                  for name in ("libp2p-swarm", "libp2p-rendezvous")]
         paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
         for patch in paths:
-            self.assertIn(f"COPY {patch} /opt/oasis7/{patch}", docker)
+            self.assertIn(f"COPY --chmod=0755 {patch} /opt/oasis7/{patch}", docker)
             self.assertTrue((ROOT / patch / "Cargo.toml").is_file())
             self.assertIn(f"!{patch}/", context_policy)
-            self.assertIn(f"!{patch}/**", context_policy)
+            self.assertIn(f"!{patch}/Cargo.toml", context_policy)
+            self.assertIn(f"{patch}/*", context_policy)
+            self.assertNotIn(f"!{patch}/**", context_policy)
+            self.assertLess(context_policy.index(f"!{patch}/"), context_policy.index(f"{patch}/*"))
+            self.assertLess(context_policy.index(f"{patch}/*"), context_policy.index(f"!{patch}/Cargo.toml"))
 
     def test_if_watch_patch_preserves_sources_and_removes_paste(self):
         vendor = ROOT / "vendor-if-watch-3.2.2"

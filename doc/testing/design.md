@@ -17,10 +17,19 @@
 
 ### 2.1 需求承接与分配表
 
-本表只承接 L4 工具链本次受影响条款；既有 QA infrastructure 方法、89 项依赖矩阵和各专业域义务继续保留。
+本表承接 L4 工具链、受控浏览器回归和候选整包接收的有界条款；既有 QA infrastructure 方法、89 项依赖矩阵和各专业域义务继续保留。
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；[REQ-ENTRY-CANDIDATE-001](../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001) | 将两 primary mode、适用入口、执行/恢复、经济、材料、QA 与公开说明接成同候选、同窗口的评估输入 | [候选整包接收](#release-candidate-evidence-reception) | 各领域原 authority；QA 汇总，producer 决定，LiveOps 同步 | 不新增 schema、发行阈值或审批；设计完成不产生当前 release verdict |
+| [AC-ENTRY-CANDIDATE-001](../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#ac-entry-candidate-001) | 完整对应正例与混候选、局部/历史 green、缺证和对应不明反例分别判定 | [候选整包接收](#release-candidate-evidence-reception) | 原领域 oracle、总手册与发布证据模板 | 不以材料齐全或一个专题通过代签领域有效性、整体验收或阶段升级 |
+| Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；[入口根 SC-5](../product/player-entry-distribution/prd.md#sc-entry-005) | 仅接收候选组合中的两 mode 独立证据与 observer/blocked 边界；共享事实不等于共享入口验收 | [候选整包接收](#release-candidate-evidence-reception) | Viewer、正式 API 与原 MODE001/002 消费者 | 不替代根 SC-5 的全部模式、能力、失败恢复设计和实际验证 |
+| Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；[入口根 SC-6](../product/player-entry-distribution/prd.md#sc-entry-006) | 仅接收发行到运行身份链作为候选输入；每个受支持平台/入口的实际字节与 mode/backend 分别关联 | [候选整包接收](#release-candidate-evidence-reception) | Site、发行资产、Launcher 与原升级/恢复 authority | 不替代平台安装、升级首写、恢复或整个 SC-6；候选接收不升级根状态卡 |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | 实际采样/执行与人工体验结论分开，低层证据不升级为真人意愿 | [L4 判断边界](#l4-judgment-boundary) | 原 RunResult/QA/producer 与领域 oracle | 不修复旧 runner 行为，也不以本地检查宣布 L4/L5 已执行 |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | L4、评分、玩法评审、真人及发布材料保留各自证明范围和独立阻断 | [证据消费组合](#playability-evidence-consumer-reception) | 各原证据 owner / 产品与发行 authority | 不新增评分、自动 verdict、统一报告或发布权限 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | 每次结果绑定原来源、实际候选/入口/环境与观察窗口，不拼接别的尝试 | [执行记录与终态](#l4-result-record) | 原 SourceSceneRecord/RunResult 与 QA receiver | 字节和字段完整不证明世界结果或可玩性通过 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | 产品建议按原比较单位接收，错配或未知不抵消独立阻断 | [证据消费组合](#playability-evidence-consumer-reception) | producer/QA 及总纲、评分、真人与公开 claim 原 owner | 不将同评分组、一个入口或局部正例外推全部声明范围 |
+| Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；[AC-14C](prd.md#browser-functional-regression) | 真实组件与可控依赖、确定性时序、隔离和分层证据。 | [浏览器功能回归层](#browser-functional-layer) | QA 维护 runner；Viewer 拥有状态/交互；CI owner 拥有选测接线。 | 产品适用性：N/A；reason=前端验证支撑；scope=fixture-functional。域正确性仍由原 owner 判定，不代签真实世界或 L4B/L5。 |
 | [L4 构建与驱动](prd.md#l4-build-driver) | 默认 release 通过正式 UI 驱动；显式测试构建与观测能力单独选择。 | [构建与驱动选择](design.md#l4-build-selection) | Viewer build/driver；producer bundle 入口。 | 测试产物或参数不能代签 release 体验。 |
 | [L4 Hosted 会话](prd.md#l4-hosted-session) | 实际执行 session 完成受支持登录/恢复，确认 player 关联并回收自有资源。 | [浏览器与玩家会话编排](design.md#l4-session-orchestration) | 既有 Hosted 登录、runtime session 与 agent-browser 生命周期合同。 | 不新增账户、认证、签名或跨会话凭据交接体系。 |
 | [L4 执行结果](prd.md#l4-execution-result) | 每个 attempt 保留实际执行模式、阶段、阻断、停止和清理结果。 | [执行记录与终态](design.md#l4-result-record) | 既有 RunInput/RunResult 与 QA receiver；runner 负责落盘。 | 有结果文件不表示已完成实玩或通过。 |
@@ -45,6 +54,19 @@
 - `scripts/prepare-playability-l4-review.sh`：在一个 worktree 固定 L4 packet、role/persona cards、L4B card、可选校准 notes、summary 与命令。
 - `scripts/run-playability-l4b-agent.sh`：现有 L4 driver 与采样入口；其构建、登录编排及结果判定缺口见 [L4 工具链设计](#l4-toolchain-design)，不能仅凭脚本名称认定已完成具身 agent 试玩。
 
+<a id="browser-functional-layer"></a>
+### 真实前端与可控依赖的浏览器功能层
+
+Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；承接 [AC-14C / BROWSER-AC-1–5](prd.md#browser-functional-regression)。这是 S6 中显式标记依赖为合成的功能回归 profile，不另建测试分层或替代现有真实栈。
+
+现有 Vitest/jsdom 验证组件和协议处理，tooling smoke 验证浏览器驱动接线，`player-visual-feedback-browser-smoke.mjs` 已用真实 shell 与固定 bridge/feed 做浏览器采证。新增目标是把真实 `viewer_app.jsx`、`legacy_core.js` 及其 PromptControl/feedback 模块与可控 HTTP/WebSocket 事件调度连接，让相同交互在相同交付顺序下可重复验证。业务逻辑仍来自生产模块；初始合成身份、传输与非试点渲染依赖的替换范围逐项写入报告。
+
+数据流为场景声明→隔离浏览器与同候选测试构建→真实 UI 请求→受控传输交付→生产状态处理与 DOM→独立断言/原始产物。场景声明保留固定预期值和域合同链接，不能从被测状态函数生成预期。候选 Prompt Overrides 试点及事件、生命周期、只读探针和产物合同集中在[浏览器设计](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)，避免在总览复制场景矩阵。
+
+CI 后续把该 profile 登记到现有 planner/Viewer driver，按真实组件、状态模块、共享传输/auth、测试装配与构建输入的影响选择；不另建一份路径选测表，也不删改 #5376 已有快速 contract。JS-required 仍先给低层反馈，fixture-functional 只提供所测浏览器的受控功能结果；影响可见表面的截图与模型视觉评审、真实集成和 JS-full 按原 S6 要求继续执行。当前尚未新增 runner 或 CI job，不能把此选择设计写成已经 blocking。
+
+实现沿 #5387 分片：先连通隔离 test entry、owned browser 生命周期、首个 pending/成功/拒绝用例及失败产物，再补迟到/重连/重挂与选择合同。#5167 保留命令反馈缺陷，#4966 保留网页绑定/恢复，#5116 保留能力与展示边界；正式选定试点前由 QA 与对应 owner 对齐试点和具体 oracle，不能为测试通过改变这些合同。未来扩到网页入口或指挥中心须各自选择真实组件与适用 oracle，本次不声称已有覆盖。
+
 ### Release Web fixture 生命周期
 
 发行 Web QA 的 source 路径先构建 visual-test Web、signed fixture executable，以及 `run-launcher-stack.sh --chain-disable` 消费的 provider probe、launcher 和 Viewer。全部成功后才启动 fixture 的有界运行窗口，再由 stack 复用本次构建的同候选可执行文件；任何构建失败都不启动 fixture。该顺序将冷构建与运行/交互超时分开，不延长 fixture 期限、不修改正式认证，也不将缓存中未知来源的 binary 当作构建证明。
@@ -55,7 +77,7 @@
 - 发行与治理验证进入 `governance/`、`launcher/`
 
 <a id="qa-infrastructure-evidence-method"></a>
-### QA infrastructure evidence method
+### 基础设施证据的组合验证方法
 
 The [QA receiver contract](prd.md#qa-infrastructure-receiver) is the stable entry for combining product obligations, professional contracts, scenes, and test-tier evidence. For each scene/cell/specimen, freeze the exact clause fragment and source identity, candidate/base/tested tree, world/branch/root/window/configuration, applicable domain owner, execution state, dependency/topology and provider identity, ordered phases, artifact locator/bytes/digest, oracle, verdict, and residual proof boundary. Keep `planned`, `located`, `implemented`, and `executed` as independent state fields.
 
@@ -243,7 +265,62 @@ This matrix is per frozen object, not a whole-file rewrite list. It preserves th
 
 `prepare-playability-l4-review.sh --json` 的路径值通过 argv 传入 Python，由 `json.dumps` 序列化；不把 Bash `${VAR@Q}` 拼成 Python 源。普通、含空格、含单引号的合法路径使用同一方式，成功时 stdout 仅输出 JSON 对象且退出 0；`run_id/output_dir/packet_path/summary_path` 与磁盘 manifest 一致，`manifest_path` 指向该 manifest。保留已有目录保护；末尾输出失败后不得无提示覆盖已生成目录，调用方需要保留诊断并按既有保护处理。该合同可离线验证，不启动 L4A 栈、模型或浏览器，也不产生试玩完成结论。
 
-## 11. L4 验证与证据
+<a id="playability-evidence-consumer-reception"></a>
+### 6.7 可玩性证据的组合消费
+
+Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1、O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；分别承接[证据等级](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002)与[比较单位](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003)。QA 接收现有原件和各 owner 的判断，不新增报告格式或自动裁决。一次当前结论先明确体验目标、正式玩家入口、候选/明确变更范围和证据窗口；环境影响可进入性、执行或解释时纳入范围。逐项沿[原来源到场景记录](governance/agent-runtime-self-playtest.design.md#selftest-source-scene)核来源、实际树、profile、真实执行/层级与领域 oracle；身份或字节一致仍不代签因果和体验。
+
+| 原消费者 | 接收并保留的事实 | 不可替代的判断 |
+| --- | --- | --- |
+| [L4 原结果](#l4-result-record)与[人工判断](#l4-judgment-boundary) | 当前 attempt、事实与原件、失败/停止、reviewed_attempt 和既有独立阻断 | ACK、环境推进、固定路线或自动分数不产生玩家杠杆/continue；未执行与失败分开，重跑不覆盖原评审 |
+| [评分证据](../playability_test_result/design.md#feedback-score-evidence-boundary)与[比较边界](../playability_test_result/design.md#feedback-score-comparison-boundary) | 当前尝试、来源分组、完整/缺失/排除卡、原值及逐卡阻断；比较继续按该设计的原比较条款 | 同组均值只描述该组，不能补缺卡、跨来源或抵消另一比较单位的阻断 |
+| [总纲证据分层](../game/gameplay/gameplay-top-level-design.design.md#evidence-layer-boundary)与[比较单位](../game/gameplay/gameplay-top-level-design.design.md#comparison-unit-boundary) | 当前目标/入口/profile 的真实行动、原结果和后继选择；结构、live/provider、L4 和 L5 分别给依据 | 局部工业或成熟样本不代签全部受支持路径；原 gameplay/领域 owner 仍核实际因果和范围 |
+| [真人观察](manual/first-session-human-playtest.manual.md#human-study-assessment) | 实际人数/情境、独立或提示完成、原话、领域事实和未观察；候选变化保留复测关联 | 内部校准、外部真人、Agent 分开；被询问意愿、预约接续与自发返回不互换，小样本不推出留存 |
+| [L4 汇总](templates/playability-l4-summary-template.md#verdict-summary)与[发布材料](../playability_test_result/templates/playability-release-evidence-bundle-template.md#评分摘要) | 原 RunResult、已评来源与适用比较单位、独立 blocker、各层未证明项及当前 owner 判断 | 材料生成、分数或局部 pass 不自行提升公开阶段；发行/公开 claim 仍由原 authority 接收 |
+
+不属于同一比较单位的样本只作相邻观察；范围不明只支持原 watch，正在支持更强 claim 时保持 hold；已有独立 blocker 不被另一正向样本、未知总分或重跑消除。核对采用原产品要求及各消费者既有方法，不按文档文件数或只挑成功样本声明全量。某个声明内的必需路径/消费者尚无可核对记录时保留原 gap/owner/下一步；只完成该受测子范围，不删掉上位要求。
+
+旧 runner 的自动结论/覆盖问题仍是已披露的实施差距。按原汇总合同保留已评原件、另存新尝试并独立审其事实；新的追踪关系、模板或静态审阅不代表修复、真实 L4/L5 执行或发行就绪。
+
+<a id="release-candidate-evidence-reception"></a>
+## 7. 候选整包的证据接收
+
+Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；承接 [REQ-ENTRY-CANDIDATE-001 / AC-ENTRY-CANDIDATE-001](../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001)。本节把已有专业结果接到同一候选评估，复用[发布证据包](templates/release-evidence-bundle-template.md)、[source-to-scene](prd.md#qa-infrastructure-source-scene-method)和各领域 oracle；不新增报告格式、测试选择器、批准层级或公开阶段。输入基线为 `b09c1ae38366fafa635fcd8a3752995c713e6518`；2026-11-06 补充目标接收与方法，未执行候选运行或发行评审。
+
+### 7.1 声明范围与逐输入对应
+
+producer 沿原产品条款确定待评阶段、claim 和受支持的平台/入口；QA 在原模板的“适用合同 / scope / tier”和“覆盖范围”中逐项展开其必需义务、专业来源、实际 owner 与验证方法。范围从原承诺得出，不能因某项缺证而事后改成不适用。`viewer`、`pure_api` 分列，alias、provider、execution lane、deployment 和 session 只作为实际环境，不生成新 mode。只选择一个 mode 的专题或 observer 样本可以保留其窄结论，不能因此通过两 mode 的整包要求；另一 mode 和原上位义务仍留在未覆盖范围。
+
+每份输入沿原 Meta/覆盖行保留 source/base/tested tree、build/实际产物 digest 与构建来源、合同及配置/schema 版本、attempt 和证据范围，再记录适用的 world/genesis/branch、authority/manifest、状态根/高度/原操作、起止窗口及其单位、真实入口/session/driver/provider。合同版本、历史原件和被测候选身份是不同角色：旧版本可以是升级前态或合法历史证明，必须标明角色并由本候选的恢复/消费结果接上，不能将旧候选的 pass 改名为当前通过。源树相同也不省略实际构建与配置核对。
+
+各独立场景可以使用自己的 world、分支与窗口；本接收不要求整个测试包共用一个世界或同时启动。每个被声明为跨域闭环的组合必须在自身场景内证明原件和窗口对应，不能从互不相干的场景拼出一条未验证的链。
+
+同窗口按各原合同的时间、tick、高度或 C0/C1 定义核对，不能用同一天、相同 tick 字符串或一个候选昵称替代。QA 必须把跨域相关的原操作、结果/状态切点、规则与证据窗口对应起来；长期审计的完整范围不能剪成一次 UI 观察窗，异步回读可以引用同一不可变原件，但要证明该回读确属所声明的原窗口。无法对应的材料只能保留为历史或旁证，不能由 QA 另造容差、时长或等价规则放行。
+
+| 候选输入及原 authority | 必须接收的对应关系与环境 | 独立判据及缺口去向 |
+| --- | --- | --- |
+| [Viewer 入口/世界上下文](../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)与[正式 API 适用组合](../world-simulator/llm/external-agent-game-api.design.md#api-primary-entry-applicability) | 各声明 mode 和入口分别保留实际构建、当前玩家/Agent/世界、协议能力、driver/session、provider 与正式/受控环境；按各原方法读取或执行受支持的相同玩家语义 | 每一适用入口有自己的阶段/目标/阻塞/原结果与合法下一步证据。共享 canonical 事实可复用，但一个入口的操作或截图不能代签另一入口；fixture、GET-only、无 LLM observer 不升级为正式可玩或 parity |
+| [Runtime 执行](../world-runtime/design.md#runtime-deterministic-design)与 [P2P receipt/finality](../p2p/design.md#des-p2p-receipt-finality) | 同候选的实际 runtime/工件/manifest、world/parent、原输入/receipt/root 与该记录适用的合法 authority profile/proof；环境、节点和层级沿原 required/full | 先验证原领域语义和 proof，再关联消费者；本地签名、schema、transport、单节点或模拟 provider green 只证明其原范围 |
+| [持久待决](../world-runtime/design.md#runtime-pending-design)、[固定原决定](../world-runtime/design.md#runtime-controlled-candidate-recovery-receiver)与[服务恢复](../world-runtime/design.md#runtime-recovery-design) | 同 world/原请求的故障前、未知、恢复、回读及后续结果；snapshot/journal、版本、权利与原 history 按各合同相接，不换世界或身份补证 | 已知无效果、固定 continuation、未知提交分别处理；正常续跑、零/一次效果及真实消费者分别有原判据。仍未知或不可读就保留 blocker；QA 整包检查不重新提交世界动作或授予读取权 |
+| [长期经济审计](../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-identity)与[全资源/长窗口方法](manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-09) | 原报告的候选/配置、world/genesis/branch、C0/C1 与 roots/history、完整 writer/ledger/resource/unit、规则/治理依据和当前合法读者，与本次阶段所需窗口相符 | 报告的来源完整性、核算、异常和各正式消费者仍分别验收；四 tick 样例、旧 OC 汇总、空告警或部分资源不代签长期审计。缺页/权限/来源保留 blocked，已证经济异常保留原 fail 与专业 owner |
+| [发行到入口链](../product/player-entry-distribution/prd.md#sc-entry-006)、[官网下载快照](../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)与 [Launcher 重验](../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation) | 当前渠道候选标识→该平台/入口实际下载或 Web/API 交付版本→实际安装/加载 bytes 与构建身份→玩家看到的 backend/mode；适用 Launcher、升级与恢复路径沿原合同 | tag、manifest 或可达页面不单独证明实际运行身份；每个已声明支持的组合分别核验。unsupported、失败和恢复有原来源，不用某平台成功补另一平台 |
+| [发行材料](../readme/governance/player-support-and-service-lifecycle.design.md#support-release-materials) | 选定渠道/地区/受众与该候选的安装材料、实际内容和素材、来源/权利/限制、说明与支持/数据/退出材料逐项关联；保留适用性依据与真实责任人 | 缺必需素材、来源权利或渠道资料不能写完整交付；未选择的新渠道不被默认选中。实际专业适用评估和正式素材仍由原 owner 提供，不由 QA 文档替代 |
+| [QA 证据分层](#playability-evidence-consumer-reception)与[来源到场景方法](prd.md#qa-infrastructure-source-scene-method) | 原 required/full、工程、L4/L5 等结果各带 source、attempt、scope、环境、原 artifact/oracle、实际执行状态和独立阻断；使用模板现有覆盖行汇总 | 原领域通过、素材到位、玩家理解/意愿和整包对应分别成立。必需项未运行、skip/dry-run 或只有历史样本不构成该层通过；不平均抵消失败 |
+| [公开口径原合同](../product/player-entry-distribution/release-communications-and-public-claims.prd.md#public-claim-four-layer-model)与[沟通模板](../readme/governance/readme-release-communication-template.md) | 准备发布的事实、目标、假设、证据边界逐句引用本候选相应 mode/入口/窗口的已核输入；QA 结论、产品决定、LiveOps 记录和根 README 各自保留真实状态 | 已审核草稿、内部 go 或技术 pass 均不是已发布；所述平台/能力或材料扩大时，回到受影响输入重核 |
+
+相同的 runtime/proof、经济报告或公共资产可被多个覆盖行引用，前提是其原身份、适用范围和各实际消费者的对应均成立；这不要求为了整包重复制造世界效果，也不免除两 mode 各自的消费验证。没有实际关联的同名文件、hash 清单或复制的 summary 不构成接收。
+
+### 7.2 汇总、变更与交接
+
+QA 先分别回读原证据、核完整性和该领域 oracle，再检查上表的跨域对应；材料存在、结构通过和业务有效分开。按原模板汇总：只有声明范围内所有必需判据、环境和对应关系满足才记 `pass`；前置、必需证据或对应关系缺失记 `blocked`；已执行且违反原判据的 `fail` 不能被其他缺项、局部正例或重试覆盖。负例中的预期拒绝按该负例原 oracle 判断，不误写成产品行为失败。领域自身的 partial/unknown/observer 或具体异常原样保留，再说明它为何不能支撑本次更强结论；不把所有领域状态改成一套新枚举。
+
+每个缺口在原 PR/评审记录保留受影响 mode/入口/义务、原证据、专业 owner 和下一步。补证先回读原 request/attempt/source；修复或重测保留新 attempt 和旧失败，不覆盖旧记录。 修复后的独立结果确实解除原阻断时，沿原 QA/产品职责更新当前结论，历史失败仍可回读。build、规则/配置/schema、authority、内容/权利、真实环境或声明范围发生影响判据的变化时，由原 owner 标出受影响输入与后续消费者，沿既有触发方法重核；未受影响的材料只有原身份、范围和依据仍成立才可复用，不通过改候选标签迁移旧 pass。
+
+完整正例必须能够形成可用的候选门禁输入：各 mode 的实际能力证据、合法执行与恢复、满足该阶段原资源/窗口要求的完整经济审计、实际发行资产/材料、QA 结论及公开事实对应全部满足原判据后，QA 在模板中给出该范围 `pass` 并列明来源。producer 依据这组输入做原阶段/claim 决定，LiveOps 据真实决定和 QA 限制起草并同步既有公开 surface，根 [README 当前状态](../../README.md#项目状态)继续拥有唯一公开 claim envelope。`pass` 仅允许进入该决定步骤，不替代决定；若未作发布评估，沿模板记 `not_evaluated`，若尚未发布就保留 reviewed/publish_ready 等原状态，不能称已发布。任何阶段的 blocker 都不能由下一角色用文案消除。
+
+具体方法为总手册 [RC01–RC10](../../testing-manual.md#release-candidate-reception-validation)。静态设计走查只核可执行合同和预期判定，真实候选按原方法取得实际环境/运行/生产/玩家证据；本节不修改 release 脚本、bundle 字段或当前阶段。
+
+## 11. L4 与候选组合验证及证据
 
 ### 11.1 验证映射表
 
@@ -251,6 +328,15 @@ This matrix is per frozen object, not a whole-file rewrite list. It preserves th
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；[REQ-ENTRY-CANDIDATE-001](../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001) | [候选整包接收](#release-candidate-evidence-reception) | 原领域有效性与同候选/窗口/入口对应分别成立，QA 结论交原产品与公开 authority | [RC01–RC10](../../testing-manual.md#release-candidate-reception-validation)：同候选完整正例与各输入反例；原 required/full、真实环境和领域方法不降级 | 既有发布包逐输入来源/关联、原始 artifacts/oracle、独立 verdict、缺口 owner 与实际交接记录 | 方法未运行；静态样例、工程全绿或模板齐全不产生发布、L5 或阶段通过 |
+| [AC-ENTRY-CANDIDATE-001](../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#ac-entry-candidate-001) | [候选整包接收](#release-candidate-evidence-reception) | 完整对应的正例可成为候选输入；混候选、局部/历史 green、缺证和对应不明保持限制 | [RC01–RC10](../../testing-manual.md#release-candidate-reception-validation)：逐输入改变一个身份、窗口、消费者或必需材料，独立核 pass/fail/blocked 与历史保留 | 原完整样本及每个变体的差异、未覆盖、失败签名和允许结论范围 | 拒绝错误输入不代签正常运行；QA pass 不自动升级 README |
+| Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；[入口根 SC-5](../product/player-entry-distribution/prd.md#sc-entry-005) | [候选整包接收](#release-candidate-evidence-reception) | 仅核整包中的 mode 各自来源、正式/受控环境和独立结论 | [RC01/03/09](../../testing-manual.md#release-candidate-reception-validation)：真实 viewer/pure_api 逐入口；删除一端、借 alias/mock/observer、复制另一端结果的反例 | 两 mode 各自原结果、相同权威事实的合法复用与不能互签的缺项 | 不关闭根全部模式/恢复义务；各入口实测仍由原 owner 提供 |
+| Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b；[入口根 SC-6](../product/player-entry-distribution/prd.md#sc-entry-006) | [候选整包接收](#release-candidate-evidence-reception) | 仅核发行资产→实际入口/运行身份→候选包的对应，各支持组合独立 | [RC01/02/07/08](../../testing-manual.md#release-candidate-reception-validation)：同平台/入口真实资产及运行关联，混版、缺权、不同 build/backend/mode 和陈旧公开材料 | 交付/加载原件与来源、真实运行身份、缺证及公开交接范围 | 不代签各平台安装/升级/首写/恢复或整个 SC-6 |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | [L4 判断边界](#l4-judgment-boundary) | 自动采样、无实玩、已评历史与当前尝试分开 | [L4-C03/C04](../../testing-manual.md#l4-toolchain-validation)：固定同候选，核 ACK/progress、缺观察项、失败重试及已评 artifact；真实层另取原证据 | 事实/判断的写入归属、unreviewed/missing 与保留阻断 | fixture 不证明真人愿意继续或旧 runner 已修复 |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | [证据消费组合](#playability-evidence-consumer-reception) | 技术可用、理解与继续/回访信号不相互代签 | [真人分项判据](manual/first-session-human-playtest.manual.md#human-study-assessment)：固定实际首局入口/候选/窗口，按原 10.1/10.2 保留独立/提示、预约/自发、反证与未观察；方法自身样例不作真人结果 | 真实观察/原话、原领域 oracle、证据等级和建议范围 | 首局人测不覆盖未选路径；内部正向不能覆盖外部反证 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | [执行记录与终态](#l4-result-record) | 来源、实际树、阶段/入口和证据完整性决定记录适用范围 | [来源到场景核对](manual/agent-runtime-self-playtest.manual.md#source-scene-check)：固定条款/候选，核旧 OID、错树、层级错标、必需阶段缺失及跨 world/task/profile 拼接；按原 required/full 分层 | SourceClauseRef/CandidateIdentity、原字节与逐项 gap | 记录检查通过不形成运行或产品建议通过 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | [证据消费组合](#playability-evidence-consumer-reception) | 候选/入口/目标/窗口及影响解释的环境变化必须保留可比范围 | [真人复测与范围核对](manual/first-session-human-playtest.manual.md#human-study-retest)：沿原准备/评估记录审规则、候选、会话与环境变更，保留不可合并、旧失败和提示污染；依 PE003 原 AC 复核建议范围 | 原 finding/候选/观察窗、不能合并的理由及 retained blocker | 具体人测样本不替其他消费者执行；范围不明不形成更强 claim |
+| Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；[AC-14C](prd.md#browser-functional-regression) | [浏览器功能回归层](#browser-functional-layer) | BROWSER-AC-1–5：真实 consumer、受控事件、独立预期、隔离与证据边界。 | [实施核验](../../testing-manual.md#browser-functional-regression-validation)执行 BFR-P01–P07：同候选明确 fixture-functional，真实浏览器与声明 viewport。 | 实施 PR 的命令、构建/模块身份、场景 trace、截图、console/network、准确断言和选择结果。 | 当前仅设计；不证明后端/provider、生产权限、世界结果、其他浏览器或试玩。 |
 | [L4 构建与驱动](prd.md#l4-build-driver) | [构建与驱动选择](design.md#l4-build-selection) | 默认 release/UI 与显式 test/API 分离，缺能力准确阻断。 | [主手册 L4-C01](../../testing-manual.md#l4-toolchain-validation)：固定同候选 release/test 产物，静态核对默认选择，再按实现执行所选 driver 与能力缺失负例。 | 两构建身份、driver 选择与能力判断的本次记录。 | 文档通过不证明默认 runner 已可用或浏览器已执行。 |
 | [L4 Hosted 会话](prd.md#l4-hosted-session) | [浏览器与玩家会话编排](design.md#l4-session-orchestration) | 干净 guest 登录及独立恢复路径分别验证，实际执行 player/session 一致。 | [主手册 L4-C02](../../testing-manual.md#l4-toolchain-validation)：受支持 Hosted 测试环境与同候选 driver，覆盖干净登录、恢复、失败前置和 owned cleanup。 | guest/登录/注册就绪、session/player 关联及清理证据。 | 不扩展认证体系；其他窗口或 DevLocal lane 不证明默认 Hosted 路径。 |
 | [L4 执行结果](prd.md#l4-execution-result) | [执行记录与终态](design.md#l4-result-record) | 各阶段结果、取消、失败、重试与清理均有可追溯记录。 | [主手册 L4-C03](../../testing-manual.md#l4-toolchain-validation)：离线可控 driver 验证各收口路径及报告失败；真实依赖另按所选场景执行。 | attempt/RunResult、停止与清理结果、保留的失败记录。 | fake driver 不证明已登录、已实玩或世界效果。 |

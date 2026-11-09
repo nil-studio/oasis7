@@ -7,7 +7,7 @@
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-05
 
 本文是长期产品分册，定义免费基础进入、可选服务、世界内成长、认可和区域互赖之间的产品边界。它不定义支付渠道、定价、账户或 onboarding 实现、具体资格算法、奖励数值、OC 发放/兑换、治理字段或当前 preview 放行结论。
 
@@ -94,12 +94,14 @@ Trace ID: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898
 
 - 功能点：[REQ-ENTRY-FREE-001](#req-entry-free-001)；验收 [AC-ENTRY-FREE-001](#ac-entry-free-001)。
 - 适用范围：免费基础进入、可选 hosting/storage/support 的权力隔离及中断恢复；沿用本条原有阶段和前置条件。
-- 系统设计状态：未核实
-- 系统设计依据：已核对本专题列出的专业权威入口，尚未核清本功能全部义务的准确系统设计承接；产品语义及根 PRD 导航不作为技术覆盖证明。
+- 系统设计状态：已覆盖
+- 系统设计依据：[具体服务消费者与状态政策](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)分别承接附加 Hosted 入口、独立便利存储副本、反馈支持及 LetAI 存量义务；[同身份正常接续](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)、[原请求材料与恢复](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)和[独立入口消费](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)规定原身份、当前授权、正常读写、权威结果及重入链。降级、到期、取消、续费失败和重购/换商只改变便利交付；基础对象不随服务窗口失效，旧责任保留，故障停止不代正常独立路径。
+- 设计验证方法：[Hosted HI01–HI05](../../testing/manual/hosted-passkey-account.manual.md#hosted-independent-continuation-validation)、[API AI01–AI07](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)与[服务 profile EX14/EX17/EX21–EX24](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-profile-policy)组合核同身份合法读→写→权威结果→重入、未知原请求只查核、当前权限与服务状态隔离；原有限技术表面方法继续有效。设计条款与静态判据已接收，实际入口执行、真实服务及玩家理解未验证。
+- 本次设计核对：2026-11-05；已合基线 `4912e079baca375637fdd4eff36be58edec32c42` 与本次专业设计及方法接收；具体目标与主要失败/恢复已有承接，不以尚无真实运营事件否定目标设计，也不将新政策倒填为历史采用或实现通过。
 - 实现状态：未核实
 - 实现与验证依据：新追到共享 hosted contract 的实际范围是[deployment合同边界](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_hosted_access/src/lib.rs#L138-L172)和[当前公开路由](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_hosted_access/src/lib.rs#L296-L340)，它表达 deployment、session、action auth 与账户/世界会话路由；[session refresh](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs#L332-L340)及[session slot释放](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs#L853-L875)处理 refresh、token/slot释放，未形成 hosting/storage/support 购买、到期、取消、续费失败或换商迁移消费者。这些已读路径不能直接证明免费/付费隔离，也不能由路径未出现商业字段推定全仓未实现。 本轮为静态实现认定，不记同候选运行 PASS。
 - 核对日期与基线：2026-10-18；需求、设计映射与源码固定 main `bca169a97393da6cb9b8c0a28246a4efc6d813db`；逐 Git blob 与有效行号核验，仅静态文本审读。未运行安装、模型、Runtime、浏览器或业务/测试验收；测试定义、历史记录及其他候选 CI 不代签本候选。系统设计轴及原阶段、前置条件保持不变。
-- 剩余范围：具体未核清的是可选 hosting/storage/support 订单/权益生命周期 producer，经真实世界权限与历史消费者，到独立读取/等待/重新进入/行动或安全停止的对应链；服务降级、失效、取消、续费失败及重购/换商不得扩权的同候选证据仍缺。普通 session expiry/refresh/release 不属于此服务合同；产品层不承诺服务已上线，不据此次有限文本检索判未实现。
+- 剩余范围：目标设计已接收；实际采用须固定提供者、服务/用户范围、采用条款及既有未结对象，并核对便利状态的真实消费者。仍须逐实际入口核清免费基础身份/原入口、正常世界行动、原请求材料、权威结果与重入历史的实现，并取得同候选证据，核原 P0 Passkey 和可选 native 凭据各自前置；新 issuer、DevLocal、GET-only 或故障安全停止均不代正例。所选 Hosted profile 不接收缺少用户原客户端受保护原件路径的 remote executor 组合；这不缩减任何已接受的旧义务。独立副本、支持及 LetAI 各按原专业能力验证；普通 session 操作不证明商业取消，原实现未核实及历史证据保持。
 
 - 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
@@ -123,12 +125,14 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 
 - 功能点：[REQ-ENTRY-FREE-002](#req-entry-free-002)；验收 [AC-ENTRY-FREE-002](#ac-entry-free-002)。
 - 适用范围：成熟世界认可/机会组合与早期入口信号不产生世界效果的负边界；沿用本条原有阶段和前置条件。
-- 系统设计状态：未核实
-- 系统设计依据：已核对本专题列出的专业权威入口，尚未核清本功能全部义务的准确系统设计承接；产品语义及根 PRD 导航不作为技术覆盖证明。
+- 系统设计状态：已覆盖
+- 系统设计依据：[原成熟阶段](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-stage)、[预览/待决不造权益](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-preview-pending)、[当前资格再校验](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-current-revalidation)、[失效/历史/独立路](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-recovery)与[全部已采纳来源消费者](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)、[版本化用途采用](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-versioned-adoption)精确接回原MW004/CR003主责。成熟认可不成为普通claim/制造/首局行动的新门槛，免费进入、付费便利或外部参与本身不产生世界资格或永久权力。
+- 设计验证方法：[RO01/03/05/06/08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-03)与[REP11/12](../../testing/manual/contextual-reputation-acceptance.manual.md#rep11-consumers)组合原取得/完整覆盖方法，核当前采用、真实使用、失效保史和独立路径；未执行。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业接收；原要求、实际支持、实现状态和历史证据不升格。
 - 实现状态：部分实现
 - 实现与验证依据：早期负边界已交付的窄范围是仓库PR参与intake程序：PR/body输入仅生成draft/deferred或拒绝导入，CLI/round scan终点只打印候选ledger/JSON，approval/distribution保持空且没有世界提交/结算调用。该外部参与入口不自动产生奖励或世界资格；历史具体round仍记录pending，仅作该轮佐证。 [import-entry](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-import.py#L67-L114)；[intake](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme_reward_pr_intake_lib.py#L150-L232)；[scan](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-round-scan.py#L104-L153)；[scan-output](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-round-scan.py#L204-L361)；[actual-pending](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/doc/readme/governance/readme-limited-preview-contributor-reward-distribution-closure-round-2026-04-13.md#L3-L30)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
 - 核对日期与基线：2026-10-17；需求PR #4842 `0901927131b3e7c919fc6b092e77ae8895579989`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
-- 剩余范围：核清免费进入、付费便利、访问、其他外部参与信号的全部实际authority/消费者；成熟阶段入口仍须接MW004/CR003来源、范围期限、失效历史及独立基线。不得把仅PR intake程序无世界提交扩写为所有下游或线上自定义接管输出者均无效果，approved奖励也不得混同成熟机会。
+- 剩余范围：原迁移范围的专业设计已接收；仍须逐实际入口实现并核验MW004/CR003真实来源、采用版本、有效范围、期限、当前用途/实际效果、失效历史和独立基线。PR intake无世界提交的切片不代签全部下游；approved贡献奖励也不成为成熟机会。按原RO/REP方法取得跨入口正常、失效与恢复的同候选证据，原部分实现判断保持。
 
 - 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
@@ -139,6 +143,34 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 - 场景与结果：首次持续能力之后的成熟世界入口组合样例能回链成熟世界 [`REQ-WR-MW-004`](../world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004) / [`AC-WR-MW-004`](../world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004) 与情境声誉 [`REQ-WR-CR-003`](../world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) / [`AC-WR-CR-003`](../world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003)；代表性授予、使用、到期、拒绝、暂停或撤销仍能读到来源/范围/时间边界，历史认可、旧 receipt、重复申领或重连重试不会产生第二次分配、隐性优先权或永久权力，失败方仍可走独立路径、补证、替代路线、恢复或复核。
 - 早期边界：首次持续能力之前，从接入、付费或泛化互动信号推导的认可/机会样例只证明 preview、推荐、当前 blocker 或下一步不产生世界效果，不证明由这些信号授予的早期认可、奖励、资格、优先级、容量或可使用机会；首局正常世界行动及其结果不在这项负边界内。
 - 证据边界：资格、评分、分配、OC、治理和反滥用实现由 gameplay/runtime/blockchain/QA authority 定义；产品层不冻结数值或算法。
+
+<a id="req-entry-service-exit-001"></a>
+### REQ-ENTRY-SERVICE-EXIT-001：可选服务退出必须保留真实下一步与未结义务
+
+Trace ID: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f
+
+- 功能点：项目实际提供的可选 hosting、storage、support 服务缩减或终止时的退出准备和玩家说明。
+- 适用范围：被决定缩减或结束的具体服务、提供者和受影响候选/用户；关闭一次测试、一个官网或单一节点不自动等于关闭整个 P2P 世界。
+- 要求：在提供该服务前明确其支持和退出能力；实际退出时逐项说明停止新增受理、通知、剩余读取或适用数据交接窗口、玩家可采取的步骤、未结行动和服务义务、资料处置以及剩余联系/复核方式。普通计划退出按已公布条款保留履行窗口；紧急停止说明实际原因和受影响范围，不能静默改写已接受的义务。没有可用导出、迁移、替代访问或退款执行时如实说明缺口并由对应主责处置，不能以结束通知代替实际交付。服务状态与世界身份、控制权、已确认历史及仍有效的世界义务保持 [REQ-ENTRY-FREE-001](#req-entry-free-001) 的分离。
+- 系统设计状态：已覆盖
+- 系统设计依据：[具体服务范围与个体终止](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)、[逐对象通知及退出窗口](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit-policy)和[独立副本完整交接](../../readme/governance/player-support-and-service-lifecycle.design.md#support-storage-copy-handoff)承接原退出要求，区分新政策、旧约、正常及紧急停止、读取中断和未结责任；[运营容量与成本](../../readme/governance/player-support-and-service-lifecycle.design.md#support-capacity-cost)对接窗口顺延与持续责任。基础身份、世界历史及原请求不受便利窗口截止支配；导出、账务和数据仍沿原 authority，未具备能力不能宣称已交付。
+- 设计验证方法：[原退出 EX01–EX06](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-exit)、[既有表面 EX07–EX13](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-existing-service-surfaces)与[新政策 EX14–EX24](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-profile-policy)共同核逐对象时点、个体取消、完整材料集合、原权限、通知/读取失败、紧急停止和未接手责任；新方法使用明确虚构的日期与材料独立核算设计，不记真实通知、交付、退款或退出运行通过。
+- 本次设计核对：2026-11-05；已合基线 `4912e079baca375637fdd4eff36be58edec32c42` 与本次具体目标设计接收；新承诺范围、窗口及方法已经选定，历史采用与实际退出能力分别保持待核，不把技术停用或开发暂停改写为商业服务已退出。
+- 实现状态：未核实
+- 实现与验证依据：本条不声明可选服务已销售或上线，也不把 DevLocal 身份核查工具当作玩家自助导出。尚未取得实际服务清单、退出条款和完整执行证据。
+- 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅设计审读，未停止服务、通知用户或处理真实数据。
+- 剩余范围：目标方案与验收方法已接收；真实提供者采用、受影响服务/用户、已公布条款和旧义务仍须按实际对象核实，新政策不追认历史 SLA。提供服务前及实际缩减/结束时，须验证通知送达、原权限读取/完整交接、未结责任承接、账务/数据处置、联系可达性、人员和成本，并记录真实执行结果；缺少能力或接手者时原责任不消失。LetAI 开发暂停与原订单/款项责任保持，不授权新开发、付款、退款或迁移；文档设计不证明世界恢复、完整独立运行或正式全服务结束。
+- 验收：[AC-ENTRY-SERVICE-EXIT-001](#ac-entry-service-exit-001)。
+
+<a id="ac-entry-service-exit-001"></a>
+### AC-ENTRY-SERVICE-EXIT-001：服务关闭不改写世界结果
+
+Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f；承接[REQ-ENTRY-SERVICE-EXIT-001](#req-entry-service-exit-001)。
+
+- 给定普通计划结束、紧急停止及能力不足的服务，以及已确认历史、未结算请求、玩家本地资料和第三方副本。
+- 当准备退出、通知、停止新增承诺、交接资料和结束支持时，玩家能辨认服务与世界的不同状态，并得到当前真正可用的下一步；不存在的导出、恢复、退款或全面删除不能写成已完成。
+- 原身份和世界义务按各自主责持续追踪；未结事项有明确责任和处置，不因删除服务页面或结束运营轮次而消失。
+- 方法：[退出核对与演练](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-exit)；静态推演只验证内容合同，真实退出能力须实际验证。
 
 ## 5. Done：成功标准与验收
 
@@ -181,3 +213,4 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 | --- | --- | --- | --- | --- |
 | [REQ-ENTRY-FREE-001](#req-entry-free-001) / [AC-ENTRY-FREE-001](#ac-entry-free-001) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC 对账免费与可选服务的权限/成本，核对取消、失效与恢复不改变世界权力；待取得同候选记录；导航关系不等于通过证据 | `test_tier_required` |
 | [REQ-ENTRY-FREE-002](#req-entry-free-002) / [AC-ENTRY-FREE-002](#ac-entry-free-002) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`成熟世界成长与区域参与`](../world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)、[`沟通、合同、声誉与 R&D 连续性`](../world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC-ENTRY-FREE-002 分别核对成熟世界认可授予/到期/撤销、双人容量竞争、重复申领及独立恢复；首次持续能力前另核对入口信号不产生资格/容量/世界效果；待取得同候选主责与入口对照记录，导航关系不等于通过证据 | `test_tier_full` |
+| [REQ-ENTRY-SERVICE-EXIT-001](#req-entry-service-exit-001) / [AC-ENTRY-SERVICE-EXIT-001](#ac-entry-service-exit-001) | `producer_system_designer` / `liveops_community` / 对应服务、数据与 Runtime owner | [持续服务退出](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit) | [退出核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-exit)；实际退出能力、义务处置和玩家下一步须按服务验证 | `test_tier_required`；真实服务技术路径沿原专业验收 |

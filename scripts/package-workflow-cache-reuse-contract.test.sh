@@ -73,7 +73,7 @@ for lane in ('package-native', 'package-native-trusted'):
     body = re.search(rf'^  {lane}:\n(.*?)(?=^  [\w-]+:\n|\Z)', testnet, re.M | re.S)[1]
     assert '      - build-web-dist' not in body
 assembly = testnet.split('  package-installers:\n', 1)[1]
-for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted'):
+for dependency in ('plan', 'build-web-dist', 'package-native', 'package-native-trusted', 'full-regression-qualification'):
     assert '      - ' + dependency + '\n' in assembly
 assert '!cancelled()' in assembly and "needs.build-web-dist.result == 'success'" in assembly
 assert '--native-binaries' in assembly and 'Swatinem/rust-cache@' not in assembly
@@ -93,15 +93,17 @@ def condition(name):
 # cancellation, unknown results, or both producers selected.
 import itertools
 join = condition('package-installers')
-for web, candidate, trusted in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=3):
+for web, candidate, trusted, full_ci in itertools.product(('success', 'skipped', 'failure', 'cancelled', 'unknown'), repeat=4):
     expression = join.replace('!cancelled()', 'True')
     values = {'needs.plan.result': 'success', 'needs.build-web-dist.result': web,
-              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted}
+              'needs.package-native.result': candidate, 'needs.package-native-trusted.result': trusted,
+              'needs.full-regression-qualification.result': full_ci}
     for key in sorted(values, key=len, reverse=True):
         expression = expression.replace(key, repr(values[key]))
     actual = eval(expression.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}})
-    expected = web == 'success' and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')]
-    assert actual == expected, (web, candidate, trusted)
+    expected = (full_ci == 'success' and web == 'success'
+                and (candidate, trusted) in [('success', 'skipped'), ('skipped', 'success')])
+    assert actual == expected, (web, candidate, trusted, full_ci)
 
 trusted_condition = condition("package-native-trusted")
 candidate_condition = condition("package-native")
@@ -280,6 +282,7 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
 release = workflow_paths[2].read_text()
 mainnet = workflow_paths[1].read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
+native_cache = (root / ".github/workflows/rust-cache.yml").read_text()
 bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
 ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 
@@ -288,9 +291,10 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 # contract for the checked-in block-style env declarations, not a YAML parser.
 repository_budget = '20000000000'
 budget_entries = {
-    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
-    'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
+    'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
 }
 budget_assignment = re.compile(
@@ -339,7 +343,7 @@ def reject_budget_mutation(workflows, label):
         raise AssertionError(('budget regression was not detected', label))
 
 
-for name, (variable, _) in budget_entries.items():
+for name, (variable, dependency_steps) in budget_entries.items():
     text = budget_workflows[name]
     declaration = re.search(rf'^  {variable}: [^\n]+\n', text, re.M)[0]
     for label, replacement in (
@@ -355,13 +359,17 @@ for name, (variable, _) in budget_entries.items():
               '    steps:\n      - run: "true"\n')
     reject_budget_mutation(budget_workflows | {name: text.replace('\njobs:\n', shadow, 1)},
                            (name, 'job override'))
-    forwarded = re.search(r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)[0]
-    for label, replacement in (
-        ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
-        ('missing upload budget', ''),
-    ):
-        reject_budget_mutation(budget_workflows | {name: text.replace(forwarded, replacement, 1)},
-                               (name, label))
+    if not dependency_steps:
+        continue
+    for index, forwarded in enumerate(re.finditer(
+            r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)):
+        for label, replacement in (
+            ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
+            ('missing upload budget', ''),
+            ('duplicate upload budget', forwarded[0] + forwarded[0]),
+        ):
+            mutated = text[:forwarded.start()] + replacement + text[forwarded.end():]
+            reject_budget_mutation(budget_workflows | {name: mutated}, (name, index, label))
 reject_budget_mutation({name: text.replace(repository_budget, '10000000000')
                         for name, text in budget_workflows.items()}, 'all entrypoints consistently wrong')
 reject_budget_mutation(budget_workflows | {
@@ -371,13 +379,13 @@ reject_budget_mutation(budget_workflows | {
 reject_budget_mutation(budget_workflows | {
     'unregistered-budget.yml': 'env:\n  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"\n'},
     'new budget-bearing workflow')
-print(f'ok: four repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
+print(f'ok: five repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
 
 assert "\ncache-mode: read\n" in mainnet
 native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
                 "release_gate_runtime_sync", "release_gate_soak")
 for name in native_gates:
-    assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v3", name
+    assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v4", name
 for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync",
              "release_gate_soak", "release_gate_web", "build-web-dist"):
     expected = cache_identity(release, name)
@@ -386,39 +394,45 @@ for name in ("release_gate_runtime_core", "release_gate_runtime_support", "relea
     assert "save-if: false" in job_body(mainnet, name)
     assert "cache-mode: write" not in job_body(mainnet, name)
     if name in native_gates:
-        assert expected == cache_identity(rust, "full-regression"), (name, "native writer identity differs")
+        assert expected == cache_identity(native_cache, "shared-native-cache"), (name, "native writer identity differs")
         assert "save-if: false" in job_body(release, name)
         assert "    cache-mode: read\n" in job_body(release, name)
 assert cache_identity(mainnet, "package-native", True) == cache_identity(release, "package-native", True)
 assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "package-linux-x86-64"), \
     "NewAPI entrypoints must agree on Cargo environment and toolchain/path defaults, not just shared-key"
 
-web_identity = cache_identity(release, "build-web-dist")
+web_identity = cache_identity(native_cache, "web-wasm-cache")
 assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
-for workflow, names in ((release, ("release_gate_web",)), (mainnet, ("release_gate_web", "build-web-dist")),
-                        (testnet, ("build-web-dist",)), (ecs, ("web",))):
+for workflow, names in ((release, ("release_gate_web", "build-web-dist")), (mainnet, ("release_gate_web", "build-web-dist")),
+                        (testnet, ("build-web-dist",)), (ecs, ("web",)),
+                        (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
         assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
         assert "save-if: false" in job_body(workflow, name)
 assert "    cache-mode: read\n" in job_body(release, "release_gate_web")
-web_writer = job_body(release, "build-web-dist")
+release_web_build = job_body(release, "build-web-dist")
+assert "    cache-mode: read\n" in release_web_build
+assert "dependency-cache-tools" not in release_web_build
+assert "OASIS7_DEPENDENCY_CACHE_" not in release_web_build
+web_writer = job_body(native_cache, "web-wasm-cache")
+assert "    cache-mode: write\n" in web_writer
+assert "OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}" in web_writer
 assert "cache-on-failure: false" in web_writer
 save_expression = re.search(r"^          save-if: \$\{\{ (.*) \}\}$", web_writer, re.M)[1]
-for ref, source, workflow_sha, expected in (
-    ("refs/heads/main", "event", "event", True),
-    ("refs/heads/main", "older-source", "event", False),
-    ("refs/heads/main", "event", "other-workflow", False),
-    ("refs/heads/candidate", "event", "event", False),
-    ("refs/tags/v1.0.0", "event", "event", False),
-):
+for ref, workflow_sha, event, mode, status, guard in itertools.product(
+    ("refs/heads/main", "refs/heads/candidate", "refs/tags/v1.0.0"),
+    ("event", "other-workflow"), ("schedule", "workflow_dispatch", "push", "pull_request"),
+    ("full", "", "pr-fast"), ("success", "failure", "cancelled"), ("true", "false", "")):
     expression = save_expression
-    context = {"github.ref": ref, "needs.plan.outputs.checkoutSha": source,
+    context = {"github.ref": ref,
                "github.workflow_sha": workflow_sha, "github.sha": "event",
-               "github.event_name": "workflow_dispatch", "job.status": "success",
-               "steps.dependency-cache-tools.outputs.guard_ready": "true"}
+               "github.event_name": event, "inputs.run_mode": mode, "job.status": status,
+               "steps.dependency-cache-tools.outputs.guard_ready": guard}
     for key in sorted(context, key=len, reverse=True):
         expression = expression.replace(key, repr(context[key]))
-    assert eval(expression.replace("&&", " and "), {"__builtins__": {}}) == expected
+    expected = (ref == "refs/heads/main" and workflow_sha == "event" and status == "success"
+                and guard == "true" and (event == "schedule" or event == "workflow_dispatch" and mode == "full"))
+    assert eval(expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}) == expected
 
 # Maintenance is optional to packaging and never an artifact/publish gate.
 # Its bounded recovery runs under the same mutex before the first writer and
@@ -439,7 +453,7 @@ base_context = {"github.ref": "refs/heads/main", "github.event_name": "workflow_
                 "github.workflow_sha": "event", "github.sha": "event",
                 "needs.plan.outputs.checkoutSha": "event", "needs.plan.result": "success",
                 "needs.build-web-dist.result": "success", "needs.package-native.result": "success",
-                "needs.release_gate.result": "success"}
+                "needs.release_gate.result": "success", "needs.full-regression-qualification.result": "success"}
 for name in ("cache-bootstrap-maintenance", "cache-maintenance"):
     body = job_body(release, name)
     assert "    cache-mode: none\n" in body
@@ -462,46 +476,51 @@ for web, native in itertools.product(("success", "failure", "skipped", "cancelle
     actual = evaluate(release_condition("cache-maintenance"), base_context |
         {"needs.build-web-dist.result": web, "needs.package-native.result": native})
     assert actual == ("success" in (web, native)), (web, native)
-assert "    needs: [plan, release_gate, cache-bootstrap-maintenance]\n" in web_writer
+assert "    needs: [plan, release_gate, cache-bootstrap-maintenance]\n" in release_web_build
 for name, required in (("build-web-dist", "release_gate"),
                        ("package-native", "build-web-dist"), ("publish-release", "package-native")):
     body = job_body(release, name)
     assert "cache-maintenance" not in body
-    for plan, producer, maintenance in itertools.product(("success", "failure", "skipped"), repeat=3):
+    for plan, producer, maintenance, full_ci in itertools.product(
+            ("success", "failure", "skipped", "cancelled", "unknown"), repeat=4):
         context = base_context | {"needs.plan.result": plan, "needs." + required + ".result": producer,
-                                  "needs.cache-bootstrap-maintenance.result": maintenance}
-        expected = plan == producer == "success"
+                                  "needs.cache-bootstrap-maintenance.result": maintenance,
+                                  "needs.full-regression-qualification.result": full_ci}
+        expected = plan == producer == "success" and (name != "publish-release" or full_ci == "success")
         assert evaluate(release_condition(name), context) == expected, (name, context)
         assert not evaluate(release_condition(name), context, cancelled=True)
 
-# All Release writers use the cross-platform final-archive hook. Admission
+# Native Release and the independent Web writer use the final-archive hook. Admission
 # failure can only skip optional caching, while original compile gates survive.
 assert "NODE_OPTIONS:" not in release.split("\njobs:\n", 1)[0]
-for name in ("build-web-dist", "package-native"):
-    body = job_body(release, name)
+assert "NODE_OPTIONS:" not in native_cache.split("\njobs:\n", 1)[0]
+for workflow, name, source in ((release, "package-native", "needs.plan.outputs.checkoutSha"),
+                               (native_cache, "web-wasm-cache", "github.sha")):
+    body = job_body(workflow, name)
     assert "      contents: read\n      actions: read\n" in body
     assert "actions: write" not in body
     assert "python3 scripts/ci-rust-cache-admission.py install-release" in body
     for step in re.findall(r"^      - (.*?)(?=^      - |\Z)", body, re.M | re.S):
         if "Swatinem/rust-cache@" not in step:
             if "continue-on-error: true" in step:
-                assert step.startswith("name: Install Release cache admission")
+                expected_install = "Web" if name == "web-wasm-cache" else "Release"
+                assert step.startswith("name: Install " + expected_install + " cache admission")
             continue
         for required in ("continue-on-error: true", "cache-provider: github", "cache-on-failure: false",
                          "NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}",
                          "OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}",
-                         "OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}",
+                         "OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ " + source + " }}",
                          "OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}"):
             assert required in step, (name, required)
         save = re.search(r"^          save-if: \$\{\{ (.*) \}\}$", step, re.M)[1]
         context = base_context | {"job.status": "success",
                   "steps.dependency-cache-tools.outputs.guard_ready": "true",
-                  "steps.linux-package-cache-write.outputs.save": "true"}
+                  "steps.linux-package-cache-write.outputs.save": "true", "inputs.run_mode": "full"}
         assert evaluate(save, context)
         for change in ({"job.status": "failure"}, {"job.status": "cancelled"},
                        {"steps.dependency-cache-tools.outputs.guard_ready": ""},
                        {"steps.dependency-cache-tools.outputs.guard_ready": "false"},
-                       {"needs.plan.outputs.checkoutSha": "old-tag"}):
+                       {source: "old-source"}):
             assert not evaluate(save, context | change), (name, change)
 testnet_linux = next(step for step in cache_steps(testnet, workflow_paths[0]) if "if: runner.os == 'Linux'" in step)
 assert "steps.dependency-cache-tools.outcome == 'success'" in testnet_linux

@@ -80,8 +80,8 @@ pub(super) fn start(root: PathBuf) -> thread::JoinHandle<Result<FaultProof, Stri
                 &root.join("wait-cleanup-release"),
                 b"actual target is a directory",
             )?;
-            await_marker(&root, "wait-cleanup-rollback")?;
-            let after = read_json(&root, "wait-cleanup-after.json")?;
+            await_marker(&root, "wait-cleanup-unpublished")?;
+            let after = read_json(&root, "wait-cleanup-publication-original.json")?;
             if fs::read(&backup).map_err(|error| error.to_string())? != original_bytes {
                 return Err("actual original checkpoint backup changed".into());
             }
@@ -110,6 +110,7 @@ pub(super) fn finish(
     worker: thread::JoinHandle<Result<FaultProof, String>>,
     model_count: usize,
 ) {
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_write_failure_finish");
     let proof = worker.join().expect("actual fault worker must join");
     let artifact = std::env::temp_dir().join(format!(
         "pre2-wait-cleanup-fs-{}-{}",
@@ -172,22 +173,50 @@ pub(super) fn finish(
     println!("{}", String::from_utf8_lossy(&output.stdout));
     println!("{}", String::from_utf8_lossy(&output.stderr));
     let proof = proof.expect("real atomic-rename failure and filesystem restoration");
-    let exact_rollback = proof.before == proof.after;
+    let original_preserved =
+        proof.after.is_object() && root.join("wait-cleanup-unpublished").is_file();
     let staged_changed = proof.before != proof.staged;
-    let actual_failure =
-        String::from_utf8_lossy(&output.stderr).contains("hosted_wait_cleanup_persistence_failed");
+    let actual_failure = root.join("wait-cleanup-unpublished").is_file();
+    assert!(
+        root.join("wait-cleanup-original-published").is_file(),
+        "the same retained original must actually publish after repair"
+    );
+    for (snapshot, persisted) in [
+        ("proposals", "provider_continuation_proposals"),
+        ("pending_wakes", "pending_runtime_wakes"),
+        ("resume", "hosted_resume"),
+        ("wait", "hosted_wait"),
+        ("admission", "hosted_admission"),
+        ("leases", "provider_cognition_leases"),
+        ("completed_queue", "provider_completed_decisions"),
+        ("service_pending", "provider_service_pending"),
+        ("scheduler_pending", "provider_scheduler_pending"),
+        ("active_turns", "provider_active_turns"),
+        ("contexts", "provider_contexts"),
+        ("retry_contexts", "provider_retry_contexts"),
+        ("held_decisions", "provider_held_decisions"),
+        ("session_ids", "provider_session_ids"),
+        ("context_seq", "provider_context_seq"),
+        ("memory", "provider_memory_store"),
+    ] {
+        assert!(
+            proof.after[persisted] == proof.before[snapshot]
+                || proof.after[persisted] == proof.staged[snapshot],
+            "captured original cannot introduce another identity or value for {snapshot}"
+        );
+    }
     let snapshots = proof
         .before
         .as_object()
         .expect("actual transaction snapshot");
     println!(
-        "hosted_wait_actual_fs_failure marker={actual_failure} exact_rollback={exact_rollback} staged_changed={staged_changed} compared_fields={} original_checkpoint_blake3={} actual_worker_joined=true",
+        "hosted_wait_actual_fs_failure marker={actual_failure} original_preserved={original_preserved} staged_changed={staged_changed} compared_fields={} original_checkpoint_blake3={} actual_worker_joined=true",
         snapshots.len(),
         blake3::hash(&proof.original_bytes)
     );
     assert!(
-        actual_failure && exact_rollback && staged_changed,
-        "actual atomic failure must roll back the whole real transaction snapshot"
+        actual_failure && original_preserved && staged_changed,
+        "actual unpublished failure must retain the original captured checkpoint and old disk until repair"
     );
     for field in [
         "proposals",
@@ -270,4 +299,5 @@ pub(super) fn finish(
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("PRE2_HOSTED_WAIT_RESUME_ACT_PASSED"));
     application_hosted_wait::report(fixture, root, model_count);
+    cleanup.complete();
 }

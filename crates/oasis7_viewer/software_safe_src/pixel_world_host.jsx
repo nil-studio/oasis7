@@ -3,6 +3,7 @@ import { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 export { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 import { projectPixelWorldRenderInput } from "./pixel_world_render_input.js";
 import { createPixelWorldSpatialController } from "./pixel_world_spatial_controller.js";
+import { createPixelWorldHostSelection } from './pixel_world_host_selection.js';
 import { PixelWorldSpatialExplorer } from "./pixel_world_spatial_explorer.jsx";
 import { createPixelWorldScopeGuard } from "./pixel_world_scope.js";
 import { createPixelWorldHostAdapter } from "./pixel_world_host_adapter.js";
@@ -207,9 +208,24 @@ export function PixelWorldCanvasRenderer(props) {
             />
         </Show>
       </div>
-      <Show when={visualState().selection}>
-        <div class="pixel-world-canvas__selection">
-          {`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}
+      <Show when={visualState().selection || props.selectionStatus?.()}>
+        <div class="pixel-world-canvas__selection"
+          data-world-feedback-intent={props.selectionFeedback?.()?.intent_generation}
+          data-world-feedback-kind={props.selectionFeedback?.()?.ref.kind}
+          data-world-feedback-id={props.selectionFeedback?.()?.ref.id}
+          data-world-feedback-world={props.selectionFeedback?.()?.world_id}
+          data-world-feedback-scope={props.selectionFeedback?.()?.scope_generation}
+          data-world-feedback-phase={props.selectionFeedback?.()?.phase}>
+          <Show when={visualState().selection}>
+            <span>{`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}</span>
+          </Show>
+          <Show when={props.selectionStatus?.()}>
+            <div class="pixel-world-selection-status" role="status" aria-live="polite" data-world-selection-status={props.selectionStatus()}>
+              {props.selectionStatus() === "pending"
+                ? tr(props.locale(), "正在确认所选对象…", "Checking the selected object…")
+                : tr(props.locale(), "当前无法确认该对象，请重新选择。", "This object could not be confirmed. Select again.")}
+            </div>
+          </Show>
         </div>
       </Show>
     </div>
@@ -835,12 +851,16 @@ export function PixelWorldHost(props) {
   const rendererRoute = resolvePixelWorldRendererRoute();
   const [coreRevision, setCoreRevision] = createSignal(0);
   const [worldRevision, setWorldRevision] = createSignal(0);
-  const selectedEntity = () => {
-    coreRevision();
-    return spatial.selection();
-  };
   const spatial = createPixelWorldSpatialController({core,enabled:()=>core.state.viewerProtocol?.capabilities?.includes("world_view"),
     getLocale:locale,getRenderState:()=>rustRenderState()});
+  if (pixelWorldTestApiEnabled()) {
+    const readRetention = (expectedSourceCut, measure = true) => spatial.readStatistics(expectedSourceCut, measure);
+    window.__OASIS7_WORLD_VIEW_RETENTION__ = readRetention;
+    onCleanup(() => {
+      if (window.__OASIS7_WORLD_VIEW_RETENTION__ === readRetention) delete window.__OASIS7_WORLD_VIEW_RETENTION__;
+    });
+  }
+  const selectedEntity = createPixelWorldHostSelection(coreRevision, spatial);
   const worldViewState = spatial.state, navigation = spatial.navigation;
   const spatialSupported = () => {
     coreRevision();
@@ -916,8 +936,9 @@ export function PixelWorldHost(props) {
   });
   const adapter = createMemo(() => createPixelWorldHostAdapter({
     onResourceStage: setResourceStage,
+    onNavigationResult: spatial.navigationResult,
     onSelectEntity(selection) {
-      const applied = spatial.select(selection);
+      const applied = spatial.selectPresented(selection);
       if (applied?.kind === "module_visual") {
         focusViewerPanel("viewer-details-panel");
       }
@@ -945,7 +966,7 @@ export function PixelWorldHost(props) {
       setRendererFatal(fatal);
       setRendererStatus("unavailable");
       setRuntimeSource(fatal?.code === "pixel_world_webgl2_unavailable" ? "surface_unavailable" : runtimeSource());
-      setRustRenderState(null);
+      setRustRenderState(null); spatial.present(null, null);
       core.updatePixelWorldRuntimeMeta({
         runtimeStatus: "unavailable",
         runtimeSource: runtimeSource(),
@@ -968,7 +989,7 @@ export function PixelWorldHost(props) {
     const lost = (event) => {
       event.preventDefault();
       // Stop the old session and its hit regions before exposing recovery.
-      adapter().simulateFatal({ code: "pixel_world_context_lost", message: "World graphics interrupted. Retry to restore the authorized view." });
+      adapter().simulateFatal({ code: "pixel_world_context_lost", message: "World graphics context lost. Reload the page to rebuild graphics." });
     };
     let start = null;
     const stopFollow = spatial.pauseFollow;
@@ -1003,13 +1024,17 @@ export function PixelWorldHost(props) {
       return;
     }
     const generation = rendererAttemptGeneration;
-    const result = adapter().update(renderInput());
+    const presentedScope = spatial.scope();
+    const presentedView = worldViewState().view;
+    const input = renderInput();
+    const result = adapter().update(input);
     if (generation !== rendererAttemptGeneration) return;
     if (result?.fatal) {
       setRendererFatal(result.fatal);
     }
     if (result?.renderState) setRetainedSurface(null);
     setRustRenderState(result?.renderState || null);
+    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
     setRendererStatus(result?.status || "ready");
     setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
     core.updatePixelWorldRuntimeMeta({
@@ -1033,7 +1058,7 @@ export function PixelWorldHost(props) {
       setRendererFatal(fatal);
       setRendererStatus("unavailable");
       setRuntimeSource("detached");
-      setRustRenderState(null);
+      setRustRenderState(null); spatial.present(null, null);
       core.updatePixelWorldRuntimeMeta({
         runtimeStatus: "unavailable",
         runtimeSource: "detached",
@@ -1058,7 +1083,7 @@ export function PixelWorldHost(props) {
       setRendererFatal(fatal);
       setRendererStatus("unavailable");
       setRuntimeSource("detached");
-      setRustRenderState(null);
+      setRustRenderState(null); spatial.present(null, null);
       core.updatePixelWorldRuntimeMeta({
         runtimeStatus: "unavailable",
         runtimeSource: "detached",
@@ -1073,7 +1098,10 @@ export function PixelWorldHost(props) {
       adapter().simulateFatal(surfaceFatal);
       return;
     }
-    const result = await adapter().mount(canvas, renderInput());
+    const presentedScope = spatial.scope();
+    const presentedView = worldViewState().view;
+    const input = renderInput();
+    const result = await adapter().mount(canvas, input);
     if (!rendererAttemptIsCurrent(canvas, generation)) {
       return;
     }
@@ -1082,6 +1110,7 @@ export function PixelWorldHost(props) {
     }
     if (result?.renderState) setRetainedSurface(null);
     setRustRenderState(result?.renderState || null);
+    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
     setRendererStatus(result?.status || "ready");
     setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
     core.updatePixelWorldRuntimeMeta({
@@ -1096,7 +1125,12 @@ export function PixelWorldHost(props) {
       applyRendererUpdate();
     }
   }
+  const rendererNeedsReload = () => rendererFatal()?.code === "pixel_world_context_lost";
+  const rendererReloadLabel = () => tr(locale(), "重新加载页面恢复图形", "Reload page to restore graphics");
   function requestReadyMode() {
+    // This WASM module owns a boot-once Bevy App. Reusing its bridge cannot
+    // recreate GPU resources destroyed by an actual WebGL context loss.
+    if (rendererNeedsReload()) { window.location.reload(); return; }
     if (scopeGuard.check().blocked) { scopeReadPending = null; core.requestRender(); return; }
     const canvas = mountedCanvas?.isConnected ? mountedCanvas : null;
     mountedCanvas = canvas;
@@ -1123,7 +1157,7 @@ export function PixelWorldHost(props) {
     const unsubscribeRenderHook = core.subscribeRenderHook?.((invalidation) => {
       const scope = scopeGuard.check();
       if (scope.scope !== spatial.scope()) {
-        if (scope.changed) { setRendererStatus("unavailable"); setRustRenderState(null); }
+        if (scope.changed) { setRendererStatus("unavailable"); setRustRenderState(null); spatial.present(null, null); }
         spatial.resetScope();
       }
       if (scope.changed) {
@@ -1281,6 +1315,8 @@ export function PixelWorldHost(props) {
           renderInput={renderInput}
           renderState={renderState}
           selection={selectedEntity}
+          selectionStatus={spatial.selectionStatus}
+          selectionFeedback={spatial.selectionFeedback}
           hoveredEntity={hoverSelection}
           visualOverlayEnabled={visualOverlayEnabled}
           onSelect={(selection) => adapter().simulateSelect(selection)}
@@ -1311,7 +1347,7 @@ export function PixelWorldHost(props) {
             <p>{surface().objective?.title}</p><p>{surface().objective?.detail}</p>
             <PixelWorldActionReceipt locale={locale} surface={surface} />
           </>}</Show>
-          {rendererStatus() === "unavailable" ? <><div>{rendererFatal()?.code === "pixel_world_scope_changed" ? tr(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : tr(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser")}</div><button type="button" class="pixel-world-render-unavailable__retry" onClick={requestReadyMode}>{tr(locale(), "重试 Renderer", "Retry Renderer")}</button></> : tr(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.")}
+          {rendererStatus() === "unavailable" ? <><div>{rendererFatal()?.code === "pixel_world_scope_changed" ? tr(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : rendererNeedsReload() ? tr(locale(), "图形上下文已丢失，需要重新加载页面恢复图形。", "The graphics context was lost. Reload the page to restore graphics.") : tr(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser")}</div><button type="button" class="pixel-world-render-unavailable__retry" onClick={requestReadyMode}>{rendererNeedsReload() ? rendererReloadLabel() : tr(locale(), "重试 Renderer", "Retry Renderer")}</button></> : tr(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.")}
         </div>
       </Show>
       <Show when={focusMode() && renderState()?.commercial_surface}>
@@ -1369,7 +1405,7 @@ export function PixelWorldHost(props) {
               <span class="badge">{`hover=${hoverSelection().kind}/${hoverSelection().id}`}</span>
             </Show>
             <button type="button" onClick={requestReadyMode}>
-              {tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
+              {rendererNeedsReload() ? rendererReloadLabel() : tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
             </button>
             <button type="button" onClick={simulateFatal}>
               {tr(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal")}
@@ -1416,7 +1452,7 @@ export function PixelWorldHost(props) {
             </div>
             <div class="toolbar toolbar--spaced">
               <button type="button" onClick={requestReadyMode}>
-                {tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
+                {rendererNeedsReload() ? rendererReloadLabel() : tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
               </button>
             </div>
           </div>

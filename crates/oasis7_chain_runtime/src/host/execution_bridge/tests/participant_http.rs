@@ -8,21 +8,23 @@ use oasis7_runtime::service_admission::participant::*;
 use std::{
     net::TcpListener,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
-#[path = "participant_governance.rs"]
-mod governance;
-#[path = "participant_starter.rs"]
-mod starter;
-#[path = "participant_owner_view.rs"]
-mod owner_view;
-#[path = "participant_transport.rs"]
-mod transport;
 #[path = "participant_http_fixture.rs"]
 mod custody_fixture;
+#[path = "participant_governance.rs"]
+mod governance;
+#[path = "participant_owner_view.rs"]
+mod owner_view;
+#[path = "participant_resource_view.rs"]
+mod resource_view;
+#[path = "participant_starter.rs"]
+mod starter;
+#[path = "participant_transport.rs"]
+mod transport;
 fn namespace() -> GameIdentityNamespaceV1 {
     GameIdentityNamespaceV1 {
         service_id: "private-fixture-identity".into(),
@@ -183,8 +185,9 @@ fn settled(
                 key: correlation.key,
             },
             original,
-        ) && let IntentOutcome::Committed { receipt, .. } = response.outcome {
-                return serde_json::from_value(receipt).unwrap();
+        ) && let IntentOutcome::Committed { receipt, .. } = response.outcome
+        {
+            return serde_json::from_value(receipt).unwrap();
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -254,6 +257,8 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
         );
         let receipt_a = settled(&a, &root, &identity, "account-a", "register-a", &key_a);
         owner_view::exercise(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
+        let resource_signer =
+            resource_view::prepare(&endpoint, &root, &identity, &signer, &receipt_a, &key_a);
         assert!(dropped.load(Ordering::SeqCst));
         let again = a
             .submit(request(
@@ -290,20 +295,23 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             matches!(unknown.outcome, IntentOutcome::Unknown),
             "an existing account binding is not an original operation result"
         );
-        assert!(b
-            .submit(request(
+        assert!(
+            b.submit(request(
                 &identity,
                 payload(&root, &identity, "account-a", "wrong-owner", &key_b)
             ))
-            .is_err());
+            .is_err()
+        );
         let before_close = pin(&root, &identity);
         assert_eq!(before_close.world.state().agents.len(), 3);
         for (receipt, key) in [(&receipt_a, &key_a), (&receipt_b, &key_b)] {
-            assert!(before_close
-                .world
-                .state()
-                .agents
-                .contains_key(&receipt.agent_id));
+            assert!(
+                before_close
+                    .world
+                    .state()
+                    .agents
+                    .contains_key(&receipt.agent_id)
+            );
             assert_eq!(
                 agent_authority::owner_public_key(&before_close.world, &receipt.agent_id).unwrap(),
                 sign_read_request("fixture", (), key)
@@ -332,6 +340,17 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             original_created_at
         );
         node.lock().unwrap().stop().unwrap();
+        // The resource read requires one unchanged commit through delivery.
+        // Join the worker at this existing restart boundary; HTTP stays live.
+        resource_view::exercise(
+            &endpoint,
+            &root,
+            &identity,
+            &signer,
+            &receipt_a,
+            &key_a,
+            resource_signer,
+        );
         let mut driver = NodeRuntimeExecutionDriver::new(
             root.join("state.json"),
             root.join("world"),
@@ -383,12 +402,13 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
             .outcome,
             IntentOutcome::Unknown
         ));
-        assert!(a
-            .submit(request(
+        assert!(
+            a.submit(request(
                 &identity,
                 payload(&root, &identity, "account-c", "register-c", &key_a)
             ))
-            .is_err());
+            .is_err()
+        );
         a.submit(request(
             &identity,
             payload(
@@ -416,4 +436,271 @@ fn participant_real_http_execution_two_accounts_lost_response_closed_policy_rest
         server.join().unwrap();
     });
     fs::remove_dir_all(root).unwrap();
+}
+
+// Closed process-fixture bridge; no production handler or authority bypass.
+pub(super) fn install_live_context_fixture_identity(
+    driver: &mut NodeRuntimeExecutionDriver,
+    world: &WorldIdentity,
+) {
+    // The ordinary fixture commit must retain the already authenticated genesis.
+    // Without this existing participant setup step, driver_hook serializes None.
+    let manifest = driver.execution_world.chain_resource_manifest();
+    assert!(
+        manifest.world_id == world.world_id
+            && manifest.genesis_ref.as_deref() == Some(world.genesis_digest.as_str()),
+        "fixture resource identity must match the original World identity"
+    );
+    pin_resource_identity(driver);
+    governance::install_for_identity(
+        &mut driver.execution_world,
+        world,
+        1,
+        true,
+        GameIdentityNamespaceV1 {
+            service_id: "model-contract".into(),
+            environment_id: "test".into(),
+            instance_epoch: DecimalU64(4),
+        },
+        95,
+    );
+    oasis7_runtime::service_admission::participant::validate_registry(&driver.execution_world)
+        .expect("fixture participant policy must validate before the first task commit");
+}
+pub(super) fn serve_live_context_fixture(
+    listener: TcpListener,
+    node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
+    root: &Path,
+    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
+    private: &oasis7::world_service::private_goal_store::PrivateGoalStore,
+    stop: &AtomicBool,
+    counts: Arc<[std::sync::atomic::AtomicUsize; 2]>,
+) {
+    transport::observe_live_context_ports(counts);
+    transport::serve_with_private(
+        listener,
+        node,
+        root,
+        signer,
+        stop,
+        &AtomicBool::new(true),
+        Some(private),
+    );
+}
+
+// The positive custody schedule must be based on actual installation, not the
+// Worker's fixed 250 ms lookup delay. Other HTTP fixtures remain asynchronous.
+#[test]
+fn custody_happy_submit_barrier_preserves_unknown_and_settles_exact_originals() {
+    let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
+    governance::install(&mut driver.execution_world, &identity, 1, true);
+    empty_commit(&mut driver);
+    let root = dir.canonicalize().unwrap();
+    let node = Arc::new(Mutex::new(runtime(&root, driver)));
+    let signer = crate::feedback_submit_api::FeedbackSubmitSigner {
+        public_key_hex: sign_read_request("fixture", (), &hex::encode([9; 32]))
+            .unwrap()
+            .subject_public_key,
+        private_key_hex: hex::encode([9; 32]),
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let stop = AtomicBool::new(false);
+    let dropped = AtomicBool::new(true);
+    std::thread::scope(|scope| {
+        let _stop = Stop {
+            stop: &stop,
+            node: node.clone(),
+        };
+        scope.spawn(|| {
+            transport::serve_with_private_settlement(
+                listener, &node, &root, &signer, &stop, &dropped, None, true, None,
+            )
+        });
+        for (account, operation, key_byte) in [
+            ("account-a", "register-a", 72),
+            ("account-b", "register-b", 73),
+        ] {
+            let key = hex::encode([key_byte; 32]);
+            let api = client(&endpoint, &identity, &signer, &key);
+            let original = request(
+                &identity,
+                payload(&root, &identity, account, operation, &key),
+            );
+            let lookup = LookupIntentRequest {
+                contract_version: 1,
+                key: original.correlation.key.clone(),
+            };
+            let before = api
+                .lookup(lookup.clone(), original.signed_payload.clone())
+                .unwrap();
+            assert!(
+                matches!(before.outcome, IntentOutcome::Unknown),
+                "barrier cannot manufacture an unsubmitted result"
+            );
+            let response = api.submit(original.clone()).unwrap();
+            assert!(
+                matches!(response, SubmitObservation::Response(ref reply) if matches!(reply.outcome, IntentOutcome::Received { .. })),
+                "fixture must preserve the real submit response"
+            );
+            // One lookup, without sleeping, retrying or replacing its original.
+            let after = api.lookup(lookup, original.signed_payload.clone()).unwrap();
+            assert_eq!(after.correlation, original.correlation);
+            assert!(matches!(after.outcome, IntentOutcome::Committed { .. }));
+            let current = pin(&root, &identity);
+            let digest = correlation::key_digest(&original.correlation.key).unwrap();
+            let result: CanonicalIntentResultV1 = serde_json::from_value(
+                current
+                    .world
+                    .capability_revocation_state()
+                    .world_service_results[&digest]
+                    .clone(),
+            )
+            .unwrap();
+            assert_eq!(result.request, original);
+            assert!(result.rejected.is_none());
+        }
+    });
+    baseline_barrier_disables_before_pending_original();
+}
+
+fn baseline_barrier_disables_before_pending_original() {
+    let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
+    governance::install(&mut driver.execution_world, &identity, 1, true);
+    empty_commit(&mut driver);
+    let root = dir.canonicalize().unwrap();
+    let node = Arc::new(Mutex::new(runtime(&root, driver)));
+    let signer = crate::feedback_submit_api::FeedbackSubmitSigner {
+        public_key_hex: sign_read_request("fixture", (), &hex::encode([9; 32]))
+            .unwrap()
+            .subject_public_key,
+        private_key_hex: hex::encode([9; 32]),
+    };
+    let marker = root.join("baseline-only-settlement");
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&marker)
+            .unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let stop = AtomicBool::new(false);
+    let dropped = AtomicBool::new(true);
+    std::thread::scope(|scope| {
+        let _stop = Stop {
+            stop: &stop,
+            node: node.clone(),
+        };
+        scope.spawn(|| {
+            transport::serve_with_private_settlement(
+                listener,
+                &node,
+                &root,
+                &signer,
+                &stop,
+                &dropped,
+                None,
+                false,
+                Some(&marker),
+            )
+        });
+        let key = hex::encode([74; 32]);
+        let api = client(&endpoint, &identity, &signer, &key);
+        let baseline = request(
+            &identity,
+            payload(
+                &root,
+                &identity,
+                "baseline-account",
+                "baseline-register",
+                &key,
+            ),
+        );
+        assert!(
+            matches!(api.submit(baseline.clone()).unwrap(), SubmitObservation::Response(ref reply) if matches!(reply.outcome, IntentOutcome::Received { .. }))
+        );
+        let lookup = |original: &SubmitIntentRequest<WorldServicePayloadV1>| LookupIntentRequest {
+            contract_version: 1,
+            key: original.correlation.key.clone(),
+        };
+        let committed = api
+            .lookup(lookup(&baseline), baseline.signed_payload.clone())
+            .unwrap();
+        assert!(matches!(committed.outcome, IntentOutcome::Committed { .. }));
+        // Freeze real consensus before the target original is admitted. A
+        // baseline barrier accidentally left enabled must not turn it green.
+        fs::remove_file(&marker).unwrap();
+        node.lock().unwrap().stop().unwrap();
+        let bootstrap = super::super::super::local_bootstrap::derive_service_execution_bootstrap(
+            &root.join("world"),
+            &root.join("records"),
+            &root.join("store"),
+            "w1",
+        )
+        .unwrap();
+        {
+            let mut stopped = node.lock().unwrap();
+            let previous = std::mem::replace(
+                &mut *stopped,
+                oasis7_node::NodeRuntime::new(
+                    oasis7_node::NodeConfig::new("node-a", "w1", NodeRole::Sequencer).unwrap(),
+                ),
+            );
+            *stopped = previous.with_local_execution_bootstrap(bootstrap);
+        }
+        let key = hex::encode([75; 32]);
+        let api = client(&endpoint, &identity, &signer, &key);
+        let original = request(
+            &identity,
+            payload(
+                &root,
+                &identity,
+                "pending-account",
+                "pending-register",
+                &key,
+            ),
+        );
+        let response = api.submit(original.clone()).unwrap();
+        assert!(
+            matches!(response, SubmitObservation::Response(ref reply) if matches!(reply.outcome, IntentOutcome::Received { .. }))
+        );
+        let pending = api
+            .lookup(lookup(&original), original.signed_payload.clone())
+            .unwrap();
+        assert_eq!(pending.correlation, original.correlation);
+        assert!(
+            matches!(pending.outcome, IntentOutcome::Unknown),
+            "disabled baseline scheduling must preserve the actual uncommitted original"
+        );
+        // A late real commit is allowed without another Submit or new key.
+        node.lock().unwrap().start().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let digest = correlation::key_digest(&original.correlation.key).unwrap();
+        loop {
+            let current = pin(&root, &identity);
+            if let Some(value) = current
+                .world
+                .capability_revocation_state()
+                .world_service_results
+                .get(&digest)
+            {
+                let result: CanonicalIntentResultV1 =
+                    serde_json::from_value(value.clone()).unwrap();
+                assert_eq!(result.request, original);
+                assert!(result.rejected.is_none());
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "same pending original must eventually commit"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    });
 }

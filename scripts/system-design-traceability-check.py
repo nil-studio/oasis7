@@ -153,6 +153,7 @@ def parse_name_status(output: str) -> dict[str, str]:
     return changed
 
 
+@lru_cache(maxsize=128)
 def without_html_comments(text: str) -> str:
     def preserve_newlines(match: re.Match[str]) -> str:
         return "".join(character for character in match.group(0) if character in "\r\n")
@@ -249,26 +250,39 @@ def committed_target_text(root: Path, commit: str, target: Path) -> str | None:
     return None
 
 
-def previous_design_text(root: Path, base: str, head: str, path: str,
-                         include_worktree: bool = False) -> str | None:
-    """Follow Git-detected rename origins before reading the trusted baseline."""
-    current = path
+def design_rename_origins(root: Path, base: str, head: str,
+                          include_worktree: bool) -> tuple[dict[str, str], ...]:
+    """Read each rename range once for all selected design consumers."""
     ranges = []
     if include_worktree:
         ranges.extend([("diff", "--name-status", "-M", "--"),
                        ("diff", "--cached", "--name-status", "-M", head, "--")])
     ranges.append(("diff", "--name-status", "-M", base, head, "--"))
+    origins = []
     for arguments in ranges:
+        mapping: dict[str, str] = {}
         for line in run_git(root, *arguments).splitlines():
             fields = line.split("\t")
-            if len(fields) >= 3 and fields[0].startswith(("R", "C")) and fields[2] == current:
-                current = fields[1]
-                break
+            if len(fields) >= 3 and fields[0].startswith(("R", "C")):
+                mapping.setdefault(fields[2], fields[1])
+        origins.append(mapping)
+    return tuple(origins)
+
+
+def previous_design_text(root: Path, base: str, head: str, path: str,
+                         include_worktree: bool = False, *,
+                         rename_origins: tuple[dict[str, str], ...] | None = None) -> str | None:
+    """Follow Git-detected rename origins before reading the trusted baseline."""
+    current = path
+    if rename_origins is None:
+        rename_origins = design_rename_origins(root, base, head, include_worktree)
+    for mapping in rename_origins:
+        current = mapping.get(current, current)
     return git_text(root, base, current)
 
 
-def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
-    """Read the effective worktree content, preserving staged-only changes.
+def worktree_text_reader(root: Path, checkout_head: str) -> Callable[[str], str | None]:
+    """Share this invocation's Git status while preserving staged-only changes.
 
     ``git diff HEAD`` reports the union of index and worktree changes, but a
     staged tracked file can have its worktree restored to HEAD.  In that case
@@ -277,32 +291,35 @@ def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
     An unstaged change remains authoritative when both index and worktree
     contain edits because it is the content the local gate will observe.
     """
-    target = root / path
     unstaged = parse_name_status(run_git(root, "diff", "--name-status", "-M", "--", "."))
     staged = parse_name_status(
         run_git(root, "diff", "--cached", "--name-status", "-M", checkout_head, "--", ".")
     )
-    if path in unstaged:
-        status = unstaged[path]
-        current = target.read_text(encoding="utf-8") if not status.startswith("D") and target.is_file() else None
-        staged_status = staged.get(path)
-        if staged_status is not None and not staged_status.startswith("D"):
-            head_text = git_text(root, checkout_head, path)
-            if current == head_text:
-                return git_index_text(root, path)
-        return current
-    if path in staged:
-        status = staged[path]
-        return git_index_text(root, path) if not status.startswith("D") else None
-
-    untracked = {
-        candidate.strip()
-        for candidate in run_git(root, "ls-files", "--others", "--exclude-standard", "--", ".").splitlines()
-        if candidate.strip()
-    }
-    if path in untracked:
+    @lru_cache(maxsize=None)
+    def read(path: str) -> str | None:
+        target = root / path
+        if path in unstaged:
+            status = unstaged[path]
+            current = target.read_text(encoding="utf-8") if not status.startswith("D") and target.is_file() else None
+            staged_status = staged.get(path)
+            if staged_status is not None and not staged_status.startswith("D"):
+                head_text = git_text(root, checkout_head, path)
+                if current == head_text:
+                    return git_index_text(root, path)
+            return current
+        if path in staged:
+            status = staged[path]
+            return git_index_text(root, path) if not status.startswith("D") else None
+        # Untracked and unchanged files use the same filesystem read. Path
+        # discovery belongs to the existing overlay, not every target lookup.
         return target.read_text(encoding="utf-8") if target.is_file() else None
-    return target.read_text(encoding="utf-8") if target.is_file() else None
+
+    return read
+
+
+def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
+    """Read one target with fresh state for callers outside a shared check."""
+    return worktree_text_reader(root, checkout_head)(path)
 
 
 def worktree_overlay(root: Path, checkout_head: str) -> dict[str, str]:
@@ -345,6 +362,8 @@ def changed_system_design_paths(
     base: str,
     head: str,
     include_worktree: bool,
+    *,
+    worktree_reader: Callable[[str], str | None] | None = None,
 ) -> list[Path]:
     """Select changed system designs from an explicit trusted range.
 
@@ -364,6 +383,8 @@ def changed_system_design_paths(
     if include_worktree:
         checkout_head = run_git(root, "rev-parse", "--verify", "HEAD^{commit}").strip()
         changed.update(worktree_overlay(root, checkout_head))
+        if worktree_reader is None:
+            worktree_reader = worktree_text_reader(root, checkout_head)
     else:
         checkout_head = ""
 
@@ -374,7 +395,7 @@ def changed_system_design_paths(
         old_text = git_text(root, source_base, path)
         target = root / path
         new_text = (
-            worktree_file_text(root, checkout_head, path)
+            worktree_reader(path)
             if include_worktree
             else git_text(root, head_oid, path)
         )
@@ -502,18 +523,19 @@ def authority_impacted_design_paths(
     return impacted
 
 
-def visible_lines(text: str) -> list[tuple[int, str]]:
+@lru_cache(maxsize=128)
+def visible_lines(text: str) -> tuple[tuple[int, str], ...]:
     text = without_html_comments(text)
     excluded_lines = {
         number
         for block in parse_markdown_blocks(text)
         for number in range(block.start_line, block.end_line + 1)
     }
-    return [
+    return tuple(
         (number, line)
         for number, line in enumerate(text.splitlines(), start=1)
         if number not in excluded_lines
-    ]
+    )
 
 
 def table_cells(line: str) -> tuple[str, ...]:
@@ -610,29 +632,39 @@ def github_heading_slug(value: str) -> str:
     return re.sub(r"\s+", "-", value)
 
 
-def fragment_occurrences(text: str, fragment: str) -> int:
-    wanted = fragment.strip().casefold()
-    anchor_occurrences = sum(
-        anchor.strip().casefold() == wanted
+@lru_cache(maxsize=128)
+def fragment_counts(text: str) -> tuple[tuple[str, int], ...]:
+    """Index the original heading/real-HTML semantics once per exact text."""
+    counts: dict[str, int] = {}
+    for anchor in (
+        anchor.strip().casefold()
         for node in parse_markdown_html(without_html_comments(text))
         for anchor in re.findall(r"<a\s+[^>]*\bid\s*=\s*[\"']([^\"']+)[\"'][^>]*>", node.content, re.IGNORECASE)
-    )
-    heading_occurrences = 0
+    ):
+        counts[anchor] = counts.get(anchor, 0) + 1
     for _number, line in visible_lines(text):
         match = re.match(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$", line)
-        if match and github_heading_slug(match.group(1)) == wanted:
-            heading_occurrences += 1
-    return anchor_occurrences + heading_occurrences
+        if match:
+            slug = github_heading_slug(match.group(1))
+            counts[slug] = counts.get(slug, 0) + 1
+    return tuple(counts.items())
+
+
+@lru_cache(maxsize=1024)
+def fragment_occurrences(text: str, fragment: str) -> int:
+    return dict(fragment_counts(text)).get(fragment.strip().casefold(), 0)
 
 
 GLOBAL_TRACE_RE = re.compile(r"(?<![A-Za-z0-9_-])O7-REQ-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![A-Za-z0-9_-])")
 
 
-def formal_trace_fields(text: str):
+@lru_cache(maxsize=256)
+def formal_trace_fields(text: str) -> tuple[tuple[str, str], ...]:
     """Recognize existing paragraph/list/cell/column Trace syntax, not mentions."""
     lines = visible_lines(text)
     table = {}
     headings = []
+    fields = []
     for index, (_, line) in enumerate(lines):
         heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
         if heading:
@@ -658,13 +690,14 @@ def formal_trace_fields(text: str):
         if table and cells:
             for i, role in table.items():
                 if i < len(cells):
-                    yield role, cells[i]
+                    fields.append((role, cells[i]))
         candidates = cells or (re.sub(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?", "", line),)
         for cell in candidates:
             cell = re.sub(r"^`(Trace (?:ID|refs)\s*[:：])`\s*", r"\1 ", cell.strip())
             match = re.match(r"^Trace (ID|refs)\s*[:：]\s*(.*)$", cell)
             if match:
-                yield match[1], match[2]
+                fields.append((match[1], match[2]))
+    return tuple(fields)
 
 
 def parse_trace_payload(payload: str) -> tuple[set[str], set[str]]:
@@ -724,6 +757,7 @@ def declared_trace_ids(text: str) -> set[str]:
     return result
 
 
+@lru_cache(maxsize=1024)
 def fragment_section(text: str, fragment: str) -> str | None:
     """Return only the addressed heading/anchor section, excluding child clauses.
 
@@ -1548,10 +1582,11 @@ def main() -> int:
     try:
         base = resolve_commit(root, args.base, "base")
         head = resolve_commit(root, args.head, "head")
-        selected = changed_system_design_paths(root, base, head, args.worktree)
-        directly_changed = set(selected)
         source_base = run_git(root, "merge-base", base, head).strip()
         checkout_head = run_git(root, "rev-parse", "--verify", "HEAD^{commit}").strip() if args.worktree else ""
+        read_worktree = worktree_text_reader(root, checkout_head) if args.worktree else None
+        selected = changed_system_design_paths(root, base, head, args.worktree, worktree_reader=read_worktree)
+        directly_changed = set(selected)
     except ValueError as exc:
         print(f"system-design-traceability: error: {exc}")
         return 2
@@ -1563,7 +1598,7 @@ def main() -> int:
                 relative = target.relative_to(root).as_posix()
             except ValueError:
                 return None
-            return worktree_file_text(root, checkout_head, relative)
+            return read_worktree(relative)
         try:
             target.relative_to(root)
         except ValueError:
@@ -1591,13 +1626,15 @@ def main() -> int:
         return 0
 
     read_previous_target = lru_cache(maxsize=None)(lambda target: committed_target_text(root, source_base, target))
+    rename_origins = design_rename_origins(root, source_base, head, args.worktree)
     errors: list[str] = []
     for path in selected:
         text = read_target(path)
         if text is None:
             fail(errors, "trace-ref-unresolved", path.relative_to(root).as_posix(), "design content is missing; repair the selected head/worktree file")
             continue
-        previous = previous_design_text(root, source_base, head, path.relative_to(root).as_posix(), args.worktree)
+        previous = previous_design_text(root, source_base, head, path.relative_to(root).as_posix(), args.worktree,
+                                        rename_origins=rename_origins)
         if not design_requires_traceability(path.relative_to(root).as_posix(), text, previous):
             print(f"system-design-traceability: module-overview: {path.relative_to(root).as_posix()}: selected; core checks overview duties")
             continue

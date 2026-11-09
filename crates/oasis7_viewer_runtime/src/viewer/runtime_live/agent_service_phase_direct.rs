@@ -8,10 +8,54 @@ use super::super::control_plane::provider_action_commit::{
 use super::HostedServicePhase;
 use crate::viewer::ViewerRuntimeLiveServer;
 
+pub(super) fn original_settlement_requires_replay(
+    response: &oasis7_client_api::world_service::IntentResponse<serde_json::Value>,
+    original: &oasis7_client_api::world_service::RequestCorrelation,
+) -> Result<bool, String> {
+    response
+        .validate(original)
+        .map_err(|error| error.to_string())?;
+    Ok(matches!(
+        response.outcome,
+        oasis7_client_api::world_service::IntentOutcome::Unknown
+    ))
+}
+
 impl HostedServicePhase {
+    pub(super) fn verify_original_disposition(
+        &self,
+        sidecar: &super::super::control_plane::llm_sidecar::RuntimeLlmSidecar,
+    ) -> Result<(), String> {
+        match self {
+            Self::Orphan(_) | Self::Act { .. } => Ok(()),
+            Self::ActView {
+                pending, receipt, ..
+            }
+            | Self::ActSettle {
+                pending, receipt, ..
+            }
+            | Self::HandoffWake {
+                pending, receipt, ..
+            }
+            | Self::HandoffView {
+                pending, receipt, ..
+            }
+            | Self::Feedback { pending, receipt }
+            | Self::FeedbackAck {
+                pending, receipt, ..
+            }
+            | Self::FeedbackAckView {
+                pending, receipt, ..
+            }
+            | Self::Finalize {
+                pending, receipt, ..
+            } => sidecar.verify_hosted_original_disposition(pending, receipt),
+        }
+    }
     #[cfg(any(test, feature = "test_tier_required"))]
     pub(in crate::viewer::runtime_live) fn test_phase_label(&self) -> &'static str {
         match self {
+            Self::Orphan(_) => "orphan",
             Self::Act { .. } => "act",
             Self::ActView { settled: false, .. } => "act_view",
             Self::ActView { settled: true, .. } => "act_settled_view",
@@ -26,7 +70,11 @@ impl HostedServicePhase {
     }
 
     pub(in crate::viewer::runtime_live) fn identity(&self) -> Result<String, String> {
+        if let Self::Orphan(orphan) = self {
+            return orphan.identity();
+        }
         let (label, pending, receipt, details) = match self {
+            Self::Orphan(_) => unreachable!("handled above"),
             Self::Act { pending, .. } => ("act", pending, None, serde_json::Value::Null),
             Self::ActView {
                 pending,
@@ -125,8 +173,9 @@ impl HostedServicePhase {
         ))
     }
 
-    fn pending(&self) -> &PendingProviderServiceIntent {
+    fn pending(&self) -> Result<&PendingProviderServiceIntent, String> {
         match self {
+            Self::Orphan(_) => Err("orphan recovery owns hosted work; defer direct action".into()),
             Self::Act { pending, .. }
             | Self::ActView { pending, .. }
             | Self::ActSettle { pending, .. }
@@ -135,7 +184,7 @@ impl HostedServicePhase {
             | Self::Feedback { pending, .. }
             | Self::FeedbackAck { pending, .. }
             | Self::FeedbackAckView { pending, .. }
-            | Self::Finalize { pending, .. } => pending,
+            | Self::Finalize { pending, .. } => Ok(pending),
         }
     }
 
@@ -151,8 +200,29 @@ impl HostedServicePhase {
 
     fn same_pending(&self, candidate: &PendingProviderServiceIntent) -> Result<bool, String> {
         Ok(
-            serde_json::to_value(self.pending()).map_err(|error| error.to_string())?
+            serde_json::to_value(self.pending()?).map_err(|error| error.to_string())?
                 == serde_json::to_value(candidate).map_err(|error| error.to_string())?,
+        )
+    }
+}
+
+impl super::super::control_plane::llm_sidecar::RuntimeLlmSidecar {
+    pub(in crate::viewer::runtime_live) fn verify_hosted_original_disposition(
+        &self,
+        pending: &PendingProviderServiceIntent,
+        receipt: &ProviderServiceCognitionReceipt,
+    ) -> Result<(), String> {
+        super::validate_provider_service_receipt(pending, receipt)?;
+        let action_id = receipt
+            .commit_record
+            .action_id
+            .strip_prefix("action:")
+            .and_then(|id| id.parse::<u64>().ok())
+            .ok_or("canonical action ID is not numeric")?;
+        self.verify_provider_original_disposition(
+            &pending.cognition,
+            receipt.lineage.receipt_id.as_str(),
+            action_id,
         )
     }
 }
@@ -162,6 +232,7 @@ impl ViewerRuntimeLiveServer {
         &self,
         cognition: &RuntimeProviderActionContext,
     ) -> Result<(), String> {
+        self.llm_sidecar.ensure_lineage_published()?;
         let agent_id = &cognition.request.request_context.agent_subject;
         if self.agent_service_pump_started
             || self.llm_sidecar.hosted_service_inflight.is_some()
@@ -184,7 +255,7 @@ impl ViewerRuntimeLiveServer {
             return Err("another canonical Agent intent is pending; defer direct action".into());
         }
         if let Some(phase) = self.llm_sidecar.hosted_service_phase.as_ref() {
-            if serde_json::to_value(&phase.pending().cognition)
+            if serde_json::to_value(&phase.pending()?.cognition)
                 .map_err(|error| error.to_string())?
                 != serde_json::to_value(cognition).map_err(|error| error.to_string())?
             {
@@ -222,6 +293,9 @@ impl ViewerRuntimeLiveServer {
         pending: PendingProviderServiceIntent,
         submit: bool,
     ) -> Result<(), String> {
+        if self.llm_sidecar.hosted_identity_reservation.is_some() {
+            return Err("hosted identity preparation owns the current dispatch".into());
+        }
         const MAX_DIRECT_IO: usize = 24;
         const MAX_DIRECT_LOCAL_ADVANCES: usize = 16;
 
@@ -276,6 +350,10 @@ impl ViewerRuntimeLiveServer {
                 .ok_or("canonical Agent service phase disappeared before finalization")?
                 .identity()?;
             match self.prepare_hosted_service_io(false)? {
+                AgentServiceProgress::Blocked(blocker) => return Err(blocker.reason().into()),
+                AgentServiceProgress::NeedsIdentity(_) => {
+                    return Err("direct hosted driver received deferred identity work".into());
+                }
                 AgentServiceProgress::Idle => {
                     return Err(
                         "canonical Agent action remains pending without an owned phase advance"
@@ -315,7 +393,11 @@ impl ViewerRuntimeLiveServer {
                         self.llm_sidecar.hosted_service_inflight = None;
                         return Err("canonical Agent action exceeded bounded direct I/O; checkpoint retained".into());
                     }
-                    self.apply_hosted_service_io(job.execute())?;
+                    if let AgentServiceProgress::Blocked(blocker) =
+                        self.apply_hosted_service_io(job.execute())?
+                    {
+                        return Err(blocker.reason().into());
+                    }
                     if !self
                         .llm_sidecar
                         .provider_service_pending

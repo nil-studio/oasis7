@@ -1,4 +1,10 @@
 //! Dependency-light bounded World Service HTTP transport.
+#[cfg(unix)]
+mod custody_inbox;
+#[cfg(unix)]
+mod custody_tool_host;
+#[cfg(unix)]
+mod custody_transport;
 use oasis7_client_api::world_service::{self as authority, *};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{io::Read, time::Duration};
@@ -271,13 +277,15 @@ impl WorldServiceTransport {
         }
         let http = self.private_connection()?;
         self.query_state.check()?;
-        let mut response = http
+        let pending = http
             .post(format!(
                 "{}{}",
                 self.config.endpoint.trim_end_matches('/'),
                 path
             ))
-            .json(request)
+            .json(request);
+        let mut response = request_deadline::bound(pending, self.config.timeout)
+            .map_err(|error| WorldServiceClientError::Transport(error.into()))?
             .send()
             .map_err(|error| {
                 let category = if error.is_timeout() {
@@ -386,14 +394,16 @@ impl WorldServiceTransport {
         }
         let digest =
             authority::request_digest(path, request).map_err(WorldServiceClientError::Assurance)?;
-        let mut response = self
+        let pending = self
             .http
             .post(format!(
                 "{}{}",
                 self.config.endpoint.trim_end_matches('/'),
                 path
             ))
-            .json(request)
+            .json(request);
+        let mut response = request_deadline::bound(pending, self.config.timeout)
+            .map_err(|error| WorldServiceClientError::Transport(error.into()))?
             .send()
             .map_err(|e| WorldServiceClientError::Transport(e.to_string()))?;
         let status = response.status().as_u16();
@@ -579,3 +589,30 @@ mod runtime_broker_cli;
 
 #[cfg(unix)]
 mod cold_entry;
+
+#[cfg(unix)]
+pub mod dev_test_service;
+#[cfg(unix)]
+mod dev_test_service_cli;
+
+#[cfg(unix)]
+mod dev_test_catalog;
+#[cfg(unix)]
+pub mod dev_test_private_config;
+
+#[cfg(unix)]
+pub mod dev_test_sessions;
+
+#[cfg(unix)]
+pub mod dev_test_operations;
+
+mod request_deadline;
+
+#[cfg(unix)]
+pub mod dev_test_recovery;
+
+#[cfg(unix)]
+pub mod dev_test_local_adapter;
+
+#[cfg(unix)]
+pub mod dev_test_local_business;

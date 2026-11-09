@@ -1105,3 +1105,46 @@ fn micro_depot_stock_throughput_texts_meet_readable_font_and_backing_gate() {
             .all(|region| region.kind != "micro_depot")
     );
 }
+
+#[test]
+fn depot_authored_body_detail_and_native_readout_keep_one_unit_contract() {
+    let mut state = sample_render_state(12000.);
+    let mut facility = depot("pixels", "active");
+    facility.throughput_limit_units_per_epoch = 10;
+    facility.throughput_remaining_units = 7;
+    state.micro_depot_facilities = vec![facility];
+    let mut app = render_test_app(state);
+    {
+        let world = app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .resolution
+            .set(1280., 720.);
+    }
+    app.update();
+    let world = app.world_mut();
+    let (body, transform) = world
+        .query_filtered::<(&Sprite, &Transform), With<PixelWorldMicroDepotVisual>>()
+        .single(world)
+        .unwrap();
+    assert_eq!(body.custom_size, Some(Vec2::splat(16.)));
+    let y = transform.translation.y;
+    let detail = world
+        .query_filtered::<&Sprite, With<PixelWorldMicroDepotDetailVisual>>()
+        .single(world)
+        .unwrap();
+    assert_eq!(detail.custom_size, Some(Vec2::new(8., 3.)));
+    let (text,transform,font)=world.query_filtered::<(&Text2d,&Transform,&TextFont),With<crate::render::micro_depot_facilities::PixelWorldMicroDepotThroughputTextVisual>>().single(world).unwrap();
+    assert_eq!(text.0, "7/10");
+    assert_eq!(font.font_size, FontSize::Px(12.));
+    assert_eq!(transform.translation.y - y, 16.);
+    assert!(
+        world
+            .resource::<BevyRuntimeState>()
+            .hit_regions
+            .iter()
+            .all(|hit| hit.kind != "micro_depot")
+    );
+}

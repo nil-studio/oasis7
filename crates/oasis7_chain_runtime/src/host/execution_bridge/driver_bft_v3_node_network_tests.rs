@@ -7,6 +7,7 @@ use oasis7_node::{
     NodeBftLibp2pPrivateCandidateExchangeV3, NodeBftPeerExecutionStateV3,
     NodeBftPrivateExchangeConfigV3, NodeBftSharedExecutionHookV3,
 };
+const PRIVATE_OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
 struct Credentials {
     grant: oasis7_client_api::world_service_full_sync::FormalNodeReadGrantV1,
     key: SigningKey,
@@ -129,7 +130,7 @@ fn network_case_membership(
         .enumerate()
         .map(|(i, d)| {
             let mut binding = binding_for(d, i as u8);
-            if check_membership {
+            if check_membership || check_pending {
                 // Private acquisition has a 60-second operation budget below.
                 // Allow that operation and actual debug World validation inside
                 // a proposal window; measured cold replay can exceed 30 seconds.
@@ -208,9 +209,9 @@ fn network_case_membership(
     let mut snapshots = Vec::new();
     let mut servers = Vec::new();
     let mut nodes = Vec::new();
-    // Membership timers begin together after the original governance decision commits.
-    // This one-shot test clock is never reset for stop/start recovery.
-    let membership_clock_start = Arc::new(std::sync::OnceLock::<Instant>::new());
+    // Explicit fixed clock until the original membership/pending recovery cut.
+    // Every provider replacement retains this original base and one-shot origin.
+    let elapsed_clock = Arc::new(membership_clock::ElapsedClock::new(100));
     for index in 0..count {
         let binding = &bindings[index];
         let local = index as u8;
@@ -225,8 +226,8 @@ fn network_case_membership(
             fail_confirm_after_commit: None,
             snapshot: snapshot.clone(),
         };
-        let backend: Box<dyn BftSignerBackendV3> = if check_membership {
-            membership_clock::elapsed_backend(backend, membership_clock_start.clone())
+        let backend: Box<dyn BftSignerBackendV3> = if check_membership || check_pending {
+            membership_clock::elapsed_backend(backend, elapsed_clock.clone())
         } else {
             Box::new(backend)
         };
@@ -278,7 +279,7 @@ fn network_case_membership(
         );
         let execution = Arc::new(NodeBftPeerExecutionStateV3::default());
         let hook: NodeBftSharedExecutionHookV3 =
-            Arc::new(Mutex::new(Box::new(ActualHook(actual[index].clone()))));
+            Arc::new(Mutex::new(Box::new(ActualHook::new(actual[index].clone()))));
         let exchange = Arc::new(
             NodeBftLibp2pPrivateCandidateExchangeV3::new(
                 networks[index].clone(),
@@ -287,7 +288,7 @@ fn network_case_membership(
                     candidate_policy_digest: gates.policy_digest.clone(),
                     candidate_grant_generation: 1,
                     peers: routes,
-                    operation_timeout: Duration::from_secs(60),
+                    operation_timeout: PRIVATE_OPERATION_TIMEOUT,
                 },
                 execution.clone(),
                 hook.clone(),
@@ -388,7 +389,7 @@ fn network_case_membership(
             &snapshots,
             &execution_views,
             &membership_isolation,
-            &membership_clock_start,
+            &elapsed_clock,
             &bindings,
             confirmation_timeout.then(|| {
                 // The injected round needs its proposal/prevote/precommit
@@ -435,6 +436,7 @@ fn network_case_membership(
             &public_delivery,
             &drains,
             &received,
+            &elapsed_clock,
         );
         return;
     }

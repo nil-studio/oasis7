@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "1304459f0776cac4810dc40224652f3ed9a2202d8f8f1c060979a02ff89e6b8c",
+    "content_sha256": "ab2a0a9145acab20c5ee0721783f7e39e8780a513b23a7a3f5b996545184a40a",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "Reviewed the merged workflow text for minimal complete changes and evidence-based review alongside the preserved language and writing requirements and five-type Issue lifecycle. Reuse respects responsibility boundaries; simplification preserves required behavior and validation. Writing guidance remains one incremental authority without style gates; non-blocking advice adds no approval or evidence chain. Classification remains separate from execution permission. Unchanged sections retain existing authority. This review covers the integrated workflow text and AGENTS navigation; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior.",
+    "note": "保留开发流程唯一主责及既有 owner、disposition 与路由。本次有界审读通用职责、独立开发会话、代码队列领取与状态维护和评审方式，并核对 AGENTS、工程 PRD/design、执行/并行/评审方法、TPM 与 dot 的直接承接。直接开发会话和可选 TPM 共用认领规则，由实际领取者更新实现标签；标签写入失败保留真实认领及待同步项，暂停与执行权限继续约束工作。角色卡作为专业参考，交接复用 Issue/PR；现行 PRD 的角色生命周期、每日日志和固定评审报告要求已对齐，旧格式校验退役而目录负责人等有效合同保留。设计缺口处理、原生父子任务、必要独立评审、共享预算、写入隔离和父项整体验收保留；Agent 自主试玩与 dot 时间表专项条款未变。本结论限于修改及直接消费者的静态一致性，不证明客户端多会话已采用、真实任务已验收或周期已缩短。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

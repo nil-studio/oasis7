@@ -804,7 +804,9 @@ Trace ID: O7-REQ-3f259d96-508e-462d-a8c9-e1851e85e1ed
 - 记录工业中心与工厂网络形成
 - 记录协议升级
 
-形成可追溯的世界历史。玩家关心的故事先来自具体对象、承诺、选择与真实后果；叙事摘要不能凭空增加关系、债务、功劳或世界状态，也不把制度日志的存在当作人物故事已成立。
+形成可追溯的世界历史。上述记录对象及其专业实现仍由本节拥有；其中“故事来自具体对象、承诺、选择与真实后果，摘要不得新增关系、债务、功劳或世界状态，也不得以制度日志代替人物故事”的玩家承诺，统一由[REQ-WR-NARRATIVE-002](../../product/world-rules-core-gameplay/prd.md#req-wr-narrative-002)及其[验收](../../product/world-rules-core-gameplay/prd.md#ac-wr-narrative-002)接收。该引用不表示上述四类记录均已实现，也不要求自动生成摘要；内容表达与交付见[事实叙事边界](world-narrative-content-delivery.design.md#narrative-fact-boundaries)。
+
+Trace refs: O7-REQ-5f3a2585-c3f2-4bce-9da6-08ac6638cf4f。
 
 ---
 

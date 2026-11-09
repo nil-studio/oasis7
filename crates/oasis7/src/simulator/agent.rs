@@ -96,6 +96,25 @@ pub trait AgentBehavior {
         None
     }
 
+    /// Take original transport content references captured by a native
+    /// ProviderLoopback owner. They remain distinct from the typed response
+    /// context above and do not grant Runtime acceptance.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_original_material_refs(
+        &mut self,
+    ) -> Option<super::ProviderOriginalMaterialRefsV1> {
+        None
+    }
+
+    /// Keep native provider response decode memory charged through its
+    /// in-process turn outcome. Legacy and non-provider behaviors return none.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn take_provider_response_context_lease(
+        &mut self,
+    ) -> Option<super::provider_json_admission::ProviderResponseContextLease> {
+        None
+    }
+
     /// Return provider memory candidates produced by the latest decision.
     /// Candidates remain non-authoritative until Runtime feedback commits the
     /// matching receipt.

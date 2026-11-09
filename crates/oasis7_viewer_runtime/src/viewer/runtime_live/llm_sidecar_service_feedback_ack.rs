@@ -15,7 +15,7 @@ mod checkpoint_validation;
 #[path = "llm_sidecar_service_feedback_ack_probe.rs"]
 mod feedback_ack_probe;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub(in crate::viewer::runtime_live) struct PendingFeedbackAck {
     pub correlation: RequestCorrelation,
     pub payload: WorldServicePayloadV1,

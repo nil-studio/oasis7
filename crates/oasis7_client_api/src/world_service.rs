@@ -590,3 +590,9 @@ pub const VIEW_JSON_PATH: &str = "/v1/world/view-json";
 
 pub mod task_factory_quote;
 pub mod task_recipe_quote;
+
+pub mod resource_basis;
+
+/// Explicit V2 cleanup protocol; it grants no inference or execution authority.
+pub mod task_cleanup_v2;
+pub mod task_context_projection;

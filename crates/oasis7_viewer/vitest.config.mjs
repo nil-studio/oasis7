@@ -11,8 +11,19 @@ export default defineConfig({
   define: { "__OASIS7_VISUAL_TEST__": "true" },
   test: {
     environment: "jsdom",
+    // vi.resetModules() reloads viewer state between scenarios. Keep Solid in
+    // Node's module cache so fresh components share the renderer's owner graph.
+    server: { deps: { external: ["solid-js"] } },
     globals: true,
+    pool: "forks",
+    isolate: true,
     maxWorkers: 1,
+    // Reuse compiled bytecode while every file keeps a fresh process and DOM.
+    // Vitest disables this cache in workers when collecting V8 coverage.
+    env: {
+      NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE
+        ?? resolve(import.meta.dirname, "node_modules/.cache/vitest-node-compile"),
+    },
     setupFiles: ["./test/setup.js"],
     include: [
       "software_safe_src/**/*.test.js",

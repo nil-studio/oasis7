@@ -39,6 +39,25 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    /// Fixed typed key consent/possession only, not controller authorization.
+    fn sign_finality_rotation_proof(
+        &mut self,
+        _expected_revision: u64,
+        _expected_state_digest: &str,
+        _body: &oasis7_agent_api::world_action::FinalityKeyRotationBodyV1,
+        _role: oasis7_agent_api::world_action::FinalityKeyRotationRoleV1,
+    ) -> Result<
+        (
+            oasis7_agent_api::world_action::FinalityKeyRotationProofV1,
+            BftSignerCheckpointV3,
+        ),
+        BftSignerErrorV3,
+    > {
+        Err(invalid(
+            "typed finality rotation proofs are unsupported by this lease",
+        ))
+    }
+
     fn enable_membership(
         &mut self,
         _expected_revision: u64,
@@ -383,6 +402,53 @@ impl RemoteBftSignerLeaseV3 {
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn sign_finality_rotation_proof(
+        &mut self,
+        expected_revision: u64,
+        expected_state_digest: &str,
+        body: &oasis7_agent_api::world_action::FinalityKeyRotationBodyV1,
+        role: oasis7_agent_api::world_action::FinalityKeyRotationRoleV1,
+    ) -> Result<
+        (
+            oasis7_agent_api::world_action::FinalityKeyRotationProofV1,
+            BftSignerCheckpointV3,
+        ),
+        BftSignerErrorV3,
+    > {
+        body.validate().map_err(invalid)?;
+        let (request, reply) = self.command(BftSignerCommandV3::SignFinalityRotationProof {
+            expected_revision,
+            expected_state_digest: expected_state_digest.into(),
+            body: Box::new(body.clone()),
+            role,
+        })?;
+        let checkpoint = self.result_checkpoint(&request, &reply, |result| {
+            matches!(
+                result,
+                BftSignerReplyKindV3::FinalityRotationProofSigned { .. }
+            )
+        })?;
+        let BftSignerReplyKindV3::FinalityRotationProofSigned { proof } = &reply.body.result else {
+            return Err(invalid("BFT V3 finality proof result kind differs"));
+        };
+        super::rotation::verify_proof(body, proof, role)?;
+        if checkpoint
+            .state
+            .finality_rotation_proofs
+            .as_ref()
+            .is_none_or(|archive| {
+                !archive.records.iter().any(|record| {
+                    record.body == *body
+                        && record.proof == **proof
+                        && record.public_key_hex == super::rotation::selected_key(body, role)
+                })
+            })
+        {
+            return Err(invalid("BFT V3 finality proof was not durably archived"));
+        }
+        Ok((proof.as_ref().clone(), checkpoint))
+    }
+
     fn enable_membership(
         &mut self,
         expected_revision: u64,

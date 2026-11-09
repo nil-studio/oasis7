@@ -1,3 +1,4 @@
+import {continuePreparedBaseline} from './fixtures/setup_baseline_settlement.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash,createPrivateKey,createPublicKey,sign} from 'node:crypto';
@@ -27,6 +28,8 @@ let accountAlarmFixtureActive=false;
 let accountAlarmFault=null;
 let activationReadDelay=false;
 let paidDirectoryBarrier=null;
+let setupPaidResultBarrier=false;
+let setupPaidResultStage='bind';
 let toolNonceFixtureActive=false;
 let toolNonceFaultMode=null;
 const toolNonceSignalNames=["sql_fee_confirmed","sql_update_fault","reply_lost","actions_context"];
@@ -64,6 +67,11 @@ function configureOptions(options){
       });
       assert.equal(wrappers,1,'diagnostic fixture must select the actual Owner wrapper');
     }
+    if(setupPaidResultBarrier&&worker.name==='owner'){
+      worker.bindings={...worker.bindings,FIXTURE_SETUP_PAID_RESULT_BARRIER:'true',FIXTURE_SETUP_PAID_RESULT_STAGE:setupPaidResultStage,FIXTURE_SETUP_PAID_RESULT_MODE:typeof setupPaidResultBarrier==='string'?setupPaidResultBarrier:'together'};
+      worker.serviceBindings={...worker.serviceBindings,FIXTURE_FENCE_CONTROL:{name:'fence',entrypoint:'RecoveryFenceControl'}};
+      worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/setup_paid_result_barrier.mjs')},...worker.modules];
+    }
     if(paidDirectoryBarrier&&worker.name==='owner'){
       const paidMode=typeof paidDirectoryBarrier==='string'?paidDirectoryBarrier:paidDirectoryBarrier.mode;
       const paidTicket=typeof paidDirectoryBarrier==='string'?3:paidDirectoryBarrier.ticket;
@@ -85,7 +93,7 @@ function configureOptions(options){
       worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_alarm_runtime.mjs')},...worker.modules];
     }
     if(identityCloseReadTrap&&worker.name==='owner')delete worker.bindings.CUSTODY_ROLE_KEY_KEK;
-    worker.bindings={...worker.bindings,CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
+    worker.bindings={...worker.bindings,CUSTODY_REJECTION_DIAGNOSTIC:'true',CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
     worker.durableObjects={...worker.durableObjects,CLIENT_ENROLLMENTS:{className:'ClientEnrollmentAuthority',useSQLite:true,...(worker.name==='owner'?{scriptName:'identity'}:{})}};
     if(worker.name==='identity') {
       worker.serviceBindings={...worker.serviceBindings,TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'},TEST_SESSION_NATIVE_HISTORY:{name:'identity',entrypoint:'NativeProvisionHistory'}};
@@ -220,13 +228,15 @@ print(json.dumps(out,separators=(',',':')))
 `,runtime.persist,runtime.account,String(observedAt)],{encoding:'utf8',stdio:['ignore','pipe','pipe']}));}
   catch{return {available:false,diagnostic_unavailable:true};}
 }
-async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false}={}){
+async function withActiveSession(run,{lostInitial=false,approvalFault=null,preflightCase=null,toolNonceFixture=false,wrongBasisDigest=false}={}){
+  const previousFixtureState={ownerDiagnosticActive,identityDiagnosticActive,identitySecretsDisabled,identityCloseReadTrap,accountAlarmFixtureActive,accountAlarmFault,activationReadDelay,paidDirectoryBarrier,toolNonceFixtureActive,toolNonceFaultMode,toolNonceSignals,toolNoncePorts};
   const selectedMode=lostInitial?mode+'-lost-initial':mode;
   toolNonceFixtureActive=toolNonceFixture;
   toolNonceFaultMode=null;
   toolNonceSignals=Object.fromEntries(toolNonceSignalNames.map(name=>[name,0]));
   toolNoncePorts=Object.fromEntries(toolNoncePortNames.map(name=>[name,0]));
   ownerDiagnosticActive=setupDiagnostic;identityDiagnosticActive=setupDiagnostic;identitySecretsDisabled=false;identityCloseReadTrap=false;accountAlarmFixtureActive=false;accountAlarmFault=null;activationReadDelay=false;paidDirectoryBarrier=null;
+  try {
   await withRoleRuntime(selectedMode,async runtime=>{
     let blocked=null;
     const initial=await runtime.drive('session-participant');
@@ -245,7 +255,7 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       assert.equal(initial.stage,'participant_bound');
     }
     const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
-    const setupProgress=await json(await runtime.continueSetup(setup.setup_id));
+    const setupProgress=await json(await continuePreparedBaseline(runtime,setup));
     if(setupProgress.stage!=='prepared') {
       const observedAt=Date.now(),native_requests=runtime.nativeRequests();await runtime.suspend();
       console.error(JSON.stringify({baseline_setup_failure:{native_requests,state:baselineFailureState(runtime,observedAt)}}));
@@ -254,6 +264,8 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       const summary={stage:saved.provision_stage,setups:saved.setups.map(setup=>({stages:setup.stages.map(stage=>Object.fromEntries(keys.map(key=>[key,stage[key]])))}))};
       assert.fail(JSON.stringify({baseline_prepared:false,summary}));
     }
+    // Only the happy baseline may await real World commit; all target faults remain asynchronous.
+    runtime.disableBaselineSettlement();
     if(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true'||process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true') {
       // Preserve the actual production Account/SQLite; only target operations use diagnostic Wasm.
       ownerDiagnosticActive=process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true';
@@ -267,8 +279,15 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     const proofBody=JSON.stringify({api_version:1,enrollment_id:view.enrollment_id,request_id:'session-proof',target,client_public_key:publicKey,server_nonce:view.server_nonce,challenge_expires_at:view.challenge_expires_at,descriptor_digest:view.descriptor_digest});
     assert.equal((await json(await runtime.publicEnrollmentFetch(`/v1/client-enrollments/${view.enrollment_id}/prove`,{method:'POST',headers:proofHeaders(view,proofBody),body:proofBody}))).status,'proved');
     const cleanup=Date.now()+60000;
-    const basis=await json(await runtime.managementFetch('/test-sessions/basis',{api_version:1,request_id:'session-plan',enrollment_id:view.enrollment_id,cleanup_until:String(cleanup)}));
-    const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest:digest('oasis7.custody.test-session-basis.v1',basis),actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
+    const basisResponse=await json(await runtime.managementFetch('/test-sessions/basis',{api_version:1,request_id:'session-plan',enrollment_id:view.enrollment_id,cleanup_until:String(cleanup)}));
+    const {basis,basis_digest}=basisResponse;
+    const plan={api_version:1,request_id:basis.request_id,enrollment_id:view.enrollment_id,basis_digest,actions:[{tool:'move',position_cm:['11','22','33']}],allowed_resource_refs:basis.allowed_resource_refs,write_deadline:String(cleanup-20000),read_until:String(cleanup+20000),cleanup_until:String(cleanup),request_limit:'100',transport_limit:'400',business_limit:'0',read_budget:{requests:'100',transport:'300',business:'0'},cleanup_budget:{requests:'2',transport:'24',business:'0'},control_budget:{requests:'80',transport_per_hop:'240',identity_transport:'160',transport_hops:1}};
+    if(wrongBasisDigest){
+      const changedDigest=(basis_digest[0]==='0'?'1':'0')+basis_digest.slice(1);
+      const rejected=await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'wrong-basis-approval',plan:{...plan,basis_digest:changedDigest}});
+      assert.equal(rejected.status,503,'a changed Rust basis commitment must be rejected before fresh MFA');
+      await rejected.arrayBuffer();
+    }
     const request=await json(await runtime.managementFetch('/test-sessions/prepare',{api_version:1,approval_request_id:'session-approval',plan}));
     const approval=await runtime.approveIntent(request);
     if(approvalFault){await approvalFault(runtime,{basis,plan,request,approval},selectedMode);return;}
@@ -306,7 +325,10 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     await runtime.suspend();const finalState=stored(runtime,basis.session_id);assert.deepEqual(finalState.roots,['execution','reconcile_read','termination_plan']);assert.equal(finalState.credentials,0);assert.equal(finalState.terminations,0);assert.equal(finalState.reads,5);assert.deepEqual(finalState.source_reads,[7]);assert.deepEqual(finalState.steps,['fresh_access_pair','lifetime','owner_read']);
     await runtime.restart(selectedMode);const count=runtime.nativeRequests();const retry=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));assert.equal(retry.stage,'active');assert.deepEqual(runtime.nativeRequests(),{...count,'/custody/management-session-status':(count['/custody/management-session-status']??0)+1},'history does not repeat source or preflight business HTTP');
     await run(runtime,basis,selectedMode,blocked);
-  },{configureOptions});
+  },{configureOptions,settleBaseline:true});
+  } finally {
+    ({ownerDiagnosticActive,identityDiagnosticActive,identitySecretsDisabled,identityCloseReadTrap,accountAlarmFixtureActive,accountAlarmFault,activationReadDelay,paidDirectoryBarrier,toolNonceFixtureActive,toolNonceFaultMode,toolNonceSignals,toolNoncePorts}=previousFixtureState);
+  }
 }
 
 // Private signed facts and manifest originals flow through Node pipes/memory only.
@@ -376,6 +398,10 @@ async function assertGetterNoEffects(runtime,request,{accepted=true}={}){
   assert.deepEqual(privateMetadata(runtime,'stamp'),before,'getter must not mutate custody records or audits');
   assert.deepEqual(runtime.nativeRequests(),native,'getter must not issue native HTTP');
 }
+
+test('Rust TestSession basis digest is forwarded unchanged and a modified digest is rejected before fresh MFA',{timeout:300000},async()=>{
+  await withActiveSession(async()=>{}, {wrongBasisDigest:true});
+});
 
 test('real fresh MFA activates three roots and the private lifetime getter is readonly without KEKs',{timeout:300000},async()=>{
   await withActiveSession(async(runtime,basis,selectedMode)=>{
@@ -1033,7 +1059,8 @@ for(const ticket of [4,5])test(`actual paid role ticket${ticket} SQL failure pre
       assert.equal(status,503,'real selected prepay SQL rejection must fail closed');
       // These prove the actual target candidate reached the real SQLite UPDATE,
       // not a fixture assertPaid throwing before Rust tried to pay.
-      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+      if(facts.candidate_source_fresh!==true)console.error(JSON.stringify({paid_sql_candidate_freshness:{source_present:facts.candidate_source_present,observed_at:facts.candidate_observed_at,expires_at:facts.candidate_expires_at,checked_at:facts.candidate_checked_at}}));
+      assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
       assert.equal(facts.oracle_before,ticket-1);assert.equal(facts.source_before,ticket-1);
       assert.equal(facts.oracle_after,ticket-1);assert.equal(facts.source_after,ticket-1);
       assert.equal(facts.record_unchanged,true);assert.equal(facts.roots_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
@@ -1254,3 +1281,108 @@ test('public Tool metadata uses only ReconcileRead funds with Native and private
     }finally{identitySecretsDisabled=false;identityCloseReadTrap=false;runtime.setNativeUnavailable(false);}
   },{toolNonceFixture:true});
 });
+
+
+// Failure-only bounded status/counter diagnostics; no originals or credentials.
+async function requirePaidResultParticipant(runtime){
+  const initial=await runtime.drive('session-participant');
+  if(initial.stage!=='participant_bound'){
+    const observedAt=Date.now();
+    const paths=new Set(['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view']);
+    const outcomes=new Set(['received','pending','committed','rejected','expired','unknown','history_unavailable']);
+    const stages=new Set(['draft','approved','role_keys_ready','native_registered','native_session_ready','participant_bound','ready_for_setup','prepared','frozen','cancelled']);
+    const nativePaths=new Set([...paths,'/custody/management-session-status','/custody/approvals/verify','/custody/managed-bindings/session-status']);
+    const native_requests=Object.fromEntries(Object.entries(runtime.nativeRequests()).filter(([path,count])=>nativePaths.has(path)&&Number.isSafeInteger(count)&&count>=0));
+    const world=runtime.worldResults().filter(row=>paths.has(row.path)).slice(-16).map(row=>{
+      const outcome=typeof row.outcome==='string'?row.outcome:row.outcome?.status;
+      return {path:row.path,http:Number.isInteger(row.http)&&row.http>=100&&row.http<=599?row.http:null,outcome:outcomes.has(outcome)?outcome:null};
+    });
+    const progress={stage:stages.has(initial.stage)?initial.stage:'unknown',pending_count:Array.isArray(initial.pending_operations)?initial.pending_operations.length:null};
+    await runtime.suspend();
+    console.error(JSON.stringify({paid_result_participant_failure:{progress,native_requests,world,state:baselineFailureState(runtime,observedAt)}}));
+  }
+  assert.equal(initial.stage,'participant_bound','the real participant prerequisite must complete before the selected paid result callback');
+}
+
+for(const selectedStage of ['bind','delegation']){
+const selectedLabel=selectedStage==='bind'?'Bind':'Delegation';
+test(`actual paid ${selectedLabel} result Directory and Fence reads overlap without renewing source`,{timeout:300000},async()=>{
+  setupPaidResultStage=selectedStage;setupPaidResultBarrier=true;
+  try{
+    await withRoleRuntime(mode,async runtime=>{
+      await requirePaidResultParticipant(runtime);
+      const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
+      const before=runtime.nativeRequests(),worldBefore=runtime.worldResults().length;
+      const response=await runtime.continueSetup(setup.setup_id);
+      const status=response.status;let progress=null;
+      if(status===200)progress=await response.json();else await response.arrayBuffer();
+      const facts=await runtime.setupPaidResultStatus();
+      const after=runtime.nativeRequests();
+      if(status!==200||progress?.stage!=='prepared'){
+        const deltas=Object.fromEntries(Object.keys(after).sort().map(path=>[path,(after[path]??0)-(before[path]??0)]));
+        const observedAt=Date.now();await runtime.suspend();
+        console.error(JSON.stringify({setup_paid_result_barrier:{status,progress_stage:progress?.stage??null,facts,
+          native_path_counts:deltas,world_response_count:runtime.worldResults().length-worldBefore,
+          state:baselineFailureState(runtime,observedAt)}}));
+      }
+      // These are the scheduling targets. Do not turn a failed precondition or
+      // an intermediate counter assertion into the apparent old-serial RED.
+      assert.equal(status,200,'the unchanged real setup path must return a prepared result');
+      assert.equal(progress.stage,'prepared','the already-paid Bind callback must finish under the original source window');
+      assert.ok(facts,'the actual selected Bind callback must be reached');
+      assert.equal(facts.selected_stage,selectedStage);assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.stage_count,selectedStage==='bind'?5:4);assert.equal(facts.setup_transport_spent,selectedStage==='bind'?488:392);
+      assert.equal(facts.callback_claimed,true);assert.equal(facts.result_empty,true);
+      assert.equal(facts.stage_prepaid,true);assert.equal(facts.native_source_present,true);assert.equal(facts.canonical_committed,true);
+      assert.equal(facts.source_fresh_at_start,true,'the selected callback must begin inside the original source window');
+      assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);assert.equal(facts.paid_confirmations,2);
+      assert.equal(facts.gate_status,200,'the real Directory gate must succeed');
+      assert.equal(facts.released,'independent_reads_started');assert.ok(facts.elapsed_ms<5000);
+      assert.equal(facts.source_unchanged,true);assert.equal(facts.spent_unchanged,true);assert.equal(facts.result_after,true);
+      assert.equal(facts.setup_transport_spent,8+96*facts.stage_count,'the real preallocated stage96 remains charged exactly once');
+    },{configureOptions,settleSubmits:true});
+  }finally{setupPaidResultBarrier=false;setupPaidResultStage='bind';}
+});
+
+
+for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'])test(`actual paid ${selectedLabel} result rejects ${fault} without admitting stale facts`,{timeout:300000},async()=>{
+  setupPaidResultStage=selectedStage;setupPaidResultBarrier=fault;
+  try{
+    await withRoleRuntime(mode,async runtime=>{
+      await requirePaidResultParticipant(runtime);
+      const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
+      const response=await runtime.continueSetup(setup.setup_id);
+      const status=response.status;let progress=null;
+      if(status===200)progress=await response.json();else await response.arrayBuffer();
+      const nativeBefore=runtime.nativeRequests(),worldBefore=runtime.worldResults().length;
+      const facts=await runtime.setupPaidResultStatus();
+      console.log(JSON.stringify({setup_paid_result_fault:{fault,status,progress_stage:progress?.stage??null,facts}}));
+      assert.ok(facts,'the actual selected Bind callback must be reached');
+      assert.equal(facts.selected_stage,selectedStage);assert.equal(facts.selected_calls,1);assert.equal(facts.callback_before,false);
+      assert.equal(facts.stage_count,selectedStage==='bind'?5:4);assert.equal(facts.setup_transport_spent,selectedStage==='bind'?488:392);
+      assert.equal(facts.stage_prepaid,true);assert.equal(facts.native_source_present,true);assert.equal(facts.canonical_committed,true);
+      assert.equal(status===200||status===503,true,'only the unchanged setup pending/rejection result is allowed');
+      assert.equal(progress?.stage==='prepared',false,'failed readonly evidence cannot complete setup');
+      assert.equal(facts.result_after,false);assert.equal(facts.source_unchanged,true);assert.equal(facts.spent_unchanged,true);
+      assert.deepEqual(runtime.nativeRequests(),nativeBefore);assert.equal(runtime.worldResults().length,worldBefore,'the fixture observation cannot add Native/World calls');
+      if(fault==='prepay_sql_fail'){
+        assert.equal(facts.target_candidate_seen,true);assert.equal(facts.candidate_source_fresh,true);assert.equal(facts.update_attempts,1);assert.equal(facts.sql_faults,1);
+        assert.equal(facts.gate_reads,0);assert.equal(facts.fence_reads,0);assert.equal(facts.paid_confirmations,0);
+        assert.equal(facts.callback_after,false);assert.equal(facts.record_unchanged,true);assert.equal(facts.audit_unchanged,true);assert.equal(facts.trigger_removed,true);
+      }else{
+        assert.equal(facts.callback_claimed,true);assert.equal(facts.result_empty,true);assert.equal(facts.source_fresh_at_start,true);
+        assert.equal(facts.gate_reads,1);assert.equal(facts.fence_reads,1);assert.equal(facts.paid_confirmations,2);
+        if(fault==='over_window'){
+          assert.equal(facts.released,'bounded_timeout');assert.ok(facts.elapsed_ms>=5000,'the real observation window cannot be extended');
+        }else{
+          assert.equal(facts.released,'independent_reads_started');assert.equal(facts.source_fresh_at_start,true);
+          if(fault==='reject_gate'){
+            assert.equal(facts.gate_status,200,'the injected rejection follows an actual successful Directory response');assert.equal(facts.gate_faulted,true);
+          }else assert.equal(facts.fence_disabled,true,'the actual independent RecoveryFence must be disabled');
+        }
+      }
+    },{configureOptions,settleSubmits:true});
+  }finally{setupPaidResultBarrier=false;setupPaidResultStage='bind';}
+});
+
+}

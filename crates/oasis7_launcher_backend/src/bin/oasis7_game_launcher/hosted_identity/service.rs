@@ -16,6 +16,7 @@ pub(crate) struct IdentityReply {
 }
 pub(crate) struct IdentityService {
     pub(super) custody: Option<super::custody::CustodyConfig>,
+    pub(super) custody_management_enabled: bool,
     pub config: IdentityConfig,
     pub store: IdentityStore,
     pub webauthn: WebAuthnAdapter,
@@ -141,6 +142,20 @@ pub(super) fn credential_key(id: &str) -> String {
 }
 
 impl IdentityService {
+    fn custody_management_capability(
+        &self,
+    ) -> oasis7_custody_core::management_metadata::CustodyManagementCapabilityV1 {
+        let audience = self
+            .custody
+            .as_ref()
+            .filter(|_| self.custody_management_enabled)
+            .map(|c| c.management_audience());
+        oasis7_custody_core::management_metadata::CustodyManagementCapabilityV1::configured(
+            audience,
+            &self.config.namespace.environment_id,
+        )
+    }
+
     pub fn new(mut config: IdentityConfig) -> Result<Self, String> {
         let webauthn = WebAuthnAdapter::new(&config.rp.rp_id, &config.rp.allowed_origins)
             .map_err(|_| "invalid WebAuthn configuration".to_string())?;
@@ -195,6 +210,10 @@ impl IdentityService {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             custody,
+            custody_management_enabled: std::env::var("OASIS7_CUSTODY_MANAGEMENT_UI_ENABLED")
+                .ok()
+                .as_deref()
+                == Some("true"),
             participant_entry: super::participant_entry::ParticipantEntry::from_env()?,
             config,
             store,
@@ -403,7 +422,7 @@ impl IdentityService {
             return token_reply(result);
         }
         let result:Result<Value,StoreError>=match (method,relative) {
-            ("GET","/capabilities")=>Ok(json!({"api_version":2,"ok":true,"csrf_token":csrf,"registration_enabled":self.config.registration_enabled,"passkey":{"available":true},"email":{"available":self.email.available()},"email_recovery":{"available":self.email.recovery_available()},"machine_registration":{"available":self.config.registration_enabled && self.config.machine_registration_enabled,"algorithm":"Ed25519","options_path":format!("{PREFIX}/machine-registration/options"),"complete_path":format!("{PREFIX}/machine-registration/complete")},"native_key":{"available":true,"mode":"import_only","algorithm":"Ed25519","identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id}})),
+            ("GET","/capabilities")=>Ok(json!({"api_version":2,"ok":true,"csrf_token":csrf,"registration_enabled":self.config.registration_enabled,"custody_management":self.custody_management_capability(),"passkey":{"available":true},"email":{"available":self.email.available()},"email_recovery":{"available":self.email.recovery_available()},"machine_registration":{"available":self.config.registration_enabled && self.config.machine_registration_enabled,"algorithm":"Ed25519","options_path":format!("{PREFIX}/machine-registration/options"),"complete_path":format!("{PREFIX}/machine-registration/complete")},"native_key":{"available":true,"mode":"import_only","algorithm":"Ed25519","identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id}})),
             ("GET","/session")=>self.session(sid.as_deref(),now).map(|(a,s)|json!({"api_version":2,"ok":true,"csrf_token":csrf,"account":{"account_id":a.account_id,"display_name":a.display_name},"authentication":{"state":"authenticated","method":s.auth_method},"world":{"state":"not_requested"}})),
             ("POST","/passkeys/registration/options")=>self.registration_options(&owner,sid.as_deref(),&payload,source,now),
             ("POST","/passkeys/authentication/options")=>self.authentication_options(&owner,&payload,source,now),

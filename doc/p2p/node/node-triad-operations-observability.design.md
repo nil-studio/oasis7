@@ -237,7 +237,20 @@ producer 发布实际 profile、world/chain、构建与实例身份，adapter �
 
 adapter 核对顶层／角色 schema 以及 chain anchor 的 profile、world/chain、instance incarnation／generation／config digest。当前能力须同时满足 producer formal_readiness、实际 running、无 blocker／配置变化、对应角色 ready 和只读边界，且 producer 检查时点不晚于报告 as-of、年龄不超过 60000ms。报告输出实际观察时点、as-of 与 age；只读文件重放不刷新观察时间。停止／producer 阻断为 blocked；缺字段、矛盾类型、身份不符和未知版本为 unknown；旧或未来观察为 stale／unknown，不显示当前 ready。完整同步 ready 还要求已加载／已验证 cut、world 匹配、state root verified 和 world loaded；公共读取仅证明 projection，不升级为 full state。报告属于诊断投影，不重新验证密码学 proof 或更改 runtime admission。
 
-本子范围沿实际单节点入口执行 schema／身份／阻断／旧观察与恢复反例，并由现有正式 observer／full-sync 进程回归将 producer 状态喂给实际报告脚本。triad HTTP collector、validator／storage profile、授权撤销协议、BFT 和 P/R 仍待后续实现与各自验收。
+本子范围沿实际单节点入口执行 schema／身份／阻断／旧观察与恢复反例，并由现有正式 observer／full-sync 进程回归将 producer 状态喂给实际报告脚本。triad HTTP 的显式独立观察合同见[HTTP profile 观察](#triad-http-profile-observation)；validator／storage profile、授权撤销协议、BFT 和 P/R 仍待后续实现与各自验收。
+
+<a id="triad-http-profile-observation"></a>
+### 显式 triad HTTP profile 观察合同
+
+Trace refs: O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b；承接 [OPS-AC-5](node-triad-operations-observability.prd.md#ops-profile-readiness)。本节规定本次实现边界，验收结果另据实际测试与交付记录。
+
+外层 monitor 可显式选择 `--local-profile-status-url`、`--sequencer-profile-status-url`、`--storage-profile-status-url`，由独立 HTTP child 在本次独占 run 内采集。URL 仅路由该 child，不替换既有 chain status、traffic、health 或 SSH 配置。未选择的节点为 unsupported；选择的端点只消费现有 `oasis7.local-node-status/v1` 正式 DTO，不从旧 chain readiness 推断 profile。当前只支持 public observer 与 full-state read-only 两种 profile，不新增 HTTP producer 或权限协议。
+
+URL 在预留 attempt 前校验为无凭据、无 fragment 的显式 HTTP(S) 地址；不跟随 redirect。每端点限 4 MiB、5 秒绝对读取预算，超限／超时／HTTP 错误／无效 JSON 输出固定错误类别，不持久化原 DTO、URL 或 error body。child 只保存 adapter allowlist、URL scope 摘要及采集起止时点；外层复用既有 attempt 的 pending、scope fingerprint、终态与 canonical artifact 校验，采集失败保留本次 unknown，不借旧成功转绿。
+
+adapter 复用单节点相同的 schema/profile/world/chain/genesis、incarnation/generation/config digest、running、grant/cut、只读 scope 和 `can_propose=false` 校验。HTTP 只改变 source 标签，不代表已验证 proof。每节点独立输出 collection 与 `profile_readiness`，producer 观察时点始终来自 DTO；merge 与 canonical read 都按当前 as-of 重新核验 60000ms 年龄、未来观察和采集时钟回退，不以 fetch 时间刷新 producer。成功获取 blocked DTO 是成功采集但仍 blocked。角色观察不替换 legacy fleet overall 或 runtime admission；成员、validator、持久签名及 P/R 继续 unsupported。
+
+验收沿真实 HTTP stub→child→outer→merger→canonical，核对 ready、producer stale、错误实例/profile、最新 HTTP 失败和恢复；另验精确路由、redirect、超限、超时和 legacy 未选择路径。stub 只证明该适配合同，不证明部署端点、可信绝对时间、物理防回退或角色授权协议已验收。
 
 <a id="local-profile-collection"></a>
 ### 本地正式 profile 采集与验证读取

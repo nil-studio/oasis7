@@ -26,13 +26,16 @@ function positionKey(position) {
   return `${x}|${y}|${Number.isFinite(z) ? z : 0}`;
 }
 
-function moduleCoAnchorOffset(index) {
+function moduleCoAnchorOffset(index, unit) {
   const ring = Math.floor(index / MODULE_CO_ANCHOR_RING_OFFSETS.length) + 1;
   const [x, y] = MODULE_CO_ANCHOR_RING_OFFSETS[index % MODULE_CO_ANCHOR_RING_OFFSETS.length];
-  return { x: x * ring, y: y * ring };
+  const step = value => Math.ceil(Math.max(48, 16 * value + 4) / value) * value;
+  return { x: x / 48 * step(unit.x) * ring, y: y / 48 * step(unit.y) * ring };
 }
 
-export function moduleTargetOffsets(visualState) {
+export function moduleTargetOffsets(visualState, size = { width: 960, height: 540 }, rendererSize = size) {
+  const scale = Math.max(1, Math.floor(Math.min(rendererSize.width / 640, rendererSize.height / 360)));
+  const unit = { x: scale * size.width / rendererSize.width, y: scale * size.height / rendererSize.height };
   const modules = visualState.moduleVisualEntities
     .filter(entity => entity?.pos)
     .slice()
@@ -62,7 +65,7 @@ export function moduleTargetOffsets(visualState) {
     offsets.set(
       module.id,
       hasParent || slot?.count > 1
-        ? moduleCoAnchorOffset(slot?.index ?? index)
+        ? moduleCoAnchorOffset(slot?.index ?? index, unit)
         : { x: 0, y: 0 },
     );
   });
@@ -77,12 +80,19 @@ export function rendererEntityTargetStyle(entity, worldBounds, size, camera, scr
   const rendererWidth = Number(rendererSize?.width) || width;
   const rendererHeight = Number(rendererSize?.height) || height;
   const idLength = new TextEncoder().encode(entity.id || '').length;
-  const point = toCanvasPoint(entity.pos, worldBounds, rendererWidth, rendererHeight, camera)
-    || toCanvasPoint({ x_cm: 36 + (idLength * 29) % Math.max(40, rendererWidth - 72), y_cm: 44 + (idLength * 17) % Math.max(48, rendererHeight - 88) }, { width_cm: rendererWidth, depth_cm: rendererHeight }, rendererWidth, rendererHeight, camera);
-  const offsetScaleX = rendererWidth / width;
-  const offsetScaleY = rendererHeight / height;
-  const x = ((point.x + ((Number(screenOffset?.x) || 0) * offsetScaleX)) / rendererWidth) * width;
-  const y = ((point.y + ((Number(screenOffset?.y) || 0) * offsetScaleY)) / rendererHeight) * height;
+  const point = toCanvasPoint(entity.pos, worldBounds, width, height, camera)
+    || toCanvasPoint({ x_cm: 36 + (idLength * 29) % Math.max(40, width - 72), y_cm: 44 + (idLength * 17) % Math.max(48, height - 88) }, { width_cm: width, depth_cm: height }, width, height, camera);
+  const scale = Math.max(1, Math.floor(Math.min(rendererWidth / 640, rendererHeight / 360)));
+  const snap = (value, pan, css, frame) => {
+    const logical = Math.floor(frame / scale);
+    const offset = Math.floor((frame - scale * logical) / 2);
+    const unit = css / frame * scale;
+    const t = pan / unit;
+    const q = (value * frame / css - offset) / scale;
+    return (Math.floor(q - t + Math.floor(t + 0.5) + 0.5) * scale + offset) * css / frame;
+  };
+  const x = snap(point.x, Number(camera?.pan_x_px ?? camera?.panX) || 0, width, rendererWidth) + (Number(screenOffset?.x) || 0);
+  const y = snap(point.y, Number(camera?.pan_y_px ?? camera?.panY) || 0, height, rendererHeight) + (Number(screenOffset?.y) || 0);
   const halfTarget = RENDERER_TARGET_SIZE_PX / 2;
   return { left: `${x / width * 100}%`, top: `${y / height * 100}%`, width: `${RENDERER_TARGET_SIZE_PX}px`, height: `${RENDERER_TARGET_SIZE_PX}px`, transform: 'translate(-50%, -50%)', display: x + halfTarget <= 0 || y + halfTarget <= 0 || x - halfTarget >= width || y - halfTarget >= height ? 'none' : undefined };
 }
@@ -90,7 +100,7 @@ export function rendererEntityTargetStyle(entity, worldBounds, size, camera, scr
 export function PixelWorldRendererTargets(props) {
   const state = createMemo(() => pixelWorldVisualState(props.renderState()));
   const isZh = () => isLocaleZh(props.locale());
-  const moduleOffsets = createMemo(() => moduleTargetOffsets(state()));
+  const moduleOffsets = createMemo(() => moduleTargetOffsets(state(), props.stageSize(), props.rendererSize?.() || props.stageSize()));
   // Solid's For retains nodes by key; snapshot objects are replaced routinely.
   // Keep kind/id keys stable while reading labels and positions from the latest map.
   const entities = createMemo(() => new Map([

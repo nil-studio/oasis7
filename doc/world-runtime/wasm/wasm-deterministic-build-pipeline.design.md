@@ -161,11 +161,15 @@ candidate summary 显式携带 purpose/baseline digest，所有消费者拒绝 u
 
 **Candidate-only 镜像身份。** 显式 `--candidate-build` 复用既有 wrapper、Suite 与共享 BuildManifest：从实际 Dockerfile、`.dockerignore`、入口脚本、固定构建参数、Cargo workspace/lock 及两个 producer 包（`wasm_build_suite`、`oasis7_wasm_build`）的内容记录计算 `producer-content` recipe v1。必须由 Cargo metadata 核对真实本地依赖恰为这两个包，并拒绝未支持的 include/config/build 输入；不能只用文件名白名单声称闭包完整。固定 arguments 显式包含 `GUEST_CARGO_BUILD_JOBS=2`，candidate wrapper 实际传入容器环境 `CARGO_BUILD_JOBS=2`，不继承 host jobs 值，Suite 的 candidate producer 入口也核对实际环境精确为 2，缺失/不同值拒绝；这是 guest 构建并发策略，不能冒称限制 Dockerfile 内 native producer 安装阶段。recipe 是所声明 producer 内容与指令的摘要，不是 OCI/image bytes 摘要；可变 FROM/apt 输入仍由真实 execution image ID 区分，不能把旧配置 pin `f353…` 改称内容 hash。
 
-实际 Dockerfile 以固定 COPY 清单复制 manifest/lock、crates、三个 vendor、三个 tools 目录与 wrapper，在 `/opt/oasis7` 安装 Suite，最后切到 `/workspace`；不是 `COPY .`。root `.cargo` 不复制进 image，Suite 在 producer metadata 的 `/opt/oasis7` 工作目录核对并拒绝映像根 Cargo config；新增 COPY/ADD、未知 RUN/ENV、Dockerfile parser directive（syntax/escape/check）或工作目录形态须先显式支持，不能继承 guest config。
+实际 Dockerfile 以固定 COPY 清单保留原 root manifest/lock、所有现有 workspace/path 包及三个 vendor patch 的原 Cargo.toml、两个真实 producer 的完整源码、wrapper 与 metadata 准备 helper，在 `/opt/oasis7` 安装 Suite，最后切到 `/workspace`；不是 `COPY .`，也不复制无关业务实现。Cargo 会先解析整个原 workspace，故不能仅复制两个包；helper 只为非 producer 清单补明确标注的 metadata-only 空 target，不覆盖两个真实 producer 源码，不改原 root manifest/lock。空 target 只满足 Cargo 清单解析，不是源码资格、guest 输入或可执行 producer；真实本地可达 producer 仍须恰为原两个包，新增依赖不得由空 target 默许。helper 自身是 recipe 的固定内容输入，并按原路径复制进映像参与实际 producer 核验。root `.cargo` 不复制进 image，Suite 在 producer metadata 的 `/opt/oasis7` 工作目录核对并拒绝映像根 Cargo config；新增 COPY/ADD、未知 RUN/ENV、Dockerfile parser directive（syntax/escape/check）或工作目录形态须先显式支持，不能继承 guest config。
 
-wrapper 自己用原 Dockerfile/固定 args 构建任务 tag、用每次独占 `--iidfile` 捕获该次 build 的 immutable ID，再 inspect 该 ID 核对 recipe labels/amd64/ID 并运行同一 ID；任务 tag 的并发 retag 不得改变该次执行选择；不覆盖普通 builder tag，不允许环境变量伪造 normal ref/digest；candidate output/staging 在 mkdir/mktemp/write 前逐祖先拒绝 symlink 与非目录，不能靠 lexical root 前缀把写入导向其他目录。
+单模块 wrapper 自己用原 Dockerfile/固定 args 构建任务 tag、用每次独占 `--iidfile` 捕获该次 build 的 immutable ID，再 inspect 该 ID 核对 recipe labels/amd64/ID 并运行同一 ID；任务 tag 的并发 retag 不得改变该次执行选择；不覆盖普通 builder tag，不允许环境变量伪造 normal ref/digest；candidate output/staging 在 mkdir/mktemp/write 前逐祖先拒绝 symlink 与非目录，不能靠 lexical root 前缀把写入导向其他目录。
 
 Suite 独立复核映像内 `/opt/oasis7` producer records；Dockerfile/ignore 未复制入映像时只如实保留 wrapper provenance，不能提升为独立密码学证明。构建前后 recipe 比较只检测普通变化，不宣称原子 snapshot。生成 baseline 位于 Runtime artifacts，输出/target 不属于两个 producer 包输入，不形成自身 hash 递归；新本地依赖或未知外部输入形式须显式升级规则。
+
+**批量构建的镜像与空间生命周期。** 一次 candidate 批量调用固定一个实际 immutable image ID。镜像不存在时只构建一次；已有镜像须通过同一 recipe、平台、labels、精确 ENTRYPOINT 和 producer 环境核验，不能接受 caller 指定的任意镜像或 evidence。批次用自身创建且不运行的 container 保持该镜像引用，结束时仅回收自身租约。每个模块仍独立创建空 Cargo/TMP 目录、执行映像内 producer 验证，并在运行前后核对当前 recipe；批次失败必须返回失败，不得以局部或既有 receipt 标记整批成功或自动提升 baseline；已完成模块的真实输出可保留，复用仍须逐项通过当前 freshness、recipe 与原件校验。
+
+镜像构建输入只包含 Cargo 解析所需的 workspace 清单和实际 producer 源码闭包，不因无关业务实现变化重建 producer。Rust 工具链权限在其安装层处理；工具安装的临时 target 与下载缓存须在同一层结束前回收，不能依靠后续删除层隐藏空间占用，也不在最后一层递归修改已安装工具链。优化后的镜像仍须支持非 root guest，保留完整 producer 内容验证和 canonical receipt 合同。空间验收比较实际 Docker history、镜像字节数及批次 build 次数，mock 不代替真实双模块构建。
 
 candidate receipt4/metadata 显式携带 purpose、manifest3、`builder_recipe`（版本、种类、内容 hash/args/records）与 `builder_execution`（版本、实际 ref/ID、platform），拒绝与旧 `builder_image_*` 字段混配。manifest3 只绑定同规则 recipe 与既有 tooling/source-rule 输入，实际 execution selector/ID 独立逐 receipt/metadata 核对并保留；跨宿主可报告不同 execution IDs，只比较 recipe/source/build/WASM 一致，不冒称 image 字节相同或发布通过。旧 release receipt3/BuildManifest 序列化及黄金 hash 不变；legacy 没有的 execution ID 不补造。candidate descriptor/summary/bundle/report 同步版本与 purpose，unknown/mixed 拒绝；node flow 与 direct proof packager 都拒绝 candidate/unknown 发布证据，旧六文件、Runtime 默认 include、原版本身份/签名及 activation 验证职责不变。当前 evidence assembly 需要显式 purpose-bound 输入，不能外推成所有历史 CLI envelope 兼容。
 
@@ -411,6 +415,7 @@ canonical packaged wasm
 
 - `m1/m4/m5` 的 canonical binary 经 sync/check 与 SHA-256 manifest 对账后，由 `hydrate_builtin_wasm` 写入按 SHA-256 配置的 `LocalCasStore`。
 - materializer 读取 DistFS candidate 后复算 SHA-256；本地候选不可用时，当前实现仍会继续 fetch 与 builtin source-compile fallback。materializer 不接收 identity、receipt 或 release policy。
+- fetcher、外部 compiler 和默认构建脚本的每次调用须独占 `repo_root/.tmp` 下的工作目录，保持 Docker 挂载可达；通过原子创建取得目录所有权，名称碰撞时重选，其他创建错误直接返回。时间戳不作为唯一性保证；调用只清理自己取得的目录，不复用或删除其他并发调用及已有目录的产物。
 - DistFS 只承载 binary materialization/cache，不改变 canonical build/identity 的权威关系。identity/receipt/signature/release policy 由外围 artifact selection / release-gated pipeline 校验；`Action::CompileModuleArtifactFromSource` 的 production policy gate 不覆盖 builtin materializer fallback，不能据此声明生产入口已经关闭后者。
 
 <a id="build-image-detail"></a>

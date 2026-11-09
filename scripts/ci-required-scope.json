@@ -1,4 +1,792 @@
 {
+  "fast_scope_version": 1,
+  "fast_test_inventory_version": 1,
+  "fast_execution_version": 1,
+  "ordinary_partition_version": 1,
+  "ordinary_artifact_partition_version": 1,
+  "workspace_support_partition_version": 1,
+  "distfs_clippy_contract_version": 1,
+  "architecture_build_policy_version": 1,
+  "engineering_job_observation": {
+    "schema_version": 1,
+    "workflow_path": ".github/workflows/rust.yml",
+    "step_name": "Record engineering job observation",
+    "step_anchor": "engineering-job-observation",
+    "timeout_minutes": 1,
+    "failure_mode": "nonblocking",
+    "emitter_sha256": "ee74f43758b6d6feb98232c4153875a49dc3336021aee894a9af3ab883006144"
+  },
+  "ordinary_support_contract_version": 1,
+  "ordinary_fast_support_contracts": [
+    {
+      "package": "oasis7_game_client",
+      "source": "crates/oasis7_game_client/src/dev_test_service_cli.rs",
+      "entry": "run",
+      "callers": {
+        "crates/oasis7_game_client/src/commands.rs": "0aba38c4f9e32c35facd42ac443c4eb382f74f8ce949512cf22f4ad7dac0f7dd",
+        "crates/oasis7_game_client/src/bin/oasis7_game_client.rs": "f0e672b7b81c4b6259ce3c6286ec2345558b9f7c3b5e1c87e4dd26cc2ed87587"
+      },
+      "tests": [
+        "crates/oasis7_game_client/tests/identity_cli.rs",
+        "crates/oasis7_game_client/tests/dev_test_catalog_cli.rs",
+        "crates/oasis7_game_client/tests/legacy_profile.rs",
+        "crates/oasis7_game_client/tests/dev_test_service_cli.rs"
+      ],
+      "deferred_consumers": ["oasis7_agent_harness", "oasis7_model_provider"]
+    }
+  ],
+  "ordinary_fast_targets": {
+    "game-client-lib": {
+      "package": "oasis7_game_client",
+      "target_kind": "lib",
+      "target_name": "oasis7_game_client",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "commands::native_context_display::tests::required_native_context_list_confirms_default_validation",
+        "commands::native_context_display::tests::missing_native_context_grant_field_is_not_silently_empty",
+        "commands::native_context_display::tests::nonempty_native_context_keeps_revoked_grants_scoped",
+        "commands::native_context_display::tests::provider_local_display_bytes_are_unchanged",
+        "dev_test_service::tests::completed_peer_response_is_read_through_eof",
+        "dev_test_service::tests::slow_drip_cannot_extend_absolute_read_deadline",
+        "dev_test_service::tests::capabilities_enforce_credential_and_closed_methods"
+      ]
+    },
+    "game-client-identity-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "identity_cli",
+      "default_features": true,
+      "features": [],
+      "cases": ["executable_initializes_and_reopens_encrypted_identity_without_network_or_secret_output"]
+    },
+    "game-client-catalog-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "dev_test_catalog_cli",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "operator_cli_rejects_public_directory_and_lists_without_credential_references",
+        "trusted_tls_registration_is_idempotent_and_rejects_subject_replacement"
+      ]
+    },
+    "game-client-legacy-profile": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "legacy_profile",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "original_runtime_fixture_preserves_all_legacy_operations_and_results",
+        "published_lease_and_continuation_pure_helpers_preserve_defaults_and_reject_invalid_input"
+      ]
+    },
+    "game-client-service-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "dev_test_service_cli",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "real_service_cli_preserves_credentials_closed_methods_and_usage",
+        "cli_rejects_public_symlink_and_invalid_configurations",
+        "cli_enforces_exact_input_boundaries_and_argument_errors"
+      ]
+    },
+    "runtime-basic": {
+      "package": "oasis7_runtime",
+      "target_kind": "test",
+      "target_name": "pr_fast_runtime",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::basic::register_and_move_agent",
+        "tests::basic::snapshot_and_replay",
+        "tests::basic::rejects_invalid_actions",
+        "tests::basic::scheduler_round_robin",
+        "tests::basic::new_world_migrates_legacy_world_materials_into_material_ledgers",
+        "tests::basic::action_id_rolls_over_into_next_era",
+        "tests::basic::event_id_rolls_over_into_next_era",
+        "tests::basic::persisted_max_event_id_does_not_double_advance_stored_era",
+        "tests::basic::adjust_resource_balance_rejects_overflow",
+        "tests::basic::emit_resource_transfer_overflow_keeps_balances_atomic",
+        "tests::basic::pending_actions_are_bounded_and_track_evictions",
+        "tests::basic::journal_events_are_bounded_and_track_evictions",
+        "tests::basic::tick_consensus_records_chain_and_verify_across_steps",
+        "tests::basic::tick_consensus_records_include_empty_tick",
+        "tests::basic::from_snapshot_replay_rebuilds_missing_tick_consensus_records",
+        "tests::basic::tick_consensus_rejects_non_authoritative_submission_after_authority_commit",
+        "tests::basic::tick_consensus_rejects_authority_submission_from_unconfigured_source",
+        "tests::basic::tick_consensus_authority_source_can_be_reconfigured_for_new_commits",
+        "tests::basic::tick_consensus_propagation_conflict_requires_authority_adjudication",
+        "tests::basic::tick_consensus_authority_can_replace_propagation_record_after_conflict"
+      ]
+    },
+    "world-reducers": {
+      "package": "oasis7_world_state",
+      "target_kind": "test",
+      "target_name": "pr_fast_reducers",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::apply_domain_event_guards::direct_material_transfer_duplicate_is_byte_stable",
+        "tests::apply_domain_event_guards::direct_material_transfer_tampered_duplicate_fails_before_mutation",
+        "tests::apply_domain_event_guards::distinct_direct_material_transfer_ids_may_share_the_same_payload",
+        "tests::apply_domain_event_guards::legacy_direct_material_transfer_without_identity_still_deserializes",
+        "tests::apply_domain_event_guards::economic_contract_legacy_persistence_defaults_to_atomic_exchange",
+        "tests::apply_domain_event_guards::economic_contract_persisted_service_cannot_be_settled_by_atomic_event",
+        "tests::apply_domain_event_guards::economic_contract_persisted_service_cannot_be_expired_by_atomic_lifecycle",
+        "tests::apply_domain_event_guards::economic_contract_settlement_missing_operator_returns_agent_not_found",
+        "tests::apply_domain_event_guards::claim_release_request_missing_claimer_returns_error_without_mutating_claim",
+        "tests::apply_domain_event_guards::apply_domain_event_agent_move_keeps_integer_centimeter_positions",
+        "tests::apply_domain_event_guards::claim_reclaim_missing_claimer_returns_error_without_removing_claim"
+      ]
+    },
+    "runtime-incremental": {
+      "package": "oasis7_runtime",
+      "target_kind": "test",
+      "target_name": "pr_fast_incremental",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "due_module_batch::real_schedule_pages_reopen_and_select_in_original_instance_order",
+        "runtime_allocators::allocator_raw_zstd_cold_roots_continue_without_materialized_world",
+        "runtime_commit::runtime_candidate_history_reopens_and_continues_from_original_parent_material"
+      ]
+    },
+    "runtime-lib": {
+      "package": "oasis7_runtime",
+      "target_kind": "lib",
+      "target_name": "oasis7_runtime",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::basic::register_and_move_agent",
+        "tests::basic::snapshot_and_replay",
+        "tests::basic::rejects_invalid_actions",
+        "tests::basic::scheduler_round_robin",
+        "tests::basic::new_world_migrates_legacy_world_materials_into_material_ledgers",
+        "tests::basic::action_id_rolls_over_into_next_era",
+        "tests::basic::event_id_rolls_over_into_next_era",
+        "tests::basic::persisted_max_event_id_does_not_double_advance_stored_era",
+        "tests::basic::adjust_resource_balance_rejects_overflow",
+        "tests::basic::emit_resource_transfer_overflow_keeps_balances_atomic",
+        "tests::basic::pending_actions_are_bounded_and_track_evictions",
+        "tests::basic::journal_events_are_bounded_and_track_evictions",
+        "tests::basic::tick_consensus_records_chain_and_verify_across_steps",
+        "tests::basic::tick_consensus_records_include_empty_tick",
+        "tests::basic::from_snapshot_replay_rebuilds_missing_tick_consensus_records",
+        "tests::basic::tick_consensus_rejects_non_authoritative_submission_after_authority_commit",
+        "tests::basic::tick_consensus_rejects_authority_submission_from_unconfigured_source",
+        "tests::basic::tick_consensus_authority_source_can_be_reconfigured_for_new_commits",
+        "tests::basic::tick_consensus_propagation_conflict_requires_authority_adjudication",
+        "tests::basic::tick_consensus_authority_can_replace_propagation_record_after_conflict",
+        "world::incremental_body::tests::all_body_failures_poison_preceding_outer_write_without_mutating_world",
+        "world::incremental_body::tests::body_codec_has_exact_fixed_scalars_and_rejects_wrong_domain_and_length",
+        "world::incremental_body::cancellation_tests::standalone_body_final_cancellation_cannot_seal_another_agents_typed_prefix",
+        "world::incremental_body_event::tests::commit_driver::live_fence_conflicts_at_each_driver_boundary_discard_candidate_only",
+        "world::incremental_body_event::tests::commit_driver::inconsistent_parent_material_is_rejected_before_running_runtime",
+        "world::incremental_body_event::tests::commit_driver::parent_catalog_requires_its_certified_prefix_not_only_a_readable_latest_entry",
+        "world::incremental_body_event::tests::commit_driver::driver_rejects_foreign_or_partial_source_admission_before_node_or_runtime_reads",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_failure_never_returns_a_prefix_or_seals_earlier_outer_work",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_rejects_index_scalar_mismatch_and_stale_same_owner_guard",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_rejects_same_instance_at_two_wakes_before_scalar_acceptance",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_empty_selection_and_mid_read_cancellation_are_explicit",
+        "world::incremental_allocators::tests::allocator_errors_poison_prior_typed_allocation",
+        "world::incremental_allocators::tests::final_allocator_cancellation_poison_keeps_no_successful_prefix",
+        "world::incremental_clock::tests::missing_stale_or_old_private_clock_never_preserves_a_typed_body_prefix"
+      ]
+    },
+    "world-state-lib": {
+      "package": "oasis7_world_state",
+      "target_kind": "lib",
+      "target_name": "oasis7_world_state",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "codec::tests::json_path_wrappers_preserve_atomic_replacement_file_bytes_and_errors",
+        "codec::tests::concrete_hashes_and_non_atomic_writer_preserve_existing_semantics",
+        "cognition_receipt_binding::tests::receipt_binding_rejects_every_parent_authority_axis_change"
+      ]
+    },
+    "simulator-lib": {
+      "package": "oasis7_simulator",
+      "target_kind": "lib",
+      "target_name": "oasis7_simulator",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::basics::resource_stock_add_remove",
+        "tests::basics::resource_stock_add_rejects_overflow",
+        "chain_resource::tests::chain_resource_delta_requires_world_resource_schema_and_commit_hashes"
+      ]
+    },
+    "world-service-lib": {
+      "package": "oasis7_world_service",
+      "target_kind": "lib",
+      "target_name": "oasis7_world_service",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "gameplay::qualification_tests::collect_data_qualification_is_unique_subject_bound_and_read_only",
+        "formal_read_error::tests::native_absence_is_distinct_from_invalid_diagnostics",
+        "formal_recovery_lineage::tests::formal_recovery_lineage_rejects_missing_discontinuous_fork_and_authority_mismatch"
+      ]
+    },
+    "world-projection-lib": {
+      "package": "oasis7_world_projection",
+      "target_kind": "lib",
+      "target_name": "oasis7_world_projection",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "codec_tests::concrete_codecs_preserve_legacy_bytes_and_optional_field_defaults",
+        "codec_tests::concrete_codecs_preserve_duplicate_missing_and_malformed_errors",
+        "codec_tests::pre_split_projection_and_response_fixtures_reencode_without_wire_drift"
+      ]
+    },
+    "oasis7-lib": {
+      "package": "oasis7",
+      "target_kind": "lib",
+      "target_name": "oasis7",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "industry_types::tests::material_ledger_wire_strings_preserve_validation",
+        "industry_types::tests::starter_settled_outcome_wire_shape_is_platform_neutral"
+      ]
+    },
+    "viewer-codec-lib": {
+      "package": "oasis7_viewer_codec",
+      "target_kind": "lib",
+      "target_name": "oasis7_viewer_codec",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::concrete_writer_and_string_preserve_legacy_compact_bytes",
+        "tests::request_parser_preserves_success_and_original_errors",
+        "tests::writer_errors_propagate_without_flush_or_full_response_buffer"
+      ]
+    },
+    "observability-lib": {
+      "package": "oasis7_observability",
+      "target_kind": "lib",
+      "target_name": "oasis7_observability",
+      "default_features": false,
+      "features": [],
+      "cases": [
+        "tests::init_tracing_is_idempotent",
+        "tests::emit_stderr_or_event_allows_tracing_path_after_init",
+        "tests::resolve_trace_session_id_is_stable_within_process"
+      ]
+    },
+    "viewer-runtime-lib": {
+      "package": "oasis7_viewer_runtime",
+      "target_kind": "lib",
+      "target_name": "oasis7_viewer_runtime",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "viewer::runtime_live::control_plane::llm_sidecar::hosted_identity_tests::deferred_identity_same_phase_dispatches_once_with_exact_identity",
+        "viewer::runtime_live::control_plane::llm_sidecar::hosted_identity_tests::deferred_identity_config_or_full_phase_changes_release_no_job",
+        "viewer::runtime_live::control_plane::llm_sidecar::hosted_identity_tests::deferred_identity_queue_failure_keeps_exact_original_and_lookup_recovery",
+        "viewer::runtime_live::stream_budget_diagnostics::tests::numeric_ring_is_bounded_and_disabled_after_snapshot"
+      ]
+    },
+    "launcher-config-lib": {
+      "package": "oasis7_launcher_config",
+      "target_kind": "lib",
+      "target_name": "oasis7_launcher_config",
+      "default_features": false,
+      "features": [],
+      "cases": [
+        "tests::default_chain_replication_bootstrap_peers_match_official_anchor_domains",
+        "tests::parse_chain_replication_bootstrap_peer_accepts_valid_multiaddr",
+        "tests::parse_chain_replication_bootstrap_peer_rejects_non_multiaddr"
+      ]
+    }
+  },
+  "ordinary_fast_rules": [
+    {
+      "paths": [
+        "crates/oasis7_game_client/src/dev_test_service_cli.rs",
+        "crates/oasis7_game_client/tests/identity_cli.rs",
+        "crates/oasis7_game_client/tests/dev_test_catalog_cli.rs",
+        "crates/oasis7_game_client/tests/legacy_profile.rs",
+        "crates/oasis7_game_client/tests/dev_test_service_cli.rs"
+      ],
+      "targets": [
+        "game-client-lib",
+        "game-client-identity-cli",
+        "game-client-catalog-cli",
+        "game-client-legacy-profile",
+        "game-client-service-cli"
+      ],
+      "reason": "private_unix_service_cli_with_complete_library_and_real_cli_contracts"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/tests/basic.rs",
+        "crates/oasis7_runtime/tests/pr_fast_runtime.rs",
+        "crates/oasis7_runtime/src/world/scheduling.rs"
+      ],
+      "targets": [
+        "runtime-basic"
+      ],
+      "reason": "bounded_actions_and_round_robin"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/tests/apply_domain_event_guards.rs",
+        "crates/oasis7_world_state/tests/pr_fast_reducers.rs"
+      ],
+      "targets": [
+        "world-reducers"
+      ],
+      "reason": "complete_event_reducer_contracts"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/world/incremental_commit.rs",
+        "crates/oasis7_runtime/src/world/incremental_allocators.rs",
+        "crates/oasis7_runtime/src/world/incremental_clock.rs",
+        "crates/oasis7_runtime/src/world/incremental_body.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_event.rs",
+        "crates/oasis7_runtime/src/world/incremental_agent_move.rs",
+        "crates/oasis7_runtime/src/world/incremental_agent_genesis.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_due.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_index.rs",
+        "crates/oasis7_runtime/src/world/incremental_commit_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_allocators_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_clock_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_event_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_cancellation_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_agent_move_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_due_tests.rs",
+        "crates/oasis7_world_state/src/incremental_agent_body.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "incremental_candidates_keep_all_runtime_units_and_physical_reopen"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/tests/pr_fast_incremental.rs",
+        "crates/oasis7/tests/incremental_runtime_commit.rs",
+        "crates/oasis7/tests/incremental_runtime_allocators.rs",
+        "crates/oasis7/tests/incremental_due_module_batch.rs",
+        "crates/oasis7/tests/support/incremental_agent_event.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "shared_incremental_regressions_execute_in_actual_runtime_owner"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/world/mod.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "additive_registered_incremental_module_wiring",
+      "static_module_additions": true,
+      "added_declarations": [
+        "pub mod incremental_body;",
+        "pub mod incremental_body_event;",
+        "pub mod incremental_agent_genesis;",
+        "pub mod incremental_scheduler;",
+        "mod incremental_scheduler_index;",
+        "mod incremental_agent_move;",
+        "pub mod incremental_commit;",
+        "#[cfg(not(target_arch = \"wasm32\"))] pub mod incremental_commit;",
+        "pub mod incremental_allocators;",
+        "pub(super) mod incremental_clock;"
+      ]
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/native.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "additive_registered_incremental_public_exports",
+      "added_declarations": [
+        "pub use world::incremental_body::{BodyMutationContext, BodyMutationError};",
+        "pub use world::incremental_body_event::AgentEventContext;",
+        "pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};",
+        "pub use world::incremental_commit::{CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit};",
+        "pub use world::incremental_commit::{CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,};",
+        "pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};"
+      ]
+    },
+    {
+      "paths": [
+        "crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs"
+      ],
+      "targets": [
+        "viewer-runtime-lib"
+      ],
+      "reason": "additive_native_viewer_service_module_wiring",
+      "static_module_additions": true
+    }
+  ],
+  "ordinary_fast_component_rules": [
+    {
+      "match": [
+        "crates/oasis7_viewer_runtime/src/viewer/runtime_live/agent_service_*.rs",
+        "crates/oasis7_viewer_runtime/src/viewer/runtime_live/stream_budget_diagnostics.rs"
+      ],
+      "exclude": [],
+      "targets": [
+        "viewer-runtime-lib"
+      ],
+      "reason": "native_viewer_agent_io_phase_and_stream_diagnostics_with_complete_library_tests"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_runtime/src/bin/**"
+      ],
+      "targets": [
+        "runtime-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_runtime"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_state/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_world_state/src/bin/**"
+      ],
+      "targets": [
+        "world-state-lib",
+        "runtime-lib",
+        "world-reducers"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_world_state"
+    },
+    {
+      "match": [
+        "crates/oasis7_simulator/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_simulator/src/bin/**"
+      ],
+      "targets": [
+        "simulator-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_simulator"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_service/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_world_service/src/bin/**"
+      ],
+      "targets": [
+        "world-service-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_world_service"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_projection/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_world_projection/src/bin/**"
+      ],
+      "targets": [
+        "world-projection-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_world_projection"
+    },
+    {
+      "match": [
+        "crates/oasis7/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7/src/bin/**"
+      ],
+      "targets": [
+        "oasis7-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7"
+    },
+    {
+      "match": [
+        "crates/oasis7_viewer_codec/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_viewer_codec/src/bin/**"
+      ],
+      "targets": [
+        "viewer-codec-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_viewer_codec"
+    },
+    {
+      "match": [
+        "crates/oasis7_observability/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_observability/src/bin/**"
+      ],
+      "targets": [
+        "observability-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_observability"
+    },
+    {
+      "match": [
+        "crates/oasis7_launcher_config/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_launcher_config/src/bin/**"
+      ],
+      "targets": [
+        "launcher-config-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_launcher_config"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/incremental_*.rs",
+        "crates/oasis7_world_state/src/incremental_*.rs"
+      ],
+      "exclude": [],
+      "targets": [
+        "runtime-incremental"
+      ],
+      "reason": "physical_incremental_commit_reopen_and_parent_material"
+    }
+  ],
+  "oasis7_required_packages": [
+    "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
+    "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
+    "oasis7_chain_runtime", "oasis7_client_cli", "oasis7_protocol_tools",
+    "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
+    "oasis7_provider_local_bridge", "oasis7_provider_tools", "oasis7_viewer_runtime",
+    "oasis7_viewer_codec", "oasis7_observability", "oasis7_hosted_access",
+    "oasis7_letai_credit_adapter", "oasis7_launcher_config", "oasis7_wasm_materializer",
+    "oasis7_game_client", "oasis7_browser_game_client", "oasis7_cas", "oasis7_formal_protocol"
+  ],
+  "oasis7_required_wasm_packages": [
+    "oasis7_agent_api", "oasis7_simulator", "oasis7_viewer_codec", "oasis7_viewer_runtime"
+  ],
+  "command_center_fast_paths": [
+    "tools/oasis7-command-center/core/src/document*",
+    "tools/oasis7-command-center/core/src/index*",
+    "tools/oasis7-command-center/ui/src/**",
+    "tools/oasis7-command-center/ui/index.html",
+    "tools/oasis7-command-center/ui/preview.html"
+  ],
+  "formal_risk_rules": [
+    {
+      "match": [
+        "crates/oasis7_viewer_codec/src/**",
+        "crates/oasis7_viewer_codec/tests/**",
+        "crates/oasis7_observability/src/**",
+        "crates/oasis7_observability/tests/**",
+        "crates/oasis7/src/geometry.rs",
+        "crates/oasis7_simulator/src/fragment_physics.rs",
+        "crates/oasis7_simulator/src/asteroid_fragment.rs",
+        "crates/oasis7_simulator/src/frag_spawn.rs"
+      ],
+      "suites": [],
+      "reason": "codec_observability_and_geometry_behavior_in_affected_tests"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_projection/src/**",
+        "crates/oasis7_world_projection/tests/**"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history"
+      ],
+      "reason": "formal_read_projection_and_retained_history_encoding"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_state/src/formal_retained_history*",
+        "crates/oasis7_chain_runtime/src/host/formal_live_protected_long_history_tests.rs"
+      ],
+      "suites": [
+        "world-history"
+      ],
+      "reason": "retained_world_history_prune_reopen_original"
+    },
+    {
+      "match": [
+        "crates/oasis7_consensus/src/**",
+        "crates/oasis7_consensus/tests/**"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "healthy-set",
+        "lifecycle-cli"
+      ],
+      "reason": "consensus_identity_membership_and_publication"
+    },
+    {
+      "match": [
+        "crates/oasis7_distfs/src/**",
+        "crates/oasis7_distfs/tests/**",
+        "crates/oasis7_cas/src/**",
+        "crates/oasis7_cas/tests/**",
+        "crates/oasis7_formal_protocol/src/**",
+        "crates/oasis7_formal_protocol/tests/**"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history",
+        "healthy-set",
+        "storage-recovery",
+        "lifecycle-cli"
+      ],
+      "reason": "shared_storage_and_wire_contracts_retain_all_process_consumers"
+    },
+    {
+      "match": [
+        "crates/oasis7_chain_runtime/src/host/node_lifecycle*",
+        "crates/oasis7_chain_runtime/src/host/world_initialization*",
+        "crates/oasis7_chain_runtime/src/host/formal_full_state_sync*",
+        "scripts/local-node-lifecycle.test.sh",
+        "scripts/legacy-observer-migration.test.sh"
+      ],
+      "suites": [
+        "lifecycle-cli"
+      ],
+      "reason": "node_cli_initialization_sync_and_migration"
+    },
+    {
+      "match": [
+        "crates/oasis7_chain_runtime/src/host/formal_live_protected_crash_tests.rs",
+        "crates/oasis7_chain_runtime/src/host/formal_effect*"
+      ],
+      "suites": [
+        "runtime-protocol"
+      ],
+      "reason": "durable_effect_crash_retry_and_original_result"
+    },
+    {
+      "match": [
+        "crates/oasis7_chain_runtime/src/host/formal_live_healthy*",
+        "crates/oasis7_chain_runtime/src/host/formal_live_protected_durable_set*"
+      ],
+      "suites": [
+        "healthy-set"
+      ],
+      "reason": "healthy_replica_set_operation_and_owner_transfer"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/formal_retention*.rs",
+        "crates/oasis7_world_state/src/state/formal_retention_projection.rs"
+      ],
+      "suites": [
+        "world-history"
+      ],
+      "reason": "qualified_retained_history_publication_and_reopen"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/persistence*.rs",
+        "crates/oasis7_runtime/src/world/authoritative_recovery_generation*.rs",
+        "crates/oasis7_runtime/src/world/observer_load*.rs",
+        "crates/oasis7_runtime/src/world/snapshot.rs",
+        "crates/oasis7_world_state/src/snapshot*.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history"
+      ],
+      "reason": "runtime_snapshot_durability_and_recovery_generation"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/observer_load*.rs",
+        "crates/oasis7_runtime/src/world/authoritative_recovery_generation*.rs",
+        "crates/oasis7_world_service/src/formal_recovery_lineage*.rs"
+      ],
+      "suites": [
+        "lifecycle-cli"
+      ],
+      "reason": "node_recovery_initialization_and_exact_predecessor_lineage"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/formal_tick_consensus*.rs",
+        "crates/oasis7_runtime/src/world/formal_execution_tick*.rs",
+        "crates/oasis7_runtime/src/world/tick_consensus*.rs",
+        "crates/oasis7_world_state/src/consensus.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "healthy-set"
+      ],
+      "reason": "formal_tick_quorum_authority_and_publication"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_service/src/formal_*.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history"
+      ],
+      "reason": "signed_formal_read_replay_and_recovery_contract"
+    },
+    {
+      "match": [
+        "crates/oasis7/src/runtime_host.rs",
+        "crates/oasis7/src/runtime_host/**",
+        "crates/oasis7/src/consensus_action_payload*.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "lifecycle-cli"
+      ],
+      "reason": "native_host_and_consensus_submission_wire_contract"
+    }
+  ],
   "groups": [
     "baseline",
     "rust_baseline",
@@ -84,7 +872,8 @@
     "operational_contracts": [],
     "packaging_contracts": [],
     "workflow_governance": [
-      "python"
+      "python",
+      "rust_toolchain"
     ],
     "codex_agent_config_validation": [],
     "compile_metrics": [
@@ -121,6 +910,8 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-apt-install.py": ["workflow_governance"],
+    "scripts/ci-apt-install.test.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/config.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/decision.yml": ["workflow_governance"],
@@ -132,7 +923,368 @@
     ".github/workflows/codeql.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-cargo-check.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"]
+    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"],
+    "scripts/ci-bin-ownership.test.py": ["cargo_tooling_contracts"],
+    "scripts/ci-cache-archive.py": ["workflow_governance"],
+    "scripts/ci-cache-archive.test.py": ["workflow_governance"],
+    "scripts/ci-cache-diagnostic.py": ["workflow_governance"],
+    "scripts/ci-cache-diagnostic.test.py": ["workflow_governance"],
+    "scripts/ci-cache-maintenance.py": ["workflow_governance"],
+    "scripts/ci-cache-maintenance.test.py": ["workflow_governance"],
+    "scripts/ci-cache-policy.py": ["workflow_governance"],
+    "scripts/ci-cache-policy.test.py": ["workflow_governance"],
+    "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
+    "scripts/ci-ecs-build-metrics.test.py": ["compile_metrics"],
+    "scripts/ci-ecs-cache.py": ["compile_metrics"],
+    "scripts/ci-ecs-cache.test.py": ["compile_metrics"],
+    "scripts/ci-fast-preview.py": ["workflow_governance"],
+    "scripts/ci-fast-preview.test.py": ["workflow_governance"],
+    "scripts/ci-formal-plan.py": ["workflow_governance"],
+    "scripts/ci-formal-process.test.py": ["workflow_governance"],
+    "scripts/ci-full-result.py": ["workflow_governance"],
+    "scripts/ci-full-result.test.py": ["workflow_governance"],
+    "scripts/ci-local-check-plan.py": ["workflow_governance"],
+    "scripts/ci-local-check-plan.test.py": ["workflow_governance"],
+    "scripts/ci-local-signer-tests.py": ["workflow_governance", "packaging_contracts", "fleet_health"],
+    "scripts/ci-local-signer-tests.test.py": ["workflow_governance"],
+    "scripts/ci-required-result.py": ["workflow_governance"],
+    "scripts/ci-required-result.test.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-admission.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-admission.test.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-build.test.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-toolchains.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-toolchains.test.py": ["workflow_governance"],
+    "scripts/ci-shared-native-cache.py": ["workflow_governance"],
+    "scripts/ci-storage-acceptance.py": ["workflow_governance"],
+    "scripts/ci-storage-acceptance.test.py": ["workflow_governance"],
+    "scripts/ci-storage-network.py": ["workflow_governance"],
+    "scripts/ci-storage-network.test.py": ["workflow_governance"],
+    "scripts/ci-support-profiles.test.py": ["workflow_governance"],
+    "scripts/ci-test-artifacts.py": ["workflow_governance"],
+    "scripts/ci-workflow.test.py": ["workflow_governance"],
+    "scripts/ci-workspace-cache.py": ["workflow_governance"],
+    "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
+    "scripts/ci_process_runner.py": ["workflow_governance"],
+    "scripts/document_corpus.py": ["doc_checker_contracts"],
+    "scripts/plan-rust-required-scope.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
+  },
+  "python_control_contract_version": 1,
+  "python_control_contracts": {
+    "scripts/ci-apt-install.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-apt-install.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-apt-install.test.py"]
+    },
+    "scripts/ci-local-check-plan.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-check-plan.test.py"
+      ]
+    },
+    "scripts/ci-local-check-plan.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-check-plan.test.py"
+      ]
+    },
+    "scripts/ci-bin-ownership.test.py": {
+      "group": "cargo_tooling_contracts",
+      "tests": [
+        "scripts/ci-bin-ownership.test.py"
+      ]
+    },
+    "scripts/ci-cache-archive.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-archive.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-cache-archive.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-archive.test.py"
+      ]
+    },
+    "scripts/ci-cache-diagnostic.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-diagnostic.test.py"
+      ]
+    },
+    "scripts/ci-cache-diagnostic.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-diagnostic.test.py"
+      ]
+    },
+    "scripts/ci-cache-maintenance.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-cache-maintenance.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py"
+      ]
+    },
+    "scripts/ci-cache-policy.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-cache-policy.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-policy.test.py"
+      ]
+    },
+    "scripts/ci-ecs-build-metrics.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-build-metrics.test.py"
+      ]
+    },
+    "scripts/ci-ecs-build-metrics.test.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-build-metrics.test.py"
+      ]
+    },
+    "scripts/ci-ecs-cache.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-cache.test.py"
+      ]
+    },
+    "scripts/ci-ecs-cache.test.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-cache.test.py"
+      ]
+    },
+    "scripts/ci-fast-preview.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-fast-preview.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-fast-preview.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-fast-preview.test.py"
+      ]
+    },
+    "scripts/ci-formal-plan.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/ci-formal-process.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process.test.py"
+      ]
+    },
+    "scripts/ci-full-result.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-full-result.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-full-result.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-full-result.test.py"
+      ]
+    },
+    "scripts/ci-local-signer-tests.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-signer-tests.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-local-signer-tests.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-signer-tests.test.py"
+      ]
+    },
+    "scripts/ci-required-result.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-required-result.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/ci-required-result.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-required-result.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-admission.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-admission.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-admission.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-build.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-build.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-toolchains.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-toolchains.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-toolchains.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-toolchains.test.py"
+      ]
+    },
+    "scripts/ci-shared-native-cache.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-build.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-storage-acceptance.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-acceptance.test.py"
+      ]
+    },
+    "scripts/ci-storage-acceptance.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-acceptance.test.py"
+      ]
+    },
+    "scripts/ci-storage-network.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-network.test.py"
+      ]
+    },
+    "scripts/ci-storage-network.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-network.test.py"
+      ]
+    },
+    "scripts/ci-support-profiles.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-support-profiles.test.py"
+      ]
+    },
+    "scripts/ci-test-artifacts.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-formal-process.test.py",
+        "scripts/ci-storage-acceptance.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py",
+        "scripts/package-ecs-resource-monitor.test.py"
+      ]
+    },
+    "scripts/ci-workflow.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-python-control-contracts.test.py"
+      ]
+    },
+    "scripts/ci-workspace-cache.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-workspace-cache.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci_process_runner.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process.test.py",
+        "scripts/ci-storage-acceptance.test.py",
+        "scripts/ci-support-profiles.test.py"
+      ]
+    },
+    "scripts/document_corpus.py": {
+      "group": "doc_checker_contracts",
+      "tests": [
+        "scripts/doc-evidence-inventory-check.test.py",
+        "scripts/document-corpus-inventory-check.test.py",
+        "scripts/product-doc-governance-check.test.py"
+      ]
+    },
+    "scripts/plan-rust-required-scope.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-fast-preview.test.py",
+        "scripts/ci-support-profiles.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/plan-rust-required-scope.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    }
   },
   "generated_inputs": [
     {
@@ -382,6 +1534,68 @@
   },
   "rules": [
     {
+      "match": [
+        "scripts/pr-review-threads.py",
+        "scripts/pr-review-threads.test.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "python_workflow_helpers"
+    },
+    {
+      "match": [
+        "scripts/doc_content_warnings.py"
+      ],
+      "groups": [
+        "doc_checker_contracts"
+      ],
+      "reason": "document_warning_helper"
+    },
+    {
+      "match": [
+        "scripts/runtime-module-routing-perf-harness.test.py"
+      ],
+      "groups": [
+        "cargo_tooling_contracts"
+      ],
+      "reason": "runtime_routing_harness_contract"
+    },
+    {
+      "match": [
+        "scripts/safe_git_archive.py",
+        "scripts/safe-git-archive.test.py"
+      ],
+      "groups": [
+        "workflow_governance",
+        "packaging_contracts"
+      ],
+      "reason": "safe_archive_consumers"
+    },
+    {
+      "match": [
+        "scripts/release-web-fixture-process.py",
+        "scripts/release-web-startup.test.py"
+      ],
+      "groups": [
+        "launcher_web",
+        "operational_contracts"
+      ],
+      "reason": "web_fixture_process_consumers"
+    },
+    {
+      "match": [
+        "scripts/industrial-starter-evidence.py",
+        "scripts/tests/test_industrial_starter_evidence.py"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "oasis7_required",
+        "operational_contracts"
+      ],
+      "reason": "industrial_evidence_consumers"
+    },
+    {
       "match": ["crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**"],
       "groups": ["rust_baseline", "oasis7_required", "formal_process", "launcher_web"],
       "reason": "m1_storage_wasm_consumers"
@@ -608,6 +1822,8 @@
         "scripts/document*",
         "scripts/product-doc-*",
         "scripts/product_doc*",
+        "scripts/resolve-product-doc-ci-range.py",
+        "scripts/resolve-product-doc-ci-range.test.py",
         "scripts/system-design-traceability*",
         "scripts/find-python-with-module*"
       ],
@@ -626,6 +1842,19 @@
         "cargo_tooling_contracts"
       ],
       "reason": "cargo_tools"
+    },
+    {
+      "match": [
+        "scripts/engineering_telemetry.py",
+        "scripts/engineering_telemetry_adapters.py",
+        "scripts/tests/fixtures/engineering-telemetry/input.json",
+        "scripts/tests/test_engineering_telemetry.py",
+        "scripts/tests/test_engineering_telemetry_adapters.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "engineering_telemetry_contracts"
     },
     {
       "match": [

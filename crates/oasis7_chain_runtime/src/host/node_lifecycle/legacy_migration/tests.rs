@@ -620,7 +620,10 @@ fn legacy_v2_identity_relocates_completed_metadata_for_split_and_embedded_config
 
 #[test]
 fn completed_migration_writer_releases_lock_while_fork_child_keeps_descriptor() {
-    use crate::node_operations::admission_tests::InheritedDescriptors;
+    use crate::node_operations::admission_tests::{InheritedDescriptors, isolate_fork_test};
+    if isolate_fork_test() {
+        return;
+    }
     for unwind in [false, true] {
         let root = fs::canonicalize("/tmp").unwrap().join(format!(
             "oasis7-migration-writer-fork-{}",
@@ -667,7 +670,10 @@ fn completed_migration_writer_releases_lock_while_fork_child_keeps_descriptor() 
 
 #[test]
 fn completed_migration_world_fence_releases_while_fork_child_keeps_descriptor() {
-    use crate::node_operations::admission_tests::InheritedDescriptors;
+    use crate::node_operations::admission_tests::{InheritedDescriptors, isolate_fork_test};
+    if isolate_fork_test() {
+        return;
+    }
     for unwind in [false, true] {
         let root = fs::canonicalize("/tmp").unwrap().join(format!(
             "oasis7-migration-world-fork-{}",

@@ -77,6 +77,9 @@ fn serve_native_identity_http_fixture() {
         fixture.service.config.registration_enabled = true;
         fixture.service.config.machine_registration_enabled = true;
     }
+    let live_context_bridge =
+        std::env::var("OASIS7_CUSTODY_NATIVE_LIVE_CONTEXT_FIXTURE").as_deref() == Ok("true");
+    let mut live_world_pin = None;
     if let Ok(raw) = std::env::var("OASIS7_CUSTODY_NATIVE_WORLD_TRUST") {
         assert!(
             managed_binding,
@@ -111,8 +114,31 @@ fn serve_native_identity_http_fixture() {
         .unwrap();
         participant.owner_control_enabled =
             trusted.get("owner_setup").and_then(Value::as_bool) == Some(true);
+        if live_context_bridge {
+            assert_eq!(trusted["live_context_read"], true);
+            // This is exactly the public key of the issuer input used above.
+            assert!(
+                trusted["fixture_issuer_public_key"]
+                    == oasis7_client_api::world_service::sign_read_request(
+                        "participant-issuer-selfcheck",
+                        (),
+                        &hex::encode([95; 32])
+                    )
+                    .unwrap()
+                    .subject_public_key,
+                "fixture issuer must match the configured Native issuer"
+            );
+            participant.executor_control_enabled = true;
+            live_world_pin = Some(
+                trusted["world"]["service_public_key"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            );
+        }
         fixture.service.participant_entry = Some(participant);
     }
+    assert!(!live_context_bridge || live_world_pin.is_some());
     {
         let custody = fixture.service.custody.as_mut().unwrap();
         custody.revocation = Some(revocation::RevocationConfig::http_fixture(
@@ -195,6 +221,18 @@ fn serve_native_identity_http_fixture() {
             json!({})
         } else {
             serde_json::from_slice(&body).unwrap()
+        };
+        let live_original = if live_context_bridge
+            && path == "/api/public/hosted-account/v2/entry-executor/control"
+        {
+            Some(
+                serde_json::from_value::<
+                    oasis7_client_api::world_service::entry_executor::EntryExecutorControlRequestV1,
+                >(payload.clone())
+                .unwrap(),
+            )
+        } else {
+            None
         };
         let reply = if method == "POST" && path == "/_fixture/approve-intent" {
             // Test-only authenticator owns this synthetic Passkey. The real
@@ -292,6 +330,24 @@ fn serve_native_identity_http_fixture() {
                 &mut issuer,
             )
         };
+        if let Some(original) = live_original
+            && reply.status == 200
+        {
+            use oasis7_client_api::world_service::{
+                entry_executor::EntryExecutorOperationV1, task_context::*,
+            };
+            let EntryExecutorOperationV1::ReadLiveContext(request) = original.operation else {
+                panic!("fixed live context fixture operation")
+            };
+            let response: oasis7_client_api::world_service::SignedServiceResponse<
+                CapturedTaskContextV1,
+            > = serde_json::from_value(reply.body["world_response"].clone()).unwrap();
+            let pin = live_world_pin.as_deref().unwrap();
+            verify_live_context_reply(&request, &response, pin).unwrap();
+            let mut wrong_nonce = request;
+            wrong_nonce.observation_nonce = "ff".repeat(32);
+            assert!(verify_live_context_reply(&wrong_nonce, &response, pin).is_err());
+        }
         let bytes = serde_json::to_vec(&reply.body).unwrap();
         write!(stream, "HTTP/1.1 {} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n", reply.status, bytes.len()).unwrap();
         for cookie in &reply.cookies {

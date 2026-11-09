@@ -3,7 +3,9 @@
   "case_shards": {
     "runtime-tests": {
       "formal_live_runtime::tests::protected_process_tests::durable_set_tests::formal_protected_healthy_durable_set_cold_original_lookup_after_restart": "storage-recovery",
-      "formal_live_runtime::tests::protected_process_tests::healthy_operation_tests::formal_protected_healthy_durable_set_operation_cli_owner_and_original_result": "lifecycle-cli"
+      "formal_live_runtime::tests::protected_process_tests::healthy_operation_tests::formal_protected_healthy_durable_set_operation_cli_owner_and_original_result": "lifecycle-cli",
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_actual_world_noise_follower_installs_at_h_plus_two": "healthy-set",
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_confirmation_proposal_timeout_recovers_after_original_governance_commit": "lifecycle-cli"
     }
   },
   "binary_dependencies": {
@@ -211,5 +213,27 @@
       "controlled_authority::formal::endpoint::tests::protected_tests::pack_partial_crash_tests::endpoint_pack_first_link_crash_child",
       "controlled_authority::formal::business_pack::tests::pack_sigkill_harness_child"
     ]
+  },
+  "parallel_cases": {
+    "runtime-tests": {
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::ledger_tests::wire3_formal_read_durable_private_prefix_recovers_original_publication_intent": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::ledger_tests::wire3_formal_read_durable_private_prefix_refuses_lost_pin_or_corrupt_snapshot": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::ledger_tests::wire3_formal_read_durable_private_prefix_refuses_missing_original_h_receipt": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::ledger_tests::wire3_formal_read_durable_private_prefix_reopens_after_gc_and_pins_exact_cut": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::ledger_tests::wire3_formal_read_durable_private_prefix_survives_real_process_kill": 2,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_multivalue_tests::wire3_candidate_read_keyproof_native_opt_in_is_typed_and_does_not_install_voting": 2,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_multivalue_tests::wire3_node_multivalue_retention_preserves_local_selection_and_cold_originals": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_multivalue_tests::wire3_node_remote_first_local_selection_is_durable_and_keeps_original_digest": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_multivalue_tests::wire3_node_selection_pin_loss_is_not_healed_on_cold_reopen": 1,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_publication_failure_tests::wire3_formal_read_actual_node_pending_apply_recovers_after_publication_failure": 2,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_publication_failure_tests::wire3_formal_read_same_node_restart_delivers_original_pending_completion": 2,
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::prefix_ledger_tests::formal_prefix_ledger_installs_reopens_and_recovers_the_original_three_height_world": 2,
+      "execution_bridge_real_tests::real_execution_bridge::formal_package::tests::storage_benchmark::actual_formal_storage_capacity_smoke_10_heights": 2,
+      "execution_bridge_real_tests::real_execution_bridge::formal_snapshot::tests::checkpoint_transition_keeps_the_original_closed_capture_budget": 1,
+      "execution_bridge_real_tests::real_execution_bridge::formal_snapshot::tests::historical_depths_through_thirty_two_remain_readable_and_inheritable": 1,
+      "execution_bridge_real_tests::real_execution_bridge::formal_snapshot::tests::snapshot_closure_rejects_wrong_prestate_missing_base_and_declared_edge_mismatch": 1,
+      "execution_bridge_real_tests::real_execution_bridge::formal_snapshot::tests::sparse_snapshot_history_uses_bounded_checkpoints_and_exact_expanded_state_roots": 1,
+      "formal_live_history::governance_history::tests::governance_history_missing_middle_publication_restores_from_authenticated_native_pair": 2
+    }
   }
 }

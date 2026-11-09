@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import importlib.util
 import time
 from copy import deepcopy
 from collections import Counter
@@ -22,6 +23,7 @@ def parse_args():
         )
     )
     parser.add_argument("--as-of-unix-ms", type=int)
+    parser.add_argument("--profile-summary")
     parser.add_argument("--snapshot-summary", required=True)
     parser.add_argument("--host-summary", required=True)
     parser.add_argument("--traffic-summary", required=True)
@@ -1438,6 +1440,17 @@ def main():
         for label in NODE_LABELS
     }
 
+    profiles = None
+    if args.profile_summary:
+        spec = importlib.util.spec_from_file_location("triad_http_profile", Path(__file__).with_name("p2p-triad-http-profile.py"))
+        profiles = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(profiles)
+        source = load_json(args.profile_summary)
+        if source.get("api_version") != "oasis7.triad-http-profile/v1" or set(source.get("nodes", {})) != set(NODE_LABELS):
+            raise ValueError("invalid triad profile report")
+        for label in NODE_LABELS:
+            nodes[label].update(profiles.refresh_node(source["nodes"][label], as_of))
+
     host_complete = host_collection_complete(host)
     traffic_complete = traffic_collection_complete(traffic)
     overall_alerts = []
@@ -1528,7 +1541,7 @@ def main():
         encoding="utf-8",
     )
     Path(args.summary_md).write_text(
-        "\n".join(render_markdown(summary)) + "\n",
+        "\n".join(render_markdown(summary)) + "\n" + (profiles.markdown(summary) if profiles else ""),
         encoding="utf-8",
     )
 

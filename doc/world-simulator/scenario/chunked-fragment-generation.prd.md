@@ -202,6 +202,8 @@
 <a id="chunk-cg6-replay-contract"></a>
 ### 持久化与回放契约（M2 对齐，CG6 落地）
 
+Trace refs: O7-REQ-112440b1-da55-4443-b513-58dbf9056511, O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c；本条恢复规则有限承接[既有生成资源来源](../../product/world-rules-core-gameplay/prd.md#generated-resource-source)与[资源余额连续性](../../product/world-rules-core-gameplay/prd.md#committed-resource-continuity)中的原布局/双级预算恢复义务。局部 Simulator journal 不代签正式 provenance；正式提交及跨消费者仍沿 unified 原 R2/R6。
+
 #### 快照字段（落地）
 - `WorldSnapshot.chunk_generation_schema_version: u32`
   - 标记 chunk 生成/校验契约版本（与 snapshot/journal 主版本独立）。
@@ -225,6 +227,10 @@
 - 回放后必须校验 `fragment_count / block_count / chunk_budget` 与事件载荷一致；不一致即 `ReplayConflict`。
 - `snapshot.version=2` / `journal.version=2` 允许迁移到当前版本 `v3`（CG6），并补齐 `chunk_generation_schema_version` 默认值。
 - 其他未知版本保持拒绝加载，避免无声破坏账本一致性。
+
+本节重建的是该历史 `ChunkGenerated` 所代表的初始布局和当时预算；输入还包括原 snapshot 的有效 `WorldConfig`、已生成邻块/reservations 与原事件顺序。不能使用重启后的配置默认值或另一算法版本替换。事件 seed 必须与该固定上下文的派生结果一致；数量及预算校验不是只要 seed 一样即可省略的检查。
+
+snapshot 已承载的生成/消费按原 `journal_len` 切点保留，只应用其后的历史事件。重建初始 chunk 后继续应用已提交补种/消费结果，不能以初始 remaining 覆盖后来的余额。`FragmentsReplenished` 只应用事件 entries，不重跑补种候选算法；资源消费沿原精确结果/delta。这里不增加完整布局事件载荷或版本迁移，也不把局部 Simulator journal 认作正式链的提交证明。与 CG7 旧泛句的裁决见 [§6](#chunk-replay-decision)。
 
 <a id="fragment-refill-preview-contract"></a>
 #### 资源恢复预览约束（与 FRB4 对齐）
@@ -365,7 +371,9 @@
 - 保留写入：若邻块处于 `Unexplored` 且候选碎片到邻块包围盒距离 `<= radius + spacing`，写入 `BoundaryReservation`。
 - 保留消费：邻块未来生成时先消费（remove）该 chunk 的 reservations，再据此过滤候选碎片。
 - 确定性策略：冲突默认“已存在碎片优先（先生成者优先）”，保证同 seed + 同触发序列结果可复现。
-- <a id="chunk-cg7-replay-wording"></a>回归边界：相同 `world_seed + effective asteroid_fragment config + chunk trigger order` 必须得到相同布局；验证既覆盖已放置碎片，也覆盖跨 chunk 邻居和 reservation。replay 只应用已提交的生成/补种 delta，不用当前默认值重新生成历史布局。
+- <a id="chunk-cg7-replay-wording"></a>回归边界：相同 `world_seed + effective asteroid_fragment config + chunk trigger order` 必须得到相同布局；验证既覆盖已放置碎片，也覆盖跨 chunk 邻居和 reservation。初始 `ChunkGenerated` 按 [CG6](#chunk-cg6-replay-contract)使用固定历史上下文重建并完整校验；后续补种/消费只应用已提交 entries/精确变化，不用当前默认值或重新补种替换历史结果。已消费 remaining 不因刷新或重建初始几何而复原。该分层措辞明确替代原“生成/补种一律只应用 delta”的泛称，理由与保留义务见 [裁决记录](#chunk-replay-decision)。
+
+Trace refs: O7-REQ-112440b1-da55-4443-b513-58dbf9056511, O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c；本条恢复规则有限承接[既有生成资源来源](../../product/world-rules-core-gameplay/prd.md#generated-resource-source)与[资源余额连续性](../../product/world-rules-core-gameplay/prd.md#committed-resource-continuity)中的原布局/双级预算恢复义务。局部 Simulator journal 不代签正式 provenance；正式提交及跨消费者仍沿 unified 原 R2/R6。
 
 <a id="chunk-hard-budget-contract"></a>
 ### 性能预算与降级策略（CG9 落地）
@@ -405,7 +413,11 @@
 
 <a id="chunk-budget-replay-validation"></a>
 ### 回放一致性与性能回归测试（CG10 落地）
+
+Trace refs: O7-REQ-112440b1-da55-4443-b513-58dbf9056511, O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c；本条恢复规则有限承接[既有生成资源来源](../../product/world-rules-core-gameplay/prd.md#generated-resource-source)与[资源余额连续性](../../product/world-rules-core-gameplay/prd.md#committed-resource-continuity)中的原布局/双级预算恢复义务。局部 Simulator journal 不代签正式 provenance；正式提交及跨消费者仍沿 unified 原 R2/R6。 此处只接收回放一致性部分；性能预算及降级仍由 CG9 的原专业机制独立负责。
+
 - 回放一致性：对携带预算约束的 `ChunkGenerated` 事件执行重放，校验 `fragment_count/block_count/chunk_budget` 与原运行一致。
+- 固定上下文与完整后继：原配置/生成版本/邻块 reservation/事件顺序一致时，重建后继续应用非零消费及补种，最终 fragment/chunk remaining 与原运行一致；从包含已消费预算的 checkpoint 恢复不重复初始生成。另核 seed/count/budget 篡改、上下文缺失或版本不支持的拒绝，不能静默套当前默认配置。
 - 预算回归：多 chunk 批量初始化下逐块验证 `max_fragments_per_chunk / max_blocks_per_fragment / max_blocks_per_chunk` 约束。
 - 防回归策略：覆盖 `init` 触发与 `action` 触发两条路径，避免后续改动绕过预算裁剪。
 
@@ -448,6 +460,11 @@
 - 追溯: GitHub task issue evidence 与 Git history 保留原实施过程；本文与 design 保持现行约束语义。
 
 
-### 回放规则的待裁决关系
+<a id="chunk-replay-decision"></a>
+### 回放规则的裁决与保留义务
 
-[CG6 重建规则](#chunk-cg6-replay-contract)与[CG7 生成/补种 delta 泛句](#chunk-cg7-replay-wording)原文同时保留。两者的当前源机制、历史整合与待裁决范围见[配对设计冲突登记](chunked-fragment-generation.design.md#chunk-replay-conflict-register)。该导航不选定重建或增量路线，不构成 supersession，不改变事件载荷、版本兼容或验收义务。
+2026-11-05 选择保留 CG6/CG10 的 `ChunkGenerated` 固定上下文重建与完整校验，补种/消费使用已成 entries/精确 delta。CG7 原“replay 只应用已提交的生成/补种 delta”把初始生成与后续增量合称，和 CG6/CG10 不兼容；本次明确以分层措辞替换该泛句，不将旧句悄悄标为 N/A，也不称它曾经包含本次解释。
+
+理由是现有 `ChunkGenerated` 载荷包含 coord/seed/counts/budget 校验材料，不含完整布局；既有 snapshot 持有有效配置和生成上下文，原恢复依赖它们及顺序。没有设计新的完整布局载荷、历史迁移或替代版本时，不能把旧 journal 改按不存在的完整 delta 解释。保留旧句中“禁止当前默认值改写历史”的义务，同时保留完整布局/资源预算一致、补种 entries 恢复和消费后 remaining 连续性。
+
+当前源码、验证分配与尚未执行范围见[配对设计裁决](chunked-fragment-generation.design.md#chunk-replay-conflict-register)。本次不改变事件载荷、snapshot/journal 兼容版本、生成参数或采矿/补种规则；边界取整等实现修复若改变生成结果，仍须核历史算法/版本兼容，不能借本次文档把旧结果重算成新值。

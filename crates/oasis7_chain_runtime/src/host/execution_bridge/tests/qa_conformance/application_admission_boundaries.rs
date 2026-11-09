@@ -5,6 +5,9 @@ use oasis7_viewer_runtime::viewer::{
 };
 use std::io::{BufRead, BufReader, Write};
 
+#[path = "application_admission_cleanup.rs"]
+mod cleanup;
+
 #[test]
 fn real_tcp_fresh_admission_waits_for_successful_metadata() {
     run("fresh-metadata");
@@ -178,7 +181,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     socket
         .set_read_timeout(Some(Duration::from_millis(50)))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
+    // This is a functional ordering barrier, not a one-second latency oracle.
+    // Keep ownership of the reader until the ordered snapshot actually arrives;
+    // handing it to the drain early would freeze `ordered` before a late frame.
+    let deadline = application_completion::child_deadline();
     let (mut acks, mut ordered, mut blocked) = (initial_acks, false, false);
     let control_witness = Arc::new(Mutex::new(serde_json::Value::Null));
     while Instant::now() < deadline {
@@ -226,10 +232,14 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     let snapshot_completions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let drained_completions = snapshot_completions.clone();
     let drain = thread::spawn(move || {
+        // Stopping observation returns ownership; it is not proof of peer EOF.
         let deadline = Instant::now() + Duration::from_secs(7);
-        while !draining.load(Ordering::SeqCst) && Instant::now() < deadline {
+        let observed = loop {
+            if draining.load(Ordering::SeqCst) || Instant::now() >= deadline {
+                break Ok(());
+            }
             match reader.read_line(&mut line) {
-                Ok(0) => return Ok(()),
+                Ok(0) => break Ok(()),
                 Ok(_) => {
                     if !line.ends_with('\n') {
                         continue;
@@ -258,10 +268,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
                         e.kind(),
                         std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
                     ) => {}
-                Err(e) => return Err(e.kind()),
+                Err(e) => break Err(e),
             }
-        }
-        Ok(())
+        };
+        (reader, observed)
     });
     let status_deadline = Instant::now() + Duration::from_millis(500);
     let status = loop {
@@ -339,10 +349,9 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     }
     let metadata_ready = compatible.load(Ordering::SeqCst);
     let after = observe(&root, "metadata-released");
-    socket.shutdown(std::net::Shutdown::Both).unwrap();
-    let joined = worker.join().unwrap();
-    drain_stop.store(true, Ordering::SeqCst);
-    let drained = drain.join().unwrap();
+    let (joined, drained) = cleanup::close(&socket, &drain_stop, drain, worker);
+    let joined = joined.unwrap();
+    let drained = drained.unwrap();
     println!(
         "fresh_admission_explicit_snapshot_requests={snapshot_requests} initial_request_complete={initial_request_complete}"
     );
@@ -417,7 +426,7 @@ fn assert_zero(v: &serde_json::Value) {
     assert_eq!(v["new_canonical_submits"], 0);
     assert_eq!(v["model_decisions"], 0);
 }
-fn observe(root: &std::path::Path, label: &str) -> Result<serde_json::Value, String> {
+pub(super) fn observe(root: &std::path::Path, label: &str) -> Result<serde_json::Value, String> {
     fs::write(
         root.join(format!("admission-observe-{label}")),
         b"actual parent counters",
@@ -445,18 +454,66 @@ pub(super) fn observe_parent(
     let root = root.to_path_buf();
     thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(12);
+        let mut paused_observation_started = None;
         while !stop.load(Ordering::SeqCst) && Instant::now() < deadline {
-            for label in ["metadata-held", "metadata-released", "bad-store"] {
+            for label in [
+                "metadata-held",
+                "metadata-released",
+                "bad-store",
+                "checkpoint-held-before",
+                "checkpoint-held-after",
+                "checkpoint-released",
+                "checkpoint-scope-released",
+                "checkpoint-paused",
+            ] {
                 let output = root.join(format!("admission-observed-{label}.json"));
                 if root.join(format!("admission-observe-{label}")).exists() && !output.exists() {
-                    let count = trace
-                        .lock()
-                        .unwrap()
+                    let observed = trace.lock().unwrap().clone();
+                    let count =
+                        observed.iter().filter(|v| v.starts_with("submit:")).count() - baseline;
+                    let published = observed
                         .iter()
-                        .filter(|v| v.starts_with("submit:"))
-                        .count()
-                        - baseline;
-                    fs::write(output,serde_json::to_vec(&serde_json::json!({"new_canonical_submits":count,"model_decisions":models.load(Ordering::SeqCst)})).unwrap()).unwrap();
+                        .filter(|v| v.as_str() == "checkpoint_publication:1")
+                        .count();
+                    let unpublished = observed
+                        .iter()
+                        .filter(|v| v.as_str() == "checkpoint_publication:0")
+                        .count();
+                    if label == "checkpoint-released" && published + unpublished == 0 {
+                        continue;
+                    }
+                    if label == "checkpoint-paused" {
+                        let started = paused_observation_started.get_or_insert_with(Instant::now);
+                        let baseline: serde_json::Value = serde_json::from_slice(
+                            &fs::read(root.join("admission-observed-checkpoint-held-after.json"))
+                                .unwrap(),
+                        )
+                        .unwrap();
+                        let unchanged = baseline["new_canonical_submits"] == count
+                            && baseline["model_decisions"] == models.load(Ordering::SeqCst);
+                        if unchanged && started.elapsed() < Duration::from_millis(200) {
+                            continue;
+                        }
+                    }
+                    let mut value = serde_json::json!({"new_canonical_submits":count,"model_decisions":models.load(Ordering::SeqCst)});
+                    if label.starts_with("checkpoint-") {
+                        value["published_before_submit"] = serde_json::json!(published);
+                        value["unpublished_submit"] = serde_json::json!(unpublished);
+                        value["same_original"] = serde_json::json!(
+                            observed
+                                .iter()
+                                .filter(|v| v.as_str() == "checkpoint_original:1")
+                                .count()
+                        );
+                        value["different_original"] = serde_json::json!(
+                            observed
+                                .iter()
+                                .filter(|v| v.as_str() == "checkpoint_original:0")
+                                .count()
+                        );
+                    }
+                    publish_observation(&output, &serde_json::to_vec(&value).unwrap(), || {})
+                        .unwrap();
                 }
             }
             thread::sleep(Duration::from_millis(2));
@@ -484,4 +541,64 @@ fn control_diagnostic(
     ack: &oasis7_viewer_runtime::viewer::ControlCompletionAck,
 ) -> serde_json::Value {
     serde_json::json!({"request_id":ack.request_id,"status":ack.status,"error_code":ack.error_code,"error_message":ack.error_message.as_ref().map(|s|s.chars().take(256).collect::<String>())})
+}
+
+// A published path is the readiness signal consumed by observe(). Never expose
+// the empty/truncated destination created by fs::write before its body is ready.
+fn publish_observation(
+    output: &std::path::Path,
+    bytes: &[u8],
+    before_rename: impl FnOnce(),
+) -> std::io::Result<()> {
+    use std::io::Write;
+    let temporary = output.with_extension("pending.json");
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    file.write_all(bytes)?;
+    drop(file);
+    before_rename();
+    fs::rename(temporary, output)
+}
+
+#[test]
+fn admission_observation_path_is_published_only_with_complete_json() {
+    let root = std::env::temp_dir().join(format!(
+        "admission-observation-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let output = root.join("observed.json");
+    let initial = serde_json::json!({"new_canonical_submits":0,"model_decisions":0});
+    let updated =
+        serde_json::json!({"new_canonical_submits":1,"model_decisions":0,"same_original":1});
+    publish_observation(&output, &serde_json::to_vec(&initial).unwrap(), || {
+        assert!(
+            !output.exists(),
+            "reader must not see an empty initial result before publication"
+        );
+        let staged: serde_json::Value =
+            serde_json::from_slice(&fs::read(output.with_extension("pending.json")).unwrap())
+                .unwrap();
+        assert_eq!(staged, initial);
+    })
+    .unwrap();
+    publish_observation(&output, &serde_json::to_vec(&updated).unwrap(), || {
+        let visible: serde_json::Value =
+            serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(
+            visible, initial,
+            "reader retains the complete old response until replacement"
+        );
+    })
+    .unwrap();
+    let visible: serde_json::Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+    assert_eq!(visible, updated);
+    assert!(!output.with_extension("pending.json").exists());
+    fs::remove_dir_all(root).unwrap();
 }

@@ -2,10 +2,14 @@
 use super::*;
 use crate::{DecimalU64, approval::*, provisioning::*, source_revocation::*};
 use serde_json::{Value, json};
+#[path = "http_schema_management.rs"]
+mod management_metadata;
 #[path = "http_schema_owner_setup.rs"]
 mod owner_setup;
 #[path = "http_schema_reconcile.rs"]
 mod reconcile;
+#[path = "http_schema_resource_v2.rs"]
+mod resource_v2;
 #[path = "http_schema_test_session.rs"]
 mod test_session;
 
@@ -141,6 +145,7 @@ fn provisioning_schemas() -> Value {
 fn http_schemas() -> Value {
     let mut schemas = owner_setup_schemas();
     for group in [
+        management_metadata::schemas(),
         revocation_schemas(),
         approval_schemas(),
         provisioning_schemas(),
@@ -464,6 +469,10 @@ pub(super) fn export(directory: &std::path::Path) {
     schemas
         .as_object_mut()
         .unwrap()
+        .extend(resource_v2::schemas().as_object().unwrap().clone());
+    schemas
+        .as_object_mut()
+        .unwrap()
         .extend(test_session::schemas().as_object().unwrap().clone());
     let mut fixtures = json!({
         "ManagedLoginApproveRequestV1":[managed_login_approve],
@@ -490,6 +499,14 @@ pub(super) fn export(directory: &std::path::Path) {
             .unwrap()
             .clone(),
     );
+    fixtures
+        .as_object_mut()
+        .unwrap()
+        .extend(management_metadata::fixtures().as_object().unwrap().clone());
+    fixtures
+        .as_object_mut()
+        .unwrap()
+        .extend(resource_v2::fixtures().as_object().unwrap().clone());
     let decimal_fixtures = decimal_fixtures();
     let document: Value = json!({"metadata":schemars::schema_for!(ServiceMetadata),"error":schemars::schema_for!(ErrorResponse),
         "native":schemas,"fixtures":fixtures,"decimal_fixtures":decimal_fixtures});

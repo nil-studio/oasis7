@@ -11,6 +11,20 @@ function setup(request) {
  return {core,controller};
 }
 describe('viewport query controller',()=>{
+ it('keeps public reads available with no gameplay summary or business target',async()=>{
+  const {core,controller}=setup();
+  core.state.auth={};controller.resetScope();
+  core.buildGameplaySummary=()=>null;
+  expect(()=>controller.refresh({time:1,player_gameplay:null})).not.toThrow();
+  await Promise.resolve();await Promise.resolve();
+  expect(core.requestWorldView).toHaveBeenCalledOnce();
+  expect(core.requestWorldView.mock.lastCall[0].pinned_entities).toEqual([]);
+  await controller.returnTarget();
+  expect(core.requestWorldView).toHaveBeenCalledOnce();
+  expect(controller.navigation()).toBeNull();
+  expect(controller.selection()).toBeNull();
+  expect(core.applySelection).not.toHaveBeenCalled();
+ });
  it('coalesces camera events using only Rust bounds and ignores apply echoes',async()=>{
   vi.useFakeTimers();const {core,controller}=setup();
   controller.cameraChanged({viewport_bounds:bounds(1)});controller.cameraChanged({viewport_bounds:bounds(2)});controller.cameraChanged({viewport_bounds:bounds(3)});
@@ -106,4 +120,14 @@ it('keeps a programmatic drill level until manual camera input restores automati
  expect(core.requestWorldView.mock.lastCall[0].detail_level).toBe('entity');
  controller.pauseFollow();controller.cameraChanged({viewport_bounds:bounds(40)});await vi.advanceTimersByTimeAsync(180);
  expect(core.requestWorldView.mock.lastCall[0]).toMatchObject({detail_level:'auto',bounds:bounds(40)});
+});
+
+it('retention reads never request data and reject scope mismatch or disposed instance',async()=>{
+ const {core,controller}=setup();
+ const initial=controller.readStatistics();expect(initial.published.entities).toBe(0);expect(core.requestWorldView).not.toHaveBeenCalled();
+ await controller.query({});const calls=core.requestWorldView.mock.calls.length;
+ expect(controller.readStatistics().paging.active).toBe(false);expect(core.requestWorldView).toHaveBeenCalledTimes(calls);
+ core.state.auth.playerId='other';expect(controller.readStatistics()).toBeNull();
+ controller.resetScope();expect(controller.readStatistics()).not.toBeNull();
+ controller.dispose();expect(controller.readStatistics()).toBeNull();
 });

@@ -9,6 +9,8 @@ worktree-overlay behavior cannot be hidden by the repository's own corpus.
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import shutil
 import subprocess
@@ -369,6 +371,7 @@ def scenario_shared_markdown_adapters_cache_immutable_results_by_exact_text() ->
     )
     for parser in parsers:
         parser.cache_clear()
+    adapter._parse_markdown.cache_clear()
     parse_calls = 0
     had_local_parse = "parse" in adapter._MARKDOWN.__dict__
     original_parse = adapter._MARKDOWN.parse
@@ -381,9 +384,9 @@ def scenario_shared_markdown_adapters_cache_immutable_results_by_exact_text() ->
     adapter._MARKDOWN.parse = counted_parse
     try:
         first = tuple(parser(text) for parser in parsers)
-        assert parse_calls == 3, parse_calls
+        assert parse_calls == 1, parse_calls
         assert tuple(parser(text) for parser in parsers) == first
-        assert parse_calls == 3, parse_calls
+        assert parse_calls == 1, parse_calls
         assert all(isinstance(result, tuple) for result in first)
 
         blocks, html_nodes, links = first
@@ -401,13 +404,13 @@ def scenario_shared_markdown_adapters_cache_immutable_results_by_exact_text() ->
         changed = text.replace('id="explicit-anchor"', 'id="changed-anchor"', 1)
         changed = changed.replace("doc.md#target-anchor", "doc.md#changed-anchor", 1)
         changed_results = tuple(parser(changed) for parser in parsers)
-        assert parse_calls == 6, parse_calls
+        assert parse_calls == 2, parse_calls
         assert changed_results[1] != html_nodes
         assert changed_results[2] != links
         assert tuple(parser(changed) for parser in parsers) == changed_results
-        assert parse_calls == 6, parse_calls
+        assert parse_calls == 2, parse_calls
         assert tuple(parser(text) for parser in parsers) == first
-        assert parse_calls == 6, parse_calls
+        assert parse_calls == 2, parse_calls
     finally:
         if had_local_parse:
             adapter._MARKDOWN.parse = original_parse
@@ -421,6 +424,18 @@ def scenario_shared_markdown_adapters_cache_immutable_results_by_exact_text() ->
     assert module.fragment_occurrences(text, "comment-anchor") == 0
     assert module.fragment_occurrences(text, "comment-heading") == 0
     assert module.fragment_occurrences(text, "hidden") == 0
+    # The same path may be read from BASE and the candidate in one process.
+    # Cached fragments must follow bytes, including newly ambiguous anchors.
+    assert isinstance(module.visible_lines(text), tuple)
+    assert module.fragment_section(text, "explicit-anchor") is not None
+    duplicate = text + '\n<a id="explicit-anchor"></a>\n'
+    assert module.fragment_occurrences(duplicate, "explicit-anchor") == 2
+    assert module.fragment_section(duplicate, "explicit-anchor") is None
+    assert module.fragment_occurrences(text, "explicit-anchor") == 1
+    assert module.fragment_section(text, "explicit-anchor") is not None
+    changed = text.replace('id="explicit-anchor"', 'id="new-anchor"')
+    assert module.fragment_occurrences(changed, "explicit-anchor") == 0
+    assert module.fragment_occurrences(changed, "new-anchor") == 1
 
 
 def scenario_fenced_code_trace_decoy_is_ignored() -> None:
@@ -1220,8 +1235,71 @@ def scenario_plain_source_content_cannot_impersonate_test_path() -> None:
         shutil.rmtree(root)
 
 
+def scenario_worktree_reference_reads_do_not_rescan_repository() -> None:
+    module = load_checker()
+    root, _base, _head = make_repo()
+    original_git, original_argv = module.run_git, sys.argv
+    calls: list[tuple[str, ...]] = []
+
+    def observed_git(repo, *args, **kwargs):
+        if args and args[0] in {"diff", "ls-files"}:
+            calls.append(args)
+        return original_git(repo, *args, **kwargs)
+
+    try:
+        for index in range(12):
+            (root / f"doc/system/consumer-{index}.design.md").write_text(DESIGN_HEADER, encoding="utf-8")
+        base = commit(root, "add twelve real reverse consumers")
+        (root / TEST_SOURCE).write_text("# changed validation source\n", encoding="utf-8")
+        module.run_git = observed_git
+        sys.argv = [str(CHECKER), "--repo-root", str(root), "--base", base, "--head", base, "--worktree"]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = module.main()
+        assert result == 0, output.getvalue()
+        assert "checked 13 changed/new system designs" in output.getvalue(), output.getvalue()
+        # Adding consumers must not multiply full-repository status/rename
+        # scans: all thirteen contracts above still execute against real files.
+        assert len(calls) <= 16, f"reference reads rescanned Git {len(calls)} times: {calls}"
+    finally:
+        module.run_git, sys.argv = original_git, original_argv
+        shutil.rmtree(root)
+
+
+def scenario_worktree_cached_view_is_fresh_for_each_invocation() -> None:
+    module = load_checker()
+    root, base, _head = make_repo()
+    original_argv = sys.argv
+    try:
+        sys.argv = [str(CHECKER), "--repo-root", str(root), "--base", base, "--head", base, "--worktree"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert module.main() == 0
+        # The working file equals HEAD, but the index contains an invalid
+        # staged-only candidate. A cache from the first call must not hide it.
+        (root / DESIGN).write_text(DESIGN_HEADER.replace(VALIDATION_ROW, ""), encoding="utf-8")
+        run_git(root, "add", DESIGN)
+        run_git(root, "restore", "--source=HEAD", "--worktree", "--", DESIGN)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            assert module.main() == 1
+        assert "trace-validation-missing" in output.getvalue(), output.getvalue()
+        run_git(root, "reset", "-q", "HEAD", "--", DESIGN)
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert module.main() == 0
+        (root / TEST_SOURCE).unlink()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            assert module.main() == 1
+        assert "trace-ref-unresolved" in output.getvalue() or "trace-validation-missing" in output.getvalue(), output.getvalue()
+    finally:
+        sys.argv = original_argv
+        shutil.rmtree(root)
+
+
 def main() -> None:
     scenarios = (
+        scenario_worktree_reference_reads_do_not_rescan_repository,
+        scenario_worktree_cached_view_is_fresh_for_each_invocation,
         scenario_validation_source_filename_tokens,
         scenario_plural_sources_preserve_reference_guards,
         scenario_plain_source_content_cannot_impersonate_test_path,

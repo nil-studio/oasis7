@@ -84,6 +84,11 @@
 | First Claim Onboarding | `owned_claim_count`、`next_claim_quote.slot_index`、`target_agent_id`、`blocked_reason`、`actor_agent_id` | 无 bound Agent 时进入显式首次注册/绑定或原身份恢复；已有 claimer 且 `owned_claim_count=0`、`slot_index=1` 时才展示经济 `slot-1` CTA，要求选目标后 `Prepare -> Confirm` | `no_agent_for_account -> registration_pending -> bound_agent_available`，或已有绑定上的 `quote_ready -> onboarding_visible -> confirmation_open -> claim_submitted` | 消费当前入口公布的注册能力或 canonical quote/blocker；未支持逐账号注册时显示缺口与恢复路径，不伪装可执行 | 首次注册以已认证账号和世界准入为前提，不要求先有 claimer；`ClaimAgent` 仍要求该玩家已注册的 claimer，会话主体、执行 actor 与 claim target 分开校验；2.1 节的后继目标不等于当前固定 starter 入口已支持 |
 | Player Session / Agent Visibility Boundary | `player_session.player_id`、`bound_agent_id`、`claim_owner_id`、`owned_claims`、`agent_player_bindings` | 进入共享世界时，Viewer 默认 Agent 控制列表只展示当前账号绑定或当前玩家绑定待同步 Agent；其他账号 Agent 与未绑定 Agent 不进入默认 Agent 列表，也不得看到 ready chat/command 主操作 | `no_agent_for_account -> bound_agent_available` 或 `no_agent_for_account -> slot_1_claim_visible` | “我的/可操作”只来自当前 session binding 或 canonical claim/owned fields；未绑定 Agent 视为数据不完整或迁移态，不作为正常玩家对象展示；其他账号活动若需要世界感，后续放地图实体、世界事件或只读 world layer，不混入控制列表 | 不得从全局第一个 Agent、左侧默认选中目标、隐藏的世界 Agent、未绑定 Agent 或 `state.agents.keys().next()` 推断当前账号 ownership |
 
+<a id="agent-acquisition-context-source"></a>
+Reputation Cap 的目标来源按[情境消费者政策](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)选择用途 `agent_acquisition`，并由[完整来源与当前资格](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)验证；原 `1/2/3` 档位上限、逐槽成本、资金来源和反囤积规则保持不变。该采用是本轮目标设计：其输入是签署时已明确该用途的真实当前合作事实，原两档数值阈值继续由本专题配对设计维护，当前窗口及合格单位只由情境政策维护。旧无主体/情境/时效的累计 `reputation_scores`、测试 setter、旧单腿付款或未声明该用途的原合同不被换名为合格输入；历史记录保留原义，不追溯授予新资格。
+
+已证明完整且没有合格来源时使用原最低档；来源、控制关系或更正覆盖未知时不能把未知当零，也不能用缓存授予额外槽。独立的原最低档取得路径仍按其自己的资金/身份/容量条件判断。用途值到期或更正只影响相应新增取得，不自动回收既有 Agent、抹去历史成本或免除 upkeep。真正认领仍在原权威提交点重验，不因咨询、报价或获得某档输入自动创建控制权；完整迁移及各入口判据见[全部消费者](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)。这些目标规则尚须同候选实施与验证，不提升当前 claim 或声誉的实现状态。
+
 - Acceptance Criteria:
   - AC-1: 首个 agent 认领没有任何免费分支；v1 必须显式校验 `activation_fee_amount > 0`、`claim_bond_amount > 0`、`upkeep_per_epoch > 0`。
   - AC-2: 认领成功后必须立即形成 `activation fee` 记账、`bond locked` 状态和下一次 upkeep 结算 epoch，不允许“先占坑后补票”。
@@ -245,6 +250,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-A
 
 制造资格按同一受益主体的**去重可控制 Agent 集合**计算：当前主绑定 Agent 与其经济 claim targets 的并集，再加未终结制造预留。主 Agent 即使只是注册绑定，也计入制造的已有经营规模；这不为主 Agent 新增经济 claim、扣费或维护责任。首版继续使用既有声誉档位 `cap=1/2/3`；制造必须保留主 Agent，且新增后不得超 cap。无主绑定或无法证明组织的取得主体时返回资格 blocker，不能创建替代主身份。
 
+采用情境来源后，本节与普通 claim 消费[同一取得用途](#agent-acquisition-context-source)的当前已验证档位，不建立制造专用声誉值或第二份额度。报价、确认预留与最终交付均重验同一主体/用途来源及上面的去重集合；旧全局分数、缺失默认值、换 Agent 或组织代表不能增加容量。资格失效时沿本节原有待交付、截止、报废与退款规则处理，已投入、原责任和既有 Agent 保持可追溯。
+
 制造报价的 `slot_index = 已有去重 Agent 数 + 未终结制造预留数 + 1`，至少为 `2`。使用既有逐项向上取整规则时，slot-2 为激活费 `150`、押金 `300`、首期/每期 upkeep `38`，确认需预留 `488` liquid OC；slot-3 分别为 `200/400/50`，预留 `650`。这些金额由[现有 claim 计价函数](../../../crates/oasis7_world_state/src/agent_claims.rs)派生，不另调现有基础费率；制造适配器必须将本节有效经营规模交给它，不能直接沿用只统计经济 claim 的旧调用。受限 starter bucket 与自动补足恒为零。
 
 冻结的槽位和价格不会因为另一份 claim 释放而降价、重开 slot-1 支持或自动换受益人。交付时以当前集合和原预留再检查 cap；声誉降档、控制关系丢失或禁止取得时进入有期限的待交付，而非越限创建。启用本政策后，制造确认、普通 ClaimAgent 及所有新增取得入口必须使用同一个“主绑定 Agent ∪ 经济 claim targets ∪ 在途制造目标”的去重容量守卫，以本次取得后的集合核对 cap；制造交付将预留替换为真实 Agent，不释放一个可被重复认领占用的名额。对集合内同一既有目标建立经济 claim 不重复计人数，但仍需其原有资格和经济规则。普通 claim 的既有计价与历史义务不在此迁移；新容量守卫必须独立存在，不能只修报价函数或在预留期起效。
@@ -260,6 +267,50 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-A
 - 取得后沿用认领维护、grace、release/reclaim 及 Agent 自治/委托合同；订单不预设目标、不复制主 Agent 授权，不扩大世界权力。claim 正式释放/回收后旧控制来源失效，后续合法新 claim 才能取得新的控制关系，旧 grant 和未决执行不继承；原制造订单、身份、成本和责任保留。原根 owner 来源撤销或变更不把额外 Agent 自动给新主体，同一合法主体恢复后须重新认证；技术适配由[原子控制来源合同](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-004)承接，不通过额外主绑定或递归 owner 链实现。公共 quota 可以拒绝不合格订单，不能直接创建 Agent、补材料或免除产能。
 
 专业验收按系统设计的 [11.1 验证映射](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-validation)及其[制造系统验收手册](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md)独立观察正常交付、各阶段失败、双请求与跨请求唯一性、权限变更、旧数据恢复、资金/物料守恒及可读下一步。当前只有本节目标政策，手册是未来计划，尚无新制造运行、平衡或玩家理解证据。数值假设的 owner 为 `gameplay_designer` / `producer_system_designer`；真实工业投入、等待体验或损失反馈证明扩张过易/不可达时，另修政策 revision 并只作用于重新报价/新单，不能回写旧单成本。
+
+<a id="agent-disposition-policy"></a>
+### 2.5 已交付 Agent 的经济转让与主动处置首版政策
+
+Trace refs: O7-REQ-42168149-c979-4211-9777-2d72f7050147；O7-REQ-be254f99-9b66-47b1-ad7f-4a356d296b2a。接收 [AOS-005 五门槛与经济连续性](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-005)及 [AUTH-002 处置后身份与责任](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-002)；原制造 §2.4 的在制品报废不拥有本节已存在 Agent 的处置。
+
+本节是本次明确提出、供原 Gameplay owner 评审采纳的首版 `agent-disposition-v1` 政策，不是历史批准、当前实现或可用性记录。经济选择只在此维护；[领域执行合同](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-authority-formation)拥有来源、当前再校验、全部写者及原子恢复，[IA011](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-011)消费控制与配置历史。本版不改变既有 Claim/Release/forced reclaim 的历史解释，不开新市场或跨世界结算。
+
+本政策提出独立新增候选 family `agent_disposition_v1`，按[原通用形成机制的版本扩展条件](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#adr-cf-01：先闭合即时形成与履行)取得完整产品规则、领域执行合同、验证及正式启用；原[普通签约 family 集合](gameplay-agent-mediated-contract-formation-policy.prd.md#formation-policy-families)仍按其既有范围，不因机制可复用就已允许本处分。组织签约附件和本次 mandate 必须明确包含此 family、准确动作/对象/财产权源、期间与累计上限；新增范围须由原有权主体按原修订程序完整批准与接受。旧即时交换/服务签名、空泛 wildcard、组织名册或任意 Passed 不代签本次权利转移，也不新增一般组织管理权。
+
+#### 2.5.1 明确对象、双方接受与等待
+
+玩家可以选择继续维持、在原合同内转让、主动退休或在条件齐备后报废一个已存在的 Agent。有真实可核 claim 的 primary、普通取得和制造交付 Agent 均按同一五门槛评估，不因来源名称默认允许或排除。首次注册/账户控制绑定本身不产生可出售的经济权；转让只交付完整签署清单中的 Agent 与合法经济权益，不迁移玩家账户、外部钱包、密钥、私有记忆或其他 Agent，不补发 primary、首聊支持或首次认领次数。
+
+转让双方必须明确接受同一稳定 Agent、当前经济/控制来源、资产与保留清单、价款、取得费用、维护期间、既有责任、完整允许效果及有限截止。组织及代表还须有原精确授权；拥有某个成员或注册 root 不能处分其他主体的财产。存在关联子 Agent、托管资产或依附该 root 的控制来源时，必须完整列出并按原归属保留合法来源；不能因卖出 root 就让另一主体的资产随卖或原主体失去未售权利。缺合法证明、实际目的地或完整集合时本次处置保持 blocked，并说明可补齐、等待或取消的下一步。
+
+接受的精确处置 lineage 从权威请求 epoch `r` 起，使用原 `release_cooldown_epochs` 常数等待；当前规范值为 `3`，最早在 `r+3` 进入最终五门槛校验，仍须在双方本次签定的有限有效窗内。新对象、受益人、scope 或伪造新旧请求不能借用另一处置的等待。请求/报价不交割；已确认 Begin 只建立本件有界保全与阻止新风险的范围，未完成 drain 时仍占原容量、押金及必要维护。不能实际调用旧 Release 请求让它先异步删除 claim，再补一份新 Claim。已有 release、forced reclaim 或别的处置竞争时按当前真实来源及唯一终态处理，不能暂停原欠费/强制回收规则来等待出售。
+
+#### 2.5.2 转让价格、原费用与期间
+
+首版价款只采用同 world 的原可转让 liquid MainToken/OC 单位；双方可明确约定零价赠与，但取得费用仍非零。外部 OC tracker、服务 quota、restricted starter、贡献或治理票权不能支付价款。接收方的新 activation、bond 与首个未覆盖 upkeep 使用原当前取得用途、共享容量和 slot quote；这条转让路径的价款及新费用只用其真实获授权、原可转让 liquid，不消费 restricted，也不触发自动首次补足或新增/重领首聊赠款。已经合法记入普通 liquid 的资金沿原可转让语义，不因历史首聊来源另造受限标签。已有主 Agent 和全部未终结取得预留进入同一去重容量，不因转让另给 slot-1 优惠。
+
+本版不新增转让佣金；原 activation 的 burn/treasury 比例、实际 Runtime Data/E、适用 capability budget、保管/履约费用分别按原来源发生，不把“没有佣金”当作免费执行。原 [claim 计价](../../../crates/oasis7_world_state/src/agent_claims.rs)不改：当前 slot-2 的 activation/bond/每期 upkeep 为 `150/300/38`，slot-3 为 `200/400/50`；生产候选仍消费其准确政策版本、当前资格和完整 quote，不从本例跳过授权或资源检查。
+
+最终提交在同一当前 epoch `c` 结算以下完整集合：
+
+1. 原持有人对截至 `c` 已成立的旧 upkeep 与原责任负责。本新处置合同可用原已锁 bond 抵扣真实欠费，沿 [原 restricted-first / liquid provenance](../../../crates/oasis7_world_state/src/agent_claims.rs)计算；不足部分须原责任人以合法来源补足或取得原债权合同允许的完整处置，否则不交割。其他处罚只能来自其本来有权决定，不能因普通出售、退休或报价失败新增罚款。
+2. 旧 bond 扣除本来可抵扣金额后，只按原资金来源及真实 `refund_sink` 返回原持有人或原来源池。仍有效的受限退款保持 restricted；过期/撤销等情形沿原精确 treasury source 回流，绝不变成新持有人的押金、售价、可转让余额或新补贴。尚未释放的退款、预期售价或其他人的资金不能补接收方当前付款缺口。
+3. 固定旧记录真实 `upkeep_paid_through_epoch=e`，并在上述结算后确保 `e>=c`。已付期间不退款、不重收，也不把维护水位倒退到转让时点。接收方以自己的新 slot rate 预付**第一个未覆盖期间 `e+1`**一次，生效记录因此付至 `e+1`，下次是 `e+2`；不能沿旧 rate 免费延长，也不能在 `e` 再收一遍。缺原支付记录、overflow 或不完整期间无法推定已付。
+4. 价款、新 activation/bond/upkeep、原欠费及退款、容量、所有权/控制来源与原责任结果必须随唯一交割一起确认。任一当前资格、容量、资源、治理或反滥用条件失败，不能部分付钱、先放押金、先换控制或给新 owner 旧授权。未知先查原处置，不换 request 再买或再退款。
+
+独立经济截面示例：旧 bond 为 restricted `150` / liquid `50`，真实旧 upkeep 欠 `25`，无其他罚且原 restricted refund 仍有效；原持有人可用 restricted `10` / liquid `80`。接收方 liquid `800`，明示价款 `60`，其真实 slot-2 quote 为 `150/300/38`。当前 `c=12` 的旧欠费结清后付至 `e=12`，新方预付第13期。交割后的接收方 liquid 为 `252`、新 bond `300`；原持有人 liquid `190`、restricted `135`；原欠费/新维护分别入原 sink `25/38`，activation burn/treasury 为 `75/75`。这只核本次经济差分；独立调用、此前实际支付及其他责任另按原记录核，不能用 OC 数字代替 Data/E 或 capability units。若受限退款应回原池，则 `125` 回该准确池，原持有人的 restricted 仍为 `10`，其余价款不变。
+
+#### 2.5.3 退休、报废与旧责任
+
+主动退休采用同样的当前授权、原冷却与五门槛，不是原 Agent 的删除操作。Begin 后停接本件禁止的新风险，保留旧工作、原操作查询与已承诺的有限保全/结算；它不立刻释放取得容量或退款。只有全部必需原件、资产安置、真实费用和旧责任处置可核时才确认退休终态。此时停止新运行并退出 active acquisition 容量，但原 estate、未售库存、holds、合同责任、身份、配置与已确认结果仍按准确原 owner 和原账本保留；储存/保管、有限 drain 或合法继受的原成本没有被免除。没有足够保留或合法承接时不得以“退休”结束责任。
+
+首版不提供退休后自动重新 active、普通 Claim 接管 inactive/tombstone 或重开启动资助的入口。将来若增加恢复，必须由原专业政策明确其当前资格、费用、容量与历史连续性；本版真实结果应说明没有可用恢复动作，而非显示会静默复活的按钮。仍有其他合法经营路线时不强制玩家退休或扩大团队。
+
+报废前须逐项完成原活资产清单的合法保留、返还或移交，并处理不可分的在途工作；不能把设备、cargo、借用物、他人 holds 或未售余额一并清零。原生 Agent ID 上的账不能只改一个 owner 标签：必须有真实获权的账本目的地、精确金额/物件及同根结果；不能证明时阻断报废或交割。被明确授权报废的自有机体失去运行能力，稳定身份、来源和历史保留不可复用的 tombstone。只有已明确采用的真实回收 recipe 才有对应材料产出；没有该 recipe 时不按机体物料表猜退款或生成补偿，不没收其他资产。
+
+主动转让、退休或报废不额外收取原 forced reclaim 的 `2000bps` 处罚；原欠费/闲置的强制条件实际成立时，仍按其原版本、原剩余 bond 和一次结果执行，不能靠处置标签免罚或重复罚。当前 quoted/accepted/Begin/draining/已生效分别可读，玩家应看到已付、仍占、可返还、确切丧失的运行能力、保留的责任及等待/取消/补证的下一步。
+
+本政策的正式来源、完整预算与生效证据按领域合同实施；[处置验收手册](../../testing/manual/agent-economic-disposition-acceptance.manual.md)分别验证正常转让、五门槛单变量失败、资金/期间/责任原账、已存在 Agent 退休报废、控制与私有历史、并发及原结果恢复。设计与静态账例不代表这些操作已实现、已运行或获准公开使用。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本专题不新增 AI 模型能力，仅涉及 gameplay 规则、账本 bucket 与状态机）。

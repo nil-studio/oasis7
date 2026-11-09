@@ -15,7 +15,7 @@
 
 ### 2.1 需求承接与分配表
 
-以下只分配可精确承接的局部义务，未覆盖的原四层职责见 §8；不以有效链接代替完整设计。
+§7.1–§7.6 保留既有局部分配；§7.8 补充已采纳路径的 PE001 组合接收，原四层职责及尚需实施/取证的边界见 §8。每条关系以正文合同和实际方法为依据，不以有效链接代替完整设计。
 
 | 上游 requirement / product AC（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
@@ -25,6 +25,42 @@
 | [REQ-FIRST-BRANCH-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-branch-002) | 适用时回退期限、成本与保留/损失收益同义；不可回退或无安全路径必须显式说明。 | [回退窗口边界](#rollback-window) | gameplay 提供适用阶段与窗口，Viewer 消费，QA 检查；真实回退能力由 Runtime 专业域决定。 | 现有 attraction fixture 窗口不证明真实 Runtime 回退；不新增回退权限或费用。 |
 | [REQ-WR-PE-002](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | 本专题评审将结构回归、live/provider、L4A/L4B 和 L5 的证明范围分开；低层不能代签真人继续意愿。 | [总纲评审证据分层](#evidence-layer-boundary) | testing 拥有方法与证据规则，QA 守边界，producer 作适用产品建议；gameplay 消费。 | 不接管其他 claim 消费者，不以本次局部条款宣称整项 PE-002 覆盖或发布就绪。 |
 | [REQ-WR-PE-003](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | 本专题建议固定体验目标、formal 入口、候选或明确变更范围、证据窗口；环境影响解释时纳入范围。 | [总纲评审比较单位](#comparison-unit-boundary) | producer 定义 claim envelope，QA 核对证据，testing 持方法；公开状态仍归发行与根 README。 | 不新增产物 schema、统一 verdict 或替代全部消费者核对。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 同一目标/入口/candidate/profile/窗口，核玩家决定→真实结果→仍存义务→下一合法选择；用仅自主推进、成功颜色和无来源结果作反例。 | [共同组合](#playability-path-composition) | gameplay/领域 producer 保持原规则；Runtime、Viewer/API、QA 各守原职责。 | 技术/理解/继续意愿分别记录；本表不是执行报告。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | production_only 逐阶段核 quote/接受/排程/实际正量结算及 Assembler 候选；拒绝把扣减、普通库存或不匹配结果当首产物，未知先查原请求。 | [首局结果](#playability-path-starter) | claim、agency、M4、工业生命周期和处置 authority。 | 不代签稳定窗口、建成或交付；各入口分别取证。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 在原首局范围询问为什么做、实际改变什么、保留/损失及继续/离场选择；记录无提示接续、提示介入和未完成原因。 | [首局理解](#playability-starter-understanding) | claim、agency、M4、工业生命周期和处置 authority。 | 仅该手册的 starter-industrial/production_only；不代签其他七类或全部持续经营。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 固定原配方、工厂、产能/维护/物流条件，分别看排程、消费、产出/损失、held/unmet 与原稳定/交付条件；漂移、失败和未知后不重复生效。 | [持续经营](#playability-starter-operation) | claim、agency、M4、工业生命周期和处置 authority。 | 纸面计算与一次首产物不代签持续能力；不补造未支持配方/物流。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 对照取得、继续持有、暂缓及原释放选择的真实成本、provenance、维护和退出约束；只显示 free/owned 标签不能通过。 | [claim 取舍](#playability-starter-claim) | claim、agency、M4、工业生命周期和处置 authority。 | 不从额度或注册绑定推经济权，不扩大补贴/退款。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 失去控制、维护/释放/回收、重入和结果未知保留原责任/期限；空 owned、不见旧回执或 restricted 来源失效不代 claim 终态。 | [claim 连续性](#playability-starter-claim-continuity) | claim、agency、M4、工业生命周期和处置 authority。 | 不把新处置规则追溯套旧 Release，不凭恢复重新赠款。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 保留单主经营、可选制造、拒绝/恢复三分支；登记/开工不冒充交付或正式可控，新增成员不复制资金、权限或清旧暴露。 | [制造与团队](#playability-starter-manufacturing) | claim、agency、M4、工业生命周期和处置 authority。 | 自动化不代真人；claim/处置正例不代制造，未支持入口保持原不可用。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | Begin 风险保全、Final 归属/控制与 Abort/Expire 分开；旧结果/资产/债务和私有历史按原 scope 保留，未知或权限漂移不重发处置。 | [处分与旧成果](#playability-starter-disposition) | claim、agency、M4、工业生命周期和处置 authority。 | Begin 不等于换主；不保证全部来源始终能终结，不将旧 private 内容给新主。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 真实区域贡献形成能力/供给及后续可采用用途；对照只有产量/吞吐上涨、缺来源或缺后继的样本。 | [成熟能力](#playability-path-mature) | MW、恢复、情境来源与机会结算 producer。 | 供给用途不自动获认可；不把未执行算例当成长通过。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 同目标比较 repair/rebuild/pivot、独立/协作成本与保留/损失；分别核实际恢复和交付完成，拒绝自然恢复或 accepted 代真实后果。 | [恢复到交付](#playability-mature-recovery) | MW、恢复、情境来源与机会结算 producer。 | 恢复完成不代交付完成；原 Site/授权兼容和正式来源边界保持。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 对每个当前采用的 subject/purpose 消费者核来源、失效/更正与当前资格；对照旧 score、无用途或把成果当权利的误读。 | [认可的实际用途](#playability-mature-reputation) | MW、恢复、情境来源与机会结算 producer。 | 不把一条 local_route 代全部机会，不从认可生成 OC 票权。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 候选/资格、容量竞争、明确采用和一次真实结算分别说明；拒绝重复 ID、未知重发或换用途重计。 | [一次机会](#playability-mature-opportunity) | MW、恢复、情境来源与机会结算 producer。 | 不保证获得机会或收入；各原 consumer 支持范围独立。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 沟通→完整同版接受→真实 family 执行按原条件区分；缺一方/旧代表/越权拒绝，原 hard atomic 无部分世界效果。 | [共同形成与交换](#playability-path-cooperation) | CR 形成/履约、社会事实及真实领域 writer。 | 组织标签不授新权限，accepted 不等于履行；不新增 family。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 供能、维护/维修、运输及原协作四域分别核真实净结果；accepted、checkpoint_due、在途和声明成功均不能代 fulfilled。 | [服务真实履行](#playability-cooperation-service-results) | CR 形成/履约、社会事实及真实领域 writer。 | 一域通过不代四域；持续服务不作尚未发生后果的原子保证。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 残余范围修复/重作、终止结算、争议保全或明确继受保留已履行/已付和原责任；重连只查原件不重付。 | [服务恢复与理解](#playability-cooperation-service-recovery) | CR 形成/履约、社会事实及真实领域 writer。 | 继受/续期必须原合法接受；不能以新方覆盖旧方责任。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 逐五动作说明事实来源、逐主体风险/维护与当前可选下一步；未知不显示零风险，预览不确认事实或预约资格。 | [社会动作后果](#playability-cooperation-social) | CR 形成/履约、社会事实及真实领域 writer。 | 只读不代关系改变；不由一个动作或入口代签所有支持面。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 参加/拒绝/缩小未来/独立研究按真实预工作接受、贡献和权利解释；成果、准入、许可、earned/paid 不混同。 | [研究与原权益](#playability-path-rd) | 原 R&D 政策、工作/source/许可及原件 reader。 | charter、代码发布和理论收益不证明发现或到账。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 加入/退出/整槽转让前后保留旧贡献、slot/bps、累计与已付；旧代表失效、重复和 Unknown 不重开权益或未知工作。 | [成员与连续性](#playability-rd-membership) | 原 R&D 政策、工作/source/许可及原件 reader。 | 新成员不是旧人债务自动承受者；不保证未来生产准入。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 核真实 service debit/receipt 及库存/合成 throughput 不足拒绝，前后状态和 revision/receipt 对应原受控输入。 | [micro 组件基础](#playability-path-regional) | GAME016/017 及设施、区域、地点和 levy producer。 | 直接注入库存/吞吐和 sandbox 不是自然耗尽、正式运行或玩家理解证明。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 按原 design §10–12 核部署→服务至库存零→服务/upkeep 无收费拒绝→拆卸→全额新装及原操作恢复；quote 不扣减、无效模块输出无部分效果另验，玩家指出改变的 quote、成本与剩余 blocker。 | [micro 完整选择](#playability-regional-micro-lifecycle) | GAME016/017 及设施、区域、地点和 levy producer。 | 保留 opaque 及 post-first-capability 边界；不证 refill、自然 throughput blocker 或首局 0–10 分钟。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | formation、双资格、退化/修复/申诉逐场景验当前 source；玩家指出自己的有权行为改变哪项可行选择，接受或自然退化不算成果。 | [charter](#playability-regional-charter) | GAME016/017 及设施、区域、地点和 levy producer。 | 不借 charter 代 tenure/levy 权；未接线/未运行按原范围记录。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 取得/续期/转让/处置分别核地点、期限、占用、补偿与原责任；失效/争议/恢复不抹已发生结果。 | [tenure](#playability-regional-tenure) | GAME016/017 及设施、区域、地点和 levy producer。 | War Defer 不排除 tenure；通知或期限经过不代已完成处置。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 征费资格、服务价、真实征收/剩余/期限分别可读；到期、重复、权限漂移、争议与查询恢复不重复收费。 | [levy](#playability-regional-levy) | GAME016/017 及设施、区域、地点和 levy producer。 | 不从 charter 或付款推征费权；无新增税率或退款。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 提案/模拟/试点/准入/真实用途分开；失败、超范围、过期及未知保留证据和成本，再给补证、缩窄或停止。 | [创造与准入](#playability-path-industrial) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | 模拟或 UI 展示不代准入/应用，也不代其他工业职责。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 按原合法范围解释提交、安装/激活、实际调用、升级/退出与未决旧义务；失败/未知不把安装记成应用。 | [既有扩展](#playability-industrial-extension) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | exact recipe 窄例不代普通 product/factory。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 普通产品实际评价/消费与工厂准入、生产、原实体/库存/在途分别核 scope/期限/当前版；拒绝 silent intersection 或仅注册冒充效果。 | [普通产品/工厂](#playability-industrial-product-factory) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | 一类产品或工厂正例不代全部支持的消费组合。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 到期/撤销/升级/退出保留原实体、已产出、真实在途与旧义务；Unknown、固定决定恢复和原结果读取不重复生产/扣费。 | [普通退出与恢复](#playability-industrial-continuity) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | 不以版本切换没收存量或重写历史；真实费用和下层限制保持。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 当前用途/期限、实际消费、计费/收益与实际付款分别读；拒绝越权或重复，失效/更正保留历史和原合法下一步。 | [许可与收益](#playability-industrial-license) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | 付款不自动造许可，报价不代实际 royalty。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 发现新鲜度、物理在途/到达、目的地存储、escrow 和争议分别核；失败/漂移/Unknown 提供原合法等待/改道/处置。 | [跨区交付](#playability-industrial-cross-region) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | production receipt 不代 delivery；不把网络发现当物理抵达。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 资格/配给、真实物理结算、补偿与退出分别读；对照无资格、未抵达、重复/未知和原恢复。 | [紧急保供](#playability-industrial-emergency) | GAME018、GR 普通能力、许可、物流/escrow、ES authority。 | 保供/OC 不自动兑换其它权利，受理或承诺不冒充已供给。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 原 cut/绑定聚合、cap/委托/旧票占位与锁定退出分别说明；重复、撤权、过期和复核不造第二权利/抹旧票。 | [普通参与](#playability-path-governance) | GAME019、分类/执行、普通主体与保护 authority。 | 认可/OC 转让不代票权；旧 snapshot 不代当前新准入。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 原分类、Passed、合法执行与世界规则效果分开；缺当前条件/重复/Unknown 不能新执行，恢复保留已生效决定。 | [实际规则执行](#playability-governance-execution) | GAME019、分类/执行、普通主体与保护 authority。 | 技术 finality、安装、Passed 或文档 Go 不代玩家实际改变。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 受理≠处罚；有权精确限制、到期/撤销、复核/申诉与旧历史分别核，解除一案不复活其他失效 authority。 | [保护与申诉](#playability-governance-protection) | GAME019、分类/执行、普通主体与保护 authority。 | 新 cap 不重写确认票；不借保护开启新政治权限或战争。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 按当前支持且后果不同的 target 类型分别选原有效/缺来源、无实效、跨项目和重复负例；玩家指出合法贡献实际修复的目标与下一选择。 | [独立项目真实效果](#playability-path-recovery) | 独立恢复项目、target writer、组织连续性与原资产/责任 authority。 | 至少一类 target 正例不代全部声明类型；containment、计数和普通 resolved 不代恢复。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 取消/到期/withdraw/改投/申诉和部分结算竞态保留旧义务；commit/回复/重启切点、snapshot+非空 tail 与当前受众核原结果一次。 | [项目处置与续接](#playability-recovery-continuity) | 独立恢复项目、target writer、组织连续性与原资产/责任 authority。 | 一般 persistence 测试不证明该项目已接线；不把 expired 当全部返还或免费 bailout。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | 预先安排、原有权恢复、有限接替/处置看真实权利/义务变化；阶段与请求分列，部分交接及无 authority 保持原状态。 | [组织连续性目标](#playability-recovery-organization) | 独立恢复项目、target writer、组织连续性与原资产/责任 authority。 | GAME020 仍 draft 目标；自然 dormancy 不算玩家成果，不宣称已开放。 |
 
 ## 3. 关键接口 / 入口
 - gameplay 规则/模块入口
@@ -44,7 +80,7 @@
 
 ## 6. 问题、目标与适用范围
 
-本专题保留 §1–§5 的玩法循环、运行接线、反馈验收和演进收口全部义务。本次只分项承接已有合同中可准确定位的首产物/承接、分支及本专题评审消费者职责；这是有限专业设计分配与验证计划，不是全路径设计闭合或当前运行通过。
+本专题保留 §1–§5 的玩法循环、运行接线、反馈验收和演进收口全部义务。§7.1–§7.6 的既有审读只分项承接已有合同中可准确定位的首产物/承接、分支及本专题评审消费者职责；这是有限专业设计分配与验证计划，不是全路径设计闭合或当前运行通过。PE001 的后继组合接收见 §7.8。
 
 职责沿用[配对 PRD 的 authority](gameplay-top-level-design.prd.md#文档-authority-与适用范围)：跨循环体验脊柱、PRD-GAME-012 early-retention 和本专题可玩性验收。game 模块根仍拥有模块基线、路由与状态；M4、Runtime/WASM、agency、Viewer、testing、P2P/ops 和发行域分别拥有其详细合同。本文件不重新选择数值、循环、模式、权限、状态字段、schema 或模块级 authority。
 
@@ -437,10 +473,148 @@ P降20%却使补库时间翻倍，不能按产量同比线性估恢复。Q是库
 
 扩展研究的可迁移问题还包括：[Satisfactory clock speed](https://satisfactory.wiki.gg/wiki/Clock_speed)比较同产量下设备数/运行强度与功耗，不把其指数写入本世界；[Anno 2017 pre-alpha装卸与运输开发日志](https://www.anno-union.com/devblog-pushing-carts/)区分库存总量、位置与装卸速率，不从共享库存推免费送达；[Frostpunk官方Survivor历史公告](https://store.steampowered.com/news/posts/?appids=323190&enddate=1538658945&feed=steam_community_announcements)用于分开经济压力与主动暂停/存档等操作限制，不为制造难度新增强制在线或世界暂停。连同前述Against the Storm和Timberborn，研究覆盖工厂优化、城市经济和生存恢复三类；每个迁移只采用本节已标明的分析问题，不把六个游戏拼成新机制清单。
 
+<a id="playability-path-composition"></a>
+### 7.8 已采纳路径的玩家因果与组合接收
+
+Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；声明：[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)。本节以固定设计输入 69f8483182d3427bbd5964f1b8d655a8583ec450，接收 [game 活跃基线](../prd.md#2-active-gameplay-baseline)与原已采纳专题；它补充 §6 所记旧局部审读，不改变各专题的规则、阶段或实现事实。
+
+**适用单位与有限分组。** 下列八类是已采纳执行/后果类型的组合，不是八条必经路线、永久玩法目录或新的运行时 registry。共同合同对原 authority 明确支持的每条实际路线成立；AC 的代表样例只能证明其明示的目标、入口、candidate/profile、授权/对象和窗口，不能替同主题其他已启用子 profile 签字。选择样例沿各原方法覆盖其不同后果类型，不穷举所有参数组合；尚未接线的目标合同保留设计义务和实施缺口，不改成 Future 或 N/A。GAME005/006 的执行/恢复底座、GAME008 的访问模式及 GAME013 的动作粒度是共同依赖，不由此新造玩家路线。
+
+**决定到实际结果。** 入口先按原 producer 的当前能力与读权给出目标、主要收益/成本、约束及真实可提交选择；只有预览能力时明确只读。玩家明确行动后，以原 business identity、actor/授权、目标与原版本的 receipt/ledger/rule result 关联接受、执行、主 blocker 与实际世界变化，不另建统一 receipt/schema。报价、待校验接受、排队、安装、Passed 或候选可见分别保持原含义。环境变化、他人行为、Agent 无关联自主推进和重复读快照不能冒称该玩家促成的成果；有权停止或保全可以是有价值决定，但其实际后果仍需原来源证明。
+
+**持续价值与下一决定。** 结果说明当前真实收益/损失、已消费和仍占用资源、旧成果及剩余义务，然后沿本主题原合同给出可执行的继续、修复、改道、补证、申诉、止损或退出；只读查原件也可以是安全下一步，但不产生第二份业务效果。未形成有效进展或没有安全 fallback 时，明确原因与原允许的重选目标/升级约束/停止路径，不能靠一个成功标签、固定推荐或无限等待冒充选择。下一步依赖当前来源、权限、容量或报价时明确前提及原复查点，不保证未确认的收益、顺位或 ETA。
+
+**失败与续玩。** 拒绝、部分结果、实际损失、结果未知分别表达。未知提交先查原件；重连、retry、snapshot/replay 和跨会话恢复保留原 identity、效果、成本、期限、未决责任及当前读权，不自动重发、不把缓存空值当未提交、不重新发奖或复活授权。停止未来活动、退出当前安排、Agent/组织控制变化和结束会话各沿原处置合同，不能清除既有债务、对方权利或在途。Viewer、pure API 及合法 Agent 消费同一事实/当前可行下一步，各入口实际接线和证据分别记录；不要求每个协议变体新增入口。
+
+**声明与验证。** 分开记录原已采纳设计、实际 candidate 支持、执行结果、玩家理解及继续意愿。领域原方法负责真实正常/拒绝/漂移/恢复结果；本节组合核对要求读者从同一实例说明“谁的决定、哪项实际变化、保留什么/仍受何限制、下一合法选择”。仅能指出颜色、日志、库存上涨或后台运行不满足该判据。原 L4A、L4B、L5 和比较单位继续适用；首局真人手册只证明其 production_only 范围，其他主题沿各自已有读面/玩家理解方法，不外推首局样本或本次文档检查。
+
+<a id="playability-path-starter"></a>
+#### 7.8.1 首局与持续工业经营
+
+当前唯一代表性首局链继续为 production_only；[既有决定—委托—结果承接](gameplay-decision-delegation-return.design.md#des-adopt-003)和本文件 §7.1–§7.4 解释匹配首产物、Assembler 候选、分支及离场。报价、排程与结算保留各自原完成条件，不能以扣减或不匹配库存变化充作首产物。
+
+<a id="playability-starter-understanding"></a>
+首局理解沿共同判据核对玩家是否能说明自己的决定、实际成果和继续/离场原因；原首场、续场、迁移和停止观察各保留提示介入与未完成原因。首局真人方法不代签其他主题或全部持续经营。
+
+<a id="playability-starter-operation"></a>
+持续经营仍消费[原工业玩法合同](gameplay-top-level-design.prd.md#25-前期工业引导成就闭环)的排程、维护、配方生命周期、资源/容量争用、物流及目标复盘：玩家选择须对应实际已接受范围、产出/损失、held/unmet、稳定或交付的原完成条件，再决定维持、减少、修复、重报价、改道或延期；一次首产物不代签这些后继。没有某配方/profile 的依赖时不加隐藏前置，存在真实依赖却未核定时保持 blocked/unknown。
+
+<a id="playability-starter-claim"></a>
+取得并持续控制 Agent 的前置及取舍沿[claim 决策包](gameplay-agent-claim-economy-contract.design.md#claim-choice-commitment)：非零成本、资金 provenance、维护/释放/回收条件和当前资格分别可读；玩家可以按原真实约束选择取得、继续、暂缓或原允许的退出。
+
+<a id="playability-starter-claim-continuity"></a>
+claim 的[失去/保留与原责任](gameplay-agent-claim-economy-contract.design.md#claim-loss-continuity)和[当前恢复](gameplay-agent-claim-economy-contract.design.md#claim-current-recovery)保留原终态、期限、真实已付/未付及当前重认领资格；空 owned 列表或 restricted 来源失效不证明旧责任清空。原目标/纠正与授权按 agency 合同执行，不由本节新建权限或免费重启。
+
+<a id="playability-starter-manufacturing"></a>
+[制造与团队成长](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-team-growth-reception)按原真实订单、验收与控制来源区分登记、开工、交付和正式可控；单主经营、合法扩张及拒绝/恢复分别保留，不能以 claim 或处置正例代签制造取得。
+
+<a id="playability-starter-disposition"></a>
+[经济处置读面](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-read-model)继续区分 Begin 保全、最终归属/控制、历史及当前私有读权；不以 release+claim 或新控制替代经济转让，不追溯把新处置政策套给旧请求。原资产、资金用途、债权和未知提交沿原合法处置/查询路径保留。
+
+<a id="playability-path-mature"></a>
+#### 7.8.2 成熟成长、恢复与认可用途
+
+[区域贡献读面](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-consumers)按真实来源说明能力/供给结果与新增用途；仅有产量或吞吐上涨而无真实后继，不能称为本目标的成长完成。
+
+<a id="playability-mature-recovery"></a>
+[同目标恢复比较](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-consumers)及[交付恢复](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-delivery-recovery-comparison)分别给出 repair/rebuild/pivot 的追加成本、保留/损失、独立路径与原等待条件。选择合作可以更划算，但不以入会封死原合法独立止损；restore 目标成功不自动等于后续交付或成长完成。
+
+<a id="playability-mature-reputation"></a>
+[情境来源的真实消费者](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)按原 subject/purpose 分开贡献事实、当前用途资格及实际 consumer 结果。玩家据真实采用的 claim/制造/合作或成熟用途决定查询、缩小承诺、换方、等待、执行或退出；供给成果或旧全局 score 不泛化成机会、治理权或已到账收益。
+
+<a id="playability-mature-opportunity"></a>
+[机会结果](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-consumers)区分候选、当前资格、容量竞争和单次实际机会；一条 local_route 正例不代所有机会。失效/更正保留历史成果，当前下一步重新验权，不重发旧机会。
+
+<a id="playability-path-cooperation"></a>
+#### 7.8.3 共同形成、交换、持续服务及社会事实
+
+[共同形成读面](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-read)将非绑定沟通、同版必需接受、当前真实代表和实际 family 执行分开：个人/组织/多方只在原范围内承诺，hard atomic 交换完整发生或无部分世界效果。玩家能核对谁提供什么、自己承担何种真实责任、成立/未成立原因和可修改/拒绝/查询的下一步，不能由组织标签、一个签名或旧 mandate 推出新承诺。
+
+<a id="playability-cooperation-service-results"></a>
+[持续服务结果](../../world-runtime/runtime/continuing-service-fulfillment-and-remedies.design.md#service-read)分别接供能、维护/维修、运输和原领域协作的真实净履行。每个检查点说明交付价值、未完成量、实际费用/保全及旧责任；accepted/checkpoint_due/在途不冒充 fulfilled，续期不自动发生。
+
+<a id="playability-cooperation-service-recovery"></a>
+服务的[范围恢复](../../world-runtime/runtime/continuing-service-fulfillment-and-remedies.design.md#service-scoped-recovery)只对未满足范围给 repair/reperform、terminate/settle、dispute/preserve 或明确继受。玩家应能从原结果解释哪些已履行/已付、哪些仍待恢复、由谁承担以及当前可采取的下一步，不因换方或重连清除旧责任。
+
+<a id="playability-cooperation-social"></a>
+[社会事实消费者](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-consumers)仅按原五动作的来源、质押和受影响对象解释后果与修改/刷新/暂缓；预览不确认事实、预约资格或生成关系，当前未知不能显示为零风险。
+
+<a id="playability-path-rd"></a>
+#### 7.8.4 R&D 合作、成员与原权益
+
+[R&D 直接消费者](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-consumers)使参加、拒绝、缩小未来工作、合法独立研究或零收益角色具有可读后果：预工作接受、真实贡献、来源使用权、固定经济分配、当前 holder、已赚/可分配/实际到账分别显示。charter 或代码发布不保证发现、工业准入、许可或收入。
+
+<a id="playability-rd-membership"></a>
+[成员 epoch](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-charter-membership-epochs)只在新工作前接收完整新接受，组织换代表不转移个人贡献；加入/退出/整槽转让不重开原 slot/bps/累计收入或替旧人承担责任。原结果不明时走[原件恢复](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-recovery)，保持旧贡献/已付及合法受众，不能靠新 epoch/身份重做未知工作。
+
+<a id="playability-path-regional"></a>
+#### 7.8.5 区域设施、charter、tenure 与 levy
+
+[micro_depot measured 合同](gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-measured-lifecycle)以本次合法同步服务的 debit/receipt 对照库存/吞吐与 quote 变化。受控组件场景只证明所选前态的真实结果和拒绝边界，不把直接注入库存/吞吐或 sandbox 求值冒充自然可达的压力与完整玩家循环。
+
+<a id="playability-regional-micro-lifecycle"></a>
+micro_depot 完整循环继续消费同一原合同的真实 commissioning、有限库存服务及 upkeep/reclaim 结果；玩家能指出自己部署改变的那次 repair/logistics quote、所付成本及耗尽后的合法选择。原 §8/§11/§12 的 post-first-capability 样例、耗尽/无收费拒绝/拆卸/全额新装与 opaque blocker 边界保留，opaque causal reference 不冒充已认证区域压力/receipt，内部 throughput 防御 fixture 不冒充自然可达 blocker，不由本段开放 refill 或提前放进首局。quote 无扣减及无效模块输出的无部分效果按原合同另验，不能由已有 service 组件测试代签。
+
+<a id="playability-regional-charter"></a>
+[charter formation](../../world-runtime/runtime/regional-charter-authority-and-recovery.design.md#charter-formation)、[双资格](../../world-runtime/runtime/regional-charter-authority-and-recovery.design.md#charter-dual-qualification)和[退化恢复](../../world-runtime/runtime/regional-charter-authority-and-recovery.design.md#charter-degradation)分别说明谁的提交/修复/申诉改变了哪些有限可行行为；自然退化本身不是玩家贡献。对应场景沿原设计的 CHARTER-VERIFY-001–004。
+
+<a id="playability-regional-tenure"></a>
+[tenure 取得/续期/转让](../../world-runtime/runtime/location-tenure-and-disposition.design.md#tenure-acquire-renew-transfer)与[处置](../../world-runtime/runtime/location-tenure-and-disposition.design.md#tenure-disposition)保留地点、期限、占用、资产和原补偿/责任，再决定续期、迁移、修复或原申诉；War Defer 不排除独立 tenure 合同。
+
+<a id="playability-regional-levy"></a>
+[levy 读面](../../world-runtime/runtime/public-levy-authorization-and-settlement.design.md#levy-read-model)区分服务价与有界征费、已付/到期/剩余及当前争议/退出；charter、tenure 与 levy 的资格和 authority 不互代。对应场景沿原设计的 LEVY-VERIFY-001–003。
+
+<a id="playability-path-industrial"></a>
+#### 7.8.6 工业创造、能力演化、跨区市场与保供
+
+[创造读面](../../world-runtime/runtime/industrial-creation-simulation-and-admission.design.md#creation-read)区分提案、模拟、试点、准入与真实使用；玩家根据成本、证据/期限、失败或越界原因决定补证、缩窄、重试原合法范围或停止。
+
+<a id="playability-industrial-extension"></a>
+[既有扩展读面](../../world-runtime/runtime/governed-extension-lifecycle.design.md#extension-read)按原合法类型与范围解释提交、安装/激活、实际调用和当前条件；安装不保证应用，exact-recipe 窄例不代签普通 product/factory。
+
+<a id="playability-industrial-product-factory"></a>
+[普通能力读面](../../world-runtime/runtime/governed-extension-lifecycle.design.md#extension-ordinary-read)说明配方、产品和工厂实际被授权的范围、当前可调用/生产状态与真实投入/产出；注册和可调用不冒充产品消费或工厂生产，玩家仍按原范围决定使用、缩小或停止。
+
+<a id="playability-industrial-continuity"></a>
+能力到期/退出、升级及版本恢复沿同一原生命周期保留实体、库存、已产出和在途；替换不抹原成果或既有义务。未知时查原决定/结果，真实已提交效果不能因重启、换版或新请求重复生产、扣费或没收存量。
+
+<a id="playability-industrial-license"></a>
+[许可结果](../../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md#license-read)区分当前合法用途、已发生费用、收益归属与实际付款，玩家可按原范围缩小、续权、停止或申诉，不从付款反推授权。
+
+<a id="playability-industrial-cross-region"></a>
+[跨区结果](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-003)保留发现新鲜度、物理在途/抵达、目的地存储、escrow 和争议的独立完成边界，失败提供原允许的等待、改道、补证或处置，不能用 production receipt 代交付。
+
+<a id="playability-industrial-emergency"></a>
+[保供实际结果](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-004)依原资格/配给、真实物理结算、补偿与退出说明行动改善了哪项缺口和剩余责任；保供/OC 记录不自动兑换其他世界权利。创造、扩展、许可、跨区与保供五类职责分别验证，未合格的结果不能以另一类正例抵消。
+
+<a id="playability-path-governance"></a>
+#### 7.8.7 普通治理、保护与真实规则后果
+
+[普通主体读面](../../world-runtime/runtime/ordinary-governance-subject-and-oc-rights.design.md#og-read-model)让玩家比较原合法锁定、委托、投票/替换、撤回、退出和申诉的当前影响、期限与成本，原 cut/聚合/cap/旧票占位保持；个人贡献或外部 OC 转让不生成重复票权。
+
+<a id="playability-governance-execution"></a>
+[规则执行消费者](../../world-runtime/runtime/governance-classification-and-constitutional-execution.design.md#governance-execution-consumers)按原分类及合取条件区分提案/Passed、合法执行与实际规则结果，显示 current revalidation 拒绝、原请求未知或已提交后果，再给原查询、修复或有权新决定路径。
+
+<a id="playability-governance-protection"></a>
+[保护消费者](../../world-runtime/runtime/protective-governance-authority-and-recovery.design.md#protective-consumers-budgets)只消费有权来源、精确范围和期限的保护/复核结果；受理或申诉不是处罚，当前降权/冻结不重写已确认票和历史，解除本案不复活其他失效权限。玩家应能解释“我选择了什么程序、它实际改变哪项当前行为、何时及如何复核”，不能把技术 finality、节点身份、全局 score 或文档通过当成治理权。宏系统首局曝光限制及 War Defer 不在此改变。
+
+<a id="playability-path-recovery"></a>
+#### 7.8.8 独立恢复项目与组织连续性
+
+CC003 的[恢复项目模型](../../world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-model)是独立已采纳合同：玩家提交的合法贡献必须关联真实 target writer delta，项目开启、危机自然缓解、containment 或 milestone 计数均不代签。贡献、资格、效果、里程碑及一次结算分开，保留历史损失和已发生义务，不提供免费 bailout。方法沿原 §11.1 的 RP-OPEN/EFFECT/ISOLATION/SETTLE，对当前声明支持且后果不同的 target 类型分别选适用原场景；一个 target 正例不代签其他类型。
+
+<a id="playability-recovery-continuity"></a>
+恢复项目的[退出/申诉](../../world-runtime/runtime/bounded-recovery-projects-and-contribution-settlement.design.md#recovery-exit-appeal)仍可按原条件补证、withdraw、改投、等待原结果或申诉。原 RP-DISPOSITION/RECOVERY 保留部分已结、在途/hold、当前读权和未知提交的原件恢复；普通 Crisis 与一般 persistence 回归不冒充独立项目接线。
+
+<a id="playability-recovery-organization"></a>
+GAME020 仍是 draft 首版设计输入，**不与 CC003 合成已开放循环**。[组织连续性读面](../../world-runtime/runtime/organization-continuity-and-disposition.design.md#des-wr-oc-004)接收预先安排、有权恢复申请、有限接替或合法处置的真实后果；时间流逝进入 dormancy 不算玩家杠杆。阶段、请求结果、已交接/残留资产、托管/债权和下一步分别说明；部分交接不伪装全部完成，未参与者/前任的当前读权与旧责任按原合同保留。无当前有权主体或 source 时保持原阻塞，不能以换名、自动继受或清空账本作为恢复。
+
+**原后续边界。** [首局 profile 适用性](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#starter-profile-applicability)只把 starter terminal-admission 的正向专题放在后续，不排除本节已采纳跨区交付、服务检查点与成熟交付恢复；当前 production_only 保留 produced/undelivered 及不得伪造交付的负边界。总纲 PRD §2.12 的 mode Future 及[战争重启边界](gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md#1-问题、目标与范围)保持，不以 War Defer 排除 CC003。新增支持或真实互斥选择仍交原 topic owner；本节不重开已明确后续的机制，不从缺实现制造新的产品延期。
+
 ## 8. 未决问题、风险与仍未覆盖范围
 
-- 原 §2 四层和 §5 演进步骤继续适用。跨全部受支持路径的玩家因果→持续价值→下一选择、微/中/长循环的完整接线、失败恢复/可观测性、长期连续积累和发布/长稳验证仍未完整分配；局部首产物或分支不能吞并它们。
-- 原 §3 运行/WASM/治理/观测接口及反馈/平衡仍需其专业 receiver 与适用验证逐项接收。缺少完整设计不自动等于需要新产品政策；优先核对既有合同，真正互斥的选择交对应专业 owner 裁决。未建立关系的义务不是 N/A。
+- 原 §2 四层和 §5 演进步骤继续适用。§7.8 已按原已采纳主题分配 PE001 的玩家因果→持续价值→下一选择、失败恢复与连续性设计消费，并在 §11.1 连接各原方法；§7.1–§7.6 的局部首产物/分支不再被当作这一组合的全部范围。各实际 candidate 的完整接线、可观测性、长期连续积累、发布/长稳运行和玩家证据仍须分别取证，不因设计接收而标为已完成。
+- 原 §3 运行/WASM/治理/观测接口及反馈/平衡继续由各专业 receiver 拥有；§7.8 不改其算法、预算、权限或当前可用性。已有设计下的未接线/未运行明确记为实施或验证剩余；若出现具体缺失的结果 producer、当前读面或恢复决定，则回到对应 owner 补该实质缺口，不能只加链接、把未知写成 N/A，或因没有一个永久全仓目录而无限悬置已核组合。原条件 profile、GAME020 draft、Future 与战争重启边界保持。
 - 危机参与方向按[自愿合作与独立止损](gameplay-top-level-design.prd.md#crisis-voluntary-cooperation)统一：合作可以更有利，不以加入组织作为唯一继续入口。Trace refs: O7-REQ-3f259d96-508e-462d-a8c9-e1851e85e1ed。gameplay 负责选择与代价解释，Runtime/组织与结算 authority 负责真实可执行恢复、资产和既有义务，Viewer/API 展示同义结果，QA 对照独立/协作与退出负例；未实现路径保持缺口，不能凭本条宣称已可用。恢复方案不得免除已发生的成本、债务、对方权利、归属/托管或未知提交；死亡和组织连续性不因更换目标自动逆转。
 - 配对 PRD §9 的既有指标目标与危机频次保留数值，适用与证据边界以该节为准；不重平衡、不宣称达到。生产窗口 W、资源奖励/难度、mode、权限/schema、战争重启均不在此次决定范围。
 - runtime readiness、文档检查、fixture/单元回归或历史 pass/Go 不代签当前玩法、正式入口、live/provider、真人留存、release、rollback 或 longrun。原 §4 的核心体验与反馈清晰度约束不变；长期设计与验证债不能随本次结构诊断消失。
@@ -451,8 +625,48 @@ P降20%却使补库时间翻倍，不能按产量同比线性估恢复。Q是库
 
 ### 11.1 验证映射表
 
+<a id="playability-path-verification"></a>
+
+**PE001 逐主题方法矩阵。** 下列方法均待在明确的同一候选、原 profile/正式入口及窗口执行；既有场景 ID 的其余输入、负例与证据边界不因本表省写而取消。共同读者判据在各领域的真实正常、失败和恢复样本后核对；仅代表已验证的实际路径及后果类型。源码方法、领域执行、正式读面、玩家理解和继续意愿分别记录，不要求未支持入口运行，也不把缺实现的已采纳义务排除。每行方法格只指向一个真实入口，场景名沿原方法，不创建新测试通过结论。
+
 | 上游 requirement / product AC | 本设计条款 | 验证对象与失败边界 | 验证方法 / test/manual source | 证据与结果定位 | 覆盖限制 |
 | --- | --- | --- | --- | --- | --- |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [共同组合](#playability-path-composition) | 同一目标/入口/candidate/profile/窗口，核玩家决定→真实结果→仍存义务→下一合法选择；用仅自主推进、成功颜色和无来源结果作反例。 | [原 Playability review](../../../testing-manual.md#playability-review、persona-与-claim-收口)：沿领域原方法后作 L4A/L4B/适用 L5 分层审读；不把样例外推全部 profile。 | 固定比较单位、原结果、读者解释与未覆盖项。 | 技术/理解/继续意愿分别记录；本表不是执行报告。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [首局结果](#playability-path-starter) | production_only 逐阶段核 quote/接受/排程/实际正量结算及 Assembler 候选；拒绝把扣减、普通库存或不匹配结果当首产物，未知先查原请求。 | [原分层验证](../../../testing-manual.md#分层模型（针对当前仓库）)：按 §7.1–7.4、M4 原方案绑定/未知恢复及适用正式入口执行。 | 原请求/owner/output、结算与候选分列、阻塞与下一动作。 | 不代签稳定窗口、建成或交付；各入口分别取证。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [首局理解](#playability-starter-understanding) | 在原首局范围询问为什么做、实际改变什么、保留/损失及继续/离场选择；记录无提示接续、提示介入和未完成原因。 | [首局真人判据](../../testing/manual/first-session-human-playtest.manual.md#human-study-assessment)：沿同手册首场、续场、迁移及停止场景。 | 原样本任务、行为与原话、各分项判据和缺项。 | 仅该手册的 starter-industrial/production_only；不代签其他七类或全部持续经营。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [持续经营](#playability-starter-operation) | 固定原配方、工厂、产能/维护/物流条件，分别看排程、消费、产出/损失、held/unmet 与原稳定/交付条件；漂移、失败和未知后不重复生效。 | [原工业分层方法](../../../testing-manual.md#分层模型（针对当前仓库）)：沿 M4 现有报价/实际结果/恢复场景和 §7.7 原同源计算，核各真实受支持动作。 | 实际 quote/receipt/账本、保留资源与可执行调整；逐动作玩家因果说明。 | 纸面计算与一次首产物不代签持续能力；不补造未支持配方/物流。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [claim 取舍](#playability-starter-claim) | 对照取得、继续持有、暂缓及原释放选择的真实成本、provenance、维护和退出约束；只显示 free/owned 标签不能通过。 | [CLAIM-01](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-01-choice)：原决策样本与独立玩家说明，确认漂移沿 CLAIM-02。 | 同对象报价、约束和当前选择；拒绝/过期的真实理由。 | 不从额度或注册绑定推经济权，不扩大补贴/退款。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [claim 连续性](#playability-starter-claim-continuity) | 失去控制、维护/释放/回收、重入和结果未知保留原责任/期限；空 owned、不见旧回执或 restricted 来源失效不代 claim 终态。 | [CLAIM-04](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-04-recovery)：连用原 CLAIM-03 损失/保留，核原件查询与当前恢复资格。 | 原 claim/费用/责任、当前受众与安全下一步对照。 | 不把新处置规则追溯套旧 Release，不凭恢复重新赠款。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [制造与团队](#playability-starter-manufacturing) | 保留单主经营、可选制造、拒绝/恢复三分支；登记/开工不冒充交付或正式可控，新增成员不复制资金、权限或清旧暴露。 | [MFG-V08](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v08)：复用 V02/V04–07 的订单、交付、控制及持久恢复对照。 | 原主路线、真实订单/交付、费用与 source/grant、逐入口下一步。 | 自动化不代真人；claim/处置正例不代制造，未支持入口保持原不可用。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [处分与旧成果](#playability-starter-disposition) | Begin 风险保全、Final 归属/控制与 Abort/Expire 分开；旧结果/资产/债务和私有历史按原 scope 保留，未知或权限漂移不重发处置。 | [AD07](../../testing/manual/agent-economic-disposition-acceptance.manual.md#agent-disposition-recovery)：沿 AD01–06 原合法性/两阶段/历史前态，逐阶段核原 G1 与当前受众。 | 原 plan/guard/root/receipt、原有权益和下一合法查询/终结。 | Begin 不等于换主；不保证全部来源始终能终结，不将旧 private 内容给新主。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [成熟能力](#playability-path-mature) | 真实区域贡献形成能力/供给及后续可采用用途；对照只有产量/吞吐上涨、缺来源或缺后继的样本。 | [MRC-M09](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m09)：结合原 MRC-M10 有界拒绝、恢复及玩家因果说明。 | 真实 source/结果/能力条件、后继成本和独立选择。 | 供给用途不自动获认可；不把未执行算例当成长通过。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [恢复到交付](#playability-mature-recovery) | 同目标比较 repair/rebuild/pivot、独立/协作成本与保留/损失；分别核实际恢复和交付完成，拒绝自然恢复或 accepted 代真实后果。 | [PRC08](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-08)：沿 PRC07–09 的选择、原交付 adapter、失败/Unknown 与有限数值场景。 | 目标/前态、真实追加成本、实际后果、读者解释和下一动作。 | 恢复完成不代交付完成；原 Site/授权兼容和正式来源边界保持。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [认可的实际用途](#playability-mature-reputation) | 对每个当前采用的 subject/purpose 消费者核来源、失效/更正与当前资格；对照旧 score、无用途或把成果当权利的误读。 | [REP13](../../testing/manual/contextual-reputation-acceptance.manual.md#rep13-composition)：连用 REP09–12 的来源/实际消费者及恢复。 | 原事实、current purpose、实际 consumer 结果、历史保留。 | 不把一条 local_route 代全部机会，不从认可生成 OC 票权。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [一次机会](#playability-mature-opportunity) | 候选/资格、容量竞争、明确采用和一次真实结算分别说明；拒绝重复 ID、未知重发或换用途重计。 | [RO08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-08)：按原适用域的完整采用、拒绝/恢复和独立读者任务。 | 原机会/承诺/实际效果、资源/旧结果与下一合法选择。 | 不保证获得机会或收入；各原 consumer 支持范围独立。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [共同形成与交换](#playability-path-cooperation) | 沟通→完整同版接受→真实 family 执行按原条件区分；缺一方/旧代表/越权拒绝，原 hard atomic 无部分世界效果。 | [CF16](../../testing/manual/agent-mediated-contract-formation-acceptance.manual.md#cf-16-consumers)：沿原 CF04/06/09–15 的组织、多方、真实族、恢复和读权。 | 真实 parties/条款/接受、执行回执、各自保留义务与修改/拒绝/查询选择。 | 组织标签不授新权限，accepted 不等于履行；不新增 family。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [服务真实履行](#playability-cooperation-service-results) | 供能、维护/维修、运输及原协作四域分别核真实净结果；accepted、checkpoint_due、在途和声明成功均不能代 fulfilled。 | [CSF01](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-01-domain-results)：逐域正常/反例与原投入、净交付、费用守恒。 | 各域原 target delta/检查点、实际费用和 remaining。 | 一域通过不代四域；持续服务不作尚未发生后果的原子保证。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [服务恢复与理解](#playability-cooperation-service-recovery) | 残余范围修复/重作、终止结算、争议保全或明确继受保留已履行/已付和原责任；重连只查原件不重付。 | [CSF06](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-06-recovery-read)：结合 CSF02 四恢复与 CSF04 原换方，核三表面和玩家六问。 | 原效果/G1、残余与旧义务、当前读权及独立解释。 | 继受/续期必须原合法接受；不能以新方覆盖旧方责任。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [社会动作后果](#playability-cooperation-social) | 逐五动作说明事实来源、逐主体风险/维护与当前可选下一步；未知不显示零风险，预览不确认事实或预约资格。 | [SOCIAL-PREVIEW05](../../testing/manual/social-action-consequence-preview-acceptance.manual.md#social-preview-05)：独立理解问答并连用 06/07 原件恢复/有限读取。 | 同源预览与真实实际结果分列、当前受众、误读/缺证和安全选择。 | 只读不代关系改变；不由一个动作或入口代签所有支持面。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [研究与原权益](#playability-path-rd) | 参加/拒绝/缩小未来/独立研究按真实预工作接受、贡献和权利解释；成果、准入、许可、earned/paid 不混同。 | [RD07](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd07-reading)：原 RD01–06 的来源/交接/份额/复核/恢复及独立读者任务。 | 原工作/贡献/source、经济向量与实际结果、无保证的下一步。 | charter、代码发布和理论收益不证明发现或到账。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [成员与连续性](#playability-rd-membership) | 加入/退出/整槽转让前后保留旧贡献、slot/bps、累计与已付；旧代表失效、重复和 Unknown 不重开权益或未知工作。 | [RD09](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd09-membership-epochs)：原组织与 membership epoch、原请求恢复场景。 | 同工作前后的接受、原 holder/作者、旧责任和当前可行行为。 | 新成员不是旧人债务自动承受者；不保证未来生产准入。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [micro 组件基础](#playability-path-regional) | 核真实 service debit/receipt 及库存/合成 throughput 不足拒绝，前后状态和 revision/receipt 对应原受控输入。 | [measured supply 源码方法](../../../crates/oasis7_simulator/src/tests/micro_depot_measured_supply.rs)：按原 design §7.1.1/§11 的受控组件前态与差分。 | 受控输入/模块求值、库存/吞吐前后与 revision/receipt。 | 直接注入库存/吞吐和 sandbox 不是自然耗尽、正式运行或玩家理解证明。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [micro 完整选择](#playability-regional-micro-lifecycle) | 按原 design §10–12 核部署→服务至库存零→服务/upkeep 无收费拒绝→拆卸→全额新装及原操作恢复；quote 不扣减、无效模块输出无部分效果另验，玩家指出改变的 quote、成本与剩余 blocker。 | [原分层方法](../../../testing-manual.md#分层模型（针对当前仓库）)：同候选 post-first-capability lifecycle smoke 与正式读面分别记录，沿原请求查询恢复。 | commissioning/库存/收费/回收链、原件/实际下一步和玩家说明。 | 保留 opaque 及 post-first-capability 边界；不证 refill、自然 throughput blocker 或首局 0–10 分钟。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [charter](#playability-regional-charter) | formation、双资格、退化/修复/申诉逐场景验当前 source；玩家指出自己的有权行为改变哪项可行选择，接受或自然退化不算成果。 | [原分层方法](../../../testing-manual.md#分层模型（针对当前仓库）)：按原 design CHARTER-VERIFY-001–004 的正常、资格漂移、恢复/读面场景。 | 真实提交/修复/决定、当前双资格、保留义务和下一步对照。 | 不借 charter 代 tenure/levy 权；未接线/未运行按原范围记录。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [tenure](#playability-regional-tenure) | 取得/续期/转让/处置分别核地点、期限、占用、补偿与原责任；失效/争议/恢复不抹已发生结果。 | [TN01–06](../../testing/manual/chartered-conflict-recovery-and-soft-season-acceptance.manual.md#tenure-cases)：连用该手册玩家理解/受权查询要求。 | 原 tenure/通知/真实处置、当前选择及玩家对成本/保留的说明。 | War Defer 不排除 tenure；通知或期限经过不代已完成处置。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [levy](#playability-regional-levy) | 征费资格、服务价、真实征收/剩余/期限分别可读；到期、重复、权限漂移、争议与查询恢复不重复收费。 | [原分层方法](../../../testing-manual.md#分层模型（针对当前仓库）)：按原 design LEVY-VERIFY-001–003 的同候选 settlement、恢复与三端读面。 | 原授权/账本/到期、实际改变与补证/申诉/退出选择。 | 不从 charter 或付款推征费权；无新增税率或退款。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [创造与准入](#playability-path-industrial) | 提案/模拟/试点/准入/真实用途分开；失败、超范围、过期及未知保留证据和成本，再给补证、缩窄或停止。 | [IC-M06](../../testing/manual/industrial-creation-simulation-and-admission.manual.md#ic-m06)：接原 IC01–05/07–08 的真实准入、恢复和各读面。 | 原 artifact/source、simulation/admission/实际使用结果、玩家下一步。 | 模拟或 UI 展示不代准入/应用，也不代其他工业职责。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [既有扩展](#playability-industrial-extension) | 按原合法范围解释提交、安装/激活、实际调用、升级/退出与未决旧义务；失败/未知不把安装记成应用。 | [GEL-M08](../../testing/manual/governed-extension-lifecycle.manual.md#gel-m08)：连用原 GEL01–07 生命周期/恢复，在真实支持类型逐项核对。 | 原版本/能力/receipt、已应用和仍待条件、当前选择。 | exact recipe 窄例不代普通 product/factory。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [普通产品/工厂](#playability-industrial-product-factory) | 普通产品实际评价/消费与工厂准入、生产、原实体/库存/在途分别核 scope/期限/当前版；拒绝 silent intersection 或仅注册冒充效果。 | [PF03](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-product)：连用原 PF01/02/04 的发布、工厂与许可前态及原实际调用。 | 真实产品/工厂后果、原投入/成本/保留与合法生产/修改选择。 | 一类产品或工厂正例不代全部支持的消费组合。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [普通退出与恢复](#playability-industrial-continuity) | 到期/撤销/升级/退出保留原实体、已产出、真实在途与旧义务；Unknown、固定决定恢复和原结果读取不重复生产/扣费。 | [PF06](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-recovery-budget)：连用 PF05 退出/演化及原有界完整调用方法。 | 原 scope/version/graph/receipt、旧对象/义务、受权查询/恢复。 | 不以版本切换没收存量或重写历史；真实费用和下层限制保持。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [许可与收益](#playability-industrial-license) | 当前用途/期限、实际消费、计费/收益与实际付款分别读；拒绝越权或重复，失效/更正保留历史和原合法下一步。 | [IL06](../../testing/manual/industrial-license-and-royalty-settlement.manual.md#il06-reading)：沿 IL01–05/07 的原范围、结算与恢复对照。 | 真实许可/使用/ledger、已付与剩余、续权/停止/申诉选择。 | 付款不自动造许可，报价不代实际 royalty。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [跨区交付](#playability-industrial-cross-region) | 发现新鲜度、物理在途/到达、目的地存储、escrow 和争议分别核；失败/漂移/Unknown 提供原合法等待/改道/处置。 | [CR-VERIFY-004](../../testing/manual/cross-region-settlement-system-acceptance.manual.md#cr-verify-004)：连用 001–003 的真实物理、结算和原件恢复。 | 同货物/请求的实际阶段、存量/费用/责任与各读面下一步。 | production receipt 不代 delivery；不把网络发现当物理抵达。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [紧急保供](#playability-industrial-emergency) | 资格/配给、真实物理结算、补偿与退出分别读；对照无资格、未抵达、重复/未知和原恢复。 | [ES-VERIFY-004](../../testing/manual/emergency-supply-system-acceptance.manual.md#es-verify-004)：连用 001–003，解释本行动实际改善哪项缺口及剩余责任。 | 原 supply/settlement/compensation、保留义务与合法下一选择。 | 保供/OC 不自动兑换其它权利，受理或承诺不冒充已供给。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [普通参与](#playability-path-governance) | 原 cut/绑定聚合、cap/委托/旧票占位与锁定退出分别说明；重复、撤权、过期和复核不造第二权利/抹旧票。 | [GOV-M10](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-10-bounds-surfaces)：沿 M03–06/09 的数值、纠正、原请求和玩家读面。 | 原决定/当前准入/历史记录及锁定、改票、撤回、申诉选择。 | 认可/OC 转让不代票权；旧 snapshot 不代当前新准入。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [实际规则执行](#playability-governance-execution) | 原分类、Passed、合法执行与世界规则效果分开；缺当前条件/重复/Unknown 不能新执行，恢复保留已生效决定。 | [GOV-M01](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-01-approved-execution)：结合 M02/M09 的 current revalidation、一次 slot 与恢复。 | 原 proposal/决议/slot/真实规则版本、拒绝原因与下一合法动作。 | 技术 finality、安装、Passed 或文档 Go 不代玩家实际改变。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [保护与申诉](#playability-governance-protection) | 受理≠处罚；有权精确限制、到期/撤销、复核/申诉与旧历史分别核，解除一案不复活其他失效 authority。 | [GOV-M08](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-08-protective-authority)：连用 M09/M10 原恢复、读权与各表面。 | 真实 restriction/case/原版本、当前受限行为及合法复核选择。 | 新 cap 不重写确认票；不借保护开启新政治权限或战争。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [独立项目真实效果](#playability-path-recovery) | 按当前支持且后果不同的 target 类型分别选原有效/缺来源、无实效、跨项目和重复负例；玩家指出合法贡献实际修复的目标与下一选择。 | [原分层方法](../../../testing-manual.md#分层模型（针对当前仓库）)：按原设计 RP-OPEN/EFFECT/ISOLATION/SETTLE 的完整前态与 source/target 对照。 | 项目/贡献/decision/effect、真实 target delta、资源与历史损失。 | 至少一类 target 正例不代全部声明类型；containment、计数和普通 resolved 不代恢复。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [项目处置与续接](#playability-recovery-continuity) | 取消/到期/withdraw/改投/申诉和部分结算竞态保留旧义务；commit/回复/重启切点、snapshot+非空 tail 与当前受众核原结果一次。 | [原分层方法](../../../testing-manual.md#分层模型（针对当前仓库）)：按原设计 RP-DISPOSITION/RECOVERY，原 persistence 入口需新增独立项目 fixture。 | 原贡献/资源/receipt/root、实际 target、当前读权与安全下一步。 | 一般 persistence 测试不证明该项目已接线；不把 expired 当全部返还或免费 bailout。 |
+| [REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)；Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3 | [组织连续性目标](#playability-recovery-organization) | 预先安排、原有权恢复、有限接替/处置看真实权利/义务变化；阶段与请求分列，部分交接及无 authority 保持原状态。 | [OC-VERIFY-004](../../testing/manual/organization-continuity-system-acceptance.manual.md#oc-verify-004)：连用 001–003 的恢复/继受/处置与当前读面。 | 真实旧/新权利、残余托管/债务、前任受众及下一合法选择。 | GAME020 仍 draft 目标；自然 dormancy 不算玩家成果，不宣称已开放。 |
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) | [首产物完成边界](#first-product-boundary) | 在同一 candidate/profile 下逐步观察 quote→submit→receipt→候选；负例分别停在排程、扣减、普通库存变化或不匹配 owner/output，均不得称首产物结算。 | 待执行：[测试手册](../../../testing-manual.md)。按适用 S6 真实入口核对同一对象、参数、authority、receipt 和可读结果；缺合法前置记录 blocked，未执行保持未验证。 | 当前 PR 与实际验证记录：各阶段状态/事件与可见反馈、owner/output 对账、缺失前置；结算与后继分别记录。 | 不代签稳定窗口、Assembler 建成、terminal delivery 或全部工业路径。 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) | [成果承接与自然离场](#continuation-boundary) | 覆盖成果到达、后继当前不可执行、自然离场及重入；旧成果不误归新意图，未决请求不当未生效，失效授权不复活，不制造重复效果。 | 待执行：[测试手册](../../../testing-manual.md)。按适用 S6 的真实入口恢复场景核对成果与目标；实际持续能力窗口及无提示续玩观察单列，未覆盖保持未验证。 | 当前 PR 与实际验证记录：原结果/未决义务与重入目标、实际可用动作及提示介入记录。 | 不由候选可见推出持续能力、后续两 beat、离线收益或真人回访。 |
 | [REQ-FIRST-BRANCH-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-branch-001) | [分支解释与阶段](#branch-explanation) | 对照当前阶段主指引、完整分支承诺与合法动作；拒绝虚构未开放阶段。选可达路线时分别记录两个后续 beat 的实际差异，只有标签变化不得作为真实取舍。 | 待执行：[测试手册](../../../testing-manual.md)。按适用 S6 对照正式入口与权威状态；结构回归和实际路线执行分开，缺可达路线/后续窗口如实列缺口。 | 当前 PR 与实际验证记录：阶段与合法动作对账，分支成本/收益和各后续 beat；缺失或不一致证据。 | 不新开路线或强制站队，不以阶段文案证明路线可达或两 beat 已实现。 |

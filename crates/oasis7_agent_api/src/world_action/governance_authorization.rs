@@ -75,6 +75,10 @@ pub fn governance_validator_admission_controller(action: &Action) -> Option<&str
         | Action::RevokeGovernanceValidatorAdmission {
             controller_account_id,
             ..
+        }
+        | Action::RotateGovernanceValidatorFinalityKeyV1 {
+            controller_account_id,
+            ..
         } => Some(controller_account_id),
         _ => None,
     }
@@ -137,6 +141,18 @@ impl GovernanceAuthorizationV1 {
             .ok_or("unsupported governance authorization action")?;
         if controller != self.controller_account_id {
             return Err("governance authorization controller/action mismatch".into());
+        }
+        if let Action::RotateGovernanceValidatorFinalityKeyV1 {
+            body,
+            old_key_proof,
+            new_key_proof,
+            ..
+        } = action
+        {
+            body.validate_authorization(self)?;
+            old_key_proof
+                .validate_for(body, super::FinalityKeyRotationRoleV1::OldKeyAuthorization)?;
+            new_key_proof.validate_for(body, super::FinalityKeyRotationRoleV1::NewKeyPossession)?;
         }
         serde_cbor::to_vec(&(
             "oasis7.governance.authorization.v1",

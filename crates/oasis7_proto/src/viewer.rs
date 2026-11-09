@@ -46,6 +46,8 @@ pub const VIEWER_PROTOCOL_VERSION: u32 = 2;
 /// This remains a Viewer protocol v2 capability so clients can avoid sending
 /// the request to older v2 readers that silently drop unknown enum variants.
 pub const REVOKE_SOCIAL_FACT_QUOTE_CAPABILITY: &str = "revoke_social_fact_quote_v1";
+/// Observation of this Viewer's new-decision scheduling policy, not world progress.
+pub const LIVE_CONTROL_STATE_CAPABILITY: &str = "live_control_state_v1";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerAuthProof {
     #[serde(default)]
@@ -638,6 +640,9 @@ pub enum ViewerResponse<Snapshot, Event, DecisionTrace, Metrics, Time> {
     },
     ControlCompletionAck {
         ack: ControlCompletionAck<Time>,
+    },
+    LiveControlState {
+        state: LiveControlState,
     },
     PromptControlAck {
         ack: PromptControlAck<Time>,

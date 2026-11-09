@@ -43,10 +43,12 @@ RELEASE_WORKFLOW_PATH = '.github/workflows/release-packages.yml'
 # The pinned Swatinem action's src/config.ts uses HASH_LENGTH=8 for both hashes.
 RUST_KEY = re.compile(r'v0-rust-(?P<family>[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)-'
                       r'(?P<platform>Linux|Windows_NT|Darwin)-(?P<arch>x64|arm64)-'
-                      r'[0-9a-f]{8}-[0-9a-f]{8}\Z', re.ASCII)
-LEGACY_DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2'))
+                      r'(?P<environment>[0-9a-f]{8})-[0-9a-f]{8}\Z', re.ASCII)
+LEGACY_DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v4', 'oasis7-ecs-native-linux-ecs-v2'))
 DEPENDENCY_PLATFORMS = {
     **{name: frozenset({('Linux', 'x64')}) for name in LEGACY_DEPENDENCY_NAMESPACES},
+    'ci-formal-debug-deps-trusted-v1': frozenset({('Linux', 'x64')}),
+    'ci-formal-endpoint-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'release-packages-web-wasm-trusted-v3': frozenset({('Linux', 'x64')}),
     'oasis7-package-native-Linux-native-packaging-trusted-v2': frozenset({('Linux', 'x64')}),
     'release-packages-package-native-Windows-native-trusted-v2': frozenset({('Windows_NT', 'x64')}),
@@ -55,8 +57,9 @@ DEPENDENCY_PLATFORMS = {
 }
 DEPENDENCY_NAMESPACES = frozenset(DEPENDENCY_PLATFORMS)
 RETIRED_NAMESPACES = {
-    'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
-    **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v3'
+    'ci-shared-native-trusted-v3': 'ci-shared-native-trusted-v4',
+    'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v4',
+    **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v4'
        for shard in ('runtime-core', 'runtime-support', 'runtime-sync', 'soak')},
     'release-packages-web-wasm-trusted-v2': 'release-packages-web-wasm-trusted-v3',
     'oasis7-ecs-native-linux-packaging-v1': 'oasis7-ecs-native-linux-ecs-v2',
@@ -70,7 +73,8 @@ RETIRED_WORKSPACE_SCHEMAS = {
 }
 # These known schemas have fixed Linux X64 writers. Cache version alone is not
 # platform proof; a future writer platform must introduce a distinct schema.
-LINEAGE_WORKSPACE_SCHEMAS = frozenset(('ordinary-workspace-v1', 'formal-workspace-v3', 'ecs-workspace-v2'))
+LINEAGE_WORKSPACE_SCHEMAS = frozenset(('ordinary-workspace-v1', 'formal-workspace-v3', 'ecs-workspace-v2',
+                                     'formal-debug-workspace-v1', 'formal-endpoint-workspace-v1'))
 # Leave room in the shared request budget for inventories, active runs and DELETEs.
 MAX_ANCESTRY_REQUESTS = 20
 
@@ -217,6 +221,16 @@ def rust_namespace(entry):
     return match['family'] if (match['platform'], match['arch']) in (platforms or ()) else None
 
 
+def compatible_namespace_replacement(entry, replacement):
+    """The v4 coverage migration preserves recovery in each v3 environment."""
+    if rust_namespace(entry) != 'ci-shared-native-trusted-v3':
+        return True
+    old, new = RUST_KEY.fullmatch(entry['key']), RUST_KEY.fullmatch(replacement['key'])
+    return (new is not None and new['family'] == 'ci-shared-native-trusted-v4'
+            and all(old[field] == new[field] for field in ('platform', 'arch', 'environment'))
+            and entry['version'] == replacement['version'])
+
+
 def plan_namespace_retirement(entries, cutoff, *, protected_ids=()):
     replacements = defaultdict(list)
     owned, protected, deletions = [], [], []
@@ -234,7 +248,8 @@ def plan_namespace_retirement(entries, cutoff, *, protected_ids=()):
         replacement = RETIRED_NAMESPACES[rust_namespace(entry)]
         if entry['id'] in protected_ids or protected_by_activity(entry, cutoff):
             protected.append(entry['id'])
-        elif not replacements[replacement]:
+        elif not any(compatible_namespace_replacement(entry, successor)
+                     for successor in replacements[replacement]):
             missing.add(replacement)
         else:
             deletions.append(dict(entry, reason='retired Rust cache namespace', replacement_family=replacement))
@@ -836,7 +851,8 @@ def trusted_run_start(api, environment, current_key=None, *, bootstrap=False, re
     run_id = environment.get('GITHUB_RUN_ID', '')
     workflow_ref = environment.get('GITHUB_WORKFLOW_REF')
     if workflow_ref == f'{api.repository}/{WORKFLOW_PATH}@{MAIN_REF}':
-        workflow, allowed_families, events = WORKFLOW_PATH, {'formal', 'ordinary'}, ('push', 'schedule', 'workflow_dispatch')
+        workflow, allowed_families, events = (WORKFLOW_PATH,
+            {'formal', 'ordinary', 'formal-debug', 'formal-endpoint'}, ('push', 'schedule', 'workflow_dispatch'))
     elif workflow_ref == f'{api.repository}/{ECS_WORKFLOW_PATH}@{MAIN_REF}':
         workflow, allowed_families, events = ECS_WORKFLOW_PATH, {'ecs'}, ('workflow_dispatch',)
     elif workflow_ref == f'{api.repository}/{RELEASE_WORKFLOW_PATH}@{MAIN_REF}':
@@ -946,6 +962,8 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstr
             stable[namespace] = sorted(entry['id'] for entry in second_replacements.get(namespace, [])
                                        if immutable_identity(entry) in identities)
         report['stable_replacement_ids'] = stable
+        stable_replacements = [entry for replacements in second_replacements.values()
+                               for entry in replacements if entry['id'] in stable.get(rust_namespace(entry), [])]
         for section, result_field, label in (
                 ('retired_schemas', 'stable_recovery_ids', 'retired workspace'),
                 ('dependencies', 'stable_dependency_recovery_ids', 'dependency'),
@@ -965,7 +983,10 @@ def maintain(api, current_key=None, run_started_at=None, *, apply=False, bootstr
         candidates = [entry for entry in latest_plan['delete'] if entry['id'] in initial
                       and immutable_identity(entry) == immutable_identity(initial[entry['id']])
                       and entry.get('recovery_id') == initial[entry['id']].get('recovery_id')
-                      and (not entry.get('replacement_family') or stable.get(entry['replacement_family']))
+                      and (not entry.get('replacement_family') or any(
+                          rust_namespace(successor) == entry['replacement_family']
+                          and compatible_namespace_replacement(entry, successor)
+                          for successor in stable_replacements))
                       and (not entry.get('recovery_id') or entry['recovery_id'] in stable_recoveries)]
         report['plan'] = latest_plan
         report['delete_candidates'] = candidates

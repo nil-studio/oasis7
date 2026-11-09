@@ -5,7 +5,7 @@ pub(crate) async fn basis(
     state: &JsValue,
     env: &Env,
     rpc: TestSessionBasisRpc,
-) -> Result<TestSessionBasisV1> {
+) -> Result<TestSessionBasisResponseV1> {
     session_authority::enabled(env)?;
     rpc.request.validate().map_err(|_| denied())?;
     let request = rpc.request;
@@ -26,6 +26,7 @@ pub(crate) async fn basis(
                 },
                 UnixMillis::new(time),
             )
+            .and_then(TestSessionBasisResponseV1::new)
             .map_err(|_| denied())
         },
     )

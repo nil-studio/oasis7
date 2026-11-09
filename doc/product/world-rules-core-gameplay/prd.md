@@ -9,11 +9,11 @@
 - Product PRD-ID：`PRD-PRODUCT-001`
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：`2026-10-15`
+- Last reviewed：`2026-11-03`
 - 后继文档：`无`
 - 下层专业域：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)
 
-本文只定义玩家目标、间接能动性、核心循环、成长与资源压力的产品承诺。玩法规则、数值平衡、专题 PRD-ID 与测试证据由 `game` 专业域拥有。
+本文只定义世界前提、玩家位置、玩家目标、间接能动性、核心循环、成长与资源压力的产品承诺。玩法规则、数值平衡、专题 PRD-ID 与测试证据由 `game` 专业域拥有。
 
 ### 活跃产品专题
 
@@ -38,6 +38,8 @@
 
 玩家通过可读、有代价、有反馈的行动持续影响同一个持久世界，并在权威规则内与其他玩家、Agent 和区域系统产生可审计的涌现结果。产品不设置全体玩家共享的胜利或通关终局；玩家持续完成有边界、可归因的阶段成果，并在同一世界中形成新的能力、区域价值或下一阶段方向。
 
+<a id="world-premise-and-player-position"></a>
+
 **世界前提与玩家位置。** oasis7 是一款 AI Agent 文明模拟游戏，舞台位于破碎的小行星带；玩家从文明之外设定方向，Agent 在持续世界中作出选择并留下可追溯的历史后果。本定义只界定题材与玩家位置，不规定具体机制或实现状态，也不代表当前发行可用性。Agent/provider、世界模拟与进入世界后的交互产品组合见[智能体、世界模拟与交互 PRD](../agents-world-simulation/prd.md)；世界规则、玩家目标与核心玩法承诺仍由本 PRD 拥有。
 
 长期推荐围绕三条相连但不强制线性的抱负轴展开：建立并守住可恢复的能力、用该能力服务区域需求、获得有限且可审计的区域影响。组织、协议或治理等文明尺度项目只作为玩家自愿进入的共同扩展，不能取代独立成长或成为唯一有效路线。
@@ -49,6 +51,66 @@
 产品面向愿意逐步承担系统深度的玩家，不只面向首局就能同时掌握工业、组织、外交和治理全貌的玩家。正式体验先将当前世界状态归纳为一个可理解的目标、主要阻塞和下一步；玩家可以在准备好时自主展开区域专业化、市场/物流、组织、外交和治理。渐进披露只能重排与解释复杂性，不能隐藏会改变当前损失、锁定、权利、风险或恢复路径的真实取舍，也不能把深层系统削成没有后果的模板或纯自动化。
 
 持续世界的常态节奏是混合的：日常短命令与结果复盘足以维持普通目标，已授权且有边界的 Agent 工作包可在玩家离开时推进；深度建设、外交、区域项目和其他自愿共同扩展可以支持较长会话。高风险竞争或其他需要回应的事项必须给出有界、可预期的窗口与授权/恢复路径，不得把持续在线、在线时长或无止境值守变成取得基本成长、独立恢复或资格的前提。
+
+### 世界前提与事实叙事的有限接收
+
+以下两项只为已有世界前提及专业玩法 PRD §6.3 的事实叙事边界建立稳定的产品验收身份。历史记录的四类专业对象仍由[玩法历史记录系统](../../game/gameplay/gameplay-top-level-design.prd.md#63-历史记录系统)拥有；官网展示、小说标识、观察来源与行动归属继续复用各自产品专题，不由本节重新定义。这里不承诺自动生成摘要、为每个事件编写故事或建立新的叙事系统。
+
+<a id="req-wr-narrative-001"></a>
+#### REQ-WR-NARRATIVE-001：题材表述保留世界前提与玩家位置
+
+Trace ID: O7-REQ-5bde78bc-7ce9-48f3-820b-8415dc02ee00
+
+- 要求：介绍游戏世界与玩家位置的内容应保持[本节既有世界前提](#world-premise-and-player-position)的含义；“文明之外设定方向”不产生全知视角、直接修改世界或越过授权的能力。题材说明不代替具体玩法、实现状态与当前可用性的证明。
+- 系统设计状态：已覆盖
+- 系统设计依据：[世界前提内容](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-premise-content)给出逐项来源、可编辑表述和内容适用范围。
+- 验证方法：[前提核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-premise-check)覆盖语义保留及越界反例。
+- 实现状态：部分实现
+- 实现与验证依据：固定基线的[中文官网](../../../site/index.html)与[英文官网](../../../site/en/index.html)已有题材及玩家／Agent 分工表述；新内容稿及其他消费面的采用尚未逐项验证。本次仅静态审读，不代表玩家理解验收已完成。
+- 核对日期与基线：2026-11-03；`74867d54d92a771d968e91be8ba991abc81e5775`；新设计与方法随本次变更审查。
+- 剩余范围：内容采用后的实际展示与目标玩家理解，仍按[官网首次理解验收](../player-entry-distribution/public-site-discovery-and-showcase.prd.md#ac-site-discovery-001)验证；不能由本文稿件数量或静态检查代签。
+- 验收：[AC-WR-NARRATIVE-001](#ac-wr-narrative-001)
+
+<a id="ac-wr-narrative-001"></a>
+#### AC-WR-NARRATIVE-001：表达变化不改变题材、角色或可用性
+
+Trace refs: O7-REQ-5bde78bc-7ce9-48f3-820b-8415dc02ee00；声明：[REQ-WR-NARRATIVE-001](#req-wr-narrative-001)。
+
+- 给定：一份向玩家解释世界与玩家位置的内容及其来源、用途和消费入口。
+- 当：审查者逐项核对其世界前提，并对照实际展示内容。
+- 则：AI Agent 文明模拟、破碎小行星带、玩家设定方向与 Agent 在持续世界中选择并产生可追溯后果的语义保持一致；删减或改写不暗示额外操控能力，不把题材、小说或未采用样稿当作当前已实现能力。静态稿件与实际入口分别记录结论。
+
+<a id="req-wr-narrative-002"></a>
+#### REQ-WR-NARRATIVE-002：事实叙事不得创造世界结果
+
+Trace ID: O7-REQ-5f3a2585-c3f2-4bce-9da6-08ac6638cf4f
+
+- 要求：当制作或展示陈述当前或历史世界事实的叙事摘要时，玩家关心的故事先来自具体对象、承诺、选择与真实后果；摘要不能凭空增加关系、债务、功劳或世界状态，也不把制度日志的存在当作人物故事已成立。对象、承诺、选择与后果是事实审查方向，不要求每条记录必须具备同一组字段。
+- 虚构边界：小说、概念说明与未执行示意可以存在，但不能冒充已发生的权威事实或进入当前权利、债务、功劳和状态判定；官网的具体素材标识仍由[展示案例](../player-entry-distribution/public-site-discovery-and-showcase.prd.md#req-site-discovery-002)及[小说入口](../player-entry-distribution/public-site-discovery-and-showcase.prd.md#req-site-discovery-005)拥有。世界舞台的观察来源、时效和权限继续遵守[观察事实切片](../agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-002)，不从摘要反推事实。
+- 系统设计状态：已覆盖
+- 系统设计依据：[事实叙事边界](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-fact-boundaries)规定来源、归因、未知与虚构内容的处理，并提供完整组合样例。
+- 验证方法：[事实核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-fact-check)覆盖没有因果、主体、位置或个人结果依据的反例。
+- 实现状态：部分实现
+- 实现与验证依据：固定基线的[公共事件投影](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_feed.rs)、[公共事件来源](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_feed_source.rs)与[World Feed 面板](../../../crates/oasis7_viewer/software_safe_src/world_feed_panel.jsx)已有受限公共投影、来源与回执区分；这只证明相应消费子范围存在，不代表四类长期历史记录或全部摘要已经实现。本次未运行 Viewer 或真实世界验收。
+- 核对日期与基线：2026-11-03；`74867d54d92a771d968e91be8ba991abc81e5775`；新设计与方法随本次变更审查。
+- 剩余范围：新稿在各消费入口的实际采用、消息与结果绑定、实时及历史组合的运行验收；专业历史记录的实现范围另行验证。
+- 验收：[AC-WR-NARRATIVE-002](#ac-wr-narrative-002)
+
+<a id="ac-wr-narrative-002"></a>
+#### AC-WR-NARRATIVE-002：故事中的世界断言可回到原事实
+
+Trace refs: O7-REQ-5f3a2585-c3f2-4bce-9da6-08ac6638cf4f；声明：[REQ-WR-NARRATIVE-002](#req-wr-narrative-002)。
+
+- 给定：一份声称描述当前或历史世界事实的摘要，以及它实际可以读取的事实、观察或操作结果；另取一份明确标识的虚构或示意样例作为对照。
+- 当：逐句核对其中的对象、行动、承诺、因果、时间和结果归属。
+- 则：每项事实断言都能回到适用来源；未能证明的关系、债务、功劳、因果或状态不写成已发生事实，制度日志本身不构成人物故事的证明。虚构或示意保留其身份；历史记录不被改写为当前事实，公共事件不凭当前焦点变成个人行动结果，其行动归属继续由[舞台与结果主体要求](../agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)拥有。静态样稿审查不代替消费入口的实际绑定验收。
+
+#### 既有叙事义务的验收追踪
+
+| 需求 / 验收 | Owner role | 专业权威 / 设计 | 证据与剩余范围 | 测试层级 |
+| --- | --- | --- | --- | --- |
+| [REQ-WR-NARRATIVE-001](#req-wr-narrative-001) / [AC-WR-NARRATIVE-001](#ac-wr-narrative-001) | `producer_system_designer` | [世界前提内容](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-premise-content) | [前提核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-premise-check)；当前仅静态出处与稿件审查，采用后另做入口及玩家理解验证 | `test_tier_required`；文档门禁及手工内容检查不代签实际展示 |
+| [REQ-WR-NARRATIVE-002](#req-wr-narrative-002) / [AC-WR-NARRATIVE-002](#ac-wr-narrative-002) | `producer_system_designer` | [事实叙事边界](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-fact-boundaries) | [事实核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-fact-check)；已有投影子范围，采用与运行组合尚待验证 | `test_tier_required`；按实际消费面追加运行验收 |
 
 ## 2. 范围与玩家边界
 
@@ -607,7 +669,7 @@ Checkpoint 只关闭一次 immutable review segment，不追加、不重开，�
 
 ## 既有统一生成合同的有限产品接收
 
-本节为 [unified 原需求](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#3-requirements)中已经存在的消费者承诺登记精确身份；逐卡原句来源限定其范围，不新增世界生成、出生、字段、参数或资源承载选择。已有专业目标不是新的实现完成声明；正式 profile 的 [四个未决问题](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-decision-profile)继续未定，已采用本地子范围不重新待选。原产品组合、叶项状态与验收层级保持不变。
+本节为 [unified 原需求](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#3-requirements)中已经存在的消费者承诺登记精确身份；逐卡原句来源限定其范围，本节保留原产品范围；正式接线现由[统一设计的四项选择](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-decisions)承接，产品层不重复定义参数或权限。已采用的本地子范围继续沿原边界，设计覆盖、代码接线与实际验收分别判断。
 
 <a id="generated-resource-source"></a>
 ### 功能状态卡：生成地点与资源预算的同一来源
@@ -617,11 +679,13 @@ Trace ID: O7-REQ-112440b1-da55-4443-b513-58dbf9056511
 - 主责范围与成功标准：可玩大世界地点和资源优先来自既有 Simulator chunk/fragment 生成；可采量使用原 fragment/chunk total/remaining 账本，不允许运行时临时重算。
 - 原义接收来源：[原 R2](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#r2-复用现有-chunkfragmentresource-生成)；本卡只接收该段玩家/Agent/入口结果，原专业约束、条件及排除项保持。
 - 对应验收：沿原 [AC1](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#5-acceptance-criteria) 中本卡对应切片，不能用其他 AC 的局部通过代签。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#32-seed-派生)；原目标已存在，正式接线与四项未决仍限制覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[固定派生](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#32-seed-派生)、[双级预算核对](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#53-resource-ledger)；覆盖同一生成上下文和现有 fragment/chunk 账本，初始几何与消费后余额分别恢复。该结论仅为本卡原范围的设计覆盖，正式实现与实际验收仍按下列状态。
+- 验证方法：[原 requirement 的反向分配与独立正反例](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan)；按同一候选、实际消费者和原适用范围分别执行，本次未运行。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-18固定源码只读复核：Simulator真实生成fragment/profile/budget并写入chunk total/remaining，Simulator manifest读取现有账本；generated sidecar能加载此模型。Runtime普通资源manifest仍使用独立runtime-starter预算与runtime-agent引用；正式外部检查点可保留已有资源材料，故不能仅凭普通派生或Simulator局部测试认定全部正式来源已统一或全部未实现。 定位：[Simulator生成与预算写入](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_simulator/src/init.rs#L584-L725)；[Simulator账本投影](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_simulator/src/chain_resource.rs#L23-L128)；[sidecar加载](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/support.rs#L435-L458)；[Runtime资源派生](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/chain_resource.rs#L21-L103)；[独立starter预算](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/chain_resource.rs#L196-L248)；[外部资源上下文保留](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/world/persistence.rs#L306-L324)。本次未执行业务测试或现场验收；测试定义不等于通过。
-- 核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行生成器、世界或业务验收，历史实现证据沿原候选保留。
+- 历史实现核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
 - 剩余范围：只接收R2原来源和可采量承诺，不改随机根/公式/采矿前置。待追实际正式工件producer如何把Simulator预算送入正式写端，以及非零消费后fragment/chunk remaining在runtime、Viewer、testnet replay中的同源读数；当前本地/sidecar接线不证明正式可采量没有重算。
 
 <a id="committed-resource-continuity"></a>
@@ -632,12 +696,14 @@ Trace ID: O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c
 - 主责范围与成功标准：正式生成事实必须由链上可验证记录承载或引用（沿原 R6）；未提交 preview 不进入正式采矿、生产、provider 或交易账本；remaining 由链上 action/commit 驱动，刷新与 replay 不以本地重算恢复余额，readiness 证明同一 provenance。
 - 原义接收来源：[原 R6](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#r6-资源生成全部链上化)；本卡只接收该段玩家/Agent/入口结果，原专业约束、条件及排除项保持。
 - 对应验收：沿原 [AC5/AC6/AC7/AC8](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#5-acceptance-criteria) 中本卡对应切片，不能用其他 AC 的局部通过代签。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#43-资源变更权威)；原目标已存在，正式接线与四项未决仍限制覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[原正式业务记录](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-resource-record)、[余额恢复](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#43-资源变更权威)；覆盖初始及后继资源经原正式执行链承诺，完整变化、provisional 拒绝和余额连续性。该结论仅为本卡原范围的设计覆盖，正式实现与实际验收仍按下列状态。
+- 验证方法：[原 requirement 的反向分配与独立正反例](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan)；按同一候选、实际消费者和原适用范围分别执行，本次未运行。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-18固定源码只读复核：正式初始与冻结包校验身份和typed checkpoint恢复一致；Runtime snapshot对已外部绑定资源manifest/delta保留并在restore恢复。status校验manifest/delta/schema/高度，但这些是承载与完整性边界，尚未闭合自然资源生成/消费写端、provisional拒绝与跨消费者readiness；不能把#4870无损存储升级为本卡业务验收，也不能宣称恢复必然重新生成预算。 定位：[正式初始检查点边界](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_initial.rs#L182-L215)；[正式冻结包保留](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_package.rs#L171-L225)；[外部资源上下文保留](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/world/persistence.rs#L306-L324)；[资源字段恢复](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/world/persistence.rs#L790-L802)；[status完整性检查](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/status_payload_world_resource.rs#L75-L155)。本次未执行业务测试或现场验收；测试定义不等于通过。
-- 核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
-- 剩余范围：只接收R6原资源权威结果，不替选业务record模型。需实际正式seed/生成记录→非零资源消费delta→commit→refresh/replay余额及同provenance输出，另核provisional在采矿、生产、Provider和交易的拒绝。外部工件内容与正式资源写端尚未核清，不据搜不到或历史关闭判未实现。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行生成器、世界或业务验收，历史实现证据沿原候选保留。
+- 历史实现核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
+- 剩余范围：R6 的原 action/result/commit 承载及分层恢复已由专业设计选定；需实际正式seed/生成记录→非零资源消费delta→commit→refresh/replay余额及同provenance输出，另核provisional在采矿、生产、Provider和交易的拒绝。外部工件内容与正式资源写端尚未核清，不据搜不到或历史关闭判未实现。
 
 ## 4. 路线图
 
@@ -1294,9 +1360,12 @@ Trace ID: O7-REQ-d0c8d71e-dae0-405f-8b01-c6d573eaf719
 Trace ID: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117
 
 - 主责范围：仅 [SC-28](#sc-28) 的“同 candidate 的 factory/pinned recipe、两类原料batch/quality/custody、物流、cycle、power、主副产物bundle、terminal与progression完整只读投影；缺authority显示incomplete/unknown/blocked”。验收沿用原 SC 对应的适用条件、成功/失败边界和 §5.1 测试层级；不创建新 AC 或缩小原文。
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：已核对 [M4 工业设计 §6](../../world-simulator/m4/industrial-resource-flow-contract.design.md#industrial-quote-calculation-design)、[方案绑定](../../world-simulator/m4/industrial-resource-flow-contract.design.md#starter-quote-submit-binding)与[恢复映射](../../world-simulator/m4/industrial-resource-flow-contract.design.md#request-outcome-observation-separation)。这些设计精确承接的是报价净缺口/消费账本、首局同参数提交和未知结果恢复；其分配表显式排除完整工业执行系统。对应 M4 专业 PRD 有更广目标，不能据此将本独立义务的系统设计判为完整。相关设计的存在不代表本要求已完整覆盖。
+- 系统设计依据：[完整可编辑档案 RI-01](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-profile)把已选原生配方、工厂、两类批次/品质/保管、有限物流、合法周期、电力与主副产物收成同一候选；[正常链及两种完成边界 RI-02](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-completion)、[失败恢复 RI-03](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-recovery)与[三阶段 full 扩展 RI-04](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-full)分别承接真实效果、终端用途、幂等/切换和跨窗口 lineage；[Viewer 同义投影](../../world-simulator/viewer/viewer-economic-targets-uiux.design.md#t-eco-04-root-sc28-profile)只消费该原件。样本参数、用途及有限组合策略为本 PR 待 owner 采纳的设计选择，不是历史批准或现成运行能力。
+- 设计验证方法：[RIE-M01–04](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m01)分别核具体档案与独立守恒、P/T 正常路径和三入口、单变量失败/恢复、三阶段多分支/cutover/长期恢复；保留原 SC-28 与 §5.1 的 required/full 义务，设计走查不代签运行、素材或真人理解。
+- 本次设计核对：2026-11-06；输入 main `37f7719f6a68b23c6f8f6632571d82ce33a1b4e6` 与本次目标档案及方法；仅接收本卡设计，原 Trace、SC 正文、实现状态/依据、历史基线和剩余实现范围保留。
+- 既有设计复核边界（历史保留）：已核对 [M4 工业设计 §6](../../world-simulator/m4/industrial-resource-flow-contract.design.md#industrial-quote-calculation-design)、[方案绑定](../../world-simulator/m4/industrial-resource-flow-contract.design.md#starter-quote-submit-binding)与[恢复映射](../../world-simulator/m4/industrial-resource-flow-contract.design.md#request-outcome-observation-separation)。这些设计精确承接的是报价净缺口/消费账本、首局同参数提交和未知结果恢复；其分配表显式排除完整工业执行系统。对应 M4 专业 PRD 有更广目标，不能据此将本独立义务的系统设计判为完整。相关设计的存在不代表本要求已完整覆盖。
 - 实现与验证依据：2026-10-17 固定main静态生产链复核（当前仓库默认/内置合同）：存在材料kind/quantity、周期、电力和主副产物；required-parent batch/custody、bundle/terminal identity是明确目标；未组成完整profile producer。 报价的rejection和维护not tracked不等于完整profile completeness gating；profile-specific DTO/consumer未交付。 现有production milestone不是完整profile terminal-admission，两完成边界/因果新candidate不能由job完成代签。 正向入口与实际写点：[abi-profile](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7_wasm_abi/src/economy.rs#L48-L127)；[abi-plan](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7_wasm_abi/src/economy.rs#L209-L244)；[job-schema](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7/src/runtime/state.rs#L189-L220)；[recipe-quote](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7_agent_api/src/world_quote/recipe.rs#L2-L78)；[authority-root](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/doc/world-runtime/prd.md#L398-L409)；[viewer-dto](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7_proto/src/viewer/schedule_recipe_quote.rs#L5-L40)；[viewer-consumer](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7_viewer/software_safe_src/schedule_recipe_quote_card.jsx#L10-L28)；[api-projection](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7/src/world_service/projection.rs#L10-L140)；[recipe-write](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L325-L577)；[logistics-write](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L151-L271)；[viewer-projection](https://github.com/nil-studio/oasis7/blob/8bbce1b1252a98366ba3dfa8abb3f46c881e2375/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L291-L375)。本轮未执行业务/GUI/Agent验收；不把既有普通quote、维护/回收、profile治理、job去重或文档治理PR当作本卡已交付子义务。
 - 核对日期与基线：2026-10-17；实现源码固定main `8bbce1b1252a98366ba3dfa8abb3f46c881e2375`；当前PR #4844需求候选 `278eab5ead2a5fceb67a0e27a38303bbb3a1459d`；148份来源逐Git blob核对、250/250 runtime与37内置producer同版。只读静态审查，业务/GUI/模型执行和部署未执行。
 - 剩余范围：实现本卡专业合同：同candidate完整factory/pinned recipe/两类input batch-quality-custody/logistics/cycle/power/output/terminal/progression投影；任一authority缺失即incomplete/unknown/blocked，不宣称可排程或交付；两类完成边界、无选择无hold、因果新candidate W=0及三入口同义。原SC及§5.1全部适用验收保持，需随后取得同候选Viewer/pure API/Agent与恢复/重放证据。结论限当前默认内置路径，不覆盖未提供的线上自定义artifact。

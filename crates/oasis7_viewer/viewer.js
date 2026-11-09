@@ -65,7 +65,7 @@ function createRoot(fn, detachedOwner) {
 		cleanups: null,
 		context: current ? current.context : null,
 		owner: current
-	}, updateFn = unowned ? fn : () => fn(() => untrack(() => cleanNode(root)));
+	}, updateFn = unowned ? fn : () => fn(createDisposer(root));
 	Owner = root;
 	Listener = null;
 	try {
@@ -74,6 +74,9 @@ function createRoot(fn, detachedOwner) {
 		Listener = listener;
 		Owner = owner;
 	}
+}
+function createDisposer(root) {
+	return () => untrack(() => cleanNode(root));
 }
 function createSignal(value, options) {
 	options = options ? Object.assign({}, signalOptions, options) : signalOptions;
@@ -1090,6 +1093,56 @@ function Portal(props) {
 	}, void 0, { render: !hydrating });
 	return marker;
 }
+// software_safe_src/viewer_target_sync_progress.js
+function targetSyncProgressLines(progress, locale, tr) {
+	if (!progress) return [];
+	const connectionText = progress.connectionStatus === "connected" ? tr(locale, "已连接", "connected") : progress.connectionStatus === "error" ? tr(locale, "连接错误", "connection error") : tr(locale, "正在连接", "connecting");
+	const handshakeText = progress.serverReady ? tr(locale, "已完成", "server ready") : tr(locale, "等待服务器 hello", "waiting for server hello");
+	const snapshotText = progress.snapshotReceived ? tr(locale, `已收到：行动体 ${progress.totalAgentCount}，地点 ${progress.totalLocationCount}`, `received: ${progress.totalAgentCount} agents, ${progress.totalLocationCount} locations`) : progress.snapshotRequested ? tr(locale, progress.snapshotRetryCount > 0 ? `已请求首个世界快照，重试 ${progress.snapshotRetryCount} 次` : "已请求首个世界快照", progress.snapshotRetryCount > 0 ? `first world snapshot requested, ${progress.snapshotRetryCount} retries` : "first world snapshot requested") : tr(locale, "等待首个世界快照", "waiting for first world snapshot");
+	const sessionText = progress.authSyncInFlight ? tr(locale, "正在同步玩家会话", "syncing player session") : tr(locale, `状态 ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`, `status ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`);
+	const visibilityText = tr(locale, `快照行动体 ${progress.totalAgentCount}，当前可控 ${progress.visibleAgentCount}`, `snapshot agents ${progress.totalAgentCount}, visible ${progress.visibleAgentCount}`);
+	const lines = [
+		tr(locale, `连接：${connectionText}`, `Connection: ${connectionText}`),
+		tr(locale, `握手：${handshakeText}`, `Handshake: ${handshakeText}`),
+		tr(locale, `快照：${snapshotText}`, `Snapshot: ${snapshotText}`),
+		tr(locale, `玩家会话：${sessionText}`, `Player session: ${sessionText}`),
+		tr(locale, `可见性：${visibilityText}`, `Visibility: ${visibilityText}`)
+	];
+	if (progress.lastError) lines.push(tr(locale, `错误：${progress.lastError}`, `Error: ${progress.lastError}`));
+	return lines;
+}
+// software_safe_src/viewer_live_control_status.jsx
+var _tmpl$$46 = /*#__PURE__*/ template(`<div>`);
+var _tmpl$2$43 = /*#__PURE__*/ template(`<aside role=status data-viewer-overlay=control-state class=panel style="position:fixed;top:4.5rem;right:1rem;z-index:25;max-width:min(25rem, calc(100vw - 2rem))"><div class=panel__body><strong></strong><div class=feedback-detail>`);
+function LiveControlStatus(props) {
+	const locale = () => props.locale();
+	const observation = () => props.state.liveControlState;
+	return createComponent(Show, {
+		get when() {
+			return props.state.controlProfile === "live";
+		},
+		get children() {
+			var _el$ = _tmpl$2$43(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$5 = _el$3.nextSibling;
+			insert(_el$3, (() => {
+				var _c$ = memo(() => !!!observation()?.verified);
+				return () => _c$() ? props.tr(locale(), "Viewer 调度状态未确认", "Viewer scheduling state unconfirmed") : memo(() => !!observation().paused)() ? props.tr(locale(), "Viewer 新决策已暂停", "Viewer new decisions paused") : props.tr(locale(), "Viewer 新决策已启用", "Viewer new decisions enabled");
+			})());
+			insert(_el$2, createComponent(Show, {
+				get when() {
+					return props.state.liveControlPendingRequestId != null;
+				},
+				get children() {
+					var _el$4 = _tmpl$$46();
+					insert(_el$4, () => props.tr(locale(), "等待 Viewer 确认", "Awaiting Viewer confirmation"));
+					return _el$4;
+				}
+			}), _el$5);
+			insert(_el$5, () => props.tr(locale(), "世界作业与已在途的请求仍可能继续。", "World jobs and requests already in flight may continue"));
+			createRenderEffect(() => setAttribute(_el$, "aria-label", props.tr(locale(), "Viewer 决策调度", "Viewer decision scheduling")));
+			return _el$;
+		}
+	});
+}
 // software_safe_src/viewer_ui_primitives.jsx
 var _tmpl$$45 = /*#__PURE__*/ template(`<span>`);
 var _tmpl$2$42 = /*#__PURE__*/ template(`<div>`);
@@ -1123,7 +1176,7 @@ var _tmpl$2$41 = /*#__PURE__*/ template(`<section class=panel-section style=min-
 var _tmpl$3$33 = /*#__PURE__*/ template(`<p> · <!> `);
 var _tmpl$4$30 = /*#__PURE__*/ template(`<article><h4> · </h4><p>: <!> / `);
 var _tmpl$5$29 = /*#__PURE__*/ template(`<p>: <!> / <!> / `);
-var _tmpl$6$21 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
+var _tmpl$6$22 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
 var _tmpl$7$17 = /*#__PURE__*/ template(`<p>: <!> / <!> · `);
 var _tmpl$8$12 = /*#__PURE__*/ template(`<p>: <!> / <!> ÷ `);
 var _tmpl$9$10 = /*#__PURE__*/ template(`<p>: <!> / `);
@@ -1223,7 +1276,7 @@ function RecipeSubstitutionPanel(props) {
 								get children() {
 									return [
 										(() => {
-											var _el$25 = _tmpl$6$21(), _el$26 = _el$25.firstChild, _el$30 = _el$26.nextSibling, _el$31 = _el$30.nextSibling.nextSibling, _el$32 = _el$31.nextSibling.nextSibling;
+											var _el$25 = _tmpl$6$22(), _el$26 = _el$25.firstChild, _el$30 = _el$26.nextSibling, _el$31 = _el$30.nextSibling.nextSibling, _el$32 = _el$31.nextSibling.nextSibling;
 											_el$32.nextSibling;
 											insert(_el$25, () => tr("投入 / 可执行产出", "Input / executable output"), _el$26);
 											insert(_el$25, () => n(candidate.sourceRequired), _el$30);
@@ -1675,7 +1728,7 @@ var BrowserModelStoreError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$7 = (code) => {
+var fail$8 = (code) => {
 	throw new BrowserModelStoreError(code);
 };
 var integer$2 = (value) => Number.isSafeInteger(value) && value >= 0;
@@ -1690,11 +1743,11 @@ var empty = () => ({
 	reservations: []
 });
 function createBrowserModelStore({ accountId, storage, locks = globalThis.navigator?.locks } = {}) {
-	if (typeof accountId !== "string" || !accountId.trim()) fail$7("account_required");
+	if (typeof accountId !== "string" || !accountId.trim()) fail$8("account_required");
 	if (storage === void 0) try {
 		storage = globalThis.localStorage;
 	} catch {
-		fail$7("storage_unavailable");
+		fail$8("storage_unavailable");
 	}
 	const storageKey = `oasis7.browser-model.v1:${encodeURIComponent(accountId)}:deepseek`;
 	const lockName = `${storageKey}:management`;
@@ -1705,22 +1758,22 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		try {
 			raw = storage?.getItem(storageKey);
 		} catch {
-			fail$7("storage_unavailable");
+			fail$8("storage_unavailable");
 		}
-		if (!storage || typeof storage.setItem !== "function") fail$7("storage_unavailable");
+		if (!storage || typeof storage.setItem !== "function") fail$8("storage_unavailable");
 		if (raw == null) return empty();
 		let record;
 		try {
 			record = JSON.parse(raw);
 		} catch {
-			fail$7("storage_corrupt");
+			fail$8("storage_corrupt");
 		}
-		if (record?.schema !== 1) fail$7("storage_schema_unsupported");
+		if (record?.schema !== 1) fail$8("storage_schema_unsupported");
 		if (!integer$2(record.revision) || record.provider !== "deepseek" || !(record.key === null || typeof record.key === "string" && record.key.length > 0) || typeof record.stopped !== "boolean" || !integer$2(record.callsReserved) || record.callsReserved > 8 || !integer$2(record.tokensReserved) || record.tokensReserved > 131072 || !Array.isArray(record.reservations) || record.reservations.length > 8 || record.reservations.some((r) => !integer$2(r.id) || !integer$2(r.revision) || !integer$2(r.tokens) || typeof r.settled !== "boolean" || ![
 			void 0,
 			"probe",
 			"execution"
-		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$7("storage_corrupt");
+		].includes(r.purpose)) || new Set(record.reservations.map((r) => r.id)).size !== record.reservations.length || record.reservations.length !== record.callsReserved || record.reservations.reduce((sum, r) => sum + r.tokens, 0) !== record.tokensReserved || !record.key && !record.stopped) fail$8("storage_corrupt");
 		return record;
 	}
 	const safe = (r) => ({
@@ -1740,25 +1793,25 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		} catch {}
 	};
 	function check(r, revision) {
-		if (!integer$2(revision) || r.revision !== revision) fail$7("revision_conflict");
+		if (!integer$2(revision) || r.revision !== revision) fail$8("revision_conflict");
 	}
 	async function locked(action) {
-		if (typeof locks?.request !== "function") fail$7("locks_unavailable");
+		if (typeof locks?.request !== "function") fail$8("locks_unavailable");
 		try {
 			return await locks.request(lockName, { mode: "exclusive" }, () => action(read()));
 		} catch (error) {
 			if (error instanceof BrowserModelStoreError) throw error;
-			fail$7("locks_unavailable");
+			fail$8("locks_unavailable");
 		}
 	}
 	function publish(r) {
-		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$7("revision_exhausted");
+		if (r.revision >= Number.MAX_SAFE_INTEGER) fail$8("revision_exhausted");
 		try {
 			storage.setItem(storageKey, JSON.stringify(r));
 		} catch {
 			blocked = true;
 			emit();
-			fail$7("storage_write_failed");
+			fail$8("storage_write_failed");
 		}
 		blocked = false;
 		emit();
@@ -1803,7 +1856,7 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		beginProbe(expectedRevision) {
 			return locked((r) => {
 				check(r, expectedRevision);
-				if (!r.key) fail$7("credential_missing");
+				if (!r.key) fail$8("credential_missing");
 				r.revision += 1;
 				r.stopped = false;
 				return publish(r);
@@ -1812,13 +1865,13 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		reserve({ revision, maxInputTokens, maxOutputTokens, purpose = "probe" }) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$7("stopped");
-				if (!r.key) fail$7("credential_missing");
+				if (blocked || r.stopped) fail$8("stopped");
+				if (!r.key) fail$8("credential_missing");
 				const tokens = maxInputTokens + maxOutputTokens;
-				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$7("invalid_budget");
-				if (!["probe", "execution"].includes(purpose)) fail$7("invalid_budget");
+				if (!integer$2(maxInputTokens) || !integer$2(maxOutputTokens) || !integer$2(tokens) || tokens === 0) fail$8("invalid_budget");
+				if (!["probe", "execution"].includes(purpose)) fail$8("invalid_budget");
 				const probes = r.reservations.filter((item) => item.purpose !== "execution");
-				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$7("budget_exhausted");
+				if (r.callsReserved >= 8 || r.tokensReserved + tokens > 131072 || purpose === "probe" && (probes.length >= 4 || probes.reduce((sum, item) => sum + item.tokens, 0) + tokens > 2048)) fail$8("budget_exhausted");
 				const reservation = {
 					id: r.callsReserved + 1,
 					revision,
@@ -1839,7 +1892,7 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		settle(reservation, usage) {
 			return locked((r) => {
 				const found = r.reservations.find((item) => item.id === reservation?.id && item.revision === reservation?.revision);
-				if (!found || found.settled) fail$7("reservation_invalid");
+				if (!found || found.settled) fail$8("reservation_invalid");
 				if (!usage || !integer$2(usage.inputTokens) || !integer$2(usage.outputTokens) || !integer$2(usage.inputTokens + usage.outputTokens) || usage.inputTokens + usage.outputTokens > found.tokens) return safe(r);
 				const used = usage.inputTokens + usage.outputTokens;
 				r.tokensReserved -= found.tokens - used;
@@ -1851,8 +1904,8 @@ function createBrowserModelStore({ accountId, storage, locks = globalThis.naviga
 		credential(revision) {
 			return locked((r) => {
 				check(r, revision);
-				if (blocked || r.stopped) fail$7("stopped");
-				if (!r.key) fail$7("credential_missing");
+				if (blocked || r.stopped) fail$8("stopped");
+				if (!r.key) fail$8("credential_missing");
 				return r.key;
 			});
 		}
@@ -1881,7 +1934,7 @@ var BrowserModelError = class extends Error {
 		this.code = code;
 	}
 };
-var fail$6 = (code) => {
+var fail$7 = (code) => {
 	throw new BrowserModelError(code);
 };
 var object = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -1938,28 +1991,28 @@ function schemaMatches(value, schema, depth = 0) {
 	}
 }
 function normalizeResponse(raw, tools) {
-	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$6("protocol_incompatible");
+	if (!object(raw) || raw.model !== PRESET.model || !Array.isArray(raw.choices) || raw.choices.length !== 1) fail$7("protocol_incompatible");
 	const choice = raw.choices[0], message = choice?.message;
-	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$6("protocol_incompatible");
-	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$6("protocol_incompatible");
+	if (!object(message) || message.role !== "assistant" || !["stop", "tool_calls"].includes(choice.finish_reason)) fail$7("protocol_incompatible");
+	if (message.content !== null && message.content !== void 0 && typeof message.content !== "string") fail$7("protocol_incompatible");
 	const clean = {
 		role: "assistant",
 		content: message.content ?? null
 	};
 	if (choice.finish_reason === "tool_calls") {
-		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$6("tool_invalid");
+		if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > 8) fail$7("tool_invalid");
 		const ids = /* @__PURE__ */ new Set();
 		clean.tool_calls = message.tool_calls.map((call) => {
 			const fn = call?.function, definition = tools.find((tool) => tool.function.name === fn?.name);
-			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$6("tool_invalid");
+			if (call?.type !== "function" || typeof call.id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(call.id) || ids.has(call.id) || !definition || typeof fn.arguments !== "string" || bytes$1(fn.arguments) > 16384) fail$7("tool_invalid");
 			ids.add(call.id);
 			let args;
 			try {
 				args = JSON.parse(fn.arguments);
 			} catch {
-				fail$6("tool_invalid");
+				fail$7("tool_invalid");
 			}
-			if (!schemaMatches(args, definition.function.parameters)) fail$6("tool_invalid");
+			if (!schemaMatches(args, definition.function.parameters)) fail$7("tool_invalid");
 			return {
 				id: call.id,
 				type: "function",
@@ -1969,7 +2022,7 @@ function normalizeResponse(raw, tools) {
 				}
 			};
 		});
-	} else if (message.tool_calls?.length) fail$6("tool_invalid");
+	} else if (message.tool_calls?.length) fail$7("tool_invalid");
 	let usage = null;
 	if (object(raw.usage) && [
 		"prompt_tokens",
@@ -1991,8 +2044,8 @@ function normalizeResponse(raw, tools) {
 	};
 }
 async function readBounded(response) {
-	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$6("output_limit");
-	if (!response.body?.getReader) fail$6("protocol_incompatible");
+	if (Number(response.headers?.get("content-length")) > OUTPUT_LIMIT) fail$7("output_limit");
+	if (!response.body?.getReader) fail$7("protocol_incompatible");
 	const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 	let length = 0, result = "";
 	try {
@@ -2000,7 +2053,7 @@ async function readBounded(response) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			length += value.byteLength;
-			if (length > OUTPUT_LIMIT) fail$6("output_limit");
+			if (length > OUTPUT_LIMIT) fail$7("output_limit");
 			result += decoder.decode(value, { stream: true });
 		}
 		result += decoder.decode();
@@ -2012,15 +2065,15 @@ async function readBounded(response) {
 	try {
 		return JSON.parse(result);
 	} catch {
-		fail$6("protocol_incompatible");
+		fail$7("protocol_incompatible");
 	}
 }
 async function callBrowserModel({ key, getCredential, messages, tools = [], toolChoice, signal, fetchImpl = globalThis.fetch, maxOutputTokens = 128, beforeSend, afterResponse } = {}) {
 	const validKey = (value) => typeof value === "string" && value.trim() && !/[\r\n]/.test(value);
-	if (typeof getCredential !== "function" && !validKey(key)) fail$6("credential_invalid");
-	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$6("input_invalid");
-	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$6("input_invalid");
-	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$6("input_limit");
+	if (typeof getCredential !== "function" && !validKey(key)) fail$7("credential_invalid");
+	if (!Array.isArray(messages) || !messages.length || !Array.isArray(tools) || tools.length > 16 || tools.some((tool) => tool?.type !== "function" || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.function?.name) || !supportedSchema(tool.function?.parameters))) fail$7("input_invalid");
+	if (new Set(tools.map((tool) => tool.function.name)).size !== tools.length) fail$7("input_invalid");
+	if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 2048) fail$7("input_limit");
 	let body;
 	try {
 		body = JSON.stringify({
@@ -2035,11 +2088,11 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			thinking: { type: "disabled" }
 		});
 	} catch {
-		fail$6("input_invalid");
+		fail$7("input_invalid");
 	}
 	const inputBytes = bytes$1(body);
-	if (inputBytes > INPUT_LIMIT) fail$6("input_limit");
-	if (signal?.aborted) fail$6("cancelled");
+	if (inputBytes > INPUT_LIMIT) fail$7("input_limit");
+	if (signal?.aborted) fail$7("cancelled");
 	const reservation = await beforeSend?.({
 		maxOutputTokens,
 		inputBytes
@@ -2057,8 +2110,8 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 		});
 		result = await Promise.race([(async () => {
 			const sendingKey = getCredential ? await getCredential(reservation) : key;
-			if (!validKey(sendingKey)) fail$6("credential_invalid");
-			if (signal?.aborted || controller.signal.aborted) fail$6("cancelled");
+			if (!validKey(sendingKey)) fail$7("credential_invalid");
+			if (signal?.aborted || controller.signal.aborted) fail$7("cancelled");
 			sent = true;
 			const response = await fetchImpl(PRESET.endpoint, {
 				method: "POST",
@@ -2074,7 +2127,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 				body,
 				signal: controller.signal
 			});
-			if (!response.ok) fail$6(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
+			if (!response.ok) fail$7(response.status === 401 || response.status === 403 ? "authentication_failed" : response.status === 429 ? "rate_limited" : "provider_failed");
 			return normalizeResponse(await readBounded(response), tools);
 		})(), timedOut]);
 	} catch (error) {
@@ -2084,7 +2137,7 @@ async function callBrowserModel({ key, getCredential, messages, tools = [], tool
 			status: "unknown"
 		});
 		if (error instanceof BrowserModelError) throw error;
-		fail$6(signal?.aborted ? "cancelled" : "network_or_cors");
+		fail$7(signal?.aborted ? "cancelled" : "network_or_cors");
 	} finally {
 		clearTimeout(timeout);
 		signal?.removeEventListener("abort", abort);
@@ -2125,7 +2178,7 @@ async function probeBrowserModel(options = {}) {
 			function: { name: "read_fixture" }
 		}
 	})).choices[0].message;
-	if (assistant.tool_calls?.length !== 1) fail$6("probe_incompatible");
+	if (assistant.tool_calls?.length !== 1) fail$7("probe_incompatible");
 	const final = await callBrowserModel({
 		...options,
 		maxOutputTokens: 128,
@@ -2141,7 +2194,7 @@ async function probeBrowserModel(options = {}) {
 			}
 		]
 	});
-	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$6("probe_incompatible");
+	if (final.choices[0].finish_reason !== "stop" || final.choices[0].message.content?.trim() !== "OK") fail$7("probe_incompatible");
 	return {
 		provider_id: PRESET.provider_id,
 		model: PRESET.model,
@@ -2339,7 +2392,7 @@ var _tmpl$2$40 = /*#__PURE__*/ template(`<p role=alert>`);
 var _tmpl$3$32 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$4$29 = /*#__PURE__*/ template(`<form><label><input type=password autocomplete=off></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
 var _tmpl$5$28 = /*#__PURE__*/ template(`<p role=status> `);
-var _tmpl$6$20 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
+var _tmpl$6$21 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
 var _tmpl$7$16 = /*#__PURE__*/ template(`<p>: <!>/8 · <!>/131072`);
 var _tmpl$8$11 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
 var _tmpl$9$9 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button>`);
@@ -2527,7 +2580,7 @@ function BrowserModelConnectionPanel(props) {
 						return _el$13;
 					})(),
 					(() => {
-						var _el$15 = _tmpl$6$20(), _el$16 = _el$15.firstChild, _el$19 = _el$16.nextSibling, _el$20 = _el$19.nextSibling.nextSibling;
+						var _el$15 = _tmpl$6$21(), _el$16 = _el$15.firstChild, _el$19 = _el$16.nextSibling, _el$20 = _el$19.nextSibling.nextSibling;
 						_el$20.nextSibling;
 						insert(_el$15, () => tr("已占用检查次数 / token 预留", "Check calls used / tokens reserved"), _el$16);
 						insert(_el$15, () => snapshot()?.probeCallsReserved ?? snapshot()?.callsReserved, _el$19);
@@ -3039,11 +3092,11 @@ var BrowserParticipantError = class extends Error {
 		this.diagnostic = safe;
 	}
 };
-var fail$5 = (code, diagnostic) => {
+var fail$6 = (code, diagnostic) => {
 	throw new BrowserParticipantError(code, diagnostic);
 };
 var json$1 = JSON.stringify;
-var clone$1 = (value) => JSON.parse(json$1(value));
+var clone$2 = (value) => JSON.parse(json$1(value));
 var hex$4 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 var DOMAIN$1 = "game_participant_register_v1";
 var OWNER_VIEW = "/v1/world/participant-owner-view";
@@ -3057,7 +3110,7 @@ var routes = /* @__PURE__ */ new Set([
 	"/entry-executor/control"
 ]);
 async function boundedText(response, maximum) {
-	if (!response.body?.getReader) fail$5("participant_response_invalid");
+	if (!response.body?.getReader) fail$6("participant_response_invalid");
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder("utf-8", { fatal: true });
 	let text = "", size = 0;
@@ -3066,7 +3119,7 @@ async function boundedText(response, maximum) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > maximum) fail$5("participant_response_limit");
+			if (size > maximum) fail$6("participant_response_limit");
 			text += decoder.decode(value, { stream: true });
 		}
 		return text + decoder.decode();
@@ -3077,7 +3130,7 @@ async function boundedText(response, maximum) {
 	}
 }
 function createBrowserParticipantGateway({ config, accountId, fetchImpl = globalThis.fetch, signal } = {}) {
-	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$5("participant_configuration_invalid");
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || typeof accountId !== "string" || !accountId) fail$6("participant_configuration_invalid");
 	async function request(path, options = {}, deadline = Date.now() + 3e4, callSignal) {
 		const stage = {
 			"/entry/discovery": "participant_discovery",
@@ -3090,17 +3143,17 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 			"/entry-executor/control": "executor_control"
 		}[path];
 		const signals = [signal, callSignal].filter(Boolean);
-		if (signals.some((item) => item.aborted)) fail$5("participant_stopped");
-		if (Date.now() >= deadline) fail$5("participant_request_timeout");
+		if (signals.some((item) => item.aborted)) fail$6("participant_stopped");
+		if (Date.now() >= deadline) fail$6("participant_request_timeout");
 		const controller = new AbortController();
 		let timer;
 		const removers = [];
 		const stopped = () => {
-			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$5("participant_stopped");
+			if (signals.some((item) => item.aborted) || controller.signal.aborted) fail$6("participant_stopped");
 		};
 		try {
 			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
-			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$5("participant_request_limit");
+			if (options.body !== void 0 && (typeof options.body !== "string" || new TextEncoder().encode(options.body).byteLength > maximum)) fail$6("participant_request_limit");
 			const cancelled = new Promise((_resolve, reject) => {
 				timer = setTimeout(() => {
 					controller.abort();
@@ -3123,7 +3176,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					await beforeSend();
 					stopped();
 				}
-				if (Date.now() >= deadline) fail$5("participant_request_timeout");
+				if (Date.now() >= deadline) fail$6("participant_request_timeout");
 				let response;
 				try {
 					response = await fetchImpl(`${config.endpoint}${path}`, {
@@ -3137,7 +3190,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 					});
 				} catch {
 					stopped();
-					fail$5("participant_network_failed", { stage });
+					fail$6("participant_network_failed", { stage });
 				}
 				stopped();
 				if (!response.ok) {
@@ -3146,14 +3199,14 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 						value = JSON.parse(await boundedText(response, 4096));
 					} catch {}
 					stopped();
-					fail$5("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
+					fail$6("participant_request_failed", gatewayFailureDiagnostic(value, response.status, stage));
 				}
 				const declared = response.headers?.get?.("content-length");
-				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$5("participant_response_limit");
+				if (declared !== null && declared !== void 0 && (!/^[0-9]+$/.test(declared) || Number(declared) > maximum)) fail$6("participant_response_limit");
 				const raw = await boundedText(response, maximum);
 				stopped();
 				const status = JSON.parse(raw);
-				if (status.api_version !== 2 || status.ok !== true) fail$5("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
+				if (status.api_version !== 2 || status.ok !== true) fail$6("participant_request_failed", gatewayFailureDiagnostic(status, response.status, stage));
 				return raw;
 			})();
 			return await Promise.race([operation, cancelled]);
@@ -3168,7 +3221,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 				});
 				throw error;
 			}
-			fail$5("participant_response_unknown", { stage });
+			fail$6("participant_response_unknown", { stage });
 		} finally {
 			clearTimeout(timer);
 			for (const remove of removers) remove();
@@ -3178,21 +3231,21 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 		discover: () => request("/entry/discovery"),
 		async gatewayCall(path, body, { rawBody, beforeSend, signal: callSignal } = {}) {
 			const deadline = Date.now() + 3e4;
-			if (!routes.has(path)) fail$5("participant_route_forbidden");
-			if (signal?.aborted || callSignal?.aborted) fail$5("participant_stopped");
-			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$5("participant_request_invalid");
+			if (!routes.has(path)) fail$6("participant_route_forbidden");
+			if (signal?.aborted || callSignal?.aborted) fail$6("participant_stopped");
+			if (beforeSend !== void 0 && typeof beforeSend !== "function") fail$6("participant_request_invalid");
 			let encodedBody;
 			try {
 				encodedBody = rawBody ?? json$1(body);
 			} catch {
-				fail$5("participant_request_invalid");
+				fail$6("participant_request_invalid");
 			}
-			if (typeof encodedBody !== "string") fail$5("participant_request_invalid");
+			if (typeof encodedBody !== "string") fail$6("participant_request_invalid");
 			const maximum = path === "/entry-executor/control" ? 4194304 : 65536;
-			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$5("participant_request_limit");
+			if (new TextEncoder().encode(encodedBody).byteLength > maximum) fail$6("participant_request_limit");
 			const session = JSON.parse(await request("/session", {}, deadline, callSignal));
-			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$5("participant_account_changed");
-			if (rawBody !== void 0 && typeof rawBody !== "string") fail$5("participant_request_invalid");
+			if (session.account?.account_id !== accountId || session.authentication?.state !== "authenticated" || !/^[0-9a-fA-F]{64}$/.test(session.csrf_token ?? "")) fail$6("participant_account_changed");
+			if (rawBody !== void 0 && typeof rawBody !== "string") fail$6("participant_request_invalid");
 			return request(path, {
 				method: "POST",
 				headers: {
@@ -3207,7 +3260,7 @@ function createBrowserParticipantGateway({ config, accountId, fetchImpl = global
 }
 function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, agentId, indexedDB, storage, locks = globalThis.navigator?.locks, fetchImpl = globalThis.fetch, cryptoImpl = globalThis.crypto, signal, isCurrent = () => true } = {}) {
 	const namespace = config?.identity;
-	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$5("participant_configuration_invalid");
+	if (!config?.world?.world_id || !config?.world?.genesis_digest || !/^[0-9a-f]{64}$/.test(config?.servicePublicKey ?? "") || !namespace?.service_id || !namespace?.environment_id || !/^[0-9]+$/.test(namespace?.instance_epoch ?? "") || !/^[0-9a-f]{64}$/.test(config?.participantIssuerPublicKey ?? "") || !/^[0-9a-f]{64}$/.test(ownerSigner?.publicKeyHex ?? "") || typeof ownerSigner?.sign !== "function" || typeof codec?.verifyGatewayResponse !== "function") fail$6("participant_configuration_invalid");
 	const scopeKey = browserIdentityScope({
 		worldId: config.world.world_id,
 		genesisDigest: config.world.genesis_digest,
@@ -3217,7 +3270,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 	const key = `participant:${scopeKey}:${ownerSigner.publicKeyHex}`;
 	let canonicalAgentId = agentId;
 	const active = () => {
-		if (signal?.aborted || !isCurrent()) fail$5("participant_stopped");
+		if (signal?.aborted || !isCurrent()) fail$6("participant_stopped");
 	};
 	const database = storage ?? createBrowserGameDatabase(indexedDB);
 	const transport = createBrowserParticipantGateway({
@@ -3231,7 +3284,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			return codec.build(kind, json$1(value));
 		} catch {
-			fail$5("participant_proof_invalid");
+			fail$6("participant_proof_invalid");
 		}
 	}
 	function field(raw, path) {
@@ -3244,27 +3297,27 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			return codec.validate(kind, typeof request === "string" ? request : json$1(request), raw);
 		} catch {
-			fail$5("participant_proof_invalid");
+			fail$6("participant_proof_invalid");
 		}
 	}
 	function check(record) {
 		if (record === void 0) return null;
-		if (![1, 2].includes(record?.schema) || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$5("participant_storage_corrupt");
+		if (![1, 2].includes(record?.schema) || record.scopeKey !== scopeKey || record.ownerPublicKey !== ownerSigner.publicKeyHex || !record.owner || typeof record.sent !== "boolean") fail$6("participant_storage_corrupt");
 		if (record.schema === 2 && record.registrationSendState !== void 0) {
-			if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState) || record.registrationSendState === "not_sent" !== (record.sent === false) || record.registrationSendState === "not_sent" && (record.receiptRaw || record.registrationTerminalReply || record.registrationPhase !== void 0 && record.registrationPhase !== "prepared_unsent")) fail$5("participant_storage_corrupt");
+			if (!record.registrationRaw || !["not_sent", "may_have_sent"].includes(record.registrationSendState) || record.registrationSendState === "not_sent" !== (record.sent === false) || record.registrationSendState === "not_sent" && (record.receiptRaw || record.registrationTerminalReply || record.registrationPhase !== void 0 && record.registrationPhase !== "prepared_unsent")) fail$6("participant_storage_corrupt");
 		}
 		const r = record.owner.request;
-		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$5("participant_storage_corrupt");
-		if (record.registrationPhase !== void 0 && !deliveryPhases.has(record.registrationPhase)) fail$5("participant_storage_corrupt");
+		if (r?.account_id !== accountId || r.owner_public_key !== ownerSigner.publicKeyHex || r.world_id !== config.world.world_id || r.genesis_digest !== config.world.genesis_digest || r.identity_namespace?.service_id !== namespace.service_id || r.identity_namespace?.environment_id !== namespace.environment_id || r.identity_namespace?.instance_epoch !== namespace.instance_epoch || record.owner.subject_public_key !== ownerSigner.publicKeyHex) fail$6("participant_storage_corrupt");
+		if (record.registrationPhase !== void 0 && !deliveryPhases.has(record.registrationPhase)) fail$6("participant_storage_corrupt");
 		return record;
 	}
 	async function update(mutate) {
-		if (typeof locks?.request !== "function") fail$5("participant_locks_unavailable");
+		if (typeof locks?.request !== "function") fail$6("participant_locks_unavailable");
 		try {
 			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (stored) => mutate(check(stored))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$5("participant_storage_failed");
+			fail$6("participant_storage_failed");
 		}
 	}
 	async function load() {
@@ -3272,19 +3325,19 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			return check(await database.get(key));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$5("participant_storage_failed");
+			fail$6("participant_storage_failed");
 		}
 	}
 	async function discover() {
 		const discovery = JSON.parse(await transport.discover());
-		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$5("participant_discovery_mismatch");
+		if (discovery.schema_revision !== 1 || discovery.world?.world_id !== config.world.world_id || discovery.world?.genesis_digest !== config.world.genesis_digest || discovery.world_service_public_key !== config.servicePublicKey || discovery.identity?.service_id !== namespace.service_id || discovery.identity?.environment_id !== namespace.environment_id || discovery.identity?.instance_epoch !== namespace.instance_epoch || discovery.participant_policy?.policy?.issuer_public_key !== config.participantIssuerPublicKey || discovery.phase_capabilities?.participant_recovery !== true) fail$6("participant_discovery_mismatch");
 		return discovery;
 	}
 	async function authorize(owner) {
 		active();
 		const raw = await transport.gatewayCall("/participant/authorize", owner);
 		const reply = JSON.parse(raw);
-		if (reply.phase !== "participant_authorized") fail$5("participant_authorization_failed");
+		if (reply.phase !== "participant_authorized") fail$6("participant_authorization_failed");
 		const admissionRaw = field(raw, ["admission"]);
 		validate("participant_admission", {
 			owner,
@@ -3300,7 +3353,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const readRequest = {
 			contract_version: 1,
 			observation_nonce: hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(32))),
-			world: clone$1(config.world),
+			world: clone$2(config.world),
 			scope_id: `agent:${canonicalAgentId}`,
 			min_commit: null,
 			fixed_commit: null,
@@ -3315,7 +3368,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 				signature_hex: hex$4(await ownerSigner.sign(codec.signingBytes(VIEW$1, json$1(readRequest))))
 			};
 		} catch {
-			fail$5("participant_signing_failed");
+			fail$6("participant_signing_failed");
 		}
 		active();
 		const access = {
@@ -3325,9 +3378,9 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			response_profile: "owner_control_v1"
 		};
 		await update((current) => {
-			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$5("participant_original_conflict");
-			current.admission = clone$1(authorized.admission);
-			current.ownerRead = clone$1(access);
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$6("participant_original_conflict");
+			current.admission = clone$2(authorized.admission);
+			current.ownerRead = clone$2(access);
 			return current;
 		});
 		const reply = await transport.gatewayCall("/participant/owner-view", access);
@@ -3335,7 +3388,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			raw = codec.verifyGatewayResponse(OWNER_VIEW, json$1(access), reply, config.servicePublicKey);
 		} catch {
-			fail$5("participant_binding_required");
+			fail$6("participant_binding_required");
 		}
 		validate("owner_control", access, raw);
 		if (decoded(field(raw, [
@@ -3346,15 +3399,15 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			"view",
 			"canonical_agent_owner",
 			"public_key"
-		])) !== ownerSigner.publicKeyHex) fail$5("participant_binding_required");
+		])) !== ownerSigner.publicKeyHex) fail$6("participant_binding_required");
 		await update((current) => {
-			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$5("participant_original_conflict");
+			if (!current || json$1(current.owner) !== json$1(record.owner)) fail$6("participant_original_conflict");
 			current.ownerControlRaw = raw;
 			current.agentId = canonicalAgentId;
 			return current;
 		});
 		return {
-			owner: clone$1(record.owner),
+			owner: clone$2(record.owner),
 			admission: authorized.admission,
 			ownerControl: { rawJson: raw }
 		};
@@ -3365,7 +3418,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			const request = {
 				api_rev: 1,
 				client_operation_id: `browser-participant-${hex$4(cryptoImpl.getRandomValues(/* @__PURE__ */ new Uint8Array(16)))}`,
-				identity_namespace: clone$1(namespace),
+				identity_namespace: clone$2(namespace),
 				account_id: accountId,
 				world_id: config.world.world_id,
 				genesis_digest: config.world.genesis_digest,
@@ -3380,7 +3433,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 					signature_hex: hex$4(await ownerSigner.sign(codec.signingBytes(DOMAIN$1, json$1(request))))
 				};
 			} catch {
-				fail$5("participant_signing_failed");
+				fail$6("participant_signing_failed");
 			}
 			active();
 			record = await update((current) => current ?? {
@@ -3394,7 +3447,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		if (!canonicalAgentId) try {
 			canonicalAgentId = decoded(codec.build("participant_agent_id", json$1(record.owner.request)));
 		} catch {
-			fail$5("participant_proof_invalid");
+			fail$6("participant_proof_invalid");
 		}
 		return record;
 	}
@@ -3403,21 +3456,21 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		try {
 			raw = codec.verifyGatewayResponse(domain, requestRaw, responseRaw, config.servicePublicKey);
 		} catch {
-			fail$5("participant_response_unknown");
+			fail$6("participant_response_unknown");
 		}
 		return validate(kind, validationRequest, raw);
 	}
 	const isUnsent = (record) => record?.schema === 2 && record.registrationSendState === "not_sent" && record.sent === false && record.registrationPhase === "prepared_unsent" && !record.registrationTerminalReply;
 	function registrationMaterial(record) {
 		const originalRaw = record.registrationRaw;
-		if (!originalRaw) fail$5("participant_original_missing");
+		if (!originalRaw) fail$6("participant_original_missing");
 		const payloadRaw = field(originalRaw, ["signed_payload"]);
-		if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail$5("participant_original_conflict");
+		if (decoded(field(payloadRaw, ["kind"])) !== "game_participant_register") fail$6("participant_original_conflict");
 		const correlationRaw = build("correlation", {
 			world: config.world,
 			payload_json: payloadRaw
 		});
-		if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail$5("participant_original_conflict");
+		if (field(correlationRaw, []) !== field(originalRaw, ["correlation"])) fail$6("participant_original_conflict");
 		return {
 			originalRaw,
 			correlationRaw,
@@ -3429,7 +3482,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const { lookupRaw, correlationRaw } = registrationMaterial(record);
 		const raw = verified("/v1/world/lookup", lookupRaw, record.registrationTerminalReply, "lookup", correlationRaw);
 		const status = decoded(field(raw, ["outcome", "status"]));
-		if (!terminalDisposition(status)) fail$5("participant_storage_corrupt");
+		if (!terminalDisposition(status)) fail$6("participant_storage_corrupt");
 		return status;
 	}
 	async function registrationLookup(record) {
@@ -3437,10 +3490,10 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const response = await transport.gatewayCall("/participant/lookup", null, { rawBody: lookupRaw });
 		const candidate = verified("/v1/world/lookup", lookupRaw, response, "lookup", correlationRaw);
 		const winner = await update((current) => {
-			if (!current || current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			if (!current || current.registrationRaw !== originalRaw) fail$6("participant_original_conflict");
 			const raw = current.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, current.registrationTerminalReply, "lookup", correlationRaw) : candidate;
 			const state = decoded(field(raw, ["outcome", "status"]));
-			if (current.registrationTerminalReply && !terminalDisposition(state)) fail$5("participant_storage_corrupt");
+			if (current.registrationTerminalReply && !terminalDisposition(state)) fail$6("participant_storage_corrupt");
 			if (!current.registrationTerminalReply && terminalDisposition(state)) current.registrationTerminalReply = response;
 			current.registrationObservation = {
 				logicalOperation: current.owner.request.client_operation_id,
@@ -3457,18 +3510,18 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		const raw = winner.registrationTerminalReply ? verified("/v1/world/lookup", lookupRaw, winner.registrationTerminalReply, "lookup", correlationRaw) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
-			if (["rejected", "expired"].includes(state)) fail$5(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
-			fail$5("participant_registration_pending", {
+			if (["rejected", "expired"].includes(state)) fail$6(state === "expired" ? "participant_registration_expired" : "participant_registration_rejected");
+			fail$6("participant_registration_pending", {
 				outcome: state,
 				stage: "participant_lookup"
 			});
 		}
 		validate("participant_receipt", record.owner.request, raw);
 		const receipt = decoded(field(raw, ["outcome", "receipt"]));
-		if (receipt.owner_public_key !== ownerSigner.publicKeyHex || receipt.account_id !== accountId) fail$5("participant_owner_mismatch");
+		if (receipt.owner_public_key !== ownerSigner.publicKeyHex || receipt.account_id !== accountId) fail$6("participant_owner_mismatch");
 		canonicalAgentId = receipt.agent_id;
 		await update((current) => {
-			if (current.registrationRaw !== originalRaw) fail$5("participant_original_conflict");
+			if (current.registrationRaw !== originalRaw) fail$6("participant_original_conflict");
 			current.receiptRaw = raw;
 			current.agentId = canonicalAgentId;
 			return current;
@@ -3520,12 +3573,12 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 	}
 	async function registerParticipant(consent, { continueOriginal = false } = {}) {
-		if (consent !== true) fail$5("participant_consent_required");
+		if (consent !== true) fail$6("participant_consent_required");
 		active();
 		await discover();
 		let record = continueOriginal ? await load() : await ensureOwner();
 		active();
-		if (continueOriginal && !record?.registrationRaw) fail$5("participant_original_missing");
+		if (continueOriginal && !record?.registrationRaw) fail$6("participant_original_missing");
 		let created = false;
 		if (!record.registrationRaw) {
 			const authorized = await authorize(record.owner);
@@ -3568,7 +3621,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 					beforeSend: async () => {
 						active();
 						await update((current) => {
-							if (!current || current.registrationRaw !== originalRaw || !isUnsent(current)) fail$5("participant_original_conflict");
+							if (!current || current.registrationRaw !== originalRaw || !isUnsent(current)) fail$6("participant_original_conflict");
 							current.registrationSendState = "may_have_sent";
 							current.sent = true;
 							current.registrationPhase = "dispatch_may_have_started";
@@ -3581,8 +3634,8 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 		}
 		active();
 		record = await load();
-		if (!record?.registrationRaw) fail$5("participant_original_missing");
-		if (isUnsent(record)) fail$5("participant_original_not_sent");
+		if (!record?.registrationRaw) fail$6("participant_original_missing");
+		if (isUnsent(record)) fail$6("participant_original_not_sent");
 		await registrationLookup(record);
 		active();
 		return proofs(await load(), await authorize(record.owner));
@@ -3603,7 +3656,7 @@ function createBrowserParticipantEntry({ config, codec, ownerSigner, accountId, 
 			await discover();
 			const record = await load();
 			if (record?.agentId) canonicalAgentId = record.agentId;
-			if (!record?.owner) fail$5("participant_prepare_required");
+			if (!record?.owner) fail$6("participant_prepare_required");
 			return proofs(record, await authorize(record.owner));
 		}
 	};
@@ -3621,13 +3674,13 @@ var BrowserGameError = class extends Error {
 		this.diagnostic = safe;
 	}
 };
-var fail$4 = (code, diagnostic) => {
+var fail$5 = (code, diagnostic) => {
 	throw new BrowserGameError(code, diagnostic);
 };
 var json = (value) => JSON.stringify(value);
 var copy$1 = (value) => JSON.parse(json(value));
 var hex$3 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-var same$2 = (a, b) => json(a) === json(b);
+var same$3 = (a, b) => json(a) === json(b);
 var WORLD_PATHS = Object.freeze({
 	describe: "/v1/world/describe",
 	owner: "/v1/world/participant-owner-view",
@@ -3646,7 +3699,7 @@ var terminal = (status) => [
 	"expired"
 ].includes(status);
 function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, participantProofs, agentId, taskId, recovery, fetchImpl = globalThis.fetch, gatewayCall, cryptoImpl = globalThis.crypto, signal, beforeEffect = async () => {} } = {}) {
-	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$4("game_configuration_invalid");
+	if (config?.endpoint !== "/api/public/hosted-account/v2" || !/^[a-f0-9]{64}$/.test(config?.servicePublicKey ?? "") || !config?.world?.world_id || !config?.world?.genesis_digest || !agentId || !codec || !ownerSigner || !executorSigner || !recovery) fail$5("game_configuration_invalid");
 	const world = copy$1(config.world), serviceKey = config.servicePublicKey;
 	let boundFence = null;
 	const rawValues = /* @__PURE__ */ new WeakMap();
@@ -3675,18 +3728,18 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		try {
 			return decoded(codec.build(kind, json(value)));
 		} catch {
-			fail$4("game_proof_invalid");
+			fail$5("game_proof_invalid");
 		}
 	}
 	function validate(kind, request, payload) {
 		try {
 			return decoded(codec.validate(kind, json(request), json(payload)));
 		} catch {
-			fail$4("game_proof_invalid");
+			fail$5("game_proof_invalid");
 		}
 	}
 	async function sign(domain, request, signer = executorSigner) {
-		if (signal?.aborted) fail$4("stopped");
+		if (signal?.aborted) fail$5("stopped");
 		try {
 			return {
 				request,
@@ -3694,12 +3747,12 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				signature_hex: hex$3(await signer.sign(codec.signingBytes(domain, json(request))))
 			};
 		} catch {
-			fail$4("game_signing_failed");
+			fail$5("game_signing_failed");
 		}
 	}
 	async function ownerAccess() {
 		const proofs = typeof participantProofs === "function" ? await participantProofs() : participantProofs;
-		if (!proofs?.owner || !proofs?.admission) fail$4("participant_proofs_required");
+		if (!proofs?.owner || !proofs?.admission) fail$5("participant_proofs_required");
 		return {
 			owner: proofs.owner,
 			admission: proofs.admission,
@@ -3727,7 +3780,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			};
 		}
 		const accessFence = boundFence ?? ([WORLD_PATHS.prepare, WORLD_PATHS.snapshot].includes(path) ? wire.request?.fence : null);
-		if (!accessFence) fail$4("executor_not_bound");
+		if (!accessFence) fail$5("executor_not_bound");
 		const kinds = {
 			[WORLD_PATHS.describe]: "describe",
 			[WORLD_PATHS.view]: "read_view",
@@ -3739,7 +3792,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			[WORLD_PATHS.recipe]: "recipe_quote",
 			[WORLD_PATHS.factory]: "factory_quote"
 		};
-		if (!kinds[path]) fail$4("game_route_unsupported");
+		if (!kinds[path]) fail$5("game_route_unsupported");
 		return {
 			path: "/entry-executor/control",
 			body: {
@@ -3755,7 +3808,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		};
 	}
 	async function call(path, wire, digestRequest, kind, validationRequest, mutationGate) {
-		if (signal?.aborted) fail$4("stopped");
+		if (signal?.aborted) fail$5("stopped");
 		let response;
 		try {
 			const gateway = await gatewayEnvelope(path, wire);
@@ -3777,9 +3830,9 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					signal
 				});
 				const csrf = (await cap.json())?.csrf_token;
-				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$4("authentication_required");
+				if (!cap.ok || typeof csrf !== "string" || !csrf) fail$5("authentication_required");
 				await mutationGate?.();
-				if (signal?.aborted) fail$4("stopped");
+				if (signal?.aborted) fail$5("stopped");
 				response = await fetchImpl(`${config.endpoint}${gateway.path}`, {
 					method: "POST",
 					credentials: "same-origin",
@@ -3794,8 +3847,8 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					body: json(gateway.body),
 					signal
 				});
-				if (!response.ok) fail$4("game_request_failed");
-				if (!response.body?.getReader) fail$4("game_response_invalid");
+				if (!response.ok) fail$5("game_request_failed");
+				if (!response.body?.getReader) fail$5("game_response_invalid");
 				const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
 				let text = "", size = 0;
 				try {
@@ -3803,7 +3856,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 						const { value, done } = await reader.read();
 						if (done) break;
 						size += value.byteLength;
-						if (size > 2097152) fail$4("game_response_limit");
+						if (size > 2097152) fail$5("game_response_limit");
 						text += decoder.decode(value, { stream: true });
 					}
 					text += decoder.decode();
@@ -3815,7 +3868,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				signed = text;
 			}
 			const payload = validate(kind, validationRequest, decoded(codec.verifyGatewayResponse(path, json(digestRequest), signed, serviceKey)));
-			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$4("unsupported_world_evidence");
+			if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail$5("unsupported_world_evidence");
 			for (const nestedPath of [
 				["identity"],
 				["prepared"],
@@ -3835,7 +3888,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		} catch (error) {
 			if (error instanceof BrowserGameError) throw error;
 			if (error instanceof BrowserParticipantError) throw new BrowserGameError(error.code, error.diagnostic);
-			fail$4("game_response_invalid");
+			fail$5("game_response_invalid");
 		}
 	}
 	const readRequest = () => ({
@@ -3860,7 +3913,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		const request = await ownerAccess();
 		const result = await call(WORLD_PATHS.owner, request, request, "owner_control", request);
 		const task = field(result, ["view", "game_task_control"]);
-		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$4("task_unavailable");
+		if (!task || taskId && task.task_id !== taskId || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail$5("task_unavailable");
 		const fence = build("fence", task);
 		validate("fence", null, fence);
 		return {
@@ -3874,13 +3927,13 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function freshFence({ allowUnbound = false } = {}) {
 		const current = await readTask();
-		if (boundFence && !same$2(boundFence, current.fence)) fail$4("task_fence_changed");
-		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$4("executor_not_bound");
+		if (boundFence && !same$3(boundFence, current.fence)) fail$5("task_fence_changed");
+		if (!allowUnbound && (current.fence.task_status !== "active" || current.fence.executor_binding?.executor_public_key !== executorSigner.publicKeyHex)) fail$5("executor_not_bound");
 		return current;
 	}
 	async function bindFence(fence) {
 		validate("fence", null, fence);
-		if (!same$2((await freshFence()).fence, fence)) fail$4("task_fence_changed");
+		if (!same$3((await freshFence()).fence, fence)) fail$5("task_fence_changed");
 		boundFence = copy$1(fence);
 		return copy$1(boundFence);
 	}
@@ -3928,7 +3981,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			world,
 			payload_json: json(payload)
 		});
-		if (!same$2(expected, submitted.correlation)) fail$4("original_correlation_invalid");
+		if (!same$3(expected, submitted.correlation)) fail$5("original_correlation_invalid");
 		const request = {
 			request: {
 				contract_version: 1,
@@ -3949,7 +4002,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect);
 		} catch (error) {
 			const detail = browserGameDiagnostic(error, "game_session");
-			fail$4("operation_unknown", {
+			fail$5("operation_unknown", {
 				...detail,
 				causeCode: detail.code
 			});
@@ -4000,14 +4053,14 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function retireExpiredContexts() {
 		const loaded = await recovery.load();
-		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$4("recovery_required");
+		if (loaded.operations.some((entry) => !terminal(entry.state))) fail$5("recovery_required");
 		let retired = 0;
 		for (const entry of loaded.operations) {
 			if (entry.original.kind !== "prefix" || entry.state !== "committed") continue;
 			const operationId = entry.original.operationId.replace(/:prefix$/, "");
 			const action = await find(operationId, "action"), priorOutcome = await find(operationId, "outcome");
 			if (action || priorOutcome) continue;
-			if ((await lookup(entry.original)).state !== "committed") fail$4("recovery_required");
+			if ((await lookup(entry.original)).state !== "committed") fail$5("recovery_required");
 			const identity = field(decoded(entry.original.signedRequest.rawJson), [
 				"signed_payload",
 				"payload",
@@ -4017,18 +4070,18 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				"context"
 			]);
 			const current = await freshFence();
-			if (!same$2(current.fence, identity.fence)) fail$4("task_fence_changed");
-			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$4("context_not_expired");
+			if (!same$3(current.fence, identity.fence)) fail$5("task_fence_changed");
+			if (BigInt(current.logicalTick) <= BigInt(identity.valid_until_tick)) fail$5("context_not_expired");
 			const view = await publicView();
 			const request = build("retire_context", {
 				context_json: json(identity),
 				view_json: json(view)
 			});
-			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$4("original_result_requires_recovery");
+			if (await find(operationId, "action") || await find(operationId, "outcome")) fail$5("original_result_requires_recovery");
 			if ((await submit(operationId, "outcome", {
 				kind: "scheduler",
 				payload: await sign("scheduler", request)
-			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$4("operation_pending");
+			}, identity, entry.original.runBudget)).outcome.status !== "committed") fail$5("operation_pending");
 			retired += 1;
 		}
 		return { retired };
@@ -4036,7 +4089,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	async function prepareContext(operationId, runBudget = null) {
 		const prior = await find(operationId, "prepare");
 		if (prior) return (await lookup(prior)).prepared;
-		if (await hasUnresolved()) fail$4("recovery_required");
+		if (await hasUnresolved()) fail$5("recovery_required");
 		const { fence } = await freshFence();
 		const proof = await sign(WORLD_PATHS.prepare, {
 			authority_mode: "native_executor_v1",
@@ -4059,7 +4112,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 			kind: "scheduler",
 			payload: await sign("scheduler", build("prefix", prepared))
 		}, prepared.identity, runBudget);
-		if (result.outcome.status !== "committed") fail$4(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
+		if (result.outcome.status !== "committed") fail$5(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
 		return readContext(operationId, prepared.identity);
 	}
 	async function contextProof(operationId, identity) {
@@ -4077,7 +4130,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	async function quote(operationId, captured, kind, selection) {
 		await freshFence();
 		const current = await readContext(operationId, captured.prepared.identity);
-		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$4("unsupported_tool");
+		const path = kind === "schedule" ? WORLD_PATHS.recipe : kind === "build" ? WORLD_PATHS.factory : fail$5("unsupported_tool");
 		const proof = await sign(path, {
 			schema_revision: 1,
 			context_proof: await contextProof(operationId, captured.prepared.identity),
@@ -4122,7 +4175,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}, captured.prepared.identity, runBudget);
 	}
 	async function outcome(operationId, captured, reason, runBudget = null) {
-		if (await find(operationId, "action")) fail$4("original_action_requires_recovery");
+		if (await find(operationId, "action")) fail$5("original_action_requires_recovery");
 		await freshFence();
 		return submit(operationId, "outcome", {
 			kind: "scheduler",
@@ -4133,20 +4186,20 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		}, captured.prepared.identity, runBudget);
 	}
 	async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
-		if (!confirmedFence) fail$4("run_confirmation_required");
-		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$4("delegation_revision_required");
+		if (!confirmedFence) fail$5("run_confirmation_required");
+		if (![generation, delegationNonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$5("delegation_revision_required");
 		await recover();
-		if (await hasUnresolved()) fail$4("recovery_required");
+		if (await hasUnresolved()) fail$5("recovery_required");
 		const f = (await freshFence({ allowUnbound: true })).fence;
-		if (!same$2(f, confirmedFence)) fail$4("task_fence_changed");
+		if (!same$3(f, confirmedFence)) fail$5("task_fence_changed");
 		const ownerGeneration = Number(f.owner_generation);
-		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$4("delegation_revision_unsupported");
+		if (!Number.isSafeInteger(ownerGeneration) || ownerGeneration <= 0) fail$5("delegation_revision_unsupported");
 		const prior = await find(operationId, "delegation");
 		let delegationPayload, effectiveGeneration = generation;
 		if (prior) {
 			delegationPayload = field(decoded(prior.signedRequest.rawJson), ["signed_payload"]);
 			const proof = delegationPayload.payload, request = proof?.request;
-			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$4("delegation_original_mismatch");
+			if (delegationPayload.kind !== "delegation" || proof?.subject_public_key !== ownerSigner.publicKeyHex || request?.world_id !== world.world_id || request.branch_id !== f.branch_id || request.agent_id !== agentId || request.owner_binding !== f.owner_binding || request.agent_identity_generation !== ownerGeneration || request.delegate_public_key !== executorSigner.publicKeyHex || request.revoked !== false || ![request.generation, request.nonce].every((value) => Number.isSafeInteger(value) && value > 0)) fail$5("delegation_original_mismatch");
 			effectiveGeneration = request.generation;
 		} else delegationPayload = {
 			kind: "delegation",
@@ -4162,9 +4215,9 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 				nonce: delegationNonce
 			}, ownerSigner)
 		};
-		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$4("delegation_not_committed");
+		if ((await submit(operationId, "delegation", delegationPayload)).outcome.status !== "committed") fail$5("delegation_not_committed");
 		const next = await readTask();
-		if (!same$2(next.fence, f)) fail$4("task_fence_changed");
+		if (!same$3(next.fence, f)) fail$5("task_fence_changed");
 		if ((await submit(operationId, "executor_bind", {
 			kind: "game_executor_control",
 			payload: await sign("game_executor_control/v1", {
@@ -4178,7 +4231,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 					delegation_generation: String(effectiveGeneration)
 				}
 			}, ownerSigner)
-		})).outcome.status !== "committed") fail$4("executor_not_bound");
+		})).outcome.status !== "committed") fail$5("executor_not_bound");
 		const confirmed = await freshFence();
 		await bindFence(confirmed.fence);
 		return confirmed;
@@ -4223,7 +4276,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	};
 }
 // software_safe_src/browser_agent_runner.js
-var fail$3 = (code) => {
+var fail$4 = (code) => {
 	throw new BrowserGameError(code);
 };
 var text$5 = {
@@ -4288,9 +4341,9 @@ var effects = /* @__PURE__ */ new Set([
 	"move",
 	"abort"
 ]);
-var same$1 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+var same$2 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, getCredential, budget, recovery, visibility = () => !globalThis.document?.hidden, online = () => globalThis.navigator?.onLine !== false, now = Date.now, onState = () => {} } = {}) {
-	if (!gameClient || !getCredential || !budget && !recovery) fail$3("runner_configuration_invalid");
+	if (!gameClient || !getCredential || !budget && !recovery) fail$4("runner_configuration_invalid");
 	let status = {
 		phase: "idle",
 		code: null
@@ -4304,10 +4357,10 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		onState({ ...status });
 	}
 	function assertActive(expected) {
-		if (!active || expected !== generation || controller?.signal.aborted) fail$3("stopped");
+		if (!active || expected !== generation || controller?.signal.aborted) fail$4("stopped");
 		if (!visibility() || !online()) {
 			stop("page_paused");
-			fail$3("page_paused");
+			fail$4("page_paused");
 		}
 	}
 	function stop(code = "stopped") {
@@ -4327,7 +4380,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		return !unresolved;
 	}
 	async function recover() {
-		if (active || starting) fail$3("already_running");
+		if (active || starting) fail$4("already_running");
 		starting = true;
 		const expected = ++generation;
 		try {
@@ -4345,8 +4398,8 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 		} : null)
 	};
 	async function start({ confirmedFence, runId, operationId } = {}) {
-		if (active || starting) fail$3("already_running");
-		if (!confirmedFence || !runId || !visibility() || !online()) fail$3("run_confirmation_required");
+		if (active || starting) fail$4("already_running");
+		if (!confirmedFence || !runId || !visibility() || !online()) fail$4("run_confirmation_required");
 		starting = true;
 		const expected = ++generation, started = now();
 		controller = new AbortController();
@@ -4355,7 +4408,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 			if (expected !== generation) return { ...status };
 			const current = await gameClient.freshFence();
 			if (expected !== generation) return { ...status };
-			if (!same$1(current.fence, confirmedFence)) fail$3("task_fence_changed");
+			if (!same$2(current.fence, confirmedFence)) fail$4("task_fence_changed");
 			await gameClient.bindFence(confirmedFence);
 			if (expected !== generation) return { ...status };
 			active = true;
@@ -4417,7 +4470,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 				assertActive(expected);
 				while (active) {
 					assertActive(expected);
-					if (now() - started >= 12e4) fail$3("run_time_limit");
+					if (now() - started >= 12e4) fail$4("run_time_limit");
 					await gameClient.freshFence();
 					assertActive(expected);
 					currentOperation = operationId ? `${operationId}:${step}` : `${runId}:context:${step}`;
@@ -4429,7 +4482,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 					const checkContext = async () => {
 						const control = await gameClient.freshFence();
 						assertActive(expected);
-						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$3("context_expired");
+						if (prepared.valid_until_tick !== void 0 && control.logicalTick !== void 0 && BigInt(control.logicalTick) > BigInt(prepared.valid_until_tick)) fail$4("context_expired");
 					};
 					const context = captured.current_public_context;
 					const messages = [{
@@ -4471,12 +4524,12 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 						assertActive(expected);
 						await checkContext();
 						const message = response.choices?.[0]?.message, calls = message?.tool_calls;
-						if (!Array.isArray(calls) || !calls.length) fail$3("model_tool_required");
+						if (!Array.isArray(calls) || !calls.length) fail$4("model_tool_required");
 						let effectCount = 0;
 						for (let i = 0; i < calls.length; i += 1) {
 							const name = calls[i].function?.name;
-							if (!names.has(name) || calls[i].type !== "function") fail$3("unsupported_tool");
-							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$3("effect_batch_invalid");
+							if (!names.has(name) || calls[i].type !== "function") fail$4("unsupported_tool");
+							if (effects.has(name) && (++effectCount > 1 || i !== calls.length - 1)) fail$4("effect_batch_invalid");
 						}
 						messages.push(message);
 						for (const call of calls) {
@@ -4486,7 +4539,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 							try {
 								args = JSON.parse(call.function.arguments);
 							} catch {
-								fail$3("tool_invalid");
+								fail$4("tool_invalid");
 							}
 							const name = call.function.name;
 							let value;
@@ -4513,13 +4566,13 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 								assertActive(expected);
 								value = result.quoted;
 								if (name === "build" || name === "schedule") {
-									if (!result.quoted.quote || result.quoted.quote.rejection) fail$3("quote_rejected");
+									if (!result.quoted.quote || result.quoted.quote.rejection) fail$4("quote_rejected");
 									assertActive(expected);
 									value = await gameClient.action(currentOperation, result.captured, result.quoted.quote.action, { runId });
 									completed = true;
 								}
 							} else if (name === "move") {
-								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$3("tool_invalid");
+								if (!Array.isArray(args.to) || args.to.length !== 3 || !args.to.every(Number.isSafeInteger)) fail$4("tool_invalid");
 								captured = await gameClient.readContext(currentOperation, captured.prepared.identity);
 								assertActive(expected);
 								value = await gameClient.action(currentOperation, captured, {
@@ -4588,7 +4641,7 @@ function createBrowserAgentRunner({ gameClient, modelCall = callBrowserModel, ge
 	};
 }
 // software_safe_src/viewer_model_connection_client.js
-var API$1 = "/v1/agent-client";
+var API$2 = "/v1/agent-client";
 var IDENTITY = "/api/public/hosted-account/v2/capabilities";
 var CODES = /* @__PURE__ */ new Set([
 	"authentication_required",
@@ -4728,7 +4781,7 @@ function createViewerModelConnectionClient({ fetch: fetchImpl = globalThis.fetch
 		}
 		let response;
 		try {
-			response = await fetchImpl(identity ? path : API$1 + path, {
+			response = await fetchImpl(identity ? path : API$2 + path, {
 				method,
 				credentials: "same-origin",
 				mode: "same-origin",
@@ -4919,12 +4972,12 @@ async function assertNoLegacyRun({ client = createViewerModelConnectionClient() 
 	}
 }
 // software_safe_src/browser_game_session.js
-var same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
-var fail$2 = (code) => {
+var same$1 = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+var fail$3 = (code) => {
 	throw new BrowserGameError(code);
 };
 function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isCurrent = () => true, locks = globalThis.navigator?.locks, documentRef = globalThis.document, windowRef = globalThis.window, navigatorRef = globalThis.navigator, now = Date.now, protocolLoader = loadBrowserGameProtocol, identityStore = createBrowserExecutorIdentity(), participantFactory = createBrowserParticipantEntry, clientFactory = createBrowserGameClient, recoveryFactory = createBrowserGameRecovery, runnerFactory = createBrowserAgentRunner, legacyGuard = assertNoLegacyRun, modelSession = createBrowserModelSession({ accountId }) } = {}) {
-	if (!config || !accountId || !agentId || !ownerSigner) fail$2("game_configuration_invalid");
+	if (!config || !accountId || !agentId || !ownerSigner) fail$3("game_configuration_invalid");
 	const listeners = /* @__PURE__ */ new Set();
 	let status = {
 		phase: "unprepared",
@@ -4963,18 +5016,18 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		notify();
 	});
 	function assertCurrent() {
-		if (disposed || !isCurrent()) fail$2("game_session_changed");
-		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$2("page_paused");
+		if (disposed || !isCurrent()) fail$3("game_session_changed");
+		if (documentRef?.visibilityState !== "visible" || navigatorRef?.onLine === false) fail$3("page_paused");
 		const current = now();
 		if (current < lastWall || current - lastWall > 1e4) {
 			stop("page_paused");
-			fail$2("page_paused");
+			fail$3("page_paused");
 		}
 		lastWall = current;
 	}
 	function check(expected, controller) {
 		assertCurrent();
-		if (expected !== generation || controller?.signal.aborted) fail$2("stopped");
+		if (expected !== generation || controller?.signal.aborted) fail$3("stopped");
 	}
 	function stop(code = "stopped") {
 		const stoppedGeneration = ++generation;
@@ -5009,8 +5062,8 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		lastWall = current;
 	}, 1e3);
 	async function prepare({ takeover = false, inspectOnly = false, confirmedFence } = {}) {
-		if (preparing || starting === generation || runner?.state().phase === "running") fail$2("already_running");
-		if (!inspectOnly && !confirmedFence) fail$2("run_confirmation_required");
+		if (preparing || starting === generation || runner?.state().phase === "running") fail$3("already_running");
+		if (!inspectOnly && !confirmedFence) fail$3("run_confirmation_required");
 		lastWall = now();
 		assertCurrent();
 		operationController?.abort();
@@ -5059,12 +5112,12 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				signal: controller.signal,
 				beforeEffect: async () => {
 					checked();
-					if (!registrationAllowed) fail$2("run_confirmation_required");
+					if (!registrationAllowed) fail$3("run_confirmation_required");
 				}
 			};
 			const readOnly = {
 				load: async () => ({ operations: [] }),
-				remember: async () => fail$2("task_scope_required")
+				remember: async () => fail$3("task_scope_required")
 			};
 			const observed = await clientFactory({
 				...dependencies,
@@ -5098,14 +5151,14 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				});
 				return { ...status };
 			}
-			if (!same(confirmedFence, observed.fence)) fail$2("task_fence_changed");
-			if (unknown) fail$2("recovery_required");
+			if (!same$1(confirmedFence, observed.fence)) fail$3("task_fence_changed");
+			if (unknown) fail$3("recovery_required");
 			await legacyGuard({ signal: controller.signal });
 			checked();
 			registrationAllowed = true;
 			const existing = observed.fence.executor_binding;
 			if (existing?.executor_public_key !== executorSigner.publicKeyHex) {
-				if (existing && !takeover) fail$2("executor_takeover_confirmation_required");
+				if (existing && !takeover) fail$3("executor_takeover_confirmation_required");
 				const operationId = codec.requestDigest("browser-executor-registration", JSON.stringify({
 					fence: observed.fence,
 					executor: executorSigner.publicKeyHex
@@ -5144,10 +5197,10 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 			let localRunner;
 			const runtimePermit = async () => {
 				checked();
-				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$2("run_confirmation_required");
+				if (runGeneration !== expected || !credential || localRunner?.state().phase !== "running") fail$3("run_confirmation_required");
 				await credential();
 				checked();
-				if (runGeneration !== expected) fail$2("stopped");
+				if (runGeneration !== expected) fail$3("stopped");
 			};
 			localClient = clientFactory({
 				...dependencies,
@@ -5173,7 +5226,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 					},
 					async reserve(candidate) {
 						checked();
-						if (!budgetRunId) fail$2("run_budget_missing");
+						if (!budgetRunId) fail$3("run_budget_missing");
 						const durable = await localRecovery.reserveModelCall(budgetRunId, candidate.inputBytes, candidate.maxOutputTokens);
 						checked();
 						const shared = await modelSession.reserveExecution(candidate);
@@ -5206,7 +5259,7 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				},
 				getCredential: async () => {
 					checked();
-					if (runGeneration !== expected || !credential) fail$2("stopped");
+					if (runGeneration !== expected || !credential) fail$3("stopped");
 					const key = await credential();
 					checked();
 					return key;
@@ -5252,9 +5305,9 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		lastWall = now();
 		assertCurrent();
 		const modelState = modelSession.snapshot();
-		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$2("run_confirmation_required");
-		if (starting === generation || runner.state().phase === "running") fail$2("already_running");
-		if (typeof locks?.request !== "function") fail$2("locks_unavailable");
+		if (!status.ready || !runner || !modelState.hasKey || modelState.checked !== true || operationController?.signal.aborted) fail$3("run_confirmation_required");
+		if (starting === generation || runner.state().phase === "running") fail$3("already_running");
+		if (typeof locks?.request !== "function") fail$3("locks_unavailable");
 		const expected = generation, confirmedFence = status.fence, controller = operationController;
 		const currentClient = client, currentRunner = runner;
 		starting = expected;
@@ -5268,15 +5321,15 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 				mode: "exclusive",
 				ifAvailable: true
 			}, async (lock) => {
-				if (!lock) fail$2("agent_busy");
+				if (!lock) fail$3("agent_busy");
 				check(expected, controller);
 				await legacyGuard({ signal: controller.signal });
 				check(expected, controller);
 				const current = await currentClient.freshFence();
 				check(expected, controller);
-				if (!same(current.fence, confirmedFence)) fail$2("task_fence_changed");
+				if (!same$1(current.fence, confirmedFence)) fail$3("task_fence_changed");
 				const currentModel = modelSession.snapshot();
-				if (!currentModel.hasKey || currentModel.checked !== true) fail$2("run_confirmation_required");
+				if (!currentModel.hasKey || currentModel.checked !== true) fail$3("run_confirmation_required");
 				const permission = await modelSession.beginExecution(currentModel.revision);
 				check(expected, controller);
 				credential = permission;
@@ -5313,8 +5366,8 @@ function createBrowserGameSession({ config, accountId, agentId, ownerSigner, isC
 		stop,
 		async recover() {
 			assertCurrent();
-			if (!client || operationController?.signal.aborted) fail$2("task_scope_required");
-			if (starting === generation || runner?.state().phase === "running") fail$2("already_running");
+			if (!client || operationController?.signal.aborted) fail$3("task_scope_required");
+			if (starting === generation || runner?.state().phase === "running") fail$3("already_running");
 			const expected = generation, controller = operationController, originalClient = client, originalRecovery = recovery;
 			await originalClient.recover();
 			check(expected, controller);
@@ -5357,7 +5410,7 @@ var _tmpl$2$39 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$3$31 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
 var _tmpl$4$28 = /*#__PURE__*/ template(`<form class=model-connection-panel__form><label><select required><option value></option></select></label><label><input type=password name=model-inference-key autocomplete=off maxlength=4096 required></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
 var _tmpl$5$27 = /*#__PURE__*/ template(`<label><select>`);
-var _tmpl$6$19 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
+var _tmpl$6$20 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
 var _tmpl$7$15 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$8$10 = /*#__PURE__*/ template(`<option> · <!> · `);
 var _tmpl$9$8 = /*#__PURE__*/ template(`<option> · `);
@@ -5609,7 +5662,7 @@ function ModelConnectionPanel(props) {
 		previousAgent = id;
 	});
 	return (() => {
-		var _el$ = _tmpl$6$19(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling, _el$35 = _el$4.nextSibling;
+		var _el$ = _tmpl$6$20(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling, _el$35 = _el$4.nextSibling;
 		insert(_el$2, modelConnectionStyles);
 		insert(_el$3, (() => {
 			var _c$ = memo(() => !!managementOnly());
@@ -5915,7 +5968,7 @@ function ModelConnectionPanel(props) {
 }
 delegateEvents(["click"]);
 // software_safe_src/browser_owner_entry.js
-var fail$1 = (code, diagnostic) => {
+var fail$2 = (code, diagnostic) => {
 	throw new BrowserParticipantError(code, diagnostic);
 };
 var hex$2 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
@@ -5945,13 +5998,13 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		ownerSigner.publicKeyHex
 	])}`;
 	const active = () => {
-		if (disposed || signal?.aborted || !isCurrent()) fail$1("participant_stopped");
+		if (disposed || signal?.aborted || !isCurrent()) fail$2("participant_stopped");
 	};
 	const build = (kind, input) => {
 		try {
 			return codec.build(kind, typeof input === "string" ? input : JSON.stringify(input));
 		} catch {
-			fail$1("owner_proof_invalid", { stage: {
+			fail$2("owner_proof_invalid", { stage: {
 				task_create: "owner_task_build",
 				goal_prepare: "owner_goal_build",
 				goal_publish: "owner_goal_build"
@@ -5969,15 +6022,15 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			schema: 2,
 			key
 		};
-		if (![1, 2].includes(record?.schema) || record.key !== key || JSON.stringify(record).length > 262144) fail$1("owner_storage_corrupt");
+		if (![1, 2].includes(record?.schema) || record.key !== key || JSON.stringify(record).length > 262144) fail$2("owner_storage_corrupt");
 		for (const slot of [
 			"taskRaw",
 			"publishRaw",
 			"goalPrepareRaw"
-		]) if (record[`${slot}Phase`] !== void 0 && !deliveryPhases.has(record[`${slot}Phase`])) fail$1("owner_storage_corrupt");
+		]) if (record[`${slot}Phase`] !== void 0 && !deliveryPhases.has(record[`${slot}Phase`])) fail$2("owner_storage_corrupt");
 		if (record.schema === 2) for (const slot of ["taskRaw", "publishRaw"]) {
 			const phase = record[`${slot}SendState`];
-			if (phase !== void 0 && (!record[slot] || !["not_sent", "may_have_sent"].includes(phase) || phase === "not_sent" && (record[`${slot}Receipt`] || record[`${slot}TerminalReply`] || record[`${slot}Phase`] !== void 0 && record[`${slot}Phase`] !== "prepared_unsent"))) fail$1("owner_storage_corrupt");
+			if (phase !== void 0 && (!record[slot] || !["not_sent", "may_have_sent"].includes(phase) || phase === "not_sent" && (record[`${slot}Receipt`] || record[`${slot}TerminalReply`] || record[`${slot}Phase`] !== void 0 && record[`${slot}Phase`] !== "prepared_unsent"))) fail$2("owner_storage_corrupt");
 		}
 		return record;
 	}
@@ -5986,16 +6039,16 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			return check(await database.get(key));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$1("owner_storage_failed");
+			fail$2("owner_storage_failed");
 		}
 	}
 	async function update(mutate) {
-		if (!locks?.request) fail$1("participant_locks_unavailable");
+		if (!locks?.request) fail$2("participant_locks_unavailable");
 		try {
 			return await locks.request(`oasis7:${key}`, { mode: "exclusive" }, () => database.update(key, (record) => check(mutate(check(record)))));
 		} catch (error) {
 			if (error instanceof BrowserParticipantError) throw error;
-			fail$1("owner_storage_failed");
+			fail$2("owner_storage_failed");
 		}
 	}
 	async function signed(domain, requestRaw) {
@@ -6004,7 +6057,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		try {
 			signature = hex$2(await ownerSigner.sign(codec.signingBytes(domain, requestRaw)));
 		} catch {
-			fail$1("participant_signing_failed");
+			fail$2("participant_signing_failed");
 		}
 		active();
 		return `{"request":${requestRaw},"subject_public_key":${JSON.stringify(ownerSigner.publicKeyHex)},"signature_hex":${JSON.stringify(signature)}}`;
@@ -6052,20 +6105,20 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			const raw = codec.verifyGatewayResponse(domain, requestRaw, reply, config.servicePublicKey);
 			return codec.validate(kind, validationRequest, raw);
 		} catch {
-			fail$1("owner_response_unknown", { stage: kind === "goal_prepared" ? "owner_goal_prepare" : "owner_response_verify" });
+			fail$2("owner_response_unknown", { stage: kind === "goal_prepared" ? "owner_goal_prepare" : "owner_response_verify" });
 		}
 	}
 	function lookupMaterial(originalRaw, slot) {
 		if (decoded(field(originalRaw, ["signed_payload", "kind"])) !== {
 			taskRaw: "game_task_create",
 			publishRaw: "game_goal_publish"
-		}[slot]) fail$1("owner_original_conflict");
+		}[slot]) fail$2("owner_original_conflict");
 		const payload = field(originalRaw, ["signed_payload"]), correlation = field(originalRaw, ["correlation"]);
 		const expected = build("correlation", {
 			world: config.world,
 			payload_json: payload
 		});
-		if (field(expected, []) !== field(correlation, [])) fail$1("owner_original_conflict");
+		if (field(expected, []) !== field(correlation, [])) fail$2("owner_original_conflict");
 		return {
 			request: `{"request":{"contract_version":1,"key":${field(correlation, ["key"])}},"original":${payload}}`,
 			correlation
@@ -6076,7 +6129,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const { request, correlation } = lookupMaterial(record[slot], slot);
 		const raw = verify(LOOKUP, request, record[`${slot}TerminalReply`], "lookup", correlation);
 		const status = decoded(field(raw, ["outcome", "status"]));
-		if (!terminalDisposition(status)) fail$1("owner_storage_corrupt");
+		if (!terminalDisposition(status)) fail$2("owner_storage_corrupt");
 		return status;
 	}
 	const lookup = (originalRaw, slot) => atBrowserGameStage(slot === "taskRaw" ? "owner_task_lookup" : "owner_goal_lookup", () => lookupOriginal(originalRaw, slot));
@@ -6085,10 +6138,10 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const reply = await ownerCall("lookup", request);
 		const candidate = verify(LOOKUP, request, reply, "lookup", correlation);
 		const winner = await update((current) => {
-			if (current[slot] !== originalRaw) fail$1("owner_original_conflict");
+			if (current[slot] !== originalRaw) fail$2("owner_original_conflict");
 			const raw = current[`${slot}TerminalReply`] ? verify(LOOKUP, request, current[`${slot}TerminalReply`], "lookup", correlation) : candidate;
 			const state = decoded(field(raw, ["outcome", "status"]));
-			if (current[`${slot}TerminalReply`] && !terminalDisposition(state)) fail$1("owner_storage_corrupt");
+			if (current[`${slot}TerminalReply`] && !terminalDisposition(state)) fail$2("owner_storage_corrupt");
 			if (!current[`${slot}TerminalReply`] && terminalDisposition(state)) current[`${slot}TerminalReply`] = reply;
 			current[`${slot}Observation`] = operationObservation({
 				phase: current[`${slot}Phase`],
@@ -6100,8 +6153,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		const raw = winner[`${slot}TerminalReply`] ? verify(LOOKUP, request, winner[`${slot}TerminalReply`], "lookup", correlation) : candidate;
 		const state = decoded(field(raw, ["outcome", "status"]));
 		if (state !== "committed") {
-			if (["rejected", "expired"].includes(state)) fail$1(state === "expired" ? "owner_operation_expired" : "owner_operation_rejected");
-			fail$1("owner_operation_pending", { outcome: state });
+			if (["rejected", "expired"].includes(state)) fail$2(state === "expired" ? "owner_operation_expired" : "owner_operation_rejected");
+			fail$2("owner_operation_pending", { outcome: state });
 		}
 		return raw;
 	}
@@ -6144,7 +6197,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			}
 			return current;
 		});
-		if (record[slot] !== raw) fail$1("owner_original_conflict");
+		if (record[slot] !== raw) fail$2("owner_original_conflict");
 		return {
 			raw,
 			fresh
@@ -6160,9 +6213,9 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					client_nonce: decoded(field(original, ["request", "client_nonce"])),
 					content: decoded(field(original, ["request", "content"]))
 				});
-				if (field(expected, []) !== field(original, ["request"])) fail$1("owner_original_scope_changed");
-			} else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail$1("owner_original_scope_changed");
-			if (record[slot] !== original || record[`${slot}TerminalReply`] || !replay && !isUnsent(record, slot)) fail$1("owner_original_conflict");
+				if (field(expected, []) !== field(original, ["request"])) fail$2("owner_original_scope_changed");
+			} else if (record[`${slot}Scope`] !== scopeStamp(slot, controlRaw)) fail$2("owner_original_scope_changed");
+			if (record[slot] !== original || record[`${slot}TerminalReply`] || !replay && !isUnsent(record, slot)) fail$2("owner_original_conflict");
 			if (!replay) record[`${slot}SendState`] = "may_have_sent";
 			record[`${slot}Phase`] = "dispatch_may_have_started";
 			return record;
@@ -6183,7 +6236,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 	});
 	async function settleIntent(slot, original, send) {
 		const record = await load();
-		if (typeof original !== "string" || record[slot] !== original) fail$1("owner_original_conflict");
+		if (typeof original !== "string" || record[slot] !== original) fail$2("owner_original_conflict");
 		lookupMaterial(original, slot);
 		const terminal = terminalStatus(slot, record);
 		if (operationObservation({
@@ -6199,8 +6252,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		}
 		active();
 		const current = await load();
-		if (current[slot] !== original) fail$1("owner_original_conflict");
-		if (isUnsent(current, slot)) fail$1("owner_original_not_sent");
+		if (current[slot] !== original) fail$2("owner_original_conflict");
+		if (isUnsent(current, slot)) fail$2("owner_original_not_sent");
 		return lookup(original, slot);
 	}
 	async function reconcile() {
@@ -6268,9 +6321,9 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 		};
 	}
 	async function prepare({ goal, consent } = {}, continueUnsent = false) {
-		if (consent !== true) fail$1("owner_consent_required");
-		if ((!continueUnsent || goal !== void 0) && (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192)) fail$1("owner_goal_invalid");
-		if (!locks?.request) fail$1("participant_locks_unavailable");
+		if (consent !== true) fail$2("owner_consent_required");
+		if ((!continueUnsent || goal !== void 0) && (typeof goal !== "string" || !goal.trim() || new TextEncoder().encode(goal).byteLength > 8192)) fail$2("owner_goal_invalid");
+		if (!locks?.request) fail$2("participant_locks_unavailable");
 		return locks.request(`oasis7:prepare:${key}`, { mode: "exclusive" }, async () => {
 			active();
 			let status = await inspect();
@@ -6280,8 +6333,8 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 				if (status.continuation === "participant") await participant.continueOriginal(true);
 				else {
 					const record = await load(), slot = status.continuation;
-					if (!["taskRaw", "publishRaw"].includes(slot)) fail$1("owner_original_conflict");
-					if (status.goal && goal !== void 0 && status.goal !== goal.trim()) fail$1("owner_goal_original_conflict");
+					if (!["taskRaw", "publishRaw"].includes(slot)) fail$2("owner_original_conflict");
+					if (status.goal && goal !== void 0 && status.goal !== goal.trim()) fail$2("owner_goal_original_conflict");
 					await settleIntent(slot, record[slot], true);
 				}
 				status = await inspect();
@@ -6325,7 +6378,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 			};
 			if (original && field(original, ["request", "content"]) !== JSON.stringify(content)) {
 				const old = decoded(field(original, ["request", "content"]));
-				if (old.goal_text !== content.goal_text || JSON.stringify(old.soft_constraints) !== "[]") fail$1("owner_goal_original_conflict");
+				if (old.goal_text !== content.goal_text || JSON.stringify(old.soft_constraints) !== "[]") fail$2("owner_goal_original_conflict");
 			}
 			if (!original) {
 				const taskRaw = field(status.ownerControl.rawJson, ["view", "game_task_control"]);
@@ -6342,7 +6395,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					}
 					return current;
 				});
-				if (record.goalPrepareRaw !== original) fail$1("owner_original_conflict");
+				if (record.goalPrepareRaw !== original) fail$2("owner_original_conflict");
 			}
 			if (!record.goalReceiptRaw) {
 				if (operationObservation({
@@ -6350,7 +6403,7 @@ function createBrowserOwnerEntry({ config, codec, accountId, ownerSigner, indexe
 					policy: "private_preparation_replay",
 					intent: "continue_authorized_entry",
 					writeAllowed: true
-				}).nextAction !== "continue_original") fail$1("owner_original_retained");
+				}).nextAction !== "continue_original") fail$2("owner_original_retained");
 				const receipt = verify(GOAL, original, await ownerCall("prepare_goal", original, true, (controlRaw) => claimDispatch("goalPrepareRaw", original, controlRaw, true)), "goal_prepared", original);
 				record = await update((current) => {
 					current.goalReceiptRaw = receipt;
@@ -6405,7 +6458,7 @@ var _tmpl$2$38 = /*#__PURE__*/ template(`<p role=status>: `);
 var _tmpl$3$30 = /*#__PURE__*/ template(`<button type=button>`);
 var _tmpl$4$27 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$5$26 = /*#__PURE__*/ template(`<p>: <!> · Task=`);
-var _tmpl$6$18 = /*#__PURE__*/ template(`<label><textarea maxlength=8192>`);
+var _tmpl$6$19 = /*#__PURE__*/ template(`<label><textarea maxlength=8192>`);
 var _tmpl$7$14 = /*#__PURE__*/ template(`<p role=status>: <!> / 8192`);
 var _tmpl$8$9 = /*#__PURE__*/ template(`<label><input type=checkbox>`);
 var _tmpl$9$7 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button></button><button type=button>`);
@@ -6778,7 +6831,7 @@ function BrowserByokSurface(props) {
 								get children() {
 									return [
 										(() => {
-											var _el$11 = _tmpl$6$18(), _el$12 = _el$11.firstChild;
+											var _el$11 = _tmpl$6$19(), _el$12 = _el$11.firstChild;
 											insert(_el$11, () => tr("任务目标", "Task goal"), _el$12);
 											_el$12.$$input = (event) => {
 												setGoal(event.currentTarget.value);
@@ -7807,7 +7860,7 @@ var _tmpl$2$36 = /*#__PURE__*/ template(`<p>Original goal: `);
 var _tmpl$3$29 = /*#__PURE__*/ template(`<p>Requested waypoints: `);
 var _tmpl$4$26 = /*#__PURE__*/ template(`<p>Requested arrival tick: `);
 var _tmpl$5$25 = /*#__PURE__*/ template(`<p>State: `);
-var _tmpl$6$17 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$6$18 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$7$13 = /*#__PURE__*/ template(`<button>Execute confirmed choice / 执行已确认选择`);
 var _tmpl$8$8 = /*#__PURE__*/ template(`<button>Reevaluate explicitly / 明确重新评估`);
 var _tmpl$9$6 = /*#__PURE__*/ template(`<button>Read current state / 重读状态`);
@@ -7891,7 +7944,7 @@ function SafeAlternativePanel(props) {
 						return record().blocker;
 					},
 					get children() {
-						var _el$25 = _tmpl$6$17();
+						var _el$25 = _tmpl$6$18();
 						insert(_el$25, () => alternativeBlockerLabel(record().blocker));
 						return _el$25;
 					}
@@ -8415,6 +8468,7 @@ function executeKindForAction(actionId, protocolAction) {
 	if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") return "request_snapshot";
 	if (protocolAction === "live_control.step") return "step";
 	if (protocolAction === "live_control.play") return "play";
+	if (protocolAction === "live_control.pause") return "pause";
 	if (protocolAction === "agent_chat") return "agent_chat";
 	if (protocolAction === "prompt_control.apply") return "reprioritize";
 	if (protocolAction !== "gameplay_action.submit") return "unsupported";
@@ -8444,7 +8498,7 @@ function normalizeViewerAvailableActions({ gameplay, locale, localeText, agentEx
 			label,
 			protocolAction,
 			targetAgentId,
-			disabledReason: protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
+			disabledReason: protocolAction === "live_control.pause" ? null : protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
 			executeKind: executeKindForAction(actionId, protocolAction)
 		};
 	});
@@ -8458,6 +8512,88 @@ function normalizeGameplayActionRequest(action) {
 		target_agent_id: action.target_agent_id || action.targetAgentId || null,
 		actor_agent_id: action.actor_agent_id || action.actorAgentId || null,
 		disabled_reason: action.disabled_reason || action.disabledReason || null
+	};
+}
+// software_safe_src/viewer_live_control_state.js
+var LIVE_CONTROL_STATE_CAPABILITY = "live_control_state_v1";
+function createLiveControlStateController(state, pending) {
+	let generation = 0;
+	let supported = false;
+	let epoch = null;
+	let revision = 0;
+	let paused = null;
+	let conflictedRevision = null;
+	function publish(verified) {
+		state.liveControlState = {
+			supported,
+			verified,
+			epoch,
+			revision,
+			paused: verified ? paused : null
+		};
+	}
+	return {
+		reset() {
+			generation += 1;
+			supported = false;
+			epoch = null;
+			revision = 0;
+			paused = null;
+			conflictedRevision = null;
+			state.liveControlPendingRequestId = null;
+			for (const [id, feedback] of pending) {
+				if (feedback.liveControlGeneration == null) continue;
+				feedback.stage = "unknown";
+				feedback.reason = "connection changed before Viewer control confirmation";
+				if (state.lastControlFeedback?.requestId === id) state.lastControlFeedback = feedback;
+				pending.delete(id);
+			}
+			publish(false);
+		},
+		hello(message) {
+			supported = message.control_profile === "live" && Number(message.version ?? 2) >= 2 && Array.isArray(message.capabilities) && message.capabilities.includes("live_control_state_v1");
+			publish(false);
+		},
+		sent(feedback) {
+			if (!["play", "pause"].includes(feedback.action)) return;
+			feedback.liveControlGeneration = generation;
+			if (supported) state.liveControlPendingRequestId = feedback.requestId;
+		},
+		blocked(ack) {
+			const feedback = pending.get(ack?.request_id);
+			if (ack?.status !== "blocked" || feedback?.liveControlGeneration !== generation || !["play", "pause"].includes(feedback?.action)) return;
+			if (state.liveControlPendingRequestId === ack.request_id) state.liveControlPendingRequestId = null;
+		},
+		receive(observation) {
+			if (!supported) return;
+			if (!observation || observation.scope !== "viewer_new_decisions" || !/^[0-9a-f]{64}$/.test(observation.epoch ?? "") || !Number.isSafeInteger(observation.revision) || observation.revision < 1 || typeof observation.paused !== "boolean" || observation.request_id != null && (!Number.isSafeInteger(observation.request_id) || observation.request_id < 0)) {
+				publish(false);
+				return;
+			}
+			if (epoch != null && observation.epoch !== epoch) return;
+			if (epoch == null) epoch = observation.epoch;
+			if (observation.revision === revision && observation.paused !== paused) {
+				conflictedRevision = revision;
+				publish(false);
+				return;
+			}
+			if (conflictedRevision != null && observation.revision <= conflictedRevision) return;
+			if (observation.revision >= revision) {
+				revision = observation.revision;
+				paused = observation.paused;
+				conflictedRevision = null;
+				publish(true);
+			}
+			const id = observation.request_id;
+			const feedback = pending.get(id);
+			if (!feedback || feedback.liveControlGeneration !== generation || !["play", "pause"].includes(feedback.action) || observation.paused !== (feedback.action === "pause")) return;
+			feedback.stage = "completed_applied";
+			feedback.reason = null;
+			feedback.effect = observation.paused ? "Viewer new decisions paused" : "Viewer new decisions enabled";
+			if (state.lastControlFeedback?.requestId === id) state.lastControlFeedback = feedback;
+			pending.delete(id);
+			if (state.liveControlPendingRequestId === id) state.liveControlPendingRequestId = null;
+		}
 	};
 }
 // software_safe_src/viewer_quote_dependencies.js
@@ -8812,6 +8948,44 @@ function createScopeSnapshotTransport({ send, getScope, getConnection, timeoutMs
 		}
 	};
 }
+// software_safe_src/pixel_world_retention.js
+function measureRetainedJson(roots) {
+	const unique = /* @__PURE__ */ new Set(), active = /* @__PURE__ */ new Set(), encoder = new TextEncoder();
+	let objects = 0, arrays = 0, nodes = 0;
+	const bytes = (value, depth = 0) => {
+		if (depth > 64) throw Error("retention observation depth budget exceeded");
+		if (++nodes > 524288) throw Error("retention observation node budget exceeded");
+		if (value === null) return 4;
+		if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return encoder.encode(JSON.stringify(value)).length;
+		if (value === void 0) return 0;
+		if (typeof value !== "object") throw Error("retention observation requires JSON values");
+		if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw Error("retention observation requires JSON objects");
+		if (active.has(value)) throw Error("retention observation cycle");
+		if (!unique.has(value)) {
+			unique.add(value);
+			Array.isArray(value) ? arrays++ : objects++;
+		}
+		active.add(value);
+		let size;
+		if (Array.isArray(value)) {
+			size = 2 + Math.max(0, value.length - 1);
+			for (const item of value) size += item === void 0 ? 4 : bytes(item, depth + 1);
+		} else {
+			const keys = Object.keys(value).filter((key) => value[key] !== void 0);
+			size = 2 + Math.max(0, keys.length - 1);
+			for (const key of keys) size += encoder.encode(JSON.stringify(key)).length + 1 + bytes(value[key], depth + 1);
+		}
+		active.delete(value);
+		return size;
+	};
+	return {
+		logicalJsonBytes: roots.reduce((sum, value) => sum + bytes(value), 0),
+		uniqueObjects: objects,
+		uniqueArrays: arrays,
+		visitedNodes: nodes,
+		heapBytes: null
+	};
+}
 // software_safe_src/pixel_world_world_view_delta.js
 var collections = {
 	entity: ["entities", (value) => `${value.kind}:${value.entity_id}`],
@@ -8960,8 +9134,10 @@ var binding = (view) => JSON.stringify([
 	view.world_bounds,
 	worldViewAuthorityKey(view)
 ]);
+var nextRetentionInstance = 0;
 function createWorldViewClient({ request, onChange = () => {} }) {
-	let generation = 0, scope = null, expectedWorld = null, baselineQuery = null;
+	const retentionInstance = ++nextRetentionInstance;
+	let generation = 0, scopeSequence = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
 	let state = {
 		view: null,
 		loading: false,
@@ -8978,14 +9154,69 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 	};
 	return {
 		state: () => state,
+		statistics(expectedSourceCut = null, measure = true) {
+			const started = performance.now(), query = retainedQuery?.generation === generation ? retainedQuery : null;
+			const measured = measure !== false, unknown = {
+				logicalJsonBytes: null,
+				uniqueObjects: null,
+				uniqueArrays: null,
+				visitedNodes: 0,
+				heapBytes: null
+			};
+			const published = measured ? measureRetainedJson([state.view, state.changes]) : unknown;
+			const pagingRoots = measured && query ? [
+				query.first(),
+				query.last(),
+				...query.maps().flatMap((map) => [...map.values()])
+			] : [];
+			const paging = measured ? measureRetainedJson(pagingRoots) : unknown;
+			return {
+				measured,
+				instanceSequence: retentionInstance,
+				localGeneration: generation,
+				scopeSequence,
+				scopeBound: scope !== null,
+				loading: state.loading,
+				stale: state.stale,
+				hasError: Boolean(state.error),
+				published: {
+					...published,
+					entities: state.view?.entities?.length || 0,
+					changes: state.changes.length,
+					queryGenerationMatches: state.view?.request_generation === String(generation),
+					sourceCutMatches: typeof expectedSourceCut === "string" ? state.view?.source_cut === expectedSourceCut : null,
+					completeness: [
+						"complete",
+						"partial",
+						"unknown"
+					].includes(state.view?.completeness) ? state.view.completeness : null
+				},
+				paging: {
+					...paging,
+					active: Boolean(query),
+					maps: query?.maps().map((map) => map.size) || [
+						0,
+						0,
+						0,
+						0
+					],
+					cursors: query?.seen.size || 0
+				},
+				observationMs: performance.now() - started,
+				semantics: "current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory"
+			};
+		},
 		invalidate() {
 			generation += 1;
+			retainedQuery = null;
 		},
 		clearChanges() {
 			publish({ changes: [] });
 		},
 		reset(nextScope, worldId = null) {
 			generation += 1;
+			scopeSequence += 1;
+			retainedQuery = null;
 			scope = nextScope;
 			expectedWorld = worldId;
 			publish({
@@ -9009,6 +9240,18 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 			let resume = delta && baselineQuery === queryKey && !state.stale && !state.view?.source_frozen ? state.view?.resume_cursor : null;
 			if (!resume && !preserveChanges) publish({ changes: [] });
 			let lastPublished = null, recoveries = 0, restart = false, first = null, cursor, entities = /* @__PURE__ */ new Map(), relations = /* @__PURE__ */ new Map(), aggregates = /* @__PURE__ */ new Map(), events = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set(), pages = 0;
+			retainedQuery = {
+				generation: current,
+				maps: () => [
+					entities,
+					relations,
+					aggregates,
+					events
+				],
+				seen,
+				first: () => first,
+				last: () => lastPublished
+			};
 			const deadline = Date.now() + 3e4;
 			try {
 				do {
@@ -9181,6 +9424,8 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 					error: String(error?.message || error)
 				});
 				return null;
+			} finally {
+				if (retainedQuery?.generation === current) retainedQuery = null;
 			}
 		}
 	};
@@ -9270,6 +9515,510 @@ function worldViewRelations(view) {
 		const endpoint = (ref) => ref?.kind === "aggregate" ? industrial && aggregates.has(ref.id) : entities.has(`${ref?.kind}:${ref?.id}`);
 		return (runtime || industrial) && endpoint(relation.from) && endpoint(relation.to);
 	});
+}
+// software_safe_src/viewer_custody_owner_setup_client.js
+var API$1 = "/api/public/hosted-account/v2";
+var CUSTODY_PATHS = Object.freeze({
+	parents_query_path: "/v1/management/parents/query",
+	options_path: `${API$1}/custody/approvals/options`,
+	complete_path: `${API$1}/custody/approvals/complete`
+});
+var fail$1 = (code) => Object.assign(new Error(code), { code });
+function same(a, b) {
+	if (a === b) return true;
+	if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+	if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => same(value, b[index]));
+	const keys = Object.keys(a);
+	return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && same(a[key], b[key]));
+}
+var id = (value) => typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(value);
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+var clone$1 = (value) => structuredClone(value);
+var expiryMillis = (value) => decimal(value) && BigInt(value) <= 18446744073709551615n;
+function localMillis(now) {
+	const value = now();
+	if (!Number.isSafeInteger(value) || value < 0) throw fail$1("custody_clock_invalid");
+	return BigInt(value);
+}
+function randomHex(crypto) {
+	const bytes = /* @__PURE__ */ new Uint8Array(32);
+	crypto.getRandomValues(bytes);
+	return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function custodyCapability(value) {
+	return value?.api_version === 1 && value.available === true && id(value.audience) && id(value.environment) && Object.entries(CUSTODY_PATHS).every(([key, path]) => value[key] === path);
+}
+function createOwnerSetupClient({ fetch: fetchImpl = globalThis.fetch, credentials = globalThis.navigator?.credentials, crypto = globalThis.crypto, now = () => Date.now(), browserPasskeyOptions, serializePasskey } = {}) {
+	let generation = 0, scope = null, pending = null, flight = null;
+	const check = (revision) => {
+		if (revision !== generation || !scope) throw fail$1("custody_session_changed");
+	};
+	function reset() {
+		generation += 1;
+		pending = null;
+		flight = null;
+	}
+	function setSession(account, authentication, capability) {
+		const next = account?.account_id && authentication?.method === "webauthn" && custodyCapability(capability) ? {
+			account: account.account_id,
+			capability: clone$1(capability)
+		} : null;
+		if (!same(next, scope)) {
+			reset();
+			scope = next;
+		}
+		return Boolean(scope);
+	}
+	async function request(path, body, revision) {
+		check(revision);
+		const headers = { Accept: "application/json" };
+		if (body !== void 0) {
+			const capability = await request(`${API$1}/capabilities`, void 0, revision);
+			check(revision);
+			if (typeof capability.csrf_token !== "string" || !capability.csrf_token) throw fail$1("custody_csrf_unavailable");
+			if (!custodyCapability(capability.custody_management) || !same(capability.custody_management, scope.capability)) throw fail$1("custody_configuration_changed");
+			headers["Content-Type"] = "application/json";
+			headers["X-Oasis7-CSRF"] = capability.csrf_token;
+		}
+		let response;
+		try {
+			response = await fetchImpl(path, {
+				method: body === void 0 ? "GET" : "POST",
+				headers,
+				credentials: "same-origin",
+				cache: "no-store",
+				...body === void 0 ? {} : { body: JSON.stringify(body) }
+			});
+		} catch {
+			check(revision);
+			throw fail$1("custody_outcome_unknown");
+		}
+		check(revision);
+		let value;
+		try {
+			const text = await response.text();
+			if (new TextEncoder().encode(text).length > 65536) throw fail$1("size");
+			value = JSON.parse(text);
+		} catch {
+			throw fail$1("custody_response_invalid");
+		}
+		check(revision);
+		if (!response.ok || value?.ok === false) {
+			const error = fail$1(response.status >= 500 || response.status === 202 ? "custody_outcome_unknown" : "custody_request_rejected");
+			error.status = response.status;
+			throw error;
+		}
+		if (!value || typeof value !== "object" || Array.isArray(value)) throw fail$1("custody_response_invalid");
+		return value;
+	}
+	function oneFlight(action) {
+		if (flight) return flight;
+		const revision = generation;
+		const promise = Promise.resolve().then(() => {
+			check(revision);
+			return action(revision);
+		});
+		flight = promise;
+		promise.finally(() => {
+			if (flight === promise) flight = null;
+		}).catch(() => {});
+		return promise;
+	}
+	function route(provision, method) {
+		if (!id(provision)) throw fail$1("custody_parent_invalid");
+		return `/v1/account-provisions/${encodeURIComponent(provision)}/owner-setups/${method}`;
+	}
+	async function parents(cursor = null, revision = null) {
+		return oneFlight(async (current) => {
+			if (cursor === null !== (revision === null) || cursor !== null && (!id(cursor) || !id(revision))) throw fail$1("custody_cursor_invalid");
+			const page = await request(CUSTODY_PATHS.parents_query_path, {
+				api_version: 1,
+				limit: 16,
+				after_custody_account_id: cursor,
+				directory_revision: revision
+			}, current);
+			if (page.api_version !== 1 || !id(page.directory_revision) || typeof page.frozen !== "boolean" || typeof page.inventory_complete !== "boolean" || !Array.isArray(page.items) || page.items.length > 16 || new TextEncoder().encode(JSON.stringify(page)).length > 32768 || page.next_after_custody_account_id !== null && !id(page.next_after_custody_account_id) || revision !== null && revision !== page.directory_revision || page.items.some((item) => !id(item.custody_account_id) || !id(item.provision_id) || item.environment !== scope.capability.environment || !id(item.world_id))) throw fail$1("custody_directory_invalid");
+			return clone$1(page);
+		});
+	}
+	function prepare(parent, goalText) {
+		return oneFlight(async (revision) => {
+			if (pending) throw fail$1("custody_original_pending");
+			if (!id(parent?.custody_account_id) || !id(parent?.provision_id) || parent.environment !== scope.capability.environment || !id(parent.world_id) || typeof goalText !== "string" || !goalText.trim() || new TextEncoder().encode(goalText).length > 3500) throw fail$1("custody_plan_invalid");
+			const basis = await request(route(parent.provision_id, "basis"), { api_version: 1 }, revision);
+			if (basis.api_version !== 1 || basis.custody_account_id !== parent.custody_account_id || basis.provision_id !== parent.provision_id || basis.world_identity?.world_id !== parent.world_id || !id(basis.owner_key?.key_id) || !id(basis.executor_key?.key_id) || !decimal(basis.bootstrap_config_version)) throw fail$1("custody_basis_invalid");
+			const prefix = `owner-setup-${randomHex(crypto)}`;
+			const plan = {
+				api_version: 1,
+				setup_id: prefix,
+				provision_id: basis.provision_id,
+				participant_receipt_digest: basis.participant_receipt_digest,
+				world_identity: clone$1(basis.world_identity),
+				owner_key_ref: basis.owner_key.key_id,
+				executor_key_ref: basis.executor_key.key_id,
+				bootstrap_config_version: basis.bootstrap_config_version,
+				goal_content: {
+					goal_text: goalText,
+					soft_constraints: []
+				},
+				create_operation_id: `${prefix}-create`,
+				prepare_operation_id: `${prefix}-prepare`,
+				prepare_nonce: randomHex(crypto),
+				publish_operation_id: `${prefix}-publish`,
+				delegation_operation_id: `${prefix}-delegate`,
+				bind_operation_id: `${prefix}-bind`,
+				executor_id: `${prefix}-executor`,
+				executor_public_key: basis.executor_key.public_key,
+				delegation_generation: "1",
+				delegation_nonce: "1",
+				resource_refs: [],
+				deadline: String(now() + 12e4),
+				request_limit: "6",
+				transport_limit: "584",
+				write_limit: "4"
+			};
+			const original = {
+				api_version: 1,
+				approval_request_id: `${prefix}-approval`,
+				plan
+			};
+			pending = {
+				parent: clone$1(parent),
+				basis: clone$1(basis),
+				plan,
+				original,
+				prepared: null,
+				complete: null,
+				approved: null,
+				completeUnknown: false,
+				approveUnknown: false,
+				cancelled: false,
+				ceremonyExpiresAt: null,
+				state: "prepare_unknown"
+			};
+			return prepareOriginal(revision);
+		});
+	}
+	async function prepareOriginal(revision) {
+		const prepared = await request(route(pending.parent.provision_id, "prepare"), pending.original, revision);
+		const { context, intent } = prepared;
+		if (prepared.approval_request_id !== pending.original.approval_request_id || context?.custody_account_id !== pending.parent.custody_account_id || context?.environment !== scope.capability.environment || context?.audience !== scope.capability.audience || !decimal(context?.policy_version) || !decimal(context?.security_version) || !decimal(context?.service_epoch) || intent?.kind !== "owner_setup" || intent.setup_id !== pending.plan.setup_id || intent.provision_id !== pending.plan.provision_id || !same(intent.world_identity, pending.plan.world_identity) || intent.participant_receipt_digest !== pending.plan.participant_receipt_digest || intent.owner_key_ref !== pending.plan.owner_key_ref || intent.executor_key_ref !== pending.plan.executor_key_ref || intent.bootstrap_config_version !== pending.plan.bootstrap_config_version || intent.deadline !== pending.plan.deadline || intent.request_limit !== "6" || intent.transport_limit !== "584" || intent.write_limit !== "4" || !/^[0-9a-f]{64}$/.test(intent.setup_plan_digest)) throw fail$1("custody_prepare_invalid");
+		pending.prepared = clone$1(prepared);
+		pending.state = "prepared";
+		return summary();
+	}
+	function summary() {
+		return pending ? clone$1({
+			parent: pending.parent,
+			plan: pending.plan,
+			prepared: pending.prepared,
+			state: pending.state,
+			completeUnknown: pending.completeUnknown,
+			approveUnknown: pending.approveUnknown,
+			cancelled: pending.cancelled,
+			ceremonyExpiresAt: pending.ceremonyExpiresAt
+		}) : null;
+	}
+	async function completeOriginal(revision) {
+		pending.completeUnknown = true;
+		pending.state = "complete_unknown";
+		const result = await request(CUSTODY_PATHS.complete_path, pending.complete, revision);
+		if (result.api_version !== 1 || result.phase !== "completed" || !result.approval?.proof || typeof result.approval.signature !== "string" || result.approval.proof.approval_id !== pending.complete.approval_id || result.approval.proof.intent_digest !== pending.complete.intent_digest || !same(result.approval.proof.context, pending.prepared.context)) throw fail$1("custody_approval_invalid");
+		pending.approved = {
+			api_version: 1,
+			input: {
+				operation_id: pending.plan.setup_id,
+				request: clone$1(pending.prepared),
+				approval: clone$1(result.approval)
+			},
+			plan: clone$1(pending.plan)
+		};
+		pending.complete = null;
+		pending.completeUnknown = false;
+		return approveOriginal(revision);
+	}
+	async function approveOriginal(revision) {
+		pending.approveUnknown = true;
+		pending.state = "approve_unknown";
+		const progress = await request(route(pending.parent.provision_id, "approve"), pending.approved, revision);
+		if (progress.api_version !== 1 || progress.setup_id !== pending.plan.setup_id || progress.custody_account_id !== pending.parent.custody_account_id || progress.provision_id !== pending.parent.provision_id || typeof progress.stage !== "string") throw fail$1("custody_progress_invalid");
+		pending.approved = null;
+		pending.approveUnknown = false;
+		pending.state = "approved";
+		return {
+			stage: progress.stage,
+			setup_id: progress.setup_id,
+			execution_started: false
+		};
+	}
+	function approve() {
+		return oneFlight(async (revision) => {
+			if (!pending?.prepared || pending.cancelled || pending.state !== "prepared" || !credentials?.get) throw fail$1("custody_not_ready");
+			const started = await request(CUSTODY_PATHS.options_path, pending.prepared, revision);
+			if (started.api_version !== 1 || started.phase !== "pending" || !id(started.approval_id) || !id(started.ceremony_id) || !id(started.operation_id) || !/^[0-9a-f]{64}$/.test(started.intent_digest) || started.audience !== scope.capability.audience || !started.options || !expiryMillis(started.ceremony_expires_at) || BigInt(started.ceremony_expires_at) <= localMillis(now)) throw fail$1("custody_options_invalid");
+			pending.ceremonyExpiresAt = started.ceremony_expires_at;
+			pending.state = "authenticator";
+			let credential;
+			try {
+				credential = await credentials.get(browserPasskeyOptions(started.options));
+			} catch {
+				check(revision);
+				pending.cancelled = true;
+				pending.state = "cancelled";
+				throw fail$1("custody_authenticator_cancelled");
+			}
+			check(revision);
+			if (!credential) {
+				pending.cancelled = true;
+				pending.state = "cancelled";
+				throw fail$1("custody_authenticator_cancelled");
+			}
+			pending.complete = {
+				approval_id: started.approval_id,
+				ceremony_id: started.ceremony_id,
+				operation_id: started.operation_id,
+				intent_digest: started.intent_digest,
+				response: serializePasskey(credential)
+			};
+			return completeOriginal(revision);
+		});
+	}
+	function discardCancelled() {
+		return oneFlight(async () => {
+			if (!pending?.cancelled || pending.state !== "cancelled" || !pending.prepared || pending.complete || pending.approved || pending.completeUnknown || pending.approveUnknown || !expiryMillis(pending.ceremonyExpiresAt)) throw fail$1("custody_original_pending");
+			if (localMillis(now) < BigInt(pending.ceremonyExpiresAt)) throw fail$1("custody_cancelled_not_expired");
+			reset();
+			return null;
+		});
+	}
+	function retry() {
+		return oneFlight(async (revision) => {
+			if (pending?.complete && pending.completeUnknown) return completeOriginal(revision);
+			if (pending?.approved && pending.approveUnknown) return approveOriginal(revision);
+			if (pending?.state === "prepare_unknown") return prepareOriginal(revision);
+			throw fail$1("custody_not_ready");
+		});
+	}
+	function progress() {
+		return oneFlight(async (revision) => {
+			if (!pending?.approveUnknown) throw fail$1("custody_not_ready");
+			const result = await request(`/v1/account-provisions/${encodeURIComponent(pending.parent.provision_id)}/progress`, void 0, revision);
+			return {
+				stage: typeof result.stage === "string" ? result.stage : "unknown",
+				approval_confirmed: false
+			};
+		});
+	}
+	return {
+		setSession,
+		parents,
+		prepare,
+		approve,
+		retry,
+		progress,
+		summary,
+		discardCancelled,
+		clear() {
+			reset();
+			scope = null;
+		}
+	};
+}
+// software_safe_src/viewer_custody_owner_setup_panel.js
+var notices = {
+	custody_session_changed: "账号已经变化，原页面的迟到结果已丢弃；已发操作须由原账号核清。",
+	custody_outcome_unknown: "结果未知。请核对或显式重送同一原件，不要创建新的批准。",
+	custody_authenticator_cancelled: "已停止本地通行密钥交互；服务端挑战没有被撤销，请等待原期限或由原账号核清。",
+	custody_cancelled_not_expired: "原挑战尚未到期，不能丢弃；请等待已显示的挑战期限后再操作。",
+	custody_clock_invalid: "当前浏览器时间不可用于核对期限；原件仍保留，没有发送新请求。",
+	custody_original_pending: "本页仍保留原操作，不能创建另一份批准。",
+	custody_request_rejected: "请求被拒绝。请核对当前账号、范围和期限，不自动重做强认证。"
+};
+function createOwnerSetupPanel({ client, browserPasskeyOptions, serializePasskey } = {}) {
+	client || (client = createOwnerSetupClient({
+		browserPasskeyOptions,
+		serializePasskey
+	}));
+	let root = null, active = false, busy = false, page = null, notice = "", goal = "", accountKey = null, method = null;
+	let uiGeneration = 0;
+	const el = (tag, text) => {
+		const node = document.createElement(tag);
+		if (text !== void 0) node.textContent = text;
+		if (["p", "dd"].includes(tag)) node.style.overflowWrap = "anywhere";
+		return node;
+	};
+	function clear() {
+		uiGeneration += 1;
+		client.clear();
+		page = null;
+		goal = "";
+		notice = "";
+		busy = false;
+		active = false;
+		accountKey = null;
+	}
+	function update(account, authentication, capability) {
+		const key = account?.account_id || null;
+		if (key !== accountKey || authentication?.method !== method) {
+			clear();
+			accountKey = key;
+		}
+		method = authentication?.method || null;
+		active = client.setSession(account, authentication, capability);
+		if (!custodyCapability(capability)) {
+			active = false;
+			page = null;
+		}
+	}
+	function action(label, work, disabled = false) {
+		const button = el("button", label);
+		button.type = "button";
+		button.disabled = busy || disabled;
+		button.addEventListener("click", async () => {
+			if (busy || !active) return;
+			const revision = uiGeneration;
+			busy = true;
+			notice = "";
+			render();
+			try {
+				await work();
+			} catch (error) {
+				if (revision === uiGeneration) notice = notices[error.code] || "未完成该阶段。请核对当前账号与已冻结原件，不会自动批准或继续。";
+			} finally {
+				if (revision === uiGeneration) {
+					busy = false;
+					render();
+				}
+			}
+		});
+		return button;
+	}
+	function detail(list, name, value) {
+		list.append(el("dt", name), el("dd", String(value)));
+	}
+	function renderSummary(summary) {
+		const { plan, prepared } = summary;
+		root.append(el("h4", "确认同一份 OwnerSetup V1 原件"));
+		root.append(el("p", "仅准备与批准：资源引用为空，仅支持 Move business 0；本页不启动任务、不继续执行、不写世界。"));
+		const list = el("dl");
+		list.className = "custody-approval-summary";
+		for (const [name, value] of Object.entries({
+			"托管账号": summary.parent.custody_account_id,
+			"Provision": plan.provision_id,
+			"Setup 操作": plan.setup_id,
+			"私有目标": plan.goal_content.goal_text,
+			"Owner key": plan.owner_key_ref,
+			"Executor key": plan.executor_key_ref,
+			"请求 / 传输 / 写入上限": `${plan.request_limit} / ${plan.transport_limit} / ${plan.write_limit}`,
+			"截止时间": new Date(Number(plan.deadline)).toISOString(),
+			"参与者回执摘要": plan.participant_receipt_digest,
+			"Bootstrap 版本": plan.bootstrap_config_version,
+			"Create ID": plan.create_operation_id,
+			"Prepare ID": plan.prepare_operation_id,
+			"Publish ID": plan.publish_operation_id,
+			"Delegation ID": plan.delegation_operation_id,
+			"Bind ID": plan.bind_operation_id,
+			"Executor ID": plan.executor_id,
+			"Executor 公钥": plan.executor_public_key,
+			"Delegation generation / nonce": `${plan.delegation_generation} / ${plan.delegation_nonce}`
+		})) detail(list, name, value);
+		for (const [name, value] of Object.entries(plan.world_identity)) detail(list, `World ${name}`, value);
+		if (prepared) {
+			for (const [name, value] of Object.entries(prepared.context)) detail(list, `批准 ${name}`, value);
+			detail(list, "Rust intent kind", prepared.intent.kind);
+			detail(list, "Rust plan digest", prepared.intent.setup_plan_digest);
+			detail(list, "批准请求 ID", prepared.approval_request_id);
+		}
+		root.append(list);
+		if (summary.state === "prepared") root.append(action("确认摘要并使用通行密钥批准", async () => {
+			notice = `已保留批准。当前阶段：${(await client.approve()).stage}。本页未继续执行。`;
+		}));
+		if (summary.completeUnknown || summary.approveUnknown || summary.state === "prepare_unknown") {
+			root.append(el("p", "原请求仍在本页内存中；重送复用确切正文与 IDs，不重生 assertion 或 challenge。"));
+			root.append(action("显式重送同一原件", async () => {
+				const result = await client.retry();
+				notice = result?.execution_started === false ? `原批准已确认：${result.stage}；未继续执行。` : "原准备响应已核对，请确认摘要。";
+			}));
+		}
+		if (summary.approveUnknown) root.append(action("核对原 Provision 当前状态", async () => {
+			notice = `Provision 当前阶段：${(await client.progress()).stage}。此投影不能单独确认原 OwnerSetup 批准，原件继续保留。`;
+		}));
+		if (summary.cancelled) {
+			root.append(el("p", notices.custody_authenticator_cancelled));
+			root.append(el("p", "仅在原挑战到期且从未提交完整批准时，才能显式丢弃本页原件；另行准备必须重新完成通行密钥批准。"));
+			root.append(el("p", `原挑战截止时间（Unix 毫秒）：${summary.ceremonyExpiresAt}`));
+			root.append(action("挑战到期后丢弃未提交原件", async () => {
+				await client.discardCancelled();
+				notice = "已丢弃本页未提交原件；没有撤销服务端挑战或发送新请求。请选择父项另行准备，并重新完成通行密钥批准。";
+			}));
+		}
+		if (summary.state === "approved") root.append(el("p", "OwnerSetup 已批准；Execution 仍关闭，本页没有 continue 操作。"));
+	}
+	function render() {
+		if (!root) return;
+		root.replaceChildren();
+		root.setAttribute("aria-busy", String(busy));
+		root.className = "stack custody-owner-setup";
+		root.append(el("h3", "受控 OwnerSetup 准备与批准"));
+		const status = el("p", notice || "目录只是本人公共关联，不代表可批准资格；选择后仍会核对实际权限与当前来源。");
+		status.setAttribute("role", "status");
+		root.append(status);
+		if (!active) {
+			root.append(el("p", method && method !== "webauthn" ? "请使用通行密钥重新登录后操作；当前登录方式不能代签 custody 批准。" : "当前环境未配置可用的 custody 管理入口。"));
+			return;
+		}
+		const summary = client.summary();
+		if (summary) {
+			renderSummary(summary);
+			return;
+		}
+		root.append(action("加载本人可见父项", async () => {
+			page = await client.parents();
+		}));
+		if (!page) return;
+		if (page.frozen || !page.inventory_complete) {
+			root.append(el("p", "目录已冻结或库存完整性待核清，不能据此创建批准。"));
+			return;
+		}
+		if (!page.items.length) root.append(el("p", "当前目录没有可显示的父项；没有创建任何业务目录。"));
+		const label = el("label", "本次私有目标（浏览器端仅以内存保存；目标和批准原件将发送所选托管服务端）");
+		const input = el("textarea");
+		input.rows = 3;
+		input.style.maxWidth = "100%";
+		input.maxLength = 3500;
+		input.value = goal;
+		input.disabled = busy;
+		input.addEventListener("input", () => {
+			goal = input.value;
+		});
+		label.append(input);
+		root.append(label);
+		for (const parent of page.items) {
+			const card = el("div");
+			card.className = "stack";
+			card.append(el("p", `账号 ${parent.custody_account_id} · Provision ${parent.provision_id} · ${parent.environment} / ${parent.world_id}`));
+			card.append(action("为此父项准备批准摘要", async () => {
+				await client.prepare(parent, goal);
+			}));
+			root.append(card);
+		}
+		if (page.next_after_custody_account_id) root.append(action("显式加载下一页", async () => {
+			page = await client.parents(page.next_after_custody_account_id, page.directory_revision);
+		}));
+	}
+	return {
+		update,
+		clear,
+		renderInto(parent) {
+			root = el("section");
+			parent.append(root);
+			render();
+		},
+		dispose() {
+			clear();
+			root = null;
+		}
+	};
 }
 // software_safe_src/viewer_account_email_recovery.js
 function renderAccountEmailRecovery(root, { state, account, credentials, capabilities, client, run, render }) {
@@ -10209,6 +10958,11 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	let generation = 0;
 	let account = null;
 	let capabilities = {};
+	let authentication = null;
+	const custody = createOwnerSetupPanel({
+		browserPasskeyOptions,
+		serializePasskey
+	});
 	let credentialList = [];
 	let sessionList = [];
 	let notice = "";
@@ -10369,14 +11123,20 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 			run,
 			render
 		});
+		custody.update(account, authentication, capabilities.custody_management);
+		custody.renderInto(root);
 		root.append(element("h3", "已登录会话"));
 		for (const session of sessionList) {
 			const row = element("div");
 			row.append(element("span", session.current ? "当前会话" : session.device_label || "未知设备"));
-			row.append(button(session.current ? "退出当前会话" : "退出该会话", () => client.revokeSession(session)));
+			row.append(button(session.current ? "退出当前会话" : "退出该会话", () => {
+				if (session.current) custody.clear();
+				return client.revokeSession(session);
+			}));
 			root.append(row);
 		}
 		root.append(button("退出登录", async () => {
+			custody.clear();
 			await client.logout();
 			account = null;
 			onAccountState({ signedIn: false });
@@ -10385,6 +11145,8 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	}
 	function invalidate() {
 		const hadAccount = account;
+		custody.clear();
+		authentication = null;
 		account = null;
 		credentialList = [];
 		sessionList = [];
@@ -10425,7 +11187,12 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 		const capabilityResult = client.capabilities().then((value) => ({ value }), (error) => ({ error }));
 		let nextAccount;
 		try {
-			nextAccount = (await client.session()).account || null;
+			const session = await client.session();
+			nextAccount = session.account || null;
+			if (!disposed && revision === generation) {
+				authentication = session.authentication || null;
+				custody.update(nextAccount, authentication, capabilities.custody_management);
+			}
 		} catch (error) {
 			if (!invalidSession(error)) throw error;
 			nextAccount = null;
@@ -10460,6 +11227,7 @@ function mountPasskeyAccount(root, { client = createPasskeyAccountClient(), onAu
 	return {
 		refresh,
 		dispose() {
+			custody.dispose();
 			client.clearImportedKey?.();
 			disposed = true;
 			++generation;
@@ -16265,6 +17033,14 @@ function createSoftwareSafeState() {
 		server: null,
 		wsUrl: null,
 		lastControlFeedback: null,
+		liveControlState: {
+			supported: false,
+			verified: false,
+			epoch: null,
+			revision: 0,
+			paused: null
+		},
+		liveControlPendingRequestId: null,
 		lastPromptFeedback: null,
 		lastChatFeedback: null,
 		lastGameplayActionFeedback: null,
@@ -16653,6 +17429,7 @@ var viewerPromptControlModule = null;
 var viewerControlLossModule = null;
 var semanticSendLoop = null;
 var pendingControlFeedback = /* @__PURE__ */ new Map();
+var liveControlState = createLiveControlStateController(state, pendingControlFeedback);
 var pendingSemanticCommands = [];
 var pendingSessionRegisterWaiter = null;
 var elements = {};
@@ -17111,6 +17888,7 @@ var viewerAgentChatAuthModule = createViewerAgentChatAuthModule({
 function resetViewerProtocolForConnection() {
 	canonicalOwnerRead.reset();
 	viewerPromptControlModule?.resetForConnection();
+	liveControlState.reset();
 }
 function promptControlCapabilitySelected() {
 	return viewerPromptControlModule?.capabilitySelected() === true;
@@ -17847,6 +18625,7 @@ function sendViewerControl(action, payload) {
 		feedback.stage = "queued";
 		feedback.effect = "queued, check getState().lastControlFeedback for world delta";
 		pendingControlFeedback.set(currentRequestId, feedback);
+		liveControlState.sent(feedback);
 		state.lastControlFeedback = feedback;
 		render();
 		return snapshotControlFeedback(feedback);
@@ -18068,6 +18847,7 @@ function handleControlCompletionAck(ack) {
 	if (!acceptRuntimeAckIdentity(ack)) return;
 	const feedback = pendingControlFeedback.get(ack?.request_id);
 	if (!feedback) return;
+	liveControlState.blocked(ack);
 	feedback.deltaLogicalTime = Number(ack?.delta_logical_time || 0);
 	feedback.deltaEventSeq = Number(ack?.delta_event_seq || 0);
 	if (ack?.status === "advanced") {
@@ -19222,6 +20002,10 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 		ok: true,
 		feedback: sendControl("play", null)
 	};
+	if (protocolAction === "live_control.pause") return {
+		ok: true,
+		feedback: sendControl("pause", null)
+	};
 	if (protocolAction !== "gameplay_action.submit") return {
 		ok: false,
 		reason: `unsupported gameplay action protocol: ${protocolAction || "(empty)"}`
@@ -19726,6 +20510,7 @@ function handleViewerMessage(message, sourceSocket = null) {
 			state.server = message.server || null;
 			state.worldId = message.world_id || null;
 			state.controlProfile = message.control_profile || "playback";
+			liveControlState.hello(message);
 			hydrateChatHistoryFromStorage();
 			if (!initialSnapshotRequested) {
 				initialSnapshotRequested = true;
@@ -19743,6 +20528,9 @@ function handleViewerMessage(message, sourceSocket = null) {
 				state.auth.error = String(error);
 				render();
 			});
+			break;
+		case "live_control_state":
+			liveControlState.receive(message.state);
 			break;
 		case "snapshot":
 			handleSnapshot(message.snapshot);
@@ -19834,6 +20622,7 @@ function attachSocket(ws) {
 			version: 2,
 			capabilities: [
 				PROMPT_CONTROL_RESULT_CAPABILITY,
+				LIVE_CONTROL_STATE_CAPABILITY,
 				"gameplay_result_lookup_v1",
 				"canonical_agent_chat_v1",
 				"world_view",
@@ -20578,6 +21367,39 @@ function buildPixelWorldRenderInput(locale = state.uiLocale) {
 		}
 	};
 }
+// software_safe_src/pixel_world_display_profile.js
+var LEGACY_DISPLAY_PROFILE = Object.freeze({
+	name: "legacy_snapshot_v1",
+	markers: 500,
+	labels: 100,
+	bytes: 262144,
+	nodes: 16384
+});
+var WORLD_VIEW_DISPLAY_PROFILE = Object.freeze({
+	name: "world_view_v1",
+	markers: 1e3,
+	labels: 200,
+	bytes: 2097152,
+	nodes: 131072
+});
+function pixelWorldDisplayProfile(input) {
+	const view = input?.worldView;
+	if (view == null) return LEGACY_DISPLAY_PROFILE;
+	if (typeof view !== "object" || Array.isArray(view)) throw Error("invalid world view display profile");
+	let items = 0;
+	for (const field of [
+		"entities",
+		"aggregates",
+		"events",
+		"relations"
+	]) {
+		const values = view[field] ?? [];
+		if (!Array.isArray(values)) throw Error("pixel world world-view capacity exceeded");
+		items += values.length;
+	}
+	if (items > 1e3) throw Error("pixel world world-view capacity exceeded");
+	return WORLD_VIEW_DISPLAY_PROFILE;
+}
 // software_safe_src/pixel_world_display_budget.js
 var raw$2 = (value) => value?.[$RAW] || value;
 var MAX_SOURCE = 1e4;
@@ -20586,8 +21408,11 @@ var fail = () => {
 };
 var key = (kind, id) => `${kind}:${id}`;
 var compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-function budgetPixelWorldDisplay(input, limit = 500) {
+function budgetPixelWorldDisplay(input, limit) {
 	input = raw$2(input) || {};
+	const profile = pixelWorldDisplayProfile(input);
+	limit ?? (limit = profile.markers);
+	if (!Number.isSafeInteger(limit) || limit < 0 || limit > profile.markers) fail();
 	const view = raw$2(input.worldView);
 	const model = raw$2(raw$2(input.snapshot)?.model) || {};
 	const candidates = /* @__PURE__ */ new Map();
@@ -20682,7 +21507,6 @@ function budgetPixelWorldDisplay(input, limit = 500) {
 	};
 }
 var MAX_ITEMS = 500;
-var MAX_NODES = 16384;
 var raw$1 = (value) => value?.[$RAW] || value;
 var capacity = () => {
 	throw new Error("pixel world display capacity exceeded");
@@ -20701,7 +21525,7 @@ var entity = {
 	fragment_profile: { blocks: { blocks: true } }
 };
 var moduleVisual = {
-	...fields("entity_id module_id kind label"),
+	...fields("entity_id module_id kind factory_kind label"),
 	anchor: true
 };
 var gameplay = {
@@ -20713,10 +21537,11 @@ var gameplay = {
 	micro_depot_facilities: true
 };
 function projectOnce(input, markerLimit) {
+	const profile = pixelWorldDisplayProfile(raw$1(input));
 	let nodes = 0;
 	function copy(value, schema = true, depth = 0) {
 		value = raw$1(value);
-		if (++nodes > MAX_NODES) throw new RangeError("pixel world projection budget exceeded");
+		if (++nodes > profile.nodes) throw new RangeError("pixel world projection budget exceeded");
 		if (depth > 16) capacity();
 		if (value === void 0) return void 0;
 		if (value === null || typeof value === "boolean") return value;
@@ -20729,7 +21554,7 @@ function projectOnce(input, markerLimit) {
 			return value;
 		}
 		if (Array.isArray(value)) {
-			if (value.length > MAX_ITEMS) capacity();
+			if (value.length > profile.markers) capacity();
 			return value.map((item) => copy(item, schema, depth + 1));
 		}
 		if (typeof value !== "object") capacity();
@@ -20737,6 +21562,7 @@ function projectOnce(input, markerLimit) {
 		const keys = schema === true ? Object.keys(value) : Object.keys(schema);
 		if (keys.length > MAX_ITEMS) capacity();
 		for (const key of keys) {
+			if (key.length > 8192) capacity();
 			if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
 			let sourceItem = value[key];
 			if ((key === "name" || key === "label") && typeof sourceItem === "string") {
@@ -20774,7 +21600,14 @@ function projectOnce(input, markerLimit) {
 	const relations = raw$1(source.worldView?.relations) || [];
 	if (!Array.isArray(relations) || relations.length > 1e4) capacity();
 	const worldView = source.worldView ? {
-		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch")),
+		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch source_frozen")),
+		...source.worldView.source_binding && { source_binding: copy(source.worldView.source_binding, { version: {
+			...fields("visibility_scope projection_revision"),
+			commit: {
+				world: fields("world_id genesis_digest"),
+				binding: fields("provider_world_id branch_id reorg_generation authority_generation permission_generation governing_manifest_ref")
+			}
+		} }) },
 		...source.worldView.world_bounds && { world_bounds: copy(source.worldView.world_bounds, fields("width_cm depth_cm height_cm")) },
 		entities: budget.selected.filter((item) => [
 			"agents",
@@ -20797,7 +21630,7 @@ function projectOnce(input, markerLimit) {
 			feed_ref: identity,
 			position
 		})),
-		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, MAX_ITEMS), {
+		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, profile.markers), {
 			...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),
 			from: relationEndpoint,
 			to: relationEndpoint
@@ -20829,6 +21662,7 @@ function projectOnce(input, markerLimit) {
 	}
 	const dto = {
 		schema_version: 1,
+		display_profile: profile.name,
 		...copy(source, fields("locale selectedKind selectedId worldViewStale")),
 		snapshot: {
 			...copy(snapshot, fields("time")),
@@ -20840,7 +21674,7 @@ function projectOnce(input, markerLimit) {
 			...snapshot.player_gameplay && { player_gameplay: copy(snapshot.player_gameplay, { primary_intent: fields("schema_version source_class freshness control_state status intent_id agent_id world_id reorg_epoch logical_time event_seq updated_at") }) }
 		},
 		lists,
-		display_budget: budget.metadata,
+		display_budget: copy(budget.metadata),
 		gameplay: copy(source.gameplay || {}, gameplay),
 		...source.selected && { selected: copy(source.selected, entity) },
 		...source.presentation && { presentation: copy(source.presentation, fields("world_bounds_label marker_truth_note")) },
@@ -20848,11 +21682,13 @@ function projectOnce(input, markerLimit) {
 		...source.navigation && { navigation: copy(source.navigation) }
 	};
 	if (dto.lists.agents.length + dto.lists.locations.length > MAX_ITEMS) capacity();
-	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > 262144) throw new RangeError("pixel world projection budget exceeded");
+	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > profile.bytes) throw new RangeError("pixel world projection budget exceeded");
 	return dto;
 }
-function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
-	for (let limit = markerLimit; limit >= 1; limit = Math.floor(limit * .75)) try {
+function projectPixelWorldRenderInput(input, markerLimit) {
+	const profile = pixelWorldDisplayProfile(raw$1(input));
+	if (markerLimit !== void 0 && (!Number.isSafeInteger(markerLimit) || markerLimit < 1 || markerLimit > profile.markers)) capacity();
+	for (let limit = markerLimit ?? profile.markers; limit >= 1; limit = Math.floor(limit * .75)) try {
 		return projectOnce(input, limit);
 	} catch (error) {
 		if (!(error instanceof RangeError) || error.message !== "pixel world projection budget exceeded") throw error;
@@ -20860,6 +21696,9 @@ function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
 	capacity();
 }
 // software_safe_src/pixel_world_spatial_controller.js
+var selectionIntentGeneration = 0;
+var navigationIntentGeneration = 0;
+var nextNavigationId = () => String(++navigationIntentGeneration);
 var refKey = (ref) => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
 	if (!value || ![
@@ -20886,16 +21725,164 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	const [navigation, setNavigation] = createSignal(null);
 	const [pauseVersion, setPauseVersion] = createSignal(0);
 	const [spatialSelection, setSpatialSelection] = createSignal(null);
+	const [selectionStatus, setSelectionStatus] = createSignal(null);
+	const [selectionFeedback, setSelectionFeedback] = createSignal(null);
+	const [overviewStatus, setOverviewStatus] = createSignal(null);
+	let feedbackScopeGeneration = 1, feedbackAuthority = null;
 	const client = createWorldViewClient({
 		request: core.requestWorldView,
-		onChange: setState
+		onChange: (next) => {
+			setState(next);
+			checkPending(next);
+			checkOverview(next);
+		}
 	});
 	let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = "", currentQuery = {};
 	let cameraBounds = null, cameraKey = "", timer = null, command = 0, disposed = false;
 	let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
+	let presented = null, pending = null, pendingTimer = null;
+	let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartViews = /* @__PURE__ */ new WeakSet();
+	function cancelOverview(status = null, stop = false) {
+		const retire = stop && (pendingOverview || navigation()?.overview_query);
+		clearTimeout(overviewTimer);
+		overviewTimer = null;
+		pendingOverview = null;
+		setOverviewStatus(status);
+		if (retire) {
+			command += 1;
+			setNavigation({
+				request_id: nextNavigationId(),
+				mode: "stop",
+				target: null
+			});
+		}
+		queueMicrotask(() => {
+			if (dirty && !inFlight && !pendingOverview?.applying && !disposed && timer === null) {
+				dirty = false;
+				read();
+			}
+		});
+	}
+	function overviewBinding(view) {
+		if (![
+			view?.world_id,
+			view?.scope_id,
+			view?.source_cut,
+			view?.request_generation
+		].every((v) => typeof v === "string" && v.length > 0)) return null;
+		return [
+			JSON.parse(worldViewAuthorityKey(view)),
+			view.source_cut,
+			view.request_generation
+		];
+	}
+	function checkOverview(next) {
+		if (!pendingOverview) return;
+		const intent = pendingOverview, view = next.view;
+		if (disposed || pixelWorldScope(core.state) !== scope || intent.scope !== scope || intent.command !== command || intent.queryToken !== queryToken || intent.coreKey !== coreKey() || !enabled() || next.error || next.stale) {
+			cancelOverview("unavailable", true);
+			return;
+		}
+		if (readingQueryToken !== intent.queryToken || next.loading && (view == null || readStartViews.has(view))) {
+			if (!next.loading) cancelOverview("unavailable", true);
+			return;
+		}
+		const binding = overviewBinding(view);
+		if (!binding || view.source_frozen || !["partial", "complete"].includes(view.completeness)) {
+			cancelOverview("unavailable", true);
+			return;
+		}
+		const key = JSON.stringify(binding);
+		if (intent.binding && intent.binding !== key) {
+			cancelOverview("unavailable", true);
+			return;
+		}
+		intent.binding = key;
+		if (intent.applying) return;
+		if (view.completeness === "complete") {
+			const request_id = intent.requestId;
+			intent.applying = true;
+			setOverviewStatus("applying");
+			setNavigation({
+				request_id,
+				mode: "overview",
+				target: null,
+				overview_query: {
+					version: 1,
+					binding
+				}
+			});
+		} else if (!next.loading || view.budget_limited) cancelOverview("unavailable", true);
+	}
+	const requestBinding = (view) => JSON.stringify([
+		worldViewAuthorityKey(view),
+		view?.source_cut,
+		view?.request_generation
+	]);
+	const canonicalRef = (ref) => ref?.kind === "module_visual" ? {
+		kind: "factory",
+		id: ref.id
+	} : ref;
+	function proved(ref, view) {
+		ref = canonicalRef(ref);
+		if (ref?.kind === "world_event") return view?.events?.some((v) => v.event_id === ref.id) ? ref : null;
+		if (ref?.kind === "industry_aggregate") return view?.aggregates?.some((v) => v.aggregate_id === ref.id) ? ref : null;
+		return view?.entities?.some((v) => v.kind === ref?.kind && v.entity_id === ref.id) ? ref : null;
+	}
+	const deleted = (next, ref) => next.changes?.some((change) => change.world_deleted && change.id === ref.id && change.kind === ref.kind);
+	function cancelPending(status = null) {
+		clearTimeout(pendingTimer);
+		pendingTimer = null;
+		pending = null;
+		setSelectionStatus(status);
+		setSelectionFeedback((previous) => status && previous ? Object.freeze({
+			...previous,
+			phase: status
+		}) : null);
+	}
+	function beginFeedback(ref, phase) {
+		setSelectionFeedback(Object.freeze({
+			intent_generation: ++selectionIntentGeneration,
+			ref: Object.freeze({
+				kind: ref.kind,
+				id: ref.id
+			}),
+			world_id: core.state.worldId ?? null,
+			scope_generation: feedbackScopeGeneration,
+			phase
+		}));
+	}
+	function checkPending(next) {
+		const authority = next.view ? worldViewAuthorityKey(next.view) : null;
+		if (authority !== feedbackAuthority) {
+			if (feedbackAuthority !== null) feedbackScopeGeneration += 1;
+			feedbackAuthority = authority;
+			setSelectionFeedback(null);
+		}
+		if (!pending) {
+			if (selectionFeedback()?.phase === "selected" && (disposed || pixelWorldScope(core.state) !== scope || selectedCoreKey !== coreKey() || next.error || next.stale || next.view && !proved(selectionFeedback().ref, next.view))) setSelectionFeedback(null);
+			return;
+		}
+		const view = next.view;
+		if (disposed || pixelWorldScope(core.state) !== scope || pending.scope !== scope || pending.command !== command || pending.coreKey !== coreKey() || !enabled() || next.error || next.stale || !view || requestBinding(view) !== pending.binding || deleted(next, pending.ref)) {
+			cancelPending("unavailable");
+			return;
+		}
+		const selected = proved(pending.ref, view);
+		if (selected) {
+			const feedback = selectionFeedback();
+			cancelPending();
+			selectedCoreKey = coreKey();
+			setSpatialSelection(selected);
+			if (feedback) setSelectionFeedback(Object.freeze({
+				...feedback,
+				phase: "selected"
+			}));
+		} else if (!next.loading || view.completeness === "complete") cancelPending("unavailable");
+	}
 	const coreKey = () => `${core.state.selectedKind}:${core.state.selectedId}`;
 	client.reset(scope, core.state.worldId);
-	const mainTarget = () => core.buildGameplaySummary(getLocale()).acceptedIntentTarget || getRenderState()?.commercial_surface?.next_action?.target_agent_id || null;
+	const mainTarget = () => core.buildGameplaySummary(getLocale())?.acceptedIntentTarget || getRenderState()?.commercial_surface?.next_action?.target_agent_id || null;
 	const selection = () => {
 		if (untrack(() => pixelWorldScope(core.state)) !== scope) return null;
 		const selected = spatialSelection();
@@ -20935,9 +21922,12 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		timer = null;
 	}
 	function navigate(mode, target = null) {
+		cancelPending();
+		cancelOverview();
 		following = mode === "follow" ? target : null;
+		command += 1;
 		setNavigation({
-			request_id: String(++command),
+			request_id: nextNavigationId(),
 			mode,
 			target
 		});
@@ -20946,6 +21936,10 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		if (inFlight) {
 			dirty = true;
 			return inFlight;
+		}
+		if (pendingOverview?.applying) {
+			dirty = true;
+			return null;
 		}
 		if (disposed || !enabled() || pixelWorldScope(core.state) !== scope) return null;
 		const pinned = pins();
@@ -20960,6 +21954,9 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		else delete query.detail_level;
 		if (caps.includes("world_view_event_anchor_v1")) query.include_events = true;
 		else delete query.include_events;
+		readingQueryToken = queryToken;
+		readStartViews = /* @__PURE__ */ new WeakSet();
+		if (state().view) readStartViews.add(state().view);
 		inFlight = client.query(query, {
 			delta: caps.includes("world_view_delta_v1"),
 			preserveChanges: true
@@ -20975,6 +21972,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		}
 	}
 	function schedule() {
+		cancelPending();
 		cancelScheduled();
 		client.invalidate();
 		timer = setTimeout(() => {
@@ -20983,6 +21981,9 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		}, debounceMs);
 	}
 	function query(query = {}) {
+		cancelPending();
+		cancelOverview(null, true);
+		queryToken += 1;
 		command += 1;
 		cancelScheduled();
 		client.clearChanges();
@@ -20995,6 +21996,8 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		return read();
 	}
 	function select(ref) {
+		cancelPending();
+		cancelOverview(null, true);
 		if (pixelWorldScope(core.state) !== scope) return null;
 		command += 1;
 		const view = state().view;
@@ -21002,6 +22005,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			if (ref?.kind === "industry_aggregate" && view.aggregates?.some((value) => value.aggregate_id === ref.id) || ref?.kind === "world_event" && view.events?.some((value) => value.event_id === ref.id)) {
 				selectedCoreKey = coreKey();
 				setSpatialSelection(ref);
+				beginFeedback(ref, "selected");
 				return ref;
 			}
 			const entity = view.entities?.find((entity) => entity.entity_id === ref?.id && (entity.kind === ref.kind || entity.kind === "factory" && ref.kind === "module_visual"));
@@ -21017,24 +22021,108 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 				selectedCoreKey = refKey(selected);
 				core.applySelection(selected);
 			}
+			beginFeedback(selected, "selected");
 			return selected;
 		}
 		setSpatialSelection(null);
-		return core.applySelection(ref);
+		const applied = core.applySelection(ref);
+		if (applied?.kind && typeof applied.id === "string") {
+			selectedCoreKey = coreKey();
+			beginFeedback(canonicalRef(applied), "selected");
+		}
+		return applied;
 	}
 	const controller = {
+		readStatistics(expectedSourceCut = null, measure = true) {
+			if (disposed || pixelWorldScope(core.state) !== scope) return null;
+			return client.statistics?.(expectedSourceCut, measure) ?? null;
+		},
 		state,
 		navigation,
 		pauseVersion,
 		selection,
+		selectionStatus,
+		selectionFeedback,
+		overviewStatus,
 		scope: () => scope,
+		present(view, scene, presentedScope = scope) {
+			presented = null;
+			if (!view || !scene) {
+				cancelPending();
+				if (pendingOverview) cancelOverview("unavailable", true);
+				return;
+			}
+			if (pixelWorldScope(core.state) !== scope || presentedScope !== scope || worldViewAuthorityKey(view) !== worldViewAuthorityKey(state().view) || !view.source_cut || scene.display_source_cut !== view.source_cut) return;
+			const authorized = /* @__PURE__ */ new Set([
+				...(view.entities || []).map((value) => `${value.kind}:${value.entity_id}`),
+				...(view.aggregates || []).map((value) => `industry_aggregate:${value.aggregate_id}`),
+				...(view.events || []).map((value) => `world_event:${value.event_id}`)
+			]);
+			const refs = /* @__PURE__ */ new Set();
+			for (const [field, kind] of [
+				["agents", "agent"],
+				["locations", "location"],
+				["module_visual_entities", "factory"],
+				["industry_aggregates", "industry_aggregate"],
+				["world_events", "world_event"]
+			]) for (const value of scene[field] || []) if (authorized.has(`${kind}:${value.id}`)) refs.add(`${kind}:${value.id}`);
+			if (refs.size <= 1e3) presented = {
+				scope,
+				authority: worldViewAuthorityKey(view),
+				cut: view.source_cut,
+				request: view.request_generation,
+				refs
+			};
+		},
+		selectPresented(ref) {
+			if (disposed) return null;
+			cancelOverview(null, true);
+			const next = state(), view = next.view;
+			if (!view) {
+				if (!enabled()) return select(ref);
+				cancelPending("unavailable");
+				return null;
+			}
+			if (!enabled()) {
+				cancelPending();
+				return null;
+			}
+			ref = canonicalRef(ref);
+			if (!ref || typeof ref.id !== "string" || ![
+				"agent",
+				"location",
+				"factory",
+				"industry_aggregate",
+				"world_event"
+			].includes(ref.kind)) return null;
+			if (proved(ref, view)) return select(ref);
+			cancelPending();
+			command += 1;
+			if (disposed || pixelWorldScope(core.state) !== scope || !next.loading || next.error || next.stale || deleted(next, ref) || view.completeness !== "partial" || !presented || presented.scope !== scope || presented.authority !== worldViewAuthorityKey(view) || presented.cut !== view.source_cut || !presented.refs.has(refKey(ref))) return null;
+			pending = {
+				ref: {
+					kind: ref.kind,
+					id: ref.id
+				},
+				scope,
+				command,
+				coreKey: coreKey(),
+				binding: requestBinding(view)
+			};
+			setSelectionStatus("pending");
+			beginFeedback(ref, "pending");
+			pendingTimer = setTimeout(() => cancelPending("unavailable"), 3e4);
+			return null;
+		},
 		drilldown(aggregate) {
+			cancelOverview(null, true);
 			if (pixelWorldScope(core.state) !== scope || !state().view?.aggregates?.some((value) => value.aggregate_id === aggregate?.aggregate_id)) return;
 			const bounds = viewportBounds(aggregate.drilldown?.bounds);
 			if (!bounds) return;
 			navigate("stop");
+			command += 1;
 			setNavigation({
-				request_id: String(++command),
+				request_id: nextNavigationId(),
 				mode: "fit_bounds",
 				bounds,
 				target: null
@@ -21049,6 +22137,8 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		navigate,
 		eventFeed(event) {
 			if (pixelWorldScope(core.state) !== scope) return false;
+			cancelPending();
+			cancelOverview(null, true);
 			const view = state().view, feed = core.state.worldFeed;
 			const authorized = view?.events?.find((value) => value.event_id === event?.event_id);
 			const identity = authorized?.feed_ref;
@@ -21095,7 +22185,30 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			setPauseVersion((value) => value + 1);
 		},
 		overview() {
-			navigate("overview");
+			if (!enabled()) {
+				navigate("overview");
+				return;
+			}
+			client.clearChanges();
+			navigate("stop");
+			pendingOverview = {
+				scope,
+				command,
+				queryToken,
+				coreKey: coreKey(),
+				requestId: nextNavigationId(),
+				binding: null
+			};
+			setOverviewStatus("pending");
+			overviewTimer = setTimeout(() => cancelOverview("unavailable", true), 3e4);
+			checkOverview(state());
+		},
+		navigationResult(result) {
+			if (!pendingOverview?.applying || result?.request_id !== pendingOverview.requestId) return;
+			checkOverview(state());
+			if (!pendingOverview) return;
+			if (result.status === "applied" && Number.isSafeInteger(result.render_version) && result.render_version >= 0) cancelOverview();
+			else cancelOverview("unavailable", true);
 		},
 		cameraChanged(camera) {
 			if (disposed || !enabled()) return;
@@ -21105,14 +22218,23 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			if (key === cameraKey) return;
 			cameraBounds = bounds;
 			cameraKey = key;
+			if (pendingOverview) return;
 			currentQuery = {
 				...currentQuery,
 				bounds: cameraBounds
 			};
+			queryToken += 1;
 			schedule();
 		},
 		resetScope() {
+			cancelPending();
+			presented = null;
+			cancelOverview();
+			queryToken += 1;
+			readStartViews = /* @__PURE__ */ new WeakSet();
 			scope = pixelWorldScope(core.state);
+			feedbackScopeGeneration += 1;
+			feedbackAuthority = null;
 			cancelScheduled();
 			command += 1;
 			dirty = false;
@@ -21128,6 +22250,8 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			client.reset(scope, core.state.worldId);
 		},
 		refresh(snapshot) {
+			checkPending(state());
+			checkOverview(state());
 			if (!snapshot || !enabled() || disposed) return;
 			if (spatialSelection() && selectedCoreKey !== coreKey()) setSpatialSelection(null);
 			const pinKey = JSON.stringify(pins());
@@ -21137,6 +22261,8 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			read();
 		},
 		async returnTarget() {
+			cancelPending();
+			cancelOverview(null, true);
 			const id = mainTarget();
 			if (!id) return;
 			const expectedScope = scope;
@@ -21164,6 +22290,9 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		},
 		dispose() {
 			disposed = true;
+			cancelPending();
+			cancelOverview();
+			presented = null;
 			cancelScheduled();
 			client.reset(null);
 		}
@@ -21177,13 +22306,21 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	});
 	return controller;
 }
+// software_safe_src/pixel_world_host_selection.js
+function createPixelWorldHostSelection(revision, spatial) {
+	return createMemo(() => {
+		revision();
+		spatial.state();
+		return spatial.selection();
+	});
+}
 // software_safe_src/pixel_world_world_view_evolution.jsx
 var _tmpl$$35 = /*#__PURE__*/ template(`<section><h4>`);
 var _tmpl$2$32 = /*#__PURE__*/ template(`<section><h4></h4><p>`);
 var _tmpl$3$27 = /*#__PURE__*/ template(`<div><button type=button></button><span> · <!> <!> · </span><button type=button>`);
 var _tmpl$4$24 = /*#__PURE__*/ template(`<div><button type=button></button><span> · </span><button type=button></button><button type=button>`);
 var _tmpl$5$23 = /*#__PURE__*/ template(`<section class=pixel-world-spatial-inspection tabindex=-1><strong></strong><p> · <!> `);
-var _tmpl$6$16 = /*#__PURE__*/ template(`<section class=pixel-world-spatial-inspection tabindex=-1><strong></strong><p> · </p><p>: `);
+var _tmpl$6$17 = /*#__PURE__*/ template(`<section class=pixel-world-spatial-inspection tabindex=-1><strong></strong><p> · </p><p>: `);
 function PixelWorldEvolutionExplorer(props) {
 	const trusted = (event) => !props.stale && event.source_class === "runtime_journal_payload" && ["current", "last_known"].includes(event.freshness) && event.source_cut === props.view?.source_cut && event.identity?.world_id === props.view?.world_id && String(event.identity?.reorg_epoch) === String(props.view?.reorg_epoch) && event.position && [
 		"x_cm",
@@ -21282,7 +22419,7 @@ function PixelWorldEvolutionExplorer(props) {
 				return selectedEvent();
 			},
 			children: (value) => (() => {
-				var _el$25 = _tmpl$6$16(), _el$26 = _el$25.firstChild, _el$27 = _el$26.nextSibling, _el$28 = _el$27.firstChild, _el$29 = _el$27.nextSibling, _el$30 = _el$29.firstChild;
+				var _el$25 = _tmpl$6$17(), _el$26 = _el$25.firstChild, _el$27 = _el$26.nextSibling, _el$28 = _el$27.firstChild, _el$29 = _el$27.nextSibling, _el$30 = _el$29.firstChild;
 				insert(_el$26, () => value().label);
 				insert(_el$27, () => props.text("历史事件锚点，仅供观察", "Historical event anchor; read-only"), _el$28);
 				insert(_el$27, () => props.freshnessLabel(value().freshness), null);
@@ -21301,7 +22438,7 @@ var _tmpl$2$31 = /*#__PURE__*/ template(`<section class=pixel-world-entity-inspe
 var _tmpl$3$26 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$4$23 = /*#__PURE__*/ template(`<div role=region><p>`);
 var _tmpl$5$22 = /*#__PURE__*/ template(`<section><h4></h4><ul>`);
-var _tmpl$6$15 = /*#__PURE__*/ template(`<span> · <!> `);
+var _tmpl$6$16 = /*#__PURE__*/ template(`<span> · <!> `);
 var _tmpl$7$12 = /*#__PURE__*/ template(`<li><button type=button></button><span> · </span><span> → `);
 var _tmpl$8$7 = /*#__PURE__*/ template(`<div><button type=button> </button><button type=button> `);
 function PixelWorldEntityInspector(props) {
@@ -21380,7 +22517,7 @@ function PixelWorldRouteExplorer(props) {
 							return value.kind === "industry_route";
 						},
 						get children() {
-							var _el$23 = _tmpl$6$15(), _el$26 = _el$23.firstChild.nextSibling;
+							var _el$23 = _tmpl$6$16(), _el$26 = _el$23.firstChild.nextSibling;
 							_el$26.nextSibling;
 							insert(_el$23, () => value.route_count, _el$26);
 							insert(_el$23, () => props.text("条路线汇总", "routes summarized"), null);
@@ -21429,11 +22566,12 @@ function PixelWorldRouteExplorer(props) {
 }
 delegateEvents(["click"]);
 // software_safe_src/pixel_world_world_view_explorer.jsx
-var _tmpl$$33 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$2$30 = /*#__PURE__*/ template(`<p class=pixel-world-update-notice role=status> <!> · <!> `);
-var _tmpl$3$25 = /*#__PURE__*/ template(`<section class=pixel-world-exploration><form><label> <input maxlength=128></label><button type=submit></button><button type=button></button><button type=button></button></form><p role=status></p><ul>`);
-var _tmpl$4$22 = /*#__PURE__*/ template(`<span> `);
-var _tmpl$5$21 = /*#__PURE__*/ template(`<li><button type=button></button><span> · <!> · </span><button type=button></button><button type=button></button><button type=button>`);
+var _tmpl$$33 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$2$30 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$3$25 = /*#__PURE__*/ template(`<p class=pixel-world-update-notice role=status> <!> · <!> `);
+var _tmpl$4$22 = /*#__PURE__*/ template(`<section class=pixel-world-exploration><form><label> <input maxlength=128></label><button type=submit></button><button type=button data-query-overview></button><button type=button></button></form><p role=status></p><ul>`);
+var _tmpl$5$21 = /*#__PURE__*/ template(`<span> `);
+var _tmpl$6$15 = /*#__PURE__*/ template(`<li><button type=button></button><span> · <!> · </span><button type=button></button><button type=button></button><button type=button>`);
 function PixelWorldWorldViewExplorer(props) {
 	const zh = () => String(props.locale || "").startsWith("zh");
 	const text = (cn, en) => zh() ? cn : en;
@@ -21496,7 +22634,7 @@ function PixelWorldWorldViewExplorer(props) {
 		props.onSelect?.(ref);
 	}
 	return (() => {
-		var _el$ = _tmpl$3$25(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$4 = _el$3.firstChild, _el$5 = _el$4.nextSibling, _el$6 = _el$3.nextSibling, _el$7 = _el$6.nextSibling, _el$8 = _el$7.nextSibling, _el$9 = _el$2.nextSibling, _el$16 = _el$9.nextSibling;
+		var _el$ = _tmpl$4$22(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$4 = _el$3.firstChild, _el$5 = _el$4.nextSibling, _el$6 = _el$3.nextSibling, _el$7 = _el$6.nextSibling, _el$8 = _el$7.nextSibling, _el$9 = _el$2.nextSibling, _el$17 = _el$9.nextSibling;
 		_el$2.addEventListener("submit", (event) => {
 			event.preventDefault();
 			setFollowing(null);
@@ -21507,13 +22645,10 @@ function PixelWorldWorldViewExplorer(props) {
 		_el$5.$$input = (event) => setSearch(event.currentTarget.value);
 		insert(_el$6, () => text("搜索", "Search"));
 		_el$7.$$click = () => {
-			setSearch("");
 			setFollowing(null);
-			props.onFollow?.(null);
 			props.onOverview?.();
-			props.onQuery?.({});
 		};
-		insert(_el$7, () => text("返回总览", "World overview"));
+		insert(_el$7, () => text("总览当前查询结果", "Overview query results"));
 		_el$8.$$click = () => {
 			setSearch("");
 			setFollowing(null);
@@ -21551,55 +22686,69 @@ function PixelWorldWorldViewExplorer(props) {
 		}), null);
 		insert(_el$, createComponent(Show, {
 			get when() {
-				return props.state?.notice === "target_unavailable";
+				return props.overviewStatus;
 			},
 			get children() {
 				var _el$0 = _tmpl$$33();
-				insert(_el$0, () => text("主目标当前没有获准且可信的位置；可检查目标上下文。", "The target has no authorized trusted position; inspect its context instead."));
+				insert(_el$0, (() => {
+					var _c$2 = memo(() => props.overviewStatus === "pending");
+					return () => _c$2() ? text("查询尚未完成；保留当前视角，等待完整结果后总览。", "Query incomplete; keeping the current camera until complete results arrive.") : memo(() => props.overviewStatus === "applying")() ? text("查询结果完整，正在应用总览。", "Query results complete; applying the overview.") : text("当前查询无法完整总览；已保留视角。请缩小范围或重新查询。", "The current query cannot be overviewed completely; camera kept. Narrow the scope or query again.");
+				})());
+				createRenderEffect(() => setAttribute(_el$0, "data-query-overview-status", props.overviewStatus));
 				return _el$0;
 			}
-		}), _el$16);
+		}), _el$17);
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return props.state?.notice === "target_unavailable";
+			},
+			get children() {
+				var _el$1 = _tmpl$2$30();
+				insert(_el$1, () => text("主目标当前没有获准且可信的位置；可检查目标上下文。", "The target has no authorized trusted position; inspect its context instead."));
+				return _el$1;
+			}
+		}), _el$17);
 		insert(_el$, createComponent(Show, {
 			get when() {
 				return props.state?.changes?.length;
 			},
 			get children() {
-				var _el$1 = _tmpl$2$30(), _el$10 = _el$1.firstChild, _el$13 = _el$10.nextSibling, _el$14 = _el$13.nextSibling.nextSibling;
-				_el$14.nextSibling;
-				insert(_el$1, () => props.state.changes.filter((value) => value.world_deleted).length, _el$10);
-				insert(_el$1, () => text("个对象已确认从世界移除", "objects confirmed removed from the world"), _el$13);
-				insert(_el$1, () => props.state.changes.filter((value) => !value.world_deleted).length, _el$14);
-				insert(_el$1, () => text("个记录离开当前查询；不代表世界删除", "records left this query; world deletion is not implied"), null);
-				return _el$1;
+				var _el$10 = _tmpl$3$25(), _el$11 = _el$10.firstChild, _el$14 = _el$11.nextSibling, _el$15 = _el$14.nextSibling.nextSibling;
+				_el$15.nextSibling;
+				insert(_el$10, () => props.state.changes.filter((value) => value.world_deleted).length, _el$11);
+				insert(_el$10, () => text("个对象已确认从世界移除", "objects confirmed removed from the world"), _el$14);
+				insert(_el$10, () => props.state.changes.filter((value) => !value.world_deleted).length, _el$15);
+				insert(_el$10, () => text("个记录离开当前查询；不代表世界删除", "records left this query; world deletion is not implied"), null);
+				return _el$10;
 			}
-		}), _el$16);
+		}), _el$17);
 		insert(_el$, createComponent(Show, {
 			get when() {
 				return props.state?.notice === "event_feed_unavailable";
 			},
 			get children() {
-				var _el$15 = _tmpl$$33();
-				insert(_el$15, () => text("当前世界动态中没有此事件；未跳转到其他事件。", "This event is absent from the current world feed."));
-				return _el$15;
+				var _el$16 = _tmpl$2$30();
+				insert(_el$16, () => text("当前世界动态中没有此事件；未跳转到其他事件。", "This event is absent from the current world feed."));
+				return _el$16;
 			}
-		}), _el$16);
-		insert(_el$16, createComponent(For, {
+		}), _el$17);
+		insert(_el$17, createComponent(For, {
 			get each() {
 				return entities();
 			},
 			children: (entity) => (() => {
-				var _el$17 = _tmpl$5$21(), _el$18 = _el$17.firstChild, _el$19 = _el$18.nextSibling, _el$22 = _el$19.firstChild.nextSibling;
-				_el$22.nextSibling;
-				var _el$23 = _el$19.nextSibling, _el$24 = _el$23.nextSibling, _el$25 = _el$24.nextSibling;
-				_el$18.$$click = () => select(entity);
-				insert(_el$18, () => entity.label || entity.entity_id);
-				insert(_el$19, () => kindLabel(entity.kind), _el$22);
-				insert(_el$19, () => freshnessLabel(entity.provenance?.freshness), null);
-				insert(_el$19, (() => {
-					var _c$2 = memo(() => entity.provenance?.geometry_source === "location_derived");
-					return () => _c$2() ? text(" · 地点派生位置", " · Location derived position") : "";
+				var _el$18 = _tmpl$6$15(), _el$19 = _el$18.firstChild, _el$20 = _el$19.nextSibling, _el$23 = _el$20.firstChild.nextSibling;
+				_el$23.nextSibling;
+				var _el$24 = _el$20.nextSibling, _el$25 = _el$24.nextSibling, _el$26 = _el$25.nextSibling;
+				_el$19.$$click = () => select(entity);
+				insert(_el$19, () => entity.label || entity.entity_id);
+				insert(_el$20, () => kindLabel(entity.kind), _el$23);
+				insert(_el$20, () => freshnessLabel(entity.provenance?.freshness), null);
+				insert(_el$20, (() => {
+					var _c$3 = memo(() => entity.provenance?.geometry_source === "location_derived");
+					return () => _c$3() ? text(" · 地点派生位置", " · Location derived position") : "";
 				})(), null);
-				_el$23.$$click = () => {
+				_el$24.$$click = () => {
 					select(entity);
 					setFollowing(null);
 					props.onFollow?.(null);
@@ -21608,8 +22757,8 @@ function PixelWorldWorldViewExplorer(props) {
 						id: entity.entity_id
 					}, position(entity));
 				};
-				insert(_el$23, () => text("定位", "Locate"));
-				_el$24.$$click = () => {
+				insert(_el$24, () => text("定位", "Locate"));
+				_el$25.$$click = () => {
 					select(entity);
 					setFollowing(null);
 					props.onFollow?.(null);
@@ -21619,8 +22768,8 @@ function PixelWorldWorldViewExplorer(props) {
 					}, position(entity));
 					props.onQuery?.({ bounds: regionBounds(entity) });
 				};
-				insert(_el$24, () => text("查看周边区域", "Explore region"));
-				_el$25.$$click = () => {
+				insert(_el$25, () => text("查看周边区域", "Explore region"));
+				_el$26.$$click = () => {
 					select(entity);
 					setFollowing(`${entity.kind}:${entity.entity_id}`);
 					props.onFollow?.({
@@ -21628,24 +22777,24 @@ function PixelWorldWorldViewExplorer(props) {
 						id: entity.entity_id
 					});
 				};
-				insert(_el$25, () => text("跟随", "Follow"));
-				insert(_el$17, createComponent(Show, {
+				insert(_el$26, () => text("跟随", "Follow"));
+				insert(_el$18, createComponent(Show, {
 					get when() {
 						return !position(entity);
 					},
 					get children() {
-						var _el$26 = _tmpl$4$22();
-						_el$26.firstChild;
-						insert(_el$26, () => text("无当前可信位置", "No current trusted position"), null);
-						return _el$26;
+						var _el$27 = _tmpl$5$21();
+						_el$27.firstChild;
+						insert(_el$27, () => text("无当前可信位置", "No current trusted position"), null);
+						return _el$27;
 					}
 				}), null);
 				createRenderEffect((_p$) => {
 					var _v$4 = !position(entity), _v$5 = !regionBounds(entity), _v$6 = !followPosition(entity), _v$7 = following() === `${entity.kind}:${entity.entity_id}`;
-					_v$4 !== _p$.e && (_el$23.disabled = _p$.e = _v$4);
-					_v$5 !== _p$.t && (_el$24.disabled = _p$.t = _v$5);
-					_v$6 !== _p$.a && (_el$25.disabled = _p$.a = _v$6);
-					_v$7 !== _p$.o && setAttribute(_el$25, "aria-pressed", _p$.o = _v$7);
+					_v$4 !== _p$.e && (_el$24.disabled = _p$.e = _v$4);
+					_v$5 !== _p$.t && (_el$25.disabled = _p$.t = _v$5);
+					_v$6 !== _p$.a && (_el$26.disabled = _p$.a = _v$6);
+					_v$7 !== _p$.o && setAttribute(_el$26, "aria-pressed", _p$.o = _v$7);
 					return _p$;
 				}, {
 					e: void 0,
@@ -21653,7 +22802,7 @@ function PixelWorldWorldViewExplorer(props) {
 					a: void 0,
 					o: void 0
 				});
-				return _el$17;
+				return _el$18;
 			})()
 		}));
 		insert(_el$, createComponent(PixelWorldEvolutionExplorer, {
@@ -21716,7 +22865,7 @@ function PixelWorldWorldViewExplorer(props) {
 			var _v$ = text("授权世界探索", "Authorized world exploration"), _v$2 = props.state?.loading, _v$3 = text("获准对象与重叠候选", "Authorized objects and overlapping candidates");
 			_v$ !== _p$.e && setAttribute(_el$, "aria-label", _p$.e = _v$);
 			_v$2 !== _p$.t && (_el$6.disabled = _p$.t = _v$2);
-			_v$3 !== _p$.a && setAttribute(_el$16, "aria-label", _p$.a = _v$3);
+			_v$3 !== _p$.a && setAttribute(_el$17, "aria-label", _p$.a = _v$3);
 			return _p$;
 		}, {
 			e: void 0,
@@ -21765,6 +22914,9 @@ function PixelWorldSpatialExplorer(props) {
 			},
 			get pauseVersion() {
 				return props.controller.pauseVersion();
+			},
+			get overviewStatus() {
+				return props.controller.overviewStatus?.();
 			},
 			get onDrilldown() {
 				return props.controller.drilldown;
@@ -21935,7 +23087,7 @@ function snapshotTick(snapshot) {
 	const tick = Number(snapshot.time);
 	return Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : null;
 }
-function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage }) {
+function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage, onNavigationResult }) {
 	let bridge = null;
 	let generation = 0;
 	const detached = () => ({
@@ -22044,6 +23196,10 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 					if (!isCurrent()) return;
 					if (event?.type === "resource_stage") {
 						onResourceStage?.(event.stage);
+						return;
+					}
+					if (event?.type === "navigation_result") {
+						onNavigationResult?.(event);
 						return;
 					}
 					if (event?.type === "canvas_ready") return;
@@ -23938,15 +25094,24 @@ function positionKey(position) {
 	const z = Number(position.z_cm ?? position.zCm ?? 0);
 	return `${x}|${y}|${Number.isFinite(z) ? z : 0}`;
 }
-function moduleCoAnchorOffset(index) {
+function moduleCoAnchorOffset(index, unit) {
 	const ring = Math.floor(index / MODULE_CO_ANCHOR_RING_OFFSETS.length) + 1;
 	const [x, y] = MODULE_CO_ANCHOR_RING_OFFSETS[index % MODULE_CO_ANCHOR_RING_OFFSETS.length];
+	const step = (value) => Math.ceil(Math.max(48, 16 * value + 4) / value) * value;
 	return {
-		x: x * ring,
-		y: y * ring
+		x: x / 48 * step(unit.x) * ring,
+		y: y / 48 * step(unit.y) * ring
 	};
 }
-function moduleTargetOffsets(visualState) {
+function moduleTargetOffsets(visualState, size = {
+	width: 960,
+	height: 540
+}, rendererSize = size) {
+	const scale = Math.max(1, Math.floor(Math.min(rendererSize.width / 640, rendererSize.height / 360)));
+	const unit = {
+		x: scale * size.width / rendererSize.width,
+		y: scale * size.height / rendererSize.height
+	};
 	const modules = visualState.moduleVisualEntities.filter((entity) => entity?.pos).slice().sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 	const parentPositions = new Set([...visualState.agents.filter((entity) => entity?.pos), ...visualState.locations.filter((entity) => entity?.pos)].map((entity) => positionKey(entity.pos)).filter((key) => key !== null));
 	const modulesByPosition = /* @__PURE__ */ new Map();
@@ -23969,7 +25134,7 @@ function moduleTargetOffsets(visualState) {
 	modules.forEach((module, index) => {
 		const slot = coAnchorSlots.get(module);
 		const hasParent = slot ? parentPositions.has(slot.key) : false;
-		offsets.set(module.id, hasParent || slot?.count > 1 ? moduleCoAnchorOffset(slot?.index ?? index) : {
+		offsets.set(module.id, hasParent || slot?.count > 1 ? moduleCoAnchorOffset(slot?.index ?? index, unit) : {
 			x: 0,
 			y: 0
 		});
@@ -23981,17 +25146,23 @@ function rendererEntityTargetStyle(entity, worldBounds, size, camera, screenOffs
 	const rendererWidth = Number(rendererSize?.width) || width;
 	const rendererHeight = Number(rendererSize?.height) || height;
 	const idLength = new TextEncoder().encode(entity.id || "").length;
-	const point = toCanvasPoint(entity.pos, worldBounds, rendererWidth, rendererHeight, camera) || toCanvasPoint({
-		x_cm: 36 + idLength * 29 % Math.max(40, rendererWidth - 72),
-		y_cm: 44 + idLength * 17 % Math.max(48, rendererHeight - 88)
+	const point = toCanvasPoint(entity.pos, worldBounds, width, height, camera) || toCanvasPoint({
+		x_cm: 36 + idLength * 29 % Math.max(40, width - 72),
+		y_cm: 44 + idLength * 17 % Math.max(48, height - 88)
 	}, {
-		width_cm: rendererWidth,
-		depth_cm: rendererHeight
-	}, rendererWidth, rendererHeight, camera);
-	const offsetScaleX = rendererWidth / width;
-	const offsetScaleY = rendererHeight / height;
-	const x = (point.x + (Number(screenOffset?.x) || 0) * offsetScaleX) / rendererWidth * width;
-	const y = (point.y + (Number(screenOffset?.y) || 0) * offsetScaleY) / rendererHeight * height;
+		width_cm: width,
+		depth_cm: height
+	}, width, height, camera);
+	const scale = Math.max(1, Math.floor(Math.min(rendererWidth / 640, rendererHeight / 360)));
+	const snap = (value, pan, css, frame) => {
+		const logical = Math.floor(frame / scale);
+		const offset = Math.floor((frame - scale * logical) / 2);
+		const t = pan / (css / frame * scale);
+		const q = (value * frame / css - offset) / scale;
+		return (Math.floor(q - t + Math.floor(t + .5) + .5) * scale + offset) * css / frame;
+	};
+	const x = snap(point.x, Number(camera?.pan_x_px ?? camera?.panX) || 0, width, rendererWidth) + (Number(screenOffset?.x) || 0);
+	const y = snap(point.y, Number(camera?.pan_y_px ?? camera?.panY) || 0, height, rendererHeight) + (Number(screenOffset?.y) || 0);
 	const halfTarget = RENDERER_TARGET_SIZE_PX / 2;
 	return {
 		left: `${x / width * 100}%`,
@@ -24005,7 +25176,7 @@ function rendererEntityTargetStyle(entity, worldBounds, size, camera, screenOffs
 function PixelWorldRendererTargets(props) {
 	const state = createMemo(() => pixelWorldVisualState(props.renderState()));
 	const isZh = () => isLocaleZh(props.locale());
-	const moduleOffsets = createMemo(() => moduleTargetOffsets(state()));
+	const moduleOffsets = createMemo(() => moduleTargetOffsets(state(), props.stageSize(), props.rendererSize?.() || props.stageSize()));
 	const entities = createMemo(() => new Map([
 		...state().agents.map((entity) => [JSON.stringify(["agent", entity.id]), entity]),
 		...(state().worldBounds ? state().locations.filter((entity) => entity.pos) : []).map((entity) => [JSON.stringify(["location", entity.id]), entity]),
@@ -24169,53 +25340,54 @@ delegateEvents(["click"]);
 // software_safe_src/pixel_world_host.jsx
 var _tmpl$$27 = /*#__PURE__*/ template(`<div class="pixel-world-canvas__callout pixel-world-canvas__callout--goal">`);
 var _tmpl$2$26 = /*#__PURE__*/ template(`<div class="pixel-world-canvas__callout pixel-world-canvas__callout--blocker">`);
-var _tmpl$3$23 = /*#__PURE__*/ template(`<div class=pixel-world-canvas__selection>`);
-var _tmpl$4$20 = /*#__PURE__*/ template(`<div class="pixel-world-canvas pixel-world-canvas--rendered"><canvas id=pixel-world-embedded-runtime-canvas class=pixel-world-canvas__surface tabindex=0 role=img aria-describedby=pixel-world-canvas-accessible-summary width=960 height=540></canvas><div id=pixel-world-canvas-accessible-summary class=sr-only></div><div class=pixel-world-canvas__overlay>`);
-var _tmpl$5$19 = /*#__PURE__*/ template(`<div class=pixel-world-action-receipt__detail>`);
-var _tmpl$6$13 = /*#__PURE__*/ template(`<div class=pixel-world-action-receipt__changes data-receipt-changes=true>`);
-var _tmpl$7$10 = /*#__PURE__*/ template(`<span>`);
-var _tmpl$8$5 = /*#__PURE__*/ template(`<div class=pixel-world-action-receipt__meta><span>`);
-var _tmpl$9$4 = /*#__PURE__*/ template(`<div data-viewer-overlay=receipt><div class=pixel-world-action-receipt__label></div><div class=pixel-world-action-receipt__body><div class=pixel-world-action-receipt__title></div><div class=pixel-world-action-receipt__summary>`);
-var _tmpl$0$4 = /*#__PURE__*/ template(`<span class=pixel-world-command-cell__blocker-chip>`);
-var _tmpl$1$2 = /*#__PURE__*/ template(`<div class=pixel-world-command-cell__detail>`);
-var _tmpl$10$2 = /*#__PURE__*/ template(`<div class=pixel-world-command-cell__feedback data-primary-action-feedback=true aria-live=polite>`);
-var _tmpl$11$2 = /*#__PURE__*/ template(`<span class="badge badge--accent">`);
-var _tmpl$12$1 = /*#__PURE__*/ template(`<div id=viewer-decision-area class=pixel-world-decision-area data-viewer-decision-area=true><div class=pixel-world-command-strip data-viewer-overlay=next-move><div class="pixel-world-command-cell pixel-world-command-cell--next pixel-world-shell-region pixel-world-shell-region--primary"data-shell-region=next-move-primary><div class=pixel-world-command-cell__header><div class=pixel-world-command-cell__label></div></div><div class=pixel-world-command-cell__value></div><a class=pixel-world-command-cell__action data-primary-action=true aria-live=polite></a></div><div class="pixel-world-command-cell pixel-world-shell-region pixel-world-shell-region--supporting"data-shell-region=supporting-context><div class="pixel-world-shell-context-group pixel-world-shell-context-group--objective"><div class=pixel-world-command-cell__label></div><div class=pixel-world-command-cell__value></div><div class=pixel-world-command-cell__detail></div></div><div class="pixel-world-shell-context-group pixel-world-shell-context-group--leverage"><div class=pixel-world-command-cell__label></div><div class=pixel-world-command-cell__value></div><div class=pixel-world-command-cell__detail></div><div class=pixel-world-shell-context-group__agent><span class=pixel-world-command-cell__label></span><strong></strong></div></div></div></div><div class="pixel-world-readout badge-row"><span></span><span></span><span class="badge badge--accent">`);
-var _tmpl$13$1 = /*#__PURE__*/ template(`<div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--tick"data-hud-priority=telemetry><span></span><strong></strong><em>`);
-var _tmpl$14$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-hud data-focus-hud=true><div class=pixel-world-focus-hud__identity><div class=pixel-world-focus-hud__eyebrow></div><div class=pixel-world-focus-hud__title></div></div><div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--prompt"><span></span><strong></strong><em></em></div><div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--mission"><span></span><strong></strong><em></em></div><div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--blocker"><span></span><strong></strong></div><div class=pixel-world-focus-controls><button type=button class="pixel-world-focus-control pixel-world-focus-control--primary"></button><button id=viewer-focus-exit type=button class="pixel-world-focus-control pixel-world-focus-control--quiet"></button><details class=pixel-world-focus-more-controls><summary></summary><button type=button class="pixel-world-focus-control pixel-world-focus-control--secondary"></button><button type=button class="pixel-world-focus-control pixel-world-focus-control--secondary">`);
-var _tmpl$15$1 = /*#__PURE__*/ template(`<span class="badge badge--warn">`);
-var _tmpl$16$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-cinematic data-focus-cinematic=true><div class=pixel-world-focus-cinematic__eyebrow></div><div class=pixel-world-focus-cinematic__title></div><div class=pixel-world-focus-cinematic__body></div><div class=badge-row><span class="badge badge--accent">`);
-var _tmpl$17$1 = /*#__PURE__*/ template(`<div class="pixel-world-focus-rail__item pixel-world-focus-rail__item--blocker"data-focus-priority=blocker><span></span><strong>`);
-var _tmpl$18$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-rail__item><span></span><strong>`);
-var _tmpl$19$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-rail data-focus-rail=true><div class=pixel-world-focus-rail__label>`);
-var _tmpl$20$1 = /*#__PURE__*/ template(`<span class=sr-only>`);
-var _tmpl$21$1 = /*#__PURE__*/ template(`<div class="pixel-world-focus-minimap__node pixel-world-focus-minimap__node--selected"data-selected=true><span></span><strong>`);
-var _tmpl$22$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-minimap data-focus-minimap=true><div class=pixel-world-focus-minimap__label></div><div class=pixel-world-focus-minimap__grid></div><div class=pixel-world-focus-minimap__route></div><div class="pixel-world-focus-minimap__node pixel-world-focus-minimap__node--target"><span></span><strong></strong></div><div class="pixel-world-focus-minimap__node pixel-world-focus-minimap__node--agent"><span></span><strong></strong></div><div class=pixel-world-focus-minimap__meta><span></span><span></span><span></span><span>`);
-var _tmpl$23$1 = /*#__PURE__*/ template(`<pre class=json>`);
-var _tmpl$24$1 = /*#__PURE__*/ template(`<details class=diagnostic><summary>`);
-var _tmpl$25$1 = /*#__PURE__*/ template(`<span class=badge>`);
-var _tmpl$26$1 = /*#__PURE__*/ template(`<div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span>`);
-var _tmpl$27$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-command-tray><div class="pixel-world-focus-command-chip pixel-world-focus-command-chip--target"><span></span><strong></strong><em></em></div><div class="pixel-world-focus-command-chip pixel-world-focus-command-chip--blocker"><span></span><strong></strong></div><div class="pixel-world-focus-command-chip pixel-world-focus-command-chip--receipt"><span></span><strong></strong></div><button type=button class="pixel-world-focus-command-chip pixel-world-focus-command-chip--primary"data-chat-send=1>`);
-var _tmpl$28$1 = /*#__PURE__*/ template(`<div class=empty>`);
-var _tmpl$29$1 = /*#__PURE__*/ template(`<div class="panel panel--nested"><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=field><label for=agent-chat-message></label><textarea id=agent-chat-message rows=2></textarea></div><div class=toolbar><button type=button data-chat-send=1></button></div><div><div class="panel__title panel__title--spaced"></div><div class=event-list>`);
-var _tmpl$30$1 = /*#__PURE__*/ template(`<div id=viewer-command-console class="pixel-world-focus-command-surface stack">`);
-var _tmpl$31$1 = /*#__PURE__*/ template(`<div class=feedback-detail>`);
-var _tmpl$32$1 = /*#__PURE__*/ template(`<div class=feedback-card><div class=badge-row><span></span></div><div class=feedback-summary>`);
-var _tmpl$33$1 = /*#__PURE__*/ template(`<div><div class=event-card__title><span></span></div><div class=event-card__meta></div><div class=feedback-summary>`);
-var _tmpl$34$1 = /*#__PURE__*/ template(`<div role=status aria-live=polite>`);
-var _tmpl$35$1 = /*#__PURE__*/ template(`<div class=pixel-world-host__summary><div class=pixel-world-host__summary-copy><div class=pixel-world-host__headline></div><div class=feedback-detail>`);
-var _tmpl$36$1 = /*#__PURE__*/ template(`<details class=pixel-world-exploration-disclosure><summary>`);
-var _tmpl$37$1 = /*#__PURE__*/ template(`<div class="empty pixel-world-render-unavailable"data-viewer-overlay=renderer-unavailable>`);
-var _tmpl$38$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-receipt>`);
-var _tmpl$39$1 = /*#__PURE__*/ template(`<details id=viewer-focus-command-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--command"><summary></summary><div class=pixel-world-focus-drawer__body>`);
-var _tmpl$40$1 = /*#__PURE__*/ template(`<div class=feedback-detail data-renderer-fatal>`);
-var _tmpl$41$1 = /*#__PURE__*/ template(`<details class="diagnostic pixel-world-render-diagnostics"><summary></summary><div class="pixel-world-host__toolbar badge-row"><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><button type=button></button><button type=button></button><div class=feedback-detail>`);
-var _tmpl$42$1 = /*#__PURE__*/ template(`<details id=viewer-focus-diagnostics-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--diagnostics"><summary></summary><div class=pixel-world-focus-drawer__body><div class=badge-row><span class=badge></span><span class=badge></span><span class=badge></span></div><div class="toolbar toolbar--spaced"><button type=button>`);
-var _tmpl$43$1 = /*#__PURE__*/ template(`<div class="stack flow-top"><pre class=json>`);
-var _tmpl$44$1 = /*#__PURE__*/ template(`<div data-viewer-overlay=world-hud><div class=pixel-world-focus-entry data-viewer-overlay=cinematic-entry><div id=pixel-world-focus-entry-hint class=pixel-world-focus-entry__hint></div><button type=button class=pixel-world-focus-entry__button aria-pressed=false></button></div><details class=diagnostic><summary>`);
-var _tmpl$45$1 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$46$1 = /*#__PURE__*/ template(`<div>`);
-var _tmpl$47$1 = /*#__PURE__*/ template(`<button type=button class=pixel-world-render-unavailable__retry>`);
+var _tmpl$3$23 = /*#__PURE__*/ template(`<span>`);
+var _tmpl$4$20 = /*#__PURE__*/ template(`<div class=pixel-world-selection-status role=status aria-live=polite>`);
+var _tmpl$5$19 = /*#__PURE__*/ template(`<div class=pixel-world-canvas__selection>`);
+var _tmpl$6$13 = /*#__PURE__*/ template(`<div class="pixel-world-canvas pixel-world-canvas--rendered"><canvas id=pixel-world-embedded-runtime-canvas class=pixel-world-canvas__surface tabindex=0 role=img aria-describedby=pixel-world-canvas-accessible-summary width=960 height=540></canvas><div id=pixel-world-canvas-accessible-summary class=sr-only></div><div class=pixel-world-canvas__overlay>`);
+var _tmpl$7$10 = /*#__PURE__*/ template(`<div class=pixel-world-action-receipt__detail>`);
+var _tmpl$8$5 = /*#__PURE__*/ template(`<div class=pixel-world-action-receipt__changes data-receipt-changes=true>`);
+var _tmpl$9$4 = /*#__PURE__*/ template(`<div class=pixel-world-action-receipt__meta><span>`);
+var _tmpl$0$4 = /*#__PURE__*/ template(`<div data-viewer-overlay=receipt><div class=pixel-world-action-receipt__label></div><div class=pixel-world-action-receipt__body><div class=pixel-world-action-receipt__title></div><div class=pixel-world-action-receipt__summary>`);
+var _tmpl$1$2 = /*#__PURE__*/ template(`<span class=pixel-world-command-cell__blocker-chip>`);
+var _tmpl$10$2 = /*#__PURE__*/ template(`<div class=pixel-world-command-cell__detail>`);
+var _tmpl$11$2 = /*#__PURE__*/ template(`<div class=pixel-world-command-cell__feedback data-primary-action-feedback=true aria-live=polite>`);
+var _tmpl$12$1 = /*#__PURE__*/ template(`<span class="badge badge--accent">`);
+var _tmpl$13$1 = /*#__PURE__*/ template(`<div id=viewer-decision-area class=pixel-world-decision-area data-viewer-decision-area=true><div class=pixel-world-command-strip data-viewer-overlay=next-move><div class="pixel-world-command-cell pixel-world-command-cell--next pixel-world-shell-region pixel-world-shell-region--primary"data-shell-region=next-move-primary><div class=pixel-world-command-cell__header><div class=pixel-world-command-cell__label></div></div><div class=pixel-world-command-cell__value></div><a class=pixel-world-command-cell__action data-primary-action=true aria-live=polite></a></div><div class="pixel-world-command-cell pixel-world-shell-region pixel-world-shell-region--supporting"data-shell-region=supporting-context><div class="pixel-world-shell-context-group pixel-world-shell-context-group--objective"><div class=pixel-world-command-cell__label></div><div class=pixel-world-command-cell__value></div><div class=pixel-world-command-cell__detail></div></div><div class="pixel-world-shell-context-group pixel-world-shell-context-group--leverage"><div class=pixel-world-command-cell__label></div><div class=pixel-world-command-cell__value></div><div class=pixel-world-command-cell__detail></div><div class=pixel-world-shell-context-group__agent><span class=pixel-world-command-cell__label></span><strong></strong></div></div></div></div><div class="pixel-world-readout badge-row"><span></span><span></span><span class="badge badge--accent">`);
+var _tmpl$14$1 = /*#__PURE__*/ template(`<div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--tick"data-hud-priority=telemetry><span></span><strong></strong><em>`);
+var _tmpl$15$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-hud data-focus-hud=true><div class=pixel-world-focus-hud__identity><div class=pixel-world-focus-hud__eyebrow></div><div class=pixel-world-focus-hud__title></div></div><div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--prompt"><span></span><strong></strong><em></em></div><div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--mission"><span></span><strong></strong><em></em></div><div class="pixel-world-focus-hud__cell pixel-world-focus-hud__cell--blocker"><span></span><strong></strong></div><div class=pixel-world-focus-controls><button type=button class="pixel-world-focus-control pixel-world-focus-control--primary"></button><button id=viewer-focus-exit type=button class="pixel-world-focus-control pixel-world-focus-control--quiet"></button><details class=pixel-world-focus-more-controls><summary></summary><button type=button class="pixel-world-focus-control pixel-world-focus-control--secondary"></button><button type=button class="pixel-world-focus-control pixel-world-focus-control--secondary">`);
+var _tmpl$16$1 = /*#__PURE__*/ template(`<span class="badge badge--warn">`);
+var _tmpl$17$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-cinematic data-focus-cinematic=true><div class=pixel-world-focus-cinematic__eyebrow></div><div class=pixel-world-focus-cinematic__title></div><div class=pixel-world-focus-cinematic__body></div><div class=badge-row><span class="badge badge--accent">`);
+var _tmpl$18$1 = /*#__PURE__*/ template(`<div class="pixel-world-focus-rail__item pixel-world-focus-rail__item--blocker"data-focus-priority=blocker><span></span><strong>`);
+var _tmpl$19$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-rail__item><span></span><strong>`);
+var _tmpl$20$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-rail data-focus-rail=true><div class=pixel-world-focus-rail__label>`);
+var _tmpl$21$1 = /*#__PURE__*/ template(`<span class=sr-only>`);
+var _tmpl$22$1 = /*#__PURE__*/ template(`<div class="pixel-world-focus-minimap__node pixel-world-focus-minimap__node--selected"data-selected=true><span></span><strong>`);
+var _tmpl$23$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-minimap data-focus-minimap=true><div class=pixel-world-focus-minimap__label></div><div class=pixel-world-focus-minimap__grid></div><div class=pixel-world-focus-minimap__route></div><div class="pixel-world-focus-minimap__node pixel-world-focus-minimap__node--target"><span></span><strong></strong></div><div class="pixel-world-focus-minimap__node pixel-world-focus-minimap__node--agent"><span></span><strong></strong></div><div class=pixel-world-focus-minimap__meta><span></span><span></span><span></span><span>`);
+var _tmpl$24$1 = /*#__PURE__*/ template(`<pre class=json>`);
+var _tmpl$25$1 = /*#__PURE__*/ template(`<details class=diagnostic><summary>`);
+var _tmpl$26$1 = /*#__PURE__*/ template(`<span class=badge>`);
+var _tmpl$27$1 = /*#__PURE__*/ template(`<div class=badge-row><span class="badge badge--accent"></span><span class=badge></span><span>`);
+var _tmpl$28$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-command-tray><div class="pixel-world-focus-command-chip pixel-world-focus-command-chip--target"><span></span><strong></strong><em></em></div><div class="pixel-world-focus-command-chip pixel-world-focus-command-chip--blocker"><span></span><strong></strong></div><div class="pixel-world-focus-command-chip pixel-world-focus-command-chip--receipt"><span></span><strong></strong></div><button type=button class="pixel-world-focus-command-chip pixel-world-focus-command-chip--primary"data-chat-send=1>`);
+var _tmpl$29$1 = /*#__PURE__*/ template(`<div class=empty>`);
+var _tmpl$30$1 = /*#__PURE__*/ template(`<div class="panel panel--nested"><div class=panel__header><div class="stack stack--compact"><div class=panel__eyebrow></div><div class=panel__title></div><div class=panel__meta-copy></div></div></div><div class="panel__body stack"><div class=field><label for=agent-chat-message></label><textarea id=agent-chat-message rows=2></textarea></div><div class=toolbar><button type=button data-chat-send=1></button></div><div><div class="panel__title panel__title--spaced"></div><div class=event-list>`);
+var _tmpl$31$1 = /*#__PURE__*/ template(`<div id=viewer-command-console class="pixel-world-focus-command-surface stack">`);
+var _tmpl$32$1 = /*#__PURE__*/ template(`<div class=feedback-detail>`);
+var _tmpl$33$1 = /*#__PURE__*/ template(`<div class=feedback-card><div class=badge-row><span></span></div><div class=feedback-summary>`);
+var _tmpl$34$1 = /*#__PURE__*/ template(`<div><div class=event-card__title><span></span></div><div class=event-card__meta></div><div class=feedback-summary>`);
+var _tmpl$35$1 = /*#__PURE__*/ template(`<div role=status aria-live=polite>`);
+var _tmpl$36$1 = /*#__PURE__*/ template(`<div class=pixel-world-host__summary><div class=pixel-world-host__summary-copy><div class=pixel-world-host__headline></div><div class=feedback-detail>`);
+var _tmpl$37$1 = /*#__PURE__*/ template(`<details class=pixel-world-exploration-disclosure><summary>`);
+var _tmpl$38$1 = /*#__PURE__*/ template(`<div class="empty pixel-world-render-unavailable"data-viewer-overlay=renderer-unavailable>`);
+var _tmpl$39$1 = /*#__PURE__*/ template(`<div class=pixel-world-focus-receipt>`);
+var _tmpl$40$1 = /*#__PURE__*/ template(`<details id=viewer-focus-command-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--command"><summary></summary><div class=pixel-world-focus-drawer__body>`);
+var _tmpl$41$1 = /*#__PURE__*/ template(`<div class=feedback-detail data-renderer-fatal>`);
+var _tmpl$42$1 = /*#__PURE__*/ template(`<details class="diagnostic pixel-world-render-diagnostics"><summary></summary><div class="pixel-world-host__toolbar badge-row"><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class="badge badge--accent"></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><span class=badge></span><button type=button></button><button type=button></button><div class=feedback-detail>`);
+var _tmpl$43$1 = /*#__PURE__*/ template(`<details id=viewer-focus-diagnostics-drawer class="pixel-world-focus-drawer pixel-world-focus-drawer--diagnostics"><summary></summary><div class=pixel-world-focus-drawer__body><div class=badge-row><span class=badge></span><span class=badge></span><span class=badge></span></div><div class="toolbar toolbar--spaced"><button type=button>`);
+var _tmpl$44$1 = /*#__PURE__*/ template(`<div class="stack flow-top"><pre class=json>`);
+var _tmpl$45$1 = /*#__PURE__*/ template(`<div data-viewer-overlay=world-hud><div class=pixel-world-focus-entry data-viewer-overlay=cinematic-entry><div id=pixel-world-focus-entry-hint class=pixel-world-focus-entry__hint></div><button type=button class=pixel-world-focus-entry__button aria-pressed=false></button></div><details class=diagnostic><summary>`);
+var _tmpl$46$1 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$47$1 = /*#__PURE__*/ template(`<div>`);
+var _tmpl$48$1 = /*#__PURE__*/ template(`<button type=button class=pixel-world-render-unavailable__retry>`);
 function tr$1(locale, zh, en) {
 	return isLocaleZh(locale) ? zh : en;
 }
@@ -24368,7 +25540,7 @@ function PixelWorldCanvasRenderer(props) {
 		requestAnimationFrame(() => applyPixelWorldMobileSelectionSafeArea(canvasRef?.closest(".pixel-world-canvas")));
 	});
 	return (() => {
-		var _el$ = _tmpl$4$20(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling;
+		var _el$ = _tmpl$6$13(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling;
 		var _ref$ = canvasRef;
 		typeof _ref$ === "function" ? use(_ref$, _el$2) : canvasRef = _el$2;
 		insert(_el$3, () => tr$1(props.locale(), "Canvas 提供当前世界的只读概览；相邻 HUD、焦点栏和命令抽屉提供当前 Agent、阻塞、回执与命令路径。", "The canvas provides a read-only overview of the current world; adjacent HUD, focus rail, and command drawer expose the current agent, blocker, receipt, and command path."));
@@ -24522,19 +25694,59 @@ function PixelWorldCanvasRenderer(props) {
 		}), null);
 		insert(_el$, createComponent(Show, {
 			get when() {
-				return visualState().selection;
+				return visualState().selection || props.selectionStatus?.();
 			},
 			get children() {
-				var _el$7 = _tmpl$3$23();
-				insert(_el$7, () => `${tr$1(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`);
+				var _el$7 = _tmpl$5$19();
+				insert(_el$7, createComponent(Show, {
+					get when() {
+						return visualState().selection;
+					},
+					get children() {
+						var _el$8 = _tmpl$3$23();
+						insert(_el$8, () => `${tr$1(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`);
+						return _el$8;
+					}
+				}), null);
+				insert(_el$7, createComponent(Show, {
+					get when() {
+						return props.selectionStatus?.();
+					},
+					get children() {
+						var _el$9 = _tmpl$4$20();
+						insert(_el$9, (() => {
+							var _c$ = memo(() => props.selectionStatus() === "pending");
+							return () => _c$() ? tr$1(props.locale(), "正在确认所选对象…", "Checking the selected object…") : tr$1(props.locale(), "当前无法确认该对象，请重新选择。", "This object could not be confirmed. Select again.");
+						})());
+						createRenderEffect(() => setAttribute(_el$9, "data-world-selection-status", props.selectionStatus()));
+						return _el$9;
+					}
+				}), null);
+				createRenderEffect((_p$) => {
+					var _v$ = props.selectionFeedback?.()?.intent_generation, _v$2 = props.selectionFeedback?.()?.ref.kind, _v$3 = props.selectionFeedback?.()?.ref.id, _v$4 = props.selectionFeedback?.()?.world_id, _v$5 = props.selectionFeedback?.()?.scope_generation, _v$6 = props.selectionFeedback?.()?.phase;
+					_v$ !== _p$.e && setAttribute(_el$7, "data-world-feedback-intent", _p$.e = _v$);
+					_v$2 !== _p$.t && setAttribute(_el$7, "data-world-feedback-kind", _p$.t = _v$2);
+					_v$3 !== _p$.a && setAttribute(_el$7, "data-world-feedback-id", _p$.a = _v$3);
+					_v$4 !== _p$.o && setAttribute(_el$7, "data-world-feedback-world", _p$.o = _v$4);
+					_v$5 !== _p$.i && setAttribute(_el$7, "data-world-feedback-scope", _p$.i = _v$5);
+					_v$6 !== _p$.n && setAttribute(_el$7, "data-world-feedback-phase", _p$.n = _v$6);
+					return _p$;
+				}, {
+					e: void 0,
+					t: void 0,
+					a: void 0,
+					o: void 0,
+					i: void 0,
+					n: void 0
+				});
 				return _el$7;
 			}
 		}), null);
 		createRenderEffect((_p$) => {
-			var _v$ = props.rendererProjection?.() ? "true" : void 0, _v$2 = props.rendererStatus?.() === "ready" ? "true" : void 0, _v$3 = tr$1(props.locale(), "世界 Canvas 概览", "World canvas overview");
-			_v$ !== _p$.e && setAttribute(_el$, "data-renderer-projection", _p$.e = _v$);
-			_v$2 !== _p$.t && setAttribute(_el$, "data-renderer-ready", _p$.t = _v$2);
-			_v$3 !== _p$.a && setAttribute(_el$2, "aria-label", _p$.a = _v$3);
+			var _v$7 = props.rendererProjection?.() ? "true" : void 0, _v$8 = props.rendererStatus?.() === "ready" ? "true" : void 0, _v$9 = tr$1(props.locale(), "世界 Canvas 概览", "World canvas overview");
+			_v$7 !== _p$.e && setAttribute(_el$, "data-renderer-projection", _p$.e = _v$7);
+			_v$8 !== _p$.t && setAttribute(_el$, "data-renderer-ready", _p$.t = _v$8);
+			_v$9 !== _p$.a && setAttribute(_el$2, "aria-label", _p$.a = _v$9);
 			return _p$;
 		}, {
 			e: void 0,
@@ -24548,57 +25760,57 @@ function PixelWorldActionReceipt(props) {
 	const receipt = () => props.surface().action_receipt;
 	const receiptChanges = () => [receipt().delta_logical_time == null ? null : `${tr$1(props.locale(), "世界 Tick 变化", "World tick change")} ${receipt().delta_logical_time}`, receipt().delta_event_seq == null ? null : `${tr$1(props.locale(), "事件序列变化", "Event sequence change")} ${receipt().delta_event_seq}`].filter(Boolean);
 	return (() => {
-		var _el$8 = _tmpl$9$4(), _el$9 = _el$8.firstChild, _el$0 = _el$9.nextSibling, _el$1 = _el$0.firstChild, _el$10 = _el$1.nextSibling;
-		insert(_el$9, () => tr$1(props.locale(), "行动回执", "Action Receipt"));
-		insert(_el$1, () => receipt().title);
-		insert(_el$10, () => receipt().summary);
-		insert(_el$0, createComponent(Show, {
+		var _el$0 = _tmpl$0$4(), _el$1 = _el$0.firstChild, _el$10 = _el$1.nextSibling, _el$11 = _el$10.firstChild, _el$12 = _el$11.nextSibling;
+		insert(_el$1, () => tr$1(props.locale(), "行动回执", "Action Receipt"));
+		insert(_el$11, () => receipt().title);
+		insert(_el$12, () => receipt().summary);
+		insert(_el$10, createComponent(Show, {
 			get when() {
 				return receipt().detail;
 			},
 			get children() {
-				var _el$11 = _tmpl$5$19();
-				insert(_el$11, () => receipt().detail);
-				return _el$11;
+				var _el$13 = _tmpl$7$10();
+				insert(_el$13, () => receipt().detail);
+				return _el$13;
 			}
 		}), null);
-		insert(_el$0, createComponent(Show, {
+		insert(_el$10, createComponent(Show, {
 			get when() {
 				return receiptChanges().length > 0;
 			},
 			get children() {
-				var _el$12 = _tmpl$6$13();
-				insert(_el$12, () => receiptChanges().join(" · "));
-				return _el$12;
+				var _el$14 = _tmpl$8$5();
+				insert(_el$14, () => receiptChanges().join(" · "));
+				return _el$14;
 			}
 		}), null);
-		insert(_el$8, createComponent(Show, {
+		insert(_el$0, createComponent(Show, {
 			get when() {
 				return receipt().present;
 			},
 			get children() {
-				var _el$13 = _tmpl$8$5(), _el$14 = _el$13.firstChild;
-				insert(_el$14, () => receiptConfidenceLabel(receipt().confidence, props.locale(), receipt().state));
-				insert(_el$13, createComponent(Show, {
+				var _el$15 = _tmpl$9$4(), _el$16 = _el$15.firstChild;
+				insert(_el$16, () => receiptConfidenceLabel(receipt().confidence, props.locale(), receipt().state));
+				insert(_el$15, createComponent(Show, {
 					get when() {
 						return receipt().target_agent_id;
 					},
 					get children() {
-						var _el$15 = _tmpl$7$10();
-						insert(_el$15, () => `${tr$1(props.locale(), "行动体", "Agent")} ${String(receipt().target_agent_id).replace(/^agent[-_]/i, "")}`);
-						return _el$15;
+						var _el$17 = _tmpl$3$23();
+						insert(_el$17, () => `${tr$1(props.locale(), "行动体", "Agent")} ${String(receipt().target_agent_id).replace(/^agent[-_]/i, "")}`);
+						return _el$17;
 					}
 				}), null);
-				return _el$13;
+				return _el$15;
 			}
 		}), null);
 		createRenderEffect((_p$) => {
-			var _v$4 = props.id, _v$5 = `pixel-world-action-receipt pixel-world-action-receipt--${receipt().state || "unknown"} pixel-world-action-receipt--${receipt().confidence || "none"} ${props.class ?? ""}`, _v$6 = receipt().present ? "true" : "false", _v$7 = receipt().state, _v$8 = receipt().confidence;
-			_v$4 !== _p$.e && setAttribute(_el$8, "id", _p$.e = _v$4);
-			_v$5 !== _p$.t && className(_el$8, _p$.t = _v$5);
-			_v$6 !== _p$.a && setAttribute(_el$8, "data-receipt-present", _p$.a = _v$6);
-			_v$7 !== _p$.o && setAttribute(_el$8, "data-receipt-state", _p$.o = _v$7);
-			_v$8 !== _p$.i && setAttribute(_el$8, "data-receipt-confidence", _p$.i = _v$8);
+			var _v$0 = props.id, _v$1 = `pixel-world-action-receipt pixel-world-action-receipt--${receipt().state || "unknown"} pixel-world-action-receipt--${receipt().confidence || "none"} ${props.class ?? ""}`, _v$10 = receipt().present ? "true" : "false", _v$11 = receipt().state, _v$12 = receipt().confidence;
+			_v$0 !== _p$.e && setAttribute(_el$0, "id", _p$.e = _v$0);
+			_v$1 !== _p$.t && className(_el$0, _p$.t = _v$1);
+			_v$10 !== _p$.a && setAttribute(_el$0, "data-receipt-present", _p$.a = _v$10);
+			_v$11 !== _p$.o && setAttribute(_el$0, "data-receipt-state", _p$.o = _v$11);
+			_v$12 !== _p$.i && setAttribute(_el$0, "data-receipt-confidence", _p$.i = _v$12);
 			return _p$;
 		}, {
 			e: void 0,
@@ -24607,7 +25819,7 @@ function PixelWorldActionReceipt(props) {
 			o: void 0,
 			i: void 0
 		});
-		return _el$8;
+		return _el$0;
 	})();
 }
 function receiptConfidenceLabel(confidence, locale, state) {
@@ -24725,56 +25937,56 @@ function PixelWorldCommercialHud(props) {
 			return surface();
 		},
 		get children() {
-			var _el$16 = _tmpl$12$1(), _el$17 = _el$16.firstChild, _el$18 = _el$17.firstChild, _el$19 = _el$18.firstChild, _el$20 = _el$19.firstChild, _el$22 = _el$19.nextSibling, _el$24 = _el$22.nextSibling, _el$27 = _el$18.nextSibling.firstChild, _el$28 = _el$27.firstChild, _el$29 = _el$28.nextSibling, _el$30 = _el$29.nextSibling, _el$32 = _el$27.nextSibling.firstChild, _el$33 = _el$32.nextSibling, _el$34 = _el$33.nextSibling, _el$35 = _el$34.nextSibling, _el$36 = _el$35.firstChild, _el$37 = _el$36.nextSibling, _el$38 = _el$17.nextSibling, _el$39 = _el$38.firstChild, _el$40 = _el$39.nextSibling, _el$42 = _el$40.nextSibling;
-			insert(_el$20, () => tr$1(props.locale(), "下一步", "Next Move"));
-			insert(_el$19, createComponent(Show, {
+			var _el$18 = _tmpl$13$1(), _el$19 = _el$18.firstChild, _el$20 = _el$19.firstChild, _el$21 = _el$20.firstChild, _el$22 = _el$21.firstChild, _el$24 = _el$21.nextSibling, _el$26 = _el$24.nextSibling, _el$29 = _el$20.nextSibling.firstChild, _el$30 = _el$29.firstChild, _el$31 = _el$30.nextSibling, _el$32 = _el$31.nextSibling, _el$34 = _el$29.nextSibling.firstChild, _el$35 = _el$34.nextSibling, _el$36 = _el$35.nextSibling, _el$37 = _el$36.nextSibling, _el$38 = _el$37.firstChild, _el$39 = _el$38.nextSibling, _el$40 = _el$19.nextSibling, _el$41 = _el$40.firstChild, _el$42 = _el$41.nextSibling, _el$44 = _el$42.nextSibling;
+			insert(_el$22, () => tr$1(props.locale(), "下一步", "Next Move"));
+			insert(_el$21, createComponent(Show, {
 				get when() {
 					return playerBlockerLabel();
 				},
 				get children() {
-					var _el$21 = _tmpl$0$4();
-					insert(_el$21, () => `${tr$1(props.locale(), "阻塞", "Blocker")}: ${playerBlockerLabel()}`);
-					return _el$21;
+					var _el$23 = _tmpl$1$2();
+					insert(_el$23, () => `${tr$1(props.locale(), "阻塞", "Blocker")}: ${playerBlockerLabel()}`);
+					return _el$23;
 				}
 			}), null);
-			insert(_el$22, () => surface().next_action.label);
-			insert(_el$18, createComponent(Show, {
+			insert(_el$24, () => surface().next_action.label);
+			insert(_el$20, createComponent(Show, {
 				get when() {
 					return surface().next_action.detail;
 				},
 				get children() {
-					var _el$23 = _tmpl$1$2();
-					insert(_el$23, () => surface().next_action.detail);
-					return _el$23;
+					var _el$25 = _tmpl$10$2();
+					insert(_el$25, () => surface().next_action.detail);
+					return _el$25;
 				}
-			}), _el$24);
-			_el$24.$$click = activateNextMove;
-			insert(_el$24, (() => {
-				var _c$ = memo(() => !!directNextMoveAction());
-				return () => _c$() ? surface().next_action.label : memo(() => !!nextMoveRoutesToGameplayDetails())() ? tr$1(props.locale(), "打开玩法明细", "Open Gameplay Details") : tr$1(props.locale(), "去指挥面板", "Go to Command");
+			}), _el$26);
+			_el$26.$$click = activateNextMove;
+			insert(_el$26, (() => {
+				var _c$2 = memo(() => !!directNextMoveAction());
+				return () => _c$2() ? surface().next_action.label : memo(() => !!nextMoveRoutesToGameplayDetails())() ? tr$1(props.locale(), "打开玩法明细", "Open Gameplay Details") : tr$1(props.locale(), "去指挥面板", "Go to Command");
 			})());
-			insert(_el$18, createComponent(Show, {
+			insert(_el$20, createComponent(Show, {
 				get when() {
 					return nextMovePending() || surface().action_receipt?.present;
 				},
 				get children() {
-					var _el$25 = _tmpl$10$2();
-					insert(_el$25, (() => {
-						var _c$2 = memo(() => !!nextMovePending());
-						return () => _c$2() ? tr$1(props.locale(), "动作已提交，等待世界确认。", "Action submitted; waiting for world confirmation.") : surface().action_receipt?.title;
+					var _el$27 = _tmpl$11$2();
+					insert(_el$27, (() => {
+						var _c$3 = memo(() => !!nextMovePending());
+						return () => _c$3() ? tr$1(props.locale(), "动作已提交，等待世界确认。", "Action submitted; waiting for world confirmation.") : surface().action_receipt?.title;
 					})());
-					return _el$25;
+					return _el$27;
 				}
 			}), null);
-			insert(_el$28, () => tr$1(props.locale(), "目标", "Objective"));
-			insert(_el$29, () => surface().objective.title);
-			insert(_el$30, () => surface().objective.detail);
-			insert(_el$32, () => tr$1(props.locale(), "玩家杠杆", "Player Leverage"));
-			insert(_el$33, () => pixelWorldReadableEntityText(surface().player_leverage.summary, props.renderState(), isLocaleZh(props.locale())));
-			insert(_el$34, () => surface().player_leverage.label);
-			insert(_el$36, () => tr$1(props.locale(), "当前 Agent", "Selected Agent"));
-			insert(_el$37, activeAgentLabel);
-			insert(_el$16, createComponent(Show, {
+			insert(_el$30, () => tr$1(props.locale(), "目标", "Objective"));
+			insert(_el$31, () => surface().objective.title);
+			insert(_el$32, () => surface().objective.detail);
+			insert(_el$34, () => tr$1(props.locale(), "玩家杠杆", "Player Leverage"));
+			insert(_el$35, () => pixelWorldReadableEntityText(surface().player_leverage.summary, props.renderState(), isLocaleZh(props.locale())));
+			insert(_el$36, () => surface().player_leverage.label);
+			insert(_el$38, () => tr$1(props.locale(), "当前 Agent", "Selected Agent"));
+			insert(_el$39, activeAgentLabel);
+			insert(_el$18, createComponent(Show, {
 				get when() {
 					return !props.focusMode?.();
 				},
@@ -24787,22 +25999,22 @@ function PixelWorldCommercialHud(props) {
 						surface
 					});
 				}
-			}), _el$38);
-			insert(_el$39, () => worldConnection().label);
-			insert(_el$40, () => feedFreshness().label);
-			insert(_el$38, createComponent(Show, {
+			}), _el$40);
+			insert(_el$41, () => worldConnection().label);
+			insert(_el$42, () => feedFreshness().label);
+			insert(_el$40, createComponent(Show, {
 				get when() {
 					return memo(() => surface().world_read.tick !== null)() && surface().world_read.tick !== void 0;
 				},
 				get children() {
-					var _el$41 = _tmpl$11$2();
-					insert(_el$41, () => `tick=${surface().world_read.tick}`);
-					createRenderEffect(() => setAttribute(_el$41, "data-world-tick", String(surface().world_read.tick)));
-					return _el$41;
+					var _el$43 = _tmpl$12$1();
+					insert(_el$43, () => `tick=${surface().world_read.tick}`);
+					createRenderEffect(() => setAttribute(_el$43, "data-world-tick", String(surface().world_read.tick)));
+					return _el$43;
 				}
-			}), _el$42);
-			insert(_el$42, () => `agents=${surface().world_read.agents}`);
-			insert(_el$16, createComponent(PixelWorldSparseSceneGuidance, {
+			}), _el$44);
+			insert(_el$44, () => `agents=${surface().world_read.agents}`);
+			insert(_el$18, createComponent(PixelWorldSparseSceneGuidance, {
 				get locale() {
 					return props.locale;
 				},
@@ -24810,27 +26022,27 @@ function PixelWorldCommercialHud(props) {
 					return props.renderState;
 				}
 			}), null);
-			insert(_el$16, createComponent(PixelWorldCanvasLegend, { get locale() {
+			insert(_el$18, createComponent(PixelWorldCanvasLegend, { get locale() {
 				return props.locale;
 			} }), null);
 			createRenderEffect((_p$) => {
-				var _v$9 = activeAgentId(), _v$0 = surface().player_leverage.state, _v$1 = nextMoveRoute(), _v$10 = surface().next_action.execute_kind || "none", _v$11 = playerBlockerLabel() ? "true" : "false", _v$12 = nextMoveHref(), _v$13 = `${tr$1(props.locale(), "下一步", "Next Move")}: ${surface().next_action.label}`, _v$14 = nextMoveDisabledReason() ? "true" : void 0, _v$15 = nextMovePending() ? "true" : "false", _v$16 = nextMoveDisabledReason() ? -1 : void 0, _v$17 = activeAgentLabel(), _v$18 = tr$1(props.locale(), "世界连接与动态新鲜度", "World connection and feed freshness"), _v$19 = worldConnection().className, _v$20 = worldConnection().state, _v$21 = feedFreshness().className, _v$22 = readoutFeedStatus();
-				_v$9 !== _p$.e && setAttribute(_el$17, "data-active-agent", _p$.e = _v$9);
-				_v$0 !== _p$.t && setAttribute(_el$17, "data-leverage-state", _p$.t = _v$0);
-				_v$1 !== _p$.a && setAttribute(_el$18, "data-next-move-route", _p$.a = _v$1);
-				_v$10 !== _p$.o && setAttribute(_el$18, "data-execute-kind", _p$.o = _v$10);
-				_v$11 !== _p$.i && setAttribute(_el$18, "data-blocker-present", _p$.i = _v$11);
-				_v$12 !== _p$.n && setAttribute(_el$24, "href", _p$.n = _v$12);
-				_v$13 !== _p$.s && setAttribute(_el$24, "aria-label", _p$.s = _v$13);
-				_v$14 !== _p$.h && setAttribute(_el$24, "aria-disabled", _p$.h = _v$14);
-				_v$15 !== _p$.r && setAttribute(_el$24, "aria-busy", _p$.r = _v$15);
-				_v$16 !== _p$.d && setAttribute(_el$24, "tabindex", _p$.d = _v$16);
-				_v$17 !== _p$.l && setAttribute(_el$35, "data-selected-agent-label", _p$.l = _v$17);
-				_v$18 !== _p$.u && setAttribute(_el$38, "aria-label", _p$.u = _v$18);
-				_v$19 !== _p$.c && className(_el$39, _p$.c = _v$19);
-				_v$20 !== _p$.w && setAttribute(_el$39, "data-world-connection-status", _p$.w = _v$20);
-				_v$21 !== _p$.m && className(_el$40, _p$.m = _v$21);
-				_v$22 !== _p$.f && setAttribute(_el$40, "data-world-feed-readout-status", _p$.f = _v$22);
+				var _v$13 = activeAgentId(), _v$14 = surface().player_leverage.state, _v$15 = nextMoveRoute(), _v$16 = surface().next_action.execute_kind || "none", _v$17 = playerBlockerLabel() ? "true" : "false", _v$18 = nextMoveHref(), _v$19 = `${tr$1(props.locale(), "下一步", "Next Move")}: ${surface().next_action.label}`, _v$20 = nextMoveDisabledReason() ? "true" : void 0, _v$21 = nextMovePending() ? "true" : "false", _v$22 = nextMoveDisabledReason() ? -1 : void 0, _v$23 = activeAgentLabel(), _v$24 = tr$1(props.locale(), "世界连接与动态新鲜度", "World connection and feed freshness"), _v$25 = worldConnection().className, _v$26 = worldConnection().state, _v$27 = feedFreshness().className, _v$28 = readoutFeedStatus();
+				_v$13 !== _p$.e && setAttribute(_el$19, "data-active-agent", _p$.e = _v$13);
+				_v$14 !== _p$.t && setAttribute(_el$19, "data-leverage-state", _p$.t = _v$14);
+				_v$15 !== _p$.a && setAttribute(_el$20, "data-next-move-route", _p$.a = _v$15);
+				_v$16 !== _p$.o && setAttribute(_el$20, "data-execute-kind", _p$.o = _v$16);
+				_v$17 !== _p$.i && setAttribute(_el$20, "data-blocker-present", _p$.i = _v$17);
+				_v$18 !== _p$.n && setAttribute(_el$26, "href", _p$.n = _v$18);
+				_v$19 !== _p$.s && setAttribute(_el$26, "aria-label", _p$.s = _v$19);
+				_v$20 !== _p$.h && setAttribute(_el$26, "aria-disabled", _p$.h = _v$20);
+				_v$21 !== _p$.r && setAttribute(_el$26, "aria-busy", _p$.r = _v$21);
+				_v$22 !== _p$.d && setAttribute(_el$26, "tabindex", _p$.d = _v$22);
+				_v$23 !== _p$.l && setAttribute(_el$37, "data-selected-agent-label", _p$.l = _v$23);
+				_v$24 !== _p$.u && setAttribute(_el$40, "aria-label", _p$.u = _v$24);
+				_v$25 !== _p$.c && className(_el$41, _p$.c = _v$25);
+				_v$26 !== _p$.w && setAttribute(_el$41, "data-world-connection-status", _p$.w = _v$26);
+				_v$27 !== _p$.m && className(_el$42, _p$.m = _v$27);
+				_v$28 !== _p$.f && setAttribute(_el$42, "data-world-feed-readout-status", _p$.f = _v$28);
 				return _p$;
 			}, {
 				e: void 0,
@@ -24850,7 +26062,7 @@ function PixelWorldCommercialHud(props) {
 				m: void 0,
 				f: void 0
 			});
-			return _el$16;
+			return _el$18;
 		}
 	});
 }
@@ -24861,57 +26073,57 @@ function PixelWorldFocusHud(props) {
 			return surface();
 		},
 		get children() {
-			var _el$43 = _tmpl$14$1(), _el$44 = _el$43.firstChild, _el$45 = _el$44.firstChild, _el$46 = _el$45.nextSibling, _el$47 = _el$44.nextSibling, _el$48 = _el$47.firstChild, _el$49 = _el$48.nextSibling, _el$50 = _el$49.nextSibling, _el$51 = _el$47.nextSibling, _el$52 = _el$51.firstChild, _el$53 = _el$52.nextSibling, _el$54 = _el$53.nextSibling, _el$59 = _el$51.nextSibling, _el$60 = _el$59.firstChild, _el$61 = _el$60.nextSibling, _el$62 = _el$59.nextSibling, _el$63 = _el$62.firstChild, _el$64 = _el$63.nextSibling, _el$66 = _el$64.nextSibling.firstChild, _el$67 = _el$66.nextSibling, _el$68 = _el$67.nextSibling;
-			insert(_el$45, () => tr$1(props.locale(), "电影视图", "Cinematic View"));
-			insert(_el$46, () => tr$1(props.locale(), "世界指挥棋盘", "World Command Board"));
-			insert(_el$48, () => tr$1(props.locale(), "当前目标", "Current Objective"));
-			insert(_el$49, () => surface().objective.title);
-			insert(_el$50, () => surface().next_action.label);
-			insert(_el$52, () => tr$1(props.locale(), "任务进度", "Mission Progress"));
-			insert(_el$53, (() => {
-				var _c$3 = memo(() => surface().objective.progress_percent == null);
-				return () => _c$3() ? tr$1(props.locale(), "进行中", "In Progress") : `${surface().objective.progress_percent}%`;
+			var _el$45 = _tmpl$15$1(), _el$46 = _el$45.firstChild, _el$47 = _el$46.firstChild, _el$48 = _el$47.nextSibling, _el$49 = _el$46.nextSibling, _el$50 = _el$49.firstChild, _el$51 = _el$50.nextSibling, _el$52 = _el$51.nextSibling, _el$53 = _el$49.nextSibling, _el$54 = _el$53.firstChild, _el$55 = _el$54.nextSibling, _el$56 = _el$55.nextSibling, _el$61 = _el$53.nextSibling, _el$62 = _el$61.firstChild, _el$63 = _el$62.nextSibling, _el$64 = _el$61.nextSibling, _el$65 = _el$64.firstChild, _el$66 = _el$65.nextSibling, _el$68 = _el$66.nextSibling.firstChild, _el$69 = _el$68.nextSibling, _el$70 = _el$69.nextSibling;
+			insert(_el$47, () => tr$1(props.locale(), "电影视图", "Cinematic View"));
+			insert(_el$48, () => tr$1(props.locale(), "世界指挥棋盘", "World Command Board"));
+			insert(_el$50, () => tr$1(props.locale(), "当前目标", "Current Objective"));
+			insert(_el$51, () => surface().objective.title);
+			insert(_el$52, () => surface().next_action.label);
+			insert(_el$54, () => tr$1(props.locale(), "任务进度", "Mission Progress"));
+			insert(_el$55, (() => {
+				var _c$4 = memo(() => surface().objective.progress_percent == null);
+				return () => _c$4() ? tr$1(props.locale(), "进行中", "In Progress") : `${surface().objective.progress_percent}%`;
 			})());
-			insert(_el$54, () => surface().next_action.detail || surface().objective.detail);
-			insert(_el$43, createComponent(Show, {
+			insert(_el$56, () => surface().next_action.detail || surface().objective.detail);
+			insert(_el$45, createComponent(Show, {
 				get when() {
 					return memo(() => surface().world_read.tick !== null)() && surface().world_read.tick !== void 0;
 				},
 				get children() {
-					var _el$55 = _tmpl$13$1(), _el$56 = _el$55.firstChild, _el$57 = _el$56.nextSibling, _el$58 = _el$57.nextSibling;
-					insert(_el$56, () => tr$1(props.locale(), "世界 Tick", "World Tick"));
-					insert(_el$57, () => surface().world_read.tick);
-					insert(_el$58, () => `tick=${surface().world_read.tick}`);
-					createRenderEffect(() => setAttribute(_el$55, "data-world-tick", String(surface().world_read.tick)));
-					return _el$55;
+					var _el$57 = _tmpl$14$1(), _el$58 = _el$57.firstChild, _el$59 = _el$58.nextSibling, _el$60 = _el$59.nextSibling;
+					insert(_el$58, () => tr$1(props.locale(), "世界 Tick", "World Tick"));
+					insert(_el$59, () => surface().world_read.tick);
+					insert(_el$60, () => `tick=${surface().world_read.tick}`);
+					createRenderEffect(() => setAttribute(_el$57, "data-world-tick", String(surface().world_read.tick)));
+					return _el$57;
 				}
-			}), _el$59);
-			insert(_el$60, () => tr$1(props.locale(), "阻塞", "Blocker"));
-			insert(_el$61, () => surface().blocker.label || tr$1(props.locale(), "暂无阻塞", "No blocker"));
-			addEventListener(_el$63, "click", props.onOpenCommand, true);
-			insert(_el$63, () => tr$1(props.locale(), "命令与目标", "Command & Target"));
-			addEventListener(_el$64, "click", props.onExit, true);
-			insert(_el$64, () => tr$1(props.locale(), "退出电影视图", "Exit Cinematic"));
-			insert(_el$66, () => tr$1(props.locale(), "更多控制", "More controls"));
-			addEventListener(_el$67, "click", props.onOpenDiagnostics, true);
-			insert(_el$67, () => tr$1(props.locale(), "世界状态", "World Status"));
-			addEventListener(_el$68, "click", props.onToggleMaximized, true);
-			insert(_el$68, (() => {
-				var _c$4 = memo(() => !!props.maximized());
-				return () => _c$4() ? tr$1(props.locale(), "还原布局", "Restore Layout") : tr$1(props.locale(), "最大化", "Maximize");
+			}), _el$61);
+			insert(_el$62, () => tr$1(props.locale(), "阻塞", "Blocker"));
+			insert(_el$63, () => surface().blocker.label || tr$1(props.locale(), "暂无阻塞", "No blocker"));
+			addEventListener(_el$65, "click", props.onOpenCommand, true);
+			insert(_el$65, () => tr$1(props.locale(), "命令与目标", "Command & Target"));
+			addEventListener(_el$66, "click", props.onExit, true);
+			insert(_el$66, () => tr$1(props.locale(), "退出电影视图", "Exit Cinematic"));
+			insert(_el$68, () => tr$1(props.locale(), "更多控制", "More controls"));
+			addEventListener(_el$69, "click", props.onOpenDiagnostics, true);
+			insert(_el$69, () => tr$1(props.locale(), "世界状态", "World Status"));
+			addEventListener(_el$70, "click", props.onToggleMaximized, true);
+			insert(_el$70, (() => {
+				var _c$5 = memo(() => !!props.maximized());
+				return () => _c$5() ? tr$1(props.locale(), "还原布局", "Restore Layout") : tr$1(props.locale(), "最大化", "Maximize");
 			})());
 			createRenderEffect((_p$) => {
-				var _v$23 = surface().blocker.label ? "true" : "false", _v$24 = surface().blocker.label ? "critical" : "clear", _v$25 = tr$1(props.locale(), "电影视图控制", "Cinematic controls");
-				_v$23 !== _p$.e && setAttribute(_el$59, "data-blocker-present", _p$.e = _v$23);
-				_v$24 !== _p$.t && setAttribute(_el$59, "data-hud-priority", _p$.t = _v$24);
-				_v$25 !== _p$.a && setAttribute(_el$62, "aria-label", _p$.a = _v$25);
+				var _v$29 = surface().blocker.label ? "true" : "false", _v$30 = surface().blocker.label ? "critical" : "clear", _v$31 = tr$1(props.locale(), "电影视图控制", "Cinematic controls");
+				_v$29 !== _p$.e && setAttribute(_el$61, "data-blocker-present", _p$.e = _v$29);
+				_v$30 !== _p$.t && setAttribute(_el$61, "data-hud-priority", _p$.t = _v$30);
+				_v$31 !== _p$.a && setAttribute(_el$64, "aria-label", _p$.a = _v$31);
 				return _p$;
 			}, {
 				e: void 0,
 				t: void 0,
 				a: void 0
 			});
-			return _el$43;
+			return _el$45;
 		}
 	});
 }
@@ -24922,22 +26134,22 @@ function PixelWorldFocusCinematicBanner(props) {
 			return surface();
 		},
 		get children() {
-			var _el$69 = _tmpl$16$1(), _el$70 = _el$69.firstChild, _el$71 = _el$70.nextSibling, _el$72 = _el$71.nextSibling, _el$73 = _el$72.nextSibling, _el$74 = _el$73.firstChild;
-			insert(_el$70, () => tr$1(props.locale(), "电影化首屏", "Cinematic Opening"));
-			insert(_el$71, () => tr$1(props.locale(), "工业世界指挥台", "Industrial World Command Board"));
-			insert(_el$72, () => surface().objective.detail);
-			insert(_el$74, () => surface().objective.title);
-			insert(_el$73, createComponent(Show, {
+			var _el$71 = _tmpl$17$1(), _el$72 = _el$71.firstChild, _el$73 = _el$72.nextSibling, _el$74 = _el$73.nextSibling, _el$75 = _el$74.nextSibling, _el$76 = _el$75.firstChild;
+			insert(_el$72, () => tr$1(props.locale(), "电影化首屏", "Cinematic Opening"));
+			insert(_el$73, () => tr$1(props.locale(), "工业世界指挥台", "Industrial World Command Board"));
+			insert(_el$74, () => surface().objective.detail);
+			insert(_el$76, () => surface().objective.title);
+			insert(_el$75, createComponent(Show, {
 				get when() {
 					return surface().blocker.label;
 				},
 				get children() {
-					var _el$75 = _tmpl$15$1();
-					insert(_el$75, () => surface().blocker.label);
-					return _el$75;
+					var _el$77 = _tmpl$16$1();
+					insert(_el$77, () => surface().blocker.label);
+					return _el$77;
 				}
 			}), null);
-			return _el$69;
+			return _el$71;
 		}
 	});
 }
@@ -24960,53 +26172,53 @@ function PixelWorldFocusRail(props) {
 			return memo(() => !!surface())() && hasFocusItems();
 		},
 		get children() {
-			var _el$76 = _tmpl$19$1(), _el$77 = _el$76.firstChild;
-			insert(_el$77, () => tr$1(props.locale(), "焦点", "Focus"));
-			insert(_el$76, createComponent(Show, {
+			var _el$78 = _tmpl$20$1(), _el$79 = _el$78.firstChild;
+			insert(_el$79, () => tr$1(props.locale(), "焦点", "Focus"));
+			insert(_el$78, createComponent(Show, {
 				get when() {
 					return surface()?.blocker.label;
 				},
 				get children() {
-					var _el$78 = _tmpl$17$1(), _el$79 = _el$78.firstChild, _el$80 = _el$79.nextSibling;
-					insert(_el$79, () => tr$1(props.locale(), "阻塞", "Blocker"));
-					insert(_el$80, () => surface().blocker.label);
-					return _el$78;
+					var _el$80 = _tmpl$18$1(), _el$81 = _el$80.firstChild, _el$82 = _el$81.nextSibling;
+					insert(_el$81, () => tr$1(props.locale(), "阻塞", "Blocker"));
+					insert(_el$82, () => surface().blocker.label);
+					return _el$80;
 				}
 			}), null);
-			insert(_el$76, createComponent(Show, {
+			insert(_el$78, createComponent(Show, {
 				get when() {
 					return activeAgent();
 				},
 				get children() {
-					var _el$81 = _tmpl$18$1(), _el$82 = _el$81.firstChild, _el$83 = _el$82.nextSibling;
-					insert(_el$82, () => tr$1(props.locale(), "Agent", "Agent"));
-					insert(_el$83, activeAgentName);
-					return _el$81;
+					var _el$83 = _tmpl$19$1(), _el$84 = _el$83.firstChild, _el$85 = _el$84.nextSibling;
+					insert(_el$84, () => tr$1(props.locale(), "Agent", "Agent"));
+					insert(_el$85, activeAgentName);
+					return _el$83;
 				}
 			}), null);
-			insert(_el$76, createComponent(Show, {
+			insert(_el$78, createComponent(Show, {
 				get when() {
 					return selected();
 				},
 				get children() {
-					var _el$84 = _tmpl$18$1(), _el$85 = _el$84.firstChild, _el$86 = _el$85.nextSibling;
-					insert(_el$85, () => tr$1(props.locale(), "选中", "Selected"));
-					insert(_el$86, selectedName);
-					return _el$84;
+					var _el$86 = _tmpl$19$1(), _el$87 = _el$86.firstChild, _el$88 = _el$87.nextSibling;
+					insert(_el$87, () => tr$1(props.locale(), "选中", "Selected"));
+					insert(_el$88, selectedName);
+					return _el$86;
 				}
 			}), null);
-			insert(_el$76, createComponent(Show, {
+			insert(_el$78, createComponent(Show, {
 				get when() {
 					return routeCount() > 0;
 				},
 				get children() {
-					var _el$87 = _tmpl$18$1(), _el$88 = _el$87.firstChild, _el$89 = _el$88.nextSibling;
-					insert(_el$88, () => tr$1(props.locale(), "路线", "Routes"));
-					insert(_el$89, routeCount);
-					return _el$87;
+					var _el$89 = _tmpl$19$1(), _el$90 = _el$89.firstChild, _el$91 = _el$90.nextSibling;
+					insert(_el$90, () => tr$1(props.locale(), "路线", "Routes"));
+					insert(_el$91, routeCount);
+					return _el$89;
 				}
 			}), null);
-			return _el$76;
+			return _el$78;
 		}
 	});
 }
@@ -25023,50 +26235,50 @@ function PixelWorldFocusMinimapCard(props) {
 			return surface();
 		},
 		get children() {
-			var _el$90 = _tmpl$22$1(), _el$91 = _el$90.firstChild, _el$93 = _el$91.nextSibling, _el$94 = _el$93.nextSibling, _el$95 = _el$94.nextSibling, _el$96 = _el$95.firstChild, _el$97 = _el$96.nextSibling, _el$98 = _el$95.nextSibling, _el$99 = _el$98.firstChild, _el$100 = _el$99.nextSibling, _el$104 = _el$98.nextSibling, _el$105 = _el$104.firstChild, _el$106 = _el$105.nextSibling, _el$107 = _el$106.nextSibling, _el$108 = _el$107.nextSibling;
-			insert(_el$91, () => tr$1(props.locale(), "任务地图", "Mission Map"));
-			insert(_el$90, createComponent(Show, {
+			var _el$92 = _tmpl$23$1(), _el$93 = _el$92.firstChild, _el$95 = _el$93.nextSibling, _el$96 = _el$95.nextSibling, _el$97 = _el$96.nextSibling, _el$98 = _el$97.firstChild, _el$99 = _el$98.nextSibling, _el$100 = _el$97.nextSibling, _el$101 = _el$100.firstChild, _el$102 = _el$101.nextSibling, _el$106 = _el$100.nextSibling, _el$107 = _el$106.firstChild, _el$108 = _el$107.nextSibling, _el$109 = _el$108.nextSibling, _el$110 = _el$109.nextSibling;
+			insert(_el$93, () => tr$1(props.locale(), "任务地图", "Mission Map"));
+			insert(_el$92, createComponent(Show, {
 				get when() {
 					return primaryLocation();
 				},
 				get children() {
-					var _el$92 = _tmpl$20$1();
-					insert(_el$92, () => `${tr$1(props.locale(), "参照", "Reference")}: ${primaryLocation().label || primaryLocation().id}`);
-					return _el$92;
+					var _el$94 = _tmpl$21$1();
+					insert(_el$94, () => `${tr$1(props.locale(), "参照", "Reference")}: ${primaryLocation().label || primaryLocation().id}`);
+					return _el$94;
 				}
-			}), _el$93);
-			insert(_el$96, () => tr$1(props.locale(), "目标", "Target"));
-			insert(_el$97, () => surface().next_action.label);
-			insert(_el$99, () => tr$1(props.locale(), "Agent", "Agent"));
-			insert(_el$100, (() => {
-				var _c$5 = memo(() => !!activeAgent());
-				return () => _c$5() ? activeAgentName() : tr$1(props.locale(), "待分配", "Unassigned");
+			}), _el$95);
+			insert(_el$98, () => tr$1(props.locale(), "目标", "Target"));
+			insert(_el$99, () => surface().next_action.label);
+			insert(_el$101, () => tr$1(props.locale(), "Agent", "Agent"));
+			insert(_el$102, (() => {
+				var _c$6 = memo(() => !!activeAgent());
+				return () => _c$6() ? activeAgentName() : tr$1(props.locale(), "待分配", "Unassigned");
 			})());
-			insert(_el$90, createComponent(Show, {
+			insert(_el$92, createComponent(Show, {
 				get when() {
 					return selected();
 				},
 				get children() {
-					var _el$101 = _tmpl$21$1(), _el$102 = _el$101.firstChild, _el$103 = _el$102.nextSibling;
-					insert(_el$102, () => tr$1(props.locale(), "选中", "Selected"));
-					insert(_el$103, selectedName);
-					return _el$101;
+					var _el$103 = _tmpl$22$1(), _el$104 = _el$103.firstChild, _el$105 = _el$104.nextSibling;
+					insert(_el$104, () => tr$1(props.locale(), "选中", "Selected"));
+					insert(_el$105, selectedName);
+					return _el$103;
 				}
-			}), _el$104);
-			insert(_el$105, () => `agents=${props.renderState().agents.length}`);
-			insert(_el$106, () => `targets=${props.renderState().locations.length}`);
-			insert(_el$107, () => `routes=${props.renderState().links.length}`);
-			insert(_el$108, () => `fragments=${props.renderState().fragment_terrain.length}`);
+			}), _el$106);
+			insert(_el$107, () => `agents=${props.renderState().agents.length}`);
+			insert(_el$108, () => `targets=${props.renderState().locations.length}`);
+			insert(_el$109, () => `routes=${props.renderState().links.length}`);
+			insert(_el$110, () => `fragments=${props.renderState().fragment_terrain.length}`);
 			createRenderEffect((_p$) => {
-				var _v$26 = props.renderState().links.length, _v$27 = tr$1(props.locale(), "世界摘要", "World summary");
-				_v$26 !== _p$.e && setAttribute(_el$94, "data-routes", _p$.e = _v$26);
-				_v$27 !== _p$.t && setAttribute(_el$104, "aria-label", _p$.t = _v$27);
+				var _v$32 = props.renderState().links.length, _v$33 = tr$1(props.locale(), "世界摘要", "World summary");
+				_v$32 !== _p$.e && setAttribute(_el$96, "data-routes", _p$.e = _v$32);
+				_v$33 !== _p$.t && setAttribute(_el$106, "aria-label", _p$.t = _v$33);
 				return _p$;
 			}, {
 				e: void 0,
 				t: void 0
 			});
-			return _el$90;
+			return _el$92;
 		}
 	});
 }
@@ -25092,20 +26304,20 @@ function PixelRawDiagnostics(props) {
 	const [open, setOpen] = createSignal(false);
 	const value = () => typeof props.value === "function" ? props.value() : props.value;
 	return (() => {
-		var _el$109 = _tmpl$24$1(), _el$110 = _el$109.firstChild;
-		_el$109.addEventListener("toggle", (event) => setOpen(event.currentTarget.open));
-		insert(_el$110, () => tr$1(locale(), "原始诊断", "Raw diagnostics"));
-		insert(_el$109, createComponent(Show, {
+		var _el$111 = _tmpl$25$1(), _el$112 = _el$111.firstChild;
+		_el$111.addEventListener("toggle", (event) => setOpen(event.currentTarget.open));
+		insert(_el$112, () => tr$1(locale(), "原始诊断", "Raw diagnostics"));
+		insert(_el$111, createComponent(Show, {
 			get when() {
 				return open();
 			},
 			get children() {
-				var _el$111 = _tmpl$23$1();
-				insert(_el$111, () => JSON.stringify(value(), null, 2));
-				return _el$111;
+				var _el$113 = _tmpl$24$1();
+				insert(_el$113, () => JSON.stringify(value(), null, 2));
+				return _el$113;
 			}
 		}), null);
-		return _el$109;
+		return _el$111;
 	})();
 }
 function PixelWorldFocusCommandSurface(props) {
@@ -25131,141 +26343,141 @@ function PixelWorldFocusCommandSurface(props) {
 	const receiptLabel = () => gameplaySummary()?.executionStateLabel || gameplaySummary()?.recentFeedback?.stage || tr$1(locale(), "等待回执", "Waiting");
 	const chatHistory = () => state.chatHistory.filter((entry) => entry.agentId === agentId() || entry.targetAgentId === agentId()).slice(0, 12);
 	return (() => {
-		var _el$112 = _tmpl$30$1();
-		insert(_el$112, createComponent(Show, {
+		var _el$114 = _tmpl$31$1();
+		insert(_el$114, createComponent(Show, {
 			get when() {
 				return agentId();
 			},
 			get fallback() {
 				return (() => {
-					var _el$146 = _tmpl$28$1();
-					insert(_el$146, () => tr$1(locale(), "先选中一个行动体，才能在电影视图里直接下指令。", "Select an agent to issue direct commands in Cinematic View."));
-					return _el$146;
+					var _el$148 = _tmpl$29$1();
+					insert(_el$148, () => tr$1(locale(), "先选中一个行动体，才能在电影视图里直接下指令。", "Select an agent to issue direct commands in Cinematic View."));
+					return _el$148;
 				})();
 			},
 			get children() {
 				return [
 					(() => {
-						var _el$113 = _tmpl$26$1(), _el$114 = _el$113.firstChild, _el$115 = _el$114.nextSibling, _el$117 = _el$115.nextSibling;
-						insert(_el$114, () => tr$1(locale(), "当前交互目标", "Current Target"));
-						insert(_el$115, agentName);
-						insert(_el$113, createComponent(Show, {
+						var _el$115 = _tmpl$27$1(), _el$116 = _el$115.firstChild, _el$117 = _el$116.nextSibling, _el$119 = _el$117.nextSibling;
+						insert(_el$116, () => tr$1(locale(), "当前交互目标", "Current Target"));
+						insert(_el$117, agentName);
+						insert(_el$115, createComponent(Show, {
 							get when() {
 								return binding()?.playerId;
 							},
 							get children() {
-								var _el$116 = _tmpl$25$1();
-								insert(_el$116, () => `boundPlayer=${binding().playerId}`);
-								return _el$116;
+								var _el$118 = _tmpl$26$1();
+								insert(_el$118, () => `boundPlayer=${binding().playerId}`);
+								return _el$118;
 							}
-						}), _el$117);
-						insert(_el$117, (() => {
-							var _c$6 = memo(() => !!chatCapability().enabled);
-							return () => _c$6() ? tr$1(locale(), "聊天可用", "Chat Ready") : tr$1(locale(), "聊天受限", "Chat Limited");
+						}), _el$119);
+						insert(_el$119, (() => {
+							var _c$7 = memo(() => !!chatCapability().enabled);
+							return () => _c$7() ? tr$1(locale(), "聊天可用", "Chat Ready") : tr$1(locale(), "聊天受限", "Chat Limited");
 						})());
-						createRenderEffect(() => className(_el$117, chatCapability().enabled ? "badge badge--good" : "badge badge--warn"));
-						return _el$113;
+						createRenderEffect(() => className(_el$119, chatCapability().enabled ? "badge badge--good" : "badge badge--warn"));
+						return _el$115;
 					})(),
 					(() => {
-						var _el$118 = _tmpl$27$1(), _el$119 = _el$118.firstChild, _el$120 = _el$119.firstChild, _el$121 = _el$120.nextSibling, _el$122 = _el$121.nextSibling, _el$123 = _el$119.nextSibling, _el$124 = _el$123.firstChild, _el$125 = _el$124.nextSibling, _el$126 = _el$123.nextSibling, _el$127 = _el$126.firstChild, _el$128 = _el$127.nextSibling, _el$129 = _el$126.nextSibling;
-						insert(_el$120, () => tr$1(locale(), "目标", "Target"));
-						insert(_el$121, agentName);
-						insert(_el$122, () => tr$1(locale(), "可交互行动体", "Interactive agent"));
-						insert(_el$124, () => tr$1(locale(), "阻塞", "Blocker"));
-						insert(_el$125, blockerLabel);
-						insert(_el$127, () => tr$1(locale(), "回执", "Receipt"));
-						insert(_el$128, receiptLabel);
-						_el$129.$$click = () => sendAgentChat(agentId(), state.chatDraft.message);
-						insert(_el$129, () => tr$1(locale(), "发送聊天", "Send Chat"));
+						var _el$120 = _tmpl$28$1(), _el$121 = _el$120.firstChild, _el$122 = _el$121.firstChild, _el$123 = _el$122.nextSibling, _el$124 = _el$123.nextSibling, _el$125 = _el$121.nextSibling, _el$126 = _el$125.firstChild, _el$127 = _el$126.nextSibling, _el$128 = _el$125.nextSibling, _el$129 = _el$128.firstChild, _el$130 = _el$129.nextSibling, _el$131 = _el$128.nextSibling;
+						insert(_el$122, () => tr$1(locale(), "目标", "Target"));
+						insert(_el$123, agentName);
+						insert(_el$124, () => tr$1(locale(), "可交互行动体", "Interactive agent"));
+						insert(_el$126, () => tr$1(locale(), "阻塞", "Blocker"));
+						insert(_el$127, blockerLabel);
+						insert(_el$129, () => tr$1(locale(), "回执", "Receipt"));
+						insert(_el$130, receiptLabel);
+						_el$131.$$click = () => sendAgentChat(agentId(), state.chatDraft.message);
+						insert(_el$131, () => tr$1(locale(), "发送聊天", "Send Chat"));
 						createRenderEffect((_p$) => {
-							var _v$28 = chatControlsEnabled() ? "true" : "false", _v$29 = blockerLabel() !== tr$1(locale(), "无阻塞", "No blocker") ? "true" : "false", _v$30 = !chatControlsEnabled();
-							_v$28 !== _p$.e && setAttribute(_el$118, "data-chat-ready", _p$.e = _v$28);
-							_v$29 !== _p$.t && setAttribute(_el$123, "data-blocker-present", _p$.t = _v$29);
-							_v$30 !== _p$.a && (_el$129.disabled = _p$.a = _v$30);
+							var _v$34 = chatControlsEnabled() ? "true" : "false", _v$35 = blockerLabel() !== tr$1(locale(), "无阻塞", "No blocker") ? "true" : "false", _v$36 = !chatControlsEnabled();
+							_v$34 !== _p$.e && setAttribute(_el$120, "data-chat-ready", _p$.e = _v$34);
+							_v$35 !== _p$.t && setAttribute(_el$125, "data-blocker-present", _p$.t = _v$35);
+							_v$36 !== _p$.a && (_el$131.disabled = _p$.a = _v$36);
 							return _p$;
 						}, {
 							e: void 0,
 							t: void 0,
 							a: void 0
 						});
-						return _el$118;
+						return _el$120;
 					})(),
 					createComponent(Show, {
 						get when() {
 							return !chatCapability().enabled;
 						},
 						get children() {
-							var _el$130 = _tmpl$28$1();
-							insert(_el$130, () => chatCapability().reason);
-							return _el$130;
+							var _el$132 = _tmpl$29$1();
+							insert(_el$132, () => chatCapability().reason);
+							return _el$132;
 						}
 					}),
 					(() => {
-						var _el$131 = _tmpl$29$1(), _el$132 = _el$131.firstChild, _el$134 = _el$132.firstChild.firstChild, _el$135 = _el$134.nextSibling, _el$136 = _el$135.nextSibling, _el$137 = _el$132.nextSibling, _el$138 = _el$137.firstChild, _el$139 = _el$138.firstChild, _el$140 = _el$139.nextSibling, _el$141 = _el$138.nextSibling, _el$142 = _el$141.firstChild, _el$143 = _el$141.nextSibling, _el$144 = _el$143.firstChild, _el$145 = _el$144.nextSibling;
-						insert(_el$134, () => tr$1(locale(), "指挥面板", "Command Surface"));
-						insert(_el$135, () => tr$1(locale(), "行动体聊天", "Agent Chat"));
-						insert(_el$136, () => tr$1(locale(), "给当前目标发消息并读取反馈。", "Message the current target and read feedback."));
-						insert(_el$138, createComponent(SafeAlternativePanel, { core: legacy_core_exports }), _el$139);
-						insert(_el$139, () => tr$1(locale(), "消息", "Message"));
-						_el$140.$$input = (event) => {
+						var _el$133 = _tmpl$30$1(), _el$134 = _el$133.firstChild, _el$136 = _el$134.firstChild.firstChild, _el$137 = _el$136.nextSibling, _el$138 = _el$137.nextSibling, _el$139 = _el$134.nextSibling, _el$140 = _el$139.firstChild, _el$141 = _el$140.firstChild, _el$142 = _el$141.nextSibling, _el$143 = _el$140.nextSibling, _el$144 = _el$143.firstChild, _el$145 = _el$143.nextSibling, _el$146 = _el$145.firstChild, _el$147 = _el$146.nextSibling;
+						insert(_el$136, () => tr$1(locale(), "指挥面板", "Command Surface"));
+						insert(_el$137, () => tr$1(locale(), "行动体聊天", "Agent Chat"));
+						insert(_el$138, () => tr$1(locale(), "给当前目标发消息并读取反馈。", "Message the current target and read feedback."));
+						insert(_el$140, createComponent(SafeAlternativePanel, { core: legacy_core_exports }), _el$141);
+						insert(_el$141, () => tr$1(locale(), "消息", "Message"));
+						_el$142.$$input = (event) => {
 							state.chatDraft.message = String(event.currentTarget.value || "");
 							state.chatDraft.dirty = true;
 						};
-						_el$142.$$click = () => sendAgentChat(agentId(), state.chatDraft.message);
-						insert(_el$142, () => tr$1(locale(), "发送聊天", "Send Chat"));
-						insert(_el$137, createComponent(Show, {
+						_el$144.$$click = () => sendAgentChat(agentId(), state.chatDraft.message);
+						insert(_el$144, () => tr$1(locale(), "发送聊天", "Send Chat"));
+						insert(_el$139, createComponent(Show, {
 							get when() {
 								return chatFeedback();
 							},
 							get fallback() {
 								return (() => {
-									var _el$147 = _tmpl$28$1();
-									insert(_el$147, () => tr$1(locale(), "还没有聊天反馈。", "No chat feedback yet."));
-									return _el$147;
+									var _el$149 = _tmpl$29$1();
+									insert(_el$149, () => tr$1(locale(), "还没有聊天反馈。", "No chat feedback yet."));
+									return _el$149;
 								})();
 							},
 							children: (feedback) => (() => {
-								var _el$148 = _tmpl$32$1(), _el$149 = _el$148.firstChild, _el$150 = _el$149.firstChild, _el$152 = _el$149.nextSibling;
-								insert(_el$150, () => chatFeedbackDisplay().label);
-								insert(_el$149, createComponent(Show, {
+								var _el$150 = _tmpl$33$1(), _el$151 = _el$150.firstChild, _el$152 = _el$151.firstChild, _el$154 = _el$151.nextSibling;
+								insert(_el$152, () => chatFeedbackDisplay().label);
+								insert(_el$151, createComponent(Show, {
 									get when() {
 										return chatFeedbackDisplay().code;
 									},
 									get children() {
-										var _el$151 = _tmpl$25$1();
-										insert(_el$151, () => `code=${chatFeedbackDisplay().code}`);
-										return _el$151;
+										var _el$153 = _tmpl$26$1();
+										insert(_el$153, () => `code=${chatFeedbackDisplay().code}`);
+										return _el$153;
 									}
 								}), null);
-								insert(_el$152, () => chatFeedbackDisplay().summary);
-								insert(_el$148, createComponent(Show, {
+								insert(_el$154, () => chatFeedbackDisplay().summary);
+								insert(_el$150, createComponent(Show, {
 									get when() {
 										return chatFeedbackDisplay().detail;
 									},
 									get children() {
-										var _el$153 = _tmpl$31$1();
-										insert(_el$153, () => chatFeedbackDisplay().detail);
-										return _el$153;
+										var _el$155 = _tmpl$32$1();
+										insert(_el$155, () => chatFeedbackDisplay().detail);
+										return _el$155;
 									}
 								}), null);
-								insert(_el$148, createComponent(PixelRawDiagnostics, {
+								insert(_el$150, createComponent(PixelRawDiagnostics, {
 									locale,
 									value: feedback
 								}), null);
-								createRenderEffect(() => className(_el$150, chatFeedbackDisplay().badgeClass));
-								return _el$148;
+								createRenderEffect(() => className(_el$152, chatFeedbackDisplay().badgeClass));
+								return _el$150;
 							})()
-						}), _el$143);
-						insert(_el$144, () => tr$1(locale(), "消息流", "Message Flow"));
-						insert(_el$145, createComponent(Show, {
+						}), _el$145);
+						insert(_el$146, () => tr$1(locale(), "消息流", "Message Flow"));
+						insert(_el$147, createComponent(Show, {
 							get when() {
 								return chatHistory().length > 0;
 							},
 							get fallback() {
 								return (() => {
-									var _el$154 = _tmpl$28$1();
-									insert(_el$154, () => tr$1(locale(), "这个行动体还没有聊天历史。", "No chat history for this agent yet."));
-									return _el$154;
+									var _el$156 = _tmpl$29$1();
+									insert(_el$156, () => tr$1(locale(), "这个行动体还没有聊天历史。", "No chat history for this agent yet."));
+									return _el$156;
 								})();
 							},
 							get children() {
@@ -25274,38 +26486,38 @@ function PixelWorldFocusCommandSurface(props) {
 										return chatHistory();
 									},
 									children: (entry) => (() => {
-										var _el$155 = _tmpl$33$1(), _el$156 = _el$155.firstChild, _el$157 = _el$156.firstChild, _el$158 = _el$156.nextSibling, _el$159 = _el$158.nextSibling;
-										insert(_el$157, () => chatEntryTitle$1(entry, locale()));
-										insert(_el$158, () => chatEntryMeta$1(entry, locale()));
-										insert(_el$159, () => entry.message || tr$1(locale(), "没有消息正文。", "No message body."));
-										insert(_el$155, createComponent(PixelRawDiagnostics, {
+										var _el$157 = _tmpl$34$1(), _el$158 = _el$157.firstChild, _el$159 = _el$158.firstChild, _el$160 = _el$158.nextSibling, _el$161 = _el$160.nextSibling;
+										insert(_el$159, () => chatEntryTitle$1(entry, locale()));
+										insert(_el$160, () => chatEntryMeta$1(entry, locale()));
+										insert(_el$161, () => entry.message || tr$1(locale(), "没有消息正文。", "No message body."));
+										insert(_el$157, createComponent(PixelRawDiagnostics, {
 											locale,
 											value: entry
 										}), null);
-										createRenderEffect(() => className(_el$155, chatEntryCardClass$1(entry)));
-										return _el$155;
+										createRenderEffect(() => className(_el$157, chatEntryCardClass$1(entry)));
+										return _el$157;
 									})()
 								});
 							}
 						}));
 						createRenderEffect((_p$) => {
-							var _v$31 = tr$1(locale(), "给当前选中的行动体发一条消息", "Send a message to the selected agent"), _v$32 = !chatControlsEnabled(), _v$33 = !chatControlsEnabled();
-							_v$31 !== _p$.e && setAttribute(_el$140, "placeholder", _p$.e = _v$31);
-							_v$32 !== _p$.t && (_el$140.disabled = _p$.t = _v$32);
-							_v$33 !== _p$.a && (_el$142.disabled = _p$.a = _v$33);
+							var _v$37 = tr$1(locale(), "给当前选中的行动体发一条消息", "Send a message to the selected agent"), _v$38 = !chatControlsEnabled(), _v$39 = !chatControlsEnabled();
+							_v$37 !== _p$.e && setAttribute(_el$142, "placeholder", _p$.e = _v$37);
+							_v$38 !== _p$.t && (_el$142.disabled = _p$.t = _v$38);
+							_v$39 !== _p$.a && (_el$144.disabled = _p$.a = _v$39);
 							return _p$;
 						}, {
 							e: void 0,
 							t: void 0,
 							a: void 0
 						});
-						createRenderEffect(() => _el$140.value = state.chatDraft.message);
-						return _el$131;
+						createRenderEffect(() => _el$142.value = state.chatDraft.message);
+						return _el$133;
 					})()
 				];
 			}
 		}));
-		return _el$112;
+		return _el$114;
 	})();
 }
 function PixelWorldHost(props) {
@@ -25314,16 +26526,20 @@ function PixelWorldHost(props) {
 	const rendererRoute = resolvePixelWorldRendererRoute();
 	const [coreRevision, setCoreRevision] = createSignal(0);
 	const [worldRevision, setWorldRevision] = createSignal(0);
-	const selectedEntity = () => {
-		coreRevision();
-		return spatial.selection();
-	};
 	const spatial = createPixelWorldSpatialController({
 		core: legacy_core_exports,
 		enabled: () => state.viewerProtocol?.capabilities?.includes("world_view"),
 		getLocale: locale,
 		getRenderState: () => rustRenderState()
 	});
+	if (pixelWorldTestApiEnabled()) {
+		const readRetention = (expectedSourceCut, measure = true) => spatial.readStatistics(expectedSourceCut, measure);
+		window.__OASIS7_WORLD_VIEW_RETENTION__ = readRetention;
+		onCleanup(() => {
+			if (window.__OASIS7_WORLD_VIEW_RETENTION__ === readRetention) delete window.__OASIS7_WORLD_VIEW_RETENTION__;
+		});
+	}
+	const selectedEntity = createPixelWorldHostSelection(coreRevision, spatial);
 	const worldViewState = spatial.state, navigation = spatial.navigation;
 	const spatialSupported = () => {
 		coreRevision();
@@ -25408,8 +26624,9 @@ function PixelWorldHost(props) {
 	});
 	const adapter = createMemo(() => createPixelWorldHostAdapter({
 		onResourceStage: setResourceStage,
+		onNavigationResult: spatial.navigationResult,
 		onSelectEntity(selection) {
-			if (spatial.select(selection)?.kind === "module_visual") focusViewerPanel("viewer-details-panel");
+			if (spatial.selectPresented(selection)?.kind === "module_visual") focusViewerPanel("viewer-details-panel");
 		},
 		onHoverEntity(selection) {
 			setHoverSelection(selection);
@@ -25435,6 +26652,7 @@ function PixelWorldHost(props) {
 			setRendererStatus("unavailable");
 			setRuntimeSource(fatal?.code === "pixel_world_webgl2_unavailable" ? "surface_unavailable" : runtimeSource());
 			setRustRenderState(null);
+			spatial.present(null, null);
 			updatePixelWorldRuntimeMeta({
 				runtimeStatus: "unavailable",
 				runtimeSource: runtimeSource(),
@@ -25455,7 +26673,7 @@ function PixelWorldHost(props) {
 			event.preventDefault();
 			adapter().simulateFatal({
 				code: "pixel_world_context_lost",
-				message: "World graphics interrupted. Retry to restore the authorized view."
+				message: "World graphics context lost. Reload the page to rebuild graphics."
 			});
 		};
 		let start = null;
@@ -25507,11 +26725,15 @@ function PixelWorldHost(props) {
 	function applyRendererUpdate() {
 		if (rendererStatus() === "unavailable") return;
 		const generation = rendererAttemptGeneration;
-		const result = adapter().update(renderInput());
+		const presentedScope = spatial.scope();
+		const presentedView = worldViewState().view;
+		const input = renderInput();
+		const result = adapter().update(input);
 		if (generation !== rendererAttemptGeneration) return;
 		if (result?.fatal) setRendererFatal(result.fatal);
 		if (result?.renderState) setRetainedSurface(null);
 		setRustRenderState(result?.renderState || null);
+		spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
 		setRendererStatus(result?.status || "ready");
 		setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
 		updatePixelWorldRuntimeMeta({
@@ -25534,6 +26756,7 @@ function PixelWorldHost(props) {
 			setRendererStatus("unavailable");
 			setRuntimeSource("detached");
 			setRustRenderState(null);
+			spatial.present(null, null);
 			updatePixelWorldRuntimeMeta({
 				runtimeStatus: "unavailable",
 				runtimeSource: "detached",
@@ -25557,6 +26780,7 @@ function PixelWorldHost(props) {
 			setRendererStatus("unavailable");
 			setRuntimeSource("detached");
 			setRustRenderState(null);
+			spatial.present(null, null);
 			updatePixelWorldRuntimeMeta({
 				runtimeStatus: "unavailable",
 				runtimeSource: "detached",
@@ -25571,11 +26795,15 @@ function PixelWorldHost(props) {
 			adapter().simulateFatal(surfaceFatal);
 			return;
 		}
-		const result = await adapter().mount(canvas, renderInput());
+		const presentedScope = spatial.scope();
+		const presentedView = worldViewState().view;
+		const input = renderInput();
+		const result = await adapter().mount(canvas, input);
 		if (!rendererAttemptIsCurrent(canvas, generation)) return;
 		if (result?.fatal) setRendererFatal(result.fatal);
 		if (result?.renderState) setRetainedSurface(null);
 		setRustRenderState(result?.renderState || null);
+		spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
 		setRendererStatus(result?.status || "ready");
 		setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
 		updatePixelWorldRuntimeMeta({
@@ -25590,7 +26818,13 @@ function PixelWorldHost(props) {
 			applyRendererUpdate();
 		}
 	}
+	const rendererNeedsReload = () => rendererFatal()?.code === "pixel_world_context_lost";
+	const rendererReloadLabel = () => tr$1(locale(), "重新加载页面恢复图形", "Reload page to restore graphics");
 	function requestReadyMode() {
+		if (rendererNeedsReload()) {
+			window.location.reload();
+			return;
+		}
 		if (scopeGuard.check().blocked) {
 			scopeReadPending = null;
 			requestRender();
@@ -25622,6 +26856,7 @@ function PixelWorldHost(props) {
 				if (scope.changed) {
 					setRendererStatus("unavailable");
 					setRustRenderState(null);
+					spatial.present(null, null);
 				}
 				spatial.resetScope();
 			}
@@ -25695,15 +26930,15 @@ function PixelWorldHost(props) {
 		});
 	});
 	return (() => {
-		var _el$160 = _tmpl$44$1(), _el$168 = _el$160.firstChild, _el$169 = _el$168.firstChild, _el$170 = _el$169.nextSibling, _el$207 = _el$168.nextSibling, _el$208 = _el$207.firstChild;
-		setAttribute(_el$160, "data-visual-fixture", visualFixtureName || "");
-		insert(_el$160, createComponent(Show, {
+		var _el$162 = _tmpl$45$1(), _el$170 = _el$162.firstChild, _el$171 = _el$170.firstChild, _el$172 = _el$171.nextSibling, _el$209 = _el$170.nextSibling, _el$210 = _el$209.firstChild;
+		setAttribute(_el$162, "data-visual-fixture", visualFixtureName || "");
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return memo(() => rendererStatus() !== "ready")() && rendererStatus() !== "unavailable";
 			},
 			get children() {
-				var _el$161 = _tmpl$34$1();
-				insert(_el$161, () => ({
+				var _el$163 = _tmpl$35$1();
+				insert(_el$163, () => ({
 					descriptor: tr$1(locale(), "正在查找世界画面资源…", "Finding world graphics…"),
 					download: tr$1(locale(), "正在下载世界画面资源…", "Downloading world graphics…"),
 					verify: tr$1(locale(), "正在核对画面资源完整性…", "Verifying world graphics…"),
@@ -25711,44 +26946,44 @@ function PixelWorldHost(props) {
 					prepare: tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"),
 					ready: tr$1(locale(), "正在连接世界画面…", "Attaching world graphics…")
 				})[resourceStage()] || tr$1(locale(), "正在准备世界画面…", "Preparing world graphics…"));
-				createRenderEffect(() => setAttribute(_el$161, "data-world-resource-stage", resourceStage()));
-				return _el$161;
+				createRenderEffect(() => setAttribute(_el$163, "data-world-resource-stage", resourceStage()));
+				return _el$163;
 			}
-		}), _el$168);
-		insert(_el$160, createComponent(Show, {
+		}), _el$170);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return !focusMode() || !maximized();
 			},
 			get children() {
-				var _el$162 = _tmpl$35$1(), _el$164 = _el$162.firstChild.firstChild, _el$165 = _el$164.nextSibling;
-				insert(_el$164, () => tr$1(locale(), "世界指挥棋盘", "World Command Board"));
-				insert(_el$165, () => renderState()?.commercial_surface?.objective?.detail || tr$1(locale(), "等待 Rust bridge 生成世界显示状态。", "Waiting for the Rust bridge to derive the world display state."));
-				return _el$162;
+				var _el$164 = _tmpl$36$1(), _el$166 = _el$164.firstChild.firstChild, _el$167 = _el$166.nextSibling;
+				insert(_el$166, () => tr$1(locale(), "世界指挥棋盘", "World Command Board"));
+				insert(_el$167, () => renderState()?.commercial_surface?.objective?.detail || tr$1(locale(), "等待 Rust bridge 生成世界显示状态。", "Waiting for the Rust bridge to derive the world display state."));
+				return _el$164;
 			}
-		}), _el$168);
-		insert(_el$160, createComponent(Show, {
+		}), _el$170);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return spatialSupported();
 			},
 			get children() {
-				var _el$166 = _tmpl$36$1(), _el$167 = _el$166.firstChild;
-				insert(_el$167, () => tr$1(locale(), "探索世界", "Explore world"));
-				insert(_el$166, createComponent(PixelWorldSpatialExplorer, {
+				var _el$168 = _tmpl$37$1(), _el$169 = _el$168.firstChild;
+				insert(_el$169, () => tr$1(locale(), "探索世界", "Explore world"));
+				insert(_el$168, createComponent(PixelWorldSpatialExplorer, {
 					controller: spatial,
 					get locale() {
 						return locale();
 					}
 				}), null);
-				return _el$166;
+				return _el$168;
 			}
-		}), _el$168);
-		insert(_el$169, () => tr$1(locale(), "拖动、缩放并检查世界", "Pan, zoom, and inspect the world"));
-		addEventListener(_el$170, "click", focusController.enterFocusMode, true);
-		insert(_el$170, (() => {
-			var _c$7 = memo(() => rendererStatus() === "unavailable");
-			return () => _c$7() ? tr$1(locale(), "电影视图（当前不可用）", "Cinematic View (unavailable)") : tr$1(locale(), "电影视图", "Cinematic View");
+		}), _el$170);
+		insert(_el$171, () => tr$1(locale(), "拖动、缩放并检查世界", "Pan, zoom, and inspect the world"));
+		addEventListener(_el$172, "click", focusController.enterFocusMode, true);
+		insert(_el$172, (() => {
+			var _c$8 = memo(() => rendererStatus() === "unavailable");
+			return () => _c$8() ? tr$1(locale(), "电影视图（当前不可用）", "Cinematic View (unavailable)") : tr$1(locale(), "电影视图", "Cinematic View");
 		})());
-		insert(_el$160, createComponent(Show, {
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return memo(() => !!focusMode())() && renderState();
 			},
@@ -25797,8 +27032,8 @@ function PixelWorldHost(props) {
 					})
 				];
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return renderState();
 			},
@@ -25809,8 +27044,8 @@ function PixelWorldHost(props) {
 					focusMode
 				});
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return memo(() => rendererStatus() !== "fallback")() && rendererStatus() !== "unavailable";
 			},
@@ -25823,6 +27058,12 @@ function PixelWorldHost(props) {
 					renderInput,
 					renderState,
 					selection: selectedEntity,
+					get selectionStatus() {
+						return spatial.selectionStatus;
+					},
+					get selectionFeedback() {
+						return spatial.selectionFeedback;
+					},
 					hoveredEntity: hoverSelection,
 					visualOverlayEnabled,
 					onSelect: (selection) => adapter().simulateSelect(selection),
@@ -25840,27 +27081,27 @@ function PixelWorldHost(props) {
 					}
 				});
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return !renderState();
 			},
 			get children() {
-				var _el$171 = _tmpl$37$1();
-				insert(_el$171, createComponent(Show, {
+				var _el$173 = _tmpl$38$1();
+				insert(_el$173, createComponent(Show, {
 					get when() {
 						return retainedSurface();
 					},
 					children: (surface) => [
 						(() => {
-							var _el$211 = _tmpl$45$1();
-							insert(_el$211, () => surface().objective?.title);
-							return _el$211;
+							var _el$213 = _tmpl$46$1();
+							insert(_el$213, () => surface().objective?.title);
+							return _el$213;
 						})(),
 						(() => {
-							var _el$212 = _tmpl$45$1();
-							insert(_el$212, () => surface().objective?.detail);
-							return _el$212;
+							var _el$214 = _tmpl$46$1();
+							insert(_el$214, () => surface().objective?.detail);
+							return _el$214;
 						})(),
 						createComponent(PixelWorldActionReceipt, {
 							locale,
@@ -25868,202 +27109,211 @@ function PixelWorldHost(props) {
 						})
 					]
 				}), null);
-				insert(_el$171, (() => {
-					var _c$8 = memo(() => rendererStatus() === "unavailable");
-					return () => _c$8() ? [(() => {
-						var _el$213 = _tmpl$46$1();
-						insert(_el$213, (() => {
-							var _c$9 = memo(() => rendererFatal()?.code === "pixel_world_scope_changed");
-							return () => _c$9() ? tr$1(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : tr$1(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser");
+				insert(_el$173, (() => {
+					var _c$9 = memo(() => rendererStatus() === "unavailable");
+					return () => _c$9() ? [(() => {
+						var _el$215 = _tmpl$47$1();
+						insert(_el$215, (() => {
+							var _c$10 = memo(() => rendererFatal()?.code === "pixel_world_scope_changed");
+							return () => _c$10() ? tr$1(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : memo(() => !!rendererNeedsReload())() ? tr$1(locale(), "图形上下文已丢失，需要重新加载页面恢复图形。", "The graphics context was lost. Reload the page to restore graphics.") : tr$1(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser");
 						})());
-						return _el$213;
+						return _el$215;
 					})(), (() => {
-						var _el$214 = _tmpl$47$1();
-						_el$214.$$click = requestReadyMode;
-						insert(_el$214, () => tr$1(locale(), "重试 Renderer", "Retry Renderer"));
-						return _el$214;
+						var _el$216 = _tmpl$48$1();
+						_el$216.$$click = requestReadyMode;
+						insert(_el$216, (() => {
+							var _c$11 = memo(() => !!rendererNeedsReload());
+							return () => _c$11() ? rendererReloadLabel() : tr$1(locale(), "重试 Renderer", "Retry Renderer");
+						})());
+						return _el$216;
 					})()] : tr$1(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.");
 				})(), null);
 				createRenderEffect((_p$) => {
-					var _v$34 = rendererStatus() === "unavailable" ? PIXEL_WORLD_RENDERER_UNAVAILABLE_MESSAGE_ID : void 0, _v$35 = rendererStatus();
-					_v$34 !== _p$.e && setAttribute(_el$171, "id", _p$.e = _v$34);
-					_v$35 !== _p$.t && setAttribute(_el$171, "data-renderer-state", _p$.t = _v$35);
+					var _v$40 = rendererStatus() === "unavailable" ? PIXEL_WORLD_RENDERER_UNAVAILABLE_MESSAGE_ID : void 0, _v$41 = rendererStatus();
+					_v$40 !== _p$.e && setAttribute(_el$173, "id", _p$.e = _v$40);
+					_v$41 !== _p$.t && setAttribute(_el$173, "data-renderer-state", _p$.t = _v$41);
 					return _p$;
 				}, {
 					e: void 0,
 					t: void 0
 				});
-				return _el$171;
+				return _el$173;
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return memo(() => !!focusMode())() && renderState()?.commercial_surface;
 			},
 			get children() {
-				var _el$172 = _tmpl$38$1();
-				insert(_el$172, createComponent(PixelWorldActionReceipt, {
+				var _el$174 = _tmpl$39$1();
+				insert(_el$174, createComponent(PixelWorldActionReceipt, {
 					"class": "pixel-world-action-receipt--focus-compact",
 					locale,
 					surface: () => renderState().commercial_surface
 				}));
-				return _el$172;
+				return _el$174;
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return focusMode();
 			},
 			get children() {
-				var _el$173 = _tmpl$39$1(), _el$174 = _el$173.firstChild, _el$175 = _el$174.nextSibling;
-				_el$173.addEventListener("toggle", (event) => {
+				var _el$175 = _tmpl$40$1(), _el$176 = _el$175.firstChild, _el$177 = _el$176.nextSibling;
+				_el$175.addEventListener("toggle", (event) => {
 					if (event.currentTarget.open) setPersistentCommandDrawerOpen(true);
 					else focusController.closeCommandDrawer({ returnFocus: true });
 				});
-				insert(_el$174, () => tr$1(locale(), "命令与目标", "Command and Target"));
-				insert(_el$175, createComponent(PixelWorldFocusCommandSurface, { locale }));
-				createRenderEffect(() => _el$173.open = commandDrawerOpen());
-				return _el$173;
+				insert(_el$176, () => tr$1(locale(), "命令与目标", "Command and Target"));
+				insert(_el$177, createComponent(PixelWorldFocusCommandSurface, { locale }));
+				createRenderEffect(() => _el$175.open = commandDrawerOpen());
+				return _el$175;
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return !focusMode() || !maximized();
 			},
 			get children() {
-				var _el$176 = _tmpl$41$1(), _el$177 = _el$176.firstChild, _el$178 = _el$177.nextSibling, _el$179 = _el$178.firstChild, _el$180 = _el$179.nextSibling, _el$181 = _el$180.nextSibling, _el$183 = _el$181.nextSibling, _el$184 = _el$183.nextSibling, _el$185 = _el$184.nextSibling, _el$186 = _el$185.nextSibling, _el$187 = _el$186.nextSibling, _el$188 = _el$187.nextSibling, _el$192 = _el$188.nextSibling, _el$193 = _el$192.nextSibling, _el$194 = _el$193.nextSibling;
-				insert(_el$177, () => tr$1(locale(), "Renderer 诊断", "Renderer Diagnostics"));
-				insert(_el$179, () => `locations=${visualState().locations.length}`);
-				insert(_el$180, () => `fragments=${visualState().fragmentTerrain.length}`);
-				insert(_el$181, () => `agents=${visualState().agents.length}`);
-				insert(_el$178, createComponent(Show, {
+				var _el$178 = _tmpl$42$1(), _el$179 = _el$178.firstChild, _el$180 = _el$179.nextSibling, _el$181 = _el$180.firstChild, _el$182 = _el$181.nextSibling, _el$183 = _el$182.nextSibling, _el$185 = _el$183.nextSibling, _el$186 = _el$185.nextSibling, _el$187 = _el$186.nextSibling, _el$188 = _el$187.nextSibling, _el$189 = _el$188.nextSibling, _el$190 = _el$189.nextSibling, _el$194 = _el$190.nextSibling, _el$195 = _el$194.nextSibling, _el$196 = _el$195.nextSibling;
+				insert(_el$179, () => tr$1(locale(), "Renderer 诊断", "Renderer Diagnostics"));
+				insert(_el$181, () => `locations=${visualState().locations.length}`);
+				insert(_el$182, () => `fragments=${visualState().fragmentTerrain.length}`);
+				insert(_el$183, () => `agents=${visualState().agents.length}`);
+				insert(_el$180, createComponent(Show, {
 					get when() {
 						return memo(() => renderState()?.world_tick !== null)() && renderState()?.world_tick !== void 0;
 					},
 					get children() {
-						var _el$182 = _tmpl$11$2();
-						insert(_el$182, () => `tick=${renderState()?.world_tick}`);
-						createRenderEffect(() => setAttribute(_el$182, "data-world-tick", String(renderState()?.world_tick)));
-						return _el$182;
+						var _el$184 = _tmpl$12$1();
+						insert(_el$184, () => `tick=${renderState()?.world_tick}`);
+						createRenderEffect(() => setAttribute(_el$184, "data-world-tick", String(renderState()?.world_tick)));
+						return _el$184;
 					}
-				}), _el$183);
-				insert(_el$183, () => `links=${visualState().links.length}`);
-				insert(_el$184, () => `hotspots=${arrayField(renderState(), "visual_hotspots", "visualHotspots").length}`);
-				insert(_el$185, () => `derived_positions=${visualState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
-				insert(_el$186, () => visualState().worldBounds ? "world_bounds=ready" : "world_bounds=missing");
-				insert(_el$187, () => `renderer=${rendererStatus()}`);
-				insert(_el$188, () => `runtime=${runtimeSource()}`);
-				insert(_el$178, createComponent(Show, {
+				}), _el$185);
+				insert(_el$185, () => `links=${visualState().links.length}`);
+				insert(_el$186, () => `hotspots=${arrayField(renderState(), "visual_hotspots", "visualHotspots").length}`);
+				insert(_el$187, () => `derived_positions=${visualState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
+				insert(_el$188, () => visualState().worldBounds ? "world_bounds=ready" : "world_bounds=missing");
+				insert(_el$189, () => `renderer=${rendererStatus()}`);
+				insert(_el$190, () => `runtime=${runtimeSource()}`);
+				insert(_el$180, createComponent(Show, {
 					get when() {
 						return cameraState();
 					},
 					get children() {
-						var _el$189 = _tmpl$25$1();
-						insert(_el$189, () => `zoom=${cameraState().zoom.toFixed(2)}`);
-						return _el$189;
+						var _el$191 = _tmpl$26$1();
+						insert(_el$191, () => `zoom=${cameraState().zoom.toFixed(2)}`);
+						return _el$191;
 					}
-				}), _el$192);
-				insert(_el$178, createComponent(Show, {
+				}), _el$194);
+				insert(_el$180, createComponent(Show, {
 					get when() {
 						return cameraState();
 					},
 					get children() {
-						var _el$190 = _tmpl$25$1();
-						insert(_el$190, () => `pan=${cameraState().pan_x_px},${cameraState().pan_y_px}`);
-						return _el$190;
+						var _el$192 = _tmpl$26$1();
+						insert(_el$192, () => `pan=${cameraState().pan_x_px},${cameraState().pan_y_px}`);
+						return _el$192;
 					}
-				}), _el$192);
-				insert(_el$178, createComponent(Show, {
+				}), _el$194);
+				insert(_el$180, createComponent(Show, {
 					get when() {
 						return hoverSelection();
 					},
 					get children() {
-						var _el$191 = _tmpl$25$1();
-						insert(_el$191, () => `hover=${hoverSelection().kind}/${hoverSelection().id}`);
-						return _el$191;
+						var _el$193 = _tmpl$26$1();
+						insert(_el$193, () => `hover=${hoverSelection().kind}/${hoverSelection().id}`);
+						return _el$193;
 					}
-				}), _el$192);
-				_el$192.$$click = requestReadyMode;
-				insert(_el$192, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
-				_el$193.$$click = simulateFatal;
-				insert(_el$193, () => tr$1(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal"));
-				insert(_el$194, () => tr$1(locale(), "当前世界舞台只依赖 wasm/Rust bridge、嵌入式 canvas、轻量拖拽缩放和事件回传。", "The world stage depends only on the wasm/Rust bridge, embedded canvas, light pan-zoom interaction, and event callbacks."));
-				insert(_el$178, createComponent(Show, {
+				}), _el$194);
+				_el$194.$$click = requestReadyMode;
+				insert(_el$194, (() => {
+					var _c$0 = memo(() => !!rendererNeedsReload());
+					return () => _c$0() ? rendererReloadLabel() : tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer");
+				})());
+				_el$195.$$click = simulateFatal;
+				insert(_el$195, () => tr$1(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal"));
+				insert(_el$196, () => tr$1(locale(), "当前世界舞台只依赖 wasm/Rust bridge、嵌入式 canvas、轻量拖拽缩放和事件回传。", "The world stage depends only on the wasm/Rust bridge, embedded canvas, light pan-zoom interaction, and event callbacks."));
+				insert(_el$180, createComponent(Show, {
 					get when() {
 						return memo(() => rendererStatus() === "unavailable")() && rendererFatal();
 					},
 					get children() {
-						var _el$195 = _tmpl$40$1();
-						insert(_el$195, () => `${rendererFatal().code}: ${rendererFatal().message}`);
-						return _el$195;
+						var _el$197 = _tmpl$41$1();
+						insert(_el$197, () => `${rendererFatal().code}: ${rendererFatal().message}`);
+						return _el$197;
 					}
 				}), null);
-				createRenderEffect(() => setAttribute(_el$176, "data-renderer-state", rendererStatus()));
-				return _el$176;
+				createRenderEffect(() => setAttribute(_el$178, "data-renderer-state", rendererStatus()));
+				return _el$178;
 			}
-		}), _el$207);
-		insert(_el$160, createComponent(Show, {
+		}), _el$209);
+		insert(_el$162, createComponent(Show, {
 			get when() {
 				return memo(() => !!focusMode())() && renderState();
 			},
 			get children() {
-				var _el$196 = _tmpl$42$1(), _el$197 = _el$196.firstChild, _el$199 = _el$197.nextSibling.firstChild, _el$201 = _el$199.firstChild, _el$202 = _el$201.nextSibling, _el$203 = _el$202.nextSibling, _el$206 = _el$199.nextSibling.firstChild;
-				_el$196.addEventListener("toggle", (event) => {
+				var _el$198 = _tmpl$43$1(), _el$199 = _el$198.firstChild, _el$201 = _el$199.nextSibling.firstChild, _el$203 = _el$201.firstChild, _el$204 = _el$203.nextSibling, _el$205 = _el$204.nextSibling, _el$208 = _el$201.nextSibling.firstChild;
+				_el$198.addEventListener("toggle", (event) => {
 					if (event.currentTarget.open) setPersistentDiagnosticsDrawerOpen(true);
 					else focusController.closeDiagnosticsDrawer({ returnFocus: true });
 				});
-				insert(_el$197, () => tr$1(locale(), "电影视图诊断", "Cinematic Diagnostics"));
-				insert(_el$199, createComponent(Show, {
+				insert(_el$199, () => tr$1(locale(), "电影视图诊断", "Cinematic Diagnostics"));
+				insert(_el$201, createComponent(Show, {
 					get when() {
 						return memo(() => renderState().world_tick !== null)() && renderState().world_tick !== void 0;
 					},
 					get children() {
-						var _el$200 = _tmpl$11$2();
-						insert(_el$200, () => `tick=${renderState().world_tick}`);
-						createRenderEffect(() => setAttribute(_el$200, "data-world-tick", String(renderState().world_tick)));
-						return _el$200;
+						var _el$202 = _tmpl$12$1();
+						insert(_el$202, () => `tick=${renderState().world_tick}`);
+						createRenderEffect(() => setAttribute(_el$202, "data-world-tick", String(renderState().world_tick)));
+						return _el$202;
 					}
-				}), _el$201);
-				insert(_el$201, () => `renderer=${rendererStatus()}`);
-				insert(_el$202, () => `runtime=${runtimeSource()}`);
-				insert(_el$203, () => `derived_positions=${renderState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
-				insert(_el$199, createComponent(Show, {
+				}), _el$203);
+				insert(_el$203, () => `renderer=${rendererStatus()}`);
+				insert(_el$204, () => `runtime=${runtimeSource()}`);
+				insert(_el$205, () => `derived_positions=${renderState().agents.filter((agent) => agent.position_source === "location_derived").length}`);
+				insert(_el$201, createComponent(Show, {
 					get when() {
 						return rendererFatal();
 					},
 					get children() {
-						var _el$204 = _tmpl$15$1();
-						insert(_el$204, () => rendererFatal().code);
-						return _el$204;
+						var _el$206 = _tmpl$16$1();
+						insert(_el$206, () => rendererFatal().code);
+						return _el$206;
 					}
 				}), null);
-				_el$206.$$click = requestReadyMode;
-				insert(_el$206, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
-				createRenderEffect(() => _el$196.open = diagnosticsDrawerOpen());
-				return _el$196;
+				_el$208.$$click = requestReadyMode;
+				insert(_el$208, (() => {
+					var _c$1 = memo(() => !!rendererNeedsReload());
+					return () => _c$1() ? rendererReloadLabel() : tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer");
+				})());
+				createRenderEffect(() => _el$198.open = diagnosticsDrawerOpen());
+				return _el$198;
 			}
-		}), _el$207);
-		_el$207.addEventListener("toggle", (event) => setRenderDtoOpen(event.currentTarget.open));
-		insert(_el$208, () => tr$1(locale(), "展开 Render DTO", "Expand Render DTO"));
-		insert(_el$207, createComponent(Show, {
+		}), _el$209);
+		_el$209.addEventListener("toggle", (event) => setRenderDtoOpen(event.currentTarget.open));
+		insert(_el$210, () => tr$1(locale(), "展开 Render DTO", "Expand Render DTO"));
+		insert(_el$209, createComponent(Show, {
 			get when() {
 				return renderDtoOpen();
 			},
 			get children() {
-				var _el$209 = _tmpl$43$1(), _el$210 = _el$209.firstChild;
-				insert(_el$210, () => JSON.stringify(renderState(), null, 2));
-				return _el$209;
+				var _el$211 = _tmpl$44$1(), _el$212 = _el$211.firstChild;
+				insert(_el$212, () => JSON.stringify(renderState(), null, 2));
+				return _el$211;
 			}
 		}), null);
 		createRenderEffect((_p$) => {
-			var _v$36 = `pixel-world-host stack ${focusMode() ? "pixel-world-host--focus" : ""} ${focusMode() && maximized() ? "pixel-world-host--focus-maximized" : ""}`, _v$37 = focusMode() ? "true" : "false", _v$38 = focusMode() && maximized() ? "true" : "false", _v$39 = shouldShowFocusCinematic(renderState()) ? "false" : "true", _v$40 = focusMode(), _v$41 = !renderState(), _v$42 = rendererStatus() === "unavailable" ? PIXEL_WORLD_RENDERER_UNAVAILABLE_MESSAGE_ID : "pixel-world-focus-entry-hint";
-			_v$36 !== _p$.e && className(_el$160, _p$.e = _v$36);
-			_v$37 !== _p$.t && setAttribute(_el$160, "data-world-focus", _p$.t = _v$37);
-			_v$38 !== _p$.a && setAttribute(_el$160, "data-world-focus-maximized", _p$.a = _v$38);
-			_v$39 !== _p$.o && setAttribute(_el$160, "data-focus-comparable", _p$.o = _v$39);
-			_v$40 !== _p$.i && (_el$168.hidden = _p$.i = _v$40);
-			_v$41 !== _p$.n && (_el$170.disabled = _p$.n = _v$41);
-			_v$42 !== _p$.s && setAttribute(_el$170, "aria-describedby", _p$.s = _v$42);
+			var _v$42 = `pixel-world-host stack ${focusMode() ? "pixel-world-host--focus" : ""} ${focusMode() && maximized() ? "pixel-world-host--focus-maximized" : ""}`, _v$43 = focusMode() ? "true" : "false", _v$44 = focusMode() && maximized() ? "true" : "false", _v$45 = shouldShowFocusCinematic(renderState()) ? "false" : "true", _v$46 = focusMode(), _v$47 = !renderState(), _v$48 = rendererStatus() === "unavailable" ? PIXEL_WORLD_RENDERER_UNAVAILABLE_MESSAGE_ID : "pixel-world-focus-entry-hint";
+			_v$42 !== _p$.e && className(_el$162, _p$.e = _v$42);
+			_v$43 !== _p$.t && setAttribute(_el$162, "data-world-focus", _p$.t = _v$43);
+			_v$44 !== _p$.a && setAttribute(_el$162, "data-world-focus-maximized", _p$.a = _v$44);
+			_v$45 !== _p$.o && setAttribute(_el$162, "data-focus-comparable", _p$.o = _v$45);
+			_v$46 !== _p$.i && (_el$170.hidden = _p$.i = _v$46);
+			_v$47 !== _p$.n && (_el$172.disabled = _p$.n = _v$47);
+			_v$48 !== _p$.s && setAttribute(_el$172, "aria-describedby", _p$.s = _v$48);
 			return _p$;
 		}, {
 			e: void 0,
@@ -26074,7 +27324,7 @@ function PixelWorldHost(props) {
 			n: void 0,
 			s: void 0
 		});
-		return _el$160;
+		return _el$162;
 	})();
 }
 delegateEvents(["click", "input"]);
@@ -32121,28 +33371,11 @@ function buildViewerEntryUrls(locale) {
 	softwareSafeUrl.searchParams.delete("language");
 	return { softwareSafeUrl: softwareSafeUrl.toString() };
 }
-function targetSyncProgressLines(progress, locale) {
-	if (!progress) return [];
-	const connectionText = progress.connectionStatus === "connected" ? tr(locale, "已连接", "connected") : progress.connectionStatus === "error" ? tr(locale, "连接错误", "connection error") : tr(locale, "正在连接", "connecting");
-	const handshakeText = progress.serverReady ? tr(locale, "已完成", "server ready") : tr(locale, "等待服务器 hello", "waiting for server hello");
-	const snapshotText = progress.snapshotReceived ? tr(locale, `已收到：行动体 ${progress.totalAgentCount}，地点 ${progress.totalLocationCount}`, `received: ${progress.totalAgentCount} agents, ${progress.totalLocationCount} locations`) : progress.snapshotRequested ? tr(locale, progress.snapshotRetryCount > 0 ? `已请求首个世界快照，重试 ${progress.snapshotRetryCount} 次` : "已请求首个世界快照", progress.snapshotRetryCount > 0 ? `first world snapshot requested, ${progress.snapshotRetryCount} retries` : "first world snapshot requested") : tr(locale, "等待首个世界快照", "waiting for first world snapshot");
-	const sessionText = progress.authSyncInFlight ? tr(locale, "正在同步玩家会话", "syncing player session") : tr(locale, `状态 ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`, `status ${progress.authRuntimeStatus || progress.authRegistrationStatus || "pending"}`);
-	const visibilityText = tr(locale, `快照行动体 ${progress.totalAgentCount}，当前可控 ${progress.visibleAgentCount}`, `snapshot agents ${progress.totalAgentCount}, visible ${progress.visibleAgentCount}`);
-	const lines = [
-		tr(locale, `连接：${connectionText}`, `Connection: ${connectionText}`),
-		tr(locale, `握手：${handshakeText}`, `Handshake: ${handshakeText}`),
-		tr(locale, `快照：${snapshotText}`, `Snapshot: ${snapshotText}`),
-		tr(locale, `玩家会话：${sessionText}`, `Player session: ${sessionText}`),
-		tr(locale, `可见性：${visibilityText}`, `Visibility: ${visibilityText}`)
-	];
-	if (progress.lastError) lines.push(tr(locale, `错误：${progress.lastError}`, `Error: ${progress.lastError}`));
-	return lines;
-}
 function EntityListPendingState(props) {
 	const locale = () => props.locale ?? uiLocale();
 	const label = () => props.label ?? tr(locale(), "目标", "targets");
 	const progress = () => props.progress ?? buildTargetSyncProgress();
-	const progressLines = () => targetSyncProgressLines(progress(), locale());
+	const progressLines = () => targetSyncProgressLines(progress(), locale(), tr);
 	return (() => {
 		var _el$ = _tmpl$2(), _el$2 = _el$.firstChild, _el$4 = _el$2.firstChild.nextSibling, _el$6 = _el$2.nextSibling;
 		insert(_el$4, () => tr(locale(), `正在同步${label()}…`, `Syncing ${label()}…`));
@@ -33295,7 +34528,7 @@ function gameplayActionControlBoundaryReason(action, locale) {
 	const protocolAction = normalizedId(action?.protocolAction || action?.protocol_action);
 	const targetAgentId = normalizedId(action?.targetAgentId || action?.target_agent_id);
 	if (!targetAgentId || actionId === "claim_first_agent") return null;
-	if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play") return null;
+	if (protocolAction === "request_snapshot" || protocolAction === "live_control.step" || protocolAction === "live_control.play" || protocolAction === "live_control.pause") return null;
 	const boundAgentId = normalizedId(state.auth.boundAgentId);
 	if (!boundAgentId) return tr(locale, "当前账号尚未绑定 Agent；这个动作来自共享世界快照，不能作为当前账号动作执行。", "The current account has no bound Agent; this action came from the shared world snapshot and cannot be executed as the current account.");
 	if (targetAgentId !== boundAgentId) return tr(locale, `这个动作目标是 ${targetAgentId}，但当前账号绑定的是 ${boundAgentId}。`, `This action targets ${targetAgentId}, but the current account is bound to ${boundAgentId}.`);
@@ -33315,6 +34548,7 @@ function gameplayActionButtonLabel(action, locale) {
 	if (action.executeKind === "request_snapshot") return tr(locale, "刷新快照", "Refresh Snapshot");
 	if (action.executeKind === "step") return tr(locale, "推进一步", "Advance One Step");
 	if (action.executeKind === "play") return tr(locale, "恢复实时推进", "Resume Live Play");
+	if (action.executeKind === "pause") return tr(locale, "暂停实时推进", "Pause Live Play");
 	if (action.executeKind === "agent_chat") return tr(locale, "切到聊天面板", "Use Chat Panel");
 	return tr(locale, "提交玩法动作", "Submit Gameplay Action");
 }
@@ -33325,6 +34559,7 @@ function gameplayActionBusyLabel(action, locale) {
 	if (action?.executeKind === "request_snapshot") return tr(locale, "刷新中...", "Refreshing...");
 	if (action?.executeKind === "step") return tr(locale, "推进中...", "Advancing...");
 	if (action?.executeKind === "play") return tr(locale, "恢复中...", "Resuming...");
+	if (action?.executeKind === "pause") return tr(locale, "暂停中...", "Pausing...");
 	if (action?.actionId === "claim_starter_oc") return tr(locale, "确认中...", "Confirming...");
 	if (action?.actionId === "claim_first_agent" || action?.executeKind === "claim_agent") return tr(locale, "提交中...", "Submitting...");
 	return tr(locale, "处理中...", "Working...");
@@ -33347,6 +34582,7 @@ function gameplayActionTestId(action, role = "available") {
 	if (action?.executeKind === "request_snapshot") return "viewer-available-action-request-snapshot";
 	if (action?.executeKind === "step") return "viewer-available-action-step";
 	if (action?.executeKind === "play") return "viewer-available-action-play";
+	if (action?.executeKind === "pause") return "viewer-available-action-pause";
 	const raw = action?.actionId || action?.protocolAction || action?.executeKind || "unknown";
 	return `viewer-playthrough-action-${String(raw).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown"}`;
 }
@@ -35494,7 +36730,7 @@ function WorldSummaryPanel(props = {}) {
 														}),
 														createComponent(Show, {
 															get when() {
-																return action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc";
+																return action.executeKind === "request_snapshot" || action.executeKind === "step" || action.executeKind === "play" || action.executeKind === "pause" || action.executeKind === "gameplay_action" || action.executeKind === "claim_first_agent" || action.executeKind === "claim_starter_oc";
 															},
 															get children() {
 																var _el$294 = _tmpl$33(), _el$295 = _el$294.firstChild;
@@ -37149,6 +38385,11 @@ function AppShell(props = {}) {
 			"data-viewer-overlay": "navigation"
 		}), _el$390);
 		insert(_el$389, createComponent(SecondaryViewerNavigation, {
+			locale,
+			tr
+		}), _el$390);
+		insert(_el$389, createComponent(LiveControlStatus, {
+			state,
 			locale,
 			tr
 		}), _el$390);

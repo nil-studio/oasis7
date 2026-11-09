@@ -85,6 +85,7 @@ impl Worker {
             if self.checkpoint.state.history.len() >= 64 {
                 continue;
             }
+            self.process_rotation_request()?;
             self.poll_peers()?;
             if self.checkpoint.state.history.len() >= 64 {
                 continue;
@@ -133,7 +134,9 @@ impl Worker {
             self.config.max_committed_action_batch_bytes,
         )
     }
-    fn signer(&self) -> Result<std::sync::MutexGuard<'_, Box<dyn BftSignerLeaseV3>>, NodeError> {
+    pub(super) fn signer(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Box<dyn BftSignerLeaseV3>>, NodeError> {
         self.lease
             .lock()
             .map_err(|_| error("wire-3 shared signer poisoned"))
@@ -622,6 +625,7 @@ fn canonical_digest(value: &str) -> bool {
 
 impl Drop for Worker {
     fn drop(&mut self) {
+        self.selected.rotation_requests.close();
         self.peers.cancel();
         if let Some(network) = &self.selected.network {
             network.execution.stop_serving();

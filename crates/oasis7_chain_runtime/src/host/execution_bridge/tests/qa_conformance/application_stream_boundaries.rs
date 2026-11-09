@@ -2,6 +2,9 @@
 use super::*;
 use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
+#[path = "application_stream_cleanup.rs"]
+mod stream_cleanup;
+pub(super) use stream_cleanup::drain_until_eof;
 
 #[test]
 fn real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns() {
@@ -27,9 +30,17 @@ fn real_tcp_nonreading_viewer_preserves_second_primed_viewer() {
         "slow-consumer",
     );
 }
+#[derive(Default)]
+struct OrderedResponseProgress {
+    started: bool,
+    hello_seen: bool,
+    snapshot_seen: bool,
+    complete: bool,
+}
 pub(super) struct Session {
     reader: BufReader<TcpStream>,
     partial_line: String,
+    ordered_response: OrderedResponseProgress,
     diagnostic: bool,
     created: Instant,
     connection: u16,
@@ -61,6 +72,7 @@ impl Session {
         Self {
             reader: BufReader::new(socket),
             partial_line: String::new(),
+            ordered_response: OrderedResponseProgress::default(),
             diagnostic: !small,
             created: Instant::now(),
             connection,
@@ -72,6 +84,16 @@ impl Session {
         let mut bytes = serde_json::to_vec(&value).unwrap();
         bytes.push(b'\n');
         let result = self.reader.get_mut().write_all(&bytes);
+        if result.is_ok()
+            && matches!(
+                value["type"].as_str(),
+                Some("hello_v2" | "request_snapshot")
+            )
+        {
+            // Only a new successfully sent exchange resets ordering. Bounded
+            // late reads and final drain continue the original exchange.
+            self.ordered_response = OrderedResponseProgress::default();
+        }
         if self.diagnostic {
             println!(
                 "stream_observer_send connection={} type={} elapsed_us={} result={:?}",
@@ -89,8 +111,13 @@ impl Session {
     pub(super) fn snapshot_ordered(&mut self, budget: Duration, require_hello: bool) -> bool {
         let deadline = Instant::now() + budget;
         let read_started = Instant::now();
-        let mut hello_seen = !require_hello;
-        let mut snapshot_seen = false;
+        if !self.ordered_response.started {
+            self.ordered_response.started = true;
+            self.ordered_response.hello_seen = !require_hello;
+        }
+        if self.ordered_response.complete {
+            return true;
+        }
         while Instant::now() < deadline {
             self.reader
                 .get_mut()
@@ -120,16 +147,19 @@ impl Session {
                             );
                         }
                         if value["type"] == "hello_ack" {
-                            hello_seen = true;
+                            self.ordered_response.hello_seen = true;
                         }
-                        if hello_seen
+                        if self.ordered_response.hello_seen
                             && value["type"] == "snapshot"
                             && value["snapshot"]["runtime_snapshot"].is_object()
                         {
                             println!("actual_stream_snapshot_bytes={}", self.partial_line.len());
-                            snapshot_seen = true;
+                            self.ordered_response.snapshot_seen = true;
                         }
-                        if snapshot_seen && value["type"] == "authoritative_recovery_ack" {
+                        if self.ordered_response.snapshot_seen
+                            && value["type"] == "authoritative_recovery_ack"
+                        {
+                            self.ordered_response.complete = true;
                             self.partial_line.clear();
                             return true;
                         }
@@ -169,6 +199,39 @@ impl Session {
         }
         false
     }
+    fn control_state(&mut self, request_id: u64, paused: bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            self.reader
+                .get_mut()
+                .set_read_timeout(Some(Duration::from_millis(50)))
+                .unwrap();
+            match self.reader.read_line(&mut self.partial_line) {
+                Ok(0) => return false,
+                Ok(_) if self.partial_line.ends_with('\n') => {
+                    let matched = serde_json::from_str::<serde_json::Value>(&self.partial_line)
+                        .ok()
+                        .is_some_and(|value| {
+                            value["type"] == "live_control_state"
+                                && value["state"]["request_id"] == request_id
+                                && value["state"]["paused"] == paused
+                        });
+                    self.partial_line.clear();
+                    if matched {
+                        return true;
+                    }
+                }
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) => {}
+                Err(_) => return false,
+            }
+        }
+        false
+    }
     pub(super) fn warm(&mut self) -> bool {
         self.send(serde_json::json!({"type":"hello_v2","client":"PRE2 actual stream boundary","version":2,"capabilities":[]})).unwrap();
         self.send(serde_json::json!({"type":"subscribe","streams":["snapshot"],"event_kinds":[]}))
@@ -180,18 +243,23 @@ impl Session {
     pub(super) fn close(
         mut self,
     ) -> Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError> {
+        let cleanup = cleanup_deadline::CleanupDeadline::start("stream_session_close");
         // EOF stops new requests while the peer finishes already queued writes.
         // Keep reading until its EOF; a bidirectional shutdown races those writes.
         drop(self.accepted_probe);
-        self.reader.get_ref().shutdown(std::net::Shutdown::Write)?;
-        self.reader
+        let drained = self
+            .reader
             .get_ref()
-            .set_read_timeout(Some(Duration::from_secs(2)))?;
-        let drained = std::io::copy(&mut self.reader, &mut std::io::sink());
+            .shutdown(std::net::Shutdown::Write)
+            .and_then(|()| drain_until_eof(&mut self.reader, Duration::from_secs(2)));
         if drained.is_err() {
             let _ = self.reader.get_ref().shutdown(std::net::Shutdown::Both);
         }
-        let served = self.worker.join().unwrap();
+        // Even shutdown/read-setup failure must join before returning. Dropping
+        // a JoinHandle here would silently leave a worker in the next scenario.
+        let served = self.worker.join();
+        cleanup.complete();
+        let served = served.unwrap();
         drained?;
         served
     }
@@ -222,6 +290,7 @@ fn real_tcp_session_close_drains_responses_queued_before_eof() {
     let session = Session {
         reader: BufReader::new(socket),
         partial_line: String::new(),
+        ordered_response: OrderedResponseProgress::default(),
         diagnostic: false,
         created: Instant::now(),
         connection: 0,
@@ -245,7 +314,17 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     ))
     .unwrap();
     let shared = Arc::new(Mutex::new(ordinary));
-    if mode == "slow-consumer" {
+    if matches!(
+        mode,
+        "checkpoint-fairness" | "checkpoint-scope-fence" | "checkpoint-pause-resume"
+    ) {
+        checkpoint_publication_fairness(
+            shared,
+            &root,
+            mode == "checkpoint-scope-fence",
+            mode == "checkpoint-pause-resume",
+        );
+    } else if mode == "slow-consumer" {
         slow_consumer(shared);
     } else {
         repeated(shared, &root);
@@ -778,4 +857,343 @@ fn kernel_queued_bytes(stream: &TcpStream) -> i32 {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn kernel_queued_bytes(_: &TcpStream) -> i32 {
     panic!("actual kernel queue probe unsupported: not_run");
+}
+
+#[test]
+fn real_tcp_checkpoint_publication_preserves_primed_viewer_before_dispatch() {
+    application_harness::run_isolated_application_mode(
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        "checkpoint-fairness",
+    );
+}
+struct CheckpointGateRelease(std::path::PathBuf);
+impl Drop for CheckpointGateRelease {
+    fn drop(&mut self) {
+        ViewerRuntimeLiveServer::test_clear_lineage_publication_gate(&self.0);
+    }
+}
+fn checkpoint_publication_fairness(
+    shared: Arc<Mutex<ViewerRuntimeLiveServer>>,
+    root: &std::path::Path,
+    change_scope: bool,
+    pause_before_release: bool,
+) {
+    ViewerRuntimeLiveServer::test_begin_stream_budget_diagnostics();
+    let mut observer = Session::start(&shared, false);
+    let primed = observer.warm();
+    let path = root.join("stream-boundary-private-lineage.json");
+    if pause_before_release {
+        ViewerRuntimeLiveServer::test_arm_fresh_lineage_publication_gate(&path);
+    } else {
+        ViewerRuntimeLiveServer::test_arm_lineage_publication_gate(&path);
+    }
+    let release = CheckpointGateRelease(path.clone());
+    let temporary =
+        ViewerRuntimeLiveServer::test_wait_lineage_publication_gate(&path, Duration::from_secs(5))
+            .expect("ordinary actual prepare must reach real checkpoint publication");
+    let original = fs::read(&temporary).unwrap();
+    let _: serde_json::Value = serde_json::from_slice(&original).unwrap();
+    let unpublished = !ViewerRuntimeLiveServer::test_lineage_publication_gate_published(&path);
+    let counts_before =
+        application_admission_boundaries::observe(root, "checkpoint-held-before").unwrap();
+    let diagnostic_started = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
+    let began = Instant::now();
+    let sent = observer.send(serde_json::json!({"type":"hello_v2","client":"checkpoint publication observer","version":2,"capabilities":[]})).is_ok()
+        && observer.send(serde_json::json!({"type":"request_snapshot"})).is_ok();
+    let responsive = sent
+        && observer.snapshot_ordered(
+            Duration::from_millis(150).saturating_sub(began.elapsed()),
+            true,
+        );
+    let elapsed = began.elapsed();
+    let diagnostic_finished = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
+    let counts_after =
+        application_admission_boundaries::observe(root, "checkpoint-held-after").unwrap();
+    let still_unpublished =
+        !ViewerRuntimeLiveServer::test_lineage_publication_gate_published(&path);
+    let retained_original = fs::read(&temporary).unwrap();
+    let mut pause_ack = true;
+    if pause_before_release {
+        observer.send(serde_json::json!({"type":"hello_v2","client":"checkpoint pause observer","version":2,"capabilities":["live_control_state_v1"]})).unwrap();
+        observer.send(serde_json::json!({"type":"live_control","mode":{"mode":"pause"},"request_id":9001})).unwrap();
+        pause_ack = observer.control_state(9001, true);
+    }
+    if change_scope {
+        shared
+            .lock()
+            .unwrap()
+            .test_change_agent_service_scope("public".into());
+    }
+    checkpoint_service_cleanup::arm(root, !change_scope && !pause_before_release);
+    ViewerRuntimeLiveServer::test_release_lineage_publication_gate(&path);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !ViewerRuntimeLiveServer::test_lineage_publication_gate_published(&path)
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(2));
+    }
+    let published = ViewerRuntimeLiveServer::test_lineage_publication_gate_published(&path);
+    let mut paused_counts = None;
+    let mut resume_ack = true;
+    if pause_before_release {
+        let captured: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        let admission = &captured["hosted_admission"];
+        let context: oasis7_agent_api::ContinuousAgentRequestContextV1 =
+            serde_json::from_value(admission["context"]["request_context"].clone())
+                .expect("gate must capture actual fresh original context");
+        let phase = match admission["stage"].as_str() {
+            Some("reserve") => "reserve".to_owned(),
+            Some("prefix") => format!("prefix:{}", context.transport_attempt),
+            _ => panic!("Pause regression requires fresh Reserve/Prefix preparation"),
+        };
+        let request_id = format!("{}:{phase}", context.provider_invocation_key());
+        // Wait for the real worker publication ACK before sampling the paused
+        // interval. This is not an arbitrary sleep inside the shared lock.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while shared.lock().unwrap().test_agent_service_pump_status()["publication_pending"] == true
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(2));
+        }
+        paused_counts =
+            Some(application_admission_boundaries::observe(root, "checkpoint-paused").unwrap());
+        // The expected signed payload comes only from the exact held bytes,
+        // never from a later file that the implementation could have replaced.
+        let expected = captured["provider_scheduler_pending"].as_object().expect("published fresh originals").values().find(|pending| {
+            matches!(serde_json::from_value::<WorldServicePayloadV1>(pending["payload"].clone()),
+                Ok(WorldServicePayloadV1::Scheduler(signed)) if signed.request.request_id == request_id)
+        }).expect("original job must remain published for Resume");
+        fs::write(
+            root.join("checkpoint-expected-original.json"),
+            serde_json::to_vec(expected).unwrap(),
+        )
+        .unwrap();
+        observer
+            .send(
+                serde_json::json!({"type":"live_control","mode":{"mode":"play"},"request_id":9002}),
+            )
+            .unwrap();
+        resume_ack = observer.control_state(9002, false);
+    }
+    let mut scope_fenced = false;
+    if change_scope {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            let status = shared.lock().unwrap().test_agent_service_pump_status();
+            scope_fenced = status["publication_pending"] == true
+                && status["publication_error"]
+                    .as_str()
+                    .is_some_and(|error| error.contains("scope changed"));
+            if scope_fenced {
+                break;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let released_counts = application_admission_boundaries::observe(
+        root,
+        if change_scope {
+            "checkpoint-scope-released"
+        } else {
+            "checkpoint-released"
+        },
+    );
+    checkpoint_service_cleanup::wait_until_held(root);
+    let joined = observer.close();
+    let service_joined = checkpoint_service_cleanup::join(shared, root);
+    application_stream_budget_diagnostics::dump(&[serde_json::json!({
+        "diagnostic_started_us":diagnostic_started, "diagnostic_finished_us":diagnostic_finished,
+        "response_within_150ms":responsive && elapsed <= Duration::from_millis(150),
+        "original_response_complete":responsive, "under_pressure":false,
+        "useful_elapsed_us":elapsed.as_micros().min(u64::MAX as u128) as u64,
+    })]);
+    drop(release);
+    assert!(primed);
+    assert!(
+        responsive && elapsed <= Duration::from_millis(150),
+        "same primed TCP Hello/Snapshot must finish within150ms while actual prepare checkpoint publication is held"
+    );
+    let released_counts = released_counts.unwrap();
+    assert!(
+        unpublished && still_unpublished,
+        "real original checkpoint must remain gated"
+    );
+    assert!(
+        retained_original == original,
+        "gate must retain exact captured original bytes"
+    );
+    assert_eq!(
+        counts_after, counts_before,
+        "no canonical Submit or model call while original publication is held"
+    );
+    assert!(
+        published,
+        "same original temp-file rename must complete after release"
+    );
+    if pause_before_release {
+        assert!(
+            pause_ack,
+            "actual Pause must be confirmed while real publication is held"
+        );
+        assert!(published);
+        assert_eq!(
+            paused_counts.as_ref().unwrap(),
+            &counts_after,
+            "confirmed Pause must prevent new fresh Submit/model after publication release"
+        );
+        assert!(resume_ack, "actual Resume must be confirmed");
+        assert!(released_counts["same_original"].as_u64().unwrap() > 0);
+        assert_eq!(
+            released_counts["different_original"], 0,
+            "Resume must send exact original published payload and correlation"
+        );
+    }
+    if change_scope {
+        assert!(
+            scope_fenced,
+            "old publication completion must retain original without acknowledging changed scope"
+        );
+        assert_eq!(
+            released_counts, counts_after,
+            "scope changed: no old Submit or new native model dispatch"
+        );
+    } else {
+        assert_eq!(
+            released_counts["unpublished_submit"], 0,
+            "actual received Submit must find complete original signed payload and correlation already on disk"
+        );
+        assert!(
+            released_counts["published_before_submit"].as_u64().unwrap() > 0,
+            "must exercise actual post-publication Submit, not only a local rename"
+        );
+    }
+    assert!(joined.is_ok());
+    assert!(service_joined.is_ok());
+    println!(
+        "{}",
+        if change_scope {
+            "PRE2_CHECKPOINT_SCOPE_FENCE_PASSED"
+        } else if pause_before_release {
+            "PRE2_CHECKPOINT_PAUSE_RESUME_PASSED"
+        } else {
+            "PRE2_CHECKPOINT_PUBLICATION_FAIRNESS_PASSED"
+        }
+    );
+}
+
+#[test]
+fn real_tcp_checkpoint_scope_change_fences_original_dispatch_after_publication() {
+    application_harness::run_isolated_application_mode(
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        "checkpoint-scope-fence",
+    );
+}
+
+#[test]
+fn real_tcp_checkpoint_pause_defers_fresh_submit_and_resumes_exact_original() {
+    application_harness::run_isolated_application_mode(
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        "checkpoint-pause-resume",
+    );
+}
+
+#[test]
+fn real_tcp_ordered_response_progress_survives_split_read_windows() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (mut accepted, _) = listener.accept().unwrap();
+    accepted
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let accepted_probe = accepted.try_clone().unwrap();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        let mut input = BufReader::new(accepted.try_clone()?);
+        let mut line = String::new();
+        input.read_line(&mut line)?;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "hello_v2"
+        );
+        line.clear();
+        input.read_line(&mut line)?;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "request_snapshot"
+        );
+        accepted.write_all(b"{\"type\":\"hello_ack\"}\n{\"type\":\"snapshot\",\"snapshot\":{\"runtime_snapshot\":{}}}\n")?;
+        ready_tx.send(()).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        accepted.write_all(b"{\"type\":\"authoritative_recovery_ack\"}\n")?;
+        ack_tx.send(()).unwrap();
+        // A new actual request receives an Ack without any Snapshot. Prior
+        // completed progress must never make this new exchange look complete.
+        line.clear();
+        input.read_line(&mut line)?;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "request_snapshot"
+        );
+        accepted.write_all(b"{\"type\":\"authoritative_recovery_ack\"}\n")?;
+        ack_tx.send(()).unwrap();
+        std::io::copy(&mut input, &mut std::io::sink())?;
+        Ok(())
+    });
+    let mut session = Session {
+        reader: BufReader::new(socket),
+        partial_line: String::new(),
+        ordered_response: OrderedResponseProgress::default(),
+        diagnostic: true,
+        created: Instant::now(),
+        connection: 0,
+        accepted_probe,
+        worker,
+    };
+    session.send(serde_json::json!({"type":"hello_v2","client":"split-window","version":2,"capabilities":[]})).unwrap();
+    session
+        .send(serde_json::json!({"type":"request_snapshot"}))
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(!session.snapshot_ordered(Duration::from_millis(50), true));
+    assert!(session.partial_line.is_empty() && session.reader.buffer().is_empty());
+    let mut byte = [0u8; 1];
+    assert!(
+        session.reader.get_ref().peek(&mut byte).is_err(),
+        "first window must consume both complete actual frames before target"
+    );
+    release_tx.send(()).unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(
+        session.snapshot_ordered(Duration::from_millis(100), false),
+        "late Ack must complete the same actual exchange after its Snapshot was consumed in the first window"
+    );
+    session
+        .send(serde_json::json!({"type":"request_snapshot"}))
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(
+        !session.snapshot_ordered(Duration::from_millis(50), false),
+        "new actual exchange cannot inherit a prior completed Snapshot"
+    );
+    assert!(session.close().is_ok());
 }

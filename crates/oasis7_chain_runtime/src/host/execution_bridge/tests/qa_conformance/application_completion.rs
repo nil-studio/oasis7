@@ -2,8 +2,11 @@
 //! This budget prevents hangs; it is not an end-to-end latency promise.
 use super::*;
 use std::io::{Seek, SeekFrom};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "application_completion_launcher_tests.rs"]
+mod launcher_tests;
 
 const CHILD_BUDGET: Duration = Duration::from_secs(60);
 const DEADLINE_ENV: &str = "PRE2_CONFORMANCE_COMPLETION_DEADLINE_MS";
@@ -24,18 +27,44 @@ pub(super) fn child_deadline() -> Instant {
 }
 
 pub(super) fn run_child(command: &mut Command, root: &std::path::Path) -> Output {
+    run_child_phase(command, root, "child")
+}
+
+/// Each process in a recovery sequence owns separate, never-truncated logs.
+/// The reusable Command retains captured-output semantics after this call.
+pub(super) fn run_child_phase(
+    command: &mut Command,
+    root: &std::path::Path,
+    phase: &str,
+) -> Output {
+    run_child_with_budget(command, root, phase, CHILD_BUDGET)
+}
+
+fn run_child_with_budget(
+    command: &mut Command,
+    root: &std::path::Path,
+    phase: &str,
+    budget_limit: Duration,
+) -> Output {
+    assert!(
+        !phase.is_empty()
+            && phase
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')),
+        "completion child phase must be a filename component"
+    );
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let inherited = std::env::var(DEADLINE_ENV).ok().map(|value| {
         value
             .parse::<u128>()
             .expect("inherited completion deadline")
     });
-    let budget = launcher_budget(now.as_millis(), inherited);
+    let budget = launcher_budget(now.as_millis(), inherited).min(budget_limit);
     let deadline = Instant::now() + budget;
     let unix_deadline = now + budget;
     command.env(DEADLINE_ENV, unix_deadline.as_millis().to_string());
-    let stdout_path = root.join("completion-child.stdout.log");
-    let stderr_path = root.join("completion-child.stderr.log");
+    let stdout_path = root.join(format!("completion-{phase}.stdout.log"));
+    let stderr_path = root.join(format!("completion-{phase}.stderr.log"));
     let open = |path: &std::path::Path| {
         fs::OpenOptions::new()
             .read(true)
@@ -51,7 +80,12 @@ pub(super) fn run_child(command: &mut Command, root: &std::path::Path) -> Output
     command
         .stdout(stdout.try_clone().unwrap())
         .stderr(stderr.try_clone().unwrap());
-    let mut child = command.spawn().expect("isolated completion child");
+    let spawned = command.spawn();
+    // Command retains configured file handles across spawns. Do not let a
+    // subsequent output() silently append to an earlier phase's logs and
+    // return empty stdout/stderr instead of the recovery process's output.
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = spawned.expect("isolated completion child");
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
@@ -62,7 +96,7 @@ pub(super) fn run_child(command: &mut Command, root: &std::path::Path) -> Output
                 .expect("kill owned isolated child after hard deadline");
             let status = child.wait().unwrap();
             eprintln!(
-                "conformance_parent_hard_deadline_exceeded owned_child={} budget_ms={}",
+                "conformance_parent_hard_deadline_exceeded owned_child={} budget_ms={} phase={phase}",
                 child.id(),
                 budget.as_millis()
             );
@@ -176,13 +210,41 @@ impl CompletionWatch {
     }
 }
 
+fn injected_unpublished_failure_pending(summary: &serde_json::Value, observed: bool) -> bool {
+    observed
+        && summary["publication_pending"] == true
+        && summary["publication_capture_failed"] == false
+        && summary["agent_service_pump_error"]
+            == "Agent checkpoint publication failed; original work remains pending without dispatch"
+}
+fn injected_publication_unpublished_observed() -> bool {
+    let Some(expected) = std::env::var_os("PRE2_METADATA_DIR") else {
+        return false;
+    };
+    [
+        ("PRE2_WAIT_CLEANUP_FS_ROOT", "wait-cleanup"),
+        ("PRE2_RESUME_HANDOFF_FS_ROOT", "resume-handoff"),
+    ]
+    .iter()
+    .any(|(env, prefix)| {
+        std::env::var_os(env).is_some_and(|root| {
+            root == expected
+                && std::path::PathBuf::from(root)
+                    .join(format!("{prefix}-unpublished"))
+                    .is_file()
+        })
+    })
+}
+
 fn unrecoverable_failure(summary: &serde_json::Value, rollback_observed: bool) -> bool {
     let transport_pending = summary["agent_service_pump_error"]
         == "Agent service result could not be applied; original work remains pending"
         && summary["io_lifecycle"]["last_apply_error_class"] == "transport";
-    if transport_pending || (rollback_observed
-        && summary["agent_service_pump_error"]
-            == "Agent service preparation is blocked; original work remains pending")
+    if injected_unpublished_failure_pending(summary, injected_publication_unpublished_observed())
+        || transport_pending
+        || (rollback_observed
+            && summary["agent_service_pump_error"]
+                == "Agent service preparation is blocked; original work remains pending")
     {
         // The pump retains and reconciles the original request after transport
         // failure. Keep the same hard deadline and exact completion oracle;
@@ -226,7 +288,10 @@ fn transport_failure_keeps_original_completion_pending() {
     watch.deadline = Instant::now() + Duration::from_secs(1);
     assert!(!watch.finished(&summary, false));
     watch.deadline = Instant::now();
-    assert!(watch.finished(&summary, false), "transport failure cannot extend the hard deadline");
+    assert!(
+        watch.finished(&summary, false),
+        "transport failure cannot extend the hard deadline"
+    );
     summary["io_lifecycle"]["last_apply_error_class"] = serde_json::json!("application");
     assert!(unrecoverable_failure(&summary, false));
     summary["io_lifecycle"]["last_apply_error_class"] = serde_json::Value::Null;
@@ -337,6 +402,63 @@ pub(super) fn hosted_failure_diagnostic(summary: &serde_json::Value) -> serde_js
         None => "absent",
         Some(_) => "other",
     };
+    let pump_error_detail = match summary["agent_service_pump_error"].as_str() {
+        Some(
+            "Agent checkpoint scope changed; original publication remains retained for recovery",
+        ) => "publication_scope_changed",
+        Some(
+            "Agent prepared job scope changed; original work remains pending without dispatch",
+        ) => "prepared_job_scope_changed",
+        Some("Agent checkpoint capture failed; original queued and in-flight batches retained") => {
+            "capture_failed"
+        }
+        Some(
+            "Agent checkpoint publication failed; original work remains pending without dispatch",
+        ) => "publication_failed",
+        Some("Agent publication executor stopped; original batch retained") => {
+            "publication_executor_stopped"
+        }
+        Some("Agent service executor stopped; pending work requires reconciliation") => {
+            "service_executor_stopped"
+        }
+        Some("Agent original checkpoint remains unconfirmed; further preparation fenced") => {
+            "unconfirmed"
+        }
+        Some("Agent checkpoint capture or ticket changed; original batch remains pending") => {
+            "completion_ticket_changed"
+        }
+        Some("Agent service phase identity is unavailable; original work remains pending") => {
+            "phase_identity_unavailable"
+        }
+        Some(
+            "Original canonical history is unavailable; restore its verified historical closure before reconciliation",
+        ) => "history_unavailable",
+        Some(
+            "Original canonical intent expired; retained original requires explicit reconciliation",
+        ) => "original_expired",
+        _ => pump_error,
+    };
+    // Inspect only fixed fixture marker names, never their private contents.
+    let mut injection_markers = serde_json::Map::new();
+    if let Some(root) = std::env::var_os("PRE2_METADATA_DIR") {
+        let root = std::path::PathBuf::from(root);
+        for prefix in [
+            "wait-cleanup",
+            "wait-capture",
+            "resume-handoff",
+            "final-budget",
+            "resume-rejection",
+            "wait-rejection",
+        ] {
+            for suffix in ["before-persist", "rollback", "failed"] {
+                let marker = format!("{prefix}-{suffix}");
+                injection_markers.insert(
+                    marker.clone(),
+                    serde_json::json!(root.join(marker).is_file()),
+                );
+            }
+        }
+    }
     let terminal = &summary["terminal_states"]["agent-a"];
     let status = match terminal["status"].as_str() {
         Some(
@@ -369,17 +491,35 @@ pub(super) fn hosted_failure_diagnostic(summary: &serde_json::Value) -> serde_js
     }
     lifecycle.insert(
         "last_apply_error_phase".into(),
-        serde_json::json!(io["last_apply_error_phase"].as_str()
-            .filter(|value| matches!(*value, "act" | "act_view" | "act_settled_view" | "act_settle"
-                | "feedback" | "feedback_ack" | "feedback_ack_view" | "wait" | "resume"
-                | "handoff_wake" | "handoff_view" | "admission"))
-            .unwrap_or("unknown")),
+        serde_json::json!(
+            io["last_apply_error_phase"]
+                .as_str()
+                .filter(|value| matches!(
+                    *value,
+                    "act"
+                        | "act_view"
+                        | "act_settled_view"
+                        | "act_settle"
+                        | "feedback"
+                        | "feedback_ack"
+                        | "feedback_ack_view"
+                        | "wait"
+                        | "resume"
+                        | "handoff_wake"
+                        | "handoff_view"
+                        | "admission"
+                ))
+                .unwrap_or("unknown")
+        ),
     );
     lifecycle.insert(
         "last_apply_error_class".into(),
-        serde_json::json!(io["last_apply_error_class"].as_str()
-            .filter(|value| matches!(*value, "absent" | "transport" | "application"))
-            .unwrap_or("unknown")),
+        serde_json::json!(
+            io["last_apply_error_class"]
+                .as_str()
+                .filter(|value| matches!(*value, "absent" | "transport" | "application"))
+                .unwrap_or("unknown")
+        ),
     );
     lifecycle.insert(
         "state".into(),
@@ -409,6 +549,11 @@ pub(super) fn hosted_failure_diagnostic(summary: &serde_json::Value) -> serde_js
         "io_lifecycle": lifecycle,
         "phase": phase,
         "pump_error_class": pump_error,
+        "pump_error_detail_class": pump_error_detail,
+        "publication_ticket": summary["publication_ticket"].as_u64(),
+        "publication_pending": summary["publication_pending"].as_bool(),
+        "publication_capture_failed": summary["publication_capture_failed"].as_bool(),
+        "injection_markers": injection_markers,
         "terminal_status": status,
         "terminal_rejection_present": !terminal["reject_reason"].is_null(),
         "memory_failure_present": !summary["hosted_service_memory_failure"].is_null(),
@@ -433,12 +578,17 @@ fn hosted_failure_diagnostic_does_not_echo_private_summary() {
         "pending_intent_count": secret, "pending_action_count": 3,
         "pending_wake_ids": [secret], "mirrored_lease_count": secret,
         "memory_store": secret, "private_key": secret,
+        "publication_ticket": secret, "publication_pending": secret, "publication_capture_failed": secret,
         "io_lifecycle": {"state": secret, "operation": secret, "queued_count": secret,
             "last_apply_error_class": secret, "last_apply_error_phase": secret, "private_payload": secret},
     });
     let diagnostic = hosted_failure_diagnostic(&summary);
     assert_eq!(diagnostic["phase"], "unknown");
     assert_eq!(diagnostic["pump_error_class"], "other");
+    assert_eq!(diagnostic["pump_error_detail_class"], "other");
+    assert!(diagnostic["publication_ticket"].is_null());
+    assert!(diagnostic["publication_pending"].is_null());
+    assert!(diagnostic["publication_capture_failed"].is_null());
     assert_eq!(diagnostic["terminal_status"], "unknown");
     assert_eq!(diagnostic["pending_action_count"], 3);
     assert_eq!(diagnostic["pending_wake_count"], 1);
@@ -461,4 +611,49 @@ fn hosted_failure_diagnostic_does_not_echo_private_summary() {
     assert_eq!(hosted_failure_diagnostic(&summary)["phase"], "handoff_wake");
     summary["hosted_service_phase"] = serde_json::json!("handoff_view");
     assert_eq!(hosted_failure_diagnostic(&summary)["phase"], "handoff_view");
+}
+
+#[test]
+fn hosted_failure_diagnostic_classifies_publication_fence_without_freeform_error() {
+    let summary = serde_json::json!({
+        "agent_service_pump_error": "Agent checkpoint scope changed; original publication remains retained for recovery",
+        "publication_ticket": 17, "publication_pending": true, "publication_capture_failed": false,
+    });
+    let diagnostic = hosted_failure_diagnostic(&summary);
+    assert_eq!(diagnostic["pump_error_class"], "other");
+    assert_eq!(
+        diagnostic["pump_error_detail_class"],
+        "publication_scope_changed"
+    );
+    assert_eq!(diagnostic["publication_ticket"], 17);
+    assert_eq!(diagnostic["publication_pending"], true);
+    assert_eq!(diagnostic["publication_capture_failed"], false);
+    assert!(
+        !diagnostic
+            .to_string()
+            .contains("original publication remains")
+    );
+}
+
+#[test]
+fn observed_unpublished_failure_requires_exact_fixture_fence_and_keeps_deadline() {
+    let mut summary = serde_json::json!({
+        "agent_service_pump_error": "Agent checkpoint publication failed; original work remains pending without dispatch",
+        "publication_pending": true, "publication_capture_failed": false,
+    });
+    assert!(!injected_unpublished_failure_pending(&summary, false));
+    assert!(injected_unpublished_failure_pending(&summary, true));
+    summary["publication_pending"] = serde_json::json!(false);
+    assert!(!injected_unpublished_failure_pending(&summary, true));
+    summary["publication_pending"] = serde_json::json!(true);
+    summary["publication_capture_failed"] = serde_json::json!(true);
+    assert!(!injected_unpublished_failure_pending(&summary, true));
+    summary["publication_capture_failed"] = serde_json::json!(false);
+    summary["agent_service_pump_error"] = serde_json::json!(
+        "Agent checkpoint capture failed; original queued and in-flight batches retained"
+    );
+    assert!(!injected_unpublished_failure_pending(&summary, true));
+    let mut watch = CompletionWatch::new();
+    watch.deadline = Instant::now();
+    assert!(watch.finished(&serde_json::Value::Null, false));
 }

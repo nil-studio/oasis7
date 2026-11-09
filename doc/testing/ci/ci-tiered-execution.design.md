@@ -12,6 +12,8 @@ Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编
 - 上游要求：[CI 分级执行 PRD](ci-tiered-execution.prd.md)
 - 可执行测试命令和平台限制：[testing-manual.md](../../../testing-manual.md)
 
+**实施边界**：[快速反馈与周期回归设计](#ci-fast-pr-periodic-full-design)已在当前候选接线。以下接口描述同一变更内的选择器、driver、workflow 和发布消费者；生效范围仍由可信 BASE、部署的 workflow 与实际保护决定。hosted 完整覆盖、十分钟/P95 和四小时容量分别待实测，不能由本地 fixture 或文档状态代签。
+
 ## 测试范围
 
 普通 CI 是默认验证方式。成功规划后轻量 baseline 始终执行；选择器使用完整 Git name-status diff、base/head 两侧 Cargo 关系及必要目录映射选择 Rust、Web、场景、平台、打包和运维合同测试。
@@ -21,6 +23,8 @@ PR 测试合并提交时，选择范围合并两组差异：实际 target/source
 校验 tested merge 恰有两个父提交、第二父提交等于 source HEAD、事件 base 是实际 target 的祖先；父提交身份不符、共同祖先不唯一或对象不可读时扩大为普通全量 required。
 
 依赖及嵌入输入分析保留事件 base、共同祖先、source、实际 target 与 tested merge 的图。push/source-only 检查继续使用事件 base 到 source 的完整差异。
+
+同一次选择可按 Git blob OID 复用原始内容和不依赖路径的 Rust 词法解析，避免各版本对相同源码反复扫描。每个版本仍独立建立 manifest、文件路径、模块挂载、嵌入与生成输入、host 和反向消费者关系；相同 blob 移动到新目录不能复用旧路径归属。缓存只在本次选择内存中存在，纯解析结果不得被调用方修改；未知输入、删除/重命名和图解析失败保持原处理。
 
 Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆盖两端；保留有效 features、WASM、生成输入和平台组合。workspace、features、锁文件、共享生成器及共享或尚未分类的 CI 控制输入变化采用保守普通 required，图解析失败仍扩大覆盖；未登记路径按下述门禁阻断。
 
@@ -41,11 +45,11 @@ Cargo manifest/lock、共享 build 脚本、缓存及其他 CI 控制保持原�
 
 custody Worker 的真实原生 HTTP/SQLite 集成依赖指定 hosted_identity authority、会话与 fixture 文件，因此这些文件单独变化也执行 Worker 完整平台 profile；其他 backend 功能不因此增加该平台测试。
 
-`./scripts/ci-tests.sh required` 是普通必要测试的本地入口；`full` 保留广覆盖回归，nightly 执行适用 full。真实产品测试、WASM 确定性、共识、持久化、安全、升级恢复和跨平台打包均继续保留，不因流程精简删除。
+`./scripts/ci-tests.sh required` 是普通必要测试的本地入口；`full` 保留广覆盖回归。Rust workflow 的四小时完整回归按[当前分层接口](#ci-fast-pr-periodic-full-design)执行；真实产品测试、WASM 确定性、共识、持久化、安全、升级恢复和跨平台打包继续保留。
 
 Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具目录内的代码、配置、资源和测试变化选择 baseline 和该组；共享 context、local signer、secure envelope crate 变化也选择该组。已核实仅为使用说明的 `tools/oasis7-command-center/README.md` 从该目录规则中排除，保留 baseline 文档治理；排除只作用于这条显式规则，真实嵌入或测试消费者仍可选择相应组，删除和重命名仍检查两端。
 
-Rust workflow 调用可复用的 `command-center.yml`，保留 Core、生成类型、UI、Clippy 和 macOS App 打包，并将调用结果纳入 `required-gate`。专用 workflow 不再独立触发 PR/push，避免重复执行；Cargo manifest、锁文件和 CI 控制变化仍采用保守全量。
+Rust workflow 调用可复用的 `command-center.yml`，将 Core、生成类型、UI、workspace host Clippy 和适用的 macOS App 打包结果纳入汇总。可信规则确认只影响已登记 Core/UI 输入时，`command_center_package=false` 仅跳过 App 打包，host 编译仍验证 Core API 消费者；原生打包、平台、共享控制或不确定输入保留打包。完整 profile 始终打包。专用 workflow 不独立重复触发 PR/push，checkout 使用计划固定的 tested SHA。
 
 该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
 
@@ -73,6 +77,65 @@ Trace refs: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df；承接[未登记路径
 
 所有重任务沿既有 `select` 成功条件启动；轻量 formal 汇总和最终 `required-gate` 保留 `always`。最终 gate 在下载规划产物前先确认 `select` 成功，失败时立即给出范围规划诊断，因此不依赖失败路径上未上传的 artifact。trusted baseline 来源保持不变；新独立目录先通过规则/验证入口登记 PR，再提交使用该目录的功能 PR。新增测试使用真实 Git diff/CLI 验证未知新增、删除、重命名两端、混合全量输入、无成功输出及失败汇总；已登记路径、共享输入和图解析全量回退保留正例。
 
+<a id="ci-generated-contract-jobs-design"></a>
+## 可生成工作流的首个试点
+
+Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；承接[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs)。设计已定义，生成器及接线尚未实现。产品适用性：N/A；reason=只集中现有 CI job 的结构定义；scope=下列两个 job 的源码生成、漂移检查及行为等价。
+
+### 试点选择与事实归属
+
+当前 [Rust workflow](../../../.github/workflows/rust.yml) 的 `operational-contracts`、`packaging-contracts` 是相邻的两个原生 job，checkout、Python 3.12 准备、文档范围环境和 driver 调用相同，仅 job ID、选择输出及执行组不同。它们均依赖 `select`，没有独立 matrix、缓存写入或平台准备步骤，适合作为最小试点。`workflow-governance` 的可信合同步骤、`compile-metrics` 的 Rust 准备、其余平台及产物 job 继续手工维护。
+
+| 事实 | 唯一维护处 | 生成器的使用方式 |
+| --- | --- | --- |
+| 两个 job 的公共结构、固定 action revision、Python 版本及 job 顺序 | 拟新增 `scripts/ci-contract-jobs.py` | Python 3.12 标准库的不可变 job 描述和公共渲染函数；首轮只登记 `operational_contracts`、`packaging_contracts` |
+| 组集合、输入影响、风险与 profile 选择 | 现有 `scripts/ci-required-scope.json` 和 `plan-rust-required-scope.py` | 只核对两个组已存在；job ID 由组名的下划线转连字符、选择输出由 `run_<group>` 推导，不复制选择策略 |
+| 测试命令及其行为 | 现有 `scripts/ci-tests.sh` 与所属合同 | 保留 `required --group <group> --repo-root "$GITHUB_WORKSPACE"` 调用，不把测试清单搬入生成器 |
+| GitHub 实际执行内容 | 提交的 `.github/workflows/rust.yml` | GitHub 直接执行 YAML；生成器只在开发与一致性验证时运行，不在 workflow 启动时动态改写 DAG |
+| 可信选择、必要结果与发布资格 | 事件 BASE 的 planner、结果汇总及完整结果合同 | 沿用既有来源和定义摘要，不以“生成一致”签认选测或发布 |
+
+选择 Python 是因为现有 planner、合同运行器及 CI 维护环境已使用它；首轮无需增加 Rust 构建前置或 YAML 序列化依赖。公共函数输出有限的固定 YAML 模板，只替换已验证的两个组标识，保留 GitHub `${{ ... }}` 表达式和 shell 原文。该结构不是通用工作流 DSL，不接受任意 step、权限或命令插件。
+
+### 受管区、接口与失败处理
+
+首次实施在两项现有 job 外加入唯一的 `  # BEGIN GENERATED contract-jobs-v1` / `  # END GENERATED contract-jobs-v1` 标记，并注明编辑入口。标记区位于 `jobs:` 内，正好包含两个完整 job；标记外的触发、并发、权限、select、其他 jobs 及最终 gates 仍为手写权威。首轮输出应与原两项 job 的正文逐字一致，允许的额外差异只有来源注释和边界标记。
+
+拟新增接口如下，当前不能当作已可用命令：
+
+```bash
+python3 scripts/ci-contract-jobs.py --check
+python3 scripts/ci-contract-jobs.py --write
+```
+
+两个模式必须显式二选一。入口从脚本位置定位仓库，仅接受固定的 `scripts/ci-required-scope.json` 输入和 `.github/workflows/rust.yml` 输出；不提供任意输出路径、网络输入或按环境扩展 job 的选项。结构描述、组集合、标记区及输出路径全部通过验证后才渲染。
+
+- **确定性：** 输入只取当前工作树中的版本化定义和指定清单；固定 job/step/字段顺序、UTF-8、LF 和结尾换行，不嵌入时间、绝对路径、随机值或机器环境。受管区外字节原样保留，不对整份 YAML 重新序列化。
+- **只读检查：** `--check` 在内存生成并比较，返回 `0` 表示一致、`1` 表示漂移、`2` 表示输入/结构/IO 错误。漂移输出限定受管区的 diff 和编辑入口；缺失、重复、逆序或嵌套标记、重复/缺失 job、未知组均返回 `2`。检查不创建临时文件、不触发 Git/GitHub 写入，也不自动运行 `--write`。
+- **路径与写入：** 输出及父路径须在真实仓库内且不是 symlink，文件是已有普通文件。`--write` 先完成所有校验，在相同目录写完整临时文件并保留原 mode；替换前重读原文件，若与初读字节不同则报告并发修改并退出，否则原子替换。失败清理自己的临时文件，原文件保持；生成操作由当前工作区的单一写入者执行，不能与其他编辑者并行覆盖。
+- **结构错误：** 不猜测缺失标记的位置，不把标记外的同名 job 当作可覆盖目标。修复源码或明确的边界标记后再执行；工具不得为了继续生成删除未知内容。
+
+当前 `validate_candidate_graph` 尚未逐项验证这两个 job 的选择输出和 driver group 映射；不能把现有测试描述为已经覆盖。实施前须先由可信 BASE 合同独立登记并验证这两项映射，再让候选生成器和 workflow 接入；若可信 BASE 尚未包含该合同，沿用可信侧的保守检查及独立前置交付，候选不能声称已完成该语义验收或为自身放宽 bootstrap。
+
+新增输入仍按现有 CI 控制归属执行，拟建 `scripts/ci-contract-jobs.test.py` 在已有 `workflow_governance` 入口运行，并由实施 PR 补齐其真实合同登记。`--check` 也放在该现有组，不增加 GitHub required-check 名称。首次迁移接受当时可信 BASE 的必要范围；新测试在合入并进入可信规则后才能按既有能力被消费，候选不能自行选择更窄的检查集。generator/check 失败向现有组返回非零，最终 gate 按原规则汇总。
+
+### 行为等价与验证
+
+| 必须保持的行为 | 首轮验证 |
+| --- | --- |
+| 两个 job ID、`needs: select`、成功 select 加原输出/full 条件、Ubuntu runner | 比较迁移前后 job 正文；沿用 `ci-workflow.test.py` 的 job/组对应和普通组非 matrix 断言 |
+| 固定 tested SHA、`fetch-depth: 0`、`persist-credentials: false`、Python 3.12、文档 base/head 环境及真实 driver 命令 | 逐字段/表达式核对；执行所属已有合同，不只检查模板变量存在 |
+| 顶层 triggers、concurrency、permissions、其他 job、required/explicit-full gate 的 needs 与结果解释 | 受管区外字节比较，并保留现有 DAG、取消、缺失、意外 skipped、空执行及完整库存反例 |
+| policy/source/tested 分离、可信 BASE 与候选 checkout 的职责 | 复用现有真实 Git fixture、BASE 合同和结果摘要验证；生成器无权改写计划或伪造结果 |
+| 生成一致与语义正确分离 | 实施时先扩展可信 BASE 侧语义合同，分别约束两个 job 的选择输出与 driver group 的精确对应；注入模板和产物同步改错选择输出、driver group 的负例，以及去掉 select 成功条件或改变失败传播的负例。`--check` 可一致，但可信合同必须拒绝；候选不得自行豁免或缩小 bootstrap 检查 |
+
+生成器自身还需覆盖两次生成字节一致、单独改 YAML 后检查只读失败、模板修改而未更新输出、标记损坏、重复 job、未知组、symlink/越界路径、只读文件及写入前并发变化；每个失败检查文件字节未变。测试 fixture 只证明本地生成与行为断言，迁移候选仍需实际 GitHub 必要检查，不能据此宣称 hosted 耗时或覆盖已达标。
+
+### 交付、收益与回退
+
+首个实施 PR 只包含两 job 的公共定义、受管区、生成检查及必要合同登记/回归；planner、业务测试、缓存策略和观测管线保持原职责。评审比较一次公共 checkout/Python/环境变更所需的权威编辑位置、自动产生的 YAML diff、诊断是否指向正确来源，以及工作流语义是否等价。减少手工重复是首轮目标，不能用删除合同测试或放宽检查换取文件变少。
+
+如试点增加维护成本，按一个完整回退提交保留当前正确的两项展开 YAML，删除其生成标记、生成器接线及仅属于该生成器的测试；确认原 job、真实合同、required 名称、DAG 和权限仍在，重新执行适用验证。不能先移除生成器留下必然失败的检查，也不能回退已有选测修复。扩展到其他 job 前分别证明其结构相同且收益明确，不因首轮成功自动生成全仓 CI。
+
 ## 调度和结果
 
 select 先产生明确的非空逻辑组列表，按资源组并行执行。普通组使用原生 job，fleet-health 使用固定 Linux/Windows/macOS 矩阵。最终唯一 `required-gate` 使用可靠的 always 汇总，并显式依赖 select 和所有组。选中组必须 success；未选中组可以 skipped 或 success；失败、取消、缺失、未知及意外 skipped 都必须阻断。fleet 矩阵不吞退出码，采用 fail-fast=false。
@@ -86,6 +149,252 @@ select 先产生明确的非空逻辑组列表，按资源组并行执行。普�
 CI 结果对应实际 source HEAD。main 前进或分支显示 `BEHIND` 本身不使该结果失效；只有合并冲突或 main 的相关变化带来明确集成风险时，才按需更新分支并验证实际组合。source HEAD 变化后重新运行必要普通 CI，复审实际变化与受影响部分；具体合入规则遵循开发流程规范。产品层的签名、checkpoint 和状态一致性证明仍按专业合同验证。
 
 CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 required/advisory 按 GitHub CI 与生效保护执行。
+
+<a id="ci-fast-pr-periodic-full-design"></a>
+## PR 快速反馈与周期完整回归设计
+
+Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与四小时完整回归要求](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。本节描述当前候选实现及仍待 hosted 验收的目标。
+
+### 执行入口与计划
+
+保留 `ci-tests.sh required/full` 和最终 `required-gate`、`explicit-full-gate` 的职责；`plan-rust-required-scope.py --profile` 支持下列四种执行计划。不传 profile 时保留旧计划接口。`scope=full` 表示普通 required 内的保守扩张，完整 profile 使用 `scope=explicit-full` 并展开非空完整 groups。
+
+| profile | 触发与对象 | 计划及汇总 |
+| --- | --- | --- |
+| `pr-fast` | PR 当前 source HEAD 及实际 tested merge | 快速基础集合、受影响消费者和命中风险的定向加测；由 `required-gate` 汇总 |
+| `main-fast` | main push 的固定提交 | 快速组合验证及对应必要检查；不默认重复完整重回归 |
+| `periodic-full` | 四小时 schedule 的固定 main SHA | 全仓适用快速、重型与平台集合；由 `explicit-full-gate` 汇总 |
+| `candidate-full` | 手动明确选择的候选 SHA | 对该版本执行完整适用集合；普通候选只读，发布消费者独立核对来源 |
+
+计划沿用同源 scope 配置、Cargo 关系和 driver；当前字段如下。target/features 的真实命令由执行器生成，测试清单与环境身份再写入构建 manifest，不把计划中的组名当作真实执行结果。
+
+| 字段 | 当前含义与消费者 |
+| --- | --- |
+| `execution_profile`、`fast_plan_version=1`、`check_inventory_version=1` | 区分快速/完整策略及接口、库存版本；旧 BASE 不含 capability 时不得套用候选的窄范围 |
+| `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
+| `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
+| `ordinary_artifact_partition_version=1`、`ordinary_partitions` | 完整普通产物的 controls 与四个 native 执行分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
+| `workspace_support_partition_version=1`、`workspace_support_partitions` | 选中 custody worker 时单列 custody，其余 profile 归 other；两路并集保留全部选中 profile，旧 BASE 使用 all |
+| `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
+| `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
+| `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
+| `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
+| `python_control_contract_version=1`、`python_control_paths`、`python_control_tests` | 可信精确路径命中的 CI Python 控制输入及按组归并的非空最低合同，由可信基线执行入口针对候选实现验证 |
+| `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
+| `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
+
+快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
+
+PR/push 继续从事件可信 BASE 取得选择策略、配置及汇总规则；schedule/manual 没有 PR base 时，固定已核准的 main/workflow 策略版本，再解析待测 source，不能以候选自带的策略缩小要求。删除和重命名两端、真实嵌入/生成输入和必要反向消费者取并集。未登记路径明确失败；Git/依赖解析不确定采用保守必要集合并记录超过快速预算的原因。共享控制规则保留，后续更细分类只能按现有独立评审流程进入可信基线。
+
+workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/push 调用旧接口，driver 缺少新版本字段时保留原 native、WASM、Formal 和 support 范围。可信 main 尚未具备完整 profile 时，非 main 的手动 full 可用旧完整组库存做首次接线验证，计划标记 `bootstrap_full=true`。该只读运行不能缩减旧覆盖，也不能被发布消费者接受；main 的周期/完整入口不以此 bootstrap 替代可信策略升级。
+
+风险映射由真实路径、消费者和行为合同决定，不依赖作者贴标签或模型猜测。没有已验证的窄用例映射时保留相应旧完整组，不能将缺映射解释为无风险。关键改动的定向测试仍在普通 CI 图内；环境专项只用于普通 runner 的具体能力缺口。
+
+### Python 与 CI 控制输入的职责选择
+
+普通 Python 路径沿用显式 `rules` 与 Cargo 输入图，按文档、治理、打包、架构或协议等真实职责选择已有组；直接调用、嵌入数据及反向消费者继续参与选择。无真实合同的工具不能为了缩短 CI 被任意登记为轻量治理组，未知路径仍由既有门禁阻断。
+
+进程监督 helper `ci_process_runner.py` 的直接消费者包括 native/Formal 执行、Viewer 并行分支和 storage acceptance。其精确路径登记到可信 Python 合同，最低执行 `ci-formal-process.test.py`、`ci-support-profiles.test.py` 与 `ci-storage-acceptance.test.py`，使 helper 变更也受到固定 BASE 行为断言保护；只有治理组映射不能替代该验证。单独修改 helper 保持原有 baseline 与 workflow-governance 职责范围，混合共享控制变更仍执行原全组。
+
+对原本命中共享控制的 Python 脚本，可信 `scoped_control_paths` 允许登记规范化的精确 `scripts/` 路径，不接受扩展名通配豁免。对应 `python_control_contracts` 必须指定已选中的执行组与非空精确测试清单；未登记或合同不完整时不能取得窄范围。登记的最低测试文件自身变化也通过精确反向关联触发同一合同，不能仅因它原属普通文档检查而绕过可信验证。命中后的计划保留实际源码或测试路径、按组去重的测试清单，并选择 `workflow_governance` 执行独立可信合同。真实 Rust 消费者与混合变更要求的组照常取并集；scope 配置、共享执行器、可信合同入口及 workflow 自身变化继续按共享控制处理。
+
+workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候选 driver 之外执行；测试源码也固定来自该 BASE，受测实现与路径绑定到候选 checkout。执行入口核对非空发现、真实执行、完成状态及失败传播，拒绝跳过与成功退出但未完成合同的情况。候选自身的完整回归仍由所属组运行，不能替代可信最低断言；最低用例身份的删除、空发现或意外跳过须在本轮被发现，不能随候选成为下一轮基线后才暴露。断言语义的保留仍由独立评审核对。可信入口及该固定 revision 配置登记的全部最低测试源码纳入完整 CI 结果的检查定义摘要，固定安全测试也必须属于这份登记；旧结果不能签认已改变的执行合同。
+
+隔离执行 shell dispatcher 时，夹具加载受测 driver 的完整函数定义，再覆盖 `run`、Cargo 等明确的记录边界；不手工维护一份易随 helper 演进而遗漏的函数名单。driver 的 source 接口只提供定义，不解析 CLI、不选择解释器、不切换目录或执行检查，也不改变调用方的参数与 shell 选项；正常执行仍经原 CLI 初始化和分派。可信入口仅对明确登记的 support dispatcher 夹具提供这份候选定义闭包，使旧 BASE 测试仍能执行原断言；注入只影响该夹具启动的 shell，不传播到其真实子命令。没有该接口的历史 driver 保留既有夹具路径。缺失 helper、命令失败、空执行及提前成功退出仍判失败，不能将这类兼容问题处理为跳过 BASE 合同；新增 helper、跨版本组合和失败传播须分别回归。
+
+可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留全组时，才允许迁移旧的全量策略断言。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
+
+planner 的可信最低合同固定验证必要的选择、未知输入和失败边界，另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单，覆盖词法归属及门控变化。该合同不冻结每个历史路径的全量策略断言，允许经过评审的职责细分进入新 BASE；候选完整 planner 回归仍验证新策略。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
+
+完整 profile 保留原全集并执行完整控制合同库存；合同自身迁移仅适用上述明确条件。普通 required 的保守 `scope=full` 执行本次实际命中的控制合同，不混同于完整 profile 的全库存。旧 BASE 未提供此能力时，候选保持旧共享控制范围，不能以自身新规则收窄当前 PR；本轮改变可信配置、执行器和 workflow 的迁移同样接受旧必要检查。纯 Python 具名路径、真实嵌入消费者、混合 Rust 变化、删除/重命名、未知路径、空执行、取消与失败传播分别回归；十分钟效果仍由合入后的真实 hosted 样本验收。
+
+<a id="ci-pr-fast-selection-design"></a>
+### 准入规则到实际选择
+
+承接 [快速检查准入规则](ci-tiered-execution.prd.md#ci-pr-fast-selection)。沿用实际 driver 的同源检查定义，关联每项检查的行为合同、适用输入/消费者、默认职责、风险触发、真实命令、构建与环境前置；时延和冷暖缓存样本保留在实际运行记录。无需另一份审批或性能登记账本，也不能把缺少历史样本设为不执行新增测试的条件。
+
+选择按以下顺序进行：
+
+1. **先确定必要覆盖。** 从可信基线规则和完整差异产生基线、受影响快速候选及风险定向集合。修改测试、fixture、生成输入或依赖与修改业务源码一样按真实消费者处理；新增/重命名 case 与实际可执行清单核对，旧枚举、遗漏标签不能让它消失。关键风险所需的 full case 先加入必要集合，再处理其 feature/target 前置。
+2. **再形成可运行计划。** 把必要检查映射到最小完整 package/target/features 和平台闭包。对缺少可信窄映射的范围保留相关旧必要组；不确定图及共享控制仍按既有规则保守扩大。只有符合可重复、隔离、有界要求且整体成本适合快速目标的检查才标为已验证快速；其他必要检查继续执行，普通范围的超预算如实暴露。
+3. **最后核对实际结果。** 计划记录每项选择原因，执行器核对预期 case/命令/平台与真实结果，汇总拒绝缺项。估算关注共享准备与并行依赖形成的关键路径，不以各 case 耗时小于十分钟或相加各阶段 P95 证明达标；整条 workflow 的实际成功反馈 P95 单独验收。
+
+对照可信 BASE 与候选的标签、cfg 和实际清单。planner 按完整词法 module/函数归属比较选择属性，required 改 full 时标记 `test_policy_changed`，在有实际扩展 driver 且 manifest 声明 feature 的 package 上显式启用 required、full、wasmtime/viewer 等适用组合。条件表达式按实际执行组合求值；例如 `any(test, feature = "test-support")` 在测试 harness 中为真，不能只因另一个分支的 feature 未启用就拒绝。引用的 feature 仍须由真实 owner 声明，声明不等于已经启用；普通组合无法证明时才检查实际扩展 driver。无法证明的嵌套选择门控、未映射的新 ignore 和跨 binary 同名短函数均不能让用例消失。
+
+新增且可证明可达的 item 不等于已有测试门控迁移。普通新增测试及其辅助模块，必须能从实际 Cargo test target 沿静态 `mod`、`#[path]` 或已解析的 `include!` 链确认执行归属，并按该 target 的普通 native Linux Cargo 组合求值，包括实际启用的默认 features。所有引用路由均须闭合到同一真实 package，条件均可判定，且至少一条完整路由及 item 条件成立；同一文件的互斥 production/test 挂载可分别为假/真，不能把两路条件相与，也不能用一条好路遮盖未知或未登记 feature。显式 `--no-default-features` 的 target 仍按其真实组合判断。不能仅凭文件名、函数名或某一层 `cfg(test)` 放行。满足条件时沿用受影响 package、必要反向消费者和风险规则，不追加无关 full features。Windows-only 条件、未知宏、无法解析的外部模块链、禁用 harness/测试 target 或未满足的 required-features 均不能取得普通新增豁免。
+
+生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖；这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。
+
+`pixel_world_bridge` 的实际 ordinary 根为默认 features 的 library harness；同次选中的 pixel 组还执行 `wasm32-unknown-unknown` 生产检查。新增直接 free function 内的精确 wasm32 / 非 wasm32 语句门控，可按每个分支及全部祖先的同一真实编译组合证明。所有引用路径均须已知并闭合到该库根；生产检查不能证明 WASM-only 测试已执行，既有函数、新增未知谓词、宏生成归属或共享控制变化仍走保守路径。此能力由可信 BASE planner 登记，候选不能自行授权。
+
+自动检查不冻结普通测试名称，也不证明任意 Rust 修改语义等价。普通 case 的删除/改名由既有独立评审核对原行为去留、替代检查或可信规则确认的不适用；未核清时保留相关旧必要组。Formal 的预期 case 另由可信最低库存强制核对，不能仅凭候选清单删除就视为无须执行。
+
+首次切换时逐项比对旧必要集合、新 PR 集合及周期集合。差集中的每个检查均需能回答“验证什么、何时必须回到 PR、由哪个完整入口执行”；相关新行为或缺陷修复所需的回归在本次 PR 首次执行，不能先合入等待周期发现。迁移的真实覆盖验证与 CI 控制独立评审完成后，才解除对应旧等待。
+
+### 现有测试的首批归类依据
+
+下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile、Formal 按逻辑 suite 收窄；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
+
+| 现有入口或用例 | PR 快速候选与触发范围 | 合入前必要加测 | 周期完整覆盖 |
+| --- | --- | --- | --- |
+| `run_required_gate_checks()`、文档/路径/可执行位治理 | 基线入口每次执行，正文、引用、索引和配置按真实输入选测；规划及汇总由既有独立入口保证 | 检查器或规则变化执行其合同与失败路径回归 | 全库一致性及历史报告，保持原阻断/报告级别 |
+| `cargo test -p oasis7_consensus --lib`；`proposal_conflict_is_rejected`、`publish_happens_only_after_commit` 等 | 共识及必要消费者变化时保留正常提交、冲突拒绝、发布顺序和快照不变量；按实际 target 成本决定拆分 | 修改真实提交/最终性或身份接续时追加对应进程场景 | 适用共识组合及完整真实进程验收 |
+| `run_oasis7_distfs_tests()`、CAS/Formal 协议库测试 | 存储/编码/协议变化时保留哈希、往返、拒绝与状态不变量；不预设整个 lib 都快 | 持久化时序、原子发布、锁、crash/restart、重试变化追加真实恢复 | 完整恢复矩阵、长记录与多副本场景 |
+| signed-read codegen/Python/JS 合同；custody/signer 库测试 | API、签名、授权及消费者变化时保留编码、身份绑定、允许与拒绝路径 | Worker 平台、真实 HTTP/CLI/浏览器身份链路变化追加实际消费者 | 全部适用平台与完整身份链路 |
+| Viewer `test:frontend-structure`、`test:feedback-contract`、`test:ui` | 前端、接口及消费者变化时执行相关逻辑、反馈合同与必要编译 | auth/会话/权限变化执行 `viewer-auth-browser-security-smoke.mjs`；WASM/runtime 变化验证真实消费者 | 完整浏览器、WASM 构建与跨模块组合 |
+| `oasis7_simulator --test oasis7_init_demo --features test_tier_full`，现有过滤 `oasis7_init_demo_runs_` | 场景资产/初始化及必要消费者变化时保留实际场景验证；能否快速须量测 | 初始化、资源守恒和世界配置的相关完整场景属于必要集合，不因 full 标签推迟 | 全部场景及扩展组合 |
+| Formal 五个逻辑 suite 的完整 case | 有界状态转换与关键不变量先由适用库/合同用例验证 | 历史裁剪、持久化恢复、exactly-once、owner 转移及 CLI 同步变化触发对应完整场景；缺窄映射沿用相关旧组 | 保留全部逻辑 suite 与原 70/40 次长场景，物理分片不决定风险归属 |
+| `workflow_governance`、`packaging_contracts`、Command Center Core/UI/类型合同 | 对应控制、打包、Core/UI 输入变化时执行选测/失败传播/接口等适用合同与编译 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同、原生 App/打包及运维平台矩阵 |
+
+例如 [共识用例](../../../crates/oasis7_consensus/src/quorum/tests.rs)中的冲突拒绝和提交后发布可作为快速层的真实不变量检查；[成员恢复认证矩阵](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs)使用真实签名并检查拒绝后原状态不变，不能用“只保留成功 smoke”替代。Formal 的 `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` 默认周期执行，命中历史裁剪/重开/原结果保留变化时仍须在 PR 执行；`protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_once` 对 durable 阶段和 crash/retry 变化同理。定向选择依据逻辑合同和实际 case，不按物理 shard 名推断覆盖。
+
+### 快速基础检查与编译范围
+
+#### 独立快速 target 库存
+
+可信 `ci-required-scope.json` 同时登记精确输入合同和组件源码合同，均绑定实际 Cargo 目标及非空最低 case 清单。仅 `pr-fast/main-fast` 的 targeted 计划、没有测试政策迁移且每个相关 native/Formal 输入均命中可信合同，才以 `ordinary_fast_targets` 替代包级 `--tests`。组件路径匹配只是候选条件，必须再证明改动源码沿真实 module/include 路由在所选 target/features 中可达；`src/bin`、未接线模块和所选 lib 之外的 integration 不能借目录匹配进入快速计划。旧 BASE 缺 capability、共享控制、未知或未映射输入、混合风险变化均保留原必要范围。
+
+| 目标 | 完整原始用例 | 选择依据 |
+| --- | --- | --- |
+| Runtime `pr_fast_runtime` | `src/tests/basic.rs` 的 20 个用例 | 已登记的动作测试和独立 round-robin 调度，包含拒绝、ID 回绕、余额溢出、容量与 tick authority 不变量 |
+| World State `pr_fast_reducers` | Runtime `src/tests/apply_domain_event_guards.rs` 的 11 个用例 | 已登记归约测试源，保留幂等、篡改重复、legacy 格式、错误 service 合约及缺失角色的拒绝与状态不变 |
+| Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
+| Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
+| 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
+| Viewer Runtime `--lib` | `runtime_live/agent_service_*.rs` 与 `stream_budget_diagnostics.rs` 的行为由全部非 ignored library tests 承接 | 无默认 feature、启用 `test_tier_required`；最低清单保留同阶段精确分派、身份变化拒绝、失败后原请求查询恢复和诊断有界性；其他 Viewer 源码继续使用原范围 |
+| Game Client 本地服务 CLI | 完整 library，以及 `identity_cli`、`dev_test_catalog_cli`、`legacy_profile`、`dev_test_service_cli` 四个完整 integration targets | 仅登记私有 Unix CLI 适配文件及上述独立测试入口；真实二进制保护参数分派、私有配置、输入边界、socket 调用、凭据拒绝和子进程回收；共享 SDK、权限校验实现、身份、存储与恢复源码不在该合同内 |
+
+目标使用配置中明确登记的默认 feature 设置与显式 features；声明 `test_tier_required` 的目标启用该 feature。Game Client 使用默认 features，与原 support library 入口相同；不能把该包没有 feature 声明当成永久不变量。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
+
+Game Client 的 `dev_test_service_cli.rs` 只承接原 `dev-test-serve`、`dev-test-call` 的参数分派与调用适配。Linux 本地身份代理的 `dev-test-local-serve`、`dev-test-local-call` 由可信公共分派入口按完整命令名提前交给未登记的 `dev_test_local_adapter`，平台条件、模型请求解码和本地身份校验均留在该模块；这些输入与公共分派入口变化继续扩测，不能进入 legacy 私有叶子的快速合同。私有配置的文件类型、权限、UID 校验和原请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
+
+边界回归同时使用真实 legacy 源码的正例与独立的带平台属性源码负例；后者不能随生产文件拆分而失去保守保护。完整仓库中的普通函数体变化及预览的注释变化都必须得到原五个完整 targets、inline/support 转交和三包 all-targets Clippy；Linux 代理、公共分派、身份或混合输入仍保留原必要范围。本地代理的命令兼容与跨 UID 成功、拒绝、权限和恢复由真实二进制及既有 Linux 进程夹具验证，不以同 UID 模拟替代内核主体校验。
+
+完整 Game Client support 在原 library 与 strict Clippy 之外执行 legacy 服务、本地传输和本地命令三个完整 integration targets；一次性 GitHub-hosted Linux runner 还构建真实 binary，由 root 所有的有限时进程组执行既有跨 UID 夹具。夹具仅复制本次 binary 和合成材料到 root 拥有的临时目录，私有材料另置 `0700` 子目录，保留获准／未获准主体、不可读私有文件、用途／版本、撤销／过期和滴流后重连断言；信号、断言或清理失败均不能完成 support。CI 缺失 Linux／hosted 身份或提权能力直接失败，不降为跳过；本地普通用户只运行可执行的 Cargo 合同，明确报告跨 UID 未执行，完整验收仍需隔离 Linux 证据。该入口仅随实际 Game Client support 执行，legacy 快速合同的五个目标保持不变。
+
+调用库存覆盖全部 workspace 的 Rust 宏来源及实际 include 输入，不能因导出宏没有普通依赖边就忽略它。raw identifier 按真实标识符比较，未知宏参数和模板保持保守；消费者依赖闭包出现未经审定的本地 proc-macro 时回退，不尝试分析任意常量生成的 Rust 源码。独立本地 commands 模块及标准断言中的普通字段、索引和值不作为公共 CLI 路线；本地断言宏覆盖、别名导入和 macro_use 不能借这个表达式例外放行。
+
+可信 `ordinary_fast_support_contracts` 明确登记该 owner 的精确输入和可延后到 full 的反向 support 消费者。只有每项相关输入都命中合同、真实 target 可达、native/test-only 证明成立且无风险扩测时，才把 support 自身的完整 library 测试交给 inline，把自身及被延期消费者原默认 feature 的全部 `--all-targets` strict Clippy 交给 rust-baseline。独立 integration 测试输入也必须经同一证明，不能仅因属于 support 包就跳过 ordinary。仅由同一私有适配输入传递触发、且已登记的消费者完整回归留在 full；计划保留完整 affected 集合和具体转交、延后清单。直接消费者修改、路径加测、显式请求、混合未知输入、测试政策变化和旧能力均保留原必要检查，不把任意 support 包或目录整体变成快速范围。
+
+该合同的性能目标是 workflow 创建到最终 required gate 不超过 600 秒，包含排队、checkout、缓存、编译、Clippy、全部所选测试与汇总。冷、暖缓存均按真实行为改动或新增回归取样，并核对 source/tested/policy、实际目标和完整用例回执。首次 CI 控制变更仍使用可信 BASE 范围；合成差异的诊断只证明候选计划和当前构建成本，不能代签真实 PR、P95 或把超时样本改列例外。
+
+完整反向消费者集合继续写入计划作为影响证据。已证明的组件合同承接普通行为，上层完整集成回归放入 periodic-full；直接规则、手动必要加测、未覆盖输入及平台风险仍取并集。Formal 显式风险规则先于组件合同应用，例如 retained history 仍选 world-history，projection 仍选 runtime-protocol 与 world-history；只有没有显式风险且行为已由快速目标承接的输入才取消默认五套长回归。Launcher release 构建只在其真实输入或必要风险要求时加入快速图。WASM 保留适用消费者编译；仅当源码路由与 cfg 可证明输入不进入 WASM 构建时，才排除纯传递依赖带来的无关 WASM 检查，解析不确定时保留。
+
+不可达证明同时核对实际 library、binary 与 build script 入口、静态模块挂载和嵌入数据消费者。原生源码可能经直接或传递的 Cargo build-dependency、proc-macro 或 build script 在 host 上生成便携目标的输入；这种路线必须保留平台验证，不能仅凭 native cfg 排除。自定义或无法解析的入口同样保守处理；包里存在 build script 本身不等于所有 library 源码都作为 host 生成器执行。
+
+已选完整 library 的实际入口可以按本次差异证明平台不可达：每个 base/source/tested 比较都只能新增顶层静态常规模块声明，逐条带精确的 `#[cfg(not(target_arch = "wasm32"))]`，既有 token 保持不变；被挂载模块必须在同一比较中新建、具有唯一常规路径，并在所选 native target/features 中真实可达。只有这些新增声明及模块的影响可排除，不能因入口既有代码可供 WASM 使用就误算整个文件，也不能凭 native 属性忽略其他改动。已有声明或属性改写、删除、重新挂载既有文件、混合便携改动、未知宏/动态路径，以及 host 生成或其他便携挂载/嵌入消费者均保留原验证。此证明沿用已有可信快速能力，不放宽下述无属性 `static_module_additions` 的独立准入规则。
+
+构建前直接生成 `cargo test -p <package> --lib` 或 `--test <name>`；strict Clippy 使用同一命令列表。独立模式不隐式追加 Viewer/snapshot harness。artifact 核对 package/target、请求及实际 features、默认 feature、最低 case 存在且非 ignored、计划与 source/tested 身份；缺目标、空执行、错误变体或遗漏最低用例均失败。最低名单不限制执行，所选目标的全部非 ignored 用例包括后续新增回归都实际运行。
+
+同一 package、相同默认 feature 设置和相同显式 features 的快速目标可合并到一次 Cargo 构建调用，例如同时指定 `--lib` 与具名 `--test`；不同 package 或 feature 组合不合并。构建清单继续为每个目标分别保存并校验真实 executable、features、摘要及完整用例，不以命令合并消除任何目标或验收项。
+
+修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 保留已登记声明/导出的精确新增规则；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码仍回退。
+
+可信规则可为完整 library 目标登记 `static_module_additions`。它只接纳入口最外层新增的无属性 `mod name;` 及其可见性形式，要求源码实际新增于同一比较范围、使用唯一常规模块路径，且所选 target/features 能执行入口和新模块。此能力用于 Runtime `world/mod.rs` 与 Viewer `runtime_live.rs`，不放宽 `native.rs` 的导出合同。base/source/tested 的每一项实际差异均须通过；已有代码变更、模块删除/替换、`cfg/path` 属性、inline module、宏挂载或歧义路径不能借此准入。新模块内的门控和嵌入输入继续接受原有风险及可达性检查。
+
+periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、扩展 features 和平台组合，并通过独立 `ordinary_full_fast_targets` **追加全部快速目标的相同默认 feature 设置与显式 features 组合**。默认 feature 的 full 不能抵扣仅在无 Wasmtime 下存在的行为。补充构建、Clippy 和测试均执行，产物按 feature 变体区分；验证补充后仍独立验证原库存，不能用补充 harness 顶替原 required。旧 BASE 缺此能力时仍使用旧入口。
+
+该机制和本地测试不证明 hosted 十分钟/P95 达标。仍按完整排队、准备、编译、Clippy、测试和汇总的真实时长验收；本 CI 控制 PR 自身接受旧可信规则，候选不能先减测使自己通过。
+
+#### 快速执行链路与专项 baseline
+
+可信计划为已选中的组件快速目标声明 inline 执行能力。`oasis7-required` 保持固定逻辑 job 身份，每个执行分区在同一 checkout/工具链中完成真实测试构建与执行，复用现有 build manifest、最低 case、features 和非空执行核验；不再为这些目标启动 ordinary artifact producer，再上传下载到第二台 runner。旧计划缺少 inline 能力字段、包级回退和完整 profile 继续使用原 producer/consumer 路径。汇总仍核对实际选中的执行模式，不能将 selected job 的 skipped、cancelled、missing 或失败视为成功。
+
+可信 `ordinary_partition_version=1` 仅允许目标 owner 恰为 Runtime 与 World State 的有界 native inline 计划按这两个 package 分到并行 runner。父计划保留完整 `ordinary_fast_targets`，`ordinary_partitions` 必须恰好覆盖其全部 package 且无重复；每个目标仍只有一个执行方。单 package、其他 owner 组合、旧能力和非 inline 计划使用 `all`，保持原执行方式；不扩成任意多包 runner 扇出。分区不能修改父计划或其 source/tested/policy 身份，也不能单独宣称整个 ordinary 组已通过。构建与消费入口重算分区的精确目标子集，绑定完整父计划、分区名和目标变体；未知分区、漏项、重复、跨包或 features 不符均失败。矩阵由同一可信计划生成，`fail-fast: false` 保留全部分区结果；最终 required 汇总等待所有选中矩阵成员成功。Clippy、架构声明图和反向消费者继续读取完整父计划，不随测试分区缩减。
+
+有界 inline 计划通过 `ordinary_clippy_group=rust_baseline` 将 strict Clippy 移到已有并行任务，缩短 native 构建和测试前的串行路径；不新增 job，也不改变 target、features 或 lint 参数。两个执行组都读取同一可信计划，核对 source/tested 身份后再判断唯一执行方；迁移要求计划同时选择 `rust_baseline` 与 `oasis7_required`，任一组失败仍由原 required gate 阻断。已知能力中的非法执行组、缺失所需组或不适用 profile 必须失败；缺少该字段时保留 ordinary 组内 Clippy，未知整数能力与旧计划继续使用原执行路径，不能让两个组都跳过。full 保留原 Clippy 全集及精确快速变体补充。
+
+可信配置的独立 `distfs_clippy_contract_version=1` 进一步允许 Runtime 与 World State 的上述 native 双包计划将 DistFS 组原有两条 strict Clippy 调用交给 `rust_baseline`：CAS/Formal Protocol 的默认 feature library，以及 DistFS 的默认 feature library 与 durability endpoint binary，完整参数和三项拒绝 lint 保持不变。只有完整父计划同时选中 `distfs`、`rust_baseline` 和 ordinary，已证明 `ordinary-targets` 反向消费者边界，且没有例外、Formal 或 WASM 扩展时，才能声明 `distfs_clippy_group=rust_baseline`。baseline 将这两条独立 Cargo 调用追加到原 Clippy 清单，DistFS 核对同一可信 selection 的 source/tested 身份和能力后才转交；DistFS 的四个原测试 target 仍全部按原单线程参数执行。版本与 owner 必须成对且合法，缺失必需组或不兼容计划失败。旧 BASE 没有新能力、独立本地组和 full 均保留 DistFS 原位 Clippy；不能借既有 ordinary Clippy 字段取得新转交权限。required gate 继续等待两个组，任一失败、取消、遗漏或跳过均阻断。预览也显式传递同一完整计划，统计包含 baseline 新增工作在内的最后完成时间。
+
+完整构建清单通过核验后，未分区 inline 的独立 harness 可最多两个并行执行，全部 libtest 线程的预算按可用 CPU 分配。已验证的 package 分区使用一个 worker 顺序执行该包全部 harness，将当前可用 CPU 预算分配给正在运行的 libtest；既有较低的 `RUST_TEST_THREADS` 上限仍生效，不提供任意扩线程开关。经完整身份与实际库存核验的 library harness 优先派发，避免短 integration 推迟长库的完成；两类各自保持原顺序，未知或旧 capability 保留原调度。每个 harness 仍执行全部非 ignored 用例并独立核对计数、退出、超时及后代清理；不拆分或截短单个场景。任一失败保留原失败，停止启动待执行项并取消、回收本轮已启动任务；后续成功不能覆盖失败或取消，未执行项不能算通过。进程监督器的可选取消信号只作用于本次拥有的进程树，默认串行调用和完整 profile 保留原行为。分区的额外冷依赖编译、runner 排队和资源竞争仍计入真实端到端预算，不能直接用历史单机耗时推定提速。
+
+调试与测试构建中的密码学热点沿用根 manifest 的精确 package/version 优化：可执行文件校验同时覆盖实际使用的两个 SHA-256 版本，重复私钥封套派生覆盖锁定的 Argon2 实现。仅提高这些依赖的 `opt-level`，保留 debug assertions、overflow checks、固定 KDF 参数、封套格式与完整行为回归；不通过降低安全参数或复用解锁结果缩短测试。Cargo 的 test profile 继承 dev profile，包级配置与继承按 [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#overrides) 执行。比较相同产品源码、features、runner 和冷暖状态下的编译加测试关键路径后判断收益，不能只报告函数速度或忽略新增编译成本。
+
+`rust-baseline` 的格式、架构、RustSec 与文件约束继续执行。NewAPI accounting 仅在其真实 package/依赖输入受影响时执行；独立工具锁文件检查在相应 manifest/lock、检查器或共享构建输入变化时执行。选择来自可信计划及完整差异，不靠候选环境变量自由关闭；没有新能力的旧计划和完整 profile 保留原检查。周期 full 仍执行这些专项全部原命令。
+
+架构编译分层遵循[主责合同](../../engineering/rust-governance/rust-engineering-contracts.design.md#trusted-local-architecture)，Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。可信配置的 `architecture_build_policy_version=1` 仅对完整符合普通快速合同的直接输入启用 `ordinary-targets`；消费者重核目标 owner、source/tested、必需组和干净 checkout。全部登记 profile 的声明/依赖图持续阻断违规，额外编译以 `deferred_to_full` 记录，快速目标的真实构建、Clippy 与测试继续由当轮两个必需组执行。混合非普通输入、必要加测、共享控制、旧能力或 full 保留相应原矩阵，不通过诊断 `--graphs-only` 放行。周期 full 承担额外 feature/平台及上层组合的实际兼容编译。
+
+已覆盖直接输入的反向消费者可以继续选择 `consensus/distfs/net/node`，同时按主责合同提供 `architecture.consumer_groups` 的精确包归属与反向可达证明。组数本身不迫使这些普通输入重做全部架构编译；直接路径命中的额外职责、未覆盖输入和显式加测仍保留原矩阵。消费者检查及其失败汇总继续执行。
+
+Viewer 的完整 UI 测试与 software-safe 构建在输入、输出互不依赖时可并行，前置的共享 fixture/产物清理合同先串行完成。构建内部的 Cargo 命令顺序、目标和 features 保持，不能通过另设 target 目录绕过构建锁。只有 UI 与真实构建都成功且各自进程完成清理后，才执行使用新产物的浏览器安全验证；任何失败、超时、取消或遗留后代均阻断，不使用旧 dist 抵扣构建。并发收益计入同一 runner 的实际资源竞争，不能直接以两个历史耗时相减宣称 hosted 达标。
+
+Viewer 的 Vitest UI 测试保留单 worker、逐文件独立 fork 与 jsdom，只复用 Node 编译字节码，不复用测试文件的可变模块或全局状态。worker 默认使用本工作区 `node_modules/.cache/vitest-node-compile`；调用者显式的 `NODE_COMPILE_CACHE` 路径和 `NODE_DISABLE_COMPILE_CACHE=1` 仍有效。沿用 Node 对源码和运行时版本的缓存校验、Vitest 对 V8 coverage 的禁用保护；缓存不可用时仍执行原测试。该目录不上传为跨 job 缓存，完整文件集合、原断言、Solid 模块身份及失败/清理合同保持。
+
+候选策略可通过独立、只读的性能预览取得合入前数据。现有 Rust workflow 的 `pr-fast-preview-plan` 在 `rust.yml`、`ci-required-scope.json`、`ci-tests.sh`、`cargo-dev-architecture.json` 或实际构建驱动 `ci-test-artifacts.py`、`cargo-dev-architecture.py` 变化时启用产品预览；单独修改 planner 或 preview 编排的 Python 实现及测试时，执行其所属合同与实际 required 消费者，不额外构建产品性能样本。混合修改仍由执行配置或构建驱动启用预览。
+
+预览的触发差异复用 required 选择器的 Git 身份与比较范围：workflow 显式传入事件 BASE、实际 PR source 和 tested commit；在验证真实 target 与 source 父节点、BASE 祖先关系及唯一共同祖先后，取共同祖先到 source、实际 target 到 tested 的差异并集，包含删除和重命名两端。main 单独前进不触发预览，真实 source 改动与 merge resolution 改动仍触发；身份或差异无法确认时报告失败，不能安静跳过。这个范围只决定是否运行诊断，不改变可信 required 计划。
+
+预览以实际 tested tree 构造两份仅注释不同的 baseline，benchmark 的 source/tested checkout 保持该 tested commit 不变。`runtime-world` 保留两个既有 Rust 输入，必须包含 baseline、rust-baseline、ordinary 及 Runtime lib、World State lib、reducers、物理 incremental 四个完整 target；额外组仅接受上述 `architecture.consumer_groups` 明确证明的 native 反向消费者。`game-client-private-unix` 只使用已登记的私有 CLI 适配输入，必须包含三个核心组、完整 game-client lib 与四个 CLI integration targets，以及自身运行转交、两项 support 消费者延后和原 all-targets Clippy 保留清单。两份期望目标与 feature 组合由预览独立固定，不能从候选选测结果反推应有覆盖。
+
+`ci-fast-preview.py` 按样本分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree、固定输入、全部组与 ordinary 分区，下游 runner 按样本与确定性 Git 身份重建比较对象。两个独立样本最多并行规划两路，各自使用临时 Git index 和独立输出路径，不修改 checkout、真实 index 或 ref。`plan-matrix` 只有在所有样本完整校验成功后才一次发布执行矩阵；不发布半份成功。每行绑定 sample、group、partition 与该样本的合成 BASE，恢复时重核行归属；selection、metadata 和结果 artifact 分别命名，结果名称及时间记录包含 partition，禁止跨样本或分区复用。Runtime 的额外消费者组仍全部执行，样本完成时间取所有分区及其余组的最后完成时间。缺项、未解释的额外需求或错误 feature 策略均不能被静默省略。
+
+预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，不能把单个 job 的 runner_seconds 当成端到端或混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
+
+baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。快速 baseline 不再附加 `--full-corpus` 历史内容报告，完整 profile 仍运行，原告警级别不变。
+
+单次系统设计追踪检查可复用本轮 Git 工作树与暂存区的变更映射，避免每读取一个引用目标都重复扫描全仓状态。每次调用重新取得映射，仍按原规则区分 unstaged、staged-only、删除、重命名及未跟踪文件；工作树恢复为 HEAD 而暂存区仍有修改时，读取暂存内容。内容缓存限于本轮首次读取，不跨调用复用，也不把本地可变工作区宣称为原子不可变快照。
+
+未命中独立快速 target 合同时，`oasis7_required` 从可信 26 包库存选择受影响 package，对所选包执行 strict Clippy 和全部非 ignored `--tests`；便携 WASM 编译从原四包库存取实际受影响闭包。Viewer 子进程与默认 feature snapshot 变体只在对应真实消费者被选中时构建。support 的普通 profile 可能只执行 library 或指定 binary，不能据 Cargo target 存在就认定普通入口会执行它；测试政策变化时保留原 profile，并追加所选包的 `--all-targets` 及适用 full features。扩展 feature 集合为空仍执行这些 target，省略空的 `--features` 参数；空 feature 不表示没有新增用例。未知映射或保守 scope 恢复旧库存，不以空 package 列表通过选中的 ordinary 组。
+
+Formal 只在风险规则要求时构建其既有共用依赖闭包，再执行选中逻辑 suite 的全部 case；当前没有声称按任意单 case 继续收窄这份共用编译。逻辑 suite 按可信 `case_shards` 映射物理 shard，跨 shard 的完整 case 必须保留。artifact 把可信 BASE 最低库存与候选新增项合并，既有 case 身份、ignored filters、环境 batch、shell tests 与依赖不能由候选删除；缺预期 case 或新增所需 shard 不在可信计划内均失败。build、pack、run 绑定同一 authority 摘要、同一计划和实际 tested source。
+
+Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证据。快速集合仍包含实际行为测试，不以 `cargo check` 或空 harness 代替；单个局部编译示例也不能证明所有普通 PR 已达到预算。
+
+兼容的同 run、同 tested commit、同编译输入产物可复用；消费者核对工具链、平台、profile/features、测试清单与摘要，执行被选中的真实用例。缺产物、输入不符、零匹配、错误 feature/target 和意外跳过均失败。长历史与恢复场景保持原断言和操作长度，在周期层或相应定向验证中执行。
+
+保持可信 main producer、只读 PR 和已有仓库缓存预算；新快速 profile 的 main push 同样只读，完整 main profile 保留 workspace 与工具缓存生产，共享原生依赖由独立 main schedule/manual-full 预热任务生产。旧 BASE 回退保留原权限分支，候选始终不能借 full 名称取得写权限。缓存缺失走同一正确冷构建。记录实际 Cargo fresh/rebuilt、恢复与准备成本，不把 cache hit 当作复用或十分钟达标；独立预热的覆盖与写入边界见[缓存设计](#ci-install-cache-design)。
+
+### 完整集合与结果汇总
+
+对相同 source 和环境，令 R 为适用快速及必要加测集合，M 为从旧 PR 后移的检查，F 为完整回归集合，验证 R 与 M 均包含于 F。periodic-full 从全仓适用库存展开，不只选择本轮差异；必需的平台组合由平台矩阵执行。清单包含稳定检查 ID、真实命令/参数、前置、target/features 与结果，同名命令的不同环境不能互相抵扣。
+
+完整计划展开可信 scope 的全部 26 组，包含组级 Clippy、依赖本轮真实构建的 Viewer auth browser smoke、Command Center App、Windows rollout、macOS 包合同及 fleet-health 三平台。普通产物、Formal 产物/物理矩阵、平台组和 `full-extended` 可并行，`explicit-full-gate` 等待所有组、ordinary producer，以及恰好一个成功的可信或候选 full producer。
+
+`full-extended` 只运行 core 扩展 features、support 的完整 target/feature 组合、fixture smoke 与生产 mock guard，不重复整个 required 清单；它单独成功不代表完整回归。support 按真实 manifest 生成 `--all-targets` 调用，启用适用 full features；没有扩展 feature 或该轮没有 `test_policy_changed` 时也执行，保留不在普通 profile 中的 integration 等 target。`full-standard` 保留本地普通加扩展入口，并补齐原遗漏的 Clippy/browser smoke；`full` 再加 Formal，但两者都不能代签 hosted 的多平台集合。
+
+PR 汇总只等待本 PR 计划的必要检查，周期汇总等待本轮完整集合。保留可靠 always 收口：规划失败、选中任务失败/取消/超时/缺失、应执行却 skipped 均失败；未选中可以 skipped。预期矩阵单元须全部终态，不能用其它单元成功或总测试数掩盖漏项。新提交取消的旧运行不为新 source HEAD 放行。
+
+保留稳定 required check 名称，避免对整个必需 workflow 加 paths 过滤造成 Pending；依赖失败也必须进入最终汇总。手动候选验证不替代 PR 必需事件产生的检查。若发布所需平台不在本轮完整集合内，补跑准确候选的相应范围后再消费结果，不能把“不适用”用于隐藏缺环境。
+
+### 调度、并发与主线健康
+
+schedule 使用 `17 */4 * * *`（UTC），对应北京时间 00:17、04:17、08:17、12:17、16:17、20:17，保留 manual full。每轮从事件解析一次不可变 SHA，所有 checkout、产物和汇总都引用该值；运行期间 main 前进不更换待测对象。
+
+PR 并发组按 PR 编号取消过期运行。periodic-full 使用独立 main-full 并发组且不取消运行中任务，最多保留一轮待执行任务；待执行轮被替代需留存取消事实。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
+
+`ci-full-result.py health` 只读查询最近两天 main schedule，报告最近运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
+
+命令接入既有 [CI 耗时回顾任务](../../../.agents/dot/tasks/ci-duration-review.md)的只读检查说明；文档没有新建外部定时器，也不证明巡检已经运行。调用者独立读取 Actions 事实，不能只靠迟到的 schedule 报告自身漏跑。平台调度可能延迟或丢失，规则依据 [GitHub schedule 语义](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
+
+失败记录关联最后成功 SHA 到失败 SHA 的提交区间与失败检查。产品回归、测试不稳定和基础设施故障分别处置；无法判断时保留未知。有限重试保留原失败和 attempt，不自动把曾失败的运行解释为稳定。真实严重回归优先修复或按现有授权回退，限制受影响范围继续扩大；不增加“所有 PR 等最新 full”的全仓门禁。成功/失败区间来自 Actions 与 Git，沿用已有任务承接方式，不新增状态账本或自动回退授权。
+
+### 发布消费与权限
+
+Release/Testnet/Mainnet/ECS 发布或推广入口先固定 package source，再通过 `ci-full-result.py verify --source <sha>` 读取可信完整结果。`explicit-full-gate` 在成功验证完整 needs 后生成 `oasis7.ci-full-result/v1` receipt，绑定 source/tested/policy、检查库存版本、检查定义摘要和实际 run/attempt；产物名为 `ci-full-result-<run_id>-<run_attempt>`，保留 30 天。
+
+消费者只接受 canonical Rust workflow 在 main 的 schedule/manual full，核对实际 API run/jobs、成功的 `explicit-full-gate`、相同 source/tested SHA 与 policy/check-definition 摘要。默认完整查询最近 30 天相关 runs 和必要分页，按最新实际 attempt 顺序判断；`--run-id` 可指定准确运行，但仍须满足其当前 attempt、来源和完整结果。较新的同源运行缺当前 attempt 成功 receipt（包括 pending/running）、失败重跑、过期/歧义产物、API 缺页或未知来源不能回退旧绿色放行。读取结果身份与用于查询的 selection artifact 均绑定实际成功的 producing attempt，失败重跑不能借旧 selection 假称验证了另一个候选。
+
+API 已证明为专用非 full 诊断的运行不会冒充完整结果，也不影响已有完整证据；单纯缺少 selection 不能据此排除未知 manual 运行。
+
+普通候选分支自行修改 workflow 产生的绿色和 `bootstrap_full` 均不能取得发布资格。验证尚未覆盖的候选使用可信 main workflow 的 manual full 与 `source_ref`，select 一次解析不可变 source，所有执行 checkout 同一 SHA；变更中的策略/检查定义不等于受信任的新策略。验证代码不获得发布凭据，PR 产物不直接作为特权入口的可执行输入。当前 ECS 包/冷启动 smoke 与其他发布验证继续执行，完整结果不替代它们。
+
+默认发布来源必须属于已 fetch 的受保护 main 历史，可信 policy 同样核对该历史。Testnet 的既有固定候选合同由 `--allow-candidate-source` 保留，该参数只接受 `GITHUB_WORKFLOW_REF=<repo>/.github/workflows/testnet-packages.yml@refs/heads/main` 的调用；它只放宽 source 的 main 祖先要求，仍强制该候选的可信 main 完整结果、相同检查定义和其余验证。其他 workflow 不能借此参数发布候选。校验不要求已验证 source 等于随时前进的 main tip；旧保留版本的显式回滚继续遵守既有恢复合同，不把回滚改称新版本验证成功。
+
+### 接线状态与验收
+
+检查映射、baseline/构建/执行范围、完整库存、四小时触发、汇总与发布消费已在同一候选接线。本实现 PR 自身仍接受可信旧基线的必要验证，不先降门禁使自己通过。新接口随实际合入后的可信 BASE 生效；回退使用正常修复 PR 恢复已知选择与汇总，不在失败时自动跳过检查。
+
+验收至少核对：
+
+- 文档/普通代码/关键协议或持久化/共享依赖四类真实计划，删除与重命名、未知输入、解析失败和控制自改均保持正确边界。
+- 快速/完整清单的真实命令和平台包含关系；故意漏掉 Clippy、browser smoke、平台单元或迁出的 case 能被识别。
+- 失败、取消、超时、产物缺失、零匹配和意外 skipped 传播到对应汇总；检查全部成功才通过。
+- 周期与 main push 并发、PR 连续提交、漏跑/超时、main 前进及候选 SHA 变化；不会重复启动整套重回归或使用旧结果放行。
+- 发布正例及错误 SHA、非可信结果、缺平台、缺页/未知状态负例；保留原包 smoke 与明确授权的回滚路径。
+- 实际 hosted 数据按[反馈口径](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)报告完整观察窗口、样本数、普通成功 P95、失败/取消与例外、阶段耗时、冷暖缓存、完整回归时长及重任务占用。零匹配、跳过和早失败不算性能达标。
+
+观察已有 full 失败的处置和修复版本的真实完整结果后再确认迁出的保护。文档、Python 合同及小型真实 Cargo fixture 只证明各自范围；普通 PR 十分钟/P95、四小时内完成的容量和真实平台完整覆盖仍待 hosted 数据，不在本文预写验收成功。
 
 <a id="ci-coverage-design"></a>
 ## 测试覆盖专题的共享设计
@@ -105,6 +414,52 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
   选中 case 与结果逐项核对；选择器/结果函数回归仅证明其自身边界，真实离线回放与 wasmtime 执行结果另记。
   清单故意漏项、失败命令和缺环境的负例应能阻断适用结论；本次文档合并没有运行这些场景。
 
+<a id="local-check-entry-design"></a>
+### 显式本地检查的薄入口（目标合同）
+
+Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；承接 [LOCAL-AC-1–5](ci-test-coverage.prd.md#local-check-entry-requirement)。产品适用性：N/A；reason=开发检查工具合同；scope=本地范围、执行与报告，不改变 CI 准入或玩家行为。
+
+当前已有 `ci-tests.sh` 显式 tier、`cargo-dev.sh`、no-op `pre-commit.sh` 和 Git refs planner；目标 `scripts/check-local.py` 尚未实现，当前命令见[手册](../../../testing-manual.md#local-check-entry)。普通 commit 不调用新入口，`fix-precommit.sh` 的格式化与暂存不进入检查链。
+
+**按用途调用，按能力交付。** 目标接口显式指定 `--profile quick|affected|formal`，接受 `--base-ref`、`--output-dir`、`--format text|json` 与 `--dry-run`；formal 另须显式 `--tier required|full`。三种 profile 不是逐级必跑的流水线。尚未实现的 profile/输入组合明确 blocked，不降级成其他 profile 后报通过。
+
+| Profile | 执行合同 | 成功与未覆盖范围 |
+| --- | --- | --- |
+| quick | 固定复用 `ci-tests.sh required --group baseline`；沿现有检查读取工作树并传递已解析的文档比较基线，不先求 Rust 影响闭包 | baseline 全部适用检查真实通过；未运行 Rust fmt、编译、业务测试、浏览器或真实服务。业务测试数为零须明示，不声称完成 affected 选测 |
+| affected | 同一可信 planner 生成组、case、target/features，调用既有 required driver；保留选中/未选中理由 | 全部选中且适用的检查真实通过；测试组须证明 case 非零且未漏执行。不隐含 full、所有平台或真实世界闭环 |
+| formal | 干净源码、已解析 source、显式 tier，执行手册 canonical required/full；required 沿可信 planner，full 沿完整清单 | 必要组、环境或证据缺失均不通过；单机结果不代替 hosted gate 或其他平台 |
+
+quick 报告固定 baseline 的选择理由与全部未运行类别即可，不要求为了列出“受影响但未运行的组”先实现 dirty 精确选测。未调用 planner 时，相关字段明确 `not_used` 及原因，仍记录实际 driver/checker 版本、比较基线和输入范围。affected 不另建路径规则、case 清单或改变断言的轻量命令；按包迭代继续用 `cargo-dev.sh`，只证明其开发配置。不得自动缩小慢组、吞失败重试，或把 required 的 `scope=full` 扩张说成 full tier。
+
+**分阶段接线。**
+
+1. quick：先接固定 baseline、真实执行、共同报告及只读/失败边界。其输入记录与变化检测只覆盖实际检查读取的输入，不需要完整 Cargo 依赖闭包或 dirty planner 适配；必须说明各检查实际支持的工作树形态，不能可靠处理的输入 blocked。
+2. affected：先用干净提交证明与现有可信 planner 等价并接通真实 driver，再补完整 dirty/untracked 输入。只有规划适配时仅支持显式 dry-run，输出 planned，不宣称 affected 已可执行；执行接线完成但 dirty 适配未完成时，dirty 输入 blocked。
+3. formal：在干净输入、只读 canonical 接线与证据合同具备后独立交付，不依赖 dirty 精确选测，也不要求开发者先跑 quick/affected。原 required/full 必要验证不减项。
+
+各阶段都是包含适用回归的小而完整交付。最终输入范围和 LOCAL-AC-1–5 仍沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 收口；不以首片可用关闭整体任务。CLI/help/手册同步随对应能力交付，旧 “used by pre-commit” 描述在实现阶段修正。
+
+**基线与可信选择。** `--base-ref` 优先；缺省仅解析本地 `origin/main` 与 HEAD 的唯一 merge-base，不 fetch。记录原 ref 和解析 SHA；必要基线缺失、歧义、未解决合并或输入不可读为 blocked。affected/formal 的 policy 沿现有可信来源并记录 SHA；候选不能修改选测规则后豁免自己，控制文件变化沿原 planner 扩张/拒绝。quick 的固定 baseline 只提供局部反馈，不授予候选缩减 CI 或绕过可信 policy 的能力。
+
+**输入与运行中变化。** quick 沿 baseline 已支持的输入与比较接口执行，记录 staged/unstaged/untracked 状态及实际读取范围，未做影响分析的部分明确未覆盖；若必要检查不能完整处理该输入，blocked。传入 base/head 后某子检查可能只读提交差异，记录 dirty 状态本身不证明它覆盖工作树；必须逐项核对，不能可靠接线时拒绝该输入。所有 profile 固定起始 HEAD/index 与实际检查输入的内容身份，结束复核；变化时记 `stale_input`，保留局部结果，不宣布当前工作树通过。不能用“运行后没变”替代接线前的只读审计。
+
+affected 的最终 dirty 适配保守合并 base→HEAD、暂存、未暂存和非 ignored 未跟踪输入，以 NUL 安全读取；保留来源、rename 旧/新路径、删除旧路径和同路径抵消变化。显式依赖引用的 ignored 输入不得漏读，不能确定时按既有规则扩张或阻断。复用同一 planner 的基线、清单和依赖图逻辑，在内存或自有临时目录构建不可变输入视图，不创建提交、改 index、stash 或 checkout；HEAD 计划不代表 dirty 覆盖。formal 的源码 dirty/untracked 直接 blocked，ignored 构建产物除外。
+
+**只读与故障。** 仅允许 ignored 构建输出、自有临时目录和显式报告目录；锁定命令的依赖缓存写入须披露。不改源码、锁文件、配置、index 或 ref，不自动安装/升级工具。接线前逐个审计 driver 写集合；必要命令须有真实 check-only 或隔离输出，否则 blocked，不能先写后回滚。缺工具、锁定依赖不可用及禁止联网分别诊断。失败停止依赖步骤，独立检查可继续；取消/超时只清理本次拥有的子进程和临时目录，不删除用户输出。
+
+**共同结果。** text/JSON 来自同一对象，包含 `schema_version`、profile/tier、source/base/policy 或明确的不适用原因、输入/dirty 摘要、实际 planner/driver 版本、选择理由、argv/cwd、非凭据配置、时间、退出码、逐项状态与 reason、预期/实际执行数、日志及未覆盖范围。有效检查数与测试 case 数分列，非测试检查不得虚构测试数量；预期执行测试的项仍须证明实际 case 非零。未选择与必要但 skipped 分开；必要执行数量不可解析为 unknown。运行前确定日志位置，报告写失败不能留下成功摘要。
+
+| 总状态 | 退出语义 | 判定 |
+| --- | --- | --- |
+| passed | 0 | 至少一项有效检查且本 profile 全部必要项实际通过；quick 无业务测试须单列，不是完整测试通过 |
+| planned | 0，仅显式 `--dry-run` | 只有计划，`validated=false`，不输出 pass |
+| failed / incomplete | 1 | 任一失败、预期测试零匹配、必要项 skipped、执行证据 unknown 或报告写失败 |
+| blocked / stale_input | 2 | 不支持的 profile/输入或参数、基线、路径、工具等前置失败，或运行中输入变化；保留局部结果 |
+| no_checks | 3 | 无可执行检查并说明原因，不等同通过 |
+| cancelled | 130 | 中断并记录未执行范围；超时按 failed，注明 timeout |
+
+验收按[手册中的阶段范围](../../../testing-manual.md#local-check-entry-validation)执行，每片验证实际开放能力，不提前要求运行尚未开放的 profile。共同底线不能延期；涉及 CI 选择语义的改动仍接受适用独立评审。本地时延先记录实际阶段耗时，不新增 SLA。
+
 <a id="ci-case-tier-design"></a>
 ## Test case 分级专题的共享设计
 
@@ -113,7 +468,7 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 
 - **分配与选择**：新增或迁移用例时核对 cfg/feature 标签、Cargo feature 闭包、driver 参数与实际选中列表。
   标签存在但 runner 未执行不是覆盖；同名 case 在不同 target/features 下不能互相代签。
-  required 选择足以检出受影响关键缺陷的用例，full 保留适用 required 及重型回归。
+  按[准入规则到实际选择](#ci-pr-fast-selection-design)形成必要集合；full 标签用例命中风险仍进入 PR，full 保留适用 required 及重型回归。
 - **退化和冲突**：错标、漏标、full 回归被移除、预期用例未执行、旧硬编码与 feature 过滤重复都应可定位。
   先澄清对应需求与消费者再修正分配，不能为时延数字删断言、吞失败或把零匹配当通过。
   影响不明时沿现有选测规则扩大普通 required，不新设任务身份或通用审批。
@@ -133,7 +488,10 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 
 | 上游要求 | 分配内容 | 本设计 | 负责范围 | 限制 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs) | 两个重复 job 的单一结构定义、确定性产物、只读校验及等价迁移 | [首轮生成试点](#ci-generated-contract-jobs-design) | CI 维护者；沿用 planner、driver、可信 BASE 和独立评审 | 产品适用性：N/A；reason=工程工作流定义治理；scope=两个合同 job；生成器尚未实现，不承接十分钟/P95、缓存或遥测验收 |
+| Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | 十分钟目标、快速准入/迁出、风险加测、四小时完整覆盖及同源发布 | [分层实施](#ci-fast-pr-periodic-full-design) | CI 维护者、QA 与发布消费者 | 产品适用性：N/A；reason=开发反馈与验证时点治理；scope=检查选择、构建、调度、汇总、发布消费及实施验收。候选已接线，旧 BASE 保守回退；hosted 覆盖、时延及容量待验证 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | 离线协议、full/wasmtime、降级目标及失败范围 | [覆盖专题](#ci-coverage-design) | CI 维护者与 QA | 不将未接线 snapshot 或文档合并计为覆盖 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
+| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | 分阶段交付三 profile；quick 固定 baseline，affected 最终完整本地输入，保留只读与诚实结果 | [薄入口合同](#local-check-entry-design) | 本地工具维护者复用 planner/driver；QA 验证负例 | 产品适用性：N/A；reason=开发反馈工具；scope=本地选择与执行。当前只校准文档，薄入口未实现；不拥有 hosted 时延或发布准入 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | 独立标签语义到实际选中 case 与结果 | [Case 分级](#ci-case-tier-design) | 测试维护者与 CI driver | 不修改断言或扩展任务准入 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | 保留产品测试并按真实影响选择 | [测试范围](#测试范围) | 选择器与执行器 | 解析不确定扩大普通 required，未登记路径另按门禁阻断 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | Trace refs: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df；[未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs) | 所有未登记路径阻断规划，失败到最终 required 汇总，保持可信规则来源 | [失败链路](#ci-unknown-inputs-design) | 选择器、Rust workflow 与结果回归 | 产品适用性：N/A；reason=CI 范围登记治理，不改变游戏行为；scope=未登记路径的规划失败、可信基线与 required 结果传播；本地失败回归不代签 hosted 运行。 |
@@ -141,8 +499,9 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 | [专项条件](ci-tiered-execution.prd.md#专项条件) | 普通 CI 优先，专项需具体环境不足 | [专项条件](#专项条件) | 对应产品运行场景 | 不新增通用 PM 集成链 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [Release Trunk](ci-tiered-execution.prd.md#ci-install-trunk) | Linux x86_64 冷热路径共用摘要与版本验证的预编译安装器 | [安装流程](#ci-install-trunk-design) | Release workflow 与共享安装器 | 工具成功不等于 Web 构建或发布成功 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [缓存复用](ci-tiered-execution.prd.md#ci-install-cache-evidence) | 对齐归档身份、可信 main writer 与只读消费者，验证真实 scope | [缓存边界](#ci-install-cache-design) | GitHub cache 与 main full-regression | 静态 key 相同不证明跨 tag 恢复 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
-| [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | 先量测；需要治理时约束总预算、有限重试及受控子进程清理 | [apt 评估](#ci-install-apt-design) | 临时 CI runner 的依赖准备 | 本次不实现未经数据确认的 apt 策略 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
+| [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | 约束总预算、有限重试及受控子进程清理 | [apt 有界安装](#ci-install-apt-design) | 临时 CI runner 的依赖准备 | Rust/native cache 共享 helper 与进程 fixture 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [量测与判定](ci-tiered-execution.prd.md#ci-install-measurement) | 分阶段、分冷暖记录可比较的准备成本与失败样本 | [耗时证据](#ci-install-measurement-design) | 实际 Actions 运行与维护者分析 | 不由 Cargo 指标或本地 fixture 推断发布提速 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
+| Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；[工程遥测](ci-tiered-execution.prd.md#engineering-telemetry) | 以准确身份关联已有数据，区分执行结论、采集覆盖和诊断 | [共享模型与诊断](#engineering-telemetry-design) | CI 维护者、QA；dot/指挥中心只读消费 | 产品适用性：N/A；reason=开发验证数据治理；scope=CI 与本地构建，不承接产品节点监控或合入审批。 |
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | full 包含适用 required；真实消费者、wrapper 结果和扫描证据可核对 | [执行清单与结果](#ci-real-coverage-design) | CI driver、构建 wrapper、QA；CodeQL 保持独立主责 | 不把 fake 工具、旧运行或文档当成实际执行 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | 完整 TOML 集合、真实日期、范围棘轮和逐项有界续验 | [例外检查](#ci-advisory-baseline-design) | repository_health_engineer 与安全/兼容审读 | 不修改当前有效期、批准列表或依赖范围 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | 普通/重型分离、一次构建、五分片及失败汇总 | [进程调度](#ci-formal-process-design) | CI 构建与原生进程运行器 | 产品 N/A；理由：CI 专业调度优化；范围：普通检查与真实进程验收，不改变玩家行为。 |
@@ -150,14 +509,14 @@ CodeQL 技术扫描见 [CodeQL 设计](codeql-integration.design.md)，实际 re
 
 ## 3. 依赖准备的基线与目标
 
-2026-10-12 审读基线是 `fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e`。本次采用 Release 复用现有安装器的最小改造；真实 hosted 构建、main 缓存写入、跨 tag 恢复及节省时间分别以实际运行记录确认。apt 保留观察与条件实施要求。
+2026-10-12 审读基线是 `fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e`。本次采用 Release 复用现有安装器的最小改造；真实 hosted 构建、main 缓存写入、跨 tag 恢复及节省时间分别以实际运行记录确认。apt 在 PR #5477 的长挂证据后实施下述有界安装。
 
 | 对象 | 审读基线事实 | 本设计的变化与限制 |
 | --- | --- | --- |
 | Release Web 工具准备 | [原工作流](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/release-packages.yml)恢复 `~/.cargo/bin/trunk`，未命中时 `cargo install trunk`。 | 恢复预编译归档并无条件调用共享验证安装器，去掉重复源码编译。 |
-| 普通 CI 与 main writer | [Rust 工作流](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/rust.yml)已使用归档；main schedule/manual-full 的 `full-regression` 可写入。 | 复用已有 writer、路径与 key，不新增预热工作流。 |
+| 普通 CI 与 main writer | [Rust 工作流](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/rust.yml)已使用归档；main schedule/manual-full 的 `full-regression` 可写入。 | Trunk 复用已有 writer、路径与 key，不为该工具新增预热工作流。 |
 | 安装器 | [原安装器](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/scripts/install-ci-trunk.sh)固定 Trunk 0.21.14、官方归档摘要及 Linux x86_64。 | 继续由该脚本集中拥有版本、来源、摘要、平台与失败规则。 |
-| apt | 原工作流直接执行 `apt-get update/install`，本轮没有当前卡死或遗留进程的运行证据。 | 先核实阶段耗时与失败，再决定预算和重试参数。 |
+| apt | PR #5477 head `d4a7ecbebd3d86f396f03f0d31c1ab69d1a8958c` 的 Rust run `42052064452` 中 `viewer-performance-report` 索引更新等待近六小时后取消。 | 使用 helper 约束依赖准备；不将该现象推断为已证实的镜像源或锁故障。 |
 
 <a id="ci-install-trunk-design"></a>
 ## 4. Release / Testnet Trunk 安装流程
@@ -182,13 +541,17 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 安装器来自已核验的计划 source；key 中的版本、平台、架构和安装器内容指纹共同描述本次工具输入。升级脚本或 pin 会产生正常冷启动。缓存路径、归档格式及 cache action 的兼容实现也必须一致；仅对齐 key 字符串不充分。GitHub 的 cache version 包含路径与压缩方式，tag 间不能直接读取彼此缓存，可恢复默认分支范围内的缓存，见 [GitHub 缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)。
 
-现有 main `full-regression` 的 schedule/manual-full 是共享归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
+现有 main `full-regression` 的 schedule/manual-full 保留 Trunk 归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
 
-普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v3`。唯一 producer 是 main schedule/manual-full 的 `full-regression`；这些 Release / Mainnet gate 仅有只读 cache token，所有消费者显式禁止保存。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，完整成功后保存一次，禁止失败保存。
+普通原生 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v4`。唯一依赖 producer 是独立 `rust-cache.yml` 的 `shared-native-cache`，仅接受 main 的四小时 schedule 或 `run_mode=full` 手动触发；不接受 source 覆盖，也不从候选 workflow、产物或分支取得代码。checkout、workflow SHA、事件 SHA、精确 job 和 REST run 身份须一致。Release / Mainnet gate 仅有只读 cache token，Rust `full-regression` 也只读这份依赖缓存；其原有 Trunk、wasm-bindgen 和 npm 工具缓存合同保留。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，全部编译成功后保存一次，禁止失败保存。
 
 新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
 
-producer 的 `full-standard` 已实际构建 full-core 和大部分 support 依赖。额外的 build-only 准备补齐 ordinary producer 的真实构建变体（下载的测试 binary 不算 target 预热）、support 的纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 使用的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。复用现有构建参数定义，任何补齐失败均使 job 失败且不保存。
+独立 producer 的 `cache-native` 入口通过 `ci-shared-native-cache.py` 编译自足的闭合并集：原 `full-extended` 的 core 扩展、Viewer、适用 support features、LLM fixture 和 production mock 所需构建；旧 ordinary 的四个变体；纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。所有 `cargo test` 都带 `--no-run`，不运行 fixture、mock 断言或测试进程。support features 与现有 driver 使用同一包清单和 feature 解析，保留两个 WASM 构建工具的 `OASIS7_WASM_BUILD_STD=0` 环境。
+
+v4 另外从可信 checkout 的完整 fast target 清单补齐精确 `default_features`、features 和 target；同包且 feature 策略相同的 target 可合并一次 Cargo 调用，不能用更宽 feature 构建替代窄组合。旧 v3 不保证这些依赖 context，因此不能作为 v4 的精确命中；容量维护仅在完整 v4 后继、相同平台/架构/环境 hash 与 cache version、两次库存稳定身份及活动保护条件成立时退役 v3。下载的测试 binary 和其他 runner 的通过结果不算本地 target 预热，缺少单位时 reader 正常补编；任一构建失败使预热 job 失败且不保存。
+
+共享缓存预热与 Rust 验证分属两条 workflow，使用独立并发组且不取消进行中的可信预热。完整回归保留原 26 组、full-extended、210 分钟测试预算、显式 full gate 和整条 Rust run 成功条件，不再在测试后补编译或保存 Rust 依赖。Rust 的 workspace 缓存维护只等待 ordinary/formal producer 保存，不再等待 full 测试收尾；跨 workflow 的正在运行任务仍纳入全仓活动保护，新缓存 writer 不获得删除权限。v4 精确命中已经完整保存的不可变归档时，缓存任务跳过重复编译；前缀命中、未命中或恢复未执行仍编译全部上下文。该条件只属于缓存 producer，不能跳过任何 Rust 验证。预热不生产验证凭证，不给 source 代签测试，也不进入 required/full 的依赖图；失败、取消和容量拒绝分别可见，消费者仍走正确冷路径。四小时内完成及普通 PR 的实际冷暖收益以 hosted 样本验收，单次本地合同或调度优化不证明十分钟/P95 达标。
 
 各 reader 继续原测试、sync 和 soak；没有以预热代替验收。builtin 模块的独立 workspace / Docker target 不属于根 target 缓存，仍走 canonical 构建，不为扩大归档改写其目标目录。
 
@@ -198,9 +561,21 @@ Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协�
 
 registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。
 
-缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；此版保留 Web 发布、ECS `ecs` profile 与 Formal workspace 的专用生产路径，以免这些构建的发布频率或源码恢复合同绑到主缓存。
+`workspace-support` 在可信计划声明版本化分区时，以 custody / other 两路 matrix 执行完整原 profile 命令。custody worker 的 native 单测、role/WASM 正反编译、真实 World barrier、fixture、TypeScript 和平台测试仍由原 verifier 完整执行；其他支持包不再与其串联。full 在分区前扩展候选完整 profile 库存，缺失、重复、未知分区及任何失败均阻断。本地未指定 `--support-partition` 时，校验完整计划后执行全部选中 profile；显式 custody / other 仍按计划核对并收窄。旧 BASE 保留 all，矩阵 `fail-fast: false`、最多两路，最终 required/full gate 等待整个选中矩阵的真实终态。
 
-Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
+Custody 平台测试保留完整 `tests/*.test.mjs`，Node 文件进程并发上限为 2；每个文件使用默认独立进程，文件内部仍串行，test-session 的故障注入全局状态不跨用例并发。准备阶段、角色构建锁及真实 fixture 保持原顺序，各文件继续创建自己的临时 SQLite/原生服务目录和零端口 listener。原生崩溃、异常退出和测试失败仍按原退出码阻断，不以吞错、自动重跑或减少 case 获得成功。
+
+`workspace-support` 的只读容量采样在 cache 恢复前后、支持包 profile 边界、custody WASM/native/platform 边界及 job 退出时输出 `SUPPORT_CAPACITY` JSON 行。记录实际 source/tested/policy/range base、runner image、文件系统可用字节与 inode，以及固定目录的 allocated/apparent bytes 和 inode 数；精确 cache key 仍以同一 job 的 restore 日志为准。目录观察可能重叠，不能相加；每个目录内 hardlink 只计一次，不跟随目录符号链接，不读取文件内容。单次采样最多 25 秒，缺失、错误、超时明确标记为未知，不能冒充零占用。证据直接留在 job 日志，避免磁盘耗尽时依赖新建报告文件。采样失败不改变测试退出码，也不清理目录、调整缓存或 runner、减少既有验证；实际容量优化需另有测量依据。
+
+缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；Web WASM、ECS `ecs` profile 与 Formal workspace 保留专用缓存族及完整构建上下文，Web 依赖刷新独立于产品发布和 native 预热的成功状态。
+
+`release-packages-web-wasm-trusted-v3` 的唯一 writer 是现有 `rust-cache.yml` 的 `web-wasm-cache`；Rust CI 的 `viewer-js-required` / `viewer-performance-report`、Release `build-web-dist`、Release Web gate、Testnet / Mainnet / ECS Web 都只读。Release 的产品构建、全部 gates、artifact 和发布条件保持，历史计划源码缺少工具链 helper 时仍走原冷路径。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
+
+Web 缓存生产者承接 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。admission 的 `release-web` family 只注册新的 workflow/job 元组，旧 Release 身份不能上传。writer 迁移须使 workflow、job、admission 身份、写入权限和预算转发形成完整且互斥的一组，双 writer、零 writer、未知身份或半迁移均失败；必要兼容合同先进入可信 BASE，再原子切换生产接线，不改变 selector 或可信 Python 执行器来避开旧合同。首次 seed 前核对旧版 Release Web 写入任务全部终结，避免跨 revision 的在途 writer 重叠。
+
+producer 沿用四小时 schedule 或 `run_mode=full` 手动事件，只接受当前 main，checkout、事件、workflow 和 REST run 身份一致；不接受 source/tag/version 覆盖。它与 native job 独立，只有 contents/actions read 权限和本 job 的 cache write scope，60 分钟内完成或失败。使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 脚本，并显式强制重新检查两个 WASM 构建，已有 dist 不能抵扣依赖闭包；Trunk archive 只读且始终经过既有安装器摘要/版本校验。不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 step-local Node admission、20 GB 总预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
+
+两个 Viewer reader 的迁移合同只接受原 native-v4 配置，或同一 Web-v3、stable-only 工具链及默认环境指纹的完整配置。当前两个 reader 使用后者：只安装固定 stable 和 `wasm32-unknown-unknown`，缓存前只保留该工具链，环境前缀为 `CARGO CC CFLAGS CXX CMAKE RUST`，明确禁止保存。完整缓存身份与 producer 对齐，原 npm、wasm-bindgen、两个独立 WASM 构建、ABI、安全浏览器及性能验证保持；其他 native reader 不改变。真实 hosted 冷暖收益仍待验收。真实 seed 以上传完成为准，并在同一 source/tested/policy 候选上核对恢复 key、编译复用、准备成本和原验证结果；老归档前缀恢复可能清理过期编译产物，不能仅用下载成功认定暖缓存。同一 run 的 reader 重跑只用于 job 冷暖对照，不能把合入与 seed 等待时间计为新的普通 PR 端到端样本。
 
 ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
 
@@ -217,15 +592,17 @@ Linux 原生发行包仍按工具链、target 和 profile 共享 `oasis7-package
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)中的[正式缓存容量与保留](ci-tiered-execution.prd.md#ci-formal-cache-budget)。
 
-三个 workspace writer 共用完整库存、实时额度与已核验配置预算的容量准入，以及预压缩归档和外包装上传上界计算。原始 staging、单份上传、两代常驻和临时第三代写入分别约束，避免把两代目标同时用作第三代写入门槛：
+各 workspace writer 共用完整库存、实时额度与已核验配置预算的容量准入，以及预压缩归档和外包装上传上界计算。原始 staging、单份上传、两代常驻和临时第三代写入分别约束，避免把两代目标同时用作第三代写入门槛：
 
 | 缓存族 | 原始逻辑 staging 上限 | 单份上传上界 | 两代常驻目标 | 临时写入族上限 |
 | --- | --- | --- | --- | --- |
-| ordinary | 6 GiB | 768 MiB | 1.5 GiB | 2.25 GiB |
-| Formal | 8 GiB | 768 MiB | 1.5 GiB | 2.25 GiB |
+| ordinary | 6 GiB | 1.25 GiB | 2.5 GiB | 3.75 GiB |
+| Formal debug | 6 GiB | 768 MiB | 1.5 GiB | 2.25 GiB |
+| Formal endpoint | 2 GiB | 256 MiB | 512 MiB | 768 MiB |
+| 历史 Formal v3 | 8 GiB | 1 GiB | 2 GiB | 3 GiB |
 | ECS | 6 GiB | 1 GiB | 2 GiB | 3 GiB |
 
-这些上限不是预留额度，各族同时达到最大值再增加一份上传不保证能放入 10 GB。完整库存包含所有 ref、旧格式、共享原生和 ECS 依赖及其他缓存，实际总量加保守上传上界必须不超过有效仓库额度；不足时仍跳过保存。ordinary 的 6 GiB staging 覆盖已观测的 4,428,645,549 字节 library-only 选集；768 MiB 上传上界是容量政策，不是尚未测量的实际压缩体积。
+这些上限不是预留额度，各族同时达到最大值再增加一份上传仍须满足有效仓库额度。完整库存包含所有 ref、旧格式、共享原生和 ECS 依赖及其他缓存，实际总量加保守上传上界必须不超过有效仓库额度；不足时仍跳过保存。ordinary 的 6 GiB staging 限制所选完整 library 单元，完整选集超限时按下述有界选择缩减；表中上传上界是容量政策，不是实际压缩体积。Formal 两组件合计沿用原 2 GiB 常驻、3 GiB 临时写入目标；迁移期历史 v3 独立治理，其占用仍计入全仓预算，不以一半组件缓存替代完整历史恢复锚点。
 
 每个族的常驻目标为单份上界的两倍，正常轮换的临时写入上限为三倍；空间充足时按两代目标回收，容量压力下仅减少有稳定完整锚点的额外副本。
 
@@ -235,7 +612,7 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；承接[共享产物要
 
 GitHub 的默认仓库额度与驱逐规则见[官方缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)，它不替代本仓库预算，也不保证旧缓存能保留到下一次复用。
 
-workspace 受管范围限于 `refs/heads/main`：当前格式为 `{ordinary-workspace-v1,formal-workspace-v3,ecs-workspace-v2}-{64hex compatibility}-{40hex source SHA}`。Formal 历史 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 与 ECS v1 是明确退役的完整格式，仍计入各自族预算。跨兼容组退役使用该族已确认 current key，或下述压力下的不可变源码祖先证据；没有相应证据时只回收完整兼容组内的额外代。
+workspace 受管范围限于 `refs/heads/main`：当前格式为 `{ordinary-workspace-v1,formal-debug-workspace-v1,formal-endpoint-workspace-v1,formal-workspace-v3,ecs-workspace-v2}-{64hex compatibility}-{40hex source SHA}`。Formal 历史 `formal-workspace-v2-ubuntu24-{arch}-{rusttoolchain}-{wasmtoolchain}-{64hex compatibility}-{40hex source SHA}` 与 ECS v1 是明确退役的完整格式，仍计入各自族预算。跨兼容组退役使用该族已确认 current key，或下述压力下的不可变源码祖先证据；没有相应证据时只回收完整兼容组内的额外代。
 
 Formal v3 为单文件归档，绝不把旧 v2 目录当作新 payload。identity 包含平台、完整工具链配置以及归档和容量 helper 的内容。ordinary/Formal 改用 `workspace-units.tar.zst`，格式变化产生新的兼容指纹及 actions/cache version，不能回退恢复旧 gzip 身份；ECS v2 继续使用原 gzip 文件。
 
@@ -247,9 +624,9 @@ ordinary/Formal 的 compact 归档使用单线程 zstd level 3、8 MiB window �
 
 zstd decoder 使用 64 MiB 窗口/内存参数上限（非进程 RSS 承诺），压缩输入、物理 payload、逻辑展开和 tar 终止均有界；拒绝附加帧、截断、校验失败、路径穿越及多余成员。共享 reader 保留 gzip 支持供 ECS 使用。归档与外层 actions/cache 上传包装分别量测，不能直接把压缩文件大小当上传上界。
 
-额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v3` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。该规则不删除替代族；替代族的同环境依赖冗余由下面的独立规则处理。近似命名、其他 ref 和其他族只统计，不按最新时间推断整个环境 hash 可删。
+额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-shared-native-trusted-v3`、`ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v4` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。该规则不删除替代族；替代族的同环境依赖冗余由下面的独立规则处理。近似命名、其他 ref 和其他族只统计，不按最新时间推断整个环境 hash 可删。
 
-依赖冗余白名单包括 `ci-shared-native-trusted-v3`、`oasis7-ecs-native-linux-ecs-v2`、`release-packages-web-wasm-trusted-v3`、`oasis7-package-native-Linux-native-packaging-trusted-v2`、`release-packages-package-native-Windows-native-trusted-v2` 和 `release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2`。解析器为每个已知命名空间枚举实际宿主平台/架构（Linux-x64、Windows_NT-x64、Darwin-arm64/x64），不将 macOS 的 x86_64 编译目标误作宿主架构；未知组合不受管。
+依赖冗余白名单包括 `ci-shared-native-trusted-v4`、`oasis7-ecs-native-linux-ecs-v2`、`release-packages-web-wasm-trusted-v3`、`oasis7-package-native-Linux-native-packaging-trusted-v2`、`release-packages-package-native-Windows-native-trusted-v2` 和 `release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2`。解析器为每个已知命名空间枚举实际宿主平台/架构（Linux-x64、Windows_NT-x64、Darwin-arm64/x64），不将 macOS 的 x86_64 编译目标误作宿主架构；未知组合不受管。
 
 按去掉最后一个 8hex 依赖 hash 后的完整 restore 前缀与 cache version 分组，与固定 Swatinem action 已有的回退边界一致，不扩大消费者恢复范围。每组保留唯一最新非零条目及活动保护集，只回收更旧的依赖快照；不跨环境、平台或 archive version 回收。
 
@@ -269,15 +646,15 @@ Release 的跨平台 writer 使用同一 helper 的归档准入规则，通过�
 
 上传前验证当前可信 main 的仓库、workflow、source、job、事件及 REST run 身份，然后复用完整库存与额度规则；最终归档已经包含 action 的 tar/压缩包装，不再以比例推测，也不重复加一层不存在的包装。清点后重新确认文件身份和长度，只有实际库存加该归档不超过有效预算才允许 tar 调用返回成功。
 
-Rust `full-regression` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。
+Rust cache 的 `shared-native-cache` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在既有维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。
 
 Release writer 另外核对 source plan、实际 checkout 与 event SHA 一致，且仅成功构建保存。Release 保留既有 cache token scope；tag、历史 source 和失败构建由这些 action 的保存条件与准入拒绝写入，不将此行为等同于只读 token 隔离；同一 Linux packaging 命名空间的 Testnet 可信 Linux-only/packaging writer 也接入原 Linux tar 适配器，保留原候选只读分流；其他依赖 writer、工具缓存和跨 job 写入没有原子互斥，库存是此次上传前观察值；不为此串行化所有构建。
 
 报告区分实际压缩字节、观察总量、投影总量、实时/配置预算及拒绝原因，不把允许上传当成保存已确认。
 
-Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main push、schedule 或 manual-full 使用 `--recover --apply`，无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。
+Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main 完整 profile 使用 `--recover --apply`；旧 BASE 回退保留原 main push 条件，新 `main-fast` 不启动写维护。该步骤无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。
 
-Rust 结束维护仍等待普通、Formal 与 full producer（含依赖 post 保存），只要一个可信 workspace producer 成功即可进入，不再要求其保存确认；ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
+Rust 结束维护直接等待普通、Formal debug 与 Formal endpoint 的可信 producer，只要一个成功即可进入，不再等待完整测试、合并分包或独立原生依赖预热，也不要求其保存确认；各族仅传入本轮成功且 API 确认的精确 current key。维护的完整库存和跨 workflow 活动保护仍适用，独立依赖 writer 在上传前检查最终归档与库存，其后续 post 保存不能被当成已预留空间。ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
 
 Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SHA 时增加启动与结束恢复；启动由 plan 后进入，writer 显式允许维护失败或跳过后继续原构建，结束等待 Web/native writer（含 post）完成并使用空 current keys。维护不成为发布成功门槛，tag 或非当前 source 没有新增删除权限。
 
@@ -333,15 +710,17 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 [容量治理回归](../../../scripts/ci-cache-maintenance.test.py)覆盖保存未确认后的补偿、多页 API 完整性重读、同兼容组两代/压力下一代、Release 平台/架构分组、严格源码祖先退休、current 与稳定恢复锚点、族/ref/version 归属、活动访问保护、两次计划交集、身份变化、歧义和未知项保留、后页失败零删除、部分删除及幂等；[容量准入回归](../../../scripts/ci-cache-policy.test.py)回放高压库存、workspace 和依赖上传先后以及 full 的轮换空间。[workflow 接线回归](../../../scripts/ci-workflow.test.py)核对无新保存仍执行可信补偿维护、候选无删除权限、固定维护并发及必要 CI 结果不变。[发布缓存回归](../../../scripts/package-workflow-cache-reuse-contract.test.sh)核对实际工具链/环境 hash 与 writer/reader 对应关系。真实 hosted 保存、删除后库存和冷热构建收益分别由实际运行记录证明。
 
 <a id="ci-install-apt-design"></a>
-## 6. apt 的有界安装评估
+## 6. apt 的有界安装
 
-先从现有 job 日志区分索引更新、下载、安装与锁等待，记录 runner image、阶段耗时、失败类别及实际重试；日志粒度不足时由维护者在对应依赖步骤补量测。当前没有依据直接规定统一超时秒数、尝试次数或重试所有错误。
+[失败 job](https://github.com/nil-studio/oasis7/actions/runs/42052064452/job/127331913687) 在 Ubuntu 24.04 image `20261025.353.1` 上于 2026-11-05 15:12:46.213Z 开始 update，15:13:23.792Z 后没有 apt 输出，21:12:51.304Z 取消，证明索引更新可占满 job 时间。`scripts/ci-apt-install.py` 分开管理 update 与 install；Rust 和 native cache workflow 的全部 apt 消费者使用 `sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- <packages>`，保留原软件包、条件及失败传播。lsof 已存在时仍短路，不启动 helper。每步明确 `shell: bash` 与 `timeout-minutes: 11`，外层超时作为异常兜底。
 
-若观察到足以实施的长尾或取消清理问题，采用一个可单测的 helper 管理整个依赖准备预算：每次执行、终止宽限、退避与后续尝试都计入有限总预算。仅对可确认的瞬态失败重试；缺包、错误参数、权限/配置、签名或完整性失败不靠重复调用掩盖。
+600 秒是上述两个 workflow 的可调整调用参数，不是仓库全局 SLO。helper 用单调时钟约束整个调用，命令执行、退避、重试、终止宽限及等待清理都计入总预算；总预算到期或取消后失败，不进入依赖测试。记录阶段、尝试次数、耗时与退出/清理结果，保留有限诊断输出。
 
-超时与取消针对本次启动的受控进程组，先请求终止，必要时在有界宽限后强制终止；确认该组及其受控子进程退出后才可结束或开始下一次允许的尝试。不得删除锁文件、终止无关进程，或把父 shell 退出当作清理完成。若 dpkg 已开始修改且被强制中断，不能盲目重复 install；无法证明状态可继续时让 job 失败，由新 runner 重试。
+关闭 apt 内部重试并限制网络及锁等待。只有 update 中明确的瞬态网络错误可有限重试，最多三次尝试；未知、混合永久错误、权限、配置、签名或完整性失败直接失败。install 只执行一次，即使发生网络错误也不重跑，避免 dpkg 修改后状态不明时盲目恢复。
 
-该后续设计仅面向临时 CI runner，不直接推广到开发机器或部署主机。实现时用假命令与进程 fixture 验证挂起、忽略终止信号、父进程先退出、瞬态/永久错误、预算耗尽及取消，不对真实 apt/dpkg 故障注入。未实施或未执行的场景不得写为已验证。
+helper 以具备清理权限的独立进程管理受控子进程，超时和取消先终止、必要时强制终止并等待回收。父进程先退出、忽略终止信号或脱离原进程组都不能被当作清理完成；不得删除锁文件、终止无关进程或恢复不明的 dpkg 状态。清理无法完成时明确失败，交由临时 runner 销毁，不报告安装成功。
+
+此实现仅面向临时 Linux CI runner，不推广到开发机器或部署主机。helper 与测试在 `ci-required-scope.json` 的 `scoped_control_paths`、`python_control_contracts` 注册为 `workflow_governance`，同时进入 `ci-tests.sh`；candidate 和未来可信 baseline 都保留合同。使用假命令与临时进程 fixture 验证正常、瞬态/永久错误、重试耗尽、挂起、父进程先退出、忽略终止、预算耗尽及取消，不对真实 apt/dpkg 故障注入。本地合同与实际 hosted 结果分别记录，未执行的场景不得写成已验证。
 
 <a id="ci-install-measurement-design"></a>
 ## 7. 耗时与运行证据
@@ -359,13 +738,103 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 每组记录 runner OS/image、架构、Trunk 版本及归档摘要、安装器指纹、source、event/ref、run/job 链接、key、样本窗口与数量。失败和取消保留原因及耗时，不能仅挑成功样本。总发布耗时、排队时间、Rust 编译与 Trunk 准备时间分别报告；Cargo cold/no-op 量测不覆盖本节的网络安装与 cache scope。
 
-样本不足时报告单次观测和环境差异；至少三次可比观察后可以报告样本数、中位数及范围，仍不外推稳定性能承诺。当前不设仓库统一 SLO、预写提速比例或新增性能门禁。实现接线正确、本地合同通过、hosted 构建成功与真实缓存收益是分别验证的结论。
+样本不足时报告单次观测和环境差异；至少三次可比观察后可以报告样本数、中位数及范围，仍不外推稳定性能承诺。本节工具准备量测不另设性能门禁或预写提速比例；PR 反馈目标遵循[快速反馈设计](#ci-fast-pr-periodic-full-design)。实现接线正确、本地合同通过、hosted 构建成功与真实缓存收益是分别验证的结论。
+
+<a id="engineering-telemetry-design"></a>
+### 7.1 共享事件与诊断报告
+
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；承接[工程遥测要求](ci-tiered-execution.prd.md#engineering-telemetry)。owner 为 `repository_health_engineer`，计算与证据边界由 `qa_engineer` 独立审读。此节定义只读归一化与报告器。当前实现离线 v1 投影、v2 字段来源/身份合同与完整 job DAG 计算，以及显式 run/attempt 的有界只读采集、selection/构建 manifest 和既有 compile metrics 适配；真实来源仍缺数字 job 依赖及生产者/消费者绑定，不输出完整真实 DAG。本地真实 warm 原件及消费者接线仍待核验，不改变 required、缓存保存或发布资格的判定。
+
+#### 当前输入与首版接缝
+
+固定审读基线为 `d4cdabe4c9011ebc66b6376b1dce96f0d8b2cc39`。已有来源各自拥有原始事实，共享层保留原格式，只做版本化适配：
+
+| 来源 | 已有事实 | 适配时的限制 |
+| --- | --- | --- |
+| Actions run、attempt jobs、steps 与准确 workflow 版本 | GitHub ID、状态、结论、服务端时间戳及 job 依赖定义 | 完整分页并区分 attempts；API 未返回的就绪时间不能推为真实 runner 排队 |
+| [受控进程 JSONL](../../../scripts/ci_process_runner.py) | suite/test、started_at、单调 elapsed_seconds、exit_code、timeout/cancelled、count_ok、cleanup_result、passed | 当前记录无 run/job/source 身份；从同一已核验 artifact 的外层绑定，不从测试名猜关联 |
+| [构建与产物记录](../../../scripts/ci-test-artifacts.py) | manifest 的 source_sha/tested_sha、producer_run_id/attempt、配置摘要、构建变体、Fresh/rebuilt；打包及恢复报告 | producer 身份不等于当前 consumer；features/profile 从对应 binary、计划与配置读取，缺项保留未知 |
+| [本地 compile metrics](../../../scripts/ci-compile-metrics.sh) | current/baseline.metrics.json、comparison.json、固定 commit、命令与日志 | 使用[既有量测设计](../performance/compile-metrics-v2-warm-check.design.md)的隔离 target/环境；不能代表开发 wrapper、远端缓存或全部构建入口 |
+
+真实核验的首条 CI 链选择 PR 中实际命中的 `select → formal-test-build → formal-process-tests → formal-process → required-gate`；展开真实矩阵分片，保留互斥 `formal-test-build-trusted` 的 skipped 事实，并读取 gate 的其他必要上游。main writer 分支还依赖 `cache-bootstrap-maintenance`，不能套用 PR 子图。只采到子链时标 `coverage=partial`，不发布整条 required 的完整关键路径。首个本地入口读取一次 `ci-compile-metrics.sh` 的 `--check-only --measure-warm-check` 输出（实际 package/out-dir 以原命令为准）；适配器不自动执行新的构建。
+
+#### 版本化数据合同
+
+[Python 标准库报告器](../../../scripts/engineering_telemetry.py)提供 `collect INPUT SNAPSHOT` 与 `report SNAPSHOT JSON MARKDOWN`，消费准备好的离线输入。新入口 `collect-github REPOSITORY RUN_ID ATTEMPT SNAPSHOT RECEIPT` 仅读取 Actions，`collect-metrics INPUT SNAPSHOT RECEIPT` 只读取既有指标；所有入口均不触发构建。`collect-source` 保留已有单来源投影。v1 输入、snapshot 与 report 保持原 schema，始终为 partial，DAG analysis 为 unavailable；完整来源合同使用 `oasis7-engineering-telemetry-input/v2`，snapshot/report 同步使用 v2，避免旧消费者误读完整性。
+
+v2 输入的 `sources` 每项包含 `reference / kind / source_schema / payload`。`source_schema` 是本合同支持的适配标签，不宣称准备型 payload 就是真实 GitHub 原始响应。`contexts` 和 `records` 的每个事实字段通过 `field_sources` 说明来源：known 项含 `reference / pointer`，JSON Pointer 必须解析到与该字段同类型、同值的输入；unknown 或 not_applicable 项含 `reason`，对应值必须为 null。缺字段、未知来源 schema、引用不成立或来源冲突，使受影响范围 unavailable。输出仅保留允许字段、`evidence` 中的来源内容 SHA-256 与引用，不复制 raw payload。摘要及字段绑定支持离线复算，不认证来源真实性。
+
+输出 `field_sources` 每个值为来源列表；同身份且同值的事实合并 alias 与来源，不同值保留 conflict，不选取有利值。`sample_kind=synthetic` 显式保留。主要事实字段与后续真实来源映射如下：
+
+| 字段组 | 含义及真实来源 |
+| --- | --- |
+| `origin / collection_id / collected_at / schema_version` | origin 为 github 或 local；一次采集的 UUID、UTC 查询时间及明确 schema |
+| `repository / run_id / run_attempt / job_id / step_number` | GitHub API 原值；`GITHUB_JOB` 是符号键，不能代替数值 job ID。矩阵实例需从可信执行上下文或完整 API 记录精确对应 |
+| `source_sha / tested_sha / policy_sha / config_digest` | 从事件、可信计划与实际产物逐项核对；分别表示候选、实际 checkout、规则版本及实际配置。原来源缺 policy 时标 unknown，不能用 source 代填 |
+| `local_invocation_id / dirty_inputs_digest / input_capture` | 本地调用身份、固定源码及测量时实际未提交/未跟踪输入的摘要；`input_capture=at_measurement` 明确采集时点；未取得完整输入清单时标身份不完整，事后工作区不能补签。GitHub 专属字段为不适用，本地结果不生成 GitHub check |
+| `target / profile / features / default_features / toolchain / runner` | 实际执行命令、计划与 manifest；目标/默认 feature 模式明确，缺字段不根据 job 名反推 |
+| `kind / parent_id / depends_on / condition` | context 内 job/step/phase/test 层级；依赖来自该次运行的 workflow 与计划，parent 只表示包含关系。阶段为实际已有 build/restore/verify/test/pack/save 等 |
+| `started_at / completed_at / elapsed_seconds / clock` | API 墙钟或本进程单调计时，保留精度和来源；不能将不同进程单调时间相减。仅有开始加耗时得到的结束估计不作跨 job 的精确边界 |
+| `execution_result / collection_status / missing_reasons` | 原始结果和采集状态独立；缺失与 unknown 不等于 0，skipped 不等于 pass。退出码、清理失败与首次失败原样保留 |
+| `created_at / gate_id / job_ids / pagination_complete / dependencies_complete / conditions_complete` | context 声明创建时间、最终 gate、必要 job 集合及分页/依赖/条件完整性；缺项不推定完整。 |
+| `evidence / source_schema / coverage` | run/job/artifact 链接或本地相对路径、内容摘要、适配版本、完整/部分及缺失范围；每个派生指标可回查其输入与公式版本 |
+
+同一来源身份重复且内容相同可以去重，身份相同但值不同须报告冲突；不择取有利值。不同 attempt 与数值矩阵 job ID 独立存储，跨 attempt 复用产物按现有 producer/consumer 规则关联，不能把旧成功拼成新 attempt 的成功。报告只说明原系统的执行结论，不能签发验证资格。
+
+#### 运行时 job 绑定与异构输入
+
+前向 `oasis7-engineering-job/v1` 观察记录由 workflow 的专用非阻断步骤输出。记录 `github.job`、实际 matrix、直接 needs 的结果、workflow SHA、运行目标 source/tested/policy，另列观察时实际 checkout 与允许配置文件摘要。目标 tested 不等于实际 checkout；无 checkout 的汇总节点和未执行分支不补造源码输入。v2 离线合同保持不变，新的绑定报告独立使用 `oasis7-engineering-bindings/v1`，不能把异构输入强填成同一 config。
+
+采集器从同一 run/attempt 的数值 job 日志读取专用步骤记录，核对 API 的数值身份、workflow 版本、唯一 job key/matrix 和完整分页。只接受该步骤内唯一标记；缺日志、冲突或错 attempt 保持 unknown。精确 workflow 的静态 needs 仅定义逻辑依赖，未绑定矩阵实例和 skipped 分支时不能发布完整 DAG。观察不是 GitHub 签名证明，也不赋予候选产物执行权限。
+
+Formal 的生产与消费双方观察允许位置的 manifest 原字节 SHA-256；merge 的组件输入与输出、pack 的每分片 manifest、消费者实际读取的 manifest 分开列出。相同摘要仅证明相同 manifest 内容，只有原生产与消费各自的数值 job 观察齐全才建立内容边；它不代替 GitHub artifact ID、下载成功或验证成功。未记录这些事实时分别为 unknown，不按文件名/测试名猜关联。诊断失败不影响测试、gate、清理或发布，日志保留期沿原 Actions 设置，报告建议保留 7 天。 精确非阻断例外在 `ci-required-scope.json.engineering_job_observation` 声明步骤、workflow、超时及 emitter 内容摘要；既有 workflow 合同只豁免匹配的整个独立诊断步骤，任何 required 步骤仍不得吞失败。此策略变化走已有 full/all-groups 迁移路径，不新增 required check；固定基线安全断言与真实 Rust fixture 保留，部分历史完整基线断言交由完整候选 suite 接替，因此不能称为治理规则完全未变。emitter 与声明可一起修改，其摘要不是独立信任根，仍须独立审阅和完整 CI。
+
+#### 时间、成本与样本计算
+
+当前离线分析只对完整 GitHub context 的 job 层进行，step/phase/test 不重复累计资源。所有声明的必要 job 必须具备可核验身份/来源、完整终态、依赖、条件与时间，图无环且最终 gate 覆盖全部必要上游。条件为 false 且 skipped 的节点可保留为零执行节点，但不是 pass。失败或取消的完整终态可计算时间，原结论不变；缺终态则禁止完整指标。
+
+1. workflow 反馈墙钟为创建至该次最终 gate 终态；job 墙钟为 completed_at 减 started_at。只对已终止且时间完整的记录计算；当前离线版本对运行中或缺终态给 unavailable；将来若另报截至查询时刻的等待下界，须明确下界口径。
+2. 首次启动延迟是第一个 job 开始减 run 创建。依赖等待依据准确 needs/条件及依赖完成时刻；job 具备执行条件到实际开始之间仅能确认为“未归因等待”，除非有独立 runner 就绪/分配事实。审批、并发限制和服务调度不能默认归到 runner 排队。
+3. 完整 DAG 可计算执行时长的最长依赖链，并另列该链的观测等待；不把纯执行链称为完整墙钟。识别观测墙钟链时，给每个 job 增加从实际依赖就绪到启动的等待边，保留其未知成因。缺依赖、条件求值、时刻或必要上游时只报告已知子图，不输出完整关键路径结论。
+4. runner-minutes 汇总实际 job 执行区间，单独计资源；并行 job 相加不等于用户等待。共享准备只按实际所属节点计算一次。缓存对照使用同配置的总区间，恢复、校验、构建/链接、打包及保存均计成本；重叠阶段取时间区间并集，无法判断重叠时不伪造净收益。
+5. 样本遵循[现行 CI 回顾口径](../../../.agents/dot/tasks/ci-duration-review.md#耗时口径)：固定窗口、同 runner/范围、失败/取消及 carry-in 分开，至少 20 个可比完成样本才报告 P95，少于此数只给样本数、中位数及范围。成功反馈沿用 PRD 的普通成功 cohort；合入阻塞还需 PR 就绪、评审和合入时间线。
+
+可重算的合成例：select 在 0–2 秒，build 在 2–10 秒，两个分片在 10–16 与 12–20 秒，gate 在 20–21 秒。完整反馈为 21 秒；job 执行合计 25 秒；后一个分片有 2 秒未归因等待，执行最长链为 19 秒，含该等待的观测链为 21 秒。删掉该分片终态后，不再输出完整反馈或关键路径，只保留已知记录。首次启动延迟为 0 秒。此例只验证算法，不是实际性能数据。
+
+报告使用 `analysis.formula_version=oasis7-engineering-dag/v1`；`analysis.contexts[].metrics` 每个指标含 `status / value / unit / formula / input_ids`，可回查公式及输入。非空已知子集通过 `known_job_execution_seconds` 列出可证 job 的 input_ids 与 partial 状态；完全没有可证区间时为 status=unavailable、value=null，不冒充完整 DAG；完整图的 `job_timings` 保留未归因等待，图不完整时留空，具体缺口在含 job ID 的 `missing_reasons` 中说明。UTC 时间保留原精度，不从不同进程的单调时钟或开始时间加 elapsed 推导精确跨 job 端点。
+
+#### 采集、保留与故障隔离
+
+离线入口不使用 token 或网络，输入限额为 32 MiB。`collect-github` 使用已有只读权限，通过 `GH_TOKEN` 或 `GITHUB_TOKEN` 读取固定 GitHub API GET；没有 token 时仅尝试公开读取，不调用登录或创建凭据。本地模式不需要 GitHub token。外部服务导出留作可选适配器；新权限、付费服务或产品运行追踪需要各自主责设计。受信任的采集程序不执行候选 artifact 中的脚本，读取归档时拒绝路径越界，并按内容大小限额处理。
+
+每次采集的默认且最大额度为 120 秒、100 次 GET、32 MiB 响应正文及另一个 32 MiB 解码额度。CLI 可以调低这些额度；分页固定每页 100 条，按 total_count 和唯一数字 ID 核对，重复页、变动总数及短页缺项不能标完整。归档最多 256 个成员，投影最多 1000 条记录，每 job 最多 512 steps、每 manifest 最多 512 段构建计时，截断明确保留原因。请求、归档读取、投影和逐条归一化均检查单调时钟截止；HTTP 在自有子进程中执行，父进程超时或取消后终止并回收它，覆盖 DNS 与慢读。截止后的有界校验、序列化及原子落盘属于保存部分结果的收尾，可能超过截止，receipt 的 elapsed_seconds 是采集与归一化到构造 receipt 前的观测耗时，不含随后快照摘要及两文件序列化/写入，全程墙钟需从 CLI 外部另测；这不是硬实时 SLO。任一额度耗尽后保留 partial，不重试或启动额外构建。未知 schema、后页失败、重复页、时间逆序和身份冲突均使相应指标 unavailable，保留可复核的已知输入。
+
+`collect-github` 固定 attempt-specific run/jobs 接口，并完整分页 run 的 artifact 清单。只自动读取唯一的 `ci-selection-RUN-ATTEMPT`，可通过 `--build-artifact ID` 选择同 run 已有构建工件；核对 workflow_run 的 run/head、过期状态及可用的 SHA-256。ZIP 可含 JSON 或一层 gzip/tar；检查所有成员，拒绝越界、重复路径、链接、PAX/特殊成员、损坏内容及超额解码，不落盘解包或执行工件。API 凭据不发送给跳转后的 artifact storage，签名下载 URL 不保留。
+
+现有 selection v1 绑定 context 的 source/tested/policy；仅 pull_request/push 的 head_sha 可作为候选 source，dispatch 不猜。job API 原值单独提供数值 job/step、时间和原结论，不能把 context 的 tested/policy/config 填成各 job 的实测身份，也不按名字推断 needs/条件/矩阵。manifest v2 保留独立 source/tested/config、构建时长和 producer run/attempt；数字 producer/consumer job 缺失则 `producer=null`，在 receipt 的 build_observations 列出已知双方及缺口，不把旧 producer 拼成新 attempt。compile metrics v2 只提供 commit_oid、package、默认 feature 模式及冷/暖/发布时长；不补造命令、环境、invocation、测量时 dirty 输入、退出码或成功结论。
+
+新入口保持 v2 snapshot/report，并另写 `oasis7-engineering-collection/v1` receipt，含预算/实际用量、缺口、来源资源与原字节 SHA-256、原件过期时间及 canonical snapshot SHA-256。contract evidence 的 content_sha256 针对允许字段投影；字段 pointer 保留原路径，receipt 的 raw_sha256 针对实际下载/读取的原件，两者不能混称。`oasis7-readonly-projection/v1` 仅表示已知类型、包含关系、分页事实、默认 feature 布尔转换等确定映射，其 payload 保存在 receipt.projection，不提供外部认证。输出不保存 raw payload。两文件分别原子写入，第二次写入失败返回非零，消费者先核对 receipt 的 snapshot 摘要，不能把旧 receipt 配给新快照。
+
+`--recorded-responses DIRECTORY` 消费显式提供的 run.json、jobs-N.json、artifacts-N.json 和 artifact-ID.zip，经过同一分页/归档/投影路径；receipt.transport=recorded，collected_at 是回放时刻，不是原 API 取证时间。输出不得写回该输入目录；默认 live 与离线回放均不修改原测试、原件或工作区。
+
+只收集允许字段；不采集 token、环境变量全集、原始命令参数中的密钥、个人绝对路径、世界目录或模型请求。已有产物保留期保持不变；新增 CI 归一化报告建议 7 天并遵守仓库更短上限，本地输出由调用者指定目录与保留策略。正文引用的原 artifact 过期时显式显示证据不可读取，不能凭报告摘要补出完整证明。
+
+`collect` 在失败或 partial 时返回 1；`report` 成功渲染返回 0，只说明报告生成成功，不等同执行通过。采集器错误单独输出非零采集状态。接入现有诊断上传时由该步骤记录失败并保留原测试结果，不改写 gate、吞原测试退出码或让遥测控制测试清理；取消时也不要求重任务为上传继续运行。离线报告不读活动写入中的半份文件；生产者完成后原子发布，缺失/截断文件标 partial。
+
+<a id="engineering-telemetry-validation"></a>
+#### 最小交付与验证
+
+当前交付包含兼容 v1 的单来源投影、v2 字段来源与身份核验、完整 DAG 算法及有界真实来源适配。真实 Formal 运行已通过导出回放核对，不能把回放耗时当作 live 网络采集成本；本地适配器有固定正反例，但已有真实 warm 测量原件未取得时仍保留验收缺口。随后再让既有 dot 回顾和指挥中心只读消费。共享生成配置、缓存实现和产品节点监控分别留在原主责，报告器不新增日程或自动优化动作。
+
+具体验收按[报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)执行，包含并行计算、身份与重跑、缺失/取消、采集预算和原结论保留的正反例。每项预期具体到报告字段或失败分类，故意改变依赖/等待计算应使同一断言失败。
+
+真实核验对照 API 原值、命令、manifest、JSONL 和文件摘要，确认选中链完整程度及每个派生值。采集与报告的墙钟/字节另列，未测开销不宣称可忽略。无收益时可移除新增诊断接线并保留原产物和检查；schema 不兼容升级保留版本适配，未知版本拒绝完整聚合。输出不足以证明缓存净收益、十分钟/P95 或真实合入卡点时，由原任务继续取证。
 
 ## 8. 兼容、启用与回退
 
 实现随普通 PR 合入生效，实际 Release 使用哪个 workflow revision 和 source commit 由原有计划合同确定。计划源必须包含受支持的共享安装器；早于该安装器的历史 tag 在新 workflow 下会明确失败。需要重发历史版本时，先审读相应源码和工具兼容性，不能用移动 tag、任意 ref 脚本或源码安装回退绕过这一边界。
 
-缓存内容无需迁移；旧 Release binary 缓存可以自然回收，首次使用新身份的冷成本单独记录。回退通过正常 PR 恢复已知工作流基线及配套合同测试，仍须独立评审和适用 CI；不在运行中自动选择另一种安装策略。apt 的条件设计不改变当前运行参数。此改造不涉及玩家接口、世界状态或游戏 Runtime，无需 Agent 游戏实玩验证。
+缓存内容无需迁移；旧 Release binary 缓存可以自然回收，首次使用新身份的冷成本单独记录。回退通过正常 PR 恢复已知工作流基线及配套合同测试，仍须独立评审和适用 CI；不在运行中自动选择另一种安装策略。apt 回退须同步 helper、workflow 接线、planner 合同与测试，不能只移除超时或错误传播。此改造不涉及玩家接口、世界状态或游戏 Runtime，无需 Agent 游戏实玩验证。
 
 <a id="ci-real-coverage-design"></a>
 ## 9. 执行清单、真实消费者与结果
@@ -409,7 +878,10 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 | 上游要求 | 本设计 | 验收内容 | 验证来源 | 实际记录 | 限制 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs) | [首轮生成试点](#ci-generated-contract-jobs-design) | 确定性、漂移/标记/路径错误、只读失败、原子写入及 job/DAG/权限/身份/失败语义等价 | [workflow 合同](../../../scripts/ci-workflow.test.py) 为现有入口；实施时按本节正反例扩展生成器回归，并执行既有 `ci-required-result.test.py` | 实施 PR 记录固定 source/tested/policy、迁移 diff、实际命令与 CI；当前仅设计 | 模板与输出一致不能代替语义合同，不证明 hosted 性能或扩展范围 |
+| Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | [分层实施](#ci-fast-pr-periodic-full-design) | 准入/迁出、真实包与 feature 闭包、Formal 最低库存、完整组/平台、旧 BASE/候选 bootstrap、失败重跑及固定候选发布 | [分层验收](../../../testing-manual.md#ci-fast-pr-periodic-full-validation)、实际 workflow/driver、selector/result/receipt 与真实 Cargo 合同 | 实施 PR 的准确候选、计划、运行链接、观察窗口与耗时分布 | 当前候选已接线；本地合同不代签 hosted 完整覆盖、十分钟/P95 或四小时容量 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | [覆盖专题](#ci-coverage-design) | 同候选/环境/features 下离线消息链、full 包含关系、失败及未接线目标 | [测试手册](../../../testing-manual.md)、实际 driver/选中 job；按本节选择正反例 | 实际命令、参数、case、退出与缺口；本次未执行 | 不由 selector fixture、skip 或旧 PASS 代签真实覆盖 |
+| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | [薄入口合同](#local-check-entry-design) | LOCAL-AC-1–5：阶段实际范围、最终完整输入、只读与非成功语义 | [本地入口核验](../../../testing-manual.md#local-check-entry-validation)，实施候选的真实 driver 与临时仓库正反例 | 实施 PR 的输入/命令、前后文件与 index 身份、报告和退出码 | 文档检查不证明 thin entry 已实现；本地通过不代签 PR/平台/真实环境 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | [Case 分级](#ci-case-tier-design) | 同候选标签到实际执行；漏标、错 feature、零匹配和失败传播 | [测试手册](../../../testing-manual.md)、实际 CI driver；结果函数回归 `scripts/ci-required-result.test.py` 仅作补充 | case/feature/target 与运行结果；本次未执行 | 无 hosted 或性能结论，不改 required/full 保护 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | [测试范围](#测试范围) | 删除、重命名、依赖和未知输入覆盖 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 命令退出码及输出 | 不替代真实产品组运行 |
 | [未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs) | [失败链路](#ci-unknown-inputs-design) | 未登记新增/删除/重命名、混合全量控制、候选豁免不能放行；无成功输出且 gate 明确失败 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 当前 PR 中保留选择器、工作流和结果回归的命令、source HEAD、退出码和 Actions 结果 | 本地 fixture 不证明 hosted 运行；Git/依赖解析不确定仍保留全量 |
@@ -417,8 +889,9 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 | [专项条件](ci-tiered-execution.prd.md#专项条件) | [专项条件](#专项条件) | 适用环境和真实场景执行 | [测试手册](../../../testing-manual.md) | 所测版本和实际环境结果 | 未执行的环境保持未证明 |
 | [Release Trunk](ci-tiered-execution.prd.md#ci-install-trunk) | [安装流程](#ci-install-trunk-design) | planned source、只恢复归档、冷热均调用验证安装器、必要失败传播 | [Release 接线回归](../../../scripts/release-packages-trunk-cache-contract.test.sh) | 候选版本、命令退出码及回归输出 | 不替代真实下载、Web 构建或发布 |
 | [缓存复用](ci-tiered-execution.prd.md#ci-install-cache-evidence) | [缓存边界](#ci-install-cache-design) | main writer 与不同 tag readers 的真实身份、恢复及验证 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | writer/reader run/job 链接与实际 key | 未 seed 或未执行 reader 时仍未证明跨 tag 命中 |
-| [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | [apt 评估](#ci-install-apt-design) | 量测后选定参数；实施时验证总预算、分类重试、超时/取消无受控遗留进程 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 实际 apt 观察及后续 helper 的 fixture 输出 | 当前未实现，不推断宿主或部署机适用性 |
+| [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | [apt 有界安装](#ci-install-apt-design) | 验证总预算、分类重试、超时/取消及受控进程清理 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 实际 apt 观察与 helper 的 fixture 输出 | 本地合同与 hosted 分别验收，仅限临时 Linux CI runner |
 | [量测与判定](ci-tiered-execution.prd.md#ci-install-measurement) | [耗时证据](#ci-install-measurement-design) | 相同工具/平台下分冷暖计入准备与缓存成本，保留失败样本 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 原始耗时、样本窗口/数量和条件差异 | 不以本地测试宣称 hosted 性能收益 |
+| Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；[工程遥测](ci-tiered-execution.prd.md#engineering-telemetry) | [共享模型与诊断](#engineering-telemetry-design) | 身份精确关联、并行时间计算、缺失与执行结论分离、有界只读采集 | [报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)，固定合成快照与一条真实 CI 链、一个本地 compile metrics 输出 | 实施 PR 的 schema、输入摘要、实际报告、命令和独立复核 | 离线 v2 来源合同与 DAG 已实现；live collector 与真实 CI/本地核验未完成，合成输入不证明性能收益、真实合入阻塞或产品节点健康 |
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | [执行清单与结果](#ci-real-coverage-design) | 漏项/错误传播、真实 WASM 消费者、wrapper 退出及 Windows 锁边界 | [测试手册](../../../testing-manual.md)；实际 CI driver、构建/wrapper 回归和原生平台运行 | source、计划清单、命令与真实结果 | fake 工具和计划存在不代签执行；CodeQL 启用另验 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | [例外检查](#ci-advisory-baseline-design) | 空 ignore、无条件禁止包和真实依赖图 | [基线回归](../../../scripts/check-rustsec-ignore-baseline.test.sh)及真实依赖查询 | 配置正反例、cargo-deny 真实依赖图 | fixture 不证明实际依赖已移除 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | [进程调度](#ci-formal-process-design) | 独立分片、精确清单、同源产物、旧基线扩大、错误与超时传播 | [分片核验](../../../testing-manual.md#ci-formal-process-validation) | 当前 PR 的真实 runner、测试与评审结果 | fixture 不代签完整产物消费；未完成 hosted 验证保持未证明 |
@@ -428,22 +901,34 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 历史 [Issue #1808](https://github.com/eng-cc/oasis7/issues/1808) 中的旧 PM 工具问题随 [#4354](https://github.com/eng-cc/oasis7/pull/4354) 退出当前实现；本设计保留可适用于现行 CI 的依赖准备与缓存问题，不恢复旧任务或验收状态机。选择共享预编译安装器，是因为现有实现已集中拥有来源、摘要和版本检查，可以直接去掉 Release 的重复源码安装路径。
 
-`repository_health_engineer` 维护安装器、缓存接线及 apt 观察；`qa_engineer` 协作核对真实运行证据。主要残余风险是外部下载服务可用性、main seed 尚未产生、缓存被回收以及旧 tag 缺少安装器；这些情况分别按既有失败语义或正确冷路径处理。版本、平台、来源策略或 cache action 更新时重新审读受影响合同；没有实际 hosted 数据时保留未知项，不从文档状态推导发布成功。
+`repository_health_engineer` 维护安装器、缓存接线及 apt 有界安装；`qa_engineer` 协作核对真实运行证据。主要残余风险是外部下载服务可用性、main seed 尚未产生、缓存被回收以及旧 tag 缺少安装器；这些情况分别按既有失败语义或正确冷路径处理。版本、平台、来源策略或 cache action 更新时重新审读受影响合同；没有实际 hosted 数据时保留未知项，不从文档状态推导发布成功。
 
 <a id="ci-formal-process-design"></a>
 ## 真实进程验收的边界与结构
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 
-承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)。`ci-test-artifacts.py` 从 Cargo JSON 的 executable 字段收集可执行文件，并区分 formal、ordinary 与兼容本地入口的 all 构建范围。正式最小 producer 仅构建 required-feature 的 oasis7 library / chain-runtime binary harness、production runtime、release endpoint 及 default-feature distfs library harness；`oasis7-test-build` 保留普通 required 全包、Viewer 和 default-feature snapshot 的原变体。两个构建范围独立依赖 select，正式矩阵不等待普通 producer 完成。
+承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)。`ci-test-artifacts.py` 从 Cargo JSON 的 executable 字段收集可执行文件，并区分 formal、ordinary 与兼容本地入口的 all 构建范围。正式最小 producer 仅构建 required-feature 的 oasis7 library / chain-runtime binary harness、production runtime、release endpoint 及 default-feature distfs library harness；`oasis7-test-build` 按可信计划选择包级或独立 target 库存，完整 profile 保留原全包、Viewer、default-feature snapshot 并追加快速 feature 组合。两个构建范围独立依赖 select，正式矩阵不等待普通 producer 完成。
 
 正式 harness 的最小构建显式启用 `oasis7/ci_formal_required_features`，通过 native target 与 host build 的 optional dependency aliases 保留完整 required 根包共同构建时的依赖 feature 集合。该标记不参与业务 `cfg`，不自动启用，也不加入 production runtime、ordinary 或 default-feature snapshot 的原命令；依赖版本复用现有锁文件。验证比较完整构建与正式最小构建保留的完整依赖子树，并分别核对 host/build 与 target context 的实际 feature 组合，不能只比较根包上的 `test_tier_required` 字符串或把同包不同 context 合并后判断等价。
 
-正式 producer 分为互斥的候选只读入口 `formal-test-build` 和可信 main 写缓存入口 `formal-test-build-trusted`，共享相同构建步骤，每轮恰好运行一个。可信入口仅用于默认 main 上的 push、schedule 或 manual-full；其他候选不能取得缓存写权限。矩阵和固定汇总显式依赖两个入口，选中时要求恰有一项 success 且另一项 skipped；任何失败、取消或未知状态均阻断，不能让 skipped 的隐式 needs 传播掩盖应运行的矩阵。
+正式构建按 profile 拆成并行的两路。`formal-debug-build` / `formal-debug-build-trusted` 构建原有 required core、production runtime 与 default-feature distfs harness；`formal-endpoint-build` / `formal-endpoint-build-trusted` 只构建原有 release endpoint。每一路只读与可信入口互斥。Formal 的 DEV/TEST 显式使用原有 opt-level 0，保留 debug assertions 和 overflow checks；已有少数 package 的独立优化保持原配置，storage 专项继续使用自己的 opt-level 2，endpoint 保持 release opt-level 3 及原校验。构建、缓存身份、组件合并与消费校验使用同一配置，拒绝混入原全局 opt-level 2 的 Formal 产物。扩大优化范围必须先比较相同源码、features、runner 和缓存状态下的构建加真实用例关键路径。新 profile 只有可信 main 的完整运行使用 writer，`pr-fast`/`main-fast` 与其他候选保持只读；旧 BASE 回退保留原 main push 条件。
+
+两路构建为每个 Cargo 上下文输出开始、持续进度和结束状态，并启用稳定的 `--timings` HTML 报告。进度包含已耗时长和可取得的编译进程 CPU/RSS、主机内存及 swap 摘要，不读取或输出进程环境；未知指标保留为空。诊断按本轮独立目录保存，已产生的摘要与 timing 在成功或失败后上传，不能把旧缓存中的报告冒充本轮数据。观察器退出或缺少指标不改写 Cargo 的实际退出结果；心跳只表示观察器与进程状态，不证明编译有进展。缓存仍按实际 profile 隔离，不以新建缓存族或 rerun 次数作为预热证据。
+
+原 `formal-test-build` / `formal-test-build-trusted` job 名保留，职责改为下载两路精确输出 artifact、执行 `merge-formal` 完整核验并分包，不编译或写 workspace 缓存。选中的合并入口须在对应两组件均 success、另一对均 skipped 后才可运行；任一必选组件失败、取消、缺失或跳过均阻断。矩阵和固定汇总继续要求两个合并入口恰有一项 success 且另一项 skipped，保持可信 BASE 汇总合同。
+
+组件 manifest 明确区分 `formal-debug` 与 `formal-endpoint`，绑定同一 run/source/tested/checkout、计划、Formal 配置及 authority、工具链、平台和构建身份；`merge-formal` 按真实 Cargo target 库存核对 variant/package/kind/name、profile/features、文件摘要与实际测试列表，拒绝漏项、重复逻辑目标、跨角色或部分组件。相同字节的不同真实目标保留各自身份。组件不能直接进入完整 Formal 的 pack/run。全部核验通过才生成 `formal` 完整 bundle，合并不补编。
+
+组件 artifact 名包含实际 producer run/attempt，并通过 job outputs 传给合并入口。同 run、同源码失败重跑可组合较早 attempt 的成功组件；producer attempt 必须为正整数且不晚于当前 attempt，记录两路来源，拒绝跨 run、未来 attempt 或身份不一致。组件成功后可独立完成可信缓存维护，维护不等待分包、测试或 full-regression，也不影响 required/full 结论。
+
+新构建 scope 同时决定缓存 profile 与族容量，可信 Python 合同登记因此要求 `ci-test-artifacts.py` 的修改执行容量策略及共享 profile 的存储验收回归，`ci-workspace-cache.py` 的修改执行维护回归，覆盖 profile 断言、两组件预算、writer 身份与不跨族退休。迁移沿既有 full/all-groups 策略路径，固定 BASE 安全断言和真实 Rust fixture 保留，不修改合同运行器或其固定最低测试清单。
 
 重型 `formal-process-tests` job 在既有 `always()` 和两构建入口状态判断上同时要求 `!cancelled()`。同一 PR 的并发替换或显式取消使该条件变为 false，停止旧分片；保留 `always()` 处理互斥构建入口中合法的 skipped。固定 `formal-process` 与 `required-gate` 继续 always 汇总，取消、失败或意外跳过仍阻断；分片故障的 `fail-fast: false` 与诊断上传步骤的 `always()` 保持原语义。条件回归须覆盖取消前后、合法/非法构建结果组合及未选中路径，不以只匹配一段 YAML 文本代替实际条件判断。
 
 producer 核对完整清单后，为普通组及各物理分片输出独立 tar.gz，gzip level 1；保留 executable 权限，不传输整个 target。每包只带该消费者的 harness、生产子进程和动态库闭包，并报告原始字节、压缩字节和逐 binary 体积分布。consumer 核对原 run/source/tested identity、全局清单及所选闭包的 hash、profile 和实际 `--list`，不能因缺少不属于自己的二进制而补编。producer attempt 记录供审计；同 run、相同源码和构建身份的 consumer 重跑可复用先前 attempt 的产物。保持相同 checkout 布局，恢复编译时嵌入的 Cargo 程序路径，设置包工作目录、动态库路径及原二进制环境。普通集成测试需要的 Cargo binary 和 default-feature snapshot 不得被正式分包移除。
+
+完整 ordinary 由可信计划的 `ordinary_artifact_partition_version=1` 启用物理执行分片，保留唯一 producer 的完整 Cargo 命令、feature resolution 和完整 archive。`controls` 单独执行原 Clippy/WASM 检查；`runtime`、`component-libs` 分别执行主 runtime harness、其余 library harness；其余 harness 及两个 default-feature snapshot 检查按完整 binary/filter 身份排序后交替归属 `integrations-0`、`integrations-1`。每个消费者先核验完整产物，再按实际 variant/package/target 身份分配完整执行项；并集必须等于全部原执行项且各有唯一归属，新增 target 进入对应剩余类别。消费者内部串行，不重复 Cargo 构建或减少测试。本地未指定 `--ordinary-partition` 时，保留一次构建完整 bundle 后执行全部 ordinary 项的入口，并执行原 Clippy/WASM 检查。旧 BASE 没有该能力时保留 `all`，版本或分片缺失、重复、未知均拒绝。矩阵保持 `fail-fast: false`，任何必选分片失败、取消或跳过都阻断汇总。
 
 分片清单由 `scripts/ci-formal-process-suites.json` 拥有，实际名称以下载 harness 的 `--list`/`--ignored --list` 核对。清单中的旧过滤器用于检出重命名、遗漏和新增未分配验收；辅助入口单独登记，不运行整个 ignored 集合。
 
@@ -457,9 +942,19 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 | oasis7 lib / runtime bin required-feature 的非 ignored formal | runtime-protocol，保留原二进制环境 |
 | distfs default-feature lib 的非 ignored formal | storage-recovery，保留原二进制环境 |
 
-表中归属保持为逻辑 suite。物理分片可将 healthy-set 或 runtime-protocol 的完整慢用例放到较轻的分片；执行摘要同时记录逻辑 suite 与物理 shard，并对全集检查恰好一次归属。world-history 的单个 70 次连续操作场景保持完整，不能以切断历史链消除增长成本。上述非 ignored formal 命令未证明与普通环境等价，继续执行；snapshot_progress 与 legacy fields 回填仍使用原 default features。独立 ignored 验收按 `--exact --ignored --test-threads=1 --nocapture` 串行运行，矩阵 `fail-fast: false`、`max-parallel: 5`。world-history job 上限 45 分钟，其他分片初始保护上限 90 分钟；每次子命令绝对上限 40 分钟，均为防挂保护而非性能目标，后续按真实基线调整。
+表中归属保持为逻辑 suite。物理分片可将 healthy-set 或 runtime-protocol 的完整慢用例放到较轻的分片；执行摘要同时记录逻辑 suite 与物理 shard，并对全集检查恰好一次归属。world-history 的单个 70 次连续操作场景保持完整，不能以切断历史链消除增长成本。上述非 ignored formal 命令未证明与普通环境等价，继续执行；snapshot_progress 与 legacy fields 回填仍使用原 default features。每个精确 case 仍使用 `--test-threads=1`，ignored case 仍带 `--exact --ignored --nocapture`。
+
+runtime 的两个完整 membership 场景分别放到 healthy-set（actual world noise follower）与 lifecycle-cli（confirmation proposal timeout recovery）；逻辑 suite 仍为 runtime-protocol，继续独占各 runner 的 CPU 预算。预计算物理分片同时考虑显式 case 和所选 environment batch 的 override；构建后仍须证明 override 命中真实库存，不能因为 case 来自非 ignored batch 而漏选目的分片。
+
+新完整 manifest 的 `formal_execution_version=1` 允许分片内采用有界完整用例执行池。只有可信 Formal 配置 `parallel_cases` 中按 binary 身份、完整测试名登记并审读隔离性的 case 可占 1 或 2 个 CPU 槽；总槽数不超过 `native_cpu_budget()`，worker 最多 4 个。未知、新增未登记 case 与 shell script 独占全部预算。候选运行只接受 BASE 的并发许可，不因候选配置扩大并发；旧或未知 execution version 保留串行。每个 case 拥有独立进程 owner、绝对期限、结果身份、计数和清理，取消后不再启动排队项；任一失败使本次选定执行失败，已完成成功的结果不被其他 worker 后续失败改写。结果核验通过后才追加逻辑 suite / 物理 shard 元数据，不能以并发掩盖缺项或重复。
+
+初始许可覆盖 18 个精确 runtime case：局部内存 snapshot、私有 Scratch/CAS 的 multivalue 与 prefix ledger、完整 SIGKILL 恢复、10 高度存储验收、单 Node publication 恢复，以及独立 endpoint 的 authenticated native pair。私有根使用 PID/序号或随机材料区分，故障配置通过各子进程环境传递，TCP listener 持有零端口绑定直到关闭，子进程有独立清理；有真实 Node/子进程的条目占 2 槽。先释放临时端口再重启固定地址的 protected runtime、四 Node 时序敏感 membership 和 70 步世界历史仍独占。此许可基于源代码隔离性审读，首次主线并发仍须核验实际期限、清理和资源，不能据此声称已有 hosted 加速。
+
+矩阵 `fail-fast: false`、`max-parallel: 5` 保持。world-history job 上限 45 分钟，其他分片初始保护上限 90 分钟；每次子命令绝对上限 40 分钟，均为防挂保护而非性能目标，后续按真实基线调整。
 
 正式 workspace 缓存使用官方 restore/save 的独立步骤。先恢复既有可信依赖缓存，再恢复本次正式构建实际使用的仓库内 path package 编译单位；不重复保存整个第三方依赖 target。
+
+Formal debug 和 release endpoint 使用独立依赖 namespace `ci-formal-debug-deps-trusted-v1` / `ci-formal-endpoint-deps-trusted-v1`，由各自真实组件构建自然准备其精确 Cargo context。shared-native 的命中不能代签这两份独立缓存已准备；是否复用必须依据本组件真实恢复结果与 Cargo fresh/rebuilt。两路 reader/writer 使用相同 namespace、工具链与显式 profile 环境；候选只恢复，可信 main schedule/manual-full 的对应 component writer 仅在 job 成功后保存。上传前复用现有实际压缩归档准入，校验 writer/job/key/run/platform 和完整仓库额度；准入安装或容量检查失败时跳过保存，完整构建与测试照常执行。维护按各 namespace/environment/cache version 保留完整恢复锚点，不把 debug、endpoint 或旧 shared-native 互相视为替代。
 
 构建从 Cargo 的 compiler-artifact 与 build-script-executed 消息确定具体产物 hash，保存对应 deps、完整 .fingerprint、build-script 编译与执行输出目录以及公共可执行文件。内容和纳秒时间戳原样保留，不改写 Cargo fingerprint 来强制命中。缓存目录位于 RUNNER_TEMP，恢复前校验绝对 checkout/target 身份、路径、文件类型、长度、权限和摘要，完整校验通过才叠加到依赖 target。
 
@@ -471,7 +966,9 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config、构建与缓存脚本、实际 build variants 和 features/profile，source SHA 用于精确条目，同一兼容前缀才可回退。候选只读，可信 main producer 才可保存。
 
-8 GiB 上限约束所选 workspace 文件的原始逻辑字节；所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。
+两路使用独立的 `formal-debug-workspace-v1` 与 `formal-endpoint-workspace-v1` 兼容前缀，可信 writer 分别固定为 `formal-debug-build-trusted` 与 `formal-endpoint-build-trusted`，避免一种 profile 的命中掩盖另一种冷编译。debug 原始 staging 上限 6 GiB、单份上传上界 768 MiB；endpoint 分别为 2 GiB、256 MiB。各保留两代、允许临时第三代，新两族合计常驻目标 2 GiB、轮换上限 3 GiB。历史 `formal-workspace-v3` 仍按旧族的 8 GiB staging、1 GiB 单份上传、两代/临时三代治理，不根据任一新组件的存在跨族删除；迁移期间旧族占用与新两族一并计入既有全仓预算及依赖轮换预留，容量不足跳过保存，不能提高额度或伪报缓存收益。
+
+所有 producer 仅用 stat 报告完整 target、所选单位、硬链接去重字节、目录归因和预算 eligible，不为测量计算 payload 摘要、复制文件或改写源码 mtime。
 
 只有允许写入且未精确命中的 producer 才校验并准备缓存，超限正常跳过 save。远端代数与实际压缩总字节按[容量治理](#ci-cache-budget-design)独立约束，不能把单份 staging 预算当成仓库总量保护。
 
@@ -491,9 +988,11 @@ CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`te
 
 世界 library、状态序列化、正式读投影与共享构建输入变化继续选择 formal 验证，不把玩法代码整体视为与正式运行无关。新增、删除、重命名及测试 fixture 都使用 base/source/tested 的关系并集。
 
-`formal-process` 使用 always 汇总：选中时构建和矩阵均须 success；未选中时矩阵须 skipped，明确输出 not_selected。required-gate 只新增此固定依赖。可信 base 尚无 formal_process 时，仅保守扩大：full 或相关 Rust 组选择全部分片；不修改旧计划使旧结果校验器接受未知组。新 base 通过原 Cargo 反向图映射选择 formal_process。schedule/manual-full 明确选全部重型分片，普通 full-standard 不重复执行重型链路；专用 package dispatch 保持原行为。
+`formal-process` 使用 always 汇总：选中时构建和计划内矩阵均须 success；未选中时矩阵须 skipped，明确输出 not_selected，required-gate 等待此固定依赖。新 profile 按[分层实施](#ci-fast-pr-periodic-full-design)的可信路径风险选择逻辑 suite，并保留跨物理 shard 的完整 case。旧 BASE、控制输入或缺窄映射仍保留原覆盖；可信 base 尚无 formal_process 时仅保守扩大，不改旧计划使旧校验器接受未知组。schedule/manual-full 始终包含全部重型 suite，full-extended 不重复执行其独立链路；专用 package dispatch 的独立用途保持。
 
 进程运行器使用单调绝对期限、20 秒存活心跳及独立进程所有权标识。Linux 扫描同 UID 环境标识并核对进程 starttime，清理包括脱离原进程组的自有后代；macOS 本地兼容使用独立进程组。退出码、超时、实际测试数、清理结果分别保存。摘要产物只含测试名和运行元数据；原输出通过 nocapture 进入 job 日志，不打包临时世界目录。
+
+live 日志背压不得阻塞监督期限、结果落盘或自有后代清理。每个运行器进程仅有一个有界后台转发队列，不修改共享 stdout 的 open-description flags；队列满时只抑制 live 转发，独立 reader 仍以有界 chunk/候选摘要行读取完整子进程输出，仅保留最后一个有效标准 libtest 计数。摘要记录实际读取的 `output_bytes`、被队列明确抑制或丢弃的 `output_suppressed_bytes`、结果生成时尚未确认写出的 `output_pending_bytes` 及读取错误类型，不新增 raw 日志产物，也不以 live 日志是否送达改变测试选择或成功条件。未完整读取的摘要不能证明执行数量。退出成功若到绝对期限后才被监督者观察到，仍记 timeout/failed；结果文件先于最后的 live 结果通知保存。受控背压回归证明这一机制，不代表某次 hosted 停滞的根因已确定。 每次调用独立快照当前输出描述符，排队片段持有独立副本并在转发或抑制后关闭，防止跨调用重定向失配或描述符复用误投。显式普通文件重定向保留完整输出；storage acceptance 通过可选普通文件日志入口保存原有逐 case 日志，独立于可抑制的控制台转发，不经 Tee 回调。该显式日志必须完整读取且无写入错误才可接受，结构化容量及全节点报告仍从完整日志核验；普通调用不新增默认 raw 日志或 spool。
 
 验证方法见[测试手册](../../../testing-manual.md#ci-formal-process-validation)。具体候选、失败、独立评审及 hosted 结果归当前 PR，未完成真实 runner 验证不得宣称产物复用已验收。
 
@@ -501,11 +1000,13 @@ CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`te
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用[容量要求](ci-tiered-execution.prd.md#ci-formal-cache-budget)。
 
-普通构建使用 `ordinary-workspace-v1`，先恢复共享依赖 target，再按上述内容、完整路径集合和纳秒 mtime 校验叠加本地单位。四个 ordinary build variants 和完整测试 artifact 保持原语义；只选择非测试 library（包括 proc-macro）及完整 custom-build 编译/执行单位，不把 test harness 或普通 binary 放进这份缓存。缓存记录的默认选集仍是完整单位，Formal 与 ECS 不受 library 过滤影响。每个 variant 分别记录本地与第三方 compiler-artifact 的总数、fresh 和 rebuilt；这些是单位观测数，不是唯一 crate 数。
+普通构建使用 `ordinary-workspace-v1`，先恢复共享依赖 target，再按上述内容、完整路径集合和纳秒 mtime 校验叠加本地单位。旧完整范围保留四个 ordinary build variants；新快速计划按 package、Viewer 消费者和 snapshot owner 选择真实变体，并保留对应测试 artifact 语义。缓存只选择非测试 library（包括 proc-macro）及完整 custom-build 编译/执行单位，不把 test harness 或普通 binary 放进这份缓存。缓存记录的默认选集仍是完整单位，Formal 与 ECS 不受 library 过滤影响。每个 variant 分别记录本地与第三方 compiler-artifact 的总数、fresh 和 rebuilt；这些是单位观测数，不是唯一 crate 数。
 
-候选与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；只有可信 main 的 push、schedule 或 manual-full 可以保存。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；原 ordinary、full 与最终汇总继续依赖此结果；三个构建消费者使用显式状态条件和汇总 success，避免互斥入口的 skipped 祖先传播，取消后不启动消费者。
+只读与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；新 profile 仅可信 main 完整运行可保存，旧 BASE 回退保留原 main push 条件。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；ordinary 消费者和最终完整汇总依赖此结果，`full-extended` 不依赖普通 bundle、可独立并行。显式状态条件避免互斥入口的 skipped 祖先传播，取消后不启动消费者。
 
-保存前测量所选库的 6 GiB raw 上限，再按实际 compact 归档和外包装上界检查 768 MiB 单份上传、1.5 GiB 常驻目标、2.25 GiB 临时写入上限及全仓预算；无法形成有界完整缓存时跳过保存并完成原构建和测试。
+保存前测量完整库选集；超过 6 GiB raw 上限时，按 profile/fingerprint 组织完整 Cargo 单元，优先保留最近构建的单元，同时间戳按稳定路径排序，跳过无法容纳的超大单元。必须保留 build-script 支持目录及其 fingerprint、已解析的混合无哈希库相关单元和跨组硬链接涉及的单元；缺失输出、未绑定路径、歧义或不安全状态拒绝保存。保留完整输入快照和包归属，未缓存单元由 Cargo 正常重建并传播失效，不修改 target 或编译、测试选择。该排序是有界打包启发式，不承诺最优复用率。
+
+raw 大小不能代替压缩结果。ordinary 最多执行三次本地完整单元选集压缩试算，按实际 compact 归档和外包装保守上传上界缩小选集，不重试远端上传。最终重新读取完整远端库存，核对 1.25 GiB 单份上传、2.5 GiB 常驻目标、3.75 GiB 临时写入上限、依赖周转预留和全仓预算；仍不满足预算时跳过保存并完成原构建和测试。诊断分别记录完整选集、选中大小、单元裁剪和各次压缩上界；重选阶段的 omitted 数仅描述该阶段输入，不作为原始选集累计数。
 
 所有状态、归档和报告位于 runner 临时目录，禁止 Python bytecode 污染源码扫描。
 
@@ -537,7 +1038,7 @@ Only a recognized access-denied response from the quota endpoint, excluding rate
 
 Diagnostics retain only bounded, allowlisted status/request/permission information; response bodies and credentials are not logged.
 
-The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21. The trusted workflow therefore supplies a conservative 10,000,000,000-byte budget. This is a recorded configuration source, not a claim that every run read the live quota. Maintainers must reverify this setting when the repository cache limit changes.
+The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21; the historical numerical fixtures retain that 10,000,000,000-byte policy. The trusted workflows now configure a 20,000,000,000-byte repository budget, unchanged by the Ordinary single-upload increase. These configured values do not claim that every run read the live quota; a lower valid live limit still wins. Maintainers must reverify the setting when the repository cache limit changes.
 
 Reports separately identify the live limit, configured and effective budgets, capacity basis, observed inventory and projected usage. The entry point never changes repository limits or grants administration permissions.
 
@@ -547,7 +1048,7 @@ Capacity checks use the measured compressed payload plus a conservative bound fo
 
 The wrapper guard validates GNU tar and GNU gzip and rejects inherited TAR_OPTIONS/GZIP overrides. It measures the actual outer tar records, then takes the larger safe zstd streaming or GNU gzip CLI bound (including block/header slack), rather than a generic zlib bound for unrelated deflate parameters.
 
-The payload must remain the same single-link regular file before and after measurement. The ordinary/Formal 768 MiB upload ceilings and all repository/family budgets remain unchanged; real gzip and zstd wrapper regressions check the bound independently.
+The payload must remain the same single-link regular file before and after measurement. Upload ceilings are 1.25 GiB for ordinary, 768 MiB for Formal debug, 256 MiB for Formal endpoint and 1 GiB for legacy Formal; all repository/family budgets are checked independently; real gzip and zstd wrapper regressions check the bound independently.
 
 The complete all-ref/all-family inventory plus this upload bound must fit the effective repository budget. Separately, the main ECS family inventory plus the bound must fit the ECS family budget.
 
@@ -570,3 +1071,13 @@ Successful trusted main producer and compatible consumer samples remain required
 The runtime-protocol suite registers one real-owner controlled regression for admission and Node-worker budget consumption. With a short test-only timeout, a held admission gate must return retained Pending before release without creating a late worker; a later retry keeps the same owner and exactly one worker until real completion. Join-only Pending, unstarted/already-stopped stop(0), poison and cleanup failure remain distinct. This regression does not increase any existing caller or production stop timeout. Artificial blocking proves this mechanism rather than any historical CI root cause; measured return overruns include OS scheduling. No diagnostic workflow, observer or production timeout is enabled by this registration.
 
 Controlled crash-publication shutdown must distinguish a zero-budget Pending before worker creation from a Pending while a worker owns the Node. It advances that same owner with a positive interval bounded by the existing scenario/10-second observation deadline before asserting worker ownership; zero-budget Pending alone never authorizes release or successful completion. No retry creates a replacement worker or renews the scenario budget.
+
+## Worker 生产编译的精确平台组合
+
+Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、完整 feature/平台覆盖和可信基线要求，不新增游戏权限。
+
+生产模块名含 `test_session` 不等于 Rust 测试，但其新增 cfg 必须证明实际可编译。可信 planner 与可信 CI driver 共用封闭 Worker wasm 编译组合：四个角色分别单独编译，另分别编译 Owner+approval-harness、Identity+native-runtime-harness。每条均为 `wasm32-unknown-unknown`、`--no-default-features`、`--locked` 的独立命令；不合并互斥角色。六项已有主线平台 driver 先例，可信 driver 继续执行原 `verify.sh --platform` 并直接执行同一精确编译命令库存，使新候选不能仅凭声明一个 feature 或脚本名取得证明。
+
+该证据只用于同属 Worker 的静态、无环、无 opaque 生产模块路径，要求父路径与局部 cfg 在同一个实际组合全部成立。未声明 feature、未知谓词、矛盾角色、跨包路径及不可证明的 mount 保持拒绝。编译时 `test=false`；该库存不执行或授权 wasm `#[test]`、ignored 用例，不改变原 native/expanded 测试组合和忽略用例 runner 登记要求。新增平台组合须独立审查并先进入可信 main；候选自行修改 planner/config 不成为该候选的授权来源。
+
+第七项作为新引入的封闭条件合同预登记，不能称为既有主线编译证据：仅当 Worker manifest 声明空、默认关闭的 `execution-signer-harness=[]` 时，可信 driver 才追加 Executor+execution-signer-harness 的成功编译，并分别验证 Identity、Owner、RecoveryFence+该 feature 的失败编译及精确 guard 消息。feature 缺失时不执行这四项，也不声称已编译。每个 tuple 都以实际 manifest 的本地 feature 传递闭包，同时核对父路径和局部 cfg；不注入 default，不跨 tuple 合并。非空声明、default 闭包开启，或六个原组合通过角色或 harness 别名隐式开启该 feature 均直接拒绝；无法建模的 optional/weak/implicit 依赖传播不能推定为已编译。失败编译仅证明精确字面 `compile_error!` guard，不能证明其后的任意生产函数、模块或测试可执行；真实成功组合仍逐实际 parent/cfg 核对。此前所有新增 ignored 用例的 runner 缺口保持独立阻断。

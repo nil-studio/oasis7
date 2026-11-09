@@ -92,4 +92,23 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 
 既有 [claim 回归源码](../../../crates/oasis7_runtime/src/tests/agent_claims.rs)仅作对应原生命周期的对照，需新增制造来源实例后另行执行。适用实玩按[Agent 自测手册](agent-runtime-self-playtest.manual.md)组织正式支持入口的受限主 Agent 路线与扩张样例；输出 CI、世界结果、来源 generations、拒绝记录与行动归因。Agent/自动化证据不代签真人理解、完整部署或 AOS-005 经济转让验收。
 
+<a id="mfg-v08"></a>
+### MFG-V08：单主经营、团队扩张与当前授权的同候选比较
+
+Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465；关联 [REQ-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-003)、[AC-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-003)与[团队成长接收](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-team-growth-reception)。本节为新增组合方法，未执行；V01–07 的原场景和证据边界完整保留。
+
+固定同一 source/config/policy、world/chain/genesis、已认证主体与原非制造主 Agent。准备原合法自营 Assembler MK1、当前取得来源与 cap=2、按首版配方确实齐套且没有他人占用的材料/48制造电力、至少488可用 liquid，并保存完整前态/原授权及原件。主 Agent 只有注册绑定、没有经济 claim 也仍占一个取得名额；初始素材必须来自所声明 fixture 或真实世界，fixture 不能代签正式来源。required 用同前态的独立分支；full 在同候选正式入口对照实际生产与读面，任一 producer/adapter 不具备时如实未执行。
+
+| 同一基线的分支/刺激 | 独立预期与要比较的原件 |
+| --- | --- |
+| S：查看制造报价后保留单主经营 | 报价/读取不预留、不建订单或新 claim/upkeep。原主 Agent 经原合法入口完成一项已支持的采集或普通工业动作，用真实领域结果及账本差分确认；主 binding、starter 记录和 Agent 数不变，不因未制造第二成员被拒 |
+| T：完整确认、合法生产、一次交付 | 复用 V02/V04：确认时所有原资源/容量一次预留，尚无第二 Agent/维护；开工一次消耗五类原材料和48电力，累计12个合法 tick 后才可交付。slot-2逐项 ceil 为150/300/38，总488 liquid，旧主 Agent 没有经济 claim 也不能收325或发 slot-1 支持；交付只把预留 target 换为一个真实 target，同根 Agent/claim/source/identity/receipt，主 binding 不变 |
+| T 后的直接调度与未授权自治 | 新目标零初始资源，先按 V04 用原合法来源满足具体动作所需资源；合法当前 owner 的明确目标动作和他人/旧主 grant 拷贝分别测成功/拒绝。新 Agent 不自动具有新目标、grant、private memory、额外 OC 或治理权；无目标旧入口仍定位原主 Agent。明确创建原受支持范围的新 grant 后才测该范围行动，不能把拥有对象等同于可任意自治 |
+| R：容量、资金、来源或授权不足 | 每次只改一个条件：已占满 cap、488前一单位不足、材料/电力不足、来源过期/更正、操作人撤权、其他预留争抢。当前拒绝不能留下半预留、半交付、新支持或负余额；V02 的第三对象 ClaimAgent 不得绕共享并集或工业来源限制 |
+| R：已投入后失权、到期、未知与合法恢复 | 复用 V03/V05/V07：保原投入、WIP、硬截止、原主绑定与旧义务；不算离线/无权 tick，不换 beneficiary/source 解除 blocker。原结果未知先按当前读权查询原请求；正式 snapshot+非空 suffix 恢复与无中断参考逐项相等，不能重复取得、收费、退款或清原责任 |
+
+**共享授权的第二独立对照。** 在已支持组织/合同 family 中，沿[原合同形成验收](agent-mediated-contract-formation-acceptance.manual.md#cf-11-mandate-exposure)的 CF09/11/13/15/16/17 使用真实同一 grant/source/object/period 和全体实际 writer。令第一 Agent 对该 source 产生原 CF11 的 D=0/O=4/C=2；第二 Agent 对同一来源再提出 O=4/C=1，总11超过 limit10，应整笔拒绝且仍为0/4/2，不能把新 Agent 当新10额度。首件真实支付3和费用1后为 D4/O1/C1；真实退款3不减 D。未解决 O/C、原关闭费用和撤权后的狭义义务按原合同保留。另测不同独立 grant 不被错误合并成通用额度，但同一底层资产预留仍互斥；旧 native owner delegation 仅有原 Electricity usage 时按其本来规则，不伪造 D/O/C 字段或扩合同 family。
+
+按 V06 在 Viewer、pure API、获准 Agent 读同 cut 的主对象、已交付对象与在途订单；分别看到真实费用/维护/授权范围/未结义务/阻断与合法下一步。换账号/世界/来源或断线后不能继续显示旧可执行建议，裁剪或未读下一页不得解释为空团队/无责任；仍使用20/50分页、16 KiB请求和原鉴权预算。证据分别记录原领域结果、源与授权、预算账本、各入口原投影/截图和实际 verdict；候选卡、Agent 对话、源码存在或自动化记录不代签真人理解、数值平衡和发行结论。
+
 所有 verdict 只写入后续实际实现 PR 与运行证据；本手册及系统设计关系检查通过仍仅证明文档和验收计划可追溯。

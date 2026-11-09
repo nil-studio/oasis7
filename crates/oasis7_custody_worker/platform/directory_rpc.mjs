@@ -27,3 +27,5 @@ export async function prepareTestSession(env,raw) { return env.OWNER_MANAGEMENT.
 export async function approveTestSession(env,raw) { return env.OWNER_MANAGEMENT.approveTestSession(raw); }
 
 export async function continueTestSession(env,raw) { return env.OWNER_MANAGEMENT.continueTestSession(raw); }
+
+export async function queryOwnerParents(env, raw) { return env.OWNER_MANAGEMENT.queryParents(raw); }

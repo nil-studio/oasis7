@@ -40,7 +40,7 @@
   - SC-8: repo-owned provider real-play helper 文档与脚本（公开 `site/skills/oasis7.md` 以及 `scripts/setup-provider-oasis7-runtime.sh`、`scripts/provider-parity-p0.sh`）中的当前 cargo 运行命令与入口路径必须统一使用 `oasis7` / `crates/oasis7*`；旧品牌包名与源码路径仅允许保留在兼容说明、历史证据或外部原文引用中。
   - SC-9: `run-launcher-stack.sh`、`run-producer-playtest.sh` 与新的 worktree harness 主入口必须支持“每个 git worktree 一套独立端口、独立 bundle、独立日志 / 产物目录、独立浏览器 session”的隔离执行，不再默认复用全局端口与全局 bundle 目录。
   - SC-10: 提供可选的标准 worktree 创建入口，统一命名、路径和失败恢复；开发在独立分支进行，隔离需要按实际任务决定。
-  - SC-12C: 仓库必须提供同一 PR 内 review comment 收口 helper，能够统一盘点 unresolved review threads、按 thread id 执行显式 resolve，并在每次操作后回报 `reviewDecision` / `mergeStateStatus`，避免 comment 处理继续依赖临时 GraphQL 命令拼装。
+  - SC-12C: 提供按需使用的 PR review-thread 工具，查询实际线程，或在显式指定 PR 和线程范围后执行 resolve 并回读结果；合入条件由[开发流程规范](../engineering/workflow/source-of-truth.md#42-评审与合入)统一定义。
   - SC-12D: 仓库必须提供 `.pm` rebase 冲突辅助入口，在 branch 跟进最新 `main` 时统一报告 `.pm/**` 未合并路径；`.pm/inbox/signals.jsonl` 已退休，命中时只能提示删除退休文件或人工归档，git-ignored 本地视图冲突只能提示“保留 `main` 删除并重建”，不能回退到人工恢复共享视图文件。
   - SC-13: 资源清理独立于代码交付，保留 dirty、未合入、使用中与身份不明的资源。
   - SC-13A: 只读 worktree 报告汇总 Git 注册、HEAD、文件状态、main 可达性与体积，不读取 PM/PR 状态决定资格，也不输出删除建议。
@@ -71,7 +71,7 @@
   - PRD-SCRIPTS-003: As a 排障人员, I want explicit fallback tooling rules, so that issue triage is faster.
   - PRD-SCRIPTS-004: As a `qa_engineer`, I want a worktree-isolated harness for Viewer Web / launcher stack, so that multiple agent tasks can boot, verify, and tear down isolated stacks without port, artifact, or browser-session collisions.
   - PRD-SCRIPTS-007: As a `producer_system_designer`, I want a standard task-worktree GitHub PR closure command, so that completed work enters protected `main` with one consistent, auditable path instead of ad hoc local landing.
-  - PRD-SCRIPTS-007B: As a `producer_system_designer`, I want a PR review-thread closeout helper, so that same-PR comment maintenance no longer depends on ad hoc `gh api graphql` snippets and can recheck merge state after each resolve batch.
+  - PRD-SCRIPTS-007B: As a reviewer, I want optional thread inspection and verified explicit resolution, so that comment maintenance uses native GitHub state and leaves merge checks to the existing workflow.
   - PRD-SCRIPTS-007C: As a `producer_system_designer`, I want a `.pm` rebase conflict helper, so that same-PR rebase maintenance can distinguish retired signal inbox conflicts, generated-view conflicts, and canonical task/memory/stage conflicts that still require manual judgment.
   - PRD-SCRIPTS-008: As a 开发者, I want explicit identity, merge, material and process checks before cleanup, so that delivered code can be cleaned without losing ongoing work.
   - PRD-SCRIPTS-008A: As a 开发者, I want a read-only Git/filesystem report, so that registered worktrees and disk use are visible without deletion advice.
@@ -81,7 +81,7 @@
   2. Flow-SCR-002: `CI 触发脚本 -> 失败定位到参数/环境 -> 修复后重跑`
   3. Flow-SCR-003: `常规链路无法复现 -> 触发 fallback 工具 -> 采集诊断证据`
   4. Flow-SCR-004: `new-task-worktree.sh <module> <task> -> 创建 codex/<module>-<task> 分支和 worktree -> setup；失败保留 -> --resume-setup 补齐缺失步骤`
-  6B. Flow-SCR-006B: `pr-review-thread-closeout.sh [pr-number] --unresolved-only -> 盘点 unresolved review threads -> 修复并 push 当前 PR -> pr-review-thread-closeout.sh --resolve-thread <id>|--resolve-all-unresolved -> resolve thread -> 回报 reviewDecision / mergeStateStatus 并继续下一轮 comment closeout`
+  6B. Flow-SCR-006B: 按需运行 `pr-review-thread-closeout.sh [pr-number] --unresolved-only` 查询线程 → 处理实际反馈 → 显式指定 PR，运行 `pr-review-thread-closeout.sh <pr-number> --resolve-thread <id>` 或 `pr-review-thread-closeout.sh <pr-number> --resolve-all-unresolved` → 回读线程及本次结果。合入前另按开发规范核对当前候选，不以线程数量代替合入判断。
   6C. Flow-SCR-006C: `git rebase origin/main -> 命中 .pm/** 冲突 -> rebase-conflict-helper.sh --json -> 若命中 retired signal inbox 则删除退休文件或人工归档 -> 若命中 registry/backlog 视图则保留 main 删除并执行 sync-views -> 其余 canonical task/memory/stage 冲突人工处理`
   7. Flow-SCR-007: `确定独立分支与隔离需求 -> 保留已有工作 -> 实施与验证 -> 正常受保护 PR 合入`
   8. Flow-SCR-008: `cargo-dev.sh check/test/run -> 使用 Cargo 原生 target 解析 -> 应用本地开发 profile 与可用 sccache -> 执行 cargo`
@@ -96,7 +96,7 @@
 | 标题品牌治理 | 标题前缀、适用专题、兼容命名说明 | 将脚本治理专题标题统一切到 `oasis7` | `legacy_title -> oasis7_title -> audited` | 先改治理主入口，再改周边专题 | owner 可改，治理门禁复核 |
 | worktree-isolated harness | `worktree_id`、端口组、状态文件、bundle 根目录、artifact 根目录、browser session | 通过单一 harness 入口执行 `up/down/status/url/logs/smoke` | `idle -> booting -> ready -> verifying -> torn_down` | 先按 worktree 生成稳定身份，再为该 worktree 派生 bundle / port / output | `qa_engineer` 维护主入口，runtime/viewer 协同实现 |
 | `.pm` rebase conflict helper | `rebase_in_progress`、`summary.total_conflicted_paths`、`summary.retired_signal_conflicts`、`summary.generated_view_conflicts`、`summary.manual_conflicts`、`conflicts[].category`、`conflicts[].recommended_action`、`resolved_now` | 在 active rebase 中只读分类 `.pm/**` 未合并路径；不自动修复任何 `.pm/**` 路径 | `rebase_conflicted -> classified -> manual_resolution_pending` | `.pm/inbox/signals.jsonl` 已退休，命中时只提示删除退休文件或人工归档；`.pm/registry/tasks.yaml` 与 `.pm/roles/*/backlog/*.yaml` 只提示保留 `main` 删除并执行 `sync-views.sh` | `producer_system_designer` / `qa_engineer` 可读，scripts owner 维护入口 |
-| PR review thread closeout | `pr_number`、`thread_id`、`is_resolved`、`is_outdated`、`path`、`line`、`latest_comment`、`review_decision`、`merge_state_status` | 通过统一入口读取当前 PR review threads，并在显式 resolve 时批量关闭指定 unresolved thread | `reported -> patched -> resolved -> rechecked` | 默认 PR 取当前 branch 关联 PR；`--resolve-all-unresolved` 只处理当前 unresolved thread；每次 resolve 后都必须回报最新 PR state | `producer_system_designer` 定流程，scripts owner 维护入口 |
+| PR review thread 工具 | 目标 PR、线程与统计、本次已核实 resolve 的 ID | 默认只读查询；显式指定 PR 和线程范围后 resolve，并回读验证 | 使用 GitHub 线程的实际 resolved/outdated 状态 | 查询可取当前分支关联 PR；`--resolve-all-unresolved` 只处理本轮查询到的 unresolved threads | 沿用实际 GitHub 读写权限及任务授权，scripts owner 维护入口 |
 - Acceptance Criteria:
   - AC-1: scripts PRD 明确脚本分类、入口、约束。
   - AC-2: PR 记录具体问题、改动、验证版本与结果；Issue 按需。
@@ -113,8 +113,8 @@
   - AC-13: `scripts/new-task-worktree.sh` 默认在源 worktree 脏时阻断，并给出显式 override；对已存在路径、已被其他 worktree 占用的分支和非法空 slug 提供清晰失败语义。
   - AC-14: `--json` stdout 仅一个对象，包含 `worktree`、`worktree_path`、`branch`、实际 `head`、`worktree_created`、`setup_status`、`failed_step`、`recovery_command`。setup 失败返回 1 并保留现场；身份或参数冲突返回 2。
   - AC-16: `scripts/new-task-worktree.sh --json --init-docs` 必须输出机器可读 `doc_checks`；加 `--with-harness` 时，stdout 仍保持单个 JSON 对象，并附带 `harness` 摘要字段。
-  - AC-18C: 新增 `scripts/pr-review-thread-closeout.sh`，默认按当前 branch 关联的 PR 读取 review threads；`--unresolved-only` 仅返回 unresolved threads，`--resolve-thread <id>` 可重复，`--resolve-all-unresolved` 只在显式传入时执行批量 resolve。
-  - AC-18D: `scripts/pr-review-thread-closeout.sh --help` 必须明确列出 `[pr-number]`、`--unresolved-only`、`--resolve-thread`、`--resolve-all-unresolved` 与 `--json`；`--json` 至少输出 `pr.number`、`pr.review_decision`、`pr.merge_state_status`、`summary.total_threads`、`summary.unresolved_threads`、`resolved_now.thread_ids` 与每个 thread 的 `id`、`is_resolved`、`is_outdated`、`path`、`line`、`latest_comment`。
+  - AC-18C: `scripts/pr-review-thread-closeout.sh` 默认按当前分支关联的 PR 查询线程；`--unresolved-only` 只筛选返回的线程列表。resolve 必须显式指定 PR，重复的 `--resolve-thread <id>` 与 `--resolve-all-unresolved` 互斥；核对线程属于目标 PR，执行后回读确认结果。
+  - AC-18D: `scripts/pr-review-thread-closeout.sh --help` 说明查询和显式 resolve 参数。工具以 JSON 返回 `pr.number`、`pr.url`、`summary.total_threads`、`summary.unresolved_threads`、`threads` 和 `resolved_now` ID 数组；线程使用 `id`、`isResolved`、`isOutdated`、`path`、`line`，统计基于完整查询结果。线程结果不包含合入判断，当前字段和失败行为由 `scripts/pr-review-threads.py` 及其测试核验。
   - AC-18I: 仓库必须提供轻量 Web/UI automation smoke `scripts/viewer-software-safe-step-regression-smoke.sh`；该脚本需在不启动完整 runtime 栈的前提下，通过临时 fixture 页面复用真 `agent-browser` 与 `scripts/viewer-software-safe-step-regression.sh`，并验证 `software-safe-step-summary.json` 与关键 state artifact 的最小契约。
   - AC-20: `resource-cleanup-executor.py` 默认只读；只有身份、expected HEAD、已合入证明、资料与占用检查通过才可执行 worktree remove 和 ref CAS 删除；含子模块时仅按开发规范的显式有条件例外执行单次强制删除。阻挡或部分完成返回 1；参数错误返回 2。
   - AC-22: `--resume-setup` 只恢复同 common-dir、精确 path/branch 的注册独立 worktree；不更改 HEAD 或 dirty 文件，与 `--with-harness` 互斥。config 已有则保留；缺失发布不覆盖；不创建、替换或准备 Cargo target。
@@ -143,7 +143,7 @@ unknown ignored 文件、真实 target 目录、target 符号链接和改动 con
 
 执行前重查 Git、base 与材料，remove 成功后才用事务核验 base 并按 expected 删除 branch；另一 worktree 检出、tip/base 改变或 ref 重建均保留并报告部分完成。JSON 的 `eligible`、`blocked_reasons`、`worktree_removed` 和 `branch_removed` 反映实际结果。
 
-含子模块时默认保留；`--allow-submodules` 仅启用[含子模块工作区的有条件清理](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)，不放宽身份、交付、材料、锁定或占用保护。该选项可用于预览，只有同时传入 `--execute` 才会先非强制反初始化，再执行一次 `--force`。已初始化和缓存的递归子模块均核对 gitlink、暂存区、未推送/不可达对象和独立 Git 数据；自定义 config/hooks、改动默认模板及未知或进行中的 Git 操作资料均保留；未知 ignored 资料、共享或外置 Git 数据、未覆盖的本地 refs/reflog 提交均阻断。远端证明来自当前本地 remote refs，调用前按需正常 fetch；工具不声称远端引用实时有效。JSON 附带 `submodule_gitdirs` 和 `submodule_force_remove`，后者只在实际成功执行该删除后为 true。
+含子模块时默认保留；`--allow-submodules` 仅启用[含子模块工作区的有条件清理](../engineering/workflow/source-of-truth.md#submodule-worktree-cleanup)，不放宽身份、交付、材料、锁定或占用保护。该选项可用于预览，只有同时传入 `--execute` 才会先非强制反初始化，再执行一次 `--force`。已初始化和缓存的递归子模块均核对 gitlink、暂存区、未推送/不可达对象和独立 Git 数据；自定义 config/hooks、改动默认模板及未知或进行中的 Git 操作资料均保留；未知 ignored 资料、共享或外置 Git 数据、未覆盖的本地 refs/reflog 提交均阻断。默认模板按相同相对路径逐字节匹配当前 Git 或系统 `/usr/bin/git` 的安装模板，允许 Git 版本切换遗留的原样 sample；不读取用户模板配置，也不使用 `GIT_EXEC_PATH` 覆盖目录。远端证明来自当前本地 remote refs，调用前按需正常 fetch；工具不声称远端引用实时有效。JSON 附带 `submodule_gitdirs` 和 `submodule_force_remove`，后者只在实际成功执行该删除后为 true。
 
 Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一清理保护要求。
 
@@ -181,7 +181,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - worktree bootstrap：源 worktree 脏、目标路径已存在、目标分支已在其他 worktree 检出或 `<module>/<task>` 为空时，必须阻断并打印修复建议。
   - bootstrap followups：`--json` 模式下即便开启 `--with-harness`，也不得把 harness 子命令的人类输出混入 JSON；模块文档不存在时只报告缺失，不替用户静默创建空文档。
   - task PR closure：若 base branch 缺少本地/远端 ref、source 分支落后于 comparison ref、`gh` 不可用，或 `--create` 时 push/PR create 失败，脚本只中断并保留现场，不擅自修改 `main` 或删除 branch/worktree。
-  - PR review thread closeout：resolve review thread 只代表线程被收口，不代表 PR 已 merge-ready；helper 必须继续单独回报 `reviewDecision`、`mergeStateStatus` 与剩余 unresolved thread 数，避免把“threads 全关掉”和“可以合并”混成同一状态。
+  - PR review thread：查询、写入或回读确认失败时非零返回，不能把结果不明报为已解决。resolve 只代表线程状态；合入前按开发规范检查当前 PR 和 source HEAD、必要 CI、适用评审、冲突、权限与用户限制。
   - `.pm` rebase conflict helper：helper 不自动修复任何 `.pm/**` 路径；若冲突来自 retired signal inbox、工作说明或按需 Issue mapping / archive、memory、stage 或其他 canonical 对象，脚本只能分类并提示删除/人工归档/人工处理，不得擅自重写真值。
   - resource cleanup：从目标外运行，明确 repo/path/branch/expected HEAD；先正常 fetch 更新基线，停止已知使用者。资料或占用不明时保留。
   - worktree report：missing/prunable/locked、dirty/untracked/ignored 与不可读原因按事实报告，不隐式修改资源。

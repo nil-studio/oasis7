@@ -35,6 +35,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 | [AC-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-004)；Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | 玩家可读阶段、资源/风险与真实下一步，保持单主 Agent 路线及适用入口同义 | [DES-AGENT-MFG-007](agent-industrial-manufacturing.design.md#des-agent-mfg-007) | Viewer / pure API / Agent / QA | 未支持入口 unavailable，不由 UI 存在推导实现 |
 | [REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004)；Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | 交付后维护、claim 终态和控制来源保持同一身份与责任连续性 | [DES-AGENT-MFG-004](agent-industrial-manufacturing.design.md#des-agent-mfg-004) | runtime / identity / Agent；现有 claim 生命周期 | 不建立 AOS-005 经济转让合同或复活旧 grant |
 | [REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004)；Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | 后续控制仍依赖当前权限，quota、旧请求与来源历史不直接供给 Agent | [DES-AGENT-MFG-005](agent-industrial-manufacturing.design.md#des-agent-mfg-005) | current grants / world event ordering / QA | 不赋予额外世界权力或迁移旧待决执行 |
+| [REQ-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-003)；Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465 | 从单主 Agent 到可选制造扩张，取得、维护、当前控制和协调限制分别可读 | [团队成长接收](#manufacturing-team-growth-reception) | 原制造/claim 政策、Agent 授权与原责任 consumer | 不新增制造数值、协调收费、通用组织层级或自治权限 |
+| [AC-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-003)；Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465 | 单主路线仍可经营，额外成员不绕 cap、不复制授权/支持、不清累计责任或旧义务 | [团队成长接收](#manufacturing-team-growth-reception) | 正式 Service/host、当前 source、原 D/O/C、QA | 按真实 profile 验收，不把工业交付当团队自治或所有 writer 已接线 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -60,6 +62,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 | 现有身份/授权 authority | authenticated principal 到 buyer owner、builder、beneficiary 的真实绑定 | 订单保存关系快照用于归因，每次效果提交仍查当前资格；不能令 player_id、claim_owner_id、agent_id 相等来省略解析 |
 | Service/Node | 受理结果与已提交世界状态的可信读面 | 传入授权上下文及预期版本；网络接受不等于应用或持久化；不改共识/正式世界闸门 |
 | Viewer/API/Agent | 决策预览、订单读面、受限历史 | 只读解释与显式请求；不本地生成 Agent、退款、进度或成功 receipt |
+
+取得资格沿[claim 的情境来源采用](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-acquisition-context-source)。当目标采用版本启用，制造 quote、reserve 与 delivery 和普通 claim 读取同一 `agent_acquisition` 主体/情境来源、当前原件覆盖及 cap；直接 `reputation_scores`、缺源默认值或测试注入不得成为新适配器。实际获取仍受主绑定/claim/在途制造并集的原容量守卫约束，不能两个入口各有一份上限。[来源准入](contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)的有效版本、当前授权、窗口与更正在提交时重验；失效或未知阻止依赖额外容量的新取得，保留已投入、原期限、已有控制与合法退款，按本文原待交付/退出处理。该接收不把目标来源或完整制造实现表述为当前已可用。
 
 <a id="des-agent-mfg-001"></a>
 ### DES-AGENT-MFG-001：冻结报价与完整承诺
@@ -208,6 +212,25 @@ Viewer、pure API 和获准 Agent 对同一 committed projection 保持相同完
 
 正式 industry 读面提供 `recent_action_results`：最多返回 16 条当前主体、owner generation、公钥及协议 world_id/genesis 仍匹配的真实签名 WorldRule 请求。只在最近 2048 条 journal 事件中，通过真实 cognition receipt registry、commit/action digest、原签名 TaskProviderPrefix 的 fence/signer/context 与实际业务事件的 action id/caused_by 反链，报告 `committed` 或 `rejected`、原始拒绝原因和事件位置；找不到业务事件时明确 `unknown`，旧快照未保存可信 genesis_ref 时，history 明确 unavailable / protocol_genesis_binding_unavailable，不能从待审记录自报的 genesis 补齐边界。缺失可信 prefix、receipt 或 action digest 时不展示不可验证的结果，并用读面 history 的 missing_result=unknown 表明缺少结果不等于成功。拒绝只报告该协议 world_id/genesis 内的历史事实，不授予当前 chain 的执行权；业务成功还必须匹配当前 world binding 和原命令。历史窗口外不能推断成功。cognition 的 committed 仍仅表示候选动作提交，不能代替业务成功；quote 到期拒绝后重新读取报价并以新业务 request id 提交，不放宽原 TTL，也不为失败制造成功 receipt。切换 owner、身份 generation 或世界后不展示旧私有结果。
 
+<a id="manufacturing-team-growth-reception"></a>
+### 8.1 单主 Agent 到团队的准确接收
+
+Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465；承接 [REQ-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-003) 与 [AC-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-003)。本节组合已有制造、claim 和 Agent 权限合同，不新建团队 coordinator、组织等级、费用或第二套取得上限。标准单件、自营/已具真实操作权、原地交付等首版范围保持；第三方撮合/代扣、远程成品运输和定制型号仍沿原后续范围。
+
+| 玩家选择/责任面 | 复用的真实合同 | 对下游的必要结果 |
+| --- | --- | --- |
+| 继续单主经营 | DES-AGENT-MFG-007 的原主采集/普通工业；已采纳的原控制来源 | 不制造仍可按原合法路径经营，不因缺第二成员附加禁止。查看团队/制造报价不改主绑定、不下单，不产生新 upkeep |
+| 增加一个成员 | DES-AGENT-MFG-001–003 的完整报价、共享资源/取得容量、一次投入、合法12 tick 与原截止 | 先让玩家读到物料、48制造电力、原设施占用、认领 upfront 与后续维护、最大损失；不把等待变免费 Agent。主绑定即使没有经济 claim，额外取得仍按至少 slot-2，默认逐项 ceil 后为150+300+38=488 liquid |
+| 真正取得和可控制 | DES-AGENT-MFG-004–005 的同根 Agent/claim/source/identity/receipt 及当前 Service/host resolver | 交付前不是可操作成员；交付只产生原零初始资源与确切控制来源，不能复制主 Agent 的目标、grant、密钥、私人记忆或 starter 资格。主 binding 和默认无目标动作继续指向原主 Agent |
+| 显式调度/授权与协调 | [已采纳授权 profile](indirect-control-agency-execution-and-continuation.design.md#agent-authority-adopted-profiles) 的当前来源、scope/对象/期间/版本与效果时重验 | native owner delegation、组织合同 mandate 各用原适用 family，不取权限并集；新成员或新代表不能自行获得未授范围。若该 source 采用 [D/O/C](agent-mediated-contract-formation.design.md#contract-formation-cumulative-exposure)，所有实际 writer 共用原键的已花/未结/未来费用与底层资产预留，换 Agent 不清零；旧 native Electricity usage 不被改写成另一套账 |
+| 维护、失权、结束与再取得 | DES-AGENT-MFG-004/006 的原 upkeep、source 生命周期、取得序号和持久恢复；[claim 原因与责任](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-loss-continuity) | 旧生产投入、有效义务、已花费用和原 receipt 保留；当前撤权/到期阻止新效果，原 narrow drain/query 依原授权继续。新 claim/Refresh/独立处置各核原来源，不自动继承旧 grant 或待决执行 |
+
+“协调成本”在本范围是上述既有材料/电力/时间/维护以及显式授权、共享预算和待决责任约束的可读组合，不额外收一笔队伍费，也不假定每名 Agent 贡献固定产能或治理票。只要当前主体未满足扩张条件，就保留单主经营或原订单等待/退出的真实选项；没有适用授权 adapter 时准确 blocked，不以 owner 名称、组织成员列表或配置存在补权限。
+
+三个读面比较同一 world/source/目标集合及已提交状态：当前主 Agent、已交付额外对象、在途预留、各原件/费用/维护/控制范围、共享限制、未结义务与下一步分别可辨。未完成订单不伪装成成员，裁剪页不代表完整团队或无责任；沿 §9 的20/50分页、16 KiB 请求和原权限预算，历史按原对象索引读，不追加全世界协同扫描或完整 prompt 装载。
+
+现有运行时适配合同与源码接点可作为验证输入；本文不把它们或旧七组方法的存在写成组合已实跑。[MFG-V08](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v08)在同一候选下比较保留单主、合法制造及拒绝/恢复三分支，复用原 V02/V04/V05/V06/V07 与 CF09/11/13/15/16/17 的独立 oracle；不改变这些方法的主责或制造首版范围。
+
 ## 9. 质量与容量
 
 | 场景 | 环境、规模与资源 | 预期响应 | 指标/阈值来源 | 验证入口 | 当前范围 |
@@ -243,6 +266,8 @@ Viewer、pure API 和获准 Agent 对同一 committed projection 保持相同完
 | [AC-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-004)；Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | [DES-AGENT-MFG-007](agent-industrial-manufacturing.design.md#des-agent-mfg-007) | 各受支持读面同义、未知不误导、仍有主 Agent 路线 | [MFG-V06](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v06)：同候选 full，正式 Viewer/API/Agent 各阶段与原主 Agent 经营对照；未执行 | 逐入口固定 projection、截图/API 及行动回执 | 未支持入口 unavailable；静态文案不证明体验 |
 | [REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004)；Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | [DES-AGENT-MFG-004](agent-industrial-manufacturing.design.md#des-agent-mfg-004) | 交付后维护、claim 终态与后继控制来源连续 | [MFG-V07](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v07)：同候选 required 生命周期及 full 跨 upkeep/释放/新认领/重启；未执行 | 余额/claim/source generations、旧执行拒绝及世界归因 | 新场景未实现；旧 claim 测试不代签制造适配 |
 | [REQ-WR-AOS-004](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-004)；Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928 | [DES-AGENT-MFG-005](agent-industrial-manufacturing.design.md#des-agent-mfg-005) | 根来源失效与恢复不复活旧执行，quota 非供给 | [MFG-V07](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v07)：固定 owner/source/world 的 required 撤权/Refresh/伪造对照与 full 受支持实玩；未执行 | CI、当前根鉴权/旧 grant 拒绝、单主路线与扩张记录 | Agent/自动化不代签真人理解或部署 |
+| [REQ-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-003)；Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465 | [团队成长接收](#manufacturing-team-growth-reception) | 单主路线与可选扩张的费用、时间、控制和持续责任分别可读 | [MFG-V08](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v08)：同 source/policy/world 三分支，复用 V02/V04/V06/V07；required 规则和 full 正式入口分层 | 主路线实际回执、报价/订单/交付、控制来源与逐项账本 | 不证明玩家理解、平衡或所有入口已上线 |
+| [AC-WR-AOS-003](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-003)；Trace refs: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465 | [团队成长接收](#manufacturing-team-growth-reception) | 额外成员不复制供给/权限、不清共享暴露，拒绝/恢复保旧义务 | [MFG-V08](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v08)：当前 source/cap/grant 单变量反例，原 CF 累计和 V05 持久恢复对照；未执行 | 原 grant/key、D/O/C 或原 native usage、零越权效果与唯一交付 | 只适用已有授权 profile，不能将普通合同 mandate 扩成所有 Agent 动作 |
 
 验证不仅比较“重试后的最终成功”，也要先观察失败点没有部分状态/扣减，保留失败与恢复的原始关系。文档 PR 只做内容/引用/关系与独立设计审读，不触发或代签游戏实现测试。
 

@@ -92,6 +92,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
                     summary = guard.test_canonical_provider_diagnostic_summary();
                 }
                 if isolated
+                    && summary["publication_pending"] == false
+                    && summary["publication_capture_failed"] == false
                     && summary["terminal_states"]["agent-a"]["status"] == "rejected"
                     && summary["terminal_states"]["agent-a"]["reject_reason"]
                         == "canonical_wait_admission_rejected"
@@ -353,8 +355,10 @@ pub(super) fn finish(
     output: &std::process::Output,
     worker: thread::JoinHandle<Result<(), String>>,
 ) {
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_rejection_finish");
     let joined = worker.join().expect("real rejection driver worker joins");
     finish_with_result(fixture, root, output, joined);
+    cleanup.complete();
 }
 pub(super) fn finish_with_result(
     fixture: &Fixture,

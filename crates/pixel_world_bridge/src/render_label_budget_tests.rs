@@ -34,6 +34,47 @@ fn visible_texts(app: &mut App) -> Vec<String> {
 }
 
 #[test]
+fn world_profile_uses_200_labels_and_legacy_switch_restores_100_without_losing_entities() {
+    let mut app = budget_app();
+    app.world_mut()
+        .resource_mut::<BevyRuntimeState>()
+        .render_state
+        .as_mut()
+        .unwrap()
+        .display_profile = display_profile::DisplayProfile::WorldView;
+    for index in 0..220 {
+        let id = format!("agent-{index:03}");
+        app.world_mut().spawn((
+            Text2d::new(id.clone()),
+            agent_labels::PixelWorldAgentLabel { id },
+        ));
+    }
+    app.world_mut()
+        .spawn((Text2d::new("producer-hidden"), Visibility::Hidden));
+    app.update();
+    assert_eq!(visible_texts(&mut app).len(), 200);
+    assert!(!visible_texts(&mut app).contains(&"producer-hidden".to_owned()));
+    app.world_mut()
+        .resource_mut::<BevyRuntimeState>()
+        .render_state
+        .as_mut()
+        .unwrap()
+        .display_profile = display_profile::DisplayProfile::Legacy;
+    app.update();
+    assert_eq!(visible_texts(&mut app).len(), 100);
+    app.world_mut()
+        .resource_mut::<BevyRuntimeState>()
+        .render_state
+        .as_mut()
+        .unwrap()
+        .display_profile = display_profile::DisplayProfile::WorldView;
+    app.update();
+    assert_eq!(visible_texts(&mut app).len(), 200);
+    let world = app.world_mut();
+    assert_eq!(world.query::<&Text2d>().iter(world).count(), 221);
+}
+
+#[test]
 fn global_budget_preserves_priorities_markers_and_restores_hidden_labels() {
     let mut app = budget_app();
     let mut ordinary = Vec::new();
@@ -200,7 +241,7 @@ fn scene_commands_are_budgeted_before_the_same_frame_becomes_visible() {
     app.init_resource::<BevyRuntimeState>();
     app.add_systems(Update, (spawn_labels, enforce_label_budget).chain());
     app.update();
-    assert_eq!(visible_texts(&mut app).len(), MAX_VISIBLE_LABELS);
+    assert_eq!(visible_texts(&mut app).len(), 100);
 }
 
 #[test]

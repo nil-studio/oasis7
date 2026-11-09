@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "73f09be9371376eb38ab32dfe7a35f6fa830b26826ecbcd7ae1dc875ded3bb7b",
+    "content_sha256": "70cdf29d4dc47310c26bd9e26f53092544206734df871b120cdbbec9c3c909a3",
     "current_authority": "doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md",
     "decision_owner": "game_visual_interaction_designer",
     "disposition": "retain_current_design_supplement",
-    "note": "current page-family implementation supplement; not root visual or release authority; developer workflow record projection updated, product authority retained",
+    "note": "保留页面族视觉设计增补定位；补原型中英文、长文、指定缺译回退与状态连续性合同，按内容高度组织普通面板和200%自然流，映射固定来源区间的实际玩家入口差异。验证复用可运行状态回归与浏览器操作手册，运行记录归原Issue/PR；原生输入、辅助技术和生产接入各按实际证据判断。 本次明确真正context-loss由用户显式Reload重建WASM/Bevy，普通资源失败维持原地Retry；保留当前授权与原回执，不自动重发Command，不改变原产品authority。",
     "path": "doc/world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

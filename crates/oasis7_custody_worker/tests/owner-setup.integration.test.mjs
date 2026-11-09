@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {withRoleRuntime,persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+import {continuePreparedBaseline} from './fixtures/setup_baseline_settlement.mjs';
 import {readSavedAccountSnapshot,verifySnapshotReuse} from './fixtures/account_restore_bench.mjs';
 
 function setupPlan(basis) {
@@ -24,7 +25,7 @@ test('separate real UV owner setup creates canonical task, private goal, delegat
     const plan=setupPlan(basis);
     const approved=await runtime.approveSetup(plan);
     assert.equal(approved.stage,'participant_bound','UV alone never grants ReadyForSetup');
-    const reply=await runtime.continueSetup(plan.setup_id);
+    const reply=await continuePreparedBaseline(runtime,plan);
     const body=await reply.text();
     assert.equal(reply.status,200,JSON.stringify({status:reply.status,body,requests:runtime.nativeRequests()}));
     const progress=JSON.parse(body);
@@ -52,7 +53,7 @@ test('separate real UV owner setup creates canonical task, private goal, delegat
     assert.equal(saved.setups.length,1);
     assert.equal(saved.setups[0].stages.length,6);
     assert.ok(saved.setups[0].stages.every(stage=>stage.reads===5 && stage.has_result));
-  });
+  },{settleSubmits:true});
 });
 
 for(const revoke of [false,true]) {
@@ -62,7 +63,7 @@ for(const revoke of [false,true]) {
       assert.equal((await runtime.drive('owner-setup-gap-participant')).stage,'participant_bound');
       const plan=setupPlan(await runtime.setupBasis());
       await runtime.approveSetup(plan);
-      const reply=await runtime.continueSetup(plan.setup_id);
+      const reply=revoke?await runtime.continueSetup(plan.setup_id):await continuePreparedBaseline(runtime,plan);
       const body=await reply.text();
       if(!revoke) {
         assert.equal(reply.status,200,JSON.stringify({body,requests:runtime.nativeRequests()}));
@@ -81,7 +82,7 @@ for(const revoke of [false,true]) {
         assert.equal(saved.provision_stage,'ready_for_setup');
         assert.equal(saved.setups[0].stages.filter(stage=>stage.has_result).length,1);
       }
-    });
+    },{settleSubmits:true});
   });
 }
 

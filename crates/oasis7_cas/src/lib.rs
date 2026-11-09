@@ -21,6 +21,7 @@ const COMPRESSED_BLOB_HEADER_LEN: usize = 16 + COMPRESSED_BLOB_HASH_HEX_LEN;
 const COMPRESSIBLE_BLOB_MIN_BYTES: usize = 1024;
 const COMPRESSED_BLOB_ZSTD_LEVEL: i32 = 3;
 const COMPRESSED_RANGE_CACHE_ENTRY_MAX_BYTES: u64 = compressed_range_cache::ENTRY_MAX_BYTES;
+pub mod frame_codec;
 mod local_blob_codec;
 pub use local_blob_codec::{BlobReadReceipt, decode_local_blob_into};
 mod challenge;
@@ -504,10 +505,18 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorldError> {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         };
-        let result = file.write_all(bytes).and_then(|()| {
+        let result = (|| {
+            file.write_all(bytes)?;
+            file.sync_all()?;
             drop(file);
-            fs::rename(&tmp, path)
-        });
+            fs::rename(&tmp, path)?;
+            // A successful rename alone does not persist the directory entry.
+            #[cfg(unix)]
+            if let Some(parent) = path.parent() {
+                fs::File::open(parent)?.sync_all()?;
+            }
+            Ok::<(), std::io::Error>(())
+        })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
         }
@@ -546,6 +555,8 @@ pub fn to_canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, WorldError>
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;
+
+mod restore_verified;
 
 #[cfg(test)]
 mod segmentation_tests;

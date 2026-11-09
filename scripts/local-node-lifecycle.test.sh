@@ -22,6 +22,7 @@ PYTHON
   else echo "preserved native lifecycle failure evidence: $lifecycle_tmp" >&2; fi
 }
 trap cleanup EXIT
+trap 'printf "native lifecycle step failed: line=%s status=%s command=%s\n" "$LINENO" "$?" "$BASH_COMMAND" >&2' ERR
 env OASIS7_NODE_EXISTING_WORLD_FIXTURE_OUT="$lifecycle_tmp/generated-world" "$lifecycle_fixture_bin" --exact node_lifecycle::tests::local_node_export_existing_world_fixture --nocapture >"$lifecycle_tmp/fixture.log" 2>&1
 python3 - "$lifecycle_root" "$lifecycle_tmp" "$lifecycle_bin" <<'PYTHON'
 import hashlib,json,pathlib,sys,socket
@@ -55,10 +56,24 @@ key_before=$(shasum -a 256 "$lifecycle_tmp/node/keys/node-keypair.toml")
 "$lifecycle_bin" node start --config "$lifecycle_tmp/node/node.json" >"$lifecycle_tmp/start.json"
 wait_ready() {
   local required=$1
+  local observed=0
   for ((attempt=0;attempt<100;attempt++)); do
-    if [[ $(grep -c '^oasis7_chain_runtime ready\.' "$lifecycle_tmp/node/logs/runtime.log" || true) -ge "$required" ]]; then return; fi
+    observed=$(grep -c '^oasis7_chain_runtime ready\.' "$lifecycle_tmp/node/logs/runtime.log" || true)
+    if [[ "$observed" -ge "$required" ]]; then return; fi
     sleep 0.1
   done
+  printf 'native lifecycle readiness failed: required=%s observed=%s\n' "$required" "$observed" >&2
+  python3 - "$lifecycle_tmp" <<'PYTHON' >&2 || true
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1])
+for name in ('managed-stop.json','recovery-replacement.json','restart-result.json'):
+    path=root/name
+    if not path.is_file() or path.stat().st_size>131072:
+        continue
+    value=json.loads(path.read_text())
+    instance=value.get('instance') or {}
+    print(json.dumps({'evidence':name,**{k:value.get(k) for k in ('state','stage','revision','local_generation','blocker')},'instance':{k:instance.get(k) for k in ('generation','state','runtime_pid')}}),flush=True)
+PYTHON
   cat "$lifecycle_tmp/node/logs/runtime.log" >&2; return 1
 }
 node_execution_closure_digest() {

@@ -99,6 +99,26 @@ jobs:
 
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
 
+  full-regression-qualification:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require complete CI for the exact package source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA" --allow-candidate-source
+
   build-web-dist:
     name: build-web-dist
     needs: plan
@@ -343,8 +363,9 @@ jobs:
       - build-web-dist
       - package-native
       - package-native-trusted
+      - full-regression-qualification
     if: >-
-      !cancelled() && needs.plan.result == 'success' && needs.build-web-dist.result == 'success' &&
+      !cancelled() && needs.full-regression-qualification.result == 'success' && needs.plan.result == 'success' && needs.build-web-dist.result == 'success' &&
       ((needs.package-native.result == 'success' && needs.package-native-trusted.result == 'skipped') ||
        (needs.package-native.result == 'skipped' && needs.package-native-trusted.result == 'success'))
     strategy: *testnet-native-strategy

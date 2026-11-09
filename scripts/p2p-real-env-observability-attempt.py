@@ -350,8 +350,18 @@ def node_profile_report():
     return module
 
 
+def triad_profile_report():
+    spec = importlib.util.spec_from_file_location('triad_http_profile', Path(__file__).with_name('p2p-triad-http-profile.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def scope_fingerprint(args, collector='observability'):
     sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-observability-monitor.sh').resolve())]
+    if collector == 'observability' and any(arg in ('--local-profile-status-url', '--sequencer-profile-status-url', '--storage-profile-status-url') for arg in args):
+        sources += [str(Path(__file__).with_name(name).resolve()) for name in
+                    ('p2p-triad-http-profile.py', 'p2p-profile-readiness.py', 'p2p-real-env-observability-summary.py')]
     if collector == 'host':
         sources = [str(Path(__file__).resolve()), *[str(Path(__file__).with_name(name).resolve()) for name in
             ('p2p-real-env-host-monitor.sh', 'p2p-real-env-host-summary.py', 'p2p-real-env-node-host-sample.sh')]]
@@ -991,6 +1001,11 @@ def read(root, collector='observability'):
             report = node_profile_report().refresh(report, report['canonical_state']['read_at_unix_ms'])
             report['canonical_state']['validation_scope'] = 'attempt_order_artifact_integrity_and_observation_age'
             markdown += node_profile_report().markdown(report)
+        elif collector == 'observability' and any('profile_readiness' in node for node in report.get('nodes', {}).values()):
+            profiles = triad_profile_report()
+            report = profiles.refresh_report(report, report['canonical_state']['read_at_unix_ms'])
+            report['canonical_state']['validation_scope'] = 'attempt_order_artifact_integrity_and_profile_observation_age'
+            markdown += profiles.replace_markdown(artifacts['md'].decode(), report)
         else:
             markdown += artifacts['md'].decode()
         return report, markdown, 0 if attempt['result'] == 'success' else 1
@@ -1040,7 +1055,7 @@ def main():
             errors = []
             for value in args.error:
                 stage, code = value.split(':', 1)
-                if stage not in ('snapshot', 'host', 'traffic', 'wasm_local_node', 'wasm_sequencer_ecs', 'wasm_storage_ecs', 'summary') and not (args.collector == 'node-profile' and stage == 'node-profile'):
+                if stage not in ('snapshot', 'host', 'traffic', 'profile', 'wasm_local_node', 'wasm_sequencer_ecs', 'wasm_storage_ecs', 'summary') and not (args.collector == 'node-profile' and stage == 'node-profile'):
                     raise AttemptError('unsupported collector stage')
                 errors.append({'stage': stage, 'exit_code': int(code), 'error': 'summary_failed' if stage == 'summary' else 'collector_failed'})
             return finish(root, args.sequence, args.attempt_id, errors, args.collector)

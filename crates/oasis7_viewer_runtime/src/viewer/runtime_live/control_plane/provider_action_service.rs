@@ -40,6 +40,11 @@ impl ViewerRuntimeLiveServer {
     #[cfg(any(test, feature = "test_tier_required"))]
     pub fn test_canonical_provider_diagnostic_summary(&self) -> serde_json::Value {
         let mut summary = self.test_canonical_provider_summary();
+        summary["publication_ticket"] = serde_json::json!(self.llm_sidecar.publication_ticket());
+        summary["publication_pending"] =
+            serde_json::json!(self.llm_sidecar.publication_ticket() != 0);
+        summary["publication_capture_failed"] =
+            serde_json::json!(self.llm_sidecar.publication_capture_failed());
         summary["io_lifecycle"] = self.agent_service_io_diagnostics.diagnostic_snapshot();
         summary
     }

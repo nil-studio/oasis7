@@ -1,0 +1,63 @@
+--- a/rust/ql/lib/codeql/rust/internal/typeinference/TypeInference.qll
++++ b/rust/ql/lib/codeql/rust/internal/typeinference/TypeInference.qll
+@@ -313,0 +314,56 @@
++ * RESEARCH: infer omitted qualifier type arguments from one concrete inherent
++ * declaration. This only contributes type evidence; normal self matching and
++ * overload resolution remain mandatory.
++ *
++ * Stay conservative: do not choose among overloads, override explicit arguments,
++ * interpret aliases/defaults, or instantiate generic/where-constrained items.
++ */
++pragma[nomagic]
++private Type inferOmittedConcreteInherentQualifierType(CallExpr ce, TypePath path) {
++  exists(
++    NonAliasPathTypeMention qualifier, Function target, Impl impl,
++    TypeMention selfType, DataType root
++  |
++    qualifier = getCallExprPathQualifier(ce) and
++    target = CallExprImpl::getResolvedFunction(ce) and
++    forall(ItemNode alternative | alternative = CallExprImpl::getResolvedFunction(ce) |
++      alternative = target
++    ) and
++    target = impl.getAssocItemList().getAnAssocItem() and
++    impl.isInherent() and
++    not target.hasSelfParam() and
++    ce.getNumberOfSyntacticArguments() = target.getNumberOfParamsInclSelf() and
++    not exists(impl.getGenericParamList().getAGenericParam()) and
++    not impl.hasWhereClause() and
++    not exists(target.getGenericParamList().getAGenericParam()) and
++    not target.hasWhereClause() and
++    not exists(qualifier.getQualifier*().getSegment().getGenericArgList()) and
++    not exists(qualifier.getQualifier*().getSegment().getTypeRepr()) and
++    root = qualifier.getType() and
++    selfType = impl.getSelfTy() and
++    root = selfType.getType() and
++    exists(root.getPositionalTypeParameter(_)) and
++    not exists(root.getTypeParameterDefault(_)) and
++    forall(TypePath knownPath, Type known | known = qualifier.getTypeAt(knownPath) |
++      selfType.getTypeAt(knownPath) = known
++    ) and
++    forall(TypePath selfPath, Type concrete | concrete = selfType.getTypeAt(selfPath) |
++      not concrete instanceof TypeParameter and
++      not concrete instanceof PseudoType and
++      // Type-path matching does not model declared const/lifetime parameters.
++      not exists(GenericParam parameter |
++        parameter = concrete.(DataType).getTypeItem().getGenericParamList().getAGenericParam()
++      |
++        not parameter instanceof TypeParam
++      ) and
++      forall(TypeParameter parameter | parameter = concrete.getPositionalTypeParameter(_) |
++        exists(selfType.getTypeAt(selfPath.append(TypePath::singleton(parameter))))
++      )
++    ) and
++    result = selfType.getTypeAt(path) and
++    not path.isEmpty() and
++    not exists(qualifier.getTypeAt(path))
++  )
++}
++
++/**
+@@ -340,0 +397,3 @@
++  or
++  result = inferOmittedConcreteInherentQualifierType(ce, path) and
++  isDefaultTypeArg = false

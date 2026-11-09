@@ -15,7 +15,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 
 ## 接口 / 数据
 - PRD 主入口: `doc/engineering/prd.md`
-- 项目执行记录: PR、实际 CI 与评审记录；Issue/Project 按需使用
+- 项目执行记录: PR、实际 CI 与评审记录；拆出的开发任务使用原生父子 Issue，Project 按需使用
 - 文件级索引: `doc/engineering/prd.index.md`
 - 专业条款标识: `PRD-ENGINEERING-xxx`；跨层要求的稳定键按全局 Trace ID 规范维护
 - 测试与发布参考: `testing-manual.md`
@@ -42,10 +42,10 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - SC-9: 活跃文档 `doc/...*.md` 依赖路径断链数为 0。
   - SC-12: 文档-代码偏差在同批次回写闭环率 100%。
   - SC-14: 专业职责按需参考 `.agents/roles/*.md`；根 `AGENTS.md` 保留必要规则与导航，不规定固定角色数量。
-  - SC-15: 角色协作按需参考 `.agents/roles/templates/`，交接说明问题、上下文、允许范围和期望结果，不强制模板或回执。
-  - SC-16: `AGENTS.md` 与开发流程规范一致，负责人按实际问题选用专业角色和 subagent，不要求固定角色组合。
+  - SC-15: 协作交接复用 Issue/PR 的已有内容，补充必要上下文、允许范围和期望结果；可参考 `.agents/roles/templates/handoff-brief.md`，不强制模板或回执。
+  - SC-16: `AGENTS.md` 与开发流程规范一致，简单任务由当前会话完成，并行代码开发默认使用多个独立会话；每项负责人完成实现、自测与 PR/CI 跟进，专业角色按需参考。
   - SC-20: `engineering` 模块治理专题标题对外统一使用 `oasis7` 品牌，不再在活跃/历史治理入口中混用 `oasis7` 标题。
-  - SC-24D: 同一 PR 内的 review comment follow-up 必须存在 repo-owned helper，用于统一盘点 unresolved review threads、执行显式 resolve，并在每轮操作后分别报告 `reviewDecision`、`mergeStateStatus` 与 unresolved thread 数，避免把“thread 已关”误报成“PR 可合并”。
+  - SC-24D: 可按需使用仓库的 review-thread 工具查询线程或显式 resolve，并回读实际结果；线程关闭只证明讨论状态，是否合入按[开发流程规范](workflow/source-of-truth.md#42-评审与合入)核对当前版本、检查、评审和用户限制。
   - SC-24G（历史）：旧 `.pm/**` 冲突分类与 canonical task/memory/stage 模型仅保留历史含义。当前冲突按 Git 真实改动处置，保留用户资料，不恢复退休文件或任务身份；main 前进本身不要求 rebase 或重测。
   - SC-29: 文档体量治理必须具备正式专题口径，明确 `活跃真值 / 审计留痕 / 历史归档 / 兼容跳转` 四层消费模型；高密度模块的默认阅读面只保留“what / where / next / risk”所需入口，不再把审计与归档材料直接暴露为主入口。
   - SC-29A: 当文档治理债已从“默认阅读面混乱”转向“文档存量维护成本”时，engineering 必须存在一份正式 follow-up 专题，提供可复算的库存报告入口，并明确 `历史压缩 / 路径级治理 / 近限文件拆分 / 季度复核` 四类后续动作。
@@ -89,12 +89,12 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   1. Flow-ENG-001: 明确问题与验收 → 独立分支实现 → 局部验证 → 同一目的 PR → 实际 CI 与按风险评审 → 修复阻断问题 → 绑定预期 HEAD 正常合入。
   2. Flow-ENG-002: CI 失败 → 复现和定位根因 → 最小修复 → 重测受影响内容。
   3. Flow-ENG-003: 文档变化 → 选择对应领域与职责 → 同步消费者与索引 → 适用文档检查。
-  4. Flow-ENG-008: 需要协作 → 给出问题、上下文、允许范围和返回结果 → 按需专业分析或并行实现 → 负责人整合实际结果。
+  4. Flow-ENG-008: 多个就绪代码任务 → 独立开发会话分别领取 → 各会话实现、自测并跟进 PR → 负责人验证实际组合。
   5. Flow-ENG-009: 获得高价值反馈 → 核对事实、影响及用户范围 → 修复当前问题或记录可读建议；无需自动转任务、memory 或 stage。
-  6. Flow-ENG-011: 复杂工作按需使用 Issue checklist 或 Project → 展示依赖及剩余义务 → 验收实际完成后更新；看板故障不停止开发。
+  6. Flow-ENG-011: 按[任务拆分规则](workflow/source-of-truth.md#code-task-sub-issues)将独立开发结果建为 GitHub 原生 sub-issue → 按子项领取并跟踪交付及验收 → 父项核对依赖与整体剩余义务；内部步骤可用清单，Project 按需展示，看板故障不停止已具备条件的开发。
   7. Flow-ENG-014: 独立分支或按需 worktree → 保留各工作区的本地 Cargo target和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
   8. Flow-ENG-016: 只读查询或分析 → 直接提供事实或按需专业判断；不创建流程身份、工作区或远程记录。
-  9. Flow-ENG-017: subagent 按需使用 → 给出清楚写入范围和上下文 → 返回结论、验证及风险；配置和模型观测不构成 PR 准入。
+  9. Flow-ENG-017: 收到 CI、评审或验收反馈 → 优先续接原开发会话 → 修复并验证 → 更新原 Issue/PR；需要独立审阅时另行安排，不增加固定角色链。
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
@@ -106,11 +106,11 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 | 文档分工与组织规范 | 对象层级（模块/专题/分册）、职责后缀（PRD/Design/Runbook/Manual） | 为新主题选择落点并按规则建档 | `unclassified -> classified -> indexed -> reviewed` | 目录按领域/专题，文件按职责，PRD/design 按长期主题配对，任务直接使用 PR 或按需 Issue | 作者可建档，评审者可裁定例外 |
 | 文档体量治理 | 文档总量、模块/子目录密度、消费层类型（活跃真值/审计留痕/历史归档/兼容跳转）、默认入口面 | 先冻结默认阅读面，再决定哪些文档只保留可检索性与定向引用，不再进入根入口/模块入口的主列表 | `unbounded -> classified -> reduced -> monitored` | 默认优先压缩阅读面而不是立即迁移文件；高密度模块优先按 `world-simulator -> p2p -> testing -> readme/core` 排查 | `producer_system_designer` 裁定消费层，模块 owner 回写入口与索引，评审者复核 |
 | 历史 PRD 审读留痕 | 文档路径、阅读时刻、代码一致性、重复性、上下游状态、处理动作 | 历史 round logs / deleted snapshot prose 仅用于追溯；当前偏差回写到模块 truth | `historical -> traced -> current_truth_updated` | 入口优先、风险优先 | 维护者与评审者可追溯，当前 truth 由模块 owner 维护 |
-| 角色职责卡 | 角色名、使命、owner 范围、输入、输出、决策边界、完成定义、推荐技能、检查清单 | 更新 `.agents/roles/*.md` 并在根 `AGENTS.md` 维护入口映射 | `draft -> aligned -> adopted` | 12 张专业关注点供按需参考 | 全体贡献者可读，角色 owner 与治理维护者可改 |
-| 角色交接模板 | 交接标题、来源角色、目标角色、目标、上下文、输入、输出、截止、风险、阻断、验证、回写位置 | 从 `.agents/roles/templates/*.md` 复制填写并随任务流转 | `draft -> sent -> acknowledged -> delivered` | 模板按实际需要使用，不要求传递协议 | 发起方负责填写，接收方负责确认，维护者可演进模板 |
+| 专业职责参考 | 专业关注点、主责文档与必要方法入口 | 按需维护 `.agents/roles/*.md`，从根 `AGENTS.md` 的目录导航进入 | 随主责内容维护 | 按问题选择适用关注点 | 全体贡献者可读，按任务授权维护 |
+| 协作交接 | 当前 Issue/PR、具体问题、必要上下文、允许范围和预期结果 | 引用已有任务内容，补充本次需要的信息；模板按需使用 | 跟随实际任务与交付状态 | 不另建角色交接状态或回执链 | 原负责人交接，接手者核实范围与已有成果 |
 - Acceptance Criteria:
   - AC-1: engineering PRD 明确文件约束、脚本约束、测试分层约束。
-  - AC-2: 任务范围、实际状态和剩余义务由当前 PR 描述、实际 CI 与评审承载；Issue/Project 按需使用，不创建 engineering project 台账或本地状态副本。
+  - AC-2: 拆出的开发任务通过 GitHub 原生父子 Issue 跟踪与领取，子项关联实际 PR、CI 和验收，父项保留整体剩余义务；未拆分的简单修改可直接用 PR，Project 按需使用，不创建 engineering project 台账或本地状态副本。
   - AC-3: 与 `doc/scripts/precommit/pre-commit.prd.md`、`testing-manual.md` 的口径一致。
   - AC-5: 新增工程治理专题若引入运行态治理层，必须明确与正式文档层的分工边界，并在当前 PR 或按需 Issue 记录本次范围；复杂协调按需使用 Issue/Project，不作为普通 PR 准入。
   - AC-6: 文档治理脚本校验 `doc/.governance/*-allowlist.txt`，可拦截 `doc/*.md` 与 `doc/<module>/*.md` 的非预期新增。
@@ -143,6 +143,22 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 - 产品范围、四视图、主要失败恢复和验收条件由 [指挥客户端产品设计](command-center/command-center.prd.md) 主责；技术选型、组件、数据和连接合同由 [系统设计](command-center/command-center.design.md) 承接。
 - 该客户端属于 engineering 开发工具，沿用现有文档、Git 与交付来源的事实边界；不扩展游戏产品模块，不新增通用任务登记或开发审批。
 - 云端读取授权范围内的已提交文档、GitHub PR 和有界 CI 事实，持久保存用户的个人问题、决定、显式关联与阅读偏好；本地保存设备绑定、私有资料和工具操作状态。来源事实、云端个人记录与本机数据分别拥有唯一权威，导航不授予远程执行或资料上传权限。具体能力与验收以配对主责文档和真实交付证据为准；文档采纳、代码交付与发布分别判断。
+
+<a id="task-scoped-engineering-context"></a>
+### 按任务读取工程知识与验收来源
+
+Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
+
+执行者应能从根入口和一个相关模块入口找到当前规则、真实代码接缝及适用检查，不必重复读取全仓规范。此要求细化 SC-14/16 的入口与角色职责，不增加开发准入、自动调度或固定审查人数。
+
+- 通用流程、领域要求/设计、模块导航、角色关注点、操作方法和工具结果分别保持唯一主责；导航引用原文，不复制另一份规则正文。
+- 按任务意图、变更路径及真实消费者选取必要上下文与验证。相同检查仅在命令、版本、平台/features、输入与预期覆盖均相同的条件下去重；不把相同包名当成同一验收。
+- 结果能说明 pass/fail/skipped、Source、Evidence 和未覆盖项。pass 需要实际运行或明确的静态核实事实，skipped 说明原因；角色与数量按风险选择，工具不能自行签发授权或放宽检查。
+- 机器特定资料和未必自动加载的规则目录必须明确适用性；资源缺失时先使用可用主责来源，确实影响实现的缺口才保留为阻塞，不猜测私有路径或要求所有模块新增指南。
+
+系统设计状态：已覆盖；依据：[规则载体与按变更验收导航](design.md#task-scoped-engineering-context-design)。实现状态：文档入口与 Viewer 角色导航已提供，检查选择仍由执行者按现行规则完成，没有自动检查路由器。验证来源为本次 PR 的链接检查及下列静态走读；文档存在不证明方法已降低耗时或误报。
+
+验收以纯文档、局部 Rust 和跨边界 UI 三类有限任务，逐项核对所读权威、条件检查、去重条件和输出边界；Viewer 试点须定位正确前端结构标准、上下游和已有命令。真实方法收益若需要比较，沿[现有评估方法](../../.agents/skills/evaluating-development-methods/SKILL.md)另取同条件证据，不把本项扩成每 PR 的强制试验。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 文档治理脚本、CI 测试脚本、静态检查脚本。
@@ -197,12 +213,12 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - NFR-ENG-9: 活跃专题的真实要求、设计与 authority 链接保持可达，不要求 project ledger。
   - NFR-ENG-10: PR 验证记录能说明所选测试、实际版本、结果与未覆盖范围，不新增模块主项目字段。
   - NFR-ENG-11: 活跃文档 `doc/...*.md` 引用路径可达性覆盖率 100%。
-  - NFR-ENG-13: 根 `AGENTS.md` 与 `.agents/roles/*.md` 的角色映射一致率 100%，不得出现无入口角色或悬空引用。
-  - NFR-ENG-14: 角色交接模板字段命名稳定，默认模板在 5 分钟内可完成填写并可被他人直接执行。
-  - NFR-ENG-15: 开发工作流规则在单人执行与多角色协作两种场景下都应自洽，不得出现相互冲突的提交/回写要求。
-  - NFR-ENG-16: 单日日志应同时支持时间线回放与角色维度检索，不得因角色拆分导致当日过程碎片化。
-  - NFR-ENG-17: 角色名校验应零配置跟随 `.agents/roles/` 目录变化，不依赖重复维护的手写名单。
-  - NFR-ENG-18: 协作执行语义应与当前 Codex/CLI 运行模式兼容，允许单一执行主体通过角色视角切换完成多角色闭环；GitHub PR review 的仓库默认流程、角色协作语义与 no-commit 收口流程之间不得互相冲突。
+  - NFR-ENG-13: 专业角色和工具配置引用的当前主责文档与方法应可达；根 `AGENTS.md` 使用目录导航，角色卡按需维护专业关注点。
+  - NFR-ENG-14: 交接应使接手者能确认范围、输入版本、实际成果和剩余义务；优先引用已有 Issue/PR，简要模板按需使用。
+  - NFR-ENG-15: 当前会话直接实施、多个独立会话并行和可选 TPM 协调遵循同一授权、认领、自测与交付规则。
+  - NFR-ENG-16: 当前执行经过和验证事实保留在对应 Issue/PR 与原始证据中；历史日志按归档边界保存。
+  - NFR-ENG-17: 文档目录登记等仍有效的结构化负责人字段按其消费合同校验；devlog 角色标题和 handoff 角色字段的旧格式校验退役。
+  - NFR-ENG-18: 会话能力以所选客户端实际提供的创建、查看、续接与停止能力为准；缺少并行能力时按依赖串行，能力配置不代表已经派发或持续后台执行。
 
 - Security & Privacy: 仅涉及工程流程元信息；涉及凭据的自动化流程必须遵守最小暴露原则并避免日志泄漏。
 ## 5. Risks & Roadmap

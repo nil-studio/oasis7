@@ -1,5 +1,6 @@
 //! Bounded real TCP request reader; unused speculative connections carry no request.
 use super::*;
+use fixture_failure_diagnostics::{self as failure, Stage as FailureStage, Worker};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -21,6 +22,8 @@ mod wait_admit_gate;
 mod rejected_resume_gate;
 #[path = "http_fixture_world_coherence_gate.rs"]
 mod world_coherence_gate;
+#[path = "http_fixture_lock_order_tests.rs"]
+mod lock_order_tests;
 
 const RESUME_VIEW_RENDEZVOUS_BUDGET: Duration = Duration::from_millis(1_200);
 const RESUME_VIEW_HOLD_BUDGET: Duration = Duration::from_secs(30);
@@ -125,19 +128,25 @@ pub(super) fn serve_listener<F>(
     concurrent: Arc<AtomicBool>,
     gate: Arc<WorldGate>,
     handler: Arc<F>,
+    diagnostics: Arc<failure::Diagnostics>,
 ) where
     F: Fn(TcpStream) + Send + Sync + 'static,
 {
+    let _failure_scope = failure::Scope::listener(diagnostics);
     let mut workers: Vec<thread::JoinHandle<thread::ThreadId>> = Vec::new();
     let mut failed = false;
     while !halt.load(Ordering::SeqCst) {
         let mut index = 0;
         while index < workers.len() {
             if workers[index].is_finished() {
+                failure::at(FailureStage::ListenerJoin);
                 let result = workers.swap_remove(index).join();
                 eprintln!("fixture_connection_worker_ok={}", result.is_ok());
                 match result {
-                    Ok(worker_id) => gate.connection_worker_joined(worker_id),
+                    Ok(worker_id) => {
+                        failure::at(FailureStage::JoinedCallback);
+                        gate.connection_worker_joined(worker_id);
+                    }
                     Err(_) => failed = true,
                 }
             } else {
@@ -148,34 +157,50 @@ pub(super) fn serve_listener<F>(
             thread::sleep(Duration::from_millis(2));
             continue;
         }
+        failure::at(FailureStage::Accept);
         match listener.accept() {
             Ok((stream, _)) if concurrent.load(Ordering::SeqCst) && gate.concurrent_ready() => {
                 let handler = handler.clone();
                 let worker_gate = gate.clone();
+                failure::at(FailureStage::Spawn);
+                let context = failure::child(Worker::Connection);
                 workers.push(thread::spawn(move || {
+                    let _failure_scope = failure::Scope::enter(context);
                     handler(stream);
+                    failure::at(FailureStage::ConnectionFinished);
                     worker_gate.connection_worker_finished();
                     thread::current().id()
                 }));
             }
             Ok((stream, _)) => {
+                failure::at(FailureStage::SerialDispatch);
+                let _failure_scope = failure::Scope::enter(failure::child(Worker::SerialConnection));
                 handler(stream);
+                failure::at(FailureStage::ConnectionFinished);
                 gate.connection_worker_finished();
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(2));
             }
-            Err(error) => panic!("accept: {error}"),
+            Err(error) => {
+                failure::io_error(&error);
+                panic!("accept: {error}");
+            }
         }
     }
     for worker in workers {
+        failure::at(FailureStage::ListenerJoin);
         let result = worker.join();
         eprintln!("fixture_connection_worker_ok={}", result.is_ok());
         match result {
-            Ok(worker_id) => gate.connection_worker_joined(worker_id),
+            Ok(worker_id) => {
+                failure::at(FailureStage::JoinedCallback);
+                gate.connection_worker_joined(worker_id);
+            }
             Err(_) => failed = true,
         }
     }
+    failure::at(FailureStage::ListenerFailed);
     assert!(!failed, "actual fixture connection worker failed");
 }
 #[derive(Default)]
@@ -189,7 +214,7 @@ impl Outage {
             return false;
         }
         self.observed.store(true, Ordering::SeqCst);
-        stream.shutdown(std::net::Shutdown::Both).unwrap();
+        failure::observe_io(stream.shutdown(std::net::Shutdown::Both)).unwrap();
         true
     }
 }
@@ -209,6 +234,7 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {
+        failure::at(FailureStage::ReadRequest);
         let n = match stream.read(&mut buffer) {
             Ok(0) if bytes.is_empty() => return Vec::new(),
             Ok(n) => n,
@@ -221,12 +247,17 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Vec<u8> {
             {
                 return Vec::new();
             }
-            Err(error) => panic!("incomplete HTTP fixture request: {error}"),
+            Err(error) => {
+                failure::io_error(&error);
+                panic!("incomplete HTTP fixture request: {error}");
+            }
         };
         assert!(n > 0, "truncated request");
         bytes.extend_from_slice(&buffer[..n]);
+        failure::request_bytes(bytes.len());
         assert!(bytes.len() <= 262_144 + 8192, "unbounded request");
         if let Some(end) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+            failure::at(FailureStage::ParseRequest);
             let header = std::str::from_utf8(&bytes[..end]).unwrap();
             let length = header
                 .lines()
@@ -332,6 +363,55 @@ pub(super) fn configure_accepted_stream(stream: &TcpStream) {
         .unwrap();
 }
 
+// Opt-in real receive-boundary oracle, keyed by this fixture's unique trace Arc.
+fn publication_oracles() -> &'static Mutex<std::collections::BTreeMap<usize, std::path::PathBuf>> {
+    static ORACLES: std::sync::OnceLock<
+        Mutex<std::collections::BTreeMap<usize, std::path::PathBuf>>,
+    > = std::sync::OnceLock::new();
+    ORACLES.get_or_init(Mutex::default)
+}
+pub(super) struct PublicationOracle(usize);
+impl Drop for PublicationOracle {
+    fn drop(&mut self) {
+        publication_oracles().lock().unwrap().remove(&self.0);
+    }
+}
+pub(super) fn observe_checkpoint_publication(
+    trace: &Arc<Mutex<Vec<String>>>,
+    path: std::path::PathBuf,
+) -> PublicationOracle {
+    let identity = Arc::as_ptr(trace) as usize;
+    assert!(
+        publication_oracles()
+            .lock()
+            .unwrap()
+            .insert(identity, path)
+            .is_none()
+    );
+    PublicationOracle(identity)
+}
+fn checkpoint_published_before_submit(
+    request: &SubmitIntentRequest<WorldServicePayloadV1>,
+    path: &Path,
+) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let Ok(checkpoint) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    let correlation = serde_json::to_value(&request.correlation).unwrap();
+    let payload = serde_json::to_value(&request.signed_payload).unwrap();
+    ["provider_scheduler_pending", "provider_service_pending"]
+        .into_iter()
+        .any(|field| {
+            checkpoint[field].as_object().is_some_and(|pending| {
+                pending.values().any(|original| {
+                    original["correlation"] == correlation && original["payload"] == payload
+                })
+            })
+        })
+}
 // Prefix distinguishes Submit admission observations from exact Lookup observations.
 pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>) -> bool {
     let body = crate::feedback_submit_api::extract_http_json_body(bytes).unwrap();
@@ -339,6 +419,23 @@ pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>
     else {
         return false;
     };
+    let publication_path = publication_oracles()
+        .lock()
+        .unwrap()
+        .get(&(Arc::as_ptr(trace) as usize))
+        .cloned();
+    let publication_valid = publication_path
+        .as_deref()
+        .map(|path| checkpoint_published_before_submit(&request, path));
+    let original_valid = publication_path.as_ref().and_then(|path| {
+        let expected_path = path.parent()?.join("checkpoint-expected-original.json");
+        let expected: serde_json::Value =
+            serde_json::from_slice(&fs::read(expected_path).ok()?).ok()?;
+        Some(
+            expected["correlation"] == serde_json::to_value(&request.correlation).unwrap()
+                && expected["payload"] == serde_json::to_value(&request.signed_payload).unwrap(),
+        )
+    });
     let digest = correlation::key_digest(&request.correlation.key).unwrap();
     let mut observed = trace.lock().unwrap();
     assert!(
@@ -346,6 +443,35 @@ pub(super) fn record_submit_digest(bytes: &[u8], trace: &Arc<Mutex<Vec<String>>>
         "bounded conformance operation trace exhausted"
     );
     observed.push(format!("submit:{digest}"));
+    if let Some(valid) = publication_valid {
+        assert!(
+            observed.len() < 4096,
+            "bounded publication observation exhausted"
+        );
+        observed.push(
+            if valid {
+                "checkpoint_publication:1"
+            } else {
+                "checkpoint_publication:0"
+            }
+            .into(),
+        );
+    }
+    if let Some(valid) = original_valid
+        && !observed
+            .iter()
+            .any(|value| value.starts_with("checkpoint_original:"))
+    {
+        assert!(observed.len() < 4096);
+        observed.push(
+            if valid {
+                "checkpoint_original:1"
+            } else {
+                "checkpoint_original:0"
+            }
+            .into(),
+        );
+    }
     if matches!(&request.signed_payload, WorldServicePayloadV1::Cognition(_)) {
         request
             .validate()
@@ -840,6 +966,10 @@ impl WorldGate {
     }
 
     fn connection_worker_finished(&self) {
+        self.connection_worker_finished_after_snapshot(|| {});
+    }
+
+    fn connection_worker_finished_after_snapshot(&self, after_snapshot: impl FnOnce()) {
         let current = thread::current().id();
         self.coherence_handler_returned(current);
         self.rejected_resume_returned(current);
@@ -861,7 +991,11 @@ impl WorldGate {
                 false
             }
         };
-        if let Some(root) = self.root.lock().unwrap().clone() {
+        // An if-let scrutinee would keep its root guard through the callbacks.
+        // Keep this statement separate: none of the gate locks may nest in root.
+        let root = self.root.lock().unwrap().clone();
+        after_snapshot();
+        if let Some(root) = root {
             self.compensation_handler_returned(&root, current);
             self.admit_wait_connection_worker_finished(&root, current);
             self.rejected_admit_connection_worker_finished(&root, current);
@@ -887,6 +1021,14 @@ impl WorldGate {
     }
 
     fn connection_worker_joined(&self, worker_id: thread::ThreadId) {
+        self.connection_worker_joined_after_snapshot(worker_id, || {});
+    }
+
+    fn connection_worker_joined_after_snapshot(
+        &self,
+        worker_id: thread::ThreadId,
+        after_snapshot: impl FnOnce(),
+    ) {
         self.coherence_worker_joined(worker_id);
         self.rejected_resume_joined(worker_id);
         let joined = {
@@ -902,11 +1044,13 @@ impl WorldGate {
                 false
             }
         };
-        if joined {
-            if let Some(root) = self.root.lock().unwrap().clone() {
-                self.compensation_worker_joined(&root, worker_id);
-                self.admit_wait_connection_worker_joined(&root, worker_id);
-                self.rejected_admit_connection_worker_joined(&root, worker_id);
+        let root = self.root.lock().unwrap().clone();
+        after_snapshot();
+        if let Some(root) = root {
+            self.compensation_worker_joined(&root, worker_id);
+            self.admit_wait_connection_worker_joined(&root, worker_id);
+            self.rejected_admit_connection_worker_joined(&root, worker_id);
+            if joined {
                 write_new_json(
                     &root.join("world-resume-view-worker-joined"),
                     &serde_json::json!({
@@ -918,10 +1062,6 @@ impl WorldGate {
                 )
                 .expect("immutable Resume View worker-joined marker must be unique");
             }
-        } else if let Some(root) = self.root.lock().unwrap().clone() {
-            self.compensation_worker_joined(&root, worker_id);
-            self.admit_wait_connection_worker_joined(&root, worker_id);
-            self.rejected_admit_connection_worker_joined(&root, worker_id);
         }
     }
 }

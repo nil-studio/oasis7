@@ -63,27 +63,31 @@ class Contracts(unittest.TestCase):
     def test_storage_build_optimizes_native_tests_without_disabling_checks(self):
         with patch.dict(os.environ, {'RUSTC_WRAPPER': 'untrusted-wrapper',
                                    'CARGO_PROFILE_TEST_DEBUG_ASSERTIONS': 'false'}):
-            ordinary = acceptance.artifacts.build_environment('formal')
+            ordinary = acceptance.artifacts.build_environment('ordinary')
+            formal = acceptance.artifacts.build_environment('formal')
             storage = acceptance.artifacts.build_environment('storage')
         self.assertNotIn('RUSTC_WRAPPER', storage)
         self.assertEqual(ordinary['CARGO_PROFILE_TEST_DEBUG_ASSERTIONS'], 'false')
-        for profile in ('DEV', 'TEST'):
-            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], '2')
-            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'], 'true')
-            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'], 'true')
+        for environment, level in ((storage, '2'), (formal, '0')):
+            for profile in ('DEV', 'TEST'):
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], level)
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'], 'true')
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'], 'true')
         self.assertEqual(storage.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'),
                          ordinary.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'))
 
     def test_storage_artifact_profile_is_verified_at_consumption(self):
-        binary = dict(profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
-        acceptance.artifacts.validate_profile('runtime-tests', binary, 'storage')
-        for key, value in [('opt_level', '0'), ('debug_assertions', False), ('overflow_checks', False)]:
-            changed = copy.deepcopy(binary)
-            changed['profile'][key] = value
-            with self.assertRaises(ValueError):
-                acceptance.artifacts.validate_profile('runtime-tests', changed, 'storage')
-        # Ordinary formal consumers retain their existing profile contract.
-        acceptance.artifacts.validate_profile('runtime-tests', dict(profile={}), 'formal')
+        for scope, level in (('storage', '2'), ('formal', '0'), ('formal-debug', '0')):
+            binary = dict(profile=dict(opt_level=level, debug_assertions=True, overflow_checks=True))
+            acceptance.artifacts.validate_profile('runtime-tests', binary, scope)
+            for key, value in [('opt_level', '0' if level == '2' else '2'),
+                               ('debug_assertions', False), ('overflow_checks', False)]:
+                changed = copy.deepcopy(binary)
+                changed['profile'][key] = value
+                with self.assertRaises(ValueError):
+                    acceptance.artifacts.validate_profile('runtime-tests', changed, scope)
+        # Ordinary consumers keep their independent profile contract.
+        acceptance.artifacts.validate_profile('runtime-tests', dict(profile={}), 'ordinary')
 
     def test_storage_consumer_rejects_unoptimized_manifest(self):
         artifacts = acceptance.artifacts
@@ -215,6 +219,31 @@ class Contracts(unittest.TestCase):
             self.assertEqual(report['results'][0]['expected_count'], 1)
             self.assertIn('test result: ok.', (args.results_dir / report['results'][0]['log']).read_text())
             self.assertTrue(acceptance.summarize(args.results_dir, ['units'])['passed'])
+
+    def test_real_capacity_harness_preserves_structured_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'bundle'
+            bundle.mkdir()
+            binary = bundle / 'test'
+            binary.write_text('#!' + sys.executable + '\nprint(\'STORAGE_CAPACITY_REPORT={"status":"passed","executed_heights":10}\')\nprint("test result: ok. 1 passed; 0 failed; 0 ignored;")\n')
+            binary.chmod(0o755)
+            manifest = dict(scope='storage', selection=None, tested_sha='abc', source_sha='abc',
+                producer_run_id='1', producer_attempt='1', runner_image='test', rustc_version='test',
+                binaries={'test': dict(path='test', cwd='.')})
+            args = argparse.Namespace(bundle=bundle, results_dir=root / 'results', group='capacity',
+                capacity_scale=10, repeat_faults=1, label='capacity', timeout_seconds=5)
+            with patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
+                 patch.object(acceptance, 'select', return_value=[dict(binary='test', batch=True, count=1)]), \
+                 patch.object(acceptance.shutil, 'disk_usage', return_value=argparse.Namespace(total=20*1024**3, used=1*1024**3, free=10 * 1024**3)):
+                acceptance.execute(args)
+            report = json.loads((args.results_dir / 'summary.json').read_text())
+            self.assertEqual(report['capacity_reports'], [dict(status='passed', executed_heights=10)])
+            self.assertTrue(report['results'][0]['log_complete'])
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['results'][0]['expected_count'], 1)
+            self.assertIn('test result: ok.', (args.results_dir / report['results'][0]['log']).read_text())
+            self.assertTrue(acceptance.summarize(args.results_dir, ['capacity'])['passed'])
 
     def test_optional_job_skip_is_exact(self):
         with tempfile.TemporaryDirectory() as temporary:
