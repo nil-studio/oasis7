@@ -22,7 +22,8 @@
     "build:viewer": "npm run build:viewer:bundle && node ./scripts/finalize-software-safe-build.mjs",
     "build:software-safe:bundle": "npm run build:viewer:bundle",
     "build:software-safe": "npm run build:viewer",
-    "build:viewer:visual-test": "vite build --mode visual-test --config vite.software-safe.config.mjs && node ./scripts/finalize-software-safe-build.mjs visual-test"
+    "build:viewer:visual-test": "vite build --mode visual-test --config vite.software-safe.config.mjs && node ./scripts/finalize-software-safe-build.mjs visual-test",
+    "test:browser-functional": "node ./scripts/browser-functional-regression.mjs"
   },
   "dependencies": {
     "solid-js": "^1.9.18"
