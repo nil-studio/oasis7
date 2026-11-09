@@ -19,7 +19,7 @@ spec = importlib.util.spec_from_file_location('qualifier_capacity', HERE / 'code
 capacity = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(capacity)
 
-PATCH_SHA = '96faa21457139d84ecd2b6a39583e3a06ec69976e416440331b8765a961b8f66'
+PATCH_SHA = '985c0bdd11650fef89ce56556cb78c5ee9135f17dc030fe309b02eb43354c989'
 OFFICIAL_SHA = 'e60563835e6d1dedd77787e0a341da5875c4d7d3c8ae73043105abccdfef6dbc'
 CANDIDATE_SHA = '5cec72044c199b520f543bcbc2d204a263ae255efa4c8eeeca3112389c5cfb53'
 TYPE_FILE = 'codeql/rust/internal/typeinference/TypeInference.qll'

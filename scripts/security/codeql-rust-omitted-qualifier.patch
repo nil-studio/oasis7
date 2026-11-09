@@ -1,9 +1,6 @@
 --- a/rust/ql/lib/codeql/rust/internal/typeinference/TypeInference.qll
 +++ b/rust/ql/lib/codeql/rust/internal/typeinference/TypeInference.qll
-@@ -311,6 +311,62 @@
- }
- 
- /**
+@@ -313,0 +314,56 @@
 + * RESEARCH: infer omitted qualifier type arguments from one concrete inherent
 + * declaration. This only contributes type evidence; normal self matching and
 + * overload resolution remain mandatory.
@@ -60,16 +57,7 @@
 +}
 +
 +/**
-  * Gets the type qualifier of function call `ce`, if any.
-  *
-  * For example, the type qualifier of `Foo::<i32>::default()` is `Foo::<i32>`,
-@@ -338,6 +394,9 @@
-       isDefaultTypeArg = true
-     )
-   )
+@@ -340,0 +397,3 @@
 +  or
 +  result = inferOmittedConcreteInherentQualifierType(ce, path) and
 +  isDefaultTypeArg = false
- }
- 
- /**
