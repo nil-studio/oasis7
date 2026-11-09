@@ -515,7 +515,7 @@ jobs:
       - name: Stabilize Rust toolchains for ordinary execution
         if: matrix.group != 'baseline'
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         if: matrix.group == 'rust_baseline'
         with:
           tool: cargo-deny@0.19.9
@@ -678,7 +678,7 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install native libraries
@@ -2821,7 +2821,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
@@ -2985,7 +2985,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps

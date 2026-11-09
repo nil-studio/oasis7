@@ -219,7 +219,7 @@ jobs:
               (out / 'native-terminal.json').write_text(json.dumps(terminal, sort_keys=True) + '\n')
           PY
       - id: init
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4, official tag resolved 2026-10-01
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4, official tag resolved 2026-10-01
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
@@ -236,14 +236,14 @@ jobs:
               - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
       - id: analyze
         name: CodeQL extraction and queries
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: ${{ matrix.category }}
           output: ${{ runner.temp }}/codeql-results
           upload: never
       - id: upload
         name: CodeQL SARIF upload
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: ${{ runner.temp }}/codeql-results
           category: ${{ matrix.category }}
