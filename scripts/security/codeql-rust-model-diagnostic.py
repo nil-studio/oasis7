@@ -14,7 +14,10 @@ import codeql_rust_diagnostic_runtime as runtime
 BUNDLES = {
     '2.27.2': {'rust_all': '0.2.23', 'sha256': 'acf2050189aeede5b9aa566f8fb382b02ac1ace72f534778f68b06fce5371cea'},
     '2.27.3': {'rust_all': '0.2.24', 'sha256': '218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237'},
+    '2.27.4': {'rust_all': '0.2.25', 'sha256': '1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b'},
 }
+# Shared closure metadata does not expand the historical model diagnostic CLI.
+MODEL_BUNDLE_VERSIONS = ('2.27.2', '2.27.3')
 
 
 def pack_manifest(path):
@@ -80,7 +83,7 @@ def verify_library_path(value, query, name, closure, pack_name="oasis7/rust-mode
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--codeql', type=Path, required=True)
-    parser.add_argument('--bundle-version', choices=BUNDLES, default='2.27.2')
+    parser.add_argument('--bundle-version', choices=MODEL_BUNDLE_VERSIONS, default='2.27.2')
     parser.add_argument('--business-source', type=Path, required=True)
     parser.add_argument('--probe', choices=('node-only', 'endpoints', 'peer-df', 'driver-non-target', 'driver-target', 'calls', 'full', 'trait-scope-plan'), default='node-only')
     parser.add_argument('--output', type=Path, required=True)

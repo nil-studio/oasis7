@@ -29,7 +29,7 @@ def workflow_steps():
 
 class Capacity(unittest.TestCase):
     def test_source_pin_cli_defaults_and_allowed_exclusion_candidate(self):
-        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.PROFILE_SOURCE,m.CALLEE_SOURCE,m.CAPACITY_SOURCE):
+        for selected in (None,m.BASE_SOURCE,m.EXCLUSION_SOURCE,m.JSON_FIXTURE_SOURCE,m.DECOMPOSITION_SOURCE,m.PROFILE_SOURCE,m.CALLEE_SOURCE,m.PREVIOUS_CAPACITY_SOURCE,m.CAPACITY_SOURCE):
             with tempfile.TemporaryDirectory() as tmp:
                 root=Path(tmp); source=root/"source";source.mkdir()
                 argv=["capacity","capture","--source",str(source),"--database",str(root/"db"),"--output",str(root/"out"),"--work",str(root/"work"),"--sarif",str(root/"sarif"),"--deadline",str(time.time()+300)]
@@ -284,6 +284,16 @@ class Capacity(unittest.TestCase):
     def test_research_prepare_never_generates_or_compiles_custom_queries(self):
         self.research_prepare_case()
 
+    def test_prepare_binds_current_capacity_and_historical_profile_bundles(self):
+        self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.4')
+        self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.3')
+        self.research_prepare_case(mode='capacity',source_sha=m.PREVIOUS_CAPACITY_SOURCE,actual_version='2.27.3')
+
+    def test_prepare_rejects_cli_from_the_other_assessment_configuration(self):
+        self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.3',wrong_cli=True)
+        self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.4',wrong_cli=True)
+        self.research_prepare_case(actual_version='2.27.4',wrong_cli=True)
+
     def test_metadata_created_lock_stops_before_analysis_even_if_git_gate_is_clean(self):
         self.research_prepare_case(create_lock=True)
 
@@ -299,13 +309,17 @@ class Capacity(unittest.TestCase):
     def test_native_prerequisite_failure_stops_before_metadata_or_analysis(self):
         self.research_prepare_case(native_failure=True)
 
-    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False):
+    def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False,
+                              mode='official-default-research',source_sha=None,actual_version='2.27.3',wrong_cli=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
             official=root/'official';suite=official/'qlpacks/codeql/rust-queries/1/codeql-suites/rust-code-scanning.qls'
             suite.parent.mkdir(parents=True);suite.write_text('official')
             query=suite.parent.parent/'official.ql';query.write_text('/** @id rust/official */')
+            rust_all='0.2.25' if actual_version=='2.27.4' else '0.2.24'
+            library=official/'qlpacks/codeql/rust-all'/rust_all
+            closure={'codeql/rust-all':{'root':str(library),'version':rust_all}}
             action=root/'action';action.mkdir();(action/'config').write_text('{}')
             (source/'Cargo.toml').write_text('[workspace]\n')
             (source/'Cargo.lock').write_text('initial lock')
@@ -319,26 +333,36 @@ class Capacity(unittest.TestCase):
                 commands.append(argv)
                 if native_failure and argv[0]=="pkg-config":raise RuntimeError("native prerequisite failed")
                 if create_lock and argv[0]=='cargo':(source/'Cargo.lock').write_text('created during metadata')
-                self.assertNotIn('compile',argv)
-                value={'version':m.BUNDLE} if 'version' in argv else ({'resolve':{'nodes':[1]}} if argv[0]=='cargo' else [str(query)])
+                if mode=='official-default-research':self.assertNotIn('compile',argv)
+                value={'version':actual_version} if 'version' in argv else ({'resolve':{'nodes':[1]}} if argv[0]=='cargo' else [str(query)])
+                if 'library-path' in argv:
+                    public=Path(next(arg.split('=',1)[1] for arg in argv if arg.startswith('--query=')))
+                    value={'libraryPath':[str(public.parent),str(library)],'dbscheme':str(library/'rust.dbscheme'),
+                        'compilationCache':[],'relativeName':'oasis7/rust-capacity/'+public.name,'qlPackName':'oasis7/rust-capacity'}
                 output.write_text(json.dumps(value))
                 if metadata_failure and argv[0]=='cargo':raise RuntimeError('original metadata failure')
                 return {'exit':0}
-            patches=[patch.object(sys,'argv',['capacity','prepare','--mode','official-default-research',
+            patches=[patch.object(sys,'argv',['capacity','prepare','--mode',mode,'--source-sha',source_sha or m.EXCLUSION_SOURCE,
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
                 '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+21600)]),
                 patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs'),'GITHUB_ENV':str(root/'github-env')}),
                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}),
                 patch.object(m.evidence,'capture_identity',side_effect=[{'status':'PASS'},{'status':'PARTIAL'}] if identity_failure else None,return_value={'status':'PASS'}),
                 patch.object(m,'snapshot',return_value=frozen),patch.object(m.plan,'inventory',return_value=(manifests,None)),
-                patch.object(m,'official_snapshot',return_value={}),patch.object(m.bundle,'bundle_closure',return_value={}),
+                patch.object(m,'official_snapshot',return_value={}),patch.object(m.bundle,'bundle_closure',return_value=closure),
                 patch.object(m.model,'verify_metadata',return_value=Path('/libp2p')),
                 patch.object(m,'verify_action_config'),patch.object(m.runtime,'run',side_effect=run),
-                patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'}),
-                patch.object(m,'semantic_queries',side_effect=AssertionError('custom queries forbidden'))]
+                patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'})]
+            if mode=='official-default-research':patches.append(patch.object(m,'semantic_queries',side_effect=AssertionError('custom queries forbidden')))
             for item in patches:stack.enter_context(item)
             # Layout admission still precedes expensive work.
             out.mkdir();(out/'collection-layout.json').write_text('{"status":"PASS"}')
+            if wrong_cli:
+                with self.assertRaisesRegex(RuntimeError,'wrong official CLI'):m.main()
+                self.assertFalse(any(argv[0]=='cargo' for argv in commands))
+                m.bundle.bundle_closure.assert_not_called()
+                self.assertFalse((root/'outputs').exists())
+                return
             if missing_vendor:
                 with self.assertRaisesRegex(RuntimeError,'independent workspace locks are not frozen'):m.main()
                 self.assertEqual(commands,[])
@@ -368,14 +392,21 @@ class Capacity(unittest.TestCase):
                 self.assertEqual(observed['dependency_resolution_impact'],'UNKNOWN')
                 return
             m.main()
-            self.assertFalse((work/'queries').exists())
+            m.bundle.bundle_closure.assert_called_once_with(official,actual_version)
+            if mode=='official-default-research':self.assertFalse((work/'queries').exists())
+            else:
+                self.assertIn('codeql/rust-all: '+rust_all+'\n',(work/'queries/qlpack.yml').read_text())
+                self.assertEqual(len(list((work/'queries').glob('*.ql'))),7)
+                self.assertTrue(any('compile' in argv for argv in commands))
             self.assertEqual([call.kwargs['prefix'] for call in m.evidence.capture_identity.call_args_list],
                 ['prepare','after-metadata-workspace','after-metadata-candidate',
                  'after-metadata-legacy','after-metadata-common','pre-analyze'])
             terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
-            self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
+            self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED' if mode=='official-default-research' else 'NOT_REACHED')
+            self.assertEqual(terminal['expected_bundle_version'],actual_version)
             self.assertEqual(terminal['production_capacity'],'UNKNOWN')
-            self.assertGreater(terminal['analysis_minutes'],300)
+            if mode=='official-default-research':self.assertGreater(terminal['analysis_minutes'],300)
+            else:self.assertEqual(terminal['analysis_minutes'],45)
             self.assertEqual(terminal['native_preparation'],'PASS')
             native_index=next(i for i,argv in enumerate(commands) if argv[0]=='pkg-config')
             metadata_index=next(i for i,argv in enumerate(commands) if argv[0]=='cargo')
@@ -533,6 +564,15 @@ class Capacity(unittest.TestCase):
         self.assertEqual(text.count('--source-sha "$CAPACITY_SOURCE"'),4)
         self.assertEqual(text.count('ref: ${{ env.CAPACITY_SOURCE }}'),1)
         self.assertNotEqual(m.CAPACITY_SOURCE,m.EXCLUSION_SOURCE)
+
+    def test_workflow_download_binds_version_and_digest_to_each_mode(self):
+        text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
+        pins={name:(research,capacity) for name,research,capacity in re.findall(
+            r"^      (CAPACITY_BUNDLE_(?:VERSION|SHA256)): \$\{\{ inputs.mode == 'official-default-research' && '([^']+)' \|\| '([^']+)' \}\}$",text,re.MULTILINE)}
+        self.assertEqual(pins['CAPACITY_BUNDLE_VERSION'],('2.27.3','2.27.4'))
+        self.assertEqual(pins['CAPACITY_BUNDLE_SHA256'],tuple(m.bundle.BUNDLES[v]['sha256'] for v in ('2.27.3','2.27.4')))
+        self.assertIn('codeql-bundle-v${CAPACITY_BUNDLE_VERSION}/codeql-bundle-rust-linux64.tar.zst',text)
+        self.assertIn('echo "$CAPACITY_BUNDLE_SHA256  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check',text)
 
     def test_manifest_discovery_is_not_semantic_coverage(self):
         text='INFO found manifests:\n[build-stdout]   /frozen/Cargo.toml\nINFO next\n'

@@ -23,9 +23,9 @@ JSON_FIXTURE_SOURCE='09641e1b9d551700771c772e7545ac2851ea273d'
 DECOMPOSITION_SOURCE='c65098923e8d9aad6813d49ac48cc2540627c96d'
 PROFILE_SOURCE='e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6'
 CALLEE_SOURCE='f9ab0ca14620f118c84130b3d558e48dc1e6314d'
-CAPACITY_SOURCE='23dbd6b291ba49468c473e5f23f674ed2a1196e4'
+PREVIOUS_CAPACITY_SOURCE='23dbd6b291ba49468c473e5f23f674ed2a1196e4'
+CAPACITY_SOURCE='7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
 SOURCE=EXCLUSION_SOURCE
-BUNDLE='2.27.3'
 CAP=256*1024**2
 EXCLUDES=('third_party/','target/','node_modules/','dist/','.pm/')
 
@@ -483,7 +483,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
-    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
+    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,PREVIOUS_CAPACITY_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
@@ -496,6 +496,8 @@ def main():
     args=parser.parse_args()
     SOURCE=args.source_sha;out=args.output;work=args.work;source=args.source.resolve()
     research=args.mode=='official-default-research'
+    # Historical profile also uses capacity mode; its source and bundle stay frozen.
+    selected_bundle='2.27.4' if not research and SOURCE==CAPACITY_SOURCE else '2.27.3'
     if args.phase!='capture' and args.codeql is None:parser.error('--codeql is required for prepare/finish')
     # Capacity artifacts have their own bound. Database files inherit runner limits, not probe RLIMIT_FSIZE.
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-1024**2
@@ -506,7 +508,8 @@ def main():
         'init_outcome':args.init_outcome,'prepare_outcome':args.prepare_outcome,'analyze_outcome':args.analyze_outcome,
         'default_result_verification':'NOT_REACHED','public_semantics':'NOT_REACHED',
         'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[],
-        'mode':args.mode,'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
+        'mode':args.mode,'expected_bundle_version':selected_bundle,
+        'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
     if research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
     for stage in ('checkout','layout','tools','init','prepare','analyze'):
         outcome=getattr(args,stage+'_outcome')
@@ -548,9 +551,9 @@ def main():
             terminal['native_preparation']='PASS'
             run(['rustc','-vV'],'project-toolchain',20)
             run([args.codeql,'version','--format=json'],'version',20)
-            if json.loads((out/'version.log').read_text())['version']!=BUNDLE:raise RuntimeError('wrong official CLI')
+            if json.loads((out/'version.log').read_text())['version']!=selected_bundle:raise RuntimeError('wrong official CLI')
             save(out/'official-before.json',official_snapshot(args.codeql.parent),out)
-            closure=bundle.bundle_closure(args.codeql.parent,BUNDLE);save(out/'library-closure.json',closure,out)
+            closure=bundle.bundle_closure(args.codeql.parent,selected_bundle);save(out/'library-closure.json',closure,out)
             roots=list((args.codeql.parent/'qlpacks/codeql/rust-queries').glob('*/codeql-suites/rust-code-scanning.qls'))
             if len(roots)!=1:raise RuntimeError('default suite identity ambiguous')
             suite=roots[0];query_root=suite.parent.parent
@@ -575,7 +578,7 @@ def main():
             save(out/'libp2p-provenance.json',libp2p,out)
             if not research:
                 query_dir=work/'queries';query_dir.mkdir(exist_ok=False)
-                (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.24\n')
+                (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: '+closure['codeql/rust-all']['version']+'\n')
                 texts=semantic_queries(source)
                 for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
                 save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)

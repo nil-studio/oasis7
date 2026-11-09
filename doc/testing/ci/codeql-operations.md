@@ -131,7 +131,9 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前 `mode=capacity` 固定业务源码为 2026-11-09 读回的 main 快照 `23dbd6b291ba49468c473e5f23f674ed2a1196e4`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，按 60 分钟完整 default 与公共见证合同评估，分析上限 45 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置；callee 定向诊断保留 `f9ab0ca14620f118c84130b3d558e48dc1e6314d`，用于复现该版本的空调用结果，不能据此声明当前源码验收通过。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。当前 `mode=capacity` 固定业务源码为 2026-11-09 读回的 main 快照 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本。该配置使用完整官方 2.27.4 bundle，与生产所固定 CodeQL Action 的默认版本一致；下载摘要、实际 CLI 版本、`rust-all` 0.2.25 及完整库依赖闭包分别核验，公共见证 pack 从该已验证闭包生成依赖版本。终态记录预期版本，实际身份以 CLI 输出及闭包证据为准。按 60 分钟完整 default 与公共见证合同评估，分析上限 45 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置。
+
+共享 helper 按模式与业务 pin 绑定工具版本：仅当前 capacity 快照采用 2.27.4，其他历史快照及 `official-default-research` 继续使用 2.27.3。callee 定向诊断保留 `f9ab0ca14620f118c84130b3d558e48dc1e6314d`，用于复现该版本的空调用结果；e205 性能诊断虽复用 helper 的 capacity 模式，也保留原 2.27.3。它们不能据此声明当前源码验收通过。更新容量配置不修改公共见证文本或断言，也不证明已有调用解析缺口已修复。
 
 其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
 
