@@ -24,9 +24,14 @@
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | 当前首局的真实后继用途、投入取舍与下一决定可归因于原成果 | [路线与经营价值](#des-adopt-001) | 原 profile / M4 / gameplay / QA | 不把两个推荐或 enabled 动作当作实质分支 |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | 玩家已接受目标与有效委托关联实际应用及原结果，理由不代替世界因果 | [有界委托与纠正](#des-adopt-002) | 原意图/授权/任务与领域执行 authority | 不以 Prompt ACK、模型自述或环境变化证明玩家影响 |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | 同一方案、请求、结果与当前 blocker 支持可理解且真实的下一步 | [方案与下一步](#des-adopt-003) | 原 quote/receipt / Viewer / pure API | 本 profile 的局部链不代签其他受支持路径 |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | 回访保留原成果和未决义务，当前合法下一步与继续意愿分别证明 | [成果与回访](#des-adopt-004) | Runtime 原恢复 / gameplay / QA | 重连、预约返回和摘要可读不证明自发回访 |
 | [REQ-FIRST-BRANCH-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-branch-001) Trace refs: O7-REQ-4c622b94-22bd-4559-9595-6b134bdc00b1 | 主指引和每个推荐的完整承诺与当前阶段、实际可用动作同义 | [DES-ADOPT-001](#des-adopt-001) | gameplay / Runtime 动作来源 / Viewer | 不由内部 Governance 阶段推导治理或冲突开放 |
 | [REQ-FIRST-BRANCH-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-branch-002) Trace refs: O7-REQ-2e82fef6-bbb5-43b6-a7d0-833905e8e8a3 | 适用回退的窗口、代价、保留与失去价值一致，关闭后不被恢复过程重新打开 | [DES-ADOPT-001](#des-adopt-001) | gameplay 回退合同 / Viewer / QA | 不在没有正式回退能力的路径创造退款或撤销 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | 成果连接真实后继用途和可达分支；比较投入顺序与机会成本，不增加首产物条件 | [DES-ADOPT-001](#des-adopt-001) | gameplay / M4 当前配方与建设规则 | 不以首产物完成证明稳定能力或两条路线同时可做 |
+| [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | 当前首产物可选承接重复能力、真实受限后的选择、扩展与回访，分别判定技术与体验 | [可选持续目标](#first-capability-continuation) | 原native初态/quote/结算与真实入口能力、QA | 不新增首产物条件、资源、退款或里程碑；当前Viewer小批能力不由native样例补签。 |
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002) Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | 同一对象、配方、批量与账本的预览、提交、结算支持玩家理解投入和所得 | [DES-ADOPT-003](#des-adopt-003) | M4 报价 / Runtime 执行 / Viewer | 不在展示端复制配方常量或把单批值当本次总量 |
 | [REQ-WR-IA-003](../../product/world-rules-core-gameplay/indirect-control-agency-and-continuation.prd.md#req-wr-ia-003) Trace refs: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376 | 适用的关键间接决策保留意图、理由/证据、stakes、预期后果、替代、纠正最早生效点与结果 | [DES-ADOPT-002](#des-adopt-002) | Agent / Runtime 因果链 / gameplay / QA | 本设计选取记忆驱动的工业决策子场景；不代签社交、治理或冲突全部 AC 范围 |
 | [REQ-AGENT-AUTH-001](../../product/agents-world-simulation/agent-authority-ownership-and-accountability.prd.md#req-agent-auth-001) Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad | 委托只在支持能力与有效授权交集中执行，保留累计额度与撤销边界 | [DES-ADOPT-002](#des-adopt-002) | Runtime 原授权合同 / Agent | 不把软偏好、目标或 WASM capability 当玩家授权 |
@@ -72,6 +77,10 @@ REQ-WR-IA-003 / AC-WR-IA-003 包含记忆驱动、社交、治理或冲突决策
 
 ## 5. 关键运行流程
 
+Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；本节按[玩家杠杆原要求](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)接收当前首局的组合义务：DES-ADOPT-001 的真实选择，经 DES-ADOPT-002 的有效委托或原玩家操作，进入 DES-ADOPT-003 的同一原请求/领域结果，再由 DES-ADOPT-004 连接后继用途与回访。前景目标、Agent 自主活动和环境推进分别归属；只有原意图/执行/结果的准确关联才说明本次玩家改变了什么。当前不支持的委托步骤仍保留真实玩家操作基线，不补造因果或下一动作。
+
+这条接收沿用本文 production_only 与原授权/恢复范围。成熟成长及受阻后的恢复分别由[原成长组合](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-continuing-growth)和[原恢复比较](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-delivery-recovery-comparison)承担；本地样本不能代签它们或其他已声明路径。规则可达、真实操作、玩家理解和继续意愿分层取证，按[原证据消费方法](../../testing/design.md#playability-evidence-consumer-reception)保留范围和未证明项。
+
 <a id="des-adopt-001"></a>
 ### DES-ADOPT-001：可达路线、投入顺序与经营价值
 
@@ -84,6 +93,26 @@ REQ-WR-IA-003 / AC-WR-IA-003 包含记忆驱动、社交、治理或冲突决策
 当前只有一条合法路线时保留操作/学习基线，不凑数；后续阶段原有分支义务仍未完成。选择后的提交重新核验当前状态；回退继续使用原合同的窗口、代价与保留价值，换向不撤销既有未知请求或已结算建设结果。回退窗口关闭后，恢复成功也不重开窗口。
 
 规则对照在相同合法初始状态的隔离样例上比较不同路径，不是在正式世界复制资源。比较范围包含各自合法转移、后继前置与真实时长；不要只比较抽象材料总数。小批/大批按实际参数能力和综合机会成本核验，不默认等价或有优劣。
+
+<a id="first-capability-continuation"></a>
+#### 当前首局的可选持续目标
+
+Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3；承接 [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008)。首产物之后可由玩家选择“保留当前产线，理解一次真实受限并作出可执行的后继决定”；这不是新增 milestone、奖励、固定任务次数或强制事故。实际可执行边界从[当前 native 初态与消费账本](industrial-native-content-delivery.design.md#starter-and-initial-state-applicability)和 fresh quote 获取。
+
+| 决策节点 | 原事实与可作的选择 | 独立完成判断 |
+| --- | --- | --- |
+| 建立有限成果 | 支持批量选择的 native 入口可以从同一合法初态选择 1 batch iron；匹配结算形成正量 iron 与 slag，并沿原规则开放 Assembler 候选 | 首产物仍为 `production_only`；玩家可在此自然离场，不必继续生产。 |
+| 继续原产线或扩展 | 在当前授权与余额下比较再做同参数 iron、建造 Assembler 或停止；读取各自真实消费账本、剩余投入与后继用途 | 同一 factory 的三次同 canonical snapshot 已完成 job，只是原 `factory_has_canonical_stable_line` 的技术候选；一次 3-batch job 不是三次完成；当前玩家能力还须经原 current-stable 检查，Blocked/Paused 或当前/未决候选不匹配不能由历史完成窗补签。技术 stable 也不证明玩家已掌握持续能力。 |
+| 评估扩展后的用途 | Assembler 建造消耗 owner 原建造料；gear 消耗该 site 的合法预置铁，按实际 quote 与匹配结果接收 | 新产 Smelter 铁保留在其原账本；既没有转入 builder，也没有因材料同名成为 gear 输入。扩展是当前可达用途与下一选择，不是假交付。 |
+| 遇到真实约束后重新选择 | 原授权内比较当前支持的减量、保留扩展后停止或其他真实可达目标；若选择不同批量，重新形成明确的新方案并重新报价 | quote 拒绝与真实运行中 factory blocked/resumed 是不同事实。未提交的大批量没有 receipt、job、资源消费或需恢复的业务历史。 |
+
+**规则算例。** 对原合法 starter 初态、相同 authority 和足够的有效授权，owner 电力 132，经 Smelter 建造 10 后为 122；三个相同 1-batch iron job 各消耗 8，累计得到 Smelter site 的 9 iron / 3 slag，电力为 98。再建 Assembler 消耗 10，四个 gear batch 消耗 16，电力为 72。此时 12-batch iron 需要 96，缺 24；若当前其它前置均满足，选择 1 batch 仅需 8，实际匹配结算后电力为 64，Smelter 产物累计为 12 iron / 4 slag。算例数值来自原规则，方法会随规则变更重新核算；它不是新平衡值或运行结果。
+
+原 60 iron_ore / 20 carbon_fuel 经过前三次小批后剩 48/17，足够尝试 12 batch，因此该算例可以独立识别电力不足；减为 1 batch 后剩 44/16。owner 建造料与 Assembler site 的 8 iron 分账核对，gear 的 4 件产出不减少 Smelter site 的 9 件 iron。未确认的 upkeep、base_power_draw 或 maintenance 字段不加入这份已知扣费轨迹；原执行规则若增加实际约束，须据新规则重算并更新证据。
+
+这条正向小批路线仅在入口实际支持选择及提交该参数时适用。当前 Viewer iron 快捷动作固定 12 batch，不能用 native 的小批样本声称其相同路线已可操作；不支持时显示真实能力缺口与当前安全停点。授权只覆盖大批原意图、目的限定或额度不足时，减量也不能由界面擅自改写；按原目标/授权合同取得合法新选择。旧大批请求若曾提交且结果未知，必须先恢复原结果，不能借改量再次执行。
+
+首次持续能力的验收由四项独立事实组成：原产线可重复获得匹配结果；玩家读懂真实投入与用途；出现本次候选确实支持的阻塞/恢复决定且后续结果匹配；至少一个真实中循环方向与回来后的下一步明确。原技术 stable、首局信任、首次分支及继续意愿各自判断。没有自然发生的约束时可在隔离测试中选择规则本已允许的低电状态；不能在玩家世界暗改余额或强制失败。完整方法见 [IC-CONTINUATION](industrial-native-content-delivery.manual.md#ic-first-capability-continuation)。
 
 <a id="des-adopt-002"></a>
 ### DES-ADOPT-002：有界委托、关键请示与完整纠正
@@ -127,6 +156,8 @@ REQ-WR-IA-003 / AC-WR-IA-003 包含记忆驱动、社交、治理或冲突决策
 摘要按原事件身份去重。已读位置仅控制阅读，不改变结算、意图完成或未决状态；读取摘要失败不能阻塞生产。普通环境变化可合并，损失、授权变化和未决义务不能被裁剪为不存在。两入口可以拥有不同已读位置，但必须保留同义事实、义务和可执行下一步，各自独立证明回访可用。
 
 微循环、会话成果与跨会话目标按真实事件相接，不增加强制等待或事故来填满时长。系统提供可解释的进展和自然退出条件；看懂回访不等于愿意回来，预约测试回访也不等于自发留存。
+
+对[当前可选持续目标](#first-capability-continuation)，回访重读原匹配 job/receipt、未决请求及三类账本，分别显示一次成果、原技术 stable 与实际仍可做的选择。低电 quote 只留下本次观察；若未提交，不生成或恢复一个“失败生产”。重新取得当前权限和 quote 后，玩家可继续小批、扩展或停下；电力不会因离线、重连或读取 summary 自动恢复。验证沿 [IC-CONTINUATION](industrial-native-content-delivery.manual.md#ic-first-capability-continuation)覆盖原结果未知、无新事件和入口不支持小批的情形。
 
 <a id="des-adopt-005"></a>
 ### DES-ADOPT-005：用途、需求与交付分层
@@ -201,6 +232,10 @@ first_delivery_preview 的兼容字段名不授予交付语义。当前先沿原
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | [路线与经营价值](#des-adopt-001) | 原成果后的真实替代、机会成本和下一决定 | [真人分项观察](../../testing/manual/first-session-human-playtest.manual.md#human-study-assessment)：固定当前首局候选/入口/初态，按原 10.1/10.2 核对真实选择及仅标签、无真实替代的反例；领域事实由原 oracle 独立确认 | 真实用途/成本、实际选择、提示及原结果定位 | 未执行真人观察或领域动作不报告通过；不代签其他 profile |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | [有界委托与纠正](#des-adopt-002) | 同任务的目标实际应用、当前授权与原结果分层 | [ST-04](../../testing/manual/agent-runtime-self-playtest.manual.md#st-04)：固定实际受支持 Runtime/profile，联合原 ST-03 检查批准/拒绝/撤销、目标应用及断连恢复；按原 required/full 分层 | 接受/应用/上下文/世界结果及原请求关联、拒绝与未知记录 | 脚本 owner 不等于真人主体感；缺实际能力保留缺口 |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | [方案与下一步](#des-adopt-003) | 实际行动的因果、首产物和阻塞后合法继续 | [ST-03](../../testing/manual/agent-runtime-self-playtest.manual.md#st-03)：同候选/正式入口/合法初态对照原请求、领域结果及真实阻塞后进展；仅自报、ambient 库存变化、ACK和未知结果不得补成完成 | 原 action/operation/receipt、归属成果、blocker 和实际继续条件 | 局部首产物不证明稳定能力、交付或整条外部 Runtime 生命周期 |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | [成果与回访](#des-adopt-004) | 旧成果、待决与当前下一决定连续，预约和自发返回分开 | [真人接续观察](../../testing/manual/first-session-human-playtest.manual.md#human-study-session-two)：同候选与可比较世界历史按原 T5–T8 观察首个动作、旧/新变化、提示和停止；候选变化按原复测规则保留 | 旧成果/原请求、当前权限、实际第一动作与参与者原话 | 预约、重连或主持提示不代签自发回访及长期留存 |
 | [REQ-FIRST-BRANCH-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-branch-001) Trace refs: O7-REQ-4c622b94-22bd-4559-9595-6b134bdc00b1 | [DES-ADOPT-001](#des-adopt-001) | 主指引和每个推荐的完整承诺与当前阶段、实际可用动作同义 | VAL-ADOPT-001：依[测试手册](../../../testing-manual.md)核对主指引、完整分支和 enabled 过滤；同时按下述规则对照比较后继条件。AC-FIRST-BRANCH-001 的阶段一致性独立判定 | PR 中的两入口输出与源动作集合 | 两张卡片或不同文案不证明经营价值 |
 | [REQ-FIRST-BRANCH-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-branch-002) Trace refs: O7-REQ-2e82fef6-bbb5-43b6-a7d0-833905e8e8a3 | [DES-ADOPT-001](#des-adopt-001) | 适用回退的窗口、代价、保留与失去价值一致，关闭后不被恢复过程重新打开 | VAL-ADOPT-009：依[自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md)分别覆盖截止前、截止时、截止后和恢复后，核对 AC-FIRST-BRANCH-002；仅 fixture 支持时只报告结构结果 | PR 中的原窗口、操作与结果对照 | 不以样例通过证明真实 Runtime 回退已开放 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | [DES-ADOPT-001](#des-adopt-001) | 成果连接真实后继用途和可达分支；比较投入顺序与机会成本，不增加首产物条件 | VAL-ADOPT-001：依[自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md)在同一合法初始状态分别核对合金生产/Assembler 建设、单路线、两者可兼得及共享材料受限的情形；比较真实消费账本、投入后剩余条件和后续两个决策；结合 AC-FIRST-INDUSTRIAL-004 与 FS-10 分项观察 | PR 中的规则对照、后继用途及玩家选择理由 | 不虚构需求、免费材料或强制时限来制造分支 |
@@ -215,6 +250,7 @@ first_delivery_preview 的兼容字段名不授予交付语义。当前先沿原
 | [REQ-FIRST-INDUSTRIAL-007](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-007) Trace refs: O7-REQ-df0617cf-2ab6-40ca-934b-f050d6a66812 | [DES-ADOPT-004](#des-adopt-004) | 回访中的成果、当前目标、阻塞和下一步在两入口同义且各自可用 | VAL-ADOPT-008：依[自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md)分别执行离场/重入，比较各自已读位置下的权威事实、未决义务、权限变化和下一动作；按 AC-FIRST-INDUSTRIAL-004 允许展示窗口不同但不允许事实矛盾 | PR 中的两入口回访输出、窗口与事实关联 | 一个入口自动重连不证明另一入口可续玩 |
 | [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | [DES-ADOPT-004](#des-adopt-004) | 成果、后继用途、自然离场和回来后的下一决定连续 | VAL-ADOPT-006：依[自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md)在首笔匹配结算后自然离场，覆盖无新事件、服务未运行、事件窗口缺口与下一候选不可达；按 AC-FIRST-INDUSTRIAL-004 分别记录链路、理解、继续意愿、预约与真实自发回访 | PR 中的原成果、后继条件及实际玩家观察 | 合成摘要、Agent 活动、预约回访不证明自然留存 |
 | [REQ-FIRST-INDUSTRIAL-004](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-004) Trace refs: O7-REQ-81c0bc21-36ef-400d-9398-31859b9a08b2 | [DES-ADOPT-005](#des-adopt-005) | 用途、需求、生产、合作承诺和交付后果分层，production_only 不代签需求满足 | VAL-ADOPT-007：依[测试手册](../../../testing-manual.md)覆盖静态 local_need、真实需求未知/取消、仅 production receipt、部分或未确认交付；按 AC-FIRST-INDUSTRIAL-005 核对生产可完成但没有 delivery-only 需求减少或奖励 | PR 中的来源分类、可见说明及领域结果 | 需求存在不证明盈利；交付样例不增加首产物门槛 |
+| [REQ-FIRST-INDUSTRIAL-008](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-008) Trace refs: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3 | [可选持续目标](#first-capability-continuation) | 分账后继、真实限制、合法减量、技术stable/持续能力/回访分开 | [IC-CONTINUATION CN01–09](industrial-native-content-delivery.manual.md#ic-first-capability-continuation)；同合法初态按实际入口选择，静态/运行/真人分层 | 原job/receipt与三账、电力轨迹、授权/入口差异及参与者观察 | 不代签Viewer未开放的小批、自然留存或通用市场/物流；不将quote拒绝伪造为运行停机。 |
 
 [吸引力自动化入口](../../../scripts/verify-gameplay-attraction-automation.sh)继续区分结构、真实运行与真人证据。跨入口两行分别归 REQ-FIRST-INDUSTRIAL-007，成果动机归 REQ-FIRST-INDUSTRIAL-008；同一 AC-FIRST-INDUSTRIAL-004 的局部通过不能掩盖另一项。单目标对照不补签完整因果，运行正确不补签理解或留存。
 

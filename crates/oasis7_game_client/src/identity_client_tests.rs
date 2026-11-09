@@ -276,3 +276,47 @@ fn registration_lost_commit_reply_reuses_exact_original_after_client_restart() {
     assert_eq!(log.len(), 4);
     assert_eq!(log[2], log[3]);
 }
+
+#[test]
+fn current_account_requires_authority_session_subject_match() {
+    let d = directory();
+    let mut c = config(&d);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    c.endpoint = format!("http://{}", listener.local_addr().unwrap());
+    c.test_loopback = true;
+    IdentityClient::initialize(&c, PASSWORD).unwrap();
+    let client = IdentityClient::new(c, PASSWORD).unwrap();
+    let _: IdentitySession = client
+        .store
+        .put_original(
+            &client.scope,
+            "login-op",
+            "login-session",
+            &IdentitySession {
+                account_id: "account-a".into(),
+                cookie: "synthetic-private-session".into(),
+            },
+        )
+        .unwrap();
+    let server = thread::spawn(move || {
+        for account in ["account-a", "account-b"] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut input = Vec::new();
+            let mut byte = [0];
+            while !input.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                input.push(byte[0]);
+            }
+            assert!(String::from_utf8(input).unwrap().contains("/session"));
+            let body =
+                json!({"api_version":2,"ok":true,"account":{"account_id":account}}).to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        }
+    });
+    assert_eq!(client.current_account("login-op").unwrap(), "account-a");
+    assert_eq!(
+        client.current_account("login-op").unwrap_err(),
+        "identity session subject changed"
+    );
+    server.join().unwrap();
+}

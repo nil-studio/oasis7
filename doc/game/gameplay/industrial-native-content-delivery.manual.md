@@ -128,3 +128,39 @@ PY
 用同类样本的实际区间及数量形成重复制作估算，单列固定准备、集成、验证与返工，说明样本数、范围差异和外推假设。按设计公式避免重复计费；先把缺少来源/可用运输等依赖列为阻塞，再估其受影响范围，不用乐观平均数掩盖。货币成本需有实际费率/报价；日历排期需按依赖与可用人员另行安排。
 
 **允许的结论：** 静态核对可报告本范围 2 个工厂 kind / 11 个配方的源与结构；单个实际样本可报告该样本制作/集成结果；代表性重复样本和一次适用的规格/依赖传播完成后，才按原[规模证据要求](../../engineering/doc-governance/product-documentation-standard.design.md#content-scale-evidence)评价对应范围的扩产风险。没有这些记录时，方法已设计、实际产能未验证，不能把目录数量乘任意单价或工时写成已批准预算。
+
+<a id="ic-starter-forward-gate"></a>
+## 7. IC-STARTER-GATE：同一初态的前向可行性
+
+承接[共享前向 Gate](industrial-native-content-delivery.design.md#starter-fresh-forward-gate)与[当前来源适用性](industrial-native-content-delivery.design.md#starter-canonical-source-boundary)。先静态核输入、账本和原转换；实现该评估者时再以固定 source/build、实际入口/profile、同一合法初态与 grant 跑以下合同测试。当前源码的单步 quote 或结构测试不能填写为完整 Gate 通过。使用原[自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md#st-03)选择正式入口验证时，另记录真实操作与领域结果。
+
+| 方法 | 独立输入与操作 | 预期与检查点 |
+| --- | --- | --- |
+| FG01 正向组合 | 原合法 starter、相同 owner/site/profile、建造与排产均已获准；分别取尚未建 Smelter、已就绪 Smelter 两种当前状态 | 按入口真实批量可到达 production_only；输出包含候选绑定、首成果与下一候选，已有工厂不重建。比较完整 live 状态及存储写入观察：无资源、队列、grant、receipt、milestone 或时间修改。 |
+| FG02 当前输入与依赖 | 读取 owner 建造料、Smelter 输入和 Assembler 输入三个账本及实际 route/path；保持 canonical direct profile | 不要求 source/refinement/handoff/运输 receipt；Assembler 预置铁不由新产铁证明。换为确有上述依赖但缺 authority 的 profile 时，必须 no_safe，不能复制 direct 的适用判定。 |
+| FG03 累计预算 | 在隔离且合法的相同规则初态把可用电力设为100，选择“建厂10 + iron 12 batch需96”；分别再用足够电力但剩余授权额度不足的输入 | 组合在剩余90E处拒绝排产，不能把两个独立阶段均能承担单项费用当整链可达；授权总量同样沿原grant逐步核算，查询不扣额度。 |
+| FG04 单变量反例 | 分别缺建造料、site燃料、合法site/location、有效grant、当前profile或输出接收证据；其余与正向相同 | 每次返回实际最早且可行动缺口及真实恢复/复查点；world或其它site有同名材料不能抵销。未知字段不补零或强制标N/A。 |
+| FG05 非当前转换 | 仅有目标设计、不能有界证明的完成条件、外部未来补给、未支持入口，或已提交但原结果未知 | no_safe并区分target/unknown；不注入ready对象、不自动跑无关job或再次提交。已有原件先按当前合法读权核对。 |
+| FG06 绑定、漂移与恢复 | 重复同一只读请求；再独立改变owner、batches、ledger、grant用量/期限、profile或相关authority；真实提交前另制造有效状态变化 | 相同输入结果一致；影响因果的变化使旧候选失效，提交仍fresh重验；重连/replay不复制效果，原请求未知不换identity。 |
+| FG07 完成边界与双入口 | 对同一可见窗口分别读Viewer与pure API；对照尚未开始、运行中、原结算与milestone、入口不支持所选参数 | 候选不等于accepted或produced；production_only仍undelivered，无需求减少/终端奖励；语义一致且能力差异明确。没有同候选实际运行则该层未验证。 |
+
+核对预期时分别读取原建造规格、construction power、canonical recipe、grant语义和真实结算条件，不从被测 Gate 的输出反推预期。当前12批正向的已知电力为132−10−96=26；它只完成首产物，剩余26足以按原条件另评估Assembler/gear并非本Gate已交付这些结果。静态算术、单步合同、完整组合和实际入口四层分别报告。
+
+<a id="ic-first-capability-continuation"></a>
+## 8. IC-CONTINUATION：成果、受限选择与后继用途
+
+承接[可选持续目标](gameplay-decision-delegation-return.design.md#first-capability-continuation)与[自然停点/回访](gameplay-decision-delegation-return.design.md#des-adopt-004)。这组方法不增加首产物门槛。静态核算沿原规则；合同/正式运行使用真实支持批量参数的入口和有限、已获准的环境。真人理解沿[首局真人方案](../../testing/manual/first-session-human-playtest.manual.md#human-study-assessment)独立观察，不给试玩者答案或世界写权限。
+
+| 方法 | 输入、操作与独立预期 |
+| --- | --- |
+| CN01 实际成果 | 合法初态先建Smelter，再完成一个1-batch iron：电力132→122→114，site输入60/20→56/19，产物3 iron/1 slag；读原匹配job、owner/profile与milestone，不从余额反推完成。玩家可在此停下。 |
+| CN02 重复与技术stable | 同一factory继续两个完全同canonical snapshot的1-batch job，各有独立实际结算；累计9 iron/3 slag、电力98、输入48/17。原repeat_count反映三次完成；一个3-batch job、重复读取同receipt、不同snapshot或无匹配原件不能凑数。只报告技术候选，不代签持续能力或信任。 |
+| CN03 分账后继 | 按原合法条件建Assembler并完成4-batch gear，电力98→88→72；owner另付8 frame/10 iron/8 copper，Assembler site消耗自身8 iron并产4 gear，Smelter的9 iron/3 slag原样保留。分别核建厂/gear结果与用途，不产生不存在的运输或生产归因。 |
+| CN04 可理解的真实限制 | 同状态请求12-batch iron只读quote：输入48/17足够，96E相对72E缺24；拒绝不产生job、receipt或扣费。不能展示为已开始工厂后来停机，也不能自动补电。 |
+| CN05 明确减量并恢复推进 | 原大批未提交或已由原结果证明无效果、当前授权允许新选择时，明确选1 batch并fresh quote/提交；匹配结算后电力64、输入44/16、Smelter累计12 iron/4 slag。确认差异是合法新计划，不是悄悄改变旧操作或抹除旧义务。 |
+| CN06 授权/未知反例 | 保持大批原请求unknown、撤销新写授权、改变owner或限定目的不允许减量，分别尝试CN05；对应情况下不新增效果，旧请求按当前合法读取/原协议恢复。查询权限也丢失时保留不可读状态，不以旧持有者身份继续。 |
+| CN07 入口能力 | 分别核 native 可选batch与当前Viewer固定12批的真实操作面。Viewer不可因native方法通过就被记为支持小批；不支持的层保留缺口。原固定12批仍能完成其production_only首产物，不能为运行小批算例修改其默认语义。 |
+| CN08 离场与回访 | 在首产物后、低电quote后和真实提交结果未知时分别离场/回访；另取无新事件、原窗口缺口两种情况。读取原成果/未决、当前权限与余额，提供真实下一步；不重播结算、不补离线收益或恢复电力。未提交quote不恢复为失败job；未知原操作先核对结果。 |
+| CN09 玩家分项观察 | 请玩家说明产线投入/用途、低电原因、减量与扩展/停止的选择后果、下次继续理由，再核实际选择和原结果。分开判定运行可达、阻塞理解、恢复选择、至少一个中循环方向、信任与继续意愿；提示后回答、预约返回或技术stable不计自然留存。未发生相应观察如实未验证。 |
+
+CN01–05的数量/电力轨迹是独立规则预期；当前实际准入若多出有效成本、时序、原件或容量约束，应先查原authority并修订受影响样例，不能屏蔽拒绝让算例通过。阻塞可在隔离测试中自然选择合法低电条件，不改玩家世界制造事故。每层记录候选、真实入口、授权、原件/账本与未覆盖项；方法写全不代表已执行这些生产、恢复或真人场景。

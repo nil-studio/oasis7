@@ -6,8 +6,10 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-06
 - 专业域权威：[`gameplay 工业 walkthrough 合同`](../../game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md#3-五阶段玩家-walkthrough)、[`world-runtime 专业 PRD`](../../world-runtime/prd.md#consumer-compatibility-industrial-profile-and-stage-execution)、[`M4 工业资源流转合同`](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#4-technical-specifications)、[`testing 专业 PRD`](../../testing/prd.md#6-validation-decision-record)
+
+目标技术承接：[工业需求目标、承诺与匹配结算](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-authority)与[独立验收方法](../../testing/manual/industrial-demand-goal-acceptance.manual.md)补齐 producer、支持集、matching、补产、恢复与正式消费者；本批次普通输入交付选择待 owner 随 PR 采纳，不代表现有能力。
 
 本文说明玩家怎样把一个 demand goal 变成可比较、可追溯、可恢复的工业承诺。配对 PRD 拥有 SC-31 叶子要求和验收；专业 authority 拥有批量、产率、receipt、状态、队列、API 和测试实现。本设计不复制任务状态、实现字段或专业数值。
 
@@ -74,13 +76,15 @@ Viewer、pure API 和 Agent 可以采用不同表达方式，但必须使用同�
 
 采用“分层结算、显式补产、显式停止”会牺牲后台自动化的表面顺滑，但保留目标因果、资源压力、机会成本和反套利边界。采用同一快照的提交前比较会要求玩家接受 unknown/blocked 的谨慎结果，但避免沿旧价格、容量或资格作出不可逆承诺。
 
-设计覆盖的产品要求和场景见：[`同一快照比较`](industrial-demand-goals-and-settlement.prd.md#req-sc31-001)、[`受支持的选择`](industrial-demand-goals-and-settlement.prd.md#req-sc31-002)、[`生产与结算分层`](industrial-demand-goals-and-settlement.prd.md#req-sc31-003)、[`满足与 surplus`](industrial-demand-goals-and-settlement.prd.md#req-sc31-004)、[`补产与缺口`](industrial-demand-goals-and-settlement.prd.md#req-sc31-005)、[`漂移处置`](industrial-demand-goals-and-settlement.prd.md#req-sc31-006)、[`幂等恢复`](industrial-demand-goals-and-settlement.prd.md#req-sc31-007)、[`多入口同义`](industrial-demand-goals-and-settlement.prd.md#req-sc31-008)、[`提交前验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-001)、[`结算分层验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-003)、[`补产验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-006)、[`漂移验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-007)、[`重复与回放验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-008) 和 [`入口同义验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-009)。未决的 profile、数值与入口承载问题仍见 [`PRD 未决问题`](industrial-demand-goals-and-settlement.prd.md#7-设计取舍与未决问题)，该链接不复制任务执行状态。
+设计覆盖的产品要求和场景见：[`同一快照比较`](industrial-demand-goals-and-settlement.prd.md#req-sc31-001)、[`受支持的选择`](industrial-demand-goals-and-settlement.prd.md#req-sc31-002)、[`生产与结算分层`](industrial-demand-goals-and-settlement.prd.md#req-sc31-003)、[`满足与 surplus`](industrial-demand-goals-and-settlement.prd.md#req-sc31-004)、[`补产与缺口`](industrial-demand-goals-and-settlement.prd.md#req-sc31-005)、[`漂移处置`](industrial-demand-goals-and-settlement.prd.md#req-sc31-006)、[`幂等恢复`](industrial-demand-goals-and-settlement.prd.md#req-sc31-007)、[`多入口同义`](industrial-demand-goals-and-settlement.prd.md#req-sc31-008)、[`提交前验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-001)、[`结算分层验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-003)、[`补产验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-006)、[`漂移验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-007)、[`重复与回放验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-008) 和 [`入口同义验收`](industrial-demand-goals-and-settlement.prd.md#ac-sc31-009)。本次目标 profile 选择、原数值 authority 和入口实施条件见 [`PRD 未决问题`](industrial-demand-goals-and-settlement.prd.md#7-设计取舍与未决问题)，该链接区分本次待采纳专业选择、其他 profile 的未声明政策及实现/实证交付，不复制任务执行状态。
 
 `test_tier_required` 应覆盖同一快照 preview、只展示真实支持的方案、生产/交付分层、满足后停止、surplus、一次 supplemental revision 或 stop/defer、drift 重报价/拒绝、重复无副作用和三入口 parity。`test_tier_full` 再覆盖并发目标、跨窗口、多批次/损耗、容量争用、持久化恢复、补偿和长期入口一致性。文档采纳、checker green 或合成样例只能证明结构/合同可判定性，不能证明当前实现、数值平衡、玩家体验或发行就绪。
 
 ## 10. 相邻权威与未决边界
 
-[`game` 专业 PRD](../../game/prd.md#3-player-facing-authority-boundary) 拥有玩家动作和机会成本，[`world-runtime` 专业 PRD](../../world-runtime/prd.md#consumer-compatibility-industrial-profile-and-stage-execution) 拥有状态、root/revision、receipt、持久化和 replay，[`M4 工业资源流转合同`](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#4-technical-specifications) 拥有批次、物流、终端、守恒和 profile，[`testing` 专业 PRD](../../testing/prd.md#6-validation-decision-record) 拥有组合证据；本设计只拥有产品体验和跨域连接。三张未决卡保留在配对 PRD 中，任务链接仅提供稳定追踪入口；在专业合同和组合证据明确前，不把未声明路径写成可选，也不把未决事项写成完成决定。
+[`game` 专业 PRD](../../game/prd.md#3-player-facing-authority-boundary) 拥有玩家动作和机会成本，[`world-runtime` 专业 PRD](../../world-runtime/prd.md#consumer-compatibility-industrial-profile-and-stage-execution) 拥有状态、root/revision、receipt、持久化和 replay，[`M4 工业资源流转合同`](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#4-technical-specifications) 拥有批次、物流、终端、守恒和 profile，[`testing` 专业 PRD](../../testing/prd.md#6-validation-decision-record) 拥有组合证据；本设计只拥有产品体验和跨域连接。[本次目标设计选择](industrial-demand-goals-and-settlement.prd.md#72-本次目标设计选择与后续条件)将普通工业输入交付的 full/reduced、partial、surplus、显式补产及多入口语义具体化；它是本 PR 待采纳设计，尚无当前实现或组合证据。配方/费用/容量仍由原专业来源拥有，其他 profile 的 terminal、奖励、制度和服务窗口不隐含启用。#3650 是产品文档历史来源，不能证明本次策略早已批准。
+成熟世界的[有限供应用途政策](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#regional-supply-use-policy-v1)与[执行设计](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-delivery)采用本专题原输入需求及匹配交付 authority：既有合法库存可以满足明确接受该来源的需求，原需求匹配后停止追加。接收方之后显式执行的用途属于其独立当前意图；用途已证、首次成长和本专题的交付/终端结算分别读取，不互相补签，也不自动续产、发奖或生成另一套需求账。该有限适配尚须实现，不改变其他 profile 的支持范围。
+
 ## PRD REQ/AC fragment mapping
 
 This design delegates product requirements and acceptance semantics to its paired PRD. Every row below is a navigable fragment mapping; this design does not create a second requirement authority.

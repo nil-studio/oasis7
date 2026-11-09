@@ -14,6 +14,8 @@
 
 此脚本用受控只读响应覆盖发行元数据成功/失败、缺资产/checksum、未知设备、无脚本、静态步骤与键盘菜单、200% 文字缩放、reader 空/错误/显式重试/异章迟到/同章迟到缓存，以及项目子路径的显式语言映射。产物写入忽略的 `output/site-discovery-qa/`。fixture 不证明真实资产、生产环境或模型行为。脚本异常保留错误，不以后来 PASS 改写旧失败。
 
+Deck 安全回归单独执行 `node scripts/site-deck-security-browser.test.cjs`，复用上述 Playwright 模块、浏览器和 headed/headless 设置。未设置 `OASIS7_SITE_QA_URL` 时自行启动本候选静态服务器及另一 origin 的发送页；提供 URL 时请指向待验收的同版本候选。回归真实发送跨 origin 消息，确认 query/config 不能恢复远程调用或状态广播，并验证中英文 hash 刷新、键盘、片段和移动端触摸按钮。既有 `site-quality` 作业使用固定 Playwright 执行这项自动行为检查，保存 `output/site-deck-security-qa/` 的结果与截图；不代签 headed 图形体验或生产环境。
+
 另外按 [Site/S6 分层](../../../testing-manual.md#testing-s6-qa-receiver)为首页 CN/EN、观测列表、开发日志列表/详情及小说入口保留 1440×900、390×844、360×800 的真实截图；核对标题换行、主次 CTA、预览限制、来源类型、正文可读性、无横向溢出与可达恢复入口。无对应小说语言不制造路由。完整浏览器缩放、对比度、资源加载量/LCP/布局偏移另行测量，不以文字缩放或截图存在代签。
 
 ## 内容发布与纠正

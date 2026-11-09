@@ -4,12 +4,13 @@ use crate::source_inputs::{include_path, put_string, validate_file};
 use serde::Serialize;
 
 const PRODUCERS: [&str; 2] = ["crates/oasis7_wasm_build", "tools/wasm_build_suite"];
-const FIXED: [&str; 5] = [
+const FIXED: [&str; 6] = [
     "docker/wasm-builder/Dockerfile",
     ".dockerignore",
     "scripts/build-wasm-module.sh",
     "Cargo.toml",
     "Cargo.lock",
+    "docker/wasm-builder/prepare-workspace.sh",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,9 +180,9 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
     }
     let runs = [
         "RUN apt-get update && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git pkg-config xz-utils && rm -rf /var/lib/apt/lists/*",
-        "RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none",
-        "RUN rustup toolchain install \"${WASM_TOOLCHAIN}\" --profile minimal --component rust-src && rustup target add \"${WASM_TARGET}\" --toolchain \"${WASM_TOOLCHAIN}\"",
-        "RUN chmod +x /opt/oasis7/scripts/build-wasm-module.sh && env -u RUSTC_WRAPPER cargo install --locked --path /opt/oasis7/tools/wasm_build_suite && chmod -R a+rX /cargo /rustup /opt/oasis7",
+        "RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && chmod -R a+rX /cargo /rustup",
+        "RUN rustup toolchain install \"${WASM_TOOLCHAIN}\" --profile minimal --component rust-src && rustup target add \"${WASM_TARGET}\" --toolchain \"${WASM_TOOLCHAIN}\" && chmod -R a+rX /rustup",
+        "RUN bash /opt/oasis7/docker/wasm-builder/prepare-workspace.sh && env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite && chmod a+rx /cargo/bin/wasm_build_suite && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git",
     ];
     for instruction in &logical {
         let opcode = instruction.split_whitespace().next().unwrap_or_default();
@@ -228,15 +229,16 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         .filter(|line| line.starts_with("COPY ") || line.starts_with("ADD "))
         .collect::<Vec<_>>();
     let expected = [
-        "COPY Cargo.toml Cargo.lock /opt/oasis7/",
-        "COPY crates /opt/oasis7/crates",
-        "COPY vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
-        "COPY vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0",
-        "COPY vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1",
-        "COPY tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner",
-        "COPY tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite",
-        "COPY tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe",
-        "COPY scripts/build-wasm-module.sh /opt/oasis7/scripts/build-wasm-module.sh",
+        "COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/",
+        "COPY --chmod=0755 crates /opt/oasis7/crates",
+        "COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
+        "COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0",
+        "COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1",
+        "COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner",
+        "COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite",
+        "COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe",
+        "COPY --chmod=0755 scripts/build-wasm-module.sh /opt/oasis7/scripts/build-wasm-module.sh",
+        "COPY --chmod=0755 docker/wasm-builder/prepare-workspace.sh /opt/oasis7/docker/wasm-builder/prepare-workspace.sh",
     ];
     let workdirs = text
         .lines()
@@ -246,7 +248,7 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
     if copies != expected
         || workdirs != ["WORKDIR /opt/oasis7", "WORKDIR /workspace"]
         || !text.contains(
-            "env -u RUSTC_WRAPPER cargo install --locked --path /opt/oasis7/tools/wasm_build_suite",
+            "env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite",
         )
     {
         return Err(invalid(
@@ -649,6 +651,32 @@ mod tests {
         dir
     }
 
+    #[test]
+    fn metadata_preparation_helper_is_bound_to_actual_producer_recipe() {
+        let dir = native_producer_fixture();
+        fs::write(
+            dir.join("crates/oasis7_wasm_build/src/lib.rs"),
+            "pub fn value() {}\n",
+        )
+        .unwrap();
+        let built = build_native_fixture(&dir);
+        assert!(
+            built.status.success(),
+            "{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let original = compute_builder_recipe(&dir).unwrap();
+        let helper = "docker/wasm-builder/prepare-workspace.sh";
+        assert!(original.inputs.iter().any(|input| input.path == helper));
+        verify_image_producer_recipe(&dir, &original).unwrap();
+        fs::write(dir.join(helper), "#!/usr/bin/env bash\nexit 0\n").unwrap();
+        assert_ne!(
+            original.producer_recipe_hash,
+            compute_builder_recipe(&dir).unwrap().producer_recipe_hash
+        );
+        assert!(verify_image_producer_recipe(&dir, &original).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
     fn build_native_fixture(dir: &Path) -> std::process::Output {
         std::process::Command::new("cargo")
             .env_remove("RUSTC_WRAPPER")

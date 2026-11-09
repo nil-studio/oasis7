@@ -63,10 +63,13 @@
 | 同一生产目标受阻后如何比较修复、重建与转向 | [生产恢复方案比较](runtime/production-recovery-comparison.design.md) | 原目标、真实候选、逐步资源与价值、有限读取及原 operation 恢复；比较不新增世界动作或自动改目标 |
 | 成熟贡献如何打开一次可实际使用的有限机会 | [认可与有限机会结算](runtime/recognition-opportunity-settlement.design.md) | 本地交付来源、显式审核、完整竞争集合、连续授权、未用权利与运输共用容量账，以及单次使用和独立恢复 |
 | 同候选、同窗口的经济事实如何核算并解释 | [成熟世界经济审计](runtime/mature-world-economic-audit.design.md) | 非 levy 资源分账、关键变化、治理实际影响、缺证与异常、有界读权及补证恢复；局部审计不产生世界效果或发行结论 |
+| 已有库存供应如何证明真实区域用途与继续选择 | [有限区域贡献](runtime/mature-world-regional-contribution.design.md) | 原 SC-31 有限输入需求、匹配交付、独立用途、完整材料来源及历史首次性读面；只读 checkpoint 不改世界权益 |
 | 多阶段工业工作如何连续、配方变化如何处置 | [工业工作图与配方生命周期](runtime/industrial-work-graph-and-recipe-lifecycle.design.md) | 工作图与配方各自管理状态，按原身份处理六类存量工作 |
 | 新工业能力如何经历模拟、受限试点与准入 | [工业创建四阶段](runtime/industrial-creation-simulation-and-admission.design.md) | 同版证据、同输入隔离模拟、累计试点预算和当前准入；复用原工作图与配方六状态 |
 | 许可如何收费、到期开放并保持单次结算 | [有限许可与版税结算](runtime/industrial-license-and-royalty-settlement.design.md) | 当前使用 gate、真实批次、独立托管、有限争议和收益池；不以发布或物流 receipt 发版税 |
 | 区域如何成立、取得资格、退化与恢复 | [区域 charter 权威与恢复](runtime/regional-charter-authority-and-recovery.design.md) | 分层审查、双资格、受限权限及资产义务连续性 |
+| 地点建设权如何取得、续期、转让与有限收回 | [地点 tenure 与处置](runtime/location-tenure-and-disposition.design.md) | 规划期限与条件、通知申诉、迁移回收及适用补偿；公共通行、独立资产和合同持续保留 |
+| 冲突如何守住参战范围、结算损失与占领并恢复 | [冲突资产与软赛季连续性](runtime/chartered-conflict-assets-and-soft-season-continuity.design.md) | 有限防御、实际损坏、持续占有与物理提取独立判断；恢复投入和赛季资格刷新不重置身份或历史 |
 | 配方替代选择与实际转换如何结算 | [替代决策与 linked conversion](runtime/recipe-substitution-decision-and-conversion.design.md) | 决策不产生经济效果；转换与因果账本单次提交 |
 | 公共 levy 如何取得授权、收费及退出 | [公共 levy 授权与结算](runtime/public-levy-authorization-and-settlement.design.md) | 独立预算账本、到期与单次结算，不混同普通服务费 |
 | 工业外部性影响谁、由谁处置 | [工业外部性与处置](runtime/industrial-externality-and-mitigation.design.md) | 显式 profile、作用域与处置授权，生产和处置分别确认 |

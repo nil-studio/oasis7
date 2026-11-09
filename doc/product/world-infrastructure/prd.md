@@ -243,12 +243,15 @@
 
 - Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405, O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6。
 - 引用定位与组合边界：O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405（[REQ-DWE-002](deterministic-world-execution.prd.md#req-dwe-002)）；O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6（[REQ-DWE-003](deterministic-world-execution.prd.md#req-dwe-003)）。组合范围仍以本 SC 原文为准，不能由一项叶子完成代表全部义务。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[pending](../../world-runtime/design.md#runtime-pending-design)与 [lineage 原子处置](../../world-runtime/design.md#runtime-lineage-design)已有重审、唯一有效胜者、原子终止其他成员、拒绝/过期只终止自身和独立并发条款；[原决定接收](../../world-runtime/design.md#runtime-controlled-candidate-recovery-receiver)区分未知提交与已知无效果。
+- 系统设计状态：已覆盖
+- 系统设计依据：[Runtime 持久原件与当前重审](../../world-runtime/design.md#runtime-pending-design)、[Runtime 领域关系与原子胜者](../../world-runtime/design.md#runtime-lineage-design)、[API 逐项处置/关系](../../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)和 [Viewer 原成员显示](../../world-simulator/viewer/external-agent-world-view.design.md#view-intent-results)共同承接本 SC 的游戏/Agent/入口结果链；[原决定接收](../../world-runtime/design.md#runtime-controlled-candidate-recovery-receiver)继续区分未知、固定 continuation 与已知无效果。无效果决定不造成功 receipt，原请求和替代分别可读，受限关系按当前权限处理。
+- 设计依赖：Runtime 分别使用既有 [SR2 持久准入](../../world-runtime/module/module-lifecycle.md#sr2-pending-admission-recovery)与 [SR2 关系/原子发表](../../world-runtime/module/module-lifecycle.md#sr2-lineage-publication)合同；产品接收不新建字段或改写原 authority。
+- 设计验证方法：[GWSC PL01–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)将原件持久前后、当前重审/有效正例、双序与同块仲裁、全部已知/迟到成员、独立并发和 [IR01–06 消费者](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results)连到同 source/base/tree/world/window；本 SC 原 `test_tier_required` 和各叶子/full 义务保留，局部绿色不代签根组合。
+- 本次设计核对：2026-11-06；输入基线 `4c80cd131adb1b3a37323a42bad847c2d7836ce2` 与本次桥接设计；仅接收完整目标与方法，不刷新原实现/运行证据或 2026-10-15 的历史设计复核。
 - 实现状态：部分实现
 - 实现与验证依据：Agent chat 持久状态、显式替代关联、精确 replay 与 provider 回应不自动变成世界效果已有局部实现/回归定义。 [crates/oasis7/src/runtime/world/agent_intent.rs L382-L580](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_intent.rs#L382-L580)。测试定义：[crates/oasis7/src/runtime/tests/agent_intent_v2/lifecycle.rs L110-L605](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/agent_intent_v2/lifecycle.rs#L110-L605)。[相关历史交付/跟踪 #3612](https://github.com/nil-studio/oasis7/pull/3612)；本轮仅静态审读，测试定义不等于执行通过，未取得本条全部适用验收的实际运行记录。
 - 核对日期与基线：2026-10-17；需求与实现源码 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub 固定源码审读，未运行业务、部署或真人验收；入口、原验收条件与测试层级保持本条原文。
-- 剩余范围：设计：通用 pending 持久字段、domain 互斥标记/排序及 consumer 状态 DTO 尚待批准；跨读面原请求/替代关联与所有恢复竞态的实际执行未证明；本轮实现与验证细化：同一版本化协议的游戏/Agent/玩家 committed-only 消费、通用 finality pending 重审、有效 receipt 唯一胜者和独立 intent 并发的组合未核清，不能用 chat 局部代签。
+- 剩余范围：通用 pending 字段继续复用既有 SR2 authority，持久 owner、domain 关系、原 canonical 次序及消费者映射已有设计承接；跨读面原请求/替代关联与所有恢复竞态的实际执行未证明；原实现与验证边界保留：同一版本化协议的游戏/Agent/玩家 committed-only 消费、通用 finality pending 重审、有效 receipt 唯一胜者和独立 intent 并发的组合未核清，不能用 chat 局部代签。目标 API 新态不表示当前 wire 已扩展，实际同候选验收仍未完成。
 
 - 设计复核日期与基线：2026-10-15；规范化候选基于 `dffd797f`；逐项审读 §5.2 及其 P2P/runtime/QA 接收，不改变上述实现源码或运行证据基线。
 

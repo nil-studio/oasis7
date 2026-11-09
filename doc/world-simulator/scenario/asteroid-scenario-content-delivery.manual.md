@@ -144,7 +144,7 @@ env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_generate_world_a
 | 本地默认 starter | 程序内 seed model 与固定工业准备，非四 JSON 的别名 | 核实际程序输入与 seed Agent；工业资格沿原工业手册。 |
 | world-service/formal 工件 | 权威读取/外部准备入口 | 缺真实工件或授权材料时保留未核实，不用本地 seed 常量代填。 |
 
-现有 `generated_world_sidecar_initializes_runtime_live_snapshot_map` 位于 [snapshot_generated_world.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/snapshot_generated_world.rs)，检查保留地点/profile、Agent 地点引用与初始化 chunk config，并明确 live refill preview 不启用。它不覆盖四个场景全部内容、零 Agent 保留或 provenance 绑定。本地默认测试沿 [UWS-V-LOCAL-SPAWN](../../../testing-manual.md#uws-v-local-spawn)；正式统一消费者仍沿 [UWS-V-CONSUMERS](../../../testing-manual.md#uws-v-consumers)，缺正式选择不以局部测试代签。
+现有 `generated_world_sidecar_initializes_runtime_live_snapshot_map` 位于 [snapshot_generated_world.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/snapshot_generated_world.rs)，检查保留地点/profile、Agent 地点引用与初始化 chunk config，并明确 live refill preview 不启用。它不覆盖四个场景全部内容、零 Agent 保留或 provenance 绑定。本地默认测试沿 [UWS-V-LOCAL-SPAWN](../../../testing-manual.md#uws-v-local-spawn)；正式统一消费者按[已选方案的实施边界](unified-world-seed-fragment-runtime.design.md#unified-decision-profile)与 [UWS-V-CONSUMERS](../../../testing-manual.md#uws-v-consumers)逐项核对真实工件、正式写端和消费者接线，局部测试不代签正式组合验收。
 
 <a id="asc-provenance"></a>
 ## 9. ASC-PROVENANCE：来源声明分层
@@ -181,7 +181,7 @@ CLI 测试源为 [oasis7_init_demo.rs](../../../crates/oasis7_simulator/tests/oa
 2. 先核原 authority 和变化理由，再列会受影响的普通地点、触发顺序、fragment/profile/budget、Agent、sidecar/Runtime 和用户表达；引用存在不代表文件必须修改。
 3. 沿 §7 选择真实编辑/导入入口，记录需重编译/重建的程序或产物。旧世界与旧证据保持原身份，不直接用新源覆盖其历史结论。
 4. 制作方交输入及产物，消费方交实际加载与内容保留结果；QA 按 §3–§10 判断受影响正例、失败/恢复与未覆盖项。source 收到、字段通过、映射通过分别记录。
-5. 共同依赖冲突由指定维护者整合后核实际组合；若缺来源绑定、正式选择或目标环境，记录具体阻塞及原 owner，不靠换入口或删掉反例宣布完成。
+5. 共同依赖冲突由指定维护者整合后核实际组合；若缺来源绑定、正式接线或目标环境，记录具体阻塞及原 owner，不靠换入口或删掉反例宣布完成。
 
 纸面依赖核对只能称方法审读。只有真实输入变化、实际重建/消费及观察结果齐备时，才把它计为规格变更传播或内容生产证据。
 

@@ -115,6 +115,15 @@ libp2p-rendezvous = { path = "vendor-libp2p-rendezvous-0.18.1" }
 [profile.dev.package."sha2@0.11.0"]
 opt-level = 3
 
+# The game client pins the 0.10 API and hashes its real executable for custody.
+[profile.dev.package."sha2@0.10.9"]
+opt-level = 3
+
+# Exercise the real envelope KDF at its full memory/iteration cost. Optimize the
+# implementation instead of reducing parameters or replacing vault operations.
+[profile.dev.package."argon2@0.5.3"]
+opt-level = 3
+
 # Formal CAS reads authenticate every request and protected response. Preserve
 # those checks while avoiding unoptimized curve arithmetic in debug fixtures.
 [profile.dev.package."curve25519-dalek@5.0.0"]

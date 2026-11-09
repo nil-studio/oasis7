@@ -3,12 +3,34 @@ import { describe, expect, it, vi } from 'vitest';
 import { createSignal } from 'solid-js';
 import { PixelWorldRendererTargets, moduleTargetOffsets, rendererEntityTargetStyle } from './pixel_world_renderer_targets.jsx';
 
+// CSSOM serializes percentages at its own precision (including in jsdom 31).
+// Check DOM geometry within 0.005 CSS px, while keeping raw projection tests exact.
+function cssPositionInPixels(value, extent) {
+  expect(value).toMatch(/^-?\d+(?:\.\d+)?%$/);
+  return parseFloat(value) * extent / 100;
+}
+
 describe('real renderer accessible projection', () => {
   it('keeps partially visible hit boxes at each edge until their full bounds leave the canvas', () => {
     for (const [x, y, visible] of [[-1,50,true],[101,50,true],[50,-1,true],[50,101,true],[-22,50,false],[122,50,false],[50,-22,false],[50,122,false]]) {
       const style = rendererEntityTargetStyle({id:'edge',pos:{x_cm:50,y_cm:50}}, {width_cm:100,depth_cm:100}, {width:100,height:100}, {pan_x_px:x-50,pan_y_px:y-50});
       expect(style.display, `${x},${y}`).toBe(visible ? undefined : 'none');
     }
+  });
+  it('preserves fractional camera pan and double-precision snap thresholds', () => {
+    const size={width:1280,height:720};
+    const center=rendererEntityTargetStyle({id:'A',pos:{x_cm:50,y_cm:50}}, {width_cm:100,depth_cm:100},size,{pan_x_px:0.6});
+    expect(parseFloat(center.left)*1280/100).toBe(640);
+    for (const [delta, expected] of [[-1e-8,640],[1e-8,642]]) {
+      const position={x_cm:(641+delta-20)/1240*100,y_cm:50};
+      const style=rendererEntityTargetStyle({id:'A',pos:position},{width_cm:100,depth_cm:100},size,{});
+      expect(parseFloat(style.left)*1280/100).toBeCloseTo(expected,8);
+    }
+  });
+  it('keeps fractional CSS dimensions in the same snap cell as Rust', () => {
+    const width=1365.3333333333;
+    const style=rendererEntityTargetStyle({id:'A',pos:{x_cm:1728326,y_cm:50}},{width_cm:10000000,depth_cm:100},{width,height:768},{},null,{width:1365,height:768});
+    expect(parseFloat(style.left)*width/100).toBeCloseTo(250.061050061044,8);
   });
   const bounds = { width_cm: 1000, depth_cm: 1000 };
   const agent = { id: 'agent-0', pos: { x_cm: 250, y_cm: 600 } };
@@ -31,7 +53,8 @@ describe('real renderer accessible projection', () => {
     const moved = {...agent, label: 'Courier', pos: { x_cm: 700, y_cm: 300 }};
     setState({world_bounds: bounds, agents: [moved, {...other}], locations: [{...location, label: 'Warehouse'}]});
     expect(target).toHaveAccessibleName('Select Courier');
-    expect(target.style.left).toBe(rendererEntityTargetStyle(moved, bounds, size).left);
+    // 20 + 700 / 1000 * (960 - 40) = 664 CSS px.
+    expect(cssPositionInPixels(target.style.left, size.width)).toBeCloseTo(664, 2);
     expect(document.activeElement).toBe(target);
     expect(view.getByRole('button', {name: 'Select Warehouse'})).toBe(depot);
     setSelection({kind: 'agent', id: agent.id});
@@ -73,7 +96,8 @@ describe('real renderer accessible projection', () => {
     setCamera({ zoom: 2, pan_x_px: 200, pan_y_px: -86 });
     expect(target.style.left).not.toBe(initial);
     setSize({ width: 390, height: 844 });
-    expect(target.style.left).toBe(rendererEntityTargetStyle(agent,bounds,size(),camera()).left);
+    // The resized, zoomed projection is 195 + (107.5 - 195) * 2 + 200.
+    expect(cssPositionInPixels(target.style.left, size().width)).toBeCloseTo(220, 2);
     await fireEvent.click(target);
     expect(select).toHaveBeenCalledWith({kind:'agent',id:'agent-0'});
     expect(view.container.querySelectorAll('[data-agent-id="agent-0"]')).toHaveLength(1);
@@ -97,17 +121,11 @@ describe('real renderer accessible projection', () => {
     const initial = target.style.left;
     setBackingSize({ width: 2880, height: 2000 });
     expect(target.style.left).not.toBe(initial);
-    expect(target.style.left).toBe(rendererEntityTargetStyle(
-      { id: 'agent-0', pos: { x_cm: 2_900_000, y_cm: 3_450_000, z_cm: 0 } },
-      { width_cm: 10_000_000, depth_cm: 5_000_000 },
-      cssSize,
-      camera,
-      undefined,
-      { width: 2880, height: 2000 },
-    ).left);
+    // DPR2 gives two CSS pixels per logical pixel: x=1192.478 snaps to 1192.
+    expect(cssPositionInPixels(target.style.left, cssSize.width)).toBeCloseTo(1192, 2);
   });
 
-  it('projects agent, location, and module targets through the actual backing canvas size', () => {
+  it('projects in CSS units and snaps through the actual framebuffer at DPR2', () => {
     const cssSize = { width: 1440, height: 900 };
     const backingSize = { width: 2880, height: 1800 };
     const camera = { zoom: 1.563, pan_x_px: 932, pan_y_px: -523 };
@@ -121,24 +139,25 @@ describe('real renderer accessible projection', () => {
       y: parseFloat(style.top) * cssSize.height / 100,
     });
 
+    // F=2880x1800: s=4, each logical pixel is 2 CSS px; pan y=-523 snaps to -522.
     expect(center(rendererEntityTargetStyle(agent, renderBounds, cssSize, camera, null, backingSize))).toEqual({
-      x: expect.closeTo(719.9134, 4),
-      y: expect.closeTo(449.8336, 4),
+      x: expect.closeTo(1192, 4),
+      y: expect.closeTo(184, 4),
     });
     expect(center(rendererEntityTargetStyle(location, renderBounds, cssSize, camera, null, backingSize))).toEqual({
-      x: expect.closeTo(1030.6378, 4),
-      y: expect.closeTo(353.5528, 4),
+      x: expect.closeTo(1498, 4),
+      y: expect.closeTo(90, 4),
     });
     expect(center(rendererEntityTargetStyle(moduleAgent, renderBounds, cssSize, camera, { x: -48, y: -48 }, backingSize))).toEqual({
-      x: expect.closeTo(671.9134, 4),
-      y: expect.closeTo(401.8336, 4),
+      x: expect.closeTo(1144, 4),
+      y: expect.closeTo(136, 4),
     });
     expect(center(rendererEntityTargetStyle(moduleLocation, renderBounds, cssSize, camera, { x: -48, y: -48 }, backingSize))).toEqual({
-      x: expect.closeTo(982.6378, 4),
-      y: expect.closeTo(305.5528, 4),
+      x: expect.closeTo(1450, 4),
+      y: expect.closeTo(42, 4),
     });
-    expect(719.9134 - 671.9134).toBeCloseTo(48, 4);
-    expect(449.8336 - 401.8336).toBeCloseTo(48, 4);
+    expect(1192 - 1144).toBeCloseTo(48, 4);
+    expect(184 - 136).toBeCloseTo(48, 4);
   });
 
   it('keeps co-anchored parent and module DOM targets aligned and independently clickable', async () => {
@@ -164,17 +183,17 @@ describe('real renderer accessible projection', () => {
       onHover={() => {}}
     />);
     const center = (target) => ({
-      x: parseFloat(target.style.left) * size.width / 100,
-      y: parseFloat(target.style.top) * size.height / 100,
+      x: cssPositionInPixels(target.style.left, size.width),
+      y: cssPositionInPixels(target.style.top, size.height),
     });
     const agent = view.container.querySelector('[data-agent-id="agent-0"]');
     const location = view.container.querySelector('[data-location-id="loc-0"]');
     const agentModuleA = view.container.querySelector('[data-module-id="module-agent-a"]');
     const agentModuleB = view.container.querySelector('[data-module-id="module-agent-b"]');
     const locationModule = view.container.querySelector('[data-module-id="module-location-a"]');
-    expect(center(agentModuleA)).toEqual({ x: center(agent).x - 48, y: center(agent).y - 48 });
-    expect(center(agentModuleB)).toEqual({ x: center(agent).x, y: center(agent).y - 48 });
-    expect(center(locationModule)).toEqual({ x: center(location).x - 48, y: center(location).y - 48 });
+    expect(center(agentModuleA)).toEqual({ x: expect.closeTo(center(agent).x - 48, 2), y: expect.closeTo(center(agent).y - 48, 2) });
+    expect(center(agentModuleB)).toEqual({ x: expect.closeTo(center(agent).x, 2), y: expect.closeTo(center(agent).y - 48, 2) });
+    expect(center(locationModule)).toEqual({ x: expect.closeTo(center(location).x - 48, 2), y: expect.closeTo(center(location).y - 48, 2) });
     expect(Math.abs(center(agentModuleA).x - center(agent).x)).toBeGreaterThanOrEqual(44);
     expect(Math.abs(center(agentModuleA).y - center(agent).y)).toBeGreaterThanOrEqual(44);
 
@@ -207,4 +226,17 @@ describe('real renderer accessible projection', () => {
     expect(offsets.get('module-0008')).toEqual({ x: -96, y: -96 });
     expect(offsets.get('module-4095')).toEqual({ x: 24576, y: 24576 });
   });
+  it('keeps co-anchor native hit boxes apart at six CSS pixels per logical pixel', () => {
+    const modules = [{id: 'a', kind: 'artifact', pos: {x_cm: 1,y_cm: 1}}, {id: 'b', kind: 'artifact', pos: {x_cm: 1,y_cm: 1}}];
+    const offsets = moduleTargetOffsets({agents: [], locations: [], moduleVisualEntities: modules}, {width:3840,height:2160}, {width:3840,height:2160});
+    expect(offsets.get('a')).toEqual({x:-102,y:-102});
+    expect(offsets.get('b')).toEqual({x:0,y:-102});
+  });
+
+  it('keeps fractional CSS ceil in f64 at the shared Rust boundary', () => {
+    const modules = [{id:'a',pos:{x_cm:1,y_cm:1}}, {id:'b',pos:{x_cm:1,y_cm:1}}];
+    const offsets = moduleTargetOffsets({agents:[],locations:[],moduleVisualEntities:modules}, {width:959.99999999,height:720}, {width:1480,height:1110});
+    expect(offsets.get('a').x).toBeCloseTo(-38 * (959.99999999 / 1480 * 2), 10);
+  });
+
 });

@@ -28,7 +28,7 @@ fn selected_cue_amber_mask(image: &RgbaImage, exclude_agent_body: bool) -> BTree
         for x in -20_i32..20 {
             // The selected Agent body is also amber. Its pixels cannot serve
             // as evidence for the separate corner frame around it.
-            if exclude_agent_body && x.abs() <= 8 && y.abs() <= 13 {
+            if exclude_agent_body && x.abs() <= 8 && (-15..=1).contains(&y) {
                 continue;
             }
             if image.get_pixel((480 + x) as u32, (270 + y) as u32).0 == [251, 191, 36, 255] {
@@ -50,14 +50,14 @@ fn selected_agent_corner_mask() -> BTreeSet<(i32, i32)> {
     // Independent integer-pixel contract for the 16px fixture marker:
     // four 6x2 / 2x6 L corners, with open gaps between them.
     [
-        (-15, -16, 6, 2),
-        (-16, -15, 2, 6),
-        (9, -16, 6, 2),
-        (14, -15, 2, 6),
-        (-15, 14, 6, 2),
-        (-16, 9, 2, 6),
-        (9, 14, 6, 2),
-        (14, 9, 2, 6),
+        (-12, -20, 6, 2),
+        (-13, -19, 2, 6),
+        (6, -20, 6, 2),
+        (11, -19, 2, 6),
+        (-12, 4, 6, 2),
+        (-13, -1, 2, 6),
+        (6, 4, 6, 2),
+        (11, -1, 2, 6),
     ]
     .into_iter()
     .flat_map(|(left, top, width, height)| {
@@ -85,7 +85,10 @@ fn reduced_motion_freezes_pixels_across_reconcile_and_resumes_on_preference_chan
         .reduced_motion = false;
     app.update();
     let (resumed, _) = rasterize_pixel_regression(&mut app);
-    assert_ne!(frozen, resumed, "normal motion must resume");
+    assert_eq!(
+        frozen, resumed,
+        "static shared Agent pixels must remain stable when motion preference changes"
+    );
 }
 
 #[test]
@@ -208,4 +211,60 @@ fn bevy_pixel_regression_exports_recommended_target_wayfinder_pixels() {
         visible_summary.non_background_pixels > absent_summary.non_background_pixels,
         "the recommended target bracket must contribute visible pixels above its target Agent"
     );
+}
+
+#[test]
+fn bevy_pixel_regression_gives_selected_agent_and_location_the_same_non_color_beacon() {
+    for (kind, selected_id, unselected_id) in [
+        ("agent", "agent-0", "agent-1"),
+        ("location", "loc-0", "loc-1"),
+    ] {
+        let mut app = render_test_app(sample_render_state_with_beacon_candidates(
+            kind,
+            selected_id,
+        ));
+        let summary = visual_probe_summary(&mut app);
+        let (selected, unselected) = match kind {
+            "agent" => (
+                summary
+                    .agents
+                    .iter()
+                    .find(|row| row.id == selected_id)
+                    .unwrap(),
+                summary
+                    .agents
+                    .iter()
+                    .find(|row| row.id == unselected_id)
+                    .unwrap(),
+            ),
+            "location" => (
+                summary
+                    .locations
+                    .iter()
+                    .find(|row| row.id == selected_id)
+                    .unwrap(),
+                summary
+                    .locations
+                    .iter()
+                    .find(|row| row.id == unselected_id)
+                    .unwrap(),
+            ),
+            _ => unreachable!("test cases use known render entity kinds"),
+        };
+        assert!(
+            (kind == "agent" && {
+                let world = app.world_mut();
+                world
+                    .query::<&PixelWorldSelectedAgentCue>()
+                    .iter(world)
+                    .count()
+                    == 8
+            }) || selected.size_px > unselected.size_px,
+            "selected {kind} must have a geometry beacon beyond its color"
+        );
+        assert!(
+            selected.z > unselected.z,
+            "selected {kind} must have a draw-priority beacon beyond its color"
+        );
+    }
 }

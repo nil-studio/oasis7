@@ -1,9 +1,9 @@
 # 预工作 R&D charter、贡献归因与份额转让验收手册
 
-- Owner role：`qa_engineer`；协作：gameplay、Runtime、Agent、治理/P2P、工业许可与 Viewer owner；日期：2026-11-04。
+- Owner role：`qa_engineer`；协作：gameplay、Runtime、Agent、治理/P2P、工业许可与 Viewer owner；日期：2026-11-05。
 - 适用政策：[personal-rd-charter-v1](../../game/gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md#rd-charter-policy-v1)；专业合同：[R&D 执行设计](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md)。本手册消费原政策，不另定人数、窗口、经济向量或管辖。
-- Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。许可消费另接 Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47；[GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)。仅证明本 R&D 切片，不代签整个产品要求。
-- 状态：目标验证计划，未执行。计量源码审读基线为 `c3862d479ba835bddde3539e8e8e97c5cb563166`；静态复算、接口设计、测试实现和实际运行分别记录，不把本手册中的逻辑操作名当作已有 HTTP、Action、WASM ABI 或 fixture。
+- Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。许可消费另接 Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47；[GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)。RD01–RD07保留原R&D义务与v1兼容，RD08–RD10覆盖后继组织/多方、开放epoch与完整编码；完整CR003还须联合[情境声誉整项方法](contextual-reputation-acceptance.manual.md#rep13-composition)及其直接来源/消费者，不以一项代签整卡。
+- 状态：目标验证计划，未执行。计量与完整wire静态审读基线为 `ebd9b8431f2dc084c4ef6be3bcea9ca054ab2a81`；原首版 `c3862d479ba835bddde3539e8e8e97c5cb563166` 为历史；静态复算、接口设计、测试实现和实际运行分别记录，不把本手册中的逻辑操作名当作已有 HTTP、Action、WASM ABI 或 fixture。
 
 ## 执行边界与同候选准备
 
@@ -134,23 +134,23 @@
 | 一个逻辑迁移至多两次完整 invoke | 1030 | 8 |
 | 正常与完整程序：`(83+805)×(1030,8)` | 914640 | 7104 |
 | 独立 closure：`128×(1030,8)` | 131840 | 1024 |
-| 一份 charter 合计：`1016×(1030,8)` | 1046480 | 8128 |
+| 一份 charter/epoch 合计：`1016×(1030,8)` | 1046480 | 8128 |
 
 两次 invoke 分别核当前合法 payer、全部 input/state/proof、实际 output/effect/emit/new_state、native apply、commit、notice 和 fee schedule；不以零 effect planner 漏掉制度写入成本。额外合法费用/component 访问须进入 signed cap，最小 profile 未证明无遗漏收费则不能激活。转让/客观更正/迟到首次交接自身最多 `(1030,8)`，许可新增历史当事机会的费用须另按其原公式足额预留。
 
 - 测同 payer 合计、两个独立 payer、任一 Data/Electricity 缺 1、错误 payer/缺签、owner 或费率漂移。逐 source/resource/purpose 对账；不得用未来版税、贡献款、panel 私产或未签主体补差。换 owner 不继受旧 payer 同意。
 - 分别保护正常/程序与 closure；初审不能吃复核，一方无效/重复流量不能耗尽他方。把生产、维护、转移、模块计量等所有实际扣款入口与 hold 并发，保护款不可被消费；preflight 又必须能读取正确 hold，actual 不在 hold 外双扣。确定拒绝/无变化/同原件恢复不重复业务费用。
-- 用 12 次实际成功逻辑迁移、每次两 invoke、每 invoke 实际入/出各 1024 bytes、1 effect/1 emit 且有 new_state 的受控用例，期望 24 次合计 `120 Data/96 Electricity`，未用 RD 预算返还 `1046360/8032`；原研究 producer 的生产/模型/停止成本另外核算。该示例不是已运行结果，不同 payer 必须逐源拆分。
+- 费用算法的条件算例取12次成功逻辑迁移、每次两invoke、每invoke实际入/出各1024bytes、1effect/1emit且有new_state；它不证明16方/512证据完整shape能压成1024bytes，真实有界编码另按RD10。若真实受控用例满足这些条件，期望 24 次合计 `120 Data/96 Electricity`，未用 RD 预算返还 `1046360/8032`；原研究 producer 的生产/模型/停止成本另外核算。该示例不是已运行结果，不同 payer 必须逐源拆分。
 - 最后一次释放须先保留并支付自身实际费用；无合法收款路径保留原个人权益/恢复，不以有费轮询吃空旧款。旧合法条款、费率/执行版本、程序和 closure 必须能 drain；升级/停用只停止新承诺，不能削减旧预算、强迫换签或让旧已付回滚。
 - 对 RD03 的 `handoff_blocked` 终态，先核原工作/案/费用确已结清、逐源余款已退及工作槽已释放，再补齐同一成果前置。无新 cap、错 payer/缺签或资金不足时不交接、不重新占用旧预算；合法新 cap 覆盖当前完整闭包，最多两 invoke，actual/余量/receipt 同根且逐源对账。迟到首次交接与转让/更正共用最多 8 个待决权利写上界；用提交前失败、提交后丢 ACK、重复及换键重放核一次业务效果。不新增研究或重开 T/N/C，不变原分配/E。原关闭或费用释放 unknown 不能先退 hold、腾工作槽；迟到首次交接 unknown 保留该次新预算及权利写 fence，先恢复原请求，不用另一新 cap 重做。
 
 ### 容量与集中输入
 
-在实际候选组合最大 terms 32 KiB、签署命令 64 KiB、完整 proof ref 256 bytes、说明 4 KiB、分页 50 及转让/更正 128 项写集，同时测各上限 +1。每份 charter 及唯一归因案独占一个 RD instance；四份 charter 是四个 instance，不将四份 current state 或无限历史塞进一次 reducer 输入。
+原128+64+48+16KiB的raw相加不足以证明256KiB完整输入，现按[修正wire分配](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-capacity)及RD10检验：current body96KiB、普通已编码action24KiB、完整ctx/outer15KiB；下一epoch先有≤8KiB compact head，已编码activation action≤112KiB。ModuleCommandEnvelope.payload与ModuleCallInput.action/state的嵌套Vec整数数组均实际encode，不能漏一层。输出完整new_state/effect/emit/outer合计亦≤256KiB；签署/证明子上限不保证能同时用满。
 
-满额 state 的 oracle 是两阶段 16 方各 16 项、共 512 项证据的紧凑记录，每项含编码开销 ≤96 bytes，合计 48 KiB；另加名册/排列/票 12 KiB、当事/接受/phase 8 KiB、工作 16 KiB、槽/head 2 KiB、header/原件根/费用与请求 32 KiB，共 118 KiB，余量 10 KiB，总 state ≤128 KiB。实际按 canonical codec 序列化核字节与字段覆盖。到第 511 项后，最后一方最后一个合法槽仍能受理；不能缩减证据、截名册/转让史或丢旧原件来达标。原完整条款/接受、长说明、256-byte 引用、正文和追加历史仍可沿原 journal/受权原件取回，当前 roots/counts 覆盖完整已验证集合；缺 prefix 不凭 current head 猜补。
+每案仍完整16方×2阶段×16证据=512项、名册64、工作32、收益槽8；raw96KiB内分额为48/12/4/8/2/16KiB加6KiB余量。第511项后，最后一方最后一个合法槽仍有完整空间和费用。原terms/render、接受/mandate、原256byte引用/正文和旧epoch仍按原audience可取回；不能截断源证明、少计epoch或只留不可解析hash来达标。当前body仅紧凑索引，不把四份current case或无限历史塞进一份invoke。
 
-同次完整 invoke 的输入实际合计 `128 KiB state +64 KiB command +48 KiB 本次验证 proof +16 KiB envelope =256 KiB`，输出合计 `128 KiB new_state +64 KiB effect +32 KiB emit +32 KiB 封装 =256 KiB`。全部分额同时接近上限且包括自身编码开销，不能分别用满后另加元数据。较大原件须有原 source 合法的有界证明 adapter；缺这种证明时拒绝新承诺，不以摘要冒充验证。单证据来源在 48 KiB 分额内可核，16 个合法槽可分别提交；冻结/投票使用完整索引，panel 受权分页读原件，不重复把全部正文塞入 invoke，也不新增免费第三次调用。
+closure128次的实际对象清单为原108项加一次CompactClosedEpoch共109，仍有19次保守余量；此调用包含原件可回读核定、compact head、最后实际费用/释放及receipt，不是免费第三invoke。预算或source超限只能在新承诺前拒绝，已受理完整程序与原有权退出必须保留。
 
 同 world 4 个未闭合 charter、8 个待决权利写及各自 +1；未知提交/未完程序/费用不腾槽。将整个剩余正常/程序集中输入，核 `4×888+8=3560≤64×64=4096`；独立 closure 核 `4×128=512≤64×16=1024`。在上述最大输入/输出、两 invoke、真实写集/持久化及无效流量干扰下，验证专业合同每可服务 tick 的 64 个有界批和分离的 closure 能力；窗口平均速率或静态乘法不证明此能力。背压只表示未受理，不替未 canonical 登记者保留旧 tick；新可选工作不能挤占已接受程序/退出容量。
 
@@ -183,3 +183,125 @@
 在获准的玩家任务走查中，分别让贡献方（含零收益方）、受让方和争议当事人完成“是否参加、能否用此成果、为何这笔尚未到账、何时/去哪里提出原范围问题、现在能否安全继续”的任务；不给答案式逐步提示。记录实际人数、经验、提示、误判、放弃点与修复后复测条件；便利样本和纸面走查不外推普遍可玩性或经济接受度。
 
 **证据与边界。** 保存同版本三入口的受权输出/交互、原世界结果关联、只读前后差分及玩家任务原始观察。界面出现绿色、阅读了条款或模型称已理解都不证明贡献权、真实到账或治理已启用；静态设计、计算样例与本手册本身均不证明正式发行 readiness。
+
+<a id="rd08-organizations"></a>
+## RD08：组织、多方与当前代表的完整形成
+
+承接 [AC-RD-08](../../game/gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md#ac-rd-08)及[激活共同合同](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-charter-activation)。固定同候选真实ordinary组织登记/签署附件、原完整批准/当前mandate、自然与组织principal、个人Agent/资产source owner、全部实际费用payer和RD管辖/随机。
+
+**正向。** 组织O与自然P/Q合作；O实际使用个人S的Agent或资源时，S是另一个必需接受主体。加入真实当前holder及两个费用payer，按集合并集形成≤16的完整必需方；可以一主体兼多角色，但组织O与自然S不能合并。每个零收益方明确接受0，原8槽和sum10000不变。先完整接受、实际Activate，再经真实source Begin/结果；所有本金/费用与当前授权由原原件独立核对，不能仅用common validator的accepted标志。
+
+**完整签署与权限。** 对16必需principal正例及第17个来源owner反例，分别检验组织多批准人门槛、mandate的scope/来源/额度/任期、原当前controller及source owner单独同意。撤一份必需签署、仅持组织名/成员/普通passed/OC grant、代表过期/被撤、签后换scope/源/费用、用新代表复用旧个人接受均不得激活。common≤32不能放宽本案≤16；别名/Agent多开不扩容，也不能为凑16删掉独立权利人。
+
+**无环摘要。** 独立从完整family terms body按规定排除自身派生ID/common摘要/receipts后计算family digest；再计算含完整body的common terms/render摘要和acceptances/request。逐层改一个字段必须破签或拒绝；不能只比被测输出两个digest相等。真实producer的activation receipt绑定原两摘要而不是逆向嵌入terms。旧v1按原字节/版本可读，不后填新接受。
+
+**责任与历史。** 在Begin之前和真实结果之后分别让O代表A换B、个人S的Agent换owner、某角色授权收缩。新动作须当前mandate，旧结果仍引用当时O/P/S、Agent/控制和工作任期；B不变旧作者，O不获得S个人credential，S的资产同意不等于有权代表O全部事务。原承担与后续授权分别显示，旧合法义务不因撤代理消失。
+
+**预算/调用。** 以原IA usage/domain obligations/fees独立核D已花、O残余业务/风险、C未来执行/程序/closure；退款不重置D，换代表不新建额度账。完整RD+许可真实调用图最多两invoke，common prepare在原RD调用内，源nonce/费用仍按原Kernel同根；隐藏第三mutable formation/资金模块或未计费读取使该组合失败。至少一个实际组织+个人真实source组合必须正向成立，不能全拒后声称组织已覆盖。
+
+<a id="rd09-membership-epochs"></a>
+## RD09：加入、退出、未来变化与旧收益连续性
+
+承接 [AC-RD-09](../../game/gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md#ac-rd-09)及[epoch执行合同](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-charter-membership-epochs)。每个后继epoch分别完成原RD01–RD07适用方法；不是仅检查epoch_count字段。
+
+1. 正向epoch1使用O/P、7000/3000、真实32以内工作及完整原来源。工作结束、原notice/程序与费用按规则闭合；从正式受权读取路径实际取回完整terms/render/全部接受、mandate、工作、证据、随机/原结论、费用/rights/receipt，后续compact head仍能定位这些原件。
+2. epoch2让Q以明确零收益角色加入新工作，P退出未来工作而保留3000和旧贡献。P仍作为当前holder明确接受这次新的未来工作安排；O由当前受权代表B签署。Q的新接受及其源/费用完整，任何人旧接受、无响应或原签约都不能代替。作用范围、工作角色/来源可改未来项，旧epoch的真实贡献/原经济向量不变。
+3. 独立分支先由P依原完整转让把3000交Q，实际RD/许可rights同根、旧已付保留，再由Q作为current holder接受epoch2。比较前后原slot/bps/E/已付/未付、同一pool和当前holder；Q不成旧作者，P旧个人责任不移交。转让/新激活并发分别交换canonical顺序，后者须重验当前head，不能两份旧签名都生效。
+4. 活跃epoch中P撤未来工作授权，自己的新Begin立即不再可用且本epoch不能借换代表/nonce恢复，无需全体同意；已接受work沿原source安全结束，收益槽不自动没收。试图插入Q、改当前scope或强用退出者资产要拒绝；新阶段合法加入不得因此被永远误报为“不支持”。新epoch缺任一必需holder/source owner/payer，或union成为17方，拒绝新承诺且旧权不动。
+5. 对前epoch已过窗口但source结果未知、合法case尚待决、关闭费用/compact提交未知、完整原件无法按原受众取回的情况，不得腾槽开启下一阶段。确定handoff_blocked且原work/case/费用都已合法闭合可以结束本阶段；未来新工作不因此获得旧缺失的许可。先前许可未结收益案只影响其真实受争范围，不无故阻断不依赖它的研究。
+6. 顺序完成epoch3和4，每次有新完整当前接受、有限预算和原程序。第5次拒绝并指向历史/权益/更正/原请求，原epoch4所有证据和退出仍可完成。换charter名、Agent、module instance、组织代表、nonce或重新登记同scope不得重置计数。原v1未签四阶段不能直接升级。
+7. 向量改为6000/4000、拆3000槽、合槽、有价出售或新charter把同lineage的E归零均拒绝。另一个真正独立成果仅在原工业/来源authority可证明独立lineage和新scope时另案；单独hash不同、代码重打包、引入一个新成员或旧成果后续使用不证明独立。旧池/许可/责任必须继续。
+8. 归档后按public、退出的原个人、现组织代表、前代表、现Agent owner及有权panel读取原epoch；分别核原audience和当前读权。旧原件可读与新私有资料不可读同时成立；不可解析digest、失去索引后编造空历史、换代表改署名均失败。
+9. 对每个新Activate与CompactClosedEpoch注入prepare/commit/publish/ACK/checkpoint故障；原请求恢复唯一。未知不跳到下一epoch，不重花旧关闭款、不再执行原模型/工作；World generation unknown时连无关写/tick也fence。对原许可交接/付款、情境声誉的真实消费者确认新epoch是原来源追加，不能新建收益池或取得新个人credential/acquisition单位。
+
+最后核对四阶段总正常/程序/closure最多4064逻辑迁移、4185920 Data/32512 Electricity的保守费用界，逐阶段真实payer分别接受和保护；这不是一次向第1期预扣所有未来款，也不代表实际支出。每world同时4个active charter/epoch与8个权利写的并发界不因四阶段变16个active；旧历史/权益不以活动容量已满而删除。
+
+<a id="rd10-encoded-capacity"></a>
+## RD10：完整canonical封套、512证据与真实闭合预算
+
+承接 [AC-RD-10](../../game/gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md#ac-rd-10)、[完整容量](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-capacity)。这项同时要求**结构可编码**和真实候选可消费，分层报告，不能把静态字节算术变业务通过。
+
+### 独立编码与负例
+
+按[原ABI](../../../crates/oasis7_wasm_abi/src/lib.rs)和[canonical map排序](../../../crates/oasis7_wasm_abi/src/canonical_cbor.rs)，ModuleCommandEnvelope.payload、ModuleCallInput.action/state、ModuleOutput.new_state均按其真实Vec整数数组编码；新的RD compact body内部32byte承诺按明确byte string编码。禁止把host数组当成byte string省一半，禁止遗漏命令payload嵌套、签名、render、current proof、ctx/limits/version或输出new_state。
+
+| 检查输入 | 独立判据 |
+| --- | --- |
+| 普通完整形状 | raw current body≤96KiB，已经编码的action≤24KiB，完整ctx/outer≤15KiB；最坏261130bytes<262144 |
+| 下一epoch完整激活 | 前closed head≤8KiB，已编码action≤112KiB，ctx/outer≤15KiB；最坏同为261130bytes |
+| 全输出 | new_state raw≤96KiB、已编码effect≤32KiB、emit≤16KiB、其余outer≤15KiB；最坏261125bytes |
+| payload第二层 | 普通payload≤11KiB、激活≤55KiB、命令外层≤1KiB，经A(payload)后仍分别小于24/112KiB；以实际完整encode为最终判据 |
+| 旧错误上限 | 128KiB的0xFF raw state按整数数组单项已262149bytes，尚无ctx/action也必须超限；不得采用旧raw相加 |
+| 最后合法证据 | 16方两phase各16、完整512项/64名册/32work/8slots及所有必要元数据≤96KiB；第512个合法槽不能因前511项用尽空间而拒绝 |
+| 超限 | raw/state/component/完整action/ctx/完整input/output及write-set128任一+1，都在新的承诺/效果前拒绝；已有程序/原件与关闭预算不删除 |
+
+下面是仅供独立复算的编码形状向量，使用确定性合成承诺/证明和签名字节，**不验证真实性、业务合法性或正式ABI已实现**。它覆盖16方各16批准签名及完整512证据数量，输出body55271、普通action8608/input121923/output104366、closed head1211、activation payload45792/action90902/input183759bytes。普通完整input的SHA256为baddda1d083825ba60a63c2401dd26e4b67c9173d8da1bb0625308acfcbb21e2；下一epoch为92b61b9c3689f2363ae41e94e46b666245882626ee30161c0c1792f64d343387。实际候选codec须另与此嵌套结构及其自己的真实schema逐字段对照，不能向业务validator提交这些合成原件后期待成功。
+
+```python
+import hashlib,json
+
+def head(m,n):
+    if n<24:return bytes([(m<<5)|n])
+    for a,b in ((24,1),(25,2),(26,4),(27,8)):
+        if n < (1<<(8*b)):return bytes([(m<<5)|a])+n.to_bytes(b,"big")
+    raise ValueError(n)
+def cb(x):
+    if x is None:return b"\xf6"
+    if isinstance(x,bool):return b"\xf5" if x else b"\xf4"
+    if isinstance(x,int):return head(0,x) if x>=0 else head(1,-1-x)
+    if isinstance(x,bytes):return head(2,len(x))+x
+    if isinstance(x,str):
+        z=x.encode();return head(3,len(z))+z
+    if isinstance(x,list):return head(4,len(x))+b"".join(map(cb,x))
+    if isinstance(x,dict):
+        kv=[(cb(k),cb(v)) for k,v in x.items()]
+        kv.sort(key=lambda p:(len(p[0]),p[0]))
+        return head(5,len(kv))+b"".join(a+b for a,b in kv)
+    raise TypeError(type(x))
+def h(k):return hashlib.sha256(str(k).encode()).digest()
+state={
+ 0:2,1:h("charter"),2:3,
+ 3:[[p,phase,i,h(("e",p,phase,i)),h(("registration",p,phase,i)),65535] for p in range(16) for phase in range(2) for i in range(16)],
+ 4:[[i,h(("controller",i)),h(("eligible",i)),h(("vote1",i)),h(("vote2",i)),1] for i in range(64)],
+ 5:[[i,h(("principal",i)),h(("role",i)),h(("accept",i)),h(("authority",i)),16,16,1] for i in range(16)],
+ 6:[[i,h(("begin",i)),h(("result",i)),h(("source",i)),h(("actor",i)),2] for i in range(32)],
+ 7:[[i,1250,h(("holder",i)),h(("rights",i)),11,0] for i in range(8)],
+ 8:{"terms":h("terms"),"notice":h("notice"),"case":h("case"),"request":h("request"),"fee":h("fee"),"current_cut":h("cut"),
+    "history":[[i,h(("terms",i)),h(("directory",i)),h(("close",i))] for i in range(3)]}
+}
+body=cb(state)
+limits={"max_mem_bytes":16777216,"max_gas":1000000,"max_call_rate":64,"max_output_bytes":262144,"max_effects":1,"max_emits":1}
+ctx={"v":"wasm-1","module_id":"rd1","trace_id":"r1","time":100,"origin":{"kind":"agent","id":"a1"},"caller":{"kind":"agent","agent_id":"a1"},"limits":limits,"stage":"module_command","world_config_hash":"f"*64,"manifest_hash":"e"*64,"journal_height":101,"module_version":"2","module_kind":"reducer","module_role":"institution"}
+payload=cb({"kind":"record_evidence","charter":h("charter"),"epoch":3,"party":15,"phase":1,"ordinal":15,"source":h("source"),"proof":bytes([255])*4096})
+cmd=cb({"namespace":"rd","name":"record_evidence","schema_version":2,"schema_hash":"d"*64,"payload":list(payload)})
+inp=cb({"ctx":ctx,"action":list(cmd),"state":list(body)})
+out_record={"new_state":list(body),"effects":[{"kind":"rd_fee","params":{"fee_ref":"f1"},"cap_ref":"cap1"}],"emits":[{"kind":"rd_result","payload":{"receipt_ref":"r1"}}],"output_bytes":0}
+for _ in range(4):
+ out_record["output_bytes"]=len(cb(out_record))
+out=cb(out_record)
+assert out_record["output_bytes"]==len(out)
+compact=cb({0:2,1:h("charter"),2:3,7:state[7],8:state[8]})
+activation=cb({"kind":"activate_epoch","charter":h("charter"),"epoch":4,
+ "family_terms":bytes([255])*4096,"render":("条款"*400),
+ "acceptances":[{"principal":h(("p",i)),"approvals":[[h(("approver",i,j)),bytes([255])*64] for j in range(16)],"nonce":i} for i in range(16)],
+ "authority_proof":bytes([255])*8192,"source_proof":bytes([255])*4096})
+actcmd=cb({"namespace":"rd","name":"activate_epoch","schema_version":2,"schema_hash":"d"*64,"payload":list(activation)})
+actinp=cb({"ctx":ctx,"action":list(actcmd),"state":list(compact)})
+assert len(body)<=96*1024 and len(cmd)<=24*1024 and len(inp)<=262144 and len(out)<=262144
+assert len(compact)<=8*1024 and len(actcmd)<=112*1024 and len(actinp)<=262144
+print(json.dumps({"encoding_shape_only":True,"state_body":len(body),"normal_payload":len(payload),"normal_envelope_action":len(cmd),"normal_full_input":len(inp),"full_output":len(out),"closed_head":len(compact),"activation_payload":len(activation),"activation_envelope_action":len(actcmd),"next_epoch_full_input":len(actinp),"normal_input_sha256":hashlib.sha256(inp).hexdigest(),"next_input_sha256":hashlib.sha256(actinp).hexdigest(),"upper_normal":2*96*1024+5+2*24*1024+5+15*1024,"counterexample128_ff_array":len(cb([255]*(128*1024)))},sort_keys=True))
+```
+
+### 真实候选与持续收尾
+
+将编码形状替换为同候选真实原条款/签署/mandate/refs/工作/两阶段证据/费用/rights和各完整ctx，实际serialize并记录payload→命令action→完整input与完整output的字节/哈希/字段；使用与producer不同的计算脚本/fixture从原件重建期望，不能仅调用被测size helper。原件正文与compact引用必须完全对应且可授权读回，四阶段历史不允许只留root。
+
+至少执行一个16必需方、512合法证据均能入窗并结束的真实源/程序案例，以及16方新接受的下一epoch激活正例。若某接受/源proof格式过大，应在新承诺前准确报出不支持的具体组合并修正合法有限格式；不能签约后删最后一方、缩减16证据或以全类型拒绝代签设计目标。source工件真实性仍按RD01–RD09核，不用这份编码向量代替。
+
+独立逐项清点closure的32work终态、16角色、32source目录、16费用/source/purpose、8slots和4个固定最终事项，再加1次CompactClosedEpoch=109≤128；剩余19仅供原合法关闭，不能再无限造子阶段。填满普通操作/证据槽及无效读取队列后，原所有phase机会、关闭、原请求恢复仍可推进；第512证据、最后退款、compact自身实际费用不得饥饿。重复compact只恢复原receipt，未核定其提交不得释放预算或生成新epoch。
+
+actual费用按真实完整input/output与effect/emit/new_state计算；output_bytes需与真正serialized输出一致，不能信模块自报小值逃费。保持每invoke515Data/4Electricity、每逻辑迁移最多两invoke的预留界，原108→109关闭项仍在128内。四活跃epoch加8权利请求集中输入的3560≤4096、关闭512≤1024按真实最大proof/两个invoke/写集/持久化/敌对无效流量验证；静态乘法不证明现实tick处理能力。
+
+compact、历史保留或当前编码失败只有已证NotCommitted才断言原世界不变；Committed读回完整原件/费用和精确head；StatusUnknown fence整个旧World的写/tick/save/依赖派发并恢复原候选。回滚/停用仍须读原v1/后继历史和drain旧责任，不能以新codec无法解释为由吞原证据、款项或接受。
+
+独立结论分别报告：静态算术/完整嵌套编码形状、真实schema与业务合同、同根两消费者/持久恢复、处理容量和真人理解。当前设计只提供规则与方法；这些范围均需实际候选证据才能标已验证。

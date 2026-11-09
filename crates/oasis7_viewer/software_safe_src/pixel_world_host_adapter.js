@@ -6,7 +6,7 @@ function snapshotTick(snapshot) {
   const tick = Number(snapshot.time);
   return Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : null;
 }
-export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage }) {
+export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage, onNavigationResult }) {
   let bridge = null;
   let generation = 0;
   const detached = () => ({ status: "detached", renderState: null, selection: null, fatal: null });
@@ -101,6 +101,7 @@ export function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onF
         onEvent(event) {
           if (!isCurrent()) return;
           if (event?.type === "resource_stage") { onResourceStage?.(event.stage); return; }
+          if (event?.type === "navigation_result") { onNavigationResult?.(event); return; }
           if (event?.type === "canvas_ready") {
             return;
           }

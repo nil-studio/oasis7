@@ -2,7 +2,7 @@
 
 - 生命周期：`active`；Owner role：`qa_engineer`；协作：`gameplay_designer`、`runtime_engineer`、`agent_engineer`、`viewer_engineer`、`blockchain_engineer`；Last reviewed：2026-11-05。
 - 上游：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)、[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)；专业依据：[同候选经济审计合同](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-mature-world-economic-audit)与 [AC-EA-01–08](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#economic-audit-acceptance)。
-- 技术依据：[成熟世界经济审计设计](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-identity)。本手册拥有同候选、完整有限窗口的独立核算与跨域验收方法；不重定原货币、生产、权限、治理、征费或发行规则。
+- 技术依据：[成熟世界经济审计设计](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-identity)。本手册拥有同候选有限窗口，以及全资源长窗口的独立核算与跨域验收方法；不重定原货币、生产、权限、治理、征费或发行规则。
 
 Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5。下述算例是待执行方法；静态审读和独立整数复算不产生运行通过结论。审读基线为 `f4a3b3919d8a86a8617b551ec031b0809e1b268d`。
 
@@ -179,3 +179,55 @@ Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5。下述算例是待执�
 4. 核原S8/S9/S10及release/公开claim消费者仍使用各自有效authority和组合证据；审计报告仅作有范围的输入。尝试把四tick、单节点、组件fixture或空OC告警标为“长期健康/发行通过”，预期拒绝扩大claim并显示未覆盖层，不触发新release verdict或经济动作。
 
 最终记录至少包含本手册八方法逐项状态、实际source/tested组合、每项完整度/异常、证据层和未覆盖范围。仅当原MW-005要求的适用组合证据都成立，才由原产品/发行authority判断其各自完成度；本手册或设计PR本身不代签。
+
+## 4. 全资源与长窗口组合
+
+本章接续原 AC-EA-01～08 和[全资源设计](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-full-scope)，使用显式 `complete_economic_window_v2`。原八方法与四 tick 样例保持原范围。以下为待执行方法，不表示真实 reader、正式入口、长期负载或多节点已通过。
+
+<a id="economic-audit-09"></a>
+### EA-09：全部资源、writer 与持有类别
+
+固定 source/tree/artifact/config、World/genesis/branch、C0/Cn、schema/adapter/算法 revision、当前读权和有限预算。先由独立审阅者沿 [WorldState](../../../crates/oasis7_world_state/src/state.rs)、[DomainEvent](../../../crates/oasis7_world_state/src/events/domain_event.rs)、[WorldEventBody](../../../crates/oasis7_world_state/src/world_event.rs)及真实 command/publication/自动阶段列出该候选所有可写来源，与被测映射逐项比较；不从被测报告输出反推期望全集。
+
+至少覆盖 Electricity/Data、四类物料账本及实体来源、生产/建造/运输/合同、全部实际 OC 持有类别、积分/奖励/Power reserve/bridge、module/机体/能力、治理/组织/授权变化。逐 family 取合法形成、消费、转移/重分类、失败或无效果，以及原支持的恢复例；某类本世界未启用时，验证同根配置、成员及无事件证明，不能只从正常脚本未调用它推断为零。当前无法合法产生/读取的来源明确 blocked，组件可注入例不得计入正式正常覆盖。
+
+每个例都保存原旧值/新值、原 effect、独立方程、真实单位、当时规则及前置授权；模块/计量与业务效果分账，失败也核已发生费用。特定负例包括：遗漏一个自动 writer、隐藏新成员、把镜像当资产、把同 site 输入/输出算两次、将验证成功当产出、只取旧发行 counter、将 bridge 按名字算增发、用人工 setter 冒充原来源。任何一项不得被其他 family 正常抵消。
+
+在能合法建立的窗口内分别核 genesis 与 vesting：genesis 的原形成和 ordinary issued counter 分开；vesting 只按实际持有类别移动。复用 EA-05 的 fee10 原件，要求缺 payer 与已证 residual10 同时保留。旧算法对缺记录的默认0，不能替代新来源的完整无事件证明。
+
+<a id="economic-audit-10"></a>
+### EA-10：160 tick、分段一致性与跨段义务
+
+在合法同候选历史选择 C0/C64/C128/C160 四个已提交切点；实际 cuts 以 qualified commit 为准，不能用 tick 数字制造不存在的状态。以三时间段核对相同父范围，再以另一合法划分复核：逐单位总流量、首尾余额、全部 findings 与原义务应相同，原每次舍入不随划分改变。各段必须包含真实自动阶段，不能为了保持表中单列数值删除发电、维护或治理效果。
+
+下面只是一列 iron_ingot direct-transfer 的独立算术预期，不是完整世界执行 fixture。原直接转移的权限/位置/数量前置由合法原件提供；其他资源和自动写入仍按 EA-09 全部核对：
+
+| 切点与该段实际变更 | A余额 | B余额 | 该段跨账户流量 |
+| --- | --- | --- | --- |
+| C0 | 20 | 0 | 期初来源单列 |
+| (C0,C64]：A→B 3 | 17 | 3 | A−3，B+3 |
+| (C64,C128]：A→B 5 | 12 | 8 | A−5，B+5 |
+| (C128,C160]：B→A 2 | 14 | 6 | A+2，B−2 |
+| 父窗口 | 14 | 6 | A净−6，B净+6，内部转移净形成0 |
+
+另选原支持的生产/运输/escrow，使实际开始和完成落在不同段；独立保存跨 cut 的 job/原投入/位置/未消费量/期限与结算状态。原生产已消费而尚未产出时不造 WIP 可用余额，下段只计实际产出；在途开始扣源、完成入目标与原损失各记一次；跨 C160 未完成保留真实期末义务。具体数量与成本从该原合法案例重算，不把本表转移值套入其他规则。
+
+逐一注入：删中间段、同tick换commit、倒置/交叠段、漏key分区、邻接opening/closing不一致、旧水位、删除已关闭义务的处置链、原effect重复/异内容、先合量再取整。预期父范围不完整或有可定位异常。再让两段在同单位出现已证+10与−10差额，要求父报告保留两项异常，即使末端净残差0。缺证段恢复后可消除其来源缺口，但不能覆盖另一段已证异常。
+
+<a id="economic-audit-11"></a>
+### EA-11：预算、并发续办与崩溃恢复
+
+使用设计 §13.4 的同一预算版本，记录计划生成、全部source调用、失败/重读、proof节点/字节、decoded、resident/暂存、执行时长和累计计量。分别核各limit及limit+1、32leaf/4并发、4096leaf计划、较大原子提交、过大原件/关联/findings；真实闭包超限记受阻，不能删字段或拆原子效果。单项最大值不能推导总内存/暂存可同时满足。
+
+对同一plan/revision并发提交两次续办，注入来源I/O之后计量/结果尚未保存、leaf保存未知、取消和host崩溃。核每个有效attempt在I/O前已原子预留其范围和有限累计额度；冲突者先查询，不另消费。无法确定实际消耗时按预留上界保守计入，未知不能释放预算；恢复查询同attempt与同leaf摘要，不重复计算为新的已完成范围、不清零失败用量。任何显式额度扩充须保留旧累计使用。
+
+读取中和重启后分别撤权、变更reader generation、移除原件或耗尽evidence空间；预期不继续读取/披露，保留允许公开的缺口与旧版本，不把无权改成无事件。恢复原材料后仍沿原plan/cuts/算法生成新版本关联；换窗口或候选形成明确新请求。审计的所有续办/重算均不得新增世界nonce、业务event、收费或receipt；对照实际domain state，而不只看接口返回码。
+
+<a id="economic-audit-12"></a>
+### EA-12：版本、节点与正式消费者
+
+选同一候选支持的真实规则激活/历史窗口，使其横跨两版已采用规则；固定每个原commit的manifest、schema、source映射及原迁移/linked replacement关系。合法旧结果按旧版核算，新效果按实际新规则核算，pending保留原身份/期限/已付成本；移除历史工件、篡改迁移引用或用最新规则算全部旧事件时，预期该范围受阻且旧异常/历史不改写。
+
+从两个合法节点读取同一正式历史，比较原qualified roots、范围、证据等级和原effect身份；重复副本不重复入账。给出不同branch、落后水位或相冲突材料，预期保留冲突；两个service assertion不能提升为独立formal proof。涉及多World/chain时，各子范围与桥接原件独立核验，不相加同名单位或用单侧回执证明另一侧到账；没有该场景前置就保持此层blocked，不用单节点替代。
+
+最后由 Viewer/Agent/QA 和发布 evidence 的实际入口读取同一父报告与revision：比较范围、覆盖、全部异常、来源和续办结果。只有两段完成时玩家应看到剩余范围，不能见到全域正常；读者应能解释余额与跨段义务、两项相抵异常及版本差别。记录真实操作与答案，不把生成文字代替真人理解。全部段通过只证明本次审计范围，经济平衡、长期健康和发行仍沿原authority及其实际证据判断。

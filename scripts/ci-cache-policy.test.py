@@ -19,7 +19,8 @@ def load(name, filename):
 
 policy = load('workspace_policy', 'ci-cache-policy.py')
 maintenance = load('workspace_maintenance', 'ci-cache-maintenance.py')
-PREFIXES = {'formal': 'formal-workspace-v3', 'ordinary': 'ordinary-workspace-v1', 'ecs': 'ecs-workspace-v2'}
+PREFIXES = {'formal': 'formal-workspace-v3', 'ordinary': 'ordinary-workspace-v1', 'ecs': 'ecs-workspace-v2',
+            'formal-debug': 'formal-debug-workspace-v1', 'formal-endpoint': 'formal-endpoint-workspace-v1'}
 REPOSITORY_LIMIT = 10_000_000_000
 OBSERVED_FIXED_BYTES = 3_960_422_714
 # Historical numerical oracles exercise the original capacity policy explicitly.
@@ -75,7 +76,7 @@ def observed_inventory():
     for number, size, group in ((5, 865_504_918, 'b'), (6, 865_609_559, 'b'),
                                 (7, 897_049_399, 'a')):
         result.append(entry('ecs', number, key=key('ecs', number, group), size_in_bytes=size))
-    fixed = ((8, 'v0-rust-ci-shared-native-trusted-v3-Linux-x64-aaaaaaaa-bbbbbbbb', 2_461_139_163),
+    fixed = ((8, 'v0-rust-ci-shared-native-trusted-v4-Linux-x64-aaaaaaaa-bbbbbbbb', 2_461_139_163),
              (9, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-aaaaaaaa-bbbbbbbb', 689_000_000),
              (10, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-cccccccc-bbbbbbbb', 689_559_258),
              (11, 'node-cache-audit-fixture', 120_724_290), (12, 'trunk-archive-audit-fixture', 1),
@@ -105,7 +106,7 @@ def dependency_growth_inventory():
                         size_in_bytes=722_718_920,
                         created_at='2026-10-23T00:00:00Z', last_accessed_at='2026-10-23T00:00:00Z')
     entries.append(entry('ordinary', 15,
-        key='v0-rust-ci-shared-native-trusted-v3-Linux-x64-aaaaaaaa-cccccccc',
+        key='v0-rust-ci-shared-native-trusted-v4-Linux-x64-aaaaaaaa-cccccccc',
         size_in_bytes=2_463_911_046,
         created_at='2026-10-23T01:00:00Z', last_accessed_at='2026-10-23T01:00:00Z'))
     return entries
@@ -128,7 +129,7 @@ def release_growth_inventory():
         (3, 'wasm-bindgen-audit', 8_685_766, 'wasm-bindgen'),
         (4, 'node-cache-audit', 103_942_381, 'node'),
         (5, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-0f3c0684-d1b19d89', 722_718_920, 'linux-dependency'),
-        (6, 'v0-rust-ci-shared-native-trusted-v3-Linux-x64-74e29871-d1b19d89', 2_463_911_046, 'linux-dependency'),
+        (6, 'v0-rust-ci-shared-native-trusted-v4-Linux-x64-74e29871-d1b19d89', 2_463_911_046, 'linux-dependency'),
         (7, 'v0-rust-release-packages-web-wasm-trusted-v3-Linux-x64-c417280c-d3e1a87f', 578_693_347, 'linux-dependency'),
         (8, 'v0-rust-release-packages-package-native-Windows-native-trusted-v2-Windows_NT-x64-c3622651-5afab5d8',
          594_105_718, 'windows-dependency'),
@@ -151,6 +152,40 @@ def release_growth_inventory():
 
 
 class SchemaTests(unittest.TestCase):
+    def test_component_budgets_are_split_without_increasing_legacy_limits(self):
+        for name, upload, raw in (('formal-debug', 768 * 1024 ** 2, 6 * 1024 ** 3),
+                                  ('formal-endpoint', 256 * 1024 ** 2, 2 * 1024 ** 3)):
+            with self.subTest(name=name):
+                settings = policy.FAMILIES[name]
+                self.assertEqual(settings['max_upload_bytes'], upload)
+                self.assertEqual(settings['staging_bytes'], raw)
+                self.assertEqual(settings['keep_generations'], 2)
+                self.assertEqual(settings['max_bytes'], 2 * upload)
+                self.assertEqual(settings['rotation_bytes'], 3 * upload)
+                self.assertTrue(policy.save_policy([], key(name, 1), upload, 20_000_000_000)['capacity_allowed'])
+                self.assertFalse(policy.save_policy([], key(name, 1), upload + 1, 20_000_000_000)['capacity_allowed'])
+        self.assertEqual(policy.FAMILIES['formal']['max_upload_bytes'], 1024 ** 3)
+
+    def test_legacy_and_both_component_families_share_repository_and_rotation_reserve(self):
+        entries = [entry('formal', 1, size_in_bytes=2 * 1024 ** 3),
+                   entry('formal-debug', 2, size_in_bytes=768 * 1024 ** 2),
+                   entry('formal-endpoint', 3, size_in_bytes=256 * 1024 ** 2),
+                   entry('ordinary', 4, key='unmanaged-tool', ref='refs/pull/1/merge', size_in_bytes=123)]
+        observed = sum(item['size_in_bytes'] for item in entries)
+        reserve = policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
+        for name in ('formal-debug', 'formal-endpoint'):
+            upload = policy.FAMILIES[name]['max_upload_bytes']
+            ceiling = observed + upload + reserve
+            accepted = policy.save_policy(entries, key(name, 5), upload, ceiling,
+                                          reserved_repository_bytes=reserve)
+            self.assertTrue(accepted['capacity_allowed'])
+            self.assertEqual(accepted['observed_repository_bytes'], observed)
+            self.assertEqual(accepted['projected_family_bytes'], 2 * upload)
+            rejected = policy.save_policy(entries, key(name, 5), upload, ceiling - 1,
+                                          reserved_repository_bytes=reserve)
+            self.assertFalse(rejected['capacity_allowed'])
+            self.assertEqual(rejected['reason'], 'dependency rotation headroom')
+
     def test_ordinary_configured_budget_matches_a_supported_policy_version(self):
         # Bound the policy transition independently of the legacy numeric
         # fixtures. This prerequisite does not change the configured ceiling.
@@ -323,7 +358,7 @@ class AdmissionTests(unittest.TestCase):
         }
         for name in PREFIXES:
             limit = policy.FAMILIES[name]['rotation_bytes']
-            entries = [entry(name, 1, key=legacy[name], size_in_bytes=limit - 200),
+            entries = [entry(name, 1, key=legacy.get(name, key(name, 1)), size_in_bytes=limit - 200),
                        entry(name, 4, size_in_bytes=100),
                        entry(name, 2, size_in_bytes=1000, ref='refs/pull/9/merge')]
             with self.subTest(name=name):
@@ -462,7 +497,9 @@ class InventoryLifecycleTests(unittest.TestCase):
         entries = [entry('ordinary', 100, key='unmanaged-observed-dependencies-and-tools',
                          size_in_bytes=OBSERVED_FIXED_BYTES)]
         number = 0
-        for name in PREFIXES:
+        # Preserve the three-family historical byte oracle. Split Formal
+        # migration has its own complete-inventory and reserve boundary test.
+        for name in ('formal', 'ordinary', 'ecs'):
             for _ in range(2):
                 number += 1
                 entries.append(entry(name, number, size_in_bytes=policy.FAMILIES[name]['max_upload_bytes']))
@@ -508,15 +545,15 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
         environment = dict(GITHUB_ACTIONS='true', RUNNER_OS='Linux', RUNNER_ARCH='X64',
             GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main',
             GITHUB_SHA=sha, GITHUB_WORKFLOW_SHA=sha, GITHUB_RUN_ID='42', GITHUB_EVENT_NAME='schedule',
-            GITHUB_JOB='full-regression',
-            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            GITHUB_JOB='shared-native-cache',
+            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main',
             OASIS7_DEPENDENCY_CACHE_FAMILY='shared-native',
             OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES=str(REPOSITORY_LIMIT))
-        environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v3'
+        environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v4'
         api = capacity_api({'max_cache_size_gb': 10}, entries)
         api.repository = 'nil-studio/oasis7'
         run = dict(id=42, head_sha=sha, head_branch='main', event='schedule',
-                   path='.github/workflows/rust.yml', repository={'full_name': api.repository})
+                   path='.github/workflows/rust-cache.yml', repository={'full_name': api.repository})
 
         def request(method, path):
             if method == 'GET' and path == '/actions/runs/42':
@@ -532,7 +569,8 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
             # estimate. No original cache data or remote upload is reproduced.
             with archive.open('wb') as output:
                 output.truncate(2_463_911_046)
-            result = admission.check_archive(archive, environment, api)
+            with patch.object(admission.subprocess, 'check_output', return_value=sha):
+                result = admission.check_archive(archive, environment, api)
         api.delete_cache.assert_not_called()
         return result
 

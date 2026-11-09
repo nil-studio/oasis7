@@ -266,11 +266,9 @@ function toCanvasPoint(canvas, event) {
   if (!rect.width || !rect.height) {
     return null;
   }
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
   return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY,
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
   };
 }
 
@@ -549,6 +547,14 @@ export function derivePixelWorldRenderState(input) {
   }
   if (input?.schema_version !== 1) throw new Error("unsupported pixel world render input version");
   return activeModule.build_pixel_world_render_state_json(JSON.stringify(input));
+}
+
+// Observe the already mounted instance. Reading must never initialize a second
+// WASM instance, mount a bridge, or change the selected entity/authority.
+export function readPixelWorldDisplayMetrics() {
+  if (!pixelWorldTestApiEnabled()) return {status:"disabled"};
+  if (!activeModule?.display_metrics) return {status:"uninitialized"};
+  return JSON.parse(activeModule.display_metrics());
 }
 
 export {

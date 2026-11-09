@@ -14,7 +14,7 @@
 
 场景提供可比较的空间与资源输入。玩家在实际入口选择采集对象、路线或工业目标时，仍须读取当前可见地点、资源来源、权限、成本和目标条件；出生在 frag 附近、场景中有电力或 region 地点，不表示这些选择已可执行或有稳定收益。本文维护制作输入及其解释边界，玩家提示和首局流程继续由原产品与 Viewer 条款承接。
 
-本文不改变生成参数、空间/预算公式、出生算法、材质颜色、工业账本、持久化或权限。正式 canonical seed、starter、业务 record 与消费者绑定继续沿[原四项未决范围](unified-world-seed-fragment-runtime.design.md#unified-decision-profile)。分布品质、不可用开局、可达性、玩家理解和规模化制作仍需实际候选证据。
+本文不改变生成参数、空间/预算公式、出生算法、材质颜色、工业账本、持久化或权限。正式 canonical seed、starter、业务 record 与消费者绑定沿[已选方案与实施边界](unified-world-seed-fragment-runtime.design.md#unified-decision-profile)交接；真实初始工件、正式写端与消费者接线仍需交付和验证。分布品质、不可用开局、可达性、玩家理解和规模化制作仍需实际候选证据。
 
 ## 2. 上游要求与约束
 
@@ -103,7 +103,7 @@ fragment ID 形如 `frag-{x}-{y}-{z}-{idx}`，由生成路径分配；缺号可�
 | Simulator `build_world_model` / `initialize_kernel`；[init demo](../../../crates/oasis7_simulator/src/bin/oasis7_init_demo.rs) | 按场景生成 origin、普通地点、frag、Agent 和显式设施；kernel 在时间 0 保留初始模型及适用 Init 事件 | 可核四场景的 Simulator 初态；demo 文本摘要不包含全部位置/profile/预算。 |
 | named runtime-live；[bootstrap_runtime_world_with_chunk_runtime](../../../crates/oasis7/src/runtime_host/bootstrap.rs)与[入口分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) | 从模型投影 Runtime；返回路径不保留完整 seed model | 适合其 Runtime 调试用途，不能据场景标签宣称完整模型原样保留。 |
 | runtime-live `--generated-world-dir`；同 bootstrap 源 | 加载 sidecar snapshot/config/model/chunk runtime，并保留 seed model 参与 Viewer 映射；Agent 仍由 Runtime 投影 | 能验证被实际保留的地点/profile/引用，不自动保留零 Agent 或完整原始库存。 |
-| 本地无场景默认入口；[formal_release_default_seed_model](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) | 程序内构造 seed `0x0A51_5700_0000_0001`、bootstrap `(0,0,0)`、关闭 origin 与一个 starter Agent，不读取这四份 JSON | 是另一份已采用本地输入；函数名不证明正式 starter 或 chain provenance 已选。 |
+| 本地无场景默认入口；[formal_release_default_seed_model](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) | 程序内构造 seed `0x0A51_5700_0000_0001`、bootstrap `(0,0,0)`、关闭 origin 与一个 starter Agent，不读取这四份 JSON | 是另一份已采用本地输入；函数名不证明正式 starter 或 chain provenance 已接通。 |
 | world-service / 正式世界激活 | [world-service 分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs)等待权威读取；[正式初始化](../../../crates/oasis7_chain_runtime/src/host/world_initialization.rs)接外部准备材料 | 以实际权威 snapshot/配置为源，不把本目录当正式世界初态。 |
 
 named runtime 和 generated sidecar 共用 `bootstrap_runtime_world_from_model`：模型无 Agent 时补入 `runtime-agent-0/1`；每个 Runtime Agent 的 Electricity/Data 至少为 `32/8`，低于该值的场景初值会被提高；另有固定 world 库存与工业准备。因此 detail 的零 Agent 以及其他场景的 `15/20` 电力只描述 Simulator 初态。工业账本、owner/site/profile 与首局可行性继续由[工业内容设计](../../game/gameplay/industrial-native-content-delivery.design.md#starter-and-initial-state-applicability)维护。
@@ -178,4 +178,4 @@ named runtime 和 generated sidecar 共用 `bootstrap_runtime_world_from_model`�
 
 本轮能交付源可定位、解释一致和方法具体的设计。实际生成数量/分布、不可用开局比例、边界与导航、原料到工业输入、Viewer 保留与玩家理解、正式链资源和规模化制作仍需各自候选验收。region 名称、uniform 权重、保底和本地默认常量不能替这些领域作决定。
 
-generated-world 只做存在检查、零 Agent 在 Runtime 被补入、资源最低值覆盖，是交接时必须明确的现行差异。CG6 重建与 CG7 生成/补种 delta 的[原回放冲突](chunked-fragment-generation.design.md#chunk-replay-conflict-register)仍待原 owner 裁决；本内容设计不改写历史恢复规则，也不以重新生成初始化世界替代原世界恢复。
+generated-world 只做存在检查、零 Agent 在 Runtime 被补入、资源最低值覆盖，是交接时必须明确的现行差异。CG6 重建与 CG7 生成/补种 delta 的原冲突已由[分层回放裁决](chunked-fragment-generation.design.md#chunk-replay-conflict-register)解决，实际恢复与正式消费者仍须按同候选验证。本内容设计不改写历史恢复规则，也不以重新生成初始化世界替代原世界恢复。

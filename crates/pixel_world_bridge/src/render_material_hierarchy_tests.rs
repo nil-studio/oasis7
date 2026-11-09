@@ -17,8 +17,8 @@ fn agent_profile_is_upright_while_location_is_a_footprint() {
         .custom_size
         .unwrap();
     assert!(
-        agent.x < agent.y * 0.8,
-        "agent must have an upright grayscale profile"
+        agent.x == agent.y && agent.x % 16.0 == 0.0,
+        "Agent canvas preserves the square shared atlas pixels"
     );
     assert!(
         location.x > location.y,

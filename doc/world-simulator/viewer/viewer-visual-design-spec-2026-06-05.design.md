@@ -77,6 +77,17 @@ Use the [brand-system companion](viewer-brand-system-2026-06-05.design.md) for e
 
 Industrial, precise, command-oriented and playable. Technical content can exist without making the default surface a log viewer. Avoid equal-weight dark cards everywhere.
 
+<a id="pixel-world-art-direction"></a>
+### 7.1.1 Top-down pixel-world design target
+
+The #5527 / #5543 world handoff uses a **two-dimensional top-down pixel world**: low-resolution integer-pixel tiles, blocky industrial buildings and identifiable Agent sprites in a fixed limited palette. Author silhouettes as discrete pixel steps; smooth isometric vector buildings, gradients, blurred shadows and 3D models are outside this revision's world target. Shared sources, dimensions, anchors and the 16-color design palette are owned by the [pixel asset handoff](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets); this does not replace brand token semantics or the observed Rust material palette.
+
+Keep HUD, controls, CJK text, labels and original receipts independently legible at their display size; do not bake them into the low-resolution world image. A design pixel or tile is a presentation unit, not a world unit, authoritative position, selectable grid or buildable cell. Retain [world layering](#9-pixel-world-layering), position provenance, valid relationship authority and the original selection/receipt distinctions.
+
+The inspected production path remains [Rust/Bevy `Camera2d`](../../../crates/pixel_world_bridge/src/lib.rs) through WASM; the [canonical canvas](../../../crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx) already receives [CSS `image-rendering: pixelated` / `crisp-edges`](../../../crates/oasis7_viewer/viewer.html). That CSS is not proof of a fixed low-resolution RenderTarget, nearest texture sampling, integer scaling, camera pixel snapping or an integrated sprite loader. Those are implementation and candidate-verification targets; the design assets do not establish a new production renderer or JS fallback. Check source-pixel edges, scaled silhouettes and independent text at desktop/narrow sizes through the existing [visual review gate](#13-visual-review-gate) and [content validation](viewer-world-visual-content-delivery.manual.md#visual-content-target-validation); static references do not prove production GPU output.
+
+Production coordinate, variable RenderTarget size, framebuffer integer scaling, CSS-space LOD/hit targets and resource recovery are specified in the [production pixel coordinate contract](viewer-pixel-world-player-readable-rendering.design.md#production-pixel-coordinate-contract). These are implementation targets; the illustrative 320×180 scene does not determine production viewport size.
+
 ### 7.2 Surface Hierarchy
 
 | Level | Purpose | Examples | Prominence |
@@ -212,6 +223,7 @@ Final asset language and token values stay in the brand companion; they do not e
 | 上游 requirement / product AC / professional acceptance | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | 当前目的/blocker/下一步首读、单一主区和窄屏从属。 | [HUD层级](#83-hud-dock-and-contextual-console-hierarchy) | Viewer/visual及Shell authority。 | 局部层级不证明完整探索或真人理解。 |
+| Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | 像素世界主体清晰，世界素材与文字分层。 | [像素视觉方向](#pixel-world-art-direction) | Viewer/visual；生产接入由 Bevy 实施承接。 | 设计像素稿不证明生产接入、完整探索或真人理解。 |
 | [QA visual review contract](../../testing/prd.md#visual-review-product-contract) | verdict/confidence和升级条件一致。 | [评审升级](#visual-review-escalation-design) | QA/visual；产品N/A：理由=本行仅规定专业取证与评审机制；范围=不新增玩家产品义务，不排除其他行。 | 不代签required review/L5/发行。 |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | 玩家因果与ambient分开，选择不改原结果。 | [玩家影响](#62-player-leverage-before-ambient-activity) | Runtime因果、Viewer/visual。 | renderer健康/世界繁忙不是玩家成功。 |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | 原行动/结果/原因/下一步可解释。 | [回执](#113-receipt) | 原operation/receipt authority。 | 文字不证明原世界效果。 |
@@ -221,6 +233,7 @@ Final asset language and token values stay in the brand companion; they do not e
 | 上游 requirement / acceptance | 本设计条款 | 独立 obligation 与条件 | 验证方法 / source / scenario / candidate | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [HUD层级](#83-hud-dock-and-contextual-console-hierarchy) | 主区/从属/窄屏无退化。 | [PW-ACCESSIBILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-accessibility)，当前release/S6、desktop/narrow、键盘/CJK。 | 状态、截图、焦点及实际步骤。 | 静态CSS/JSX不代签浏览器。 |
+| [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [像素视觉方向](#pixel-world-art-direction) | 世界像素轮廓与独立文字可读。 | 设计稿按[内容源审读](viewer-world-visual-content-delivery.manual.md#visual-content-source-review)核源像素、整数放大与文字分层；实现候选沿 §13 检查实际 GPU、desktop/narrow 与 CJK。 | 分开的设计预览与实际候选状态、截图及操作记录。 | 静态像素稿不代签浏览器或GPU。 |
 | [QA visual review contract](../../testing/prd.md#visual-review-product-contract) | [评审升级](#visual-review-escalation-design) | 同证据下升级条件一致。 | [SOP](../../testing/manual/model-visual-review-sop-2026-05-29.manual.md#visual-review-decision-contract)；无截图/缺视口/watch/medium/low/public/dispute判据，同候选。 | 实际card及owner处置，未执行标明。 | 不制造截图/发行通过。 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [玩家影响](#62-player-leverage-before-ambient-activity) | ambient/他人结果/选中变化不冒充玩家进展。 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)和PW-READABILITY，同候选及原结果。 | 原主体/操作、UI、答案与误归因。 | 单张图/模型不证明真人理解。 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [回执](#113-receipt) | pending/no-progress/unknown/无Agent结果解释正确。 | [PW-FRESHNESS](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-freshness)与现有S6，实际受权原操作。 | 状态、原因、原结果及恢复路径。 | 页面标签不证明服务器授权/世界成功。 |

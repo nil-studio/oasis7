@@ -1,0 +1,674 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1084" viewBox="0 0 1536 1084" role="img" aria-labelledby="title desc">
+  <title id="title">密集候选可逐项选择，未知位置保留文字 · UIUX 17</title>
+  <desc id="desc">1440×900 单舞台与按需 Targets。A、B、D 为同一可信位置的三个获准候选，只画一个候选集合标记。选中的 C 位置未知，无地图落点、定位或跟随；原操作 A 的结果保持独立。已加载四个只代表当前获准的部分范围。 设计目标，非运行截图。所有世界、对象与结果为虚构布局样例。实际视口 1440 × 900 CSS px。</desc>
+  <metadata>Issue #5527. Static design target. Shared top-down pixel world from pixel-world/scene.svg; generated layers use integer scaling and cropped framing. Player shell only. Source layout baseline: 7df3d7d289789ee844c7486587fb49fd611968d4. No runtime behavior or authorization verification.</metadata>
+  <g font-family="Noto Sans CJK SC, Noto Sans, sans-serif" fill="#edf1e6">
+      <rect x="0" y="0" width="1536" height="1084" rx="0" fill="#0b100f"/>
+      <text x="48" y="28" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">OASIS7 / UIUX 17</text>
+      <text x="1488" y="28" font-size="14" fill="#d0a85b" font-weight="400" text-anchor="end">DESIGN TARGET</text>
+      <text x="48" y="62" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">密集候选可逐项选择，未知位置保留文字</text>
+      <rect x="47" y="91" width="1442" height="902" rx="1" fill="#405346"/>
+    <svg id="viewport" x="48" y="92" width="1440" height="900" viewBox="0 0 1440 900" overflow="hidden">
+      <defs><clipPath id="viewport-clip"><rect width="1440" height="900"/></clipPath></defs>
+      <g clip-path="url(#viewport-clip)">
+      <rect x="0" y="0" width="1440" height="900" rx="0" fill="#050807"/>
+<!-- pixel-world:scene:begin -->
+<g id="world-stage" data-source="pixel-world/scene.svg" data-scale="5"><defs><clipPath id="pw-clip"><rect x="0" y="0" width="1048" height="900" /></clipPath></defs><g clip-path="url(#pw-clip)"><g transform="translate(-316 0) scale(5)" shape-rendering="crispEdges"><defs>
+    <symbol id="pw-ground" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 基础地块；低对比固定像素纹理。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#1e3428" />
+      <rect x="2" y="3" width="3" height="1" fill="#2b4732" />
+      <rect x="12" y="10" width="2" height="1" fill="#2b4732" />
+      <rect x="7" y="14" width="2" height="1" fill="#15271f" />
+    </symbol>
+    <symbol id="pw-ground-alt" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 基础地块变体；不承载资源或运行状态。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#1e3428" />
+      <rect x="10" y="2" width="2" height="1" fill="#15271f" />
+      <rect x="4" y="10" width="3" height="1" fill="#2b4732" />
+      <rect x="6" y="9" width="1" height="1" fill="#2b4732" />
+    </symbol>
+    <symbol id="pw-grass" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 成片草地；固定实色，无透明纹理。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#2b4732" />
+      <rect x="0" y="12" width="4" height="4" fill="#1e3428" />
+      <rect x="12" y="0" width="4" height="3" fill="#1e3428" />
+      <rect x="3" y="3" width="2" height="1" fill="#426047" />
+      <rect x="4" y="2" width="1" height="1" fill="#426047" />
+      <rect x="10" y="10" width="2" height="1" fill="#426047" />
+      <rect x="11" y="9" width="1" height="1" fill="#426047" />
+      <rect x="2" y="13" width="2" height="1" fill="#2b4732" />
+    </symbol>
+    <symbol id="pw-path" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 道路地块；整数拼接，纹理没有方向或物流量含义。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#565643" />
+      <rect x="2" y="3" width="3" height="1" fill="#7a7656" />
+      <rect x="10" y="12" width="2" height="1" fill="#393b2d" />
+      <rect x="6" y="8" width="1" height="1" fill="#7a7656" />
+      <rect x="13" y="4" width="2" height="1" fill="#393b2d" />
+    </symbol>
+    <symbol id="pw-ore" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 矿床示意；外观不声明组成、储量、可用输入或授权。</desc>
+      <rect x="3" y="0" width="10" height="16" fill="#393b2d" />
+      <rect x="0" y="3" width="16" height="10" fill="#393b2d" />
+      <rect x="1" y="2" width="14" height="12" fill="#393b2d" />
+      <rect x="2" y="4" width="5" height="4" fill="#3d4c4b" />
+      <rect x="3" y="3" width="3" height="3" fill="#91a39a" />
+      <rect x="3" y="3" width="2" height="1" fill="#d6dec0" />
+      <rect x="5" y="6" width="3" height="3" fill="#5e716c" />
+      <rect x="10" y="2" width="3" height="4" fill="#5e716c" />
+      <rect x="10" y="2" width="2" height="1" fill="#91a39a" />
+      <rect x="9" y="7" width="5" height="5" fill="#3d4c4b" />
+      <rect x="10" y="7" width="3" height="3" fill="#91a39a" />
+      <rect x="10" y="7" width="2" height="1" fill="#d6dec0" />
+      <rect x="3" y="11" width="4" height="3" fill="#5e716c" />
+      <rect x="3" y="11" width="3" height="1" fill="#91a39a" />
+      <rect x="13" y="12" width="1" height="1" fill="#7a7656" />
+    </symbol>
+    <symbol id="pw-rock" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 岩石精灵；阶梯边缘，不投射阴影。</desc>
+      <rect x="5" y="2" width="6" height="2" fill="#3d4c4b" />
+      <rect x="3" y="4" width="10" height="2" fill="#3d4c4b" />
+      <rect x="2" y="6" width="12" height="6" fill="#3d4c4b" />
+      <rect x="4" y="12" width="8" height="2" fill="#3d4c4b" />
+      <rect x="5" y="4" width="5" height="2" fill="#91a39a" />
+      <rect x="4" y="6" width="7" height="4" fill="#5e716c" />
+      <rect x="11" y="7" width="1" height="4" fill="#5e716c" />
+      <rect x="5" y="5" width="4" height="1" fill="#91a39a" />
+      <rect x="4" y="11" width="5" height="1" fill="#565643" />
+    </symbol>
+    <symbol id="pw-tree" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 树冠精灵；俯视阶梯轮廓，无模糊或投影。</desc>
+      <rect x="7" y="12" width="2" height="4" fill="#565643" />
+      <rect x="6" y="0" width="4" height="2" fill="#15271f" />
+      <rect x="4" y="2" width="8" height="2" fill="#15271f" />
+      <rect x="2" y="4" width="12" height="4" fill="#15271f" />
+      <rect x="1" y="8" width="14" height="4" fill="#15271f" />
+      <rect x="4" y="12" width="8" height="2" fill="#15271f" />
+      <rect x="6" y="2" width="4" height="2" fill="#2b4732" />
+      <rect x="4" y="4" width="8" height="4" fill="#2b4732" />
+      <rect x="3" y="8" width="10" height="3" fill="#2b4732" />
+      <rect x="6" y="10" width="5" height="2" fill="#2b4732" />
+      <rect x="6" y="3" width="3" height="1" fill="#426047" />
+      <rect x="4" y="5" width="3" height="3" fill="#426047" />
+      <rect x="3" y="8" width="2" height="1" fill="#426047" />
+      <rect x="9" y="7" width="2" height="2" fill="#426047" />
+    </symbol>
+    <symbol id="pw-scrub" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 低植被精灵；不参与目标或选中状态。</desc>
+      <rect x="2" y="10" width="5" height="3" fill="#2b4732" />
+      <rect x="3" y="7" width="3" height="3" fill="#2b4732" />
+      <rect x="9" y="8" width="5" height="4" fill="#2b4732" />
+      <rect x="10" y="5" width="2" height="4" fill="#2b4732" />
+      <rect x="3" y="8" width="2" height="2" fill="#426047" />
+      <rect x="10" y="6" width="1" height="2" fill="#426047" />
+      <rect x="11" y="9" width="2" height="1" fill="#426047" />
+      <rect x="6" y="12" width="3" height="1" fill="#15271f" />
+    </symbol>
+    <symbol id="pw-smelter" viewBox="0 0 48 48" data-cell-size="48" overflow="hidden" data-anchor="24,24">
+      <desc>48×48（3×3 tile）俯视冶炼炉。暖金只表示固定外壳涂装，不表示点火、任务进行中、成功或库存。中心锚点 24,24；底部入口 24,48。</desc>
+      <rect x="0" y="0" width="48" height="48" fill="#0b1714" />
+      <rect x="1" y="1" width="46" height="46" fill="#3d4c4b" />
+      <rect x="2" y="2" width="44" height="44" fill="#393b2d" />
+      <rect x="2" y="2" width="8" height="2" fill="#7a7656" />
+      <rect x="2" y="2" width="2" height="8" fill="#7a7656" />
+      <rect x="38" y="2" width="8" height="2" fill="#7a7656" />
+      <rect x="44" y="2" width="2" height="8" fill="#7a7656" />
+      <rect x="2" y="38" width="2" height="8" fill="#7a7656" />
+      <rect x="2" y="44" width="8" height="2" fill="#7a7656" />
+      <rect x="44" y="38" width="2" height="8" fill="#7a7656" />
+      <rect x="38" y="44" width="8" height="2" fill="#7a7656" />
+      <rect x="6" y="5" width="34" height="33" fill="#0b1714" />
+      <rect x="7" y="6" width="32" height="31" fill="#5e716c" />
+      <rect x="8" y="7" width="30" height="2" fill="#91a39a" />
+      <rect x="8" y="9" width="2" height="26" fill="#91a39a" />
+      <rect x="10" y="9" width="27" height="26" fill="#5e716c" />
+      <rect x="37" y="9" width="1" height="26" fill="#3d4c4b" />
+      <rect x="10" y="34" width="27" height="2" fill="#3d4c4b" />
+      <rect x="11" y="10" width="24" height="21" fill="#3d4c4b" />
+      <rect x="12" y="11" width="22" height="19" fill="#5e716c" />
+      <rect x="8" y="5" width="11" height="12" fill="#0b1714" />
+      <rect x="9" y="6" width="9" height="10" fill="#91a39a" />
+      <rect x="10" y="7" width="7" height="8" fill="#5e716c" />
+      <rect x="11" y="8" width="5" height="6" fill="#0b1714" />
+      <rect x="12" y="9" width="3" height="4" fill="#3d4c4b" />
+      <rect x="9" y="15" width="9" height="1" fill="#3d4c4b" />
+      <rect x="27" y="8" width="9" height="10" fill="#0b1714" />
+      <rect x="28" y="9" width="7" height="8" fill="#91a39a" />
+      <rect x="29" y="10" width="5" height="6" fill="#3d4c4b" />
+      <rect x="31" y="10" width="1" height="6" fill="#5e716c" />
+      <rect x="29" y="12" width="5" height="1" fill="#5e716c" />
+      <rect x="31" y="12" width="1" height="1" fill="#d6dec0" />
+      <rect x="15" y="19" width="17" height="13" fill="#0b1714" />
+      <rect x="16" y="20" width="15" height="11" fill="#997943" />
+      <rect x="17" y="21" width="13" height="2" fill="#d0a85b" />
+      <rect x="17" y="24" width="13" height="5" fill="#393b2d" />
+      <rect x="18" y="24" width="2" height="5" fill="#997943" />
+      <rect x="22" y="24" width="2" height="5" fill="#997943" />
+      <rect x="26" y="24" width="2" height="5" fill="#997943" />
+      <rect x="33" y="20" width="2" height="11" fill="#91a39a" />
+      <rect x="33" y="23" width="2" height="1" fill="#3d4c4b" />
+      <rect x="33" y="27" width="2" height="1" fill="#3d4c4b" />
+      <rect x="40" y="18" width="6" height="14" fill="#0b1714" />
+      <rect x="41" y="19" width="4" height="12" fill="#5e716c" />
+      <rect x="41" y="20" width="4" height="2" fill="#91a39a" />
+      <rect x="42" y="24" width="2" height="5" fill="#3d4c4b" />
+      <rect x="3" y="18" width="2" height="18" fill="#3d4c4b" />
+      <rect x="3" y="20" width="2" height="2" fill="#d0a85b" />
+      <rect x="3" y="27" width="2" height="2" fill="#d0a85b" />
+      <rect x="3" y="34" width="2" height="2" fill="#d0a85b" />
+      <rect x="15" y="36" width="18" height="11" fill="#0b1714" />
+      <rect x="16" y="37" width="16" height="10" fill="#3d4c4b" />
+      <rect x="17" y="37" width="14" height="2" fill="#d0a85b" />
+      <rect x="18" y="40" width="12" height="1" fill="#5e716c" />
+      <rect x="18" y="42" width="12" height="1" fill="#5e716c" />
+      <rect x="18" y="44" width="12" height="1" fill="#5e716c" />
+      <rect x="9" y="32" width="2" height="2" fill="#d6dec0" />
+      <rect x="35" y="32" width="2" height="2" fill="#d6dec0" />
+      <rect x="36" y="38" width="6" height="3" fill="#5e716c" />
+      <rect x="37" y="38" width="4" height="1" fill="#91a39a" />
+      <rect x="8" y="39" width="3" height="3" fill="#997943" />
+    </symbol>
+    <symbol id="pw-depot" viewBox="0 0 32 32" data-cell-size="32" overflow="hidden" data-anchor="16,16">
+      <desc>32×32（2×2 tile）仓储建筑示意。没有 Micro Depot 的 active/suspended/depleted 状态、库存或吞吐量含义。中心锚点 16,16；底部入口 16,32。</desc>
+      <rect x="0" y="0" width="32" height="32" fill="#0b1714" />
+      <rect x="1" y="1" width="30" height="30" fill="#393b2d" />
+      <rect x="2" y="2" width="28" height="28" fill="#3d4c4b" />
+      <rect x="2" y="2" width="4" height="2" fill="#7a7656" />
+      <rect x="26" y="2" width="4" height="2" fill="#7a7656" />
+      <rect x="2" y="28" width="4" height="2" fill="#7a7656" />
+      <rect x="26" y="28" width="4" height="2" fill="#7a7656" />
+      <rect x="4" y="4" width="24" height="21" fill="#0b1714" />
+      <rect x="5" y="5" width="22" height="19" fill="#5e716c" />
+      <rect x="6" y="6" width="20" height="2" fill="#91a39a" />
+      <rect x="6" y="8" width="2" height="14" fill="#91a39a" />
+      <rect x="8" y="8" width="17" height="14" fill="#5e716c" />
+      <rect x="25" y="8" width="1" height="14" fill="#3d4c4b" />
+      <rect x="9" y="9" width="2" height="12" fill="#3d4c4b" />
+      <rect x="15" y="9" width="2" height="12" fill="#3d4c4b" />
+      <rect x="21" y="9" width="2" height="12" fill="#3d4c4b" />
+      <rect x="9" y="9" width="1" height="10" fill="#91a39a" />
+      <rect x="15" y="9" width="1" height="10" fill="#91a39a" />
+      <rect x="21" y="9" width="1" height="10" fill="#91a39a" />
+      <rect x="10" y="23" width="12" height="8" fill="#0b1714" />
+      <rect x="11" y="24" width="10" height="2" fill="#d0a85b" />
+      <rect x="12" y="27" width="8" height="1" fill="#5e716c" />
+      <rect x="12" y="29" width="8" height="1" fill="#5e716c" />
+      <rect x="4" y="25" width="3" height="2" fill="#997943" />
+      <rect x="25" y="25" width="3" height="2" fill="#997943" />
+    </symbol>
+    <symbol id="pw-agent" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden" data-anchor="8,15">
+      <desc>16×16 Agent 静态设计精灵；普通薄荷色不编码选择、任务或权限。姓名、选择、来源、未知和回执由独立上层文字或标记表达。脚点锚点 8,15。</desc>
+      <rect x="6" y="0" width="4" height="1" fill="#0b1714" />
+      <rect x="5" y="1" width="6" height="1" fill="#0b1714" />
+      <rect x="4" y="2" width="8" height="5" fill="#0b1714" />
+      <rect x="5" y="2" width="6" height="4" fill="#9ec9ac" />
+      <rect x="5" y="2" width="5" height="1" fill="#d6dec0" />
+      <rect x="6" y="4" width="4" height="1" fill="#0b1714" />
+      <rect x="7" y="4" width="2" height="1" fill="#60997d" />
+      <rect x="5" y="7" width="6" height="1" fill="#3d4c4b" />
+      <rect x="4" y="8" width="8" height="5" fill="#0b1714" />
+      <rect x="5" y="8" width="6" height="4" fill="#9ec9ac" />
+      <rect x="5" y="8" width="5" height="1" fill="#d6dec0" />
+      <rect x="6" y="10" width="4" height="1" fill="#60997d" />
+      <rect x="2" y="8" width="2" height="4" fill="#0b1714" />
+      <rect x="3" y="8" width="1" height="3" fill="#60997d" />
+      <rect x="12" y="8" width="2" height="4" fill="#0b1714" />
+      <rect x="12" y="8" width="1" height="3" fill="#60997d" />
+      <rect x="5" y="13" width="2" height="2" fill="#3d4c4b" />
+      <rect x="9" y="13" width="2" height="2" fill="#3d4c4b" />
+      <rect x="5" y="13" width="2" height="1" fill="#91a39a" />
+      <rect x="9" y="13" width="2" height="1" fill="#91a39a" />
+    </symbol>
+  </defs>
+  <g id="pw-scene-ground" data-layer="ground">
+    <use href="#pw-ground-alt" x="0" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="48" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="80" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="128" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="160" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="208" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="240" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="288" y="0" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="0" width="16" height="16" />
+    <use href="#pw-ground-alt" x="0" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="32" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="80" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="112" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="160" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="192" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="240" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="16" width="16" height="16" />
+    <use href="#pw-ground-alt" x="272" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="16" width="16" height="16" />
+    <use href="#pw-ground" x="0" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="32" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="64" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="80" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="112" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="144" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="160" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="192" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="224" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="240" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="272" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="32" width="16" height="16" />
+    <use href="#pw-ground-alt" x="304" y="32" width="16" height="16" />
+    <use href="#pw-ground" x="0" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="16" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="64" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="80" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="96" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="144" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="160" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="176" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="224" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="240" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="256" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="48" width="16" height="16" />
+    <use href="#pw-ground-alt" x="304" y="48" width="16" height="16" />
+    <use href="#pw-ground" x="0" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="16" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="48" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="80" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="96" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="128" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="160" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="176" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="208" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="240" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="256" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="288" y="64" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="64" width="16" height="16" />
+    <use href="#pw-ground-alt" x="0" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="48" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="80" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="128" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="160" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="208" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="240" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="288" y="80" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="80" width="16" height="16" />
+    <use href="#pw-ground-alt" x="0" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="32" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="80" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="112" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="160" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="192" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="240" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="96" width="16" height="16" />
+    <use href="#pw-ground-alt" x="272" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="96" width="16" height="16" />
+    <use href="#pw-ground" x="0" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="32" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="64" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="80" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="112" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="144" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="160" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="192" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="224" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="240" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="272" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="112" width="16" height="16" />
+    <use href="#pw-ground-alt" x="304" y="112" width="16" height="16" />
+    <use href="#pw-ground" x="0" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="16" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="64" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="80" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="96" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="144" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="160" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="176" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="224" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="240" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="256" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="128" width="16" height="16" />
+    <use href="#pw-ground-alt" x="304" y="128" width="16" height="16" />
+    <use href="#pw-ground" x="0" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="16" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="48" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="80" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="96" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="128" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="160" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="176" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="208" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="240" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="256" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="288" y="144" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="144" width="16" height="16" />
+    <use href="#pw-ground-alt" x="0" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="32" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="48" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="80" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="112" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="128" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="160" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="192" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="208" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="240" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="272" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="288" y="160" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="160" width="16" height="16" />
+    <use href="#pw-ground-alt" x="0" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="16" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="32" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="48" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="64" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="80" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="96" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="112" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="128" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="144" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="160" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="176" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="192" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="208" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="224" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="240" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="256" y="176" width="16" height="16" />
+    <use href="#pw-ground-alt" x="272" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="288" y="176" width="16" height="16" />
+    <use href="#pw-ground" x="304" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="48" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="64" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="80" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="272" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="0" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="48" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="64" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="272" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="16" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="32" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="32" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="32" width="16" height="16" />
+    <use href="#pw-grass" x="48" y="32" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="32" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="32" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="48" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="48" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="48" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="48" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="48" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="64" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="64" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="64" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="80" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="128" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="128" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="128" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="128" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="256" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="272" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="144" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="48" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="240" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="256" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="272" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="160" width="16" height="16" />
+    <use href="#pw-grass" x="0" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="16" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="32" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="48" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="64" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="224" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="240" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="256" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="272" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="288" y="176" width="16" height="16" />
+    <use href="#pw-grass" x="304" y="176" width="16" height="16" />
+  </g>
+  <g id="pw-scene-paths" data-layer="ground-detail">
+    <rect x="0" y="111" width="320" height="18" fill="#393b2d" />
+    <use href="#pw-path" x="0" y="112" width="16" height="16" />
+    <use href="#pw-path" x="16" y="112" width="16" height="16" />
+    <use href="#pw-path" x="32" y="112" width="16" height="16" />
+    <use href="#pw-path" x="48" y="112" width="16" height="16" />
+    <use href="#pw-path" x="64" y="112" width="16" height="16" />
+    <use href="#pw-path" x="80" y="112" width="16" height="16" />
+    <use href="#pw-path" x="96" y="112" width="16" height="16" />
+    <use href="#pw-path" x="112" y="112" width="16" height="16" />
+    <use href="#pw-path" x="128" y="112" width="16" height="16" />
+    <use href="#pw-path" x="144" y="112" width="16" height="16" />
+    <use href="#pw-path" x="160" y="112" width="16" height="16" />
+    <use href="#pw-path" x="176" y="112" width="16" height="16" />
+    <use href="#pw-path" x="192" y="112" width="16" height="16" />
+    <use href="#pw-path" x="208" y="112" width="16" height="16" />
+    <use href="#pw-path" x="224" y="112" width="16" height="16" />
+    <use href="#pw-path" x="240" y="112" width="16" height="16" />
+    <use href="#pw-path" x="256" y="112" width="16" height="16" />
+    <use href="#pw-path" x="272" y="112" width="16" height="16" />
+    <use href="#pw-path" x="288" y="112" width="16" height="16" />
+    <use href="#pw-path" x="304" y="112" width="16" height="16" />
+    <rect x="159" y="128" width="18" height="52" fill="#393b2d" />
+    <use href="#pw-path" x="160" y="128" width="16" height="16" />
+    <use href="#pw-path" x="160" y="144" width="16" height="16" />
+    <use href="#pw-path" x="160" y="160" width="16" height="16" />
+    <use href="#pw-path" x="160" y="176" width="16" height="16" />
+    <use href="#pw-path" x="96" y="96" width="16" height="16" />
+    <use href="#pw-path" x="112" y="96" width="16" height="16" />
+    <use href="#pw-path" x="192" y="80" width="16" height="16" />
+    <use href="#pw-path" x="208" y="80" width="16" height="16" />
+    <use href="#pw-path" x="224" y="80" width="16" height="16" />
+    <use href="#pw-path" x="224" y="64" width="16" height="16" />
+    <rect x="96" y="110" width="32" height="2" fill="#393b2d" />
+  </g>
+  <g id="pw-scene-resources" data-layer="terrain-detail">
+    <use href="#pw-ore" x="224" y="32" width="16" height="16" />
+    <use href="#pw-ore" x="240" y="32" width="16" height="16" />
+    <use href="#pw-ore" x="224" y="48" width="16" height="16" />
+    <use href="#pw-ore" x="240" y="48" width="16" height="16" />
+    <use href="#pw-ore" x="256" y="48" width="16" height="16" />
+    <use href="#pw-rock" x="64" y="44" width="16" height="16" />
+    <use href="#pw-rock" x="200" y="20" width="16" height="16" />
+    <use href="#pw-rock" x="272" y="64" width="16" height="16" />
+    <use href="#pw-rock" x="208" y="144" width="16" height="16" />
+    <use href="#pw-rock" x="48" y="144" width="16" height="16" />
+    <use href="#pw-tree" x="16" y="16" width="16" height="16" />
+    <use href="#pw-tree" x="48" y="8" width="16" height="16" />
+    <use href="#pw-tree" x="32" y="48" width="16" height="16" />
+    <use href="#pw-tree" x="0" y="64" width="16" height="16" />
+    <use href="#pw-tree" x="80" y="0" width="16" height="16" />
+    <use href="#pw-tree" x="288" y="16" width="16" height="16" />
+    <use href="#pw-tree" x="304" y="48" width="16" height="16" />
+    <use href="#pw-tree" x="288" y="144" width="16" height="16" />
+    <use href="#pw-tree" x="256" y="160" width="16" height="16" />
+    <use href="#pw-tree" x="16" y="160" width="16" height="16" />
+    <use href="#pw-scrub" x="80" y="32" width="16" height="16" />
+    <use href="#pw-scrub" x="16" y="88" width="16" height="16" />
+    <use href="#pw-scrub" x="112" y="24" width="16" height="16" />
+    <use href="#pw-scrub" x="272" y="96" width="16" height="16" />
+    <use href="#pw-scrub" x="272" y="128" width="16" height="16" />
+    <use href="#pw-scrub" x="48" y="160" width="16" height="16" />
+    <use href="#pw-scrub" x="224" y="160" width="16" height="16" />
+    <use href="#pw-scrub" x="192" y="132" width="16" height="16" />
+  </g>
+  <g id="pw-scene-facilities" data-layer="building">
+    <use href="#pw-depot" x="96" y="64" width="32" height="32" />
+    <use href="#pw-smelter" x="144" y="64" width="48" height="48" />
+  </g>
+</g></g></g>
+<!-- pixel-world:scene:end -->
+      <text x="24" y="40" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">北侧补给世界</text>
+      <text x="24" y="68" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">当前范围 · 北侧补给区</text>
+      <rect x="872" y="20" width="152" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="948.0" y="48.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">世界动态 · 收起</text>
+      <rect x="24" y="94" width="338" height="72" rx="14" fill="#101412" stroke="#405346" stroke-width="1" id="unknown-target-context"/>
+      <text x="40" y="124" font-size="20" fill="#edf1e6" font-weight="600" text-anchor="start">正在查看 C · 位置未知</text>
+      <text x="40" y="151" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">当前没有对应的地图标记。</text>
+      <circle cx="524" cy="560" r="28" fill="#101412" stroke="#8dc7aa" stroke-width="3"/>
+      <text x="524" y="569" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="middle" id="co-located-count">3</text>
+      <rect x="388" y="594" width="272" height="68" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <text x="524" y="622" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="middle">北侧补给站 · 3 个候选</text>
+      <text x="524" y="648" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="middle">同一可信位置 · 在列表中选择</text>
+      <rect x="24" y="670" width="480" height="136" rx="18" fill="#101412" stroke="#405346" stroke-width="1" id="next-move"/>
+      <rect x="24" y="686" width="3" height="104" rx="0" fill="#d0a85b"/>
+      <text x="40" y="696" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="start">下一步 · Next Move</text>
+      <text x="40" y="728" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">了解补给阻碍</text>
+      <rect x="40" y="746" width="448" height="44" rx="12" fill="#d0a85b" stroke="#d0a85b" stroke-width="1" id="next-move-action"/>
+      <text x="264.0" y="774.0" font-size="16" fill="#0b100f" font-weight="600" text-anchor="middle">打开 Command</text>
+      <rect x="528" y="670" width="496" height="136" rx="18" fill="#101412" stroke="#405346" stroke-width="1" id="original-receipt"/>
+      <text x="548" y="698" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">A · 原操作</text>
+      <text x="548" y="728" font-size="16" fill="#dfb66b" font-weight="400" text-anchor="start">结果待确认 · 请核对原操作</text>
+      <rect x="548" y="746" width="168" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="receipt-query"/>
+      <text x="632.0" y="774.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">查询原结果</text>
+      <text x="736" y="775" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">当前仍在观察 C</text>
+      <rect x="344" y="832" width="372" height="56" rx="18" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <rect x="352" y="838" width="112" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="408.0" y="866.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">World</text>
+      <rect x="474" y="838" width="112" height="44" rx="12" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+      <text x="530.0" y="866.0" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="middle">Targets</text>
+      <rect x="596" y="838" width="112" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="652.0" y="866.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">Command</text>
+      <rect x="952" y="838" width="72" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="988.0" y="866.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">更多</text>
+      <rect x="1048" y="0" width="392" height="900" rx="0" fill="#161d19" stroke="#405346" stroke-width="1" id="targets-drawer"/>
+      <text x="1072" y="38" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">Targets</text>
+      <rect x="1368" y="12" width="48" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="targets-close"/>
+      <text x="1392.0" y="40.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">关闭</text>
+      <rect x="1072" y="76" width="344" height="48" rx="12" fill="#0b100f" stroke="#405346" stroke-width="1" id="targets-search"/>
+      <text x="1088" y="107" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">查找获准目标</text>
+      <text x="1072" y="154" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="start">已加载 4 个 · 当前获准范围</text>
+      <text x="1072" y="180" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">部分范围，未加载对象不计入</text>
+      <path d="M 1072 198 L 1416 198" fill="none" stroke="#405346" stroke-width="1"/>
+      <text x="1072" y="226" font-size="16" fill="#8dc7aa" font-weight="600" text-anchor="start">同一位置 · 北侧补给站（3）</text>
+      <rect x="1072" y="242" width="344" height="64" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="candidate-a"/>
+      <text x="1088" y="268" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">A · 侦察员</text>
+      <text x="1088" y="293" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Agent · 当前可信位置</text>
+      <rect x="1072" y="314" width="344" height="64" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="candidate-b"/>
+      <text x="1088" y="340" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">B · 供给员</text>
+      <text x="1088" y="365" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Agent · 当前可信位置</text>
+      <rect x="1072" y="386" width="344" height="64" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="candidate-d"/>
+      <text x="1088" y="412" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">D · 补给站</text>
+      <text x="1088" y="437" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Location · 当前可信位置</text>
+      <text x="1072" y="482" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="start">没有可信位置</text>
+      <rect x="1072" y="498" width="344" height="72" rx="12" fill="#101412" stroke="#d0a85b" stroke-width="2" id="selected-unknown-c"/>
+      <text x="1088" y="526" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">C · 搬运员</text>
+      <text x="1400" y="526" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="end">已选中</text>
+      <text x="1088" y="553" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Agent · 位置未知</text>
+      <path d="M 1072 594 L 1416 594" fill="none" stroke="#405346" stroke-width="1"/>
+      <text x="1072" y="626" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">C · 只读详情</text>
+      <text x="1072" y="658" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">当前位置：未知</text>
+      <text x="1072" y="686" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">没有可信坐标，保留获准资料。</text>
+      <rect x="1072" y="706" width="168" height="44" rx="12" fill="#1b231e" stroke="#344039" stroke-width="1" id="locate-disabled"/>
+      <text x="1156.0" y="734.0" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="middle">定位 · 不可用</text>
+      <rect x="1248" y="706" width="168" height="44" rx="12" fill="#1b231e" stroke="#344039" stroke-width="1" id="follow-disabled"/>
+      <text x="1332.0" y="734.0" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="middle">跟随 · 不可用</text>
+      <text x="1072" y="782" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">位置未知时无法定位或跟随。</text>
+      <text x="1072" y="832" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">资料来源：当前获准投影</text>
+      <text x="1072" y="858" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">无位置不等于对象不存在</text>
+      </g>
+    </svg>
+      <text x="48" y="1022" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">1440 × 900 CSS px · Player · 3 个同位置候选 + 1 个未知位置对象 · 部分获准范围</text>
+      <text x="48" y="1044" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">示例集合标记不改变真实坐标；列表顺序变化不替换选择；撤权时移除受限对象与详情。</text>
+      <text x="48" y="1066" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">静态画面目标，非容量阈值、真实位置、拾取或键盘验证。</text>
+  </g>
+</svg>

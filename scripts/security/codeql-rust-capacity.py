@@ -22,9 +22,10 @@ EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
 JSON_FIXTURE_SOURCE='09641e1b9d551700771c772e7545ac2851ea273d'
 DECOMPOSITION_SOURCE='c65098923e8d9aad6813d49ac48cc2540627c96d'
 PROFILE_SOURCE='e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6'
-CAPACITY_SOURCE='f9ab0ca14620f118c84130b3d558e48dc1e6314d'
+CALLEE_SOURCE='f9ab0ca14620f118c84130b3d558e48dc1e6314d'
+PREVIOUS_CAPACITY_SOURCE='23dbd6b291ba49468c473e5f23f674ed2a1196e4'
+CAPACITY_SOURCE='7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
 SOURCE=EXCLUSION_SOURCE
-BUNDLE='2.27.3'
 CAP=256*1024**2
 EXCLUDES=('third_party/','target/','node_modules/','dist/','.pm/')
 
@@ -197,6 +198,31 @@ def validate(name,rows,source,libp2p):
 
 
 def save(path,value,out):runtime.save(path,value,out)
+
+
+def decode_semantic_results(database,names,source,libp2p,out,codeql,run,terminal):
+    """Keep all already-computed table observations; any contract failure fails the batch."""
+    validated={};failures={}
+    terminal['public_semantic_tables']=validated
+    terminal['public_semantic_failures']=failures
+    for name in names:
+        matches=list((database/'results').rglob(name+'.bqrs'))
+        if len(matches)!=1:raise RuntimeError('semantic BQRS missing/ambiguous '+name)
+        # Decode/process/evidence failures retain the existing immediate stop.
+        run([codeql,'bqrs','decode',matches[0],'--format=csv'],'decode-'+name,30)
+        with (out/('decode-'+name+'.log')).open() as stream:rows=list(csv.reader(stream))[1:]
+        try:
+            validated[name]=validate(name,rows,source,libp2p)
+        except RuntimeError as error:
+            failures[name]=str(error)
+            save(out/('semantic-'+name+'-terminal.json'),{'status':'FAIL','error':str(error)},out)
+        else:
+            save(out/('semantic-'+name+'-terminal.json'),{'status':'PASS','validated':validated[name]},out)
+    if failures:
+        terminal['public_semantics']='FAIL'
+        raise RuntimeError('public semantic validation failed: '+', '.join(failures))
+    return validated
+
 
 def check_sarif(value):
     if value.get('version')!='2.1.0' or not value.get('runs'):raise RuntimeError('missing complete local SARIF')
@@ -438,18 +464,19 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     terminal['status']='CAPTURED'
 
 
-def analysis_budget(mode,remaining):
+def analysis_budget(mode,remaining,source_sha=None):
     if mode not in ('capacity','official-default-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
-    budget=21600 if research else 3600
+    current_capacity=not research and source_sha==CAPACITY_SOURCE
+    budget=21600 if research else (5400 if current_capacity else 3600)
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(45,minutes)
+    if not research:minutes=min(75 if current_capacity else 45,minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
             'scope':'official-default research; not production capacity' if research else
-                'internal analysis allocation; not a measurement of the complete 60 minute assessment'}
+                f'internal analysis allocation; not a measurement of the complete {budget//60} minute assessment'}
 
 
 def main():
@@ -457,7 +484,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
-    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
+    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,PREVIOUS_CAPACITY_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
@@ -470,6 +497,8 @@ def main():
     args=parser.parse_args()
     SOURCE=args.source_sha;out=args.output;work=args.work;source=args.source.resolve()
     research=args.mode=='official-default-research'
+    # Historical profile also uses capacity mode; its source and bundle stay frozen.
+    selected_bundle='2.27.4' if not research and SOURCE==CAPACITY_SOURCE else '2.27.3'
     if args.phase!='capture' and args.codeql is None:parser.error('--codeql is required for prepare/finish')
     # Capacity artifacts have their own bound. Database files inherit runner limits, not probe RLIMIT_FSIZE.
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-1024**2
@@ -480,7 +509,8 @@ def main():
         'init_outcome':args.init_outcome,'prepare_outcome':args.prepare_outcome,'analyze_outcome':args.analyze_outcome,
         'default_result_verification':'NOT_REACHED','public_semantics':'NOT_REACHED',
         'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[],
-        'mode':args.mode,'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
+        'mode':args.mode,'expected_bundle_version':selected_bundle,
+        'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
     if research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
     for stage in ('checkout','layout','tools','init','prepare','analyze'):
         outcome=getattr(args,stage+'_outcome')
@@ -522,9 +552,9 @@ def main():
             terminal['native_preparation']='PASS'
             run(['rustc','-vV'],'project-toolchain',20)
             run([args.codeql,'version','--format=json'],'version',20)
-            if json.loads((out/'version.log').read_text())['version']!=BUNDLE:raise RuntimeError('wrong official CLI')
+            if json.loads((out/'version.log').read_text())['version']!=selected_bundle:raise RuntimeError('wrong official CLI')
             save(out/'official-before.json',official_snapshot(args.codeql.parent),out)
-            closure=bundle.bundle_closure(args.codeql.parent,BUNDLE);save(out/'library-closure.json',closure,out)
+            closure=bundle.bundle_closure(args.codeql.parent,selected_bundle);save(out/'library-closure.json',closure,out)
             roots=list((args.codeql.parent/'qlpacks/codeql/rust-queries').glob('*/codeql-suites/rust-code-scanning.qls'))
             if len(roots)!=1:raise RuntimeError('default suite identity ambiguous')
             suite=roots[0];query_root=suite.parent.parent
@@ -549,7 +579,7 @@ def main():
             save(out/'libp2p-provenance.json',libp2p,out)
             if not research:
                 query_dir=work/'queries';query_dir.mkdir(exist_ok=False)
-                (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.24\n')
+                (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: '+closure['codeql/rust-all']['version']+'\n')
                 texts=semantic_queries(source)
                 for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
                 save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)
@@ -570,7 +600,7 @@ def main():
             guard_home=cargo_guard.install(work,out,args.deadline,SOURCE,[source/n for n in independent['manifests']],monotonic_deadline=end)
             with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CARGO_HOME='+str(guard_home)+'\n')
             remaining=args.deadline-time.time()
-            budget=analysis_budget(args.mode,remaining);minutes=budget['analysis_allocated_minutes']
+            budget=analysis_budget(args.mode,remaining,SOURCE);minutes=budget['analysis_allocated_minutes']
             save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
             if minutes<1:raise RuntimeError('NOT_REACHED no analysis+semantic+receipt capacity')
             with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('analysis_minutes='+str(minutes)+'\n')
@@ -628,14 +658,8 @@ def main():
                 run([args.codeql,'database','run-queries',args.database,*[query_dir/(name+'.ql') for name in texts],
                      '--additional-packs='+os.pathsep.join(item['root'] for item in json.loads((out/'library-closure.json').read_text()).values()),'--threads='+str(resource_values['CODEQL_THREADS']),
                      '--ram='+str(resource_values['CODEQL_RAM']),'--common-caches='+str(common),'--no-default-compilation-cache'], 'semantic-batch')
-                libp2p=json.loads((out/'libp2p-provenance.json').read_text());validated={}
-                for name in texts:
-                    matches=list((args.database/'results').rglob(name+'.bqrs'))
-                    if len(matches)!=1:raise RuntimeError('semantic BQRS missing/ambiguous '+name)
-                    run([args.codeql,'bqrs','decode',matches[0],'--format=csv'],'decode-'+name,30)
-                    with (out/('decode-'+name+'.log')).open() as stream:rows=list(csv.reader(stream))[1:]
-                    validated[name]=validate(name,rows,source,libp2p)
-                    save(out/('semantic-'+name+'-terminal.json'),{'status':'PASS','validated':validated[name]},out)
+                libp2p=json.loads((out/'libp2p-provenance.json').read_text())
+                validated=decode_semantic_results(args.database,texts,source,libp2p,out,args.codeql,run,terminal)
                 if snapshot(source)!=frozen:raise RuntimeError('post-evaluation business changed')
                 terminal['public_semantics']='PASS'
                 remaining=args.deadline-time.time()
@@ -650,7 +674,7 @@ def main():
         for key in ('default_result_verification','public_semantics'):
             if terminal[key]=='RUNNING':terminal[key]='INCOMPLETE'
         if research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
-        terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production45min-unusable conclusion'
+        terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production-capacity conclusion'
         raise
     finally:
         terminal['remaining_seconds']=args.deadline-time.time()

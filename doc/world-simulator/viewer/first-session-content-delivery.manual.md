@@ -27,6 +27,8 @@ for key in ('R-GAME-11', 'R-GAME-15', 'R-GAME-18'):
 
 paths = (
     'gameplay/frames/industrial-settled.svg',
+    'gameplay/frames/industrial-native-plan.svg',
+    'gameplay/frames/industrial-native-result.svg',
     'gameplay/frames/goal-execution-blocked.svg',
     'gameplay/frames/fallback-choices.svg',
     'gameplay/frames/fallback-no-safe.svg',
@@ -52,7 +54,7 @@ PY
 
 **判定与交接：** 路径缺失、XML/JSON 无法解析或来源条目不存在时，先修原内容/引用并重新检查。通过仅表示文件存在、结构可读且摘要可定位。逐个核对字体/外链依赖：没有 href 不代表没有字体、CSS 或许可依赖；列出的字体族也不证明机器已安装或已获再分发授权。将实际尺寸和版本对照原稿，不强行要求桌面与窄屏相同尺寸。
 
-在实际支持 CJK 的浏览器或 SVG 编辑器打开上述原件，按原稿声明的尺寸检查文字、换行、裁切、示例标注和已画状态。首产物稿必须读成设计示例；不能把其中 36/48/24 等数字、缺少 carbon_fuel/slag 的示例或字体显示效果升级为运行合同。记录使用的查看器、字体可用性与未检查项；截图输出继续放原 `output/playwright/` 验证目录，保留“设计预览”身份。
+在实际支持 CJK 的浏览器或 SVG 编辑器打开上述原件，按原稿声明的尺寸检查文字、换行、裁切、示例标注和已画状态。旧 `industrial-settled.svg` 中 36/48/24、缺少 carbon_fuel/slag 的示例不能升级为完整 native 运行合同。两份 `industrial-native-*.svg` 按[三批 fixture](first-session-content-delivery.design.md#native-three-batch-fixture)核完整预计投入/产出；结果页的“当前摘要未发布”不能从方案反推为已到账。记录实际查看器、字体可用性、输出路径与未检查项；浏览器预览沿原 `output/playwright/` 验证位置，隔离工作区可记录本次实际绝对路径，所有导出保留“设计预览”身份。
 
 <a id="fs-content-review"></a>
 ## 2. FS-CONTENT-REVIEW：事实到表达的审读
@@ -69,6 +71,22 @@ PY
 | 语言与素材 | 对照 [原双语标签](viewer-brand-system-2026-06-05.design.md#25-bilingual-terminal-copy-matrix-target)、实际字符串与图形语义，分别记录目标文案与源码已有文案 | 不宣称新建议已经上线；尚缺译文或字体的语言组合保持缺口；颜色/动画/声音不独自传递结果。 |
 
 审读无需凭空制造一套运行 fixture；尚未有实际输入的状态可以审查设计语义，但不能登记为运行通过。英文只核仓库既有文本及实际新译文，不能由中文设计建议推定英文本地化完成。
+
+<a id="fs-content-prototype"></a>
+### 2.1 FS-CONTENT-PROTOTYPE：可操作设计旅程
+
+打开仓库[统一原型的首局入口](assets/ui-ux/interactive/index.html#industry)，按其本地预览方式查看；不启动游戏或模型。先确认页面保留设计 fixture 标识，再依次执行下列操作。若某场景控制未提供，明确记未覆盖；不能靠修改 DOM、在报告里解释或一张正常态截图代替该状态。切换“缺料/可行/回访”等设计条件只选择演示输入，不是游戏补料、回读或世界动作。
+
+| 场景与操作 | 独立通过判据 |
+| --- | --- |
+| P1：正常方案 → 显式确认 | 首读 factory/recipe/3 批、工厂输入账本 `iron_ore 12` / `carbon_fuel 3`、预计 `iron_ingot 9` / `slag 3`、配方用电 `24`。打开、展开详情及返回均不创建演示请求；只有明确确认创建一次原请求。报价的 `duration_ticks = 1` 与 catalog 基准有不同来源，未发布实际时长不能拿基准补值。 |
+| P2：缺料 → 重新核对；另查明确拒绝 | 选择 fuel `2/3` 条件，首读缺 `1`，提交不可用；没有自动补料或退款承诺。切回可行设计条件后须重新核对才释放当前方案。quote 阻塞和原请求已明确拒绝分别有标签；失败原因不统一写成重连，尚未发布的已耗值不填零。 |
+| P3：提交 → 原结果未知 → 只读核对失败 | 未知时保留原主体和请求，不提供新身份重复生产。“核对原请求结果”是只读动作；查询失败仍为原结果未知，明确后续复查条件。重复点击、离开再进入均不增加生产请求。 |
+| P4：匹配结算 → 原件细目 | 已结算只承接同一 owner/factory/recipe/job；展示投入 ore `12` / fuel `3`、产出 ingot `9`、用电 `24` 和原件定位。当前摘要未发布副产物时保持未知，不能把预计 slag `3` 变为实际 `3` 或 `0`；若另有完整原件 fixture，须标明其来源与同 job 关联，不能宣称生产投影已接入。 |
+| P5：后继候选 → 返回 → 回访 | `production_only` 完成后只开放 Assembler 候选；`9/10` 明示本笔产出对建造需求的比较，其他材料/电力/授权仍待当前核验。返回和重入显示原 job 的旧成果，不重复庆祝、加收益、改归属或自动建设。 |
+| P6：桌面 / 窄屏 / 键盘 / 长文 | 至少在 1440×900 与 390×844 查看 P1/P3/P4，另选 200% 文字与 reduced motion；仅用 Tab/Shift+Tab、激活和返回走同一路径。目标、完整主要成本、blocker、原结果和下一步可读；唯一主动作不重复，内容面可滚动，返回可达，状态更新不夺焦点。缩小 SVG 不是响应式验收。 |
+
+记录页面版本、viewport、所选 fixture、操作、实际观察、截图及未执行项；截图与键盘走查只证明该设计原型的对应行为。P1～P6 不替代下述 R1～R7，也不能确认真实扣料、exactly-once、权限隔离、网络恢复、完整本地化或真人理解。配方数量核对与图稿渲染分别记录，不能相互代签。
 
 <a id="fs-content-focused-tests"></a>
 ## 3. 现有聚焦测试的选择

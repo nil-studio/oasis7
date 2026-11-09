@@ -397,7 +397,7 @@ Observer 和普通 reader 先核对所选 generation、全部 manifest 身份与
 <a id="revoked-grant-discovery"></a>
 ### 撤销历史与当前能力目录
 
-目录遵守 [WASM capability 合同](../wasm/wasm-interface.md#3-capability权限和-kernel-边界)，保留持久 grant 历史，由已验证的当前 authority/revocation 状态排除明确 revoked/superseded 的条目，再投影其余有效声明与授权。合法撤销 A 不应阻断独立有效 B；损坏签名、错误 authority/proof 或不可解释冲突仍拒绝，不能改成吞掉所有验证错误。执行时仍重验 live revocation，旧目录不能重新授权 A。
+目录遵守 [WASM capability 合同](../wasm/wasm-interface.md#wasm-capability-permission-kernel-boundary)，保留持久 grant 历史，由已验证的当前 authority/revocation 状态排除明确 revoked/superseded 的条目，再投影其余有效声明与授权。合法撤销 A 不应阻断独立有效 B；损坏签名、错误 authority/proof 或不可解释冲突仍拒绝，不能改成吞掉所有验证错误。执行时仍重验 live revocation，旧目录不能重新授权 A。
 
 针对 #4502，待执行回归必须先成功注册 A/B，再合法撤销 A，然后真实调用目录派生及 B 的调用上下文生成：A 不可发现/执行，B 仍可发现；受支持 snapshot round-trip 和 journal replay 后同义。先撤销 A 再尝试注册 A 的 fixture 不覆盖此场景。该投影修复不等于生产 Agent E2E、command 实例隔离或全体能力迁移验收。
 
@@ -419,7 +419,8 @@ Observer 和普通 reader 先核对所选 generation、全部 manifest 身份与
 | --- | --- | --- | --- | --- |
 | [保存/实例合同](../prd.md#module-store-persistence-and-recovery-contract) | 退休可恢复、多实例升级、共享内容各自成立 | [生命周期闭包](#module-retirement-and-shared-content) | Runtime/WASM store/Observer 与 chain recovery | 文档不证明格式迁移或实现完成 |
 | [mode 判等合同](../prd.md#gameplay-mode-identity-contract) | 校验、active slots、readiness 与恢复同义 | [mode key](#gameplay-mode-key-design) | Gameplay layer/runtime | 不改原 manifest/hash 或新增 wire |
-| [req-dwe-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-003) | exclusive winner / no collateral termination | [sr2-pending-contract](module-lifecycle.md#sr2-pending-contract) | WASM/runtime/P2P/QA exact receiver 与 candidate readback | current Agent chat superseded 不证明 general lineage |
+| [REQ-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-002) / [AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002)；Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405 | 原签名请求持久接收、已知无效果与未知分开、恢复按当前条件重审 | [持久准入与恢复](#sr2-pending-admission-recovery) | Runtime 持久 owner；P2P profile/历史证明；API 原结果读取 | 现有 volatile Received、effect/cognition pending 与固定 continuation 不代签通用持久 pending |
+| [REQ-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-003) / [AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003)；Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6 | 领域明确关系、有效 winner 与已登记 losers 原子发表、迟到成员不能绕过胜者 | [互斥与结果发表](#sr2-lineage-publication) | WASM 唯一字段/编码；P2P canonical order；API/Viewer 授权关系读取 | current Agent chat superseded 不证明 general lineage；本合同不为未支持领域增加撤回能力 |
 | [sr2-migration-contract](../wasm/wasm-interface.md#sr2-migration-contract) | all objects atomic, old bytes replay retained | [sr2-migration-publication](module-lifecycle.md#sr2-migration-publication) | WASM/runtime/P2P/QA exact receiver 与 candidate readback | 完整 migration 未执行 |
 | [sr2-release-acceptance](online-module-release-legality-closure-2026-03-08.prd.md#sr2-release-acceptance) | canonical inclusive version boundary and historical schedule | [sr2-activation-contract](module-lifecycle.md#sr2-activation-contract) | WASM/runtime/P2P/QA exact receiver 与 candidate readback | prototype finality 非 BFT |
 | [4-technical-specifications](online-module-release-legality-closure-2026-03-08.prd.md#4-technical-specifications) | provider proof versus world finality and idempotency | [sr2-external-contract](module-lifecycle.md#sr2-external-contract) | WASM/runtime/P2P/QA exact receiver 与 candidate readback | 无 provider exactly-once / production full proof |
@@ -446,6 +447,39 @@ PendingRequestCoreV1 是 PendingIntentV1 删除 request_hash/accepted_position/d
 IntentDecisionCoreV1 是 IntentDecisionV1 全部 present fields 的 canonical 投影，schema_version 保留；没有 selfdigest/signature 字段。execution_receipt_ref/winner_receipt_ref 的 ContentRef 只引用 block-independent ModuleExecutionReceiptCoreV1 canonical bytes，digest=SHA256(CanonicalCBOR(receipt_core))、byte_length=这些 exact bytes 长度，locator 排除；不能引用同一 containing block 的 finalized wrapper bytes。Receiver fetch/verify core bytes 后单独计算 domain-separated receipt_id，读取 detached finalized wrapper 并验证 inclusion/receipt_id/execution_id/activation 匹配。decision commitment=H("oasis7/intent-decision/v1",IntentDecisionCoreV1)，因此同 block winner/loser decision 不通过 finality wrapper 形成递归哈希。Raw content digest 与 receipt_id 是不同值，不得互换。
 
 canonical order 的第一个成功有效 receipt 事务同时发布 winner 与 explicit exclusive losers；独立 intents 不受影响。committed_effect 必须有 execution_receipt_ref；其他 dispositions 禁止该 ref 且必须 reason_code；exclusive loser 必须 winner ID/ref。reject/expire/replan 只结束自身。无效果 withdrawal 为 terminated_without_effect，不是 winner；其 predecessor linkage 保留在原 pending 请求。Finality outage 只能保留 pending/local audit，不能伪造 finalized rejection。恢复重新检查 expiry、权限、资源、target 与新 governing manifest；不延期、不继承旧 quote，不改 payload。
+
+<a id="sr2-pending-admission-recovery"></a>
+#### 持久准入、原件与恢复重审
+
+本桥接只细化上述已采纳目标，字段、canonical 编码与 hash authority 不变；当前 Rust types、World Service wire 和持久实现不因本文存在而升级。Runtime persistence owner 拥有原件、准入索引和决策索引，P2P 拥有适用 profile 的持久条件、排序和证明，API 只读取受权投影。原件需要跨受控权威交接时沿 [P2P 原 pending 交接](../../p2p/design.md#des-p2p-controlled-epoch-takeover-v1)，不能从单机可读推导跨故障域已保存。
+
+| 持久对象与绑定 | 写入和恢复必须保持的关系 | 失败或不确定时 |
+| --- | --- | --- |
+| 原 ingress 签名请求 | 保留完整原 payload/authentication bytes、签名 domain、原请求/nonce/correlation 与调用主体；验证 `payload_hash` 对应的原正文。调用方签名 digest 与 runtime-admitted `request_hash` 分别按原合同计算，不相互冒充 | 不补签、不重写旧正文，不用摘要、UI 文本或 cognition journal 重建签名原件 |
+| `PendingIntentV1` 与准入索引 | 原件、当前受信 domain 关系依据、admitted commitment、原 client key 到 intent 的关联、去重索引在一个持久接收边界成立。`accepted_position` 只定位该 admission owner 的原日志；owner/stream 身份随存储引用保留，不把不同日志同数值的位置相等视为同一记录 | 全部持久确认前不回报 durable pending；明确未接收与写入结果未知分开，未知保留原键查询。既有 Received/Volatile 仍只表达原临时受理 |
+| canonical 决定与执行原件 | 原 `PendingIntentV1` 不可变；`IntentDecisionV1`、其 decision commitment/原 canonical 包含依据、成功 receipt core 及 detached proof 按各自身份持久关联 | 无可验证决定时不补造拒绝、到期或无效果终止；`decision_position` 才是该决定的 canonical 日志定位，admission 位置不能代替它 |
+| 保存与历史依赖 | 保存/恢复把原件、准入/去重、已决定 continuation、winner/losers 和已提交结果连接到同一完整 generation 及其受保护历史；保留当前未决和既有 replay 所需依赖 | 缺原件、混代、损坏索引或缺历史保持恢复受阻；不能把查不到当作未发生，不能仅按当前执行资格回收未决原件。沿原存储容量与 GC authority，不新增保留期限 |
+
+收到相同原签名请求时先核原身份和去重关系，重用已保存的 admitted generation、hash 和状态。入队持久化不预占世界资源、不改变控制权或业务阶段，也不产生 module receipt；原来由其他已确认操作建立的费用/占用仍由其原合同解释，不能因本次 pending 或停止等待自动释放。容量不足只可在能够证明未接收时明确拒绝；已经持久接收的原件不能为腾空间静默丢弃。客户端仍在可能发送前保留原 outbox；本地 outbox 不代签服务端持久接收。
+
+恢复先查同原件是否已有 canonical decision、固定 execution continuation 或提交未知。已提交只回读原结果；固定 continuation 沿 [原决定恢复](../design.md#runtime-controlled-candidate-recovery-receiver) 使用原输入，不以当前条件重执行；未知先对账，不能推断零效果或释放原 nonce。只有确认尚无效果、无固定 continuation 的 pending 才在服务闸门恢复后进入 fresh canonical 重审。
+
+重审对原 subject/target/payload 逐项检查当前权限、资源、前置条件、原期限与新 governing manifest，使用实际执行位置的 canonical 顺序。期限判断沿原 domain 已声明的边界，断连、重连、重投和新本地时间不续期；未声明期限不凭本桥接自造超时。缺证明或缺工件保持未确认；已证不合条件才提交对应无效果决定与具体原因。需要不同正文、报价、Context 或兼容声明时，由仍有权主体明确形成新请求；恢复器不暗改原件。各阶段 disposition 由 [API 目标映射](../../world-simulator/llm/external-agent-game-api.design.md#api-intent-results) 接收，不能把请求受理、最终处置和业务后续完成合成一个成功标记。
+
+<a id="sr2-lineage-publication"></a>
+#### 领域关系、原子胜者与迟到成员
+
+关系只来自该 operation domain 当前明确支持且获权的合同：`original/independent` 不携带 predecessor；`linked_replacement/withdrawal` 必须同时具有 exact predecessor ID/hash 与领域授权的 `exclusive_set_id`，world、subject、target 及该域允许的替代范围逐项验证。linked 成员的 `lineage_id` 必须与原前驱一致，`exclusive_set_id` 必须精确匹配前驱在其原 domain authority 下获准的同一集合；前驱未声明该集合、换 lineage/set 或借其他 domain 的合法前驱均拒绝，不能改写原前驱来补关系。调用者提交关系不等于自行建立互斥权限；不同正文相似、同 Agent、同 action、相同 client key 或新目标都不是互斥依据。不支持安全撤回/替代的 domain 拒绝该关系，不降为普通新请求继续执行。
+
+`member_generation` 由 Runtime 根据原关系确定：根 original/independent 为 0，linked 成员为其已核前驱 generation 的 checked successor。兄弟成员可引用同一前驱并具有相同代次，仍以各自 intent/hash 区分；代次不提供全局排序或取消优先权。不同接收节点重用同一原关系，不以本机计数器分配不同代次；已 admitted 的字节/hash 不再重算。缺前驱、越界、循环、换 subject/world 或未经允许换 target 在准入及最终执行处均拒绝，拒绝只影响自身。
+
+canonical 顺序仍由 P2P 适用 profile 的 ordered input 决定，包含同块次序；本地接收时间、admission 位置和 replacement/withdrawal 名称不能另排优先级。每个成员执行前，Runtime 在同一不可变父状态查 exact exclusive set 是否已有有效 winner，再检查当前条件。已拒绝、过期、须重规划或无效果 withdrawal 不占 winner；只有该域允许且实际取得有效执行 receipt 的成员才能占用它。
+
+成功事务同时准备业务状态/资源/事件、winner 的 decision 与 receipt、该权威输入中所有已登记且仍待决互斥成员的无效果 decision，以及禁止该 exclusive set 再产生效果的 winner 索引；全部准备完成后沿原完整 generation 一次持久发表。已经 rejected/expired/replan_required/terminated_without_effect 的成员保留原终态、原因与原决定位置，不被后来的 winner 重写为 loser 或追加另一份终态。该索引从同一 canonical winner 派生，不是第二份裁决 authority。失败在发表前零部分效果，发表不确定先查原事务，发表后重启只恢复同一个 winner，不重跑已提交 WASM。
+
+尚未到达该权威的签名副本不可能被预先枚举；winner 同事务建立的集合约束也覆盖它们。迟到或重复请求先查原终态：已有终态只回读原处置；仅首次处理且尚待决的合法成员才在验证原关系后回读同一 winner 并取得无效果处置。它不能在“尚未补齐 loser 行”的窗口执行，也不能改写先前 winner。已登记且仍待决的成员必须在 winner 事务内有 explicit loser，不能以此迟到规则推迟其原子终止。reject/expire/replan 只终止自身，未标记互斥的独立 intent 仍可通过自己的合法执行；无效果 withdrawal 也不取消前驱。
+
+原/替代/撤回分别保留原件与自身处置；exclusive loser 的 winner ID/ref 必须指向同 scope/set 中实际获胜的原 receipt，禁止借另一个成功操作填值。读取先验证 decision commitment、canonical 包含和实际 winner receipt/proof，再按当前读权投影关系；无权限或历史不可得不能伪装为“没有关联”。组合方法见 [GWSC pending/lineage](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)。
 
 ## 6. 接口与数据合同
 <a id="sr2-activation-contract"></a>
@@ -489,7 +523,8 @@ Production 不能从本地 unsigned/self-signed receipt、CI artifact 或 health
 | --- | --- | --- | --- | --- | --- |
 | [保存/实例合同](../prd.md#module-store-persistence-and-recovery-contract) | [生命周期闭包](#module-retirement-and-shared-content) | 退休、升级、共享 H 分别验证 | [本页独立矩阵](#module-lifecycle-recovery-validation)；使用真实安装、两实例及标准 writer/Observer/CAS，不以空 registry 或普通 inline round-trip 替代 | 实施 PR 的实际命令、候选、状态/费用/目录对照 | 本文未运行；不代签完整 SR2、跨主机或新 wire |
 | [mode 判等合同](../prd.md#gameplay-mode-identity-contract) | [mode key](#gameplay-mode-key-design) | lifecycle/readiness/restore 使用相同派生 key | [mode 一致性矩阵](#module-lifecycle-recovery-validation)；分别覆盖 trim、重复、同槽冲突、不同 kind 与恢复 | 实施 PR 的原 manifest/hash 与查询/拒绝结果 | 当前仅目标设计，无业务回归结果 |
-| [req-dwe-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-003) | [sr2-pending-contract](module-lifecycle.md#sr2-pending-contract) | exclusive winner / no collateral termination | SR2-RT-02/03; LIN-01..04; required both canonical orders/same-block tie/duplicate/restart; full actual consumer readback；[located partial source](../../../crates/oasis7_runtime/src/tests/module_action_loop_release_controls_tests.rs) | candidate-bound artifact + GWSC matrix | current Agent chat superseded 不证明 general lineage |
+| [REQ-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-002) / [AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | [持久准入与恢复](#sr2-pending-admission-recovery) | 接收原件、未知分界、当前重审与逐项终态读回 | [GWSC PL01–03/07–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)；SR2-RT-01/03、DC5-04/05；required 持久接缝与独立预期，full 实际消费者 | 原 signed bytes/admitted hash/存储边界、恢复前后依据、原 API/Agent/Viewer 结果 | 方法未运行；既有固定 continuation、volatile queue 不证明通用持久 pending |
+| [REQ-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-003) / [AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | [互斥与结果发表](#sr2-lineage-publication) | 域关系、双序胜者、已知与迟到 loser、拒绝仅自身及独立并发 | [GWSC PL04–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)；SR2-RT-02/03、LIN-01..04；required 顺序/故障与 full canonical/consumer | 同候选原关系、winner/loser 事务、独立请求正向效果及授权读回 | current Agent chat superseded 不证明 general lineage；本轮未运行 |
 | [sr2-migration-contract](../wasm/wasm-interface.md#sr2-migration-contract) | [sr2-migration-publication](module-lifecycle.md#sr2-migration-publication) | all objects atomic, old bytes replay retained | SR2-RT-07/08; MIG-01..03; required bad second object/output/context/post-prepare injections; module_lifecycle.rs shadow_failure_blocks_apply/replay_preserves_module_events 是 partial locator；[located partial source](../../../crates/oasis7/tests/module_lifecycle.rs) | Task evidence state/journal/charge/receipt equality | 完整 migration 未执行 |
 | [sr2-release-acceptance](online-module-release-legality-closure-2026-03-08.prd.md#sr2-release-acceptance) | [sr2-activation-contract](module-lifecycle.md#sr2-activation-contract) | canonical inclusive version boundary and historical schedule | SR2-RT-04/05; ACT-01/MET-01; before/at/after boundary, old-submit/new-finalize, missing activation/artifact; full canonical proof replay；[located partial source](../../../testing-manual.md) | candidate-bound activation and replay artifact | prototype finality 非 BFT |
 | [4-technical-specifications](online-module-release-legality-closure-2026-03-08.prd.md#4-technical-specifications) | [sr2-external-contract](module-lifecycle.md#sr2-external-contract) | provider proof versus world finality and idempotency | SR2-RT-06; RCP-01/02; required forged/conflicting/orphan/unavailable proof + restart duplicate; effect_publication_transaction_regressions.rs 是 partial locator；[located partial source](../../../crates/oasis7/tests/module_lifecycle.rs) | Task proof bytes/trust readback | 无 provider exactly-once / production full proof |

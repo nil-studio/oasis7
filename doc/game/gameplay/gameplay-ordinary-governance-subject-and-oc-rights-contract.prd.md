@@ -46,6 +46,9 @@
 
 玩家比较锁定 OC、事项范围内可撤回委托和实际控制人聚合后的影响上限时，必须看到它们如何共同形成当前资格，以及持续运营、维护或交付等相邻条件何时属于另一条专业规则。拆分账户、关联组织、managed signer 重复绑定或短期循环转移不能制造额外普通治理影响；如果聚合或授权事实不完整，结果是未知/阻塞，不是系统猜测的安全资格。
 
+<a id="governance-context-source"></a>
+情境声誉的[当前消费者政策](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)不将合同合作、认领用途或战争累计数兑换成普通治理权。本轮目标采用明确不向新事项提供这些来源的 reputation bonus；原独立资格、active/warmup、stake 及已声明影响上限仍分别由其专业规则验证，缺 profile/授权/控制来源不能补成默认最高资格。该决定表示这些来源未被采用为治理加权项，不表示“未知声誉等于零”。既有提案的原 snapshot、已投票和最终结果按原版本保留，不追溯重算；当前实现与目标的迁移门槛见[真实消费者适用性](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)。
+
 ### 3.2 委托、纠错与申诉
 
 委托是明确作用域内的代表权转交，不是所有权转让、无限治理授权或永久控制。玩家可读预览必须说明事项、范围、当前有效窗口、代表影响、撤回/失效条件和不能改变的保护边界。重复主体 challenge 必须形成可追踪处理链：受理或拒绝理由、review 状态、适用的 merge/revocation、计票 correction、appeal 与最终有效结果；纠错保留历史，不产生双计或第二次世界效果。

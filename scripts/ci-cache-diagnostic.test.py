@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('diagnostic', Path(__file__).with_name('ci-cache-diagnostic.py'))
 diagnostic = importlib.util.module_from_spec(spec)
@@ -153,6 +154,77 @@ class CollectorTests(unittest.TestCase):
         if not path.exists():
             self.skipTest('primary workflow not in isolated collector fixture')
         self.assertEqual(set(diagnostic.workflow_environment(path.read_text())), diagnostic.ENV_KEYS)
+
+
+class DiagnosticPresenceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name);self.target=self.root/'target';self.target.mkdir()
+
+    def value(self,filenames,**changes):
+        obj=dict(reason='compiler-artifact',manifest_path=str(self.root/'Cargo.toml'),fresh=False,
+                 target={'name':'example','kind':['lib']},features=['test_tier_required'],
+                 profile={'opt_level':'0','test':False},filenames=[str(self.target/p) for p in filenames])
+        obj.update(changes);return obj
+
+    def test_absent_present_and_partial_are_distinct(self):
+        (self.target/'a.rlib').touch()
+        snapshot=diagnostic.snapshot_outputs(self.root)
+        for names,expected in [(['a.rlib'],'present'),(['b.rlib'],'absent'),(['a.rlib','b.rlib'],'partial')]:
+            result=diagnostic.output_presence([str(self.target/p) for p in names],snapshot)
+            self.assertEqual(result['prebuild_outputs'],expected)
+
+    def test_prebuild_snapshot_not_after_compilation(self):
+        snapshot=diagnostic.snapshot_outputs(self.root);(self.target/'a.rlib').touch()
+        self.assertEqual(diagnostic.output_presence([str(self.target/'a.rlib')],snapshot)['prebuild_outputs'],'absent')
+
+    def test_incomplete_or_external_paths_are_unknown(self):
+        snapshot=diagnostic.snapshot_outputs(self.root)
+        for files in ([],[str(self.root/'outside')],['relative'],[str(self.target/'../outside')],[None]):
+            self.assertEqual(diagnostic.output_presence(files,snapshot)['prebuild_outputs'],'unknown')
+        self.assertEqual(diagnostic.output_presence([str(self.target/'a')],(self.target,set(),False))['prebuild_outputs'],'unknown')
+
+    def test_inventory_limit_never_claims_absence(self):
+        for n in range(2):(self.target/str(n)).touch()
+        self.assertFalse(diagnostic.snapshot_outputs(self.root,limit=1)[2])
+
+    def test_symlink_inventory_is_not_followed(self):
+        outside=self.root/'private';outside.mkdir();(outside/'secret').touch()
+        (self.target/'link').symlink_to(outside,target_is_directory=True)
+        target,files,complete=diagnostic.snapshot_outputs(self.root)
+        self.assertFalse(complete);self.assertNotIn('link/secret',files)
+
+    def test_rebuilt_unit_observation_preserves_features_without_paths(self):
+        observer=diagnostic.Observation(self.root,diagnostic.snapshot_outputs(self.root))
+        observer.line('stdout',json.dumps(self.value(['a.rlib'])).encode())
+        report=observer.report();self.assertEqual(report['rebuilt_output_observations'],{'local_absent':1})
+        sample=report['rebuilt_unit_samples'][0]
+        self.assertEqual(sample['features'],['test_tier_required']);self.assertEqual(sample['target'],'example')
+        self.assertNotIn(str(self.root),json.dumps(report));self.assertNotIn('a.rlib',json.dumps(report))
+
+    def test_existing_outputs_do_not_mean_fresh(self):
+        (self.target/'a.rlib').touch();observer=diagnostic.Observation(self.root,diagnostic.snapshot_outputs(self.root))
+        observer.line('stdout',json.dumps(self.value(['a.rlib'])).encode())
+        report=observer.report();self.assertEqual(report['unit_observations'],{'local_rebuilt':1})
+        self.assertEqual(report['rebuilt_output_observations'],{'local_present':1})
+
+    def test_unsafe_unit_metadata_is_not_emitted(self):
+        value=self.value(['a'],target={'name':'/private/token','kind':['lib']},features=['/private/key'])
+        self.assertEqual(diagnostic.safe_unit_identity(value),{})
+
+    def test_samples_bounded_and_counts_remain_complete(self):
+        observer=diagnostic.Observation(self.root,diagnostic.snapshot_outputs(self.root))
+        for _ in range(diagnostic.SAMPLE_LIMIT+1):observer.line('stdout',json.dumps(self.value(['a'])).encode())
+        report=observer.report();self.assertEqual(len(report['rebuilt_unit_samples']),diagnostic.SAMPLE_LIMIT // 2)
+        self.assertTrue(report['rebuilt_unit_samples_truncated']);self.assertTrue(report['unit_counts_complete'])
+        self.assertEqual(report['rebuilt_output_observations']['local_absent'],diagnostic.SAMPLE_LIMIT+1)
+
+    def test_old_artifact_records_keep_counts_but_presence_is_unknown(self):
+        observer=diagnostic.Observation(self.root)
+        observer.line('stdout',json.dumps(dict(reason='compiler-artifact',manifest_path=str(self.root/'Cargo.toml'),fresh=False)).encode())
+        self.assertEqual(observer.report()['unit_observations'],{'local_rebuilt':1})
+        self.assertEqual(observer.report()['rebuilt_output_observations'],{'local_unknown':1})
+
 
 
 if __name__ == '__main__':

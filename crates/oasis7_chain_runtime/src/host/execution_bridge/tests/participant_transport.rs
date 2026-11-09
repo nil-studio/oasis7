@@ -42,7 +42,9 @@ pub(super) fn serve_with_private(
     dropped: &AtomicBool,
     private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
 ) {
-    serve_with_private_settlement(listener, node, root, signer, stop, dropped, private, false)
+    serve_with_private_settlement(
+        listener, node, root, signer, stop, dropped, private, false, None,
+    )
 }
 
 // Opt-in scheduling for a happy-path custody test, not a World API guarantee.
@@ -60,6 +62,7 @@ pub(super) fn serve_with_private_settlement(
     dropped: &AtomicBool,
     private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
     settle_submits: bool,
+    baseline_marker: Option<&Path>,
 ) {
     while !stop.load(Ordering::SeqCst) {
         let (mut stream, _) = match listener.accept() {
@@ -97,10 +100,12 @@ pub(super) fn serve_with_private_settlement(
         assert!(length <= 256 * 1024);
         let mut body = vec![0; length];
         stream.read_exact(&mut body).unwrap();
-        let settling = (settle_submits && path == SUBMIT_PATH).then(|| {
-            serde_json::from_slice::<SubmitIntentRequest<WorldServicePayloadV1>>(&body)
-                .expect("happy fixture submit must be a typed original")
-        });
+        let baseline_settlement = baseline_marker.is_some_and(|marker| marker.is_file());
+        let settling =
+            ((settle_submits || baseline_settlement) && path == SUBMIT_PATH).then(|| {
+                serde_json::from_slice::<SubmitIntentRequest<WorldServicePayloadV1>>(&body)
+                    .expect("happy fixture submit must be a typed original")
+            });
         bytes.extend(body);
         if crate::world_service_api::private_goal::maybe_handle(
             &mut stream,

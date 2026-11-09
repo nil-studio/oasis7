@@ -728,3 +728,251 @@ fn private_gateway_verifies_original_typed_cbor_not_normalized_json_payload() {
     assert_eq!(response.payload.get(&7).map(String::as_str), Some("typed"));
     server.join().unwrap();
 }
+
+#[test]
+fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
+    use crate::request_deadline::test_clock::ManualClock;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Instant;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (root, identity, vault, fence) =
+        fixture(format!("http://{}", listener.local_addr().unwrap()));
+    let private = hex::encode(
+        ExecutorControlStore::open(&vault, PASSWORD)
+            .unwrap()
+            .executor_seed(),
+    );
+    let payload = historical_prefix(fence.clone(), &private);
+    let request = SubmitIntentRequest {
+        contract_version: 1,
+        correlation: oasis7_client_api::world_service_correlation::derive_correlation(
+            WorldIdentity {
+                world_id: "world".into(),
+                genesis_digest: "genesis".into(),
+            },
+            &payload,
+        )
+        .unwrap(),
+        deadline_unix_ms: None,
+        signed_payload: payload,
+    };
+    let client = crate::device_client::Client::from_authenticated_config(
+        crate::device_client::ExecutorDeviceConfig {
+            authority_mode: None,
+            identity,
+            login_operation: "login".into(),
+            executor_vault_directory: vault,
+            service_public_key: service_key(),
+            fence,
+            state_directory: root.0.join("operation-state"),
+        },
+        PASSWORD,
+    )
+    .unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let posts = Arc::new(AtomicUsize::new(0));
+    let sessions = Arc::new(AtomicUsize::new(0));
+    let lookups = Arc::new(AtomicUsize::new(0));
+    let capabilities = Arc::new(AtomicUsize::new(0));
+    let (done, count, auth) = (stop.clone(), posts.clone(), sessions.clone());
+    let (queries, caps) = (lookups.clone(), capabilities.clone());
+    // Keep the complete signed, durable Lookup/Submit path, but advance time
+    // only once submit authentication arrives. CPU/fsync scheduling before
+    // that phase must not accidentally test an earlier deadline rejection.
+    let clock = ManualClock::new(Instant::now());
+    let _clock_scope = clock.enter();
+    let deadline = clock.now() + Duration::from_millis(500);
+    let server_clock = clock.clone();
+    let server = thread::spawn(move || {
+        while !done.load(Ordering::SeqCst) {
+            let (mut socket, _) = match listener.accept() {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
+                Err(error) => panic!("{error}"),
+            };
+            socket.set_nonblocking(false).unwrap();
+            let (path, body) = read_http(&mut socket);
+            let reply = if path.ends_with("/session") {
+                if auth.fetch_add(1, Ordering::SeqCst) == 1 {
+                    server_clock.advance(Duration::from_millis(800));
+                }
+                json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
+            } else if path.ends_with("/capabilities") {
+                caps.fetch_add(1, Ordering::SeqCst);
+                json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
+            } else {
+                let outer: EntryExecutorControlRequestV1 = serde_json::from_value(body).unwrap();
+                let (path, digest, correlation) = match outer.operation {
+                    EntryExecutorOperationV1::Lookup(original) => {
+                        queries.fetch_add(1, Ordering::SeqCst);
+                        (
+                            LOOKUP_PATH,
+                            ws::request_digest(LOOKUP_PATH, &original).unwrap(),
+                            oasis7_client_api::world_service_correlation::derive_correlation(
+                                WorldIdentity {
+                                    world_id: "world".into(),
+                                    genesis_digest: "genesis".into(),
+                                },
+                                &original.original,
+                            )
+                            .unwrap(),
+                        )
+                    }
+                    EntryExecutorOperationV1::Submit(original) => {
+                        assert!(server_clock.now() >= deadline);
+                        count.fetch_add(1, Ordering::SeqCst);
+                        (
+                            SUBMIT_PATH,
+                            ws::request_digest(SUBMIT_PATH, &original).unwrap(),
+                            original.correlation,
+                        )
+                    }
+                    _ => panic!("unexpected operation"),
+                };
+                let response: IntentResponse<Value> = IntentResponse {
+                    contract_version: 1,
+                    formal_profile: None,
+                    execution_evidence_scope: None,
+                    correlation,
+                    outcome: IntentOutcome::Unknown,
+                };
+                json!({"api_version":2,"ok":true,"world_response":ws::sign_service_response(path,digest,response,&hex::encode([91;32])).unwrap()})
+            };
+            let bytes = serde_json::to_vec(&reply).unwrap();
+            let _ = write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            let _ = socket.write_all(&bytes);
+        }
+    });
+    let result = client.submit_and_poll_until(&request, deadline);
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    assert_eq!(
+        sessions.load(Ordering::SeqCst),
+        2,
+        "fixture did not reach submit auth phase: {result:?}"
+    );
+    assert_eq!(
+        posts.load(Ordering::SeqCst),
+        0,
+        "new Submit POST started after auth crossed the tool deadline"
+    );
+    assert_eq!(lookups.load(Ordering::SeqCst), 1, "no late recovery lookup");
+    assert_eq!(
+        capabilities.load(Ordering::SeqCst),
+        1,
+        "no late capabilities request"
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn trusted_first_gateway_send_posts_submit_before_any_recovery_lookup() {
+    use crate::operation_store::ClientStateKind;
+    use std::time::Instant;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (root, identity, vault, fence) =
+        fixture(format!("http://{}", listener.local_addr().unwrap()));
+    let client = crate::device_client::Client::from_authenticated_config(
+        crate::device_client::ExecutorDeviceConfig {
+            authority_mode: None,
+            identity,
+            login_operation: "login".into(),
+            executor_vault_directory: vault,
+            service_public_key: service_key(),
+            fence: fence.clone(),
+            state_directory: root.0.join("operation-state"),
+        },
+        PASSWORD,
+    )
+    .unwrap();
+    let WorldServicePayloadV1::Scheduler(template) =
+        historical_prefix(fence, &hex::encode([7; 32]))
+    else {
+        unreachable!()
+    };
+    let signed = client.sign("scheduler", template.request).unwrap();
+    let original = client
+        .cache_intent(
+            ClientStateKind::Prefix,
+            "first-gateway-send",
+            WorldServicePayloadV1::Scheduler(signed),
+        )
+        .unwrap();
+    let expected = original.clone();
+    let server = thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let mut controls = 0;
+        for _ in 0..3 {
+            let mut socket = loop {
+                assert!(Instant::now() < deadline, "missing bounded HTTP request");
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(1))
+                    }
+                    Err(error) => panic!("accept failed: {error}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            let (path, body) = read_http(&mut socket);
+            let reply = if path.ends_with("/session") {
+                json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
+            } else if path.ends_with("/capabilities") {
+                json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
+            } else {
+                let outer: EntryExecutorControlRequestV1 = serde_json::from_value(body).unwrap();
+                let EntryExecutorOperationV1::Submit(submitted) = outer.operation else {
+                    panic!("first native operation must be Submit, never Lookup")
+                };
+                assert_eq!(submitted, expected);
+                controls += 1;
+                let response: IntentResponse<Value> = IntentResponse {
+                    formal_profile: None,
+                    execution_evidence_scope: None,
+                    contract_version: 1,
+                    correlation: expected.correlation.clone(),
+                    outcome: IntentOutcome::Rejected {
+                        reason: WorldServiceErrorKind::Conflict,
+                    },
+                };
+                let signed = ws::sign_service_response(
+                    SUBMIT_PATH,
+                    ws::request_digest(SUBMIT_PATH, &submitted).unwrap(),
+                    response,
+                    &hex::encode([91; 32]),
+                )
+                .unwrap();
+                json!({"api_version":2,"ok":true,"world_response":signed})
+            };
+            let bytes = serde_json::to_vec(&reply).unwrap();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            )
+            .unwrap();
+            socket.write_all(&bytes).unwrap();
+        }
+        assert_eq!(controls, 1);
+    });
+    let response = client
+        .submit_new_and_poll_until(&original, Instant::now() + Duration::from_secs(3))
+        .unwrap();
+    assert_eq!(response.correlation, original.correlation);
+    assert!(matches!(
+        response.outcome,
+        IntentOutcome::Rejected {
+            reason: WorldServiceErrorKind::Conflict
+        }
+    ));
+    server.join().unwrap();
+}

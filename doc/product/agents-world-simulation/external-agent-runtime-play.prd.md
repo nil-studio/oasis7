@@ -357,12 +357,13 @@ Trace ID: O7-REQ-bd792456-4b98-4891-b5e3-e24b1de4f1a1
 Trace ID: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7
 
 - 功能点：[REQ-EXT-005](#req-ext-005)；适用范围沿本条原条件与 [AC-EXT-005](#ac-ext-005)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-game-api.design.md#api-actions)已承接原操作查询、受理/结算、同键冲突和读取权限；同文件需求承接/验证表反链本条AC。剩余：结果进入后续认知与玩家反馈的跨专业精确承接仍须核对；api-actions已覆盖原操作/结算/幂等。 不代表实现或发布。[loopback反馈关联](../../world-simulator/llm/provider-loopback-http-contract.design.md#41-harness-contract-alignment)补充target/legacy路由隔离与Runtime receipt关联边界，未覆盖各真实Runtime结果进入后续认知和玩家反馈的全链路。
+- 系统设计状态：已覆盖
+- 系统设计依据：[原操作与权威反馈](../../world-simulator/llm/external-agent-game-api.design.md#api-result-feedback)、[实际 Runtime 输入接续](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-result-feedback)和[玩家同源投影](../../world-simulator/viewer/external-agent-world-view.design.md#view-runtime-results)共同承接成功/拒绝/失败/待决与恢复未知、原主体和请求关联、序列/持久接收、实际输入交付、同代恢复及有界完整性；各设计承接与验证表反链本条 AC。原结果已确认、Runtime 已接收、下一决策与新世界成果分别成立，不把 ACK 或模型文字代签后两者。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-result-feedback)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L389)：原签名缓存、lookup/replay及同回执恢复；历史两次实际移动；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余全部拒绝/失败组合及玩家反馈端到端，不推导端到端完成。
-- 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。 新增loopback局部关系审读基线为2026-10-15的`4e94163a3dff9ba69f6959b406ca3fcedf8aa097`及本次文档候选；未新增行为验证。
-- 剩余范围：设计：结果进入后续认知与玩家反馈的跨专业精确承接仍须核对；api-actions已覆盖原操作/结算/幂等。；实现/验证：全部拒绝/失败组合及玩家反馈端到端。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。 新增loopback局部关系审读基线为2026-10-15的`4e94163a3dff9ba69f6959b406ca3fcedf8aa097`及本次文档候选；未新增行为验证。
+- 剩余范围：设计：本条原范围与主要失败/恢复边界已有上述组合承接；实现/验证：完整 Game API 反馈投影、两外部 driver 的持久交付与原 run 核对、Viewer/pure_api 实际消费和成功反馈进入后续决策仍须接通并逐组合验收。既有 native/loopback/历史 prepared-world 证据只保留原范围。
 
 - 要求：行动结果必须关联到正确 Agent 与任务，已结算成功、拒绝、失败和待决的真实含义必须进入后续决策及玩家反馈；模型自报、请求接受或超时不能代替世界结算，也不能隐式触发另一轮重复执行。
 - 理由：Runtime 能根据真实后果继续，玩家能确认成果和安全下一步。
@@ -393,12 +394,13 @@ Trace ID: O7-REQ-091d6c22-fca5-4284-91dd-2edce9ef440b
 Trace ID: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e
 
 - 功能点：[REQ-EXT-007](#req-ext-007)；适用范围沿本条原条件与 [AC-EXT-007](#ac-ext-007)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[运行诊断与生命周期](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-liveness)承接 active run、最近同步/结果、过期unknown/offline及自有进程/本机权限边界；同文需求与验证映射回链AC-EXT-007。各声明viewer/pure_api入口的观战、执行、委托及结果四层状态及独立运行条件的完整组合仍待逐项核对；维持部分覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[四层存续与独立执行](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-liveness)、[玩家状态消费](../../world-simulator/viewer/external-agent-world-view.design.md#view-runtime-results)承接观察连接、实际 Runtime run、当前任务/委托与原世界结果的来源、时效和独立失效；明确无 GUI 的实际宿主/网络/预算/独立授权条件、两 primary mode 回访、执行停止和原结果读取。五列承接与六列验证表反链本条 AC。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-liveness)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：未核实
 - 实现与验证依据：[真实启动者](https://github.com/nil-studio/oasis7/blob/bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/execution.rs#L85-L136)将SessionModelProvider交给后台NativeTaskRunner；[页面续期](https://github.com/nil-studio/oasis7/blob/bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5/crates/oasis7_viewer/software_safe_src/model_connection_panel.jsx#L116-L134)与[服务端过期/资格重验](https://github.com/nil-studio/oasis7/blob/bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5/crates/oasis7_model_provider/src/connection.rs#L604-L636)说明这是第一方BYOK会话执行切片，不能用线程不随HTTP返回退出证明外部Runtime独立委托。已核清native的ownership、预算、fence及停止原因，但OpenClaw/Codex实际driver、observer断连后的持续执行与分层反馈生产链仍未核清；本轮仅静态审读，未执行AC-EXT-007。
-- 核对日期与基线：2026-10-17；本条需求、设计及本轮新增静态源码固定`bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5`；只读GitHub与本地文本。历史native prepared-world记录仍限定其原候选/入口，不作为本候选观战断连或Runtime停止验收；未调用外部Runtime、模型、浏览器、部署或用户电脑。
-- 剩余范围：核清每个声明外部Runtime/profile的启动者与进程所有者、独立委托及预算续存条件、observer连接关闭/重连与executor控制的实际关系、心跳生产/过期诊断和四层状态在viewer/pure_api的消费者；分别取得断开观战仍产生真实后果、停止/失权阻止新决策或受限提交而世界推进与既有行动仍可查的同案证据。BYOK会话到期是资格边界，不能误报为外部Runtime缺陷或已证明独立执行；全部实现义务仍未闭合。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-17；本条需求、设计及本轮新增静态源码固定`bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5`；只读GitHub与本地文本。历史native prepared-world记录仍限定其原候选/入口，不作为本候选观战断连或Runtime停止验收；未调用外部Runtime、模型、浏览器、部署或用户电脑。
+- 剩余范围：设计：本条原范围与主要失败边界已有组合承接；实现/验证：真实 Codex/OpenClaw 独立进程、活动 run/control sync、四层状态消费者及 viewer/pure_api 各自关闭/回访、Stop/资格失效和原结果组合仍待实现及实际验收。现有页面续期和 first-party NativeTaskRunner 不代签独立外部 Runtime。
 
 - 要求：无 GUI 的 Runtime 执行路径必须可用；关闭或断开观战界面时，只要 Runtime、所需连接、预算和独立委托仍有效，任务应继续。Runtime 停止或执行资格失效时必须如实表达，不能承诺继续产生新决策，也不能暂停世界或伪造既有行动取消。
 - 理由：用户能够离开界面，并准确理解持续运行所需条件。
@@ -432,12 +434,13 @@ Trace ID: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330
 Trace ID: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43
 
 - 功能点：[REQ-EXT-009](#req-ext-009)；适用范围沿本条原条件与 [AC-EXT-009](#ac-ext-009)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-budget)已承接模型/工具共享预算、有限deadline与中断能力；同文件需求承接/验证表反链本条AC。剩余：世界资源成本区分归因及失去授权后原结果查询尚需组合承接；不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[预算与两类成本来源](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-budget)、[执行停止后的当前读权](../../world-simulator/llm/external-agent-game-api.design.md#api-result-feedback)和[费用/权限玩家投影](../../world-simulator/viewer/external-agent-world-view.design.md#view-runtime-results)共同承接可强制限制与 partial enforcement、实际/估计/未知、世界消费/占用来源、原成本去重与同代恢复；模型/行动预算和有界 Stop/原结果读取独立，失去读取权时不泄漏历史。各条均在专业承接与验证表反链本条 AC。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：未核实
 - 实现与验证依据：[实际预算生产接线](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_agent_harness/src/native_task_sdk.rs#L65-L99)将config/world/agent/task_fence绑定到[持久物理调用预算](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_client_storage/src/native_run_budget.rs#L28-L190)；每次provider调用前持久预留，重启不恢复余额，缺失/损坏/改限额拒绝，非Unix明确unsupported。5d503f→e27f的native_run_budget逐字节相同；operation_store仅公开feedback存取函数并注明调用者validator责任。实际上游仍Hosted BYOK→SessionModelProvider→NativeTaskRunner；该run物理调用数不是Runtime内部子调用UsageMeasurement计量，更不是CapabilityExecution授权额度或世界资源账。第一方UI仍明确未知费用≠0、预算占用及已受理世界作业独立。
-- 核对日期与基线：2026-10-17；状态卡按 A `0901927131b3e7c919fc6b092e77ae8895579989`，静态生产源码固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`，22个引用/闭包源逐 Git blob 校验；另比较 `5d503f0ca79bcc68708a32672a48a2786ad51395` 迁移前源码。未运行模型、Runtime、浏览器或行为验收，未把测试源码当本轮PASS。
-- 剩余范围：已查清新增crate的预算/原操作恢复语义与真实第一方消费者；仍缺Codex/OpenClaw各自manifest计量范围、稳定meter/sequence去重与恢复、partial enforcement/unknown保留、世界资源成本分项，以及失权停止新受限请求后原结果可读的两Runtime+玩家表面闭包。不得把本地调用数当费用硬上限或将缺完整合同抹成已审子链不存在。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-17；状态卡按 A `0901927131b3e7c919fc6b092e77ae8895579989`，静态生产源码固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`，22个引用/闭包源逐 Git blob 校验；另比较 `5d503f0ca79bcc68708a32672a48a2786ad51395` 迁移前源码。未运行模型、Runtime、浏览器或行为验收，未把测试源码当本轮PASS。
+- 剩余范围：设计：本条原范围与主要失败边界已有组合承接；实现/验证：两个实际 driver 的计量与执行能力、世界资源 receipt 归因、分层成本读面及预算/执行失权/读取失权交错恢复仍须接通并验收。既有 native 物理模型调用预算不代签外部 Runtime 内部全链路费用或世界预算。
 
 - 要求：开始和持续执行时必须区分外部推理/工具开销与世界资源成本，说明可执行的预算限制、估计值和未知值；达到可执行限制或授权失效后停止新的受限请求或提交，并保留已有结果的处理路径。无法保证的下游硬上限不得被显示为已强制生效，未知开销不得按零处理。
 - 理由：玩家能够判断是否继续委托，并理解 Runtime 内部调用对开销的影响。
@@ -450,12 +453,13 @@ Trace ID: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43
 Trace ID: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d
 
 - 功能点：[REQ-EXT-010](#req-ext-010)；适用范围沿本条原条件与 [AC-EXT-010](#ac-ext-010)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-game-api.design.md#api-composition)已承接Game API部署及模块分工；同文件需求承接/验证表反链本条AC。剩余：两Runtime分别完成产品§2.2首局及目标调整/阻塞/恢复的组合设计仍须核对；api-composition仅覆盖部署及模块分工。 不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[同一首局组合](../../world-simulator/llm/external-agent-game-api.design.md#api-first-session-composition)具体连接真实 driver/Skill、动态目录、现行 production_only 首产物、真实 blocker 后继续、新目标实际应用、按声明入口离开/回访及断连/进程恢复；它消费原玩法、协作、结果与恢复 authority，专业承接/验证表反链本条 AC。两个 Runtime 和适用入口分别取证，不把部署分工或一个局部成功当完整首局。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-first-session)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：部分实现
 - 实现与验证依据：[交付 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定静态源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L428)核实原生签名行动提交与原结果查询接口。历史prepared-world固定候选 `b59d010556e39beaf1928eb1e95aa9aad099e180` 的两次真实目标决策、正式Skill使用及原结果回放只由[历史运行记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)支持；其中原cleanup失败保持不变，不能外推当前main或完整首局。剩余OpenClaw及Codex各自完整首局、工业链与组合恢复，不推导端到端完成。
-- 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：两Runtime分别完成产品§2.2首局及目标调整/阻塞/恢复的组合设计仍须核对；api-composition仅覆盖部署及模块分工。；实现/验证：OpenClaw及Codex各自完整首局、工业链与组合恢复。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
+- 剩余范围：设计：本条 §2.2 与 AC 的原组合义务已有具体承接；实现/验证：OpenClaw 与 Codex 各自完整首局、工业链、目标应用、真实阻塞/继续及所有适用恢复/表面仍未闭合。历史 prepared-world 真实模型记录及原 cleanup 失败维持原候选与范围，不推导当前端到端完成。
 
 - 要求：OpenClaw 与 Codex 必须分别在声明组合内完成 §2.2 的首局闭环，并提供可追溯的权威结果、目标调整、阻塞与恢复证据。旧 P0 smoke、单次调用、累计动作数量或另一 Runtime 的成功均不能代签。
 - 理由：产品完成对应用户能持续玩起来，而支持范围可以准确评估。
@@ -486,12 +490,13 @@ Trace ID: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c
 Trace ID: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b
 
 - 功能点：[REQ-EXT-012](#req-ext-012)；适用范围沿本条原条件与 [AC-EXT-012](#ac-ext-012)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-game-api.design.md#api-wire)已承接Game API目标路由和DTO；同文件需求承接/验证表反链本条AC。剩余：首局合法行动的可发现、可调用与玩法目录的组合承接尚需核对；不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[统一路由与 DTO](../../world-simulator/llm/external-agent-game-api.design.md#api-wire)及[合法能力和首局组合](../../world-simulator/llm/external-agent-game-api.design.md#api-first-session-composition)承接普通 HTTP 客户端的发现、授权读取、动态 schema/catalog、查询、真实调用、原结果与有界增量恢复，要求首局必需能力和实际 parser/admission/consumer 一致。两个准确关系均在专业承接/验证表反链本条 AC；可选包装不改变世界语义。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-wire)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L271)：独立原生签名HTTP客户端的context、行动、lookup和工业观察；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余完整/v1/game写路由、配对及可恢复增量闭环，不推导端到端完成。
-- 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：首局合法行动的可发现、可调用与玩法目录的组合承接尚需核对；实现/验证：完整/v1/game写路由、配对及可恢复增量闭环。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
+- 剩余范围：设计：本条原范围及主要失败边界已有专业组合承接；实现/验证：完整 /v1/game 写路由、配对、首局所需目录/真实消费者与可恢复增量闭环仍须实现及验证。普通原生客户端、历史 prepared-world 或 CLI 的局部能力不代签完整 Game API，也不表示公开写入已开放。
 
 - 要求：无需特定 Provider Bridge 或内置模型进程，具有有效游戏权限的普通网络客户端必须能够协商版本、读取授权世界观察、查询对象和合法能力、提交意图、区分受理与结算、追读权威 receipt/状态并以可恢复增量方式继续。首局工业链需要的合法行动必须在此通道上可发现且实际可调用；MCP/CLI 包装不得改变业务语义。
 - 理由：Agent Runtime 可以主动使用游戏能力，而非被迫伪装成被调用的模型 Provider。
@@ -504,12 +509,13 @@ Trace ID: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b
 Trace ID: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458
 
 - 功能点：[REQ-EXT-013](#req-ext-013)；适用范围沿本条原条件与 [AC-EXT-013](#ac-ext-013)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/external-agent-game-api.design.md#api-auth)已承接认证、有效委托及当前权限校验；同文件需求承接/验证表反链本条AC。剩余：幂等、并发、未知提交及限流的多条设计关系仍须核对；api-auth已覆盖认证/有效委托和当前权限。 不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[当前身份和委托](../../world-simulator/llm/external-agent-game-api.design.md#api-auth)、[context 与活动 turn](../../world-simulator/llm/external-agent-game-api.design.md#api-context)、[稳定原键和唯一效果](../../world-simulator/llm/external-agent-game-api.design.md#api-actions)及[并发/限流/未知提交恢复](../../world-simulator/llm/external-agent-game-api.design.md#api-retry-safety)共同承接本地/远程鉴权、跨主体拒绝、当前额度、结构化失败与原结果恢复；各关系在专业承接/验证表反链本条 AC。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L389)：原请求持久化、同Context异动作冲突及签名context验证；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余完整Game API token/限流/远程部署与权限竞态验收，不推导端到端完成。
-- 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：幂等、并发、未知提交及限流的多条设计关系仍须核对；api-auth已覆盖认证/有效委托和当前权限。；实现/验证：完整Game API token/限流/远程部署与权限竞态验收。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
+- 剩余范围：设计：本条原范围及主要失败边界已有多条专业合同共同承接；实现/验证：完整 Game API token/并发与配额、远程部署、权限变化竞态、未知原结果和当前读权组合仍须实现及验收。已有原生签名/恢复子集不代签全部路由、远程或两个 Runtime。
 
 - 要求：本地与远程 Game API 都必须基于可信身份、明确的游戏 Agent 委托和适用读写范围授予能力；不接受仅凭公开身份/路由字符串、模型密钥或 Skill 内容取得其他主体的权限。延迟、重试、并发、预算/限流、权限变化及未知提交必须有结构化可恢复结果；已结算行动只能被核对，不能通过新连接产生第二次世界效果。
 - 理由：开放网络入口不能以方便为名制造越权或重复世界效果。
@@ -574,12 +580,13 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；本条在外部 Runtim
 Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；本条在外部 Runtime 首期范围消费[REQ-AGENT-STAGE-005](player-readable-world-stage.prd.md#req-agent-stage-005)，不重复声明世界舞台要求。
 
 - 功能点：[REQ-EXT-017](#req-ext-017)；适用范围沿本条原条件与 [AC-EXT-017](#ac-ext-017)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[合法高层指导与原回执](../../world-simulator/viewer/external-agent-world-view.design.md#view-guidance)承接只读选择、当前 owner 高层指导、accepted/active 与原世界结果分离，并明确消费权威重验；同文需求承接与验证映射回链 AC-EXT-017。图形失败保留获准文本、原操作及安全恢复已有同文恢复合同正文，但该恢复条款与本功能的精确反向承接尚未核清，不能据此宣称全覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[合法高层指导与原回执](../../world-simulator/viewer/external-agent-world-view.design.md#view-guidance)及[renderer 故障与安全恢复](../../world-simulator/viewer/external-agent-world-view.design.md#view-recovery)共同承接只读选择、当前 owner 指导、accepted/active 与原世界结果分离、获准文本保留、旧命中停止、授权重验后恢复和无副作用重放。两条专业承接与验证映射均精确反链本条 AC。 此结论只说明目标设计覆盖，不表示实现、真实 Runtime 验收或发布完成。
+- 验证方法：[对应合同验收](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-guidance)；按其中独立场景和原候选/入口要求取证，本次仅静态审读。
 - 实现状态：部分实现
 - 实现与验证依据：[只读对象/路线选择](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_world_view_inspector.jsx#L4-L37)不提交世界动作；[权限约束指导入口](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3530-L3568)沿当前可控Agent能力启用Prompt；[原回执主体读取](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L231-L273)显示receipt状态/置信度/target_agent_id，[图形失效停止旧会话](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L967-L985)与[Web世界host与图形失败文本/恢复](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1255-L1325)保留获准文本和回执后显式重试。[主体绑定与恢复交付摘要](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/product/agents-world-simulation/player-readable-world-stage.prd.md#L263-L277)列PR #4825及独立验证缺口。
-- 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
-- 剩余范围：设计：核清 renderer 故障可信文本与安全恢复的本条精确承接关系。实现/验证：Web 只读选择、权限约束指导表面、回执主体及 renderer 失效恢复为直接子范围；仍须核清两个外部 Runtime 与 native 实际指导→执行→权威结果链，及真实双主体延迟结果、撤权、图形失效组合验收。不能把 guidance accepted 当世界效果。
+- 核对日期与基线：2026-11-05；本次设计审读基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea` 与本文设计候选，仅涉及本条原适用范围的专业组合及关系；未运行游戏、模型、浏览器、部署或玩家验收。既有实现核对记录保持：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
+- 剩余范围：设计：renderer 故障可信文本及安全恢复的精确关系已核清，本条原范围由上述两条承接。实现/验证：Web 只读选择、权限约束指导表面、回执主体及 renderer 失效恢复保持既有直接子范围；两个外部 Runtime 与 native 实际指导→执行→权威结果链，以及双主体迟到结果、撤权、图形失效的组合验收仍未闭合，guidance accepted 不等于世界效果。
 
 - 要求：选中自己有权的 Agent 可查看目标、行为、主要 blocker、pending/committed 并进入合法高层 Prompt/目标/委托；选中其他 Agent、点击工厂/地形或拖移地图不直接执行世界动作。Renderer 失败时提供可信文本与安全恢复。
 - 上位承诺：[根 SC-9/11/14](prd.md)。消费主责：[世界舞台间接指导](player-readable-world-stage.prd.md#req-agent-stage-005)。

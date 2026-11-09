@@ -146,7 +146,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -213,7 +213,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -269,7 +269,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -418,7 +418,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -481,6 +481,7 @@ jobs:
           fi
 
   build-web-dist:
+    cache-mode: read
     needs: [plan, release_gate, cache-bootstrap-maintenance]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' &&
@@ -521,25 +522,12 @@ jobs:
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
-      - name: Install Release cache admission
-        id: dependency-cache-tools
-        if: hashFiles('scripts/ci-rust-cache-admission.cjs') != ''
-        continue-on-error: true
-        shell: bash
-        run: python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         continue-on-error: true
-        env:
-          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
-          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web
-          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
-          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
-          GH_TOKEN: ${{ github.token }}
         with:
           shared-key: release-packages-web-wasm-trusted-v3
-          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.plan.outputs.checkoutSha == github.sha && github.workflow_sha == github.sha }}
+          save-if: false
           cache-provider: github
           cache-on-failure: false
       - name: Restore pinned Trunk release archive
@@ -908,7 +896,7 @@ jobs:
           done
           printf 'value=%s\n' "$tag" >> "$GITHUB_OUTPUT"
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.tag.outputs.value }}
           name: oasis7 ${{ steps.tag.outputs.value }}

@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
+        拆出的开发任务须创建或复用本类 Issue，并在 GitHub 建立真实 parent/sub-issue 关系后领取；正文链接或 checkbox 不代替原生关系。见[子任务跟踪规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
   - type: dropdown
     id: issue_type
@@ -27,7 +28,7 @@ body:
     id: sources_scope
     attributes:
       label: "来源与范围"
-      description: "公开来源链接与固定版本；本次范围、非目标、实际消费者与接口边界。勿上传凭据或敏感日志。"
+      description: "公开来源与固定版本；本次范围、非目标、实际消费者与接口边界。明确影响范围的 profile、入口、版本或预算，或引用能唯一确定它们的来源；未定部分写明补齐动作及影响。子任务核对父 Issue 和原生关系。勿上传凭据或敏感日志。"
     validations:
       required: true
   - type: textarea
@@ -41,32 +42,30 @@ body:
     id: acceptance
     attributes:
       label: "验收"
-      description: "本项验证入口、输入及独立预期结果，包含适用的成功、拒绝或恢复行为；写清交付条件和仍由父项承担的验收。CI 不代替部署或实玩。"
+      description: "写明可运行的消费/测试入口、输入或夹具、独立预期及权威观察点，覆盖本行为必需的成功、拒绝和恢复；保留主责合同的适用条件与副作用边界。说明已核验与待补准备；本项必需自测不后移，组合、环境或持续观测验收明确承接。"
     validations:
       required: true
   - type: textarea
     id: dependencies
     attributes:
       label: "依赖"
-      description: "实际依赖的 Issue/PR/提交、接口、权限或 owner 决定，区分已具备和待满足条件；没有写“无”。"
+      description: "实际依赖的 Issue/PR/提交、接口、环境、测试数据、权限或 owner 决定，区分已具备和待满足条件；缺少的验收入口/夹具写清先行工作及负责人，环境阻塞写明解除条件。没有依赖写“无”。"
     validations:
       required: true
   - type: textarea
     id: delivery
     attributes:
       label: "交付终点"
-      description: "写明已授权的交付终点、下一责任人或待承接；类型转换不授予合入、部署或付费执行权限。"
+      description: "本项完整合同及验收成立后的交付终点、下一责任人或待承接。若仍等待独立后继结果或父项组合，说明其为何属于本项必需条件，必要时调整拆分；合入、部署和付费按实际授权。"
     validations:
       required: true
   - type: textarea
     id: parallel_plan
     attributes:
       label: "任务拆分（复杂任务适用）"
-      description: "按可验证代码任务逐项说明，阶段名或模块名不足以直接派工；子项仍有多个独立结果时继续拆分，必要原子改动说明具体耦合。需独立跨会话领取、交接、等待依赖或验收的结果关联代码子 Issue；短任务可用父项清单，简单任务由前文表达即可。指定当前可启动项与整体集成负责人；任务与 PR 不要求一一对应。"
+      description: "复杂父项填写子任务索引、依赖与整体安排；每个独立开发结果创建或复用原生代码 sub-issue，派发前回读关系。具体范围、输入和验收引用子项，不重复前文字段；仍含独立结果时继续拆分，保留必要原子性。区分建议优先项、已核验的实施条件和实际认领；仅拆分可注明待承接及下一步。简单任务由前文表达即可，任务与 PR 不要求一一对应。"
       placeholder: |
         父目标及最终集成验收 / 整体负责人：
-        子 Issue 或清单项 / 一个可观察结果及对应验收：
-        本次范围、非目标 / 消费入口与共享接口：
-        实际输入版本 / 已具备或尚缺前置 / 负责人：
-        验证输入、方法与预期结果 / 本项交付终点：
-        当前可启动项与依赖顺序 / 需调整或重新拆分的条件：
+        原生子 Issue 与对应结果 / 关系核对 / 依赖顺序：
+        建议优先项 / 实施条件已核对与待核对部分 / 当前成果及 PR：
+        共享接口及写入负责人 / 待承接责任与下一步动作：
