@@ -41,6 +41,15 @@ pub(super) fn current(
     enabled(env).map_err(|_| JsValue::from_str("test session unavailable"))?;
     authority::current(state, env, observed, business)
 }
+pub(super) fn current_from_store(
+    store: &OwnerProvisionApprovalStore,
+    env: &Env,
+    observed: &authority::Observations,
+    business: bool,
+) -> std::result::Result<NativeStageCurrent, JsValue> {
+    enabled(env).map_err(|_| JsValue::from_str("test session unavailable"))?;
+    authority::current_from_store(store, env, observed, business)
+}
 pub(super) struct Enrollment {
     fact: crate::client_enrollment_reader::FactView,
     expected_actor: String,
@@ -73,6 +82,30 @@ pub(super) fn approval_current(
     enrollment: &Enrollment,
     observed_at: u64,
 ) -> std::result::Result<TestSessionApprovalOwned, JsValue> {
+    approval_current_with(env, enrollment, observed_at, || {
+        current(state, env, observed, true)
+    })
+}
+pub(super) fn approval_current_from_store(
+    store: &OwnerProvisionApprovalStore,
+    env: &Env,
+    observed: &authority::Observations,
+    enrollment: &Enrollment,
+    observed_at: u64,
+) -> std::result::Result<TestSessionApprovalOwned, JsValue> {
+    approval_current_with(env, enrollment, observed_at, || {
+        current_from_store(store, env, observed, true)
+    })
+}
+fn approval_current_with<F>(
+    env: &Env,
+    enrollment: &Enrollment,
+    observed_at: u64,
+    native: F,
+) -> std::result::Result<TestSessionApprovalOwned, JsValue>
+where
+    F: FnOnce() -> std::result::Result<NativeStageCurrent, JsValue>,
+{
     let config = crate::client_enrollment_authority::Config::load(env)?;
     if config.realm != enrollment.realm
         || config.origin != enrollment.origin
@@ -82,7 +115,7 @@ pub(super) fn approval_current(
         return Err(JsValue::from_str("test session unavailable"));
     }
     Ok(TestSessionApprovalOwned {
-        native: current(state, env, observed, true)?,
+        native: native()?,
         enrollment: crate::client_enrollment_reader::FactView {
             actual_actor_id: enrollment.fact.actual_actor_id.clone(),
             realm: enrollment.fact.realm.clone(),
