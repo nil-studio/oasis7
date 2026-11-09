@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { createSignal } from 'solid-js';
 import { PixelWorldRendererTargets, moduleTargetOffsets, rendererEntityTargetStyle } from './pixel_world_renderer_targets.jsx';
 
+// CSSOM serializes percentages at its own precision (including in jsdom 31).
+// Check DOM geometry within 0.005 CSS px, while keeping raw projection tests exact.
+function cssPositionInPixels(value, extent) {
+  expect(value).toMatch(/^-?\d+(?:\.\d+)?%$/);
+  return parseFloat(value) * extent / 100;
+}
+
 describe('real renderer accessible projection', () => {
   it('keeps partially visible hit boxes at each edge until their full bounds leave the canvas', () => {
     for (const [x, y, visible] of [[-1,50,true],[101,50,true],[50,-1,true],[50,101,true],[-22,50,false],[122,50,false],[50,-22,false],[50,122,false]]) {
@@ -46,7 +53,8 @@ describe('real renderer accessible projection', () => {
     const moved = {...agent, label: 'Courier', pos: { x_cm: 700, y_cm: 300 }};
     setState({world_bounds: bounds, agents: [moved, {...other}], locations: [{...location, label: 'Warehouse'}]});
     expect(target).toHaveAccessibleName('Select Courier');
-    expect(target.style.left).toBe(rendererEntityTargetStyle(moved, bounds, size).left);
+    // 20 + 700 / 1000 * (960 - 40) = 664 CSS px.
+    expect(cssPositionInPixels(target.style.left, size.width)).toBeCloseTo(664, 2);
     expect(document.activeElement).toBe(target);
     expect(view.getByRole('button', {name: 'Select Warehouse'})).toBe(depot);
     setSelection({kind: 'agent', id: agent.id});
@@ -88,7 +96,8 @@ describe('real renderer accessible projection', () => {
     setCamera({ zoom: 2, pan_x_px: 200, pan_y_px: -86 });
     expect(target.style.left).not.toBe(initial);
     setSize({ width: 390, height: 844 });
-    expect(target.style.left).toBe(rendererEntityTargetStyle(agent,bounds,size(),camera()).left);
+    // The resized, zoomed projection is 195 + (107.5 - 195) * 2 + 200.
+    expect(cssPositionInPixels(target.style.left, size().width)).toBeCloseTo(220, 2);
     await fireEvent.click(target);
     expect(select).toHaveBeenCalledWith({kind:'agent',id:'agent-0'});
     expect(view.container.querySelectorAll('[data-agent-id="agent-0"]')).toHaveLength(1);
@@ -112,14 +121,8 @@ describe('real renderer accessible projection', () => {
     const initial = target.style.left;
     setBackingSize({ width: 2880, height: 2000 });
     expect(target.style.left).not.toBe(initial);
-    expect(target.style.left).toBe(rendererEntityTargetStyle(
-      { id: 'agent-0', pos: { x_cm: 2_900_000, y_cm: 3_450_000, z_cm: 0 } },
-      { width_cm: 10_000_000, depth_cm: 5_000_000 },
-      cssSize,
-      camera,
-      undefined,
-      { width: 2880, height: 2000 },
-    ).left);
+    // DPR2 gives two CSS pixels per logical pixel: x=1192.478 snaps to 1192.
+    expect(cssPositionInPixels(target.style.left, cssSize.width)).toBeCloseTo(1192, 2);
   });
 
   it('projects in CSS units and snaps through the actual framebuffer at DPR2', () => {
@@ -180,17 +183,17 @@ describe('real renderer accessible projection', () => {
       onHover={() => {}}
     />);
     const center = (target) => ({
-      x: parseFloat(target.style.left) * size.width / 100,
-      y: parseFloat(target.style.top) * size.height / 100,
+      x: cssPositionInPixels(target.style.left, size.width),
+      y: cssPositionInPixels(target.style.top, size.height),
     });
     const agent = view.container.querySelector('[data-agent-id="agent-0"]');
     const location = view.container.querySelector('[data-location-id="loc-0"]');
     const agentModuleA = view.container.querySelector('[data-module-id="module-agent-a"]');
     const agentModuleB = view.container.querySelector('[data-module-id="module-agent-b"]');
     const locationModule = view.container.querySelector('[data-module-id="module-location-a"]');
-    expect(center(agentModuleA)).toEqual({ x: center(agent).x - 48, y: center(agent).y - 48 });
-    expect(center(agentModuleB)).toEqual({ x: center(agent).x, y: center(agent).y - 48 });
-    expect(center(locationModule)).toEqual({ x: center(location).x - 48, y: center(location).y - 48 });
+    expect(center(agentModuleA)).toEqual({ x: expect.closeTo(center(agent).x - 48, 2), y: expect.closeTo(center(agent).y - 48, 2) });
+    expect(center(agentModuleB)).toEqual({ x: expect.closeTo(center(agent).x, 2), y: expect.closeTo(center(agent).y - 48, 2) });
+    expect(center(locationModule)).toEqual({ x: expect.closeTo(center(location).x - 48, 2), y: expect.closeTo(center(location).y - 48, 2) });
     expect(Math.abs(center(agentModuleA).x - center(agent).x)).toBeGreaterThanOrEqual(44);
     expect(Math.abs(center(agentModuleA).y - center(agent).y)).toBeGreaterThanOrEqual(44);
 
