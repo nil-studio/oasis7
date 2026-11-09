@@ -1,6 +1,7 @@
+import { serveStaticFile } from "./viewer-static-files.mjs";
 import { createServer } from "node:http";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, normalize, relative, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
@@ -90,33 +91,7 @@ function contentType(pathname) {
 }
 
 function serveFile(request, response) {
-  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
-  const rawPath = decodeURIComponent(requestUrl.pathname === "/" ? "/viewer.html" : requestUrl.pathname);
-  const normalized = normalize(rawPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = normalized.startsWith("/pixel-world-bridge/")
-    ? resolve(viewerRoot, "dist", `.${normalized}`)
-    : resolve(viewerRoot, `.${normalized}`);
-  if (!relative(viewerRoot, filePath) || relative(viewerRoot, filePath).startsWith("..")) {
-    response.writeHead(403);
-    response.end("forbidden");
-    return;
-  }
-  try {
-    const stats = statSync(filePath);
-    if (!stats.isFile()) {
-      response.writeHead(404);
-      response.end("not found");
-      return;
-    }
-    response.writeHead(200, {
-      "Content-Type": contentType(filePath),
-      "Cache-Control": "no-store",
-    });
-    response.end(readFileSync(filePath));
-  } catch {
-    response.writeHead(404);
-    response.end("not found");
-  }
+  serveStaticFile(request, response, viewerRoot, contentType, { bridgeFromDist: true });
 }
 
 function runAgentBrowser(args, options = {}) {

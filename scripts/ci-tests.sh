@@ -698,6 +698,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py

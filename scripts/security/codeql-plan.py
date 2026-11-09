@@ -12,6 +12,18 @@ import sys
 UNITS = [('actions-repo', 'actions'), ('python-repo', 'python'),
          ('javascript-repo', 'javascript-typescript'), ('rust-repo', 'rust')]
 
+# Exact engineering bundle consumed by the Rust validator and Python CI summary.
+# This registers input ownership, not a scan exclusion or an enabled batch.
+WASM_CANDIDATE_INPUTS = {
+    'crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json',
+    'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.source-rule2-candidate.identity.json',
+    'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.source-rule2-candidate.sha256',
+    'crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.source-rule2-candidate.identity.json',
+    'crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.source-rule2-candidate.sha256',
+    'crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.source-rule2-candidate.identity.json',
+    'crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.source-rule2-candidate.sha256',
+}
+
 
 def document_corpus_input(path):
     # Fixed inputs consumed by scripts/document_corpus.py. Do not import a
@@ -161,6 +173,9 @@ def plan(args):
             add('actions-repo', path)
         elif document_corpus_input(path):
             add('python-repo', path)
+        elif path in WASM_CANDIDATE_INPUTS:
+            add('python-repo', path)
+            add('rust-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)
         # build.rs can read arbitrary repository data or invoke generators. No
