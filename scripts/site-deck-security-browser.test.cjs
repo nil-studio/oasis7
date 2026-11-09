@@ -19,6 +19,13 @@ async function listen(handler) {
 function origin(server) { return `http://127.0.0.1:${server.address().port}`; }
 function close(server) { return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 
+async function waitForDeckTransitions(page) {
+  await page.waitForFunction(() => document.querySelector('.reveal')
+    .getAnimations({subtree: true})
+    .filter(animation => animation instanceof CSSTransition)
+    .every(animation => animation.playState === 'finished' || animation.playState === 'idle'));
+}
+
 (async () => {
   let targetServer;
   let senderServer;
@@ -120,6 +127,7 @@ function close(server) { return new Promise((resolve, reject) => server.close(er
       await page.waitForFunction(() => deck.getIndices().h === 3);
       await page.keyboard.press('ArrowRight');
       await page.waitForFunction(() => deck.getIndices().h === 3 && deck.getIndices().f === 0);
+      await waitForDeckTransitions(page);
       await page.screenshot({path: path.join(output, route === '/deck/' ? 'zh-desktop.png' : 'en-desktop.png')});
       assert.deepEqual(errors, []);
       await context.close();
@@ -138,6 +146,7 @@ function close(server) { return new Promise((resolve, reject) => server.close(er
       await phone.locator('[data-deck-prev]').tap();
       await phone.waitForFunction(() => deck.getIndices().h === 0);
       assert.equal(await phone.locator('[data-deck-count]').innerText(), '1 / 12');
+      await waitForDeckTransitions(phone);
       await phone.screenshot({path: path.join(output, route === '/deck/' ? 'zh-mobile.png' : 'en-mobile.png')});
       assert.deepEqual(mobileErrors, []);
       await mobile.close();
