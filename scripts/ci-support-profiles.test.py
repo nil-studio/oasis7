@@ -836,5 +836,101 @@ run_group viewer_js_required
         self.assertNotIn('smoke', [role for role, _ in events])
 
 
+CUSTODY_BUILD_CASES = [
+    ('build-role.sh', 'identity', 'identity'),
+    ('build-role.sh', 'owner', 'owner'),
+    ('build-role.sh', 'executor', 'executor'),
+    ('build-role.sh', 'recovery-fence', 'recovery-fence'),
+    ('build-approval-harness.sh', None, 'owner,approval-harness'),
+    ('build-native-runtime-harness.sh', None, 'identity,native-runtime-harness'),
+]
+
+
+class CustodyBuildToolContracts(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.worker = self.root / 'crates/oasis7_custody_worker'
+        (self.worker / 'scripts').mkdir(parents=True)
+        (self.worker / 'platform').mkdir()
+        for name, _, _ in CUSTODY_BUILD_CASES:
+            shutil.copyfile(ROOT / 'crates/oasis7_custody_worker/scripts' / name, self.worker / 'scripts' / name)
+        for name in ('identity', 'owner', 'executor', 'fence'):
+            (self.worker / 'platform' / f'{name}-entry.mjs').write_text('// fixture entry\n')
+        (self.root / 'scripts').mkdir()
+        self.spies = self.root / 'spies'
+        self.spies.mkdir()
+        self.write_executable(self.root / 'scripts/ensure-wasm-bindgen-cli.sh', '''#!/bin/bash
+set -eu
+[[ "$*" == --print-bin ]]
+printf 'resolve\n' >> "$CALLS"
+[[ "${RESOLVE_FAIL:-0}" == 0 ]] || exit 67
+printf '%s\n' "$EXPECTED_BINDGEN"
+''')
+        self.write_executable(self.spies / 'worker-build', '''#!/bin/bash
+set -eu
+if [[ "$*" == --version ]]; then echo "${WORKER_VERSION:-0.7.5}"; exit 0; fi
+[[ "$WASM_BINDGEN_BIN" == "$EXPECTED_BINDGEN" ]]
+[[ -z "${RUSTC_WRAPPER+x}" ]]
+printf 'build %s\n' "$*" >> "$CALLS"
+mkdir -p build
+printf '// generated fixture\n' > build/index.js
+''')
+        self.write_executable(self.spies / 'cargo', '''#!/bin/bash
+set -eu
+[[ -z "${RUSTC_WRAPPER+x}" ]]
+printf 'cargo %s\n' "$*" >> "$CALLS"
+printf '{}\n' > "$OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT"
+''')
+        self.calls = self.root / 'calls'
+        self.environment = dict(os.environ, PATH=str(self.spies) + os.pathsep + os.environ['PATH'],
+                                EXPECTED_BINDGEN=str(self.root / 'tools with spaces/wasm-bindgen'),
+                                WASM_BINDGEN_BIN='/wrong/old-cli', RUSTC_WRAPPER='must-not-run', CALLS=str(self.calls))
+
+    def write_executable(self, path, source):
+        path.write_text(source)
+        path.chmod(0o755)
+
+    def execute(self, script, role):
+        command = ['bash', str(self.worker / 'scripts' / script)]
+        if role is not None:
+            command.append(role)
+        return subprocess.run(command, env=self.environment, text=True, capture_output=True)
+
+    def test_every_producer_uses_resolved_cli_and_keeps_original_build_flags(self):
+        for script, role, features in CUSTODY_BUILD_CASES:
+            with self.subTest(script=script, role=role):
+                self.calls.write_text('')
+                result = self.execute(script, role)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = self.calls.read_text().splitlines()
+                self.assertEqual(calls[0], 'resolve')
+                self.assertEqual(sum(line.startswith('resolve') for line in calls), 1)
+                self.assertEqual([line for line in calls if line.startswith('build ')],
+                                 [f'build --release --no-opt -- --locked --no-default-features --features {features}'])
+                self.assertFalse((self.worker / '.role-build-lock').exists())
+
+    def test_failed_resolution_never_builds_and_releases_lock(self):
+        self.environment['RESOLVE_FAIL'] = '1'
+        for script, role, _ in CUSTODY_BUILD_CASES:
+            with self.subTest(script=script, role=role):
+                self.calls.write_text('')
+                result = self.execute(script, role)
+                self.assertEqual(result.returncode, 67, result.stderr)
+                self.assertEqual(self.calls.read_text().splitlines(), ['resolve'])
+                self.assertFalse((self.worker / '.role-build-lock').exists())
+
+    def test_wrong_worker_version_fails_before_dependency_resolution(self):
+        self.environment['WORKER_VERSION'] = '0.0.0'
+        for script, role, _ in CUSTODY_BUILD_CASES:
+            with self.subTest(script=script, role=role):
+                result = self.execute(script, role)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(self.calls.exists())
+                self.assertFalse((self.worker / '.role-build-lock').exists())
+
+
+
 if __name__ == '__main__':
     unittest.main()
