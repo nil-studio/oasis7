@@ -38,7 +38,7 @@ function fixture(t) {
 
 test('only the fixed entry, provider and complete bundle chain are accepted', t => {
   const f = fixture(t);
-  assert.equal(guard.inspectAction(path.join(f.action, 'restore.js'), f.hashes), 'restore');
+  assert.equal(guard.inspectAction(path.join(f.action, 'restore.js'), f.hashes).mode, 'restore');
   for (const entry of [undefined, 'save.js', path.join(f.action, 'post.js')]) {
     assert.throws(() => f.install(undefined, {entry}), /unknown action entry/);
   }
@@ -53,6 +53,131 @@ test('a recognized restore never admits or blocks downloaded archives', t => {
   f.install(() => { throw new Error('restore must not authorize uploads'); }, {entry: path.join(f.action, 'restore.js')});
   assert.equal(fs.statSync, original);
   assert.equal(fs.statSync(f.archive).size, 100);
+});
+
+function runModuleFixture(t, options = {}) {
+  const f = fixture(t);
+  const sources = {
+    'save.js': "import {run} from './cleanup-e3M0pm4f.js'; await run(); console.log('VERIFIED-ENTRY');",
+    'restore.js': "import {run} from './cleanup-e3M0pm4f.js'; await run(); console.log('VERIFIED-ENTRY');",
+    'cleanup-e3M0pm4f.js': "export async function run() { const {check} = await import('./cache-Dl81DHPs.js'); check(); }",
+    'cache-Dl81DHPs.js': "import * as fs from 'node:fs'; import {value} from './state-cjs-CkvFUaNy.js'; export function check() { console.log(value, fs.statSync(process.env.FIXTURE_ARCHIVE).size); }",
+    'state-cjs-CkvFUaNy.js': "export const value = 'VERIFIED-DEPENDENCY';",
+  };
+  if (options.unknownDependency) {
+    sources['state-cjs-CkvFUaNy.js'] = "import './unreviewed.js'; export const value = 'VERIFIED-DEPENDENCY';";
+    fs.writeFileSync(path.join(f.action, 'unreviewed.js'), "console.log('UNREVIEWED-EXECUTED');");
+  }
+  const hashes = {};
+  for (const [filename, source] of Object.entries(sources)) {
+    fs.writeFileSync(path.join(f.action, filename), source);
+    hashes[filename] = crypto.createHash('sha256').update(source).digest('hex');
+  }
+  fs.writeFileSync(path.join(f.action, 'package.json'), JSON.stringify({type: 'module'}));
+  const entry = path.join(f.action, options.entry || 'save.js');
+  const config = path.join(f.root, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({...options, entry, hashes, environment: f.environment}));
+  const preload = path.join(f.root, 'fixture preload.cjs');
+  fs.writeFileSync(preload, `
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const config = JSON.parse(fs.readFileSync(process.env.FIXTURE_CONFIG, 'utf8'));
+    const guard = require(process.env.FIXTURE_GUARD);
+    if (config.changeBefore) fs.appendFileSync(config.entry, '\\nconsole.log("UNVERIFIED");');
+    const installed = guard.installGuard({...config, checkArchive: () => console.log('ADMITTED')});
+    if (config.replaceAfter) {
+      for (const name of Object.keys(config.hashes)) {
+        const file = path.join(path.dirname(config.entry), name);
+        fs.renameSync(file, file + '.old');
+        fs.writeFileSync(file, 'console.log("UNVERIFIED");');
+      }
+      fs.writeFileSync(path.join(path.dirname(config.entry), 'package.json'), '{"type":"commonjs"}');
+    }
+    if (config.restore) { installed.restore(); installed.restore(); }
+  `);
+  return childProcess.spawnSync(process.execPath, ['--require', preload, entry], {
+    env: {...process.env, NODE_OPTIONS: '', FIXTURE_CONFIG: config,
+      FIXTURE_GUARD: path.join(__dirname, 'ci-rust-cache-admission-hook.cjs'), FIXTURE_ARCHIVE: f.archive},
+    shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
+  });
+}
+
+test('the real ESM entry and dynamic dependency chain execute verified snapshots after replacement', t => {
+  for (const entry of ['restore.js', 'save.js']) {
+    const result = runModuleFixture(t, {entry, replaceAfter: true});
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /VERIFIED-ENTRY/);
+    assert.match(result.stdout, /VERIFIED-DEPENDENCY 100/);
+    assert.doesNotMatch(result.stdout, /UNVERIFIED/);
+    assert.equal(result.stdout.includes('ADMITTED'), entry === 'save.js');
+  }
+});
+
+test('unverified bytes and dependencies stop before entry code executes', t => {
+  for (const options of [{changeBefore: true}, {unknownDependency: true}]) {
+    const result = runModuleFixture(t, options);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /pinned action bundle changed|unreviewed action dependency/);
+    assert.doesNotMatch(result.stdout, /VERIFIED-ENTRY|UNVERIFIED|UNREVIEWED-EXECUTED/);
+  }
+});
+
+test('restoring the fixture guard deregisters its loader as well as its stat hook', t => {
+  const result = runModuleFixture(t, {replaceAfter: true, restore: true});
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /UNVERIFIED/);
+  assert.doesNotMatch(result.stdout, /VERIFIED-ENTRY|ADMITTED/);
+});
+
+test('bundle inspection rejects empty, oversized, non-regular and symbolic-link files', t => {
+  for (const kind of ['empty', 'oversized', 'directory', 'symlink']) {
+    const f = fixture(t);
+    const file = path.join(f.action, 'save.js');
+    fs.unlinkSync(file);
+    if (kind === 'directory') fs.mkdirSync(file);
+    else if (kind === 'symlink') fs.symlinkSync(path.join(f.action, 'restore.js'), file);
+    else fs.writeFileSync(file, Buffer.alloc(kind === 'empty' ? 0 : 8 * 1024 * 1024 + 1));
+    assert.throws(() => guard.inspectAction(file, f.hashes), undefined, kind);
+  }
+});
+
+test('bundle reads remain bounded when a file grows after its descriptor check', t => {
+  const f = fixture(t);
+  const file = path.join(f.action, 'restore.js');
+  const initialLength = fs.readFileSync(file).length;
+  const inspect = fs.fstatSync;
+  const read = fs.readSync;
+  let grew = false;
+  let bytesRequested = 0;
+  let inspectedFd;
+  t.mock.method(fs, 'fstatSync', fd => {
+    const stat = inspect(fd);
+    if (!grew) {
+      grew = true;
+      inspectedFd = fd;
+      fs.appendFileSync(file, Buffer.alloc(8 * 1024 * 1024));
+    }
+    return stat;
+  });
+  t.mock.method(fs, 'readSync', (fd, buffer, offset, length, position) => {
+    bytesRequested += length;
+    return read(fd, buffer, offset, length, position);
+  });
+  assert.throws(() => guard.inspectAction(path.join(f.action, 'save.js'), f.hashes), /bundle changed/);
+  assert.equal(grew, true);
+  assert.equal(bytesRequested, initialLength + 1);
+  assert.throws(() => inspect(inspectedFd), {code: 'EBADF'});
+});
+
+test('bundle validation reads the opened descriptor and closes it when a read fails', t => {
+  const f = fixture(t);
+  let openedFd;
+  t.mock.method(fs, 'readSync', (fd, ...args) => {
+    openedFd = fd;
+    throw new Error('fixture read failure');
+  });
+  assert.throws(() => guard.inspectAction(path.join(f.action, 'save.js'), f.hashes), /fixture read failure/);
+  assert.throws(() => fs.fstatSync(openedFd), {code: 'EBADF'});
 });
 
 test('save admits final bytes once and synchronizes the upstream ESM fs binding', async t => {
@@ -147,10 +272,47 @@ test('the real preload cannot silently become disabled on an unknown entry', () 
 });
 
 // An optional local source argument exercises the actual fixed upstream save
-// implementations, without vendoring 1.8 MB or making normal CI need a network.
-// Fetch cache-Dl81DHPs.js from ACTION_REVISION, then pass its path to this test.
+// implementations, without vendoring their bundles or making normal CI need a network.
+// Fetch the five PINNED_HASHES files from ACTION_REVISION into one directory,
+// then pass the cache-Dl81DHPs.js path to this test.
 // The fixed digest is verified before any upstream code is executed.
 const providerSource = process.argv[2];
+test('fixed upstream restore and save load their complete ESM graph through the production preload',
+  {skip: !providerSource}, t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pinned cache modules '));
+    t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+    for (const name of Object.keys(guard.PINNED_HASHES)) {
+      fs.copyFileSync(path.join(path.dirname(providerSource), name), path.join(root, name));
+    }
+    const observer = path.join(root, 'observe.cjs');
+    fs.writeFileSync(observer, `
+      const {registerHooks} = require('node:module');
+      const path = require('node:path');
+      const {fileURLToPath} = require('node:url');
+      registerHooks({load(url, context, next) {
+        const result = next(url, context);
+        if (url.startsWith('file:')) console.log('LOADED ' + path.basename(fileURLToPath(url)));
+        return result;
+      }});
+    `);
+    for (const entry of ['restore.js', 'save.js']) {
+      const result = childProcess.spawnSync(process.execPath, [
+        '--require', path.join(__dirname, 'ci-rust-cache-admission.cjs'),
+        '--require', observer, path.join(root, entry),
+      ], {
+        env: {...process.env, NODE_OPTIONS: '', 'INPUT_CACHE-PROVIDER': 'github',
+          ACTIONS_CACHE_URL: '', ACTIONS_RESULTS_URL: '', ACTIONS_RUNTIME_TOKEN: '',
+          GITHUB_OUTPUT: '', GITHUB_STATE: ''},
+        shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
+      });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      for (const name of [entry, 'cleanup-e3M0pm4f.js', 'cache-Dl81DHPs.js', 'state-cjs-CkvFUaNy.js']) {
+        assert.ok(result.stdout.includes('LOADED ' + name), name + ': ' + result.stdout);
+      }
+      assert.doesNotMatch(result.stdout + result.stderr, /::error::|unreviewed action dependency/);
+    }
+  });
+
 for (const version of ['V1', 'V2']) {
   test('fixed upstream ' + version + ' does not reserve or upload a rejected archive',
     {skip: !providerSource}, async t => {
