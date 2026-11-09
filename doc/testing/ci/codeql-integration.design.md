@@ -357,7 +357,11 @@ Rust 公共模型的有界诊断承接 [CQ-R03](#cq-r03)、[CQ-R05](#cq-r05) 与
 
 冻结一个真实 main 提交和完整官方 bundle，保留生产 `rust-repo/default` 的全仓源码上下文、独立 manifest、本地维护 vendor、features、targets、模板与既有排除规则；不得换成单 crate、旧 NodeOnly 或伪造投影。记录 bundle/解析包、实际项目工具链、分析工具链和归档标准库来源。线程与内存采用生产所固定 CodeQL Action 的选择逻辑及实际环境值，记录 runner、CPU/cgroup/内存来源与实际参数；不能把原诊断的 2 threads/3072 MiB 或数据文件限制当生产配置。
 
-经单独授权可在 CFG 手动入口使用默认关闭的 `callee=true`，固定 f9ab 容量失败业务快照，保持官方2.27.3、生产自动资源、单业务采集根和45分钟总截止。该模式与 profile 互斥，只提取/finalize及四个调用目标诊断查询，不运行安全suite或原CFG图测量。按第42行调用AST、语法路径、静态目标、目标名、目标位置分别计数，另保留目标声明及原CallsCandidate结果；零值与无位置必须显式可见，不改变原容量验收断言。每命令最多900秒、共享原总截止并预留180秒采证收尾；每表最多100行、每行最多8192字符、解码文件8MiB、总artifact256MiB。查询未执行或失败保持NOT_REACHED/INCOMPLETE；诊断完成不等于容量通过或根因确认，不跨数据库关联内部ID。
+经单独授权可在 CFG 手动入口使用默认关闭的 `callee=true`，固定 f9ab 容量失败业务快照，保持官方2.27.3、生产自动资源、单业务采集根和45分钟总截止。该模式与 profile 互斥，只提取/finalize及定向调用目标诊断，不运行安全suite或原CFG图测量。保留原 Syntax、ResolutionCounts、TargetFunctions、OriginalCalls 四表原文与顺序，按第42行调用AST、语法路径、静态目标、目标名、目标位置分别计数，另保留目标声明及原CallsCandidate结果；零值与无位置必须显式可见，不改变原容量验收断言。
+
+随后追加 InternalPaths、InternalTypes 两表，区分调用路径与目标impl self的解析及类型关系。仅正常导入固定官方2.27.3中导出的 PathResolution、TypeMention/TypeInference 内部接口，不修改官方QLL、可见性或解析闭包；接口不兼容在提取前的check-only失败。内部API不稳定，结果只用于原因诊断；AST文本、resolvePath结果、TypeMention.getTypeAt的根与参数映射、公共静态调用结果分别报告。完整关联函数路径的resolvePath空值、调用处省略泛型参数的TypeMention空值都不能单独判缺陷；这些关系也不是调用表达式的完整类型推断，不能代替公共验收。原公共阶段摘要与OriginalCalls行数在解码后立即保留，后续表失败仍标整体INCOMPLETE并保留已完成结果。
+
+所有表共用每命令最多900秒、原总截止及180秒采证收尾预留；每表最多100行、每行最多8192字符、解码文件8MiB、总artifact256MiB，不因追加表而续期。查询未执行或失败保持NOT_REACHED/INCOMPLETE；诊断完成不等于容量通过或根因确认，不跨数据库关联内部ID。
 
 固定业务 checkout 必须占据 `GITHUB_WORKSPACE` 根，使 Action 的实际进程目录、Rust `trace-command` / `index-files` 起点与数据库 source root 一致；`source-root` 或 `checkout_path` 配置正确本身不证明采集隔离。工具 checkout 先在同一根读取，将有摘要的最小 Python 工具闭包复制到 `RUNNER_TEMP`，再切换到固定业务提交；不得在采集树内保留第二个 checkout。初始化前保存真实 cwd、workspace、Git 根/HEAD/状态、工具位置与摘要的独立校验。预检记录下一步 Action 的预期采集起点，实际 trace 命令仍须以执行日志核对。
 
