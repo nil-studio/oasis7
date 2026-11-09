@@ -1101,6 +1101,20 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             with self.subTest(debug=debug, endpoint=endpoint):
                 self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
 
+    def test_ordinary_build_streams_diagnostics_without_changing_required_commands(self):
+        command = ('python3 scripts/ci-test-artifacts.py build --scope ordinary '
+                   '--plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" '
+                   '--cache-state "$RUNNER_TEMP/ordinary-cache-state.json" '
+                   '--build-diagnostics "$RUNNER_TEMP/ordinary-build-diagnostics"')
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
+            build = JOBS[name].split('      - name: Build ordinary test artifacts\n', 1)[1].split('      - ', 1)[0]
+            commands = [line.strip() for line in build.split('        run: |\n', 1)[1].splitlines()
+                        if re.match(r'\s*python3 scripts/ci-test-artifacts\.py build\b', line)]
+            self.assertEqual(commands, [command])
+            self.assertNotIn('continue-on-error:', build)
+            self.assertNotIn('if:', build)
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+
     def test_formal_build_diagnostics_are_optional_without_hiding_required_failures(self):
         for component, suffix in itertools.product(('debug', 'endpoint'), ('', '-trusted')):
             job = JOBS[f'formal-{component}-build{suffix}']
