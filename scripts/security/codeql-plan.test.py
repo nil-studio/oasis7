@@ -235,6 +235,38 @@ class PlannerTests(unittest.TestCase):
         (self.root / 'link.py').symlink_to('/outside'); self.commit()
         with self.assertRaisesRegex(ValueError, 'symbolic link'): self.run_plan()
 
+    def test_maintenance_scope_keeps_full_candidates_and_batch_gates(self):
+        units = [u for u, _ in planner.UNITS]
+        for scope, expected in [('all', units), ('non-rust', units[:-1]), ('rust', units[-1:])]:
+            with self.subTest(scope=scope):
+                result = self.run_plan(event='schedule', full=True, maintenance_scope=scope)
+                self.assertEqual(result['candidate_units'], units)
+                self.assertEqual(result['selected_units'], expected)
+                self.assertEqual(result['maintenance_scope'], scope)
+                for unit in set(units) - set(expected):
+                    self.assertEqual(result['not_selected_reasons'][unit], 'maintenance_scope')
+        result = self.run_plan(event='schedule', full=True, maintenance_scope='rust',
+                               batch_modes='{"python-repo/default":"observe"}')
+        self.assertEqual(result['status'], 'disabled')
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+
+    def test_rust_budget_is_only_default_maintenance(self):
+        for event, profile, expected in [('pull_request', 'default', 45),
+                ('schedule', 'default', 90), ('workflow_dispatch', 'default', 90),
+                ('schedule', 'extended', 45)]:
+            with self.subTest(event=event, profile=profile):
+                result = self.run_plan(event=event, profile=profile, full=True)
+                rows = {row['unit']: row for row in result['matrix']['include']}
+                self.assertEqual(rows['rust-repo']['timeout_minutes'], expected)
+                self.assertEqual(rows['python-repo']['timeout_minutes'], 45 if profile == 'extended' else 20)
+        result = self.run_plan(full=True, batch_modes='{"rust-repo/default":"baseline"}')
+        self.assertEqual(result['selected_units'], [])
+
+    def test_maintenance_scope_cannot_change_pr_coverage(self):
+        for scope in ('rust', 'non-rust', 'invalid'):
+            with self.subTest(scope=scope), self.assertRaisesRegex(ValueError, 'maintenance scope'):
+                self.run_plan(full=True, maintenance_scope=scope)
+
     def test_batches_default_disabled_and_single_trial(self):
         self.write("tools/a.py"); self.commit()
         result = self.run_plan(batch_modes="{}")
