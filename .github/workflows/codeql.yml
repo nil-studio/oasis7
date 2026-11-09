@@ -188,6 +188,36 @@ jobs:
       - name: Minimal stable Rust extraction toolchain
         if: matrix.language == 'rust'
         run: rustup toolchain install 1.96.0 --profile minimal
+      - id: rust_native
+        name: Prepare Rust native extraction prerequisites
+        if: matrix.language == 'rust'
+        timeout-minutes: 5
+        run: |
+          python3 -I - <<'PY'
+          import importlib.util, json, os, pathlib, sys, time
+          source = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          helpers = source / 'scripts/security'
+          sys.path.insert(0, str(helpers))
+          spec = importlib.util.spec_from_file_location('native_prerequisites', helpers / 'codeql-rust-cargo-check.py')
+          native = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(native)
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-native'
+          out.mkdir(exist_ok=False)
+          native.runtime.CAP, native.runtime.WRITE_CAP = 16 * 1024**2, 15 * 1024**2
+          env = {key: value for key, value in os.environ.items()
+                 if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
+          started = time.monotonic()
+          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
+          try:
+              native.prepare_native(source, out, started + 270, env)
+              terminal['status'] = 'PASS'
+          except Exception as error:
+              terminal.update(error_type=type(error).__name__, error=str(error))
+              raise
+          finally:
+              terminal['elapsed_seconds'] = time.monotonic() - started
+              (out / 'native-terminal.json').write_text(json.dumps(terminal, sort_keys=True) + '\n')
+          PY
       - id: init
         uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4, official tag resolved 2026-10-01
         with:
@@ -279,6 +309,15 @@ jobs:
         with:
           name: oasis7-codeql-upload-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.unit }}-${{ needs.plan.outputs.profile }}
           path: ${{ runner.temp }}/codeql-upload-evidence/evidence.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+      - name: Persist Rust native preparation evidence
+        if: always() && matrix.language == 'rust' && steps.rust_native.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oasis7-codeql-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.unit }}-${{ needs.plan.outputs.profile }}
+          path: ${{ runner.temp }}/codeql-rust-native
           if-no-files-found: error
           overwrite: false
           retention-days: 7

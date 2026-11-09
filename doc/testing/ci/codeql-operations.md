@@ -77,6 +77,8 @@ API 每个 endpoint 的读取有分页预算，精确身份的相关 runs 也有
 
 live reader 使用精确 run attempt 的 jobs API，并通过独立验证的 evidence artifact 读取官方上传输出。该正向关联当前只支持可信默认分支的 schedule/manual 基线。PR、fork、Dependabot 与 native platform provider 的正向关联仍不受支持，保留 unknown；artifact 不是合入凭据，也不赋予 native check 豁免。不要由时间、同 SHA 或 job success 推造 SARIF association。查看 `run_id` / `run_attempt` 判断当前尝试，查看 `analysis_id` / `coverage_age_hours` / `fresh` 判断已关联的结果；缺乏 association 时这些结果不能借用历史记录。
 
+Rust 的 default/extended 扫描先执行 `Prepare Rust native extraction prerequisites`，复用容量入口的 GTK 3、WebKitGTK 4.1、D-Bus 安装与 pkg-config 探针；准备共用最多 180 秒，计入原 45 分钟 job。失败时从独立 `oasis7-codeql-native-<run>-<attempt>-rust-repo-<profile>` artifact 查看安装 stdout/stderr、包和模块版本及 `native-terminal.json`；失败会阻止提取、查询和 SARIF 上传。native PASS 只表示该 runner 的依赖准备成功，覆盖和上传关联仍须分别验收。
+
 分析 job 从官方 pinned upload-sarif action 的 `steps.upload.outputs.sarif-id` 生成闭合 schema `oasis7-codeql-upload-evidence/v1`，记录 repository、workflow path/ref/SHA、run/attempt、job key/name、checkout SHA/ref、unit/profile/category 与真实 execution/upload outcomes。上传未成功时 ID 为空。每个 job/attempt 使用独立 `oasis7-codeql-upload-<run_id>-<run_attempt>-<unit>-<profile>` artifact，唯一文件为 `evidence.json`，由完整 SHA 固定的 upload-artifact action 上传且不覆盖。取消、超时或 runner 丢失可能没有 artifact，不能补写或借用旧输出。
 
 consumer 不信任 JSON 自述或 artifact 名称：先独立验证 live repository/default branch、可信 workflow、精确 run/latest attempt、唯一 job/check/provider/suite，并确认执行时 workflow 字节与当前默认分支 workflow 相同。无关 main 前进且 workflow 字节不变不使结果失效；workflow 改动、候选执行或读取失败保持 unknown。随后完整、有界读取该 run 的 artifact 清单，要求唯一、未过期、元数据匹配，并在下载后复验 run/attempt 与 artifact 身份。
@@ -91,11 +93,11 @@ CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI
 
 Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
 
-验证使用 CFG 诊断固定的新源码与原完整官方 bundle，在同一新数据库中查询三个精确文件的 AST 和宏展开节点计数：隔离文件须为零，`main.rs` 与 `commands.rs` 必须存在正向 AST 见证。保留原始 BQRS、解码行、源码摘要和结果；未到、失败或结果不完整一律不记通过。见证只证明数据库中的 AST 覆盖边界，不证明 Rust Analyzer 没有执行工作区语义准备，也不单独证明性能改善。容量入口默认仍使用原冻结源码，新 pin 仅用于这个明确诊断。
+验证使用 CFG 诊断固定的新源码与原完整官方 bundle，在同一新数据库中查询三个精确文件的 AST 和宏展开节点计数：隔离文件须为零，`main.rs` 与 `commands.rs` 必须存在正向 AST 见证。保留原始 BQRS、解码行、源码摘要和结果；未到、失败或结果不完整一律不记通过。见证只证明数据库中的 AST 覆盖边界，不证明 Rust Analyzer 没有执行工作区语义准备，也不单独证明性能改善。容量与诊断分别绑定下文记录的业务版本，旧版本结果不能代签新排除。
 
 ## 大型 JSON 测试夹具覆盖例外
 
-经批准的例外是 `crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs` 中的完整测试数据构造函数 `cognition_projection`。持久化测试及其断言仍参与分析，普通构建使用原样实现；不扩大到其他 `json!` 或目录。结果须注明此测试夹具覆盖缺口。CFG 诊断固定包含拆分的源码，和 Tauri 例外一起验证五个文件：两个隔离文件 AST 为零，Tauri 入口、命令及原持久化测试文件均须有正向 AST。完整图摘要用于检查旧大型 scope 是否消失；它不能单独证明整个模型阶段的性能改善。容量入口保持原冻结源码，不能用其旧结果代签新排除。
+经批准的例外是 `crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs` 中的完整测试数据构造函数 `cognition_projection`。持久化测试及其断言仍参与分析，普通构建使用原样实现；不扩大到其他 `json!` 或目录。结果须注明此测试夹具覆盖缺口。CFG 诊断固定包含拆分的源码，和 Tauri 例外一起验证五个文件：两个隔离文件 AST 为零，Tauri 入口、命令及原持久化测试文件均须有正向 AST。完整图摘要用于检查旧大型 scope 是否消失；它不能单独证明整个模型阶段的性能改善。容量入口的覆盖例外须在其独立固定版本上验收，不能用旧结果代签。
 
 CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`、`Action`、`WorldState` 和 `LlmDecisionPayload` 所在四个文件补录 scope 的 AST 类别、标签、位置及宏展开标记。结果最多 10,000 行，每个字符串最多 4,096 字符；缺文件、重复 ID 或非法字段保持失败。标签用于区分同一源码范围的派生方法，不推断其性能成本；opaque scope ID 只能与同一次数据库的摘要、边相连，不能跨运行关联。生产类型在方法身份及兼容性边界核实前保持原实现和扫描范围。 拆分派生的 `Debug` / `PartialEq` 时，公开枚举、变体、字段与 Serde 属性保持原样；私有分组必须穷尽且互斥，并核对字段顺序、普通/pretty Debug 和相等性边界。旧版 oracle 可保存为纯数据期待值，不把原完整派生实现复制回扫描源码而重建同级闭包。序列化/反序列化的拆分另外核对 JSON、CBOR、默认/别名、未知/重复字段及支持的位置式序列输入，普通函数拆分或绿色 CI 不代签这些兼容性。
 
@@ -129,7 +131,7 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前 `mode=capacity` 固定业务源码为 main 快照 `f9ab0ca14620f118c84130b3d558e48dc1e6314d`（包含证据收尾及子进程就绪发布修复）；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，按 60 分钟完整 default 与公共见证合同评估，分析上限 45 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。 当前 `mode=capacity` 固定业务源码为 2026-11-09 读回的 main 快照 `23dbd6b291ba49468c473e5f23f674ed2a1196e4`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本，按 60 分钟完整 default 与公共见证合同评估，分析上限 45 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置；callee 定向诊断保留 `f9ab0ca14620f118c84130b3d558e48dc1e6314d`，用于复现该版本的空调用结果，不能据此声明当前源码验收通过。
 
 其覆盖校验和公共见证使用同一真实数据库，包括 candidate、legacy、common 协议数据流及 Linux image 的完整规定正负结果；缺失、重复、额外标签或来源不符不算通过。默认查询执行成功与语义/覆盖通过分别记录，未到达的阶段保持 NOT_REACHED，不用旧局部 PASS 补签。
 
@@ -158,7 +160,7 @@ observe 只能在 hosted 验收完成且明确授权后设置，并读回实际�
 
 ### CFG 关系规模诊断
 
-`CodeQL Rust CFG Diagnostic` 是默认 `execute=false` 的独立手动入口，使用容量入口的固定业务 pin、官方 2.27.3 完整 bundle、原生依赖和源码隔离检查。它只 finalize 数据库并执行 CFG 定向测量，不调用 analyze、不运行默认安全查询、不启用批次、不上传 SARIF/数据库。一次完成或失败即停止，不自动重试。整个 job 45 分钟，包含准备、提取、查询、图分析和收尾；结果不替代生产容量或完整 Rust 覆盖。
+`CodeQL Rust CFG Diagnostic` 是默认 `execute=false` 的独立手动入口，按诊断模式固定业务 pin，复用官方 2.27.3 完整 bundle、原生依赖和源码隔离检查；它不随容量入口升级 pin。它只 finalize 数据库并执行 CFG 定向测量，不调用 analyze、不运行默认安全查询、不启用批次、不上传 SARIF/数据库。一次完成或失败即停止，不自动重试。整个 job 45 分钟，包含准备、提取、查询、图分析和收尾；结果不替代生产容量或完整 Rust 覆盖。
 
 先审阅私有 QLL 可见性补丁和查询实际解析路径，再执行 scope 汇总及有界 top scope 图检查。结果必须分别记录全图汇总、选中 scope 覆盖、跨 scope/未知归属、分量与可达对计算是否完整；只输出达到限制前的局部数据时保持 INCOMPLETE。保存工具/业务/官方源码身份、精确 QL、解码结果、原始日志、退出码和固定时钟；不保存或导出完整巨型闭包。新运行只能说明新冻结数据库，不能复原旧 run 的图。
 
