@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression oracles for missing-stage visibility and manual control routing."""
 from pathlib import Path
+import hashlib
 import json
 import tempfile
 import time
@@ -15,6 +16,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class CalleeDiagnostic(unittest.TestCase):
+    def test_original_four_queries_remain_frozen_before_internal_tables(self):
+        texts = m.queries(Path('/business'))
+        expected = {
+            'Syntax': 'fda37c52e4a5cc25b7a1701572f3e640b0fac5b06e2f481380963267a230c97b',
+            'ResolutionCounts': '21a3943d1a79330f25d83e33f843e8ee5275c5666c7633df3c65f5eaa11f9588',
+            'TargetFunctions': '61710b0368937a39e3e1cedf1bcf613f207ae865151c14815a30535c5148a86e',
+            'OriginalCalls': '35306b1b9b21e5e260089321977048b330f80d5f9a763c65719cf2b594c31602',
+        }
+        self.assertEqual(list(texts), list(expected) + ['InternalPaths', 'InternalTypes'])
+        for name, digest in expected.items():
+            self.assertEqual(hashlib.sha256(texts[name].encode()).hexdigest(), digest)
+
     def test_each_first_missing_stage_is_visible(self):
         cases = [
             ([0, 0, 0, 0, 0, 0], 'CALL_AST_NOT_FOUND_AT_LINE'),
@@ -79,8 +92,10 @@ class CalleeDiagnostic(unittest.TestCase):
             self.assertEqual(terminal['status'], 'INCOMPLETE')
             self.assertIn('frozen source identity failed', terminal['error'])
             self.assertEqual(terminal['capacity'], 'UNKNOWN')
+            self.assertEqual(set(terminal['stages']), {'Syntax', 'ResolutionCounts',
+                'TargetFunctions', 'OriginalCalls', 'InternalPaths', 'InternalTypes'})
 
-    def exercise_two_phases(self, change_source=False):
+    def exercise_two_phases(self, change_source=False, failed_table=None):
         # Real Git and real exclusive runtime receipts; only CodeQL is a stand-in.
         # This crosses the same check-only -> evaluation boundary as the workflow.
         real_capacity = m.load('two_phase_capacity', 'codeql-rust-capacity.py')
@@ -107,10 +122,19 @@ rows = {
  'ResolutionCounts': [['call-at-line',1],['syntactic-name',1],['resolved-any',0],
                       ['resolved-name',0],['target-file',0],['function-declaration',1]],
  'TargetFunctions': [['with_existing_identity','NO_FILE','NO_LOCATION']],
- 'OriginalCalls': []}
+ 'OriginalCalls': [],
+ 'InternalPaths': [['call-qualifier','SwarmBuilder','RESOLVED','candidate']],
+ 'InternalTypes': []}
 if a[:2]==['resolve','library-path']:print('{}')
 elif a[:2]==['query','compile']:pass
-elif a[:2]==['query','run']:Path(option('--output')).write_text('private fake BQRS')
+elif a[:2]==['query','run']:
+ failure=Path(__file__).parent/'failed-table'
+ if failure.exists() and failure.read_text()==Path(a[2]).stem:
+  saved=json.loads((Path(__file__).parent/'out/callee-terminal.json').read_text())
+  assert saved['observation']['first_missing_boundary']=='STATIC_TARGET_NOT_RESOLVED'
+  assert saved['original_result_rows']==0 and saved['stages']['OriginalCalls']=='PASS'
+  raise SystemExit(72)
+ Path(option('--output')).write_text('private fake BQRS')
 elif a[:2]==['bqrs','info']:
  print(json.dumps({'result-sets':[{'name':'#select','rows':len(rows[Path(a[2]).stem])}]}))
 elif a[:2]==['bqrs','decode']:
@@ -131,6 +155,8 @@ else:raise SystemExit('unexpected fake CLI command')
                 invocations = (root/'invocations.jsonl').read_bytes()
                 if change_source:
                     tracked.write_text('fn changed() {}\n')
+                if failed_table:
+                    (root/'failed-table').write_text(failed_table)
                 args.check_only = False
                 second_exit = m.run_diagnostic(args)
                 terminal = json.loads((args.output/'callee-terminal.json').read_text())
@@ -142,6 +168,20 @@ else:raise SystemExit('unexpected fake CLI command')
                     identity = json.loads((args.output/'callee-evaluate-identity.json').read_text())
                     self.assertEqual(identity['identity_gate'], 'PASS')
                     self.assertEqual(identity['clean_gate'], 'FAIL')
+                elif failed_table:
+                    self.assertEqual(second_exit, 1, terminal)
+                    self.assertEqual(terminal['status'], 'INCOMPLETE')
+                    self.assertEqual(terminal['stages'][failed_table], 'INCOMPLETE')
+                    self.assertEqual(terminal['stages']['InternalTypes'], 'NOT_REACHED')
+                    self.assertEqual(terminal['original_result_rows'], 0)
+                    self.assertEqual(terminal['observation']['first_missing_boundary'],
+                                     'STATIC_TARGET_NOT_RESOLVED')
+                    self.assertEqual(terminal['full_rust'], 'HOLD')
+                    failed = json.loads((args.output/('callee-evaluate-run-'+failed_table+'.log.result.json')).read_text())
+                    self.assertEqual(failed['exit'], 72)
+                    for name in ('Syntax', 'ResolutionCounts', 'TargetFunctions', 'OriginalCalls'):
+                        self.assertEqual(terminal['stages'][name], 'PASS')
+                        self.assertTrue((args.output/('callee-'+name+'.json')).is_file())
                 else:
                     self.assertEqual(second_exit, 0, terminal)
                     self.assertEqual(terminal['status'], 'DIAGNOSTIC_COMPLETED_NOT_ACCEPTANCE')
@@ -157,6 +197,9 @@ else:raise SystemExit('unexpected fake CLI command')
 
     def test_real_source_change_between_phases_still_blocks_queries(self):
         self.exercise_two_phases(change_source=True)
+
+    def test_internal_failure_preserves_completed_public_observation(self):
+        self.exercise_two_phases(failed_table='InternalPaths')
 
 
 if __name__ == '__main__':
