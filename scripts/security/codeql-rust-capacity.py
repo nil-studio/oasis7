@@ -199,6 +199,31 @@ def validate(name,rows,source,libp2p):
 
 def save(path,value,out):runtime.save(path,value,out)
 
+
+def decode_semantic_results(database,names,source,libp2p,out,codeql,run,terminal):
+    """Keep all already-computed table observations; any contract failure fails the batch."""
+    validated={};failures={}
+    terminal['public_semantic_tables']=validated
+    terminal['public_semantic_failures']=failures
+    for name in names:
+        matches=list((database/'results').rglob(name+'.bqrs'))
+        if len(matches)!=1:raise RuntimeError('semantic BQRS missing/ambiguous '+name)
+        # Decode/process/evidence failures retain the existing immediate stop.
+        run([codeql,'bqrs','decode',matches[0],'--format=csv'],'decode-'+name,30)
+        with (out/('decode-'+name+'.log')).open() as stream:rows=list(csv.reader(stream))[1:]
+        try:
+            validated[name]=validate(name,rows,source,libp2p)
+        except RuntimeError as error:
+            failures[name]=str(error)
+            save(out/('semantic-'+name+'-terminal.json'),{'status':'FAIL','error':str(error)},out)
+        else:
+            save(out/('semantic-'+name+'-terminal.json'),{'status':'PASS','validated':validated[name]},out)
+    if failures:
+        terminal['public_semantics']='FAIL'
+        raise RuntimeError('public semantic validation failed: '+', '.join(failures))
+    return validated
+
+
 def check_sarif(value):
     if value.get('version')!='2.1.0' or not value.get('runs'):raise RuntimeError('missing complete local SARIF')
     for run in value['runs']:
@@ -629,14 +654,8 @@ def main():
                 run([args.codeql,'database','run-queries',args.database,*[query_dir/(name+'.ql') for name in texts],
                      '--additional-packs='+os.pathsep.join(item['root'] for item in json.loads((out/'library-closure.json').read_text()).values()),'--threads='+str(resource_values['CODEQL_THREADS']),
                      '--ram='+str(resource_values['CODEQL_RAM']),'--common-caches='+str(common),'--no-default-compilation-cache'], 'semantic-batch')
-                libp2p=json.loads((out/'libp2p-provenance.json').read_text());validated={}
-                for name in texts:
-                    matches=list((args.database/'results').rglob(name+'.bqrs'))
-                    if len(matches)!=1:raise RuntimeError('semantic BQRS missing/ambiguous '+name)
-                    run([args.codeql,'bqrs','decode',matches[0],'--format=csv'],'decode-'+name,30)
-                    with (out/('decode-'+name+'.log')).open() as stream:rows=list(csv.reader(stream))[1:]
-                    validated[name]=validate(name,rows,source,libp2p)
-                    save(out/('semantic-'+name+'-terminal.json'),{'status':'PASS','validated':validated[name]},out)
+                libp2p=json.loads((out/'libp2p-provenance.json').read_text())
+                validated=decode_semantic_results(args.database,texts,source,libp2p,out,args.codeql,run,terminal)
                 if snapshot(source)!=frozen:raise RuntimeError('post-evaluation business changed')
                 terminal['public_semantics']='PASS'
                 remaining=args.deadline-time.time()
