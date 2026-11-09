@@ -1115,6 +1115,16 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertNotIn('if:', build)
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
 
+    def test_ordinary_cargo_concurrency_is_limited_only_at_the_build_step(self):
+        self.assertEqual(WORKFLOW.count('CARGO_BUILD_JOBS:'), 1)
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
+            job = JOBS[name]
+            build = job.split('      - name: Build ordinary test artifacts\n', 1)[1].split('      - ', 1)[0]
+            self.assertIn('          CARGO_BUILD_JOBS: "1"\n', build.split('        run: |\n', 1)[0])
+            self.assertNotIn('CARGO_BUILD_JOBS', job.replace(build, '', 1))
+            self.assertNotIn('continue-on-error:', build)
+            self.assertNotIn('if:', build)
+
     def test_formal_build_diagnostics_are_optional_without_hiding_required_failures(self):
         for component, suffix in itertools.product(('debug', 'endpoint'), ('', '-trusted')):
             job = JOBS[f'formal-{component}-build{suffix}']

@@ -821,6 +821,8 @@ jobs:
       - name: Build ordinary test artifacts
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          # Avoid overlapping large rustc processes on the hosted runner.
+          CARGO_BUILD_JOBS: "1"
         run: |
           python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json" --build-diagnostics "$RUNNER_TEMP/ordinary-build-diagnostics"
           python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
