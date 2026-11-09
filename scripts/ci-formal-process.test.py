@@ -1630,7 +1630,10 @@ if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             cargo = root / 'cargo'
-            cargo.write_text('#!/usr/bin/env bash\nprintf "cargo-sentinel:%s\\n" "$*"\nexit 73\n')
+            # This fixture checks plan validation and fetch failure propagation,
+            # not whether a formatting preflight runs before dependency fetches.
+            cargo.write_text('#!/usr/bin/env bash\nprintf "cargo-sentinel:%s\\n" "$*"\n'
+                             'if [[ "$*" == "fmt --all -- --check" ]]; then exit 0; fi\nexit 73\n')
             cargo.chmod(0o755)
             selected = InlineExecutionSelection().selection() | {
                 'source_sha': sha, 'tested_sha': sha, 'architecture': {'source': sha, 'tested': sha}}
