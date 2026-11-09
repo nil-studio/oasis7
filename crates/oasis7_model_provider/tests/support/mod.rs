@@ -27,6 +27,7 @@ pub fn client(endpoint: &str) -> OpenAiChatCompletionClient {
 }
 
 pub fn read_request(stream: &mut TcpStream) -> Value {
+    stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
