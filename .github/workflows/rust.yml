@@ -2578,8 +2578,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - &site-security-browser-setup
-        name: Install pinned deck security browser
+      - name: Install pinned deck security browser
         shell: bash
         timeout-minutes: 10
         run: |
@@ -2593,8 +2592,7 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "site_quality" --repo-root "$GITHUB_WORKSPACE"
-      - &site-security-browser-evidence
-        name: Upload deck browser evidence
+      - name: Upload deck browser evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -2833,7 +2831,6 @@ jobs:
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
-      - *site-security-browser-setup
       - name: Install pinned Rust toolchains
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
@@ -2943,7 +2940,6 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         run: CI_VERBOSE=1 ./scripts/ci-tests.sh full-extended
-      - *site-security-browser-evidence
 
       - name: Run Rust governance report
         if: always()
@@ -2999,7 +2995,6 @@ jobs:
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
-      - *site-security-browser-setup
       - name: Install pinned Rust toolchains
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
@@ -3085,7 +3080,6 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         run: CI_VERBOSE=1 ./scripts/ci-tests.sh full-extended
-      - *site-security-browser-evidence
 
       - name: Run Rust governance report
         if: always()
