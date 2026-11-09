@@ -1176,7 +1176,7 @@ var _tmpl$2$41 = /*#__PURE__*/ template(`<section class=panel-section style=min-
 var _tmpl$3$33 = /*#__PURE__*/ template(`<p> · <!> `);
 var _tmpl$4$30 = /*#__PURE__*/ template(`<article><h4> · </h4><p>: <!> / `);
 var _tmpl$5$29 = /*#__PURE__*/ template(`<p>: <!> / <!> / `);
-var _tmpl$6$21 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
+var _tmpl$6$22 = /*#__PURE__*/ template(`<p>: <!> <!> / <!> `);
 var _tmpl$7$17 = /*#__PURE__*/ template(`<p>: <!> / <!> · `);
 var _tmpl$8$12 = /*#__PURE__*/ template(`<p>: <!> / <!> ÷ `);
 var _tmpl$9$10 = /*#__PURE__*/ template(`<p>: <!> / `);
@@ -1276,7 +1276,7 @@ function RecipeSubstitutionPanel(props) {
 								get children() {
 									return [
 										(() => {
-											var _el$25 = _tmpl$6$21(), _el$26 = _el$25.firstChild, _el$30 = _el$26.nextSibling, _el$31 = _el$30.nextSibling.nextSibling, _el$32 = _el$31.nextSibling.nextSibling;
+											var _el$25 = _tmpl$6$22(), _el$26 = _el$25.firstChild, _el$30 = _el$26.nextSibling, _el$31 = _el$30.nextSibling.nextSibling, _el$32 = _el$31.nextSibling.nextSibling;
 											_el$32.nextSibling;
 											insert(_el$25, () => tr("投入 / 可执行产出", "Input / executable output"), _el$26);
 											insert(_el$25, () => n(candidate.sourceRequired), _el$30);
@@ -2392,7 +2392,7 @@ var _tmpl$2$40 = /*#__PURE__*/ template(`<p role=alert>`);
 var _tmpl$3$32 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$4$29 = /*#__PURE__*/ template(`<form><label><input type=password autocomplete=off></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
 var _tmpl$5$28 = /*#__PURE__*/ template(`<p role=status> `);
-var _tmpl$6$20 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
+var _tmpl$6$21 = /*#__PURE__*/ template(`<p>: <!>/4 · <!>/2048`);
 var _tmpl$7$16 = /*#__PURE__*/ template(`<p>: <!>/8 · <!>/131072`);
 var _tmpl$8$11 = /*#__PURE__*/ template(`<label class=model-connection-panel__check><input type=checkbox>`);
 var _tmpl$9$9 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button>`);
@@ -2580,7 +2580,7 @@ function BrowserModelConnectionPanel(props) {
 						return _el$13;
 					})(),
 					(() => {
-						var _el$15 = _tmpl$6$20(), _el$16 = _el$15.firstChild, _el$19 = _el$16.nextSibling, _el$20 = _el$19.nextSibling.nextSibling;
+						var _el$15 = _tmpl$6$21(), _el$16 = _el$15.firstChild, _el$19 = _el$16.nextSibling, _el$20 = _el$19.nextSibling.nextSibling;
 						_el$20.nextSibling;
 						insert(_el$15, () => tr("已占用检查次数 / token 预留", "Check calls used / tokens reserved"), _el$16);
 						insert(_el$15, () => snapshot()?.probeCallsReserved ?? snapshot()?.callsReserved, _el$19);
@@ -5410,7 +5410,7 @@ var _tmpl$2$39 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$3$31 = /*#__PURE__*/ template(`<div class=model-connection-panel__boundary><p>: </p><p>: <!> · </p><p></p><p></p><p>: <!> / </p><p>: <!> / <!> / `);
 var _tmpl$4$28 = /*#__PURE__*/ template(`<form class=model-connection-panel__form><label><select required><option value></option></select></label><label><input type=password name=model-inference-key autocomplete=off maxlength=4096 required></label><label class=model-connection-panel__check><input type=checkbox></label><button type=submit>`);
 var _tmpl$5$27 = /*#__PURE__*/ template(`<label><select>`);
-var _tmpl$6$19 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
+var _tmpl$6$20 = /*#__PURE__*/ template(`<details class=model-connection-panel data-testid=model-connection-panel><style></style><summary></summary><p></p><button type=button>`);
 var _tmpl$7$15 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$8$10 = /*#__PURE__*/ template(`<option> · <!> · `);
 var _tmpl$9$8 = /*#__PURE__*/ template(`<option> · `);
@@ -5662,7 +5662,7 @@ function ModelConnectionPanel(props) {
 		previousAgent = id;
 	});
 	return (() => {
-		var _el$ = _tmpl$6$19(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling, _el$35 = _el$4.nextSibling;
+		var _el$ = _tmpl$6$20(), _el$2 = _el$.firstChild, _el$3 = _el$2.nextSibling, _el$4 = _el$3.nextSibling, _el$35 = _el$4.nextSibling;
 		insert(_el$2, modelConnectionStyles);
 		insert(_el$3, (() => {
 			var _c$ = memo(() => !!managementOnly());
@@ -6458,7 +6458,7 @@ var _tmpl$2$38 = /*#__PURE__*/ template(`<p role=status>: `);
 var _tmpl$3$30 = /*#__PURE__*/ template(`<button type=button>`);
 var _tmpl$4$27 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$5$26 = /*#__PURE__*/ template(`<p>: <!> · Task=`);
-var _tmpl$6$18 = /*#__PURE__*/ template(`<label><textarea maxlength=8192>`);
+var _tmpl$6$19 = /*#__PURE__*/ template(`<label><textarea maxlength=8192>`);
 var _tmpl$7$14 = /*#__PURE__*/ template(`<p role=status>: <!> / 8192`);
 var _tmpl$8$9 = /*#__PURE__*/ template(`<label><input type=checkbox>`);
 var _tmpl$9$7 = /*#__PURE__*/ template(`<div class=model-connection-panel__actions><button type=button></button><button type=button></button><button type=button></button><button type=button>`);
@@ -6831,7 +6831,7 @@ function BrowserByokSurface(props) {
 								get children() {
 									return [
 										(() => {
-											var _el$11 = _tmpl$6$18(), _el$12 = _el$11.firstChild;
+											var _el$11 = _tmpl$6$19(), _el$12 = _el$11.firstChild;
 											insert(_el$11, () => tr("任务目标", "Task goal"), _el$12);
 											_el$12.$$input = (event) => {
 												setGoal(event.currentTarget.value);
@@ -7860,7 +7860,7 @@ var _tmpl$2$36 = /*#__PURE__*/ template(`<p>Original goal: `);
 var _tmpl$3$29 = /*#__PURE__*/ template(`<p>Requested waypoints: `);
 var _tmpl$4$26 = /*#__PURE__*/ template(`<p>Requested arrival tick: `);
 var _tmpl$5$25 = /*#__PURE__*/ template(`<p>State: `);
-var _tmpl$6$17 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$6$18 = /*#__PURE__*/ template(`<p role=status>`);
 var _tmpl$7$13 = /*#__PURE__*/ template(`<button>Execute confirmed choice / 执行已确认选择`);
 var _tmpl$8$8 = /*#__PURE__*/ template(`<button>Reevaluate explicitly / 明确重新评估`);
 var _tmpl$9$6 = /*#__PURE__*/ template(`<button>Read current state / 重读状态`);
@@ -7944,7 +7944,7 @@ function SafeAlternativePanel(props) {
 						return record().blocker;
 					},
 					get children() {
-						var _el$25 = _tmpl$6$17();
+						var _el$25 = _tmpl$6$18();
 						insert(_el$25, () => alternativeBlockerLabel(record().blocker));
 						return _el$25;
 					}
@@ -21600,7 +21600,14 @@ function projectOnce(input, markerLimit) {
 	const relations = raw$1(source.worldView?.relations) || [];
 	if (!Array.isArray(relations) || relations.length > 1e4) capacity();
 	const worldView = source.worldView ? {
-		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch")),
+		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch source_frozen")),
+		...source.worldView.source_binding && { source_binding: copy(source.worldView.source_binding, { version: {
+			...fields("visibility_scope projection_revision"),
+			commit: {
+				world: fields("world_id genesis_digest"),
+				binding: fields("provider_world_id branch_id reorg_generation authority_generation permission_generation governing_manifest_ref")
+			}
+		} }) },
 		...source.worldView.world_bounds && { world_bounds: copy(source.worldView.world_bounds, fields("width_cm depth_cm height_cm")) },
 		entities: budget.selected.filter((item) => [
 			"agents",
@@ -21690,6 +21697,8 @@ function projectPixelWorldRenderInput(input, markerLimit) {
 }
 // software_safe_src/pixel_world_spatial_controller.js
 var selectionIntentGeneration = 0;
+var navigationIntentGeneration = 0;
+var nextNavigationId = () => String(++navigationIntentGeneration);
 var refKey = (ref) => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
 	if (!value || ![
@@ -21718,18 +21727,93 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	const [spatialSelection, setSpatialSelection] = createSignal(null);
 	const [selectionStatus, setSelectionStatus] = createSignal(null);
 	const [selectionFeedback, setSelectionFeedback] = createSignal(null);
+	const [overviewStatus, setOverviewStatus] = createSignal(null);
 	let feedbackScopeGeneration = 1, feedbackAuthority = null;
 	const client = createWorldViewClient({
 		request: core.requestWorldView,
 		onChange: (next) => {
 			setState(next);
 			checkPending(next);
+			checkOverview(next);
 		}
 	});
 	let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = "", currentQuery = {};
 	let cameraBounds = null, cameraKey = "", timer = null, command = 0, disposed = false;
 	let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
 	let presented = null, pending = null, pendingTimer = null;
+	let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartViews = /* @__PURE__ */ new WeakSet();
+	function cancelOverview(status = null, stop = false) {
+		const retire = stop && (pendingOverview || navigation()?.overview_query);
+		clearTimeout(overviewTimer);
+		overviewTimer = null;
+		pendingOverview = null;
+		setOverviewStatus(status);
+		if (retire) {
+			command += 1;
+			setNavigation({
+				request_id: nextNavigationId(),
+				mode: "stop",
+				target: null
+			});
+		}
+		queueMicrotask(() => {
+			if (dirty && !inFlight && !pendingOverview?.applying && !disposed && timer === null) {
+				dirty = false;
+				read();
+			}
+		});
+	}
+	function overviewBinding(view) {
+		if (![
+			view?.world_id,
+			view?.scope_id,
+			view?.source_cut,
+			view?.request_generation
+		].every((v) => typeof v === "string" && v.length > 0)) return null;
+		return [
+			JSON.parse(worldViewAuthorityKey(view)),
+			view.source_cut,
+			view.request_generation
+		];
+	}
+	function checkOverview(next) {
+		if (!pendingOverview) return;
+		const intent = pendingOverview, view = next.view;
+		if (disposed || pixelWorldScope(core.state) !== scope || intent.scope !== scope || intent.command !== command || intent.queryToken !== queryToken || intent.coreKey !== coreKey() || !enabled() || next.error || next.stale) {
+			cancelOverview("unavailable", true);
+			return;
+		}
+		if (readingQueryToken !== intent.queryToken || next.loading && (view == null || readStartViews.has(view))) {
+			if (!next.loading) cancelOverview("unavailable", true);
+			return;
+		}
+		const binding = overviewBinding(view);
+		if (!binding || view.source_frozen || !["partial", "complete"].includes(view.completeness)) {
+			cancelOverview("unavailable", true);
+			return;
+		}
+		const key = JSON.stringify(binding);
+		if (intent.binding && intent.binding !== key) {
+			cancelOverview("unavailable", true);
+			return;
+		}
+		intent.binding = key;
+		if (intent.applying) return;
+		if (view.completeness === "complete") {
+			const request_id = intent.requestId;
+			intent.applying = true;
+			setOverviewStatus("applying");
+			setNavigation({
+				request_id,
+				mode: "overview",
+				target: null,
+				overview_query: {
+					version: 1,
+					binding
+				}
+			});
+		} else if (!next.loading || view.budget_limited) cancelOverview("unavailable", true);
+	}
 	const requestBinding = (view) => JSON.stringify([
 		worldViewAuthorityKey(view),
 		view?.source_cut,
@@ -21839,9 +21923,11 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	}
 	function navigate(mode, target = null) {
 		cancelPending();
+		cancelOverview();
 		following = mode === "follow" ? target : null;
+		command += 1;
 		setNavigation({
-			request_id: String(++command),
+			request_id: nextNavigationId(),
 			mode,
 			target
 		});
@@ -21850,6 +21936,10 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		if (inFlight) {
 			dirty = true;
 			return inFlight;
+		}
+		if (pendingOverview?.applying) {
+			dirty = true;
+			return null;
 		}
 		if (disposed || !enabled() || pixelWorldScope(core.state) !== scope) return null;
 		const pinned = pins();
@@ -21864,6 +21954,9 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		else delete query.detail_level;
 		if (caps.includes("world_view_event_anchor_v1")) query.include_events = true;
 		else delete query.include_events;
+		readingQueryToken = queryToken;
+		readStartViews = /* @__PURE__ */ new WeakSet();
+		if (state().view) readStartViews.add(state().view);
 		inFlight = client.query(query, {
 			delta: caps.includes("world_view_delta_v1"),
 			preserveChanges: true
@@ -21889,6 +21982,8 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	}
 	function query(query = {}) {
 		cancelPending();
+		cancelOverview(null, true);
+		queryToken += 1;
 		command += 1;
 		cancelScheduled();
 		client.clearChanges();
@@ -21902,6 +21997,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	}
 	function select(ref) {
 		cancelPending();
+		cancelOverview(null, true);
 		if (pixelWorldScope(core.state) !== scope) return null;
 		command += 1;
 		const view = state().view;
@@ -21947,11 +22043,13 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		selection,
 		selectionStatus,
 		selectionFeedback,
+		overviewStatus,
 		scope: () => scope,
 		present(view, scene, presentedScope = scope) {
 			presented = null;
 			if (!view || !scene) {
 				cancelPending();
+				if (pendingOverview) cancelOverview("unavailable", true);
 				return;
 			}
 			if (pixelWorldScope(core.state) !== scope || presentedScope !== scope || worldViewAuthorityKey(view) !== worldViewAuthorityKey(state().view) || !view.source_cut || scene.display_source_cut !== view.source_cut) return;
@@ -21978,6 +22076,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		},
 		selectPresented(ref) {
 			if (disposed) return null;
+			cancelOverview(null, true);
 			const next = state(), view = next.view;
 			if (!view) {
 				if (!enabled()) return select(ref);
@@ -22016,12 +22115,14 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			return null;
 		},
 		drilldown(aggregate) {
+			cancelOverview(null, true);
 			if (pixelWorldScope(core.state) !== scope || !state().view?.aggregates?.some((value) => value.aggregate_id === aggregate?.aggregate_id)) return;
 			const bounds = viewportBounds(aggregate.drilldown?.bounds);
 			if (!bounds) return;
 			navigate("stop");
+			command += 1;
 			setNavigation({
-				request_id: String(++command),
+				request_id: nextNavigationId(),
 				mode: "fit_bounds",
 				bounds,
 				target: null
@@ -22037,6 +22138,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		eventFeed(event) {
 			if (pixelWorldScope(core.state) !== scope) return false;
 			cancelPending();
+			cancelOverview(null, true);
 			const view = state().view, feed = core.state.worldFeed;
 			const authorized = view?.events?.find((value) => value.event_id === event?.event_id);
 			const identity = authorized?.feed_ref;
@@ -22083,7 +22185,30 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			setPauseVersion((value) => value + 1);
 		},
 		overview() {
-			navigate("overview");
+			if (!enabled()) {
+				navigate("overview");
+				return;
+			}
+			client.clearChanges();
+			navigate("stop");
+			pendingOverview = {
+				scope,
+				command,
+				queryToken,
+				coreKey: coreKey(),
+				requestId: nextNavigationId(),
+				binding: null
+			};
+			setOverviewStatus("pending");
+			overviewTimer = setTimeout(() => cancelOverview("unavailable", true), 3e4);
+			checkOverview(state());
+		},
+		navigationResult(result) {
+			if (!pendingOverview?.applying || result?.request_id !== pendingOverview.requestId) return;
+			checkOverview(state());
+			if (!pendingOverview) return;
+			if (result.status === "applied" && Number.isSafeInteger(result.render_version) && result.render_version >= 0) cancelOverview();
+			else cancelOverview("unavailable", true);
 		},
 		cameraChanged(camera) {
 			if (disposed || !enabled()) return;
@@ -22093,15 +22218,20 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			if (key === cameraKey) return;
 			cameraBounds = bounds;
 			cameraKey = key;
+			if (pendingOverview) return;
 			currentQuery = {
 				...currentQuery,
 				bounds: cameraBounds
 			};
+			queryToken += 1;
 			schedule();
 		},
 		resetScope() {
 			cancelPending();
 			presented = null;
+			cancelOverview();
+			queryToken += 1;
+			readStartViews = /* @__PURE__ */ new WeakSet();
 			scope = pixelWorldScope(core.state);
 			feedbackScopeGeneration += 1;
 			feedbackAuthority = null;
@@ -22121,6 +22251,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		},
 		refresh(snapshot) {
 			checkPending(state());
+			checkOverview(state());
 			if (!snapshot || !enabled() || disposed) return;
 			if (spatialSelection() && selectedCoreKey !== coreKey()) setSpatialSelection(null);
 			const pinKey = JSON.stringify(pins());
@@ -22131,6 +22262,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		},
 		async returnTarget() {
 			cancelPending();
+			cancelOverview(null, true);
 			const id = mainTarget();
 			if (!id) return;
 			const expectedScope = scope;
@@ -22159,6 +22291,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		dispose() {
 			disposed = true;
 			cancelPending();
+			cancelOverview();
 			presented = null;
 			cancelScheduled();
 			client.reset(null);
@@ -22187,7 +22320,7 @@ var _tmpl$2$32 = /*#__PURE__*/ template(`<section><h4></h4><p>`);
 var _tmpl$3$27 = /*#__PURE__*/ template(`<div><button type=button></button><span> · <!> <!> · </span><button type=button>`);
 var _tmpl$4$24 = /*#__PURE__*/ template(`<div><button type=button></button><span> · </span><button type=button></button><button type=button>`);
 var _tmpl$5$23 = /*#__PURE__*/ template(`<section class=pixel-world-spatial-inspection tabindex=-1><strong></strong><p> · <!> `);
-var _tmpl$6$16 = /*#__PURE__*/ template(`<section class=pixel-world-spatial-inspection tabindex=-1><strong></strong><p> · </p><p>: `);
+var _tmpl$6$17 = /*#__PURE__*/ template(`<section class=pixel-world-spatial-inspection tabindex=-1><strong></strong><p> · </p><p>: `);
 function PixelWorldEvolutionExplorer(props) {
 	const trusted = (event) => !props.stale && event.source_class === "runtime_journal_payload" && ["current", "last_known"].includes(event.freshness) && event.source_cut === props.view?.source_cut && event.identity?.world_id === props.view?.world_id && String(event.identity?.reorg_epoch) === String(props.view?.reorg_epoch) && event.position && [
 		"x_cm",
@@ -22286,7 +22419,7 @@ function PixelWorldEvolutionExplorer(props) {
 				return selectedEvent();
 			},
 			children: (value) => (() => {
-				var _el$25 = _tmpl$6$16(), _el$26 = _el$25.firstChild, _el$27 = _el$26.nextSibling, _el$28 = _el$27.firstChild, _el$29 = _el$27.nextSibling, _el$30 = _el$29.firstChild;
+				var _el$25 = _tmpl$6$17(), _el$26 = _el$25.firstChild, _el$27 = _el$26.nextSibling, _el$28 = _el$27.firstChild, _el$29 = _el$27.nextSibling, _el$30 = _el$29.firstChild;
 				insert(_el$26, () => value().label);
 				insert(_el$27, () => props.text("历史事件锚点，仅供观察", "Historical event anchor; read-only"), _el$28);
 				insert(_el$27, () => props.freshnessLabel(value().freshness), null);
@@ -22305,7 +22438,7 @@ var _tmpl$2$31 = /*#__PURE__*/ template(`<section class=pixel-world-entity-inspe
 var _tmpl$3$26 = /*#__PURE__*/ template(`<p>`);
 var _tmpl$4$23 = /*#__PURE__*/ template(`<div role=region><p>`);
 var _tmpl$5$22 = /*#__PURE__*/ template(`<section><h4></h4><ul>`);
-var _tmpl$6$15 = /*#__PURE__*/ template(`<span> · <!> `);
+var _tmpl$6$16 = /*#__PURE__*/ template(`<span> · <!> `);
 var _tmpl$7$12 = /*#__PURE__*/ template(`<li><button type=button></button><span> · </span><span> → `);
 var _tmpl$8$7 = /*#__PURE__*/ template(`<div><button type=button> </button><button type=button> `);
 function PixelWorldEntityInspector(props) {
@@ -22384,7 +22517,7 @@ function PixelWorldRouteExplorer(props) {
 							return value.kind === "industry_route";
 						},
 						get children() {
-							var _el$23 = _tmpl$6$15(), _el$26 = _el$23.firstChild.nextSibling;
+							var _el$23 = _tmpl$6$16(), _el$26 = _el$23.firstChild.nextSibling;
 							_el$26.nextSibling;
 							insert(_el$23, () => value.route_count, _el$26);
 							insert(_el$23, () => props.text("条路线汇总", "routes summarized"), null);
@@ -22433,11 +22566,12 @@ function PixelWorldRouteExplorer(props) {
 }
 delegateEvents(["click"]);
 // software_safe_src/pixel_world_world_view_explorer.jsx
-var _tmpl$$33 = /*#__PURE__*/ template(`<p>`);
-var _tmpl$2$30 = /*#__PURE__*/ template(`<p class=pixel-world-update-notice role=status> <!> · <!> `);
-var _tmpl$3$25 = /*#__PURE__*/ template(`<section class=pixel-world-exploration><form><label> <input maxlength=128></label><button type=submit></button><button type=button></button><button type=button></button></form><p role=status></p><ul>`);
-var _tmpl$4$22 = /*#__PURE__*/ template(`<span> `);
-var _tmpl$5$21 = /*#__PURE__*/ template(`<li><button type=button></button><span> · <!> · </span><button type=button></button><button type=button></button><button type=button>`);
+var _tmpl$$33 = /*#__PURE__*/ template(`<p role=status>`);
+var _tmpl$2$30 = /*#__PURE__*/ template(`<p>`);
+var _tmpl$3$25 = /*#__PURE__*/ template(`<p class=pixel-world-update-notice role=status> <!> · <!> `);
+var _tmpl$4$22 = /*#__PURE__*/ template(`<section class=pixel-world-exploration><form><label> <input maxlength=128></label><button type=submit></button><button type=button data-query-overview></button><button type=button></button></form><p role=status></p><ul>`);
+var _tmpl$5$21 = /*#__PURE__*/ template(`<span> `);
+var _tmpl$6$15 = /*#__PURE__*/ template(`<li><button type=button></button><span> · <!> · </span><button type=button></button><button type=button></button><button type=button>`);
 function PixelWorldWorldViewExplorer(props) {
 	const zh = () => String(props.locale || "").startsWith("zh");
 	const text = (cn, en) => zh() ? cn : en;
@@ -22500,7 +22634,7 @@ function PixelWorldWorldViewExplorer(props) {
 		props.onSelect?.(ref);
 	}
 	return (() => {
-		var _el$ = _tmpl$3$25(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$4 = _el$3.firstChild, _el$5 = _el$4.nextSibling, _el$6 = _el$3.nextSibling, _el$7 = _el$6.nextSibling, _el$8 = _el$7.nextSibling, _el$9 = _el$2.nextSibling, _el$16 = _el$9.nextSibling;
+		var _el$ = _tmpl$4$22(), _el$2 = _el$.firstChild, _el$3 = _el$2.firstChild, _el$4 = _el$3.firstChild, _el$5 = _el$4.nextSibling, _el$6 = _el$3.nextSibling, _el$7 = _el$6.nextSibling, _el$8 = _el$7.nextSibling, _el$9 = _el$2.nextSibling, _el$17 = _el$9.nextSibling;
 		_el$2.addEventListener("submit", (event) => {
 			event.preventDefault();
 			setFollowing(null);
@@ -22511,13 +22645,10 @@ function PixelWorldWorldViewExplorer(props) {
 		_el$5.$$input = (event) => setSearch(event.currentTarget.value);
 		insert(_el$6, () => text("搜索", "Search"));
 		_el$7.$$click = () => {
-			setSearch("");
 			setFollowing(null);
-			props.onFollow?.(null);
 			props.onOverview?.();
-			props.onQuery?.({});
 		};
-		insert(_el$7, () => text("返回总览", "World overview"));
+		insert(_el$7, () => text("总览当前查询结果", "Overview query results"));
 		_el$8.$$click = () => {
 			setSearch("");
 			setFollowing(null);
@@ -22555,55 +22686,69 @@ function PixelWorldWorldViewExplorer(props) {
 		}), null);
 		insert(_el$, createComponent(Show, {
 			get when() {
-				return props.state?.notice === "target_unavailable";
+				return props.overviewStatus;
 			},
 			get children() {
 				var _el$0 = _tmpl$$33();
-				insert(_el$0, () => text("主目标当前没有获准且可信的位置；可检查目标上下文。", "The target has no authorized trusted position; inspect its context instead."));
+				insert(_el$0, (() => {
+					var _c$2 = memo(() => props.overviewStatus === "pending");
+					return () => _c$2() ? text("查询尚未完成；保留当前视角，等待完整结果后总览。", "Query incomplete; keeping the current camera until complete results arrive.") : memo(() => props.overviewStatus === "applying")() ? text("查询结果完整，正在应用总览。", "Query results complete; applying the overview.") : text("当前查询无法完整总览；已保留视角。请缩小范围或重新查询。", "The current query cannot be overviewed completely; camera kept. Narrow the scope or query again.");
+				})());
+				createRenderEffect(() => setAttribute(_el$0, "data-query-overview-status", props.overviewStatus));
 				return _el$0;
 			}
-		}), _el$16);
+		}), _el$17);
+		insert(_el$, createComponent(Show, {
+			get when() {
+				return props.state?.notice === "target_unavailable";
+			},
+			get children() {
+				var _el$1 = _tmpl$2$30();
+				insert(_el$1, () => text("主目标当前没有获准且可信的位置；可检查目标上下文。", "The target has no authorized trusted position; inspect its context instead."));
+				return _el$1;
+			}
+		}), _el$17);
 		insert(_el$, createComponent(Show, {
 			get when() {
 				return props.state?.changes?.length;
 			},
 			get children() {
-				var _el$1 = _tmpl$2$30(), _el$10 = _el$1.firstChild, _el$13 = _el$10.nextSibling, _el$14 = _el$13.nextSibling.nextSibling;
-				_el$14.nextSibling;
-				insert(_el$1, () => props.state.changes.filter((value) => value.world_deleted).length, _el$10);
-				insert(_el$1, () => text("个对象已确认从世界移除", "objects confirmed removed from the world"), _el$13);
-				insert(_el$1, () => props.state.changes.filter((value) => !value.world_deleted).length, _el$14);
-				insert(_el$1, () => text("个记录离开当前查询；不代表世界删除", "records left this query; world deletion is not implied"), null);
-				return _el$1;
+				var _el$10 = _tmpl$3$25(), _el$11 = _el$10.firstChild, _el$14 = _el$11.nextSibling, _el$15 = _el$14.nextSibling.nextSibling;
+				_el$15.nextSibling;
+				insert(_el$10, () => props.state.changes.filter((value) => value.world_deleted).length, _el$11);
+				insert(_el$10, () => text("个对象已确认从世界移除", "objects confirmed removed from the world"), _el$14);
+				insert(_el$10, () => props.state.changes.filter((value) => !value.world_deleted).length, _el$15);
+				insert(_el$10, () => text("个记录离开当前查询；不代表世界删除", "records left this query; world deletion is not implied"), null);
+				return _el$10;
 			}
-		}), _el$16);
+		}), _el$17);
 		insert(_el$, createComponent(Show, {
 			get when() {
 				return props.state?.notice === "event_feed_unavailable";
 			},
 			get children() {
-				var _el$15 = _tmpl$$33();
-				insert(_el$15, () => text("当前世界动态中没有此事件；未跳转到其他事件。", "This event is absent from the current world feed."));
-				return _el$15;
+				var _el$16 = _tmpl$2$30();
+				insert(_el$16, () => text("当前世界动态中没有此事件；未跳转到其他事件。", "This event is absent from the current world feed."));
+				return _el$16;
 			}
-		}), _el$16);
-		insert(_el$16, createComponent(For, {
+		}), _el$17);
+		insert(_el$17, createComponent(For, {
 			get each() {
 				return entities();
 			},
 			children: (entity) => (() => {
-				var _el$17 = _tmpl$5$21(), _el$18 = _el$17.firstChild, _el$19 = _el$18.nextSibling, _el$22 = _el$19.firstChild.nextSibling;
-				_el$22.nextSibling;
-				var _el$23 = _el$19.nextSibling, _el$24 = _el$23.nextSibling, _el$25 = _el$24.nextSibling;
-				_el$18.$$click = () => select(entity);
-				insert(_el$18, () => entity.label || entity.entity_id);
-				insert(_el$19, () => kindLabel(entity.kind), _el$22);
-				insert(_el$19, () => freshnessLabel(entity.provenance?.freshness), null);
-				insert(_el$19, (() => {
-					var _c$2 = memo(() => entity.provenance?.geometry_source === "location_derived");
-					return () => _c$2() ? text(" · 地点派生位置", " · Location derived position") : "";
+				var _el$18 = _tmpl$6$15(), _el$19 = _el$18.firstChild, _el$20 = _el$19.nextSibling, _el$23 = _el$20.firstChild.nextSibling;
+				_el$23.nextSibling;
+				var _el$24 = _el$20.nextSibling, _el$25 = _el$24.nextSibling, _el$26 = _el$25.nextSibling;
+				_el$19.$$click = () => select(entity);
+				insert(_el$19, () => entity.label || entity.entity_id);
+				insert(_el$20, () => kindLabel(entity.kind), _el$23);
+				insert(_el$20, () => freshnessLabel(entity.provenance?.freshness), null);
+				insert(_el$20, (() => {
+					var _c$3 = memo(() => entity.provenance?.geometry_source === "location_derived");
+					return () => _c$3() ? text(" · 地点派生位置", " · Location derived position") : "";
 				})(), null);
-				_el$23.$$click = () => {
+				_el$24.$$click = () => {
 					select(entity);
 					setFollowing(null);
 					props.onFollow?.(null);
@@ -22612,8 +22757,8 @@ function PixelWorldWorldViewExplorer(props) {
 						id: entity.entity_id
 					}, position(entity));
 				};
-				insert(_el$23, () => text("定位", "Locate"));
-				_el$24.$$click = () => {
+				insert(_el$24, () => text("定位", "Locate"));
+				_el$25.$$click = () => {
 					select(entity);
 					setFollowing(null);
 					props.onFollow?.(null);
@@ -22623,8 +22768,8 @@ function PixelWorldWorldViewExplorer(props) {
 					}, position(entity));
 					props.onQuery?.({ bounds: regionBounds(entity) });
 				};
-				insert(_el$24, () => text("查看周边区域", "Explore region"));
-				_el$25.$$click = () => {
+				insert(_el$25, () => text("查看周边区域", "Explore region"));
+				_el$26.$$click = () => {
 					select(entity);
 					setFollowing(`${entity.kind}:${entity.entity_id}`);
 					props.onFollow?.({
@@ -22632,24 +22777,24 @@ function PixelWorldWorldViewExplorer(props) {
 						id: entity.entity_id
 					});
 				};
-				insert(_el$25, () => text("跟随", "Follow"));
-				insert(_el$17, createComponent(Show, {
+				insert(_el$26, () => text("跟随", "Follow"));
+				insert(_el$18, createComponent(Show, {
 					get when() {
 						return !position(entity);
 					},
 					get children() {
-						var _el$26 = _tmpl$4$22();
-						_el$26.firstChild;
-						insert(_el$26, () => text("无当前可信位置", "No current trusted position"), null);
-						return _el$26;
+						var _el$27 = _tmpl$5$21();
+						_el$27.firstChild;
+						insert(_el$27, () => text("无当前可信位置", "No current trusted position"), null);
+						return _el$27;
 					}
 				}), null);
 				createRenderEffect((_p$) => {
 					var _v$4 = !position(entity), _v$5 = !regionBounds(entity), _v$6 = !followPosition(entity), _v$7 = following() === `${entity.kind}:${entity.entity_id}`;
-					_v$4 !== _p$.e && (_el$23.disabled = _p$.e = _v$4);
-					_v$5 !== _p$.t && (_el$24.disabled = _p$.t = _v$5);
-					_v$6 !== _p$.a && (_el$25.disabled = _p$.a = _v$6);
-					_v$7 !== _p$.o && setAttribute(_el$25, "aria-pressed", _p$.o = _v$7);
+					_v$4 !== _p$.e && (_el$24.disabled = _p$.e = _v$4);
+					_v$5 !== _p$.t && (_el$25.disabled = _p$.t = _v$5);
+					_v$6 !== _p$.a && (_el$26.disabled = _p$.a = _v$6);
+					_v$7 !== _p$.o && setAttribute(_el$26, "aria-pressed", _p$.o = _v$7);
 					return _p$;
 				}, {
 					e: void 0,
@@ -22657,7 +22802,7 @@ function PixelWorldWorldViewExplorer(props) {
 					a: void 0,
 					o: void 0
 				});
-				return _el$17;
+				return _el$18;
 			})()
 		}));
 		insert(_el$, createComponent(PixelWorldEvolutionExplorer, {
@@ -22720,7 +22865,7 @@ function PixelWorldWorldViewExplorer(props) {
 			var _v$ = text("授权世界探索", "Authorized world exploration"), _v$2 = props.state?.loading, _v$3 = text("获准对象与重叠候选", "Authorized objects and overlapping candidates");
 			_v$ !== _p$.e && setAttribute(_el$, "aria-label", _p$.e = _v$);
 			_v$2 !== _p$.t && (_el$6.disabled = _p$.t = _v$2);
-			_v$3 !== _p$.a && setAttribute(_el$16, "aria-label", _p$.a = _v$3);
+			_v$3 !== _p$.a && setAttribute(_el$17, "aria-label", _p$.a = _v$3);
 			return _p$;
 		}, {
 			e: void 0,
@@ -22769,6 +22914,9 @@ function PixelWorldSpatialExplorer(props) {
 			},
 			get pauseVersion() {
 				return props.controller.pauseVersion();
+			},
+			get overviewStatus() {
+				return props.controller.overviewStatus?.();
 			},
 			get onDrilldown() {
 				return props.controller.drilldown;
@@ -22939,7 +23087,7 @@ function snapshotTick(snapshot) {
 	const tick = Number(snapshot.time);
 	return Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : null;
 }
-function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage }) {
+function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, onResourceStage, onNavigationResult }) {
 	let bridge = null;
 	let generation = 0;
 	const detached = () => ({
@@ -23048,6 +23196,10 @@ function createPixelWorldHostAdapter({ onSelectEntity, onHoverEntity, onFatal, o
 					if (!isCurrent()) return;
 					if (event?.type === "resource_stage") {
 						onResourceStage?.(event.stage);
+						return;
+					}
+					if (event?.type === "navigation_result") {
+						onNavigationResult?.(event);
 						return;
 					}
 					if (event?.type === "canvas_ready") return;
@@ -26472,6 +26624,7 @@ function PixelWorldHost(props) {
 	});
 	const adapter = createMemo(() => createPixelWorldHostAdapter({
 		onResourceStage: setResourceStage,
+		onNavigationResult: spatial.navigationResult,
 		onSelectEntity(selection) {
 			if (spatial.selectPresented(selection)?.kind === "module_visual") focusViewerPanel("viewer-details-panel");
 		},

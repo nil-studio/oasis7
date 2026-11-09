@@ -7,6 +7,7 @@ fn state(mode: &str, request_id: &str) -> RenderState {
         mode: mode.into(),
         request_id: request_id.into(),
         bounds: None,
+        overview_query: overview_query::Declaration::Legacy,
         target: Some(Selection {
             kind: "agent".into(),
             id: "agent-0".into(),
