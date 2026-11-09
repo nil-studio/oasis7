@@ -1,6 +1,7 @@
+import { serveStaticFile } from "./viewer-static-files.mjs";
 import { createServer } from "node:http";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, normalize, relative, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
@@ -27,12 +28,7 @@ function assert(condition, message, details) { if (!condition) fail(message, det
 function writeJson(name, value) { const path = join(outDir, name); writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`); return path; }
 function contentType(pathname) { return ({ ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".wasm": "application/wasm", ".css": "text/css; charset=utf-8" })[extname(pathname)] || "application/octet-stream"; }
 function serveFile(request, response) {
-  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
-  const rawPath = decodeURIComponent(requestUrl.pathname === "/" ? "/viewer.html" : requestUrl.pathname);
-  const normalized = normalize(rawPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = resolve(artifactRoot, `.${normalized}`);
-  if (!relative(artifactRoot, filePath) || relative(artifactRoot, filePath).startsWith("..")) { response.writeHead(403); response.end("forbidden"); return; }
-  try { if (!statSync(filePath).isFile()) throw new Error("not file"); response.writeHead(200, { "Content-Type": contentType(filePath), "Cache-Control": "no-store" }); response.end(readFileSync(filePath)); } catch { response.writeHead(404); response.end("not found"); }
+  serveStaticFile(request, response, artifactRoot, contentType);
 }
 function ensureBrowser() { if (spawnSync(agentBrowserBin, ["--version"], { stdio: "ignore" }).status !== 0) fail(`missing required browser automation command: ${agentBrowserBin}`); }
 const browserLifecycle = createOwnedSessionLifecycle({ command: agentBrowserBin, session, prefixArgs: browserLaunchArgs });

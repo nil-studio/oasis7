@@ -2765,6 +2765,99 @@ class Selection(unittest.TestCase):
                     selector.TestPolicyError, 'validated test feature combinations'):
                 selector.select(config, base, self.commit(), profile='pr-fast')
 
+    def pixel_config(self):
+        config = self.fast_config()
+        config['groups'].append('pixel_world_bridge')
+        config['resources']['pixel_world_bridge'] = []
+        config['package_groups']['pixel_world_bridge'] = ['pixel_world_bridge']
+        self.write('crates/pixel_world_bridge/Cargo.toml',
+                   '[package]\nname="pixel_world_bridge"\nversion="0.1.0"\n'
+                   '[features]\ndefault=["webgl2_runtime"]\nwebgl2_runtime=[]\noptional=[]\n')
+        self.write('crates/pixel_world_bridge/src/lib.rs',
+                   '#[cfg(feature="webgl2_runtime")] #[path="navigation.rs"] mod navigation;\n')
+        self.write('crates/pixel_world_bridge/src/navigation.rs', 'pub fn existing() {}\n')
+        return config, self.commit()
+
+    def test_pixel_new_library_tests_and_platform_statements_keep_real_driver(self):
+        config, base = self.pixel_config()
+        self.write('crates/pixel_world_bridge/src/navigation.rs',
+                   'pub fn existing() {}\npub fn finish_overview() {\n'
+                   '#[cfg(target_arch="wasm32")] let _ = json!({"status": "done"});\n'
+                   '#[cfg(not(target_arch="wasm32"))] let _ = 1;\n}\n'
+                   '#[test] fn direct_case() {}\n'
+                   '#[cfg(test)] mod tests { #[test] fn added() {} }\n')
+        self.write('crates/pixel_world_bridge/src/lib.rs',
+                   '#[cfg(feature="webgl2_runtime")] #[path="navigation.rs"] mod navigation;\nmod overview;\n')
+        self.write('crates/pixel_world_bridge/src/overview.rs',
+                   '#[cfg(test)] mod tests { #[test] fn query() {} }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertIn('pixel_world_bridge', plan['groups'])
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['formal_suites'], [])
+        self.assertEqual(plan['oasis7_required_packages'], [])
+
+    def test_pixel_platform_statement_proof_rejects_existing_opaque_and_unknown_context(self):
+        config, base = self.pixel_config()
+        path = 'crates/pixel_world_bridge/src/navigation.rs'
+        statements = [
+            'pub fn existing() { #[cfg(target_arch="wasm32")] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg(windows)] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg(unknown_target)] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg(feature="optional")] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg_attr(unix,cfg(target_arch="wasm32"))] let _ = 1; }',
+            *('pub fn existing() {} fn new() { make!' + left +
+              '#[cfg(target_arch="wasm32")] let _ = 1;' + right + '; }'
+              for left, right in [('(', ')'), ('[', ']'), ('{', '}')]),
+            'pub fn existing() {} impl Thing { fn new() { #[cfg(target_arch="wasm32")] let _ = 1; } }',
+            'pub fn existing() {} #[cfg(unix)] fn new() { #[cfg(target_arch="wasm32")] let _ = 1; }',
+            'pub fn existing() {} #[cfg(unix)] mod native { fn new() { #[cfg(target_arch="wasm32")] let _ = 1; } }',
+        ]
+        for content in statements:
+            with self.subTest(content=content):
+                self.write(path, content)
+                result = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(result['scope'], 'full')
+        self.write(path, 'pub fn existing() {} #[cfg(target_arch="wasm32")] #[test] fn wasm_case() {}')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_pixel_platform_statement_cannot_hide_unknown_route_or_retired_test(self):
+        config, base = self.pixel_config()
+        path = 'crates/pixel_world_bridge/src/navigation.rs'
+        added = 'pub fn existing() {} fn new() { #[cfg(target_arch="wasm32")] let _ = 1; }'
+        self.write(path, added)
+        self.write('crates/pixel_world_bridge/src/lib.rs',
+                   '#[path="navigation.rs"] mod known;\n'
+                   '#[cfg(unknown_target)] #[path="navigation.rs"] mod unknown;\n')
+        self.assertEqual(selector.select(config, base, self.commit(), profile='pr-fast')['scope'], 'full')
+        self.write('crates/pixel_world_bridge/src/lib.rs', 'mod navigation;\n')
+        self.write(path, 'pub fn existing() {} #[test] fn retired() {}\n')
+        base = self.commit()
+        self.write(path, added)
+        result = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(result['scope'], 'full')
+        self.assertTrue(result['test_policy_changed'])
+
+    def test_full_artifact_and_support_partitions_require_trusted_capabilities(self):
+        config = self.fast_config()
+        config.update(ordinary_artifact_partition_version=1, workspace_support_partition_version=1)
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# control input\n')
+        head = self.commit()
+        complete = selector.select(config, self.base, head, profile='pr-fast')
+        self.assertEqual(complete['ordinary_partitions'], ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+        for profile in ('periodic-full', 'candidate-full'):
+            full = selector.full_plan(config, profile, head)
+            self.assertEqual(full['ordinary_partitions'], complete['ordinary_partitions'])
+        old = copy.deepcopy(config)
+        old.pop('ordinary_artifact_partition_version')
+        old.pop('workspace_support_partition_version')
+        self.assertNotIn('ordinary_partitions', selector.select(old, self.base, head, profile='pr-fast'))
+        for field in ('ordinary_artifact_partition_version', 'workspace_support_partition_version'):
+            for invalid in (True, 2, None):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    selector.validate_config(dict(config, **{field: invalid}))
+
     def test_fast_new_native_items_keep_affected_packages_and_formal_risks(self):
         config = self.fast_config()
         path = 'crates/core/src/lib.rs'

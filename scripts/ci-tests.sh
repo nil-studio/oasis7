@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan JSON|--support-profiles JSON]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan JSON|--support-profiles JSON] [--support-partition NAME]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -229,6 +229,7 @@ run_oasis7_required_tier_tests() {
   else
     run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
   fi
+  if [[ "${ordinary_partition:-}" == controls ]]; then return; fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
     run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
     return
@@ -476,7 +477,7 @@ run_selected_workspace_support() {
   fi
   local selected profile expand_targets expanded_features complete_targets
   local -a expanded_args
-  selected=$("$ci_python" - "$support_profiles" "$driver_dir" <<'PY'
+  selected=$("$ci_python" - "$support_profiles" "$driver_dir" "${support_partition:-all}" <<'PY'
 import importlib.util, json, sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('scope', Path(sys.argv[2]) / 'plan-rust-required-scope.py')
@@ -506,6 +507,18 @@ if (not isinstance(profiles, list) or not profiles or
 # so an additive profile never narrows or breaks the full support job.
 if raw.startswith('plan:') and plan.get('scope') == 'full':
     profiles = list(module.SUPPORT_PROFILES)
+partition = sys.argv[3]
+if raw.startswith('plan:') and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
+    if (type(plan.get('workspace_support_partition_version')) is not int
+            or plan['workspace_support_partition_version'] != 1
+            or plan.get('workspace_support_partitions') != module.support_partitions(profiles)
+            or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
+        raise SystemExit('invalid complete workspace support partitions')
+    if partition != 'all':
+        profiles = [profile for profile in profiles
+                    if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
+elif partition != 'all':
+    raise SystemExit('support partition requires a trusted capability')
 expanded = raw.startswith('plan:') and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True
 if expanded:
     spec = importlib.util.spec_from_file_location('artifacts', Path(sys.argv[2]) / 'ci-test-artifacts.py')
@@ -685,6 +698,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
@@ -1147,7 +1161,23 @@ run_group() {
   case "$1" in
     baseline) run_required_gate_checks ;;
     rust_baseline) run_rust_baseline ;;
-    oasis7_required) run_oasis7_required_clippy_for_group oasis7_required; run_oasis7_required_tier_tests; if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::; run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields; fi ;;
+    oasis7_required)
+      case "${ordinary_partition:-all}" in
+        runtime|component-libs|integrations-0|integrations-1)
+          [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]] || { echo 'Complete ordinary partition requires the shared artifact' >&2; return 2; }
+          run "$ci_python" "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" \
+            --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary --plan "$required_plan" --ordinary-partition "$ordinary_partition"
+          ;;
+        *)
+          run_oasis7_required_clippy_for_group oasis7_required
+          run_oasis7_required_tier_tests
+          if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then
+            run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::
+            run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
+          fi
+          ;;
+      esac
+      ;;
     formal_process) run bash "$driver_dir/formal-live-local-tests.sh" "$repo_root" ;;
     consensus) run_oasis7_consensus_clippy; run_oasis7_consensus_tests ;;
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
@@ -1199,6 +1229,7 @@ group=""
 support_profiles=""
 required_plan=""
 ordinary_partition=""
+support_partition="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1226,6 +1257,11 @@ while [[ $# -gt 0 ]]; do
       required_plan="$2"
       shift 2
       ;;
+    --support-partition)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_partition="$2"
+      shift 2
+      ;;
     --ordinary-partition)
       [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
       ordinary_partition="$2"
@@ -1246,6 +1282,10 @@ source "$driver_dir/viewer-dependency-preflight.sh"
 echo "+ ci test tier: $tier"
 if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_support ) ]]; then
   echo '--support-profiles requires required --group workspace_support' >&2
+  exit 2
+fi
+if [[ "$support_partition" != all && ( "$tier" != required || "$group" != workspace_support || -z "$support_profiles" ) ]]; then
+  echo '--support-partition requires required --group workspace_support --support-plan' >&2
   exit 2
 fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then

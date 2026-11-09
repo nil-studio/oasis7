@@ -147,6 +147,7 @@ jobs:
       trusted_source: ${{ steps.select.outputs.trusted_source }}
       formal_shards: ${{ steps.select.outputs.formal_shards || '["runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli"]' }}
       ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '["all"]' }}
+      workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '["all"]' }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -292,6 +293,128 @@ jobs:
           path: ${{ runner.temp }}/selection.json
           if-no-files-found: error
           retention-days: 30
+      - &engineering-job-observation
+        name: Record engineering job observation
+        if: always() && !cancelled()
+        continue-on-error: true
+        timeout-minutes: 1
+        shell: bash
+        env:
+          TELEMETRY_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          TELEMETRY_SOURCE_SHA: ${{ needs.select.outputs.source_sha || steps.select.outputs.source_sha }}
+          TELEMETRY_TESTED_SHA: ${{ needs.select.outputs.tested_sha || steps.select.outputs.tested_sha }}
+          TELEMETRY_POLICY_SHA: ${{ needs.select.outputs.policy_sha || steps.select.outputs.policy_sha }}
+          TELEMETRY_NEEDS: ${{ toJSON(needs) }}
+          TELEMETRY_MATRIX: ${{ toJSON(matrix) }}
+        run: |
+          python3 - <<'PY_OBSERVATION' # oasis7-engineering-job-observation/v1
+          import gzip, hashlib, json, os, pathlib, re, subprocess
+          E = os.environ
+          limit = 1024 * 1024
+          missing = []
+          def digest(raw):
+              return hashlib.sha256(raw).hexdigest()
+          def bounded(path):
+              path = pathlib.Path(path)
+              if any(p.is_symlink() for p in (path, *path.parents)):
+                  raise ValueError('symlink')
+              with path.open('rb') as stream:
+                  raw = stream.read(limit + 1)
+              if len(raw) > limit:
+                  raise ValueError('size')
+              return raw
+          def sha(value):
+              return value if isinstance(value, str) and re.fullmatch('[0-9a-f]{40}', value) else None
+          def token(value):
+              return isinstance(value, str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', value) and not re.search(r'(?i)(password|secret|authorization|bearer|access.token|gh[pousr]_|github_pat_)', value)
+          def safe_json(name, fallback):
+              raw = E.get(name, '')
+              if len(raw) > 65536:
+                  raise ValueError('context_size')
+              return json.loads(raw) if raw else fallback
+          needs = safe_json('TELEMETRY_NEEDS', {})
+          matrix = safe_json('TELEMETRY_MATRIX', {}) or {}
+          if not isinstance(needs, dict) or not isinstance(matrix, dict):
+              raise ValueError('context_type')
+          if len(needs) > 100 or len(matrix) > 32 or any(not token(k) or not isinstance(v, dict) or v.get('result') not in ('success', 'failure', 'cancelled', 'skipped') for k, v in needs.items()):
+              raise ValueError('needs_values')
+          if any(not token(k) or not (type(v) is bool or (type(v) is int and abs(v) <= 2**31) or token(v)) for k, v in matrix.items()):
+              raise ValueError('matrix_values')
+          needs = {key: value.get('result') for key, value in needs.items()}
+          workspace = pathlib.Path(E['GITHUB_WORKSPACE'])
+          checkout = None
+          if (workspace / '.git').exists():
+              try:
+                  checkout = sha(subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=workspace,
+                                   timeout=5, stderr=subprocess.DEVNULL, text=True).strip())
+              except (OSError, subprocess.SubprocessError):
+                  missing.append('checkout_unavailable')
+          temp = pathlib.Path(E['RUNNER_TEMP'])
+          configs = {}
+          for label, path in [('checkout-test-config', workspace / 'scripts/ci-formal-process-suites.json'),
+                              ('checkout-scope-config', workspace / 'scripts/ci-required-scope.json'),
+                              ('formal-authority', temp / 'ci-authority/ci-formal-process-suites.json')]:
+              if path.exists():
+                  try:
+                      configs[label] = digest(bounded(path))
+                  except (OSError, ValueError):
+                      missing.append('configuration_unavailable')
+          job = E['GITHUB_JOB']
+          locations = []
+          if job in ('formal-debug-build', 'formal-debug-build-trusted'):
+              locations = [('produced', 'debug', temp / 'formal-debug-tests/manifest.json', False)]
+          elif job in ('formal-endpoint-build', 'formal-endpoint-build-trusted'):
+              locations = [('produced', 'endpoint', temp / 'formal-endpoint-tests/manifest.json', False)]
+          elif job in ('formal-test-build', 'formal-test-build-trusted'):
+              locations = [('observed-input', 'debug', temp / 'formal-debug-tests/manifest.json', False),
+                           ('observed-input', 'endpoint', temp / 'formal-endpoint-tests/manifest.json', False)]
+              for shard in ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli'):
+                  locations.append(('produced', shard, temp / 'formal-archives' / (shard + '.tar.gz'), True))
+          elif job == 'formal-process-tests':
+              locations = [('observed-input', matrix.get('shard'), temp / 'native-tests/manifest.json', False)]
+          manifests = []
+          for direction, label, path, archived in locations:
+              if not path.exists():
+                  continue
+              try:
+                  if archived:
+                      if any(p.is_symlink() for p in (path, *path.parents)):
+                          raise ValueError('symlink')
+                      with gzip.open(path, 'rb') as stream:
+                          header = stream.read(512)
+                          if (len(header) != 512 or header[:100].split(b'\0', 1)[0] != b'manifest.json'
+                                  or header[156:157] not in (b'0', b'\0')
+                                  or int(header[148:156].strip(b'\0 '), 8) != sum(header[:148]) + 256 + sum(header[156:])):
+                              raise ValueError('manifest_header')
+                          size = int(header[124:136].strip(b'\0 '), 8)
+                          if not 0 <= size <= limit:
+                              raise ValueError('manifest_size')
+                          raw = stream.read(size)
+                          if len(raw) != size:
+                              raise ValueError('manifest_truncated')
+                  else:
+                      raw = bounded(path)
+                  manifest = json.loads(raw)
+                  if type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 2:
+                      raise ValueError('manifest_schema')
+                  if any(not isinstance(manifest.get(k), str) or not re.fullmatch('[1-9][0-9]{0,18}', manifest[k]) or int(manifest[k]) > 2**63-1 for k in ('producer_run_id', 'producer_attempt')):
+                      raise ValueError('manifest_producer')
+                  if not isinstance(manifest.get('config_sha256'), str) or not re.fullmatch('[0-9a-f]{64}', manifest['config_sha256']) or not token(label):
+                      raise ValueError('manifest_config')
+                  manifests.append(dict(direction=direction, label=label, manifest_sha256=digest(raw),
+                      source_sha=sha(manifest.get('source_sha')), tested_sha=sha(manifest.get('tested_sha')),
+                      producer_run_id=manifest.get('producer_run_id'), producer_attempt=manifest.get('producer_attempt'),
+                      config_digest=manifest.get('config_sha256')))
+              except (OSError, ValueError, EOFError, KeyError, TypeError):
+                  missing.append('manifest_observation_unavailable')
+          row = dict(schema_version='oasis7-engineering-job/v1', repository=E['GITHUB_REPOSITORY'],
+              run_id=int(E['GITHUB_RUN_ID']), run_attempt=int(E['GITHUB_RUN_ATTEMPT']), job_key=job,
+              workflow_sha=sha(E.get('TELEMETRY_WORKFLOW_SHA')), matrix=matrix, needs=needs,
+              target_source_sha=sha(E.get('TELEMETRY_SOURCE_SHA')), target_tested_sha=sha(E.get('TELEMETRY_TESTED_SHA')),
+              target_policy_sha=sha(E.get('TELEMETRY_POLICY_SHA')), checkout_sha=checkout,
+              configuration_digests=configs, manifests=manifests, missing_reasons=sorted(set(missing)))
+          print('OASIS7_' + 'ENGINEERING_JOB_V1=' + json.dumps(row, sort_keys=True, separators=(',', ':')))
+          PY_OBSERVATION
 
   pr-fast-preview-plan:
     if: github.event_name == 'pull_request'
@@ -392,7 +515,7 @@ jobs:
       - name: Stabilize Rust toolchains for ordinary execution
         if: matrix.group != 'baseline'
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         if: matrix.group == 'rust_baseline'
         with:
           tool: cargo-deny@0.19.9
@@ -555,7 +678,7 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install native libraries
@@ -606,6 +729,7 @@ jobs:
         env:
           CACHE_MAINTENANCE_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-cache-maintenance.py --recover --apply
+      - *engineering-job-observation
 
   oasis7-test-build-candidate:
     cache-mode: read
@@ -996,6 +1120,7 @@ jobs:
           path: ${{ runner.temp }}/formal-debug-cache-*.json
           if-no-files-found: ignore
           retention-days: 2
+      - *engineering-job-observation
 
   formal-debug-build-trusted:
     cache-mode: write
@@ -1218,6 +1343,7 @@ jobs:
           path: ${{ runner.temp }}/formal-endpoint-cache-*.json
           if-no-files-found: ignore
           retention-days: 2
+      - *engineering-job-observation
 
   formal-endpoint-build-trusted:
     cache-mode: write
@@ -1373,6 +1499,7 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
+      - *engineering-job-observation
 
   formal-test-build-trusted:
     cache-mode: read
@@ -1469,6 +1596,7 @@ jobs:
       fail-fast: false
       matrix:
         partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}
+      max-parallel: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1606,6 +1734,7 @@ jobs:
           path: output/formal-process/results.jsonl
           if-no-files-found: warn
           retention-days: 7
+      - *engineering-job-observation
 
   formal-process:
     needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]
@@ -1621,6 +1750,7 @@ jobs:
           SELECTED: ${{ needs.select.outputs.run_formal_process }}
           NEEDS: ${{ toJSON(needs) }}
         run: python3 "$RUNNER_TEMP/ci-authority/ci-formal-plan.py" --selected "$SELECTED" --needs "$NEEDS"
+      - *engineering-job-observation
 
   consensus:
     needs: select
@@ -2113,12 +2243,18 @@ jobs:
         run: bash ./scripts/ci-tests.sh required --group "launcher_web" --repo-root "$GITHUB_WORKSPACE"
 
   workspace-support:
+    name: workspace-support (${{ matrix.partition }})
     needs: select
     if: >-
       needs.select.result == 'success' &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        partition: ${{ fromJSON(needs.select.outputs.workspace_support_partitions) }}
     env:
       OASIS7_SUPPORT_CAPACITY: "1"
       OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
@@ -2177,10 +2313,11 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
+          SUPPORT_PARTITION: ${{ matrix.partition }}
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-native-libraries
-          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN"
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN" --support-partition "$SUPPORT_PARTITION"
       - name: Observe support capacity on job exit
         if: always()
         shell: bash
@@ -2642,6 +2779,7 @@ jobs:
           PLAN: ${{ needs.select.outputs.plan }}
           NEEDS: ${{ toJSON(needs) }}
         run: python3 "$RUNNER_TEMP/ci-authority/ci-required-result.py" --plan "$PLAN" --needs "$NEEDS"
+      - *engineering-job-observation
 
   full-regression:
     cache-mode: write
@@ -2683,7 +2821,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
@@ -2847,7 +2985,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps

@@ -135,7 +135,9 @@ def viewer_cache_kind(job):
     return 'native' if inputs == native else 'web'
 
 
-def without_optional_dependency_cache_install(workflow):
+def without_optional_dependency_cache_install(workflow, config=None):
+    if config is None:
+        config = CONFIG
     # Only these exact optional installers and diagnostics uploads may fail.
     # Removing a writer condition, renaming the command or swallowing any build,
     # required artifact, merge or test failure is never exempt.
@@ -164,6 +166,18 @@ def without_optional_dependency_cache_install(workflow):
                        '          retention-days: 2\n')
         workflow = (workflow[:job.start()] + job[0].replace(installer, '', 1).replace(diagnostics, '', 1)
                     + workflow[job.end():])
+    if '      - &engineering-job-observation\n' in workflow:
+        import engineering_telemetry as bindings
+        import hashlib
+        policy = config.get('engineering_job_observation', {})
+        expected = dict(schema_version=1, workflow_path='.github/workflows/rust.yml',
+                        step_name=bindings.STEP, step_anchor='engineering-job-observation',
+                        timeout_minutes=1, failure_mode='nonblocking',
+                        emitter_sha256=hashlib.sha256(bindings.EMITTER.encode()).hexdigest())
+        step = re.search(r'^      - &engineering-job-observation\n.*?(?=^      - |^  [a-z][a-z0-9-]*:|\Z)',
+                         workflow, re.M | re.S)
+        if policy == expected and step and step[0].rstrip('\n') == bindings.workflow_step().rstrip('\n'):
+            workflow = workflow[:step.start()] + workflow[step.end():]
     return workflow
 
 
@@ -175,7 +189,7 @@ def validate_candidate_graph(workflow, config):
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
-    if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow):
+    if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
     if ('os: [ubuntu-24.04, windows-2022, macos-15]' not in fleet
@@ -192,8 +206,17 @@ def validate_candidate_graph(workflow, config):
         if ("needs.select.result == 'success'" not in job
                 or "fromJSON(needs.select.outputs.plan).scope == 'full'" not in job):
             raise ValueError('group requires successful select and full migration fallback')
-        if group not in ('fleet_health', 'oasis7_required') and 'strategy:' in job:
+        if group not in ('fleet_health', 'oasis7_required', 'workspace_support') and 'strategy:' in job:
             raise ValueError('ordinary groups must not have singleton matrices')
+        if group == 'workspace_support':
+            header = job.split('    steps:', 1)[0]
+            if ('fail-fast: false' not in header or 'max-parallel: 2' not in header
+                    or 'partition: ${{ fromJSON(needs.select.outputs.workspace_support_partitions) }}' not in header
+                    or 'include:' in header or 'exclude:' in header
+                    or "workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '[\"all\"]' }}" not in jobs['select']
+                    or 'SUPPORT_PARTITION: ${{ matrix.partition }}' not in job
+                    or '--support-partition "$SUPPORT_PARTITION"' not in job):
+                raise ValueError('support matrix must retain every trusted profile partition and the legacy all fallback')
         if group == 'oasis7_required':
             strategy = ('    strategy:\n      fail-fast: false\n      matrix:\n'
                         '        partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}\n')
@@ -1545,6 +1568,18 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         with self.assertRaises(ValueError):
             validate_candidate_graph(WORKFLOW.replace(fallback, "ordinary_partitions: '[\"oasis7_runtime\"]'"), CONFIG)
 
+    def test_support_matrix_retains_all_selected_profiles_and_failure_boundary(self):
+        job = JOBS['workspace-support']
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+        for damaged in (
+            job.replace('fail-fast: false', 'fail-fast: true'),
+            job.replace('${{ fromJSON(needs.select.outputs.workspace_support_partitions) }}', '[other]'),
+            job.replace('      matrix:\n', '      matrix:\n        exclude: [{partition: custody}]\n'),
+            job.replace('--support-partition "$SUPPORT_PARTITION"', ''),
+        ):
+            with self.subTest(damaged=damaged[:120]), self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW.replace(job, damaged), CONFIG)
+
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
         self.assertIn('needs: [select, oasis7-test-build-trusted, formal-debug-build-trusted, formal-endpoint-build-trusted]', job)
@@ -1931,6 +1966,25 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     records = trace.read_text().splitlines()
                     assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
                     assert 'oasis7_viewer_live' in records, records
+
+    def test_engineering_observation_policy_is_exact_and_never_exempts_required_steps(self):
+        import engineering_telemetry as bindings
+        from unittest.mock import patch
+        self.assertNotIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW))
+        changed = dict(CONFIG)
+        changed['engineering_job_observation'] = dict(CONFIG['engineering_job_observation'], emitter_sha256='0' * 64)
+        with patch.dict(globals(), CONFIG=changed):
+            self.assertIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW))
+        absent = {key: value for key, value in CONFIG.items() if key != 'engineering_job_observation'}
+        for policy in (absent, changed):
+            with self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW, policy)
+        for mutation in (bindings.workflow_step().replace('timeout-minutes: 1', 'timeout-minutes: 10'),
+                         bindings.workflow_step().replace('PY_OBSERVATION\n', 'PY_OBSERVATION\n          false\n')):
+            self.assertIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW.replace(bindings.workflow_step(), mutation)))
+        required = WORKFLOW.replace('      - name: Validate all expected results\n',
+                                    '      - name: Validate all expected results\n        continue-on-error: true\n')
+        with self.assertRaises(ValueError):validate_candidate_graph(required,CONFIG)
 
     def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
@@ -2767,7 +2821,7 @@ run_cargo() {
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
-            if group not in ('fleet_health', 'oasis7_required'):
+            if group not in ('fleet_health', 'oasis7_required', 'workspace_support'):
                 self.assertNotIn('strategy:', job)
             if group != 'workflow_governance':
                 self.assertNotIn('ci-authority', job)
@@ -3133,9 +3187,13 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
 
     def test_clippy_precedes_heavy_group_tests(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        ordinary = re.search(r'^    oasis7_required\).*?;;', driver, re.M).group()
+        ordinary = driver.split('    oasis7_required)\n', 1)[1].split('    formal_process)', 1)[0]
         self.assertLess(ordinary.index('run_oasis7_required_clippy_for_group oasis7_required'),
                         ordinary.index('run_oasis7_required_tier_tests'))
+        consumer = ordinary.split('        *)', 1)[0]
+        self.assertIn('--ordinary-partition "$ordinary_partition"', consumer)
+        self.assertNotIn('run_cargo', consumer)
+        self.assertIn('Complete ordinary partition requires the shared artifact', consumer)
         baseline = driver.split('run_rust_baseline() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('run_oasis7_required_clippy_for_group rust_baseline', baseline)
         for group, prefix in [('consensus', 'consensus'), ('distfs', 'distfs'),

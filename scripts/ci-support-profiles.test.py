@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -80,6 +81,102 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
+    def test_custody_node_files_are_bounded_isolated_complete_and_propagate_failure(self):
+        command = json.loads((ROOT / 'crates/oasis7_custody_worker/package.json').read_text())['scripts']['test']
+        checker, runner = command.split(' && ')
+        self.assertTrue(checker.startswith('tsc --noEmit --strict '))
+        arguments = shlex.split(runner)
+        self.assertEqual(arguments, ['node', '--test', '--test-concurrency=2', 'tests/*.test.mjs'])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'tests').mkdir()
+            source = '''import {test, after} from 'node:test';
+import assert from 'node:assert/strict';
+import {appendFileSync} from 'node:fs';
+const record = kind => appendFileSync(process.env.EVENTS, JSON.stringify({kind,pid:process.pid})+'\\n');
+record('start');
+let active=0, completed=0;
+for (const name of ['first', 'second']) test(name, async () => {
+  assert.equal(active,0,'same-file cases must remain serial');
+  active++;
+  await new Promise(resolve=>setTimeout(resolve,60));
+  active--; completed++;
+  assert.notEqual(process.env.FAIL_FILE,import.meta.url.split('/').pop());
+});
+after(()=>{assert.equal(completed,2);record('finish');});
+'''
+            for index in range(3):
+                (root / 'tests' / f'{index}.test.mjs').write_text(source)
+            files = sorted(str(path.relative_to(root)) for path in (root / 'tests').glob('*.test.mjs'))
+            for fail_file in ('', '1.test.mjs'):
+                events = root / 'events.jsonl'
+                events.unlink(missing_ok=True)
+                result = subprocess.run([*arguments[:-1], '--test-reporter=tap', *files], cwd=root,
+                    env=dict(os.environ, EVENTS=str(events), FAIL_FILE=fail_file), text=True, capture_output=True)
+                self.assertEqual(result.returncode, 1 if fail_file else 0, result.stdout + result.stderr)
+                self.assertIn('# tests 6', result.stdout)
+                active, identities = set(), set()
+                for line in events.read_text().splitlines():
+                    event = json.loads(line)
+                    if event['kind'] == 'start':
+                        self.assertNotIn(event['pid'], identities)
+                        identities.add(event['pid']); active.add(event['pid'])
+                        self.assertLessEqual(len(active), 2)
+                    else:
+                        active.remove(event['pid'])
+                self.assertEqual(len(identities), 3)
+                self.assertEqual(active, set())
+
+    def test_support_partitions_preserve_complete_profiles_and_reject_missing_owners(self):
+        selected = dict(scope='targeted', groups=['workspace_support'],
+                        workspace_support_profile_version=1,
+                        workspace_support_profiles=['oasis7_custody_worker', 'oasis7_context'],
+                        workspace_support_partition_version=1,
+                        workspace_support_partitions=['custody', 'other'])
+        output = []
+        for partition in ('custody', 'other'):
+            result = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': partition})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            profiles = [line for line in result.stdout.splitlines() if line.startswith('+ support profile: ')]
+            self.assertEqual(len(profiles), 1)
+            output.extend(profiles)
+        self.assertCountEqual(output, ['+ support profile: oasis7_custody_worker', '+ support profile: oasis7_context'])
+        for change in ({'workspace_support_partition_version': True}, {'workspace_support_partitions': ['custody']},
+                       {'workspace_support_partitions': ['custody', 'custody']}, {'workspace_support_partitions': ['all']}):
+            with self.subTest(change=change):
+                result = self.invoke('plan:' + json.dumps(selected | change), environment={'support_partition': 'custody'})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('+ support profile: ', result.stdout)
+        result = self.invoke('plan:' + json.dumps(selected), fail=True, environment={'support_partition': 'other'})
+        self.assertEqual(result.returncode, 17)
+        legacy = {key: value for key, value in selected.items() if not key.startswith('workspace_support_partition')}
+        result = self.invoke('plan:' + json.dumps(legacy))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('+ support profile: '), 2)
+
+    def test_unpartitioned_support_plan_runs_all_profiles_and_keeps_validation(self):
+        for profiles, partitions in ((['oasis7_context'], ['other']),
+                                     (['oasis7_custody_worker', 'oasis7_context'], ['custody', 'other'])):
+            selected = dict(scope='targeted', groups=['workspace_support'],
+                            workspace_support_profile_version=1, workspace_support_profiles=profiles,
+                            workspace_support_partition_version=1, workspace_support_partitions=partitions)
+            for environment in ({}, {'support_partition': 'all'}):
+                with self.subTest(profiles=profiles, environment=environment):
+                    result = self.invoke('plan:' + json.dumps(selected), environment=environment)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertCountEqual([line for line in result.stdout.splitlines()
+                                           if line.startswith('+ support profile: ')],
+                                          ['+ support profile: ' + profile for profile in profiles])
+                    result = self.invoke('plan:' + json.dumps(selected), fail=True, environment=environment)
+                    self.assertEqual(result.returncode, 17, result.stderr)
+            for partitions in ([], ['all'], ['custody', 'custody'], ['unknown']):
+                result = self.invoke('plan:' + json.dumps(selected | {'workspace_support_partitions': partitions}))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('+ support profile: ', result.stdout)
+            result = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': 'unknown'})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('+ support profile: ', result.stdout)
+
     def test_driver_library_preserves_shell_context_without_running_cli(self):
         script = '''set +e
 set +u
