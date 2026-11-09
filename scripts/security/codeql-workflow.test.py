@@ -6,7 +6,9 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -154,6 +156,53 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: needs.plan.outputs.has_units == 'true'", WORKFLOW)
         self.assertIn("fail-fast: false", WORKFLOW)
         self.assertNotRegex(WORKFLOW, r"(?m)^  push:")
+
+    def test_rust_native_preparation_scope_budget_and_artifact(self):
+        step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id: init\n', 1)[0]
+        self.assertIn("if: matrix.language == 'rust'", step)
+        self.assertIn('timeout-minutes: 5', step)
+        self.assertNotIn('needs.plan.outputs.profile', step)
+        artifact = WORKFLOW.split('      - name: Persist Rust native preparation evidence\n', 1)[1].split('\n  summary:', 1)[0]
+        self.assertIn("if: always() && matrix.language == 'rust' && steps.rust_native.outcome != 'skipped'", artifact)
+        self.assertIn('path: ${{ runner.temp }}/codeql-rust-native', artifact)
+        self.assertNotIn('codeql-upload-evidence', artifact)
+        self.assertIn('if-no-files-found: error', artifact)
+
+    def test_rust_native_wrapper_keeps_preparation_failure_and_evidence(self):
+        section = WORKFLOW.split('name: Prepare Rust native extraction prerequisites', 1)[1]
+        body = section.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        body = '\n'.join(line[10:] for line in body.splitlines())
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                calls = []
+                def prepare(source, out, end, env):
+                    calls.append((source, out, end, env))
+                    if fail:
+                        raise RuntimeError('missing native module')
+                native = SimpleNamespace(runtime=SimpleNamespace(), prepare_native=prepare)
+                spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
+                env = dict(GITHUB_WORKSPACE=str(ROOT), RUNNER_TEMP=directory,
+                           GH_TOKEN='hidden', GITHUB_TOKEN='hidden', RUSTC_WRAPPER='wrapper')
+                with patch.dict(os.environ, env), patch.object(sys, 'path', list(sys.path)), \
+                        patch('importlib.util.spec_from_file_location', return_value=spec), \
+                        patch('importlib.util.module_from_spec', return_value=native), \
+                        patch('time.monotonic', side_effect=[100, 103]):
+                    if fail:
+                        with self.assertRaisesRegex(RuntimeError, 'missing native module'):
+                            exec(compile(body, 'codeql.yml:native', 'exec'), {})
+                    else:
+                        exec(compile(body, 'codeql.yml:native', 'exec'), {})
+                self.assertEqual(len(calls), 1)
+                source, out, end, child_env = calls[0]
+                self.assertEqual((source, out, end), (ROOT, folder / 'codeql-rust-native', 370))
+                self.assertFalse({'GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER'} & child_env.keys())
+                self.assertEqual((native.runtime.CAP, native.runtime.WRITE_CAP), (16 * 1024**2, 15 * 1024**2))
+                terminal = json.loads((out / 'native-terminal.json').read_text())
+                self.assertEqual(terminal['status'], 'FAILED' if fail else 'PASS')
+                self.assertEqual(terminal['elapsed_seconds'], 3)
+                self.assertEqual(terminal['preparation_budget_seconds'], 180)
+                self.assertEqual(terminal.get('error'), 'missing native module' if fail else None)
 
     def test_upload_evidence_actual_producer_and_failure_identity(self):
         # Execute the actual workflow producer, rather than a mirror serializer.

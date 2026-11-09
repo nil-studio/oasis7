@@ -22,7 +22,8 @@ EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
 JSON_FIXTURE_SOURCE='09641e1b9d551700771c772e7545ac2851ea273d'
 DECOMPOSITION_SOURCE='c65098923e8d9aad6813d49ac48cc2540627c96d'
 PROFILE_SOURCE='e205ebe902d9fd3240cb3cb6ff6e36cbf84c00e6'
-CAPACITY_SOURCE='f9ab0ca14620f118c84130b3d558e48dc1e6314d'
+CALLEE_SOURCE='f9ab0ca14620f118c84130b3d558e48dc1e6314d'
+CAPACITY_SOURCE='23dbd6b291ba49468c473e5f23f674ed2a1196e4'
 SOURCE=EXCLUSION_SOURCE
 BUNDLE='2.27.3'
 CAP=256*1024**2
@@ -457,7 +458,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
-    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
+    parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
     parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
