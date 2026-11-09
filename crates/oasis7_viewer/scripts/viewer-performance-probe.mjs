@@ -1,6 +1,7 @@
+import { fileFingerprint, serveStaticFile } from "./viewer-static-files.mjs";
 import { createServer } from "node:http";
 import { appendFileSync, cpSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, normalize, relative, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
@@ -199,36 +200,7 @@ function contentType(pathname) {
 }
 
 function serveFile(request, response) {
-  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
-  let rawPath = "";
-  try {
-    rawPath = decodeURIComponent(requestUrl.pathname === "/" ? "/viewer.html" : requestUrl.pathname);
-  } catch {
-    response.writeHead(400);
-    response.end("bad request");
-    return;
-  }
-  const normalized = normalize(rawPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = resolve(staticRoot, `.${normalized}`);
-  const relativePath = relative(staticRoot, filePath);
-  if (!relativePath || relativePath.startsWith("..")) {
-    response.writeHead(403);
-    response.end("forbidden");
-    return;
-  }
-  try {
-    const stats = statSync(filePath);
-    if (!stats.isFile()) {
-      response.writeHead(404);
-      response.end("not found");
-      return;
-    }
-    response.writeHead(200, { "Content-Type": contentType(filePath), "Cache-Control": "no-store" });
-    response.end(readFileSync(filePath));
-  } catch {
-    response.writeHead(404);
-    response.end("not found");
-  }
+  serveStaticFile(request, response, staticRoot, contentType);
 }
 
 function prepareViewerWebDist(distDir) {
@@ -562,7 +534,7 @@ ensureAgentBrowser();
 staticRoot = prepareViewerWebDist(webDistDir);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const walk=dir=>readdirSync(dir,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?walk(resolve(dir,entry.name)):[resolve(dir,entry.name)]);
-const manifest=()=>Object.fromEntries(walk(webDistDir).sort().map(path=>[relative(webDistDir,path),{bytes:statSync(path).size,sha256:hash(readFileSync(path))}]));
+const manifest=()=>Object.fromEntries(walk(webDistDir).sort().map(path=>[relative(webDistDir,path),fileFingerprint(path)]));
 const assets=manifest();
 const git=args=>{const result=spawnSync('git',args,{cwd:repoRoot,encoding:'utf8'});if(result.status!==0)throw Error(result.stderr);return result.stdout.trim();};
 const commandText=(command,args)=>{const result=spawnSync(command,args,{encoding:'utf8'});return result.status===0?result.stdout.trim():'unknown';};
