@@ -246,15 +246,16 @@ plan 至少包含：`profile`、source/base/checkout identity、策略摘要、�
 | 非 draft PR opened/reopened/synchronize/ready_for_review | default，按需单元 | 开启 |
 | draft PR | 仅轻量 plan 或跳过扫描 | 不占重型槽位 |
 | converted_to_draft、closed | 取消本 PR 旧扫描，不启动新重型任务 | 开启对应事件处理 |
-| main 每 6 小时 | default，完整单元 | 建立/更新对比与增量基线 |
+| main 每 6 小时 | default，已启用非 Rust 单元 | 建立/更新对比与增量基线 |
+| main 每日 UTC 03:29 | default，已启用 Rust 单元 | 在独立日频预算内更新基线 |
 | main 每日低峰 | security-extended，完整单元 | 更广查询与覆盖诊断 |
 | workflow_dispatch | default 或 extended，可信默认分支 | 诊断、初始基线及受控重跑 |
 | 每一次 main push | 不额外重复扫描 | 避免高合入频率形成扫描风暴 |
 | 普通无关 main 前进 | 不要求重开 PR、不重跑 required、不刷新安全收据 | 保持当前普通任务语义 |
 
-默认档的六小时间隔是建议初值，不是扫描新鲜度保证。官方增量缓存不可用时由 CodeQL 正常分析；不得伪造基线。
+非 Rust 默认档每六小时、Rust 默认档每日一次；调度间隔不是扫描新鲜度保证。官方增量缓存不可用时由 CodeQL 正常分析；不得伪造基线。
 
-可用 UTC cron 示例：`17 */6 * * *`（默认档），`43 18 * * *`（扩展档）。实施时核对仓库实际负载，避开现有重型定时任务；不在静态文档中硬编码所谓生产繁忙时段。
+当前 UTC cron 为 `17 */6 * * *`（非 Rust 默认档）、`29 3 * * *`（Rust 默认档）、`43 18 * * *`（扩展档）。调整时核对仓库实际负载与共享槽位排队，时段本身不保证避开其他重型任务。
 
 ### 6.3 全仓扫描并发上限
 
