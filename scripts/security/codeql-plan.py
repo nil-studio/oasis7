@@ -13,6 +13,19 @@ UNITS = [('actions-repo', 'actions'), ('python-repo', 'python'),
          ('javascript-repo', 'javascript-typescript'), ('rust-repo', 'rust')]
 
 
+def document_corpus_input(path):
+    # Fixed inputs consumed by scripts/document_corpus.py. Do not import a
+    # candidate checkout's reader into the isolated trusted-base planner.
+    return path in {
+        'doc/.governance/document-corpus-inventory.json',
+        'doc/testing/evidence/inventory.json',
+        'doc/.governance/top-level-directory-registry.json',
+    } or re.fullmatch(
+        r'doc/\.governance/document-corpus/(?:'
+        r'(?:objects|semantic/entries|evidence/entries)/[0-9a-f]{2}/[0-9a-f]{64}'
+        r'|(?:semantic/bundles|evidence/groups)/[a-z0-9-]{1,96})\.json', path) is not None
+
+
 def batch_modes(raw):
     def unique(pairs):
         result = {}
@@ -143,6 +156,8 @@ def plan(args):
             add('javascript-repo', path)
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):
             add('actions-repo', path)
+        elif document_corpus_input(path):
+            add('python-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)
         # build.rs can read arbitrary repository data or invoke generators. No
