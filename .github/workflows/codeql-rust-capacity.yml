@@ -32,7 +32,9 @@ jobs:
       cancel-in-progress: false
     env:
       CAPACITY_MODE: ${{ inputs.mode }}
-      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || '23dbd6b291ba49468c473e5f23f674ed2a1196e4' }}
+      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef' }}
+      CAPACITY_BUNDLE_VERSION: ${{ inputs.mode == 'official-default-research' && '2.27.3' || '2.27.4' }}
+      CAPACITY_BUNDLE_SHA256: ${{ inputs.mode == 'official-default-research' && '218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237' || '1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b' }}
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_RAM: ''
@@ -105,9 +107,9 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/rust-capacity-tools"
           curl --fail --location --max-time 120 \
-            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.3/codeql-bundle-rust-linux64.tar.zst \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CAPACITY_BUNDLE_VERSION}/codeql-bundle-rust-linux64.tar.zst" \
             --output "$RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst"
-          echo "218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
+          echo "$CAPACITY_BUNDLE_SHA256  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 rustup toolchain install 1.96.0 --profile minimal
       - id: init
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
