@@ -12,6 +12,18 @@ import sys
 UNITS = [('actions-repo', 'actions'), ('python-repo', 'python'),
          ('javascript-repo', 'javascript-typescript'), ('rust-repo', 'rust')]
 
+# Exact engineering bundle consumed by the Rust validator and Python CI summary.
+# This registers input ownership, not a scan exclusion or an enabled batch.
+WASM_CANDIDATE_INPUTS = {
+    'crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json',
+    'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.source-rule2-candidate.identity.json',
+    'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.source-rule2-candidate.sha256',
+    'crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.source-rule2-candidate.identity.json',
+    'crates/oasis7_runtime/src/world/artifacts/m4_builtin_modules.source-rule2-candidate.sha256',
+    'crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.source-rule2-candidate.identity.json',
+    'crates/oasis7_runtime/src/world/artifacts/m5_builtin_modules.source-rule2-candidate.sha256',
+}
+
 
 def document_corpus_input(path):
     # Fixed inputs consumed by scripts/document_corpus.py. Do not import a
@@ -89,6 +101,9 @@ def changes(root, base, head):
 
 def plan(args):
     batches = batch_modes(getattr(args, 'batch_modes', '{}'))
+    scope = getattr(args, 'maintenance_scope', 'all')
+    if scope not in ('all', 'non-rust', 'rust') or (args.event == 'pull_request' and scope != 'all'):
+        raise ValueError('invalid maintenance scope for event')
     root = pathlib.Path(args.repo_root).resolve()
     raw = pathlib.Path(args.policy).read_bytes()
     policy = json.loads(raw)
@@ -158,6 +173,9 @@ def plan(args):
             add('actions-repo', path)
         elif document_corpus_input(path):
             add('python-repo', path)
+        elif path in WASM_CANDIDATE_INPUTS:
+            add('python-repo', path)
+            add('rust-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)
         # build.rs can read arbitrary repository data or invoke generators. No
@@ -191,6 +209,8 @@ def plan(args):
             not_selected[unit] = "batch_disabled"
         elif args.event == "pull_request" and (args.profile != "default" or mode != "observe"):
             not_selected[unit] = "pr_baseline_only"
+        elif (scope == 'rust' and unit != 'rust-repo') or (scope == 'non-rust' and unit == 'rust-repo'):
+            not_selected[unit] = 'maintenance_scope'
         else:
             selected.append(unit)
     matrix = []
@@ -199,9 +219,10 @@ def plan(args):
             matrix.append(dict(unit=unit, language=language, category=f'oasis7/{unit}/{args.profile}',
                                slot=(index + args.pr_number) % args.max_slots, build_mode='none',
                                queries='' if args.profile == 'default' else 'security-extended',
-                               timeout_minutes=45 if language == 'rust' or args.profile == 'extended' else 20))
+                               timeout_minutes=90 if language == 'rust' and args.profile == 'default' and args.event != 'pull_request'
+                               else (45 if language == 'rust' or args.profile == 'extended' else 20)))
     return dict(schema='oasis7-codeql-plan/v1', status='disabled' if not enabled or (candidates and not selected) else ('selected' if selected else 'not_applicable'),
-                profile=args.profile, identity=ids, policy=dict(path=str(args.policy), sha256=hashlib.sha256(raw).hexdigest()),
+                profile=args.profile, maintenance_scope=scope, identity=ids, policy=dict(path=str(args.policy), sha256=hashlib.sha256(raw).hexdigest()),
                 completeness=dict(complete=True, diff_paths=changed, manifest_inventory=manifests),
                 candidate_units=candidates, batch_modes=batches, not_selected_reasons=not_selected,
                 selected_units=selected, has_units=bool(selected), reasons={u: sorted(set(v)) for u, v in reasons.items()},
@@ -217,6 +238,7 @@ def main():
     parser.add_argument('--profile', choices=['default', 'extended'], default='default')
     parser.add_argument('--mode', choices=['off', 'baseline', 'observe'], default='off')
     parser.add_argument('--event', choices=['pull_request', 'schedule', 'workflow_dispatch'], default='pull_request')
+    parser.add_argument('--maintenance-scope', choices=['all', 'non-rust', 'rust'], default='all')
     parser.add_argument('--default-branch', default='main')
     parser.add_argument('--full', action='store_true')
     parser.add_argument('--pr-number', type=int, default=0)

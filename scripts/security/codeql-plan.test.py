@@ -143,6 +143,76 @@ class PlannerTests(unittest.TestCase):
         self.assertIn('vendor-patch/Cargo.toml', result['completeness']['manifest_inventory']['head'])
         self.assertEqual(result['selected_units'], ['rust-repo'])
 
+    def test_wasm_candidate_bundle_selects_rust_and_python_consumers(self):
+        root = 'crates/oasis7_runtime/src/world/artifacts/'
+        names = ['builtin_wasm_candidate_baseline.v1.json']
+        names += [f'{group}_builtin_modules.source-rule2-candidate.{suffix}'
+                  for group in ('m1', 'm4', 'm5') for suffix in ('identity.json', 'sha256')]
+        for name in names:
+            with self.subTest(name=name):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(root + name); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['python-repo', 'rust-repo'])
+                self.assertIn(root + name, result['reasons']['python-repo'])
+                self.assertIn(root + name, result['reasons']['rust-repo'])
+
+    def test_wasm_candidate_registration_preserves_non_rust_batches(self):
+        self.write('crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json')
+        self.commit()
+        batches = json.dumps({unit + '/default': 'observe' for unit in
+                              ('actions-repo', 'python-repo', 'javascript-repo')})
+        result = self.run_plan(batch_modes=batches)
+        self.assertEqual(result['candidate_units'], ['python-repo', 'rust-repo'])
+        self.assertEqual(result['status'], 'selected')
+        self.assertEqual(result['selected_units'], ['python-repo'])
+        self.assertEqual([row['unit'] for row in result['matrix']['include']], ['python-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+        self.write('scripts/probe.py')
+        self.write('web/app.js')
+        self.write('.github/workflows/test.yml')
+        self.commit()
+        result = self.run_plan(batch_modes=batches)
+        self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo', 'javascript-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+
+    def test_wasm_candidate_rename_and_delete_keep_old_consumers(self):
+        path = 'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.source-rule2-candidate.identity.json'
+        self.write(path, 'unique candidate fixture'); self.base = self.commit()
+        (self.root / path).rename(self.root / 'moved.js'); self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['python-repo', 'javascript-repo', 'rust-repo'])
+        self.assertIn(path, result['completeness']['diff_paths'])
+        self.assertIn('moved.js', result['completeness']['diff_paths'])
+        self.write(path); self.base = self.commit()
+        (self.root / path).unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'rust-repo'])
+
+    def test_wasm_candidate_registration_does_not_accept_other_artifacts(self):
+        root = 'crates/oasis7_runtime/src/world/artifacts/'
+        for path in (
+            root + 'builtin_wasm_candidate_baseline.v2.json',
+            root + 'm2_builtin_modules.source-rule2-candidate.identity.json',
+            root + 'm1_builtin_modules.source-rule2-candidate.identity.json.extra',
+            root + 'm4_builtin_modules.source-rule2-candidate.sha256.tmp',
+            root + 'm1_builtin_modules.identity.json',
+            root + 'nested/builtin_wasm_candidate_baseline.v1.json',
+            'web/builtin_wasm_candidate_baseline.v1.json',
+        ):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_wasm_candidate_symlink_still_requires_review(self):
+        path = self.root / 'crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json'
+        path.parent.mkdir(parents=True)
+        path.symlink_to(self.root / 'src/lib.rs')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'changed symbolic link'):
+            self.run_plan()
+
     def test_CQ_T09_rename_both_sides_special_paths(self):
         self.write('old file\n$.py'); self.base = self.commit()
         (self.root / 'old file\n$.py').rename(self.root / 'new file\n$.js'); self.commit()
@@ -234,6 +304,38 @@ class PlannerTests(unittest.TestCase):
         self.base = self.git('rev-parse', 'HEAD')
         (self.root / 'link.py').symlink_to('/outside'); self.commit()
         with self.assertRaisesRegex(ValueError, 'symbolic link'): self.run_plan()
+
+    def test_maintenance_scope_keeps_full_candidates_and_batch_gates(self):
+        units = [u for u, _ in planner.UNITS]
+        for scope, expected in [('all', units), ('non-rust', units[:-1]), ('rust', units[-1:])]:
+            with self.subTest(scope=scope):
+                result = self.run_plan(event='schedule', full=True, maintenance_scope=scope)
+                self.assertEqual(result['candidate_units'], units)
+                self.assertEqual(result['selected_units'], expected)
+                self.assertEqual(result['maintenance_scope'], scope)
+                for unit in set(units) - set(expected):
+                    self.assertEqual(result['not_selected_reasons'][unit], 'maintenance_scope')
+        result = self.run_plan(event='schedule', full=True, maintenance_scope='rust',
+                               batch_modes='{"python-repo/default":"observe"}')
+        self.assertEqual(result['status'], 'disabled')
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+
+    def test_rust_budget_is_only_default_maintenance(self):
+        for event, profile, expected in [('pull_request', 'default', 45),
+                ('schedule', 'default', 90), ('workflow_dispatch', 'default', 90),
+                ('schedule', 'extended', 45)]:
+            with self.subTest(event=event, profile=profile):
+                result = self.run_plan(event=event, profile=profile, full=True)
+                rows = {row['unit']: row for row in result['matrix']['include']}
+                self.assertEqual(rows['rust-repo']['timeout_minutes'], expected)
+                self.assertEqual(rows['python-repo']['timeout_minutes'], 45 if profile == 'extended' else 20)
+        result = self.run_plan(full=True, batch_modes='{"rust-repo/default":"baseline"}')
+        self.assertEqual(result['selected_units'], [])
+
+    def test_maintenance_scope_cannot_change_pr_coverage(self):
+        for scope in ('rust', 'non-rust', 'invalid'):
+            with self.subTest(scope=scope), self.assertRaisesRegex(ValueError, 'maintenance scope'):
+                self.run_plan(full=True, maintenance_scope=scope)
 
     def test_batches_default_disabled_and_single_trial(self):
         self.write("tools/a.py"); self.commit()

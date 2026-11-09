@@ -12,19 +12,21 @@
 | --- | --- |
 | `OASIS7_CODEQL_MODE` | 缺省 `off`：planner 报告 disabled，不启动重型分析。`baseline`：只允许已配置批次的默认分支 schedule/manual 扫描。`observe`：另允许配置为 observe 的 default 批次参与非 draft、非 closed 的 PR 扫描。非法值使计划步骤失败。 |
 | `OASIS7_CODEQL_MAX_SLOTS` | 缺省 `2`；只接受 `1` 或 `2`。重型 jobs 共用固定 native concurrency 槽位；matrix 的 max-parallel 不是仓库级上限的证明。 |
-| manual `profile` | `default` 或 `extended`。PR 固定 default；六小时 schedule 使用 default，每日 schedule 使用 extended。类别为 `oasis7/<unit>/<profile>`，不能重标旧结果。 |
+| manual `profile` | `default` 或 `extended`。PR 固定 default；六小时 schedule 为非 Rust default，UTC 03:29 的每日时段仅选 Rust default，UTC 18:43 为既有 extended。类别为 `oasis7/<unit>/<profile>`，不能重标旧结果。 |
 
-四个稳定单元是 `actions-repo`、`python-repo`、`javascript-repo`、`rust-repo`。选中单元保留全语言上下文；路由清单不等于 extractor 已覆盖全部文件。维护任务使用完整四语言候选范围并受批次配置约束，manual 必须选可信默认分支。PR 新 head 仅取消本 PR 旧 workflow；不同 PR 与维护 jobs 在共享槽位排队，job concurrency 使用 `queue: max` 且不互相取消。队列容量、取消结果和 runner 竞争仍须 hosted 验证。
+四个稳定单元是 `actions-repo`、`python-repo`、`javascript-repo`、`rust-repo`。选中单元保留全语言上下文；路由清单不等于 extractor 已覆盖全部文件。维护任务提出完整四语言候选范围，再与时段语言范围及批次配置取交集，manual 必须选可信默认分支。PR 新 head 仅取消本 PR 旧 workflow；不同 PR 与维护 jobs 在共享槽位排队，job concurrency 使用 `queue: max` 且不互相取消。队列容量、取消结果和 runner 竞争仍须 hosted 验证。
 
 ## 分批控制
 
 `OASIS7_CODEQL_BATCH_MODES` 缺省 `{}`，八个 unit/profile 批次全部 disabled。它是 repository variable JSON object，例如 `{"actions-repo/default":"baseline"}` 仅允许该目标批次参加默认分支维护（含获授权的首次验收试运行，不代表已验收）；`observe` 仅可用于 default profile，并且全局 mode 也必须为 observe 才允许其合格 PR。删除键可停用该批次；default 值从 observe 降为 baseline 可停止该批次的 PR 扫描；global off 停止全部后续计划。非法/重复键、未知组合、非字符串值或 extended observe 使规划失败。
 
-manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 profile 批次配置约束；未启用范围逐项标明原因，不能当扫描成功。改变全局 mode 不会自动绕过批次限制。首次交付控制能力不设置外部变量、不发起扫描或上传。
+manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 profile 批次配置及维护时段范围约束；未启用范围逐项标明原因，不能当扫描成功。改变全局 mode 不会自动绕过批次限制。首次交付控制能力不设置外部变量、不发起扫描或上传。
 
 首次验收时，经覆盖设置和扫描的授权，仅将目标键设为 baseline 并读回，在可信默认分支试运行；此时为 pending acceptance，配置不代表验收通过，PR 仍禁用，失败时删除键回退。真实 hosted 验收完成后才声明已验收并持续运营；native 位置切片、fixture、局部 helper 或其他批次 PASS 不代签。
 
 分批控制不改变八批整体 healthy、category、权限、并发或 required 政策。
+
+Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。只增加 `rust-repo/default=baseline` 即可允许已授权的每日或手动验收，不能将全局 observe 改回 baseline 而停掉其他语言的 PR 扫描。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
 
 ## 可信计划与权限
 
@@ -77,7 +79,7 @@ API 每个 endpoint 的读取有分页预算，精确身份的相关 runs 也有
 
 live reader 使用精确 run attempt 的 jobs API，并通过独立验证的 evidence artifact 读取官方上传输出。该正向关联当前只支持可信默认分支的 schedule/manual 基线。PR、fork、Dependabot 与 native platform provider 的正向关联仍不受支持，保留 unknown；artifact 不是合入凭据，也不赋予 native check 豁免。不要由时间、同 SHA 或 job success 推造 SARIF association。查看 `run_id` / `run_attempt` 判断当前尝试，查看 `analysis_id` / `coverage_age_hours` / `fresh` 判断已关联的结果；缺乏 association 时这些结果不能借用历史记录。
 
-Rust 的 default/extended 扫描先执行 `Prepare Rust native extraction prerequisites`，复用容量入口的 GTK 3、WebKitGTK 4.1、D-Bus 安装与 pkg-config 探针；准备共用最多 180 秒，计入原 45 分钟 job。失败时从独立 `oasis7-codeql-native-<run>-<attempt>-rust-repo-<profile>` artifact 查看安装 stdout/stderr、包和模块版本及 `native-terminal.json`；失败会阻止提取、查询和 SARIF 上传。native PASS 只表示该 runner 的依赖准备成功，覆盖和上传关联仍须分别验收。
+Rust 的 default/extended 扫描先执行 `Prepare Rust native extraction prerequisites`，复用容量入口的 GTK 3、WebKitGTK 4.1、D-Bus 安装与 pkg-config 探针；准备共用最多 180 秒，计入对应 job 的总预算；默认分支 Rust default 为 90 分钟，其他 Rust 场景保持 45 分钟。失败时从独立 `oasis7-codeql-native-<run>-<attempt>-rust-repo-<profile>` artifact 查看安装 stdout/stderr、包和模块版本及 `native-terminal.json`；失败会阻止提取、查询和 SARIF 上传。native PASS 只表示该 runner 的依赖准备成功，覆盖和上传关联仍须分别验收。
 
 分析 job 从官方 pinned upload-sarif action 的 `steps.upload.outputs.sarif-id` 生成闭合 schema `oasis7-codeql-upload-evidence/v1`，记录 repository、workflow path/ref/SHA、run/attempt、job key/name、checkout SHA/ref、unit/profile/category 与真实 execution/upload outcomes。上传未成功时 ID 为空。每个 job/attempt 使用独立 `oasis7-codeql-upload-<run_id>-<run_attempt>-<unit>-<profile>` artifact，唯一文件为 `evidence.json`，由完整 SHA 固定的 upload-artifact action 上传且不覆盖。取消、超时或 runner 丢失可能没有 artifact，不能补写或借用旧输出。
 
@@ -131,7 +133,7 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 入口先把固定工具提交的最小 Python 闭包及摘要保存到 `RUNNER_TEMP`，再在同一 `GITHUB_WORKSPACE` 根 checkout 固定业务提交。`collection-layout.json` 必须证明当前 cwd、workspace、Git 根及 source 是同一业务树，工具在采集树外且摘要未变；失败时不启动 init。`source-root`、`checkout_path`、模板路径全部指向该业务根。预检只证明布局；真实 `trace-command` / `index-files` 起点仍从数据库原始日志核对。
 
-容量 helper 为 `scripts/security/codeql-rust-capacity.py`。当前 `mode=capacity` 固定业务源码为 2026-11-09 读回的 main 快照 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本。该配置使用完整官方 2.27.4 bundle，与生产所固定 CodeQL Action 的默认版本一致；下载摘要、实际 CLI 版本、`rust-all` 0.2.25 及完整库依赖闭包分别核验，公共见证 pack 从该已验证闭包生成依赖版本。终态记录预期版本，实际身份以 CLI 输出及闭包证据为准。按 60 分钟完整 default 与公共见证合同评估，分析上限 45 分钟；正式生产扫描预算仍为 45 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置。
+容量 helper 为 `scripts/security/codeql-rust-capacity.py`。当前 `mode=capacity` 固定业务源码为 2026-11-09 读回的 main 快照 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`；checkout、布局检查和 prepare/capture/finish 显式绑定同一版本。该配置使用完整官方 2.27.4 bundle，与生产所固定 CodeQL Action 的默认版本一致；下载摘要、实际 CLI 版本、`rust-all` 0.2.25 及完整库依赖闭包分别核验，公共见证 pack 从该已验证闭包生成依赖版本。终态记录预期版本，实际身份以 CLI 输出及闭包证据为准。按 90 分钟完整 default 与公共见证合同评估，分析上限 75 分钟；默认分支 Rust default 的生产总预算也为 90 分钟。旧业务版本仅可显式选取，旧结果不能代签本配置。
 
 共享 helper 按模式与业务 pin 绑定工具版本：仅当前 capacity 快照采用 2.27.4，其他历史快照及 `official-default-research` 继续使用 2.27.3。callee 定向诊断保留 `f9ab0ca14620f118c84130b3d558e48dc1e6314d`，用于复现该版本的空调用结果；e205 性能诊断虽复用 helper 的 capacity 模式，也保留原 2.27.3。它们不能据此声明当前源码验收通过。更新容量配置不修改公共见证文本或断言，也不证明已有调用解析缺口已修复。
 
@@ -139,15 +141,21 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 分析后的独立 `capture` 步骤先保存已有数据库日志，再分别读取 HEAD、工作区状态和 Git 根，不能由身份或资源错误跳过。`database-log-capture.json` 列出原始长度、已保存字节及摘要、变化/截断/未到达原因；部分证据可解释失败，但不能支持完整验收。步骤 outcome、最初失败与后续采证错误分别记录；失败后不继续 CodeQL 解码或公共见证。官方 Action 的进程清理保持 `UNKNOWN_RUNNER_OWNED`，需最终 runner 日志回读，不能套用 helper 自有进程组的清理结果。
 
-容量评估的 60 分钟从实际 job 启动计时，涵盖 Action 准备、下载、提取、查询、解码和结果保存，分析分配为 `min(45, floor((剩余秒数−600)/60))` 分钟，为公共见证、结果校验、收尾及 artifact 上传保留 600 秒；准备较慢时实际分析分配仍会缩短。线程和内存不沿用旧诊断的 2/3072 参数，数据库也不沿用旧诊断的单文件或总数据上限；额外的证据收集上限及观测缺口必须单列，不把采集失败当生产计算失败。实际余量不足 270 秒时记 NEAR_LIMIT，不能直接进入 PR 扫描运营。
+当前容量配置的 90 分钟从实际 job 启动计时，涵盖 Action 准备、下载、提取、查询、解码和结果保存，分析分配为 `min(75, floor((剩余秒数−600)/60))` 分钟，为公共见证、结果校验、收尾及 artifact 上传保留 600 秒；准备较慢时实际分析分配仍会缩短。线程和内存不沿用旧诊断的 2/3072 参数，数据库也不沿用旧诊断的单文件或总数据上限；额外的证据收集上限及观测缺口必须单列，不把采集失败当生产计算失败。实际余量不足 270 秒时记 NEAR_LIMIT，不能直接进入 PR 扫描运营。
 
 超限日志使用同一字节上限内的首尾片段；`source_ranges` / `omitted_ranges` 解释源字节位置，不能将拼接输出当作完整原始日志。进度摘要仅计保留片段内完整行，不代表完整查询结果。manifest 列表缩略、未闭合或采证部分完成时，`missing_found_manifests` 为 null，枚举完整性为 UNKNOWN；已观察到的 manifest 仍保留。Git raw status 保留，tracked 状态与未跟踪锁文件证据分列；未跟踪 Cargo.lock 不自动豁免 clean gate，其来源及依赖解析影响没有证据时保持 UNKNOWN。
 
 预算记录同时保留固定 job 截止、准备耗时、实际分析分钟数及后续 600 秒预留。分析 step 触及其内部限时只能说明本次分配未完成；没有完整、隔离且可核验的执行结果时，生产容量保持未知。修复入口与离线故障回归不构成新一轮容量运行授权。
 
-上游成本研究使用同一 workflow 的显式 `mode=official-default-research`，仍须 `execute=true` 且单独获准运行。research 模式固定原业务 pin `c036927d33b917a036a731f071209e16f6deb033`，独立于 capacity 模式的新 pin；官方 bundle/资源保持原配置，整个 job 360 分钟（含准备、提取、查询、官方结果解码、证据上传及 post）；不生成或执行公共自定义见证。分析分配为剩余时间减 600 秒收尾预留后的整分钟，不采用容量模式的 45 分钟上限；内部限时仍不等于整个六小时已耗尽。`RESEARCH_*` 与 Action outcome 分列，dirty/不完整证据/结果失败保持阻断。一次成功或失败后停止，不重试、不分享数据库；生产 45 分钟容量、180 秒诊断与 Rust HOLD 不因研究完成改判。默认 `mode=capacity` 使用 60 分钟评估预算与 45 分钟分析上限，完整公共见证和余量要求不变；这不放宽正式生产扫描的 45 分钟预算。
+上游成本研究使用同一 workflow 的显式 `mode=official-default-research`，仍须 `execute=true` 且单独获准运行。research 模式固定原业务 pin `c036927d33b917a036a731f071209e16f6deb033`，独立于 capacity 模式的新 pin；官方 bundle/资源保持原配置，整个 job 360 分钟（含准备、提取、查询、官方结果解码、证据上传及 post）；不生成或执行公共自定义见证。分析分配为剩余时间减 600 秒收尾预留后的整分钟，不采用容量模式的内部分析上限；内部限时仍不等于整个六小时已耗尽。`RESEARCH_*` 与 Action outcome 分列，dirty/不完整证据/结果失败保持阻断。一次成功或失败后停止，不重试、不分享数据库；生产容量、180 秒诊断与 Rust HOLD 不因研究完成改判。当前 `mode=capacity` 使用 90 分钟评估预算与 75 分钟分析上限，完整公共见证和余量要求不变。历史 source 的 helper 仍保留原 60/45 分钟分配，CFG/profile 等入口的原实际截止不变。
 
-按以下边界作决定：完整默认查询和规定公共见证均通过且预算有余量，只证明该冻结配置下计算与覆盖可行，下一步才是 hosted baseline；查询完成但覆盖缺口保留相应 HOLD；完整但接近上限先评估成本和频率；超时、OOM 或计算结果不完整说明该配置未通过容量评估，停止追加运行并保留生产规模证据。60 分钟评估通过不等于正式 45 分钟生产预算可行；进入 hosted baseline 前，须另行确认适用预算和运行余量。无上传不证明平台关联、provider、运营队列或启用完成。原 180 秒优化问题继续独立跟踪，不因容量结果改判成功。
+按以下边界作决定：完整默认查询和规定公共见证均通过且预算有余量，只证明该冻结配置下计算与覆盖可行，下一步才是 hosted baseline；查询完成但覆盖缺口保留相应 HOLD；完整但接近上限先评估成本和频率；超时、OOM 或计算结果不完整说明该配置未通过容量评估，停止追加运行并保留生产规模证据。容量入口包含额外公共见证且没有正式上传；进入 hosted baseline 前，仍须核实正式入口在同一预算下的实际运行、上传及余量。无上传不证明平台关联、provider、运营队列或启用完成。原 180 秒优化问题继续独立跟踪，不因容量结果改判成功。
+
+### 私有调用解析补丁对照
+
+在已授权的单次 `mode=capacity` 运行中，可显式设置 `compare_qualifier_patch=true`。默认关闭，`official-default-research` 不接受该开关。官方容量结果和 artifact 先封存并上传；研究随后复用同一数据库，对固定公共 `CallsCandidate`/`CallsLegacy` 查询运行官方库与私有行为补丁。原官方失败不会被候选成功覆盖，研究结果不解除覆盖 HOLD。
+
+研究最多 15 分钟，并必须在原 job 截止前 450 秒停止；余量不足 60 秒记 `NOT_REACHED`。研究使用单独编译缓存、BQRS 和 artifact，但同一数据库的 evaluator 缓存共享，不能将两侧耗时差解释为提速。核对实际闭包、补丁前后摘要、结果目标所属的真实 libp2p 路径，以及研究前后源码、官方库和官方 evidence 不变。最终报告分别列官方分析/见证、补丁对照、完整 job 与最终余量；不上传数据库或自动发表上游补丁。
 
 ## Hosted 验收与回退
 

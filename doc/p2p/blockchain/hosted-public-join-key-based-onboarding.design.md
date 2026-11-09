@@ -225,7 +225,7 @@ CREATE INDEX identity_by_expiry
 
 写事务用 `BEGIN IMMEDIATE`，读取目标版本后条件变更；忙冲突有总截止时间，不无限排队。P0 的 file 部署只支持一个逻辑身份 authority，多个世界通过它访问，不支持每个节点复制一份可写 SQLite。
 
-备份使用 SQLite 一致性备份能力或停写后的完整快照，不能在运行中只复制主 `.sqlite` 而漏掉 WAL。上线锁定的 SQLite 必须包含官方已发布的 WAL-reset 修复（官方列出 3.51.3 及相关回补版本）；不能只根据 Rust wrapper 版本认为底层已修复。[W5]
+备份使用 SQLite 一致性备份能力或停写后的完整快照，不能在运行中只复制主 `.sqlite` 而漏掉 WAL。上线锁定的 SQLite 必须包含官方已发布的 WAL-reset 修复，以及 [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) 所述 DB/WAL 页大小不一致引发的未初始化内存泄露修复；当前最低版本为 3.54.0。身份存储初始化、离线 epoch 维护和只读快照导出均在打开数据库前检查实际 SQLite 版本；只读打开也不能豁免。依赖锁与真实数据库/备份回归必须核对底层版本，不能只根据 Rust wrapper 版本认为已修复。[W5]
 ### 5.3 Tablestore v2：明确事务能力，不假定 BatchWrite 原子
 新表使用 `namespace` 作为第一主键、`record_key` 作为第二主键。P0 一个身份命名空间的账号、lookup、challenge、recovery、session、限流和 outbox 记录放在**同一分区键值**，事务涉及的行必须全部属于该分区。
 

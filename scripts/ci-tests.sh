@@ -730,6 +730,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
@@ -946,6 +947,7 @@ run_site_contract_tests() {
   run ./scripts/site-manual-sync-check.sh
   run ./scripts/site-download-check.sh
   run bash ./scripts/site-checks-contract.test.sh
+  run env OASIS7_SITE_QA_HEADLESS=1 node ./scripts/site-deck-security-browser.test.cjs
 }
 
 run_system_design_traceability_tests() {

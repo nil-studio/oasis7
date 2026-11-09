@@ -342,9 +342,10 @@ class Capacity(unittest.TestCase):
                 output.write_text(json.dumps(value))
                 if metadata_failure and argv[0]=='cargo':raise RuntimeError('original metadata failure')
                 return {'exit':0}
+            job_seconds=21600 if mode=='official-default-research' else (5400 if source_sha==m.CAPACITY_SOURCE else 3600)
             patches=[patch.object(sys,'argv',['capacity','prepare','--mode',mode,'--source-sha',source_sha or m.EXCLUSION_SOURCE,
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
-                '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+21600)]),
+                '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+job_seconds)]),
                 patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs'),'GITHUB_ENV':str(root/'github-env')}),
                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}),
                 patch.object(m.evidence,'capture_identity',side_effect=[{'status':'PASS'},{'status':'PARTIAL'}] if identity_failure else None,return_value={'status':'PASS'}),
@@ -406,7 +407,7 @@ class Capacity(unittest.TestCase):
             self.assertEqual(terminal['expected_bundle_version'],actual_version)
             self.assertEqual(terminal['production_capacity'],'UNKNOWN')
             if mode=='official-default-research':self.assertGreater(terminal['analysis_minutes'],300)
-            else:self.assertEqual(terminal['analysis_minutes'],45)
+            else:self.assertEqual(terminal['analysis_minutes'],75 if source_sha==m.CAPACITY_SOURCE else 45)
             self.assertEqual(terminal['native_preparation'],'PASS')
             native_index=next(i for i,argv in enumerate(commands) if argv[0]=='pkg-config')
             metadata_index=next(i for i,argv in enumerate(commands) if argv[0]=='cargo')
@@ -549,11 +550,19 @@ class Capacity(unittest.TestCase):
             self.assertEqual(budget['post_analysis_reserve_seconds'],600)
             self.assertLessEqual(minutes*60+600,remaining)
 
+    def test_current_capacity_75_minute_analysis_preserves_global_reserve(self):
+        for remaining, minutes in ((5400, 75), (5100, 75), (5099, 74), (4800, 70), (660, 1), (600, 0)):
+            budget = m.analysis_budget('capacity', remaining, m.CAPACITY_SOURCE)
+            self.assertEqual(budget['job_budget_seconds'], 5400)
+            self.assertEqual(budget['analysis_allocated_minutes'], minutes)
+            self.assertEqual(budget['post_analysis_reserve_seconds'], 600)
+            self.assertLessEqual(minutes * 60 + 600, remaining)
+
     def test_research_workflow_does_not_change_default_contract(self):
         text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
         self.assertIn('default: capacity',text)
         self.assertIn('official-default-research',text)
-        self.assertIn("inputs.mode == 'official-default-research' && 360 || 60",text)
+        self.assertIn("inputs.mode == 'official-default-research' && 360 || 90",text)
         self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),3)
 
     def test_mode_specific_source_selection_preserves_research_pin(self):
@@ -676,10 +685,11 @@ assert value['found_manifests']==[]
 
     def test_upload_preserves_hidden_guard_controls_in_sealed_evidence(self):
         steps,by_id=workflow_steps()
-        upload=[s for s in steps if s.startswith("uses: actions/upload-artifact@")]
-        self.assertEqual(len(upload),1)
-        self.assertIn("          include-hidden-files: true",upload[0])
-        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload[0])
+        upload=by_id['official_artifact']
+        self.assertIn("uses: actions/upload-artifact@",upload)
+        self.assertIn("          include-hidden-files: true",upload)
+        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload)
+        self.assertEqual(sum('path: ${{ runner.temp }}/rust-capacity-evidence\n' in step for step in steps),1)
         script=textwrap.dedent(by_id["evidence"].split("python3 - <<'PY'\n",1)[1].split("          PY",1)[0])
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/"rust-capacity-evidence";audit=root/"cargo-guard-calls";audit.mkdir(parents=True)
@@ -723,14 +733,14 @@ assert value['found_manifests']==[]
         text=workflow.read_text()
         self.assertIn('default: false',text);self.assertIn('inputs.execute == true',text)
         self.assertNotIn('pull_request:',text);self.assertNotIn('schedule:',text)
-        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 60 }}",text)
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 90 }}",text)
         self.assertIn('source-root: ${{ github.workspace }}',text)
         self.assertIn('checkout_path: ${{ github.workspace }}',text)
         self.assertNotIn('/capacity-source',text)
         self.assertIn('upload: never',text);self.assertIn('upload-database: false',text)
         self.assertIn('trap-caching: false',text);self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none',text)
         self.assertNotIn('security-events: write',text);self.assertNotIn('upload-sarif@',text)
-        self.assertIn("budget=21600 if mode=='official-default-research' else 3600",text);self.assertIn('local_now+budget-age',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
+        self.assertIn("budget=21600 if mode=='official-default-research' else 5400",text);self.assertIn('local_now+budget-age',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
 def load_tests(loader, tests, pattern):

@@ -936,6 +936,7 @@ export function PixelWorldHost(props) {
   });
   const adapter = createMemo(() => createPixelWorldHostAdapter({
     onResourceStage: setResourceStage,
+    onNavigationResult: spatial.navigationResult,
     onSelectEntity(selection) {
       const applied = spatial.selectPresented(selection);
       if (applied?.kind === "module_visual") {
