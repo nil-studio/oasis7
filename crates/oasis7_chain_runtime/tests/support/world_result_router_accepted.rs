@@ -43,7 +43,7 @@ pub(super) fn exercise(
             },
         },
         &mut FactReadContextV1 {
-            originals: &mut objects.original_reader(io),
+            originals: &mut objects.recovery_original_reader(io).unwrap(),
             catalog_pages: &state,
             memory,
             class: MemoryClass::Recovery,
@@ -60,7 +60,7 @@ pub(super) fn exercise(
     };
     let routed = route_accepted_world_results_v1(
         &request,
-        &mut objects.original_reader(io),
+        &mut objects.recovery_original_reader(io).unwrap(),
         &state,
         memory,
         MemoryClass::Recovery,
@@ -103,7 +103,7 @@ pub(super) fn exercise(
                 roots,
                 anchor: &anchor
             },
-            &mut objects.original_reader(io),
+            &mut objects.recovery_original_reader(io).unwrap(),
             &state,
             memory,
             MemoryClass::Recovery,
@@ -116,7 +116,7 @@ pub(super) fn exercise(
     assert!(
         route_accepted_world_results_v1(
             &request,
-            &mut objects.original_reader(io),
+            &mut objects.recovery_original_reader(io).unwrap(),
             &state,
             memory,
             MemoryClass::Recovery,
@@ -131,7 +131,7 @@ pub(super) fn exercise(
     assert!(
         route_accepted_world_results_v1(
             &request,
-            &mut objects.original_reader(io),
+            &mut objects.recovery_original_reader(io).unwrap(),
             &state,
             memory,
             MemoryClass::Recovery,
@@ -146,7 +146,7 @@ pub(super) fn exercise(
     assert!(
         route_accepted_world_results_v1(
             &request,
-            &mut objects.original_reader(io),
+            &mut objects.recovery_original_reader(io).unwrap(),
             &state,
             memory,
             MemoryClass::Recovery,

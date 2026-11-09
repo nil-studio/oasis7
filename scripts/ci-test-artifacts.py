@@ -2659,6 +2659,16 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                 count = 1
             if logical_suite != 'ordinary':
                 command += ['--test-threads=1', '--nocapture']
+            elif (artifact_partition and ordinary_partition == 'component-libs'
+                  and entry.get('batch')
+                  and entry['binary'] == 'required-test-oasis7_runtime-lib-oasis7_runtime'
+                  and binary.get('variant') == 'required'
+                  and binary.get('package') == binary.get('target') == 'oasis7_runtime'
+                  and binary.get('target_kind') == ['lib']):
+                # This complete Runtime batch must emit its first panic even
+                # if another test outlives the deadline. Other ordinary paths
+                # keep capture; inventory, threads and failure handling stay intact.
+                command.append('--nocapture')
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,

@@ -327,12 +327,13 @@ jobs:
               return value if isinstance(value, str) and re.fullmatch('[0-9a-f]{40}', value) else None
           def token(value):
               return isinstance(value, str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', value) and not re.search(r'(?i)(password|secret|authorization|bearer|access.token|gh[pousr]_|github_pat_)', value)
-          def safe_json(name, fallback):
+          def safe_json(name, fallback, max_bytes=65536):
               raw = E.get(name, '')
-              if len(raw) > 65536:
+              if len(raw) > max_bytes or len(raw.encode('utf-8')) > max_bytes:
                   raise ValueError('context_size')
               return json.loads(raw) if raw else fallback
-          needs = safe_json('TELEMETRY_NEEDS', {})
+          # needs includes upstream outputs such as the selection plan; only results survive.
+          needs = safe_json('TELEMETRY_NEEDS', {}, max_bytes=1024 * 1024)
           matrix = safe_json('TELEMETRY_MATRIX', {}) or {}
           if not isinstance(needs, dict) or not isinstance(matrix, dict):
               raise ValueError('context_type')
@@ -515,7 +516,7 @@ jobs:
       - name: Stabilize Rust toolchains for ordinary execution
         if: matrix.group != 'baseline'
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         if: matrix.group == 'rust_baseline'
         with:
           tool: cargo-deny@0.19.9
@@ -554,6 +555,9 @@ jobs:
           if [[ "$PREVIEW_GROUP" == oasis7_required ]]; then
             plan_args+=(--ordinary-partition "$PREVIEW_PARTITION")
           fi
+          if [[ "$PREVIEW_SAMPLE" == runtime-world && "$PREVIEW_GROUP" == oasis7_required && "$PREVIEW_PARTITION" == oasis7_world_state ]]; then
+            export OASIS7_CI_BUILD_DIAGNOSTICS="$RUNNER_TEMP/pr-fast-preview-build-diagnostics"
+          fi
           bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
             --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
       - name: Record preview group timing and outcome
@@ -584,6 +588,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pr-fast-preview.log
             ${{ runner.temp }}/pr-fast-preview-timing.json
+            ${{ runner.temp }}/pr-fast-preview-build-diagnostics
           retention-days: 14
           if-no-files-found: error
 
@@ -678,7 +683,7 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install native libraries
@@ -2577,6 +2582,15 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
+      - name: Install pinned deck security browser
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Deck browser tests require Node >= 20"); console.log("Using runner Node", process.version);'
+          npm --version
+          npm install --prefix "$RUNNER_TEMP/site-security-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
+          node "$RUNNER_TEMP/site-security-browser/node_modules/playwright/cli.js" install chromium --with-deps --only-shell
+          printf 'OASIS7_PLAYWRIGHT_MODULE=%s\n' "$RUNNER_TEMP/site-security-browser/node_modules/playwright" >> "$GITHUB_ENV"
       - name: Execute selected group
         shell: bash
         env:
@@ -2584,6 +2598,14 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "site_quality" --repo-root "$GITHUB_WORKSPACE"
+      - name: Upload deck browser evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-deck-security-${{ github.job }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: output/site-deck-security-qa/
+          if-no-files-found: warn
+          retention-days: 7
 
   doc-checker-contracts:
     needs: select
@@ -2823,7 +2845,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
@@ -2987,7 +3009,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps

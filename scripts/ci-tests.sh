@@ -236,8 +236,12 @@ run_oasis7_required_tier_tests() {
   fi
   if [[ -n "${required_plan:-}" ]]; then
     local temporary status=0
+    local diagnostics_args=()
+    if [[ -n "${OASIS7_CI_BUILD_DIAGNOSTICS:-}" ]]; then
+      diagnostics_args=(--build-diagnostics "$OASIS7_CI_BUILD_DIAGNOSTICS")
+    fi
     temporary=$(mktemp -d)
-    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}"; then
+    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}" "${diagnostics_args[@]}"; then
       run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$temporary/bundle" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" || status=$?
     else
       status=$?
@@ -698,6 +702,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
@@ -913,6 +918,7 @@ run_site_contract_tests() {
   run ./scripts/site-manual-sync-check.sh
   run ./scripts/site-download-check.sh
   run bash ./scripts/site-checks-contract.test.sh
+  run env OASIS7_SITE_QA_HEADLESS=1 node ./scripts/site-deck-security-browser.test.cjs
 }
 
 run_system_design_traceability_tests() {

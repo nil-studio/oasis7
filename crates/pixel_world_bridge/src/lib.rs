@@ -26,6 +26,7 @@ mod facility_signature;
 mod host_render_input;
 mod host_state;
 mod native_fonts;
+mod overview_query;
 mod pixel_pipeline;
 mod pointer_gesture;
 mod presentation_clock;
@@ -268,6 +269,8 @@ struct RenderState {
     #[serde(default)]
     display_source_cut: Option<String>,
     #[serde(default)]
+    overview_query_context: Option<Value>,
+    #[serde(default)]
     exploration_mode: bool,
     #[serde(default)]
     navigation: Option<navigation::Navigation>,
@@ -414,6 +417,7 @@ struct BevyRuntimeState {
     reactive_scheduling: bool,
     camera: CameraState,
     camera_fit_version: u64,
+    overview: overview_query::Runtime,
     last_canvas_size: Option<(u32, u32)>,
     last_canvas_css: Option<(f64, f64)>,
     last_pixel_layout: Option<pixel_pipeline::PixelLayout>,
@@ -955,9 +959,7 @@ fn apply_external_render_snapshot(
         return;
     };
 
-    if render_state.is_none() {
-        runtime.pending_fit_bounds = None;
-    }
+    navigation::reset_if_detached(runtime, render_state.as_deref());
     let previous_focus_target = focus_target_from_render_state(runtime.render_state.as_ref());
     let next_focus_target = focus_target_from_render_state(render_state.as_deref());
     let navigation_changed =
@@ -1098,6 +1100,7 @@ fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
                 runtime.camera.pan_x_px = start_pan_x + (x - start_x);
                 runtime.camera.pan_y_px = start_pan_y + (y - start_y);
                 runtime.camera_user_override = true;
+                navigation::retire_overview_after_manual_camera(runtime);
                 runtime.active_follow_target = None;
                 runtime.pending_focus_target = None;
                 runtime.pending_fit_bounds = None;
@@ -1149,6 +1152,7 @@ fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
             };
             runtime.camera.zoom = clamp(runtime.camera.zoom * factor, 0.6, max_zoom);
             runtime.camera_user_override = true;
+            navigation::retire_overview_after_manual_camera(runtime);
             runtime.active_follow_target = None;
             runtime.pending_focus_target = None;
             runtime.pending_fit_bounds = None;

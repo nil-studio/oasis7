@@ -1044,6 +1044,136 @@ class CompleteArtifactPartitions(unittest.TestCase):
         self.assertEqual(len({(entry.get('binary'), entry.get('name'), entry.get('script')) for entry in combined}), len(combined))
 
 
+class RuntimeLiveDiagnostics(unittest.TestCase):
+    RUNTIME = 'required-test-oasis7_runtime-lib-oasis7_runtime'
+
+    def fixture(self):
+        selected = CompleteArtifactPartitions().selection()
+        manifest = CompleteArtifactPartitions().manifest(selected)
+        runtime = manifest['binaries'].pop('component')
+        runtime.update(path=self.RUNTIME, tests=['first_failure', 'still_running', 'ignored_case'],
+                       ignored_tests=['ignored_case'])
+        manifest['binaries'][self.RUNTIME] = runtime
+        return selected, manifest
+
+    def test_only_complete_component_runtime_batch_changes_capture(self):
+        for change in ('none', 'unpartitioned', 'fast', 'alias', 'variant', 'package', 'target', 'kind', 'filter'):
+            selected, manifest = self.fixture()
+            runtime = manifest['binaries'][self.RUNTIME]
+            partition = 'component-libs'
+            if change == 'unpartitioned':
+                partition = None
+            elif change == 'fast':
+                selected = InlineExecutionSelection().selection()
+                manifest['execution_plan'] = selected
+                partition = None
+            elif change == 'alias':
+                manifest['binaries']['other-runtime-alias'] = manifest['binaries'].pop(self.RUNTIME)
+            elif change in ('variant', 'package', 'target'):
+                runtime[change] = 'other'
+            elif change == 'kind':
+                runtime['target_kind'] = ['test']
+            environment = {'RUST_TEST_THREADS': '3', 'RUST_TEST_NOCAPTURE': '0', 'UNCHANGED': 'value'}
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary)
+                stack.enter_context(patch.object(artifacts, 'ROOT', root))
+                stack.enter_context(patch.object(artifacts, 'load', return_value=(manifest, dict(environment))))
+                runner = stack.enter_context(patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')))
+                inline = stack.enter_context(patch.object(artifacts, 'execute_inline_jobs'))
+                if change == 'filter':
+                    stack.enter_context(patch.object(artifacts, 'ordinary_artifact_entries',
+                        return_value=[dict(binary=self.RUNTIME, filter='first_failure', count=1)]))
+                artifacts.execute(root, 'ordinary', root / 'results', plan=selected, ordinary_partition=partition)
+                if change == 'fast':
+                    jobs = inline.call_args.args[0]
+                else:
+                    inline.assert_not_called()
+                    jobs = [dict(command=call.args[0], env=call.args[2], name=call.args[4],
+                                 count=call.kwargs['expected_count']) for call in runner.call_args_list]
+                    self.assertTrue(all(set(call.kwargs) == {'expected_count'} for call in runner.call_args_list))
+                self.assertTrue(jobs)
+                for job in jobs:
+                    expected = change == 'none' and job['name'] == self.RUNTIME
+                    self.assertEqual('--nocapture' in job['command'], expected)
+                    self.assertFalse(any(arg.startswith('--test-threads') for arg in job['command']))
+                    self.assertEqual(job['env'], dict(environment, CARGO_MANIFEST_DIR=str(root)))
+                    if job['name'] == self.RUNTIME:
+                        self.assertEqual(job['command'], [str(root / self.RUNTIME)] + (['--nocapture'] if expected else []))
+                        self.assertEqual(job['count'], 2)
+                    elif change == 'filter':
+                        self.assertEqual(job['command'], [str(root / self.RUNTIME), 'first_failure'])
+                        self.assertEqual(job['count'], 1)
+                    else:
+                        snapshots = dict((pattern, owner) for owner, pattern in artifacts.DEFAULT_SNAPSHOT_REGRESSIONS)
+                        owner = snapshots.get(job['name'], job['name'])
+                        expected_command = [str(root / manifest['binaries'][owner]['path'])]
+                        if job['name'] in snapshots:
+                            expected_command.append(job['name'])
+                        self.assertEqual(job['command'], expected_command)
+
+    def test_panic_is_emitted_before_harness_finishes_and_failure_stays_failed(self):
+        from contextlib import redirect_stdout
+        selected, manifest = self.fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # A controlled libtest-like process captures its panic until exit
+            # unless the real execute() command opts this exact batch out.
+            for name, binary in manifest['binaries'].items():
+                harness = root / binary['path']
+                harness.write_text('#!' + sys.executable + '\n'
+                    'import json,os,sys,time\nfrom pathlib import Path\n'
+                    'root=Path(__file__).parent\n'
+                    '(root/(Path(__file__).name+".invocation")).write_text(json.dumps(dict(args=sys.argv[1:],'
+                    'threads=os.environ.get("RUST_TEST_THREADS"),capture=os.environ.get("RUST_TEST_NOCAPTURE"))))\n'
+                    f'if Path(__file__).name == {self.RUNTIME!r}:\n'
+                    ' print("test first_failure ... FAILED",flush=True)\n'
+                    ' if "--nocapture" in sys.argv: print("panic: diagnostic-fixture-first-cause",flush=True)\n'
+                    ' (root/"started").touch()\n'
+                    ' while not (root/"release").exists(): time.sleep(0.01)\n'
+                    ' if "--nocapture" not in sys.argv: print("panic: diagnostic-fixture-first-cause",flush=True)\n'
+                    ' print("test result: FAILED. 1 passed; 1 failed; 1 ignored;",flush=True)\n'
+                    ' sys.exit(101)\n'
+                    'print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True)\n')
+                harness.chmod(0o755)
+            environment = dict(os.environ)
+            for key in ('RUST_TEST_THREADS', 'RUST_TEST_NOCAPTURE'):
+                environment.pop(key, None)
+            results, output = root / 'results', root / 'output'
+            with patch.object(artifacts, 'ROOT', root), \
+                 patch.object(artifacts, 'load', return_value=(manifest, environment)), \
+                 output.open('w') as stream, redirect_stdout(stream), \
+                 patch('ci_process_runner.run', wraps=run) as runner, ThreadPoolExecutor(max_workers=1) as pool:
+                execution = pool.submit(artifacts.execute, root, 'ordinary', results,
+                                        plan=selected, ordinary_partition='component-libs')
+                try:
+                    deadline = time.monotonic() + 5
+                    while 'panic: diagnostic-fixture-first-cause' not in output.read_text() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue((root / 'started').exists())
+                    self.assertFalse(execution.done())
+                    self.assertNotIn('test result: FAILED', output.read_text())
+                    self.assertIn('panic: diagnostic-fixture-first-cause', output.read_text())
+                finally:
+                    (root / 'release').touch()
+                with self.assertRaises(RuntimeError):
+                    execution.result(timeout=5)
+                calls = runner.call_args_list
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(all(set(call.kwargs) == {'expected_count'} for call in calls))
+            self.assertEqual(run.__defaults__[1], 2400)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            runtime_result = next(record for record in records if record['test_name'] == self.RUNTIME)
+            self.assertEqual(runtime_result['expected_count'], 2)
+            self.assertEqual(runtime_result['exit_code'], 101)
+            self.assertFalse(runtime_result['passed'] or runtime_result['timeout'] or runtime_result['cancelled'])
+            self.assertEqual(runtime_result['cleanup_result'], 'clean')
+            self.assertTrue(all(record['passed'] for record in records if record is not runtime_result))
+            for name in (self.RUNTIME, 'oasis7-lib-tests', 'supplement'):
+                invocation = json.loads((root / (name + '.invocation')).read_text())
+                self.assertEqual(invocation, dict(args=['--nocapture'] if name == self.RUNTIME else [],
+                                                  threads=None, capture=None))
+
+
 class NativePackagePartitions(unittest.TestCase):
     def selection(self):
         targets = [FastTargetInventory().target(package=package, target_kind=kind, target_name=name)
@@ -1655,7 +1785,10 @@ if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             cargo = root / 'cargo'
-            cargo.write_text('#!/usr/bin/env bash\nprintf "cargo-sentinel:%s\\n" "$*"\nexit 73\n')
+            # This fixture checks plan validation and fetch failure propagation,
+            # not whether a formatting preflight runs before dependency fetches.
+            cargo.write_text('#!/usr/bin/env bash\nprintf "cargo-sentinel:%s\\n" "$*"\n'
+                             'if [[ "$*" == "fmt --all -- --check" ]]; then exit 0; fi\nexit 73\n')
             cargo.chmod(0o755)
             selected = InlineExecutionSelection().selection() | {
                 'source_sha': sha, 'tested_sha': sha, 'architecture': {'source': sha, 'tested': sha}}
@@ -1697,27 +1830,41 @@ with open(os.environ['CALL_LOG'], 'a') as stream:
     stream.write(json.dumps({'args': sys.argv[1:], 'bundle': str(bundle)}) + '\\n')
 if action == 'build':
     bundle.mkdir(parents=True)
+    if '--build-diagnostics' in sys.argv:
+        diagnostics = pathlib.Path(sys.argv[sys.argv.index('--build-diagnostics') + 1])
+        diagnostics.mkdir(parents=True, exist_ok=True)
+        (diagnostics / 'resources-fixture.json').write_text('{}')
 if os.environ['FAILED'] == action:
     sys.exit(19)
 ''')
-            for partition, failed in ((partition, failed) for partition in ('', 'all', 'oasis7_runtime')
-                                      for failed in ('', 'build', 'run')):
+            for partition, failed, diagnostics_enabled in itertools.product(
+                    ('', 'all', 'oasis7_runtime', 'oasis7_world_state'), ('', 'build', 'run'), (False, True)):
                 log = root / 'calls.jsonl'
                 log.unlink(missing_ok=True)
+                diagnostics = root / 'diagnostics outside bundle'
+                report = diagnostics / 'resources-fixture.json'
+                report.unlink(missing_ok=True)
                 script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"; repo_root="$2"; required_plan=fixture; ordinary_partition="$3"\n'
                 script += 'run() { "$@"; }\nrun_cargo() { echo unexpected-Cargo; return 83; }\n'
                 script += 'run_oasis7_required_tier_tests() {\n' + body + '}\nrun_oasis7_required_tier_tests\n'
                 result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(root), partition],
                                         text=True, capture_output=True,
-                                        env=dict(os.environ, FAILED=failed, CALL_LOG=str(log), OASIS7_CI_TEST_BUNDLE=''))
+                                        env=dict(os.environ, FAILED=failed, CALL_LOG=str(log), OASIS7_CI_TEST_BUNDLE='',
+                                                 OASIS7_CI_BUILD_DIAGNOSTICS=str(diagnostics) if diagnostics_enabled else ''))
                 calls = [json.loads(line) for line in log.read_text().splitlines()]
-                with self.subTest(partition=partition, failed=failed):
+                with self.subTest(partition=partition, failed=failed, diagnostics=diagnostics_enabled):
                     self.assertEqual(result.returncode, 19 if failed else 0, result.stderr)
                     self.assertEqual([call['args'][0] for call in calls], ['build'] if failed == 'build' else ['build', 'run'])
                     self.assertEqual(calls[0]['args'][calls[0]['args'].index('--scope') + 1], 'ordinary')
                     self.assertEqual(len({call['bundle'] for call in calls}), 1)
                     self.assertFalse(Path(calls[0]['bundle']).exists())
+                    self.assertEqual(report.exists(), diagnostics_enabled)
                     for call in calls:
+                        if diagnostics_enabled and call['args'][0] == 'build':
+                            self.assertEqual(call['args'][call['args'].index('--build-diagnostics') + 1], str(diagnostics))
+                            self.assertFalse(diagnostics.is_relative_to(Path(call['bundle']).parent))
+                        else:
+                            self.assertNotIn('--build-diagnostics', call['args'])
                         if partition and partition != 'all':
                             self.assertEqual(call['args'][call['args'].index('--ordinary-partition') + 1], partition)
                         else:

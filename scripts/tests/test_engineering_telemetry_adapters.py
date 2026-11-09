@@ -205,5 +205,77 @@ class RuntimeBindings(unittest.TestCase):
             row=json.loads(proc.stdout.removeprefix(self.b.MARKER));self.assertEqual(row['manifests'],[])
             self.assertIn('manifest_observation_unavailable',row['missing_reasons'])
 
+    def run_emitter_context(self, needs='{}', matrix='{}', native_environment=False):
+        import os, subprocess, sys, tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            context = dict(GITHUB_WORKSPACE=directory, RUNNER_TEMP=directory,
+                GITHUB_JOB='required-gate', GITHUB_REPOSITORY='owner/repo',
+                GITHUB_RUN_ID='7', GITHUB_RUN_ATTEMPT='2', TELEMETRY_WORKFLOW_SHA='d'*40,
+                TELEMETRY_SOURCE_SHA='a'*40, TELEMETRY_TESTED_SHA='b'*40, TELEMETRY_POLICY_SHA='c'*40,
+                TELEMETRY_NEEDS=needs, TELEMETRY_MATRIX=matrix)
+            if native_environment:
+                return subprocess.run([sys.executable, '-c', self.b.EMITTER],
+                    env=dict(os.environ, **context), capture_output=True, text=True)
+            # Install large fixtures after exec so the OS per-environment-string limit
+            # cannot replace the emitter's own byte-boundary assertions.
+            bootstrap = 'import json, os, sys\nos.environ.update(json.load(sys.stdin))\n'
+            return subprocess.run([sys.executable, '-c', bootstrap + self.b.EMITTER],
+                input=json.dumps(context), capture_output=True, text=True)
+
+    def test_real_emitter_projects_large_needs_outputs_without_retaining_them(self):
+        selection = dict(scope='full', source_sha='e'*40, tested_sha='f'*40,
+            reasons=[dict(path='crates/oasis7/src/runtime.rs', reason='shared_control') for _ in range(600)])
+        needs = dict(select=dict(result='success', outputs=dict(plan=json.dumps(selection),
+            private_value='DO_NOT_COPY_NEEDS_OUTPUT', padding='')), ordinary_build=dict(result='failure', outputs={}),
+            oasis7_required=dict(result='skipped', outputs={}), cancelled_job=dict(result='cancelled', outputs={}))
+        needs.update({f'group_{i}': dict(result='success', outputs={}) for i in range(23)})
+        # Match the observed gate's 27-job, 67,464-byte context without retaining
+        # its actual upstream outputs. Most of the input is select's plan/output.
+        needs['select']['outputs']['padding'] = 'x' * (67464 - len(json.dumps(needs).encode()))
+        raw = json.dumps(needs)
+        self.assertEqual(len(raw.encode()), 67464)
+        self.assertEqual(len(needs), 27)
+        proc = self.run_emitter_context(raw, native_environment=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        row = json.loads(proc.stdout.removeprefix(self.b.MARKER))
+        self.b.validate_observation(row, 'owner/repo', 7, 2)
+        expected = dict(select='success', ordinary_build='failure', oasis7_required='skipped', cancelled_job='cancelled')
+        expected.update({f'group_{i}': 'success' for i in range(23)})
+        self.assertEqual(row['needs'], expected)
+        self.assertEqual((row['target_source_sha'], row['target_tested_sha'], row['target_policy_sha'],
+            row['workflow_sha'], row['checkout_sha']), ('a'*40, 'b'*40, 'c'*40, 'd'*40, None))
+        for forbidden in ('DO_NOT_COPY_NEEDS_OUTPUT', 'outputs', 'runtime.rs', 'e'*40, 'f'*40):
+            self.assertNotIn(forbidden, proc.stdout + proc.stderr)
+
+    def test_emitter_context_byte_budgets_remain_bounded_and_separate(self):
+        for name, bound in (('needs', 1024 * 1024), ('matrix', 65536)):
+            with self.subTest(context=name):
+                accepted = self.run_emitter_context(**{name: '{}' + ' ' * (bound - 2)})
+                self.assertEqual(accepted.returncode, 0, accepted.stderr)
+                for raw in ('{}' + ' ' * (bound - 1),
+                            json.dumps({'padding': '\u00e9' * (bound // 2)}, ensure_ascii=False)):
+                    rejected = self.run_emitter_context(**{name: raw})
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertEqual(rejected.stdout, '')
+                    self.assertIn('context_size', rejected.stderr)
+
+    def test_emitter_context_values_remain_fail_closed(self):
+        invalid = (
+            ('needs', '[]', 'context_type'), ('needs', '{', 'JSONDecodeError'),
+            ('needs', json.dumps({f'job_{i}': {'result': 'success'} for i in range(101)}), 'needs_values'),
+            ('needs', '{"password": {"result": "success"}}', 'needs_values'),
+            ('needs', '{"select": {"result": "unknown"}}', 'needs_values'),
+            ('needs', '{"select": "success"}', 'needs_values'),
+            ('matrix', '[1]', 'context_type'), ('matrix', '{', 'JSONDecodeError'),
+            ('matrix', json.dumps({f'key_{i}': True for i in range(33)}), 'needs_values'),
+            ('matrix', '{"password": "value"}', 'matrix_values'),
+            ('matrix', '{"shard": {"value": 1}}', 'matrix_values'))
+        for name, raw, error in invalid:
+            with self.subTest(context=name, raw=raw):
+                proc = self.run_emitter_context(**{name: raw})
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertEqual(proc.stdout, '')
+                self.assertIn(error, proc.stderr)
+
 
 if __name__ == '__main__': unittest.main()

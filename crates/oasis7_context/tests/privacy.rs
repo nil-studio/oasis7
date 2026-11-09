@@ -94,43 +94,58 @@ fn interactive_passphrase_is_hidden_and_echo_is_restored() {
     h.init();
     let target = h.temp.path().join("interactive.enc");
     let script = r#"
-import os, pty, fcntl, termios, subprocess, select, time, sys
+import os, pty, fcntl, termios, subprocess, select, signal, time, sys
 master, slave = pty.openpty()
+ack_read, ack_write = os.pipe()
 original = termios.tcgetattr(slave)
 def child_terminal():
     os.setsid()
     fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
-child = subprocess.Popen([sys.argv[1], 'snapshot', 'export', '--root', sys.argv[2], '--output', sys.argv[3], '--json'], stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=child_terminal)
-def prompt(expected):
+# Keep the controlling session alive until restoration is checked. Polling from
+# the driver can miss a fast exit; macOS revokes the terminal on session exit.
+supervisor = '''
+import os, subprocess, sys, termios
+result = subprocess.run(sys.argv[3:], timeout=25)
+assert termios.tcgetattr(0)[3] == int(sys.argv[1]), 'terminal echo was not restored'
+os.write(0, b'Terminal restoration checked. ')
+assert os.read(int(sys.argv[2]), 1) == b'1'
+sys.exit(result.returncode)
+'''
+child = subprocess.Popen([sys.executable, '-c', supervisor, str(original[3]), str(ack_read), sys.argv[1], 'snapshot', 'export', '--root', sys.argv[2], '--output', sys.argv[3], '--json'], stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE, pass_fds=(ack_read,), preexec_fn=child_terminal)
+os.close(ack_read)
+def prompt(expected, hidden=True):
     seen = b''
     deadline = time.monotonic() + 20
     while expected not in seen:
         assert time.monotonic() < deadline, 'terminal prompt timeout'
         if select.select([master], [], [], 0.2)[0]: seen += os.read(master, 4096)
-    assert not (termios.tcgetattr(slave)[3] & termios.ECHO), 'secret input echoed'
+    if hidden:
+        assert not (termios.tcgetattr(slave)[3] & termios.ECHO), 'secret input echoed'
     return seen
-prompt(b'Snapshot passphrase: ')
-os.write(master, b'fixture-tty-passphrase\n')
-seen = prompt(b'Confirm passphrase: ')
-assert b'fixture-tty-passphrase' not in seen
-os.write(master, b'fixture-tty-passphrase\n')
-deadline = time.monotonic() + 30
-restored = False
-while child.poll() is None and time.monotonic() < deadline:
-    try: restored |= termios.tcgetattr(slave)[3] == original[3]
-    except termios.error: pass
-    if select.select([master], [], [], 0.2)[0]:
-        try: seen += os.read(master, 4096)
-        except OSError: break
-if child.poll() is None:
-    os.close(master)
-    child.kill()
-stdout, stderr = child.communicate(timeout=5)
-assert child.returncode == 0, 'snapshot export failed'
-assert b'fixture-tty-passphrase' not in stdout + stderr
-assert b'fixture-tty-passphrase' not in seen
-assert restored, 'terminal echo was not restored before export'
-os.close(master); os.close(slave)
+try:
+    seen = prompt(b'Snapshot passphrase: ')
+    os.write(master, b'fixture-tty-passphrase\n')
+    seen += prompt(b'Confirm passphrase: ')
+    assert b'fixture-tty-passphrase' not in seen
+    os.write(master, b'fixture-tty-passphrase\n')
+    # The supervisor waits for this ACK, so all binary TTY output is read before
+    # session teardown can revoke the terminal or discard its final bytes.
+    seen += prompt(b'Terminal restoration checked. ', hidden=False)
+    # Keep the ACK off the restored TTY so teardown cannot depend on draining
+    # additional echoed bytes while the driver waits for the session leader.
+    os.write(ack_write, b'1')
+    stdout, stderr = child.communicate(timeout=5)
+    assert child.returncode == 0, stderr.decode('utf-8', errors='replace')
+    assert b'fixture-tty-passphrase' not in stdout + stderr
+    assert b'fixture-tty-passphrase' not in seen
+finally:
+    os.close(ack_write); os.close(master); os.close(slave)
+    if child.poll() is None:
+        try: os.killpg(child.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError): pass
+        # Reap after releasing the TTY even if Darwin rejects a signal while
+        # the session is already exiting. A live child still fails the timeout.
+        child.communicate(timeout=5)
 "#;
     let output = Command::new("/usr/bin/python3")
         .args([

@@ -24,7 +24,7 @@ it('searches the server scope and exposes explicit return actions',()=>{
  render(()=> <PixelWorldWorldViewExplorer locale="en" state={{view:{source_cut:'cut',entities:[],completeness:'unknown'}}} onQuery={onQuery} onOverview={onOverview} onReturnTarget={onReturnTarget}/>);
  fireEvent.input(screen.getByRole('textbox'),{target:{value:' mine '}});fireEvent.submit(screen.getByRole('textbox').closest('form'));
  expect(onQuery).toHaveBeenLastCalledWith({search:'mine'});
- fireEvent.click(screen.getByRole('button',{name:'World overview'}));expect(onOverview).toHaveBeenCalled();expect(onQuery).toHaveBeenLastCalledWith({});
+ fireEvent.click(screen.getByRole('button',{name:'Overview query results'}));expect(onOverview).toHaveBeenCalled();expect(onQuery).toHaveBeenCalledTimes(1);expect(onQuery).toHaveBeenLastCalledWith({search:'mine'});
  fireEvent.click(screen.getByRole('button',{name:'Return to target'}));expect(onReturnTarget).toHaveBeenCalled();
 });
 it('queries a bounded region using the fixed world basis',()=>{

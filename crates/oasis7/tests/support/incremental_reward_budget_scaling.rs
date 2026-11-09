@@ -182,7 +182,9 @@ fn append_and_receiver_skip_unchanged_signature_through_thirty_two_mib() {
                 .get(signature.as_bytes(), &state)
                 .unwrap()
                 .unwrap();
-            (family, id)
+            let ordinary_family =
+                readmit_reward_family_ordinary_v1(&family, &roots, &memory, || false).unwrap();
+            (ordinary_family, id)
         };
         let parent = ExecutionParent {
             roots: roots.clone(),

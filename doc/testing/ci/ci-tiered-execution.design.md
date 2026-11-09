@@ -785,6 +785,8 @@ v2 输入的 `sources` 每项包含 `reference / kind / source_schema / payload`
 
 前向 `oasis7-engineering-job/v1` 观察记录由 workflow 的专用非阻断步骤输出。记录 `github.job`、实际 matrix、直接 needs 的结果、workflow SHA、运行目标 source/tested/policy，另列观察时实际 checkout 与允许配置文件摘要。目标 tested 不等于实际 checkout；无 checkout 的汇总节点和未执行分支不补造源码输入。v2 离线合同保持不变，新的绑定报告独立使用 `oasis7-engineering-bindings/v1`，不能把异构输入强填成同一 config。
 
+运行时 `needs` 上下文包含上游 outputs（包括 selection 计划），与只含维度的 matrix 分别限额：JSON 解析前按 UTF-8 字节检查，needs 最多 1 MiB、matrix 最多 64 KiB。解析后仍限制 100 个依赖、32 个矩阵键，校验键名、结果枚举和矩阵值；超额或无效输入使观察失败，不截断、猜测或放宽 gate。观察记录只保留依赖的结果映射，不保留 outputs，source/tested/policy 仍取显式目标字段。此解析额度不保证超过 runner 环境变量传递限制的输入能够启动。
+
 采集器从同一 run/attempt 的数值 job 日志读取专用步骤记录，核对 API 的数值身份、workflow 版本、唯一 job key/matrix 和完整分页。只接受该步骤内唯一标记；缺日志、冲突或错 attempt 保持 unknown。精确 workflow 的静态 needs 仅定义逻辑依赖，未绑定矩阵实例和 skipped 分支时不能发布完整 DAG。观察不是 GitHub 签名证明，也不赋予候选产物执行权限。
 
 Formal 的生产与消费双方观察允许位置的 manifest 原字节 SHA-256；merge 的组件输入与输出、pack 的每分片 manifest、消费者实际读取的 manifest 分开列出。相同摘要仅证明相同 manifest 内容，只有原生产与消费各自的数值 job 观察齐全才建立内容边；它不代替 GitHub artifact ID、下载成功或验证成功。未记录这些事实时分别为 unknown，不按文件名/测试名猜关联。诊断失败不影响测试、gate、清理或发布，日志保留期沿原 Actions 设置，报告建议保留 7 天。 精确非阻断例外在 `ci-required-scope.json.engineering_job_observation` 声明步骤、workflow、超时及 emitter 内容摘要；既有 workflow 合同只豁免匹配的整个独立诊断步骤，任何 required 步骤仍不得吞失败。此策略变化走已有 full/all-groups 迁移路径，不新增 required check；固定基线安全断言与真实 Rust fixture 保留，部分历史完整基线断言交由完整候选 suite 接替，因此不能称为治理规则完全未变。emitter 与声明可一起修改，其摘要不是独立信任根，仍须独立审阅和完整 CI。
@@ -991,6 +993,8 @@ CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`te
 `formal-process` 使用 always 汇总：选中时构建和计划内矩阵均须 success；未选中时矩阵须 skipped，明确输出 not_selected，required-gate 等待此固定依赖。新 profile 按[分层实施](#ci-fast-pr-periodic-full-design)的可信路径风险选择逻辑 suite，并保留跨物理 shard 的完整 case。旧 BASE、控制输入或缺窄映射仍保留原覆盖；可信 base 尚无 formal_process 时仅保守扩大，不改旧计划使旧校验器接受未知组。schedule/manual-full 始终包含全部重型 suite，full-extended 不重复执行其独立链路；专用 package dispatch 的独立用途保持。
 
 进程运行器使用单调绝对期限、20 秒存活心跳及独立进程所有权标识。Linux 扫描同 UID 环境标识并核对进程 starttime，清理包括脱离原进程组的自有后代；macOS 本地兼容使用独立进程组。退出码、超时、实际测试数、清理结果分别保存。摘要产物只含测试名和运行元数据；原输出通过 nocapture 进入 job 日志，不打包临时世界目录。
+
+普通测试保留 libtest 默认输出捕获。唯一的即时输出例外是完整 ordinary 产物的 `component-libs` 分片中，`required-test-oasis7_runtime-lib-oasis7_runtime` 的 required variant、`oasis7_runtime` package / lib target 完整 batch；该条目添加 `--nocapture`，使 panic 在整库结束或触及期限前进入 job 日志。例外不扩展到 fast / inline、本地未分片执行、其他普通库或过滤测试，不改变 non-ignored 库存计数、默认线程、2400 秒绝对期限、失败传播和进程清理；它只提供诊断输出，不能作为 Runtime 失败已修复的证据。
 
 live 日志背压不得阻塞监督期限、结果落盘或自有后代清理。每个运行器进程仅有一个有界后台转发队列，不修改共享 stdout 的 open-description flags；队列满时只抑制 live 转发，独立 reader 仍以有界 chunk/候选摘要行读取完整子进程输出，仅保留最后一个有效标准 libtest 计数。摘要记录实际读取的 `output_bytes`、被队列明确抑制或丢弃的 `output_suppressed_bytes`、结果生成时尚未确认写出的 `output_pending_bytes` 及读取错误类型，不新增 raw 日志产物，也不以 live 日志是否送达改变测试选择或成功条件。未完整读取的摘要不能证明执行数量。退出成功若到绝对期限后才被监督者观察到，仍记 timeout/failed；结果文件先于最后的 live 结果通知保存。受控背压回归证明这一机制，不代表某次 hosted 停滞的根因已确定。 每次调用独立快照当前输出描述符，排队片段持有独立副本并在转发或抑制后关闭，防止跨调用重定向失配或描述符复用误投。显式普通文件重定向保留完整输出；storage acceptance 通过可选普通文件日志入口保存原有逐 case 日志，独立于可抑制的控制台转发，不经 Tee 回调。该显式日志必须完整读取且无写入错误才可接受，结构化容量及全节点报告仍从完整日志核验；普通调用不新增默认 raw 日志或 spool。
 

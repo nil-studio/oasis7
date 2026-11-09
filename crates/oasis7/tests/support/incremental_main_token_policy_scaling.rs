@@ -184,7 +184,29 @@ fn point_and_receiver_skip_unchanged_symbol_through_thirty_two_mib() {
                 .get(signature.as_bytes(), &state)
                 .unwrap()
                 .unwrap();
-            (family, record, id)
+            let ordinary_family =
+                readmit_main_token_policy_family_ordinary_v1(&family, &roots, &memory, || false)
+                    .unwrap();
+            let owner = oasis7_world_state::incremental_semantic_key::hash_semantic_key_v1(
+                &(),
+                &memory,
+                MemoryClass::Ordinary,
+                &mut SemanticKeyBudget {
+                    bytes_remaining: 64,
+                },
+                || false,
+            )
+            .unwrap();
+            let ordinary_record = readmit_main_token_policy_record_ordinary_v1(
+                &record,
+                MainTokenPolicyKindV1::Config,
+                &owner.digest,
+                record.root(),
+                &memory,
+                || false,
+            )
+            .unwrap();
+            (ordinary_family, ordinary_record, id)
         };
         let parent = ExecutionParent {
             roots: roots.clone(),

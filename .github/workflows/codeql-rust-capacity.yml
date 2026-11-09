@@ -8,6 +8,11 @@ on:
         type: boolean
         default: false
 
+      compare_qualifier_patch:
+        description: Compare the fixed private qualifier patch after official capacity evidence
+        type: boolean
+        default: false
+
       mode:
         description: Explicit research budget or unchanged production-capacity assessment
         type: choice
@@ -25,14 +30,17 @@ jobs:
     name: CodeQL Rust capacity
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 60 }}
+    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 90 }}
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
       cancel-in-progress: false
     env:
       CAPACITY_MODE: ${{ inputs.mode }}
-      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'f9ab0ca14620f118c84130b3d558e48dc1e6314d' }}
+      COMPARE_QUALIFIER_PATCH: ${{ inputs.compare_qualifier_patch && 'true' || 'false' }}
+      CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef' }}
+      CAPACITY_BUNDLE_VERSION: ${{ inputs.mode == 'official-default-research' && '2.27.3' || '2.27.4' }}
+      CAPACITY_BUNDLE_SHA256: ${{ inputs.mode == 'official-default-research' && '218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237' || '1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b' }}
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
       CODEQL_RAM: ''
@@ -46,19 +54,35 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
-          import datetime,json,os,time,urllib.request
+          import datetime,email.utils,json,os,time,urllib.request
           url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
           request=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-          with urllib.request.urlopen(request,timeout=20) as response: value=json.load(response)
+          requested_at=time.monotonic()
+          with urllib.request.urlopen(request,timeout=20) as response:
+              value=json.load(response)
+              server_date=response.headers.get('Date')
+          request_seconds=time.monotonic()-requested_at
+          if not server_date:raise SystemExit('missing GitHub clock')
+          server_time=email.utils.parsedate_to_datetime(server_date)
+          if server_time.tzinfo is None:raise SystemExit('ambiguous GitHub clock')
           jobs=[job for job in value['jobs'] if job['name']=='CodeQL Rust capacity' and job['status']=='in_progress']
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
           mode=os.environ['CAPACITY_MODE']
           if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
-          budget=21600 if mode=='official-default-research' else 3600
+          if os.environ.get('COMPARE_QUALIFIER_PATCH','false')=='true' and mode!='capacity':
+              raise SystemExit('private qualifier comparison requires capacity mode')
+          budget=21600 if mode=='official-default-research' else 5400
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
-          if not 0<=time.time()-start<120:raise SystemExit('invalid or stale job clock')
+          # Compare timestamps from GitHub, then translate the remaining budget
+          # to the runner clock. Charge request time and HTTP Date rounding.
+          age=server_time.timestamp()-start+request_seconds+1
+          if not 0<=age<120:raise SystemExit('invalid or stale GitHub job clock')
+          local_now=time.time()
+          print(json.dumps({'job_id':jobs[0]['id'],'started_at':jobs[0]['started_at'],
+              'github_date':server_date,'job_age_upper_seconds':age,
+              'runner_clock_offset_seconds':local_now-server_time.timestamp()}))
           with open(os.environ['GITHUB_ENV'],'a') as out:
-              out.write(f"CAPACITY_DEADLINE={start+budget}\nCAPACITY_JOB_ID={jobs[0]['id']}\n")
+              out.write(f"CAPACITY_DEADLINE={local_now+budget-age}\nCAPACITY_JOB_ID={jobs[0]['id']}\n")
               out.write(f"CODEQL_ACTION_TEMP={os.environ['RUNNER_TEMP']}/rust-capacity-action\n")
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,12 +115,12 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/rust-capacity-tools"
           curl --fail --location --max-time 120 \
-            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.3/codeql-bundle-rust-linux64.tar.zst \
+            "https://github.com/github/codeql-action/releases/download/codeql-bundle-v${CAPACITY_BUNDLE_VERSION}/codeql-bundle-rust-linux64.tar.zst" \
             --output "$RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst"
-          echo "218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
+          echo "$CAPACITY_BUNDLE_SHA256  $RUNNER_TEMP/rust-capacity-tools/bundle.tar.zst" | sha256sum --check
           timeout 120 rustup toolchain install 1.96.0 --profile minimal
       - id: init
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         timeout-minutes: 5
         with:
           languages: rust
@@ -128,7 +152,7 @@ jobs:
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: analyze
         name: Extraction and complete official default queries
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
@@ -209,11 +233,34 @@ jobs:
                   with path.open('rb') as stream:hashes[str(path.relative_to(root))]=hashlib.file_digest(stream,'sha256').hexdigest()
           write('hashes.json',hashes)
           PY
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+      - id: official_artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
         if: always() && steps.evidence.outcome == 'success'
         timeout-minutes: 2
         with:
           name: rust-capacity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-capacity-evidence
           include-hidden-files: true
+          retention-days: 14
+      - id: qualifier_comparison
+        name: Compare public callees using the fixed private qualifier patch
+        if: always() && inputs.mode == 'capacity' && inputs.compare_qualifier_patch == true && steps.official_artifact.outcome == 'success' && steps.analyze.outcome == 'success' && steps.finish.outcome != 'skipped'
+        timeout-minutes: 16
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-qualifier-comparison.py" \
+            --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
+            --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
+            --official-evidence "$RUNNER_TEMP/rust-capacity-evidence" \
+            --output "$RUNNER_TEMP/rust-qualifier-evidence" --work "$RUNNER_TEMP/rust-qualifier-data" \
+            --deadline "$CAPACITY_DEADLINE"
+      - name: Upload private qualifier comparison
+        if: always() && steps.qualifier_comparison.outcome != 'skipped'
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+        with:
+          name: rust-qualifier-comparison-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-qualifier-evidence
+          if-no-files-found: error
           retention-days: 14

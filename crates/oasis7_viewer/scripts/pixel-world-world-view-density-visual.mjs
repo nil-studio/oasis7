@@ -161,7 +161,7 @@ async function overview() {
   const disclosure = '.pixel-world-exploration-disclosure';
   await evaluate(`(()=>{const d=document.querySelector(${JSON.stringify(disclosure)});if(!d)throw Error('negotiated exploration UI missing');return d.open})()`)
     .then(async open => { if (!open) await run(['click', disclosure + ' > summary']); });
-  await evaluate(`(()=>{const b=[...document.querySelectorAll('.pixel-world-exploration button')].find(b=>b.textContent.trim()==='World overview');if(!b)throw Error('overview action missing');b.focus({preventScroll:true});return true})()`); await run(['press', 'Enter']);
+  await evaluate(`(()=>{const b=document.querySelector('[data-query-overview]');if(!b)throw Error('overview action missing');b.focus({preventScroll:true});return true})()`); await run(['press', 'Enter']);
   await run(['click', disclosure + ' > summary']);
 }
 async function zoomForLabels() {

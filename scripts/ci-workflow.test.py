@@ -1503,7 +1503,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
                 '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
-                + 'printf "%s" "$OASIS7_CI_ARCHITECTURE_PLAN" > "$PLAN_LOG"\nexit "$DRIVER_EXIT"\n')
+                + 'printf "%s" "$OASIS7_CI_ARCHITECTURE_PLAN" > "$PLAN_LOG"\n'
+                + 'printf "%s" "${OASIS7_CI_BUILD_DIAGNOSTICS:-}" > "$DIAGNOSTICS_LOG"\nexit "$DRIVER_EXIT"\n')
             for sample, groups in (
                 ('runtime-world', ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node')),
                 ('game-client-private-unix', ('baseline', 'rust_baseline', 'oasis7_required')),
@@ -1512,15 +1513,17 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 selection.parent.mkdir(parents=True)
                 selection.write_text(json.dumps({'sample': sample}))
                 for group in groups:
-                    partitions = ('oasis7_runtime', 'oasis7_world_state') if (
-                        sample == 'runtime-world' and group == 'oasis7_required') else ('all',)
+                    # Include other owners for each axis to reject an overly
+                    # broad diagnostic condition without changing driver argv.
+                    partitions = ('all', 'oasis7_runtime', 'oasis7_world_state')
                     for partition in partitions:
                         for code in (0, 19):
                             result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
                                 env=dict(os.environ, PREVIEW_GROUP=group, PREVIEW_SAMPLE=sample,
                                          PREVIEW_PARTITION=partition, RUNNER_TEMP=str(root),
                                          GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'),
-                                         PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code)))
+                                         PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code),
+                                         OASIS7_CI_BUILD_DIAGNOSTICS='', DIAGNOSTICS_LOG=str(root / 'diagnostics-log')))
                             args = (root / 'args').read_text().strip('\0').split('\0')
                             expected = ['required', '--group', group]
                             if group in ('rust_baseline', 'oasis7_required', 'distfs'):
@@ -1532,6 +1535,22 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                 self.assertEqual(args, expected)
                                 self.assertEqual(json.loads((root / 'plan-log').read_text()), {'sample': sample})
                                 self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                                diagnostics = str(root / 'pr-fast-preview-build-diagnostics') if (
+                                    sample == 'runtime-world' and group == 'oasis7_required'
+                                    and partition == 'oasis7_world_state') else ''
+                                self.assertEqual((root / 'diagnostics-log').read_text(), diagnostics)
+
+    def test_preview_keeps_build_reports_in_its_existing_optional_path_list(self):
+        preview = JOBS['pr-fast-preview']
+        uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
+                   if 'uses: actions/upload-artifact@' in step]
+        self.assertEqual(len(uploads), 1)
+        self.assertIn('        if: always()\n', uploads[0])
+        self.assertIn('            ${{ runner.temp }}/pr-fast-preview.log\n', uploads[0])
+        self.assertIn('            ${{ runner.temp }}/pr-fast-preview-timing.json\n', uploads[0])
+        self.assertIn('            ${{ runner.temp }}/pr-fast-preview-build-diagnostics\n', uploads[0])
+        self.assertIn('          if-no-files-found: error\n', uploads[0])
+        self.assertNotIn('continue-on-error:', preview)
 
     def test_distfs_workflow_binds_new_handoffs_and_preserves_old_source_ref_cli(self):
         job = JOBS['distfs']

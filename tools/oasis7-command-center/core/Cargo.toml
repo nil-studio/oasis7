@@ -11,7 +11,7 @@ oasis7_local_signer = { path = "../../../crates/oasis7_local_signer" }
 oasis7_signer_protocol = { path = "../../../crates/oasis7_signer_protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 thiserror = "2"
 ts-rs = { version = "11", features = ["serde-compat"] }
 sha2 = "0.10"

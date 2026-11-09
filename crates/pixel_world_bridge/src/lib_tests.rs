@@ -12,6 +12,7 @@ pub(super) fn sample_render_state_for_camera(selection_kind: &str) -> RenderStat
     RenderState {
         display_profile: display_profile::DisplayProfile::Legacy,
         display_source_cut: None,
+        overview_query_context: None,
         exploration_mode: false,
         navigation: None,
         locale: "en".to_string(),
