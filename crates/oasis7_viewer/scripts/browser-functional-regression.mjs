@@ -95,21 +95,31 @@ function parseArgs(argv) {
   return options;
 }
 
+function rejectDuplicateSelection(selected, kind) {
+  const seen = new Set();
+  for (const value of selected) {
+    if (seen.has(value)) throw new Error(`duplicate ${kind} selection: ${value}; duplicates would inflate the expected run count without widening coverage`);
+    seen.add(value);
+  }
+}
+
 export function selectCases(raw) {
   const selected = raw.map((value) => value.trim()).filter(Boolean);
   if (selected.length === 0) throw new Error("case selection is empty; a run must select at least one case");
   for (const caseId of selected) {
     if (!SELECTABLE_CASES.includes(caseId)) throw new Error(`unknown case id: ${caseId}`);
   }
+  rejectDuplicateSelection(selected, "case");
   return selected;
 }
 
-function selectViewports(raw) {
+export function selectViewports(raw) {
   const selected = raw.map((value) => value.trim()).filter(Boolean);
   if (selected.length === 0) throw new Error("viewport selection is empty; a run must select at least one viewport");
   for (const name of selected) {
     if (!EXPECTED_VIEWPORTS[name]) throw new Error(`unknown viewport: ${name}`);
   }
+  rejectDuplicateSelection(selected, "viewport");
   return selected;
 }
 
@@ -627,9 +637,21 @@ function createScenarioTrace() {
   };
 }
 
+export function deliveryProbeSource(message, timeoutMs = 5000) {
+  return `window.__BFR__.deliver(${JSON.stringify(message)}, ${timeoutMs}).then(
+    (delivered) => JSON.stringify({ ok: true, delivered }),
+    (error) => JSON.stringify({ ok: false, error: String(error && error.message ? error.message : error) })
+  )`;
+}
+
 async function deliver(driver, message, trace = null) {
   trace?.push("deliver", { type: message.type, status: message?.ack?.status || message?.error?.status || null });
-  return driver.evalJson(`(() => JSON.stringify({ delivered: window.__BFR__.deliver(${JSON.stringify(message)}) }))()`);
+  const result = await driver.evalJson(deliveryProbeSource(message));
+  if (!result.ok) {
+    throw new Error(`fixture delivery barrier did not settle before its deadline for ${message.type}: ${result.error || "unknown error"}`);
+  }
+  trace?.push("deliver-settled", { type: message.type, delivered: result.delivered });
+  return result;
 }
 
 async function waitOutbound(driver, fromIndex, spec, timeoutMs = 8000, trace = null) {
@@ -646,16 +668,28 @@ async function countOutbound(driver, spec) {
 async function openAdvancedPromptDetails(driver, trace = null) {
   const summarySelector = "#viewer-details-panel details.command-surface__advanced-details > summary";
   await driver.runJson(["scrollintoview", summarySelector]);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await driver.runJson(["click", summarySelector]);
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 120));
-    const opened = await driver.evalJson(`(() => JSON.stringify({ open: document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true }))()`);
-    if (opened.open) {
-      trace?.push("ui-click", { selector: summarySelector, open: true, attempt });
-      return;
-    }
-  }
-  throw new Error("advanced prompt settings did not open from the visible summary control");
+  await waitForState(
+    driver,
+    STATE_READER,
+    `() => {
+      const entry = document.querySelector(${JSON.stringify(summarySelector)});
+      if (!entry) return false;
+      const rect = entry.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }`,
+    8000,
+  );
+  const initial = await driver.evalJson(`(() => JSON.stringify({ open: document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true }))()`);
+  assert(initial.open === false, "advanced prompt settings were already open before the player clicked the entry", initial);
+  await driver.runJson(["click", summarySelector]);
+  trace?.push("ui-click", { selector: summarySelector });
+  await waitForState(
+    driver,
+    STATE_READER,
+    `() => document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true`,
+    8000,
+  );
+  trace?.push("ui-state", { selector: summarySelector, open: true });
 }
 
 async function openPromptEditor(driver, trace = null) {
@@ -1127,6 +1161,18 @@ function createArtifactWriter(outDir, caseId, viewportName, screenshotFn, trace 
   };
 }
 
+function describeArtifacts(written) {
+  return written.map((artifactPath) => {
+    const bytes = statSync(artifactPath).size;
+    const repoRelative = relative(repoRoot, artifactPath).split("\\").join("/");
+    return {
+      path: repoRelative.startsWith("..") ? artifactPath : repoRelative,
+      bytes,
+      sha256: bytes > 0 ? sha256File(artifactPath) : null,
+    };
+  });
+}
+
 async function runCase({ caseId, viewportName, options, port, summary }) {
   const outDir = options.outDir;
   const viewport = EXPECTED_VIEWPORTS[viewportName];
@@ -1205,15 +1251,7 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
     for (const artifactPath of screenshotArtifacts) {
       assert(statSync(artifactPath).size > 0, `screenshot artifact is empty: ${artifactPath}`);
     }
-    record.artifacts = artifacts.written.map((artifactPath) => {
-      const bytes = statSync(artifactPath).size;
-      const repoRelative = relative(repoRoot, artifactPath).split("\\").join("/");
-      return {
-        path: repoRelative.startsWith("..") ? artifactPath : repoRelative,
-        bytes,
-        sha256: bytes > 0 ? sha256File(artifactPath) : null,
-      };
-    });
+    record.artifacts = describeArtifacts(artifacts.written);
     const storageAfter = await driver.evalJson("JSON.stringify({ keys: window.__BFR__.storageKeys() })");
     evidence.observations.finalStorageKeys = storageAfter.keys;
     record.status = "passed";
@@ -1234,6 +1272,18 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
     } catch (evaluationError) {
       record.failureDom = { error: String(evaluationError) };
     }
+    for (const [name, args] of [
+      ["console.json", ["console"]],
+      ["page-errors.json", ["errors"]],
+      ["network.json", ["network", "requests"]],
+    ]) {
+      try { evidence.artifacts.push(artifacts.writeJson(name, await driver.runJson(args))); } catch (_) {}
+    }
+    try {
+      evidence.artifacts.push(artifacts.writeJson("scenario-trace.json", await driver.evalJson("JSON.stringify(window.__BFR__.snapshot())")));
+    } catch (_) {}
+    try { evidence.artifacts.push(artifacts.writeText("structured-trace.jsonl", trace.jsonl())); } catch (_) {}
+    record.artifacts = describeArtifacts(artifacts.written);
   } finally {
     try {
       if (options.chromeTrace) await driver.run(["trace", "stop", join(artifacts.dir, "chrome-trace.json")]);
@@ -1266,7 +1316,18 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
   };
   await check("empty-case-selection", () => expectFailure(async () => selectCases([]), "empty case selection"));
   await check("unknown-case-id", () => expectFailure(async () => selectCases(["p99-not-a-case"]), "unknown case id"));
+  await check("duplicate-case-selection", () => expectFailure(async () => selectCases(["p01-loading", "p01-loading"]), "duplicate case selection"));
+  await check("duplicate-viewport-selection", () => expectFailure(async () => selectViewports(["desktop", "desktop"]), "duplicate viewport selection"));
   await check("missing-browser-binary", () => expectFailure(async () => resolveBrowserBinary("/nonexistent/agent-browser-for-bfr"), "missing browser binary"));
+  await check("host-deliver-propagates-barrier-failure", () => expectFailure(async () => {
+    const fakeDriver = {
+      evalJson: async (source) => {
+        assert(String(source).includes("window.__BFR__.deliver("), "host deliver must await the page-side delivery promise");
+        return { ok: false, error: "no open fixture websocket" };
+      },
+    };
+    await deliver(fakeDriver, { type: "snapshot", snapshot: {} });
+  }, "host delivery with an unsettled barrier"));
   await check("artifact-write-failure", async () => {
     const path = join(outDir, "self-check", "directory-as-file");
     mkdirSync(path, { recursive: true });
@@ -1281,6 +1342,44 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
       await driver.evalJson(`window.__BFR__.nextOutbound(0, { type: "prompt_control" }, 250).then((value) => JSON.stringify(value))`).then((result) => {
         if (result.ok) throw new Error("timeout probe unexpectedly observed a prompt request");
       });
+    } finally {
+      driver.close();
+    }
+  });
+  await check("delivery-barrier-times-out-without-open-socket", async () => {
+    const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-timeout-${Date.now()}`, headed: options.headed, outDir });
+    try {
+      driver.prepare();
+      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
+      await waitForState(driver, STATE_READER, `() => typeof window.__BFR__ === "object"`, 8000);
+      const result = await driver.evalJson(deliveryProbeSource({ type: "snapshot", snapshot: {} }, 300));
+      assert(result.ok === false, "delivery without an open fixture socket was reported as delivered", result);
+      assert(/no open fixture websocket/.test(result.error || ""), "delivery timeout did not surface the socket deadline", result);
+    } finally {
+      driver.close();
+    }
+  });
+  await check("delivery-barrier-settles-after-page-delivery", async () => {
+    const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-settles-${Date.now()}`, headed: options.headed, outDir });
+    try {
+      driver.prepare();
+      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
+      await waitForState(driver, STATE_READER, `() => typeof window.__BFR__ === "object"`, 8000);
+      const probe = await driver.evalJson(`(() => {
+        new WebSocket(window.__BFR__.endpoint);
+        return ${deliveryProbeSource({ type: "bfr-self-check-delivery" }, 3000)}.then((raw) => {
+          const settled = JSON.parse(raw);
+          const delivered = window.__BFR__.delivered;
+          return JSON.stringify({
+            settled,
+            total: delivered.length,
+            lastType: delivered[delivered.length - 1]?.message?.type || null,
+          });
+        });
+      })()`);
+      assert(probe.settled.ok === true, "delivery with an open fixture socket did not settle", probe);
+      assert(probe.total >= 1, "delivery settled before the message was recorded", probe);
+      assert(probe.lastType === "bfr-self-check-delivery", "delivery settled before the message reached the fixture socket", probe);
     } finally {
       driver.close();
     }
@@ -1445,11 +1544,19 @@ async function main() {
     releaseHandle?.server?.close();
   }
   const executed = summary.cases.length;
-  const expectedRuns = options.viewports.length * options.cases.length;
-  if (!options.selfCheck && executed !== expectedRuns) {
-    summary.failures.push({ caseId: "runner", viewport: { name: "n/a" }, failure: `zero/incomplete execution: executed=${executed} expected=${expectedRuns}; a partial or empty run cannot pass` });
+  const uniqueCases = [...new Set(options.cases)];
+  const uniqueViewports = [...new Set(options.viewports)];
+  const expectedRuns = uniqueViewports.length * uniqueCases.length;
+  const uniquePairs = new Set(summary.cases.map((entry) => `${entry.caseId}/${entry.viewport.name}`)).size;
+  if (!options.selfCheck && (executed !== expectedRuns || uniquePairs !== expectedRuns)) {
+    summary.failures.push({ caseId: "runner", viewport: { name: "n/a" }, failure: `zero/incomplete execution: executed=${executed} uniquePairs=${uniquePairs} expected=${expectedRuns}; a partial, duplicated or empty run cannot pass` });
   }
-  summary.executed = { cases: executed, expected: options.selfCheck ? 0 : expectedRuns, partialMatrix: options.cases.length !== ALL_CASES.length || options.viewports.length !== Object.keys(EXPECTED_VIEWPORTS).length };
+  summary.executed = {
+    cases: executed,
+    expected: options.selfCheck ? 0 : expectedRuns,
+    uniquePairs,
+    partialMatrix: uniqueCases.length !== ALL_CASES.length || uniqueViewports.length !== Object.keys(EXPECTED_VIEWPORTS).length,
+  };
   summary.status = summary.failures.length !== 0 || !summary.cases.every((entry) => entry.status === "passed")
     ? "failed"
     : options.selfCheck ? "self_check_passed" : "passed";
