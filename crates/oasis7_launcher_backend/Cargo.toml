@@ -22,7 +22,7 @@ ed25519-dalek = { version = "3", features = ["rand_core"] }
 getrandom = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
+rusqlite = { version = "0.41", features = ["bundled", "backup"] }
 prost = "0.13"
 hmac_legacy = { package = "hmac", version = "0.12" }
 sha1 = "0.10"
