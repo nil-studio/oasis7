@@ -464,18 +464,19 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     terminal['status']='CAPTURED'
 
 
-def analysis_budget(mode,remaining):
+def analysis_budget(mode,remaining,source_sha=None):
     if mode not in ('capacity','official-default-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
-    budget=21600 if research else 3600
+    current_capacity=not research and source_sha==CAPACITY_SOURCE
+    budget=21600 if research else (5400 if current_capacity else 3600)
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(45,minutes)
+    if not research:minutes=min(75 if current_capacity else 45,minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
             'scope':'official-default research; not production capacity' if research else
-                'internal analysis allocation; not a measurement of the complete 60 minute assessment'}
+                f'internal analysis allocation; not a measurement of the complete {budget//60} minute assessment'}
 
 
 def main():
@@ -599,7 +600,7 @@ def main():
             guard_home=cargo_guard.install(work,out,args.deadline,SOURCE,[source/n for n in independent['manifests']],monotonic_deadline=end)
             with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CARGO_HOME='+str(guard_home)+'\n')
             remaining=args.deadline-time.time()
-            budget=analysis_budget(args.mode,remaining);minutes=budget['analysis_allocated_minutes']
+            budget=analysis_budget(args.mode,remaining,SOURCE);minutes=budget['analysis_allocated_minutes']
             save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
             if minutes<1:raise RuntimeError('NOT_REACHED no analysis+semantic+receipt capacity')
             with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('analysis_minutes='+str(minutes)+'\n')
@@ -673,7 +674,7 @@ def main():
         for key in ('default_result_verification','public_semantics'):
             if terminal[key]=='RUNNING':terminal[key]='INCOMPLETE'
         if research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
-        terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production45min-unusable conclusion'
+        terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production-capacity conclusion'
         raise
     finally:
         terminal['remaining_seconds']=args.deadline-time.time()

@@ -144,7 +144,7 @@ class HostedClock(unittest.TestCase):
         return float(values.get('CAPACITY_DEADLINE', values.get('CHECK_DEADLINE')))-runner_now
 
     def test_runner_clock_skew_preserves_actual_job_budget(self):
-        budgets = {'CodeQL Rust capacity': 3600, 'CodeQL Rust CFG diagnostic': 2700,
+        budgets = {'CodeQL Rust capacity': 5400, 'CodeQL Rust CFG diagnostic': 2700,
                    'CodeQL Rust evaluator profile': 3300, 'Cargo check diagnostic': 900}
         for file, name, code in self.clocks():
             for offset in (-3600, 0, 3600):
