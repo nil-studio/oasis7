@@ -258,3 +258,9 @@ Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
 | PW-ACCESSIBILITY、PW-READABILITY | viewer-primary、viewer-dual | AC-AGENT-STAGE-001/003/004 |
 
 报告只记录实际执行的PASS/FAIL/BLOCKED/NOT RUN、source/build/环境、fixture、输入/操作、预期与实际、原始证据位置和未覆盖边界。没有运行不填PASS，不凭HTTP200、动画、截图文件存在或一次重跑成功覆盖先前失败。普通CI、真实Runtime、GPU/S6、原生、真人理解分别结论；Task/PR保存运行记录，长期文档不追加每轮计数和CI流水。
+
+### 当前查询总览的有限浏览器回归
+
+按[当前查询总览合同](../../world-simulator/viewer/external-agent-world-view.design.md#overview-query-fit)，设置 `QUERY_OVERVIEW_ARTIFACT_ROOT=<冻结visual目录>`、`QUERY_OVERVIEW_SOURCE_HEAD=<实际构建源>`、`QUERY_OVERVIEW_COMPOSED_MANIFEST=<逐文件size/SHA清单>`，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:query-overview`。清单名兼容组合产物，summary保留其实际kind；canonical不得改标旧source。`QUERY_OVERVIEW_CASE=complete|cancel|terminal` 分别独立执行一次；`QUERY_OVERVIEW_WIDTH=390` 覆盖窄屏complete及状态文本边界，缺省1440。夹具仅用三个获准观察实体、每响应一条且请求上限仍200，在真实Host/WS/WASM中挂第三页。验证原生手动平移后，partial总览保持相机、不清搜索、不新增查询；同绑定complete实际应用一次，后台full不抢手动相机；取消及终止partial保持相机。每阶段最多12秒，无输入重试、无renderer/rAF冻结，失败保raw并非零退出。
+
+此回归只证明受控技术观察入口的分页导航与指定视口布局。`navigation_result`是主Update消费，不是GPU fence；旧缺schema兼容另由Rust确定性回归覆盖，不能冒称旧入口GPU已验。该工具不证明原内存长窗触发时刻的因果，不代签真实玩家授权、P5、五分钟/30分钟或P6。产物SHA前后核对，记录实际构建源和runner分别身份；不改标已保留失败或旧QA头的raw。

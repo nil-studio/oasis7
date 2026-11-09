@@ -10,6 +10,7 @@ impl IdentityStore {
         namespace: IdentityNamespace,
         expected_rp: RpConfig,
     ) -> Result<IdentitySnapshot, StoreError> {
+        ensure_safe_sqlite()?;
         let mut connection =
             Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         connection.busy_timeout(Duration::from_millis(750))?;

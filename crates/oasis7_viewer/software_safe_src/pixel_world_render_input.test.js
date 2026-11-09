@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { createStore, $RAW } from "solid-js/store";
 import { projectPixelWorldRenderInput, encodePixelWorldRenderInput } from "./pixel_world_render_input.js";
+import { worldViewAuthorityKey } from "./pixel_world_world_view_delta.js";
 
 describe("bounded renderer input", () => {
+  it("preserves the public overview binding while excluding unrelated source evidence", () => {
+    const worldView={world_id:'W',scope_id:'S',source_cut:'C',request_generation:'Q',completeness:'complete',source_frozen:true,entities:[],reorg_epoch:'2',
+      source_binding:{version:{visibility_scope:'public',projection_revision:'v1',commit:{world:{world_id:'W',genesis_digest:'G'},binding:{provider_world_id:'P',branch_id:'main',reorg_generation:'2',authority_generation:'3',permission_generation:'4',governing_manifest_ref:'M'}}}}};
+    Object.defineProperty(worldView.source_binding.version.commit,'reader_proof',{enumerable:true,get(){throw Error('private proof read');}});
+    const projected=projectPixelWorldRenderInput({worldView}).worldView;
+    expect(worldViewAuthorityKey(projected)).toBe(worldViewAuthorityKey(worldView));
+    expect(projected.source_frozen).toBe(true);
+    expect(projected.source_binding.version.commit.reader_proof).toBeUndefined();
+  });
   it("keeps explicit factory type in display-only module fields without reading private data", () => {
     const module = {entity_id:"F",module_id:"runtime_factory",kind:"factory",factory_kind:"factory.smelter.mk1",label:"Fixture smelter",anchor:{type:"absolute",data:{pos:{x_cm:1,y_cm:2,z_cm:0}}}};
     Object.defineProperty(module,"private_stock",{enumerable:true,get(){throw Error("private field read");}});

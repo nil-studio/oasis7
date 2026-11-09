@@ -5,6 +5,8 @@ import { worldViewAuthorityKey } from './pixel_world_world_view_delta.js';
 
 // Page-local only: a remounted controller must not reuse an earlier intent ID.
 let selectionIntentGeneration = 0;
+let navigationIntentGeneration = 0;
+const nextNavigationId = () => String(++navigationIntentGeneration);
 const refKey = ref => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
   if (!value || !['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].every(key => typeof value[key] === 'string' && /^-?(0|[1-9]\d*)$/.test(value[key]))) return null;
@@ -20,12 +22,51 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   const [spatialSelection,setSpatialSelection] = createSignal(null);
   const [selectionStatus,setSelectionStatus] = createSignal(null);
   const [selectionFeedback,setSelectionFeedback] = createSignal(null);
+  const [overviewStatus,setOverviewStatus] = createSignal(null);
   let feedbackScopeGeneration = 1, feedbackAuthority = null;
-  const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);}});
+  const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);checkOverview(next);}});
   let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = '', currentQuery = {};
   let cameraBounds = null, cameraKey = '', timer = null, command = 0, disposed = false;
   let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
   let presented = null, pending = null, pendingTimer = null;
+  let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartViews = new WeakSet();
+  function cancelOverview(status = null, stop = false) {
+    const retire = stop && (pendingOverview || navigation()?.overview_query);
+    clearTimeout(overviewTimer);overviewTimer = null;pendingOverview = null;setOverviewStatus(status);
+    if (retire) {command += 1;setNavigation({request_id:nextNavigationId(),mode:'stop',target:null});}
+    queueMicrotask(()=>{if(dirty&&!inFlight&&!pendingOverview?.applying&&!disposed&&timer===null){dirty=false;void read();}});
+  }
+  function overviewBinding(view) {
+    if (![view?.world_id,view?.scope_id,view?.source_cut,view?.request_generation].every(v=>typeof v==='string'&&v.length>0)) return null;
+    return [JSON.parse(worldViewAuthorityKey(view)),view.source_cut,view.request_generation];
+  }
+  function checkOverview(next) {
+    if (!pendingOverview) return;
+    const intent = pendingOverview, view = next.view;
+    if (disposed || pixelWorldScope(core.state)!==scope || intent.scope!==scope || intent.command!==command
+      || intent.queryToken!==queryToken || intent.coreKey!==coreKey() || !enabled() || next.error || next.stale) {
+      cancelOverview('unavailable',true);return;
+    }
+    // A queued read or the retained old complete view is not a page of this read.
+    if (readingQueryToken!==intent.queryToken || (next.loading && (view==null || readStartViews.has(view)))) {
+      if (!next.loading) cancelOverview('unavailable',true);
+      return;
+    }
+    const binding = overviewBinding(view);
+    if (!binding || view.source_frozen || !['partial','complete'].includes(view.completeness)) {
+      cancelOverview('unavailable',true);return;
+    }
+    const key = JSON.stringify(binding);
+    if (intent.binding && intent.binding!==key) {cancelOverview('unavailable',true);return;}
+    intent.binding = key;
+    if (intent.applying) return;
+    if (view.completeness==='complete') {
+      const request_id = intent.requestId;
+      intent.applying = true;
+      setOverviewStatus('applying');
+      setNavigation({request_id,mode:'overview',target:null,overview_query:{version:1,binding}});
+    } else if (!next.loading || view.budget_limited) cancelOverview('unavailable',true);
+  }
   const requestBinding = view => JSON.stringify([worldViewAuthorityKey(view),view?.source_cut,view?.request_generation]);
   const canonicalRef = ref => ref?.kind === 'module_visual' ? {kind:'factory',id:ref.id} : ref;
   function proved(ref, view) {
@@ -93,11 +134,13 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   function cancelScheduled() { if (timer != null) clearTimeout(timer); timer = null; }
   function navigate(mode,target = null) {
     cancelPending();
+    cancelOverview();
     following = mode === 'follow' ? target : null;
-    setNavigation({request_id:String(++command),mode,target});
+    command += 1;setNavigation({request_id:nextNavigationId(),mode,target});
   }
   async function read() {
     if (inFlight) { dirty = true; return inFlight; }
+    if (pendingOverview?.applying) {dirty=true;return null;}
     if (disposed || !enabled() || pixelWorldScope(core.state) !== scope) return null;
     const pinned = pins(); lastPins = JSON.stringify(pinned);
     const query = {...currentQuery};delete query.pinned_entities;delete query.resume_cursor;delete query.cursor;
@@ -105,6 +148,8 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     const caps = core.state.viewerProtocol?.capabilities || [];
     if (caps.includes('world_view_aggregate_v1')) query.detail_level ||= 'auto'; else delete query.detail_level;
     if (caps.includes('world_view_event_anchor_v1')) query.include_events = true; else delete query.include_events;
+    readingQueryToken = queryToken;readStartViews = new WeakSet();
+    if (state().view) readStartViews.add(state().view);
     inFlight = client.query(query,{delta:caps.includes('world_view_delta_v1'),preserveChanges:true});
     try { return await inFlight; } finally {
       inFlight = null;
@@ -118,6 +163,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   }
   function query(query = {}) {
     cancelPending();
+    cancelOverview(null,true);queryToken += 1;
     command += 1; cancelScheduled();client.clearChanges();
     currentQuery = {...query};
     if (inFlight) {client.invalidate();dirty=false;return inFlight.then(()=>read());}
@@ -125,6 +171,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   }
   function select(ref) {
     cancelPending();
+    cancelOverview(null,true);
     if (pixelWorldScope(core.state) !== scope) return null;
     command += 1;
     const view = state().view;
@@ -159,12 +206,16 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (disposed || pixelWorldScope(core.state) !== scope) return null;
       return client.statistics?.(expectedSourceCut, measure) ?? null;
     },
-    state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,scope:()=>scope,
+    state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,overviewStatus,scope:()=>scope,
     // Called by Host only after publishing this render DTO. Store identities,
     // never the previous scene's entity facts or coordinates.
     present(view, scene, presentedScope = scope) {
       presented = null;
-      if (!view || !scene) { cancelPending();return; }
+      if (!view || !scene) {
+        cancelPending();
+        if (pendingOverview) cancelOverview('unavailable',true);
+        return;
+      }
       if (pixelWorldScope(core.state) !== scope || presentedScope !== scope
         || worldViewAuthorityKey(view) !== worldViewAuthorityKey(state().view)
         || !view.source_cut || scene.display_source_cut !== view.source_cut) return;
@@ -181,6 +232,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     selectPresented(ref) {
       if (disposed) return null;
+      cancelOverview(null,true);
       const next = state(), view = next.view;
       if (!view) {
         if (!enabled()) return select(ref); // Preserve the legacy snapshot path only.
@@ -200,15 +252,17 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       return null;
     },
     drilldown(aggregate) {
+      cancelOverview(null,true);
       if (pixelWorldScope(core.state) !== scope || !state().view?.aggregates?.some(value=>value.aggregate_id === aggregate?.aggregate_id)) return;
       const bounds=viewportBounds(aggregate.drilldown?.bounds);if (!bounds) return;
-      navigate('stop');setNavigation({request_id:String(++command),mode:'fit_bounds',bounds,target:null});
+      navigate('stop');command += 1;setNavigation({request_id:nextNavigationId(),mode:'fit_bounds',bounds,target:null});
       return query({bounds,detail_level:aggregate.drilldown.detail_level});
     },
     query,select,navigate,
     eventFeed(event) {
       if (pixelWorldScope(core.state) !== scope) return false;
       cancelPending();
+      cancelOverview(null,true);
       const view=state().view, feed=core.state.worldFeed;
       const authorized=view?.events?.find(value=>value.event_id === event?.event_id);
       const identity=authorized?.feed_ref;
@@ -229,7 +283,21 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (currentQuery.detail_level) currentQuery = {...currentQuery,detail_level:'auto'};
       navigate('stop');setPauseVersion(value=>value+1);
     },
-    overview() {navigate('overview');},
+    overview() {
+      if (!enabled()) {navigate('overview');return;}
+      client.clearChanges();
+      navigate('stop');
+      pendingOverview = {scope,command,queryToken,coreKey:coreKey(),requestId:nextNavigationId(),binding:null};
+      setOverviewStatus('pending');overviewTimer = setTimeout(()=>cancelOverview('unavailable',true),30000);
+      checkOverview(state());
+    },
+    navigationResult(result) {
+      if (!pendingOverview?.applying || result?.request_id!==pendingOverview.requestId) return;
+      checkOverview(state());
+      if (!pendingOverview) return;
+      if (result.status==='applied' && Number.isSafeInteger(result.render_version) && result.render_version>=0) cancelOverview();
+      else cancelOverview('unavailable',true);
+    },
     cameraChanged(camera) {
       if (disposed || !enabled()) return;
       const bounds = viewportBounds(camera?.viewport_bounds);
@@ -237,17 +305,23 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       const key = JSON.stringify(bounds);
       if (key === cameraKey) return;
       cameraBounds = bounds; cameraKey = key;
+      // Manual wheel/drag already calls pauseFollow via the real canvas input
+      // listener. A renderer viewport report is not a new user command.
+      if (pendingOverview) return;
       currentQuery = {...currentQuery,bounds:cameraBounds};
+      queryToken += 1;
       schedule();
     },
     resetScope() {
       cancelPending();presented = null;
+      cancelOverview();queryToken += 1;readStartViews = new WeakSet();
       scope = pixelWorldScope(core.state);feedbackScopeGeneration += 1;feedbackAuthority = null;cancelScheduled();command += 1;
       dirty = false;lastSnapshot = null;lastPins = '';cameraBounds = null;cameraKey = '';currentQuery = {};following = null;selectedCoreKey = null;
       setSpatialSelection(null);setNavigation(null);client.reset(scope,core.state.worldId);
     },
     refresh(snapshot) {
       checkPending(state());
+      checkOverview(state());
       if (!snapshot || !enabled() || disposed) return;
       if (spatialSelection() && selectedCoreKey !== coreKey()) setSpatialSelection(null);
       const pinKey = JSON.stringify(pins());
@@ -258,6 +332,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     async returnTarget() {
       cancelPending();
+      cancelOverview(null,true);
       const id = mainTarget();if (!id) return;
       const expectedScope = scope;
       const pending = query({search:id}), expectedCommand = command;
@@ -267,7 +342,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (!target || !worldViewPosition(target,view,false,true)) {setState(previous=>({...previous,notice:'target_unavailable'}));return;}
       select({kind:'agent',id});currentQuery = {};cameraKey = '';navigate('locate',{kind:'agent',id});
     },
-    dispose() {disposed = true;cancelPending();presented = null;cancelScheduled();client.reset(null);},
+    dispose() {disposed = true;cancelPending();cancelOverview();presented = null;cancelScheduled();client.reset(null);},
   };
   const poll = setInterval(() => {
     if (core.state.viewerProtocol?.capabilities?.includes('world_view_delta_v1') && typeof document !== 'undefined' && document.visibilityState === 'visible' && state().view) void read();
