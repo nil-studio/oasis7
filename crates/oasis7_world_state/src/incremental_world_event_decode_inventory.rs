@@ -10,18 +10,18 @@ const SOURCES: &[(&[u8], [u8; 32])] = &[
     (
         include_bytes!("../../../Cargo.lock"),
         [
-            0xfb, 0x3f, 0xf4, 0xb6, 0x7d, 0x12, 0x49, 0x77, 0xdf, 0x08, 0xc9, 0x8d, 0x68, 0x49,
-            0x16, 0xa6, 0x15, 0x33, 0xfb, 0xed, 0x20, 0xef, 0xaf, 0x2c, 0xbf, 0x89, 0x03, 0x5d,
-            0x52, 0xc2, 0x9f, 0x96,
+            0x56, 0x1f, 0x67, 0xf3, 0x58, 0xa2, 0xb8, 0x0b, 0x1c, 0xbc, 0xd3, 0x3c, 0xff, 0x1a,
+            0x2a, 0xe4, 0x3e, 0x01, 0x9a, 0x4d, 0xc1, 0x43, 0x01, 0xee, 0x58, 0x45, 0x43, 0xde,
+            0xa8, 0x79, 0x38, 0xcc,
         ],
     ),
     // Cargo.toml
     (
         include_bytes!("../../../Cargo.toml"),
         [
-            0x2c, 0xf6, 0x7e, 0xb7, 0xf3, 0xf4, 0x47, 0x01, 0x81, 0x32, 0xa3, 0x13, 0x9e, 0x75,
-            0xf7, 0x4b, 0x33, 0xf9, 0xc9, 0x7d, 0x83, 0x5c, 0x75, 0xdd, 0x77, 0xa7, 0x7f, 0x52,
-            0xd0, 0x8d, 0x78, 0x87,
+            0xf6, 0xfc, 0xfa, 0xa5, 0x3f, 0x77, 0xda, 0x36, 0xa3, 0x15, 0x17, 0x01, 0x29, 0x43,
+            0xcf, 0x6b, 0xed, 0xdd, 0xbe, 0x7e, 0x38, 0xe7, 0xde, 0xbd, 0x86, 0x38, 0xe2, 0xc9,
+            0x51, 0x69, 0x03, 0xcc,
         ],
     ),
     // crates/oasis7_agent_api/Cargo.toml
@@ -724,4 +724,39 @@ pub(crate) fn world_event_layout_inventory_matches_v1() -> bool {
             .iter()
             .all(|(bytes, expected)| normalized_sha256(bytes) == *expected)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_source_inventory_matches_each_entry_and_rejects_changed_bytes() {
+        for (index, (bytes, expected)) in SOURCES.iter().enumerate() {
+            assert_eq!(
+                normalized_sha256(bytes),
+                *expected,
+                "closed source inventory entry {index}"
+            );
+            assert!(!bytes.is_empty());
+            let mut changed = bytes.to_vec();
+            changed[0] ^= 1;
+            assert_ne!(
+                normalized_sha256(&changed),
+                *expected,
+                "changed closed source inventory entry {index}"
+            );
+        }
+        assert!(world_event_layout_inventory_matches_v1());
+    }
+
+    #[test]
+    fn source_inventory_normalizes_crlf_but_preserves_other_bytes() {
+        let lf = b"first\nsecond\nlast\r";
+        let expected: [u8; 32] = Sha256::digest(lf).into();
+        assert_eq!(normalized_sha256(lf), expected);
+        assert_eq!(normalized_sha256(b"first\r\nsecond\r\nlast\r"), expected);
+        assert_ne!(normalized_sha256(b"first\nsecond\nlast"), expected);
+        assert_ne!(normalized_sha256(b"first\nSecond\nlast\r"), expected);
+    }
 }

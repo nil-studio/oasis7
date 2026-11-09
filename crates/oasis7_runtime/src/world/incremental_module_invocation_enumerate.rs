@@ -7,7 +7,7 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateScanBudget},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_world_state::{
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
     incremental_module_instance_family::ModuleInstanceFamilyQualificationV1,
@@ -21,6 +21,14 @@ use oasis7_world_state::{
 };
 #[path = "incremental_module_invocation_current_keys.rs"]
 mod keys;
+// Borrow the caller's continuous quotas without replenishing them.
+struct CurrentKeyEnumerationBudgetV1<'a> {
+    memory: &'a MemoryBudget,
+    scan: &'a mut StateScanBudget,
+    max_entries: usize,
+    max_key_bytes: usize,
+    pending_entries: &'a mut usize,
+}
 #[derive(Debug)]
 pub enum CurrentInvocationEnumerationErrorV1 {
     Execution(ExecutionError),
@@ -144,11 +152,13 @@ pub fn build_accepted_invocation_directory_v1<
             state,
             None,
             StateNamespaceV1::Business,
-            ctx.values.memory,
-            &mut work.instance_scan,
-            work.max_keys,
-            work.max_key_bytes,
-            &mut work.pending_entries,
+            CurrentKeyEnumerationBudgetV1 {
+                memory: ctx.values.memory,
+                scan: &mut work.instance_scan,
+                max_entries: work.max_keys,
+                max_key_bytes: work.max_key_bytes,
+                pending_entries: &mut work.pending_entries,
+            },
             &mut ctx.cancelled,
             ModuleInstanceKeyV1::is_instance_key,
         )?;
@@ -157,11 +167,13 @@ pub fn build_accepted_invocation_directory_v1<
             state,
             None,
             StateNamespaceV1::Artifacts,
-            ctx.values.memory,
-            &mut work.registry_scan,
-            work.max_keys,
-            work.max_key_bytes,
-            &mut work.pending_entries,
+            CurrentKeyEnumerationBudgetV1 {
+                memory: ctx.values.memory,
+                scan: &mut work.registry_scan,
+                max_entries: work.max_keys,
+                max_key_bytes: work.max_key_bytes,
+                pending_entries: &mut work.pending_entries,
+            },
             &mut ctx.cancelled,
             |key| {
                 WorldFieldKeyV1::from_bytes(key).is_ok_and(|binding| {
@@ -267,13 +279,15 @@ pub fn collect_current_module_invocation_ids_v1<
             state,
             Some(&directory.instances),
             StateNamespaceV1::Business,
-            ctx.values.memory,
-            &mut work.instance_scan,
-            work.max_keys,
-            work.max_key_bytes,
-            &mut work.pending_entries,
+            CurrentKeyEnumerationBudgetV1 {
+                memory: ctx.values.memory,
+                scan: &mut work.instance_scan,
+                max_entries: work.max_keys,
+                max_key_bytes: work.max_key_bytes,
+                pending_entries: &mut work.pending_entries,
+            },
             &mut ctx.cancelled,
-            |key| ModuleInstanceKeyV1::is_instance_key(key),
+            ModuleInstanceKeyV1::is_instance_key,
         )?;
         let mut result = Vec::with_capacity(work.max_keys);
         let mut suppressed = Vec::with_capacity(work.max_keys);
@@ -309,7 +323,6 @@ pub fn collect_current_module_invocation_ids_v1<
                 result.push(id.to_owned());
             }
         }
-        drop(read);
         result.sort_unstable();
         suppressed.sort_unstable();
         suppressed.dedup();
@@ -318,11 +331,13 @@ pub fn collect_current_module_invocation_ids_v1<
             state,
             Some(&directory.registry),
             StateNamespaceV1::Artifacts,
-            ctx.values.memory,
-            &mut work.registry_scan,
-            work.max_keys,
-            work.max_key_bytes,
-            &mut work.pending_entries,
+            CurrentKeyEnumerationBudgetV1 {
+                memory: ctx.values.memory,
+                scan: &mut work.registry_scan,
+                max_entries: work.max_keys,
+                max_key_bytes: work.max_key_bytes,
+                pending_entries: &mut work.pending_entries,
+            },
             &mut ctx.cancelled,
             |key| {
                 WorldFieldKeyV1::from_bytes(key).is_ok_and(|binding| {

@@ -561,22 +561,19 @@ where
             if (factory.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
-            if let Some(id) = &entry.id {
-                if entry.after.is_some() {
-                    if factories.len() == fcap {
-                        return Err(
-                            ValueTreeError::ResourceLimited("directory factory merge").into()
-                        );
-                    }
-                    let copy = id.to_owned();
-                    if copy.capacity() > work.max_factory_id_bytes {
-                        return Err(ValueTreeError::ResourceLimited(
-                            "directory factory copy capacity",
-                        )
-                        .into());
-                    }
-                    factories.push(copy);
+            if let Some(id) = &entry.id
+                && entry.after.is_some()
+            {
+                if factories.len() == fcap {
+                    return Err(ValueTreeError::ResourceLimited("directory factory merge").into());
                 }
+                let copy = id.to_owned();
+                if copy.capacity() > work.max_factory_id_bytes {
+                    return Err(
+                        ValueTreeError::ResourceLimited("directory factory copy capacity").into(),
+                    );
+                }
+                factories.push(copy);
             }
         }
         for id in &parent.recipes {
@@ -592,13 +589,13 @@ where
             if (recipe.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
-            if let Some(id) = entry.id {
-                if entry.after.is_some() {
-                    if recipes.len() == rcap {
-                        return Err(ValueTreeError::ResourceLimited("directory recipe merge").into());
-                    }
-                    recipes.push(id);
+            if let Some(id) = entry.id
+                && entry.after.is_some()
+            {
+                if recipes.len() == rcap {
+                    return Err(ValueTreeError::ResourceLimited("directory recipe merge").into());
                 }
+                recipes.push(id);
             }
         }
         factories.sort_unstable();

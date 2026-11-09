@@ -501,30 +501,10 @@ pub(super) fn current_work(roots: &RootSetV1) -> WorldCurrentStateWorkV1 {
     .work()
     .unwrap();
     // Canonical ActionEnvelope map keys are short schema field names, not
-    // multi-MiB typed record payloads. The canonical comparator reserves
-    // max_key_bytes * 512 + 4096 scratch, so keep this independent from the
-    // larger logical state/record limits used by the complete-Q fixture.
+    // multi-MiB typed record payloads. Key buffers still reserve max_key_bytes
+    // before encoding, so keep this limit independent from the larger
+    // logical state/record limits used by the complete-Q fixture.
     work.runtime.pending.original.canonical.max_key_bytes = 4096;
-    let leaves = roots
-        .state
-        .iter()
-        .try_fold(0u64, |sum, root| sum.checked_add(root.leaf_count))
-        .unwrap();
-    let native = leaves
-        .checked_mul(257)
-        .and_then(|n| n.checked_mul(97))
-        .unwrap();
-    let runtime = leaves
-        .checked_mul(257)
-        .and_then(|n| n.checked_mul(46))
-        .unwrap();
-    work.native_outer_scan.nodes_remaining = native;
-    work.native_outer_scan.read_bytes_remaining =
-        native.checked_mul(STATE_MAX_PAGE_BYTES as u64).unwrap();
-    work.native_outer_scan.leaves_remaining = leaves.checked_mul(97).unwrap();
-    work.runtime.outer_scan.nodes_remaining = runtime;
-    work.runtime.outer_scan.read_bytes_remaining =
-        runtime.checked_mul(STATE_MAX_PAGE_BYTES as u64).unwrap();
-    work.runtime.outer_scan.leaves_remaining = leaves.checked_mul(46).unwrap();
+    super::super::set_current_fixture_outer_scan_work(roots, &mut work);
     work
 }

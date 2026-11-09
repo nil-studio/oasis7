@@ -135,10 +135,10 @@ where
                 "module output event original scope",
             ));
         }
-        if let WorldEventBody::RuleDecisionRecorded(record) = &event.body {
-            if event.caused_by != Some(crate::CausedBy::Action(record.action_id)) {
-                return Err(BodyMutationError::Invalid("rule audit action binding"));
-            }
+        if let WorldEventBody::RuleDecisionRecorded(record) = &event.body
+            && event.caused_by != Some(crate::CausedBy::Action(record.action_id))
+        {
+            return Err(BodyMutationError::Invalid("rule audit action binding"));
         }
         persist_counted_event_original_v1(now, event, txn, ctx)
     })

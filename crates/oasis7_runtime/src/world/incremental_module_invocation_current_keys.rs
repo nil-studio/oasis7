@@ -1,24 +1,28 @@
 //! Bounded current-key enumeration: original SMT keys plus actual pending edits.
 //! This helper grants no invocation qualification and never supplies caller IDs.
+use super::CurrentKeyEnumerationBudgetV1;
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionError, ExecutionTransaction},
-    incremental_state::{MerkleNodeReader, StateNamespaceV1, StateScanBudget, StateScanContext},
+    incremental_state::{MerkleNodeReader, StateNamespaceV1, StateScanContext},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
 pub(super) fn current_keys_v1<M: MerkleNodeReader>(
     tx: &mut ExecutionTransaction<'_, M>,
     state: &M,
     parent_keys: Option<&[Vec<u8>]>,
     namespace: StateNamespaceV1,
-    memory: &MemoryBudget,
-    scan: &mut StateScanBudget,
-    max_entries: usize,
-    max_key_bytes: usize,
-    pending_entries: &mut usize,
+    budget: CurrentKeyEnumerationBudgetV1<'_>,
     mut cancelled: impl FnMut() -> bool,
     owns: impl Fn(&[u8]) -> bool,
 ) -> Result<ReservedValue<Vec<Vec<u8>>>, ExecutionError> {
+    let CurrentKeyEnumerationBudgetV1 {
+        memory,
+        scan,
+        max_entries,
+        max_key_bytes,
+        pending_entries,
+    } = budget;
     tx.contribute(|tx| {
         if !tx.uses_budget(memory)
             || state.allocation_class() != Some(MemoryClass::Ordinary)
@@ -81,7 +85,6 @@ pub(super) fn current_keys_v1<M: MerkleNodeReader>(
             },
             |key, _, _| add(key),
         )?;
-        drop(add);
         keys.sort_unstable();
         keys.dedup();
         let mut retained = 0;

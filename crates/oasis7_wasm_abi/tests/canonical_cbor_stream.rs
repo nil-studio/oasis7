@@ -286,7 +286,8 @@ fn bounded_sort_work_refuses_before_sort_and_cancel_after_comparisons_poison() {
         type Charge = Charge;
         fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
             let charge = self.alloc.reserve(bytes)?;
-            if bytes == 1024 * 512 + 4096 {
+            // "key-000" is seven UTF-8 bytes plus its one-byte CBOR header.
+            if bytes == 8 * 512 + 4096 {
                 self.flag.set(true);
             }
             Ok(charge)
@@ -313,6 +314,115 @@ fn bounded_sort_work_refuses_before_sort_and_cancel_after_comparisons_poison() {
         Err(CanonicalCborStreamError::Poisoned)
     ));
     assert_eq!(ctx.work.visits_remaining, remaining);
+    assert_eq!(alloc.state.used.get(), 0);
+}
+struct ObserveSortScratch<'a> {
+    alloc: &'a Alloc,
+    expected_bytes: usize,
+    requests: Cell<usize>,
+    used_before: Cell<usize>,
+}
+impl CanonicalCborAllocator for ObserveSortScratch<'_> {
+    type Charge = Charge;
+    fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
+        if bytes == self.expected_bytes {
+            self.requests.set(self.requests.get() + 1);
+            self.used_before.set(self.alloc.state.used.get());
+        }
+        self.alloc.reserve(bytes)
+    }
+}
+#[test]
+fn sort_scratch_uses_longest_encoded_key_and_refuses_before_comparison() {
+    // The longest key is first, so retaining only the last key length is wrong.
+    let source = std::collections::BTreeMap::from([("longest-key-first", 1u8), ("z", 2)]);
+    let oracle = encode_canonical_cbor(&source).unwrap();
+    // Both text keys use a one-byte CBOR header; the original bound is unchanged.
+    let scratch = ("longest-key-first".len() + 1) * 512 + 4096;
+    let alloc = Alloc::new(4 << 20);
+    let admission = ObserveSortScratch {
+        alloc: &alloc,
+        expected_bytes: scratch,
+        requests: Cell::new(0),
+        used_before: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, oracle);
+    assert_eq!(admission.requests.get(), 1);
+    assert!(ctx.metrics().map_comparisons > 0);
+    assert_eq!(alloc.state.used.get(), 0);
+
+    // Admit all key discovery, but leave exactly one byte too little for sorting.
+    let limit = admission.used_before.get() + scratch - 1;
+    let alloc = Alloc::new(limit);
+    let admission = ObserveSortScratch {
+        alloc: &alloc,
+        expected_bytes: scratch,
+        requests: Cell::new(0),
+        used_before: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::ResourceLimited("test allocator"))
+    ));
+    assert_eq!(admission.requests.get(), 1);
+    assert_eq!(ctx.metrics().map_sorts, 0);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(ctx.is_poisoned());
+    assert!(out.is_empty());
+    assert_eq!(alloc.state.used.get(), 0);
+    let remaining = ctx.work.visits_remaining;
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::Poisoned)
+    ));
+    assert_eq!(ctx.work.visits_remaining, remaining);
+}
+#[test]
+fn nested_short_keys_fit_small_pool_with_large_allowed_key_count() {
+    let source = std::collections::BTreeMap::from([(
+        "outer",
+        std::collections::BTreeMap::from([("longest-key-first", 1u8), ("z", 2)]),
+    )]);
+    let oracle = encode_canonical_cbor(&source).unwrap();
+    let alloc = Alloc::new(4 << 20);
+    let mut limits = work();
+    limits.max_map_keys = 10_000;
+    let mut ctx = CanonicalCborStreamContextV1::new(&alloc, limits, || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, oracle);
+    assert_eq!(ctx.metrics().map_sorts, 2);
+    assert!(ctx.metrics().map_comparisons > 0);
+    assert!(!ctx.is_poisoned());
+    assert!(alloc.state.peak.get() <= 4 << 20);
+    assert_eq!(alloc.state.used.get(), 0);
+}
+#[test]
+fn empty_map_sort_scratch_does_not_reserve_unused_key_allowance() {
+    let source = std::collections::BTreeMap::<String, u8>::new();
+    let alloc = Alloc::new(8 << 10);
+    let admission = ObserveSortScratch {
+        alloc: &alloc,
+        expected_bytes: 4096,
+        requests: Cell::new(0),
+        used_before: Cell::new(0),
+    };
+    let mut limits = work();
+    limits.max_map_keys = 0;
+    limits.max_key_bytes = 1 << 20;
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, limits, || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, [0xa0]);
+    assert_eq!(admission.requests.get(), 1);
+    assert_eq!(ctx.metrics().map_sorts, 1);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(!ctx.is_poisoned());
     assert_eq!(alloc.state.used.get(), 0);
 }
 struct Output<'a> {

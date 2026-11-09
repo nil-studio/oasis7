@@ -7,10 +7,10 @@ use oasis7_world_state::{
     incremental_world_current_limits::WorldCurrentStateLimitsV1,
 };
 use std::cell::Cell;
-fn whole_work() -> WorldCurrentStateWorkV1 {
+fn whole_work(roots: &RootSetV1) -> WorldCurrentStateWorkV1 {
     // Exercise the actual endpoint limits adapter, with explicit finite test
     // allowances. Each operation receives its own caller-owned work value.
-    WorldCurrentStateLimitsV1 {
+    let mut work = WorldCurrentStateLimitsV1 {
         buckets_remaining: 1_000_000,
         bytes_remaining: 256 << 20,
         cells_remaining: 1_000_000,
@@ -65,7 +65,9 @@ fn whole_work() -> WorldCurrentStateWorkV1 {
         writes: 1_000_000,
     }
     .work()
-    .unwrap()
+    .unwrap();
+    super::super::set_current_fixture_outer_scan_work(roots, &mut work);
+    work
 }
 struct Counted<'a> {
     reader: &'a Reader<'a>,
@@ -113,7 +115,12 @@ pub(super) fn exercise(
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 1 << 30,
     };
-    let mut budget = whole_work();
+    let mut budget = whole_work(roots);
+    let initial_native_outer_scan = (
+        budget.native_outer_scan.nodes_remaining,
+        budget.native_outer_scan.read_bytes_remaining,
+        budget.native_outer_scan.leaves_remaining,
+    );
     let proof = {
         let reader = Reader {
             pages,
@@ -138,7 +145,17 @@ pub(super) fn exercise(
             &mut objects,
             &mut binder,
         )
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!(
+                "complete Current fixture qualification: {error:?}; native outer scan remaining nodes={} read_bytes={} leaves={}; initial nodes={} read_bytes={} leaves={}",
+                budget.native_outer_scan.nodes_remaining,
+                budget.native_outer_scan.read_bytes_remaining,
+                budget.native_outer_scan.leaves_remaining,
+                initial_native_outer_scan.0,
+                initial_native_outer_scan.1,
+                initial_native_outer_scan.2,
+            )
+        });
         assert_eq!(objects.calls, 2);
         assert_eq!(binder.calls, 0);
         assert_eq!(proof.native().field_count(), 97);

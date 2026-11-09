@@ -508,45 +508,49 @@ where
                 &mut self.ctx.cancelled,
             )?);
         }
-        if let Some((stage, event, era)) = route {
-            if let Some(event) = event {
-                let event = event.event();
-                if stage == oasis7_wasm_abi::ModuleSubscriptionStage::PostEvent {
-                    let error_fee = memory
-                        .reserve(16 << 10, MemoryClass::Ordinary)
-                        .map_err(ValueTreeError::Memory)?;
-                    let mut regex =
-                        crate::world::incremental_module_execution_worker::RootRegexBackendV1::new(
-                            &mut *self.worker,
-                            memory,
-                        );
-                    if !oasis7_wasm_router::bounded::subscription_matches_serialized_bounded_with_regex_v1(
-                        event, &first.manifest().subscriptions, &first.manifest().module_id,
-                        crate::world::module_runtime_labels::event_kind_label(&event.body), stage,
-                        &mut self.work.routing, &mut self.ctx.cancelled,
-                        |bytes| memory.reserve(bytes, MemoryClass::Ordinary), &mut regex,
-                    ).map_err(|error| RootModuleExecutionErrorV1::Routing(error_fee.retain(error)))? { return Ok(None); }
-                    input.ctx.trace_id = era.map_or_else(
-                        || format!("event-{}-{}", event.id, first.instance_id()),
-                        |era| crate::world::economy_product_validation::product_validation_event_trace_id(era, event.id, first.instance_id()),
+        if let Some((stage, Some(event), era)) = route {
+            let event = event.event();
+            if stage == oasis7_wasm_abi::ModuleSubscriptionStage::PostEvent {
+                let error_fee = memory
+                    .reserve(16 << 10, MemoryClass::Ordinary)
+                    .map_err(ValueTreeError::Memory)?;
+                let mut regex =
+                    crate::world::incremental_module_execution_worker::RootRegexBackendV1::new(
+                        &mut *self.worker,
+                        memory,
                     );
-                    input.ctx.time = event.time;
-                    input.ctx.journal_height = Some(event.id);
-                    input.ctx.origin = ModuleCallOrigin {
-                        kind: "event".into(),
-                        id: event.id.to_string(),
-                    };
-                    input.ctx.caller = ModuleCallCaller::LegacyUnspecified;
-                    input.ctx.stage = Some("post_event".into());
-                }
-                input.event = Some(encode_input(
-                    event,
-                    memory,
-                    &mut self.work.input,
-                    self.work.max_input_bytes,
-                    &mut self.ctx.cancelled,
-                )?);
+                if !oasis7_wasm_router::bounded::subscription_matches_serialized_bounded_with_regex_v1(
+                    event, &first.manifest().subscriptions, &first.manifest().module_id,
+                    crate::world::module_runtime_labels::event_kind_label(&event.body), stage,
+                    &mut self.work.routing, &mut self.ctx.cancelled,
+                    |bytes| memory.reserve(bytes, MemoryClass::Ordinary), &mut regex,
+                ).map_err(|error| RootModuleExecutionErrorV1::Routing(error_fee.retain(error)))? { return Ok(None); }
+                input.ctx.trace_id = era.map_or_else(
+                    || format!("event-{}-{}", event.id, first.instance_id()),
+                    |era| {
+                        crate::world::economy_product_validation::product_validation_event_trace_id(
+                            era,
+                            event.id,
+                            first.instance_id(),
+                        )
+                    },
+                );
+                input.ctx.time = event.time;
+                input.ctx.journal_height = Some(event.id);
+                input.ctx.origin = ModuleCallOrigin {
+                    kind: "event".into(),
+                    id: event.id.to_string(),
+                };
+                input.ctx.caller = ModuleCallCaller::LegacyUnspecified;
+                input.ctx.stage = Some("post_event".into());
             }
+            input.event = Some(encode_input(
+                event,
+                memory,
+                &mut self.work.input,
+                self.work.max_input_bytes,
+                &mut self.ctx.cancelled,
+            )?);
         }
         let trace_id = input.ctx.trace_id.clone();
         let input = encode_input(

@@ -22,6 +22,7 @@ pub(super) struct Map<'a, 'e, 'v, T: ?Sized, A: CanonicalCborAllocator, C: FnMut
     keys: Vec<Key<A::Charge>>,
     rows: Vec<(ciborium::Value, ciborium::Value)>,
     pending: Option<Key<A::Charge>>,
+    max_encoded_key_bytes: usize,
     _rows: A::Charge,
 }
 impl<A: CanonicalCborAllocator, C: FnMut() -> bool> Engine<'_, A, C> {
@@ -107,6 +108,7 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
             keys,
             rows,
             pending: None,
+            max_encoded_key_bytes: 0,
             _rows: charge,
         })
     }
@@ -130,6 +132,7 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
             u64::try_from(self.keys.len()).map_err(|_| Error::ResourceLimited("map ordinal"))?,
         );
         self.rows.push((value, ordinal));
+        self.max_encoded_key_bytes = self.max_encoded_key_bytes.max(encoded.bytes.len());
         self.pending = Some(Key {
             encoded,
             _model: model,
@@ -153,10 +156,10 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
         // preserves its Tag/Tag semantics and stable duplicate-key order; it is
         // not a wire migration to a different interpretation of RFC ordering.
         {
+            // The retained key models come from these exact encoded bytes.
+            // Keep the same conservative bound without charging unused key capacity.
             let scratch = self
-                .engine
-                .work
-                .max_key_bytes
+                .max_encoded_key_bytes
                 .checked_mul(512)
                 .and_then(|n| n.checked_add(4096))
                 .ok_or(Error::ResourceLimited("key sort scratch"))?;
