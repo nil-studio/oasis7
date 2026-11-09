@@ -70,6 +70,66 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exclusion'):
             self.run_plan(policy=str(self.root / 'candidate.json'))
 
+    def test_document_corpus_inputs_select_python(self):
+        key = '41' + '9' * 62
+        for path in (
+            'doc/.governance/document-corpus-inventory.json',
+            'doc/testing/evidence/inventory.json',
+            'doc/.governance/top-level-directory-registry.json',
+            f'doc/.governance/document-corpus/objects/41/{key}.json',
+            f'doc/.governance/document-corpus/semantic/entries/41/{key}.json',
+            'doc/.governance/document-corpus/semantic/bundles/current-design.json',
+            f'doc/.governance/document-corpus/evidence/entries/41/{key}.json',
+            'doc/.governance/document-corpus/evidence/groups/current-evidence.json',
+        ):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['python-repo'])
+                self.assertIn(path, result['reasons']['python-repo'])
+
+    def test_document_corpus_mixed_pr_preserves_rust_hold(self):
+        path = ('doc/.governance/document-corpus/objects/41/'
+                '4194b076a574aeb5fa9511d1bbda2855a131189cb3500fb5c3d2a28a7740f87d.json')
+        self.write(path, '{}')
+        self.write('web/viewer.js', 'export const view = 1;')
+        self.write('build.rs', 'fn main() {}')
+        self.commit()
+        batches = json.dumps({u + '/default': 'observe' for u in
+                              ('actions-repo', 'python-repo', 'javascript-repo')})
+        result = self.run_plan(batch_modes=batches)
+        self.assertEqual(result['selected_units'], ['python-repo', 'javascript-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+
+    def test_document_corpus_rename_delete_and_embedded_consumers(self):
+        path = 'doc/.governance/document-corpus-inventory.json'
+        self.write(path, '{}')
+        self.write('src/lib.rs', 'const S: &str = include_str!("../' + path + '");')
+        self.base = self.commit()
+        (self.root / path).rename(self.root / 'moved.js'); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'],
+                         ['python-repo', 'javascript-repo', 'rust-repo'])
+        self.write(path, '{}'); self.base = self.commit()
+        (self.root / path).unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'rust-repo'])
+
+    def test_document_corpus_does_not_register_unknown_json(self):
+        for path in (
+            'doc/.governance/unknown.json',
+            'doc/.governance/document-corpus/unknown.json',
+            'doc/.governance/document-corpus/objects/41/not-a-shard.json',
+            'doc/.governance/document-corpus/semantic/bundles/nested/record.json',
+            'doc/testing/evidence/unregistered.json',
+            'web/data.json',
+        ):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
     def test_CQ_T07_T08_all_manifest_inventory_and_delete(self):
         self.write('standalone/Cargo.toml', '[package]\nname="standalone"\nversion="0.1.0"\n')
         self.write('excluded/Cargo.toml', '[package]\nname="excluded"\nversion="0.1.0"\n')
