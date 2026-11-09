@@ -913,6 +913,7 @@ run_site_contract_tests() {
   run ./scripts/site-manual-sync-check.sh
   run ./scripts/site-download-check.sh
   run bash ./scripts/site-checks-contract.test.sh
+  run env OASIS7_SITE_QA_HEADLESS=1 node ./scripts/site-deck-security-browser.test.cjs
 }
 
 run_system_design_traceability_tests() {

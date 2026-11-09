@@ -2764,8 +2764,8 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','launcher-web','workspace-support','full-regression','candidate-full-regression'})
-        for name in node_jobs - {'workspace-support'}:
+        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','launcher-web','workspace-support','site-quality','full-regression','candidate-full-regression'})
+        for name in node_jobs - {'workspace-support', 'site-quality'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
