@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Capacity assessment source, completeness and resource-boundary regressions."""
 import importlib.util
+import csv
 import json
 import hashlib
 import os
@@ -243,6 +244,42 @@ class Capacity(unittest.TestCase):
         m.validate('CallsCandidate',[row],ROOT,roots)
         with self.assertRaises(RuntimeError):m.validate('CallsLegacy',[row],ROOT,roots)
         with self.assertRaises(RuntimeError):m.validate('CallsCandidate',[row[:3]+['/registry/libp2p/src/builder.rs']],ROOT,roots)
+
+    def test_semantic_failure_preserves_later_results_and_still_fails_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);database=root/'db';results=database/'results';results.mkdir(parents=True)
+            out=root/'out';out.mkdir();names=('CallsCandidate','PeerLegacy','CallsLegacy')
+            for name in names:(results/(name+'.bqrs')).write_bytes(b'computed')
+            decoded=[]
+            def run(argv,name,limit):
+                selected=Path(argv[3]).stem;decoded.append(selected)
+                rows=[['derive-df','1'],['derive-ast','1'],['closure-flow','1']] if selected=='PeerLegacy' else []
+                with (out/(name+'.log')).open('w') as stream:
+                    writer=csv.writer(stream);writer.writerow(['label','value']);writer.writerows(rows)
+            terminal={'public_semantics':'RUNNING'}
+            with self.assertRaisesRegex(RuntimeError,'public semantic validation failed: CallsCandidate, CallsLegacy'):
+                m.decode_semantic_results(database,names,ROOT,{},out,Path('/codeql'),run,terminal)
+            self.assertEqual(decoded,list(names))
+            self.assertEqual(terminal['public_semantics'],'FAIL')
+            self.assertEqual(set(terminal['public_semantic_failures']),{'CallsCandidate','CallsLegacy'})
+            self.assertEqual(set(terminal['public_semantic_tables']),{'PeerLegacy'})
+            for name,status in (('CallsCandidate','FAIL'),('PeerLegacy','PASS'),('CallsLegacy','FAIL')):
+                self.assertEqual(json.loads((out/('semantic-'+name+'-terminal.json')).read_text())['status'],status)
+
+    def test_semantic_decode_timeout_stops_without_starting_more_children(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);results=root/'db/results';results.mkdir(parents=True);out=root/'out';out.mkdir()
+            for name in ('CallsCandidate','PeerLegacy'):(results/(name+'.bqrs')).write_bytes(b'computed')
+            calls=[]
+            def run(*args):
+                calls.append(args)
+                raise TimeoutError('decode deadline')
+            terminal={'public_semantics':'RUNNING'}
+            with self.assertRaisesRegex(TimeoutError,'decode deadline'):
+                m.decode_semantic_results(root/'db',('CallsCandidate','PeerLegacy'),ROOT,{},out,Path('/codeql'),run,terminal)
+            self.assertEqual(len(calls),1)
+            self.assertFalse(list(out.glob('semantic-*-terminal.json')))
+            self.assertEqual(terminal['public_semantic_tables'],{})
 
     def test_research_prepare_never_generates_or_compiles_custom_queries(self):
         self.research_prepare_case()
