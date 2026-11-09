@@ -151,6 +151,12 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 按以下边界作决定：完整默认查询和规定公共见证均通过且预算有余量，只证明该冻结配置下计算与覆盖可行，下一步才是 hosted baseline；查询完成但覆盖缺口保留相应 HOLD；完整但接近上限先评估成本和频率；超时、OOM 或计算结果不完整说明该配置未通过容量评估，停止追加运行并保留生产规模证据。容量入口包含额外公共见证且没有正式上传；进入 hosted baseline 前，仍须核实正式入口在同一预算下的实际运行、上传及余量。无上传不证明平台关联、provider、运营队列或启用完成。原 180 秒优化问题继续独立跟踪，不因容量结果改判成功。
 
+### 私有调用解析补丁对照
+
+在已授权的单次 `mode=capacity` 运行中，可显式设置 `compare_qualifier_patch=true`。默认关闭，`official-default-research` 不接受该开关。官方容量结果和 artifact 先封存并上传；研究随后复用同一数据库，对固定公共 `CallsCandidate`/`CallsLegacy` 查询运行官方库与私有行为补丁。原官方失败不会被候选成功覆盖，研究结果不解除覆盖 HOLD。
+
+研究最多 15 分钟，并必须在原 job 截止前 450 秒停止；余量不足 60 秒记 `NOT_REACHED`。研究使用单独编译缓存、BQRS 和 artifact，但同一数据库的 evaluator 缓存共享，不能将两侧耗时差解释为提速。核对实际闭包、补丁前后摘要、结果目标所属的真实 libp2p 路径，以及研究前后源码、官方库和官方 evidence 不变。最终报告分别列官方分析/见证、补丁对照、完整 job 与最终余量；不上传数据库或自动发表上游补丁。
+
 ## Hosted 验收与回退
 
 授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。

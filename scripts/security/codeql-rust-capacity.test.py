@@ -685,10 +685,11 @@ assert value['found_manifests']==[]
 
     def test_upload_preserves_hidden_guard_controls_in_sealed_evidence(self):
         steps,by_id=workflow_steps()
-        upload=[s for s in steps if s.startswith("uses: actions/upload-artifact@")]
-        self.assertEqual(len(upload),1)
-        self.assertIn("          include-hidden-files: true",upload[0])
-        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload[0])
+        upload=by_id['official_artifact']
+        self.assertIn("uses: actions/upload-artifact@",upload)
+        self.assertIn("          include-hidden-files: true",upload)
+        self.assertIn("          path: ${{ runner.temp }}/rust-capacity-evidence\n",upload)
+        self.assertEqual(sum('path: ${{ runner.temp }}/rust-capacity-evidence\n' in step for step in steps),1)
         script=textwrap.dedent(by_id["evidence"].split("python3 - <<'PY'\n",1)[1].split("          PY",1)[0])
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/"rust-capacity-evidence";audit=root/"cargo-guard-calls";audit.mkdir(parents=True)
