@@ -8,6 +8,11 @@ on:
         type: boolean
         default: false
 
+      compare_qualifier_patch:
+        description: Compare the fixed private qualifier patch after official capacity evidence
+        type: boolean
+        default: false
+
       mode:
         description: Explicit research budget or unchanged production-capacity assessment
         type: choice
@@ -32,6 +37,7 @@ jobs:
       cancel-in-progress: false
     env:
       CAPACITY_MODE: ${{ inputs.mode }}
+      COMPARE_QUALIFIER_PATCH: ${{ inputs.compare_qualifier_patch && 'true' || 'false' }}
       CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef' }}
       CAPACITY_BUNDLE_VERSION: ${{ inputs.mode == 'official-default-research' && '2.27.3' || '2.27.4' }}
       CAPACITY_BUNDLE_SHA256: ${{ inputs.mode == 'official-default-research' && '218a19c49a4e44dee236d2cc55e20cda03ac4f37ddc581b1b0e5fff2e7912237' || '1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b' }}
@@ -63,6 +69,8 @@ jobs:
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
           mode=os.environ['CAPACITY_MODE']
           if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
+          if os.environ.get('COMPARE_QUALIFIER_PATCH','false')=='true' and mode!='capacity':
+              raise SystemExit('private qualifier comparison requires capacity mode')
           budget=21600 if mode=='official-default-research' else 5400
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
           # Compare timestamps from GitHub, then translate the remaining budget
@@ -225,11 +233,34 @@ jobs:
                   with path.open('rb') as stream:hashes[str(path.relative_to(root))]=hashlib.file_digest(stream,'sha256').hexdigest()
           write('hashes.json',hashes)
           PY
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+      - id: official_artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
         if: always() && steps.evidence.outcome == 'success'
         timeout-minutes: 2
         with:
           name: rust-capacity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-capacity-evidence
           include-hidden-files: true
+          retention-days: 14
+      - id: qualifier_comparison
+        name: Compare public callees using the fixed private qualifier patch
+        if: always() && inputs.mode == 'capacity' && inputs.compare_qualifier_patch == true && steps.official_artifact.outcome == 'success' && steps.analyze.outcome == 'success' && steps.finish.outcome != 'skipped'
+        timeout-minutes: 16
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-qualifier-comparison.py" \
+            --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
+            --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
+            --official-evidence "$RUNNER_TEMP/rust-capacity-evidence" \
+            --output "$RUNNER_TEMP/rust-qualifier-evidence" --work "$RUNNER_TEMP/rust-qualifier-data" \
+            --deadline "$CAPACITY_DEADLINE"
+      - name: Upload private qualifier comparison
+        if: always() && steps.qualifier_comparison.outcome != 'skipped'
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+        with:
+          name: rust-qualifier-comparison-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-qualifier-evidence
+          if-no-files-found: error
           retention-days: 14

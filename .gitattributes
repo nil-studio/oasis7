@@ -5,3 +5,5 @@ doc/.governance/document-corpus-inventory.json text eol=lf
 doc/.governance/document-corpus/** text eol=lf
 doc/testing/evidence/inventory.json text eol=lf
 scripts/fixtures/document-corpus-v3/legacy/** text eol=lf
+# Unified-diff blank context lines contain one space; preserve the reviewed bytes.
+scripts/security/codeql-rust-omitted-qualifier.patch text eol=lf whitespace=-blank-at-eol
