@@ -95,9 +95,13 @@ async function checkEmbeddedProviders(browser, target) {
         frame.id = 'media-case';
         frame.title = test.name;
         frame.setAttribute('data-src', test.url);
-        if (test.fragment) frame.classList.add('fragment');
         if (test.ignore) frame.setAttribute('data-ignore', '');
-        active.appendChild(frame);
+        if (test.fragment) {
+          const fragment = document.createElement('div');
+          fragment.className = 'fragment';
+          fragment.appendChild(frame);
+          active.appendChild(fragment);
+        } else active.appendChild(frame);
         slides.append(idle, active);
         root.appendChild(slides);
         document.body.appendChild(root);
