@@ -24,6 +24,7 @@ impl World {
             | Action::ApproveGovernanceValidatorAdmission { .. }
             | Action::ActivateGovernanceValidatorAdmission { .. }
             | Action::RevokeGovernanceValidatorAdmission { .. }
+            | Action::RotateGovernanceBootstrapFinalityKeyV1 { .. }
             | Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => {
                 self.action_to_event_policy_governance_admission(action_id, action, authorization)
             }
@@ -514,6 +515,26 @@ impl World {
                         activation_epoch: *activation_epoch,
                     },
                 ))
+            }
+            Action::RotateGovernanceBootstrapFinalityKeyV1 { .. } => {
+                let result = authorization
+                    .ok_or_else(|| WorldError::GovernancePolicyInvalid {
+                        reason: "rotation requires controller authorization".into(),
+                    })
+                    .and_then(|proof| self.prepare_bootstrap_finality_key_rotation(action, proof));
+                match result {
+                    Ok(record) => Ok(WorldEventBody::Governance(
+                        GovernanceEvent::BootstrapFinalityKeyRotated {
+                            authorization: record.authorized_action,
+                        },
+                    )),
+                    Err(error) => Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec![format!("finality rotation rejected: {error:?}")],
+                        },
+                    })),
+                }
             }
             Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => {
                 let result = authorization

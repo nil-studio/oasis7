@@ -24,7 +24,7 @@ NATIVE_MODULES = ('gdk-3.0 >= 3.22', 'atk >= 2.28', 'dbus-1 >= 1.6',
                   'javascriptcoregtk-4.1 >= 2.38', 'libsoup-3.0 >= 3.0')
 
 
-def prepare_native(source, out, end, env, *, maximum_seconds=180):
+def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=None):
     """Repair the observed native prerequisites within the original job clock."""
     if type(maximum_seconds) is not int or maximum_seconds not in (180, 360):
         raise ValueError('unsupported native preparation budget')
@@ -54,9 +54,11 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180):
         record(name, remaining, int(remaining) - 5)
         argv = ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=2s',
                 str(int(remaining) - 5), 'env', 'DEBIAN_FRONTEND=noninteractive',
-                'apt-get', '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20', *args]
+                'apt-get', '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20',
+                *(['-o', 'Debug::pkgAcquire::Worker=1'] if observation else []), *args]
+        observed = {'observer': observation.phase(name)} if observation else {}
         runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
-                    remaining, out, env, file_limit=None)
+                    remaining, out, env, file_limit=None, **observed)
     for name, argv in (
             ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *NATIVE_PACKAGES]),
             ('native-modules', ['pkg-config', '--print-errors', '--modversion', *NATIVE_MODULES])):
@@ -64,8 +66,9 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180):
         if remaining < 1:
             raise RuntimeError('insufficient native observation budget')
         record(name, remaining)
+        observed = {'observer': observation.phase(name)} if observation else {}
         runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
-                    remaining, out, env, file_limit=None)
+                    remaining, out, env, file_limit=None, **observed)
 
 
 def check_argv(source, work):

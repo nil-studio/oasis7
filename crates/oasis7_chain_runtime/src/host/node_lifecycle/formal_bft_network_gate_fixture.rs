@@ -11,7 +11,23 @@ pub(crate) fn network_gates(trust: InitialActivationTrustV1) -> NetworkGates {
     network_gates_for_count(trust, 3)
 }
 pub(crate) fn network_gates_for_count(trust: InitialActivationTrustV1, count: u8) -> NetworkGates {
+    network_gates_with_candidate_readers(trust, count, &[])
+}
+
+/// Provision independent issuer permissions for future finality-key readers.
+/// These extra subjects receive only PendingCandidate, never FullReadOnly or
+/// consensus membership, and do not add a provider or runtime node.
+pub(crate) fn network_gates_with_candidate_readers(
+    trust: InitialActivationTrustV1,
+    count: u8,
+    extra_candidate_readers: &[u8],
+) -> NetworkGates {
     assert!((1..=5).contains(&count));
+    assert!(
+        extra_candidate_readers
+            .iter()
+            .all(|reader| !(120..120 + count).contains(reader))
+    );
     let base = now_ms();
     let providers: Vec<u8> = (200..200 + count).collect();
     let mut f = issue_lease_fixture_keys(
@@ -37,104 +53,114 @@ pub(crate) fn network_gates_for_count(trust: InitialActivationTrustV1, count: u8
     )
     .unwrap();
     let mut nonce = 81u16;
-    for reader in 120..120 + count {
-        for role in [
-            FullSyncReadRoleV2::BftPendingCandidateV1,
-            FullSyncReadRoleV2::FullReadOnly,
-        ] {
-            let target = FullSyncIssuerTargetV2 {
-                node_public_key: public(if role == FullSyncReadRoleV2::FullReadOnly {
-                    reader + 10
-                } else {
-                    reader
-                }),
-                role,
-            };
-            if !(reader == 120 && role == FullSyncReadRoleV2::BftPendingCandidateV1) {
-                let observed = v3_observation_with_nonce_for_test(
-                    &f.verified_v3,
-                    state.anchor(),
-                    *blake3::hash(&nonce.to_be_bytes()).as_bytes(),
-                    base + 2000,
-                );
-                nonce += 1;
-                let command = SignedFullSyncIssuerCommandV3::sign(
-                    FullSyncIssuerCommandBodyV3 {
-                        schema_version: 3,
-                        world: f.verified_v3.body().world.clone(),
-                        authority_epoch: 1,
-                        scope_digest: f.verified_v3.scope_digest().into(),
-                        policy_digest: f.verified_v3.policy_digest().into(),
-                        signer_generation: 2,
-                        target: target.clone(),
-                        operation: FullSyncIssuerOperationV3::Issue {
-                            not_before_unix_ms: base.saturating_sub(1000),
-                            expires_unix_ms: base + 60000,
-                        },
-                        expected_head: state.anchor().clone(),
-                        expected_target_generation: 0,
-                        request_id: operation_nonce(nonce),
-                        command_nonce: operation_nonce(nonce + 1),
+    let subjects = (120..120 + count)
+        .flat_map(|reader| {
+            [
+                FullSyncReadRoleV2::BftPendingCandidateV1,
+                FullSyncReadRoleV2::FullReadOnly,
+            ]
+            .into_iter()
+            .map(move |role| (reader, role))
+        })
+        .chain(
+            extra_candidate_readers
+                .iter()
+                .copied()
+                .map(|reader| (reader, FullSyncReadRoleV2::BftPendingCandidateV1)),
+        );
+    for (reader, role) in subjects {
+        let target = FullSyncIssuerTargetV2 {
+            node_public_key: public(if role == FullSyncReadRoleV2::FullReadOnly {
+                reader + 10
+            } else {
+                reader
+            }),
+            role,
+        };
+        if !(reader == 120 && role == FullSyncReadRoleV2::BftPendingCandidateV1) {
+            let observed = v3_observation_with_nonce_for_test(
+                &f.verified_v3,
+                state.anchor(),
+                *blake3::hash(&nonce.to_be_bytes()).as_bytes(),
+                base + 2000,
+            );
+            nonce += 1;
+            let command = SignedFullSyncIssuerCommandV3::sign(
+                FullSyncIssuerCommandBodyV3 {
+                    schema_version: 3,
+                    world: f.verified_v3.body().world.clone(),
+                    authority_epoch: 1,
+                    scope_digest: f.verified_v3.scope_digest().into(),
+                    policy_digest: f.verified_v3.policy_digest().into(),
+                    signer_generation: 2,
+                    target: target.clone(),
+                    operation: FullSyncIssuerOperationV3::Issue {
+                        not_before_unix_ms: base.saturating_sub(1000),
+                        expires_unix_ms: base + 60000,
                     },
-                    &key(MANAGER_KEY),
-                )
+                    expected_head: state.anchor().clone(),
+                    expected_target_generation: 0,
+                    request_id: operation_nonce(nonce),
+                    command_nonce: operation_nonce(nonce + 1),
+                },
+                &key(MANAGER_KEY),
+            )
+            .unwrap();
+            nonce += 2;
+            let prepared = state.prepare_management(command, &observed).unwrap();
+            let record = prepared.record().unwrap().clone();
+            let receipt = SignedFullSyncIssuerReceiptV3::sign(
+                FullSyncIssuerReceiptObservationV3::V3(observed),
+                &record,
+                &key(WITNESS_KEY),
+            )
+            .unwrap();
+            let decision = prepared.commit(receipt).unwrap();
+            state = decision.state().clone();
+            f.history.v3_entries.push(decision.entry().clone());
+        }
+        for (index, provider) in providers.iter().enumerate() {
+            let observed = v3_observation_with_nonce_for_test(
+                &f.verified_v3,
+                state.anchor(),
+                *blake3::hash(&nonce.to_be_bytes()).as_bytes(),
+                base + 2000,
+            );
+            nonce += 1;
+            let request = SignedFullSyncProviderLeaseRequestV3::sign(
+                FullSyncProviderLeaseRequestBodyV3 {
+                    schema_version: 3,
+                    world: f.verified_v3.body().world.clone(),
+                    authority_epoch: 1,
+                    scope_digest: f.verified_v3.scope_digest().into(),
+                    policy_digest: f.verified_v3.policy_digest().into(),
+                    signer_generation: 2,
+                    provider_public_key: public(*provider),
+                    provider_incarnation: issuer_hash(220 + index as u8),
+                    lease_id: operation_nonce(nonce),
+                    request_id: operation_nonce(nonce + 1),
+                    request_nonce: operation_nonce(nonce + 2),
+                    expected_head: state.anchor().clone(),
+                    target: target.clone(),
+                    target_generation: 1,
+                },
+                &key(*provider),
+            )
+            .unwrap();
+            nonce += 3;
+            let prepared = state
+                .prepare_lease(request, &observed, &key(LEASE_SIGNER_KEY))
                 .unwrap();
-                nonce += 2;
-                let prepared = state.prepare_management(command, &observed).unwrap();
-                let record = prepared.record().unwrap().clone();
-                let receipt = SignedFullSyncIssuerReceiptV3::sign(
-                    FullSyncIssuerReceiptObservationV3::V3(observed),
-                    &record,
-                    &key(WITNESS_KEY),
-                )
-                .unwrap();
-                let decision = prepared.commit(receipt).unwrap();
-                state = decision.state().clone();
-                f.history.v3_entries.push(decision.entry().clone());
-            }
-            for (index, provider) in providers.iter().enumerate() {
-                let observed = v3_observation_with_nonce_for_test(
-                    &f.verified_v3,
-                    state.anchor(),
-                    *blake3::hash(&nonce.to_be_bytes()).as_bytes(),
-                    base + 2000,
-                );
-                nonce += 1;
-                let request = SignedFullSyncProviderLeaseRequestV3::sign(
-                    FullSyncProviderLeaseRequestBodyV3 {
-                        schema_version: 3,
-                        world: f.verified_v3.body().world.clone(),
-                        authority_epoch: 1,
-                        scope_digest: f.verified_v3.scope_digest().into(),
-                        policy_digest: f.verified_v3.policy_digest().into(),
-                        signer_generation: 2,
-                        provider_public_key: public(*provider),
-                        provider_incarnation: issuer_hash(220 + index as u8),
-                        lease_id: operation_nonce(nonce),
-                        request_id: operation_nonce(nonce + 1),
-                        request_nonce: operation_nonce(nonce + 2),
-                        expected_head: state.anchor().clone(),
-                        target: target.clone(),
-                        target_generation: 1,
-                    },
-                    &key(*provider),
-                )
-                .unwrap();
-                nonce += 3;
-                let prepared = state
-                    .prepare_lease(request, &observed, &key(LEASE_SIGNER_KEY))
-                    .unwrap();
-                let record = prepared.record().unwrap().clone();
-                let receipt = SignedFullSyncIssuerReceiptV3::sign(
-                    FullSyncIssuerReceiptObservationV3::V3(observed),
-                    &record,
-                    &key(WITNESS_KEY),
-                )
-                .unwrap();
-                let decision = prepared.commit(receipt).unwrap();
-                state = decision.state().clone();
-                f.history.v3_entries.push(decision.entry().clone());
-            }
+            let record = prepared.record().unwrap().clone();
+            let receipt = SignedFullSyncIssuerReceiptV3::sign(
+                FullSyncIssuerReceiptObservationV3::V3(observed),
+                &record,
+                &key(WITNESS_KEY),
+            )
+            .unwrap();
+            let decision = prepared.commit(receipt).unwrap();
+            state = decision.state().clone();
+            f.history.v3_entries.push(decision.entry().clone());
         }
     }
     let source = Arc::new(SignedEvidenceSource::new(&f, base + 2000));

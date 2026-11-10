@@ -169,6 +169,14 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接[独立真实调
 
 该模式的原生依赖准备最多 360 秒，prepare 步骤最多 11 分钟，均计入同一 150 分钟；其他模式仍为 180 秒原生准备。先读 `native-budget.json` 与 `native-update.stdout.result.json`、`native-install.stdout.result.json` 区分子阶段耗尽和总 job 超时：特权 `timeout` 的退出 124、安装尚未完成或探针未执行都不能计为依赖就绪。包/模块探针仍保留，失败停止 metadata 与提取。若源码提取和对照被 skipped，四个调用观察应写未运行；不能由失败采证步骤成功推断语义通过，也不能自动追加重跑。
 
+### 短原生准备诊断
+
+安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
+
+从 `native-diagnostic-<run>-<attempt>-<sha>` artifact 先读 `native-terminal.json`、`native-budget.json` 和各命令 `.result.json`，再按 stdout/stderr 中的 JSONL 投影接收时间及原流 offset 关联 URI Start/Done/Failure/Redirect。文件是白名单投影，不是原字节日志；未知、截断和被丢弃内容的摘要不能当作下载结果。601 配置记录只含允许的有效参数，`sources.json` 保存受限源/镜像观察，`archives.jsonl` 保存固定缓存目录的只读元数据采样。只有 Done 才是协议报告的下载完成，Get 或 partial 大小变化均不能独立证明包安装完成。
+
+`NATIVE_READY` 仅表示本次四步原生准备通过；失败、不可读采样、未观察参数和 root 子树清理范围分别记录。用时间与失败事件缩小原因，不能仅凭一次通过/失败归因镜像或地区，也不能自动重跑长研究、启用批次或推定 Rust 覆盖完成。合同见[短原生准备诊断](codeql-integration.design.md#723-短原生准备诊断)。
+
 ## Hosted 验收与回退
 
 授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。

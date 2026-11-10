@@ -220,6 +220,12 @@ impl std::fmt::Debug for WorldState {
                 &self.governance_finality_key_rotations,
             );
         }
+        if !self.governance_bootstrap_finality_key_rotations.is_empty() {
+            output.field(
+                "governance_bootstrap_finality_key_rotations",
+                &self.governance_bootstrap_finality_key_rotations,
+            );
+        }
         output.field(
             "governance_main_token_controller_registry",
             &self.governance_main_token_controller_registry,

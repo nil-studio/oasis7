@@ -100,7 +100,7 @@ fn make_body(
         target_epoch: 3,
     }
 }
-fn preview_world(
+pub(super) fn preview_world(
     actual: &Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
     schedule: &BftHeaderHeightScheduleV3,
     payloads: Vec<(u64, Vec<u8>)>,
@@ -360,7 +360,7 @@ fn next_vote(
 }
 /// Produce the decisive precommit with the provider's actually active key,
 /// rather than a fixture-only key.sign call. Two other validators sign separately.
-fn commit_with_provisioned_key(
+pub(super) fn commit_with_provisioned_key(
     actual: &Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
     binding: &BftSignerBindingV3,
     lease: &mut dyn BftSignerLeaseV3,

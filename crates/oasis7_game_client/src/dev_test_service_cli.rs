@@ -6,10 +6,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         );
     }
     match (args[0].as_str(), args[1].as_str()) {
-        ("dev-test-serve", "--profile") => {
-            let config = crate::dev_test_service::read_private_cli_config(&args[2])?;
-            crate::dev_test_service::serve(config)
-        }
+        ("dev-test-serve", "--profile") => crate::dev_test_service::serve_from_path(&args[2]),
         ("dev-test-call", "--socket") => {
             let request = crate::dev_test_service::read_cli_request(std::io::stdin())?;
             let response =

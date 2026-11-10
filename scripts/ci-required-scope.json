@@ -932,6 +932,7 @@
     ".github/workflows/codeql.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-cargo-check.yml": ["workflow_governance"],
+    ".github/workflows/codeql-rust-native-diagnostic.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"],
     "scripts/ci-bin-ownership.test.py": ["cargo_tooling_contracts"],
     "scripts/ci-cache-archive.py": ["workflow_governance"],

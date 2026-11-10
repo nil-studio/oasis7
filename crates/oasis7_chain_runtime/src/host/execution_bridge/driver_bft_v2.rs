@@ -743,6 +743,7 @@ fn governance_action_digest(actions: &[NodeConsensusAction]) -> Result<String, S
                     | oasis7_runtime::Action::ActivateGovernanceValidatorAdmission { .. }
                     | oasis7_runtime::Action::RevokeGovernanceValidatorAdmission { .. }
                     | oasis7_runtime::Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
+                    | oasis7_runtime::Action::RotateGovernanceBootstrapFinalityKeyV1 { .. }
             }
         );
         if is_validator_admission {

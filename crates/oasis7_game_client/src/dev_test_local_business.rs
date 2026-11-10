@@ -52,12 +52,13 @@ fn trusted_envelope(request: ModelRequest, credential: &str) -> Result<Vec<u8>, 
 #[cfg(any(target_os = "linux", test))]
 fn forwarded_result(
     result: Result<Value, String>,
-    operation_id: Option<&str>,
+    operation: Option<&Call>,
     session_ref: Option<&str>,
 ) -> Value {
     result.unwrap_or_else(|_| serde_json::json!({
         "status":"unknown",
-        "original_request_id":operation_id,
+        "request_id":operation.map(|op| op.request_id.as_str()),
+        "original_request_id":operation.map(Call::recovery_request_id),
         "session_ref":session_ref,
         "next":"retain_original_request_id_and_body; use_lookup_for_original_operation_under_current_authorization; do_not_resubmit_as_new_operation"
     }))
@@ -107,19 +108,19 @@ pub fn serve(
                 .iter()
                 .find(|c| c.caller_id == caller_id && !c.revoked && now < c.expires_at_unix)
                 .ok_or("unauthorized")?;
-            let operation_id = request.operation.as_ref().map(|op| op.request_id.clone());
+            let operation = request.operation.clone();
             let session_ref = request.session_ref.clone();
             let bytes = trusted_envelope(request, &credential.token)?;
-            Ok((bytes, operation_id, session_ref))
+            Ok((bytes, operation, session_ref))
         })();
         let value = match prepared {
-            Ok((bytes, operation_id, session_ref)) => forwarded_result(
+            Ok((bytes, operation, session_ref)) => forwarded_result(
                 crate::dev_test_service::call_serialized_until(
                     &config.service.socket,
                     &bytes,
                     deadline,
                 ),
-                operation_id.as_deref(),
+                operation.as_ref(),
                 session_ref.as_deref(),
             ),
             Err(_) => {
@@ -184,11 +185,35 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lost_lookup_keeps_its_original_target_and_separate_request_id() {
+        let lookup: Call = serde_json::from_value(serde_json::json!({"request_id":"lookup-A","arguments":{"kind":"lookup","original_request_id":"move-A"}})).unwrap();
+        let value = forwarded_result(Err("lost".into()), Some(&lookup), Some("session-A"));
+        assert_eq!(value["original_request_id"], "move-A");
+        assert_eq!(value["request_id"], "lookup-A");
+        let context = Call {
+            request_id: "context-A".into(),
+            arguments: crate::dev_test_operations::Arguments::Context,
+        };
+        let value = forwarded_result(Err("lost".into()), Some(&context), None);
+        assert_eq!(value["original_request_id"], "context-A");
+        let value = forwarded_result(Err("lost".into()), None, None);
+        assert!(value["original_request_id"].is_null());
+        assert!(value["request_id"].is_null());
+    }
     #[test]
     fn forwarded_failure_preserves_original_identity_as_unknown() {
+        let movement = Call {
+            request_id: "move-A".into(),
+            arguments: crate::dev_test_operations::Arguments::Move {
+                context_request_id: "context-A".into(),
+                to: [1, 0, 0],
+            },
+        };
         let value = forwarded_result(
             Err("synthetic transport loss".into()),
-            Some("move-A"),
+            Some(&movement),
             Some("session-A"),
         );
         assert_eq!(value["status"], "unknown");
@@ -196,7 +221,7 @@ mod tests {
         assert_eq!(value["session_ref"], "session-A");
         let committed = serde_json::json!({"status":"ok","result":{"active_goal":{"content":{"goal_text":"full goal", "soft_constraints":["constraint"]},"source":{"task_fence":{"agent_id":"A"},"active_goal_reference":{"goal_ref":"retained"},"owner_public_key":"verified owner","read_commit":{"position":7},"activation_commit":{"position":2}}}}});
         assert_eq!(
-            forwarded_result(Ok(committed.clone()), Some("context-A"), Some("session-A")),
+            forwarded_result(Ok(committed.clone()), Some(&movement), Some("session-A")),
             committed
         );
     }

@@ -143,7 +143,8 @@ impl Fixture {
         loop {
             assert!(
                 process.child.try_wait().unwrap().is_none(),
-                "service exited before readiness"
+                "service exited before readiness: {}",
+                String::from_utf8_lossy(&fs::read(&process.stderr).unwrap())
             );
             if fs::symlink_metadata(self.socket())
                 .is_ok_and(|m| m.file_type().is_socket() && m.permissions().mode() & 0o777 == 0o600)
@@ -325,4 +326,149 @@ fn cli_enforces_exact_input_boundaries_and_argument_errors() {
         "dev-test-serve --profile <private-config> | dev-test-call --socket <approved-socket>",
     );
     assert_eq!(fixture.used(), 1);
+}
+
+fn update_config(fixture: &Fixture, update: impl FnOnce(&mut Value)) {
+    let mut config: Value = serde_json::from_slice(&fs::read(fixture.config()).unwrap()).unwrap();
+    update(&mut config);
+    let next = fixture.root.join("next-config.json");
+    private_file(&next, &serde_json::to_vec(&config).unwrap());
+    fs::rename(next, fixture.config()).unwrap();
+}
+
+#[test]
+fn running_service_reloads_limits_and_credentials_without_resetting_usage() {
+    let fixture = Fixture::new();
+    let _service = fixture.serve();
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    update_config(&fixture, |config| config["max_calls"] = json!(1));
+    response(
+        fixture.call(&request("capabilities", TOKEN)),
+        "call_limit_exhausted",
+    );
+    assert_eq!(fixture.used(), 1);
+    update_config(&fixture, |config| {
+        config["max_calls"] = json!(2);
+        config["credentials"][0]["revoked"] = json!(true);
+    });
+    response(
+        fixture.call(&request("capabilities", TOKEN)),
+        "unauthorized",
+    );
+    assert_eq!(fixture.used(), 1);
+    update_config(&fixture, |config| {
+        config["credentials"][0]["revoked"] = json!(false);
+        config["credentials"][0]["expires_at_unix"] = json!(0);
+    });
+    response(
+        fixture.call(&request("capabilities", TOKEN)),
+        "unauthorized",
+    );
+    update_config(&fixture, |config| {
+        config["credentials"][0]["expires_at_unix"] = json!(u64::MAX)
+    });
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    assert_eq!(fixture.used(), 2);
+}
+
+#[test]
+fn running_service_rejects_changed_accounting_binding_and_untrusted_reload() {
+    let fixture = Fixture::new();
+    let _service = fixture.serve();
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    let original = fs::read(fixture.config()).unwrap();
+    for field in ["grant_id", "usage_directory", "socket"] {
+        update_config(&fixture, |config| config[field] = json!("rebound"));
+        response(
+            fixture.call(&request("capabilities", TOKEN)),
+            "service_configuration_unavailable",
+        );
+        assert_eq!(fixture.used(), 1);
+        fs::write(fixture.config(), &original).unwrap();
+    }
+    for bytes in [b"invalid".as_slice(), b"{}"] {
+        fs::write(fixture.config(), bytes).unwrap();
+        response(
+            fixture.call(&request("capabilities", TOKEN)),
+            "service_configuration_unavailable",
+        );
+        assert_eq!(fixture.used(), 1);
+    }
+    fs::write(fixture.config(), &original).unwrap();
+    fs::set_permissions(fixture.config(), fs::Permissions::from_mode(0o644)).unwrap();
+    response(
+        fixture.call(&request("capabilities", TOKEN)),
+        "service_configuration_unavailable",
+    );
+    fs::set_permissions(fixture.config(), fs::Permissions::from_mode(0o600)).unwrap();
+    let replacement = fixture.root.join("replacement.json");
+    fs::rename(fixture.config(), &replacement).unwrap();
+    symlink(&replacement, fixture.config()).unwrap();
+    response(
+        fixture.call(&request("capabilities", TOKEN)),
+        "service_configuration_unavailable",
+    );
+    fs::remove_file(fixture.config()).unwrap();
+    fs::rename(replacement, fixture.config()).unwrap();
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    assert_eq!(fixture.used(), 2);
+}
+
+#[test]
+fn queued_request_uses_current_configuration_at_admission() {
+    use std::{io::Read, net::Shutdown, os::unix::net::UnixStream};
+    let fixture = Fixture::new();
+    let _service = fixture.serve();
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    let mut stream = UnixStream::connect(fixture.socket()).unwrap();
+    stream.set_read_timeout(Some(WAIT)).unwrap();
+    let body = request("capabilities", TOKEN);
+    stream.write_all(&body[..1]).unwrap();
+    update_config(&fixture, |config| config["max_calls"] = json!(1));
+    stream.write_all(&body[1..]).unwrap();
+    stream.shutdown(Shutdown::Write).unwrap();
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).unwrap();
+    let value: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["status"], "call_limit_exhausted");
+    assert_eq!(fixture.used(), 1);
+}
+
+#[test]
+fn service_deadline_bounds_a_contended_usage_lock() {
+    use std::{
+        io::Read,
+        net::Shutdown,
+        os::{fd::AsRawFd, unix::net::UnixStream},
+    };
+    let fixture = Fixture::new();
+    update_config(&fixture, |config| config["timeout_ms"] = json!(50));
+    let _service = fixture.serve();
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    let path = fs::read_dir(fixture.root.join("usage"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "lock")
+        })
+        .unwrap();
+    let lock = File::open(path).unwrap();
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+    let mut stream = UnixStream::connect(fixture.socket()).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    stream.write_all(&request("capabilities", TOKEN)).unwrap();
+    stream.shutdown(Shutdown::Write).unwrap();
+    let started = Instant::now();
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .expect("service must release a request before the held ledger lock is released");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(fixture.used(), 1);
+    drop(lock);
+    response(fixture.call(&request("capabilities", TOKEN)), "ok");
+    assert_eq!(fixture.used(), 2);
 }

@@ -26,7 +26,10 @@ fn dispatch(request: Value, backend: impl FnOnce(&[u8]) -> Result<Value, String>
             let Some(params) = request.get("params").and_then(Value::as_object) else {
                 return Some(error(id, -32602));
             };
-            if params.len() != 2 || params.get("name") != Some(&json!("dev_test_accounts_call")) {
+            if !crate::dev_test_accounts_remote::valid_tool_params(
+                &Value::Object(params.clone()),
+                "dev_test_accounts_call",
+            ) {
                 return Some(error(id, -32602));
             }
             let bytes = match params
@@ -82,6 +85,28 @@ pub(super) fn run(socket: &std::path::Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_stays_outside_the_local_backend_request() {
+        let request = json!({"jsonrpc":"2.0","id":"rpc","method":"tools/call","params":{"name":"dev_test_accounts_call","arguments":{"method":"accounts"},"_meta":{"progressToken":7,"trace":"opaque"}}});
+        let result = dispatch(request.clone(), |body| {
+            assert_eq!(
+                serde_json::from_slice::<Value>(body).unwrap(),
+                json!({"method":"accounts"})
+            );
+            Ok(json!({"status":"ok"}))
+        })
+        .unwrap();
+        assert_eq!(result["result"]["isError"], false);
+        let mut invalid = request;
+        invalid["params"]["_meta"]["progressToken"] = json!(false);
+        assert!(
+            dispatch(invalid, |_| panic!("invalid metadata forwarded"))
+                .unwrap()
+                .get("error")
+                .is_some()
+        );
+    }
     #[test]
     fn rejects_secrets_before_backend_and_preserves_unknown() {
         let rejected = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dev_test_accounts_call","arguments":{"method":"accounts","credential":"forbidden"}}});

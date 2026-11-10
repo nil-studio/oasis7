@@ -527,7 +527,7 @@ impl World {
                         logistics_path_ids: vec![],
                     },
                     governance_authorization: None,
-            committed_recipe_origin: envelope.committed_recipe_origin.clone(),
+                    committed_recipe_origin: envelope.committed_recipe_origin.clone(),
                 })?;
                 if let WorldEventBody::Domain(DomainEvent::RecipeStarted {
                     emergency_power_obligation,
@@ -668,12 +668,15 @@ impl World {
             | Action::ApproveGovernanceValidatorAdmission { .. }
             | Action::ActivateGovernanceValidatorAdmission { .. }
             | Action::RevokeGovernanceValidatorAdmission { .. }
-                | Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
+            | Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
+            | Action::RotateGovernanceBootstrapFinalityKeyV1 { .. }
             | Action::OpenEconomicContract { .. }
             | Action::AcceptEconomicContract { .. }
-            | Action::SettleEconomicContract { .. } => {
-                self.action_to_event_policy_contract(action_id, &envelope.action, envelope.governance_authorization.as_ref())
-            }
+            | Action::SettleEconomicContract { .. } => self.action_to_event_policy_contract(
+                action_id,
+                &envelope.action,
+                envelope.governance_authorization.as_ref(),
+            ),
             Action::EmitResourceTransfer { .. }
             | Action::CollectData { .. }
             | Action::CollectDataAuthenticated { .. }

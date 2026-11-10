@@ -448,6 +448,7 @@ where
         governance_finality_signer_registry: _,
         governance_validator_admissions: _,
         governance_finality_key_rotations: _,
+        governance_bootstrap_finality_key_rotations: _,
         governance_main_token_controller_registry: _,
         reward_signature_governance_policy: _,
         ..
@@ -461,7 +462,12 @@ where
         .map_or(&state.governance_finality_key_rotations, |overlay| {
             &overlay.rotations
         });
+    let bootstrap_rotations = governance_registry_overlay
+        .map_or(&state.governance_bootstrap_finality_key_rotations, |o| {
+            &o.bootstrap_rotations
+        });
     let field_count = base_field_count(95, state, module_instance_overlay)
+        + usize::from(!bootstrap_rotations.is_empty())
         + usize::from(!rotations.is_empty())
         + usize::from(!authorization_nonces.is_empty())
         + usize::from(
