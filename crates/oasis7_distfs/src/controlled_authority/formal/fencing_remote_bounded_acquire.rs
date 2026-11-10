@@ -13,7 +13,8 @@ use std::cell::RefCell;
 #[path = "fencing_remote_bounded_sign.rs"]
 mod bounded_sign;
 pub(in crate::controlled_authority) use bounded_sign::{
-    PaidNativeCheckpointSignatureV1, sign_native_checkpoint_bounded_v1,
+    PaidNativeCheckpointBeginV1, PaidNativeCheckpointSignatureV1,
+    begin_signed_native_checkpoint_bounded_v1, sign_native_checkpoint_bounded_v1,
 };
 
 #[derive(Debug)]

@@ -154,7 +154,7 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
             // Actual seal serialization is only a measured payload bound; the
             // original seal clone and original Begin schema remain authoritative.
             let seal_wire = encode_paid(&evidence.draft.body().seal, usize::MAX, ctx)?;
-            let seal_layout = add(size_of::<EpochSealBodyV1>(), seal_wire.len())?;
+            let seal_layout = add(size_of::<EpochSealBodyV1>(), seal_wire.as_ref().len())?;
             let payload = add(
                 add(
                     checkpoint_payload(&evidence.reply.body.checkpoint)?,
@@ -181,7 +181,10 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
                 )?,
                 payload,
             )?;
-            let rpc_fee = reserve(ctx.memory(), rpc_layout)?;
+            let rpc_fee = ctx
+                .memory()
+                .reserve(rpc_layout, MemoryClass::Ordinary)
+                .map_err(|_| FormalError::Invalid("bounded Begin RPC admission".into()))?;
             let covered = add(
                 add(
                     size_of::<PaidSignedNativeCheckpointV1<'a>>(),
@@ -204,7 +207,7 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
                 debit(ctx, chunk.len())?;
                 bytes.extend_from_slice(chunk);
             }
-            debit(ctx, seal_wire.len())?;
+            debit(ctx, seal_wire.as_ref().len())?;
             let seal = evidence.draft.body().seal.clone();
             drop(seal_wire);
             let intent = CheckpointIntentV1 {
@@ -247,10 +250,10 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
             let encoded = encode_paid(&*rpc, LIMIT, ctx)?;
             write_all_paid(
                 &mut transport.stream,
-                &(encoded.len() as u32).to_be_bytes(),
+                &(encoded.as_ref().len() as u32).to_be_bytes(),
                 ctx,
             )?;
-            write_all_paid(&mut transport.stream, &encoded, ctx)?;
+            write_all_paid(&mut transport.stream, encoded.as_ref(), ctx)?;
             drop(encoded);
             let reply = read_reply_paid(&mut transport.stream, ctx)?;
             validate_reply_with(
@@ -285,7 +288,7 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
                 binding,
                 source_outer,
                 rpc,
-                outer: outer_fee.retain(()),
+                outer: outer_fee,
             })
         })
 }
