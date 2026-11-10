@@ -108,7 +108,6 @@ impl Drop for Scope {
         if let Some(state) = state
             && let Ok(line) = serde_json::to_string(&state)
         {
-            #[cfg(not(test))]
             {
                 use std::io::Write;
                 let _ = writeln!(std::io::stderr().lock(), "fresh_submit_timing {line}");
