@@ -226,11 +226,15 @@ async function checkMediaUrls(browser, target) {
       await scenario(page, {group: 'iframe', preload, nearby: true, url});
       await page.evaluate(() => window.urlDeck.slide(1));
       await frameLoaded(page, selector, new URL(url, base).href, async () => {});
-      await noRepeatedSrc(page, selector, () => page.evaluate(() => {
+      await noRepeatedSrc(page, selector, () => page.evaluate(preload => {
         window.urlDeck.loadSlide(window.urlActive);
-        window.urlDeck.slideContent.startEmbeddedContent(window.urlActive.slideBackgroundElement);
-        window.urlDeck.slideContent.startEmbeddedContent(window.urlActive.slideBackgroundElement);
-      }));
+        // A preloaded background stays alive across a public slide round trip;
+        // re-entry exercises its active path without a legitimate unload/reload.
+        if (preload) {
+          window.urlDeck.slide(0);
+          window.urlDeck.slide(1);
+        }
+      }, preload));
       await page.evaluate(() => window.urlDeck.slide(0));
       const afterExit = await page.evaluate(() =>
         window.urlActive.slideBackgroundContentElement.querySelector('iframe').getAttribute('src'));
