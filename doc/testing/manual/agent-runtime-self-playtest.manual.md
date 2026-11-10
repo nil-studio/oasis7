@@ -250,7 +250,7 @@ Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 
 `dev-test-serve --profile <private-config.json>` 启动串行 Unix socket 服务；`dev-test-call --socket <approved-socket>` 从可信宿主 stdin 接受 JSON。模型隔离及实际外部 Agent 接入由 #5532/#5533 承接，本入口不证明该隔离。
 
-配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。本能力入口不提供账号管理操作。
+配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。本能力入口不提供账号管理操作。 `dev-test-serve` 在每次准入前重新通过受信文件读取器检查配置；撤销、到期和降低累计上限作用于后续调用，读取期间发生的变更也必须在准入前复核。服务启动时固定 socket、usage_directory 和 grant_id，运行中改变这些绑定、配置失效或变为不可信时拒绝准入，不沿用旧授权、不创建空账本；恢复有效原绑定后可继续使用原累计用量。更换授权或存储绑定须由可信运营者停止旧服务后显式准备。
 
 请求仅接受 profile、audience=`oasis7-dev-test-tools`、credential、method=`capabilities`。错误版本、用途、过期、撤销与未知方法拒绝，未知字段拒绝。返回 accounts_available=false、writes_available=false。并发固定1；超时断开请求。只有成功能力调用消耗累计上限，拒绝流量不扣。用量按 grant_id 与 caller_id 在 usage_directory 中保存，跨入口共用锁及原子提交，先持久化再回复；重连、重启或更换 socket 均不清零。重启前由可信运营者确认旧进程终止并删除遗留 socket，保留整个用量目录。只有显式新授权可使用新 grant_id；目录不能换成空目录来恢复旧授权。正式账号会话由 #5535 承接。
 

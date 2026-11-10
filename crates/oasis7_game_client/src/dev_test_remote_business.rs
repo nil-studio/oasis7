@@ -61,7 +61,7 @@ pub fn handle_http(
     let is_call = value.get("method") == Some(&json!("tools/call"));
     let mut prepared = None;
     if is_call && let Some(params) = value.get_mut("params").and_then(Value::as_object_mut) {
-        let allowed = params.len() == 2 && params.get("name") == Some(&json!(TOOL));
+        let allowed = protocol::valid_tool_params(&Value::Object(params.clone()), TOOL);
         if allowed && let Some(arguments) = params.get("arguments") {
             // The token is added only after the HTTP authentication boundary.
             prepared = envelope(arguments, "validation-placeholder-only").ok();
@@ -109,7 +109,15 @@ pub fn handle_http(
             .and_then(|h| h.strip_prefix("Bearer "))
             .expect("authenticated boundary");
         let body = envelope(args, token).expect("validated envelope");
-        let business = backend(&body).unwrap_or_else(|_| json!({"status":"unknown","original_request_id":args["operation"]["request_id"],"session_ref":args["session_ref"],"next":"retain_original_request_id_and_body; lookup_original_under_current_authorization; do_not_create_replacement_operation"}));
+        let typed: crate::dev_test_sessions::ToolRequest =
+            serde_json::from_slice(&body).expect("validated envelope");
+        let business = backend(&body).unwrap_or_else(|_| json!({
+            "status":"unknown",
+            "request_id":typed.operation.as_ref().map(|op| op.request_id.as_str()),
+            "original_request_id":typed.operation.as_ref().map(|op| op.recovery_request_id()),
+            "session_ref":typed.session_ref,
+            "next":"retain_original_request_id_and_body; lookup_original_under_current_authorization; do_not_create_replacement_operation"
+        }));
         response["result"] = json!({"content":[{"type":"text","text":business.to_string()}],"structuredContent":business,"isError":business.get("status") != Some(&json!("ok"))});
     }
     (200, Some(response))
@@ -130,7 +138,13 @@ mod tests {
         serde_json::from_value(json!({"profile":"dev-test-accounts-v1","socket":"/unused","usage_directory":"/unused","grant_id":"test","max_request_bytes":65536,"timeout_ms":1000,"max_calls":20,"credentials":[{"caller_id":"fixture","token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","expires_at_unix":u64::MAX,"revoked":false}]})).unwrap()
     }
     fn call(arguments: Value, backend: impl FnOnce(&[u8]) -> Result<Value, ()>) -> Value {
-        let bytes=serde_json::to_vec(&json!({"jsonrpc":"2.0","id":"rpc","method":"tools/call","params":{"name":TOOL,"arguments":arguments}})).unwrap();
+        call_params(json!({"name":TOOL,"arguments":arguments}), backend)
+    }
+    fn call_params(params: Value, backend: impl FnOnce(&[u8]) -> Result<Value, ()>) -> Value {
+        let bytes = serde_json::to_vec(
+            &json!({"jsonrpc":"2.0","id":"rpc","method":"tools/call","params":params}),
+        )
+        .unwrap();
         handle_http(
             &config(),
             "https://fixture.example",
@@ -146,6 +160,63 @@ mod tests {
         )
         .1
         .unwrap()
+    }
+
+    #[test]
+    fn business_metadata_is_validated_without_becoming_an_argument() {
+        for meta in [
+            json!({}),
+            json!({"progressToken":42}),
+            json!({"progressToken":"rpc", "trace":{"id":1}}),
+        ] {
+            let result = call_params(
+                json!({"name":TOOL,"arguments":{"method":"accounts"},"_meta":meta}),
+                |body| {
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(body).unwrap(),
+                        json!({"method":"accounts","credential":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"})
+                    );
+                    Err(())
+                },
+            );
+            assert_eq!(result["result"]["structuredContent"]["status"], "unknown");
+            assert_eq!(
+                result["result"]["structuredContent"]["original_request_id"],
+                Value::Null
+            );
+            assert_eq!(
+                result["result"]["structuredContent"]["request_id"],
+                Value::Null
+            );
+        }
+        for params in [
+            json!({"name":TOOL,"arguments":{"method":"accounts"},"_meta":null}),
+            json!({"name":TOOL,"arguments":{"method":"accounts"},"_meta":{"progressToken":false}}),
+            json!({"name":TOOL,"arguments":{"method":"accounts"},"unexpected":{}}),
+            json!({"name":TOOL,"arguments":{"method":"accounts","credential":"bad"},"_meta":{}}),
+        ] {
+            assert!(
+                call_params(params, |_| panic!("invalid envelope reached backend"))
+                    .get("error")
+                    .is_some()
+            );
+        }
+    }
+    #[test]
+    fn lost_lookup_response_keeps_the_target_operation() {
+        let args = json!({"method":"lookup","session_ref":"A","operation":{
+            "request_id":"lookup-A","arguments":{"kind":"lookup","original_request_id":"move-A"}
+        }});
+        let result = call(args, |_| Err(()));
+        assert_eq!(
+            result["result"]["structuredContent"]["original_request_id"],
+            "move-A"
+        );
+        assert_eq!(
+            result["result"]["structuredContent"]["request_id"],
+            "lookup-A"
+        );
+        assert_eq!(result["result"]["structuredContent"]["status"], "unknown");
     }
     #[test]
     fn closed_envelope_and_original_unknown() {

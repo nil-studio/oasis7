@@ -30,6 +30,17 @@ pub struct Call {
     pub request_id: String,
     pub arguments: Arguments,
 }
+impl Call {
+    /// Recovery follows the Context/Move being observed, never a Lookup of a Lookup.
+    pub(crate) fn recovery_request_id(&self) -> &str {
+        match &self.arguments {
+            Arguments::Lookup {
+                original_request_id,
+            } => original_request_id,
+            Arguments::Context | Arguments::Move { .. } => &self.request_id,
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Scope {
@@ -120,8 +131,22 @@ fn transaction<T>(
         .custom_flags(libc::O_NOFOLLOW)
         .open(directory.join(format!("{key}.lock")))
         .map_err(|_| "usage_lock_failed")?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err("usage_lock_failed");
+    loop {
+        crate::request_deadline::remaining().map_err(|_| "admission_deadline_exceeded")?;
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            break;
+        }
+        let error = std::io::Error::last_os_error();
+        if !matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+        ) {
+            return Err("usage_lock_failed");
+        }
+        let pause = std::time::Duration::from_millis(5);
+        let remaining =
+            crate::request_deadline::remaining().map_err(|_| "admission_deadline_exceeded")?;
+        std::thread::sleep(remaining.map_or(pause, |time| time.min(pause)));
     }
     let path = directory.join(format!("{key}.json"));
     let marker = directory.join(format!("{key}.initialized"));
@@ -207,8 +232,15 @@ fn transaction<T>(
     Ok(result)
 }
 pub(crate) fn admit_read(config: &Config, caller: &str) -> Result<(), &'static str> {
+    admit_read_checked(config, caller, || Ok(config.max_calls))
+}
+pub(crate) fn admit_read_checked(
+    config: &Config,
+    caller: &str,
+    current_limit: impl FnOnce() -> Result<u64, &'static str>,
+) -> Result<(), &'static str> {
     transaction(config, caller, |ledger| {
-        if ledger.used >= config.max_calls {
+        if ledger.used >= current_limit()? {
             return Err("call_limit_exhausted");
         }
         ledger.used += 1;
