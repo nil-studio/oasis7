@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "ab2a0a9145acab20c5ee0721783f7e39e8780a513b23a7a3f5b996545184a40a",
+    "content_sha256": "879dfd35b1bb8959b48d2c70b5f0667490d0112d1b07383fa9c7f72a714acf34",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程唯一主责及既有 owner、disposition 与路由。本次有界审读通用职责、独立开发会话、代码队列领取与状态维护和评审方式，并核对 AGENTS、工程 PRD/design、执行/并行/评审方法、TPM 与 dot 的直接承接。直接开发会话和可选 TPM 共用认领规则，由实际领取者更新实现标签；标签写入失败保留真实认领及待同步项，暂停与执行权限继续约束工作。角色卡作为专业参考，交接复用 Issue/PR；现行 PRD 的角色生命周期、每日日志和固定评审报告要求已对齐，旧格式校验退役而目录负责人等有效合同保留。设计缺口处理、原生父子任务、必要独立评审、共享预算、写入隔离和父项整体验收保留；Agent 自主试玩与 dot 时间表专项条款未变。本结论限于修改及直接消费者的静态一致性，不证明客户端多会话已采用、真实任务已验收或周期已缩短。",
+    "note": "独立复核开发测试与合入后复杂测试分工及直接消费者：单元测试和无外部条件的集成测试由开发角色随 PR 完成；仅在本项所需 PR 均实际合入且仍有复杂测试时沿原 Issue 转类，无此剩余则满足全部原义务后直接结项。多 PR、父子验收归属、修复 PR 合入后复测及独立测试边界一致，保留既有合入前必要验证、认领恢复和权限约束。AGENTS、QA、TPM、dot、执行与并行方法、模板及测试手册承接同一主责，未新增固定角色链或审批。保留原 owner、disposition 与权威归属；本结论证明本次文档语义及入口一致性，不证明真实任务流转或调度已执行。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

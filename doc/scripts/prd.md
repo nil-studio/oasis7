@@ -109,7 +109,7 @@
   - AC-9: 新增 `scripts/worktree-harness.sh` 作为 worktree 级主入口，至少提供 `up/down/status/url/logs/smoke` 六个动作，并把当前 worktree 的运行状态写入稳定 `state.json`。
   - AC-10: `scripts/run-launcher-stack.sh` 必须支持把 `run-id`、`output-dir`、`meta-file` 与 ready payload 交给上层 harness 注入，避免上层通过 grep stdout 猜测 URL/日志路径。
   - AC-11: `scripts/run-producer-playtest.sh` 默认 bundle 根目录必须可按 worktree 隔离，不再强制复用全局 `output/release/game-launcher-producer-local`。
-  - AC-12: 新增 `scripts/new-task-worktree.sh`，默认根据 `<module> <task>` 生成稳定分支名与 worktree 路径，并执行 `git worktree add`。
+  - AC-12: `scripts/new-task-worktree.sh` 根据 `<module> <task>` 生成稳定分支名与 worktree 路径。新建分支前必须成功从 origin 拉取 main，默认基于刚更新的 `origin/main` 创建，不修改调用方工作区或本地 main；显式 `--base` 保留指定基线。拉取失败不得创建分支或 worktree。附加已有分支及 `--resume-setup` 不拉取、不改变已有 HEAD。
   - AC-13: `scripts/new-task-worktree.sh` 默认在源 worktree 脏时阻断，并给出显式 override；对已存在路径、已被其他 worktree 占用的分支和非法空 slug 提供清晰失败语义。
   - AC-14: `--json` stdout 仅一个对象，包含 `worktree`、`worktree_path`、`branch`、实际 `head`、`worktree_created`、`setup_status`、`failed_step`、`recovery_command`。setup 失败返回 1 并保留现场；身份或参数冲突返回 2。
   - AC-16: `scripts/new-task-worktree.sh --json --init-docs` 必须输出机器可读 `doc_checks`；加 `--with-harness` 时，stdout 仍保持单个 JSON 对象，并附带 `harness` 摘要字段。
@@ -199,7 +199,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - NFR-SCR-12: 分支、工作区和清理规则遵循开发流程规范，不额外引入任务身份或复用授权。
   - NFR-SCR-12A: GC JSON 稳定且只读，包含事实和不可读原因，不包含清理命令或资格判断。
   - NFR-SCR-13: 开发态 target 默认位于各工作区内并由 Git 忽略；工作区创建无需编译工具链或符号链接权限，普通 Cargo 目录不被入口脚本修改。
-- Security & Privacy: 脚本不得在默认输出中泄漏密钥；涉及网络调用时需要显式参数与最小权限。
+- Security & Privacy: 脚本不得在默认输出中泄漏密钥；涉及网络调用时需要显式参数与最小权限。任务 worktree 新建分支的 origin/main 拉取按 AC-12 默认执行，并在帮助中声明；不增加远端写权限。
 
 ## 5. Risks & Roadmap
 - Phased Rollout:
