@@ -1986,6 +1986,64 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                     '      - name: Validate all expected results\n        continue-on-error: true\n')
         with self.assertRaises(ValueError):validate_candidate_graph(required,CONFIG)
 
+    def test_ci_wasm_opt_entry_requires_pair_and_nonempty_execution(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        function = re.search(r'^run_ci_wasm_opt_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(function)
+        governance = re.search(r'^run_workflow_governance_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(governance)
+        self.assertEqual(governance.group().count('  run_ci_wasm_opt_contract_tests'), 1)
+        paths = ('scripts/install-ci-wasm-opt.py', 'scripts/install-ci-wasm-opt.test.py')
+        cases = [('absent', None), ('complete', None)]
+        cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
+        cases += [(kind, paths[1]) for kind in ('empty', 'failing', 'skipped')]
+        for kind, changed in cases:
+            with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if kind != 'absent':
+                    for path in paths:
+                        target = root / path
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        if path == changed and kind == 'missing':
+                            continue
+                        if path == changed and kind == 'directory':
+                            target.mkdir()
+                            continue
+                        if path == changed and kind == 'symlink':
+                            target.symlink_to(root / 'missing-target')
+                            continue
+                        content = '# synthetic installer input\n'
+                        if path == paths[1] and kind != 'empty':
+                            content = ("import unittest\nfrom pathlib import Path\n"
+                                       "class Contract(unittest.TestCase):\n"
+                                       "    @unittest.skipIf(%r, 'fixture skip')\n"
+                                       "    def test_runs(self):\n"
+                                       "        Path('installer-test.ran').write_text('once')\n"
+                                       "        self.assertTrue(%r)\n" % (kind == 'skipped', kind != 'failing'))
+                        target.write_text(content)
+                shell = ('set -euo pipefail\nrun() { \"$@\"; }\n'
+                         'run_engineering_telemetry_contract_tests() { :; }\n'
+                         'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
+                         'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
+                         + function.group() + '\n' + governance.group()
+                         + '\nrun_workflow_governance_contract_tests\n')
+                result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
+                if kind in ('absent', 'complete'):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines()[-2:],
+                                     ['governance-baseline', 'governance-operational'])
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('governance-baseline', result.stdout)
+                    self.assertNotIn('governance-operational', result.stdout)
+                if kind == 'absent':
+                    self.assertIn('not introduced; no tests run', result.stdout)
+                if kind in ('complete', 'failing'):
+                    self.assertTrue((root / 'installer-test.ran').is_file(), result.stderr)
+                    self.assertIn('Ran 1 test', result.stderr)
+                if kind == 'empty':
+                    self.assertIn('no wasm-opt contract tests', result.stderr)
+
     def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
@@ -2028,6 +2086,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                        (target.name + '.ran', not (path == changed and kind == 'failing')))
                         target.write_text(content)
                 shell = ('set -euo pipefail\nrun() { "$@"; }\n'
+                         'run_ci_wasm_opt_contract_tests() { :; }\n'
                          'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
                          'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
                          + function.group() + '\n' + governance.group()
