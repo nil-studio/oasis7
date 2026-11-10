@@ -21,6 +21,44 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 
+class WitnessColumns(unittest.TestCase):
+    def parse(self, name, text):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'decoded.csv'
+            path.write_text(text)
+            return m.witness_rows(name, path)
+
+    def test_named_metric_columns_preserve_actual_decoded_rows(self):
+        # Captured CodeQL 2.27.4 PeerCandidate output from run 42832373527.
+        text = '"label","present"\n"derive-df",1\n"derive-ast",1\n"closure-flow",1\n'
+        wanted = [['derive-df', '1'], ['derive-ast', '1'], ['closure-flow', '1']]
+        for name in ('PeerCandidate', 'PeerLegacy', 'Driver', 'Image'):
+            with self.subTest(name=name): self.assertEqual(self.parse(name, text), wanted)
+
+    def test_unnamed_expression_columns_and_empty_results_reach_the_oracle(self):
+        for name in ('CallsCandidate', 'CallsLegacy'):
+            with self.subTest(name=name):
+                self.assertEqual(self.parse(name, '"col0","col1","col2","col3"\n"a",42,"call","b"\n'),
+                                 [['a', '42', 'call', 'b']])
+        self.assertEqual(self.parse('Files', '"col0","col1"\n"a","b"\n'), [['a', 'b']])
+        self.assertEqual(self.parse('PeerCandidate', '"label","present"\n'), [])
+        self.assertEqual(self.parse('CallsCandidate', '"col0","col1","col2","col3"\n'), [])
+
+    def test_wrong_missing_duplicate_or_reordered_columns_and_unknown_tables_are_rejected(self):
+        cases = [
+            ('PeerCandidate', ''), ('PeerCandidate', '"derive-ast",1\n'),
+            ('PeerCandidate', 'col0,col1\n'), ('PeerLegacy', 'present,label\n'),
+            ('Driver', 'label,label\n'), ('Image', 'label,present,extra\n'),
+            ('Files', 'label,present\n'), ('Files', 'col1,col0\n'),
+            ('CallsCandidate', 'col0,col1,col2\n'), ('CallsLegacy', 'col0,col1,col3,col2\n'),
+            ('CallsUnknown', 'col0,col1,col2,col3\n'), ('Unknown', 'label,present\n'),
+        ]
+        for name, text in cases:
+            with self.subTest(name=name, text=text):
+                with self.assertRaisesRegex(RuntimeError, 'public witness decode schema differs'):
+                    self.parse(name, text)
+
+
 class Budget(unittest.TestCase):
     def budget(self):
         return dict(mode=m.MODE, job_budget_seconds=5400, fixed_job_deadline=6400,
@@ -148,7 +186,7 @@ class Workload(unittest.TestCase):
                             ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest() for n, t in m.capacity.semantic_queries(self.source).items()})]:
             self.write(self.checkpoint / (name + '.json'), value)
         self.write(self.checkpoint / 'hashes.json', {p.name: m.runtime.digest(p) for p in self.checkpoint.iterdir()})
-        self.calls = []; self.failed_stage = self.mutate = self.oracle_failure = self.bad_decode = None
+        self.calls = []; self.failed_stage = self.mutate = self.oracle_failure = self.bad_decode = self.bad_header = None
         self.stack = contextlib.ExitStack(); self.addCleanup(self.stack.close)
         for target, key, value in ((m, 'DEFAULT_ENTRIES_SHA', self.entries_sha), (m, 'SUITE_SHA', self.suite_sha),
                                    (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest())):
@@ -215,8 +253,18 @@ class Workload(unittest.TestCase):
             output.write_text('interpreted')
         elif name.startswith('decode-'):
             query = name[7:]; rows = self.rows(query)
+            # Actual CodeQL 2.27.4 BQRS columns: named metric variables retain
+            # label/present; expression-only Files and Calls use colN.
+            headers = {
+                'PeerCandidate': ['label', 'present'], 'PeerLegacy': ['label', 'present'],
+                'Driver': ['label', 'present'], 'Image': ['label', 'present'],
+                'Files': ['col0', 'col1'],
+                'CallsCandidate': ['col0', 'col1', 'col2', 'col3'],
+                'CallsLegacy': ['col0', 'col1', 'col2', 'col3'],
+            }
+            if query == self.bad_header: headers[query] = ['unexpected', 'columns']
             with output.open('w') as stream:
-                writer = csv.writer(stream); writer.writerow(['col' + str(i) for i in range(len(rows[0]))])
+                writer = csv.writer(stream); writer.writerow(headers[query])
                 writer.writerows([] if query == self.oracle_failure else rows)
         else: self.fail('unrecognized CLI stage ' + name)
         if name == self.failed_stage: raise TimeoutError('injected command timeout')
@@ -292,11 +340,48 @@ class Workload(unittest.TestCase):
         self.assertEqual(sum(c[0] == 'candidate-workload-batch' for c in self.calls), 1)
         self.assertTrue((self.out / 'semantic-Image-terminal.json').exists())
 
+    def test_recorded_image_flow_failure_remains_a_semantic_failure(self):
+        self.prepare()
+        original_rows = self.rows
+        missing_flows = {'original-flow', 'replacement-flow', 'whole-line-flow', 'output-line-flow'}
+
+        def recorded_rows(name):
+            rows = original_rows(name)
+            if name == 'Image':
+                return [[label, '0' if label in missing_flows else value] for label, value in rows]
+            return rows
+
+        with patch.object(self, 'rows', side_effect=recorded_rows):
+            self.assertEqual(self.invoke('run'), 1)
+        terminal = m.read_json(self.out / 'candidate-run-terminal.json')
+        self.assertEqual(terminal['default_result_verification'], 'PASS')
+        self.assertEqual(terminal['public_semantics'], 'FAIL')
+        self.assertEqual(set(terminal['public_semantic_failures']), {'Image'})
+        self.assertEqual(terminal['primary_failure']['stage'], 'semantic-Image')
+        self.assertEqual(set(terminal['public_semantic_tables']),
+                         {'PeerCandidate', 'CallsCandidate', 'Driver', 'Files', 'PeerLegacy', 'CallsLegacy'})
+        self.assertEqual(sum(c[0] == 'candidate-workload-batch' for c in self.calls), 1)
+        self.assertEqual(m.read_json(self.out / 'semantic-Image-terminal.json')['status'], 'FAIL')
+        m.comparison.verify_seal(self.out, time.monotonic() + 30)
+
     def test_incomplete_decode_stops_before_remaining_results(self):
         self.prepare(); self.bad_decode = 'decoded-00'
         self.assertEqual(self.invoke('run'), 1)
         self.assertFalse(any(c[0] in ('info-01', 'interpret-default-results', 'decode-Image') for c in self.calls))
         self.assertEqual(m.read_json(self.out / 'candidate-run-terminal.json')['default_result_verification'], 'INCOMPLETE')
+
+    def test_public_schema_error_stops_before_the_oracle_and_remaining_decodes(self):
+        self.prepare(); self.bad_header = 'PeerCandidate'
+        self.assertEqual(self.invoke('run'), 1)
+        terminal = m.read_json(self.out / 'candidate-run-terminal.json')
+        self.assertEqual(terminal['primary_failure']['stage'], 'decode-PeerCandidate')
+        self.assertIn('public witness decode schema differs', terminal['primary_failure']['error'])
+        self.assertEqual(terminal['public_semantics'], 'INCOMPLETE')
+        self.assertEqual(terminal['public_semantic_tables'], {})
+        self.assertEqual(terminal['public_semantic_failures'], {})
+        self.assertFalse(any(c[0] == 'decode-CallsCandidate' for c in self.calls))
+        self.assertTrue((self.out / 'result-43.bqrs').exists())
+        m.comparison.verify_seal(self.out, time.monotonic() + 30)
 
     def test_failed_upstream_stage_never_admits_any_workload_subprocess(self):
         self.prepare(); before = len(self.calls)
