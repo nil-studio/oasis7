@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "14a7810139e593782470d5a79b60d90d8d025b1bf501dbc3b431fe455e5083df",
+    "content_sha256": "ceb2170aea9c736acf7fc1e810263a1b06b015e27e9c5152b6b0863a647c67bb",
     "current_authority": "doc/site/prd.md",
     "decision_owner": "viewer_engineer",
     "disposition": "retain_current_authority",
-    "note": "Current site authority retained after full-file reading; bounded author review confirms the deck media contract uses parsed HTTPS player origins and paths, query-safe API parameters and origin-bound commands without adding media or changing public deck scope. This does not attest browser execution, independent approval or unrelated platform-upgrade implementation.",
+    "note": "已阅读全文并完成本次修改的作者自检，保留现有 site authority。媒体合同限定解析后的 HTTP(S) src 激活，覆盖正文、source、背景与 preload/active，保留有效相对路径和各自的卸载状态；既有 provider origin 边界继续适用。不增加媒体内容、公开产品能力或新的审批权威，不将本记录当作浏览器执行、独立批准或无关升级功能的证明。",
     "path": "doc/site/design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

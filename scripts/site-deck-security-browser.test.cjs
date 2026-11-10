@@ -6,6 +6,8 @@ const http = require('node:http');
 const path = require('node:path');
 const { checkEmbeddedProviders } = require('./site-deck-media-cases.cjs');
 
+const { checkMediaUrls } = require('./site-deck-media-url-cases.cjs');
+
 const site = path.resolve(__dirname, '../site');
 const output = path.resolve(__dirname, '../output/site-deck-security-qa');
 const types = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -156,6 +158,8 @@ async function waitForDeckTransitions(page) {
       console.log('PASS ' + route + ' message boundary, hash, keyboard, fragments and touch');
     }
     results.push(await checkEmbeddedProviders(browser, target));
+
+    results.push(await checkMediaUrls(browser, target));
     fs.writeFileSync(path.join(output, 'behavior-results.json'), JSON.stringify(results, null, 2) + '\n');
   } finally {
     if (browser) await browser.close();

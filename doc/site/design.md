@@ -75,6 +75,10 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；承接 [产品 SC-11](
 
 Deck 本地 Reveal 库以浏览器 `URL` 解析媒体地址，依据实际 origin 与路径识别播放器，不从 URL 的其他部分猜测服务。YouTube 的 `https://youtube.com`、`https://www.youtube.com` 仅在 `/embed/` 路径下使用专属控制；Vimeo 的 `https://player.vimeo.com` 仅在 `/video/` 路径下使用专属控制。带用户信息、其他端口、相似主机或仅在路径、query、fragment 中含服务名的地址均不作为这些播放器处理。初始化 API 参数通过 `URLSearchParams` 写入真正的 query，保留其余参数与 fragment；开始和停止使用同一识别结果，专属消息的接收 origin 必须与已解析地址一致。普通 iframe 保留不含状态或凭据的固定 `slide:start` / `slide:stop` 消息，不恢复外部窗口调用 deck API 的能力。该合同只约束既有库接口，不新增实际媒体内容。
 
+媒体 URL 激活限于浏览器 URL 解析后的 HTTP(S)：绝对地址、协议相对及以 `document.baseURI` 为基准的相对路径均可使用，query 与 fragment 保留。空值、解析失败及其他协议（包括 javascript、data、blob、file）不能进入 img/video/audio/iframe 和 source 的 `src`；背景视频逐个处理既有逗号分隔项，背景 iframe 的 preload 与 active 使用同一检查。拒绝项不标记加载成功，不阻断同页有效资源；内部卸载使用的固定 `about:blank` 仍仅供卸载。CSS 背景图不属于这组媒体 src 激活入口。
+
+普通 load/preload 成功后沿既有 `data-lazy-loaded` / `data-src` 转换；按需激活的 iframe 保留 `data-src`，供离场与 fragment 隐藏时卸载。预加载背景按原近邻策略保留，远距卸载后可再次加载；重复激活同一解析结果不能重写 `src` 引发重复导航。此约束不扩展为对 `sync()` 重建背景的导航禁止，也不改变 autoplay、loop/muted、excludeIframes 等既有控制。
+
 <a id="static-manual-design"></a>
 ### 静态手册的共享设计
 
