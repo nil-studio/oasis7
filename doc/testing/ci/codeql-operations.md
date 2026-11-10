@@ -189,6 +189,20 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接[独立真实调
 
 该模式的原生依赖准备最多 360 秒，prepare 步骤最多 11 分钟，均计入同一 150 分钟；其他模式仍为 180 秒原生准备。先读 `native-budget.json` 与 `native-update.stdout.result.json`、`native-install.stdout.result.json` 区分子阶段耗尽和总 job 超时：特权 `timeout` 的退出 124、安装尚未完成或探针未执行都不能计为依赖就绪。包/模块探针仍保留，失败停止 metadata 与提取。若源码提取和对照被 skipped，四个调用观察应写未运行；不能由失败采证步骤成功推断语义通过，也不能自动追加重跑。
 
+### 候选库完整工作负载研究
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选完整工作负载合同](codeql-integration.design.md#724-候选库完整工作负载研究)。
+
+需要验证候选库的完整查询时，选择 `execute=true, mode=candidate-workload-research, compare_qualifier_patch=false`。沿用完整固定 `7c2f99a…` 业务源、官方 2.27.4、原生准备及真实 Action 资源。官方 Action 只提取；独立 checkpoint 通过后，私有源码布局和固定行为候选以同一批次执行原 37 默认查询及七项公共见证。入口不选定生产库或启用 Rust。
+
+先核对分析窗口在提取前已固定：整个 job 90 分钟，提取、私有复制/解析/编译和 44 项求值共用至多 75 分钟的绝对截止，动态保留 600 秒结果验证与收尾；所有阶段仍保留总截止前 120 秒的证据边界。不能在 checkpoint 后重新分配时间，CLI 查询 timeout 不能替代外层墙钟。最终完整 job 时长及至少 270 秒余量须在 artifact 上传与 post 后独立读回。
+
+同时读取官方 checkpoint 中的 `action-deadline-terminal.json` 与 owned-process 收据：真实官方 main 必须只运行一次，启动/退出/收尾均绑定同一分析截止，启动已过期时不得运行提取。监督器通过该 step 的显式 `NODE_OPTIONS` preload 接入，不通过 `GITHUB_ENV` 写该变量；stdout/stderr 保持 runner 处理，post 正常收尾。相对 step timeout 或预估启动余量不能代替绝对监督收据，监督/取消/采证失败均不得准入候选求值。
+
+从独立候选 artifact 检查私有包装差异、原 37/7 文本身份、44 条实际 closure、候选 TypeInference 摘要和源/库/query pack 的前后身份。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+
+默认 37 项逐项核对完整 info/decode，七表逐项读取实际结果与原 oracle 判定。SARIF 只对 37 项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+
 ### 短原生准备诊断
 
 安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
