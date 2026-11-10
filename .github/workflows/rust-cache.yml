@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       run_mode:
-        description: "Populate complete native dependency cache (no test validation)"
+        description: "Populate complete native and Web dependency caches (no test validation)"
         required: true
         default: full
         type: choice
@@ -33,6 +33,7 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   RUST_TOOLCHAIN: 1.96.0
+  TRUNK_VERSION: 0.21.14
   OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
   OASIS7_WASM_TARGET: wasm32-unknown-unknown
   OASIS7_WASM_BUILD_STD: "1"
@@ -74,9 +75,10 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install system deps
+        shell: bash
+        timeout-minutes: 11
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- \
             clang \
             llvm \
             pkg-config \
@@ -116,3 +118,83 @@ jobs:
       - name: Complete shared native cache
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: CI_VERBOSE=1 ./scripts/ci-tests.sh cache-native
+
+  web-wasm-cache:
+    cache-mode: write
+    permissions:
+      contents: read
+      actions: read
+    if: >-
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify current main cache source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install viewer web dependencies
+        run: npm ci --prefix crates/oasis7_viewer
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
+          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
+          rustup default "${RUST_TOOLCHAIN}"
+      - name: Normalize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
+      - name: Install Web cache admission
+        id: dependency-cache-tools
+        continue-on-error: true
+        run: python3 scripts/ci-rust-cache-admission.py install-release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        id: web-cache
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: release-packages-web-wasm-trusted-v3
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
+          cache-provider: github
+          cache-on-failure: false
+      - name: Restore pinned Trunk release archive
+        id: trunk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz
+          key: trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ hashFiles('scripts/install-ci-trunk.sh') }}
+      - name: Install verified pinned Trunk
+        shell: bash
+        run: bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
+      - name: Verify pinned trunk
+        shell: bash
+        run: |
+          set -euo pipefail
+          trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
+      - name: Complete Web WASM cache
+        if: steps.web-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/release/viewer-optional-payload output/release/web-launcher-dist
+          OASIS7_FORCE_VIEWER_SOFTWARE_SAFE_BUILD=1 ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload
+          (
+            cd crates/oasis7_client_launcher
+            env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist
+          )

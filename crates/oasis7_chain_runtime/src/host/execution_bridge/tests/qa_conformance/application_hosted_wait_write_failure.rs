@@ -110,6 +110,7 @@ pub(super) fn finish(
     worker: thread::JoinHandle<Result<FaultProof, String>>,
     model_count: usize,
 ) {
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_write_failure_finish");
     let proof = worker.join().expect("actual fault worker must join");
     let artifact = std::env::temp_dir().join(format!(
         "pre2-wait-cleanup-fs-{}-{}",
@@ -298,4 +299,5 @@ pub(super) fn finish(
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("PRE2_HOSTED_WAIT_RESUME_ACT_PASSED"));
     application_hosted_wait::report(fixture, root, model_count);
+    cleanup.complete();
 }

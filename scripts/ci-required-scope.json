@@ -2,8 +2,98 @@
   "fast_scope_version": 1,
   "fast_test_inventory_version": 1,
   "fast_execution_version": 1,
+  "ordinary_partition_version": 1,
+  "ordinary_artifact_partition_version": 1,
+  "workspace_support_partition_version": 1,
+  "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
+  "engineering_job_observation": {
+    "schema_version": 1,
+    "workflow_path": ".github/workflows/rust.yml",
+    "step_name": "Record engineering job observation",
+    "step_anchor": "engineering-job-observation",
+    "timeout_minutes": 1,
+    "failure_mode": "nonblocking",
+    "emitter_sha256": "e043a20428e1b4b69ce87e7a049d5514efa8738518dfb269bdd8674a693e59be"
+  },
+  "ordinary_support_contract_version": 1,
+  "ordinary_fast_support_contracts": [
+    {
+      "package": "oasis7_game_client",
+      "source": "crates/oasis7_game_client/src/dev_test_service_cli.rs",
+      "entry": "run",
+      "callers": {
+        "crates/oasis7_game_client/src/commands.rs": "0aba38c4f9e32c35facd42ac443c4eb382f74f8ce949512cf22f4ad7dac0f7dd",
+        "crates/oasis7_game_client/src/bin/oasis7_game_client.rs": "f0e672b7b81c4b6259ce3c6286ec2345558b9f7c3b5e1c87e4dd26cc2ed87587"
+      },
+      "tests": [
+        "crates/oasis7_game_client/tests/identity_cli.rs",
+        "crates/oasis7_game_client/tests/dev_test_catalog_cli.rs",
+        "crates/oasis7_game_client/tests/legacy_profile.rs",
+        "crates/oasis7_game_client/tests/dev_test_service_cli.rs"
+      ],
+      "deferred_consumers": ["oasis7_agent_harness", "oasis7_model_provider"]
+    }
+  ],
   "ordinary_fast_targets": {
+    "game-client-lib": {
+      "package": "oasis7_game_client",
+      "target_kind": "lib",
+      "target_name": "oasis7_game_client",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "commands::native_context_display::tests::required_native_context_list_confirms_default_validation",
+        "commands::native_context_display::tests::missing_native_context_grant_field_is_not_silently_empty",
+        "commands::native_context_display::tests::nonempty_native_context_keeps_revoked_grants_scoped",
+        "commands::native_context_display::tests::provider_local_display_bytes_are_unchanged",
+        "dev_test_service::tests::completed_peer_response_is_read_through_eof",
+        "dev_test_service::tests::slow_drip_cannot_extend_absolute_read_deadline",
+        "dev_test_service::tests::capabilities_enforce_credential_and_closed_methods"
+      ]
+    },
+    "game-client-identity-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "identity_cli",
+      "default_features": true,
+      "features": [],
+      "cases": ["executable_initializes_and_reopens_encrypted_identity_without_network_or_secret_output"]
+    },
+    "game-client-catalog-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "dev_test_catalog_cli",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "operator_cli_rejects_public_directory_and_lists_without_credential_references",
+        "trusted_tls_registration_is_idempotent_and_rejects_subject_replacement"
+      ]
+    },
+    "game-client-legacy-profile": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "legacy_profile",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "original_runtime_fixture_preserves_all_legacy_operations_and_results",
+        "published_lease_and_continuation_pure_helpers_preserve_defaults_and_reject_invalid_input"
+      ]
+    },
+    "game-client-service-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "dev_test_service_cli",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "real_service_cli_preserves_credentials_closed_methods_and_usage",
+        "cli_rejects_public_symlink_and_invalid_configurations",
+        "cli_enforces_exact_input_boundaries_and_argument_errors"
+      ]
+    },
     "runtime-basic": {
       "package": "oasis7_runtime",
       "target_kind": "test",
@@ -240,6 +330,23 @@
     }
   },
   "ordinary_fast_rules": [
+    {
+      "paths": [
+        "crates/oasis7_game_client/src/dev_test_service_cli.rs",
+        "crates/oasis7_game_client/tests/identity_cli.rs",
+        "crates/oasis7_game_client/tests/dev_test_catalog_cli.rs",
+        "crates/oasis7_game_client/tests/legacy_profile.rs",
+        "crates/oasis7_game_client/tests/dev_test_service_cli.rs"
+      ],
+      "targets": [
+        "game-client-lib",
+        "game-client-identity-cli",
+        "game-client-catalog-cli",
+        "game-client-legacy-profile",
+        "game-client-service-cli"
+      ],
+      "reason": "private_unix_service_cli_with_complete_library_and_real_cli_contracts"
+    },
     {
       "paths": [
         "crates/oasis7_runtime/src/tests/basic.rs",
@@ -803,6 +910,8 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-apt-install.py": ["workflow_governance"],
+    "scripts/ci-apt-install.test.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/config.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/decision.yml": ["workflow_governance"],
@@ -862,6 +971,14 @@
   },
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-apt-install.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-apt-install.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-apt-install.test.py"]
+    },
     "scripts/ci-local-check-plan.py": {
       "group": "workflow_governance",
       "tests": [
@@ -1106,10 +1223,13 @@
     "scripts/ci-test-artifacts.py": {
       "group": "workflow_governance",
       "tests": [
+        "scripts/ci-cache-policy.test.py",
         "scripts/ci-ecs-cache.test.py",
         "scripts/ci-formal-process.test.py",
+        "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
-        "scripts/ci-workspace-cache.test.py"
+        "scripts/ci-workspace-cache.test.py",
+        "scripts/package-ecs-resource-monitor.test.py"
       ]
     },
     "scripts/ci-workflow.test.py": {
@@ -1122,6 +1242,7 @@
     "scripts/ci-workspace-cache.py": {
       "group": "workflow_governance",
       "tests": [
+        "scripts/ci-cache-maintenance.test.py",
         "scripts/ci-cache-policy.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py"
@@ -1721,6 +1842,33 @@
         "cargo_tooling_contracts"
       ],
       "reason": "cargo_tools"
+    },
+    {
+      "match": [
+        "scripts/install-ci-trunk.sh",
+        "scripts/install-ci-trunk.test.sh",
+        "scripts/install-ci-wasm-opt.py",
+        "scripts/install-ci-wasm-opt.test.py"
+      ],
+      "groups": [
+        "workflow_governance",
+        "packaging_contracts",
+        "launcher_web"
+      ],
+      "reason": "ci_download_contracts"
+    },
+    {
+      "match": [
+        "scripts/engineering_telemetry.py",
+        "scripts/engineering_telemetry_adapters.py",
+        "scripts/tests/fixtures/engineering-telemetry/input.json",
+        "scripts/tests/test_engineering_telemetry.py",
+        "scripts/tests/test_engineering_telemetry_adapters.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "engineering_telemetry_contracts"
     },
     {
       "match": [

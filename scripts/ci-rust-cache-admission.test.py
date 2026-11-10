@@ -70,6 +70,43 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(result['reason'], 'repository cache capacity gap')
         self.api.delete_cache.assert_not_called()
 
+    def test_formal_dependency_writers_bind_profile_namespace_and_main_full_events(self):
+        for component in ('debug', 'endpoint'):
+            family = 'formal-' + component
+            namespace = 'ci-' + family + '-deps-trusted-v1'
+            environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY=family,
+                                                  GITHUB_JOB=family + '-build-trusted',
+                                                  GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main')
+            environment['INPUT_SHARED-KEY'] = namespace
+            self.run['event'] = 'schedule'
+            self.run['path'] = '.github/workflows/rust.yml'
+            with self.subTest(component=component):
+                self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                for change in ({'GITHUB_JOB': family + '-build'}, {'GITHUB_JOB': 'formal-test-build-trusted'},
+                               {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v3'},
+                               {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v4'},
+                               {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main'},
+                               {'INPUT_SHARED-KEY': 'ci-formal-' + ('endpoint' if component == 'debug' else 'debug') + '-deps-trusted-v1'},
+                               {'GITHUB_EVENT_NAME': 'push'}, {'GITHUB_EVENT_NAME': 'pull_request'},
+                               {'GITHUB_REF': 'refs/pull/1/merge'}, {'RUNNER_ARCH': 'ARM64'},
+                               {'GITHUB_WORKFLOW_SHA': 'b' * 40}):
+                    with self.subTest(change=change):
+                        self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+                self.run['path'] = '.github/workflows/rust-cache.yml'
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.run['path'] = '.github/workflows/rust.yml'
+                event = self.root / (component + '-event.json')
+                environment.update(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
+                self.run['event'] = 'workflow_dispatch'
+                for mode in ('full', 'pr-fast', None):
+                    event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
+                    self.assertEqual(admission.check_archive(self.archive, environment, self.api)['allowed'], mode == 'full')
+                event.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+                self.api.list_caches.return_value = [self.entry(901)]
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.api.list_caches.return_value = []
+        self.api.delete_cache.assert_not_called()
+
     def test_archive_growth_during_inventory_cannot_reuse_admission(self):
         def changed():
             self.archive.write_bytes(b'x' * 101)
@@ -165,17 +202,26 @@ class AdmissionTests(unittest.TestCase):
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
 
     def test_release_writers_require_matching_platform_source_and_workflow(self):
+        web = admission.FAMILIES['release-web']
+        self.assertIn(web, (
+            ('release-packages-web-wasm-trusted-v3', '.github/workflows/release-packages.yml', 'build-web-dist'),
+            ('release-packages-web-wasm-trusted-v3', '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
+        ))
         cases = (
-            ('release-web', 'build-web-dist', 'Linux', 'X64', 'release-packages-web-wasm-trusted-v3'),
+            ('release-web', web[2], 'Linux', 'X64', web[0]),
             ('release-linux', 'package-native', 'Linux', 'X64', 'oasis7-package-native-Linux-native-packaging-trusted-v2'),
             ('release-windows', 'package-native', 'Windows', 'X64', 'release-packages-package-native-Windows-native-trusted-v2'),
             ('release-macos', 'package-native', 'macOS', 'ARM64', 'release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2'),
         )
-        self.run.update(event='workflow_dispatch', path='.github/workflows/release-packages.yml')
+        event = self.root / 'release-event.json'
+        event.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
         for family, job, runner, arch, namespace in cases:
+            workflow = web[1] if family == 'release-web' else '.github/workflows/release-packages.yml'
+            self.run.update(event='workflow_dispatch', path=workflow)
             environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY=family,
                 GITHUB_JOB=job, RUNNER_OS=runner, RUNNER_ARCH=arch, GITHUB_EVENT_NAME='workflow_dispatch',
-                GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/release-packages.yml@refs/heads/main',
+                GITHUB_WORKFLOW_REF=f'nil-studio/oasis7/{workflow}@refs/heads/main',
+                GITHUB_EVENT_PATH=str(event),
                 OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=self.source_sha)
             environment['INPUT_SHARED-KEY'] = namespace
             environment['INPUT_CACHE-PROVIDER'] = 'github'
@@ -188,6 +234,55 @@ class AdmissionTests(unittest.TestCase):
                     self.assertFalse(admission.check_archive(self.archive, environment | bad, self.api)['allowed'])
             with patch.object(admission.subprocess, 'check_output', return_value='b' * 40 + '\n'):
                 self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
+    def test_web_writer_migration_retains_one_identity_and_event_boundary(self):
+        namespace = 'release-packages-web-wasm-trusted-v3'
+        identities = ((namespace, '.github/workflows/release-packages.yml', 'build-web-dist'),
+                      (namespace, '.github/workflows/rust-cache.yml', 'web-wasm-cache'))
+        registered = admission.FAMILIES['release-web']
+        self.assertIn(registered, identities)
+        self.assertEqual([name for name, value in admission.FAMILIES.items() if value[0] == namespace],
+                         ['release-web'])
+        payload = self.root / 'web-event.json'
+        for identity in identities:
+            for event in ('schedule', 'workflow_dispatch', 'push', 'pull_request', 'workflow_run'):
+                for mode in ('full', 'pr-fast', '', None):
+                    payload.write_text(json.dumps({'inputs': {'run_mode': mode}}))
+                    self.run.update(path=identity[1], event=event)
+                    environment = self.environment | dict(
+                        OASIS7_DEPENDENCY_CACHE_FAMILY='release-web', GITHUB_JOB=identity[2],
+                        GITHUB_WORKFLOW_REF=f'nil-studio/oasis7/{identity[1]}@refs/heads/main',
+                        GITHUB_EVENT_NAME=event, GITHUB_EVENT_PATH=str(payload),
+                        OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=self.source_sha)
+                    environment['INPUT_SHARED-KEY'] = namespace
+                    environment['INPUT_CACHE-PROVIDER'] = 'github'
+                    active = identity == registered
+                    allowed = active and (event == 'workflow_dispatch' if identity == identities[0]
+                                          else event == 'schedule' or event == 'workflow_dispatch' and mode == 'full')
+                    with self.subTest(identity=identity, event=event, mode=mode):
+                        self.assertEqual(admission.check_archive(self.archive, environment, self.api)['allowed'], allowed)
+        payload.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+        self.run.update(path=registered[1], event='workflow_dispatch')
+        environment.update(GITHUB_JOB=registered[2], GITHUB_EVENT_NAME='workflow_dispatch',
+                           GITHUB_WORKFLOW_REF=f'nil-studio/oasis7/{registered[1]}@refs/heads/main')
+        self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        for change in ({'GITHUB_JOB': 'unregistered-writer'}, {'RUNNER_OS': 'Windows'},
+                       {'RUNNER_ARCH': 'ARM64'}, {'INPUT_SHARED-KEY': namespace + '-other'},
+                       {'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_WORKFLOW_SHA': 'b' * 40},
+                       {'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': 'b' * 40},
+                       {'INPUT_CACHE-PROVIDER': 'warpbuild'}):
+            with self.subTest(change=change):
+                self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+        original = self.run.copy()
+        for changes in ({'id': 43}, {'path': '.github/workflows/unknown.yml'},
+                        {'head_branch': 'topic'}, {'event': 'push'}, {'head_sha': 'b' * 40},
+                        {'repository': {'full_name': 'another/oasis7'}}):
+            self.run = original | changes
+            self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        self.run = original
+        self.api.list_caches.return_value = [self.entry(901)]
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        self.api.delete_cache.assert_not_called()
 
     def test_release_guard_installer_refuses_inherited_node_options(self):
         environment = self.environment | {'NODE_OPTIONS': '--require unknown.cjs'}

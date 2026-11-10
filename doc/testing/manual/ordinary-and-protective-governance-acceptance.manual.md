@@ -171,7 +171,11 @@
 
 本版本的有限接收点分别实量：ordinary R的64subject/256binding/64controller/4active M、同时2case及epoch最多4case；M的64subject/256wallet allocation，R/M raw state128KiB；每root完整source≤64件、每件≤16KiB、总≤1MiB，最多5invoke共用该source预算。保护profile则为请求64KiB、16总签名（guardian≤12）、16证据项、64完整来源对象及其raw/解码各256KiB、raw state32KiB、完整I/O256/128KiB。不同profile不能借对方余量，原更严限额仍取严；source不足以证明完整集合时拒绝该组合，不以容量上限重新定义产品政治人数。
 
-ordinary完整I/O各512KiB是该新manifest内部预算；raw Vec按原编码取最坏2N+5，独立核输入409615B和输出344069B的完整组成，并与真实encoded长度比较。单根5次I/O双边界5MiB、共享source1MiB、staged/索引2MiB共8MiB仅为相关host预算，VM内存/fuel、上层进程与原cache另外受其合法上限约束。保护host同理为原件64+解码128+source256+source解码256+input256+output128+staged128+response64+scratch256=1536KiB，小于其2MiB槽；4个槽8MiB不代表整个进程内存。必须同时核实际WASM和cache限额，不能用buffer够用代签全部资源。
+ordinary完整I/O各512KiB是该新manifest内部预算；raw Vec按原编码取最坏2N+5，独立核输入409615B和输出344069B的完整组成，并与真实encoded长度比较。单根5次I/O双边界5MiB、共享source1MiB、staged/索引2MiB共8MiB仅为相关host预算，VM内存/fuel、上层进程与原cache另外受其合法上限约束。
+
+保护请求按[设计的两层编码](../../world-runtime/runtime/protective-governance-authority-and-recovery.design.md#protective-consumers-budgets)分别实量原payload、编码后的`ModuleCommandEnvelope`及最终`ModuleCallInput`；`payload`和`action`两层普通Vec均计入，另记录state、ctx/封套和完整output。原请求64KiB、raw state32KiB与完整input256KiB须同时满足，不能以原始项合规推定完整输入合规。使用当前schema允许、签名有效的完整请求和可解析state，准备容量内正例及边界两侧的组合；原始项合规而完整input超限时须在模块调用前拒绝，零本次业务效果。若schema无法构造某一边界，给出更紧的可达上界及依据，不用未知字段或放宽原字段限制填充。合成编码形状只验证序列化膨胀，不代签合法业务请求的准入或运行结果。
+
+保护host设计分额仍为原件64+解码128+source256+source解码256+input256+output128+staged128+response64+scratch256=1536KiB，小于其2MiB槽；4个槽预留8MiB不代表整个进程内存。核编码后envelope、输入副本和codec临时结构的同时存活峰值及分额归属，确认合计受对应分额和共享scratch限制，超限组合被拒绝；不能只用wire字节数推定实际分配满足。必须同时核实际WASM和cache限额，分额算术不代签现有实现的峰值或全部资源验收。
 
 普通程序的独立计数为每M512次及关闭16，case的primary128、appeal120、关闭8共256；4个M和epoch最多4case为`4×528+4×256=3136`次，再加registry维护256与关闭16，完整epoch为3408次。按其单invoke保守1025D/3E及原payload≤31KiB对应capability reserve544单位，完整预留上界为3493200D/10224E/1853952capability单位；单根5invoke为5125D/15E/2720capability单位。三种量分账到各原真实payer/subject/grant，不可互兑；这些是有限保留，不是实际扣费。少一个维护/关闭/appeal保留、以新case/epoch搬移未结束事项、偷用另一payer或任意补给时拒绝新受理；已承诺阶段和合法结束必须使用原保留，不能让前序修订耗尽。实际较小完整I/O及原payload分别按原公式核其调用预检与actual，而非每次扣全profile上界；若实际图多一个hook/调用，重新计入，不能拿声明的3408遮掉额外工作。
 

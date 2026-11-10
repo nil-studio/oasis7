@@ -5,6 +5,8 @@ description: Execute an authorized Oasis7 native task through the supplied signe
 
 # Oasis7 native task play
 
+For an explicitly supplied `dev-test-accounts-v1` local account-tool profile, follow the [restricted account-tool reference](references/dev-test-accounts.md) exclusively. This profile exposes `dev_test_accounts_call`; do not fall back to device configurations, broker raw arguments or other native capabilities described below.
+
 This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. The default executor does not perform owner cold entry, token pairing or the full Game HTTP write catalog. A trusted local companion can perform [cold entry](references/cold-entry.md) before handing off a separate executor.
 
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.
@@ -29,6 +31,10 @@ current authorized reconciliation. A broker error or exhausted tool budget is
 not a world receipt. Provider/model costs need their separately approved limits.
 The raw `--config` examples below apply only to a trusted prepared-world device
 profile; model socket callers must use the equivalent `args` form.
+
+## 托管控制客户端
+
+仅在操作者明确提供托管控制 socket 时，遵循[托管控制参考](references/custody-control.md)。该模式使用独立 Host 保管凭据，模型只能调用闭合 Control；当前不开放业务 Actions、原件 Read 或独立世界清理，不能转用普通设备配置绕过缺失能力。
 
 ## Browser execution
 

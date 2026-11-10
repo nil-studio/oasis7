@@ -227,6 +227,25 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         || capture_crash
         || wait_rejected;
     let fixture = application_fixture(wake, drift, ordinary_wait);
+    fixture
+        .failure_diagnostics
+        .set_scenario(if !admission_mode.is_empty() {
+            admission_mode
+        } else if metadata_probe {
+            "metadata-probe"
+        } else if service_probe {
+            "service-probe"
+        } else if provider_closure {
+            "provider-closure"
+        } else if wake {
+            "wake"
+        } else if release {
+            "release"
+        } else if hosted {
+            "hosted"
+        } else {
+            "fixture"
+        });
     let app_dir = temp_dir("qa-world-service-application");
     fs::create_dir_all(&app_dir).unwrap();
     if matches!(
@@ -569,7 +588,6 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
             return;
         }
         if let Some(fs_worker) = rejection_fs_worker {
-            application_hosted_wait_rejection::secure_artifact(&fixture, &app_dir, &output, "fs");
             application_hosted_wait_rejection_write_failure::finish(
                 &fixture, &app_dir, &output, fs_worker,
             );
@@ -747,6 +765,11 @@ fn run_application_child_and_report(
     metadata_probe: bool,
 ) -> std::process::Output {
     let output = if matches!(
+        admission_mode,
+        "wait-admit-rejected" | "wait-rejection-write-failure" | "wait-rejection-crash"
+    ) {
+        application_completion::run_child_phase(command, app_dir, "wait-rejection-initial")
+    } else if matches!(
         admission_mode,
         "fresh-admission"
             | "fresh-metadata"

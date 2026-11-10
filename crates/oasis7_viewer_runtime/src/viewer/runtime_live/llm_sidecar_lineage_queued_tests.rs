@@ -671,7 +671,7 @@ fn assert_raw_schema_compatibility(raw: &serde_json::Value) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn wait_raw_fixture(
+pub(super) fn wait_raw_fixture(
     id: u64,
     cognition: &crate::viewer::runtime_live::control_plane::llm_sidecar::RuntimeProviderActionContext,
 ) -> crate::simulator::AsyncAgentTurnOutcome {
@@ -738,7 +738,7 @@ fn wait_raw_escrow_retirement_preserves_other_originals_and_rolls_back_exactly()
         .retire_wait_raw_outcomes(request, wait.cognition_lease.as_ref())
         .unwrap();
     assert_eq!(owner.provider_raw_outcomes, vec![original[0].clone()]);
-    owner.restore_wait_raw_outcomes(retired);
+    owner.restore_raw_outcomes(retired);
     assert_eq!(
         owner.provider_raw_outcomes, original,
         "failed checkpoint restores exact order and bytes"
@@ -756,6 +756,161 @@ fn wait_raw_escrow_retirement_preserves_other_originals_and_rolls_back_exactly()
         owner.hosted_raw_outcomes().unwrap(),
         vec![original[0].clone()]
     );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn terminal_raw_escrow_retirement_requires_exact_identity_and_preserves_other_agents() {
+    let mut world =
+        lineage_recovery_tests::bound_provider_lease_test_world(&["raw-terminal", "raw-other"]);
+    let terminal = queued_wait_cognition(&mut world, "raw-terminal");
+    let other = queued_wait_cognition(&mut world, "raw-other");
+    let mut owner = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
+    owner.provider_raw_outcomes = vec![wait_raw_fixture(1, &other), wait_raw_fixture(2, &terminal)];
+    let original = owner.provider_raw_outcomes.clone();
+    let request = &terminal.request.request_context;
+    assert!(owner.retire_terminal_raw_outcomes(request).is_err());
+    owner.provider_terminal_states.insert(
+        request.agent_subject.clone(),
+        lineage_persistence::ProviderTerminalState {
+            agent_id: request.agent_subject.clone(),
+            agent_session_id: request.agent_session_id.clone(),
+            agent_turn_id: request.agent_turn_id.clone(),
+            decision_request_id: request.decision_request_id.clone(),
+            request_digest: request.request_digest.to_string(),
+            status: "rejected".into(),
+            reject_reason: Some("stale_base".into()),
+            feedback_id: None,
+            feedback: None,
+        },
+    );
+    for changed in 0..7 {
+        let mut wrong = request.clone();
+        match changed {
+            0 => wrong.agent_subject.push_str("-wrong"),
+            1 => wrong.agent_session_id.push_str("-wrong"),
+            2 => wrong.agent_turn_id.push_str("-wrong"),
+            3 => wrong.decision_request_id.push_str("-wrong"),
+            4 => wrong.request_digest = crate::simulator::h_v1("wrong", &"request"),
+            5 => wrong.retry_seq += 1,
+            _ => wrong.transport_attempt += 1,
+        }
+        let result = owner.retire_terminal_raw_outcomes(&wrong);
+        if changed == 0 {
+            assert!(result.unwrap().is_empty());
+        } else {
+            assert!(result.is_err());
+        }
+        assert_eq!(owner.provider_raw_outcomes, original);
+    }
+    owner.provider_raw_outcomes[1].prepared_request_context = None;
+    assert!(owner.retire_terminal_raw_outcomes(request).is_err());
+    assert_eq!(owner.provider_raw_outcomes.len(), 2);
+    owner.provider_raw_outcomes = original.clone();
+    owner.provider_raw_outcomes.push(original[1].clone());
+    assert!(owner.retire_terminal_raw_outcomes(request).is_err());
+    assert_eq!(owner.provider_raw_outcomes.len(), 3);
+    owner.provider_raw_outcomes = original.clone();
+    owner.retire_terminal_raw_outcomes(request).unwrap();
+    assert_eq!(owner.provider_raw_outcomes, vec![original[0].clone()]);
+    owner.retire_terminal_raw_outcomes(request).unwrap();
+    assert_eq!(owner.provider_raw_outcomes, vec![original[0].clone()]);
+}
+
+pub(super) fn assert_committed_raw_release(
+    sidecar: &mut RuntimeLlmSidecar,
+    world: &mut RuntimeWorld,
+    path: &std::path::Path,
+) {
+    let (action_id, agent, cognition) = sidecar.pending_provider_action_for_recovery().unwrap();
+    let raw = sidecar.provider_raw_outcomes.clone();
+    assert_eq!(
+        raw.len(),
+        1,
+        "pending receipt must retain the original escrow"
+    );
+    let feedback = sidecar.provider_feedback_for_request(
+        &cognition.request.request_context,
+        Some(action_id),
+        "committed",
+        Some(format!("receipt:{action_id}")),
+        None,
+        None,
+    );
+    let before = std::fs::read(path).unwrap();
+    // A file cannot be a directory: fail the actual checkpoint write without
+    // replacing the last valid recovery checkpoint.
+    sidecar.configure_provider_lineage_store(path.join("blocked.json"));
+    assert!(
+        sidecar
+            .finalize_provider_action_with_feedback_checked(action_id, feedback.clone())
+            .is_err()
+    );
+    assert_eq!(sidecar.provider_raw_outcomes, raw);
+    assert_eq!(
+        sidecar.provider_active_turns.get(&agent),
+        Some(&cognition.request)
+    );
+    assert!(sidecar.pending_actions.contains_key(&action_id));
+    assert_eq!(std::fs::read(path).unwrap(), before);
+    sidecar.configure_provider_lineage_store(path);
+    sidecar
+        .finalize_provider_action_with_feedback_checked(action_id, feedback)
+        .unwrap();
+    assert!(sidecar.provider_raw_outcomes.is_empty());
+    assert!(!sidecar.provider_active_turns.contains_key(&agent));
+
+    // The other delayed cleanup boundary has a committed marker and lease
+    // mirror, but no pending receipt. Its failed write must retain both local
+    // owners and escrow while leaving canonical settlement unchanged.
+    sidecar.provider_raw_outcomes = raw.clone();
+    sidecar
+        .provider_active_turns
+        .insert(agent.clone(), cognition.request.clone());
+    sidecar
+        .provider_contexts
+        .insert(agent.clone(), cognition.request.clone());
+    let lease = cognition.cognition_lease.as_ref().unwrap();
+    sidecar.bind_provider_cognition_lease(&agent, lease.clone());
+    let economy = world.cognition_economy().unwrap();
+    sidecar.configure_provider_lineage_store(path.join("blocked.json"));
+    assert!(
+        sidecar
+            .settle_committed_provider_cognition_leases(world)
+            .is_err()
+    );
+    assert_eq!(sidecar.provider_raw_outcomes, raw);
+    assert_eq!(
+        sidecar.provider_active_turns.get(&agent),
+        Some(&cognition.request)
+    );
+    assert_eq!(
+        sidecar.provider_cognition_lease(&agent).as_ref(),
+        Some(lease)
+    );
+    assert_eq!(world.cognition_economy().unwrap(), economy);
+    sidecar.configure_provider_lineage_store(path);
+    sidecar
+        .settle_committed_provider_cognition_leases(world)
+        .unwrap();
+    assert!(sidecar.provider_raw_outcomes.is_empty());
+    assert!(!sidecar.provider_active_turns.contains_key(&agent));
+
+    let replacement = lineage_recovery_tests::valid_test_provider_context(
+        world,
+        &agent,
+        "turn-after-committed",
+        "request-after-committed",
+    );
+    sidecar
+        .provider_active_turns
+        .insert(agent.clone(), replacement.clone());
+    sidecar.provider_contexts.insert(agent, replacement);
+    sidecar.persist_provider_lineage().unwrap();
+    let mut restarted = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
+    restarted.configure_provider_lineage_store(path);
+    restarted.restore_provider_lineage(world).unwrap();
+    assert!(restarted.provider_raw_outcomes.is_empty());
 }
 
 #[cfg(not(target_arch = "wasm32"))]

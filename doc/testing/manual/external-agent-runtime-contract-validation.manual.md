@@ -72,6 +72,24 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 客户端消费：Worker/Web/native 显示结果待恢复确认并停止该 Agent 新副作用，仍可读取授权允许的信息。操作存储不可读返回 503，不能据此创建新键；401/403 先拒绝，不能从回放泄露历史。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
+<a id="api-intent-results"></a>
+### 场景 api-intent-results：通用待决、终态与原关系读回
+
+Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405, O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6。承接 [AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) / [AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003)、[API 目标映射](../../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)及 [Viewer 原成员显示](../../world-simulator/viewer/external-agent-world-view.design.md#view-intent-results)。本方法以真正采用 SR2 原件、持久决策与结果适配的同候选为前提；当前五态 registry、volatile Received、native Chat superseded 或手填 OperationView 不满足该前提。
+
+从 [GWSC PL01–09](../longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)取得真实受信原件和合法 profile/proof，固定 source/tree/world/window、API schema、具体消费者版本与当前读权。两个主体分别拥有自身原 operation，并设置允许读取/撤销读取的关系对象。独立预期先来自原 domain 规则与实际 canonical decision，再比较 API/Agent/Viewer，不能从被测转换器生成同一预期表。此处只核消费者；world 原子性、持久准入与合法 proof 仍由 GWSC 对应场景验收。
+
+| ID / 执行输入 | 必须读取和断言的结果 |
+| --- | --- |
+| IR01 逐项真实处置 | 分别提交/取得已知无效果 pending、committed_effect、rejected、expired、replan_required、terminated_without_effect，并另造原提交未知。两种原 operation lookup 返回准确目标状态/原因/next step；committed_effect 需要真实执行 receipt，其余无效果不填 module success receipt；未知只 lookup_original，不用 expired 或普通 failed 收口 |
+| IR02 原件关联与冲突 | 使用不同 operation ID 与 intent ID，原同键重复后对照持久映射；混入另一 world/branch、subject、request hash、winner/receipt 或无效 proof。只接受原 ingress→intent→decision 的完整匹配；不按 ID 字符串、当前 Agent、较新 goal 或库存变化补关联；失败不重签或产生第二效果 |
+| IR03 恢复与当前权限 | pending/未知/已证终态分别重启读取；到期、Stop、执行失权但保留 receipt 读权，再撤销读取权。合法只读可核原件且不重启模型/行动；失去读权的两种 lookup 在暴露对象存在性前拒绝，旧 cache/迟到响应不显示。缺原件/历史与原请求未发生分开，已证历史不由查询故障改写 |
+| IR04 前驱、胜者与独立成员 | 双序 winner 和已知/迟到 loser、无效果 withdrawal、自身 rejected/expired/replan、合法独立 intent 分别查询。后续 winner 出现后再查询/重试已有终态，原成员仍保留原处置/原因/位置，不被改为 loser；直接 predecessor/winner 必须匹配原 domain 的同 lineage/set，不能拼接其他合法前驱。分别制造 related available/not_readable/history_unavailable，受限项不含 ID/hash/状态/receipt；没有关系才省略，不把不可读说成原件取消或不存在 |
+| IR05 实际消费者与行动边界 | pure_api、Agent adapter、Web 和 native 对同一受权结果各自读取/返回/重连；Viewer 切选择/身份，Agent 另遇反馈尚不可得。显示/结构化结果保持原关联及业务阶段；查看关系只读，不隐式发撤回、替代、outcome=abandoned、新 nonce 或付费调用；有真实 cognition record 才交付 RF 原输入，SR2 投影不制造 feedback |
+| IR06 协商与有界展开 | 新旧 schema/客户端分别读取；未声明或未协商 sr2_intent_results、未知状态、超界字段、长 lineage。只有受支持组合使用目标新态；其余明确能力/协议阻塞并保存原键，不错误折叠。一次只展开原件及至多一个直接 predecessor/winner，进一步查询重新鉴权且有界，无隐式全 lineage 枚举 |
+
+记录真实 source/proof、原 operation/intent/关联、各查询的当前 actor/scope、目标状态与原因、请求次数及世界 effect/receipt 对照；公开材料脱敏，私有原件按原证据权限保留。API bytes、Agent 实际接收、Web/native 文本与真实交互分别判定；只有 API fixture 不代签图形入口或真实 Runtime。required 执行真实适配/持久/权限接缝，full 仍按原候选与环境取得各适用消费者结果；不为文档阶段造端点、启动模型或声称方法已运行。
+
 <a id="api-first-session"></a>
 ### 场景 api-first-session
 
@@ -147,6 +165,47 @@ Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-45
 | PR06 query-only 与显式继续 | 调用 [SDK 原操作 port](../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port) 或该入口真实只读查询，计数业务/Context/Action/Outcome 新原件及 submit 均为零；协议必要的读取鉴权签名可存在。Stop 后仅保留当前允许的读，不重送或终止写。另以显式继续为独立对照，仅验证原操作原本允许的首次发送或 exact replay；缺 phase、无结果和超时均不能赋予重投权。 |
 
 最终证据按入口记录正例、代表失败、实际安全下一步与未接通处，并把原件 digest/correlation、authority 结果、效果次数、授权变化及客户端可消费状态对齐。原始签名文件、凭据和私有目标保留在获准存储，公开记录仅含脱敏关联及必要摘要。协议/adapter 故障向量、真实 TCP CLI/HTTP 消费与 Runtime/full 首局分别列结论；前两者不代签真实模型自主游玩，Viewer 图形/窄屏/键盘证据仍由其专用方法取得。本节只定义方法，源码审读与文档检查不改变各运行项的 not_run 或未覆盖状态。
+
+<a id="api-independent-entry-validation"></a>
+### 场景 api-independent-entry-validation：便利停止后的正常链与原请求恢复
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；对应 [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) / [AC-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#ac-entry-free-001)，验证[同身份独立入口](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)。与 [HI01–HI05](hosted-passkey-account.manual.md#hosted-independent-continuation-validation)使用同一候选和基础依赖；原 FS、PE、PR 场景继续拥有各自协议判据。
+
+执行前固定实际基本 Viewer 或已采纳 native gateway/SDK/Runtime 组合、模式/阶段、schema/能力、同 namespace 的原主体、world/genesis、Agent/task/goal/fence、当前资源/授权，以及原受保护请求存储。完整初次入场沿 api-cold-entry；从既有角色继续时保存其合法来源，不能用测试侧预造角色、grant、资源或原件补齐被测客户端。普通协议、真实 Runtime 与真实玩家体验分开取证；以下方法尚未执行。
+
+| 样例 | 正常或故障操作 | 必须核对的结果 |
+| --- | --- | --- |
+| AI01 正常成长与回访 | 取得健康前态后停用 Hosted 附加便利，在 T1/T2 后从所声明免费基本入口恢复同身份/原角色，读取目标和资源，按 production_only 路线完成实际必需的移动、建设、转运、排产及结果读取，再离开重入。 | 真实 parser、当前授权和执行消费者均成立；原请求关联的 RecipeCompleted 与 owner-bound 产物证明该阶段成果，重入读到原历史。一次 GET、移动、排产 accepted 或 fixture 成功不足以判完整正常链。只有 Passkey 的 Viewer 正例与具备完整原生证明的 SDK 正例分别记录。 |
+| AI02 固定基础网关 | 核对 SDK 实际使用原身份 HTTPS discovery/participant/owner/executor 路径及配置的 service_public_key/world，随后令便利通知包含另一 endpoint/issuer 或令所需入口开关缺失。 | 正例仍经固定 gateway 到受信 literal-loopback WorldService；错误信任根和未启用能力明确拒绝，不直连任意节点、不临时开放 private listener、不从 DevLocal 或另一个世界取得替代通过。 |
+| AI03 已提交后丢回复 | 对有确定资源后果且具备原结果查询的 R，在 authority 确认提交后阻断回复，结束便利进程并重启合法客户端；从受保护原件查询，再重复查询。 | 原 payload/signature/nonce/correlation、主体和世界关联不变；恢复查询零业务 submit，R 的效果/费用及回执只出现一次。Unknown 不触发新报价、新 context、新注册或新业务键；若原领域允许 exact replay，另按其原向量核对，不推广成通用重送。 |
+| AI04 执行方停止与 owner 历史读 | 使用当前 owner 按原权限已合法取得的 E1 已提交原件，按原控制合同停止/替换执行方；owner 用原 LookupExecutor 读取，必要的新 E2 执行由独立合法授权开始。 | 核历史 E1 signer/binding 与当前 canonical owner、完整 task fence；Suspended 不要求重启 E1。E1 失去私有读权时不得读缓存或继续轮询；owner 不自动解密其私有 outbox，缺合法原件的另一例明确受阻。换执行方不复制预算、续 grant 或遗漏待决旧请求。 |
+| AI05 原件持有与交接边界 | 分别恢复用户侧 SDK cache 和同 origin/tab 浏览器 capsule；使唯一副本留在已退出便利服务，或换 origin/设备/native 消费者、损坏原件。 | 正例按各原存储/用途/授权读取。负例明确具体缺失的原件或消费者，保留最后已验证关联；不能导出 cookie/长期 key、自动解密另一存储、补签原件或凭新快照猜原结果。无真实受权查回/交接的组合不判独立恢复通过。 |
+| AI06 能力及原结果错配 | 使用 GET-only bootstrap、缺 actor/lookup 协商的旧 CLI，或将另一请求/世界/Agent 的回执、旧 fence/迟到响应混入 R。 | 真实缺项保持 blocked/未覆盖，不能删必需动作凑完整组合。终态只由匹配原件与当前合法读取的权威结果成立，ACK 类型、当前余额、空列表及另一入口的成功不代签。 |
+| AI07 基础故障与重新进入 | 在原请求未明时使 identity/gateway/world 不可达，耗尽新执行预算，另测读权撤销；恢复支持条件后重新进入。 | 基础不可达沿原新鲜度停止受影响新操作；仍有独立读权者按有界原 lookup 核结果，失读权者不泄露私有内容。恢复只重读原身份/角色/请求，不重置额度、自动恢复写权或把安全停止计入 AI01。 |
+
+独立判定侧对账身份/控制变更、业务提交、世界效果与领域完成的分别差量，并保留自然推进的真实原因；不要求只读时整个世界静止。公开证据只记录安全关联和必要摘要。缺实际消费者、受保护原件、当前读权或生产 profile 的格逐项记缺口；文档和普通协议层通过不使默认关闭入口、P1、完整 HTTP 写路由或真实 Runtime 自动就绪。
+
+<a id="parity-declaration-consumption-validation"></a>
+### 场景 parity-declaration-consumption-validation：声明来源与逐入口接收
+
+Trace refs: O7-REQ-21f1c7b1-8be0-438e-8f92-d4d1b34be0e6。对应[声明消费设计](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-declaration-consumption)，复用原 parity 判据、可信 Skill/driver 发布链及本手册逐入口方法；本节只增加这些合同的组合验证，不建立新认证或改变支持范围。
+
+**前置与层次。** 固定 source/build、受信发行根、实际 manifest/声明 schema、入口/adapter/platform、世界及权限范围。确定性层由受控发行 fixture 提供记录 R1：Runtime/version、model/profile、driver/schema/Skill、mode/surface/lane、场景与权限均有明确值，发布 revision=1，原结论为 experimental，证据引用完整；另备只改一个维度的 R2，以及缺项、坏 hash、撤回和超限原件。这些是验证材料，不是实际 Runtime 获准或模型通过。实现后，必须把同一材料送进真实发布记录 loader、入口组合匹配器和最终呈现/结构化输出消费者，不能只手工造 UI 状态。当前缺接线就记录该层未实施；现有 parity 聚合脚本只作指标层回归，不能替代这些接收者。
+
+full 层使用实际获准发布物及其对应真实 paired/Runtime recovery/QA/producer 材料，逐声明组合执行，不借 fixture 的完整引用宣称真实证据存在。真实模型和外部服务仍按原授权运行；只验证声明消费时不应调用模型或提交世界行动。保留声明原件与验证来源、实际观察、各独立结论及下一步；凭据和私有 Prompt 不进入记录。
+
+| 方法 | 输入与操作 | 独立预期与观察点 |
+| --- | --- | --- |
+| PD01 精确接收 | 将 R1 及完全匹配的实际组合/合法能力输入 Launcher、Viewer、pure_api 中本次实际声明支持的接收者 | 三端保留相同声明 ID/revision/hash、组合和 experimental 范围；样式可不同，本地启动成功不升级 stage/default/parity。模型调用和业务提交均为 0；当前权限仍由原 authority 决定 |
+| PD02 单维漂移 | 分别只改 Runtime version、model、profile revision、adapter/schema、mode、Web/native、平台、lane 或必要能力；再用发布者明确列入的兼容范围作正例 | 未被声明覆盖的变体不得借 R1 通过；输出具体不匹配与真实下一步。原明确兼容范围内的值按原规则匹配，不由测试擅自要求所有版本字节相同；恢复匹配后重新读取确认，不自动开始 |
+| PD03 来源与修订 | R1 内容 hash 错、来源非可信发布链、同 ID/revision 冲突、当前读取失败；再发布合法 R2 明确替代/撤回 R1 | 错误记录不进入有效声明；旧缓存只标历史，当前未确认/不适用。未被撤回且仍匹配原固定组合的旧版本不因存在较新版本被任意失效。修复来源后沿同发布链读取；不删除任务或原操作 |
+| PD04 证据不足 | 分别删除 paired、Runtime restart/reconnect、QA 或 producer 评分；保留 benchmark passed/latency A；另测原批准为 B 的完整受限记录 | 任一缺项不得显示完整 parity 或默认通过；输出缺项和适用限制。B 只承接原受限许可，A 也不自行产生默认发布；另一 Runtime/场景证据不能补缺 |
+| PD05 能力与声明分层 | R1 匹配但 Provider 故障/权限撤销/必要动作不可用；另使用无需 Runtime/Provider 的普通 HTTP 只读组合 | 仅真实依赖失败的组合/动作 blocked，并提供原检查/认证/配置入口；普通 HTTP 不因无模型而整体 blocked。parity 缺证据与当前合法读取可用可同时成立，不凭支持声明授予写权 |
+| PD06 完整字节与秘密 | 向真实 loader 输入编码后恰为 65,536 bytes 和 65,537 bytes 的完整记录；再配置更小的实际下层限制；证据引用中夹带秘密或非受信来源 | 只有满足完整 schema、来源和所有更小限制的前者可被消费；后者拒绝，不能截去能力/缺项后通过。原始 trace、Prompt/密钥不作为公开声明正文；没有因为记录刷新增加模型调用或世界费用 |
+| PD07 旧请求与刷新 | 固定已提交但结果未知的原操作 O，切换声明/Provider 选择并使声明读取暂时失败；恢复后读取 O 的原结果 | O 身份、签名、digest、原声明 provenance 不变；0 次新业务重发。只在当前读权下查询同 O；真实 committed 仍属 O，声明恢复不能覆盖其结果或替代 PSW 原切换合同 |
+| PD08 实际表面和失败恢复 | 在每个被声明的表面分别打开选择/配置、检查、显式开始前摘要及失败详情；读取超时后再修复实际源 | 对应 source/build/adapter 的真实消费者输出来源、版本、范围、限制和可执行下一步。不存在选择能力的表面不被凭空要求新增按钮；safe query 不存在时明确停止，不用另端截图、Hello、SDK 或旧记录补签本端 |
+
+通过判据是以上身份、分类、范围和零额外副作用逐条符合设计；技术 consumer 通过不代表真实 parity 或发行。报告分别标记 fixture 接收、真实发布源、各实际表面和真实 Provider 证据，缺一层保留该层未完成，不能反向改原声明让测试通过。
 
 <a id="api-wire"></a>
 ### 场景 api-wire
@@ -233,6 +292,23 @@ Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-45
 - 执行：owner 显式替换为 E2，E1 迟到读私有消息/提交行动，另让错误身份访问相同 ID。
 - 判定：task 和世界身份稳定；旧 executor 失去新写资格，历史读取按当前 audience 限制；内部 session 不新建 Agent。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
+
+**双表面同任务组合。** Trace refs: O7-REQ-62007da5-b12a-4b8c-98bb-82ab53a35069；接收 [AC-COLLAB-001](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-001) 与 [专业消费合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-shared-surfaces)。本组在实际支持的 Web 与 native 安装包中分别操作；HTTP/RuntimePort fixture 可证明底层分项，不能代签另一表面。记录各自 build/平台、当前登录身份与声明范围，native 弹出系统浏览器不算 native 通过。
+
+同案固定 world/genesis/branch、Agent A、task T、G1/E1，以及合法 owner 的两个独立窗口；另备无权身份、Agent B 和将失去执行/私有读取资格的 E1。由临时世界已确认的 TaskControl/控制提交、当前 audience 和原私有记录预先列出允许集合及期望版本，不从两端相同文案反推正确性。两端 snapshot_id、session 和时点不要求相等；在同一已知控制状态核对内容，有并发变化时按各自切点及 after-S 的可核顺序解释。
+
+| ID / 执行与故障 | 独立判据与必须保留的结果 |
+| --- | --- |
+| CB01 双端初始化与当前执行方 | 两端以当前读权取得 T 的全部 snapshot 页及 after-S；任务、Agent、激活目标和 executor/fence 与独立控制来源一致，完整待决 ID 集合等于 S 上允许集合。打开或选择对象不新增 task、executor、context 或业务提交；健康、Key 保存或收到报告不能替代当前执行方来源。 |
+| CB02 Web→native 与 native→Web 回访 | 依次关闭一个观察端并从另一端或新窗口恢复；清除原受限内存，不读取玩家端持久正文缓存。仍是 T/A，原线程、决定及操作结果保留；内部 Runtime session 变化不创建 Agent/task。回访不重做批准或行动、不续 grant、不发 Stop；独立执行器和世界可按原许可继续，不能要求整个 World root 因观察操作保持静止。 |
+| CB03 显式交接与旧执行方 | owner 通过原受保护入口将 E1 替换为 E2，记录 C2 控制提交；重启旧 E1 并送达旧请求。两端恢复后显示来源为 C2 的当前 E2，E1 的新 goal/action 不生效；本例同时撤去 E1 私有读权，读取不泄露正文/计数/指纹。仍有历史读权的其他主体按原 audience 读取，不能把执行失权泛化为删除原历史。 |
+| CB04 分页、事件与代际交错 | 复用 collab-snapshot-pages 的 201 项合法当前态，在读页期间激活 G2；原 S 页保持 G1，经 after-S 得到 G2，旧 G1 新 context 被当前权威拒绝。另分别使页号缺失、游标到期、branch/读权版本或适用 fence 改变：按原合同 reset/拒绝，读齐前不伪完整，不拼两轮页面或把旧正文改标新目标；仍获权的原结果查询和 Stop 保留原可用条件。 |
+| CB05 错身份、错 Agent 与晚到私有响应 | 分别把另一身份/Agent B/旧 E1 用于 T 的读取、目标写入与行动；不能借选中 A、旧 token 或深链获得权限。另在两端请求发出后切身份/撤读权，旧私有内存和晚响应不展示、不作为新请求输入；比较原 goal/grant/业务写集确认拒绝没有新增效果，401/403 不泄露对象存在性或差异。 |
+| CB06 原结果未知与恢复 | 保留 T 的原 operation P，分别在断连、关窗、执行器重启后回访。snapshot 待决项与原键查询关联 P，未知保持未知；若原 P 后续确认 committed，只展示其原效果一次，不换 nonce/context 或自动重提。driver run_unknown、私有写入 recovery_required 与世界 P 状态分别核对；读取可有原鉴权/有限协议元数据，不得成为新业务写入或批准。 |
+
+同候选的 collab-bind 原隔离分项、collab-recovery、collab-events、collab-snapshot-pages、collab-question-delivery 和 api-idempotency 可提供适用的确定性负例；本组仍须核两表面实际消费。保存小型关联 `case_id → Web/native build与身份 → world/Agent/task → control/goal/fence → snapshot切点与完整集合 → 原operation/result`，保留失败、来源时间、当前读权和各端输出，不公开私有正文、可重放游标/签名或可枚举 digest。
+
+缺完整 TaskSnapshot、实际 native/Web 消费者或合法测试资格时对应组合为 blocked/not_run；已实施 task-control/private-goal 子集及 scripted driver 不补齐缺项。本组不新增真实模型调用要求，不代签 AC-COLLAB-007 的两 Runtime 经历；该项继续按 collab-session 及既有 adapter 方法取证。
 
 <a id="collab-adoption"></a>
 ### 场景 collab-adoption

@@ -79,12 +79,14 @@
 
 Trace ID: O7-REQ-e3193bfb-799b-4a55-bb9d-c7fa59e90185
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-001](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-001)；[gameplay-indirect-control-agency-contract.design / 1-intent-legibility-beforeat-commit](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#1-intent-legibility-beforeat-commit)；[gameplay-indirect-control-agency-contract.design / 2-execution-acknowledgement-with-causality](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#2-execution-acknowledgement-with-causality)；[gameplay-indirect-control-agency-contract.design / agency-interruption-hooks](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#agency-interruption-hooks)；[gameplay-indirect-control-agency-contract.design / 4-bounded-consequence-readability](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#4-bounded-consequence-readability)。已承接：本条的意图接受、阻塞恢复或因果纠正及结果投影合同。
+- 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-001](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-001)与[领域因果接收](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agency-domain-causal-reception)共同承接原意图、领域请求和结果的准确关联；[提交前可读性](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#1-intent-legibility-beforeat-commit)、[因果回执](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#2-execution-acknowledgement-with-causality)、[打断](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#agency-interruption-hooks)与[有界后果](../../game/gameplay/gameplay-indirect-control-agency-contract.design.md#4-bounded-consequence-readability)保留原玩家保证。接受、实际推进、领域后果和下一步分别取源，覆盖已采纳领域的目标合同，不把局部实现或解释提升为世界效果。
+- 系统设计验证方法：[领域组合方法](../../testing/manual/agent-runtime-self-playtest.manual.md#agency-domain-composition-validation)的 IA-C01–06：各原领域的正常、拒绝、纠正、错误原件及回流对照；接受/实际效果与七类信息分别核对。设计审读、contract 与 live 分层，实际玩家理解另留观察证据。
+- 设计接收核对：2026-11-05（北京时间）；基线 `25b3e4d658616e453f2773c34b5b3e56a6729597` 加本次专业条款/方法增量。仅接收目标设计及验证方法；下列实现判断、原源码候选和历史核对日期原样保留。
 - 实现与验证依据：已交付 exact intent/digest 重试和 accepted→completed 边界；completion 要求完整 authority tuple、effect intent 与先前已提交匹配 receipt。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/world/agent_intent.rs#L222-L261)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/world/agent_intent_terminal.rs#L289-L381)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/agent_intent_v2.rs#L615-L711)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已核对 canonical intent accepted、exact retry 与 matching committed receipt completion；所有意图类型、领域结算、真实 provider 和各正式入口仍需独立证据。
+- 剩余范围：已核对 canonical intent accepted、exact retry 与 matching committed receipt completion；所有意图类型、领域结算、真实 provider 和各正式入口仍需独立证据。这些仍是当前实现、入口接线与实证缺口；本次设计接收未运行或补造相关通过结果。
 
 - 性质：`目标要求`
 - 适用条件：玩家通过 Agent 提交目标、行动、step、社交、治理或冲突意图。
@@ -99,12 +101,14 @@ Trace ID: O7-REQ-e3193bfb-799b-4a55-bb9d-c7fa59e90185
 
 Trace ID: O7-REQ-ebb0248c-1dca-4d58-a283-8d198fb6cf63
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-003](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-003)；[indirect-control-agency-execution-and-continuation.design / des-wr-ia-006](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-006)。已承接：本条的意图接受、阻塞恢复或因果纠正及结果投影合同。
+- 系统设计依据：[等待与 fallback](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-003)、[离开与回流](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-006)及[领域因果接收](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agency-domain-causal-reception)共同规定原等待 trigger 失效后重分类、纠正生效顺序、原结果查询、当前权限及可执行下一决策；无安全路、旧版本缺关联或原件未知均保留准确边界，不由重连恢复旧执行权。
+- 系统设计验证方法：[领域组合方法](../../testing/manual/agent-runtime-self-playtest.manual.md#agency-domain-composition-validation)的 IA-C05/06 联用 IA-C01–04 的原领域切点：等待失效、原件未知、当前失权与跨入口回流逐项验证，核旧责任保留及真实下一步。设计审读、contract 与 live 分层，实际玩家理解另留观察证据。
+- 设计接收核对：2026-11-05（北京时间）；基线 `25b3e4d658616e453f2773c34b5b3e56a6729597` 加本次专业条款/方法增量。仅接收目标设计及验证方法；下列实现判断、原源码候选和历史核对日期原样保留。
 - 实现与验证依据：已交付 pending feedback 的不安全等待说明、enabled action 过滤、修复/改道比较及无可用路径时返回 goal selection 的投影。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_fallback.rs#L6-L31)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_fallback.rs#L42-L76)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_fallback.rs#L123-L182)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_fallback.rs#L188-L224)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已有失效等待/修复/改道投影及无安全路径返还决策；跨版本恢复、真实可执行领域动作、全部重连入口与当前权限变化仍未闭合。
+- 剩余范围：已有失效等待/修复/改道投影及无安全路径返还决策；跨版本恢复、真实可执行领域动作、全部重连入口与当前权限变化仍未闭合。这些仍是当前实现、入口接线与实证缺口；本次设计接收未运行或补造相关通过结果。
 
 - 性质：`目标要求`
 - 适用条件：路线不可行、被改道、玩家暂时离开或重新连接。
@@ -119,12 +123,14 @@ Trace ID: O7-REQ-ebb0248c-1dca-4d58-a283-8d198fb6cf63
 
 Trace ID: O7-REQ-b38abaf7-824d-47b7-a954-bcdb57897376
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-007](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007)承接本条的意图接受、阻塞恢复或因果纠正及结果投影合同；[双边即时交换的因果读面](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-read)补充该有限合同场景的理由/证据、成本与替代、提交前纠正及提交后真实结果。后者是目标设计，不代表全部社交、治理或冲突决策已覆盖，也不改变下列实现结论。
+- 系统设计依据：[原七类因果合同](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007)及[领域因果接收](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agency-domain-causal-reception)将记忆驱动工业、交流与 Agent 代表的完整合同族、普通及保护治理、区域冲突/防御/恢复接回同一已验证意图—原领域结果关联；原[即时交换读面](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-read)继续有效。理由/证据、stakes/预期、真实替代、纠正切点和实际结果明确各自来源，沿原 authority/窗口/当前 audience 接收，不新增业务 receipt 或索取私有推理。此为已采纳范围的目标设计覆盖，不改变下列实现结论。
+- 系统设计验证方法：[领域组合方法](../../testing/manual/agent-runtime-self-playtest.manual.md#agency-domain-composition-validation)的 IA-C01–04 分别核记忆、完整合同族、普通/保护治理及冲突恢复的七类信息与纠正结果，IA-C05/06 核身份、当前读者和两入口。设计审读、contract 与 live 分层，实际玩家理解另留观察证据。
+- 设计接收核对：2026-11-05（北京时间）；基线 `25b3e4d658616e453f2773c34b5b3e56a6729597` 加本次专业条款/方法增量。仅接收目标设计及验证方法；下列实现判断、原源码候选和历史核对日期原样保留。
 - 实现与验证依据：已交付部分因果receipt生产及owner读面：cognition提交实际调用finish_agent_causal_commit，按同一action的domain event refs生成actual consequence，并保留reason/evidence/stakes/alternative/correction refs；snapshot真实按当前intent关联receipt及私有memory correction。接受纠正与实际效果receipt保持分层。显式supported动作限Move/Factory/Transfer/Recipe，不能外推全部社交/治理/冲突因果链。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L46-L123)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L166-L205)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/cognition_persistence.rs#L1037-L1046)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_delegation.rs#L664-L801)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/player_agency_projection.rs#L101-L194)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L373-L413)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/llm_sidecar_memory_correction.rs#L29-L48)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/tests/agent_memory_correction_control.rs#L898-L965)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
-- 剩余范围：已确认receipt→owner snapshot与记忆纠正关联的局部生产链；社交/治理/冲突动作尚未进入所读producer显式supported集，须核清各类reason/evidence/stakes/alternative的真实输入、纠正最早生效点和权威结果。真实provider、正式玩家可理解性与跨入口组合验收仍缺。
+- 剩余范围：已确认receipt→owner snapshot与记忆纠正关联的局部生产链；社交/治理/冲突动作尚未进入所读producer显式supported集，须核清各类reason/evidence/stakes/alternative的真实输入、纠正最早生效点和权威结果。真实provider、正式玩家可理解性与跨入口组合验收仍缺。这些仍是当前实现、入口接线与实证缺口；本次设计接收未运行或补造相关通过结果。
 
 - 性质：`目标要求`
 - 适用条件：记忆驱动、社交、治理或冲突等会改变玩家取舍的 Agent 决策。

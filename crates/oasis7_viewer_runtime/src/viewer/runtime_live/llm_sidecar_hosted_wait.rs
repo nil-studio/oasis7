@@ -667,7 +667,7 @@ impl RuntimeLlmSidecar {
             self.persist_provider_lineage()
         })();
         if let Err(error) = cleanup {
-            self.restore_wait_raw_outcomes(retired_raw);
+            self.restore_raw_outcomes(retired_raw);
             self.provider_cognition_leases = leases_backup;
             self.provider_completed_decisions = queue_backup;
             self.provider_active_turns = active_backup;

@@ -106,6 +106,8 @@ impl Oracle {
                     break;
                 }
                 let mut stream = stream.unwrap();
+                // Replies use the same length/body framing as the client.
+                stream.set_nodelay(true).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(3)))
                     .unwrap();

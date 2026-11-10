@@ -36,3 +36,11 @@ python3 -B scripts/ci-cache-diagnostic.test.py -v
 ```
 
 测试使用假 Cargo 数据与子进程验证脱敏、流量边界、错误传播及超时清理，不声称验证了真实 Rust 编译或远端缓存效果。真实实验只在受限的 GitHub-hosted Linux main 手动入口执行。
+
+## 构建前产物观察
+
+每阶段在 Cargo 启动前，只读盘点 `target` 的普通文件路径，不读取产物内容；最多访问 100,000 个文件/目录且最多 5 秒，与编译共用已有总时限。符号链接、异常或预算耗尽使盘点标为不完整。
+
+`build.json` 增加 `prebuild_output_inventory_complete`、`rebuilt_output_observations` 和最多 128 项 `rebuilt_unit_samples`（本地和第三方各 64 项，防止依赖样本挤掉本地热点）。样本保留受限 target/kind、features、profile 及输出集合摘要；不保存绝对路径、package ID 或环境值。`absent`、`partial`、`present` 只说明编译开始前 Cargo 报告的输出集合是否存在；盘点不完整、路径越界或无法解析时为 `unknown`。
+
+产物存在不证明内容有效、fingerprint 相符或由哪种缓存恢复。`present` 仍重建时继续查看 fingerprint；`absent` 不直接等于“选集裁剪”，还可能是缓存未恢复或目标本来不在缓存范围。第二阶段仍只是同机热对照，不能代签跨 runner 收益。控制台只输出汇总，样本写入已有 JSON artifact；不增加生产缓存写入者或放宽恢复校验。

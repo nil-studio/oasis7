@@ -4,11 +4,11 @@
 
 - 所属产品模块：世界规则与玩法系统
 - 上位产品 PRD：[`prd.md`](prd.md)
-- 配套专业系统设计：[跨区物流与 escrow 结算](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)承接 REQ-SC31-009 / AC-SC31-010..011；不代表实现或发布。
+- 配套专业系统设计：[需求目标、承诺与匹配结算](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-authority)承接 REQ-SC31-001..008 / AC-SC31-001..009 的目标技术合同；[跨区物流与 escrow 结算](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)承接 REQ-SC31-009 / AC-SC31-010..011；不代表实现或发布。
 - 配对产品 design：[`industrial-demand-goals-and-settlement.design.md`](industrial-demand-goals-and-settlement.design.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-06
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/game/gameplay/gameplay-top-level-design.prd.md`](../../game/gameplay/gameplay-top-level-design.prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/m4/industrial-resource-flow-contract.prd.md`](../../world-simulator/m4/industrial-resource-flow-contract.prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 - 适用入口：Viewer、pure API、Agent 代办所共享的工业需求目标读面
 
@@ -38,7 +38,7 @@
 ### 1.4 未决问题与决策条件
 
 - 产品级未决问题：无未决的工业需求目标行为义务；本专题的 REQ/AC 已表达当前产品边界。
-- 仍需专业 authority 决定的条件：正式配方、批量、产率、价格、物流、电力、容量、receipt、runtime schema、队列和入口支持范围，在具体能力进入当前 claim 或实现输入前必须由文档身份中列出的 authority 与 fresh 证据确认；缺失、冲突或过期时保持 `unknown/blocked`。
+- 仍需专业 authority 确认的条件：本批次[目标设计支持矩阵](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-profile)选择普通工业输入交付及既有有限 G/U 适配；该选择随本 PR 由相应 owner 采纳，不代表 #3650 已批准或当前已实现。正式配方、批量、产率、价格、物流、电力、容量、receipt 与窗口仍读原 authority；新 profile 不继承未声明的 terminal、奖励或制度能力。具体编码、全部 writer 与正式入口接线及同候选证据是实现交付，缺失、冲突或过期时保持 unknown/blocked。
 - 接收 owner 与触发条件：对应 gameplay、runtime、world-simulator、Viewer 和 QA owner 在该能力进入本专题承诺范围或发生专业合同变化时更新 task evidence；产品正文保留语义回链，不复制执行台账。
 
 ## 2. 范围与 Non-Goals
@@ -95,12 +95,14 @@
 
 Trace ID: O7-REQ-bfd4b2f4-6b21-4c4a-961d-387b220e762f
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[唯一目标与分层数量](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-authority)、[同切点预览及正常量子例](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-preview)明确目标 producer、原用途/current authority、T/累计承诺/C/P/D/X/F/R、原资源成本/容量和 next_recheck；未知保持具体来源边界，目标 claim 不成为第二物理余额。
+- 系统设计验证方法：[DG-M01](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m01)：固定同候选原生配方与真实输入用途，分别验证低于/等于/高于一个 quantum、完整资源费用来源、同 cut 与 preview 前后无效果。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：独立 goal authority、六数量层及 goal-specific 占用/机会成本/next_recheck在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[private-goal](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_agent_api/src/game/goal.rs#L1-L60)；[task-snapshot](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_task_context.rs#L187-L245)；[task-quote-schema](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_client_api/src/world_service/task_recipe_quote.rs#L14-L89)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：独立 goal authority、六数量层及 goal-specific 占用/机会成本/next_recheck仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：独立目标 producer、分层投影、原 quote/容量与正式来源接线、原卡全部适用运行及玩家验收仍须交付；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：玩家在 demand goal 提交前比较一个有 `goal_authority_ref` 的目标。
@@ -115,12 +117,14 @@ Trace ID: O7-REQ-bfd4b2f4-6b21-4c4a-961d-387b220e762f
 
 Trace ID: O7-REQ-3c8dcb96-cb2b-4ec8-824a-5cb50b75f060
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[目标支持矩阵](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-profile)与[fresh 接受](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-commit)定义普通输入交付的 full/reduced、准备/调运、hold、stop/defer 和显式补产；有限 G/U 维持原2 iron不可拆分政策。选择属于本次目标设计，未将未声明能力写成当前可选。
+- 系统设计验证方法：[DG-M02](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m02)：分别检查普通与 finite G/U 支持集、显式 full/reduced、同目标/异目标资源争用、原接受和无副作用拒绝。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：goal-scoped full/reduced/hold/stop/defer/supplemental 支持矩阵与选择在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[native-recipe-command](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L435-L584)；[module-recipe-command](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/economy.rs#L129-L370)；[task-quote](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_recipe_quote.rs#L5-L78)；[m4-plan-output](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs#L126-L150)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：goal-scoped full/reduced/hold/stop/defer/supplemental 支持矩阵与选择仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：目标能力发布、生产/物流与 goal allocation 同根接受、各入口支持集和原卡全部适用验收仍须交付；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：目标报价存在可继续、受限或不可用的候选路径。
@@ -135,12 +139,14 @@ Trace ID: O7-REQ-3c8dcb96-cb2b-4ec8-824a-5cb50b75f060
 
 Trace ID: O7-REQ-ebb96559-33a9-4029-af82-a709c71225e0
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[唯一 matching](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-matching)规定原物理/终端 writer 与目标量共同提交、匹配边界、partial/未匹配/loss、跨目标 receipt 归属及单次键；production 不减少需求，delivery 与 terminal 不相加；普通输入 profile 不发奖励、不启用 terminal。
+- 系统设计验证方法：[DG-M03](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m03)：核原生产后 F/R 不变、真实 matching 后单次变化、错误目标/receipt、重复跨 goal 使用，以及正式声明 terminal 的独立适用对照。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：将 receipt 绑定 goal/profile 并只由 matching delivery/terminal 更新 fulfilled/reward在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[recipe-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L325-L577)；[logistics-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L151-L271)；[economic-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L41-L319)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：将 receipt 绑定 goal/profile 并只由 matching delivery/terminal 更新 fulfilled/reward仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：原 writer/匹配 adapter 共同事务、唯一归属索引、持久化和原卡全部适用验收仍须交付；其他 profile 的 terminal/奖励仍由原 authority 单独声明；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：目标链路产生 production receipt、delivery receipt 或 terminal settlement。
@@ -155,12 +161,14 @@ Trace ID: O7-REQ-ebb96559-33a9-4029-af82-a709c71225e0
 
 Trace ID: O7-REQ-32d009e3-a57c-4994-8876-4cbc7517b2a3
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[满足/变化后处置](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-disposition)与[正常盈余例](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-preview)覆盖全 writer 下一 sink gate、admission fence、五类旧工作、合法 surplus 的原账本/容量及当前安全路径；停止不抹除既有 sink 或伪造免费处置。
+- 系统设计验证方法：[DG-M04](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m04)：AC004 独立核所有实际写入口的旧计划停止和五 bucket 保留；AC005 独立核 G2产3/G4产6 的 surplus、容量漂移以及无销售/销毁/奖励。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：goal matched 驱动的旧 schedule/retry 截止和 surplus 独立处置在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[recipe-producer](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/economy.rs#L373-L433)；[recipe-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L325-L577)；[m5-directive-consumer](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/gameplay_loop.rs#L28-L73)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：goal matched 驱动的旧 schedule/retry 截止和 surplus 独立处置仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：全 writer gate、旧工作索引/处置、surplus 正式读面与原卡全部适用验收仍须交付；未支持的返工/改道/终端动作不由本设计新增；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：目标已由匹配结算满足，或合法 batch 产出超过 remaining。
@@ -175,12 +183,14 @@ Trace ID: O7-REQ-32d009e3-a57c-4994-8876-4cbc7517b2a3
 
 Trace ID: O7-REQ-62129528-2238-4733-8b8e-d226dc40943d
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[显式补产](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-supplement)固定当前 shortage/C、同 parent 单 child、quantity-only revision 与因果新 root 的界限，保留 baseline/actual/loss/F；stop/defer 保留缺口且不创建补产。
+- 系统设计验证方法：[DG-M05](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m05)：用真实 G4 reduced3 后分别补1或停止、同 parent 多 key 并发及至少三轮显式 revision/恢复；核旧结果不复制，pending 不冒充损失。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：matching shortage 驱动 parent-linked supplemental，保留 baseline/actual/loss/fulfilled在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[private-goal](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_agent_api/src/game/goal.rs#L1-L60)；[recipe-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L325-L577)；[task-snapshot](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_task_context.rs#L187-L245)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：matching shortage 驱动 parent-linked supplemental，保留 baseline/actual/loss/fulfilled仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：补产接受/CAS 与原工业 root/revision 接线、正式选择和原卡 required/full 验收仍须交付；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：matching settlement 只满足部分目标，或玩家主动选择停止/延期。
@@ -195,12 +205,14 @@ Trace ID: O7-REQ-62129528-2238-4733-8b8e-d226dc40943d
 
 Trace ID: O7-REQ-544d08be-9d56-4106-bd80-89c46786bfdf
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[fresh 提交](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-commit)、[事务与恢复](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-recovery)逐边界重验目标、用途、库存、合法单位、产率、输出/物流/适用 terminal 容量；本 profile 采用 requote/原子拒绝，不新增隐式 pending 队列。
+- 系统设计验证方法：[DG-M06](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m06)：逐项漂移和 first-sink/arrival 竞态，核原世界/义务保留、无新 effect，目标恢复只 fresh 比较；其他已声明 profile 的 terminal 条件独立验证。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：goal/target/quantum/yield/terminal capacity 的专业报价承诺与重验在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[task-quote](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_recipe_quote.rs#L5-L78)；[task-quote-schema](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_client_api/src/world_service/task_recipe_quote.rs#L14-L89)；[native-recipe-command](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L435-L584)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：goal/target/quantum/yield/terminal capacity 的专业报价承诺与重验仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：fresh source/authority 接入、所有执行边界的原子拒绝与原卡全部适用验收仍须交付；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：报价或承诺后目标、库存、batch quantum、产率或 terminal capacity 发生变化。
@@ -215,12 +227,14 @@ Trace ID: O7-REQ-544d08be-9d56-4106-bd80-89c46786bfdf
 
 Trace ID: O7-REQ-1e60706a-d6b6-43e8-b3f9-86af391700fd
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[matching 单次键](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-matching)与[完整 generation 恢复](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-recovery)覆盖原 intent、source 归属、parent/child、处置、索引、journal/outbox；commit_unknown 查询原结果，replay 不调用业务或重复费用/结算。
+- 系统设计验证方法：[DG-M07](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m07)：prepare/commit/响应/outbox 故障点、snapshot 加非空 journal、同/异 key、乱序及受支持 linked compensation；对账原账、目标量、closure 和 world root。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：同一工业 goal root/revision 的生产/交付/需求减少/surplus/reward/capacity-release 账本在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[recipe-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L325-L577)；[logistics-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L151-L271)；[restore](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/persistence.rs#L732-L766)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：同一工业 goal root/revision 的生产/交付/需求减少/surplus/reward/capacity-release 账本仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：共同事务/索引/schema/persistence/replay 实现、原卡全部并发/恢复/补偿验收仍须交付；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：同一 submit、delivery、恢复处置或其事件发生重复、乱序、重连、恢复或 replay。
@@ -235,12 +249,14 @@ Trace ID: O7-REQ-1e60706a-d6b6-43e8-b3f9-86af391700fd
 
 Trace ID: O7-REQ-34f477af-5903-48fd-8889-ceb8b1028ef3
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[正式消费者](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-consumers)与[共享预算](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-budget)将 World Service scoped source、Viewer E10、pure API 和 Agent 同源语义/当前读权/原请求恢复具体连接；实现时须发布真实 capability，不由 DTO 或静态图代签。
+- 系统设计验证方法：[DG-M08](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m08)：同 candidate/goal/cut 的真实三入口请求与世界结果、权限切换、limit/limit+1 和嵌套共享预算；玩家理解另留实玩观察。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 加本次专业目标设计/方法增量，待 owner 随 PR 采纳；下列实现判断、历史源码证据及核对日期原样保留。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：同一专业 demand-goal 状态/六数量层/动作/blocker/recheck 的三入口权威投影在当前默认/内置模块与正式入口尚未实现。专业执行矩阵明确当前仍为 per-action/job、没有工业 root/revision/segment 和独立 delivery/terminal finality；已沿 typed dispatcher、实际写点、当前内置 producer 与 Task 路由核对。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-root](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/prd.md#L398-L409)；[private-goal](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_agent_api/src/game/goal.rs#L1-L60)；[task-snapshot](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_service_private_task_context.rs#L187-L245)；[task-quote-schema](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7_client_api/src/world_service/task_recipe_quote.rs#L14-L89)；[api-projection](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/world_service/projection.rs#L10-L140)；[viewer-projection](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L291-L375)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
-- 剩余范围：同一专业 demand-goal 状态/六数量层/动作/blocker/recheck 的三入口权威投影仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
+- 剩余范围：正式 World Service/API reference/Agent skill/Viewer 接线、资源量测、原卡全适用 parity 和玩家验收仍须交付；普通 Task/recipe/物流能力与原历史判断保留。本次只接收目标技术条款和独立方法，没有运行或补造通过证据。
 
 - 性质：已采纳目标
 - 适用条件：同一 demand goal 从 Viewer、pure API 或 Agent 读面查看、推荐或恢复。
@@ -255,9 +271,11 @@ Trace ID: O7-REQ-34f477af-5903-48fd-8889-ceb8b1028ef3
 
 Trace ID: O7-REQ-7737ac31-a377-46ec-b912-9aadc0ac7fd2
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：[cross-region-delivery-and-escrow-settlement.design / des-wr-cr-001](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)；[cross-region-delivery-and-escrow-settlement.design / des-wr-cr-002](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-002)。已承接：跨区发现、运输/接收分层与条件 escrow 结算、去重/争议恢复。
+- 系统设计依据：[发现、承诺与物理接收分层](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)和[里程碑、争议与恢复](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-002)已承接来源/新鲜度、报价/合同、路线/到达、目的地接收、ownership/escrow 与失败恢复；其关联的持续运输 family 已明确实物/责任/本地程序、完整调用预算、原件和全 World G1 提交未知隔离。本次独立有界复核只接收既有目标设计，不新增经济或争议政策，也不把原运输/tariff 当作完整商业结算。
+- 系统设计验证方法：[CR-VERIFY-001](../../testing/manual/cross-region-settlement-system-acceptance.manual.md#cr-verify-001)、[002](../../testing/manual/cross-region-settlement-system-acceptance.manual.md#cr-verify-002)、[003](../../testing/manual/cross-region-settlement-system-acceptance.manual.md#cr-verify-003)、[004](../../testing/manual/cross-region-settlement-system-acceptance.manual.md#cr-verify-004)分别核分层、原子去重、争议恢复和统一读面；当前持续运输 family 联用 [CSF-01 实物结果](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-01-domain-results)、[CSF-03 本地程序](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-03-review)、[CSF-05 完整预算](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-05-budgets)、[CSF-06 原件恢复](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-06-recovery-read)。同候选 full-tier 的实际入口/状态/账本和故障证据仍须交付。
+- 设计接收核对：2026-11-06；基线 4c80cd131adb1b3a37323a42bad847c2d7836ce2 的既有 CR 专业设计、持续服务依赖和精确手册，经独立审读后更新旧接收状态；下列实现未实现、原源码候选、历史核对及剩余范围逐字保留，本次无新运行、实玩或发布证明。
 - 实现与验证依据：2026-10-17 固定源码生产链复核：商业合同连接 arrival→storage acceptance→ownership/escrow milestone 的权威记录与消费者在当前默认/内置模块与正式入口尚未实现。专业系统设计明确列为待实现逻辑关系；实际 transit 完成只更新物理收货、损耗与 tariff，economic contract 是 AtomicExchange，Service 明确拒绝，未提供目的地接收与商业里程碑绑定。现有通用 Task/recipe 报价、生产、物理物流及各自去重不因此否定，也不作为本卡目标合同的直接已实现子集。[authority-commercial](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/doc/world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#L72-L83)；[logistics-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L151-L271)；[economic-write](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L41-L319)；[economic-service-guard](https://github.com/nil-studio/oasis7/blob/e90829da59bb8a064820d4e4ce3688018a351fb8/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L504-L512)。本轮仅静态审读，未运行业务测试、正式入口或真人验收；不覆盖未提供的线上自定义 artifact。
 - 核对日期与基线：2026-10-17；源码与专业权威固定 e90829da59bb8a064820d4e4ce3688018a351fb8；复用6463975 Runtime生产树250/250同blob，并补核当前WorldService/内置模块；仅静态生产链审读。
 - 剩余范围：商业合同连接 arrival→storage acceptance→ownership/escrow milestone 的权威记录与消费者仍需实现，并完成原卡全适用验收；普通Task/recipe/物流能力保留。
@@ -424,13 +442,13 @@ Trace refs: O7-REQ-7737ac31-a377-46ec-b912-9aadc0ac7fd2；声明：[REQ-SC31-009
 
 采用“先比较、再承诺、分层结算、显式补产”的循环，是为了让玩家在 batch quantum、容量和交付用途之间作出可回顾的选择。把 surplus 与 shortage 保留为独立结果会牺牲自动化的表面顺滑，但能保住资源压力、目标因果和失败恢复，也能阻止重复提交变成奖励套利。
 
-### 7.2 未决问题
+### 7.2 本次目标设计选择与后续条件
 
-- 尚未决定：不同 demand profile 对 full/reduced、partial matching、surplus hold 和 supplemental revision 的具体支持范围。影响：REQ-SC31-002、REQ-SC31-005。决策负责角色：`gameplay_designer` 联动 `producer_system_designer` 与对应专业 owner。需要 profile 合同和组合证据；在范围确定前，未声明路径保持不可选。任务引用：[`GitHub task #3650`](https://github.com/eng-cc/oasis7/issues/3650)，仅作为该决策的稳定 locator，不复制任务状态或宣称决策完成。
-- 尚未决定：具体 batch quantum、产率、价格、capacity、expiry 和 queue policy。影响：REQ-SC31-001、REQ-SC31-006。决策负责角色：对应 `game` / `world-runtime` / M4 专业 owner。需要正式专业规则；本专题不临时给出默认值。任务引用：[`GitHub task #3650`](https://github.com/eng-cc/oasis7/issues/3650)，仅作为该决策的稳定 locator，不复制任务状态或宣称决策完成。
-- 尚未决定：各正式玩家入口怎样承载同义 demand 读面。影响：REQ-SC31-008。决策负责角色：`viewer_engineer`、`agent_engineer`、`qa_engineer` 通过 TPM 协调；需要入口专属验证。文档层只要求语义 parity，不冻结布局、API 或 Agent prompt。任务引用：[`GitHub task #3650`](https://github.com/eng-cc/oasis7/issues/3650)，仅作为该决策的稳定 locator，不复制任务状态或宣称决策完成。
+- 目标设计采用：[普通工业输入交付支持矩阵](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-profile)明确 full/reduced、partial matching、surplus hold、stop/defer 与一次显式 parent-linked supplemental；PR 采纳后作为该 profile 的实现输入。此前已采用的 native_regional_supply_use_v1 仍只有原不可拆分2 iron供应，不从普通 profile 继承新增动作。决策 owner 为 gameplay_designer、producer_system_designer 与原专业 owner；其他未声明 profile 的支持范围由其原 authority 独立确定。
+- 目标设计采用：普通 profile 的合法整数 batch、主/副产物及 recipe power 来自[原 recipe authority](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-preview)；费用/维护/物流/有限容量来自原正式来源，目标窗口来自受权用途与接受记录，漂移采用 fresh requote/原子拒绝且不新建 pending 队列。本次没有另定价格、产率、损耗、terminal admission、奖励或未来服务窗口数值。新领域政策尚未声明时保持对应能力不支持；现行 profile 的原 authority 缺失则 unknown/blocked。
+- 目标设计采用：[正式消费者与恢复合同](../../world-runtime/runtime/industrial-demand-goal-execution.design.md#demand-consumers)确定同源 World Service 读取、Viewer E10、pure API 和正式 Agent Skill 的状态/动作/current audience。编码、已发布 capability、各 writer/入口接线和[DG-M08 同候选验证](../../testing/manual/industrial-demand-goal-acceptance.manual.md#dg-m08)是实施交付；本次专业设计存在不代表当前三入口可调用。
 
-这些未决问题不阻塞本专题对玩家语义、原文义务映射和验收边界的采纳；在对应实现输入前必须解决或明确排除受影响范围。
+[#3650](https://github.com/nil-studio/oasis7/issues/3650)及其配对设计工作只作为原产品文档提炼的历史来源，不作为上述专业选择已获批准或实现完成的证据。本批次新选择由本 PR 的目标设计评审/采纳承载；原 REQ/AC 和全部适用 required/full 保持不变。未来新增 profile、matching 边界、制度效果或经济政策时，须由原 authority 在该能力进入实现输入前另行决定，不能以本次普通输入交付覆盖其范围。
 
 ## 8. Non-Goals
 

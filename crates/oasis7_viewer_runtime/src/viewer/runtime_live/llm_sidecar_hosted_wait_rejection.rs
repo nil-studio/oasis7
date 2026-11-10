@@ -450,7 +450,7 @@ impl RuntimeLlmSidecar {
         })();
         self.runner = Some(runner);
         if let Err(error) = result {
-            self.restore_wait_raw_outcomes(retired_raw);
+            self.restore_raw_outcomes(retired_raw);
             (
                 self.provider_cognition_leases,
                 self.provider_completed_decisions,

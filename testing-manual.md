@@ -38,6 +38,10 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
+Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌套清理预留，分别保存 `completion-wait-rejection-initial.*.log` 与 `completion-wait-rejection-recovery.*.log`，不提高 ordinary/runtime-tests 总时限。fixture 生命周期回调先复制 root 并释放锁，再进入 gate 状态；补偿 selector 不持 gate 锁读取 root。`http_fixture::lock_order_tests` 用 channel 固定补偿锁与真实 finished/joined 回调的交错，旧锁作用域应明确失败而非挂起。`application_completion::launcher_tests` 覆盖真实初次挂起、exit73 后恢复挂起与独立日志；原 canonical、原身份、写失败及 exit73 断言仍须通过。
+
+清理采用独立 10 秒 watchdog，必须在 worker join、node stop 完成后显式取消；超时、提前退出或无法证明全部 HTTP worker 已停止时以非零状态终止测试进程，不能丢弃活线程后释放场景 permit。`cleanup_deadline::tests` 用独立子进程注入卡死 join、锁等待、未完成清理及满 stderr 下的退出，外层仍受既有 child 监督。清理诊断是 best-effort：100 毫秒后备退出不能等待日志，输出可能为空或截断；stage/reason/exit code 的完整格式由可控 writer 回归验证，不把日志存在误作有界终止的必要条件。stream Session 的 EOF drain 使用总计 2 秒截止，不以每次读取重新计时；保留 EOF 前排队的 1 MiB 响应回归，并用持续可读 peer 验证超时后仍完成 join。这些是失败收口边界，不替代业务通过条件；宿主调度或系统调用异常仍由外层进程监督兜底。
+
 <a id="local-check-entry"></a>
 ## 显式本地检查：当前入口与目标分层
 
@@ -320,6 +324,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - 合同回归：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/plan-rust-required-scope.test.py`、`python3 scripts/ci-required-result.test.py`、`python3 scripts/ci-workflow.test.py`。使用 Python 3.11+；覆盖精确零匹配、清单遗漏/重复、旧基线扩大、选中后失败/取消/跳过、绝对期限和真实小型 libtest。
 - hosted 验证检查构建与各消费 job 位于不同 Linux runner：下载同 tested SHA 的消费者 tar.gz、核对 manifest 与所选执行闭包、无本地 target 前置时运行全部真实用例。不得在分片调用 Cargo。普通组与正式矩阵分别依赖各自 producer，正式矩阵不等待普通构建；互斥正式 producer 恰有一个成功且另一个跳过，任一必选分片失败则固定汇总失败。
 - Formal build/pack/run 使用同一可信 `--formal-config`、计划与 source；失败任务重跑可复用实际成功 select/producer 的先前 attempt，产物按真实 producer attempt 核验，不要求三步都发生在当前 attempt。BASE 最低 case/ignored filter/batch/script 与候选新增项取并集，manifest 绑定 authority 摘要。删除候选条目不能消除旧预期 case，缺 case、身份变化、计划外物理 shard 或 authority 不符必须失败；普通测试的语义退役仍按既有评审处理。
+- 分路构建回归用真实微型 Cargo workspace 完成 `formal-debug`、`formal-endpoint`、`merge-formal`、完整分包和下载后执行，核对 debug opt0 保留断言/溢出检查，旧 opt2 Formal 组件与完整 bundle 在删除或改变执行版本标记后仍被拒绝，storage 专项独立保持 opt2、endpoint release opt3。缺目标、重复身份、角色互换、跨 run/source/计划/authority、未来 attempt、篡改文件和部分 bundle 直接 pack/run 必须失败；同 run 较早成功 attempt 可复用。工作流枚举两个组件与两合并入口的成功/失败/取消/跳过组合，合并失败不能继续分包。
+- 构建诊断回归执行 `python3 scripts/package-ecs-resource-monitor.test.py` 和 Formal 真实微型 Cargo fixture：按 variant 检查 `--timings`、开始/结束摘要及每 20 秒的观察心跳，保留 CPU/RSS、内存和 swap 的实际测量边界。失败退出仍阻断后续构建和产物消费，观察器失败不能改变 Cargo 结果；已存在的旧 timing 不进入本轮诊断，两个组件均在失败后上传已产生的安全报告。hosted 读取 `formal-debug-build-diagnostics-*` / `formal-endpoint-build-diagnostics-*`，缺失数据记为未知，不将心跳当作编译进度或性能验收。
+- 执行池回归使用真实子进程屏障核验 CPU 槽、worker 上限、独占项与旧产物串行；候选配置不得增加 BASE 并发许可。并发 case 的非零退出、错误计数、超时、取消与遗留子进程均保留失败，排队项取消后不启动；已完成成功结果保持原身份。hosted 分别比较构建两路、最长完整 case 与分片总体耗时，不能把并发宽度当成已实现收益。
 - 优化回归核对全部完整用例在逻辑 suite 与物理 shard 中恰好一次，保留长历史 70 次及健康集合 40 次连续操作。比较 producer、分包原始/压缩 bytes、下载、实际测试、重开/冷查/stop 各阶段；记录缓存来源、是否命中及 8 GiB 保存预算结果。fixture 和本地计数器只能证明对应机制，整体耗时改善须用实际 runner 结果另证。
 - workspace 缓存回归使用真实小型 Cargo workspace：分开保存依赖与本地编译单位，在相同绝对路径重建 checkout 后恢复，核对 Cargo JSON 的 fresh 和实际程序输出。修改源码、build.rs 观察的未跟踪输入、权限或刻意保留旧 mtime 的输入须正常重编；新增/删除输入、损坏、symlink、路径穿越和不完整缓存须安全回到冷路径。核对 build-script 编译与执行两类目录均完整，原始 fingerprint 不被修改。真实 producer 另记录完整 target 与所选 workspace 的逻辑/硬链接去重 bytes、目录归因、8 GiB 保存结果及两类缓存的恢复耗时；本地 fixture 不代签 main writer 已保存或后续 hosted reader 已复用。
 - `output/formal-process/results.jsonl` 记录每个命令的开始时间、耗时、退出码、超时、测试数和清理状态。只上传此安全摘要；详细输出查看 job 日志，失败世界目录不自动上传。缺摘要、缺产物和构建失败须从 Actions 失败步骤诊断，不能计为通过。
@@ -328,7 +335,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 
 - 本地合同：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/ci-cache-policy.test.py`、`python3 scripts/ci-workspace-cache.test.py`、`python3 scripts/ci-ecs-cache.test.py`、`python3 scripts/ci-cache-maintenance.test.py`、`python3 scripts/ci-workflow.test.py`。实际 Cargo fixture 需要 Rust；缺少工具链时明确记录跳过，不能用 synthetic JSON 计数代签真实 fresh。
 - 普通构建 library-only fixture 须证明库和完整构建脚本可复用、普通 binary/test harness 不入缓存且正常重建；四个 feature variants 与测试产物不变。新增/删除输入、损坏或路径不安全继续 miss；源码内容变化仍由 Cargo 重编。检查本地与第三方 fresh/rebuilt 分组，含恢复、验证和打包成本。
-- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- 各 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护直接等待普通与两路 Formal 的可信 writer，不再等待完整测试；ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- Formal debug/endpoint 分别核验 6/2 GiB staging 与 768/256 MiB 单份上传上界、独立 writer 身份和兼容 key。新两族合计两代目标 2 GiB、临时第三代 3 GiB；旧 Formal v3 仍独立受控，迁移期间必须计入完整仓库占用，不以一半成功跨族删除另一半或历史恢复锚点。
+- 两路依赖缓存另核对 debug opt0 与 endpoint release 的精确 namespace/profile。真实组件的 main schedule/manual-full 成功 job 才能保存，候选、错 job/key/平台、非 full dispatch、旧源码和归档容量不足均拒绝。首次 seed 后分别观察对应 hosted reader 的第三方 fresh/rebuilt；旧 shared-native 命中不能代签新 profile 的预热。维护回归保留三者各自完整恢复锚点，上传准入与维护均不改变测试结论。
 - compact archive 回归覆盖 zstd 与旧 gzip 往返、真实同 inode 去重、完整逻辑字节预算、损坏/截断/附加帧、非法别名和路径拒绝。使用实测 9,381,351,049 字节库存与有来源的大小样本回放 bootstrap、首次准入、后续恢复和第三代轮换；全族达到上限但仓库空间不足时必须拒绝，不能把单份上限当预留额度。
 - hosted 分别核对首次 main 保存、后续兼容 reader 的实际 fresh 和第三代回收后的库存；新格式首次冷构建、超限跳过与保护集超额均如实报告，不承诺尚未测量的耗时收益。
 
@@ -342,21 +351,50 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - hosted 功能：读取后续自然发生且已授权的 Release `build-web-dist`，确认工具验证后原有 Web 构建、source/BUILDINFO 与发布检查正常。不要为本节人为触发发布；未发生的发布保持待观察。
 - 真实跨 tag 缓存：关联 main `full-regression` 的实际归档保存记录和两个不同 tag 的 reader，记录 run/job URL、event/ref、请求/匹配 key、工具/安装器身份、路径及 cache version 兼容条件、恢复和摘要验证结果。同 tag rerun、仅配置相同或只有 cache-hit 输出均不足以确认 main seed 复用。
 - 冷暖量测：区分实际下载、跨 run 恢复、本地已有和恢复异常后下载；分别记录恢复、下载、验证安装、总准备及 writer 保存成本。日志只有 step 级时间时保持该粒度。附 runner image/OS/arch、source、Trunk 版本/摘要、helper 指纹、样本窗口与数量；失败和取消单列，排队和整个 Release 耗时另报。样本不足时报告原始观察，不预写提速百分比。
-- apt 先观察索引更新、下载、安装、锁等待和失败分布。本次没有新增 apt helper；后续确需预算治理时，使用假命令与临时进程 fixture 验证正常/瞬态/永久错误、总预算、挂起或忽略终止信号的子进程、父进程先退出、取消与无受控遗留进程。不得在真实 apt/dpkg 上故障注入；强制终止后的包状态不明确时应失败并使用新 runner。
+- apt 本地合同：`python3 scripts/ci-apt-install.test.py`、`python3 scripts/ci-workflow.test.py`、`python3 scripts/plan-rust-required-scope.test.py`。假命令与临时进程 fixture 验证正常、瞬态/永久/未知错误、重试耗尽、总预算、挂起或忽略终止信号、父进程先退出、取消与受控进程清理；不得在真实 apt/dpkg 上故障注入。接线测试核对全部原包列表、lsof 已有时短路、600 秒 helper 参数、11 分钟步骤兜底，以及失败后不运行依赖测试。
+- apt hosted 验收：在新提交实际运行中分别检查 update/install 阶段耗时、尝试次数、退出/清理结果与原测试结果；记录 source SHA 和 run/job 链接。600 秒仅为 Rust/native cache 本次参数，可据后续样本调整，不代表全局 SLO 或已经 hosted 验收。强制终止后的包状态不明确时应失败并使用新 runner；helper 失败保持沿原 job/required 汇总传播。
 
 Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构建、跨 tag 恢复与性能收益分别核实，不为 Trunk 新增通用 required check、预热工作流或验收回执。
 
 <a id="engineering-telemetry-validation"></a>
 ### 工程遥测报告核验
 
-Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。归一化报告器尚未实现；以下是实施验收方法，不是本次已取得的运行结果。
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。当前提供离线 v1 投影、v2 来源/身份合同与 DAG 报告，以及有界 Actions/既有指标适配；以下分别验证离线合同和真实接入，不以合成样例代签真实运行。
 
-1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒；改变依赖或错误地把并行时间相加时，同一断言应失败。
-2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复仅去重，不丢失来源。
+从仓库根目录运行：
+
+```sh
+python3 scripts/engineering_telemetry.py collect scripts/tests/fixtures/engineering-telemetry/input.json /tmp/telemetry-snapshot.json
+python3 scripts/engineering_telemetry.py report /tmp/telemetry-snapshot.json /tmp/telemetry-report.json /tmp/telemetry-report.md
+python3 -m unittest discover -s scripts/tests -p 'test_engineering_telemetry*.py'
+```
+
+v2 完整合成输入的 collect 应返回 0；缺失/冲突或 v1 输入保留 partial 并返回 1。report 成功渲染返回 0 不等于测试执行成功；核对原 execution_result、退出码与 cleanup_result 未变。输入与输出格式见 [fixture 说明](scripts/tests/fixtures/engineering-telemetry/README.md)。
+
+1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒、含等待观测链 21 秒与首次启动延迟 0 秒；核对 `analysis.formula_version`、各指标的 status/value/unit/formula/input_ids 及 job_timings；改变依赖或错误地把并行时间相加时，同一断言应失败。
+2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复合并 alias 与来源列表。加入 step/phase/test 不重复增加 job 资源；条件为 false 且 skipped 可零执行，但不能成为 pass。核对 known 指针的类型和值、unknown/not_applicable 的 null 与 reason、输出无 raw payload，未知来源不能凭名称补齐。
 3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
-4. 验证 API/字节/时间预算、归档越界、敏感字段清理、截断产物与采集器失败。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
-5. 在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
-6. 读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+4. 离线核验字节上限、允许字段、截断输入与采集器失败。继续核验请求/时长/响应与解码字节额度、重复/截断分页、坏压缩流、越界/重复/链接归档、非有限 JSON、未知大字段和信号取消。截止停止新读取与记录归一化；有界保存收尾和实际 elapsed_seconds 单列，不把尾部当作预算内。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
+5. 真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+6. 真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+
+有界采集命令（输出目录须已存在，partial 返回 1 是预期结果，不代表原测试失败）：
+
+```sh
+python3 scripts/engineering_telemetry.py collect-github nil-studio/oasis7 RUN_ID ATTEMPT /tmp/snapshot.json /tmp/collection.json --build-artifact ARTIFACT_ID
+python3 scripts/engineering_telemetry.py collect-metrics /path/to/existing/current.metrics.json /tmp/local-snapshot.json /tmp/local-collection.json
+python3 scripts/engineering_telemetry.py report /tmp/snapshot.json /tmp/report.json /tmp/report.md
+```
+
+只使用已有权限；API 请求不自动登录。可用 `--max-requests`、`--max-seconds`、`--max-bytes` 调低额度，以已知成功/失败结果检查耗尽后的局部证据。`--recorded-responses DIRECTORY` 用固定 API 原件及 ZIP 回放同一路径，文件名和摘要合同见[设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。receipt.transport 区分 live/recorded/local；检查 raw_sha256、投影 content_sha256、snapshot_sha256，记录回放和真实网络成本的区别。collector 不解包执行脚本，不读取当前 Git/dirty 环境补签历史测量。
+
+本轮真实来源样本为 [PR #5582 的 run 42371045878 attempt 1](https://github.com/nil-studio/oasis7/actions/runs/42371045878)：51/51 jobs、20/20 artifacts，实际 Formal 五分片成功，source `4dab41ef854cd521387b9980d0789ebef56d0367`、tested `2d56f4e270e0753e566ee4bb0b8d187e5cf59c91`、policy `8bb642d22d641fc9beccee78f0a032b2e3c9eeb7`。selection 与 endpoint manifest.execution_plan 一致；artifact 13574395298 的 SHA-256 为 `19daaf7cd8148c754e85a9d6461eccea319ce91726ef1da10140fbcbe4061469`，经 ZIP→gzip/tar 只读 manifest。回放按 5 次逻辑读取、7,212,629 响应字节、28,892,776 解码字节核对，不能作为 live 请求成本。job 的 tested/policy/config、数字 needs/条件、producer/consumer job 尚无正式绑定，因此真实整图指标 unavailable。原件按原服务保留期可能过期，摘要不能代替原件。已有真实本地 warm 原件尚未取得，本地真实验收未完成，不新跑 Cargo 补证；#5391 保持开放。
+
+前向 live 入口为 `python3 scripts/engineering_telemetry.py bindings collect-live nil-studio/oasis7 RUN_ID ATTEMPT REPORT.json`，复用有界只读 GET、取消与请求/字节/时间上限，仅读取含专用观察步骤的 job 日志与实际 workflow SHA 的固定文件，不登录或触发构建。
+
+前向 job 观察的固定导出包含 `run.json`、完整的 `jobs-N.json`、`job-ID.log` 及从实际 `workflow_sha` 取得的 `workflow-SHA.yml`。运行 `python3 scripts/engineering_telemetry.py bindings EXPORT_DIRECTORY REPORT.json --workflow-sha SHA`；输出必须在输入目录外。新 bindings/v1 报告绑定数字 job 与运行时 job key/matrix，保留观察时 checkout 与 run 目标不同的事实；Formal gate 没有 checkout，不补造 SHA。它仅证明实际取得的内容绑定，当前未核实矩阵总数、artifact ID/传输与消费者验证时返回 partial，不输出完整 DAG 或替代 v2 报告。用 `--scope required-gate` 时其他必要上游没有观察，同样必须列缺口。
+
+回归应覆盖错 attempt、重复实例/标记、专用步骤以外的标记、来源 workflow 不符、文件符号链接、无 checkout 控制节点、两端 manifest 摘要相同但 producer attempt 不同；保留原 job 结论。观察步骤仅在非取消终态尝试，`continue-on-error` 仅适用该精确诊断步骤，不能吞掉构建、测试、上传 required 工件或 gate 的失败。新运行验收与缺口写入对应 PR，不把旧历史 run 补签为完整。
 
 ### 当前 CI 未直接覆盖（需手册补齐）
 - Web UI agent-browser 闭环（现为手动/agent 流程，不在 CI 默认路径中）。
@@ -1627,6 +1665,32 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required longrun_
 - `viewer-primary-web-entry-regression.sh` 专用于该隔离后端；`viewer-software-safe-step-regression.sh --release-web-fixture` 才启用同一路径，通用 `--url` / stack 参数仍使用调用者的原有运行源。primary/strict 的 `--scenario` 与 release 总入口的 `--web-scenario` 已移除；显式 release fixture 也会拒绝 step 的 debug scenario 参数；不得将它报告为指定 scenario 的验证。启动等待会立即报告 launcher/fixture 退出码和日志。
 - `--quick` 只缩短 S9/S10 时长；它不向 `release-gate-web-strict.sh` 传递 visual/quick 开关，也不关闭 Web visual baseline。Web 阶段仍按选中的 release steps 与 strict 入口执行，不能从 quick 推断视觉检查被跳过。
 - `--skip-*` 只用于已知外部约束或分片排障；必须在 summary 中保留 skip reason 与 claim boundary。跳过 `ci_full`、sync、Web strict、S9 或 S10 后，不得把本次结果写成完整 release coverage。
+
+<a id="release-candidate-reception-validation"></a>
+#### 同候选整包接收核验（RC01–RC10）
+
+本方法接收 [QA 候选整包设计](doc/testing/design.md#release-candidate-evidence-reception)，对应 [REQ-ENTRY-CANDIDATE-001 / AC-ENTRY-CANDIDATE-001](doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001)；Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b。上面的 release 脚本仍只执行其声明的工程 steps；命令 exit 0、bundle hash 校验、fixture Web 或 dry-run 均不自动执行本方法，也不能补足经济、恢复、实际发行材料或另一 mode。
+
+**准备与层级。** 先在[原发布证据模板](doc/testing/templates/release-evidence-bundle-template.md)固定候选、实际 tested tree/build/配置、待评阶段/claim、两 primary mode 与受支持的平台/入口、各原合同及 required/full 场景。按设计 §7.1 的输入表逐项关联 owner、实际窗口/单位、world/原操作/authority 与原始 artifact。所需输入的适用性由原产品/专业要求确定，不以手头有什么日志决定。使用[既有 source-to-scene 方法](doc/testing/prd.md#qa-infrastructure-source-scene-method)分别核身份、字节完整性、真实执行、领域 oracle、环境与消费者。
+
+文档设计走查可使用明确标为示意的 A/B 候选及输入副本核下表判定，不启动世界或模型、不改生产记录；只能记录“设计预期一致/不一致”，不能填写运行 pass。实际候选验收使用本候选按原方法取得的真实结果：Viewer 与正式 API 的[逐入口方法](doc/testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)、Runtime/P2P 的原证明与恢复组合、[经济 EA01–12](doc/testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-01)、发行/安装与[材料方法](doc/readme/governance/player-support-and-service-lifecycle.manual.md#verify-release-materials)分别承担原测试层级和环境。静态、受控 fixture、正式运行、实际生产与真人证据分别记录；不得用本接收方法新增一份运行证明或降低原必跑项。
+
+| 方法 | 输入与操作 | 独立预期与原件保留 |
+| --- | --- | --- |
+| RC01 完整正例 | 固定候选 A 的原范围：两 mode 及每个声明支持的平台/入口；取得各自真实运行身份/消费者结果，同 world 与合法 authority 的执行和正常恢复、该阶段原要求的完整经济窗口、实际资产/适用材料、QA 各层结果及范围一致的公开草稿。逐行回读原件和独立 oracle，再把跨域切点/窗口接上 | 所有必需项及对应关系均满足时，QA 的该范围结论为 `pass`，可交原产品决定；各 mode 与专业判据保留自己的结果，不生成发行 verdict。后续发布是否评估、批准或执行分别保留真实记录 |
+| RC02 混候选或错身份 | 在 RC01 的评审输入副本中分别换入 B 的 tree/build/配置、另一 world/branch 的 receipt、旧资产 digest；保留同 tag/文件名作为混淆。另以正确标明的旧版本升级前态作对照 | 身份不匹配的输入不能成为 A 的通过证据；对应必需项缺有效材料则 `blocked`，已观察到的实际错配仍保留原 `fail`。合法旧前态仅作因果输入，须由 A 的实际恢复结果衔接，不能使用 B 的 pass 填 A |
+| RC03 仅一 mode 或互相代签 | 从两 mode 声明中去掉 pure_api 或 viewer 的实际消费者证据；用另一端截图、同一 receipt 的副本、alias 或 provider 名称补位；另保留单 mode 专题范围对照 | 整包的双 mode 对应保持 `blocked`；已有单 mode 只能支持自己的实际窄结论。共享 canonical 原件可以复用，入口的动作/读取/恢复证据仍各自成立，不要求为了复制证据重复世界效果 |
+| RC04 窗口与 authority 不对应 | 分别混入相同 tick 字符串但不同 root/branch、缺合法 proof 的执行记录、经济 C0/C1 与消费报告不符、规则/manifest 变化却未保留对应证明的材料；与同一不可变原件的合法异步回读比较 | 不因日期、tick、状态截图或 schema 相同而接收；不明/缺失关系 `blocked`，违反实际 oracle 保留 `fail`。合法异步回读必须指回原窗口与适用 authority，不能缩短长期审计窗口或发明容差 |
+| RC05 正常恢复结果仍未知 | 从必需正常恢复输入去掉原权威结果，只保留已正确显示 unknown/recovery_required 的反例；另给原请求曾提交但回应丢失、随后在当前读权下查回原结果的正例 | 正确显示未知可通过自身失败处理断言，但不补正常恢复的缺证，整包该项仍 `blocked`。正例必须回到原身份和原结果，按原合同核一次效果/无重复结算；不能以新请求、换身份或查不到结果认定未发生 |
+| RC06 经济不完整或存在异常 | 分别替换为四 tick/部分资源样例、缺页或未知 writer 的报告、旧候选空告警；另放入当前完整原件可独立确认的经济异常，再以按原完整窗口核算通过的报告作对照 | 组件算对或无告警不补阶段要求的长期/全范围审计；缺完整来源/范围则 `blocked`，确定违反原经济判据则保留 `fail`。完整正常报告才支持该经济输入，仍不单独放行整包；不新增补偿、阈值或货币规则 |
+| RC07 发行资产、权利或入口链缺证 | 分别缺少声明平台资产、完整性/来源资料、适用权利或渠道材料；另令网页候选正确但实际加载旧 build、错误 backend/mode，或适用升级/恢复证据不足 | 每个受影响组合保持缺证或原实际失败，不能用另一平台、下载 manifest、占位素材或已批准文案补足。未选择的新渠道仍按原适用性，不能为凑材料新增开放承诺 |
+| RC08 QA 到公开状态交接 | 从 RC01 的完整输入形成 QA 有界结论，核其实际产品决定、LiveOps 草稿与根 README；分别加入尚未评估发布、仅审核草稿、扩大 mode/平台/能力或使用旧 QA 结论的变体 | 未评估发布按原模板记 `not_evaluated`；reviewed/publish_ready 不写 published。只有原决定、同窗证据和根 README 支持的事实才可进入原发布流程；公开状态仍以真实发布/同步记录为准。本方法不执行外发 |
+| RC09 环境或层级替代 | 对声明必须真实运行/正式入口的项，分别换成 mock provider、fixture-functional、GET-only observer、缺必需 full 场景或 skip/dry-run；保留这些样本在自身原范围内的正确结果 | 受控结果继续有效于原 scope，但不能代签正式能力、parity、恢复或更高层。缺必需环境/执行则 `blocked`；原实际失败不得被低层 green 遮蔽，选中层级仍沿原合同 |
+| RC10 变化、补证与重试 | 在已评输入后改变实际 build/规则/配置/authority/材料或受支持范围，核受影响输入及消费者；追加修复后的新 attempt，再比较旧失败、补齐材料与未受影响来源 | 新身份与受影响判据重新关联，不能只改候选昵称搬用 pass。旧失败和各次 attempt 保留；只有修复后的独立结果确实解除原阻断，才按原 QA/产品职责更新当前结论。未受影响材料的原身份/范围仍成立才可复用 |
+
+**接收步骤与输出。** 按 RC01 建立可通过的完整对应，再逐一核 RC02–RC10，不能只验证错误输入被拒绝而没有正常路径。将结果填回模板原有“实际覆盖与未证明边界”和“结论摘要”：每项原输入/方法、实际执行层级、oracle、verdict、对应关系、原 artifact 的可回读定位/完整性、受影响范围与 owner 都可检查；已执行失败、未执行、缺前置和原不适用依据分开。缺证时保留 affected gate 与下一步，禁止先填总 pass 再附注例外。
+
+QA 只形成原声明范围的证据结论，producer 负责原阶段/claim 决定，LiveOps 按该决定和 QA 限制使用[既有沟通模板](doc/readme/governance/readme-release-communication-template.md)；当前公开状态最终核根 README。需要收窄时保留原整包未满足项，不将更窄结论写成原候选门禁通过。本次方法补充未执行上述真实候选、素材制作、真人或发布动作。
 
 <a id="network-tiers-validation-evidence"></a>
 

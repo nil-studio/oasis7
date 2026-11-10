@@ -210,6 +210,22 @@ pub struct OwnerProvisionApprovalStore {
     // obtains current authority, clock and inventory independently.
     reader: SnapshotReader,
 }
+fn validate_existing(
+    state: &JsValue,
+    original: &str,
+    saved: &ProvisionApprovalSnapshot,
+) -> Result<()> {
+    let mut callback = |old: String, inventory: String| -> Result<Array> {
+        if old != original {
+            return Err(rejected());
+        }
+        validate_inventory(&inventory, saved.state.draft(), false)?;
+        Ok(unchanged(&old))
+    };
+    let closure = Closure::borrow_mut(&mut callback);
+    update(state, KEY, original, closure.as_ref().unchecked_ref())?;
+    Ok(())
+}
 impl OwnerProvisionApprovalStore {
     /// The exact draft must already exist in this Account's SQL storage.
     pub fn initialize(
@@ -242,16 +258,7 @@ impl OwnerProvisionApprovalStore {
     pub fn open(state: JsValue) -> Result<Self> {
         let original = read(&state, KEY)?;
         let saved = decode(&original)?;
-        let mut callback = |old: String, inventory: String| -> Result<Array> {
-            if old != original {
-                return Err(rejected());
-            }
-            validate_inventory(&inventory, saved.state.draft(), false)?;
-            Ok(unchanged(&old))
-        };
-        let closure = Closure::borrow_mut(&mut callback);
-        update(&state, KEY, &original, closure.as_ref().unchecked_ref())?;
-        drop(closure);
+        validate_existing(&state, &original, &saved)?;
         Ok(Self {
             state,
             reader: SnapshotReader(std::cell::RefCell::new(Some((original, saved)))),
@@ -259,6 +266,14 @@ impl OwnerProvisionApprovalStore {
     }
     pub fn snapshot(&self) -> Result<ProvisionApprovalSnapshot> {
         self.reader.restore(&read(&self.state, KEY)?)
+    }
+    /// Equivalent to reopening then reading, while reusing only an exact-byte
+    /// historical restore. SQL coherence and inventory are checked on every use.
+    pub(crate) fn revalidated_snapshot(&self) -> Result<ProvisionApprovalSnapshot> {
+        let original = read(&self.state, KEY)?;
+        let saved = self.reader.restore(&original)?;
+        validate_existing(&self.state, &original, &saved)?;
+        self.snapshot()
     }
     // Budget/nonce reservations only. This port cannot return a send or key permit.
     fn local_reservation<R, T>(&self, event: &str, reference: &str, mut transition: T) -> Result<R>

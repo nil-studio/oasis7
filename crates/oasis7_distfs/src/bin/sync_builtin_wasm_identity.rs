@@ -748,6 +748,12 @@ fn run() -> Result<(), String> {
     let args = env::args().skip(1).collect::<Vec<_>>();
     if args
         .first()
+        .is_some_and(|arg| arg == "--verify-builtin-test-artifact")
+    {
+        return verify_provider::run_builtin(&args);
+    }
+    if args
+        .first()
         .is_some_and(|arg| arg.starts_with("--candidate-baseline-"))
     {
         return candidate::run(&args);

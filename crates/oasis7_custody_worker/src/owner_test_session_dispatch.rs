@@ -44,7 +44,13 @@ pub(crate) async fn dispatch(
             session_authority::observe(env, &saved, input.clone(), &original.signed, false).await?;
         store
             .consume_test_session((**original).clone(), || {
-                session_authority::approval_current(state, env, &observed, &enrollment, started)
+                session_authority::approval_current_from_store(
+                    &store,
+                    env,
+                    &observed,
+                    &enrollment,
+                    started,
+                )
             })
             .await
             .map_err(|_| denied())?;
@@ -81,7 +87,7 @@ pub(crate) async fn dispatch(
             json(
                 store
                     .claim_test_session_source(id, source, || {
-                        session_authority::current(state, env, &observed, false)
+                        session_authority::current_from_store(&store, env, &observed, false)
                     })
                     .map_err(|_| denied())?,
             )
@@ -96,7 +102,7 @@ pub(crate) async fn dispatch(
             let observed = session_authority::observe(env, &saved, input, &original, false).await?;
             store
                 .complete_test_session_source(id, source, *original, || {
-                    session_authority::current(state, env, &observed, true)
+                    session_authority::current_from_store(&store, env, &observed, true)
                 })
                 .await
                 .map_err(|_| denied())?;
@@ -126,7 +132,9 @@ pub(crate) async fn dispatch(
             let (permit, signing) = store
                 .test_session_preflight_permit(id, role, access.map(|v| *v), || {
                     Ok(TestSessionPreflightOwned {
-                        native: session_authority::current(state, env, &observed, true)?,
+                        native: session_authority::current_from_store(
+                            &store, env, &observed, true,
+                        )?,
                         source_operation_id: source.clone(),
                         source_ticket,
                         oracle_ticket,
@@ -164,7 +172,9 @@ pub(crate) async fn dispatch(
                 store
                     .publish_test_session_read(id, *original, || {
                         Ok(TestSessionPreflightOwned {
-                            native: session_authority::current(state, env, &observed, true)?,
+                            native: session_authority::current_from_store(
+                                &store, env, &observed, true,
+                            )?,
                             source_operation_id: source.clone(),
                             source_ticket,
                             oracle_ticket,
@@ -186,7 +196,9 @@ pub(crate) async fn dispatch(
             store
                 .record_test_session_lifetime(id, *original, || {
                     Ok(TestSessionPreflightOwned {
-                        native: session_authority::current(state, env, &observed, true)?,
+                        native: session_authority::current_from_store(
+                            &store, env, &observed, true,
+                        )?,
                         source_operation_id: source.clone(),
                         source_ticket,
                         oracle_ticket: 5,
@@ -202,7 +214,6 @@ pub(crate) async fn dispatch(
             private_sid_generation,
         } => {
             activate(
-                state,
                 env,
                 &store,
                 &saved,
@@ -230,7 +241,6 @@ extern "C" {
     async fn attest(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
 }
 async fn activate(
-    state: &JsValue,
     env: &Env,
     store: &OwnerProvisionApprovalStore,
     saved: &ProvisionApprovalSnapshot,
@@ -250,19 +260,19 @@ async fn activate(
         .reserve_test_session_source_read(id, &descriptor.source_operation_id)
         .map_err(|_| denied())?;
     let started = clock()?;
-    #[cfg(feature = "approval-harness")]
-    let diagnostic = crate::provision_approval_store::native::activation_diagnostic::Trace::new(
-        started,
+    let diagnostic = crate::rejection_diagnostic::Trace::new(
+        env,
+        "activation",
+        Some(started),
         s.sources
             .get(&descriptor.source_operation_id)
             .and_then(|source| source.verification.as_ref())
             .map(|signed| signed.verification.observed_at.0),
     );
+    diagnostic.session(&saved.state, id, Some(&descriptor.source_operation_id));
+    diagnostic.lifetime(&lifetime);
     let report = |stage: &'static str, error| {
-        #[cfg(feature = "approval-harness")]
         diagnostic.fail(stage);
-        #[cfg(not(feature = "approval-harness"))]
-        let _ = stage;
         error
     };
     let attestation_request = serde_json::to_string(&TestSessionAttestationRequest {
@@ -271,16 +281,30 @@ async fn activate(
     })?;
     // These fixed readonly inputs depend only on the same saved originals. Start
     // all three after prepayment; retain the common earliest observation bound.
+    let enrollment = enrollment_id(&s.input)?;
     let (attested, enrolled, observed) = activation_inputs(
-        attest(env, &attestation_request),
-        session_authority::enrollment(env, enrollment_id(&s.input)?),
-        session_authority::runtime_observe(
-            env,
-            saved,
-            request,
-            &descriptor.source_operation_id,
-            false,
-        ),
+        async {
+            attest(env, &attestation_request).await.map_err(|e| {
+                diagnostic.fail("join.attestation");
+                e
+            })
+        },
+        async {
+            session_authority::enrollment(env, enrollment)
+                .await
+                .map_err(|e| report("join.enrollment", e))
+        },
+        async {
+            session_authority::runtime_observe(
+                env,
+                saved,
+                request,
+                &descriptor.source_operation_id,
+                false,
+            )
+            .await
+            .map_err(|e| report("join.observation", e))
+        },
     )
     .await;
     let attestation: TestSessionPrivateAttestation = serde_json::from_str(
@@ -304,8 +328,11 @@ async fn activate(
             world,
             attestation.private_sid_generation,
             descriptor.source_operation_id,
-            || session_authority::approval_current(state, env, &observed, &enrolled, started),
-            #[cfg(feature = "approval-harness")]
+            || {
+                session_authority::approval_current_from_store(
+                    store, env, &observed, &enrolled, started,
+                )
+            },
             &diagnostic,
         )
         .await

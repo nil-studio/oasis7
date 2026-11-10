@@ -44,6 +44,27 @@ Use [reward-pack PRD §7](readme-limited-preview-contributor-reward-pack.prd.md#
 
 `Reward Account` 仅用于实际发放与台账执行；reward review 的名称层继续依赖 `Contributor` / `Public Handle / GitHub`，不用 raw `public key` 作为展示名称。
 
+<a id="recognition-score-worksheet"></a>
+### 2.1 稳定成员与汇总工作表
+
+按[首版评分政策](readme-limited-preview-contributor-reward-pack.prd.md#recognition-score-v1)使用以下附表；政策须由原 producer 明确采纳其版本与适用 round，不能据模板改算历史记录。每个合格独立贡献只取一个 base 和一个 quality；C-07 恒0，缺证/虚假/重复项不因诊断分为正成为 eligible。归属和跨渠道关系按[主记录合同](contributor-recognition-intake-and-review.design.md#recognition-contribution-identity)核实，首次投稿不抢作品归属。
+
+| 成员输入/结果 | 本次记录 |
+| --- | --- |
+| Contribution ID / current revision / 原 Ledger ID |  |
+| Contributor ref / 可核归属与别名 / scope、purpose、window |  |
+| Evidence availability / qualification / blocker |  |
+| Scoring policy version / 单一 base / 单一 q / 本行 s / 本行 band |  |
+| Canonical duplicate/merge/correction refs / 已批准或执行引用 |  |
+
+| Bundle ID / revision | 原 round / purpose / contributor | 完整候选及版本 | 当前合格成员及各自 s/band | 排除/未决/已消费项与理由 | S / 汇总 band | Producer review ref |
+| --- | --- | --- | --- | --- | --- | --- |
+|  |  |  |  |  |  |  |
+
+汇总只是建议，不能写入任何成员的 Recommended Band 或成为额外付款行。60分bug加30分独立文档可得到集合90/large，两行仍为medium与small；+20和+10不可累加，同一成果在多个渠道出现只算一次。同贡献跨round/purpose不能重奖，已批准/发放成员在后继集合列为已消费；补证只用原窗口和后继版本。未决项明确保留，不阻塞可分离的已核成员。
+
+原 actual-value review 下调建议或金额时，保留本表原计算值并追加 producer 决定与理由；不通过编辑旧分值伪造新历史。独立正反例与预期见[RI03](../../testing/manual/contributor-recognition-acceptance.manual.md#contributor-recognition-03-scoring)。
+
 ## 3. Evidence Fields
 Each recommendation should include:
 - `proof_link`
@@ -146,3 +167,5 @@ Forbidden phrasing:
 3. if approved, later treasury / execution owner handles actual distribution
 
 No public promise should be made before producer approval.
+
+接收、审核、批准与执行的玩家表达按[同一读模型](contributor-recognition-intake-and-review.design.md#recognition-feedback-recovery)返回范围、证据可用性、当前状态、blocker及真实下一步；感谢或ready不能代替结果。已批准/发放后失证保留原决定和实际执行，追加当前核查/暂停理由；不得自动追回、追债或重奖。操作时使用[ledger修订模板](readme-limited-preview-contributor-reward-ledger.md#recognition-ledger-records)，不覆盖历史轮次。

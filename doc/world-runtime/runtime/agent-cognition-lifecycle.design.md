@@ -363,6 +363,15 @@ scheduler consumes the old schedule before creating the next one, so a stale wak
 
 The Agent-owned DecisionRequest contract defines request_digest using a versioned canonical input encoding. Runtime verifies the declared binding and does not re-hash request fields under a competing schema. Runtime-owned records use the shared v1 registry: BLAKE3-256 over RFC 8949 deterministic CBOR `[domain, payload]`, rendered as `blake3:<64 lowercase hex>`. Arrays are sorted only when their schema declares order-insensitive semantics; maps use canonical key order; optional values have explicit presence tags; no floating wall-clock or provider trace value enters a world-effect digest. The v1 parent world hash is `H_v1("oasis7.runtime.world-state.v1", canonical({world_id, branch_id, finality_epoch, finality_block_hash, finality_status, logical_tick, state_root, reorg_epoch, runtime_manifest_hash}))`; production MVCC requires a versioned state_root and trusted typed branch/finality binding. The algorithm self-test is `BLAKE3-256(empty) = af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262`; P0.1 additionally requires one complete shared request/envelope golden fixture.
 
+<a id="devlocal-pending-bootstrap-authority"></a>
+### DevLocal pending bootstrap 的权威来源
+
+Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；承接 [AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) 的当前原生准入校验。
+
+已由可信世界初始化入口持久化的 `runtime_binding` 是 DevLocal 的显式 bootstrap 绑定。尚无 capability authority record 且该绑定为 `pending`、无 finality hash 时，准入须逐字段匹配当前规范世界保存的 world、branch、finality epoch/status/hash 和 reorg epoch；缺失、损坏或不匹配均拒绝，不能从请求自行推导或补齐。该路径仍执行当前 TaskFence、能力、保留 reorg 历史及严格 MVCC 检查，不授予额外业务权限。已知 reorg 失效标记尚未通过显式新绑定消除时，仍保存的旧 binding 只作历史，必须拒绝新准入。相同旧 tuple 的幂等重绑也不能消费该标记；只有严格升代且匹配已授权 reorg epoch 的显式绑定才能完成重绑。
+
+Tick header 的 `epoch=tick/360` 是模拟 tick 分段；V2 `chain_epoch` 是链共识调度周期。二者的正常推进均不能替代上述持久 finality 绑定，也不自行构成 reorg。存在 capability authority record 时继续以其真实 world/branch/finality 证明校验；已有 verified/hash 绑定不得降级为 bootstrap。真实绑定、branch、hash 或 reorg 变化继续使旧输入失效。此规则不修改已签原件或将原 unknown 操作换 nonce 重发。
+
 Harness `runtime_binding.branch_id/finality_epoch/finality_block_hash/finality_status/reorg_epoch`
 is represented at the Runtime boundary by the same `FinalityBindingV1` names and ordering (no new
 wire alias):

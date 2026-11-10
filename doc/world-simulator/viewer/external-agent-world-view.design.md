@@ -23,6 +23,7 @@ Runtime拥有世界、控制版本、观察资格、admission及持久结果；A
 
 | 上游 requirement / product AC | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251；[REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) | WorldView负载下本地可见接受、selected确认和网络完成分别可核，原预算不变。 | [本地反馈测量](#view-local-feedback-measurement) | Viewer反馈所有者/QA、真实意图及可见帧观测。 | DOM状态/设计不代签可见时延、网络完成或P6。 |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001) | 世界/目的/blocker/下一步与原结果可读，选择不改归属。 | [共享舞台](#view-scene) | Viewer/visual；Runtime因果。 | 局部HUD/截图不证明真人理解。 |
 | Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；[AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002) | 来源/时效、冲突、旧响应、撤权与生效重验闭环。 | [观察到生效](#view-admission) | Runtime/API Context、fence、授权与原操作。 | Viewer不另建真值裁决/admission。 |
 | Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；[AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003) | 多尺度探索、partial适配、跟随/返回与有界密度。 | [探索查询](#view-query) | 授权空间投影、Rust/renderer、QA。 | 地形LOD不等于完整semantic zoom或已测容量。 |
@@ -35,6 +36,8 @@ Runtime拥有世界、控制版本、观察资格、admission及持久结果；A
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | 四层事实各有来源/时效，回访不复活或重做执行 | [view-runtime-results](#view-runtime-results) | task/fence、driver、observer 与原结果 authority | 不以页面或健康检查代签独立 Runtime |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 外部用量与世界投入/占用按原来源显示，当前读权失效清私有投影 | [view-runtime-results](#view-runtime-results) | adapter cost、业务 receipt/ledger、读取权限 | 不另算事实总账或承诺完整账单 |
 | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | renderer 失败保留获准文本/原操作，安全恢复不重放指导或效果 | [view-recovery](#view-recovery) | 可信资源、当前 audience、原 operation 与逐端 host | 不从 renderer 恢复推导后端/Runtime/另一端就绪 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | 通用 pending/未知及拒绝、过期、重规划和已生效分别可读，安全下一步不重提原件 | [view-intent-results](#view-intent-results) | API SR2 目标映射、Runtime decision/proof 与当前读权 | 不把当前五态 UI 或 Chat 替代升级为通用实现，不新增撤回动作 |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | 各原成员与获权前驱/胜者关系分别可读，旧终态不被后来的 winner 改写 | [view-intent-results](#view-intent-results) | API SR2 目标映射、Runtime decision/proof 与当前读权 | 不把当前五态 UI 或 Chat 替代升级为通用实现，不新增撤回动作 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -64,6 +67,17 @@ Owner guidance -> existing owner API -> Runtime admission -> original receipt
 Viewer不拥有第二资源账本、任务完成规则或admission。外部executor的私有observation不能广播给Viewer；按audience投影。图形输入只含绘制所需获准字段，token/模型Key/私有prompt/其他主体内容不进render DTO、DOM probe或日志。
 
 观察焦点只控制浏览；原操作固定world/Agent/task/goal与操作身份；回执按原身份关联，缺绑定不借active_agent_id。具体映射见[主体绑定](viewer-pixel-world-player-readable-rendering.design.md#subject-binding)。目的/blocker/下一步与原结果的可读性按[质量预算](#view-quality)及专项首读验收，TaskContextPanel不能取代世界舞台成为诊断面。
+
+<a id="local-terrain-source-proof"></a>
+### 本地生成地形来源证明
+
+#5558 的本地生产路径仅在未连接 world service 且未启用 chain link 时，使用启动阶段已加载的 seed_model 作为本地生成地形 authority。它与 Runtime state 的空间证明分开：只提取每个 Location 的 id、name、pos、profile.radius_cm 与 fragment_profile.blocks，不包含资源账本、私有字段或新能力。获准 current 地形记录不附带未被该来源证明的 resources；缺资源保持未知，不填零，也不借地形时效提升库存事实。原始地形来自实际生成源，不在 Viewer 中合成或猜测。
+
+SourceAuthority 私有保存各地点上述字段的摘要，摘要集合进入 source cut key；来源种类/版本进入 scope，世界和 audience 仍沿原 cache 身份。投影候选必须同时通过原 Runtime snapshot 验证，并与该地点的生成源摘要完全相等，才以 local_generated_terrain_cut/current 发出获准 fragment 字段。缺源、位置或组成被改写、来源失效、world/epoch/audience 切换均不得借旧 current 结果；切换或拒绝后消费者沿原清理合同回收图块。摘要仅为同进程本地来源绑定，不是远端签名、用户授权凭据或公开资源承诺。
+
+远端 verified Runtime cut 不包含 simulator fragment，不能把运行态签名或本地 sidecar 旁路当成远端地形证明；没有服务明确交付且验证过的 terrain 来源时保持 unknown，不输出可绘制 fragment。新增远端地形证明不在本次实现范围。位置精度与组成仅为观察，不声明可采量、库存、道路或建造能力。
+
+验收覆盖同源正常、单字段位置/组成改写、缺源、seed 地形变更后的 cut 失效，以及 remote/unknown 调用不能获取本地证明；真实素材/GPU与组合仍由 #5558/#5555 后续承担。Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3。
 
 <a id="view-adapter"></a>
 ### 4.2 当前链路到WorldView的适配
@@ -95,6 +109,19 @@ Viewer不拥有第二资源账本、任务完成规则或admission。外部execu
 
 选择/跟随绑定world/entity/selection generation。显式跟随只消费当前可信位置；手动浏览退出跟随，失效暂停，恢复数据不自动抢回camera。重叠候选列表、聚合下钻、返回总览/主目标都只改读状态；目标无位置则返回合法文本，不用fallback坐标。
 
+<a id="overview-query-fit"></a>
+**显式总览当前查询结果。** WorldView按钮明确命名“总览当前查询结果 / Overview query results”，只对当前获准查询的结果范围操作，不宣称已看见全世界。按钮不清空搜索、不同时启动另一查询；修改搜索/范围仍走独立查询操作。`world_bounds`提供坐标域，不证明当前查询覆盖或隐藏对象范围，不能把它冒作完整结果集合。
+
+一次显式总览有独立用户导航代，和world/当前scope及authority、来源cut、查询代分别绑定。当前结果为可信、未冻结的complete且具有可拟合位置时（含已验证的聚合中心或事件锚点，历史锚点仍为历史，不转成跟随位置；不让装饰热点改变查询范围），消费一次并拟合该完整集合；导航不借旧snapshot、旧位置或另一查询补全。partial仍在读取时，最多保留一份有界待检查总览，保持原相机并明确显示“查询尚未完成”；同一查询的完整合法结果到达后才一次拟合。原查询终止仍partial（包括累计cap/字节预算）、完整性unknown、错误/陈旧/冻结或完整集合无可拟合位置或显示预算已省略几何marker时，明确总览不可用并保持相机，不无限pending；等待上限沿原查询30秒。该按钮不额外提供或暗含“仅总览当前局部页”的行为。
+
+新导航/显式选择/查询变更、用户手动相机、scope/authority/cut/reorg变化或卸载使旧总览意图失效，晚页不能抢回相机。自动分页、相机状态/viewport回报不是新的用户导航或手动相机代；自动回报不得被误报为手动取消。完成总览所产生的正常viewport查询仍可按原调度更新，但后台partial/full、增量或相同导航代不得重新拟合或形成查询循环。
+
+新合同由 navigation.overview_query.version=1 显式启用，记录公开查询绑定；该字段已声明但为null、版本未知或缺必要绑定时拒绝，不降级legacy。对应RenderState的overview_query_context保留同一绑定、completeness、source_frozen及独立display_limited（输入/输出显示marker省略，不冒作查询partial）；本地导航ID按page单调且重挂载不复用。Host到Rust的现代WorldView导航必须保留查询完整性与该导航所绑定的查询身份，异步derive/update不能把完成时的最新view补到旧导航结果。Rust只在匹配绑定且complete的输入上消费该用户导航一次；完整结果派生提交尚不等于Rust已消费：同意图提交到Rust后，原已调度后台刷新可短暂合并等待实际navigation_result（request_id/status/render_version）主Update回报或原30秒期限；该回报不是GPU/呈现fence，不新增读请求。已计划刷新随后按原调度恢复，不能静默让下一自动read覆盖尚未消费的导航；其间新用户操作仍可立即取消。当前render版本、已处理/抑制fit版本不等于实际导航消费/拟合输入版本。调试证据若记录拟合，须区分这些版本及实际输入集合，不能由版本字段反推完成。真正legacy snapshot或旧的无该查询导航元数据输入保留原显式导航行为，不擅自等待不存在的complete字段；已声明现代WorldView查询元数据但缺失/非法完整性则明确unknown/不可用，不能降级冒作legacy。Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf。
+
+#5605：同scope已呈现目标在新查询partial暂缺，不等于删除。Host可为该呈现绑定下的只读点击登记至多一份待检查选择意图，仅保留typed identity、world/epoch/audience及用户选择代际；不复制旧实体、坐标或权限事实。等待明确可见，不改变业务主体、原回执或导航。目标经同一有效请求/cut的后页重新证明后才消费一次；不借旧snapshot补事实，不为任意未知ref发pin探测。
+
+完整结果仍缺、错误/不可用、明确删除、换scope/authority/cut/request、更新选择或导航、卸载均终止该意图；等待最多30秒，与现有查询期限相同。自动分页不创建新用户意图，晚包不得覆盖更新操作。本切片只等待原有查询的后页，不新增重读、授权或世界命令；原查询结束仍缺则明确不可用。Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf。
+
 ### 5.2 分页、增量与并发
 
 初始snapshot与resume cursor来自同source cut；page token绑定world/audience/query/projection/cut，失效reset，不能用下一cut补旧页。可渐进显示合法页但始终partial；服务器明确完整且全部页验证完才complete。单页200项/实际编码2 MiB，超大单项明确不可用/资源限制，不截字段假装完整。
@@ -122,6 +149,17 @@ Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7, O7-REQ-c5c90e09-ae74-4d
 费用显示消费[预算与成本来源](../llm/external-agent-runtime-adapter.design.md#adapter-budget)：外部实际 token/工具/币种、估计及未知分开；世界资源按原业务身份、payer、单位和 reserved/consumed/released 阶段显示。Viewer 不从余额差或模型摘要另算事实总账，不叠加重放行或把控制 ACK 当生产消耗。未确认总额如实标未知；外部费用或资源余量不形成继续执行许可。
 
 执行失权后按当前读取权限保留可读原结果。读取也失权时清除私有图形、文本、费用、搜索及在途旧响应；原结果在权威历史保留不等于当前页面仍有权展示。owner 可沿原受保护路径核对，不能由 Viewer 借新 token 或最新选中 Agent 自动接管。超限、分页未完、受众/切点变化和来源缺口按[分页与代际](#view-query)及[恢复](#view-recovery)处理；关键结果不可静默裁掉后宣称完整。
+
+<a id="view-intent-results"></a>
+#### 通用 intent 的独立处置与关联
+
+本节是 [API SR2 结果映射](../llm/external-agent-game-api.design.md#api-intent-results) 的待实施消费者，只在该真实能力和 schema 已协商时使用。现有原生任务/Gameplay/Chat/Prompt 等原结果仍按各自合同，不能把当前控件或五态 registry 当作已接入这组新态。
+
+当前原操作保持自身 world/Agent/task/goal 与 operation/intent 的来源关联，分别表达“等待权威结果”“结果待恢复确认”“已提交的原效果”“被拒绝”“已过期”“需要重新规划”“本请求无效果终止”及真实原因。已提交仍保留业务后续阶段；无效果终止不写成全部关联请求取消。过期须来自权威决定，不能由页面倒计时产生；查询/读取失败也不能替原请求生成终态。
+
+原成员始终保留自己的结果卡/结构化项。linked replacement 或 withdrawal 以只读“关联原请求”入口连接其直接前驱；exclusive loser 以只读“生效的关联请求”入口连接已验证 winner，不覆盖原卡。对 available 关系才显示其真实原对象与状态；not_readable 只说明当前无法读取关联详情，history_unavailable 说明原关联资料不可得，两者不泄漏 ID/hash/私有原因，也不推断没有关联。单次不展开整条 lineage；打开下一原件仍执行当前读权，跨主体、分支和迟到响应按原 scope 隔离。
+
+查看、等待、返回目标与原结果回查都是原合法只读路径；需要新计划时回到当前目标/能力，只有 domain 已支持且当前有权时才展示其明确撤回/替代入口。状态变更、关闭页面、停止 Runtime 或关系卡点击不自动重提、换 nonce、启模型或释放费用/资源。API 能力未支持或原件不足时显示具体阻塞，保留原请求身份与安全返回，不用旧 pending 徽标掩盖新态。pure_api 使用同一原语义；Web/native 的文本、关系导航和恢复各自按 [IR01–06](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) 验证。
 
 <a id="view-admission"></a>
 ### 5.4 从观察到生效的权威重验
@@ -284,6 +322,17 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 
 单页最多200项、实际编码响应2 MiB；单视点累计1000实体投影、突出200labels。目标/选中/blocker/相关路线优先；超限授权聚合/分页并partial，不无声吞掉关键对象。详情可独立查但画布不无限扩容；关系端点和聚合成员负载分别记录。
 
+<a id="world-view-render-density-profile"></a>
+#### 授权投影显示 profile
+
+#5596 将上述查询累计容量落实为独立的 `world_view` 显示 profile，而非扩大旧 snapshot profile。桥接字段 `display_profile` 仅允许 `legacy_snapshot_v1` 与 `world_view_v1`；缺省仍为旧profile，Host仅在既有 `worldView` 对象投影入口写入 `world_view_v1`，Rust只在显式 `world_view_v1` 时要求有效worldView对象；省略或 `legacy_snapshot_v1` 即使带旧worldView仍走500/100/256 KiB，不自动扩容。未知或null profile拒绝，新world profile缺少worldView对象拒绝；profile 不是能力协商、授权凭证、完整性或 freshness 证明。既有 scope/cut/分页、授权过滤、unknown/stale/revoked 规则先执行，不能借旧 snapshot 填满显示数量。没有 worldView 的旧输入仍受 500 marker、100 visible label、每方向256 KiB约束。
+
+`world_view` profile 的 Host→WASM 与 WASM→Host 各自实际 UTF-8 JSON 上限为2 MiB（独立的显示传输上限，不将查询单页2 MiB视为全部累计结果可无界复制），最多1000个普通可见 marker、200个可见canvas label、每label128 Unicode标量。集合最多1000项、深度16、字符串8192个UTF-16 code unit、复制节点131072；普通对象字段数仍最多500，关系集合独立有界且不能借端点依赖突破查询累计1000项。JS白名单复制与Rust输入/输出独立复核profile和各自边界，未知profile或与入口不一致拒绝；不接受自由数值cap。先完成受限JSON解析/结构校验，再派生场景，超大输入不得先无界派生。
+
+容量是上限，不是为凑数补充未知事实。保留选中/目标/blocker及位置依赖的既有确定性顺序；字节或节点不足时缩减可选marker与装饰，记录实际source/projected/omitted数量及原因。必需语义无法容纳则明确unavailable，不截断JSON、不静默丢关键结果。label先遵守各生产者zoom/碰撞/权限可见性，再按同一优先顺序实施200全局预算；不能强行把隐藏label计作已显示。切回旧入口、删除、撤权、清空和重建必须同时恢复相应预算并清理旧命中/背板。
+
+此profile不改变世界尺度、LOD、授权、写命令、Targets完整授权列表或性能预算；实际1000 marker/200 label仍需可观察计数与真实绘制验证，cap常量不能代签负载或可读性。正式目标机A/B、网络/查询、输入与世界帧间隔仍按下节和父项验收，缺外部设备不阻塞profile的边界实现及局部实测。
+
 服务端有界空间索引、先授权后聚合；客户端合并读请求、有限cache、静态reconcile与动画分离。50000对象是测试世界规模，不是每帧传/画50000。洪泛不能阻塞输入、退出跟随、stop、原结果查询。
 
 密度先退次级标签/背景；确定性散布不证明重叠可用，还需候选选择。关键状态有非颜色信号；派生位置不作可执行距离依据；5秒首读与误归因测试按专项手册，模型审读不代替真人/L5。
@@ -297,12 +346,45 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 | 核心目标/反馈/恢复UI可操作 | A冷P95≤3 s；B≤5 s。 | 从认证已完成的导航起，不等待可选renderer；登录另计。 |
 | 首个真实可交互世界帧 | A冷P95≤20 s、热≤5 s；B冷≤90 s、热≤10 s。 | 含payload下载/编译、snapshot、派生、首帧；实际字节冷/热分别报，不把占位/DOM算世界帧。 |
 | 有界query服务耗时 | P95≤300 ms。 | 50000对象授权scope；网络/响应体与e2e另报，不以热缓存替冷索引。 |
-| 本地选择/退出跟随/stopUI反馈 | P95≤100 ms；无连续1 s输入无响应。 | 只是UI接受，不等于网络/Runtime完成。 |
+| 本地选择/退出跟随/stopUI反馈 | P95≤100 ms；无连续1 s输入无响应。 | 只是UI接受，不等于网络/Runtime完成；端点分层见[本地反馈测量](#view-local-feedback-measurement)。 |
 | 连续平移/缩放帧间隔 | P95≤33.3 ms，P99≤100 ms。 | 1000实体/200labels、前台交互；静止按需和后台节流分开。 |
 | 应用可归因缓存 | ≤64 MiB且有对象上限。 | renderer/进程/WASM/GPU另测；LRU不删权威结果或留旧权限。 |
 | 30分钟长稳 | 无崩溃/旧命中；稳定同负载末窗口内存较初窗口增长≤10%。 | GC和测量方法明确，未知分量不以JS heap代替。 |
 
+<a id="view-retention-observation"></a>
+客户端保留观测只读当前实例/本地代际：分别统计已发布view与changes、仍活跃分页的entities/relations/aggregates/events Maps和cursor集合，不能假称已有LRU。统计只返回计数、逻辑JSON UTF-8字节和采集成本，不返回ID、文本、scope凭据或DTO副本；旧代际异步查询不计作当前scope数据；清除统计引用不代表已取消异步闭包或释放其Maps，transport完成前的旧inflight残余内存记unknown，不据active=false宣称实际缓存清空。逻辑编码字节不是实际堆分配，重复引用的逻辑编码与对象去重计数分列。JS heap、WASM线性内存、renderer/GPU和owned进程RSS各自采集或unknown，不求和冒充精确总量。长期工具流式写有界数字收据，不积累全DTO/大trace；预热后初末同负载同阶段比较，不在末端GC、清缓存或reload制造下降。30分钟/M3/16GiB结果仍不代签正式A/B或P5/P6。 可用本地实例/范围序号、当前query匹配和已知source_cut比对布尔校验观测阶段，序号不是权威epoch；便宜stamp不遍历DTO或触发新query。heap/DOM读取前后应括在相同阶段：同scope/cut正常轮询跨读则原值保留并标unknown，不重新抽样挑低值，初末窗口有该项不得只取已知子集求中位数；实例/范围/页面、身份或实际负载丢失则停止。逻辑编码/对象/保留容量只作趋势，已知内存分量超过既有10%须保存raw后非零，缺项不能签整体预算。
+
 实测失败先报告/修复或缩小支持范围；改预算须同fixture证据和owner决定，不临时放宽。方法见[专项性能验证](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-performance)。这些不是新通用CI gate，文档PR不需GPU/付费模型。
+
+<a id="view-local-feedback-measurement"></a>
+### 9.3 本地接受与选择确认的测量
+
+本节解释9.2既有本地UI预算，不改阈值或授权范围。上游是 [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) / AC（Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251）；[5.1](#view-query)的待检查选择仍沿 O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf。通用发行的[连续交互预算](viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-verification)与本专项按profile和端点分别报告，不用通用预算替代WorldView预算。
+
+当前观测切片仅定义只读选择。退出跟随及stop继续保留9.2预算，但分别沿原导航和原operation身份单独设计验证；选择pending不代表stop已接受或世界已停止。
+
+| 端点 | 可表达的事实 | 判据与报告边界 |
+| --- | --- | --- |
+| 本地接受状态 | 对本次输入显示pending、已选择或明确不可用。 | 只是DOM状态接受时间；单独不足以证明反馈可见或达到9.2预算。 |
+| 首个本地可见响应（ACK） | 同一输入意图已被UI处理，玩家获得可辨的等待、选择或拒绝反馈。 | 9.2的本地UI接受预算适用于此列；结果类型分别报告，拒绝不写成选择成功。必须有匹配身份与可见帧证据。 |
+| 选择确认 | 对象由当前获准读模型重新证明并成为实际选择。 | 继续保留原strict selected的DOM、同目标EventTiming及额外rAF列、阈值和unknown；pending不算selected，不能把ACK列的通过复制到本列。 |
+| 网络/世界完成 | 后页、真实操作/回执或Runtime结果完成。 | 沿原请求/主体/操作身份另报，不把UI接受当作完成或改写原结果。 |
+
+只从下一轮事先注册的测量计划使用ACK列；旧样本和旧strict selected结论原样保留，不能事后挑较快的端点重算。ACK合格与strict selected unknown可以并列，不由此宣布P6整体通过。所有计划输入保留，未送达、错误目标、关联缺失、时钟/可见性未知分别记录，不补零、不静默丢弃。
+
+ACK单项结论不改变既有selected runner的退出码；若新探针只验ACK，必须显式声明组件scope，不能冒充完整P6 gate。已经选中的对象被再次点击也不能因状态原已为true记零时延；该类幂等输入要么在计划中单列处理证明，要么明确未测。
+
+ACK必须绑定实际可信输入的typed ref、world/当前scope代及显式用户选择代际，沿同一page/timeOrigin。分页请求代不能充当用户意图代；新选择、导航、换scope或卸载终止旧关联。若需补只读观测字段，只能由真实输入/状态所有者发布本地关联，不接受工具写入的token，不保留旧实体/坐标/权限事实，不新增读取、pin、grant或世界命令；不输出私有authority key。现有泛pending文案或role=status本身不提供此完整证据。
+
+可见响应必须相对输入前有可辨的反馈变化。新的局部代号或DOM属性、仍在显示的旧pending徽标、无变化的Selected旧对象均不能单独给新输入记成功。连续两个pending意图若只有不可见metadata变化而画面相同，后一输入的可见ACK为unknown；需要新的目标提示时作为后续独立UI实现，不用测试字段伪造可见变化。反馈的目标来源仍限于5.1已呈现证明。
+
+观测分两步。先以冻结候选实际shell核对反馈状态、关联、文本范围、viewport/clip、祖先display/visibility/opacity及遮挡；另在非计时校准中以实际字形正控、A/A稳定对照和透明/遮挡负控固定字形区域、噪声与覆盖判据，不能拿背景变化或一个变化像素证明语义可见。计时路径不复制状态节点、不改文本/样式、不隐藏目标或产品HUD、不暂停rAF/renderer、不强制绘制。
+
+随后只做有界可见帧能力核对：保存当前浏览器协议/trace字段和实际合成图像，用可核验的同帧关系及前后时钟锚将图像时间限定到输入的performance时基。不能把Paint、DrawFrame、截图API返回或rAF自动等同物理呈现；未验证图像/正常产生的帧/时钟关联时，可见时延保持unknown。图像证据还须落在同意图、同scope反馈状态未改变的完整时间区间；区间跨意图或不同scope不借用。采集开销单列，不从时延扣除，trace诊断不自动代签无trace预算窗口。
+
+稀疏图像只能给出已经可见的上界，首个捕获帧不自动是首次可见帧；缺帧区间不能用来推迟下界或证明此前没有响应。时钟或覆盖不足的下界保留unknown。
+
+对新ACK列保存逐样本可见时间上下界及未知原因；仅在全部必需样本可关联、可见且P95上界及连续无响应情况满足9.2时报告该列合格。P95下界已超过预算才称已证超标；区间跨阈值或任一样本未知均不签通过。原strict selected的判法不因本规则改变；EventTiming target=null仍按原判据unknown，禁止仅凭时间戳补目标。具体短场景和实施前置见[专项手册](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-local-feedback-measurement)。
 
 ## 10. 兼容、迁移与回滚
 
@@ -318,6 +400,7 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 
 | 上游 requirement / AC | 本设计条款 | 独立 obligation 与条件 | 验证方法 / source / scenario / environment | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251；[REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) | [本地反馈测量](#view-local-feedback-measurement) | 可见ACK、selected确认及网络完成分列，原预算/unknown不改 | [PW-PERFORMANCE](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-performance)与事先注册的短关联/可见帧能力核对 | 原始输入/反馈代际/图像与时钟区间、旧样本独立保留 | 设计/DOM属性不代签可见帧、P5或P6 |
 | [AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001) | [共享舞台](#view-scene) | 首读/原归属和ambient分离。 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)及PW-READABILITY，Rust/host与真实S6同候选。 | 原操作/DTO/图像/回答分层记录。 | DOM/模型不证明真人理解。 |
 | [AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002) | [观察到生效](#view-admission) | 来源/冲突/过期/撤权与原结果恢复。 | [PW-FRESHNESS](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-freshness)，确定性竞争+真实API/Runtime临时世界。 | 显示cut、原operation、权威原因和前后结果。 | fake authority不证明接线。 |
 | [AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003) | [探索查询](#view-query) | partial/cut/空间适配、完整旅程与密度质量。 | [PW-PROJECTION](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-projection)、PW-EXPLORATION、PW-PERFORMANCE，固定世界/build/设备。 | 页集合、删除/淘汰、交互及实测帧/内存。 | helper阈值不证明像素/容量。 |
@@ -330,6 +413,8 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | [view-runtime-results](#view-runtime-results) | 四层事实各有来源/时效，回访不复活或重做执行 | [adapter-liveness](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-liveness)；LV01–LV06；声明 viewer/pure_api，Web/native 独立环境 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不以页面或健康检查代签独立 Runtime |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [view-runtime-results](#view-runtime-results) | 外部用量与世界投入/占用按原来源显示，当前读权失效清私有投影 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；BG01–BG06；原成本去重、未知和执行/读取资格各自变化 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不另算事实总账或承诺完整账单 |
 | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | [view-recovery](#view-recovery) | renderer 失败保留获准文本/原操作，安全恢复不重放指导或效果 | [viewer-guidance](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-guidance)；boot/context-loss/断连、显式重试、换主体/撤权与迟到响应；正式 Web/native 分开 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不从 renderer 恢复推导后端/Runtime/另一端就绪 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | [view-intent-results](#view-intent-results) | 原请求真实处置、未知与未支持分别显示，导航和重连无新效果 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR01–03/06；同候选实际 Web/native 与原 API，双主体/双序/重启/旧响应 | 原结果 proof/当前读权、各表面文本和关系导航、零隐式重提/取消记录 | 目标未实施；API fixture 不代签真实界面，关系显示不证明底层仲裁 |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | [view-intent-results](#view-intent-results) | 原成员/前驱/胜者的真实关系和当前读权分别成立，关联导航无新效果 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR02–06；同候选实际 Web/native 与原 API，双主体/双序/重启/旧响应 | 原结果 proof/当前读权、各表面文本和关系导航、零隐式重提/取消记录 | 目标未实施；API fixture 不代签真实界面，关系显示不证明底层仲裁 |
 
 补充验证 [5.6](#public-feed-history-source)：固定同一 world/epoch，比较历史与实时公共事件身份、顺序和允许字段；以历史不可用、真实空窗口、分页未完及换源测试不同展示；用合成 canary 检查匿名/A/B 的公共 DTO 与错误均无私有内容。重连覆盖旧 socket 迟到、新 hello 后首读失败/重试、当前首 snapshot 接纳和 scope 变化，断言 stale 到 ready 的条件及零副作用重发。此映射尚待确定性回归与真实 Viewer 同候选验证，不证明实现完成。
 

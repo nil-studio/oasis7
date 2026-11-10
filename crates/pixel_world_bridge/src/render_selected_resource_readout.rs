@@ -113,7 +113,15 @@ pub(super) fn reconcile_selected_resource_readout(
     let visuals = resource_readout_visuals(
         &readout.display,
         canvas_x,
-        resource_readout_canvas_y(canvas_y, height, reserve_priority_cue_lane),
+        resource_readout_canvas_y(
+            resource_readout_anchor_y(
+                canvas_y,
+                _target_kind,
+                f64::from(agent_pixel_scale(width, height).y),
+            ),
+            height,
+            reserve_priority_cue_lane,
+        ),
         width,
         height,
         reserve_priority_cue_lane,
@@ -424,4 +432,22 @@ mod tests {
         }
         assert_eq!(visible.chars().count(), RESOURCE_READOUT_MAX_CHARS + 1);
     }
+}
+
+fn resource_readout_anchor_y(foot_y: f64, kind: &str, pixel_y: f64) -> f64 {
+    // Agent top is fifteen authored logical pixels above its shared foot.
+    // Preserve the original native-text lane gap as the glyph grows.
+    foot_y
+        - if kind == "agent" {
+            15.0 * (pixel_y - 1.0).max(0.0)
+        } else {
+            0.0
+        }
+}
+
+#[test]
+fn agent_resource_readout_lane_follows_scaled_sprite_top() {
+    assert_eq!(resource_readout_anchor_y(1080.0, "agent", 6.0), 1005.0);
+    assert_eq!(resource_readout_anchor_y(1080.0, "location", 6.0), 1080.0);
+    assert_eq!(resource_readout_anchor_y(1080.0, "agent", 0.5), 1080.0);
 }

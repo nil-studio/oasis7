@@ -1,7 +1,7 @@
 //! Bound the serialized display result without changing the source world.
+use super::super::display_profile::DisplayProfile;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-const MAX_BYTES: usize = 256 * 1024;
 const MARKERS: [(&str, &str); 6] = [
     ("agents", "agent"),
     ("locations", "location"),
@@ -13,6 +13,15 @@ const MARKERS: [(&str, &str); 6] = [
 const DECORATIONS: [&str; 3] = ["links", "social_links", "fragment_terrain"];
 
 pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
+    let profile: DisplayProfile = serde_json::from_value(
+        input
+            .get("display_profile")
+            .cloned()
+            .unwrap_or_else(|| json!("legacy_snapshot_v1")),
+    )
+    .map_err(|e| e.to_string())?;
+    let max_bytes = profile.bytes();
+    let max_markers = profile.markers();
     if let Some(budget) = input.get("display_budget").filter(|v| v.is_object()) {
         state["display_budget"] = budget.clone();
         if let Some(count) = budget["source_counts"]["agents"]
@@ -26,7 +35,10 @@ pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
         .iter()
         .map(|(field, _)| state[field].as_array().map_or(0, Vec::len))
         .sum();
-    if count <= 500 && serde_json::to_vec(state).map_err(|e| e.to_string())?.len() <= MAX_BYTES {
+    if count <= max_markers
+        && serde_json::to_vec(state).map_err(|e| e.to_string())?.len() <= max_bytes
+        && profile.validate_structure(state).is_ok()
+    {
         return Ok(());
     }
     let mut essential: BTreeSet<String> = input["display_budget"]["required_entities"]
@@ -80,22 +92,31 @@ pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
         }
     }
     state["display_budget"]["output_omitted_markers"] = json!(count);
+    state["display_budget"]["output_projected_markers"] = json!(0);
     state["display_budget"]["output_omitted_decorations"] = json!(omitted_decorations);
-    state["display_budget"]["output_reason"] = json!("byte_or_marker_budget");
+    state["display_budget"]["output_reason"] = json!("byte_or_marker_or_structure_budget");
+    let mut remaining_nodes = profile.nodes() - profile.structure_cost_at(state, 0)?;
     let base = serde_json::to_vec(state).map_err(|e| e.to_string())?.len();
-    let mut remaining = MAX_BYTES
+    let mut remaining = max_bytes
         .checked_sub(base + 128)
         .ok_or("pixel world required display capacity exceeded")?;
     entries.sort_by(|a, b| (&a.0, a.1, &a.2).cmp(&(&b.0, b.1, &b.2)));
     let mut retained = 0;
     for (optional, field, _, value) in entries {
         let bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() + 1;
-        if retained < 500 && bytes <= remaining {
+        // Marker values are at root -> array -> value depth. Charge each
+        // subtree once, avoiding a full-scene scan for every optional marker.
+        let nodes = profile.structure_cost_at(&value, 2).ok();
+        if retained < max_markers
+            && bytes <= remaining
+            && nodes.is_some_and(|nodes| nodes <= remaining_nodes)
+        {
             state[field]
                 .as_array_mut()
                 .ok_or("invalid display marker array")?
                 .push(value);
             remaining -= bytes;
+            remaining_nodes -= nodes.expect("checked structure cost");
             retained += 1;
         } else if !optional {
             return Err("pixel world required display capacity exceeded".into());
@@ -103,7 +124,7 @@ pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
     }
     state["display_budget"]["output_omitted_markers"] = json!(count - retained);
     state["display_budget"]["output_projected_markers"] = json!(retained);
-    if serde_json::to_vec(state).map_err(|e| e.to_string())?.len() > MAX_BYTES {
+    if serde_json::to_vec(state).map_err(|e| e.to_string())?.len() > max_bytes {
         return Err("pixel world display output capacity exceeded".into());
     }
     Ok(())

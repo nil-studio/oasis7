@@ -1,6 +1,6 @@
 # Oasis7 Agent Entry Point
 
-通用规则见 [开发流程规范](doc/engineering/workflow/source-of-truth.md)。主执行者负责分析、实现、自测和组织适用评审，并在满足规范、必要检查及用户授权后推进合入和交付；专业协作按复杂度与风险使用。
+通用规则见 [开发流程规范](doc/engineering/workflow/source-of-truth.md)。简单任务由当前会话完成；并行代码开发默认由多个[独立开发会话](doc/engineering/workflow/source-of-truth.md#independent-development-sessions)承接。每个会话负责实现、自测、适用评审和 PR/CI 跟进，满足必要检查及用户授权后交付。
 
 按任务从[工程知识导航](doc/engineering/design.md#task-scoped-engineering-context-design)进入相应模块与检查来源。环境另行提供的 RTK 等个人工具说明只在明确配置且可读取时参考；缺失不阻塞仓库开发，也不覆盖仓库主责规范或当前用户授权。
 
@@ -9,8 +9,8 @@
 - 含子模块的 worktree 清理按开发规范 §5.1，通过 `resource-cleanup-executor.py --allow-submodules` 显式启用有条件例外；不直接用强制删除绕过检查。
 - Cargo 默认使用各 worktree 的本地 `target/`，无需预先准备。日常反馈用开发 wrapper，正式验收保留 canonical 命令和参数。
 - `third_party/` 只读；Rust 工作参考 `third_party/rust-skills/AGENTS.md`。
-- 默认优先[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)，可独立交付的前置尽早提供给依赖方；强耦合改动可原子跨多个 crate。Issue 和 Project 按需使用。
-- 复杂任务先按[任务拆分与并行开发](doc/engineering/workflow/source-of-truth.md#parallel-task-development)梳理依赖、写入范围和集成验收，使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 分派已就绪子任务；任务拆分不等于拆 PR。
+- 默认优先[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)，可独立交付的前置尽早提供给依赖方；强耦合改动可原子跨多个 crate。未拆分的简单修改可直接用 PR，Project 按需使用。
+- 复杂任务先按[任务拆分与并行开发](doc/engineering/workflow/source-of-truth.md#parallel-task-development)梳理依赖、写入范围和集成验收；拆出的开发任务须建立 [GitHub 原生 sub-issue](doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)，使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 按子 Issue 领取并在独立会话中推进。派发前核对[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)，局部自测随本项交付，任务拆分不等于拆 PR。
 - 仓库文档及 Issue、PR、评审和交接文字遵循[语言与写作要求](doc/engineering/workflow/source-of-truth.md#language-and-writing)。
 - 问题根因确认后，先按[设计检查与修复](doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：有缺陷先补受影响文档再修实现；纯实现 bug 直接修复验证，不强制改正确设计。
 - 新增或实质修改的跨层要求按[要求追踪规范](doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)关联唯一声明、适用设计与当前 PR：复用同一要求的 Trace ID，不把它当任务身份或准入条件，不为简单编辑虚构要求或补齐三层。

@@ -102,52 +102,79 @@ pub(crate) async fn run(
     admission: TestSessionClientAdmissionRpc,
     op: SessionClientOperation,
 ) -> Result<String> {
-    // Metadata requires its own paid lane; never fall through to Control/Native.
-    if matches!(op, SessionClientOperation::ToolNonce) {
-        return Err(js_denied());
-    }
-    let _: serde_json::Value = rpc(env, &admission, op, TestSessionClientAction::Admit).await?;
-    if matches!(
-        op,
-        SessionClientOperation::Control(SessionControlKindV1::Finish | SessionControlKindV1::Abort)
-    ) {
-        return rpc_raw(
+    let diagnostic = crate::rejection_diagnostic::Trace::new(env, "client", None, None);
+    let stage = std::cell::Cell::new("unknown");
+    let result = async {
+        // Metadata requires its own paid lane; never fall through to Control/Native.
+        if matches!(op, SessionClientOperation::ToolNonce) {
+            return Err(js_denied());
+        }
+        stage.set("client.admit");
+        let _: serde_json::Value = rpc(env, &admission, op, TestSessionClientAction::Admit).await?;
+        if matches!(
+            op,
+            SessionClientOperation::Control(
+                SessionControlKindV1::Finish | SessionControlKindV1::Abort
+            )
+        ) {
+            stage.set("client.complete");
+            return rpc_raw(
+                env,
+                &admission,
+                op,
+                TestSessionClientAction::Complete { lifetime: None },
+            )
+            .await;
+        }
+        stage.set("client.claim_source");
+        let request: ApprovalVerifyRequestV1 =
+            rpc(env, &admission, op, TestSessionClientAction::ClaimSource).await?;
+        stage.set("client.source_verify");
+        let signed: SignedApprovalVerificationV1 =
+            crate::native_identity::NativeIdentityConfig::from_env(env)
+                .map_err(|_| js_denied())?
+                .ok_or_else(js_denied)?
+                .verify_approval(&request)
+                .await
+                .map_err(|_| js_denied())?;
+        diagnostic.fact(
+            "source_observed_at",
+            Some(signed.verification.observed_at.0),
+        );
+        diagnostic.fact(
+            "source_expires_at",
+            Some(signed.verification.proof_expires_at.0),
+        );
+        stage.set("client.record_source");
+        let _: () = rpc(
             env,
             &admission,
             op,
-            TestSessionClientAction::Complete { lifetime: None },
+            TestSessionClientAction::RecordSource {
+                signed: Box::new(signed),
+            },
         )
-        .await;
-    }
-    let request: ApprovalVerifyRequestV1 =
-        rpc(env, &admission, op, TestSessionClientAction::ClaimSource).await?;
-    let signed: SignedApprovalVerificationV1 =
-        crate::native_identity::NativeIdentityConfig::from_env(env)
-            .map_err(|_| js_denied())?
-            .ok_or_else(js_denied)?
-            .verify_approval(&request)
-            .await
+        .await?;
+        let selector = &admission.http.selector;
+        stage.set("client.manifest");
+        let name = manifest_name_parts(env, &selector.custody_account_id, &selector.provision_id)
             .map_err(|_| js_denied())?;
-    let _: () = rpc(
-        env,
-        &admission,
-        op,
-        TestSessionClientAction::RecordSource {
-            signed: Box::new(signed),
-        },
-    )
-    .await?;
-    let selector = &admission.http.selector;
-    let name = manifest_name_parts(env, &selector.custody_account_id, &selector.provision_id)
-        .map_err(|_| js_denied())?;
-    let reply: serde_json::Value = actor(
-        env,
-        &name,
-        &format!("/internal/client-{}", tag(op)),
-        &admission,
-    )
-    .await?;
-    serde_json::to_string(&reply).map_err(|_| js_denied())
+        stage.set("client.actor");
+        let reply: serde_json::Value = actor(
+            env,
+            &name,
+            &format!("/internal/client-{}", tag(op)),
+            &admission,
+        )
+        .await?;
+        stage.set("client.reply");
+        serde_json::to_string(&reply).map_err(|_| js_denied())
+    }
+    .await;
+    result.map_err(|error| {
+        diagnostic.fail(stage.get());
+        error
+    })
 }
 
 pub(super) async fn response(
@@ -175,88 +202,115 @@ async fn execute(
     admission: &TestSessionClientAdmissionRpc,
     op: SessionClientOperation,
 ) -> Result<String> {
-    let selector = &admission.http.selector;
-    let first = Observation::new(
-        env,
-        selector,
-        rpc(
+    let diagnostic = crate::rejection_diagnostic::Trace::new(env, "client", None, None);
+    let stage = std::cell::Cell::new("unknown");
+    let result = async {
+        let selector = &admission.http.selector;
+        stage.set("client.pre_decrypt");
+        let first = Observation::new(
             env,
-            admission,
-            op,
-            TestSessionClientAction::Observe {
-                index: TestSessionClientObservation::PreDecrypt,
-            },
-        )
-        .await?,
-        1,
-    )
-    .await?;
-    let secrets = private::read(state, env, selector, &first).await?;
-    let second = Observation::new(
-        env,
-        selector,
-        rpc(
-            env,
-            admission,
-            op,
-            TestSessionClientAction::Observe {
-                index: TestSessionClientObservation::PostDecrypt,
-            },
-        )
-        .await?,
-        2,
-    )
-    .await?;
-    if first.fingerprint()? != second.fingerprint()? {
-        return Err(js_denied());
-    }
-    let current = Observation::new(
-        env,
-        selector,
-        rpc(env, admission, op, TestSessionClientAction::ClaimLifetime).await?,
-        3,
-    )
-    .await?;
-    if second.fingerprint()? != current.fingerprint()? {
-        return Err(js_denied());
-    }
-    check(env, selector, &current)?;
-    use crate::native_identity::provision_transport::{
-        NativePrivateRoute, NativeProvisionTransport,
-    };
-    let transport = NativeProvisionTransport::from_env(env).map_err(|_| js_denied())?;
-    let lifetime: SignedManagedNativeSessionLifetimeV1 = transport
-        .request(
-            NativePrivateRoute::SessionLifetime,
-            &serde_json::to_string(&serde_json::json!({"nonce":current.descriptor.lifetime_nonce}))
-                .map_err(|_| js_denied())?,
-            Some(&secrets.cookie),
-            Some(std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| js_denied())?),
-        )
-        .await
-        .map_err(|_| js_denied())?
-        .body;
-    transport
-        .fact_pin()
-        .session_lifetime(
-            &lifetime,
-            &current.descriptor.native_binding,
-            &current.descriptor.lifetime_nonce,
-            current.descriptor.session.native_binding_generation,
-            current.service_epoch,
+            selector,
+            rpc(
+                env,
+                admission,
+                op,
+                TestSessionClientAction::Observe {
+                    index: TestSessionClientObservation::PreDecrypt,
+                },
+            )
+            .await?,
+            1,
         )
         .await?;
-    check(env, selector, &current)?;
-    if lifetime.lifetime.status.session_ref != current.descriptor.session.session_ref {
-        return Err(js_denied());
+        first.diagnostic_facts(&diagnostic);
+        stage.set("client.private_read");
+        let secrets = private::read(state, env, selector, &first).await?;
+        stage.set("client.post_decrypt");
+        let second = Observation::new(
+            env,
+            selector,
+            rpc(
+                env,
+                admission,
+                op,
+                TestSessionClientAction::Observe {
+                    index: TestSessionClientObservation::PostDecrypt,
+                },
+            )
+            .await?,
+            2,
+        )
+        .await?;
+        stage.set("client.fingerprint");
+        if first.fingerprint()? != second.fingerprint()? {
+            return Err(js_denied());
+        }
+        stage.set("client.claim_lifetime");
+        let current = Observation::new(
+            env,
+            selector,
+            rpc(env, admission, op, TestSessionClientAction::ClaimLifetime).await?,
+            3,
+        )
+        .await?;
+        stage.set("client.fingerprint");
+        current.diagnostic_facts(&diagnostic);
+        if second.fingerprint()? != current.fingerprint()? {
+            return Err(js_denied());
+        }
+        stage.set("client.current");
+        check(env, selector, &current)?;
+        use crate::native_identity::provision_transport::{
+            NativePrivateRoute, NativeProvisionTransport,
+        };
+        stage.set("client.transport");
+        let transport = NativeProvisionTransport::from_env(env).map_err(|_| js_denied())?;
+        stage.set("client.lifetime");
+        let lifetime: SignedManagedNativeSessionLifetimeV1 = transport
+            .request(
+                NativePrivateRoute::SessionLifetime,
+                &serde_json::to_string(
+                    &serde_json::json!({"nonce":current.descriptor.lifetime_nonce}),
+                )
+                .map_err(|_| js_denied())?,
+                Some(&secrets.cookie),
+                Some(std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| js_denied())?),
+            )
+            .await
+            .map_err(|_| js_denied())?
+            .body;
+        diagnostic.lifetime(&lifetime);
+        stage.set("client.lifetime_pin");
+        transport
+            .fact_pin()
+            .session_lifetime(
+                &lifetime,
+                &current.descriptor.native_binding,
+                &current.descriptor.lifetime_nonce,
+                current.descriptor.session.native_binding_generation,
+                current.service_epoch,
+            )
+            .await?;
+        stage.set("client.current");
+        check(env, selector, &current)?;
+        stage.set("client.lifetime_scope");
+        if lifetime.lifetime.status.session_ref != current.descriptor.session.session_ref {
+            return Err(js_denied());
+        }
+        stage.set("client.complete");
+        rpc_raw(
+            env,
+            admission,
+            op,
+            TestSessionClientAction::Complete {
+                lifetime: Some(Box::new(lifetime)),
+            },
+        )
+        .await
     }
-    rpc_raw(
-        env,
-        admission,
-        op,
-        TestSessionClientAction::Complete {
-            lifetime: Some(Box::new(lifetime)),
-        },
-    )
-    .await
+    .await;
+    result.map_err(|error| {
+        diagnostic.fail(stage.get());
+        error
+    })
 }

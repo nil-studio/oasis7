@@ -331,7 +331,7 @@ fn compensate_provider_wait_admission(
         }
     }
     if !compensation_errors.is_empty() {
-        sidecar.restore_wait_raw_outcomes(retired_raw);
+        sidecar.restore_raw_outcomes(retired_raw);
         if let Some(proposal) = proposal_backup {
             sidecar
                 .provider_continuation_proposals
@@ -653,7 +653,7 @@ pub(in crate::viewer::runtime_live::control_plane::llm_sidecar) fn admit_provide
                     let retired = sidecar
                         .retire_wait_raw_outcomes(request, cognition.cognition_lease.as_ref())?;
                     if let Err(error) = sidecar.persist_provider_lineage() {
-                        sidecar.restore_wait_raw_outcomes(retired);
+                        sidecar.restore_raw_outcomes(retired);
                         return Err(error);
                     }
                     Ok(())
@@ -706,7 +706,7 @@ pub(in crate::viewer::runtime_live::control_plane::llm_sidecar) fn admit_provide
             .provider_wait_until
             .remove(request.agent_subject.as_str());
         if let Err(error) = sidecar.persist_provider_lineage() {
-            sidecar.restore_wait_raw_outcomes(retired);
+            sidecar.restore_raw_outcomes(retired);
             if let Some(active) = active {
                 sidecar
                     .provider_active_turns
@@ -748,7 +748,7 @@ impl RuntimeLlmSidecar {
             .remove(&request.agent_subject);
         let active = self.provider_active_turns.remove(&request.agent_subject);
         if let Err(error) = self.persist_provider_lineage() {
-            self.restore_wait_raw_outcomes(retired);
+            self.restore_raw_outcomes(retired);
             if let Some(lease) = local_lease {
                 self.provider_cognition_leases
                     .insert(request.agent_subject.clone(), lease);

@@ -439,6 +439,7 @@ manifest hash。payload 按声明的 schema 以 Canonical CBOR 校验。当前
 `ModuleEmit` 仍是 JSON payload，legacy adapter、原始 bytes 保留、schema/hash
 绑定和 replay 规则都尚未定义；它们是试点前置条件，不能宣称当前 event wire
 已经满足该目标。目标版本仍不得原地重写旧事件。
+<a id="wasm-capability-permission-kernel-boundary"></a>
 ### 3. Capability、权限和 Kernel 边界
 本小节是目标扩展的权限合同和试点前置条件，不是当前 `CapabilityGrant` 或
 `cap_slots` 已经提供的 scope 证明。当前 grant 不能表达下列完整的

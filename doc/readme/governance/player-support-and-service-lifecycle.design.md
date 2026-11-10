@@ -39,10 +39,15 @@
 | [REQ-ENTRY-CANDIDATE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001)；Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b | 发行内容、入口和材料使用同候选/模式/窗口 | [发行材料](#support-release-materials) | 原发行资产、Runtime/P2P 和 QA authority | 本文只承接内容与材料输入，不代签统一 release gate |
 | [REQ-ENTRY-COMMUNITY-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-community-001)；Trace refs: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79 | 按行为与实际权限采取最小适当动作，保留理由和复核 | [社区规则](#support-community-rules) | 实际渠道管理者 / 无利益冲突的复核者 / producer | 不授予跨平台或世界处罚权，不虚构敏感举报入口 |
 | [REQ-ENTRY-SUPPORT-DATA-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-support-data-001)；Trace refs: O7-REQ-96d24911-2209-4606-999e-545e4cd10fe9 | 按用途与可控制副本执行有限保留、请求核对和结果告知 | [保留与数据请求](#support-retention-requests) | 实际数据/平台权限 owner；原技术数据合同 | 不覆盖不可控历史、凭据或世界状态的删除实现，不代签地区法定义务 |
-| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 具体持续服务退出前说明窗口、真实下一步和未结义务，普通与紧急停止分别处理 | [持续服务退出](#support-service-exit) | producer / 服务提供者 / 数据、身份、Runtime 和账务 owner | 不证明服务上线、导出/迁移/退款或全产品停止服务已经可执行 |
-| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | 具体服务退出不撤销世界身份、控制与有效义务，不从便利状态推导世界结果 | [持续服务退出](#support-service-exit) | 服务提供者 / 原身份与 Runtime authority | 不授予恢复、退款、补偿或世界写权限 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 具体服务 profile、采用范围、个体终止与整体退出、历史事实和旧义务 | [服务范围政策](#support-service-profile-policy) | producer / 服务提供者 / 数据、身份、Runtime 和账务 owner | 新政策不追认历史 SLA，不证明服务上线、实际导出/退款或全产品退出已经完成 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 30/30/90 窗口、逐对象有效通知、通知/读取失败、紧急停止和未结责任 | [窗口](#support-service-exit-policy) | producer / 服务提供者 / 数据、身份、Runtime 和账务 owner | 新政策不追认历史 SLA，不证明服务上线、实际导出/退款或全产品退出已经完成 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 非秘密便利副本的完整材料接收、读取/交接、失败与原义务 | [副本交接](#support-storage-copy-handoff) | producer / 服务提供者 / 数据、身份、Runtime 和账务 owner | 新政策不追认历史 SLA，不证明服务上线、实际导出/退款或全产品退出已经完成 |
+| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | 降级、到期、取消、续费失败、重购/换商只改变便利交付，基础身份/同世界正常链和原件保持独立 | [具体消费者与正常链](#support-service-profile-policy) | 服务提供者 / 原身份、入口与 Runtime authority | 不以 GET-only、新身份或安全停止代替正常独立读写，不授予退款、补偿或世界写权限 |
+| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | 个体 D/R 与整体 T0–T3 仅约束便利交付，通知/读取失败不消耗承诺窗口，也不终止基础身份、原件或世界历史 | [窗口边界](#support-service-exit-policy) | 服务提供者 / 原身份、入口与 Runtime authority | 不以 GET-only、新身份或安全停止代替正常独立读写，不授予退款、补偿或世界写权限 |
 | [REQ-ENTRY-COMMUNITY-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-community-001)；Trace refs: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79 | 受理与复核安排对应实际可用人力；能力不足时保留待核而非虚报完成 | [运营容量与成本](#support-capacity-cost) | LiveOps / QA / producer / 渠道 owner | 不新增统一回复时限，不以信号数量代替处置质量 |
-| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 支持与退出承诺有实际执行窗口和可核成本，未结责任不因人手不足消失 | [运营容量与成本](#support-capacity-cost) | producer / 服务提供者 / 各执行 owner | 不定义商业价格、售后 SLA 或全项目制作预算 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 支持与退出窗口对应实际人员、完整副本和持续成本，通知/交接顺延与旧责任不因预算不足消失 | [运营容量与成本](#support-capacity-cost) | producer / 服务提供者 / 各执行 owner | 固定退出窗口只适用明确采用的新承诺；不定义商业价格、统一回复时限或全项目制作预算 |
+| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | 对既有身份/会话、反馈和旧额度桥表面，分开正常独立路径、原结果读取与无法安全继续时的停止，不从便利状态推出世界权利 | [既有技术表面接收](#support-existing-surface-reception) | 各原身份、World Service、Launcher/DistFS、bridge producer 与 LiveOps/QA | 三表面不代完整免费成长或同身份独立迁移；缺实际服务/能力事实不改为 N/A |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | 技术表面停止时按原权限和非原子结果承接旧请求、历史与未结责任，给当前合法下一步及真实接手方 | [既有技术表面接收](#support-existing-surface-reception) | 实际入口/存储/身份/bridge owner、提供者和 producer | 不把技术停用或开发 hold 当商业取消，不新增退款、导出、迁移或服务期限 |
 
 ### 2.2 反馈与数据的准确依赖
 
@@ -246,7 +251,7 @@ Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898。承接[便利服务中
 
 Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f、O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898。分别承接[可选服务退出](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)和[服务状态与世界权力分离](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)。下表规定退出内容及责任交接，不是当前服务清单或已经提供服务的证明。
 
-提供一项持续服务前，提供者必须能说明服务对象、实际支持者、运行/支持窗口、停止新增受理的条件、通知方式、退出时可读取或取得的数据、未结义务、资料政策和退出后可用的联系/复核方式。普通计划退出的通知期与读取/交接期采用该服务实际公布并能履行的条款；尚未选定这些内容时不能对外承诺该持续服务已经就绪。本文不规定所有服务共用的天数，也不替付款、退款或地区专业主责决定条款。
+提供一项持续服务前，提供者必须能说明服务对象、实际支持者、运行/支持窗口、停止新增受理的条件、通知方式、退出时可读取或取得的数据、未结义务、资料政策和退出后可用的联系/复核方式。普通计划退出先核该服务已经接受的真实条款；下述首版政策为明确采用它的新承诺选定范围和窗口，不追认历史服务采用，也不替付款、退款或地区专业主责决定条款。实际提供前仍须核对执行能力，不能以设计政策已经具体化宣称服务已就绪。
 
 | 退出阶段 | 必须形成的事实与动作 | 转换判据和失败后的下一步 |
 | --- | --- | --- |
@@ -268,6 +273,82 @@ Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f、O7-REQ-32e47f2a-2da3-4
 | 本地包、运营副本和专业原始证据 | 分别按 §5 和原证据合同处理；退出不一律删数据，不以“已备份”代替原来约定的玩家取得能力 |
 
 尤其不能把[身份完整快照导出](../../testing/manual/identity-snapshot-export.manual.md)用于宣传玩家自助迁移：它服务 DevLocal issuer 的身份政策前态核验，不导出凭据、session、token 或私钥，不产生新的 authority。退出中真实可用的玩家导出、替代入口或迁移能力必须从对应服务合同及运行验证取得。缺少必要能力时如实记录阻塞和提供者责任，不让玩家反复尝试不存在的工具。
+
+<a id="support-service-profile-policy"></a>
+#### 6.3.1 首版服务范围与新承诺
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898、O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f。本节选择新的服务设计政策，补足 FREE001 的具体消费者与 SERVICE-EXIT001 的退出方案；它不是当前提供者、付费用户、部署或已公布 SLA 的事实记录。以下目标可先完成设计接收；真实采用、用户和退出事件不存在时仍可用独立虚构输入验证设计，不能为凑事实制造订单或要求先实际运营一次。
+
+| 服务范围 | 便利交付与实际消费者 | 保持独立的基础对象与退出交接 | 原专业主责 |
+| --- | --- | --- | --- |
+| Hosted 便利入口 | 明确的一组附加托管页面、连接协助或入口部署；服务状态只决定该附加入口是否继续接收新的便利请求，不作为世界动作授权或费用减免条件 | 免费基础 identity authority、原 store/issuer/RP-origin、同身份必要 gateway/WorldService 与用户受保护的原请求材料必须独立于该便利范围。按[同身份正常链](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)、[原请求恢复](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)及[独立入口消费](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)继续同 account/player/world 的合法读写、receipt 与重入；不以新 issuer、DevLocal、GET-only 或单纯安全停止代替正例 | identity/hosted、WorldService/Runtime 与原入口 owner；提供者只处置自身附加部署 |
+| 独立便利存储副本 | 代保管已获准独立持有、复制且可公开分发的非秘密具体文件或内容包的额外副本；接收对象逐路径/hash/size 明列。它独立于反馈受理，不以一个反馈包代表全部存档或历史 | 玩家原本独立持有或合法读取材料的路径保留；按[副本接收与交接](#support-storage-copy-handoff)取得 manifest 和全部受诺字节。首版不接收身份/凭据、Agent 私密认知、WorldService 权威根、journal/checkpoint、用户原请求原件或其唯一副本；不提供这些对象的存档迁移或恢复 authority | 原 DistFS/FileStore/CAS 的本地索引、材料验证和 retention 合同；数据/权利 owner 核具体对象；提供者承担额外副本承诺 |
+| 项目反馈与支持受理 | 在已声明的 Launcher/原 Issue 渠道接收安全摘要、分流、说明与复核；接收记录、远端反馈写入、人工承接和问题解决分别表示 | 停新受理不关闭仍有效的世界读写，不把已有 Issue、DistFS root/event 或本地包改成服务所有的可任意删除材料。已接受反馈/复核按原记录和当前权限继续或由明确接手者承接，公开历史仍归原平台/DistFS authority | LiveOps、Launcher/DistFS、对应问题 owner 与独立复核者；不能从反馈能力推导已售 support |
+| LetAI 存量责任接收 | 只承接确有原件的旧 binding、订单、receipt、对账与争议；不新增发售、续费、退款或迁移能力，不将开发 hold 变成服务取消命令 | 保持[开发暂停](../../p2p/token/mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold)。实际获准运行停止才按原 runbook 停新 route、停自动 reconcile、保全状态与链上证据；Credited 目标只继续原权限下 verification，未知原单不换 ID、不重扣或重建。其他合法 Provider/BYOK 路径独立判断，不能要求重购 LetAI 才恢复世界权利 | 原 bridge/账务 operator 与 Runtime authority；旧条款逐项保持，新服务窗口不追溯套给旧订单 |
+
+**采用记录与旧约优先。** 在原服务/发布记录中绑定具体提供者、服务范围、受影响对象、采用的政策版本、生效条件、实际通知和联系渠道、交付能力、执行 owner 与资源安排；公开材料只放安全定位，不复制身份凭据或私人清单。服务条款版本不是世界 policy、身份来源或操作 receipt。实际采用须在对外作出新承诺前完成；缺材料时不能宣称该提供者已经采用，也不能据此推断项目从未提供相关服务。
+
+对已经接受的事项，先逐对象核原条款、实际承诺与当前未结责任，再决定适用窗口；不是把几个天数机械取最大值就完成承接。新政策不得把原私有存储改成公开副本、把原恢复承诺缩成下载一个文件、改变账务处置，或让旧提供者因没有新采用记录而免责。旧资料未取得时保留具体查核对象和原责任，不填零订单、无用户或 N/A；有新提案也不倒填成历史采用。真实账务/退款沿原合同，本文不新增价格或自动补偿。
+
+| 服务状态或决定 | 对便利消费者的具体作用 | 原义务、下一步与权力边界 |
+| --- | --- | --- |
+| 正常或降级 | Hosted 只改变附加入口能力；storage 只接收已核完整字节且有保留能力的新副本；support 只承诺实际可受理的范围。降级立即撤下失真的新交付说明，保留已证结果与真实受阻项 | 按原角色核仍可用的基础链、材料读取和未结承接；技术错误不把成功 receipt、已写反馈或 Credited 降回“从未发生”。不能以服务健康代 world 权限检查 |
+| 个体到期、主动取消或续费失败 | 以该对象原服务合同及真实服务结果确定便利交付结束时点 `D`；申请受理、扣费结果未知或页面报错不等于已取消/续费失败。确认停止后不再建立该对象的新便利义务，不自动续约、补扣或强迫其等待整体退出的 30 日通知期 | 对明确采用本政策的新承诺，适用材料读取/交接以 `R = max(D, 该对象有效收到读取/交接说明的时点)` 起算至少 30 日，联系/复核至少到 `max(R + 90 日, 读取/交接实际结束时点)`；说明不可达时不虚构 R 或消耗窗口。既有条款仍按原对象处理。此安排不构成额外收费、免费世界资产或自动退款；有效数据请求继续按 §5.3 和原数据权威处理 |
+| 重购或更换提供者 | 只建立经明确选择的新便利承诺；新 storage 接手须核完整材料，新 hosted 入口须满足原同身份/原请求合同，旧单和旧义务分别留原关联 | 不自动续期世界资格、撤销旧责任、复制订单、改变 world/issuer 或重新提交未知请求。新提供者确认具体接手前，旧方仍负责原未结项 |
+| 提供者计划缩减或整体退出 | 对受影响的具体服务范围执行下文 T0–T3，不把停止一个反馈渠道、一个设备 session 或 LetAI 开发暂停称为整个服务退出 | 逐对象核有效通知、原权限读取/交接和责任；基础身份与世界对象不受便利窗口到期支配，紧急停止另按明确失败分支处理 |
+
+<a id="support-service-exit-policy"></a>
+#### 6.3.2 计划退出的 30/30/90 日窗口
+
+以下最低值是首版新承诺的设计选择，给计划调整、取回适用材料和退出后复核分别保留确定窗口；不是 §5.3 运营副本保留期的转用，也不是历史服务 SLA。一个自然日按 UTC 的 24 小时计算，保留 UTC 绝对时点及采用版本。不同用户或对象通知生效时间不同，必须分别起算，不能只记录一个公告时间。
+
+| 时点 | 含义与最低先后关系 |
+| --- | --- |
+| `T_notice` / `T_stop_new` | 分别记录通知的真实发布/投递事实和停止该范围新便利承诺的真实时点；发布回读只证明内容存在，不证明所有对象收到。不能在停止新增后通过自动续约或新 route 扩大退出范围 |
+| `T0` | 对该对象按其已采用通知方式有效通知，且已停止对应新增承诺的最早时点；全局停新增可先发生，迟到通知的对象仍从自己的有效 T0 起算。一般网页公告、一次发送成功或未核实邮箱不能替所有对象生成 T0 |
+| `T1` | 停止该对象便利主要交付，不早于 `T0 + 30 日`；记录实际停止范围和仍可用范围。若无法按对象隔离交付，整体停止不得早于所有适用对象所需的时点 |
+| `T2` | 适用的原权限读取/交接窗口不早于 `T1 + 30 日` 结束；读取或交接能力实际不可用的时段不计入这 30 日，恢复后补足剩余窗口。仅有下载链接或 manifest 不证明材料可取得 |
+| `T3` | 关闭说明与可达联系/复核至少保持到 `max(T1 + 90 日, T2)`；联系能力中断不能静默消耗承诺窗口，应核可达替代与补足安排。T3 是最低期限，不是未结事项的结案时点 |
+
+有效通知采用原已约定、能定位到相应对象的通道及其可核验结果，例如原受认证服务面确认，或原接收记录中约定的通知方式；不要求免邮箱账号另交邮箱。渠道受理与对象有效送达分列；失败、地址失效或无法证明对应对象已按约获通知时，该对象 T0 仍未成立。提供者先用已经约定且实际可达的后备方式补送，再据新的 T0 重算其 T1/T2/T3；不得回填原公告日，或让用户为恢复窗口重新购买。没有合法后备通道时保留通知受阻和原责任，普通计划退出不能据旧全局时钟直接宣告该对象已完成。实际停止其他已满足条件的范围仍须如实分列。
+
+T1/T2/T3 **不限制**免费基础 identity/store/issuer、原 RP/origin 与账号映射、必要 gateway/WorldService、独立有效授权、用户受保护的 capsule/outbox、原请求/原件及世界历史。它们按各自 authority 继续；这里只管理具体便利交付及其适用受控副本。窗口结束也不授权删除第三方副本或绕过 §5.3 的目的限制。窗口、资料保留期限、付款周期和世界权限分别处理。
+
+读取始终重验原权限；合法撤销或改变原数据权利时按原合同拒绝并给其已有复核路径，不能为了补窗口复活旧凭据或扩大可见范围。服务自身未履行的读取能力与原 authority 的合法权限变化分别记录，不把付款或续费作为重新取得世界读权的条件。
+
+**交接与失败。** 结束一个对象前，核其承诺的读取窗口已经实际提供、具体交接请求完成或有接手者明确承接，原复核/账务/数据事项分别有去向。无接手确认时仍归原责任方；有争议或未完成的必要交接不能以日期到达结案。因已确认安全或运行风险可立即停止受影响的新操作或危险读取，不强迫维持不安全入口；但须区分这次实际紧急中断与尚未履行的普通窗口，保留原件、原因、影响、当前安全下一步及下一可信更新。恢复可用后补足适用读取窗口；仍不可恢复则由原提供者/数据/账务 owner 处置未履行承诺，不能虚报已导出、退款或全部交付。
+
+<a id="support-storage-copy-handoff"></a>
+#### 6.3.3 独立便利副本的接收、取回与交接
+
+本 profile 消费原 [FileStore 索引与路径](../../p2p/distfs/distfs-production-hardening.prd.md#dh-local-index)、[manifest](../../p2p/distfs/distfs-production-hardening.design.md#des-dh-manifest)及[本地保留协调](../../p2p/distfs/distfs-production-hardening.design.md#des-dh-local-retention-coordination)。它不新增公共上传/私密 ACL、加密保管、世界存档格式或跨提供者身份迁移协议；服务提供者可沿已有受控 FileStore/CAS 操作交付所选非秘密副本，面向玩家的取得方式必须实际可用并在接收时说明。
+
+1. **固定对象和独立原件。** 接收记录列来源/复制权限、规范化相对路径、BLAKE3 hash、字节数、内容版本、适用窗口和实际保管/读取方法。仅接前述可公开分发的非秘密文件；不能因为 CAS 能读到字节就判其有权公开。玩家原独立取得或持有路径不得因购买副本服务被删除、收走或改成依赖该服务；不接唯一原件，不从内容包恢复账号、Agent 控制或世界状态。
+2. **独立根与接收完成。** 使用不含世界权威或其他用户资料的专用服务根/包索引，核全部内容及由原索引导出 manifest 的 hash/size。需保留集合包含 manifest 本身与其引用的全部 blob；对该集合按原支持的保留发布器逐项确认有效 pin、实际容量和读取回验，最后记录已接收的确切集合。原 pin 只保护指定 hash，不递归保护 manifest 成员；manifest 导出和索引 import 本身均不自动 pin。只有索引、put、单 manifest 或仅 pin manifest 不算完成；原 `prune_unpinned` 可驱逐有索引但未有效 pin 的 blob。pin 与 GC 竞争导致缺字节时接收失败，不发布完整副本承诺。原 OS 锁只保护遵守协议的同根合作进程；它不是远端副本、掉电耐久或所有文件系统的证明，部署仍须核实际支持条件。
+3. **给出可完整取得的材料。** 提供由该包原索引导出的排序 canonical-CBOR manifest 及其引用的全部已验证 blob；记录集合、总字节和真实取得路径。接收者从固定源说明独立核路径、hash、size、重复项与缺项，先核目标根在本次材料装入前为**全新、独立、无既有内容**，再用原 CAS 方法装入并验证 manifest 与全部引用 blob；这些本次准备材料不属于禁止覆盖的旧内容。全部材料就绪后，调用原 manifest import 完整验证并整体替换索引；它不是 merge，不得指向活动 WorldService、玩家原目录或共享文件索引。接收端如继续用受合作 GC 管理的 CAS 根保管，须按步骤 2 核自身完整有效 pin 与导入后回读，再确认保管交接，不能只凭 import 成功释放仍负原义务的源 pin。只独立取得并核过完整离线字节，不要求接收者继续运行存储服务；源 pin 释放仍须满足步骤 5 的承诺窗口和未结责任条件。交接确认只证明该材料集合可取得，不是世界 receipt、存档恢复或免费路径已经运行。
+4. **失败保全原承诺。** 缺 blob、hash/size 错、pin 失败、目标在本次装入前已有内容或读取不可用均不得签完整交接，不撤销仍承担未结交付的原 pin。确需取回缺失材料时只沿已授权原来源或[有索引的定向读取](../../p2p/distfs/distfs-distributed-resilience.prd.md#dr-provider-read)，不以无 provider 回退、猜测另一份文件或另一世界替换。能够核对的已交付项与缺失项分别保留；来源永久不可得时说明实际损失和原责任，不把重试计划写成恢复完成。
+5. **有界结束受控副本。** 仅在适用读取窗口真实履行、具体未结交接/争议已完成或有效承接，且原条款允许时，由实际存储 owner 记录结束并撤销该服务自己拥有的 pin/引用。其他引用、其他 scope 的 pin、原始资料与世界历史保持；本地回收仍按原 GC 条件，不宣称删除了远端或第三方副本。用户未主动下载不等于已下载；如所接受的承诺只要求窗口内可取得，必须拿实际完整可读证据证明该窗口，而不能伪造用户确认。
+
+<a id="support-existing-surface-reception"></a>
+### 6.4 既有技术表面的正常路径、停止与责任接收
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898、O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f。承接 [FREE001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) 与 [SERVICE-EXIT001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001) 的既有技术消费者；输入固定为 `69f8483182d3427bbd5964f1b8d655a8583ec450`。下表接收已经成文的技术合同，不认定它们是当前已销售、已公开提供或准备结束的商业服务，也不是全项目服务清单。目标设计、当前实现和本次实际运行证据继续分列。
+
+**先核正常独立路径。** 原 FREE001 要求便利服务不能成为基本成长、独立恢复或读取已确认历史的唯一正常路径；安全停止只是无法安全继续时的处理，不能代替这个正义务。对每个真实候选固定原 primary mode、入口/适配版本、world/身份范围和当前能力：已有合法 Viewer/pure_api 读写仍由原世界 authority 决定，反馈接收、客服答复和额度桥状态不成为它们的附加授权条件。按 [API 入口适用合同](../../world-simulator/llm/external-agent-game-api.design.md#api-primary-entry-applicability)，Provider 失败只阻断依赖它的组合；普通 HTTP 无模型读取、已有合法动作与目标完整协议闭环分别核对，当前 GET-only / `writes_available=false` 不被说成已支持成长写动作。替代入口必须真实支持同一所需能力、当前身份/权限与原操作恢复；新身份、新 issuer、另一世界或一个健康演示均不能代签原玩家的独立恢复。
+
+| 已有技术表面与原 producer | 正常消费及可停止对象 | 失败、原历史与未结接收 | 责任及真实下一步 |
+| --- | --- | --- | --- |
+| `hosted_public_join` 的[账号与世界会话](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#world-sessions)、[重入与原件](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#viewer) | 账号登录、world join/接管、设备 release、凭证撤销各由原操作授权；同账号备用凭证可按原规则登录/恢复，登录另一设备不自动接管世界。停止新注册、一个账号 session、一个世界控制会话或托管入口须分别说明，不能称全部账号/世界已取消 | 保留原 account/player/world 映射、join attempt、当前 world/session epoch 及已接受世界请求的原关联。当前账号、来源凭证、session 与 proof 新鲜度分别校验；IdentityStore 不可读时不能用缓存延长授权，超出原新鲜度即停止新的受认证动作。已确认 receipt 和独立 Agent 授权仍依原合同，不因服务停止撤销或因重登续期 | 身份/hosted owner 核账号和 session，Runtime/world owner 核控制与原结果；按原 `/session`、原 join attempt 和实际支持的结果查询恢复。只有原权限允许时才提供 guest observation；没有可用的同身份合法替代路径则明确受阻，不能指向 DevLocal、新账号或凭空迁移。公开支持只留安全定位，不复制 cookie、release token、密钥或私密认知 |
+| [Launcher 反馈结果](../../world-simulator/launcher/game-client-launcher-feedback.design.md#feedback-result-boundary) → [DistFS 原记录](../../p2p/distfs/distfs-feedback-ledger-and-replication.design.md#des-feedback-public-read)；或现有 GitHub Issue | 反馈是世界行动之外的旁路：仍有效的世界入口可按原权限继续读取/执行，GitHub 只接问题摘要而非世界历史。native 必须先 Ready，远端失败后才可能有实际本地包；未 Ready/禁用不生成包，Web 无 native 本地回落。停止反馈受理或关闭窗口不取消世界请求 | `feedback_id/event_id`、本地路径和 Issue URL 分别只证明其实际阶段。DistFS 先 mutation 后 audit/入队，错误可能在记录写入之后；[内存 outbox](../../p2p/distfs/distfs-feedback-ledger-and-replication.design.md#des-feedback-outbox) 不保证重启不丢或最终复制。保留已有定位，按原公开读取/实际存储核对；找不到或读取失败不证明从未写入。tombstone 不删除原文和追加历史 | Launcher/DistFS owner 核传输、记录与复制，LiveOps 沿原记录把缺陷交 QA/技术 owner；没有回执/定位时明确未确认，不编造 lookup 或自动重复提交。可由玩家在仍可用的原 Issue 入口提供脱敏摘要与已知关联；本地包不得自动全量上传，Issue 关闭不证明反馈交付、世界修复或全部副本清理 |
+| 已有 LetAI bridge 订单/对账，沿[开发 hold](../../p2p/token/mainchain-token-newapi-quota-bridge.prd.md#letai-development-hold)、[持久业务阶段](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#bridge-recovery-state)与[原订单处理权](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#bridge-reconcile-ownership) | hold 只暂停后续专属开发，不自动停止旧服务。确有授权的运行停止按[原回滚顺序](../../p2p/token/mainchain-token-newapi-quota-bridge.runbook.md#9-回滚边界)停止新 route、停止自动 reconcile，并保留状态/链上证据；不在本文执行。原已支持的其他 Runtime/Provider/BYOK 组合仍按自身配置、能力和授权判定，不要求玩家重购 LetAI 才可走那些路径 | 原 binding/project、`external_order_id`、入账 receipt、审计和未结责任不随暂停或切 Provider 消失。[首次绑定未知](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#bridge-identity-recovery)保持原外部身份并按原合同核对；已持久 Credited 只可继续 verification，不因 user/project/query 失败回到 topup。外部成功但本地未记成功仍是原订单 unknown，不能建新单、重扣、换 project 或删除重建 | bridge/账务 operator 按当前原权限核同订单及实际持久事实；无当前可用来源则保留待核和责任，不保证自动完成。原 operator review 的 `mark_resolved` / `close` 只具有其原状态语义，不能证明退款、补额度或改变世界结果。LiveOps/producer 接受未结清单和说明，既有实现差距仍由原 owner 保留，不能借本节恢复 LetAI 开发或宣称修复已完成 |
+
+**会话释放的真实失败切点。** 当前底层兼容 [hosted release](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs) 可先 `release_slot_for_player_with_reason` 再 `persist_ledger`；持久化失败返回 `ok=false / session_ledger_persist_failed` 时，内存 slot 可能已经释放。这不证明“仍有控制”或“持久释放完成”。原 owner 以当前受支持状态、ledger 与 world 控制事实核对；玩家不能以新的 grant/player 或重放世界动作修复此不确定性。新版账号/设备适配仍须遵循原 current-only epoch 与明确接管合同，不把这条兼容失败事实推广成新 API 已提供完整查询。身份登录的原 operation receipt、world join、反馈 ID 和 bridge order 各用自己的原关联，不能混用为统一成功凭证。
+
+**bridge 目标与现状的分界。** 上表 verification-only 消费的是原恢复目标；原设计 [§11.2 当前源码差距](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#112-当前源码差距（静态核对）)仍指出，Credited 后 user/project 前置失败可经 `record_retryable_failure` 写成 Failed/ManualReview，既有健康 restart 例不能证明该切点保留成功事实。首次绑定失败清理也不能证明远端未知效果安全恢复。因此当前候选必须分别核原 receipt、订单与真实持久阶段；遇到冲突交原 operator 待核，不能从阶段降级推出未入账并再次 topup。本节只接收目标和真实阻塞，不修代码、不解除 hold、不宣称旧 bridge 已实现上述保证。
+
+**具体接收与交接。** 沿 §4 的既有记录保留实际候选/表面、原身份与操作的安全定位、最后已证阶段、当前读权限/阻塞、停止了什么、仍有效的义务、原执行 owner 和接手者的确认。一次支持答复、换入口或新的配置不产生原业务 receipt；原件未知时先按当前合法读权核对，无法核对就保持未确认并停止依赖它的新副作用。成功事实与历史不因超时、迟到错误或旧投影被回退；失效权限也不因保留历史而恢复。没有接手确认的事项仍归原责任方，按 §9.1 实际容量/窗口安排，不能以入口关闭或成本未知结案。对私有材料只交原受众获权的内容，不以支持交接开新读权。
+
+**旧有限接收与新增目标分开。** 上述三技术表面及 EX07–EX13 单独不代签完整免费成长、同身份跨托管恢复、全部历史读取或商业服务退出；安全停止仍不能消解 FREE001。新增目标由[明确服务 profile](#support-service-profile-policy)、[窗口政策](#support-service-exit-policy)、[独立副本交接](#support-storage-copy-handoff)与原身份/API 的同身份正常链共同承接，按[新政策方法](player-support-and-service-lifecycle.manual.md#verify-service-profile-policy)另审具体性，不能继续把尚未实际运营或退出一次一概当作目标设计未完成。每项实际采用/缩减仍须真实提供者、用户/对象、条款版本、旧义务、通知/读取能力与执行责任；这些部署和历史事实不能由目标方案代填。§5 的运营副本规则与 slot/session TTL 均不是商业取消期限，原 LetAI hold、旧义务和本节已记实现差距保留；未核事实不改成 N/A/Future 或上线/运行通过。
 
 <a id="support-copy"></a>
 ## 7. 可复用中文文案
@@ -344,6 +425,14 @@ Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f、O7-REQ-32e47f2a-2da3-4
 >
 > 此次调整只影响上述服务。它不会自动取消已接受的世界动作、撤销其他有效授权、删除世界历史或保证第三方副本消失。结果未知的请求请通过当前有权使用的入口核对；未结服务义务及资料处置为〈逐项真实状态〉。后续说明和复核通过〈实际可用入口；没有时明确说明及责任安排〉。紧急停止时另说明已确认原因、受影响范围和下一次可信信息更新。
 
+对已明确采用[首版服务政策](#support-service-profile-policy)的范围，补充以下段落；日期使用逐对象有效通知后的实际计划，不能把模板中的最低值当作已经送达或执行：
+
+> 本次计划调整于〈该对象有效通知日期〉起停止新增〈具体便利承诺〉，主要交付不早于〈实际确定日期〉结束。原权限下的〈明确材料与实际取得方式〉将保持到至少〈适用读取/交接结束日期〉；说明与联系/复核保持到至少〈适用日期〉。如果通知未按约送达或读取/交接不可用，我们会说明影响并重新核定相应窗口。你的基础身份、合法世界入口、原请求和已确认历史不因这些服务日期失效；未结事项仍由〈原 owner 或已确认接手者〉承担。
+>
+> 若你主动取消、原服务到期或续费未成功，我们按该项实际服务条款确认便利交付结束和适用读取窗口，不为等待上述整体退出通知而自动续约或增加付款。重新购买或换服务商不会自动恢复世界权限，也不会取消旧事项。
+>
+> 如本项为独立便利存储，我们只交付〈已接受清单中的非秘密文件与完整校验材料〉。这是一份额外材料副本；它不包含账号密钥、Agent 私密状态、完整世界存档或原请求恢复权限。缺项与未交付会分别说明，不能仅凭一个文件清单宣布交接完成。
+
 <a id="support-release-materials"></a>
 ## 8. 发行材料与适用范围
 
@@ -410,6 +499,8 @@ producer 据此决定维持范围、减少新邀请/新渠道、调整实际责�
 
 实际人时、费用、窗口和决定留在既有 PR/Task 或运营记录。没有执行者或可信窗口时不新增邀请或承诺固定回应频率；历史首轮信号目标、巡检节奏及下文的计算案例都不成为当前客服 SLA。
 
+采用首版服务政策前，分别核 T0–T1 的既有便利交付、T1–T2 的完整读取/交接，以及延续至 T3 和实际未结结束的联系/复核资源；个体终止另按 D/R 起算。通知失败、读取中断、旧条款和未接手事项使窗口延长时，重算原角色、容量和费用，不能回填完成或用预算不足解除旧责任。storage 以已接受文件集合、实际唯一 blob、manifest/索引与保留开销核容量；逻辑内容字节数、实际磁盘使用和费用分列，不能只看一个 manifest 大小或把 pin 当作远端备份。涉及基础 identity/WorldService 的维护仍归原专业投入，不随便利服务预算截止。新承诺的资源不足时先收窄尚未接受的交付范围，不删除已接收对象或提高世界权限来补偿。
+
 ## 11. 验证与验收
 
 本设计以文案、数据边界和人工方法为交付物。静态源码审读说明方法的输入；文档检查、桌面案例、界面验证、真实受理、复制和实际发布分别记录，不互相替代。内容审校由作者及适用产品/LiveOps/隐私或技术 owner 按风险完成，验证记录留在当前 PR。
@@ -432,10 +523,15 @@ producer 据此决定维持范围、减少新邀请/新渠道、调整实际责�
 | [REQ-ENTRY-CANDIDATE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001)；Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b | [发行材料](#support-release-materials) | 选定材料与模式/入口对应同候选；跨渠道和跨版本不得借证 | [发行材料核对](player-support-and-service-lifecycle.manual.md#verify-release-materials)：RM01/RM05 比较同候选与混版反例 | 原 PR 的来源对应、错误输入拒绝与未覆盖范围 | 仅内容组合，不代签 Runtime/P2P、经济、QA 或统一 gate |
 | [REQ-ENTRY-COMMUNITY-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-community-001)；Trace refs: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79 | [社区规则](#support-community-rules) | 内容处置有行为依据、实际权限、最小范围和可达复核，世界权威分离 | [社区处置核对](player-support-and-service-lifecycle.manual.md#verify-community-disposition)：CM01–CM07 的正常批评、骚扰、敏感曝光、证据不足、冲突和权限失败 | 原 PR 的规则/动作/理由/下一步对照与负例判定 | 不证明平台已配置、人员可用或真实处置完成 |
 | [REQ-ENTRY-SUPPORT-DATA-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-support-data-001)；Trace refs: O7-REQ-96d24911-2209-4606-999e-545e4cd10fe9 | [保留与数据请求](#support-retention-requests) | 不同控制者/副本适用不同保留规则，例外有限复核，实际删除结果分开告知 | [保留与请求核对](player-support-and-service-lifecycle.manual.md#verify-retention-requests)：DR01–DR07 固定日期的正常到期、争议、第三方/历史、身份不足和逾期案例 | 原 PR 的对象/时间/权限/结果分类及改进项 | 不证明真实资料清理、自动能力、私密入口或法定期限成立 |
-| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [持续服务退出](#support-service-exit) | 普通/紧急退出均逐项承接真实窗口、数据取得和未结义务 | [退出演练](player-support-and-service-lifecycle.manual.md#verify-service-exit)：EX01–EX06 的正常、紧急、通知失败、读取能力缺失和未结责任 | 原 PR 的逐阶段判定、玩家下一步和未结交接 | 不证明存在已售服务、真实停服/迁移/退款或所有提供者结束 |
-| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | [持续服务退出](#support-service-exit) | 提供者退出不能取消原世界请求、扩权或抹历史 | [退出演练](player-support-and-service-lifecycle.manual.md#verify-service-exit)：EX02/EX04/EX06 核原请求、身份导出误用和独立授权 | 原 PR 的服务/世界对象分离与拒绝结论 | 不证明身份/Agent/世界恢复实现 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [服务范围](#support-service-profile-policy) | 具体消费者、采用范围、个体终止与旧义务逐对象核对，不把新政策当历史事实 | [具体政策方法](player-support-and-service-lifecycle.manual.md#verify-service-profile-policy) EX14/EX17/EX20/EX22/EX23 核 profile、旧条款与真实责任；同手册保留 EX01–EX06 原退出判定 | 固定设计候选的逐对象算例、独立材料 oracle、旧条款优先与未结分配；实际采用/执行另记 | 不证明已售服务、历史条款、真实通知/退款或全部服务退出；无真实运营事件不阻止目标设计本身接受审查 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [窗口](#support-service-exit-policy) | 普通/紧急退出、个体终止、通知失败、完整读取和未结窗口逐项闭合 | [具体政策方法](player-support-and-service-lifecycle.manual.md#verify-service-profile-policy) EX15–EX17/EX24 独立核日期、通知与读取中断、顺延和未结承接 | 固定设计候选的逐对象算例、独立材料 oracle、旧条款优先与未结分配；实际采用/执行另记 | 不证明已售服务、历史条款、真实通知/退款或全部服务退出；无真实运营事件不阻止目标设计本身接受审查 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [副本交接](#support-storage-copy-handoff) | 完整材料、实际可读、源与接收端保留、失败和旧义务分别核实 | [具体政策方法](player-support-and-service-lifecycle.manual.md#verify-service-profile-policy) EX18–EX20/EX24 核文件集合、独立根、保留、旧对象与交接失败 | 固定设计候选的逐对象算例、独立材料 oracle、旧条款优先与未结分配；实际采用/执行另记 | 不证明已售服务、历史条款、真实通知/退款或全部服务退出；无真实运营事件不阻止目标设计本身接受审查 |
+| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | [具体消费者与正常链](#support-service-profile-policy) | 服务状态、个体取消/续费失败、重购/换商不改身份、权限、原件和世界历史；正常独立链有可核输入 | [具体政策方法](player-support-and-service-lifecycle.manual.md#verify-service-profile-policy) EX14/EX17/EX21–EX23 对接原 hosted/API 正常链方法；同手册保留 EX02/EX04/EX06 原判定 | 同主体/同世界/原请求的设计走查、服务状态前后对应与原权限拒绝 | GET-only、新 issuer、反馈链接或安全停止不代正例；设计走查不代实现、同候选运行或玩家理解 |
+| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | [基础对象窗口边界](#support-service-exit-policy) | D/R 与 T0–T3 不终止基础能力，通知失败与窗口补足不要求重购或恢复已撤销权限 | [具体政策方法](player-support-and-service-lifecycle.manual.md#verify-service-profile-policy) EX15–EX17/EX21/EX24 核服务时点、原权限与独立链边界 | 同主体/同世界/原请求的设计走查、服务状态前后对应与原权限拒绝 | GET-only、新 issuer、反馈链接或安全停止不代正例；设计走查不代实现、同候选运行或玩家理解 |
 | [REQ-ENTRY-COMMUNITY-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-community-001)；Trace refs: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79 | [运营容量与成本](#support-capacity-cost) | 真实受理/复核能力不足时如实保留待核并收窄新收集 | [容量核对](player-support-and-service-lifecycle.manual.md#verify-support-capacity)：CP01/CP02 的角色瓶颈、交接与父范围未结量 | 原 PR 的手算、调度理由和真实缺口 | 不证明现有人员、产能、回复 SLA 或满意度 |
-| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [运营容量与成本](#support-capacity-cost) | 退出支持投入与实际窗口对应，未知成本不记零，未结责任不因预算不足消失 | [容量核对](player-support-and-service-lifecycle.manual.md#verify-support-capacity)：CP01/CP03 的退出窗口与费用缺项 | 原 PR 的容量/成本判定与承接安排 | 不证明商业定价、实际人时费用或服务已可交付 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [运营容量与成本](#support-capacity-cost) | 新政策各窗口及顺延对应支持、读取、完整副本和未结责任，未知成本不记零 | [容量核对](player-support-and-service-lifecycle.manual.md#verify-support-capacity)：CP01/CP03 与服务窗口分段核算；同手册 EX16/EX19/EX24 的顺延、保留和未接手反例 | 原 PR 的容量/成本判定与承接安排 | 不证明商业定价、实际人时费用或服务已可交付 |
+| [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)；Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898 | [既有技术表面接收](#support-existing-surface-reception) | 分别核正常独立路径、当前权限、原结果读取和故障安全停止；新身份/GET-only/反馈链接均不能代完整成长或历史恢复 | [技术表面组合方法](player-support-and-service-lifecycle.manual.md#verify-existing-service-surfaces)：EX07–EX13 对照原 hosted、反馈、bridge 方法与独立说明 | 同候选实际能力/原件、正常与失败的不同判定、当前缺项和责任 | 静态/离线方法不代服务运行、全部免费路径、同身份迁移或玩家体验通过 |
+| [REQ-ENTRY-SERVICE-EXIT-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-service-exit-001)；Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f | [既有技术表面接收](#support-existing-surface-reception) | release/反馈部分副作用、Credited/unknown 和旧义务按原 producer 保留，停止对象/接手/窗口分别核实 | [技术表面组合方法](player-support-and-service-lifecycle.manual.md#verify-existing-service-surfaces)：EX08–EX13 逐失败切点与正常交接反例 | 实际原状态、停止范围、接手确认与尚未具备的提供者事实 | 不执行取消/付款/退款/导出，不恢复 LetAI 开发，不代签具体商业服务退出 |
 
 ## 12. 决策、风险与未覆盖范围
 
@@ -446,7 +542,7 @@ producer 据此决定维持范围、减少新邀请/新渠道、调整实际责�
 | 私密举报、敏感材料受理与访问人员 | 公共入口仅收安全摘要；没有验证通过的私密入口就不接收详细秘密 | producer + 安全/实际平台 owner；开展私密收集之前 |
 | 社区规则的实际采用、处置权限和可达复核 | §4.5 已给行为/处置规则；各渠道仍须核对真实管理者和无利益冲突的复核能力，世界处罚仍外部 | producer + 实际平台/安全 owner；公开规则采用和每次操作前 |
 | 项目现有资料库存、实际保留/删除与第三方副本 | §5.3 的有限目标只适用于受控运营副本；尚需核对当前实际对象、权限、例外和到期动作，原专业数据合同不被覆盖 | 数据/安全/存储 owner；采用政策、改变用途或收到请求时 |
-| 具体持续服务条款、读取/交接/退款能力与退出窗口 | §6.3 定义退出准备和人工交接；没有具体已采用合同与能力证据时不能声明正式服务退出就绪 | producer + 提供者/身份/存储/Runtime/账务 owner；提供服务前及缩减/结束决定时 |
+| 具体服务的实际采用、旧条款与读取/交接/账务能力 | §6.3 已选新 profile、个体/整体退出窗口和副本方法；目标设计与实际采用分列。提供者、当前用户/对象、旧义务和真实能力仍须核实，不能把新政策当历史 SLA 或声明正式退出就绪 | producer + 提供者/身份/存储/Runtime/账务 owner；对外采用、提供服务前及实际缩减/结束决定时 |
 | 具体渠道、地区、受众、分级、协议和完整服务隐私材料 | §8 已给现有表面、材料与缺项判定；真实选定范围和适用专业结论仍须核定，不声明全球合法性或商店已获准 | producer 与相应专业主责；选择或改变实际发行范围/内容/数据时 |
 | 持续支持的实际人员、成本及玩家理解效果 | §9.1 提供可核算方法；实际窗口和单价未知不记零，文字推演不证明人力、实测产能或真实满意度 | LiveOps / QA / producer；新邀请、服务承诺、容量不足和退出交接时 |
 

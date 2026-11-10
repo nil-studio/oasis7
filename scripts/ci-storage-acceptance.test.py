@@ -63,27 +63,31 @@ class Contracts(unittest.TestCase):
     def test_storage_build_optimizes_native_tests_without_disabling_checks(self):
         with patch.dict(os.environ, {'RUSTC_WRAPPER': 'untrusted-wrapper',
                                    'CARGO_PROFILE_TEST_DEBUG_ASSERTIONS': 'false'}):
-            ordinary = acceptance.artifacts.build_environment('formal')
+            ordinary = acceptance.artifacts.build_environment('ordinary')
+            formal = acceptance.artifacts.build_environment('formal')
             storage = acceptance.artifacts.build_environment('storage')
         self.assertNotIn('RUSTC_WRAPPER', storage)
         self.assertEqual(ordinary['CARGO_PROFILE_TEST_DEBUG_ASSERTIONS'], 'false')
-        for profile in ('DEV', 'TEST'):
-            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], '2')
-            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'], 'true')
-            self.assertEqual(storage[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'], 'true')
+        for environment, level in ((storage, '2'), (formal, '0')):
+            for profile in ('DEV', 'TEST'):
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], level)
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'], 'true')
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'], 'true')
         self.assertEqual(storage.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'),
                          ordinary.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'))
 
     def test_storage_artifact_profile_is_verified_at_consumption(self):
-        binary = dict(profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
-        acceptance.artifacts.validate_profile('runtime-tests', binary, 'storage')
-        for key, value in [('opt_level', '0'), ('debug_assertions', False), ('overflow_checks', False)]:
-            changed = copy.deepcopy(binary)
-            changed['profile'][key] = value
-            with self.assertRaises(ValueError):
-                acceptance.artifacts.validate_profile('runtime-tests', changed, 'storage')
-        # Ordinary formal consumers retain their existing profile contract.
-        acceptance.artifacts.validate_profile('runtime-tests', dict(profile={}), 'formal')
+        for scope, level in (('storage', '2'), ('formal', '0'), ('formal-debug', '0')):
+            binary = dict(profile=dict(opt_level=level, debug_assertions=True, overflow_checks=True))
+            acceptance.artifacts.validate_profile('runtime-tests', binary, scope)
+            for key, value in [('opt_level', '0' if level == '2' else '2'),
+                               ('debug_assertions', False), ('overflow_checks', False)]:
+                changed = copy.deepcopy(binary)
+                changed['profile'][key] = value
+                with self.assertRaises(ValueError):
+                    acceptance.artifacts.validate_profile('runtime-tests', changed, scope)
+        # Ordinary consumers keep their independent profile contract.
+        acceptance.artifacts.validate_profile('runtime-tests', dict(profile={}), 'ordinary')
 
     def test_storage_consumer_rejects_unoptimized_manifest(self):
         artifacts = acceptance.artifacts

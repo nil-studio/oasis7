@@ -311,7 +311,7 @@ describe("fullscreen map shell contract", () => {
     const { terminalShellCss } = await readViewerHtml();
     const readoutRule = findRule(
       terminalShellCss,
-      /\[data-viewer-overlay=["']world-hud["']\]\s+\.pixel-world-canvas__selection/,
+      /\[data-viewer-overlay=["']world-hud["']\]\s+\.pixel-world-canvas__selection\s*$/,
     );
     expect(readoutRule).not.toBeNull();
     expect(hasDeclaration(readoutRule, "right", /280px/)).toBe(true);
@@ -541,7 +541,7 @@ describe("fullscreen map shell contract", () => {
     ]);
     expect(mainSource).toMatch(/<PixelWorldHost[\s\S]*<WorldSummaryPanel[\s\S]*<WorldFeedSurface/);
     const tabletBlock = terminalShellCss.match(/@media\s*\(max-width:\s*1240px\)[\s\S]*?(?=@media\s*\(max-width:\s*640px\))/i)?.[0] || "";
-    expect(tabletBlock).toMatch(/\.stack:has\(>\s*\[data-viewer-overlay=["']feed["']\]:not\(\[open\]\)\)\s*>\s*\[data-viewer-overlay=["']world-hud["']\][^{]*\{[^}]*top:\s*160px/i);
+    expect(tabletBlock).toMatch(/\.stack:has\(>\s*\[data-viewer-overlay=["']feed["']\]:not\(\[open\]\)\)\s*>\s*\[data-viewer-overlay=["']world-hud["']\][^{]*\{[^}]*top:\s*var\(--world-selection-feedback-top,\s*160px\)/i);
   });
 
   it("allows long Next Move and blocker copy to wrap and remain scrollable on mobile", async () => {

@@ -543,6 +543,11 @@ impl RuntimeLlmSidecar {
         let wake_recovery_backup = self.provider_wake_recovery_pending.get(agent_id).cloned();
         let exhausted_backup = self.provider_transport_exhausted.contains(agent_id);
         let cognition_lease_backup = self.provider_cognition_leases.get(agent_id).cloned();
+        let retired_raw = context
+            .as_ref()
+            .map(|context| self.retire_terminal_raw_outcomes(&context.request_context))
+            .transpose()?
+            .unwrap_or_default();
         self.provider_contexts.remove(agent_id);
         self.provider_active_turns.remove(agent_id);
         self.provider_wait_until.remove(agent_id);
@@ -551,6 +556,7 @@ impl RuntimeLlmSidecar {
         self.provider_transport_exhausted.remove(agent_id);
         self.provider_cognition_leases.remove(agent_id);
         if let Err(error) = self.persist_provider_lineage() {
+            self.restore_raw_outcomes(retired_raw);
             if let Some(context) = context_backup {
                 self.provider_contexts.insert(agent_id.to_string(), context);
             }

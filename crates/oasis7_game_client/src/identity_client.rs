@@ -63,6 +63,25 @@ pub struct IdentityClient {
     signing_key: SigningKey,
 }
 impl IdentityClient {
+    /// Revalidate the existing native session; historical status is insufficient.
+    pub fn current_account(&self, login_operation: &str) -> Result<String, String> {
+        validate_operation(login_operation)?;
+        let session = self
+            .store
+            .read_original::<IdentitySession>(&self.scope, login_operation, "login-session")?
+            .ok_or("action_required: explicit fresh identity login")?;
+        let original = OriginalRequest {
+            path: "/session".into(),
+            cookie: session.cookie,
+            csrf: String::new(),
+            body: String::new(),
+        };
+        let (current, _) = self.call("GET", "/session", Some(&original))?;
+        if current["account"]["account_id"].as_str() != Some(&session.account_id) {
+            return Err("identity session subject changed".into());
+        }
+        Ok(session.account_id)
+    }
     /// Only the trusted local entry adapters use current account authentication.
     /// This does not expose cookies, signing keys, or an arbitrary HTTP client.
     pub(crate) fn authenticated_entry_call(

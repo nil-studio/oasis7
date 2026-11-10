@@ -143,11 +143,11 @@ H01～H06 细化原 §10.9.6 的六个问题，是六个编辑单元，不是新
 <a id="help-command"></a>
 #### H02：Command 是高层指导 / Command gives high-level guidance
 
-**上下文：** 指令输入与高级 Prompt 之间的原帮助位置，绑定当前目标 Agent 与操作类型。
+**上下文：** 指令输入与高级 Prompt 之间的原帮助位置，绑定当前目标 Agent 与操作类型；内容语义沿[原 Chat/Prompt 合同](viewer-control-plane-split-live-playback.design.md#prompt-command-entry-applicability)。
 
-**中文目标正文：** 在指令（Command）中，你可以向当前有权控制的 Agent 说明目标、询问状态或提出下一步。Agent 的行动仍受当前任务、授权和世界规则约束；一句指导不表示移动、施工或生产已经发生。发送对话是一条消息；修改 Prompt 或目标是另一项需要确认的配置操作。填入预设只改变草稿，收到请求也不等于配置已经应用。先确认对象和操作类型，再分别查看对话、配置结果和实际世界结果。
+**中文目标正文：** 在指令（Command）中，你可以向当前有权控制的 Agent 说明目标、询问状态或提出下一步。Agent 的行动仍受当前任务、授权和世界规则约束；一句指导不表示移动、施工或生产已经发生。发送对话会提交本次消息，其中的目标指令也可能按当前入口的规则形成或更新持续目标；以原请求的确认结果和当前目标为准。修改高级 Prompt 配置需要单独确认并应用。填入预设只改变草稿，收到请求也不等于目标已改变或配置已经应用。先确认对象和操作类型，再分别查看对话、目标、配置结果和实际世界结果。
 
-**English target copy:** Use Command to explain a goal, ask about progress or suggest a next step to an Agent you are currently allowed to control. Its actions still depend on its task, authority and world rules; giving guidance does not mean movement, construction or production has happened. Sending a chat message and changing a Prompt or goal are separate operations; a configuration change requires your confirmation. Filling a preset changes only the draft, and receipt of a request does not mean a configuration has been applied. Check the target and operation type, then read the chat response, configuration result and actual world outcome separately.
+**English target copy:** Use Command to explain a goal, ask about progress or suggest a next step to an Agent you are currently allowed to control. Its actions still depend on its task, authority and world rules; giving guidance does not mean movement, construction or production has happened. Sending chat submits this message, and a goal instruction in it may also create or update a persistent goal under the rules of the current entry. Check the confirmed result of the original request and the current goal. Changes to Advanced Prompt settings must be confirmed and applied separately. Filling a preset changes only the draft, and receipt of a request does not mean the goal has changed or a configuration has been applied. Check the target and operation type, then read the chat response, goal, configuration result and actual world outcome separately.
 
 <a id="help-submit-blocked"></a>
 #### H03：为什么不可提交 / Why submission is unavailable

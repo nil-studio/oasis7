@@ -513,3 +513,76 @@ fn site_ledger_resolves_distinct_location_identity_and_inactive_site_does_not_pr
             .is_empty()
     );
 }
+
+#[test]
+fn local_terrain_proof_rejects_modified_and_remote_fragments() {
+    let mut snapshot = fixture();
+    let location = snapshot.model.locations.get_mut("l").unwrap();
+    location.fragment_profile = Some(oasis7_simulator::synthesize_fragment_profile(
+        123,
+        120,
+        oasis7_simulator::MaterialKind::Composite,
+    ));
+    let authority = SourceAuthority::local_runtime().with_local_terrain(&snapshot.model);
+    let original_cut = authority.cut_key();
+    let mut renamed = snapshot.model.locations["l"].clone();
+    renamed.name = "unproved rename".into();
+    assert!(!authority.terrain_current(&renamed));
+    let mut altered = snapshot.model.locations["l"].clone();
+    altered.fragment_profile.as_mut().unwrap().blocks.blocks[0]
+        .compounds
+        .ppm
+        .clear();
+    assert!(!authority.terrain_current(&altered));
+    let record =
+        crate::viewer::world_view_authority::terrain_render_record(&snapshot.model.locations["l"]);
+    assert!(
+        record["fragment_profile"]["blocks"]["blocks"][0]
+            .get("density_kg_per_m3")
+            .is_none()
+    );
+    assert!(record["fragment_profile"].get("total_mass_g").is_none());
+
+    let prepared = prepare(&snapshot, "w", 0, "a", &authority).unwrap();
+    let location = prepared
+        .objects
+        .iter()
+        .find(|o| o.value["entity_id"] == "l")
+        .unwrap();
+    assert!(location.value["render_record"].get("resources").is_none());
+    assert_eq!(
+        location.value["provenance"]["source_ref"],
+        "local_generated_terrain_cut"
+    );
+    assert_eq!(location.value["provenance"]["freshness"], "current");
+    assert!(location.value["render_record"]["fragment_profile"]["blocks"]["blocks"].is_array());
+    snapshot.model.locations.get_mut("l").unwrap().pos.x_cm += 1;
+    assert!(!authority.terrain_current(&snapshot.model.locations["l"]));
+    let changed = SourceAuthority::local_runtime().with_local_terrain(&snapshot.model);
+    assert_ne!(original_cut, changed.cut_key());
+    assert_eq!(authority.scope_key(), changed.scope_key());
+    let remote = SourceAuthority::remote(json!({}), json!({}), String::new())
+        .with_local_terrain(&snapshot.model);
+    assert!(!remote.terrain_current(&snapshot.model.locations["l"]));
+    let prepared = prepare(&snapshot, "w", 0, "a", &remote).unwrap();
+    let location = prepared
+        .objects
+        .iter()
+        .find(|o| o.value["entity_id"] == "l")
+        .unwrap();
+    assert_eq!(location.value["provenance"]["freshness"], "unknown");
+    assert!(
+        location.value["render_record"]
+            .get("fragment_profile")
+            .is_none()
+    );
+    let unknown = SourceAuthority::unknown().with_local_terrain(&snapshot.model);
+    assert!(!unknown.terrain_current(&snapshot.model.locations["l"]));
+    snapshot
+        .model
+        .locations
+        .get_mut("l")
+        .unwrap()
+        .fragment_profile = None;
+    assert!(!changed.terrain_current(&snapshot.model.locations["l"]));
+}

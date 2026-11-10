@@ -160,7 +160,7 @@ class SingleCheck(unittest.TestCase):
     def test_manual_workflow_has_no_codeql_or_privileged_execution(self):
         text=(P.parents[2]/'.github/workflows/codeql-rust-cargo-check.yml').read_text()
         for required in ('default: false','inputs.execute == true','timeout-minutes: 15',
-                         'start+900','ref: '+m.SOURCE,'rustup toolchain install 1.99.0',
+                         'local_now+900-age','ref: '+m.SOURCE,'rustup toolchain install 1.99.0',
                          'include-hidden-files: true','contents: read','actions: read'):
             self.assertIn(required,text)
         for forbidden in ('github/codeql-action/','security-events: write','upload-sarif',

@@ -2,8 +2,11 @@
 //! This budget prevents hangs; it is not an end-to-end latency promise.
 use super::*;
 use std::io::{Seek, SeekFrom};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[path = "application_completion_launcher_tests.rs"]
+mod launcher_tests;
 
 const CHILD_BUDGET: Duration = Duration::from_secs(60);
 const DEADLINE_ENV: &str = "PRE2_CONFORMANCE_COMPLETION_DEADLINE_MS";
@@ -24,18 +27,44 @@ pub(super) fn child_deadline() -> Instant {
 }
 
 pub(super) fn run_child(command: &mut Command, root: &std::path::Path) -> Output {
+    run_child_phase(command, root, "child")
+}
+
+/// Each process in a recovery sequence owns separate, never-truncated logs.
+/// The reusable Command retains captured-output semantics after this call.
+pub(super) fn run_child_phase(
+    command: &mut Command,
+    root: &std::path::Path,
+    phase: &str,
+) -> Output {
+    run_child_with_budget(command, root, phase, CHILD_BUDGET)
+}
+
+fn run_child_with_budget(
+    command: &mut Command,
+    root: &std::path::Path,
+    phase: &str,
+    budget_limit: Duration,
+) -> Output {
+    assert!(
+        !phase.is_empty()
+            && phase
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')),
+        "completion child phase must be a filename component"
+    );
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
     let inherited = std::env::var(DEADLINE_ENV).ok().map(|value| {
         value
             .parse::<u128>()
             .expect("inherited completion deadline")
     });
-    let budget = launcher_budget(now.as_millis(), inherited);
+    let budget = launcher_budget(now.as_millis(), inherited).min(budget_limit);
     let deadline = Instant::now() + budget;
     let unix_deadline = now + budget;
     command.env(DEADLINE_ENV, unix_deadline.as_millis().to_string());
-    let stdout_path = root.join("completion-child.stdout.log");
-    let stderr_path = root.join("completion-child.stderr.log");
+    let stdout_path = root.join(format!("completion-{phase}.stdout.log"));
+    let stderr_path = root.join(format!("completion-{phase}.stderr.log"));
     let open = |path: &std::path::Path| {
         fs::OpenOptions::new()
             .read(true)
@@ -51,7 +80,12 @@ pub(super) fn run_child(command: &mut Command, root: &std::path::Path) -> Output
     command
         .stdout(stdout.try_clone().unwrap())
         .stderr(stderr.try_clone().unwrap());
-    let mut child = command.spawn().expect("isolated completion child");
+    let spawned = command.spawn();
+    // Command retains configured file handles across spawns. Do not let a
+    // subsequent output() silently append to an earlier phase's logs and
+    // return empty stdout/stderr instead of the recovery process's output.
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = spawned.expect("isolated completion child");
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
@@ -62,7 +96,7 @@ pub(super) fn run_child(command: &mut Command, root: &std::path::Path) -> Output
                 .expect("kill owned isolated child after hard deadline");
             let status = child.wait().unwrap();
             eprintln!(
-                "conformance_parent_hard_deadline_exceeded owned_child={} budget_ms={}",
+                "conformance_parent_hard_deadline_exceeded owned_child={} budget_ms={} phase={phase}",
                 child.id(),
                 budget.as_millis()
             );

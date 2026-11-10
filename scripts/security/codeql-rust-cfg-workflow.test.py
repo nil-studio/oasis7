@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Control regressions for the manual, non-security CFG diagnostic."""
 import ast
+import contextlib
+import datetime
+import email.utils
+import io
+import json
 from pathlib import Path
 import re
 import os
@@ -9,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 TEXT = (ROOT / '.github/workflows/codeql-rust-cfg-diagnostic.yml').read_text().split('  evaluator_profile:',1)[0]
@@ -89,7 +95,7 @@ class CfgWorkflow(unittest.TestCase):
         self.assertEqual(TEXT.count("--scope-identities"),2)
         self.assertNotIn("d2bf383d8c377b36de83aae4a06d9ec17612e205",TEXT)
         capacity=(ROOT/".github/workflows/codeql-rust-capacity.yml").read_text()
-        self.assertIn("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || 'f9ab0ca14620f118c84130b3d558e48dc1e6314d' }}",capacity)
+        self.assertIn("CAPACITY_SOURCE: ${{ inputs.mode == 'official-default-research' && 'c036927d33b917a036a731f071209e16f6deb033' || '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef' }}",capacity)
         self.assertIn("ref: ${{ env.CAPACITY_SOURCE }}",capacity)
         self.assertEqual(capacity.count('--source-sha "$CAPACITY_SOURCE"'),4)
 
@@ -99,6 +105,75 @@ class CfgWorkflow(unittest.TestCase):
         ci = (ROOT / 'scripts/ci-tests.sh').read_text()
         self.assertIn('test_codeql_rust_cfg_graph.py', ci)
         self.assertIn('codeql-rust-cfg-workflow.test.py', ci)
+
+
+class HostedClock(unittest.TestCase):
+    """A hosted API timestamp must not be compared with a skewed runner clock."""
+
+    def clocks(self):
+        entries = []
+        for file in ('codeql-rust-capacity.yml', 'codeql-rust-cfg-diagnostic.yml',
+                     'codeql-rust-cargo-check.yml'):
+            text = (ROOT / '.github/workflows' / file).read_text()
+            for block in re.findall(r"python3 - <<'PY'\n(.*?)\n          PY", text, re.S):
+                if "['started_at']" not in block:
+                    continue
+                code = '\n'.join(line[10:] for line in block.splitlines())
+                name = re.search(r"\['name'\]=='([^']+)'", code).group(1)
+                entries.append((file, name, code))
+        self.assertEqual(len(entries), 4)
+        return entries
+
+    def run_clock(self, code, name, folder, *, offset=0, age=2, header=True, mode='capacity', compare=False):
+        started = datetime.datetime(2026, 11, 1, 9, 45, 42, tzinfo=datetime.timezone.utc)
+        server_now = started.timestamp() + age
+        runner_now = server_now + offset
+        response = io.StringIO(json.dumps({'jobs': [dict(
+            id=123, name=name, status='in_progress', started_at=started.isoformat())]}))
+        response.headers = {'Date': email.utils.format_datetime(
+            datetime.datetime.fromtimestamp(server_now, datetime.timezone.utc), usegmt=True)} if header else {}
+        output = Path(folder) / 'env'
+        env = dict(GITHUB_REPOSITORY='example/repo', GITHUB_RUN_ID='1',
+                   GITHUB_RUN_ATTEMPT='1', GH_TOKEN='test-token',
+                   GITHUB_ENV=str(output), RUNNER_TEMP=folder, CAPACITY_MODE=mode,
+                   COMPARE_QUALIFIER_PATCH='true' if compare else 'false')
+        with patch.dict(os.environ, env), patch('urllib.request.urlopen', return_value=response), \
+                patch('time.time', return_value=runner_now), \
+                patch('time.monotonic', side_effect=[10.0, 11.0]), contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(code, 'hosted-clock', 'exec'), {})
+        values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+        return float(values.get('CAPACITY_DEADLINE', values.get('CHECK_DEADLINE')))-runner_now
+
+    def test_runner_clock_skew_preserves_actual_job_budget(self):
+        budgets = {'CodeQL Rust capacity': 5400, 'CodeQL Rust CFG diagnostic': 2700,
+                   'CodeQL Rust evaluator profile': 3300, 'Cargo check diagnostic': 900}
+        for file, name, code in self.clocks():
+            for offset in (-3600, 0, 3600):
+                with self.subTest(file=file, job=name, offset=offset), tempfile.TemporaryDirectory() as folder:
+                    remaining = self.run_clock(code, name, folder, offset=offset)
+                    # Two seconds of server-side age, one of request time and one
+                    # for HTTP Date rounding have already consumed the budget.
+                    self.assertEqual(remaining, budgets[name] - 4)
+
+    def test_unknown_future_or_stale_server_clock_stops_before_setup(self):
+        for file, name, code in self.clocks():
+            for args in ({'header': False}, {'age': -10}, {'age': 121}):
+                with self.subTest(file=file, job=name, args=args), tempfile.TemporaryDirectory() as folder:
+                    with self.assertRaises((SystemExit, ValueError, TypeError)):
+                        self.run_clock(code, name, folder, **args)
+                    self.assertFalse((Path(folder) / 'env').exists())
+
+    def test_research_modes_keep_distinct_budgets_and_reject_the_capacity_only_flag(self):
+        _,name,code=next(entry for entry in self.clocks() if entry[0]=='codeql-rust-capacity.yml')
+        for mode,budget in [('capacity',5400),('official-default-research',21600),('qualifier-research',9000)]:
+            for offset in (-3600,3600):
+                with self.subTest(mode=mode,offset=offset),tempfile.TemporaryDirectory() as folder:
+                    self.assertEqual(self.run_clock(code,name,folder,mode=mode,offset=offset),budget-4)
+            if mode!='capacity':
+                with tempfile.TemporaryDirectory() as folder:
+                    with self.assertRaisesRegex(SystemExit,'requires capacity mode'):
+                        self.run_clock(code,name,folder,mode=mode,compare=True)
+                    self.assertFalse((Path(folder)/'env').exists())
 
 
 if __name__ == '__main__':

@@ -76,6 +76,31 @@ class ProviderArtifact:
 
 
     @staticmethod
+    def build_checker(root, bundle, relative_directory):
+        directory = bundle / relative_directory
+        directory.mkdir(parents=True, exist_ok=True)
+        files = {}
+        subprocess.run(['cargo', 'build', '--locked', '-p', 'oasis7_distfs', '--features',
+                        'sync-builtin-wasm-identity', '--bin', 'sync_builtin_wasm_identity'],
+                       cwd=root, check=True, env={key:value for key,value in os.environ.items() if key != 'RUSTC_WRAPPER'})
+        checker = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
+        files['checker'] = f'{relative_directory}/{checker}'
+        shutil.copy2(root / 'target/debug' / checker, bundle / files['checker'])
+        libraries = []
+        if sys.platform == 'linux':
+            linked = subprocess.run(['ldd', str(bundle / files['checker'])], text=True, capture_output=True, check=True)
+            for line in linked.stdout.splitlines():
+                fields = line.split()
+                if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(root / 'target') + '/'):
+                    library = Path(fields[2])
+                    relative = f'{relative_directory}/lib/{library.name}'
+                    (directory / 'lib').mkdir(exist_ok=True)
+                    shutil.copy2(library, bundle / relative)
+                    libraries.append({'path': relative, 'sha256': ProviderArtifact.digest(bundle / relative)})
+        return files, libraries
+
+
+    @staticmethod
     def build(root, bundle, expected):
         directory = bundle / ProviderArtifact.DIRECTORY
         directory.mkdir(parents=True, exist_ok=False)
@@ -91,23 +116,8 @@ class ProviderArtifact:
                 shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
         files = {kind: f'{ProviderArtifact.DIRECTORY}/{ProviderArtifact.MODULE}{suffix}' for kind, suffix in
                  (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json'))}
-        subprocess.run(['cargo', 'build', '--locked', '-p', 'oasis7_distfs', '--features',
-                        'sync-builtin-wasm-identity', '--bin', 'sync_builtin_wasm_identity'],
-                       cwd=root, check=True, env={key:value for key,value in os.environ.items() if key != 'RUSTC_WRAPPER'})
-        checker = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
-        files['checker'] = f'{ProviderArtifact.DIRECTORY}/{checker}'
-        shutil.copy2(root / 'target/debug' / checker, bundle / files['checker'])
-        libraries = []
-        if sys.platform == 'linux':
-            linked = subprocess.run(['ldd', str(bundle / files['checker'])], text=True, capture_output=True, check=True)
-            for line in linked.stdout.splitlines():
-                fields = line.split()
-                if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(root / 'target') + '/'):
-                    library = Path(fields[2])
-                    relative = f'{ProviderArtifact.DIRECTORY}/lib/{library.name}'
-                    (directory / 'lib').mkdir(exist_ok=True)
-                    shutil.copy2(library, bundle / relative)
-                    libraries.append({'path': relative, 'sha256': ProviderArtifact.digest(bundle / relative)})
+        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, ProviderArtifact.DIRECTORY)
+        files.update(checker_files)
         if ProviderArtifact.identity(root) != before:
             raise ValueError('provider source changed during official build')
         record = dict(before, libraries=libraries, files={kind: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
@@ -148,6 +158,113 @@ class ProviderArtifact:
         return dict(zip(ProviderArtifact.VARIABLES, (str(paths[kind].resolve()) for kind in ('wasm', 'metadata'))))
 
 
+
+class BuiltinTestArtifact(ProviderArtifact):
+    DIRECTORY = 'builtin-test-resources'
+    MODULES = {'m1.sensor.basic': 'm1_sensor_basic', 'm1.mobility.basic': 'm1_mobility_basic',
+               'm1.memory.core': 'm1_memory_core', 'm1.storage.cargo': 'm1_storage_cargo'}
+
+    @staticmethod
+    def required(manifest):
+        included = manifest.get('included_binaries', manifest.get('binaries', {}))
+        return any(name in included and binary.get('package') == 'oasis7_runtime' and binary.get('test')
+                   and {'wasmtime', 'test_tier_full'} <= set(binary.get('features', []))
+                   for name, binary in manifest.get('binaries', {}).items())
+
+    @staticmethod
+    def build(root, bundle, expected):
+        directory = bundle / BuiltinTestArtifact.DIRECTORY
+        directory.mkdir(parents=True, exist_ok=False)
+        before = ProviderArtifact.identity(root)
+        if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
+            raise ValueError('builtin producer source differs from native identity')
+        records = {}
+        # ProviderArtifact builds/copies the receipt checker and its dynamic libraries.
+        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, BuiltinTestArtifact.DIRECTORY)
+        checker = dict(files={key: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
+                                   for key, name in checker_files.items()}, libraries=libraries)
+        (root / 'target').mkdir(exist_ok=True)
+        for module, crate in BuiltinTestArtifact.MODULES.items():
+            with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
+                subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                                '--manifest-path', f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml',
+                                '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
+                               cwd=root, check=True)
+                for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                    shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
+            records[module] = {kind: {'path': f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}',
+                                     'sha256': ProviderArtifact.digest(directory / (module + suffix))}
+                               for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
+                                                    ('receipt', '.build-receipt.json'))}
+        if ProviderArtifact.identity(root) != before:
+            raise ValueError('builtin source changed during canonical build')
+        record = dict(before, modules=records, checker=checker)
+        BuiltinTestArtifact.validate(root, bundle, record, expected)
+        return record
+
+    @staticmethod
+    def validate(root, bundle, record, expected):
+        if (not isinstance(record, dict)
+                or any(record.get(key) != expected[key] for key in ('tested_sha', 'source_sha'))
+                or record.get('checkout_tree_sha256') != ProviderArtifact.tree_digest(root)
+                or set(record.get('modules', {})) != set(BuiltinTestArtifact.MODULES)):
+            raise ValueError('builtin source/inventory mismatch')
+        checker_record = record['checker']
+        if set(checker_record.get('files', {})) != {'checker'}:
+            raise ValueError('builtin checker inventory mismatch')
+        checker_name = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
+        if checker_record['files']['checker'].get('path') != f'{BuiltinTestArtifact.DIRECTORY}/{checker_name}':
+            raise ValueError('builtin checker role/path mismatch')
+        libraries = checker_record.get('libraries')
+        if not isinstance(libraries, list):
+            raise ValueError('builtin checker libraries missing')
+        seen = set()
+        for entry in libraries:
+            name = entry.get('path', '')
+            if not name.startswith(BuiltinTestArtifact.DIRECTORY + '/lib/') or name in seen:
+                raise ValueError('builtin checker library role/path mismatch')
+            seen.add(name)
+        for entry in list(checker_record['files'].values()) + libraries:
+            if ProviderArtifact.digest(ProviderArtifact.checked(bundle, entry['path'])) != entry['sha256']:
+                raise ValueError('builtin checker hash/path mismatch')
+        checker = bundle / checker_record['files']['checker']['path']
+        if not os.access(checker, os.X_OK):
+            raise ValueError('builtin checker not executable')
+        for module, files in record['modules'].items():
+            if set(files) != {'wasm', 'metadata', 'receipt'}:
+                raise ValueError('builtin artifact incomplete')
+            paths = []
+            for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json')):
+                entry = files[kind]
+                if entry['path'] != f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}':
+                    raise ValueError('builtin role/path mismatch')
+                path = ProviderArtifact.checked(bundle, entry['path'])
+                if ProviderArtifact.digest(path) != entry['sha256']:
+                    raise ValueError('builtin artifact hash mismatch')
+                paths.append(str(path))
+            subprocess.run([str(checker), '--verify-builtin-test-artifact', str(root), module, *paths],
+                           cwd=root, check=True, env=dict(os.environ, LD_LIBRARY_PATH=str(bundle / BuiltinTestArtifact.DIRECTORY / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', '')))
+        return record
+
+    @staticmethod
+    def files(record):
+        return [entry for files in record['modules'].values() for entry in files.values()] + list(record['checker']['files'].values()) + record['checker']['libraries']
+
+    @staticmethod
+    def environment(root, bundle, record, expected):
+        BuiltinTestArtifact.validate(root, bundle, record, expected)
+        fetcher = bundle / 'builtin-test-fetcher'
+        mapping = {module: str((bundle / files['wasm']['path']).resolve())
+                   for module, files in record['modules'].items()}
+        fetcher.write_text('#!/usr/bin/env python3\nimport hashlib,json,pathlib,sys\n' +
+            'records=json.loads(' + repr(json.dumps(mapping)) + ')\n' +
+            'module,expected,out=sys.argv[1:]\n' +
+            'data=pathlib.Path(records[module]).read_bytes()\n' +
+            'if hashlib.sha256(data).hexdigest()!=expected: raise SystemExit(1)\n' +
+            'pathlib.Path(out).write_bytes(data)\n')
+        fetcher.chmod(0o700)
+        return {'OASIS7_BUILTIN_WASM_FETCHER': str(fetcher.resolve())}
+
 provider_artifact = ProviderArtifact
 
 def preview_provider_required(manifest):
@@ -177,10 +294,37 @@ VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_cha
                                      'oasis7_launcher_backend', 'oasis7_viewer_runtime'))
 FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
 RUST_BASELINE_CHECKS = ('newapi_accounting', 'standalone_tool_lockfiles')
+ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
+DISTFS_CLIPPY_TARGETS = frozenset((
+    ('oasis7_runtime', 'lib', 'oasis7_runtime'),
+    ('oasis7_runtime', 'test', 'pr_fast_incremental'),
+    ('oasis7_world_state', 'lib', 'oasis7_world_state'),
+    ('oasis7_world_state', 'test', 'pr_fast_reducers'),
+))
+DISTFS_CLIPPY_COMMANDS = (
+    ('-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'),
+    ('-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'),
+)
+
+
+ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
 
 
 def fast_plan(plan):
     """Old trusted planners retain the complete previous execution inventory."""
+    support_fields = {'ordinary_support_contract_version', 'ordinary_support_handoffs',
+                      'ordinary_support_deferred'}
+    support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
+    partitioned = isinstance(plan, dict) and bool(
+        {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions'}.intersection(plan))
+    distfs_clippy = isinstance(plan, dict) and bool(
+        {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
+    if distfs_clippy and 'fast_plan_version' not in plan:
+        raise ValueError('DistFS Clippy handoff requires a compatible fast plan')
+    if partitioned and 'fast_plan_version' not in plan:
+        raise ValueError('ordinary partitions require a compatible fast plan')
+    if support and 'fast_plan_version' not in plan:
+        raise ValueError('support handoff requires a compatible fast plan')
     if (isinstance(plan, dict) and 'fast_execution_version' in plan
             and type(plan['fast_execution_version']) is not int):
         raise ValueError('invalid fast execution capability')
@@ -214,7 +358,133 @@ def fast_plan(plan):
                 raise ValueError('invalid ordinary Clippy group')
             if clippy_group == 'rust_baseline' and 'rust_baseline' not in plan['groups']:
                 raise ValueError('ordinary Clippy owner is not a selected required group')
+    if support:
+        validate_support_handoff(plan)
+    if partitioned:
+        validate_ordinary_partitions(plan)
+    if distfs_clippy:
+        validate_distfs_clippy_handoff(plan)
     return plan
+
+
+def validate_distfs_clippy_handoff(plan):
+    """Only the complete native parent may move the two original lint calls."""
+    architecture = plan.get('architecture')
+    targets = plan.get('ordinary_fast_targets')
+    if (type(plan.get('distfs_clippy_contract_version')) is not int
+            or plan['distfs_clippy_contract_version'] != 1
+            or plan.get('distfs_clippy_group') != 'rust_baseline'
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
+            or plan.get('ordinary_partition_version') != 1
+            or plan.get('ordinary_partitions') != sorted(ORDINARY_PARTITION_PACKAGES)
+            or plan.get('scope') != 'targeted'
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or plan.get('fast_plan_exceptions') != []
+            or plan.get('formal_suites') != []
+            or plan.get('oasis7_required_wasm_packages') != []
+            or not {'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups'])
+            or not isinstance(architecture, dict)
+            or type(architecture.get('build_policy_version')) is not int
+            or architecture.get('build_policy_version') != 1
+            or architecture.get('build_policy') != 'ordinary-targets'
+            or architecture.get('mode') != 'targeted'
+            or not isinstance(architecture.get('consumer_groups'), dict)
+            or not architecture['consumer_groups'].get('distfs')
+            or not isinstance(targets, list) or len(targets) != len(DISTFS_CLIPPY_TARGETS)
+            or any(not isinstance(target, dict) for target in targets)
+            or any(not isinstance(target.get(field), str) for target in targets
+                   for field in ('package', 'target_kind', 'target_name'))
+            or {(target.get('package'), target.get('target_kind'), target.get('target_name'))
+                 for target in targets} != DISTFS_CLIPPY_TARGETS
+            or any(target.get('default_features') is not False
+                   or target.get('features') != ['test_tier_required'] for target in targets)):
+        raise ValueError('invalid complete native DistFS Clippy handoff')
+
+
+def validate_ordinary_partitions(plan):
+    """The trusted parent retains every target; only their physical owner changes."""
+    if 'ordinary_artifact_partition_version' in plan:
+        if (type(plan['ordinary_artifact_partition_version']) is not int
+                or plan['ordinary_artifact_partition_version'] != 1
+                or 'ordinary_partition_version' in plan
+                or 'fast_execution_version' in plan
+                or plan.get('ordinary_execution') == 'inline'
+                or plan.get('scope') not in ('full', 'explicit-full')
+                or 'oasis7_required' not in plan.get('groups', [])
+                or plan.get('ordinary_partitions') != list(ORDINARY_ARTIFACT_PARTITIONS)):
+            raise ValueError('invalid complete ordinary artifact partitions')
+        return
+    targets = plan.get('ordinary_fast_targets')
+    if (type(plan.get('ordinary_partition_version')) is not int
+            or plan['ordinary_partition_version'] != 1
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
+            or plan.get('oasis7_required_wasm_packages') != []
+            or not isinstance(targets, list) or not targets
+            or any(not isinstance(target, dict) or not isinstance(target.get('package'), str)
+                   or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', target['package']) is None
+                   for target in targets)):
+        raise ValueError('invalid ordinary partition capability')
+    packages = sorted({target['package'] for target in targets})
+    expected = packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all']
+    if plan.get('ordinary_partitions') != expected:
+        raise ValueError('ordinary partitions must cover the complete parent target inventory exactly once')
+
+
+def ordinary_partitions(plan=None):
+    selected = fast_plan(plan)
+    return list(selected.get('ordinary_partitions', ['all'])) if selected is not None else ['all']
+
+
+def ordinary_partition_targets(plan=None, partition=None):
+    targets = ordinary_fast_targets(plan)
+    if partition is None:
+        return targets
+    if partition not in ordinary_partitions(plan):
+        raise ValueError('unknown ordinary partition for the complete parent plan')
+    if plan is not None and plan.get('ordinary_artifact_partition_version') == 1:
+        raise ValueError('complete artifact partitions cannot rebuild or narrow Cargo targets')
+    if partition == 'all':
+        return targets
+    selected = [target for target in targets if target['package'] == partition]
+    if not selected:
+        raise ValueError('ordinary partition has no complete targets')
+    return selected
+
+
+def validate_support_handoff(plan):
+    """Moving support execution must retain its complete original lint calls."""
+    if (type(plan.get('ordinary_support_contract_version')) is not int
+            or plan['ordinary_support_contract_version'] != 1
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'):
+        raise ValueError('invalid ordinary support handoff capability or Clippy owner')
+    fields = ('ordinary_support_handoffs', 'ordinary_support_deferred', 'workspace_support_profiles')
+    for field in fields:
+        values = plan.get(field)
+        if (not isinstance(values, list)
+                or (field == 'ordinary_support_handoffs' and not values)
+                or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name) for name in values)
+                or len(values) != len(set(values))):
+            raise ValueError('invalid ordinary support profile inventory: ' + field)
+    handoffs, deferred, remaining = (set(plan[field]) for field in fields)
+    if (handoffs & deferred or (handoffs | deferred) & remaining
+            or bool(remaining) != ('workspace_support' in plan['groups'])):
+        raise ValueError('ordinary support profiles have overlapping or missing owners')
+    targets = plan.get('ordinary_fast_targets')
+    if not isinstance(targets, list) or any(not isinstance(target, dict) for target in targets):
+        raise ValueError('support handoff is missing ordinary targets')
+    for owner in handoffs:
+        selected = [target for target in targets if target.get('package') == owner]
+        if (not any(target.get('target_kind') == 'lib' for target in selected)
+                or any(target.get('default_features') is not True or target.get('features') != []
+                       for target in selected)):
+            raise ValueError('support handoff requires the same complete default library')
 
 
 def plan_list(plan, key, inventory, *, nonempty=True):
@@ -274,6 +544,12 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
+    if phase == 'distfs-clippy-group':
+        selected = fast_plan(plan)
+        if selected is not None and selected.get('distfs_clippy_contract_version') == 1:
+            ordinary_fast_targets(selected)
+            return [selected['distfs_clippy_group']]
+        return ['distfs']
     if phase == 'clippy-group':
         selected = fast_plan(plan)
         if selected is not None and selected.get('fast_execution_version') == 1:
@@ -369,7 +645,13 @@ def target_native_arguments(target):
 def required_native_commands(plan=None):
     targets = ordinary_fast_targets(plan)
     if targets is not None:
-        return [target_native_arguments(target) for target in targets]
+        handoffs = set(plan.get('ordinary_support_handoffs', ()))
+        support = handoffs | set(plan.get('ordinary_support_deferred', ()))
+        commands = ([target_native_arguments(target) for target in targets if target['package'] not in handoffs]
+                    + [['-p', package, '--all-targets'] for package in sorted(support)])
+        if plan.get('distfs_clippy_contract_version') == 1:
+            commands.extend(list(command) for command in DISTFS_CLIPPY_COMMANDS)
+        return commands
     return [required_arguments(plan)] + [target_native_arguments(target)
                                        for target in ordinary_full_fast_targets(plan) or []]
 
@@ -423,6 +705,8 @@ def formal_configuration():
     if trusted.get('schema_version') != 2 or candidate.get('schema_version') != 2:
         raise ValueError('unsupported trusted Formal inventory schema')
     result = json.loads(json.dumps(trusted))
+    # Concurrency is an allowance, not added coverage: candidate declarations
+    # must not widen the BASE's exact case/resource policy.
     owners = {}
     for suite, entries in trusted['suites'].items():
         for entry in entries:
@@ -475,6 +759,11 @@ def formal_shards(plan=None):
               for suite, entries in suites.items() for entry in entries}
     shards.update(suite for suite, entries in config['shell_tests'].items() if suite in selected and entries)
     shards.update(suite for suite in config['environment_formal_batches'].values() if suite in selected)
+    for binary, suite in config['environment_formal_batches'].items():
+        if suite in selected:
+            explicit = {entry.get('name') for entries in config['suites'].values()
+                        for entry in entries if entry.get('binary') == binary}
+            shards.update(shard for name, shard in overrides.get(binary, {}).items() if name not in explicit)
     if shards - set(SHARDS):
         raise ValueError('unknown physical Formal shard')
     if fast_plan(plan) is not None and 'formal_shards' in plan:
@@ -534,15 +823,27 @@ def validate_target_inventory(targets, binaries):
 
 def validate_ordinary_selection(manifest):
     plan = fast_plan(manifest.get('execution_plan'))
+    partition = manifest.get('ordinary_partition')
+    if partition is not None and manifest.get('scope') != 'ordinary':
+        raise ValueError('ordinary partition requires an ordinary bundle')
     if plan is None:
+        if partition not in (None, 'all'):
+            raise ValueError('ordinary partition requires a compatible parent plan')
         return
     supplements = ordinary_full_fast_targets(plan)
     if manifest.get('scope') != 'ordinary' and not (manifest.get('scope') == 'all' and supplements is not None):
         return
     binaries = [entry for entry in manifest['binaries'].values() if entry.get('ordinary')]
-    targets = ordinary_fast_targets(plan)
+    targets = ordinary_partition_targets(plan, partition)
     if targets is not None:
         validate_target_inventory(targets, binaries)
+        if partition not in (None, 'all'):
+            variants = {(target['package'], target['target_kind'], target['target_name']): 'required-fast-' + str(index)
+                        for index, target in enumerate(ordinary_fast_targets(plan))}
+            for binary in binaries:
+                identity = (binary['package'], binary['target_kind'][0], binary['target'])
+                if binary.get('variant') != variants[identity]:
+                    raise ValueError('ordinary partition target variant mismatch')
         return
     if supplements is not None:
         validate_target_inventory(supplements, [entry for entry in binaries
@@ -632,7 +933,12 @@ def resolve_shards(config, suites):
     return result
 
 
-def build_variants(scope, plan=None):
+FORMAL_COMPONENTS = ('formal-debug', 'formal-endpoint')
+
+
+def build_variants(scope, plan=None, ordinary_partition=None):
+    if ordinary_partition is not None and scope != 'ordinary':
+        raise ValueError('ordinary partition requires ordinary build scope')
     required_features = ['test_tier_required']
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
@@ -648,9 +954,12 @@ def build_variants(scope, plan=None):
         return variants + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
     if scope == 'ordinary':
         targets = ordinary_fast_targets(plan)
+        selected_targets = ordinary_partition_targets(plan, ordinary_partition)
         if targets is not None:
-            return target_build_variants(targets, 'required-fast-',
-                                         combine=plan.get('fast_execution_version') == 1)
+            variants = target_build_variants(targets, 'required-fast-',
+                                            combine=plan.get('fast_execution_version') == 1)
+            return [(name, args, features) for name, args, features in variants
+                    if targets[int(name.removeprefix('required-fast-'))] in selected_targets]
         if fast_plan(plan) is not None:
             packages = set(required_packages(plan))
             native_args = required_arguments(plan)
@@ -664,7 +973,7 @@ def build_variants(scope, plan=None):
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
             return selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
-    if scope in ('formal', 'storage'):
+    if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
         # Keep both core libraries and the exact Chain binary harness. Chain
         # configuration library tests belong to the ordinary required variant;
         # integration tests, viewer executables and snapshot variants run elsewhere.
@@ -674,6 +983,8 @@ def build_variants(scope, plan=None):
         core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
         result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
+        if scope in FORMAL_COMPONENTS:
+            return [variant for variant in result if (variant[0] == 'endpoint') == (scope == 'formal-endpoint')]
         if scope == 'storage':
             result.append(('storage-libs', ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol',
                 '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '--lib', '--no-run'], []))
@@ -706,14 +1017,25 @@ def artifact_logical_name(variant, package, target, test):
 def build_environment(scope):
     env = dict(os.environ)
     env.pop('RUSTC_WRAPPER', None)
-    if scope == 'storage':
-        # Keep test checks while avoiding debug-code cost in multi-hour workloads.
-        # Release endpoint policy is independent and remains unchanged.
+    if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
+        # Formal keeps the original cheap debug profile. Optimizing its entire
+        # dependency graph and large test harnesses greatly increases cold cost.
+        # Storage retains its established profile; release endpoint is separate.
         for profile in ('DEV', 'TEST'):
-            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2'
+            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2' if scope == 'storage' else '0'
             env[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'] = 'true'
             env[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'] = 'true'
     return env
+
+
+def compiler_environment(env):
+    """Inputs shared by split producers; omit credentials and execution-only knobs."""
+    flags = {'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
+             'RUSTC', 'RUSTDOC', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_INCREMENTAL',
+             'CC', 'CXX', 'AR', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'LIBRARY_PATH', 'CPATH'}
+    prefixes = ('CARGO_PROFILE_', 'CARGO_TARGET_', 'CARGO_BUILD_', 'CC_', 'CXX_', 'AR_', 'PKG_CONFIG', 'OASIS7_WASM')
+    return {key: value for key, value in sorted(env.items())
+            if (key in flags or key.startswith(prefixes)) and key != 'CARGO_BUILD_JOBS'}
 
 
 def build_cache_dependencies(scope):
@@ -732,21 +1054,128 @@ def validate_profile(logical, binary, scope=None):
                 or profile['opt_level'] != '3' or profile['debug_assertions']
                 or Path(binary['original_executable']).parent.name != 'release'):
             raise ValueError('expected optimized release endpoint artifact')
-    elif scope == 'storage':
+    elif scope in ('formal', 'formal-debug', 'storage'):
         profile = binary.get('profile', {})
-        if (profile.get('opt_level') != '2' or profile.get('debug_assertions') is not True
+        expected_opt = '2' if scope == 'storage' else '0'
+        if (profile.get('opt_level') != expected_opt or profile.get('debug_assertions') is not True
                 or profile.get('overflow_checks') is not True):
-            raise ValueError('expected optimized storage artifact with assertions and overflow checks')
+            policy = 'optimized storage' if scope == 'storage' else 'unoptimized ' + scope
+            raise ValueError('expected ' + policy + ' artifact with assertions and overflow checks')
 
 
-def build(bundle, scope='all', cache_state_path=None, plan=None):
+class BuildObservation:
+    """Optional diagnostics; never take over Cargo output or its exit result."""
+
+    def __init__(self, variant, directory=None, timing_directory=None):
+        self.variant = variant
+        self.directory = directory / variant if directory else None
+        self.timing_directory = timing_directory
+        self.process = self.observer = None
+        self.before = {}
+        self.started = time.monotonic()
+        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[])
+
+    def warn(self, error):
+        print(f'::warning::Build diagnostics for {self.variant}: {type(error).__name__}', flush=True)
+
+    def timing_files(self):
+        if self.timing_directory is None:
+            return {}
+        return {path: (path.stat().st_mtime_ns, path.stat().st_size)
+                for path in self.timing_directory.glob('cargo-timing*.html')
+                if path.is_file() and not path.is_symlink()}
+
+    def write(self):
+        if self.directory is not None:
+            try:
+                self.report['elapsed_seconds'] = round(time.monotonic() - self.started, 3)
+                temporary = self.directory / 'build.json.tmp'
+                temporary.write_text(json.dumps(self.report, indent=2) + '\n')
+                temporary.replace(self.directory / 'build.json')
+            except OSError as error:
+                self.warn(error)
+
+    def __enter__(self):
+        if self.directory is not None:
+            try:
+                self.directory.mkdir(parents=True, exist_ok=False)
+                self.before = self.timing_files()
+            except OSError as error:
+                self.warn(error)
+                self.directory = None
+            else:
+                self.write()
+                print('native_build_start=' + json.dumps(self.report), flush=True)
+        return self
+
+    def attach(self, process):
+        self.process = process
+        if self.directory is not None:
+            try:
+                self.observer = subprocess.Popen([
+                    sys.executable, str(Path(__file__).with_name('package-ecs-resource-monitor.py')),
+                    '--out', str(self.directory / 'resources.json'), '--pid', str(process.pid),
+                    '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
+            except OSError as error:
+                self.warn(error)
+
+    def __exit__(self, kind, value, traceback):
+        if self.observer is not None:
+            try:
+                if self.observer.poll() is None:
+                    self.observer.terminate()
+                try:
+                    self.observer.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.observer.kill()  # Only our observer, never the build.
+                    self.observer.wait(timeout=3)
+                if self.observer.returncode:
+                    print(f'::warning::Build resource observer exited {self.observer.returncode}', flush=True)
+            except (OSError, subprocess.SubprocessError) as error:
+                self.warn(error)
+        if self.directory is not None:
+            try:
+                for path, identity in self.timing_files().items():
+                    if self.before.get(path) != identity:
+                        shutil.copy2(path, self.directory / path.name)
+                        self.report['timings'].append(path.name)
+            except OSError as error:
+                self.warn(error)
+            self.report['cargo_exit_code'] = self.process.returncode if self.process else None
+            self.report['status'] = 'success' if kind is None and self.report['cargo_exit_code'] == 0 else 'failure'
+            if kind is not None:
+                self.report['error_type'] = kind.__name__
+            self.write()
+            print('native_build_end=' + json.dumps(self.report), flush=True)
+        return False
+
+
+def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
+    if ordinary_partition is not None:
+        if scope != 'ordinary':
+            raise ValueError('ordinary partition requires ordinary build scope')
+        ordinary_partition_targets(plan, ordinary_partition)
     if scope != 'ordinary' and FORMAL_AUTHORITY is not None:
         formal_shards(plan)
     bundle.mkdir(parents=True, exist_ok=False)
     (bundle / 'bin').mkdir()
     (bundle / 'lib').mkdir()
     env = build_environment(scope)
+    timing_directory = None
+    if diagnostics_dir is not None:
+        diagnostics_dir = Path(diagnostics_dir).resolve()
+        try:
+            diagnostics_dir.mkdir(parents=True, exist_ok=False)
+        except OSError as error:
+            print(f'::warning::Build diagnostics unavailable: {type(error).__name__}', flush=True)
+            diagnostics_dir = None
+        if diagnostics_dir is not None:
+            try:
+                metadata = json.loads(output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1']))
+                timing_directory = Path(metadata['target_directory']) / 'cargo-timings'
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+                print(f'::warning::Cargo timing directory unavailable: {type(error).__name__}', flush=True)
     cache_state = None
     if cache_state_path:
         selection = 'libraries' if scope == 'ordinary' else 'all'
@@ -757,7 +1186,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                                target=str((ROOT / 'target').resolve()), selection=selection,
                                complete=False, error=str(error))
     binaries, timings = {}, []
-    variants = build_variants(scope, plan) if plan is not None else build_variants(scope)
+    variants = (build_variants(scope, plan, ordinary_partition=ordinary_partition) if ordinary_partition is not None
+                else build_variants(scope, plan) if plan is not None else build_variants(scope))
     target_specs = {}
     if scope in ('ordinary', 'all'):
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
@@ -773,8 +1203,12 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
         started = time.monotonic()
         local_units = local_fresh = dependency_units = dependency_fresh = 0
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
+        if diagnostics_dir is not None:
+            command.append('--timings')
         print('+ ' + ' '.join(command), flush=True)
-        with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+        with BuildObservation(variant, diagnostics_dir, timing_directory) as observation, \
+                subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+            observation.attach(process)
             for line in process.stdout:
                 try:
                     artifact = json.loads(line)
@@ -856,6 +1290,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
         config_sha256=digest(CONFIG), build_timings=timings)
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
+    if ordinary_partition is not None:
+        manifest['ordinary_partition'] = ordinary_partition
     if FORMAL_AUTHORITY is not None:
         manifest['formal_authority_sha256'] = formal_authority_digest()
     list_env = dict(env, LD_LIBRARY_PATH=str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', ''))
@@ -865,14 +1301,22 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
     config = formal_configuration()
-    manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' else {}
-    if scope != 'ordinary':
+    component = scope in FORMAL_COMPONENTS
+    manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
+    if component:
+        manifest['formal_component_version'] = 1
+        manifest['compiler_environment'] = compiler_environment(env)
+    elif scope == 'formal':
+        manifest['formal_execution_version'] = 1
+    if scope != 'ordinary' and not component:
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
         manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
+    if BuiltinTestArtifact.required(manifest):
+        manifest['builtin_test_resources'] = BuiltinTestArtifact.build(ROOT, bundle, manifest)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
@@ -886,6 +1330,177 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
             cache_state_path.write_text(json.dumps(cache_state, sort_keys=True) + '\n')
         except OSError as error:
             print('formal_workspace_cache=' + json.dumps(dict(save=False, reason=str(error))), flush=True)
+
+
+def complete_bundle_scope(manifest):
+    scope = manifest.get('scope')
+    if scope is None and manifest.get('schema_version', 1) == 1:
+        return  # Original manifests predate named scopes and execute serially.
+    if scope in FORMAL_COMPONENTS:
+        raise ValueError('partial Formal component must be validated and merged before consumption')
+    if scope not in ('all', 'ordinary', 'formal', 'storage'):
+        raise ValueError('unknown native bundle scope')
+    if 'formal_execution_version' in manifest and type(manifest['formal_execution_version']) is not int:
+        raise ValueError('invalid Formal execution version')
+
+
+def formal_component_targets(scope):
+    """Resolve the actual checkout's complete lib/bin selectors without compiling."""
+    metadata = json.loads(output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1']))
+    packages = {package['name']: package for package in metadata['packages']}
+    expected = {}
+    for variant, args, features in build_variants(scope):
+        roots = [args[index + 1] for index, arg in enumerate(args) if arg == '-p']
+        for root in roots:
+            package = packages[root]
+            available = package['features']
+            enabled = set(features) & set(available)
+            if '--no-default-features' not in args and 'default' in available:
+                enabled.add('default')
+            pending = list(enabled)
+            while pending:
+                for feature in available[pending.pop()]:
+                    if feature in available and feature not in enabled:
+                        enabled.add(feature)
+                        pending.append(feature)
+            for target in package['targets']:
+                kinds = target['kind']
+                selected = ('--lib' in args and kinds == ['lib']) or (
+                    kinds == ['bin'] and ('--bins' in args or (
+                        '--bin' in args and args[args.index('--bin') + 1] == target['name'])))
+                if not selected or not set(target.get('required-features', [])) <= enabled:
+                    continue
+                test = args[0] == 'test'
+                logical = artifact_logical_name(variant, root, target, test)
+                if logical in expected:
+                    raise ValueError('duplicate Formal component target: ' + logical)
+                expected[logical] = dict(package=root, target=target['name'], target_kind=kinds,
+                    variant=variant, test=test, ordinary=False, requested_features=features,
+                    cwd=str(Path(package['manifest_path']).parent.relative_to(ROOT)),
+                    enabled_features=sorted(enabled), available_features=set(available))
+    if not expected:
+        raise ValueError('Formal component has no selected Cargo targets')
+    return expected
+
+
+def merge_formal(debug, endpoint, bundle, plan=None):
+    """Join two complete build roles only after validating every input artifact."""
+    validate_plan_identity(plan)
+    configuration = formal_configuration()
+    tested = output(['git', 'rev-parse', 'HEAD'])
+    identity = dict(schema_version=2, tested_sha=tested,
+        source_sha=os.environ.get('SOURCE_SHA', tested), producer_run_id=os.environ.get('GITHUB_RUN_ID', 'local'),
+        checkout=str(ROOT), config_sha256=digest(CONFIG), formal_authority_sha256=formal_authority_digest(),
+        rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'), rustc_version=output(['rustc', '--version']),
+        target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
+        runner_image=os.environ.get('ImageOS', sys.platform), execution_plan=fast_plan(plan),
+        compiler_environment=compiler_environment(build_environment('formal')))
+    current_attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '1')
+    if not re.fullmatch(r'[1-9][0-9]*', current_attempt):
+        raise ValueError('invalid current producer attempt')
+    binaries, libraries, components, timings, inputs, component_names = {}, {}, {}, {}, {}, {}
+    for scope, source in zip(FORMAL_COMPONENTS, (debug, endpoint)):
+        source = Path(source)
+        manifest_path = ProviderArtifact.checked(source, 'manifest.json')
+        manifest = json.loads(manifest_path.read_text())
+        if (manifest.get('scope') != scope or type(manifest.get('formal_component_version')) is not int
+                or manifest['formal_component_version'] != 1 or manifest.get('selection') is not None
+                or manifest.get('suites') != {}):
+            raise ValueError('invalid Formal component role or completeness')
+        for key, expected in identity.items():
+            if manifest.get(key) != expected:
+                raise ValueError('Formal component identity mismatch: ' + key)
+        attempt = manifest.get('producer_attempt')
+        if (not isinstance(attempt, str) or not re.fullmatch(r'[1-9][0-9]*', attempt)
+                or int(attempt) > int(current_attempt)):
+            raise ValueError('invalid or future Formal component attempt')
+        expected = formal_component_targets(scope)
+        component_names[scope] = list(expected)
+        actual = manifest['binaries']
+        if set(actual) != set(expected) or manifest.get('included_binaries') != sorted(expected):
+            raise ValueError('incomplete or expanded Formal component target inventory')
+        variants = [name for name, _, _ in build_variants(scope)]
+        if [entry['variant'] for entry in manifest['build_timings']] != variants:
+            raise ValueError('Formal component build contexts differ')
+        for entry in manifest['build_timings']:
+            if entry['variant'] in timings:
+                raise ValueError('duplicate Formal component build context')
+            timings[entry['variant']] = entry
+        needed_libraries = set()
+        for logical, spec in expected.items():
+            entry = actual[logical]
+            enabled, available = spec.pop('enabled_features'), spec.pop('available_features')
+            if any(entry.get(key) != value for key, value in spec.items()):
+                raise ValueError('Formal component target identity mismatch: ' + logical)
+            features = entry.get('features')
+            if (not isinstance(features, list) or any(not isinstance(feature, str) for feature in features)
+                    or len(features) != len(set(features)) or not set(enabled) <= set(features)
+                    or not set(features) <= available):
+                raise ValueError('Formal component target features differ: ' + logical)
+            if (logical in binaries or entry.get('path') != 'bin/' + logical
+                    or entry['profile'].get('test') is not entry['test']
+                    or not Path(entry['original_executable']).is_absolute()
+                    or not Path(entry['original_executable']).resolve().is_relative_to((ROOT / 'target').resolve())):
+                raise ValueError('duplicate or invalid Formal component executable: ' + logical)
+            validate_profile(logical, entry, scope)
+            path = ProviderArtifact.checked(source, entry['path'])
+            if (digest(path) != entry['sha256'] or path.stat().st_size != entry['bytes']
+                    or not os.access(path, os.X_OK)):
+                raise ValueError('invalid Formal component executable bytes or mode')
+            tests, ignored = entry.get('tests', []), entry.get('ignored_tests', [])
+            if (not isinstance(tests, list) or any(not isinstance(name, str) or not name for name in tests)
+                    or tests != sorted(set(tests)) or not isinstance(ignored, list)
+                    or any(not isinstance(name, str) or not name for name in ignored)
+                    or ignored != sorted(set(ignored)) or not set(ignored) <= set(tests)):
+                raise ValueError('invalid Formal component case inventory')
+            if entry['test'] and entry.get('test_list_sha256') != hashlib.sha256(json.dumps(tests).encode()).hexdigest():
+                raise ValueError('Formal component test inventory digest mismatch')
+            binaries[logical] = entry
+            inputs[entry['path']] = (path, entry['sha256'])
+            needed_libraries.update(entry['libraries'])
+        if set(manifest['libraries']) != needed_libraries:
+            raise ValueError('Formal component dynamic library closure mismatch')
+        for name, sha in manifest['libraries'].items():
+            if not name.startswith('lib/') or len(Path(name).parts) != 2:
+                raise ValueError('invalid Formal component library path')
+            path = ProviderArtifact.checked(source, name)
+            if digest(path) != sha or (name in libraries and libraries[name] != sha):
+                raise ValueError('invalid or conflicting Formal component library')
+            libraries[name], inputs[name] = sha, (path, sha)
+        components[scope] = dict(producer_attempt=attempt, manifest_sha256=digest(manifest_path))
+    # Validate the entire minimum inventory before listing or copying any binary.
+    suites = resolve_suites(configuration, binaries)
+    resolve_shards(configuration, suites)
+    for scope, source in zip(FORMAL_COMPONENTS, (debug, endpoint)):
+        env = dict(os.environ, LD_LIBRARY_PATH=str(Path(source) / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', ''))
+        for logical in component_names[scope]:
+            entry = binaries[logical]
+            if entry['test'] and (inventory(inputs[entry['path']][0], env=env) != entry['tests']
+                    or inventory(inputs[entry['path']][0], True, env) != entry['ignored_tests']):
+                raise ValueError('Formal component actual test inventory mismatch')
+    manifest = dict(identity, scope='formal', producer_attempt=current_attempt,
+        formal_execution_version=1, components=components, binaries=binaries, libraries=libraries,
+        suites=suites, included_binaries=sorted(binaries), selection=None,
+        build_timings=[timings[name] for name, _, _ in build_variants('formal')])
+    # Partial and corrupt inputs leave no consumable output. Never share mutable
+    # Cargo targets between the two producers or hardlink their input artifacts.
+    for path, sha in inputs.values():
+        if digest(path) != sha:
+            raise ValueError('Formal component changed during validation')
+    bundle.mkdir(parents=True, exist_ok=False)
+    (bundle / 'bin').mkdir()
+    (bundle / 'lib').mkdir()
+    try:
+        for name, (source, sha) in inputs.items():
+            shutil.copy2(source, bundle / name)
+            if digest(bundle / name) != sha:
+                raise ValueError('Formal component changed during copy')
+        (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    except BaseException:
+        shutil.rmtree(bundle)
+        raise
+    print('formal_merge=' + json.dumps(dict(components=components, binaries=len(binaries),
+                                           cases=sum(len(entries) for entries in suites.values()))), flush=True)
 
 
 def selected_entries(manifest, config, suite=None, shard=None):
@@ -952,6 +1567,9 @@ def checked_file(bundle, name, sha):
 def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     """Publish one consumption closure; the producer's complete inventory remains auditable."""
     manifest = json.loads((bundle / 'manifest.json').read_text())
+    complete_bundle_scope(manifest)
+    if manifest.get('ordinary_partition') not in (None, 'all'):
+        raise ValueError('inline ordinary partitions cannot be published as complete bundles')
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     if manifest.get('formal_authority_sha256') != formal_authority_digest():
@@ -973,6 +1591,12 @@ def pack(bundle, archive_path, suite=None, shard=None, plan=None):
         files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['libraries']]
     else:
         manifest.pop('preview_provider', None)
+    if BuiltinTestArtifact.required(manifest):
+        BuiltinTestArtifact.validate(ROOT, bundle, manifest.get('builtin_test_resources'), manifest)
+        files += [(entry['path'], entry['sha256']) for entry in BuiltinTestArtifact.files(manifest['builtin_test_resources'])]
+    else:
+        manifest.pop('builtin_test_resources', None)
+    files = list(dict(files).items())
     checked = [(name, sha, checked_file(bundle, name, sha)) for name, sha in files]
     manifest_bytes = (json.dumps(manifest, indent=2) + '\n').encode()
     archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1541,14 +2165,22 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
     return report
 
 
-def load(bundle, suite=None, shard=None, plan=None):
+def load(bundle, suite=None, shard=None, plan=None, ordinary_partition=None):
     validate_plan_identity(plan)
     manifest = json.loads((bundle / 'manifest.json').read_text())
+    complete_bundle_scope(manifest)
+    if manifest.get('ordinary_partition') != ordinary_partition:
+        raise ValueError('artifact ordinary partition mismatch')
+    if ordinary_partition is not None:
+        if suite != 'ordinary' or shard is not None or manifest.get('scope') != 'ordinary':
+            raise ValueError('ordinary partition requires ordinary execution')
+        ordinary_partition_targets(plan, ordinary_partition)
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     validate_ordinary_selection(manifest)
-    if manifest.get('scope') == 'storage' and manifest.get('schema_version') != 2:
-        raise ValueError('expected schema 2 storage artifact')
+    if manifest.get('scope') in ('formal', 'storage') and (
+            type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 2):
+        raise ValueError('expected schema 2 ' + manifest['scope'] + ' artifact')
     config = formal_configuration()
     expected = dict(tested_sha=output(['git', 'rev-parse', 'HEAD']),
                     source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -1575,6 +2207,9 @@ def load(bundle, suite=None, shard=None, plan=None):
         if not os.access(path, os.X_OK):
             raise ValueError('missing, invalid or corrupt executable')
         if manifest.get('schema_version') == 2:
+            # Execution capability controls scheduling, never profile identity.
+            # Original Formal bundles also used opt0; old opt2 must not be
+            # accepted by stripping or changing the execution-version marker.
             validate_profile(name, entry, manifest.get('scope'))
     # env!(CARGO_BIN_EXE_*) embeds Cargo's original absolute binary path.
     # Restore only recorded executables under this checkout's target directory.
@@ -1595,6 +2230,10 @@ def load(bundle, suite=None, shard=None, plan=None):
         env.update(provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest))
     elif 'preview_provider' in manifest:
         raise ValueError('unexpected provider material outside expanded ordinary execution')
+    if BuiltinTestArtifact.required(manifest):
+        env.update(BuiltinTestArtifact.environment(ROOT, bundle, manifest.get('builtin_test_resources'), manifest))
+    elif 'builtin_test_resources' in manifest:
+        raise ValueError('unexpected builtin test resources')
     env['LD_LIBRARY_PATH'] = str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', '')
     for variable, logical in {
         'PRE2_VIEWER_BINARY': 'viewer', 'OASIS7_CHAIN_RUNTIME_BIN': 'runtime',
@@ -1654,12 +2293,29 @@ def native_cpu_budget():
     return cpus
 
 
-def execute_inline_jobs(jobs, results):
-    """Run complete validated harnesses, with one receipt and owner per child."""
+def formal_parallel_cases(config):
+    """Only trusted exact identities can spend less than the whole CPU budget."""
+    policy = config.get('parallel_cases', {})
+    if not isinstance(policy, dict):
+        raise ValueError('invalid Formal parallel case policy')
+    result = {}
+    for binary, cases in policy.items():
+        if not isinstance(binary, str) or not binary or not isinstance(cases, dict):
+            raise ValueError('invalid Formal parallel case owner')
+        for name, weight in cases.items():
+            if (not isinstance(name, str) or not name or any(character in name for character in '\r\n\0')
+                    or type(weight) is not int or weight not in (1, 2)):
+                raise ValueError('invalid Formal parallel case weight or identity')
+            result[(binary, name)] = weight
+    return result
+
+
+def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_partition=None):
+    """Run complete validated jobs, with one receipt and owner per child."""
     from ci_process_runner import run
     cpus = native_cpu_budget()
-    workers = min(2, cpus, len(jobs))
-    threads = max(1, cpus // workers)
+    workers = min(4 if formal else 1 if ordinary_partition not in (None, 'all') else 2, cpus, len(jobs))
+    threads = 1 if formal else max(1, cpus // workers)
     # An existing lower limit remains useful; never multiply libtest's normal
     # CPU-sized pool by the number of concurrently running harnesses.
     for job in jobs:
@@ -1677,9 +2333,14 @@ def execute_inline_jobs(jobs, results):
     handlers = {}
     failures, recorded = [], set()
     next_job = 0
+    weights = [min(cpus, job.get('cpu_weight', cpus)) if formal else threads for job in jobs]
+    if any(type(weight) is not int or weight < 1 for weight in weights):
+        raise ValueError('invalid execution CPU weight')
     results.parent.mkdir(parents=True, exist_ok=True)
-    print('native_execution=' + json.dumps(dict(mode='inline', workers=workers,
-          cpu_budget=cpus, test_threads=threads, selected=len(jobs))), flush=True)
+    label = 'formal' if formal else 'ordinary'
+    prefix = 'formal_execution=' if formal else 'native_execution='
+    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', partition=ordinary_partition, workers=workers,
+          cpu_budget=cpus, test_threads=threads, selected=len(jobs), weights=weights)), flush=True)
 
     def interrupt(signum, frame):
         interrupted.append(signum)
@@ -1708,14 +2369,19 @@ def execute_inline_jobs(jobs, results):
         job = jobs[index]
         if (record != result or record.get('suite') != job['suite']
                 or record.get('test_name') != job['name']
-                or type(record.get('expected_count')) is not int
+                or (job['count'] is not None and type(record.get('expected_count')) is not int)
                 or record['expected_count'] != job['count']
                 or type(record.get('passed')) is not bool):
             raise ValueError('harness result identity mismatch')
         if record['passed'] and (record.get('exit_code') != 0 or record.get('count_ok') is not True
                 or record.get('timeout') is not False or record.get('cancelled') is not False
-                or record.get('cleanup_result') != 'clean' or record.get('leaked_processes') is not False):
+                or record.get('cleanup_result') != 'clean' or record.get('leaked_processes') is not False
+                or record.get('output_read_error') is not None or record.get('log_complete') is False):
             raise ValueError('harness result reports success without clean complete execution')
+        if formal:
+            record = dict(record, binary=job.get('binary'))
+            if shard:
+                record['shard'] = shard
         with results.open('a') as stream:
             stream.write(json.dumps(record) + '\n')
         recorded.add(index)
@@ -1733,6 +2399,9 @@ def execute_inline_jobs(jobs, results):
                 try:
                     while pending or (next_job < len(jobs) and not stop.is_set()):
                         while next_job < len(jobs) and len(pending) < workers and not stop.is_set():
+                            used = sum(weights[index] for index, _ in pending.values())
+                            if used + weights[next_job] > cpus:
+                                break
                             receipt = Path(temporary) / (str(next_job) + '.jsonl')
                             pending[pool.submit(invoke, next_job, receipt)] = (next_job, receipt)
                             next_job += 1
@@ -1756,26 +2425,68 @@ def execute_inline_jobs(jobs, results):
         for signum, handler in handlers.items():
             signal.signal(signum, handler)
     complete = recorded == set(range(len(jobs)))
-    print('native_execution=' + json.dumps(dict(mode='inline', selected=len(jobs),
+    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', partition=ordinary_partition, selected=len(jobs),
           started=next_job, recorded=len(recorded), failures=failures,
           interrupted=interrupted, complete=complete)), flush=True)
     if failures or interrupted or not complete:
-        raise RuntimeError(f'ordinary failed; see {results}')
+        raise RuntimeError(f'{label} failed; see {results}')
 
 
-def execute(bundle, suite, results, shard=None, plan=None):
+def ordinary_entries(manifest):
+    entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items()
+               if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
+    for owner, pattern in snapshot_regressions(manifest):
+        if owner not in manifest['binaries']:
+            raise ValueError('missing default-feature snapshot harness: ' + owner)
+        binary = manifest['binaries'][owner]
+        names = [name for name in binary['tests'] if pattern in name and name not in binary['ignored_tests']]
+        if not names:
+            raise ValueError('missing snapshot regression: ' + pattern)
+        entries.append(dict(binary=owner, filter=pattern, count=len(names)))
+    return entries
+
+
+def ordinary_artifact_entries(manifest, plan, partition):
+    fast_plan(plan)
+    if plan.get('ordinary_artifact_partition_version') != 1 or partition not in ordinary_partitions(plan):
+        raise ValueError('unknown complete ordinary artifact partition')
+    buckets = {name: [] for name in ORDINARY_ARTIFACT_PARTITIONS}
+    entries = ordinary_entries(manifest)
+    identities = [(entry['binary'], entry.get('filter')) for entry in entries]
+    if len(identities) != len(set(identities)):
+        raise ValueError('duplicate ordinary execution item')
+    integration_index = 0
+    for entry in sorted(entries, key=lambda item: (item['binary'], item.get('filter', ''))):
+        binary = manifest['binaries'][entry['binary']]
+        owner = 'integrations-' + str(integration_index % 2)
+        if entry.get('batch') and binary['target_kind'] == ['lib']:
+            owner = 'component-libs'
+            if (binary.get('variant') == 'required'
+                    and binary['package'] == binary['target'] == 'oasis7_chain_runtime'):
+                owner = 'runtime'
+        else:
+            integration_index += 1
+        buckets[owner].append(entry)
+    if sum(map(len, buckets.values())) != len(entries):
+        raise ValueError('incomplete ordinary artifact partition inventory')
+    return buckets[partition]
+
+
+def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
     from ci_process_runner import run
-    manifest, env = load(bundle, suite if not shard else None, shard, plan)
+    # An omitted partition retains the local full-bundle execution path.
+    # Explicit hosted consumers still require a known native partition.
+    artifact_partition = bool(suite == 'ordinary' and not shard and plan
+                              and plan.get('ordinary_artifact_partition_version') == 1
+                              and ordinary_partition is not None)
+    if artifact_partition and (suite != 'ordinary' or shard or ordinary_partition not in ORDINARY_ARTIFACT_PARTITIONS[1:]):
+        raise ValueError('complete ordinary execution requires its native artifact partition')
+    manifest, env = (load(bundle, suite if not shard else None, shard, plan, ordinary_partition=ordinary_partition)
+                     if ordinary_partition is not None and not artifact_partition
+                     else load(bundle, suite if not shard else None, shard, plan))
     if suite == 'ordinary' and not shard:
-        entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items() if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
-        for owner, pattern in snapshot_regressions(manifest):
-            if owner not in manifest['binaries']:
-                raise ValueError('missing default-feature snapshot harness: ' + owner)
-            binary = manifest['binaries'][owner]
-            names = [name for name in binary['tests'] if pattern in name and name not in binary['ignored_tests']]
-            if not names:
-                raise ValueError('missing snapshot regression: ' + pattern)
-            entries.append(dict(binary=owner, filter=pattern, count=len(names)))
+        entries = (ordinary_artifact_entries(manifest, plan, ordinary_partition)
+                   if artifact_partition else ordinary_entries(manifest))
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
@@ -1784,6 +2495,8 @@ def execute(bundle, suite, results, shard=None, plan=None):
         entries = selected_entries(manifest, formal_configuration(), suite if not shard else None, shard)
     if not entries:
         raise ValueError('selected test execution is empty')
+    formal = manifest.get('scope') == 'formal' and manifest.get('formal_execution_version') == 1
+    resources = formal_parallel_cases(formal_configuration()) if formal else {}
     inline = (suite == 'ordinary' and not shard and fast_plan(plan) is not None
               and plan.get('fast_execution_version') == 1)
     if inline:
@@ -1817,10 +2530,14 @@ def execute(bundle, suite, results, shard=None, plan=None):
                 command += ['--test-threads=1', '--nocapture']
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
-        jobs.append(dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
-                         name=name, count=count))
-    if inline:
-        execute_inline_jobs(jobs, results)
+        job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
+                   name=name, count=count, binary=entry.get('binary'))
+        if (entry.get('binary'), name) in resources:
+            job['cpu_weight'] = resources[(entry['binary'], name)]
+        jobs.append(job)
+    if formal or inline:
+        execute_inline_jobs(jobs, results, formal=formal, shard=shard,
+                            ordinary_partition=manifest.get('ordinary_partition'))
         return
     failed = False
     for job in jobs:
@@ -1848,10 +2565,12 @@ def execute(bundle, suite, results, shard=None, plan=None):
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare-provider', 'build', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
+    parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
-    parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
+    parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage', *FORMAL_COMPONENTS], default='all')
+    parser.add_argument('--debug-bundle', type=Path)
+    parser.add_argument('--endpoint-bundle', type=Path)
     parser.add_argument('--suite', default='ordinary')
     parser.add_argument('--shard', choices=SHARDS)
     parser.add_argument('--split-formal', action='store_true')
@@ -1860,22 +2579,35 @@ def main():
     parser.add_argument('--max-bytes', type=int, default=8 * 1024 ** 3)
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--cache-state', type=Path)
+    parser.add_argument('--build-diagnostics', type=Path, help='new directory for per-Cargo timing and resource reports')
     parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
+    parser.add_argument('--ordinary-partition', help='exact native package owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if (args.ordinary_partition is not None and args.action not in ('build', 'run')
+            and not (args.action == 'required-args' and args.phase == 'partition')):
+        parser.error('--ordinary-partition requires build, run, or partition validation')
     if args.action == 'shards':
         print(json.dumps(formal_shards(plan)))
         return
     if args.action == 'required-args':
         validate_plan_identity(plan)
-        if args.phase == 'native-commands':
+        if args.phase == 'partition':
+            if args.ordinary_partition is None:
+                parser.error('partition validation requires --ordinary-partition')
+            if plan is not None and plan.get('ordinary_artifact_partition_version') == 1:
+                if args.ordinary_partition not in ordinary_partitions(plan):
+                    raise ValueError('unknown complete ordinary artifact partition')
+            else:
+                ordinary_partition_targets(plan, args.ordinary_partition)
+        elif args.phase == 'native-commands':
             print(json.dumps(required_native_commands(plan)))
         else:
             print('\n'.join(required_arguments(plan, args.phase)))
@@ -1912,7 +2644,7 @@ def main():
                 stream.write('\n### Formal workspace cache: ' + args.action + '\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
         return
     if not args.bundle:
-        parser.error('--bundle is required for build, run and pack')
+        parser.error('--bundle is required for build, merge-formal, run and pack')
     if args.action == 'prepare-provider':
         if not args.output:
             parser.error('prepare-provider requires --output for its environment file')
@@ -1924,7 +2656,11 @@ def main():
         args.output.write_text(''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in environment.items()))
         args.output.chmod(0o600)
     elif args.action == 'build':
-        build(args.bundle.resolve(), args.scope, args.cache_state, plan)
+        build(args.bundle.resolve(), args.scope, args.cache_state, plan, args.build_diagnostics, args.ordinary_partition)
+    elif args.action == 'merge-formal':
+        if not args.debug_bundle or not args.endpoint_bundle:
+            parser.error('merge-formal requires --debug-bundle and --endpoint-bundle')
+        merge_formal(args.debug_bundle.resolve(), args.endpoint_bundle.resolve(), args.bundle.resolve(), plan)
     elif args.action == 'pack':
         if not args.output:
             parser.error('pack requires --output')
@@ -1934,7 +2670,8 @@ def main():
         else:
             pack(args.bundle.resolve(), args.output, None if args.shard else args.suite, args.shard, plan)
     else:
-        execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl', args.shard, plan)
+        execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl',
+                args.shard, plan, args.ordinary_partition)
 
 
 if __name__ == '__main__':

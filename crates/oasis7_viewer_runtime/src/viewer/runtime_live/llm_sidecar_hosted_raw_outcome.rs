@@ -52,6 +52,44 @@ fn identity_for_request(
 }
 
 impl RuntimeLlmSidecar {
+    /// Native restore has already reconciled this exact terminal and its
+    /// remaining obligations. Retire its escrow with the owner, before a new
+    /// request for the same Agent can occupy the active slot.
+    pub(in crate::viewer::runtime_live) fn retire_terminal_raw_outcomes(
+        &mut self,
+        request: &crate::simulator::ContinuousAgentRequestContextV1,
+    ) -> Result<Vec<(usize, AsyncAgentTurnOutcome)>, String> {
+        if !self
+            .provider_raw_outcomes
+            .iter()
+            .any(|outcome| outcome.agent_id == request.agent_subject)
+        {
+            return Ok(Vec::new());
+        }
+        if !self.provider_terminal_matches_request(&request.agent_subject, request) {
+            return Err("raw escrow retirement requires the exact terminal identity".into());
+        }
+        let mut indices = Vec::new();
+        for (index, outcome) in self.provider_raw_outcomes.iter().enumerate() {
+            if outcome.agent_id != request.agent_subject {
+                continue;
+            }
+            identity_for_request(outcome, request)?;
+            if outcome.prepared_context.is_none() || outcome.prepared_request_context.is_none() {
+                return Err("terminal raw escrow original context missing".into());
+            }
+            indices.push(index);
+        }
+        if indices.len() > 1 {
+            return Err("duplicate terminal raw escrow original identity".into());
+        }
+        Ok(indices
+            .into_iter()
+            .rev()
+            .map(|index| (index, self.provider_raw_outcomes.remove(index)))
+            .collect())
+    }
+
     /// Retire only the escrow whose exact Wait has already been accepted or
     /// compensated by authority. The caller restores these moved originals if
     /// its surrounding disposition/checkpoint transaction fails.
@@ -85,7 +123,7 @@ impl RuntimeLlmSidecar {
             .collect())
     }
 
-    pub(in crate::viewer::runtime_live) fn restore_wait_raw_outcomes(
+    pub(in crate::viewer::runtime_live) fn restore_raw_outcomes(
         &mut self,
         removed: Vec<(usize, AsyncAgentTurnOutcome)>,
     ) {

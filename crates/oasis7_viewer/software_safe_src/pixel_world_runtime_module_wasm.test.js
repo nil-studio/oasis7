@@ -109,7 +109,7 @@ vi.mock("./pixel_world_bridge_bindgen.js", () => {
     default: vi.fn(async () => undefined),
     PixelWorldBridge: MockPixelWorldBridge,
     build_pixel_world_render_state_json: vi.fn(),
-    createPixelWorldModule: vi.fn(() => ({ default: vi.fn(async () => undefined), PixelWorldBridge: MockPixelWorldBridge, build_pixel_world_render_state_json: vi.fn() })),
+    createPixelWorldModule: vi.fn(() => ({ default: vi.fn(async () => undefined), PixelWorldBridge: MockPixelWorldBridge, build_pixel_world_render_state_json: vi.fn(), display_metrics:vi.fn(()=>JSON.stringify({status:"observed",render_version:7,visible_nonempty_labels:200})) })),
   };
 });
 
@@ -126,6 +126,27 @@ describe("pixel world wasm runtime bridge", () => {
     vi.useRealTimers();
   });
 
+  it("reads metrics from the active instance without initialization or control side effects", async()=>{
+    vi.resetModules();
+    const original=window.location.href;
+    const bindings=await import("./pixel_world_bridge_bindgen.js");
+    bindings.createPixelWorldModule.mockClear();
+    const module=await import("./pixel_world_runtime_module_wasm.js");
+    try {
+      window.history.replaceState({},"","?test_api=1");
+      expect(module.readPixelWorldDisplayMetrics()).toEqual({status:"uninitialized"});
+      expect(bindings.createPixelWorldModule).not.toHaveBeenCalled();
+      await module.createPixelWorldBridge({});
+      expect(module.readPixelWorldDisplayMetrics()).toEqual({status:"observed",render_version:7,visible_nonempty_labels:200});
+      module.readPixelWorldDisplayMetrics();
+      expect(bindings.createPixelWorldModule).toHaveBeenCalledTimes(1);
+      expect(runtimeState.instances[0].mount).not.toHaveBeenCalled();
+      expect(runtimeState.instances[0].update).not.toHaveBeenCalled();
+      window.history.replaceState({},"","?test_api=0");
+      expect(module.readPixelWorldDisplayMetrics()).toEqual({status:"disabled"});
+    } finally { window.history.replaceState({},"",original); }
+  });
+
   function pointerEvent(type, options = {}) {
     const event = new MouseEvent(type, {
       bubbles: true,
@@ -140,7 +161,7 @@ describe("pixel world wasm runtime bridge", () => {
     return event;
   }
 
-  it("maps CSS click coordinates into the canvas backing coordinate space", async () => {
+  it("keeps pointer coordinates in CSS space when framebuffer is DPR2", async () => {
     const { createPixelWorldBridge } = await import("./pixel_world_runtime_module_wasm.js");
     const onEvent = vi.fn();
     const bridge = await createPixelWorldBridge({ onEvent });
@@ -185,12 +206,12 @@ describe("pixel world wasm runtime bridge", () => {
     }));
 
     expect(runtimeState.instances).toHaveLength(1);
-    expect(runtimeState.instances[0].click).toHaveBeenCalledWith(240, 150);
+    expect(runtimeState.instances[0].click).toHaveBeenCalledWith(120, 75);
     expect(onEvent).toHaveBeenCalledWith({
       type: "select_entity",
       selection: {
         kind: "agent",
-        id: "240,150",
+        id: "120,75",
       },
     });
   });

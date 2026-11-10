@@ -33,9 +33,7 @@ mod cognition_turn_lifecycle;
 mod cognition_wake_orchestration;
 
 impl World {
-    pub(in crate::world) fn is_terminal_continuation_status(
-        status: ContinuationStatusV1,
-    ) -> bool {
+    pub(in crate::world) fn is_terminal_continuation_status(status: ContinuationStatusV1) -> bool {
         matches!(
             status,
             ContinuationStatusV1::Completed
@@ -172,17 +170,19 @@ impl World {
         .validate()
         .map_err(|error| cognition_validation_error(error.code()))?;
         let mut projection = self.cognition.as_object().cloned().unwrap_or_default();
-        if let Some(existing) = projection
+        let existing = projection
             .get("runtime_binding")
-            .filter(|value| *value != &JsonValue::Null)
-            && existing != &binding
+            .filter(|value| *value != &JsonValue::Null);
+        if projection.contains_key("reorg_invalidation_epoch")
+            || existing.is_some_and(|existing| existing != &binding)
         {
             // A parent binding is immutable while it has live work. Reorg
             // invalidation records a one-shot epoch which authorizes the next
             // parent binding; the invalidation path itself never mutates the
             // historical binding or rebases any continuation.
+            // Even an identical old tuple cannot consume pending invalidation.
             let previous_reorg_epoch = existing
-                .get("reorg_epoch")
+                .and_then(|existing| existing.get("reorg_epoch"))
                 .and_then(JsonValue::as_u64)
                 .unwrap_or_default();
             let authorized_epoch = projection
@@ -941,9 +941,7 @@ impl World {
         serde_json::to_value(result).map_err(WorldError::from)
     }
 
-    pub(in crate::world) fn cognition_scheduler(
-        &self,
-    ) -> Result<CognitionScheduler, WorldError> {
+    pub(in crate::world) fn cognition_scheduler(&self) -> Result<CognitionScheduler, WorldError> {
         let state = self
             .cognition
             .get("scheduler_state")

@@ -844,6 +844,7 @@ impl RuntimeLlmSidecar {
                     && (decision.cognition.is_some() || decision.agent_id != marker.agent_id)
             });
             if !committed_recovery_pending {
+                self.retire_terminal_raw_outcomes(&recovery_context.request_context)?;
                 self.provider_active_turns.remove(agent_id.as_str());
                 self.provider_contexts.remove(agent_id.as_str());
                 self.provider_retry_contexts.remove(agent_id.as_str());
@@ -1063,6 +1064,8 @@ impl RuntimeLlmSidecar {
             })
             .collect::<Vec<_>>();
         for agent_id in terminal_agents {
+            let request = self.provider_contexts[&agent_id].request_context.clone();
+            self.retire_terminal_raw_outcomes(&request)?;
             self.provider_transport_exhausted.remove(agent_id.as_str());
             self.provider_contexts.remove(agent_id.as_str());
             self.provider_retry_contexts.remove(agent_id.as_str());

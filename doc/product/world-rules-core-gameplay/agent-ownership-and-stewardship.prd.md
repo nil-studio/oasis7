@@ -6,7 +6,7 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-10-19
+- Last reviewed：2026-11-05
 - 专业域权威：[`Agent claim 经济合同`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
 
 本文承载玩家取得、维持和结束 Agent 控制权，以及 Agent 资产、团队扩张和经济连续性的长期产品承诺。它补充首局与持续游玩、间接控制和成熟世界成长分册，但不冻结经济数值、状态字段、身份实现、界面结构、运营操作、测试步骤或当前放行结论。
@@ -106,12 +106,15 @@ Agent 的取得、维护、容量、转让条件与关联经济权利属于世�
 
 Trace ID: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[gameplay-agent-claim-economy-contract.design / des-claim-economy-001](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-economy-001)。已承接：非零认领成本、资金来源与回收的玩法设计。
+- 系统设计依据：[逐候选承诺包](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-choice-commitment)、[确认重验](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-confirmation-revalidation)与[原件恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-current-recovery)已给出真实来源、用途差异、完整费用/runway、当前取得 guard、竞争拒绝与恢复。本次 UIUX 与图稿将 upfront 示例统一为 activation 4 + bond 8 + first upkeep 2 = 14，明确首期计入与只读恢复边界；三图静态渲染及对应索引已独立核对，设计交付物一致。
+- 设计验证方法：[CLAIM-01/02/04](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-01-choice)按同候选分层验证。
 - 实现与验证依据：已交付非零 activation/bond/upkeep 的只读计算、slot 限制和资金来源拆分；不把此计算等同完整候选比较读面。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/agent_claims.rs#L66-L118)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/agent_claims.rs#L188-L240)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：尚未核清候选用途差异、upkeep runway 与替代路径的完整确认前读面及所有事实漂移的原子拒绝；已有成本计算不证明玩家理解或首个经济认领全链。
+- 剩余范围：设计交付物已补齐并核对；[UIUX R-GAME-04](../../world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-04)及其 claim-ready/claim-lifecycle 图使用完整的 4+8+2=14，恢复图明确只比较、不提交。实现/验证仍需正式逐候选用途/能力/目标 producer、多候选完整理由、实际取得 profile 的确认条款绑定/漂移拒绝、历史结果与各入口同候选接线；既有兼容 snapshot 与数值计算不代签玩家理解或完整链路。
+
+- 本次设计核对：2026-11-05；已合基线 `862120b23dd6f6df18e5daad426485e029647d3c` 与本次三图、UIUX/索引修正；专业合同/方法、费用示例与静态渲染经独立设计核对；仅完成设计与静态图稿验证，原实现/历史证据不升格。
 
 - 适用条件：当前取得 Agent 的路径将形成经济认领；单纯首次注册或控制绑定不自动满足这一条件。
 - 要求：玩家在确认首个经济认领前必须能比较候选用途与差异、非零 upfront 成本、确认后的 upkeep runway、失去控制权的可读触发，以及等待、补足或选择其他候选的替代路径；预览或本地提交不能单独产生控制权、自由财富或持久义务。
@@ -133,12 +136,15 @@ Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；声明：[REQ-WR-AOS-0
 
 Trace ID: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[失权原因、原账与责任连续性](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-loss-continuity)及[当前重新准入与恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-current-recovery)承接主动释放、欠费/闲置、资金来源失效、真正适用的限制、原义务和当前读权。旧 native、制造来源、保护治理和独立经济处置各保其原 scope，不新增通用资产处罚或申诉权。
+- 设计验证方法：[CLAIM-03/04](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-03-loss)覆盖边界、争抢、原件与 snapshot+非空 suffix。
 - 实现与验证依据：已交付 upkeep/grace、主动释放、闲置回收的独立原因与 restricted/liquid 退款拆分。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/world/agent_claims.rs#L89-L242)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/agent_claims.rs#L328-L480)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已核对 upkeep、grace、主动释放及闲置回收分支；争议限制、未决交付/处罚跨控制关系保全、重新认领反套利及申诉读面仍无完整审计。
+- 剩余范围：设计义务已形成准确专业组合；实现仍须落实正式原结果/责任索引及有权读面、跨旧 claim/制造/当前来源失效的实际 consumer、终态与未决交付/处罚的连续性、合法 reissue 与重认领防自动重复、当前救济和完整恢复。历史 upkeep/退款子范围不代签这些组合；依 CLAIM-03/04 取得实际 same-candidate 正反/恢复与入口证据，未执行。
+
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业设计/方法；只做设计和静态审读，原实现/历史证据不升格。
 
 - 要求：主动结束、到期、回收和争议限制必须区分原因与范围，保留已确认结果和未决义务，并只提供按当前资格重新评估的恢复、重新选择、申诉或安全停止路径。
 - 专业权威：[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)
@@ -159,12 +165,15 @@ Trace refs: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；声明：[REQ-WR-AOS-0
 
 Trace ID: O7-REQ-f247bdc7-f4ae-4893-a35e-6840fab7f465
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[制造与团队成长接收](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#manufacturing-team-growth-reception)精确组合已有取得/维护、共享容量、主绑定和独立控制来源、显式授权及 D/O/C/原预算约束。原 IA/CF 自治、委托和责任 authority 保留，不新增团队收费或自动世界权力。
+- 设计验证方法：[MFG-V08](../../testing/manual/agent-industrial-manufacturing-system-acceptance.manual.md#mfg-v08)以同候选对照单主经营、合法扩张、拒绝与恢复。
 - 实现与验证依据：已交付按当前已持有数量计算 slot/cap、追加成本与持续 upkeep 的有限团队规模切片。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/agent_claims.rs#L47-L118)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/world/agent_claims.rs#L12-L37)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/agent_claims.rs#L277-L325)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已有 slot 容量、非零追加成本和 upkeep 计算；工业制造取得、团队委托协调、小规模独立路线与不自动扩权的组合未核清。
+- 剩余范围：设计承接已明确；实现仍须完成真实制造/交付与当前 owner/source/identity consumer、全部竞争取得与授权 writer 的共享约束、原预算/未结责任及三端读面，并取得 MFG-V08 与原 V02/04/05/06/07、CF 方法的适用组合证据。现有 slot/cap/upkeep 切片不证明团队协同已实现；单主路线、真实额外成员和玩家理解仍分别验证。
+
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业设计/方法；只做设计和静态审读，原实现/历史证据不升格。
 
 - 要求：从一个主 Agent 扩张到团队时，每个额外 Agent 都必须经过当时有效的取得资格，并承担可读的取得、维护、授权和协调约束；团队成员数量不得自动放大自治范围、产能或世界权力，小规模独立路线必须继续可用。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)
@@ -222,12 +231,15 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；声明：[REQ-WR-AOS-0
 
 Trace ID: O7-REQ-42168149-c979-4211-9777-2d72f7050147
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：[indirect-control-agency-execution-and-continuation.design / des-wr-ia-011](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-011)。已承接：经本条对应 AC 承接的工业供给授权边界或转让资格与历史连续性。
+- 系统设计依据：[精确形成与授权](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-authority-formation)、[五门槛及两阶段生效](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-transfer-gates)、[真实资产/责任连续性](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-economic-inventory-continuity)、[owner 与完整控制切点](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-effective-owner-generation)、[原子恢复](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-transaction-recovery)及[控制与历史接收](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agent-disposition-control-history-consumer)承接全部当前条件、共享容量、真实资金与原义务、失败/过期/待决、唯一交割和跨入口历史。
+- 关联专业政策：具体费用/期间选择只由原 [Gameplay 首版政策候选](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-disposition-policy)维护并随本组供原 owner 评审采纳。
+- 设计验证方法：[AD02–AD08 验收方法](../../testing/manual/agent-economic-disposition-acceptance.manual.md#agent-disposition-transfer)分别对账五门槛、原债费/退款、控制/历史、未知并发和完整字节/费用。
+- 设计核对日期与基线：2026-11-05；原要求与静态源码固定 `b3658f94a7755fc766fbefe95e83a24566e6068c`，接收本次专业设计与方法修订。下列历史实现/运行依据保持原日期与原范围，本次没有新业务运行结果。
 - 实现与验证依据：已补齐当前基线 Runtime 生产源码清单并沿[穷尽领域事件分派](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/state.rs#L1008-L1140)、[模块输出](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/module_runtime.rs#L156-L217)及[模块/回执消费边界](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing.rs#L801-L884)闭合允许的状态写入。[claim/release action 合同](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7_agent_api/src/world_action/action.rs#L309-L322)及[claim API preflight 与提交](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/agent_claim_api.rs#L127-L184)只有既有目标认领/释放合同；[claim 准备与报价重验](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/agent_claim_economic_publication.rs#L91-L139)重验认领身份、容量与资金报价，经[claim publication 路由](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing/publication.rs#L155-L170)、[state/journal 安装与事件路由](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/event_processing/publication.rs#L414-L447)发布。[终态删除 claim、退款账本安装](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/agent_claim_terminal_publication.rs#L221-L234)删除旧 claim 并安装退款账本，没有目标新持有人；[普通经济合同资源/声誉结算](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L180-L226)只结资源与声誉。[claim/upkeep 原子重试回放测试正文](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/tests/agent_claims/raw_claim_monetary_publication_transaction_regressions.rs#L65-L128)含 claim/upkeep 失败不变、重试和回放断言，但本轮未运行，也不证明 Agent 经济转让的五门槛与未决义务连续性。 [claim事件全部消费分支](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/state/apply_domain_event_gameplay_claims.rs#L9-L29)仅有创建/维护、轻生命周期、释放/回收；[新owner赋值](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/agent_claim_economic_publication.rs#L211-L247)只属于未认领目标首次claim，[释放终态](https://github.com/nil-studio/oasis7/blob/6463975178f3d32ef6d8e19e14f0b24f1c7f9471/crates/oasis7/src/runtime/world/agent_claim_terminal_publication.rs#L221-L234)删除旧claim。当前权威 Runtime 未实现保留转让双方与未决义务的原子经济转让合同。 前轮 `3c0a31a6` 已读取 claim quote、upkeep/grace/reclaim 与测试定义；对应业务 CI job 为 skipped 的既有限界保留，本轮无新增运行结果。
 - 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `6463975178f3d32ef6d8e19e14f0b24f1c7f9471`，引用源码逐文件 Git blob 校验。本轮只读核对，未运行测试、Runtime、模型或产品验收；已有测试正文不视为同候选运行结果。
-- 剩余范围：待实现正式经济转让请求/生效点与五门槛原子重评：资格、容量、资源、治理、反滥用；包含失败/过期/待决的 blocker/下一步、重试重放防旁路以及身份/来源/审计/既有结果/未决义务跨入口连续读模型。release 后另行 claim、资源合同、旧 grant 失效或重配置 ack 不替代该合同；snapshot/replay 只恢复既有事实。
+- 剩余范围：待实现已设计的正式经济处置入口、精确接受与当前 authority、完整域索引/全部 writer 和 owner 依赖、真实 liquid/受限退款/已付期间/容量原账、每阶段权威 guard 与完整 Final 发布、原配置留存和跨入口当前读模型；按 AD02–AD08 取得同候选证据。release 后另行 claim、资源合同、旧 grant 失效或重配置 ACK 不替代该合同；snapshot/replay 只恢复原结果。候选首版政策尚不构成历史批准或业务可用，设计接收不改变原未实现判断。
 
 - 要求：Agent 的经济转让只能在当时有效的资格、容量、资源、治理和反滥用条件下生效，并保留既有身份、来源、审计历史、已生效结果和未决义务；经济转让本身不得推导额外自治、委托或世界权力。
 - 专业权威：[`Agent claim 经济合同`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)

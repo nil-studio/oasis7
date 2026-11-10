@@ -129,12 +129,14 @@ Trace ID: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b
 
 - 功能点：[REQ-ENTRY-CANDIDATE-001](#req-entry-candidate-001)；验收 [AC-ENTRY-CANDIDATE-001](#ac-entry-candidate-001)。
 - 适用范围：同候选的两种 primary mode、runtime/P2P 恢复、经济、发行资产及公开口径组合门禁；沿用本条原有阶段和前置条件。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[官网专业设计](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)已承接：版本、日期、Release 说明、实际资产与 checksum 以同一候选快照原子更新；失败不混版；同 Trace 五列承接与六列验证限定网站子范围。
+- 系统设计状态：已覆盖
+- 系统设计依据：[QA 候选整包接收](../../testing/design.md#release-candidate-evidence-reception)将两 primary mode/适用入口、Runtime/P2P 执行与恢复、长期经济、实际发行资产/材料、QA 和公开说明逐项绑定原候选/窗口及环境；先核原领域判据，再核对应、缺证/冲突与 QA→产品决定→LiveOps/根 README 的交接。[官网专业设计](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)继续拥有网站候选快照的原子更新子范围。
+- 设计验证方法：[RC01–RC10](../../../testing-manual.md#release-candidate-reception-validation)以完整同候选正例及混身份/窗口、单 mode、未知恢复、经济与材料缺证、层级替代和重试/公开交接反例核对；复用原发布模板、各领域 oracle 和 required/full 方法，不以静态样例代实际运行。
+- 本次设计核对：2026-11-06；输入基线 `b09c1ae38366fafa635fcd8a3752995c713e6518` 与本次接收条款；仅补齐目标及组合方法，原 REQ/AC/Trace、实现依据和历史设计复核保留，未运行候选或发布。
 - 实现状态：部分实现
 - 实现与验证依据：候选 bundle 已固定 git commit、runtime/world/governance/evidence refs 并校验文件/目录 hash；release gate 分步骤保留 skipped/dry-run 的 claim 边界。 [源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/scripts/release-candidate-bundle.sh)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/scripts/release-candidate-bundle-smoke.sh)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/scripts/release-gate.sh)；[核验任务](https://github.com/eng-cc/oasis7/issues/4696)。本轮为固定源码审读，回归定义不等于实际通过。
 - 核对日期与基线：2026-10-15；需求与实现源码 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；GitHub 固定源码审读；入口与已核对范围见上，未执行运行、浏览器、部署或真人验收；本条原验收条件与层级不变。
-- 剩余范围：设计仍按上述准确承接及其未覆盖边界；实现与验证方面，两种 primary mode、恢复、长期经济、全部发行资产和公开 claim 的同候选/同窗口语义 join 尚未核清；bundle存在不是完整发行门禁通过。
+- 剩余范围：同候选逐输入接收、正常/缺证判定和公开交接已有完整目标设计及方法；实现与验证仍须将两种 primary mode、恢复、长期经济、全部适用发行资产和公开 claim 的真实输入接到同候选/同窗口，并取得各原层级结果。现有 bundle/脚本的固定局部实现不升级，真实素材/权利资料、运行和发布事实未由本次设计产生。
 
 - 设计复核日期与基线：2026-10-15；`dffd797f` 文档候选；设计剩余：两 primary mode、跨域 QA/经济/恢复及完整 release gate 不由网站下载片段覆盖。不改变本卡固定源码与已取得实现范围。
 
@@ -349,8 +351,11 @@ Trace ID: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79
 - 功能点：项目可管理的公开社区、反馈讨论及相关滥用报告的内容处置。
 - 适用范围：已确认由项目管理、且管理者实际具备权限的讨论或渠道；第三方社区只能按平台规则转交，不能虚构跨平台处罚权。
 - 要求：行为规则、受理方式、处置理由和复核方式可查；区分规则内竞争损失、正常批评、重复或偏题内容、骚扰/威胁、欺诈冒充、垃圾信息与敏感信息公开。依据实际证据和权限选择最小适当动作，必要紧急保护可以先执行并补充不泄露敏感内容的说明。原处置者有利益冲突时由其他有权限人员复核；尚无可用复核者时如实保留待复核状态。社区内容处置不改变玩家世界资产、控制权、历史或合同结果。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[社区行为、处置与复核](../../readme/governance/player-support-and-service-lifecycle.design.md#support-community-rules)定义内容与人工责任；实际平台权限、处置和复核能力须逐渠道验证。
+- 系统设计状态：已覆盖
+- 系统设计依据：[社区行为、处置与复核](../../readme/governance/player-support-and-service-lifecycle.design.md#support-community-rules)已定义行为分类、受理与最小处置、紧急保护、真实动作结果、限制范围与复核条件；锁定后的复核可达性、利益冲突和缺少独立复核者均有处理路径。社区处置不改变世界权利或业务结果。
+- 关联专业依赖：[原反馈分流](../../readme/governance/player-support-and-service-lifecycle.design.md#support-triage-review)、[敏感材料与数据边界](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries)及[运营责任与容量](../../readme/governance/player-support-and-service-lifecycle.design.md#support-capacity-cost)保留各自职责；平台动作仍按实际权限和结果解释。
+- 设计验证方法：[CM01–07](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-community-disposition)分别核对批评、重复内容、规则内损失与独立骚扰、敏感误传、证据不足、利益冲突及复核不可达；桌面判定与真实渠道采用、处置和参与者可见性分别取证。
+- 本次设计核对：2026-11-06；已合入基线 `4c80cd131adb1b3a37323a42bad847c2d7836ce2`；接收既有专业规则与方法，不改变原实现状态或历史证据。
 - 实现状态：未核实
 - 实现与验证依据：已有公开 Issue 和渠道回流方法；未取得各渠道已采用本规则、具备相应权限或完成真实处置/复核的记录。
 - 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅静态审读。
@@ -374,8 +379,11 @@ Trace ID: O7-REQ-96d24911-2209-4606-999e-545e4cd10fe9
 - 功能点：项目为反馈、支持、社区处置或事故核查持有的资料及相关数据请求。
 - 适用范围：现有渠道产生、且项目实际控制的运营副本和摘要；玩家本地数据、第三方平台、公开复制账本与世界权威历史分别遵守各自主责合同。
 - 要求：收集前说明用途、必要范围、访问者、实际公开性、保留或复核规则及可用请求方式；不因新增本条自动扩展诊断或收集个人资料。项目可控副本采用明确的最小保留和到期处置规则，不以“可能有用”无限保存；未结争议或确有适用保留依据的材料注明理由、最小范围和复核点。请求先最小化确认请求者与材料关联，区分已删除、仅隐藏/撤回当前展示、第三方待处理、不可控副本及保留例外；没有执行或核实能力不得承诺全网删除。敏感误传优先停止扩散并保护受影响访问凭据，不能把追加 tombstone 当历史擦除。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[保留与数据请求](../../readme/governance/player-support-and-service-lifecycle.design.md#support-retention-requests)承接人工内容政策及分流；各技术数据源的访问、保留、复制和实际删除由原专业 authority 执行。
+- 系统设计状态：已覆盖
+- 系统设计依据：[保留与数据请求](../../readme/governance/player-support-and-service-lifecycle.design.md#support-retention-requests)已定义最小用途、字段、存储和访问边界，临时副本、处置摘要与保留例外的期限、复核和逾期处理，以及请求关联核对、逐对象处置和分类回告；原专业证据、不可控副本与世界历史不套用运营副本规则。
+- 关联专业依赖：[实际反馈数据路径与误传处置](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries)区分 Launcher 本地包、GitHub、DistFS 原件/公开视图和复制记录；各数据源的访问、保留与删除仍由原技术 authority 承担，支持请求不产生新的身份或世界权限。
+- 设计验证方法：[DR01–07](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-retention-requests)核对到期、目的提前完成、有效例外、正文/历史/备份差异、请求者无权及逾期未处置；虚构日期手算与真实资料告知、请求、清理和平台结果分别取证。
+- 本次设计核对：2026-11-06；已合入基线 `4c80cd131adb1b3a37323a42bad847c2d7836ce2`；接收既有专业规则与方法，不改变原实现状态或历史证据。
 - 实现状态：未核实
 - 实现与验证依据：现有 Launcher 本地反馈、GitHub 和 DistFS 路径的能力不同；本条没有新增私密入口、自动删除或全网擦除实现。当前技术边界见[原反馈数据合同](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries)。
 - 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；未操作真实个人资料或执行删除。

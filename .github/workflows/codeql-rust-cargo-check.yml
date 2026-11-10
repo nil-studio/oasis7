@@ -31,15 +31,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
-          import datetime,json,os,time,urllib.request
+          import datetime,email.utils,json,os,time,urllib.request
           url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
           req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-          with urllib.request.urlopen(req,timeout=20) as response: value=json.load(response)
+          requested_at=time.monotonic()
+          with urllib.request.urlopen(req,timeout=20) as response:
+              value=json.load(response)
+              server_date=response.headers.get('Date')
+          request_seconds=time.monotonic()-requested_at
+          if not server_date:raise SystemExit('missing GitHub clock')
+          server_time=email.utils.parsedate_to_datetime(server_date)
+          if server_time.tzinfo is None:raise SystemExit('ambiguous GitHub clock')
           jobs=[j for j in value['jobs'] if j['name']=='Cargo check diagnostic' and j['status']=='in_progress']
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual diagnostic job start')
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
-          if not 0<=time.time()-start<120:raise SystemExit('invalid job clock')
-          with open(os.environ['GITHUB_ENV'],'a') as out:out.write(f"CHECK_DEADLINE={start+900}\n")
+          # Compare timestamps from GitHub, then translate the remaining budget
+          # to the runner clock. Charge request time and HTTP Date rounding.
+          age=server_time.timestamp()-start+request_seconds+1
+          if not 0<=age<120:raise SystemExit('invalid or stale GitHub job clock')
+          local_now=time.time()
+          print(json.dumps({'job_id':jobs[0]['id'],'started_at':jobs[0]['started_at'],
+              'github_date':server_date,'job_age_upper_seconds':age,
+              'runner_clock_offset_seconds':local_now-server_time.timestamp()}))
+          with open(os.environ['GITHUB_ENV'],'a') as out:out.write(f"CHECK_DEADLINE={local_now+900-age}\n")
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

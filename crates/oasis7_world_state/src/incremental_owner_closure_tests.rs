@@ -1038,6 +1038,11 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
     }
 }
 
+// Share one callback type across complete no-cancellation owner checks.
+fn never_cancel() -> bool {
+    false
+}
+
 fn verify(
     fixture: &Fixture,
     cancelled: impl FnMut() -> bool,

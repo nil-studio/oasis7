@@ -288,3 +288,12 @@ describe("pixel world visual fixtures", () => {
     ]));
   });
 });
+
+it("offers explicitly controlled material inputs without inferring unknown facility types", () => {
+  window.history.replaceState({},"","/viewer.html?test_api=1&connect=0&pixel_world_visual_fixture=material_shells");
+  expect(installPixelWorldVisualFixtureHook()).toBe("material_shells");
+  const fixture = window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get("material_shells")();
+  expect(fixture.model.module_visual_entities["material-smelter"].factory_kind).toBe("factory.smelter.mk1");
+  expect(fixture.model.module_visual_entities["material-unknown"].factory_kind).toBe("unsupported");
+  expect(fixture.model.locations["loc-0"].fragment_profile.blocks.blocks[3].compounds.ppm).toEqual({});
+});

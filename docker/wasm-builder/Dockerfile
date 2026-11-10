@@ -31,25 +31,29 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain none
+    | sh -s -- -y --profile minimal --default-toolchain none \
+    && chmod -R a+rX /cargo /rustup
 
 RUN rustup toolchain install "${WASM_TOOLCHAIN}" --profile minimal --component rust-src \
-    && rustup target add "${WASM_TARGET}" --toolchain "${WASM_TOOLCHAIN}"
+    && rustup target add "${WASM_TARGET}" --toolchain "${WASM_TOOLCHAIN}" \
+    && chmod -R a+rX /rustup
 
 WORKDIR /opt/oasis7
-COPY Cargo.toml Cargo.lock /opt/oasis7/
-COPY crates /opt/oasis7/crates
-COPY vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2
-COPY vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0
-COPY vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1
-COPY tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner
-COPY tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite
-COPY tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe
-COPY scripts/build-wasm-module.sh /opt/oasis7/scripts/build-wasm-module.sh
+COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/
+COPY --chmod=0755 crates /opt/oasis7/crates
+COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2
+COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0
+COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1
+COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner
+COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite
+COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe
+COPY --chmod=0755 scripts/build-wasm-module.sh /opt/oasis7/scripts/build-wasm-module.sh
+COPY --chmod=0755 docker/wasm-builder/prepare-workspace.sh /opt/oasis7/docker/wasm-builder/prepare-workspace.sh
 
-RUN chmod +x /opt/oasis7/scripts/build-wasm-module.sh \
-    && env -u RUSTC_WRAPPER cargo install --locked --path /opt/oasis7/tools/wasm_build_suite \
-    && chmod -R a+rX /cargo /rustup /opt/oasis7
+RUN bash /opt/oasis7/docker/wasm-builder/prepare-workspace.sh \
+    && env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite \
+    && chmod a+rx /cargo/bin/wasm_build_suite \
+    && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git
 
 LABEL org.opencontainers.image.title="oasis7 wasm builder"
 LABEL org.opencontainers.image.description="Canonical linux-x86_64 WASM builder for oasis7"

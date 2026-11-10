@@ -53,6 +53,8 @@ Game Task 创建复用既有签名 World Service submit/lookup 与 Runtime 共�
 
 Owner 使用 `game_executor_control/v1` 签署 `GameExecutorControlV1`，经原 `/v1/world/submit` 提交 Bind/替换/Stop。Bind 必须指向真实当前 delegation，推进 task revision 与 executor epoch，使任务 Active；Stop 推进 fence、清空 binding 并 Suspended。目标发布推进目标/task revision，保留现有 executor binding。全部控制由既有 canonical receipt 链恢复；新变体启用前执行、验证及恢复节点必须同步升级，旧 binary 不能读取新历史。
 
+原生入口的 pending DevLocal bootstrap 权威来源及正常共识周期推进规则统一见 [Runtime 绑定设计](../../world-runtime/runtime/agent-cognition-lifecycle.design.md#devlocal-pending-bootstrap-authority)；仍逐字段校验当前绑定，真实权限和 reorg 变化不由适配器绕过。
+
 当前 executor 以当前完整 fence 签署 POST `/v1/world/private-task/context-prepare`；同操作原 nonce 可恢复，异 nonce 冲突。私有记录包含完整 GoalContent/proof、同 pin 的原始 `world-agent-state/v1` AgentState、实际授权目录、Runtime/base binding、随机盐和原准备证明。独立 AEAD 密文保存并 fsync，不截断到旧 Harness 的 512 字节目标摘要。一个 Context 的租期为 `min(catalog.valid_until_tick, checked(base_tick + 16))`；canonical prefix 同样检验原 captured tick 的 16 tick 上限并拒绝溢出，不能靠后续 current tick 延期。超过期限不能获得正文或授权新效果。
 
 活跃任务的恢复证据保留必须覆盖该任务当前完整 fence 下所有已提交原 Context prefix、终止 outcome 与动作结果的实际历史提交材料，包括已消费或已过期 Context；不能只按 Context 当前可写性决定 GC pin。派生 pin 仅保留签名回读所需 snapshot、journal 与 head proof，不授予旧 Context 新写权，也不延长 16 tick 租期；任务／完整 fence 退休后释放对应依赖。
@@ -127,6 +129,7 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 
 | 上游条款 | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 排除与未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | 新采用 Hosted 便利入口停止后，以同身份、原世界权限完成实际正常读写、领域结果与重入恢复。 | [独立入口接续](#api-independent-entry-continuation) | 原身份/世界 authority、agent / viewer / runtime；支持侧服务范围与退出政策 | 不把 GET bootstrap、另一个 issuer、DevLocal、fixture 或故障停止视为正常链；不扩大旧消费者能力。 |
 | Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | 合法绑定、身份隔离与费用路由不能授予游戏权力 | [api-auth](#api-auth) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；[AC-EXT-003](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-003) | 首局能力目录、参数和实际执行一致 | [api-context](#api-context) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | 成功、拒绝、未知结果可恢复且不重复世界效果 | [api-actions](#api-actions) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
@@ -143,6 +146,8 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 单 Agent 活动 turn、context 幂等与新目标/授权漂移时重新决策 | [api-context](#api-context) | Harness/Runtime context 与当前控制 | 只读并发不授予第二副作用 turn |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 稳定原键、durable ingress/outbox、同键冲突与唯一世界效果 | [api-actions](#api-actions) | Runtime admission/commit、operation 历史 | 不同键语义重复仍依玩法约束 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 错误类别、限流和并发共用当前额度，未知请求不换键 | [api-retry-safety](#api-retry-safety) | API ingress、身份、Runtime 与控制队列 | HTTPS/普通 CI 不证明业务授权或公开部署 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | 已知无效果 pending、未知及各 canonical 处置分别投影，恢复不重签原请求 | [通用 intent 结果](#api-intent-results) | Runtime 原件/decision 与 P2P proof；当前读取权限 | 仅目标扩展；不改已实施 World Service、Game bootstrap 或当前五态 registry |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | 原成员与 predecessor/winner 的真实状态可读，受限关系不泄露、不推断取消 | [通用 intent 结果](#api-intent-results) | Runtime domain lineage 与原子 winner；Viewer/Agent 消费 | 不为未支持 domain 提供通用撤回，不由 client operation ID 推导互斥 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | 正式 pure_api 组合明确唯一 mode、阶段、实际入口能力与独立证据 | [api-primary-entry-applicability](#api-primary-entry-applicability) | Game API / SDK / CLI 消费者；Viewer、runtime、QA 保留各自 authority | 组件、命令或另一模式通过不代签完整可玩；不新增 primary mode |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | 前置、身份、provider、模式与后端失败按实际入口给出受阻分类和安全下一步 | [api-primary-entry-applicability](#api-primary-entry-applicability) | 原身份/会话、operation、控制与恢复合同的消费者 | 不新增通用 replay、operator 权限或跨实例 Prompt 持久恢复 |
 
@@ -248,6 +253,27 @@ Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264, O7-REQ-94ed85c5-c05d-43
 **失败后的消费顺序。** 前置、模型/provider 初始化、schema/协商能力或 backend 缺失时，输出当前模式/阶段、主要 blocker 与该入口真实支持的配置修复、重新验证、等待、选择已支持入口或安全返回；没有可执行恢复就明确受阻。模型/provider 失败只阻断实际依赖它的组合；普通 HTTP 客户端无模型的协议闭环及已有合法读/动作能力分别保留，不要求启动内置模型或旧 Provider。缺正式玩法所需 LLM 的 observer/debug 路径也不自动替换成可玩。切换入口不改变原操作身份或消除未知：先在当前合法读权下核原件，再按其原政策继续。已派发但未确认、原件缺失/损坏、历史不可用或读权限失效时保留最后已验证关联，停止依赖该未知结果的新副作用；不得补签原件、把查询失败显示为业务拒绝或用轮询次数宣布失败。允许的只读核对与修复不恢复旧写权，失权后不继续展示缓存私有正文。
 
 接收使用[逐入口验证方法](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)；缺可执行消费者或故障注入的格记录 blocked/not_run。普通 CI、同候选原协议核对和真实 Runtime/玩家经历分别取证，原首次注册、阶段与发行前置保持不变。
+
+<a id="api-independent-entry-continuation"></a>
+#### 4.4.1 同身份独立入口的正常读写与原请求接续
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；承接 [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) / [AC-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#ac-entry-free-001)。本节接收 [Hosted 便利入口 profile](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)的正常独立通路；核对基线为 2026-11-05、`4912e079baca375637fdd4eff36be58edec32c42`。新增的是原入口、身份、动作与恢复的组合义务，既有未实施项和发布结论不变。
+
+**固定基础接点。** [身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)保留同 namespace 的 IdentityStore/issuer、同 RP/来源基本 Viewer，以及原身份 HTTPS gateway。原生候选沿现有固定 `/entry/discovery`、`/participant/authorize|submit|lookup|owner-view|starter-eligibility`、`/entry-owner/control` 和 `/entry-executor/control` 接续；网关继续只连接已配置且校验服务公钥/world 的 literal-loopback WorldService。停止附加部署/入口便利不停止这些基础职责；T1/T2 不改账号、world、信任根、原结果或权限。客户端不从便利通知接受任意 endpoint，也不直接暴露私有 WorldService 监听。
+
+原仅 Passkey 玩家保留免费 Viewer 的原合法操作链。原生候选使用原同账号绑定/登录方式及分别持有的 owner/executor 证明；原生登录成功不产生这些世界证明。agent 与 viewer owner 对各自实际入口按 §4.4 声明能力、模式和适配版本；实现接点缺失时保留该入口缺项，由基本 Viewer 继续承担其已采纳正常范围，不能强迫玩家新开户或启用未发布 P1。
+
+| 接续阶段 | 实际消费者与原 authority | 必须成立的结果 |
+| --- | --- | --- |
+| 同主体进入 | 基本 Viewer 的 `/session`、原 join/控制；或可信 SDK 的身份登录、discovery、participant owner-view。沿原准入和首次角色合同核 service/environment/account/world/genesis 与原 player/Agent | 恢复已存在的映射、task/控制和当前资格；另一入口或关闭新注册不产生第二个主体、starter 或 owner。确无角色者仍执行原合法首次入场。 |
+| 先核旧请求与当前目标 | 原受保护 capsule/SDK outbox、原 operation port、当前任务/目标与授权观察；正文与 fence 仍由原协作 authority 验证 | 已确认结果保持原归属；未知请求按原件查询。不存在必须先续购便利服务才能查询原结果的附加权限条件；读权仍须当前有效。 |
+| 正常合法写入 | Viewer 原动作消费者，或已采纳 native gateway/SDK 的 task、`native_executor_v1` context 与实际动作。依当前路线发现并消费移动、转运、建厂/排产等必要能力，owner 与 executor 分权、资源和预算逐次重验 | 在所采纳的 `starter-industrial-smelter-to-assembler-v1 / production_only` 组合中实际推进所需生产步骤；能力缺失不删去必需步骤，便利状态不预造资源、续 grant、重置预算或替 owner 批准。 |
+| 领域结果与后续读取 | 原签名 payload/correlation、canonical receipt、反馈 lineage 与生产结果消费者 | received、任务/认知 committed、RecipeStarted 与实际 RecipeCompleted/产物分开核对；不能用一次 GET、排产 accepted 或库存差值代替关联成果。 |
+| 离开与重入 | 同身份当前认证、原角色/task 查询、受权历史读取和原结果恢复；需要改变执行方时由当前 owner 使用原控制合同 | 关闭观察不自动停止或续期执行；实际执行进程停止与世界在途效果分别呈现。显式替换执行方不遗忘旧请求，新执行方只在原未知已核对及当前完整授权成立后开始新意图。 |
+
+本 profile 采用[用户侧原件保管](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)：浏览器同 origin/tab capsule 与玩家设备上原 SDK 客户端持有的受保护 operation cache 各沿原域使用，不新增跨客户端凭证包；远程托管 executor 独占原件且缺该既有恢复路径的组合不在本次接收范围，原历史义务保留。native 原结果按原 payload/correlation lookup；撤销或暂停 executor 后，已合法取得原件的当前 canonical owner 可用 `LookupExecutor`，仍核历史 signer/binding 和当前完整 task fence，不重新启用 executor 或自动解密其私有 outbox。原件不可得、scope/权限不符或历史缺失分别记录恢复缺口，不能补签原件或重新入场猜结果；只有原领域明文允许的 exact replay 才能重送。
+
+所需 Runtime/模型 profile 继续按 §4.3 单独采用，Provider 故障不能自动切换 mode 或授权定义。`/v1/game` GET bootstrap 的 `writes_available=false`、旧 CLI 的 actor/协商/持久恢复缺项、原生/机器入口默认关闭、正式网络 policy 与 P1 条件全部保留；底层原生能力不升级这些消费者。原身份 authority、固定 gateway 或 WorldService 真正不可达时按原新鲜度和恢复边界受阻，这类样本不完成本节正常义务。接收方法为 [AI01–AI07](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)，连用身份侧 HI01–HI05；没有真实消费者的格保持未实施/未执行。
 
 ## 5. 关键运行流程
 
@@ -431,10 +457,11 @@ ContextHandleV1 = {api_revision, context_id, world_binding: RuntimeBindingV1,
 ActionSubmissionV1 = {api_revision, client_operation_id, task_id,
   executor_epoch, context_id, action_ref, arguments, actor_proof}
 OperationViewV1 = {api_revision, operation_id, client_operation_id,
-  status: pending|recovery_required|committed|rejected|failed, disposition_reason,
+  status: pending|recovery_required|committed|rejected|failed
+    |expired|replan_required|terminated_without_effect, disposition_reason,
   receipt_ref?, world_binding, observed_at,
   retry_advice: lookup_original|wait|none, recovery?: OperationRecoveryV1,
-  feedback?: OperationFeedbackV1}
+  feedback?: OperationFeedbackV1, intent?: OperationIntentViewV1}
 OperationFeedbackV1 = {availability: available|pending|history_unavailable|not_applicable,
   original_task_fence?, original_context_ref?, record?: AuthorizedFeedbackRecord}
 OperationRecoveryV1 = {reason, last_known_status: registered|pending,
@@ -463,6 +490,43 @@ ErrorV1 = {code, message, request_trace_id, operation_id?, retryable,
 `pending -> recovery_required` 必须留下持久原因与最后已知关联；恢复服务重查原 request/correlation/receipt 和有效世界分支后，才可 `recovery_required -> pending`（确认仍受理待决）或进入上述有证据终态。轮询时间、重试次数或用户停止不能把未知结果改成失败或取消。recovery.reason 有界且脱敏；reconciliation 与 last_attempt_at 表达恢复进展，阻塞时可升级人工诊断但不授予重放权限。终态历史与 reorg/finality 变化仍按既有世界合同处理，不由本地计时器反向改写。
 
 同键重试首先查询既有 operation，返回相同的 recovery 状态或已经核实的新状态；禁止更换 client_operation_id、重新签 nonce、开启新的副作用 context 或靠 outcome=abandoned 遗忘未知操作。只有恢复服务核实底层仍持久保有原身份去重、允许原请求重投时，才可重送原 outbox 内容；否则只回查并保留阻塞。Worker、Web 和 native 将它显示为“结果待恢复确认”，不复用表示普通排队的 pending 或原模型调用的 run_unknown；只读查询、任务沟通和原结果核对仍可按当前权限进行。
+
+<a id="api-intent-results"></a>
+#### 通用 pending/lineage 的目标结果映射
+
+Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405, O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6。承接 AC-DWE-002/003，读取 Runtime 的 [原件与持久接收](../../world-runtime/module/module-lifecycle.md#sr2-pending-admission-recovery)、[原子 lineage](../../world-runtime/module/module-lifecycle.md#sr2-lineage-publication) 和唯一 `PendingIntentV1 / IntentDecisionV1` 字段 authority。这里新增的是**尚未实施的 SR2 结果适配**；上文当前 bootstrap、native task、cognition、Gameplay、Chat、Prompt 及控制操作继续各自的原 wire、五态 registry、proof 和恢复合同，不因同名状态自动转换为 SR2。
+
+§6.2 的 `intent` 及新增 `expired / replan_required / terminated_without_effect` 只属于这个目标扩展。实际采用必须在 `/info`、同版本 schema 和客户端协商中明确声明 `sr2_intent_results` 能力；未实现不得发布。未协商的客户端查询此类结果时，在当前读取鉴权后明确返回能力/协议不支持并保留原查询身份，不能把新态降成旧 `failed/pending/committed`；旧客户端遇未知状态仍阻断。本文不修改现行 API revision、生成 schema 或共享 Rust enum，也不声称当前线上响应已经含有这些字段。
+
+| 受信原来源及必要条件 | SR2 的目标 `OperationView.status` 与关联 | 可执行下一步与不成立的结论 |
+| --- | --- | --- |
+| 完整持久原件与恢复索引确认尚无效果、无固定 continuation，且无尚待核对的提交窗口 | `pending`；保留原 intent/关系，`retry_advice=wait`，无 execution `receipt_ref` | 查询/等待；受理和持久化不授予资源、完成时间或旧优先级 |
+| 已知原 operation，但 decision/提交阶段不能确认，或固定 continuation 尚待原决定恢复 | `recovery_required`；沿原 recovery 原因与最后已验证 binding，`lookup_original` | 只核对原件；缺 proof、超时或查询失败不是无效果终态 |
+| `IntentDecisionV1.disposition=committed_effect`，与原 intent/hash、成功 receipt core、detached proof 及原 world/branch 一致 | `committed`；`receipt_ref` 只指向本成员的真实执行结果 | 回读原结果，不再执行。提交的效果仍按业务阶段解释，不推导产物送达或目标完成 |
+| canonical `rejected` | `rejected`；保留原 `reason_code`，无 module execution `receipt_ref`，`retry_advice=none` | 阅读真实拒绝；新计划由当前授权另作决定，不自动换键 |
+| canonical `expired` | `expired`；原期限/原因可读，无 module execution `receipt_ref`，`none` | 原请求已过期；本地倒计时不生成此结论，也不续期或承诺返还 |
+| canonical `replan_required` | `replan_required`；具体不兼容或前置变化原因，无 module execution `receipt_ref`，`none` | 查看当前条件后明确形成新计划；不能自动翻译旧 payload 或替换原请求 |
+| canonical `terminated_without_effect` | `terminated_without_effect`；保留具体原因；exclusive loser 有 `winner` 关系，无效果 withdrawal 保留 `predecessor`，均无本成员 execution `receipt_ref` | 显示“本请求无效果终止”与实际关系；不把它说成所有关联请求取消或 winner 已交付业务成果 |
+
+SR2 原 disposition 没有通用 `failed`，因此本适配不会从网络/存储错误合成它；其他原操作合同仍保留自己的 `failed`。所有 canonical 无效果决定先验证其 decision commitment、原 `decision_position` 与适用 profile 的包含依据；不能用本地 audit 行或服务响应签名单独代替最终性，也不能为了填 `receipt_ref` 合成 `ModuleExecutionReceiptV1`。证明暂缺时沿原操作恢复，不改写之前已验证的历史终态；历史不可得与本轮尚未确认分别显示。
+
+目标关系投影如下。它只挑选已验证原记录中的字段，不是新的 signed body、canonical ledger 或 hash 输入；字段类型继续由 Runtime/WASM 原 authority 定义。
+
+```text
+OperationIntentViewV1 = {intent_id, request_hash, lineage_id, member_generation,
+  relation: original|linked_replacement|withdrawal|independent,
+  exclusive_set_id?, predecessor?: RelatedIntentViewV1, winner?: RelatedIntentViewV1}
+RelatedIntentViewV1 = {availability: available|not_readable|history_unavailable,
+  operation_id?, intent_id?, request_hash?, status?, receipt_ref?}
+```
+
+1. 先鉴权当前原 operation 及其元数据，再从原 ingress→admitted intent→decision/receipt 的持久关联生成投影。`operation_id/client_operation_id` 与 intent 的关联来自原接收索引，不能假设两种 ID 相同，也不按当前选中 Agent 或最新 goal 重新绑定。`member_generation` 采用十进制字符串；同 lineage 不自动表示同 exclusive set。
+2. 有 predecessor/winner 的原记录必须有对应关系项；不存在关系时才省略。验真同时核前驱的原 domain、同一 lineage 与获准 exclusive set，winner 必须属于该集合；不能借别的合法请求拼接关系。每个关联对象单独执行当前读取授权。`available` 要求原对象身份与受信真实状态均可读，必须包含其 operation/intent/hash/status；只有该对象真实 committed 执行时才附其 `receipt_ref`。API 原 operation 关联缺失不能伪造一个 locator，应保留 `history_unavailable`。已有无效果终态不会因后续关联请求获胜而变成 loser 或新增 winner 关系，重查仍返回原处置。
+3. `not_readable` 不带对象 ID/hash、operation、状态、receipt 或私有原因；`history_unavailable` 表示有当前读权但原件/原关联不足，也不冒充不存在或未执行。原操作中已允许披露的关系种类与自身无效果处置可以保留；不得枚举其他成员、数量或通过错误差异泄漏受限对象。关联项不可读不取消原已验证终态，页面提供当前合法原结果核对路径。
+4. 读取只给原成员、至多一个直接 predecessor 与一个 winner；不递归展开整个 lineage，沿各自获权 operation 查询有界续读。换身份/分支、读取撤销或旧异步返回时按原 scope/fence 隔离，旧缓存不继续显示私有关系。失去执行权与失去历史读权分别判定。
+5. Viewer、pure_api 与 Agent adapter 保留各成员的独立状态与真实下一步。只有原 cognition authority 实际产生了 `AuthorizedFeedbackRecord`，才按 §5.4 交付下一认知输入；SR2 decision/关系投影本身不伪造 feedback、驱动模型重启或赋予新行动权。领域支持撤回/替代时，仍经其原明确动作、当前鉴权和新请求，普通重复 submit 只查原件。
+
+完整世界/持久/顺序判据由 [GWSC PL01–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination) 接收；具体消费者按 [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) 验证。设计映射不证明端点、持久接收、真实 Runtime 或 Web/native 已接通。
 
 <a id="api-question-delivery"></a>
 ### 6.4 私有问答写入、阶段报告与回查
@@ -549,6 +613,7 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 
 | 上游条款 | 本设计条款 | 独立 obligation 与适用条件 | 准确验证方法与场景 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | [独立入口接续](#api-independent-entry-continuation) | 便利停止后同一主体/世界的真实成长写入、领域回执、重入和原请求恢复，权限与基础故障不混判。 | [AI01–AI07](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)，按该方法联用身份判据并对所声明 viewer/pure_api 组合分别执行。 | 同候选实际入口、基础依赖、原身份/请求、业务效果及历史差量；方法待执行。 | 不证明当前部署已开启、完整普通 HTTP 写路由、任意跨站迁移、真实模型/玩家或所有服务退出已通过。 |
 | Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | [api-auth](#api-auth) | 合法绑定、身份隔离与费用路由不能授予游戏权力 | [api-auth](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-auth)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；[AC-EXT-003](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-003) | [api-context](#api-context) | 首局能力目录、参数和实际执行一致 | [api-catalog](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-catalog)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | [api-actions](#api-actions) | 成功、拒绝、未知结果可恢复且不重复世界效果 | [api-idempotency](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-idempotency)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
@@ -565,6 +630,8 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-context](#api-context) | 单 Agent 活动 turn、context 幂等与新目标/授权漂移时重新决策 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；多连接同 Agent、原 context 超时/漂移与当前授权竞争 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 只读并发不授予第二副作用 turn |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-actions](#api-actions) | 稳定原键、durable ingress/outbox、同键冲突与唯一世界效果 | [api-idempotency](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-idempotency)；原进程持久故障/重复/未知与恢复，核前后资源和 receipt | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 不同键语义重复仍依玩法约束 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-retry-safety](#api-retry-safety) | 错误类别、限流和并发共用当前额度，未知请求不换键 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；本地及 HTTPS 远程分别执行错误/并发/权限/配额负例 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | HTTPS/普通 CI 不证明业务授权或公开部署 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | [通用 intent 结果](#api-intent-results) | 持久 pending/未知与各真实处置、协议未支持分别可判 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR01–03/06；同候选真实原件和 proof，required 适配/负例，full 逐入口 | 原 intent/decision/查询身份、响应及实际前后效果 | 目标未实施；fixture 不代签持久接收或真实 finality |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | [通用 intent 结果](#api-intent-results) | 原成员、前驱/胜者及无权/缺历史分支独立成立 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR02–06；接 GWSC PL04–09，双主体、双序和重启 | 来源关联、授权投影、零隐式取消/新增 effect、各消费者原关系 | API 显示不证明 Runtime 原子仲裁或模型理解 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | [api-primary-entry-applicability](#api-primary-entry-applicability) | 声明组合的唯一 mode、阶段、能力/消费者及独立证据可核对 | [逐入口验证](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)：固定候选逐项对照实际路由、协商和原请求；加入 SDK/Hello/另一模式代签及缺能力反例 | 入口/适配、能力与证据对应；实际输出和当前受限范围 | 目录或静态源码不代签完整 pure_api、真实模型/玩家或发行 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [api-primary-entry-applicability](#api-primary-entry-applicability) | 前置与身份失败、原结果未知按各协议保留分类和真实下一步 | [逐入口验证](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)：原件/响应错配、丢回复、断连/重启、失权/能力缺失、不可查询与跨入口恢复；核 query-only 零业务 submit | 原关联、状态与允许动作；拒绝/未知时的提交次数和读权边界 | 不赋予通用 replay、operator 权限或未实现的 Prompt 持久恢复 |
 
