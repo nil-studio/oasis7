@@ -24,17 +24,34 @@ NATIVE_MODULES = ('gdk-3.0 >= 3.22', 'atk >= 2.28', 'dbus-1 >= 1.6',
                   'javascriptcoregtk-4.1 >= 2.38', 'libsoup-3.0 >= 3.0')
 
 
-def prepare_native(source, out, end, env):
+def prepare_native(source, out, end, env, *, maximum_seconds=180):
     """Repair the observed native prerequisites within the original job clock."""
-    preparation_end = min(end - 90, time.monotonic() + 180)
+    if type(maximum_seconds) is not int or maximum_seconds not in (180, 360):
+        raise ValueError('unsupported native preparation budget')
+    started = time.monotonic()
+    preparation_end = min(end - 90, started + maximum_seconds)
+    budget = {'maximum_seconds': maximum_seconds, 'started_monotonic': started,
+              'parent_deadline_monotonic': end, 'parent_reserve_seconds': 90,
+              'preparation_deadline_monotonic': preparation_end,
+              'probe_reserve_seconds': 20, 'privileged_cleanup_reserve_seconds': 5,
+              'scope': 'allocations only; actual outcomes are in native-*.stdout.result.json',
+              'allocations': []}
+    runtime.save(out / 'native-budget.json', budget, out)
+
+    def record(name, seconds, privileged_seconds=None):
+        budget['allocations'].append({'phase': name, 'timeout_seconds': seconds,
+                                      'privileged_timeout_seconds': privileged_seconds})
+        runtime.save(out / 'native-budget.json', budget, out)
+
     for name, args, limit in (
             ('native-update', ['update'], 60),
-            ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], 180)):
+            ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], maximum_seconds)):
         # Reserve both 10-second package/module observations within the same window.
         remaining = min(limit, preparation_end - time.monotonic() - 20)
         if remaining < 10:
             raise RuntimeError('insufficient native preparation budget')
         # The privileged timeout terminates its own apt children before our outer watchdog.
+        record(name, remaining, int(remaining) - 5)
         argv = ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=2s',
                 str(int(remaining) - 5), 'env', 'DEBIAN_FRONTEND=noninteractive',
                 'apt-get', '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20', *args]
@@ -46,6 +63,7 @@ def prepare_native(source, out, end, env):
         remaining = min(10, preparation_end - time.monotonic())
         if remaining < 1:
             raise RuntimeError('insufficient native observation budget')
+        record(name, remaining)
         runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
                     remaining, out, env, file_limit=None)
 

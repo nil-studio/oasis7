@@ -179,6 +179,14 @@ impl NodeRuntimeExecutionDriver {
         driver.pending_product_validation_intent = durable_product_validation_intent;
         driver.local_execution_bootstrap = local_execution_bootstrap;
         if let Some(baseline) = driver.local_execution_bootstrap.clone() {
+            // Staged pre-call/checkpoint transactions own their separate
+            // continuation below. Only ordinary record-before-cache startup
+            // may replace a lagging cache from the exact service successor.
+            if driver.pending_product_validation_intent.is_none()
+                && checkpoint_install_transaction.is_none()
+            {
+                driver.recover_committed_service_successor_before_bootstrap(&baseline)?;
+            }
             driver.apply_local_execution_bootstrap(&baseline)?;
         }
         if let Some(marker) = driver.pending_product_validation_intent.clone() {

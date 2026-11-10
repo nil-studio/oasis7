@@ -416,7 +416,16 @@ def migration_paths(root, policy_sha, plan, config):
     """An explicit full policy migration is proved from Git, never a plan flag."""
     if plan.get('scope') not in ('full', 'explicit-full'):
         return []
-    if set(plan.get('groups', [])) != set(config['groups']):
+    expected = set(config['groups'])
+    capability = 'formal_full_profiles_only_version'
+    if capability in config:
+        if (type(config[capability]) is not int or config[capability] != 1
+                or type(plan.get(capability)) is not int or plan[capability] != 1):
+            raise ValueError('invalid trusted Formal full-profile capability')
+        if (plan['scope'] == 'full'
+                and plan.get('execution_profile') in ('pr-fast', 'main-fast')):
+            expected.remove('formal_process')
+    if set(plan.get('groups', [])) != expected:
         raise ValueError('full Python control migration omitted a required group')
     boundaries = ['scripts/ci-required-scope.json', 'scripts/ci-python-control-contracts.py']
     changed = set()

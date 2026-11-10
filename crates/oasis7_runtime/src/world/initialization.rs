@@ -34,7 +34,17 @@ impl World {
         Ok(world)
     }
 
-    pub fn new_with_state(mut state: WorldState) -> Self {
+    pub fn new_with_state(state: WorldState) -> Self {
+        Self::assemble_with_state(state, true)
+    }
+
+    // Restored sealed state must not gain test-only fixture identities.
+    pub(super) fn new_with_state_for_restore(state: WorldState) -> Self {
+        Self::assemble_with_state(state, false)
+    }
+
+    fn assemble_with_state(mut state: WorldState, fresh_fixture_identity: bool) -> Self {
+        let _ = fresh_fixture_identity;
         state.migrate_compat_material_ledgers();
         state
             .node_identity_bindings
@@ -68,10 +78,12 @@ impl World {
                 });
         }
         #[cfg(any(test, feature = "test_tier_required", feature = "test_tier_full"))]
-        state
-            .node_identity_bindings
-            .entry(TEST_MODULE_SIGNER_NODE_ID.to_string())
-            .or_insert_with(test_module_signer_public_key_hex);
+        if fresh_fixture_identity {
+            state
+                .node_identity_bindings
+                .entry(TEST_MODULE_SIGNER_NODE_ID.to_string())
+                .or_insert_with(test_module_signer_public_key_hex);
+        }
         if state.governance_finality_signer_registry.is_none() {
             for (node_id, public_key_hex) in
                 governance::local_governance_finality_signer_public_keys()

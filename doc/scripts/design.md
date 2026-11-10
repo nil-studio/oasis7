@@ -35,6 +35,8 @@ scripts 模块不另行设计工程任务生命周期，统一引用
 
 ## 稳定脚本契约
 
+- 任务 worktree 新建分支前以显式 refspec fetch origin/main，再解析默认基线 `origin/main` 并执行 `git worktree add`；不对调用方分支执行 pull/merge，避免带入本地提交或改写正在开发的工作区。显式 `--base` 不被替换；失败归入 `refresh_base`，不回退到缓存基线。附加已有分支及恢复 setup 沿用原 HEAD，不依赖网络。
+
 - 每个常见意图只有一个推荐稳定入口；辅助或 fallback 路径必须有明确触发条件，且不能替代 canonical 路径。
 - 已发布脚本契约说明最小调用、改变验证范围的选项和失败类别；脚本行为、`--help` 与测试是可变 CLI 细节的实现权威。`dry-run`、`skip-*`、语法或 help 成功都不能证明完整门禁通过。
 

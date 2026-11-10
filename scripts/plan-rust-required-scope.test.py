@@ -68,6 +68,53 @@ class Selection(unittest.TestCase):
             with self.assertRaises(selector.UnknownInputsError):
                 selector.select(trusted, self.base, self.commit())
 
+    def test_ci_download_exact_registration_and_old_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = ('scripts/install-ci-trunk.sh', 'scripts/install-ci-trunk.test.sh',
+                 'scripts/install-ci-wasm-opt.py', 'scripts/install-ci-wasm-opt.test.py')
+        expected = {'baseline', 'workflow_governance', 'packaging_contracts', 'launcher_web',
+                    'macos_package_contract'}
+        old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'ci_download_contracts'])
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in paths:
+                for operation in ('add', 'modify', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        else:
+                            self.write(path, '# synthetic download input ' + operation)
+                        head = self.commit()
+                        plan = selector.select(config, self.base, head)
+                        self.assertEqual(plan['scope'], 'targeted')
+                        self.assertEqual(set(plan['groups']), expected)
+                        with self.assertRaises(selector.UnknownInputsError):
+                            selector.select(old, self.base, head)
+                        self.base = head
+            # An otherwise full control change cannot grant its own ownership.
+            self.write('scripts/ci-required-scope.json', json.dumps(config))
+            self.write(paths[0], '# candidate self-registration')
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, head)
+            self.base = head
+            for unknown in ('scripts/install-ci-trunk-extra.sh',
+                            'scripts/install-ci-wasm-opt-extra.py'):
+                with self.subTest(unknown=unknown):
+                    self.write(unknown, '# unregistered neighbor')
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(config, self.base, self.commit())
+                    self.git('rm', unknown)
+                    self.base = self.commit()
+            unknown = 'scripts/install-ci-trunk-renamed.sh'
+            self.git('mv', paths[0], unknown)
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, head)
+            self.base = head
+            self.git('mv', unknown, paths[0])
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_engineering_telemetry_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         paths = (
@@ -1793,6 +1840,92 @@ class Selection(unittest.TestCase):
                                 'groups': ['command_center'], 'reason': 'desktop'})
         return config
 
+    def test_formal_full_only_policy_defers_every_fast_path_without_narrowing_ordinary(self):
+        old = self.fast_config()
+        config = dict(old, formal_full_profiles_only_version=1)
+        self.write('crates/core/src/lib.rs', '#[cfg(unix)]\npub fn platform() {}')
+        self.base = self.commit()
+        cases = [
+            ('crates/core/src/history.rs', 'pub fn history() {}', ()),
+            ('crates/consumer/src/lib.rs', 'pub fn unmapped() {}', ()),
+            ('crates/core/src/lib.rs', '#[cfg(windows)]\npub fn platform() {}', ()),
+            ('Cargo.lock', '# lock change', ()),
+            ('.github/workflows/rust.yml', '# shared control change', ()),
+            ('doc/readme.md', 'explicit group request', ('formal_process',)),
+        ]
+        for path, content, additions in cases:
+            base = self.git('rev-parse', 'HEAD')
+            self.write(path, content)
+            head = self.commit()
+            for profile in ('pr-fast', 'main-fast'):
+                with self.subTest(path=path, profile=profile):
+                    legacy = selector.select(old, base, head, profile=profile, additions=additions)
+                    current = selector.select(config, base, head, profile=profile, additions=additions)
+                    self.assertIn('formal_process', legacy['groups'])
+                    if path in ('crates/core/src/lib.rs', 'Cargo.lock', '.github/workflows/rust.yml'):
+                        self.assertEqual(legacy['scope'], 'full')
+                    self.assertEqual(current['formal_full_profiles_only_version'], 1)
+                    self.assertEqual(set(current['groups']), set(legacy['groups']) - {'formal_process'})
+                    self.assertEqual(current['formal_suites'], [])
+                    self.assertEqual(current['formal_shards'], [])
+                    changed_fields = {'formal_full_profiles_only_version', 'formal_deferred_ordinary_cases',
+                                      'groups', 'resources', 'formal_suites', 'formal_shards',
+                                      'fast_plan_exceptions', 'reasons'}
+                    self.assertEqual({key: value for key, value in current.items() if key not in changed_fields},
+                                     {key: value for key, value in legacy.items() if key not in changed_fields})
+                    self.assertTrue(any('complete profiles' in reason for reason in current['reasons']))
+
+    def test_formal_full_only_policy_retains_all_full_suites_and_legacy_base(self):
+        old = self.fast_config()
+        config = dict(old, formal_full_profiles_only_version=1)
+        # Candidate metadata cannot activate a capability missing from BASE.
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        head = self.commit()
+        legacy = selector.select(old, self.base, head, profile='pr-fast')
+        self.assertNotIn('formal_full_profiles_only_version', legacy)
+        self.assertEqual(legacy['formal_suites'], sorted(selector.FORMAL_SUITES))
+        self.assertEqual(set(legacy['groups']), set(old['groups']))
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                full = selector.full_plan(config, profile, head, policy_ref=self.base)
+                self.assertEqual(full['formal_full_profiles_only_version'], 1)
+                self.assertEqual(set(full['groups']), set(config['groups']))
+                self.assertEqual(full['formal_suites'], sorted(selector.FORMAL_SUITES))
+                self.assertEqual(full['formal_shards'], sorted(selector.FORMAL_SUITES))
+        empty = selector.select(config, head, head, profile='pr-fast', additions=('formal_process',))
+        self.assertNotIn('formal_process', empty['groups'])
+        self.assertEqual(empty['formal_suites'], [])
+        self.write('config.json', json.dumps(config))
+        arguments = ['selector', '--profile', 'pr-fast', '--base-ref', self.base, '--head-ref', head,
+                     '--config', 'config.json', '--github-output', 'outputs.txt']
+        with patch.object(sys, 'argv', arguments), contextlib.redirect_stdout(io.StringIO()):
+            selector.main()
+        outputs = dict(line.split('=', 1) for line in Path('outputs.txt').read_text().splitlines())
+        self.assertEqual(outputs['run_formal_process'], 'false')
+        self.assertEqual(json.loads(outputs['formal_shards']), [])
+
+    def test_formal_full_only_capability_rejects_invalid_or_incomplete_trusted_inventory(self):
+        for value in (True, False, 0, 2, '1', None):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'Formal full-profile'):
+                selector.validate_config(dict(self.fast_config(), formal_full_profiles_only_version=value))
+        for field in ('fast_scope_version', 'formal_process'):
+            config = dict(self.fast_config(), formal_full_profiles_only_version=1)
+            if field == 'formal_process':
+                config['groups'].remove(field)
+                del config['resources'][field]
+                for groups in config['package_groups'].values():
+                    groups.remove(field)
+            else:
+                del config[field]
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'Formal full-profile'):
+                selector.validate_config(config)
+        for deferred in ([], {'other': ['formal::heavy']}, {'runtime-tests': []},
+                         {'runtime-tests': ['formal::heavy', 'formal::heavy']},
+                         {'runtime-tests': ['formal::*']}, {'runtime-tests': [None]}):
+            with self.subTest(deferred=deferred), self.assertRaisesRegex(ValueError, 'deferred ordinary Formal'):
+                selector.validate_config(dict(self.fast_config(), formal_full_profiles_only_version=1,
+                                              formal_deferred_ordinary_cases=deferred))
+
     def test_fast_profile_preserves_actual_affected_package_and_wasm_closure(self):
         config = self.fast_config()
         self.write('crates/core/src/lib.rs', 'pub fn actual_changed_behavior() {}')
@@ -1879,6 +2012,27 @@ class Selection(unittest.TestCase):
             self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
             self.assertEqual(plan['oasis7_required_wasm_packages'], [])
             self.assertNotIn('launcher_web', plan['groups'])
+
+    def test_formal_deferral_preserves_native_component_architecture_and_clippy_decisions(self):
+        old = self.component_config()
+        old['formal_risk_rules'].append(dict(match=['crates/core/src/behavior.rs'],
+                                            suites=['world-history'], reason='native history risk'))
+        current = dict(old, formal_full_profiles_only_version=1)
+        base, head = self.component_fixture()
+        for profile in ('pr-fast', 'main-fast'):
+            legacy = selector.select(old, base, head, profile=profile)
+            deferred = selector.select(current, base, head, profile=profile)
+            self.assertEqual(legacy['ordinary_execution'], 'inline')
+            self.assertEqual(legacy['formal_suites'], ['world-history'])
+            self.assertNotIn('build_policy', legacy['architecture'])
+            changed_fields = {'formal_full_profiles_only_version', 'formal_deferred_ordinary_cases',
+                              'groups', 'resources', 'formal_suites', 'formal_shards',
+                              'fast_plan_exceptions', 'reasons'}
+            with self.subTest(profile=profile):
+                self.assertEqual({key: value for key, value in deferred.items() if key not in changed_fields},
+                                 {key: value for key, value in legacy.items() if key not in changed_fields})
+                self.assertNotIn('formal_process', deferred['groups'])
+
 
     def test_native_package_partition_capability_keeps_the_full_parent_and_old_fallback(self):
         self.assertEqual(selector.ORDINARY_PARTITION_PACKAGES,
@@ -3707,6 +3861,8 @@ class PythonControlContracts(unittest.TestCase):
     def test_local_check_adapter_cannot_enrol_itself_from_candidate_policy(self):
         config = self.trusted()
         old = json.loads(json.dumps(config))
+        old.pop('formal_full_profiles_only_version', None)
+        old.pop('formal_deferred_ordinary_cases', None)
         paths = ('scripts/ci-local-check-plan.py', 'scripts/ci-local-check-plan.test.py')
         for path in paths:
             old['scoped_control_paths'].pop(path, None)

@@ -23,9 +23,21 @@ impl World {
             .values()
             .any(|context| is_provider_context_for_agent(context, agent_id))
         {
+            if self
+                .has_local_provider_origin(agent_id)
+                .map_err(|error| format!("{error:?}"))?
+            {
+                return Err("canonical local provider invocation is missing or malformed".into());
+            }
             return Ok(None);
         }
-        self.canonical_agent_service_context(agent_id).map(Some)
+        match self.canonical_agent_service_context(agent_id) {
+            Ok(context) => Ok(Some(context)),
+            Err(original) => match self.local_provider_capability_availability(agent_id) {
+                Ok(crate::world::ProviderCapabilityAvailability::ExpiredOnly { .. }) => Ok(None),
+                _ => Err(original),
+            },
+        }
     }
 
     /// Read-only authorized projection from the exact service-pinned World.

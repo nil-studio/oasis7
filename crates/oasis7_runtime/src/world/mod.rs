@@ -43,6 +43,8 @@ mod capability_authorization_state;
 mod capability_authorization_transaction;
 mod capability_authorization_validation;
 mod capability_catalog;
+mod provider_terminal_authority;
+pub use provider_terminal_authority::ProviderCapabilityAvailability;
 mod capability_effect_receipt_projection;
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
 mod capability_test_fixture;
@@ -755,42 +757,6 @@ impl World {
         self
     }
 
-    pub(super) fn preview_next_event_id(
-        next_id: WorldEventId,
-        era: u64,
-    ) -> (WorldEventId, WorldEventId, u64) {
-        Self::preview_rolling_sequence_id(next_id, era)
-    }
-
-    pub(super) fn allocate_next_action_id(&mut self) -> ActionId {
-        Self::allocate_rolling_sequence_id(&mut self.next_action_id, &mut self.next_action_id_era)
-    }
-
-    pub(super) fn allocate_next_intent_seq(&mut self) -> IntentSeq {
-        Self::allocate_rolling_sequence_id(&mut self.next_intent_id, &mut self.next_intent_id_era)
-    }
-
-    pub(super) fn allocate_next_proposal_id(&mut self) -> ProposalId {
-        Self::allocate_rolling_sequence_id(
-            &mut self.next_proposal_id,
-            &mut self.next_proposal_id_era,
-        )
-    }
-
-    pub(super) fn preview_next_intent_seq(
-        next_id: IntentSeq,
-        era: u64,
-    ) -> (IntentSeq, IntentSeq, u64) {
-        Self::preview_rolling_sequence_id(next_id, era)
-    }
-
-    pub(super) fn preview_next_proposal_id(
-        next_id: ProposalId,
-        era: u64,
-    ) -> (ProposalId, ProposalId, u64) {
-        Self::preview_rolling_sequence_id(next_id, era)
-    }
-
     pub(super) fn enforce_pending_action_limit(&mut self) {
         let max_len = self.runtime_memory_limits.max_pending_actions.max(1);
         while self.pending_actions.len() > max_len {
@@ -951,6 +917,9 @@ mod incremental_action_execution_applicability;
 mod incremental_action_execution_core;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_action_original;
+#[cfg(test)]
+mod persistence_fixture_identity_tests;
+
 pub mod incremental_body;
 pub mod incremental_body_event;
 mod incremental_directory_bundle;

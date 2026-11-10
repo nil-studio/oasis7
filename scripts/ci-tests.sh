@@ -627,6 +627,38 @@ run_dot_todo_contract_tests() {
   fi
 }
 
+run_ci_wasm_opt_contract_tests() {
+  # Register before implementation; a partially introduced pair must fail.
+  local path present=0
+  local paths=(scripts/install-ci-wasm-opt.py scripts/install-ci-wasm-opt.test.py)
+  for path in "${paths[@]}"; do
+    if [[ -e "$path" || -L "$path" ]]; then present=1; fi
+  done
+  if [[ "$present" == 0 ]]; then
+    echo "wasm-opt contracts: not introduced; no tests run"
+    return 0
+  fi
+  for path in "${paths[@]}"; do
+    if [[ ! -f "$path" || -L "$path" ]]; then
+      echo "wasm-opt requires regular source and contract test files: $path" >&2
+      return 1
+    fi
+  done
+  run python3 - <<'PY_WASM_OPT'
+import importlib.util
+import unittest
+
+spec = importlib.util.spec_from_file_location('ci_wasm_opt_contracts', 'scripts/install-ci-wasm-opt.test.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+if suite.countTestCases() == 0:
+    raise SystemExit('no wasm-opt contract tests')
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+raise SystemExit(not result.wasSuccessful() or result.testsRun == len(result.skipped))
+PY_WASM_OPT
+}
+
 run_engineering_telemetry_contract_tests() {
   # Register before the feature lands; a partial installation must fail closed.
   local path present=0
@@ -715,6 +747,7 @@ run_workflow_governance_operational_contract_tests() {
 }
 
 run_workflow_governance_contract_tests() {
+  run_ci_wasm_opt_contract_tests
   run_engineering_telemetry_contract_tests
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests

@@ -27,7 +27,6 @@ async fn observation(
     authority::observe(env, saved.state.draft(), input, &signed, false).await
 }
 async fn prepare_stage(
-    state: &JsValue,
     env: &Env,
     store: &OwnerProvisionApprovalStore,
     call: &NativeRuntimeCall,
@@ -55,7 +54,7 @@ async fn prepare_stage(
             authority::observe(env, saved.state.draft(), input.clone(), &signed, true).await?;
         let request = store
             .claim_native_origin_inspection(&original.request.operation_id, || {
-                authority::current(state, env, &before, false)
+                authority::current_from_store(store, env, &before, false)
             })
             .map_err(|_| denied())?;
         let raw = serde_json::to_string(&request)?;
@@ -70,13 +69,13 @@ async fn prepare_stage(
         let after = authority::observe(env, saved.state.draft(), input, &signed, false).await?;
         store
             .complete_native_origin_inspection(&original.request.operation_id, signed, || {
-                authority::current(state, env, &after, true)
+                authority::current_from_store(store, env, &after, true)
             })
             .await
             .map_err(|_| denied())?;
         store
             .claim_native_stage(&original.request.operation_id, || {
-                authority::current(state, env, &after, true)
+                authority::current_from_store(store, env, &after, true)
             })
             .await
             .map_err(|_| denied())?;
@@ -84,7 +83,7 @@ async fn prepare_stage(
         let after = observation(store, env, call).await?;
         store
             .claim_native_stage(&original.request.operation_id, || {
-                authority::current(state, env, &after, true)
+                authority::current_from_store(store, env, &after, true)
             })
             .await
             .map_err(|_| denied())?;
@@ -128,12 +127,12 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
         NativeRuntimeAction::GetPermit => match &rpc.call {
             NativeRuntimeCall::Provision { .. } => {
                 let ticket = store.reserve_native_stage_read(id).map_err(|_| denied())?;
-                prepare_stage(state, env, &store, &rpc.call).await?;
+                prepare_stage(env, &store, &rpc.call).await?;
                 let current = observation(&store, env, &rpc.call).await?;
                 encode(
                     &store
                         .authorize_native_stage_read(id, ticket, || {
-                            authority::current(state, env, &current, true)
+                            authority::current_from_store(&store, env, &current, true)
                         })
                         .await
                         .map_err(|_| denied())?,
@@ -152,14 +151,16 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
                     .is_none()
                 {
                     store
-                        .claim_managed_login(id, || authority::current(state, env, &current, true))
+                        .claim_managed_login(id, || {
+                            authority::current_from_store(&store, env, &current, true)
+                        })
                         .await
                         .map_err(|_| denied())?;
                 }
                 encode(
                     &store
                         .authorize_managed_login_read(id, ticket, || {
-                            authority::current(state, env, &current, true)
+                            authority::current_from_store(&store, env, &current, true)
                         })
                         .await
                         .map_err(|_| denied())?,
@@ -177,7 +178,7 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
             let current = observation(&store, env, &rpc.call).await?;
             encode(
                 &super::issue_binding_statement(state, env, request, challenge, ticket, || {
-                    authority::current(state, env, &current, true)
+                    authority::current_from_store(&store, env, &current, true)
                 })
                 .await?,
             )
@@ -237,13 +238,13 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
                         }
                         store
                             .recover_native_binding_receipt(id, receipt, || {
-                                authority::current(state, env, &current, true)
+                                authority::current_from_store(&store, env, &current, true)
                             })
                             .await
                     } else {
                         store
                             .complete_native_stage(id, result, session.as_ref(), || {
-                                authority::current(state, env, &current, true)
+                                authority::current_from_store(&store, env, &current, true)
                             })
                             .await
                     }
@@ -253,7 +254,7 @@ pub(super) async fn dispatch(state: &JsValue, env: &Env, rpc: NativeRuntimeRpc) 
                 NativeRuntimeCall::ManagedLogin { .. } => encode(
                     &store
                         .complete_managed_login(id, result, session.as_ref(), || {
-                            authority::current(state, env, &current, true)
+                            authority::current_from_store(&store, env, &current, true)
                         })
                         .await
                         .map_err(|_| denied())?,

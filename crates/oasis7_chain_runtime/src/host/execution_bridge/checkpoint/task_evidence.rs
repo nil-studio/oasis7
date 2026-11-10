@@ -5,6 +5,27 @@ use oasis7::world_service::{CanonicalIntentResultV1, correlation, game_task};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::io::Read;
+pub(super) fn all_protected_heights(
+    records: &Path,
+    store: &LocalCasStore,
+) -> Result<BTreeSet<u64>, String> {
+    let mut protected = protected_heights(records, store)?;
+    protected.extend(super::super::historical_material::protected_heights(
+        records, store,
+    )?);
+    Ok(protected)
+}
+
+pub(in super::super) fn refresh_live_task_read_evidence(
+    records: &Path,
+    store: &LocalCasStore,
+    world: &oasis7_runtime::World,
+    hot: u64,
+) -> Result<ValidatedTaskRetention, String> {
+    let context = trusted_restore_context(world)?;
+    refresh(records, store, world, hot, &context)
+}
+
 const SCOPE: &str = "execution_bridge_live_tasks_v1";
 #[cfg(test)]
 std::thread_local! {
@@ -88,6 +109,7 @@ pub(super) fn protected_heights(
     #[cfg(test)]
     PROTECTED_HEIGHT_VALIDATIONS.with(|count| count.set(count.get().saturating_add(1)));
 
+    let mut result = BTreeSet::new();
     let directory = store.root().join("pin_scopes").join(SCOPE);
     match fs::symlink_metadata(&directory) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
@@ -104,7 +126,6 @@ pub(super) fn protected_heights(
     {
         return Err("invalid live task pin scope parent".into());
     }
-    let mut result = BTreeSet::new();
     for entry in fs::read_dir(directory).map_err(|_| "live task pin scope unreadable")? {
         let entry = entry.map_err(|_| "live task pin scope unreadable")?;
         if !entry
@@ -390,10 +411,15 @@ pub(super) fn refresh(
     let wanted = wanted.keys().copied().collect::<BTreeSet<_>>();
     let hot_start = latest.saturating_sub(hot.max(1).saturating_sub(1));
     let archive_start = list_execution_checkpoint_heights(records)?.first().copied();
+    let independently_protected =
+        super::super::historical_material::protected_heights(records, store)?;
     for height in previous.difference(&wanted) {
         store
             .remove_pin_scope_shard(SCOPE, &format!("record-{height:020}"))
             .map_err(|_| "live task dependency release failed")?;
+        if independently_protected.contains(height) {
+            continue;
+        }
         if *height >= hot_start {
             continue;
         }
