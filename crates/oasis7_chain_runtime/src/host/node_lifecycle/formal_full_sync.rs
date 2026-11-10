@@ -1149,4 +1149,3 @@ impl BusinessIndexNodeReader for LocalVerifiedBusinessIndexReader {
         result
     }
 }
-
