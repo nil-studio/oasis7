@@ -23,7 +23,11 @@ class Proxy(http.server.BaseHTTPRequestHandler):
   body=self.rfile.read(int(self.headers['Content-Length']));h={'Host':v['origin'][8:],'Content-Type':'application/json','Accept':'application/json, text/event-stream','MCP-Protocol-Version':'2025-11-25'}
   if 'Authorization' in self.headers:h['Authorization']=self.headers['Authorization']
   conn=http.client.HTTPConnection('127.0.0.1',v['http_port'],timeout=35);conn.request('POST','/mcp',body,h);reply=conn.getresponse();data=reply.read();conn.close();self.send_response(reply.status);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
-proxy=http.server.HTTPServer(('127.0.0.1',v['tls_port']),Proxy);ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.load_cert_chain(t/'cert.pem',t/'key.pem');proxy.socket=ctx.wrap_socket(proxy.socket,server_side=True)
+proxy=http.server.HTTPServer(('127.0.0.1',v['tls_port']),Proxy)
+ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.minimum_version=ssl.TLSVersion.TLSv1_2
+ctx.load_cert_chain(t/'cert.pem',t/'key.pem')
+proxy.socket=ctx.wrap_socket(proxy.socket,server_side=True)
 assert not pathlib.Path(c['service']['socket']).exists();daemon=subprocess.Popen([str(b),'--serve',str(p)],stdin=subprocess.PIPE,stderr=(t/'backend-private.log').open('ab'),env=env);daemon.stdin.write(json.dumps(unlocks).encode());daemon.stdin.close();remote=None;thread=None
 try:
  until=time.monotonic()+10
