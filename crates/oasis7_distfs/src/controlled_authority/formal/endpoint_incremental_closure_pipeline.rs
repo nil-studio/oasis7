@@ -57,11 +57,10 @@ pub(crate) fn consume_candidate_data_closure_v1(
         &physical_cancelled,
     )
     .map_err(page_store_formal_error)?;
-    let mut original_values = ValueIoBudget {
-        nodes_remaining: limits.original_value_nodes,
-        read_bytes_remaining: limits.original_value_read_bytes,
-        write_bytes_remaining: 0,
-    };
+    let mut original_values = read_value_io(
+        limits.original_value_nodes,
+        limits.original_value_read_bytes,
+    );
     let mut original_io = crate::incremental_page_store::objects::ObjectIo {
         physical: &mut original_pages,
         logical: &mut original_values,
@@ -195,11 +194,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
     };
     let state = &sessions.state;
     let values = &sessions.values;
-    let mut value_io = ValueIoBudget {
-        nodes_remaining: limits.value_nodes,
-        read_bytes_remaining: limits.value_read_bytes,
-        write_bytes_remaining: 0,
-    };
+    let mut value_io = read_value_io(limits.value_nodes, limits.value_read_bytes);
     let mut value_context = ValueReadContext {
         source: values,
         memory,
@@ -526,3 +521,18 @@ pub(crate) fn consume_candidate_data_closure_v1(
         Ok(())
     }
 }
+
+// `write_bytes_remaining` also meters read_range's output copies. A reader
+// needs that allowance even when its physical storage writer is disabled.
+// Each selected leaf is verified/debited before copying, and its encoded bytes
+// dominate the copied range, so this introduces no additional unbounded work.
+fn read_value_io(nodes: u64, bytes: u64) -> ValueIoBudget {
+    ValueIoBudget {
+        nodes_remaining: nodes,
+        read_bytes_remaining: bytes,
+        write_bytes_remaining: bytes,
+    }
+}
+#[cfg(all(test, unix))]
+#[path = "endpoint_incremental_closure_read_io_tests.rs"]
+mod read_io_tests;
