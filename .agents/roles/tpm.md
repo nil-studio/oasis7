@@ -89,7 +89,7 @@ Coding Agent 会话：<真实 ID 或可共享链接；创建结果不明时如�
 
 ### 交付与验收
 
-代码实现、自测和适用评审完成且有可验收版本后，按[代码转测试规则](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)将原 Issue 转为 `type:test`，保留 PR/版本及剩余验收，明确测试责任人或待承接与阻塞；不因交付 PR 或合入而关闭。尚有实现未完成时保持代码类，测试类不由代码队列重新领取。验收发现需代码修复的问题时，按代码准入转回代码类并续接原执行者，修复验证后再转测试。
+代码实现、自测和适用评审完成且有可验收版本后，按[代码转测试规则](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)将原 Issue 转为 `type:test`，保留 PR/版本及剩余验收。安排执行者按[测试接收规则](../../doc/engineering/workflow/source-of-truth.md#test-task-acceptance)和[操作手册](../../testing-manual.md#test-issue-acceptance)确认接收；确认前由原负责人跟进待承接与阻塞，不把指定责任人报告为测试已启动。尚有实现未完成时保持代码类，测试类不由代码队列重新领取；原开发会话继续跟进 PR/CI。本项原代码目标中的同源实现缺陷按主规范转回代码并续接原执行者，修复验证后再交测试负责人复测。
 
 开发会话使用 `Refs #<issue>` 关联实际执行 Issue；拆分后关联具体子 Issue，阶段交付同时保留父项关联，默认交付可评审 PR；有明确合入授权时，按通用规范核对当前 source HEAD、必要 CI、适用评审及暂停限制后走正常合入路径。TPM 不因看到“完成”消息就代签交付。
 
