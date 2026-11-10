@@ -4361,6 +4361,8 @@ class PythonControlContracts(unittest.TestCase):
             'scripts/ci_process_runner.py': {'workflow_governance'},
             'scripts/ci-custody-platform.py': {'workflow_governance'},
             'scripts/ci-custody-platform.test.py': {'workflow_governance'},
+            'scripts/ci-worker-build.py': {'workflow_governance'},
+            'scripts/ci-worker-build.test.py': {'workflow_governance'},
             'scripts/doc_content_warnings.py': {'doc_checker_contracts'},
             'scripts/pr-review-threads.py': {'workflow_governance'},
             'scripts/pr-review-threads.test.py': {'workflow_governance'},
@@ -4385,6 +4387,7 @@ class PythonControlContracts(unittest.TestCase):
                         'scripts/ci-formal-process.test.py',
                         'scripts/ci-storage-acceptance.test.py',
                         'scripts/ci-support-profiles.test.py',
+                        'scripts/ci-worker-build.test.py',
                     ]})
                     older = copy.deepcopy(config)
                     del older['scoped_control_paths'][path]

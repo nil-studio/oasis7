@@ -132,6 +132,29 @@ class Custody(unittest.TestCase):
         with self.assertRaises(ValueError):
             C.check_bundle(self.root, self.plan, 'native', self.bundles['native'], '71', 2)
 
+    def test_compile_proof_ownership_is_bound_to_approval_before_restore(self):
+        self.assertEqual(C.BUILD_CONTRACTS['wasm-production'], list(C.ROLES))
+        self.assertEqual(C.BUILD_CONTRACTS['wasm-approval'], [
+            'owner,approval-harness', 'approval-admission:export',
+            'role-feature-negative-checks', 'worker-wasm-six-profiles'])
+        self.packed()
+        consumer = Path(self.temporary.name) / 'consumer'
+        shutil.copytree(self.root, consumer, ignore=shutil.ignore_patterns('artifacts', 'target'))
+        for component in ('wasm-production', 'wasm-approval'):
+            path = self.bundles[component] / 'manifest.json'
+            original = C.load(path)
+            changed = copy.deepcopy(original)
+            if component == 'wasm-production':
+                changed['build_contract'].append('role-feature-negative-checks')
+            else:
+                changed['build_contract'].remove('role-feature-negative-checks')
+            path.write_text(json.dumps(changed))
+            with self.subTest(component=component), self.assertRaisesRegex(ValueError, 'identity mismatch'):
+                C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+            self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+            path.write_text(json.dumps(original))
+        C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+
     def test_bad_payloads_duplicate_paths_modes_and_traversal_are_rejected(self):
         self.packed()
         path = self.bundles['native'] / 'manifest.json'

@@ -40,10 +40,17 @@ elif command == "cargo" and arguments[0] == "check" and "oasis7_custody_worker" 
     elif "native-runtime-harness" in features and "identity" not in roles:
         error = "native-runtime-harness requires identity"
     if error:
-        if os.environ.get("OASIS7_STAGE_MOCK_ACCEPT_INVALID") == "1":
-            sys.exit(0)
+        if os.environ.get("OASIS7_STAGE_MOCK_INVALID_FEATURES", ",".join(features)) == ",".join(features):
+            if os.environ.get("OASIS7_STAGE_MOCK_ACCEPT_INVALID") == "1":
+                sys.exit(0)
+            error = os.environ.get("OASIS7_STAGE_MOCK_ERROR_TEXT", error)
         print(error, file=sys.stderr)
         sys.exit(1)
+elif command == "cargo" and arguments[:2] == ["install", "worker-build"]:
+    target = Path(arguments[arguments.index("--root") + 1]) / "bin" / "worker-build"
+    target.parent.mkdir(parents=True)
+    target.write_text(Path(os.environ["OASIS7_STAGE_MOCK_COMMAND"]).read_text())
+    target.chmod(0o755)
 elif command == "build-world-fixture.sh":
     artifacts = Path(os.environ["OASIS7_STAGE_MOCK_ROOT"]) / "crates/oasis7_custody_worker/artifacts"
     artifacts.mkdir(exist_ok=True)
@@ -73,6 +80,11 @@ class VerifyStagesTests(unittest.TestCase):
         self.scripts.mkdir(parents=True)
         self.verify = self.scripts / "verify.sh"
         shutil.copyfile(Path(__file__).with_name("verify.sh"), self.verify)
+        helper_scripts = self.root / "scripts"
+        helper_scripts.mkdir()
+        repository_scripts = Path(__file__).resolve().parents[3] / "scripts"
+        for filename in ("ci-worker-build.py", "ci_process_runner.py"):
+            shutil.copyfile(repository_scripts / filename, helper_scripts / filename)
         self.commands = self.root / "bin"
         self.commands.mkdir()
         self.mock = self.commands / "mock-command"
@@ -93,6 +105,10 @@ class VerifyStagesTests(unittest.TestCase):
                 f'exec "$OASIS7_STAGE_MOCK_COMMAND" "{script}" "$@"\n'
             )
         self.log = self.root / "commands.jsonl"
+        self.cache = self.root / "tool-cache" / "oasis7" / "worker-build" / "0.7.5"
+        (self.cache / "bin").mkdir(parents=True)
+        shutil.copyfile(self.mock, self.cache / "bin" / "worker-build")
+        (self.cache / "bin" / "worker-build").chmod(0o755)
         self.environment = {
             **os.environ,
             "PATH": str(self.commands) + os.pathsep + os.environ["PATH"],
@@ -100,6 +116,8 @@ class VerifyStagesTests(unittest.TestCase):
             "OASIS7_STAGE_MOCK_COMMAND": str(self.mock),
             "OASIS7_STAGE_MOCK_LOG": str(self.log),
             "OASIS7_STAGE_MOCK_ROOT": str(self.root),
+            "XDG_CACHE_HOME": str(self.root / "tool-cache"),
+            "PYTHONDONTWRITEBYTECODE": "1",
         }
 
     def run_verify(self, *arguments, extra_environment=None):
@@ -160,13 +178,25 @@ class VerifyStagesTests(unittest.TestCase):
         self.assertTrue(all(command[0] == "cargo" for command in commands))
 
     def test_invalid_role_success_is_rejected(self):
-        result, commands = self.run_verify(
-            "--stage", "wasm-production",
-            extra_environment={"OASIS7_STAGE_MOCK_ACCEPT_INVALID": "1"},
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("invalid role-less Worker unexpectedly built", result.stderr)
-        self.assertFalse(any(command[0] == "build-role.sh" for command in commands))
+        for arguments in ((), ("--platform",), ("--stage", "wasm-approval")):
+            with self.subTest(arguments=arguments):
+                result, commands = self.run_verify(*arguments, extra_environment={
+                    "OASIS7_STAGE_MOCK_ACCEPT_INVALID": "1",
+                })
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid role-less Worker unexpectedly built", result.stderr)
+                self.assertFalse(any(command[0].startswith("build-") for command in commands))
+
+    def test_each_negative_guard_requires_its_original_error(self):
+        for features in ("", "executor,identity", "identity,approval-harness", "owner,native-runtime-harness"):
+            for override in ({"OASIS7_STAGE_MOCK_ACCEPT_INVALID": "1"},
+                             {"OASIS7_STAGE_MOCK_ERROR_TEXT": "unrelated compiler failure"}):
+                with self.subTest(features=features, override=override):
+                    result, commands = self.run_verify("--stage", "wasm-approval", extra_environment={
+                        "OASIS7_STAGE_MOCK_INVALID_FEATURES": features, **override,
+                    })
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(any(command[0].startswith("build-") for command in commands))
 
     def test_three_producers_preserve_full_platform_proof_inventory(self):
         result, full = self.run_verify("--platform")
@@ -209,15 +239,28 @@ class VerifyStagesTests(unittest.TestCase):
         self.assertEqual(production_builds, ["build-role.sh"] * 4 + ["build-native-runtime-harness.sh"])
         approval_builds = [command[0] for command in approval if command[0].startswith("build-")]
         self.assertEqual(approval_builds, ["build-approval-harness.sh"])
-        self.assertFalse(any(command[0] == "cargo" for command in approval))
+        self.assertFalse(any(command[0] == "cargo" for command in production))
+        self.assertEqual(len([command for command in approval if command[:2] == ["cargo", "check"]]), 16)
 
-    def test_mismatched_worker_version_installs_pinned_tool(self):
+    def test_mismatched_worker_cache_is_rejected_without_installing_or_building(self):
         result, commands = self.run_verify(
-            "--stage", "wasm-approval",
+            "--stage", "wasm-production",
             extra_environment={"OASIS7_STAGE_MOCK_WORKER_VERSION": "0.7.4"},
         )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("worker-build cache version must be exactly 0.7.5", result.stderr)
+        self.assertEqual(commands, [["worker-build", "--version"]])
+
+    def test_missing_worker_cache_is_prepared_once_then_reused(self):
+        shutil.rmtree(self.cache)
+        result, commands = self.run_verify("--stage", "wasm-production")
         self.assert_success(result)
-        self.assertIn(["cargo", "install", "worker-build", "--version", "0.7.5", "--locked"], commands)
+        installs = [command for command in commands if command[:2] == ["cargo", "install"]]
+        self.assertEqual(len(installs), 1)
+        self.assertEqual(installs[0][:7], ["cargo", "install", "worker-build", "--version", "0.7.5", "--locked", "--root"])
+        result, commands = self.run_verify("--stage", "wasm-approval")
+        self.assert_success(result)
+        self.assertFalse(any(command[:2] == ["cargo", "install"] for command in commands))
 
     def test_producer_and_commit_barrier_failures_propagate(self):
         for stage, command, match in (

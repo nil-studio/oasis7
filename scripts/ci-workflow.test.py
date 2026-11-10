@@ -72,6 +72,39 @@ def rust_cache_steps(job):
             if 'uses: Swatinem/rust-cache@' in step]
 
 
+def worker_tool_cache_writer(job):
+    """The optional tool seed is an exact, admitted main-only writer."""
+    header = job.split('    steps:', 1)[0]
+    for required in ('cache-mode: write', 'contents: read', 'actions: read',
+                     "github.ref == 'refs/heads/main'", 'github.workflow_sha == github.sha',
+                     "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
+                     "inputs.run_mode == 'full'", 'timeout-minutes: 15'):
+        assert required in header, 'Worker tool writer must remain a bounded trusted main job'
+    assert 'actions: write' not in job and 'secrets.' not in job
+    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
+    assert 'persist-credentials: false' in job
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    restores = [s for s in steps if 'uses: actions/cache/restore@' in s]
+    saves = [s for s in steps if 'uses: actions/cache/save@' in s]
+    admissions = [s for s in steps if 'ci-worker-build.py admit-save' in s]
+    assert len(restores) == len(saves) == len(admissions) == 1
+    key = 'key: worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}'
+    for step in (*restores, *saves):
+        assert key in step and 'path: ${{ steps.worker-meta.outputs.root }}' in step
+        assert 'restore-keys:' not in step
+    for required in ("success()", "steps.prepare-worker.outcome == 'success'",
+                     "steps.worker-tool-cache.outputs.cache-hit != 'true'",
+                     "steps.worker-tool-admission.outcome == 'success'",
+                     "steps.worker-tool-admission.outputs.save == 'true'"):
+        assert required in saves[0], 'Worker tool save requires successful preparation and capacity admission'
+    assert 'id: worker-tool-admission' in admissions[0]
+    assert 'GH_TOKEN: ${{ github.token }}' in admissions[0]
+    assert '"$TOOL_CACHE_KEY"' in admissions[0] and '--github-output "$GITHUB_OUTPUT"' in admissions[0]
+    assert job.count('GH_TOKEN:') == 1
+    assert 'continue-on-error' not in job and 'ci-worker-build.py ensure' in job and 'ci-worker-build.py check' in job
+    return admissions[0]
+
+
 def web_cache_layout(cache_workflow, release_workflow, admission_source):
     """Accept only the complete old or new sole-writer wiring during migration."""
     assignments = [node for node in ast.parse(admission_source).body
@@ -88,8 +121,11 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
     assert [name for name, identity in families.items() if identity[0] == namespace] == ['release-web']
     migrated = registered == new
     cache_jobs, release_jobs = workflow_jobs(cache_workflow), workflow_jobs(release_workflow)
-    assert set(cache_jobs) == ({'shared-native-cache', 'web-wasm-cache'} if migrated
-                               else {'shared-native-cache'}), 'incomplete cache producer layout'
+    tool_jobs = {'worker-build-cache'} if 'worker-build-cache' in cache_jobs else set()
+    if tool_jobs:
+        worker_tool_cache_writer(cache_jobs['worker-build-cache'])
+    assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
+                               else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
     for path, workflow, jobs in (('.github/workflows/rust-cache.yml', cache_workflow, cache_jobs),
                                  ('.github/workflows/release-packages.yml', release_workflow, release_jobs)):
@@ -638,6 +674,8 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
             policy_files = set(runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))['POLICY_FILES'])
             if CONFIG.get('custody_execution_version') == 1:
                 policy_files.add('scripts/ci-custody-platform.py')
+            if 'scripts/ci-worker-build.py' in CONFIG.get('python_control_contracts', {}):
+                policy_files.add('scripts/ci-worker-build.py')
             policy_files.update(test for entry in CONFIG.get('python_control_contracts', {}).values()
                                 for test in entry['tests'])
             for path in policy_files:
@@ -3040,6 +3078,10 @@ run_cargo() {
         cache_workflow, _ = self.shared_cache_workflow()
         without_admitted_uploads = cache_workflow
         for name, writer in workflow_jobs(cache_workflow).items():
+            if name == 'worker-build-cache':
+                admission = worker_tool_cache_writer(writer)
+                without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
+                continue
             dependency_caches = rust_cache_steps(writer)
             self.assertEqual(len(dependency_caches), 1, name)
             dependency_cache = dependency_caches[0]
@@ -3781,6 +3823,65 @@ class AptWorkflow(unittest.TestCase):
         self.assertIn('scripts/ci-workflow.test.py', CONFIG['python_control_contracts'][helper]['tests'])
         self.assertIn('run python3 ./scripts/ci-apt-install.test.py',
                       (ROOT / 'scripts/ci-tests.sh').read_text())
+
+
+class WorkerToolCache(unittest.TestCase):
+    def test_exact_readers_and_sole_trusted_writer(self):
+        cache_jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
+        writer = cache_jobs['worker-build-cache']
+        worker_tool_cache_writer(writer)
+        expected_key = re.search(r'^          key: (worker-build-cli-v1-.*)$', writer, re.M)[1]
+        for name in ('custody-native', 'custody-wasm-production', 'custody-wasm-approval'):
+            job = JOBS[name]
+            steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+            tool_steps = [step for step in steps if 'ci-worker-build.py' in step or 'id: worker-tool-cache' in step]
+            self.assertEqual(len(tool_steps), 3)
+            for step in tool_steps:
+                self.assertIn("if: env.CUSTODY_COMPONENT != 'native'", step)
+                self.assertNotIn('continue-on-error', step)
+            restore = next(step for step in tool_steps if 'id: worker-tool-cache' in step)
+            self.assertIn('key: ' + expected_key, restore)
+            self.assertNotIn('restore-keys:', restore)
+            self.assertNotIn('actions/cache/save@', job)
+            self.assertNotIn('GH_TOKEN:', job)
+        self.assertEqual(CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['group'], 'workflow_governance')
+        self.assertIn('scripts/ci-worker-build.test.py', CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['tests'])
+        self.assertIn('run python3 ./scripts/ci-worker-build.test.py', (ROOT / 'scripts/ci-tests.sh').read_text())
+
+    def test_writer_rejects_foreign_identity_unbounded_keys_and_unadmitted_save(self):
+        writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
+        for before, after in [
+                ("github.ref == 'refs/heads/main'", 'true'),
+                ('github.workflow_sha == github.sha', 'true'),
+                ("inputs.run_mode == 'full'", 'true'),
+                ('worker-build-cli-v1-', 'unbound-tool-'),
+                ('          path: ${{ steps.worker-meta.outputs.root }}', '          path: ${{ github.workspace }}'),
+                ("steps.worker-tool-admission.outputs.save == 'true'", 'true'),
+                ("steps.prepare-worker.outcome == 'success'", 'true'),
+                ('ci-worker-build.py admit-save', 'ci-worker-build.py metadata')]:
+            with self.subTest(before=before), self.assertRaises(AssertionError):
+                worker_tool_cache_writer(writer.replace(before, after))
+        with self.assertRaises(AssertionError):
+            worker_tool_cache_writer(writer.replace('          key: worker-build-cli-v1-',
+                '          restore-keys: worker-build-cli-\n          key: worker-build-cli-v1-', 1))
+
+    def test_prepare_hit_miss_and_real_failure_propagation(self):
+        writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
+        for name, job in [('writer', writer), ('production', JOBS['custody-wasm-production']),
+                          ('approval', JOBS['custody-wasm-approval'])]:
+            step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                        if 'name: Prepare verified Worker build tool' in step)
+            self.assertIn('timeout-minutes: 11', step)
+            script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+            for hit, command in [('true', 'check'), ('false', 'ensure'), ('', 'ensure')]:
+                for code in (0, 19):
+                    with self.subTest(job=name, hit=hit, code=code):
+                        stub = 'python3() { printf "called:%s\\n" "$*"; return "$CODE"; };\n'
+                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', stub + script + '\necho reached-build'],
+                            env=dict(os.environ, TOOL_CACHE_HIT=hit, CODE=str(code)), text=True, capture_output=True)
+                        self.assertEqual(result.returncode, code, result.stderr)
+                        self.assertIn('called:scripts/ci-worker-build.py ' + command, result.stdout)
+                        self.assertEqual('reached-build' in result.stdout, code == 0)
 
 
 if __name__ == '__main__':

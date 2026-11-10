@@ -714,6 +714,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-rust-cache-build.test.py
   run python3 ./scripts/ci-support-profiles.test.py
   run python3 ./scripts/ci-custody-platform.test.py
+  run python3 ./scripts/ci-worker-build.test.py
   run python3 crates/oasis7_custody_worker/scripts/verify-stages.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
