@@ -95,6 +95,11 @@ def definition_digest(root, revision):
                         or any(ord(character) < 32 for character in path)):
                     raise ValueError("invalid trusted Python contract test path")
                 contract_tests.add(path)
+        # New tool preparation affects every custody WASM producer. Bind its
+        # implementation only when that immutable policy registers it, so old
+        # revisions remain readable and cannot claim the newer definition.
+        if "scripts/ci-worker-build.py" in contracts:
+            contents["scripts/ci-worker-build.py"] = read("scripts/ci-worker-build.py")
     # These assertions are now executable policy inputs, read from the same
     # immutable revision as the runner and scope. Never load candidate Python.
     for path in sorted(contract_tests.difference(contents)):
