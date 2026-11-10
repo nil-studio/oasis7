@@ -232,6 +232,7 @@ fn serve_lookup(
             LOOKUP_PATH,
             authority::request_digest(LOOKUP_PATH, &lookup).unwrap(),
             IntentResponse::<serde_json::Value> {
+                terminal_recovery_authority: None,
                 formal_profile: None,
                 execution_evidence_scope: None,
                 contract_version: 1,

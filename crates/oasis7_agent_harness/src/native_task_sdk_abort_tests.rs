@@ -119,6 +119,7 @@ fn actual_sdk_abort_committed_outcome_is_not_a_committed_action() {
             authority::request_digest(&path, &request).unwrap()
         };
         let response = IntentResponse {
+            terminal_recovery_authority: None,
             contract_version: 1,
             formal_profile: None,
             execution_evidence_scope: None,

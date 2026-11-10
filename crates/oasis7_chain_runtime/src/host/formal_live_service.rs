@@ -960,6 +960,7 @@ impl FormalLiveService {
                 )
             })?;
         Ok(IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: Some(FormalReadProfileV1::controlled()),
             execution_evidence_scope: None,
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,

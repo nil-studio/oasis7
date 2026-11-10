@@ -462,7 +462,7 @@ if [[ "$INIT_DOCS" == "1" ]]; then
     printf '  sed -n '\''1,160p'\'' %s\n' "${DOC_PRD_PATH#$TARGET_PATH/}"
   else
     printf '  mkdir -p %s\n' "doc/$MODULE_SLUG"
-    printf '  # create %s\n' "doc/$MODULE_SLUG/prd.md"
+    printf '  # create %s\n' "${DOC_PRD_PATH#$TARGET_PATH/}"
   fi
 else
   printf '  sed -n '\''1,160p'\'' %s\n' "doc/$MODULE_SLUG/prd.md"
