@@ -73,6 +73,7 @@ test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 native-worker-test-support = ["node-libp2p"]
 
 [dev-dependencies]
+oasis7_distfs = { path = "../oasis7_distfs", features = ["test-support"] }
 wat = "1"
 # Signed History fixtures use the existing test authority; no production feature changes.
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }

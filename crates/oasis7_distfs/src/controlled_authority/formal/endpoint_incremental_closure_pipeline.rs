@@ -293,11 +293,12 @@ pub(crate) fn consume_candidate_data_closure_v1(
         let mut key_work = oasis7_world_state::incremental_semantic_key::SemanticKeyBudget {
             bytes_remaining: current_limits.current.bytes_remaining,
         };
+        // The shared Current/Cognition context is anchored at the actual
+        // Allocator namespace. Complete Current opens its own namespaces;
+        // Cognition History binding requires this specific authenticated root.
         let root = core
             .roots()
-            .state
-            .first()
-            .ok_or_else(|| invalid("IWS Current missing state"))?;
+            .state_root(oasis7_formal_protocol::incremental_state::StateNamespaceV1::Allocator);
         let selection_request =
             oasis7_world_state::incremental_cognition_history::CognitionHistorySelectionRequestV1 {
                 candidate: context,
