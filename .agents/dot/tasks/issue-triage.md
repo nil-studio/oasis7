@@ -16,6 +16,8 @@ Trace refs: O7-REQ-1a003dc5-18f2-4cd3-adbb-d1b95316086e、O7-REQ-f1388c2b-6f64-4
 
 ## 分类与转换
 
+代码实现、自测和适用评审完成且版本可验收后，必须按[代码转测试规则](../../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)沿用原项交接验收；逐项对账已有证据，只补缺项，无需重跑也记录验收结论。仍有实现未完成不转测试。此为代码完成后的验收交接，不另建普通开发自测单。
+
 缺陷根因不明或证据不足时，保留缺陷类型并列出补证条件；明确文档缺口转文档，设计充分或已有明确 bug 合同转代码，需 owner 取舍转决策，确有独立测试目标且范围/环境/退出条件明确才转测试。文档完成后可转代码，决策完成后可转文档，普通开发自测不单独转为测试项。
 
 转为代码只确定主交付物；按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)核对它承载父目标还是具体执行项。父项缺少必要拆分时保留总体目标、有效认领和暂停，说明待明确的执行范围及负责人；拆出的开发任务须按[原生 sub-issue 规则](../../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)承接。类型转换不代表父项全部范围可直接实施。

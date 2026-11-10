@@ -34,7 +34,7 @@ body:
     id: type_evidence
     attributes:
       label: "测试计划"
-      description: "对象/版本、环境、覆盖范围、方法、预期结果、权限/预算和退出条件；不是普通实现自测的重复单。"
+      description: "对象/版本、环境、覆盖范围、方法、预期结果、权限/预算和退出条件；不是普通实现自测的重复单。 代码完成后沿用原 Issue 转入时，保留实现 PR/版本和原验收标准，逐项对账已有证据，只补缺项，不重复建单。"
     validations:
       required: true
   - type: textarea
