@@ -101,6 +101,31 @@ def candidate_closure(official, private):
     return candidate
 
 
+def prepare_candidate(closure, work, out, end, run, *, copy_end):
+    """Apply the same fixed behavior patch for the two bounded research consumers."""
+    original = Path(closure['codeql/rust-all']['root'])
+    patch_file = HERE / 'codeql-rust-omitted-qualifier.patch'
+    if runtime.digest(patch_file) != PATCH_SHA or runtime.digest(original / TYPE_FILE) != OFFICIAL_SHA:
+        raise RuntimeError('behavior patch or official type-inference identity differs')
+    original_files = capacity.official_snapshot(original, end=end)
+    if any('symlink' in value for value in original_files.values()):
+        raise RuntimeError('private source copy requires regular official files')
+    private = work / 'candidate-rust-all'
+    def copy_file(src, dest):
+        capacity.check_time(copy_end)
+        return shutil.copy2(src, dest)
+    shutil.copytree(original, private, copy_function=copy_file)
+    run(['patch', '--batch', '--fuzz=0', private / TYPE_FILE, patch_file], 'apply-behavior-patch', 20)
+    private_files = capacity.official_snapshot(private, end=end)
+    changed = [p for p in set(original_files) | set(private_files) if original_files.get(p) != private_files.get(p)]
+    if changed != [TYPE_FILE] or runtime.digest(private / TYPE_FILE) != CANDIDATE_SHA:
+        raise RuntimeError('candidate contains changes beyond the fixed behavior patch')
+    runtime.save(out / 'patch-identity.json', dict(patch_sha256=PATCH_SHA, official_sha256=OFFICIAL_SHA,
+                 candidate_sha256=CANDIDATE_SHA, changed_files=changed, official_files=original_files,
+                 candidate_files=private_files), out)
+    return private
+
+
 def observation(name, rows, source, provenance):
     # Zero rows is the original defect; it must not prevent the candidate run.
     if not rows:
@@ -216,26 +241,7 @@ def main():
         closure = capacity.bundle.bundle_closure(official, '2.27.4')
         if closure != json.loads((args.official_evidence / 'library-closure.json').read_text()):
             raise RuntimeError('official dependency closure differs')
-        original = Path(closure['codeql/rust-all']['root'])
-        patch_file = HERE / 'codeql-rust-omitted-qualifier.patch'
-        if runtime.digest(patch_file) != PATCH_SHA or runtime.digest(original / TYPE_FILE) != OFFICIAL_SHA:
-            raise RuntimeError('behavior patch or official type-inference identity differs')
-        original_files = capacity.official_snapshot(original, end=end)
-        if any('symlink' in value for value in original_files.values()):
-            raise RuntimeError('private source copy requires regular official files')
-        private = work / 'candidate-rust-all'
-        def copy_file(src, dest):
-            capacity.check_time(end - AUDIT_RESERVE)
-            return shutil.copy2(src, dest)
-        shutil.copytree(original, private, copy_function=copy_file)
-        run(['patch', '--batch', '--fuzz=0', private / TYPE_FILE, patch_file], 'apply-behavior-patch', 20)
-        private_files = capacity.official_snapshot(private, end=end)
-        changed = [p for p in set(original_files) | set(private_files) if original_files.get(p) != private_files.get(p)]
-        if changed != [TYPE_FILE] or runtime.digest(private / TYPE_FILE) != CANDIDATE_SHA:
-            raise RuntimeError('candidate contains changes beyond the fixed behavior patch')
-        save('patch-identity.json', dict(patch_sha256=PATCH_SHA, official_sha256=OFFICIAL_SHA,
-             candidate_sha256=CANDIDATE_SHA, changed_files=changed, official_files=original_files,
-             candidate_files=private_files))
+        private = prepare_candidate(closure, work, out, end, run, copy_end=end - AUDIT_RESERVE)
         texts = {n: capacity.semantic_queries(source)[n] for n in NAMES}
         frozen_queries = json.loads((args.official_evidence / 'semantic-query-inputs.json').read_text())
         if any(hashlib.sha256(text.encode()).hexdigest() != frozen_queries[n] for n, text in texts.items()):
