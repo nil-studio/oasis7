@@ -249,6 +249,13 @@ def validate_candidate_graph(workflow, config):
                         or 'run_worker_wasm_compile_profiles' not in producer
                         or 'ci-custody-platform.py pack' not in producer):
                     raise ValueError('custody producer must preserve every verification stage')
+                uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', producer, re.M | re.S)
+                           if 'name: ${{ steps.bundle.outputs.artifact }}' in step]
+                if (len(uploads) != 1 or 'uses: actions/upload-artifact@' not in uploads[0]
+                        or '\n          path: ${{ runner.temp }}/custody-bundle\n' not in uploads[0]
+                        or '\n          include-hidden-files: true\n' not in uploads[0]
+                        or '\n          if-no-files-found: error\n' not in uploads[0]):
+                    raise ValueError('custody upload must preserve every manifest file from the isolated bundle')
             if ('    needs: select' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']):
                 raise ValueError('other support must remain independent of custody builds')
@@ -3399,6 +3406,21 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                               ('npm run test:types', 'true')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
+
+    def test_custody_bundle_upload_rejects_hidden_file_filtering_or_checkout_upload(self):
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+        for before, after in [
+                ('          include-hidden-files: true\n', ''),
+                ('          include-hidden-files: true\n', '          include-hidden-files: false\n'),
+                ('          path: ${{ runner.temp }}/custody-bundle\n', '          path: ${{ github.workspace }}\n'),
+                ('          if-no-files-found: error\n', '          if-no-files-found: warn\n')]:
+            with self.subTest(after=after), self.assertRaisesRegex(ValueError, 'custody upload'):
+                # The native producer owns the shared steps used by both WASM producers.
+                anchor = '    steps: &custody-build-steps\n'
+                original = WORKFLOW.split(anchor, 1)[1].split('\n  custody-wasm-production:', 1)[0]
+                self.assertIn(before, original)
+                candidate = WORKFLOW.replace(original, original.replace(before, after, 1), 1)
+                validate_candidate_graph(candidate, CONFIG)
 
     def test_custody_approval_step_initializes_real_driver_and_propagates_compile_failure(self):
         step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',

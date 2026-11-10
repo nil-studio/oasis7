@@ -2533,6 +2533,8 @@ jobs:
         with:
           name: ${{ steps.bundle.outputs.artifact }}
           path: ${{ runner.temp }}/custody-bundle
+          # The verified manifest includes generated dotfiles such as .gitignore.
+          include-hidden-files: true
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
