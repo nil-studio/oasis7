@@ -70,6 +70,36 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exclusion'):
             self.run_plan(policy=str(self.root / 'candidate.json'))
 
+    def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
+        path = 'scripts/ci-required-scope.json'
+        self.write(path, '{"groups":["baseline"]}\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo', 'python-repo'])
+        for unit in ('actions-repo', 'python-repo'):
+            self.assertIn(path, plan['reasons'][unit])
+
+    def test_ci_required_scope_does_not_register_neighboring_json_inputs(self):
+        for path in ('scripts/ci-required-scope-v2.json', 'scripts/ci-unregistered.json',
+                     'scripts/nested/ci-required-scope.json', 'scripts/ci-required-scope.json.extra'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}\n')
+                self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_ci_required_scope_keeps_existing_rust_embedded_consumers(self):
+        path = 'scripts/ci-required-scope.json'
+        self.write(path, '{}\n')
+        self.write('src/lib.rs', 'const S: &str = include_str!("../scripts/ci-required-scope.json");\n')
+        self.base = self.commit()
+        self.write(path, '{"groups":["baseline"]}\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo', 'python-repo', 'rust-repo'])
+        self.assertIn('embedded or possible build input: ' + path, plan['reasons']['rust-repo'])
+
     def test_document_corpus_inputs_select_python(self):
         key = '41' + '9' * 62
         for path in (

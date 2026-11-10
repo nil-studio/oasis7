@@ -49,6 +49,24 @@ def workflow_jobs(workflow):
 JOBS = workflow_jobs(WORKFLOW)
 
 
+def effective_job_condition(condition, values, ancestor_results, *, cancelled=False):
+    """Include Actions' implicit success() instead of evaluating only written YAML."""
+    expression = condition.strip().removeprefix('>-').strip()
+    if not re.search(r'\b(?:always|success|failure|cancelled)\s*\(', expression):
+        expression = 'success() && (' + expression + ')'
+    values = dict(values, **{
+        'always()': True,
+        'success()': not cancelled and all(result == 'success' for result in ancestor_results),
+        'failure()': 'failure' in ancestor_results,
+        'cancelled()': cancelled,
+    })
+    for token, value in sorted(values.items(), key=lambda item: -len(item[0])):
+        expression = expression.replace(token, repr(value))
+    expression = re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
+    return bool(eval(' '.join(expression.split()), {'__builtins__': {}},
+                     {'contains': lambda collection, item: item in collection}))
+
+
 def rust_cache_steps(job):
     return [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
             if 'uses: Swatinem/rust-cache@' in step]
@@ -1443,7 +1461,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             expected = not cancelled and producer == ('skipped' if inline else 'success')
                         elif name == 'oasis7-test-build-trusted':
                             expected = False
+                        elif name == 'oasis7-test-build-candidate':
+                            expected = not inline and not cancelled
                         else:
+                            # Aggregation still runs after cancellation to expose
+                            # incomplete producers; ordinary builds must stop.
                             expected = not inline
                         with self.subTest(job=name, version=version, mode=mode, producer=producer, cancelled=cancelled):
                             self.assertEqual(actual, expected)
@@ -3222,6 +3244,84 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             expr = re.sub(r'!(?!=)', 'not ', expr.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(event=event, admission=admission, run_full=full):
                 self.assertEqual(eval(' '.join(expr.split()), {'__builtins__': {}}, {}), expected)
+
+    def test_selected_jobs_survive_skipped_admission_and_keep_failure_boundaries(self):
+        names = (
+            'command-center', 'baseline', 'rust-baseline', 'oasis7-test-build-candidate',
+            'consensus', 'distfs', 'node', 'net', 'viewer-js-required',
+            'viewer-performance-report', 'pixel-world-bridge', 'launcher-web',
+            'workspace-support-legacy', 'workspace-support-other', 'custody-native',
+            'custody-wasm-production', 'custody-wasm-approval', 'custody-node',
+            'scenario-regression', 'operational-contracts', 'packaging-contracts',
+            'workflow-governance', 'codex-agent-config-validation', 'compile-metrics',
+            'site-quality', 'doc-checker-contracts', 'cargo-tooling-contracts',
+            'windows-rollout', 'macos-package-contract', 'fleet-health',
+        )
+        self.assertEqual(len(names), 30)
+        producers = ('custody-native', 'custody-wasm-production', 'custody-wasm-approval')
+        split_jobs = {*producers, 'custody-node', 'workspace-support-other'}
+        conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
+                                      JOBS[name], re.M | re.S)[1] for name in names}
+
+        def values_for(name, event, selected=True, select='success', scope='targeted', results=None):
+            values = {
+                'needs.select.result': select,
+                'needs.select.outputs.trusted_source': 'true' if event == 'push' else 'false',
+                'fromJSON(needs.select.outputs.workspace_support_partitions)': ['custody', 'other'] if selected else [],
+                'fromJSON(needs.select.outputs.plan).scope': scope,
+                'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
+                'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs else 0,
+                'fromJSON(needs.select.outputs.plan).execution_profile': {
+                    'pull_request': 'pr-fast', 'push': 'main-fast',
+                    'workflow_dispatch': 'candidate-full',
+                }[event],
+                'github.event_name': event,
+                'github.ref': 'refs/pull/1/merge' if event == 'pull_request' else 'refs/heads/main',
+                'github.workflow_sha': 'workflow', 'github.sha': 'workflow',
+                'inputs.run_mode': 'full' if event == 'workflow_dispatch' else '',
+            }
+            values.update({token: str(selected).lower() for token in
+                           re.findall(r'needs\.select\.outputs\.run_[a-z0-9_]+', conditions[name])})
+            values.update({f'needs.{producer}.result': (results or {}).get(producer, 'success')
+                           for producer in producers})
+            return values
+
+        # These events deliberately skip the schedule-only admission ancestor.
+        # The effective default success() is false even after select succeeds.
+        for event in ('pull_request', 'push', 'workflow_dispatch'):
+            for name, condition in conditions.items():
+                with self.subTest(job=name, event=event, mutation='remove status prefix'):
+                    values = values_for(name, event)
+                    self.assertTrue(effective_job_condition(condition, values, ['skipped', 'success']))
+                    original_guard = re.sub(r'always\(\)\s*&&\s*!cancelled\(\)\s*&&\s*',
+                                            '', condition, count=1)
+                    self.assertNotEqual(original_guard, condition)
+                    self.assertFalse(effective_job_condition(original_guard, values, ['skipped', 'success']))
+                    self.assertTrue(effective_job_condition(original_guard, values, ['success', 'success']))
+                for select, selected, cancelled in itertools.product(
+                        ('success', 'failure', 'cancelled', 'skipped'), (False, True), (False, True)):
+                    with self.subTest(job=name, event=event, select=select, selected=selected, cancelled=cancelled):
+                        values = values_for(name, event, selected, select)
+                        self.assertEqual(effective_job_condition(condition, values, ['skipped', select],
+                                                                 cancelled=cancelled),
+                                         select == 'success' and selected and not cancelled)
+                if name not in split_jobs:
+                    # Old trusted planners retain the complete full-scope fallback.
+                    with self.subTest(job=name, event=event, scope='full'):
+                        values = values_for(name, event, selected=False, scope='full')
+                        self.assertTrue(effective_job_condition(condition, values, ['skipped', 'success']))
+
+        # An explicit status function also bypasses implicit producer success.
+        # Every producer must therefore be checked by the actual Node job guard.
+        states = ('success', 'failure', 'cancelled', 'skipped')
+        for results in itertools.product(states, repeat=len(producers)):
+            values = values_for('custody-node', 'pull_request', results=dict(zip(producers, results)))
+            with self.subTest(producers=results):
+                self.assertEqual(effective_job_condition(conditions['custody-node'], values,
+                                                         ['skipped', 'success', *results]),
+                                 all(result == 'success' for result in results))
 
     def test_periodic_skips_only_no_full_and_keeps_select_failure_visible(self):
         for name in ('formal-process', 'explicit-full-gate'):

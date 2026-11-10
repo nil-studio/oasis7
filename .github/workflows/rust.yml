@@ -629,7 +629,7 @@ jobs:
   command-center:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_command_center == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     uses: ./.github/workflows/command-center.yml
@@ -640,7 +640,7 @@ jobs:
   baseline:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -682,7 +682,7 @@ jobs:
   rust-baseline:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -777,7 +777,7 @@ jobs:
       actions: read
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
         fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
@@ -1794,7 +1794,7 @@ jobs:
   consensus:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1836,7 +1836,7 @@ jobs:
   distfs:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1899,7 +1899,7 @@ jobs:
   node:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_node == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1941,7 +1941,7 @@ jobs:
   net:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1990,7 +1990,7 @@ jobs:
   viewer-js-required:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2079,7 +2079,7 @@ jobs:
   viewer-performance-report:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2175,7 +2175,7 @@ jobs:
   pixel-world-bridge:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2222,7 +2222,7 @@ jobs:
   launcher-web:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2285,7 +2285,7 @@ jobs:
     name: workspace-support-legacy (${{ matrix.partition }})
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version != 1 &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
@@ -2370,7 +2370,7 @@ jobs:
   workspace-support-other:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
       contains(fromJSON(needs.select.outputs.workspace_support_partitions), 'other')
     runs-on: ubuntu-24.04
@@ -2449,7 +2449,7 @@ jobs:
   custody-native:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2540,7 +2540,7 @@ jobs:
   custody-wasm-production:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2559,7 +2559,7 @@ jobs:
   custody-wasm-approval:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2579,7 +2579,10 @@ jobs:
     name: custody-node (${{ matrix.shard }})
     needs: [select, custody-native, custody-wasm-production, custody-wasm-approval]
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
+      needs.custody-native.result == 'success' &&
+      needs.custody-wasm-production.result == 'success' &&
+      needs.custody-wasm-approval.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2678,7 +2681,7 @@ jobs:
   scenario-regression:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_scenario_regression == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2725,7 +2728,7 @@ jobs:
   operational-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2749,7 +2752,7 @@ jobs:
   packaging-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_packaging_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2773,7 +2776,7 @@ jobs:
   workflow-governance:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_workflow_governance == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     permissions:
@@ -2858,7 +2861,7 @@ jobs:
   codex-agent-config-validation:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2882,7 +2885,7 @@ jobs:
   compile-metrics:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_compile_metrics == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2910,7 +2913,7 @@ jobs:
   site-quality:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2951,7 +2954,7 @@ jobs:
   doc-checker-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_doc_checker_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2977,7 +2980,7 @@ jobs:
   cargo-tooling-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_cargo_tooling_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -3019,7 +3022,7 @@ jobs:
   windows-rollout:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_windows_rollout == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: windows-2022
@@ -3041,7 +3044,7 @@ jobs:
   macos-package-contract:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -3061,7 +3064,7 @@ jobs:
   fleet-health:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_fleet_health == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     name: fleet-health (${{ matrix.os }})
