@@ -15,7 +15,7 @@ where
         20..=39 => read_map_group_1(field, map, builder)?,
         40..=59 => read_map_group_2(field, map, builder)?,
         60..=79 => read_map_group_3(field, map, builder)?,
-        80..=100 => read_map_group_4(field, map, builder)?,
+        80..=101 => read_map_group_4(field, map, builder)?,
         _ => unreachable!("unknown fields are consumed before map dispatch"),
     }
     Ok(())
@@ -305,6 +305,9 @@ where
         }
         Field::GovernanceAuthorizationNonces => {
             builder.governance_authorization_nonces = Some(map.next_value()?)
+        }
+        Field::GovernanceBootstrapFinalityKeyRotations => {
+            builder.governance_bootstrap_finality_key_rotations = Some(map.next_value()?);
         }
         Field::GovernanceFinalityKeyRotations => {
             builder.governance_finality_key_rotations = Some(map.next_value()?);

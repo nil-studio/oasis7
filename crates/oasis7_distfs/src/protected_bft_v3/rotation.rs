@@ -200,6 +200,7 @@ pub(super) fn validate_change(
     if next.history != old.history
         || next.journal != old.journal
         || next.completed_journals != old.completed_journals
+        || next.bootstrap_finality_rotation_proofs != old.bootstrap_finality_rotation_proofs
         || next.membership_install != old.membership_install
         || next.pending_driver_apply != old.pending_driver_apply
         || next.applied_installs != old.applied_installs
@@ -240,6 +241,58 @@ pub(super) fn validate_change(
     verify_proof(&record.body, &record.proof, record.proof.role)
 }
 
+/// Shared resource and identity boundary. Separate optional wire fields preserve
+/// existing admitted encodings; they never grant a second budget or source ID.
+pub(super) fn validate_shared_archives(
+    admitted: &Option<BftFinalityRotationProofArchiveV3>,
+    bootstrap: &Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
+) -> Result<(), BftSignerErrorV3> {
+    let admitted_count = admitted.as_ref().map_or(0, |a| a.records.len());
+    let bootstrap_count = bootstrap.as_ref().map_or(0, |a| a.records.len());
+    if admitted_count + bootstrap_count > BFT_FINALITY_ROTATION_MAX_PROOFS_V3 {
+        return Err(invalid("BFT V3 shared finality proof count capacity"));
+    }
+    let mut bytes = 0usize;
+    if let Some(archive) = admitted {
+        bytes += super::crypto::encode_bounded(archive, ARCHIVE_BYTES)?.len();
+    }
+    if let Some(archive) = bootstrap {
+        bytes += super::crypto::encode_bounded(archive, ARCHIVE_BYTES)?.len();
+    }
+    if bytes > ARCHIVE_BYTES {
+        return Err(invalid("BFT V3 shared finality proof byte capacity"));
+    }
+    let mut revisions = std::collections::BTreeSet::new();
+    let admitted_ids = admitted
+        .as_ref()
+        .map(|a| {
+            a.records
+                .iter()
+                .map(|r| r.body.rotation_id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(archive) = admitted {
+        for record in &archive.records {
+            if !revisions.insert(record.recorded_revision) {
+                return Err(invalid("BFT V3 duplicate auxiliary proof revision"));
+            }
+        }
+    }
+    if let Some(archive) = bootstrap {
+        for record in &archive.records {
+            if admitted_ids.contains(record.body.rotation_id.as_str())
+                || !revisions.insert(record.recorded_revision)
+            {
+                return Err(invalid(
+                    "BFT V3 auxiliary proof source ID/revision conflict",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "rotation_tests.rs"]
-mod tests;
+pub(super) mod tests;

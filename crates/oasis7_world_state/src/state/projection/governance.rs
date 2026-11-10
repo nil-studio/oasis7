@@ -31,6 +31,15 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
         .map_or(&state.governance_finality_key_rotations, |overlay| {
             &overlay.rotations
         });
+    let bootstrap_rotations = governance_registry_overlay
+        .map_or(&state.governance_bootstrap_finality_key_rotations, |o| {
+            &o.bootstrap_rotations
+        });
+    crate::governance::validate_finality_key_rotation_history_capacity(
+        rotations.len(),
+        bootstrap_rotations.len(),
+    )
+    .map_err(serde::ser::Error::custom)?;
     output.serialize_field(
         "governance_main_token_controller_registry",
         governance_registry_overlay.map_or(&state.governance_main_token_controller_registry, |o| {
@@ -52,6 +61,12 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
         output.serialize_field(
             "governance_finality_key_rotations",
             &crate::governance::FinalityKeyRotationHistoryRef(rotations),
+        )?;
+    }
+    if !bootstrap_rotations.is_empty() {
+        output.serialize_field(
+            "governance_bootstrap_finality_key_rotations",
+            &crate::governance::BootstrapFinalityKeyRotationHistoryRef(bootstrap_rotations),
         )?;
     }
     Ok(())
