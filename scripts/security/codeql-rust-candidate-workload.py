@@ -27,6 +27,23 @@ DEFAULT_ENTRIES_SHA = '53422ffb03812452686f24b03ee61ebf3beabab3cceb09a733947877e
 SUITE_SHA = '97f06744235dc677060b14a4ca77d26d2a170b855f054a4672aa732321c86605'
 PRIVATE_CAP = 64 * 1024**2
 TAIL_SECONDS, EVIDENCE_SECONDS, REQUIRED_MARGIN = 600, 120, 270
+WITNESS_COLUMNS = {
+    'PeerCandidate': ['label', 'present'], 'PeerLegacy': ['label', 'present'],
+    'Driver': ['label', 'present'], 'Image': ['label', 'present'],
+    'Files': ['col0', 'col1'],
+    'CallsCandidate': ['col0', 'col1', 'col2', 'col3'],
+    'CallsLegacy': ['col0', 'col1', 'col2', 'col3'],
+}
+
+
+def witness_rows(name, path):
+    with path.open() as stream:
+        rows = list(csv.reader(stream))
+    # The frozen metric queries select named variables; the Files and Calls
+    # queries select unnamed expressions. Do not infer schema from row values.
+    if not rows or rows[0] != WITNESS_COLUMNS.get(name):
+        raise RuntimeError('public witness decode schema differs: ' + name)
+    return rows[1:]
 
 
 def read_json(path, limit=16 * 1024**2):
@@ -232,12 +249,9 @@ def verify_results(codeql, database, records, results, source, provenance, work,
     for index, record in enumerate(records[37:], 37):
         name, label = record['id'], str(index).zfill(2)
         run([codeql, 'bqrs', 'decode', results[label], '--format=csv'], 'decode-' + name, 30)
-        with (out / ('decode-' + name + '.log')).open() as stream: rows = list(csv.reader(stream))
-        columns = 4 if name.startswith('Calls') else 2
-        if not rows or rows[0] != ['col' + str(i) for i in range(columns)]:
-            raise RuntimeError('public witness decode schema differs: ' + name)
+        rows = witness_rows(name, out / ('decode-' + name + '.log'))
         try:
-            validated[name] = capacity.validate(name, rows[1:], source, provenance)
+            validated[name] = capacity.validate(name, rows, source, provenance)
         except RuntimeError as error:
             failures[name] = str(error)
             if terminal['primary_failure'] is None:
