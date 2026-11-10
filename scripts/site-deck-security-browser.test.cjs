@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const { checkEmbeddedProviders } = require('./site-deck-media-cases.cjs');
+
 const { checkMediaUrls } = require('./site-deck-media-url-cases.cjs');
 
 const site = path.resolve(__dirname, '../site');
@@ -155,6 +157,8 @@ async function waitForDeckTransitions(page) {
         hashReload: true, keyboardAndFragment: true, touchNavigation: true});
       console.log('PASS ' + route + ' message boundary, hash, keyboard, fragments and touch');
     }
+    results.push(await checkEmbeddedProviders(browser, target));
+
     results.push(await checkMediaUrls(browser, target));
     fs.writeFileSync(path.join(output, 'behavior-results.json'), JSON.stringify(results, null, 2) + '\n');
   } finally {

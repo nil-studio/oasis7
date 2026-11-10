@@ -81,10 +81,13 @@ async function rejected(page, name, group, value) {
   assert.equal(await page.evaluate(() => window.mediaUrlExecuted), 0, name + ': URL script executed');
 }
 
-async function frameLoaded(page, selector, destination, activate) {
+async function frameLoaded(page, selector, destination, activate, newNavigation = false) {
   const element = await page.$(selector);
   const frame = await element.contentFrame();
-  const loaded = frame.waitForURL(destination, {waitUntil: 'load'});
+  const loaded = newNavigation
+    ? page.waitForEvent('framenavigated', current => current === frame && current.url() === destination)
+      .then(current => current.waitForLoadState('load'))
+    : frame.waitForURL(destination, {waitUntil: 'load'});
   await activate();
   await loaded;
 }
@@ -161,6 +164,7 @@ async function checkMediaUrls(browser, target) {
           window.urlDeck.slide(0);
           window.urlDeck.slide(1);
         });
+        if (group === 'body') await page.evaluate(() => window.urlDeck.nextFragment());
         await rejected(page, label + '/reenter', group, value);
         negativeCases += 1;
       }
@@ -201,7 +205,7 @@ async function checkMediaUrls(browser, target) {
       await page.evaluate(() => window.urlDeck.unloadSlide(window.urlActive));
       assert.equal(await page.locator('#url-frame').getAttribute('src'), null);
       await frameLoaded(page, '#url-frame', new URL(values.frame, base).href,
-        () => page.evaluate(() => window.urlDeck.slide(1)));
+        () => page.evaluate(() => window.urlDeck.slide(1)), true);
       console.log('PASS media URL body lifecycle preload=' + preload);
     }
 
@@ -218,13 +222,14 @@ async function checkMediaUrls(browser, target) {
 
     for (const preload of [false, true]) {
       const url = './fixtures/background.html?x=1#frame';
-      const selector = '.slide-background.present iframe';
+      const selector = '.slide-background iframe';
       await scenario(page, {group: 'iframe', preload, nearby: true, url});
       await page.evaluate(() => window.urlDeck.slide(1));
       await frameLoaded(page, selector, new URL(url, base).href, async () => {});
       await noRepeatedSrc(page, selector, () => page.evaluate(() => {
         window.urlDeck.loadSlide(window.urlActive);
-        window.urlDeck.startEmbeddedContent();
+        window.urlDeck.slideContent.startEmbeddedContent(window.urlActive.slideBackgroundElement);
+        window.urlDeck.slideContent.startEmbeddedContent(window.urlActive.slideBackgroundElement);
       }));
       await page.evaluate(() => window.urlDeck.slide(0));
       const afterExit = await page.evaluate(() =>
@@ -233,8 +238,8 @@ async function checkMediaUrls(browser, target) {
       await page.evaluate(() => window.urlDeck.unloadSlide(window.urlActive));
       assert.equal(await page.evaluate(() =>
         window.urlActive.slideBackgroundContentElement.querySelector('iframe').getAttribute('src')), null);
-      await page.evaluate(() => window.urlDeck.slide(1));
-      await frameLoaded(page, selector, new URL(url, base).href, async () => {});
+      await frameLoaded(page, selector, new URL(url, base).href,
+        () => page.evaluate(() => window.urlDeck.slide(1)), true);
       console.log('PASS media URL background iframe lifecycle preload=' + preload);
     }
     const deferredBackground = './fixtures/background-autoplay.html?autoplay=1';
