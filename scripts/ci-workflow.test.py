@@ -249,6 +249,15 @@ def validate_candidate_graph(workflow, config):
                         or 'run_worker_wasm_compile_profiles' not in producer
                         or 'ci-custody-platform.py pack' not in producer):
                     raise ValueError('custody producer must preserve every verification stage')
+                uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', producer, re.M | re.S)
+                           if 'uses: actions/upload-artifact@' in step]
+                if (len(uploads) != 1
+                        or 'path: ${{ runner.temp }}/custody-bundle' not in uploads[0]
+                        or 'include-hidden-files: true' not in uploads[0]
+                        or 'compression-level: 0' not in uploads[0]
+                        or 'if-no-files-found: error' not in uploads[0]
+                        or 'retention-days: 7' not in uploads[0]):
+                    raise ValueError('custody bundle upload must publish dotfiles intact')
             if ('    needs: select' not in jobs['workspace-support-other']
                     or 'SUPPORT_PARTITION: other' not in jobs['workspace-support-other']):
                 raise ValueError('other support must remain independent of custody builds')
@@ -3384,6 +3393,12 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         for component in ('native', 'wasm-production', 'wasm-approval'):
             self.assertIn('name: ${{ needs.custody-' + component + '.outputs.artifact }}', node)
             self.assertIn('needs.custody-' + component + '.outputs.attempt', node)
+            upload = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
+                          JOBS['custody-' + component], re.M | re.S)
+                          if 'uses: actions/upload-artifact@' in step)
+            self.assertIn('path: ${{ runner.temp }}/custody-bundle', upload)
+            self.assertIn('include-hidden-files: true', upload)
+            self.assertIn('if-no-files-found: error', upload)
         self.assertIn('overwrite: true', node)
         self.assertIn('if: always()', node)
         summary = JOBS['workspace-support']
@@ -3399,6 +3414,10 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                               ('npm run test:types', 'true')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
+        for before, after in [('          include-hidden-files: true\n', ''),
+                              ('          include-hidden-files: true\n', '          include-hidden-files: false\n')]:
+            with self.subTest(before=before, after=after), self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW.replace(before, after), CONFIG)
 
     def test_custody_approval_step_initializes_real_driver_and_propagates_compile_failure(self):
         step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',

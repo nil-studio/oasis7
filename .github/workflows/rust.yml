@@ -2534,6 +2534,7 @@ jobs:
           name: ${{ steps.bundle.outputs.artifact }}
           path: ${{ runner.temp }}/custody-bundle
           compression-level: 0
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
