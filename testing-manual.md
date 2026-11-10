@@ -157,7 +157,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 ## CI 现状与缺口（事实口径）
 
-要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。当前候选已接入快速 profile、完整库存、四小时 schedule 和发布结果消费；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
+要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。当前候选已接入快速 profile、完整库存、四小时到期调度和发布结果消费；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
 
 <a id="ci-fast-pr-periodic-full-validation"></a>
 ### 快速 PR 与周期完整回归的实施验收
@@ -231,7 +231,7 @@ gh workflow run rust.yml --ref main -f run_mode=full -f source_ref="$SOURCE_SHA"
 GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 ```
 
-它查询最近两天 schedule，报告最近运行、最近成功 SHA 与提交区间。五小时未启动、未完成轮超四小时、无最近成功或失败均返回非零；新 pending/running 不清除上一终态失败。该命令不是发布 qualification，也不代表外部定时巡检已启用，既有 CI 回顾任务按实际授权调用。
+它观察最近两天 schedule 的实际 attempt，并回看旧 run metadata 与全部活动轮，通过实际 jobs 和 admission 产物排除合法轻量空跑，报告最近实际 full、最近成功 SHA 与提交区间。空跑不会清除先前 full 失败或更新成功 SHA；缺失/错身份/冲突的 admission 保留未知。每二十分钟观察只增加补偿机会，实际 full 启动间隔仍须从 Actions 验收。五小时未启动、未完成轮超四小时、无最近成功或失败均返回非零；新 pending/running 不清除上一终态失败。该命令不是发布 qualification，也不代表外部定时巡检已启用，既有 CI 回顾任务按实际授权调用。
 
 ### 当前 CI/脚本已覆盖
 - 入口 A：`scripts/ci-tests.sh`（主流程）

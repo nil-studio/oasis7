@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exercise diagnostic Git identities, fresh-runner restoration, and coverage guards."""
 import copy
+import contextlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -129,6 +131,171 @@ def merge_fixture(directory, source_changes=None, target_changes=None, merge_cha
     write_files(repo, merge_changes or {})
     tested = commit(repo, 'tested merge')
     return repo, base, source, target, tested, fork
+
+
+class DiagnosticRegistrationPreview(unittest.TestCase):
+    driver = 'scripts/ci-tests.sh'
+    first = '  run python3 ./scripts/security/first.test.py\n'
+    second = '  run python3 ./scripts/security/test_second.py\n'
+    added = '  run python3 ./scripts/security/new.test.py\n'
+    body = ('#!/bin/sh\n\nrun_workflow_governance_operational_contract_tests() {\n'
+            + first + second + '}\n\nrun_workflow_governance_operational_contract_tests\n')
+
+    def fixture(self, directory, *, capability=1):
+        repo, _ = fixture(directory)
+        fixture_planner(repo)
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        if capability is None:
+            config.pop('additive_governance_registration_version')
+        else:
+            config['additive_governance_registration_version'] = capability
+        write_files(repo, {
+            'Cargo.toml': '[workspace]\nmembers=["crates/*"]\n',
+            'crates/oasis7_runtime/Cargo.toml': '[package]\nname="oasis7_runtime"\nversion="0.1.0"\n',
+            'crates/oasis7_world_state/Cargo.toml': '[package]\nname="oasis7_world_state"\nversion="0.1.0"\n',
+            self.driver: self.body,
+            'scripts/security/first.test.py': '# existing diagnostic\n',
+            'scripts/security/test_second.py': '# existing diagnostic\n',
+            'scripts/ci-required-scope.json': json.dumps(config),
+        })
+        return repo, commit(repo, 'trusted diagnostic registration policy')
+
+    def add(self, repo, changes=None):
+        write_files(repo, {self.driver: self.body.replace(self.second, self.added + self.second),
+                          'scripts/security/new.test.py': '# new diagnostic\n', **(changes or {})})
+        return commit(repo, 'candidate diagnostic registration')
+
+    def triggers(self, repo, base, source, tested=None):
+        comparisons, _, _ = PREVIEW.preview_comparisons(repo, base, source, tested or source)
+        changed = {path for before, after in comparisons for path in PREVIEW.changed_paths(repo, before, after)}
+        return PREVIEW.product_preview_triggers(repo, base, comparisons, changed)
+
+    def test_pure_addition_runs_diagnostics_without_product_benchmark(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = self.fixture(directory)
+            source = self.add(repo, {'.github/workflows/codeql-rust-capacity.yml': '# scoped diagnostic\n',
+                                     'doc/diagnostic.md': 'diagnostic documentation\n'})
+            output, enabled = Path(directory) / 'selection.json', Path(directory) / 'outputs.txt'
+            with contextlib.redirect_stdout(io.StringIO()), patch.object(
+                    PREVIEW, 'synthetic_baseline', side_effect=AssertionError('must not compile product sample')):
+                self.assertIsNone(PREVIEW.plan_preview(repo, base, source, output, enabled))
+            self.assertEqual(enabled.read_text(), 'enabled=false\n')
+            self.assertFalse(output.exists())
+
+    def test_old_and_unsupported_baseline_capabilities_retain_preview(self):
+        for capability in (None, False, True, 0, 2, '1'):
+            with self.subTest(capability=capability), tempfile.TemporaryDirectory() as directory:
+                repo, base = self.fixture(directory, capability=capability)
+                source = self.add(repo)
+                self.assertEqual(self.triggers(repo, base, source), {self.driver})
+
+    def test_candidate_policy_cannot_remove_its_own_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = self.fixture(directory, capability=None)
+            current = (ROOT / 'scripts/ci-required-scope.json').read_text()
+            source = self.add(repo, {'scripts/ci-required-scope.json': current})
+            self.assertEqual(self.triggers(repo, base, source),
+                             {self.driver, 'scripts/ci-required-scope.json'})
+
+    def test_other_policy_and_product_mixtures_keep_all_preview_triggers(self):
+        cases = (
+            {'.github/workflows/rust.yml': '# required execution changed\n'},
+            {'scripts/ci-required-scope.json': '{"candidate_policy":true}\n'},
+            {'scripts/ci-test-artifacts.py': '# artifact policy changed\n'},
+            {PREVIEW.SAMPLE_PATHS[0]: 'pub fn changed_product() {}\n'},
+            {'tools/oasis7-command-center/ui/src/app.tsx': '// changed UI\n'},
+            {self.driver: self.body.replace(self.second, self.added + self.second) + 'exit 0\n'},
+            {self.driver: self.body.replace(self.second, self.added + self.second).replace(self.first, '')},
+        )
+        for changes in cases:
+            with self.subTest(paths=sorted(changes)), tempfile.TemporaryDirectory() as directory:
+                repo, base = self.fixture(directory)
+                source = self.add(repo, changes)
+                self.assertEqual(self.triggers(repo, base, source),
+                                 {self.driver} | (changes.keys() & PREVIEW.POLICY_INPUTS))
+
+    def test_regular_blob_and_baseline_policy_read_failures_retain_preview(self):
+        for case in ('missing', 'symlink', 'driver mode', 'unreadable policy'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                repo, base = self.fixture(directory)
+                if case == 'unreadable policy':
+                    (repo / 'scripts/ci-required-scope.json').write_text('not json\n')
+                    base = commit(repo, 'unreadable baseline policy')
+                self.add(repo)
+                target = repo / 'scripts/security/new.test.py'
+                if case in ('missing', 'symlink'):
+                    target.unlink()
+                    if case == 'symlink':
+                        target.symlink_to('first.test.py')
+                elif case == 'driver mode':
+                    (repo / self.driver).chmod(0o755)
+                source = command(repo, 'rev-parse', 'HEAD') if case == 'unreadable policy' else commit(repo, case)
+                self.assertEqual(self.triggers(repo, base, source), {self.driver})
+
+    def test_tested_merge_cannot_remove_source_registrations(self):
+        for mutate in (False, True):
+            with self.subTest(merge_mutation=mutate), tempfile.TemporaryDirectory() as directory:
+                repo, base = self.fixture(directory)
+                command(repo, 'checkout', '-qb', 'candidate')
+                source = self.add(repo)
+                command(repo, 'checkout', '-q', 'main')
+                write_files(repo, {'README.md': 'target advanced\n'})
+                commit(repo, 'target advance')
+                command(repo, 'merge', '--no-ff', '--no-commit', source)
+                if mutate:
+                    write_files(repo, {self.driver: self.body.replace(self.second, self.added + self.second)
+                                      .replace(self.first, '')})
+                tested = commit(repo, 'tested merge')
+                self.assertEqual(self.triggers(repo, base, source, tested), {self.driver} if mutate else set())
+
+    def test_existing_rust_fixture_consumer_keeps_product_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, _ = self.fixture(directory)
+            write_files(repo, {
+                'crates/core/Cargo.toml': '[package]\nname="core"\nversion="0.1.0"\n',
+                'crates/core/src/lib.rs':
+                    'pub const DIAGNOSTIC: &str = include_str!("../../../scripts/security/new.test.py");\n',
+                'scripts/security/new.test.py': 'VALUE = 1\n',
+            })
+            base = commit(repo, 'existing Rust fixture reader')
+            source = self.add(repo, {'scripts/security/new.test.py': 'VALUE = 2\n'})
+            self.assertEqual(self.triggers(repo, base, source), {self.driver})
+
+    def test_unreadable_or_uncertain_cargo_graph_keeps_product_preview(self):
+        for contents in (None, 'not TOML'):
+            with self.subTest(manifest=contents), tempfile.TemporaryDirectory() as directory:
+                repo, _ = self.fixture(directory)
+                write_files(repo, {'Cargo.toml': contents})
+                base = commit(repo, 'unreadable baseline manifest')
+                source = self.add(repo)
+                self.assertEqual(self.triggers(repo, base, source), {self.driver})
+        with tempfile.TemporaryDirectory() as directory:
+            repo, _ = self.fixture(directory)
+            write_files(repo, {'crates/oasis7_runtime/src/lib.rs':
+                              'pub const UNKNOWN: &str = include_str!(env!("UNREGISTERED_FIXTURE"));\n'})
+            base = commit(repo, 'uncertain embedded reader')
+            source = self.add(repo)
+            self.assertEqual(self.triggers(repo, base, source), {self.driver})
+
+    def test_merge_only_addition_is_proved_and_target_only_addition_is_excluded(self):
+        for target_only in (False, True):
+            with self.subTest(target_only=target_only), tempfile.TemporaryDirectory() as directory:
+                repo, base = self.fixture(directory)
+                command(repo, 'checkout', '-qb', 'candidate')
+                write_files(repo, {'doc/candidate.md': 'candidate documentation\n'})
+                source = commit(repo, 'source docs')
+                command(repo, 'checkout', '-q', 'main')
+                if target_only:
+                    self.add(repo)
+                else:
+                    write_files(repo, {'target.md': 'target documentation\n'})
+                    commit(repo, 'target docs')
+                command(repo, 'merge', '--no-ff', '--no-commit', source)
+                if not target_only:
+                    write_files(repo, {self.driver: self.body.replace(self.second, self.added + self.second),
+                                      'scripts/security/new.test.py': '# merge registration\n'})
+                tested = commit(repo, 'tested merge')
+                self.assertEqual(self.triggers(repo, base, source, tested), set())
 
 
 class Preview(unittest.TestCase):

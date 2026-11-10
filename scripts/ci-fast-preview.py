@@ -2,6 +2,7 @@
 """Measure a candidate fast policy on current code, without authorizing a PR gate."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -215,6 +216,42 @@ def write_outputs(path, values):
                 output.write(key + '=' + value + '\n')
 
 
+def product_preview_triggers(repo, base, comparisons, changed):
+    triggers = changed.intersection(POLICY_INPUTS)
+    if 'scripts/ci-tests.sh' not in triggers:
+        return triggers
+    # Only the immutable event policy can enable this bounded exception. The
+    # candidate cannot enroll its own driver by editing ci-required-scope.json.
+    try:
+        config = json.loads(git(repo, 'show', base + ':scripts/ci-required-scope.json'))
+        spec = importlib.util.spec_from_file_location(
+            'preview_registration_selector', Path(__file__).with_name('plan-rust-required-scope.py'))
+        selector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        if selector.additive_governance_registration(config, comparisons, changed, repo=repo):
+            # A security test or document may also be an existing Rust fixture.
+            # Reuse the required selector's Git-only ownership/embedded-input
+            # scan for every compared tree; missing or uncertain graphs retain
+            # the product benchmark. No candidate executable is invoked.
+            cache = selector.GitSourceCache(repo=repo)
+            for revision in dict.fromkeys(ref for pair in comparisons for ref in pair):
+                manifests, _, embedded = selector.cargo_graph(
+                    revision, config.get('generated_inputs', ()), source_cache=cache, repo=repo)
+                if embedded.get('__unresolved_embed__') or embedded.get('__uncertain_module_sources__'):
+                    return triggers
+                for path in changed:
+                    if (embedded.get(path)
+                            or any(directory and path.startswith(directory + '/')
+                                   for directory, _ in manifests.values())
+                            or any(readers and (not directory or path.startswith(directory + '/'))
+                                   for directory, readers in embedded.get('__library_readers__', {}).items())):
+                        return triggers
+            triggers.remove('scripts/ci-tests.sh')
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, AttributeError):
+        pass  # Unreadable/old policy retains the existing product preview.
+    return triggers
+
+
 def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source_ref=None, sample='runtime-world'):
     # Existing benchmark source/tested identities both name the exact checkout.
     # The separate source ref supplies the real PR head for trigger attribution.
@@ -229,7 +266,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
         'actual_pr_base_sha': base, 'actual_pr_source_sha': pr_source,
         'actual_target_sha': target, 'source_base_sha': source_base,
         'comparisons': [{'base': before, 'head': after} for before, after in comparisons],
-        'trigger_paths': sorted(changed.intersection(POLICY_INPUTS)),
+        'trigger_paths': sorted(product_preview_triggers(repo, base, comparisons, changed)),
     }
     print('preview_inputs=' + json.dumps(inputs, ensure_ascii=False))
     if not inputs['trigger_paths']:
