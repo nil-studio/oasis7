@@ -143,7 +143,7 @@ class PhaseError(RuntimeError):
         return self.result['failure_kind'] == 'timeout' and not self.result['cleanup_errors'] and not self.result.get('evidence_errors')
 
 
-def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None):
+def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None):
     """Separate stdout/stderr/evaluator FIFO; all evidence writes pass the shared cap."""
     start = time.monotonic()
     deadline = min(end, start + timeout)
@@ -152,12 +152,22 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
               'file_size_limit_bytes': file_limit}
     if file_limit is not None and not 0 < file_limit <= DATA_LIMIT:
         raise ValueError('invalid process data file bound')
+    if observer is not None and evaluator is not None:
+        raise ValueError('stream observation does not support evaluator FIFO')
     selector = selectors.DefaultSelector()
     proc = fifo_fd = None
     fifo_created = False
     files = []
     sample = None
     streams = {}
+    stream_names = {}
+    def write_chunk(fd, chunk, final=False):
+        # Projection precedes persistence, including EOF and TERM-handler drain.
+        # An observer error never falls back to raw bytes.
+        data = observer.feed(stream_names[fd], chunk, final=final) if observer else chunk
+        if output_bytes(root) + len(data) > WRITE_CAP:
+            raise RuntimeError('combined evidence budget exceeded before write')
+        streams[fd].write(data); streams[fd].flush()
     try:
         if deadline <= start:
             raise TimeoutError('diagnostic phase deadline exhausted before spawn')
@@ -185,6 +195,7 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
         for pipe, path in ((proc.stdout, output), (proc.stderr, output.with_name(output.name + '.stderr'))):
             os.set_blocking(pipe.fileno(), False)
             streams[pipe.fileno()] = path.open('xb')
+            stream_names[pipe.fileno()] = 'stdout' if pipe is proc.stdout else 'stderr'
             files.append(streams[pipe.fileno()])
             selector.register(pipe.fileno(), selectors.EVENT_READ)
         sample = GroupSamples(proc.pid)
@@ -194,6 +205,8 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
         while True:
             if time.monotonic() >= deadline:
                 raise TimeoutError('diagnostic phase deadline exhausted')
+            if observer:
+                observer.poll(deadline)
             if time.monotonic() - last_sample >= .2:
                 data = (json.dumps(sample.sample(), separators=(',', ':')) + '\n').encode()
                 if output_bytes(root) + len(data) > WRITE_CAP:
@@ -204,11 +217,11 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
             for key, _ in events:
                 chunk = os.read(key.fd, 65536)
                 if not chunk:
+                    if observer:
+                        write_chunk(key.fd, b'', final=True)
                     selector.unregister(key.fd)
                 else:
-                    if output_bytes(root) + len(chunk) > WRITE_CAP:
-                        raise RuntimeError('combined evidence budget exceeded before write')
-                    streams[key.fd].write(chunk); streams[key.fd].flush()
+                    write_chunk(key.fd, chunk)
             if proc.poll() is not None and not events:
                 # FIFO is parent-held RDWR: one empty drain after child exit ends it.
                 break
@@ -254,17 +267,26 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                     for key, _ in ready:
                         chunk = os.read(key.fd, 65536)
                         if not chunk:
+                            if observer:
+                                write_chunk(key.fd, b'', final=True)
                             selector.unregister(key.fd)
                         else:
-                            if output_bytes(root) + len(chunk) > WRITE_CAP:
-                                raise RuntimeError('combined evidence budget exceeded during final drain')
-                            streams[key.fd].write(chunk); streams[key.fd].flush()
+                            write_chunk(key.fd, chunk)
                 else:
                     raise RuntimeError('bounded final drain incomplete')
             except BaseException as exc:
                 result['evidence_errors'].append(repr(exc)[:1024])
                 result['failure_kind'] = 'unsafe'
                 result['error'] = result['error'] or repr(exc)[:8192]
+            if observer:
+                try:
+                    for fd in stream_names:
+                        write_chunk(fd, b'', final=True)
+                    result['output_observation'] = observer.summary()
+                except BaseException as exc:
+                    result['evidence_errors'].append(repr(exc)[:1024])
+                    result['failure_kind'] = 'unsafe'
+                    result['error'] = result['error'] or 'stream observation incomplete'
             for pipe in (proc.stdout, proc.stderr):
                 try:
                     pipe.close()
