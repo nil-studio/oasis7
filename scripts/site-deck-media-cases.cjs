@@ -28,13 +28,15 @@ async function checkEmbeddedProviders(browser, target) {
     {name: 'youtube-query-hash', url: 'https://www.youtube.com/embed/42?start=4#chapter', provider: 'youtube'},
     {name: 'youtube-case-port', url: 'HTTPS://WWW.YOUTUBE.COM:443/embed/42?enablejsapi=0', provider: 'youtube'},
     {name: 'vimeo', url: 'https://player.vimeo.com/video/42?color=ffffff#chapter', provider: 'vimeo'},
-    {name: 'protocol-relative', url: '//www.youtube.com/embed/42'},
+    {name: 'protocol-relative', url: '//www.youtube.com/embed/42',
+      provider: new URL(target).protocol === 'https:' ? 'youtube' : undefined},
     {name: 'similar-host', url: 'https://notyoutube.com/embed/42'},
     {name: 'host-suffix', url: 'https://www.youtube.com.evil.invalid/embed/42'},
     {name: 'path-bait', url: 'https://example.invalid/path/youtube.com/embed/42'},
     {name: 'query-bait', url: 'https://example.invalid/?next=https://player.vimeo.com/video/42'},
     {name: 'fragment-bait', url: 'https://example.invalid/#youtube.com/embed/42'},
     {name: 'other-path', url: 'https://www.youtube.com/watch?v=42'},
+    {name: 'vimeo-other-path', url: 'https://player.vimeo.com/channel/42'},
     {name: 'other-port', url: 'https://player.vimeo.com:8443/video/42'},
     {name: 'local-relative', url: '../media/frame.html?value=1#chapter'},
     {name: 'fragment', url: 'https://www.youtube.com/embed/42', provider: 'youtube', fragment: true},
@@ -44,7 +46,8 @@ async function checkEmbeddedProviders(browser, target) {
     // Credentials and non-network URLs need no navigation to test classification.
     {name: 'userinfo-host', url: 'https://youtube.com@evil.invalid/embed/42', formatOnly: true},
     {name: 'userinfo-provider', url: 'https://user@www.youtube.com/embed/42', formatOnly: true},
-    {name: 'http-provider', url: 'http://player.vimeo.com/video/42', formatOnly: true},
+    {name: 'http-provider', url: 'http://player.vimeo.com/video/42',
+      formatOnly: new URL(target).protocol === 'https:'},
     {name: 'opaque-origin', url: 'data:text/html,youtube.com/embed/42', formatOnly: true},
   ];
   try {
@@ -81,7 +84,6 @@ async function checkEmbeddedProviders(browser, target) {
           window.mediaRoot.remove();
         }
         window.mediaMessages = [];
-        window.mediaLoadCount = 0;
         const root = document.createElement('div');
         root.className = 'reveal';
         const slides = document.createElement('div');
@@ -93,7 +95,6 @@ async function checkEmbeddedProviders(browser, target) {
         frame.id = 'media-case';
         frame.title = test.name;
         frame.setAttribute('data-src', test.url);
-        frame.addEventListener('load', () => { window.mediaLoadCount += 1; });
         if (test.fragment) frame.classList.add('fragment');
         if (test.ignore) frame.setAttribute('data-ignore', '');
         active.appendChild(frame);
@@ -103,7 +104,7 @@ async function checkEmbeddedProviders(browser, target) {
         window.mediaRoot = root;
         window.mediaDeck = new Reveal(root, {embedded: true, controls: false, progress: false,
           hash: false, transition: 'none', autoPlayMedia: test.autoplay !== false,
-          viewDistance: 0, preloadIframes: false});
+          viewDistance: 1, preloadIframes: false});
         await window.mediaDeck.initialize();
         const formatted = frame.getAttribute('data-src');
         window.mediaDeck.sync();
@@ -124,13 +125,19 @@ async function checkEmbeddedProviders(browser, target) {
         assert.equal(initial.formatted, test.url, test.name + ': non-provider URL was modified');
       }
       if (test.formatOnly) continue;
+      const destination = test.redirect ? 'https://redirect.invalid/frame'
+        : new URL(initial.formatted, page.url()).href;
+      // Observe this navigation's actual target and load, never the initial about:blank.
+      const loaded = page.waitForEvent('framenavigated', frame =>
+        frame.parentFrame() === page.mainFrame() && frame.url() === destination)
+        .then(frame => frame.waitForLoadState('load'));
       await page.evaluate(() => window.mediaDeck.slide(1));
       if (test.fragment) {
         assert.equal(await page.locator('#media-case').getAttribute('src'), null,
           'hidden fragment iframe must remain lazy');
         await page.evaluate(() => window.mediaDeck.nextFragment());
       }
-      await page.waitForFunction(() => window.mediaLoadCount > 0);
+      await loaded;
       const started = (await drainMessages(page)).map(decodeMessage);
       const play = test.provider === 'youtube'
         ? {event: 'command', func: 'playVideo', args: ''} : {method: 'play'};
@@ -145,7 +152,8 @@ async function checkEmbeddedProviders(browser, target) {
       console.log('PASS media provider ' + test.name);
     }
     assert.deepEqual(errors, []);
-    return {suite: 'embedded-media-providers', result: 'pass', cases: cases.length};
+    return {suite: 'embedded-media-providers', result: 'pass', cases: cases.length,
+      lifecycleCases: cases.filter(test => !test.formatOnly).length};
   } finally {
     await context.close();
   }
