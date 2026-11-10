@@ -172,7 +172,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 | 候选变更测试分级 | required 改 full 必须在实际 owner/driver 上扩测；嵌套 cfg、跨 module 同名、缺 feature 声明、无扩展 driver 和新 ignore 均有负例。普通 case 删除/改名核对语义替代；Formal 的可信最低库存缺项必须失败 |
 | 新增测试与辅助模块 | 沿实际 Cargo target 和静态父模块链证明普通组合可执行；`any(test, feature = "test-support")` 不因另一分支未启用而误拒绝。新增 native item 保留受影响包与风险范围；full 门控、未知宏、不可达父模块、禁用 harness、删除/改名混合与既有门控替换仍有保守或失败负例 |
 | support 的扩展 target | 用普通 profile 只执行 library、且没有扩展 feature 的真实小包验证新增 integration：PR 选择扩展后及周期 full 都实际执行该用例；故意失败必须传播，不能因 feature 集合为空或只观察 library 通过而放行 |
-| 周期用例回到 PR | 修改历史裁剪、crash/retry、身份或平台行为时，即使相关 case 标 full 也触发真实验证；缺窄映射保留相关旧必要组，mock 或另一个平台成功不能代替 |
+| 重型 Formal 分层 | 普通 pr-fast/main-fast 在历史裁剪、crash/retry、共享控制或保守 scope=full 时也不启动重型 Formal；两条可信精确登记的 membership 长例不被 ordinary 批次重复执行，近邻及普通合同仍实际运行。periodic-full/candidate-full 保留五 suite、原场景长度及失败传播，旧 BASE 保留原选择 |
 | 超预算与不稳定 | 构造 case 很短但编译很重、整体预计超预算及已有 flaky 的情形；必要集合不被静默裁剪，普通样本不在运行后改类，首次失败不被重试覆盖 |
 | 关键边界与共享输入 | 身份/持久化/共识等命中必要定向加测；依赖/工具链或影响不确定时保守扩大并显示原因；未知路径仍失败 |
 | 完整覆盖 | 对同源适用清单核对快速集合与迁出项均在 full 执行；保留原断言、场景长度和平台，包含 Clippy、独立浏览器安全 smoke、Command Center 及真实平台矩阵；故意漏项被识别 |
@@ -318,6 +318,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 
 要求与机制见[真实进程验收要求](doc/testing/ci/ci-tiered-execution.prd.md#ci-formal-process)和[调度设计](doc/testing/ci/ci-tiered-execution.design.md#ci-formal-process-design)。
 
+- 可信 BASE 启用 `formal_full_profiles_only_version=1` 后，普通 `pr-fast/main-fast` 不运行重型 Formal producer 或分片，即使 `scope=full`、命中关键风险或追加 `formal_process`。`periodic-full` 与显式 `candidate-full` 必须执行全部五个逻辑 suite；CAS/Formal Protocol 普通库、单元及 CI 合同测试继续按影响选择。旧 BASE 缺能力时仍按旧规则，策略 PR 自身可能仍运行 Formal。
+- 核对 ordinary 日志中的 `ordinary_formal_deferred`：只后移可信计划精确列出的两条 membership 长例，不按 `formal` 名称批量过滤。真实 libtest 回归验证近邻仍执行、普通失败仍阻断，full/旧 BASE 仍执行延期 case 并传播其失败；完整库存回归核对两 case 仍各归属一个实际 Formal 分片。
 - `./scripts/ci-tests.sh required`：普通检查，不隐式启动独立重型链路。
 - `./scripts/ci-tests.sh required --group formal_process`：准备产物后顺序执行全部真实进程分片；兼容入口 `./scripts/formal-live-local-tests.sh "$PWD"` 调用相同清单和运行器。
 - `./scripts/ci-tests.sh full`：full-standard 加重型验收。本地 `full-standard` 执行普通与扩展检查；hosted periodic/manual full 分别启动全部普通组、`full-extended` 与共享 Formal 产物矩阵，不重复调用整套普通入口。
@@ -375,7 +377,7 @@ v2 完整合成输入的 collect 应返回 0；缺失/冲突或 v1 输入保留 
 2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复合并 alias 与来源列表。加入 step/phase/test 不重复增加 job 资源；条件为 false 且 skipped 可零执行，但不能成为 pass。核对 known 指针的类型和值、unknown/not_applicable 的 null 与 reason、输出无 raw payload，未知来源不能凭名称补齐。
 3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
 4. 离线核验字节上限、允许字段、截断输入与采集器失败。继续核验请求/时长/响应与解码字节额度、重复/截断分页、坏压缩流、越界/重复/链接归档、非有限 JSON、未知大字段和信号取消。截止停止新读取与记录归一化；有界保存收尾和实际 elapsed_seconds 单列，不把尾部当作预算内。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
-5. 真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+5. 真实接入：在一条真实 periodic-full 或 candidate-full 的 Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。旧 BASE 的 PR Formal 链仍可作为对应历史版本证据。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
 6. 真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
 
 有界采集命令（输出目录须已存在，partial 返回 1 是预期结果，不代表原测试失败）：
@@ -2162,7 +2164,7 @@ Run `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_history`
 
 Two additional ignored process regressions use the real authenticated Primary/Replica endpoints with the test custody oracle: a missing intermediate local publication is restored across signed parents, and a native-qualified silent policy replacement is rejected by `FormalLiveRuntime::open_with_native_history`. Build `oasis7_durability_endpoint --release`, set `OASIS7_FORMAL_ENDPOINT_TEST_BIN` to that candidate executable, then run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history_ -- --ignored --test-threads=1`. Both exact cases are registered in the formal `runtime-protocol` CI suite. Also run the existing 70-request `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` process regression with the same configured operation deadline; inspect all intermediate and final reopen results rather than inferring long-history availability from short fixtures. The existing real signer-handoff process test covers the valid readback path; a separately constructed malicious signed read service for a direct negative handoff test is not covered by these fixtures. Local custody-oracle processes do not prove independent physical fault domains.
 
-The host fixtures exercise Runtime execution and the shipping history consumer; they do not claim Node committed-action ingress or the formal executor for these newly constructed candidates. Keep the existing governance authorization ingress suite and formal history/recovery suites in required CI. This change does not alter Agent gameplay entry or behavior, and does not trigger Agent self-playtest. Arbitrary raw-tail World reconstruction, BFT, component installation ACK and real isolated-fault-domain evidence remain separate obligations.
+host fixture 验证 Runtime 执行和实际历史消费者，尚未覆盖这些新候选的 Node committed-action 入口或 Formal executor。既有 governance authorization ingress suite 继续按影响进入普通 required；重型 Formal history/recovery suites 按完整层策略在 periodic-full 与 candidate-full 执行。该变更不影响 Agent 游戏入口或行为，不触发 Agent 自主试玩。任意 raw-tail World 重建、BFT、组件安装 ACK 及真实独立故障域证据仍由各自合同承接。
 
 <a id="discovery-observation-local-trust-boundary"></a>
 ## Discovery observations and local bootstrap trust

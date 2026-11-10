@@ -119,6 +119,50 @@ class ProviderArtifactContracts(unittest.TestCase):
 
 
 class Transition(unittest.TestCase):
+    def test_full_only_fast_plans_skip_heavy_jobs_but_full_still_requires_them(self):
+        groups = ['baseline', 'formal_process']
+        for profile in ('pr-fast', 'main-fast'):
+            for scope in ('targeted', 'full'):
+                with self.subTest(profile=profile, scope=scope):
+                    selection = dict(fast_plan_version=1, execution_profile=profile, scope=scope,
+                                     groups=['baseline'], formal_full_profiles_only_version=1,
+                                     formal_suites=[], formal_shards=[])
+                    self.assertEqual(artifacts.formal_suites(selection), [])
+                    self.assertFalse(plan.selected(selection, groups))
+                    needs = {name: dict(result='skipped') for name in
+                             ('formal-test-build', 'formal-test-build-trusted', 'formal-process-tests')}
+                    needs['select'] = dict(result='success')
+                    self.assertEqual(plan.aggregate(False, needs), 'not_selected')
+        for profile in ('periodic-full', 'candidate-full'):
+            selection = dict(fast_plan_version=1, execution_profile=profile, scope='explicit-full',
+                             groups=groups, formal_full_profiles_only_version=1,
+                             formal_suites=sorted(artifacts.SHARDS), formal_shards=sorted(artifacts.SHARDS))
+            self.assertTrue(plan.selected(selection, groups))
+            self.assertEqual(set(artifacts.formal_suites(selection)), set(artifacts.SHARDS))
+            for field in ('formal_suites', 'formal_shards'):
+                with self.subTest(profile=profile, missing=field), self.assertRaises(ValueError):
+                    artifacts.formal_suites(selection | {field: []})
+
+    def test_full_only_formal_plan_rejects_malformed_capability_and_legacy_full_skip(self):
+        selection = dict(fast_plan_version=1, execution_profile='pr-fast', scope='full',
+                         groups=['baseline'], formal_full_profiles_only_version=1,
+                         formal_suites=[], formal_shards=[])
+        mutations = [('formal_full_profiles_only_version', value) for value in (True, 0, 2, '1', None)]
+        mutations += [('groups', ['baseline', 'formal_process']),
+                      ('formal_suites', ['world-history']), ('formal_shards', ['world-history']),
+                      ('execution_profile', 'periodic-full'), ('scope', 'explicit-full')]
+        for field, value in mutations:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                artifacts.formal_suites(selection | {field: value})
+        for field in ('fast_plan_version', 'formal_suites', 'formal_shards'):
+            broken = dict(selection)
+            del broken[field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                artifacts.formal_suites(broken)
+        del selection['formal_full_profiles_only_version']
+        with self.assertRaisesRegex(ValueError, 'complete profile is missing formal suites'):
+            artifacts.formal_suites(selection)
+
     def test_old_baseline_can_only_widen(self):
         self.assertTrue(plan.selected(dict(scope='full', groups=['baseline']), ['baseline']))
         for group in plan.CORE:
@@ -127,6 +171,30 @@ class Transition(unittest.TestCase):
             self.assertFalse(plan.selected(dict(scope='targeted', groups=['baseline', group]), ['baseline', group]))
         self.assertFalse(plan.selected(dict(scope='full', groups=['baseline']), ['baseline', 'formal_process']))
         self.assertTrue(plan.selected(dict(scope='targeted', groups=['formal_process']), ['formal_process']))
+
+    def test_ordinary_formal_deferral_requires_exact_trusted_plan_and_target(self):
+        selection = FastExecutionSelection().selection(('oasis7_chain_runtime',)) | dict(
+            formal_full_profiles_only_version=1, formal_shards=[],
+            formal_deferred_ordinary_cases={'runtime-tests': ['formal::heavy']})
+        for deferred in ([], {'other': ['formal::heavy']}, {'runtime-tests': []},
+                         {'runtime-tests': ['formal::heavy', 'formal::heavy']},
+                         {'runtime-tests': ['formal::*']}, {'runtime-tests': [None]}):
+            with self.subTest(deferred=deferred), self.assertRaises(ValueError):
+                artifacts.fast_plan(selection | {'formal_deferred_ordinary_cases': deferred})
+        old = dict(selection)
+        del old['formal_full_profiles_only_version']
+        with self.assertRaisesRegex(ValueError, 'compatible capability'):
+            artifacts.fast_plan(old)
+        binary = dict(package='oasis7_chain_runtime', target='oasis7_chain_runtime', target_kind=['lib'],
+                      ordinary=True, tests=['formal::heavy', 'formal::heavy_neighbor'], ignored_tests=[])
+        manifest = dict(execution_plan=selection, binaries={'runtime-tests': binary})
+        self.assertEqual(artifacts.ordinary_entries(manifest),
+                         [dict(binary='runtime-tests', batch=True, skip=['formal::heavy'])])
+        for field, value in [('package', 'unrelated'), ('target', 'unrelated'), ('target_kind', ['bin'])]:
+            changed = copy.deepcopy(manifest)
+            changed['binaries']['runtime-tests'][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'target identity'):
+                artifacts.ordinary_entries(changed)
 
     def test_selected_requires_real_success_and_not_selected_requires_skip(self):
         needs = {name: dict(result='success') for name in ['select', 'formal-test-build', 'formal-process-tests']}
@@ -231,6 +299,24 @@ class Coverage(unittest.TestCase):
         changed['case_shards']['runtime-tests']['renamed_or_missing_case'] = 'healthy-set'
         with self.assertRaises(ValueError):
             artifacts.resolve_shards(changed, suites)
+
+    def test_deferred_ordinary_cases_remain_exactly_once_in_complete_formal_inventory(self):
+        scope = json.loads((HERE / 'ci-required-scope.json').read_text())
+        deferred = scope['formal_deferred_ordinary_cases']
+        self.assertEqual(scope['formal_full_profiles_only_version'], 1)
+        self.assertEqual(set(deferred), {'runtime-tests'})
+        self.assertEqual(len(deferred['runtime-tests']), 2)
+        suites = artifacts.resolve_suites(self.config, self.binaries)
+        shards = artifacts.resolve_shards(self.config, suites)
+        for binary, names in deferred.items():
+            for name in names:
+                with self.subTest(binary=binary, name=name):
+                    self.assertIn(name, self.binaries[binary]['tests'])
+                    self.assertNotIn(name, self.binaries[binary]['ignored_tests'])
+                    matches = [entry for entries in shards.values() for entry in entries
+                               if entry.get('binary') == binary and entry.get('name') == name]
+                    self.assertEqual(len(matches), 1)
+                    self.assertFalse(matches[0]['ignored'])
 
     def test_trusted_formal_inventory_survives_candidate_removal_and_keeps_additions(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -3910,6 +3996,62 @@ class Process(unittest.TestCase):
         result = self.execute([str(self.binary), '--exact', 'renamed', '--ignored'])
         self.assertEqual(result['exit_code'], 0)
         self.assertFalse(result['passed'])
+
+    def test_real_fast_formal_deferral_is_exact_and_full_preserves_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, executable = root / 'tests.rs', root / 'runtime-tests'
+            source.write_text('''
+#[test] fn ordinary() { std::fs::write("ordinary-ran", "yes").unwrap(); }
+#[test] fn formal_heavy() { std::fs::write("heavy-ran", "yes").unwrap(); panic!("full failure"); }
+#[test] fn formal_heavy_neighbor() {
+    std::fs::write("neighbor-ran", "yes").unwrap();
+    assert!(std::env::var_os("FAIL_ORDINARY_NEIGHBOR").is_none());
+}
+#[test] #[ignore] fn ignored_case() { panic!("ignored"); }
+''')
+            subprocess.run(['rustc', '--test', str(source), '-o', str(executable)], check=True)
+            selected = FastExecutionSelection().selection(('oasis7_chain_runtime',)) | dict(
+                formal_full_profiles_only_version=1, formal_shards=[],
+                formal_deferred_ordinary_cases={'runtime-tests': ['formal_heavy']})
+            binary = dict(package='oasis7_chain_runtime', target='oasis7_chain_runtime',
+                          target_kind=['lib'], variant='required', ordinary=True,
+                          tests=artifacts.inventory(executable), ignored_tests=artifacts.inventory(executable, True),
+                          path=executable.name, cwd='.')
+            manifest = dict(scope='ordinary', binaries={'runtime-tests': binary}, execution_plan=selected)
+            environment = dict(os.environ)
+            environment.pop('FAIL_ORDINARY_NEIGHBOR', None)
+            def execute(selection, name, fail_neighbor=False):
+                manifest['execution_plan'] = selection
+                env = dict(environment)
+                if fail_neighbor:
+                    env['FAIL_ORDINARY_NEIGHBOR'] = '1'
+                with patch.object(artifacts, 'ROOT', root), \
+                     patch.object(artifacts, 'load', return_value=(manifest, env)), \
+                     patch.object(artifacts, 'snapshot_regressions', return_value=()):
+                    artifacts.execute(root, 'ordinary', root / (name + '.jsonl'), plan=selection)
+            execute(selected, 'fast')
+            self.assertTrue((root / 'ordinary-ran').is_file())
+            self.assertTrue((root / 'neighbor-ran').is_file())
+            self.assertFalse((root / 'heavy-ran').exists())
+            receipt = json.loads((root / 'fast.jsonl').read_text())
+            self.assertTrue(receipt['passed'])
+            self.assertEqual(receipt['expected_count'], 2)
+            with self.assertRaises(RuntimeError):
+                execute(selected, 'neighbor-failure', fail_neighbor=True)
+            full = selected | dict(execution_profile='periodic-full', scope='explicit-full',
+                                   groups=['baseline', 'oasis7_required', 'formal_process'],
+                                   formal_suites=list(artifacts.SHARDS), formal_shards=list(artifacts.SHARDS),
+                                   formal_deferred_ordinary_cases={})
+            legacy = {key: value for key, value in selected.items()
+                      if key not in ('formal_full_profiles_only_version', 'formal_deferred_ordinary_cases')}
+            for name, selection in [('full', full), ('old-base', legacy)]:
+                with self.subTest(profile=name), self.assertRaises(RuntimeError):
+                    execute(selection, name)
+                self.assertTrue((root / 'heavy-ran').is_file())
+                receipt = json.loads((root / (name + '.jsonl')).read_text())
+                self.assertFalse(receipt['passed'])
+                self.assertEqual(receipt['expected_count'], 3)
 
     def test_real_native_partitions_preserve_feature_isolation_and_complete_harnesses(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -28,7 +28,7 @@ std::thread_local! {
     static LAST_SERVICE_ERROR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test_tier_full"))]
 pub(super) fn take_last_service_error() -> Option<String> {
     LAST_SERVICE_ERROR.with(|slot| slot.borrow_mut().take())
 }
