@@ -1095,3 +1095,18 @@ mod native_refs;
 
 #[path = "endpoint_store_bounded_native_refs.rs"]
 pub(super) mod bounded_native_refs;
+
+#[path = "endpoint_store_bounded_hot_read.rs"]
+mod bounded_hot_read;
+pub(super) use bounded_hot_read::PaidNativeHotV1;
+impl Store {
+    pub(super) fn read_hot_bounded(
+        &self,
+        expected_public_key: &str,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &super::FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidNativeHotV1, FormalError> {
+        bounded_hot_read::read_hot_bounded_v1(self, expected_public_key, memory, work, stop)
+    }
+}
