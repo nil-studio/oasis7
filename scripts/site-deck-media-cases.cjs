@@ -1,5 +1,6 @@
 // Exercise the shipped Reveal bundle with real cross-origin iframe documents.
 const assert = require('node:assert/strict');
+const http = require('node:http');
 
 const frameDocument = `<!doctype html><title>Controlled media frame</title>
 <script>addEventListener('message', event => {
@@ -20,6 +21,14 @@ async function drainMessages(page) {
 
 async function checkEmbeddedProviders(browser, target) {
   const context = await browser.newContext({viewport: {width: 1440, height: 900}});
+  // Playwright routes intercept the first request of a redirect chain only.
+  // Serve the final origin over real loopback HTTP instead of relying on a
+  // second interception of an intentionally unresolvable .invalid hostname.
+  const redirectServer = http.createServer((_request, response) => {
+    response.writeHead(200, {'Content-Type': 'text/html'});
+    response.end(frameDocument);
+  });
+  let redirectTarget;
   let redirectPlayer = false;
   const errors = [];
   const cases = [
@@ -51,12 +60,18 @@ async function checkEmbeddedProviders(browser, target) {
     {name: 'opaque-origin', url: 'data:text/html,youtube.com/embed/42', formatOnly: true},
   ];
   try {
+    await new Promise((resolve, reject) => {
+      redirectServer.once('error', reject);
+      redirectServer.listen(0, '127.0.0.1', resolve);
+    });
+    redirectTarget = `http://127.0.0.1:${redirectServer.address().port}/frame`;
     await context.route('**/*', route => {
       const request = route.request();
+      if (request.url() === redirectTarget) return route.continue();
       if (request.isNavigationRequest() && request.frame().parentFrame()) {
         const url = new URL(request.url());
         if (redirectPlayer && url.hostname === 'www.youtube.com') {
-          return route.fulfill({status: 302, headers: {location: 'https://redirect.invalid/frame'}});
+          return route.fulfill({status: 302, headers: {location: redirectTarget}});
         }
         return route.fulfill({contentType: 'text/html', body: frameDocument});
       }
@@ -129,7 +144,7 @@ async function checkEmbeddedProviders(browser, target) {
         assert.equal(initial.formatted, test.url, test.name + ': non-provider URL was modified');
       }
       if (test.formatOnly) continue;
-      const destination = test.redirect ? 'https://redirect.invalid/frame'
+      const destination = test.redirect ? redirectTarget
         : new URL(initial.formatted, page.url()).href;
       // Observe this navigation's actual target and load, never the initial about:blank.
       const loaded = page.waitForEvent('framenavigated', frame =>
@@ -159,7 +174,11 @@ async function checkEmbeddedProviders(browser, target) {
     return {suite: 'embedded-media-providers', result: 'pass', cases: cases.length,
       lifecycleCases: cases.filter(test => !test.formatOnly).length};
   } finally {
-    await context.close();
+    try { await context.close(); } finally {
+      if (redirectServer.listening) {
+        await new Promise((resolve, reject) => redirectServer.close(error => error ? reject(error) : resolve()));
+      }
+    }
   }
 }
 
