@@ -124,7 +124,7 @@ class HostedClock(unittest.TestCase):
         self.assertEqual(len(entries), 4)
         return entries
 
-    def run_clock(self, code, name, folder, *, offset=0, age=2, header=True):
+    def run_clock(self, code, name, folder, *, offset=0, age=2, header=True, mode='capacity', compare=False):
         started = datetime.datetime(2026, 11, 1, 9, 45, 42, tzinfo=datetime.timezone.utc)
         server_now = started.timestamp() + age
         runner_now = server_now + offset
@@ -135,7 +135,8 @@ class HostedClock(unittest.TestCase):
         output = Path(folder) / 'env'
         env = dict(GITHUB_REPOSITORY='example/repo', GITHUB_RUN_ID='1',
                    GITHUB_RUN_ATTEMPT='1', GH_TOKEN='test-token',
-                   GITHUB_ENV=str(output), RUNNER_TEMP=folder, CAPACITY_MODE='capacity')
+                   GITHUB_ENV=str(output), RUNNER_TEMP=folder, CAPACITY_MODE=mode,
+                   COMPARE_QUALIFIER_PATCH='true' if compare else 'false')
         with patch.dict(os.environ, env), patch('urllib.request.urlopen', return_value=response), \
                 patch('time.time', return_value=runner_now), \
                 patch('time.monotonic', side_effect=[10.0, 11.0]), contextlib.redirect_stdout(io.StringIO()):
@@ -161,6 +162,18 @@ class HostedClock(unittest.TestCase):
                     with self.assertRaises((SystemExit, ValueError, TypeError)):
                         self.run_clock(code, name, folder, **args)
                     self.assertFalse((Path(folder) / 'env').exists())
+
+    def test_research_modes_keep_distinct_budgets_and_reject_the_capacity_only_flag(self):
+        _,name,code=next(entry for entry in self.clocks() if entry[0]=='codeql-rust-capacity.yml')
+        for mode,budget in [('capacity',5400),('official-default-research',21600),('qualifier-research',9000)]:
+            for offset in (-3600,3600):
+                with self.subTest(mode=mode,offset=offset),tempfile.TemporaryDirectory() as folder:
+                    self.assertEqual(self.run_clock(code,name,folder,mode=mode,offset=offset),budget-4)
+            if mode!='capacity':
+                with tempfile.TemporaryDirectory() as folder:
+                    with self.assertRaisesRegex(SystemExit,'requires capacity mode'):
+                        self.run_clock(code,name,folder,mode=mode,compare=True)
+                    self.assertFalse((Path(folder)/'env').exists())
 
 
 if __name__ == '__main__':
