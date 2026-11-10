@@ -4,6 +4,8 @@ use super::*;
 pub(in crate::viewer::runtime_live) struct LineagePublicationOwner {
     pending: std::sync::atomic::AtomicU64,
     generation: std::sync::atomic::AtomicU64,
+    confirmed: std::sync::atomic::AtomicU64,
+    owner_identity: std::sync::Arc<()>,
     deferred: std::sync::atomic::AtomicBool,
     capture_failed: std::sync::atomic::AtomicBool,
     outstanding: std::sync::atomic::AtomicUsize,
@@ -16,6 +18,8 @@ impl Default for LineagePublicationOwner {
         Self {
             pending: 0.into(),
             generation: 1.into(),
+            confirmed: 0.into(),
+            owner_identity: std::sync::Arc::new(()),
             deferred: false.into(),
             capture_failed: false.into(),
             outstanding: 0.into(),
@@ -24,6 +28,12 @@ impl Default for LineagePublicationOwner {
             failed_original: None.into(),
         }
     }
+}
+/// Exact publication proof, scoped to a still-owned publisher identity and payload.
+pub(in crate::viewer::runtime_live) struct LineagePublicationReceipt {
+    owner: std::sync::Arc<()>,
+    ticket: Option<u64>,
+    payload_digest: String,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::viewer::runtime_live) struct PublicationSourceScope {
@@ -107,6 +117,54 @@ impl RuntimeLlmSidecar {
             .pending
             .load(std::sync::atomic::Ordering::Acquire)
     }
+    pub(in crate::viewer::runtime_live) fn retain_feedback_publication(
+        &mut self,
+        feedback: &crate::simulator::FeedbackEnvelopeV1,
+        ticket: Option<u64>,
+    ) -> Result<(), String> {
+        let payload_digest =
+            blake3::hash(&serde_json::to_vec(feedback).map_err(|e| e.to_string())?)
+                .to_hex()
+                .to_string();
+        self.hosted_terminal_feedback_publications.insert(
+            feedback.feedback_id.clone(),
+            LineagePublicationReceipt {
+                owner: self.publication.owner_identity.clone(),
+                ticket,
+                payload_digest,
+            },
+        );
+        Ok(())
+    }
+    pub(in crate::viewer::runtime_live) fn feedback_publication_confirmed(
+        &self,
+        feedback: &crate::simulator::FeedbackEnvelopeV1,
+    ) -> bool {
+        let Ok(payload) = serde_json::to_vec(feedback) else {
+            return false;
+        };
+        self.hosted_terminal_feedback_publications
+            .get(&feedback.feedback_id)
+            .is_some_and(|receipt| {
+                std::sync::Arc::ptr_eq(&receipt.owner, &self.publication.owner_identity)
+                    && receipt.payload_digest == blake3::hash(&payload).to_hex().as_str()
+                    && receipt
+                        .ticket
+                        .is_none_or(|ticket| self.publication_ticket_confirmed(ticket))
+            })
+    }
+    pub(in crate::viewer::runtime_live) fn publication_ticket_confirmed(
+        &self,
+        ticket: u64,
+    ) -> bool {
+        ticket != 0
+            && !self.publication_capture_failed()
+            && self
+                .publication
+                .confirmed
+                .load(std::sync::atomic::Ordering::Acquire)
+                == ticket
+    }
     pub(in crate::viewer::runtime_live) fn publication_capture_failed(&self) -> bool {
         self.publication
             .capture_failed
@@ -128,6 +186,9 @@ impl RuntimeLlmSidecar {
                 std::sync::atomic::Ordering::Acquire,
             )
             .map_err(|_| "lineage publication completion ticket changed")?;
+        self.publication
+            .confirmed
+            .store(ticket, std::sync::atomic::Ordering::Release);
         self.publication
             .outstanding
             .store(0, std::sync::atomic::Ordering::Release);
@@ -175,8 +236,13 @@ impl RuntimeLlmSidecar {
         };
         let reservation = ordered_publication::reserve(path)?;
         let capture_phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(43);
+        let provider_raw_outcomes = self.hosted_raw_outcomes()?;
         let checkpoint = PersistedProviderLineageV1 {
-            schema_version: PROVIDER_LINEAGE_SCHEMA_VERSION,
+            schema_version: if provider_raw_outcomes.is_empty() {
+                PROVIDER_LINEAGE_SCHEMA_VERSION
+            } else {
+                RAW_PROVIDER_LINEAGE_SCHEMA_VERSION
+            },
             provider_session_ids: self.provider_session_ids.clone(),
             provider_agent_ids: self.provider_agent_ids.clone(),
             provider_context_seq: self.provider_context_seq.clone(),
@@ -200,6 +266,7 @@ impl RuntimeLlmSidecar {
             provider_feedback_seq: self.provider_feedback_seq.clone(),
             provider_feedback_seq_by_session: self.provider_feedback_seq_by_session.clone(),
             provider_memory_store: self.provider_memory_store.clone(),
+            provider_raw_outcomes,
             provider_completed_decisions: self.provider_completed_decisions.clone(),
             provider_held_decisions: self.provider_held_decisions.clone(),
             provider_stale_replans: self.provider_stale_replans.clone(),

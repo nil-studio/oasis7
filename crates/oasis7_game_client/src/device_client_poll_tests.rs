@@ -74,6 +74,7 @@ fn read_request(stream: &mut TcpStream) -> (String, Vec<u8>) {
 }
 fn committed(original: &SubmitIntentRequest<WorldServicePayloadV1>) -> IntentResponse<Value> {
     IntentResponse {
+        terminal_recovery_authority: None,
         contract_version: 1,
         formal_profile: None,
         execution_evidence_scope: None,
@@ -228,6 +229,7 @@ impl Probe {
                             (
                                 authority::request_digest(SUBMIT_PATH, &submitted).unwrap(),
                                 IntentResponse {
+                                    terminal_recovery_authority: None,
                                     contract_version: 1,
                                     formal_profile: None,
                                     execution_evidence_scope: None,

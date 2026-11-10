@@ -2473,6 +2473,40 @@ release_web_fixture_start() { record start; }
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(trace.read_text().splitlines(), ['viewer', 'fixture', 'start'])
 
+    def test_full_provider_artifact_is_prepared_once_before_each_full_dispatch(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        prelude = re.search(r'^if \[\[ -z "\$group" \]\]; then\n.*?^fi$', driver, re.M | re.S).group()
+        extended = re.search(r'^run_full_extended_tier_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+        self.assertNotIn('prepare-provider', extended)
+        self.assertNotIn('prepare_full_provider_artifact', extended)
+        with tempfile.TemporaryDirectory() as temporary:
+            for tier in ('full', 'full-standard', 'full-extended', 'full-core'):
+                case = r'full\|full-standard' if tier in ('full', 'full-standard') else tier
+                dispatch = re.search(r'^    ' + case + r'\) (.*?) ;;$', driver, re.M).group(1)
+                script = """set -euo pipefail
+group=
+prepared=0
+prepare_full_provider_artifact() { ((prepared+=1)); printf 'PREPARE\\n' >> "$CI_LOG"; }
+require_prepared() { [[ "$prepared" == 1 ]]; printf 'CONSUME\\n' >> "$CI_LOG"; }
+run_full_required_superset() { require_prepared; }
+run_rust_baseline() { require_prepared; }
+run_oasis7_full_tier_tests() { require_prepared; }
+run_workspace_support_full_feature_tests() { require_prepared; }
+run_oasis7_llm_baseline_fixture_smoke() { require_prepared; }
+run_oasis7_production_mock_guard() { require_prepared; }
+run_oasis7_test_tier_with_viewer() { require_prepared; }
+run_full_core_tier_tests() { require_prepared; }
+run_group() { require_prepared; }
+""" + 'tier=' + shlex.quote(tier) + '\n' + extended + '\n' + prelude + '\n' + dispatch
+                log = Path(temporary) / (tier + '.log')
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                                        env=dict(os.environ, CI_LOG=str(log)))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = log.read_text().splitlines()
+                self.assertEqual(calls[0], 'PREPARE')
+                self.assertEqual(calls.count('PREPARE'), 1)
+                self.assertGreater(calls.count('CONSUME'), 0)
+
     def test_full_tail_keeps_strict_wasmtime_profile_and_fixture_viewer(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()

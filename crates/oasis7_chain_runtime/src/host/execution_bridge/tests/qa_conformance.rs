@@ -13,6 +13,7 @@ mod application_hosted_final_budget;
 mod application_hosted_final_budget_clock;
 mod application_hosted_final_budget_recovery;
 mod application_hosted_final_budget_write_failure;
+mod application_hosted_known_failure;
 mod application_hosted_resume_rejection;
 mod application_hosted_resume_rejection_recovery;
 mod application_hosted_resume_rejection_write_failure;

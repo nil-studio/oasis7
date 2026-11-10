@@ -44,6 +44,7 @@ pub(super) fn fact(
             domain,
             digest,
             ws::IntentResponse {
+                terminal_recovery_authority: None,
                 formal_profile: None,
                 execution_evidence_scope: None,
                 contract_version: 1,

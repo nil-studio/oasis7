@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded public-callee observations after immutable official capacity evidence."""
+"""Bounded public-callee observations after sealed capacity or extraction evidence."""
 import argparse
 import copy
 import csv
@@ -26,13 +26,17 @@ TYPE_FILE = 'codeql/rust/internal/typeinference/TypeInference.qll'
 NAMES = ('CallsCandidate', 'CallsLegacy')
 PACK = 'oasis7/rust-qualifier-comparison'
 MAX_SECONDS, JOB_RESERVE, AUDIT_RESERVE = 900, 450, 60
+RESEARCH_SECONDS, VARIANT_SECONDS = 7200, 3600
 
 
-def allocation(deadline, now, monotonic):
+def allocation(deadline, now, monotonic, mode='capacity'):
+    if mode not in ('capacity', 'qualifier-research'):
+        raise RuntimeError('unknown comparison mode')
+    research = mode == 'qualifier-research'
     remaining = deadline - now
-    if not math.isfinite(remaining) or remaining > 5400:
-        raise RuntimeError('comparison cannot extend the fixed capacity deadline')
-    seconds = min(MAX_SECONDS, max(0, remaining - JOB_RESERVE))
+    if not math.isfinite(remaining) or remaining > (9000 if research else 5400):
+        raise RuntimeError('comparison cannot extend the fixed job deadline')
+    seconds = min(RESEARCH_SECONDS if research else MAX_SECONDS, max(0, remaining - JOB_RESERVE))
     return seconds, monotonic + seconds
 
 
@@ -55,9 +59,11 @@ def verify_seal(root, end):
     return actual
 
 
-def admit(captured, finished, source, deadline):
+def admit(captured, finished, source, deadline, mode='capacity'):
+    if mode not in ('capacity', 'qualifier-research'):
+        raise RuntimeError('unknown comparison mode')
     for phase, value in [('capture', captured), ('finish', finished)]:
-        if (value.get('phase') != phase or value.get('mode') != 'capacity'
+        if (value.get('phase') != phase or value.get('mode') != mode
                 or value.get('source') != capacity.CAPACITY_SOURCE
                 or value.get('source_root') != str(source)
                 or value.get('fixed_job_deadline') != deadline
@@ -69,6 +75,17 @@ def admit(captured, finished, source, deadline):
             or any(captured.get(k) != 'PASS' for k in
                    ('checkout_gate', 'lock_observation_gate', 'resource_gate'))):
         raise RuntimeError('official capture admission failed')
+    if mode == 'qualifier-research':
+        if (any(v.get('expected_bundle_version') != '2.27.4' for v in (captured, finished))
+                or finished.get('status') != 'EXTRACTION_READY'
+                or finished.get('assessment_status') != 'RESEARCH_READY'
+                or finished.get('verification_admitted') is not True
+                or finished.get('extraction_checkpoint') != 'PASS' or finished.get('archived_source') != 'PASS'
+                or finished.get('default_result_verification') != 'NOT_REQUESTED'
+                or finished.get('public_semantics') != 'NOT_REQUESTED'
+                or any(finished.get('after_identity', {}).get(k) != 'UNCHANGED' for k in ('source', 'official'))):
+            raise RuntimeError('official extraction checkpoint did not finish')
+        return
     if (finished.get('verification_admitted') is not True
             or finished.get('default_result_verification') != 'PASS'
             or finished.get('public_semantics') not in ('PASS', 'FAIL')):
@@ -107,14 +124,35 @@ def compare(observed):
     return dict(restored=restored, preserved=preserved, unresolved=unresolved)
 
 
+def preserve_results(results, variant, out, end):
+    """Save bounded raw results even when a batch fails; do not decode them."""
+    saved = {}
+    for name, path in results.items():
+        capacity.check_time(end)
+        if path.is_symlink():
+            raise RuntimeError('unsafe comparison result')
+        if not path.is_file():
+            saved[name] = {'status': 'NOT_PRODUCED'}
+            continue
+        size = path.stat().st_size
+        if size > 8 * 1024**2:
+            raise RuntimeError('comparison BQRS exceeds bounded evidence capacity')
+        data = path.read_bytes()
+        target = out / (variant + '-' + name + '.bqrs')
+        runtime.evidence_write(target, data, out)
+        saved[name] = dict(status='SAVED_UNVERIFIED', bytes=size, sha256=hashlib.sha256(data).hexdigest())
+    runtime.save(out / (variant + '-bqrs.json'), saved, out)
+
+
 def main():
     started = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('codeql', 'source', 'database', 'official-evidence', 'output', 'work'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True)
+    parser.add_argument('--mode', choices=('capacity', 'qualifier-research'), default='capacity')
     args = parser.parse_args()
-    seconds, end = allocation(args.deadline, time.time(), started)
+    seconds, end = allocation(args.deadline, time.time(), started, args.mode)
     source, database, official = args.source.resolve(), args.database.resolve(), args.codeql.parent.resolve()
     out, work = args.output.absolute(), args.work.absolute()
     runner = Path(os.environ['RUNNER_TEMP']).resolve()
@@ -127,11 +165,12 @@ def main():
         raise RuntimeError('comparison output and working data overlap')
     out.mkdir(exist_ok=False)
     runtime.CAP, runtime.WRITE_CAP = 64 * 1024**2, 63 * 1024**2
-    terminal = dict(status='INCOMPLETE', source=capacity.CAPACITY_SOURCE,
+    terminal = dict(status='INCOMPLETE', mode=args.mode, source=capacity.CAPACITY_SOURCE,
                     fixed_job_deadline=args.deadline, allocated_seconds=seconds,
                     post_research_reserve_seconds=JOB_RESERVE, stages={},
                     evaluator_cache='shared finalized dataset; sequential, not a cold-cache comparison',
-                    production_acceptance='UNCHANGED', database_upload=False, security_upload=False)
+                    production_acceptance='UNCHANGED', production_capacity='UNKNOWN', full_rust_coverage='HOLD',
+                    database_upload=False, security_upload=False)
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     seal = before = None
 
@@ -155,9 +194,10 @@ def main():
         save('official-evidence-before.json', seal)
         captured = json.loads((args.official_evidence / 'capacity-capture-terminal.json').read_text())
         finished = json.loads((args.official_evidence / 'capacity-finish-terminal.json').read_text())
-        admit(captured, finished, source, args.deadline)
+        admit(captured, finished, source, args.deadline, args.mode)
         terminal['official_terminal_status'] = finished['status']
         terminal['official_public_semantics'] = finished['public_semantics']
+        terminal['official_default_result_verification'] = finished['default_result_verification']
         terminal['official_evidence_seal_sha256'] = seal['hashes.json']
         before = capacity.after_identity(source, official, args.official_evidence, end=end)
         save('protected-inputs-before.json', before)
@@ -165,12 +205,9 @@ def main():
             raise RuntimeError('frozen source or official library changed')
         run([args.codeql, 'resolve', 'database', database, '--format=json'], 'database-identity', 20)
         db = json.loads((out / 'database-identity.log').read_text())
-        metadata = database / 'codeql-database.yml'
-        if (db.get('sourceLocationPrefix') != str(source) or db.get('languages') != ['rust']
-                or db.get('datasetFolder') != str(database / 'db-rust')
-                or '\nfinalised: true\n' not in metadata.read_text()):
-            raise RuntimeError('finalized database identity differs')
-        terminal['database_metadata_sha256'] = runtime.digest(metadata)
+        terminal['database_metadata_sha256'] = capacity.finalized_database_identity(db, source, database)
+        if args.mode == 'qualifier-research' and finished.get('database_metadata_sha256') != terminal['database_metadata_sha256']:
+            raise RuntimeError('database metadata differs from extraction checkpoint')
         resources = capacity.resources(env)
         recorded = json.loads((args.official_evidence / 'resources.json').read_text())
         if any(resources[k] != recorded[k] for k in ('CODEQL_RAM', 'CODEQL_THREADS')):
@@ -208,25 +245,32 @@ def main():
         observed = {}
         for variant, selected in [('official', closure), ('candidate', candidate_closure(closure, private))]:
             observed[variant] = {}
+            save('observations.json', observed)
             root = work / variant
             query = root / 'queries'
             query.mkdir(parents=True)
-            (query / 'qlpack.yml').write_text('name: ' + PACK + '\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.25\n')
+            research = args.mode == 'qualifier-research'
+            pack = PACK + '-' + variant if research else PACK
+            (query / 'qlpack.yml').write_text('name: ' + pack + '\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.25\n')
             options = ['--additional-packs=' + os.pathsep.join(p['root'] for p in selected.values()),
                        '--no-default-compilation-cache', '--compilation-cache=' + str(root / 'compilation-cache'),
                        '--common-caches=' + str(root / 'common-cache')]
             save(variant + '-closure.json', selected)
+            results = {}
             for name, text in texts.items():
-                stage = variant + '-' + name
-                terminal['stages'][stage] = 'INCOMPLETE'
-                q, b = query / (name + '.ql'), root / (name + '.bqrs')
-                q.write_text(text)
+                terminal['stages'][variant + '-' + name] = 'INCOMPLETE'
+                (query / (name + '.ql')).write_text(text)
+                results[name] = (database / 'results' / pack if research else root) / (name + '.bqrs')
+
+            def resolve(name):
+                stage, q = variant + '-' + name, query / (name + '.ql')
                 run([args.codeql, 'resolve', 'library-path', '--query=' + str(q), '--format=json', *options], stage + '-library', 20)
                 resolved = json.loads((out / (stage + '-library.log')).read_text())
-                capacity.bundle.verify_library_path(resolved, query, name, selected, PACK)
-                run([args.codeql, 'query', 'run', q, '--database=' + str(database), '--output=' + str(b),
-                     '--threads=' + str(resources['CODEQL_THREADS']), '--ram=' + str(resources['CODEQL_RAM']), *options], stage + '-run')
-                run([args.codeql, 'bqrs', 'decode', b, '--format=csv'], stage + '-decode', 20)
+                capacity.bundle.verify_library_path(resolved, query, name, selected, pack)
+
+            def decode(name):
+                stage = variant + '-' + name
+                run([args.codeql, 'bqrs', 'decode', results[name], '--format=csv'], stage + '-decode', 20)
                 with (out / (stage + '-decode.log')).open() as stream:
                     rows = list(csv.reader(stream))
                 if not rows or rows[0] != ['col0', 'col1', 'col2', 'col3'] or len(rows) > 3:
@@ -234,6 +278,38 @@ def main():
                 observed[variant][name] = observation(name, rows[1:], source, provenance)
                 terminal['stages'][stage] = 'COMPLETE'
                 save('observations.json', observed)
+
+            if research:
+                for name in texts: resolve(name)
+                batch = dict(status='INCOMPLETE', pack=pack, queries=list(texts))
+                terminal.setdefault('batches', {})[variant] = batch
+                batch_start = time.monotonic()
+                failed = False
+                try:
+                    run([args.codeql, 'database', 'run-queries', database, *[query / (n + '.ql') for n in texts],
+                         '--threads=' + str(resources['CODEQL_THREADS']), '--ram=' + str(resources['CODEQL_RAM']),
+                         *options], variant + '-batch', VARIANT_SECONDS)
+                    batch['status'] = 'COMPUTED'
+                except Exception:
+                    failed = True
+                    raise
+                finally:
+                    batch['elapsed_seconds'] = time.monotonic() - batch_start
+                    try:
+                        preserve_results(results, variant, out, end)
+                    except Exception as error:
+                        if not failed: raise
+                        terminal.setdefault('result_capture_errors', []).append(str(error))
+                for name in texts: decode(name)
+                batch['status'] = 'COMPLETE'
+            else:
+                # Preserve the existing capacity add-on's four sequential commands and budget.
+                for name in texts:
+                    resolve(name)
+                    run([args.codeql, 'query', 'run', query / (name + '.ql'), '--database=' + str(database),
+                         '--output=' + str(results[name]), '--threads=' + str(resources['CODEQL_THREADS']),
+                         '--ram=' + str(resources['CODEQL_RAM']), *options], variant + '-' + name + '-run')
+                    decode(name)
         terminal['comparison'] = compare(observed)
         terminal['status'] = 'COMPARISON_COMPLETED'
     except Exception as error:

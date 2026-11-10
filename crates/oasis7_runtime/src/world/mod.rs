@@ -43,6 +43,8 @@ mod capability_authorization_state;
 mod capability_authorization_transaction;
 mod capability_authorization_validation;
 mod capability_catalog;
+mod provider_terminal_authority;
+pub use provider_terminal_authority::ProviderCapabilityAvailability;
 mod capability_effect_receipt_projection;
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
 mod capability_test_fixture;
@@ -83,8 +85,8 @@ mod gameplay_layer;
 mod gameplay_loop;
 mod governance;
 mod governance_authorization;
-mod governance_finality_key_rotation;
 mod governance_bft_parent;
+mod governance_finality_key_rotation;
 mod governance_history;
 mod governance_history_snapshot;
 mod governance_identity_penalty;
@@ -509,7 +511,19 @@ impl World {
         Ok(world)
     }
 
-    pub fn new_with_state(mut state: WorldState) -> Self {
+    pub fn new_with_state(state: WorldState) -> Self {
+        Self::assemble_with_state(state, true)
+    }
+
+    // A persisted state's identities belong to its sealed Tick commitment.
+    // Keep existing compatibility hydration, but never add a fixture identity
+    // just because the reader binary enables test support.
+    fn new_with_state_for_restore(state: WorldState) -> Self {
+        Self::assemble_with_state(state, false)
+    }
+
+    fn assemble_with_state(mut state: WorldState, fresh_fixture_identity: bool) -> Self {
+        let _ = fresh_fixture_identity;
         state.migrate_compat_material_ledgers();
         state
             .node_identity_bindings
@@ -543,10 +557,12 @@ impl World {
                 });
         }
         #[cfg(any(test, feature = "test_tier_required", feature = "test_tier_full"))]
-        state
-            .node_identity_bindings
-            .entry(TEST_MODULE_SIGNER_NODE_ID.to_string())
-            .or_insert_with(test_module_signer_public_key_hex);
+        if fresh_fixture_identity {
+            state
+                .node_identity_bindings
+                .entry(TEST_MODULE_SIGNER_NODE_ID.to_string())
+                .or_insert_with(test_module_signer_public_key_hex);
+        }
         if state.governance_finality_signer_registry.is_none() {
             for (node_id, public_key_hex) in
                 governance::local_governance_finality_signer_public_keys()
@@ -914,42 +930,6 @@ impl World {
         self
     }
 
-    pub(super) fn preview_next_event_id(
-        next_id: WorldEventId,
-        era: u64,
-    ) -> (WorldEventId, WorldEventId, u64) {
-        Self::preview_rolling_sequence_id(next_id, era)
-    }
-
-    pub(super) fn allocate_next_action_id(&mut self) -> ActionId {
-        Self::allocate_rolling_sequence_id(&mut self.next_action_id, &mut self.next_action_id_era)
-    }
-
-    pub(super) fn allocate_next_intent_seq(&mut self) -> IntentSeq {
-        Self::allocate_rolling_sequence_id(&mut self.next_intent_id, &mut self.next_intent_id_era)
-    }
-
-    pub(super) fn allocate_next_proposal_id(&mut self) -> ProposalId {
-        Self::allocate_rolling_sequence_id(
-            &mut self.next_proposal_id,
-            &mut self.next_proposal_id_era,
-        )
-    }
-
-    pub(super) fn preview_next_intent_seq(
-        next_id: IntentSeq,
-        era: u64,
-    ) -> (IntentSeq, IntentSeq, u64) {
-        Self::preview_rolling_sequence_id(next_id, era)
-    }
-
-    pub(super) fn preview_next_proposal_id(
-        next_id: ProposalId,
-        era: u64,
-    ) -> (ProposalId, ProposalId, u64) {
-        Self::preview_rolling_sequence_id(next_id, era)
-    }
-
     pub(super) fn enforce_pending_action_limit(&mut self) {
         let max_len = self.runtime_memory_limits.max_pending_actions.max(1);
         while self.pending_actions.len() > max_len {
@@ -1102,6 +1082,9 @@ mod participant_devlocal_tests;
 mod participant_devlocal;
 pub use participant_devlocal::DevLocalParticipantAuthority;
 
+#[cfg(test)]
+mod persistence_fixture_identity_tests;
+
 pub mod incremental_body;
 pub mod incremental_body_event;
 mod incremental_module_fee;
@@ -1115,8 +1098,8 @@ pub mod incremental_step;
 pub mod incremental_agent_genesis;
 pub mod incremental_agent_verified_genesis;
 pub mod incremental_scheduler;
-pub mod incremental_scheduler_recovery;
 mod incremental_scheduler_index;
+pub mod incremental_scheduler_recovery;
 
 pub mod incremental_projection;
 

@@ -46,6 +46,42 @@ class Comparison(unittest.TestCase):
                         after_identity={'source': 'NOT_REACHED', 'official': 'NOT_REACHED'})
         return captured, finished, source, deadline
 
+    def research_terminals(self):
+        captured, finished, source, deadline = self.terminals()
+        for value in (captured, finished):
+            value.update(mode='qualifier-research', expected_bundle_version='2.27.4')
+        finished.update(status='EXTRACTION_READY', assessment_status='RESEARCH_READY',
+                        extraction_checkpoint='PASS', archived_source='PASS',
+                        default_result_verification='NOT_REQUESTED', public_semantics='NOT_REQUESTED',
+                        after_identity={'source': 'UNCHANGED', 'official': 'UNCHANGED'})
+        finished.pop('public_semantic_tables'); finished.pop('public_semantic_failures')
+        return captured, finished, source, deadline
+
+    def test_independent_research_has_a_bounded_distinct_window(self):
+        for remaining, expected in ((9000, 7200), (7650, 7200), (4800, 4350), (509, 59), (450, 0)):
+            seconds, end = m.allocation(10000 + remaining, 10000, 123, mode='qualifier-research')
+            self.assertEqual((seconds, end), (expected, 123 + expected))
+            self.assertGreaterEqual(remaining - seconds, 450)
+        for invalid in (9001, float('inf'), float('nan')):
+            with self.assertRaises(RuntimeError):
+                m.allocation(10000 + invalid, 10000, 123, mode='qualifier-research')
+
+    def test_extraction_checkpoint_is_separate_from_capacity_admission(self):
+        m.admit(*self.research_terminals(), mode='qualifier-research')
+        with self.assertRaises(RuntimeError):
+            m.admit(*self.research_terminals())
+        with self.assertRaises(RuntimeError):
+            m.admit(*self.terminals(), mode='qualifier-research')
+        for side, key, value in [(0, 'expected_bundle_version', '2.27.3'), (0, 'evidence_status', 'PARTIAL'),
+                (0, 'cargo_guard', {'status': 'FAIL'}), (1, 'status', 'RESEARCH_INCOMPLETE'),
+                (1, 'extraction_checkpoint', 'INCOMPLETE'), (1, 'archived_source', 'FAIL'),
+                (1, 'after_identity', {'source': 'UNCHANGED', 'official': 'CHANGED'}),
+                (1, 'default_result_verification', 'PASS'), (1, 'public_semantics', 'PASS')]:
+            with self.subTest(key=key):
+                args = list(self.research_terminals()); args[side][key] = value
+                with self.assertRaises(RuntimeError):
+                    m.admit(*args, mode='qualifier-research')
+
     def test_callee_failure_is_admitted_but_incomplete_or_changed_inputs_are_not(self):
         args = self.terminals()
         m.admit(*args)
@@ -117,8 +153,11 @@ class Comparison(unittest.TestCase):
         self.assertEqual(data.count(b'--- a/'), 1)
 
     def test_actual_entry_runs_both_variants_and_preserves_original_failure(self):
-        for interrupt in (False, True):
-            with self.subTest(interrupt=interrupt), tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+        cases = [('capacity', 'none'), ('capacity', 'timeout')]
+        cases += [('qualifier-research', failure) for failure in ('none', 'timeout', 'compile', 'decode', 'metadata')]
+        for mode, failure in cases:
+            research, interrupt = mode == 'qualifier-research', failure != 'none'
+            with self.subTest(mode=mode, failure=failure), tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
                 root = Path(directory)
                 source, runner, official = root / 'source', root / 'runner', root / 'official'
                 for path in (source, runner, official): path.mkdir()
@@ -131,8 +170,9 @@ class Comparison(unittest.TestCase):
                 type_file.write_text('old')
                 (library / 'qlpack.yml').write_text('official manifest')
                 closure = {'codeql/rust-all': {'root': str(library), 'version': '0.2.25'}}
-                captured, finished, _, _ = self.terminals()
-                deadline = time.time() + 1800
+                captured, finished, _, _ = self.research_terminals() if research else self.terminals()
+                finished['database_metadata_sha256'] = hashlib.sha256((db / 'codeql-database.yml').read_bytes()).hexdigest()
+                deadline = time.time() + (9000 if research else 1800)
                 for value in (captured, finished):
                     value.update(source_root=str(source), fixed_job_deadline=deadline)
                 resources = {'CODEQL_THREADS': 4, 'CODEQL_RAM': 4096}
@@ -150,7 +190,7 @@ class Comparison(unittest.TestCase):
                 def run(argv, cwd, output, end, timeout, evidence, env, **kwargs):
                     calls.append(argv)
                     self.assertFalse({'GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER'} & env.keys())
-                    self.assertLessEqual(end, time.monotonic() + m.MAX_SECONDS - m.AUDIT_RESERVE)
+                    self.assertLessEqual(end, time.monotonic() + (m.RESEARCH_SECONDS if research else m.MAX_SECONDS) - m.AUDIT_RESERVE)
                     self.assertEqual(cwd, source)
                     output.write_text('')
                     if argv[0] == 'patch':
@@ -160,8 +200,9 @@ class Comparison(unittest.TestCase):
                     elif argv[1:3] == ['resolve', 'library-path']:
                         q = Path(next(v.split('=', 1)[1] for v in argv if v.startswith('--query=')))
                         packs = next(v.split('=', 1)[1] for v in argv if v.startswith('--additional-packs=')).split(os.pathsep)
+                        pack = (q.parent / 'qlpack.yml').read_text().splitlines()[0].split(': ', 1)[1]
                         output.write_text(json.dumps(dict(libraryPath=[str(q.parent), *packs], dbscheme=packs[0] + '/rust.dbscheme',
-                            compilationCache=[], relativeName=m.PACK + '/' + q.name, qlPackName=m.PACK)))
+                            compilationCache=[], relativeName=pack + '/' + q.name, qlPackName=pack)))
                     elif argv[1:3] == ['query', 'run']:
                         self.assertIn('--no-default-compilation-cache', argv)
                         for option in ('--compilation-cache=', '--common-caches='):
@@ -169,11 +210,38 @@ class Comparison(unittest.TestCase):
                         if interrupt and output.name == 'candidate-CallsLegacy-run.log':
                             raise TimeoutError('injected candidate timeout')
                         Path(next(v.split('=', 1)[1] for v in argv if v.startswith('--output='))).write_bytes(b'bqrs fixture')
+                    elif argv[1:3] == ['database', 'run-queries']:
+                        self.assertTrue(research)
+                        self.assertEqual(argv[3], str(db))
+                        self.assertLessEqual(timeout, m.VARIANT_SECONDS)
+                        self.assertNotIn('--no-rerun', argv)
+                        self.assertIn('--no-default-compilation-cache', argv)
+                        for option in ('--compilation-cache=', '--common-caches='):
+                            self.assertTrue(Path(next(v.split('=', 1)[1] for v in argv if v.startswith(option))).is_relative_to(work))
+                        queries = [Path(v) for v in argv[4:] if v.endswith('.ql')]
+                        self.assertEqual([q.stem for q in queries], list(m.NAMES))
+                        pack = (queries[0].parent / 'qlpack.yml').read_text().splitlines()[0].split(': ', 1)[1]
+                        variant = 'candidate' if output.name == 'candidate-batch.log' else 'official'
+                        self.assertEqual(pack, m.PACK + '-' + variant)
+                        if variant == 'candidate':
+                            self.assertEqual(len(json.loads((out / 'observations.json').read_text())['official']), 2)
+                            if failure == 'compile': raise RuntimeError('injected compilation failure')
+                        results = db / 'results' / pack
+                        results.mkdir(parents=True)
+                        for q in queries:
+                            (results / (q.stem + '.bqrs')).write_bytes((variant + ' bqrs fixture').encode())
+                            if variant == 'candidate' and failure == 'timeout':
+                                raise TimeoutError('injected candidate timeout')
+                        if variant == 'candidate' and failure == 'metadata':
+                            (db / 'codeql-database.yml').write_text('---\nfinalised: true\nchanged: true\n')
                     elif argv[1:3] == ['bqrs', 'decode']:
                         b = Path(argv[3])
+                        self.assertTrue(b.is_file())
+                        if failure == 'decode' and output.name == 'candidate-CallsCandidate-decode.log':
+                            raise RuntimeError('injected decode failure')
                         with output.open('w') as stream:
                             writer = csv.writer(stream); writer.writerow(['col0', 'col1', 'col2', 'col3'])
-                            if b.parent.name == 'candidate':
+                            if b.parent.name == 'candidate' or b.parent.name.endswith('-candidate'):
                                 context = 'candidate' if b.stem == 'CallsCandidate' else 'legacy'
                                 writer.writerow([str(source / m.capacity.model.BASE / context / 'src/adapter.rs'), '42',
                                                  'with_existing_identity', provenance[context] + '/src/builder/phase/identity.rs'])
@@ -181,7 +249,7 @@ class Comparison(unittest.TestCase):
                         self.fail('unexpected command: ' + repr(argv))
                 argv = ['comparison', '--codeql', str(official / 'codeql'), '--source', str(source),
                         '--database', str(db), '--official-evidence', str(frozen), '--output', str(out),
-                        '--work', str(work), '--deadline', str(deadline)]
+                        '--work', str(work), '--deadline', str(deadline), '--mode', mode]
                 for item in [patch.object(sys, 'argv', argv), patch.dict(os.environ, {'RUNNER_TEMP': str(runner), 'GH_TOKEN': 'hidden'}),
                         patch.object(m.runtime, 'run', side_effect=run), patch.object(m.capacity, 'resources', return_value=resources),
                         patch.object(m.capacity.bundle, 'bundle_closure', return_value=closure),
@@ -192,14 +260,25 @@ class Comparison(unittest.TestCase):
                 self.assertEqual(m.main(), 1 if interrupt else 0)
                 terminal = json.loads((out / 'comparison-terminal.json').read_text())
                 self.assertEqual(terminal['status'], 'INCOMPLETE' if interrupt else 'COMPARISON_COMPLETED')
-                self.assertEqual(terminal['official_terminal_status'], 'FAILED')
-                self.assertEqual(terminal['official_public_semantics'], 'FAIL')
+                self.assertEqual(terminal['official_terminal_status'], 'EXTRACTION_READY' if research else 'FAILED')
+                self.assertEqual(terminal['official_public_semantics'], 'NOT_REQUESTED' if research else 'FAIL')
+                self.assertEqual(terminal['production_capacity'], 'UNKNOWN')
+                self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
                 self.assertEqual({p.name: p.read_bytes() for p in frozen.iterdir()}, before)
                 self.assertEqual(type_file.read_text(), 'old')
                 observations = json.loads((out / 'observations.json').read_text())
                 self.assertEqual(len(observations['official']), 2)
-                self.assertEqual(len(observations['candidate']), 1 if interrupt else 2)
-                self.assertEqual(len([a for a in calls if a[1:3] == ['query', 'run']]), 4)
+                expected_candidate = (0 if failure in ('timeout', 'compile', 'decode') else 2) if research else (1 if interrupt else 2)
+                self.assertEqual(len(observations['candidate']), expected_candidate)
+                self.assertEqual(len([a for a in calls if a[1:3] == ['query', 'run']]), 0 if research else 4)
+                self.assertEqual(len([a for a in calls if a[1:3] == ['database', 'run-queries']]), 2 if research else 0)
+                if research:
+                    self.assertEqual(len(list(out.glob('official-*.bqrs'))), 2)
+                    self.assertEqual(len(list(out.glob('candidate-*.bqrs'))), 1 if failure == 'timeout' else 0 if failure == 'compile' else 2)
+                    self.assertEqual({p.read_bytes() for p in out.glob('official-*.bqrs')}, {b'official bqrs fixture'})
+                    if failure in ('timeout', 'compile'):
+                        self.assertFalse(any('candidate-' in str(a[3]) for a in calls if a[1:3] == ['bqrs', 'decode']))
+                    if failure == 'metadata': self.assertIn('metadata changed', terminal['integrity_error'])
 
 
 class Workflow(unittest.TestCase):
@@ -215,6 +294,10 @@ class Workflow(unittest.TestCase):
         self.assertIn('inputs.compare_qualifier_patch == true', step)
         self.assertIn("steps.official_artifact.outcome == 'success'", step)
         self.assertIn('if: always()', step)
+        self.assertIn("inputs.mode == 'qualifier-research' || (inputs.mode == 'capacity' && inputs.compare_qualifier_patch == true)", step)
+        self.assertIn("inputs.mode == 'qualifier-research' && 121 || 16", step)
+        self.assertIn('--mode "$CAPACITY_MODE"', step)
+        self.assertIn("skip-queries: ${{ inputs.mode == 'qualifier-research' }}", text)
         self.assertNotIn('continue-on-error', text)
         self.assertIn('rust-qualifier-comparison-${{ github.run_id }}', text[compare:])
         self.assertIn('path: ${{ runner.temp }}/rust-qualifier-evidence', text[compare:])

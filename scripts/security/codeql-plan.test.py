@@ -100,6 +100,54 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(plan['selected_units'], ['actions-repo', 'python-repo', 'rust-repo'])
         self.assertIn('embedded or possible build input: ' + path, plan['reasons']['rust-repo'])
 
+    def test_required_scope_config_selects_its_python_and_actions_consumers(self):
+        path = 'scripts/ci-required-scope.json'
+        self.write(path, '{}'); self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo'])
+        for unit in ('actions-repo', 'python-repo'):
+            self.assertIn(path, result['reasons'][unit])
+
+    def test_required_scope_config_preserves_build_consumers_and_batch_limits(self):
+        self.write('build.rs', 'fn main() {}'); self.base = self.commit()
+        self.write('scripts/ci-required-scope.json', '{}'); self.commit()
+        result = self.run_plan(batch_modes=json.dumps({'python-repo/default': 'observe'}))
+        self.assertEqual(result['candidate_units'], ['actions-repo', 'python-repo', 'rust-repo'])
+        self.assertEqual(result['selected_units'], ['python-repo'])
+        self.assertEqual(result['not_selected_reasons']['actions-repo'], 'batch_disabled')
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+
+    def test_required_scope_config_changes_keep_old_consumers(self):
+        path = 'scripts/ci-required-scope.json'
+        self.write(path, 'unique fixture'); self.base = self.commit()
+        self.write(path, 'changed fixture'); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['actions-repo', 'python-repo'])
+        self.base = self.git('rev-parse', 'HEAD')
+        (self.root / path).rename(self.root / 'moved.js'); self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo', 'javascript-repo'])
+        self.assertEqual(result['completeness']['diff_paths'], ['moved.js', path])
+        self.write(path); self.base = self.commit()
+        (self.root / path).unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['actions-repo', 'python-repo'])
+
+    def test_required_scope_registration_does_not_accept_neighboring_json(self):
+        for path in ('scripts/ci-required-scope.json.extra', 'scripts/ci-required-scope-v2.json',
+                     'scripts/nested/ci-required-scope.json', 'other/ci-required-scope.json',
+                     'scripts/ci-unknown.json'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_required_scope_symlink_remains_rejected(self):
+        path = self.root / 'scripts/ci-required-scope.json'
+        path.parent.mkdir(parents=True)
+        path.symlink_to('../docs/guide.md'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
     def test_document_corpus_inputs_select_python(self):
         key = '41' + '9' * 62
         for path in (

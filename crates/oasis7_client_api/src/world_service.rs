@@ -12,6 +12,12 @@ pub mod entry_control;
 pub mod entry_executor;
 pub mod participant_discovery;
 pub mod participant_identity_snapshot;
+#[path = "world_service_terminal_recovery.rs"]
+mod terminal_recovery;
+pub use terminal_recovery::{
+    CurrentAuthenticatedJournalV1, TerminalLeaseIdentityV1, TerminalPrefixReceiptV1,
+    TerminalRecoveryAuthorityV1, TerminalRecoveryRoleV1,
+};
 
 pub const WORLD_SERVICE_CONTRACT_VERSION: u32 = 1;
 
@@ -291,6 +297,8 @@ pub enum IntentOutcome<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntentResponse<T> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_recovery_authority: Option<Box<TerminalRecoveryAuthorityV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formal_profile: Option<FormalReadProfileV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_evidence_scope: Option<String>,
@@ -305,6 +313,26 @@ impl<T> IntentResponse<T> {
         expected.validate()?;
         if &self.correlation != expected {
             return Err(ContractError("request correlation conflict"));
+        }
+        if let Some(proof) = &self.terminal_recovery_authority {
+            if self.formal_profile.is_some()
+                || !matches!(
+                    (&self.outcome, proof.schema_version),
+                    (IntentOutcome::Committed { .. }, 1) | (IntentOutcome::HistoryUnavailable, 2)
+                )
+            {
+                return Err(ContractError(
+                    "terminal recovery requires ordinary committed Lookup",
+                ));
+            }
+            proof.validate(expected)?;
+            if let IntentOutcome::Committed { commit, .. } = &self.outcome
+                && proof.prefix_commit.as_ref() != Some(commit.as_ref())
+            {
+                return Err(ContractError(
+                    "terminal Prefix commit differs from committed result",
+                ));
+            }
         }
         if let IntentOutcome::Committed { commit, .. } = &self.outcome {
             commit.validate()?;
@@ -557,6 +585,7 @@ pub use authority::*;
 pub const DESCRIBE_PATH: &str = "/v1/world/describe";
 pub const SUBMIT_PATH: &str = "/v1/world/submit";
 pub const LOOKUP_PATH: &str = "/v1/world/lookup";
+pub const TERMINAL_LOOKUP_PATH: &str = "/v1/world/lookup-terminal";
 pub const VIEW_PATH: &str = "/v1/world/view";
 pub const CHANGES_PATH: &str = "/v1/world/changes";
 

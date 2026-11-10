@@ -543,6 +543,11 @@ impl RuntimeLlmSidecar {
         let wake_recovery_backup = self.provider_wake_recovery_pending.get(agent_id).cloned();
         let exhausted_backup = self.provider_transport_exhausted.contains(agent_id);
         let cognition_lease_backup = self.provider_cognition_leases.get(agent_id).cloned();
+        let retired_raw = context
+            .as_ref()
+            .map(|context| self.retire_terminal_raw_outcomes(&context.request_context))
+            .transpose()?
+            .unwrap_or_default();
         self.provider_contexts.remove(agent_id);
         self.provider_active_turns.remove(agent_id);
         self.provider_wait_until.remove(agent_id);
@@ -551,6 +556,7 @@ impl RuntimeLlmSidecar {
         self.provider_transport_exhausted.remove(agent_id);
         self.provider_cognition_leases.remove(agent_id);
         if let Err(error) = self.persist_provider_lineage() {
+            self.restore_raw_outcomes(retired_raw);
             if let Some(context) = context_backup {
                 self.provider_contexts.insert(agent_id.to_string(), context);
             }
@@ -601,6 +607,28 @@ impl RuntimeLlmSidecar {
         status: &str,
         reject_reason: impl Into<String>,
     ) -> Result<Option<FeedbackEnvelopeV1>, String> {
+        self.fail_provider_turn_with_feedback_mode(agent_id, status, reject_reason, false)
+    }
+
+    /// Canonical failure/settlement has already been read back. A deferred
+    /// checkpoint must receive its publication ACK before releasing the actor.
+    pub(super) fn fail_provider_turn_with_feedback_after_publication(
+        &mut self,
+        agent_id: &str,
+    ) -> Result<Option<FeedbackEnvelopeV1>, String> {
+        if self.provider_lineage_store.is_none() {
+            return Err("known provider failure requires its durable lineage store".into());
+        }
+        self.fail_provider_turn_with_feedback_mode(agent_id, "failed", "cognition_failed", true)
+    }
+
+    fn fail_provider_turn_with_feedback_mode(
+        &mut self,
+        agent_id: &str,
+        status: &str,
+        reject_reason: impl Into<String>,
+        await_publication: bool,
+    ) -> Result<Option<FeedbackEnvelopeV1>, String> {
         if !matches!(status, "rejected" | "failed") {
             return Ok(None);
         }
@@ -630,6 +658,13 @@ impl RuntimeLlmSidecar {
                 self.provider_terminal_matches_request(agent_id, &context.request_context)
                     && terminal.status == status
                     && terminal.reject_reason.as_deref() == Some(reject_reason.as_str())
+            });
+        let original_published = await_publication
+            && existing.is_some_and(|terminal| {
+                terminal
+                    .feedback
+                    .as_ref()
+                    .is_some_and(|feedback| self.feedback_publication_confirmed(feedback))
             });
         let previous_sequences = self.provider_feedback_seq.clone();
         let previous_session_sequences = self.provider_feedback_seq_by_session.clone();
@@ -666,11 +701,22 @@ impl RuntimeLlmSidecar {
         // Sequence, full envelope and exact terminal identity are one checkpoint.
         // A failed write cannot leave a consumed sequence or release the actor.
         // Exact retries also write strictly; an in-memory marker is not durability.
-        if let Err(error) = self.persist_provider_lineage() {
+        if let Err(error) = if original_published {
+            Ok(())
+        } else {
+            self.persist_provider_lineage()
+        } {
             self.provider_feedback_seq = previous_sequences;
             self.provider_feedback_seq_by_session = previous_session_sequences;
             self.provider_terminal_states = previous_terminals;
             return Err(error);
+        }
+        if await_publication && !original_published {
+            let ticket = self.publication_ticket();
+            self.retain_feedback_publication(&feedback, (ticket != 0).then_some(ticket))?;
+            if super::lineage_persistence::checkpoint_write::is_deferred(self) {
+                return Ok(Some(feedback));
+            }
         }
         #[cfg(test)]
         if TERMINAL_CHECKPOINT_CUT.with(|cut| cut.replace(false)) {
@@ -707,6 +753,10 @@ impl RuntimeLlmSidecar {
             self.clear_provider_stale_replans(agent_id);
         }
         self.release_provider_turn_checked(agent_id)?;
+        if await_publication {
+            self.hosted_terminal_feedback_publications
+                .remove(&feedback.feedback_id);
+        }
         Ok(Some(feedback))
     }
 

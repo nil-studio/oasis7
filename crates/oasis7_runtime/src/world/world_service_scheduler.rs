@@ -132,6 +132,23 @@ impl World {
             .current_agent_identity(agent)
             .ok_or("missing Agent identity")?
             .clone();
+        match &intent.operation {
+            SchedulerOperationV1::ReserveLease(_) => self
+                .require_live_local_provider_admission(agent, None, false)
+                .map_err(error)?,
+            SchedulerOperationV1::ProviderPrefix { request, .. } => {
+                self.require_live_local_provider_admission(
+                    agent,
+                    request
+                        .base_decision_request
+                        .capability_invocation_context
+                        .as_ref(),
+                    true,
+                )
+                .map_err(error)?;
+            }
+            _ => {}
+        }
         // Existing operations run on a clone; publication failure cannot leave
         // partially mutated canonical scheduler/economy state.
         let mut transaction = self.clone();

@@ -9,13 +9,13 @@
 // independent of the modules under test. It never starts a runtime, provider
 // or chain, and it never installs a controller in the release bundle.
 import { createServer } from "node:http";
-import { createHash } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, join, normalize, relative, resolve } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { delimiter, dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
+import { fileFingerprint as fingerprintRegularFile, readRegularFile } from "./viewer-static-files.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const viewerRoot = resolve(scriptDir, "..");
@@ -123,14 +123,14 @@ export function selectViewports(raw) {
   return selected;
 }
 
-function sha256File(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-function fileFingerprint(relPath) {
+export function fileFingerprint(relPath) {
   const absPath = resolve(repoRoot, relPath);
-  if (!existsSync(absPath)) return { path: relPath, missing: true };
-  return { path: relPath, bytes: statSync(absPath).size, sha256: sha256File(absPath) };
+  try {
+    return { path: relPath, ...fingerprintRegularFile(absPath) };
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return { path: relPath, missing: true };
+    throw error;
+  }
 }
 
 function assert(condition, message, details = undefined) {
@@ -411,20 +411,24 @@ function resolveStatic(viewerPath) {
   return filePath;
 }
 
-function createFixtureServer({ releaseOnly = false } = {}) {
+export function createFixtureServer({ releaseOnly = false } = {}) {
   const server = createServer((request, response) => {
-    let url;
-    try { url = new URL(request.url || "/", "http://127.0.0.1"); }
+    let pathname;
+    try {
+      const url = new URL(request.url || "/", "http://127.0.0.1");
+      pathname = decodeURIComponent(url.pathname === "/" ? "/viewer.html" : url.pathname);
+    }
     catch { response.writeHead(400); response.end("bad request"); return; }
     const port = server.address().port;
-    const pathname = decodeURIComponent(url.pathname === "/" ? "/viewer.html" : url.pathname);
     const wsEndpoint = `ws://127.0.0.1:${port}/viewer-ws`;
     const config = `<script id="oasis7-viewer-runtime-config" type="application/json">${JSON.stringify({ deploymentMode: "trusted_local_only", viewerWsEndpoint: wsEndpoint })}</script>`;
     if (pathname === "/viewer.js") {
       const bundle = releaseOnly ? releaseBundlePath : visualTestBundlePath;
-      if (!existsSync(bundle)) { response.writeHead(500); response.end("missing bundle"); return; }
+      let content;
+      try { content = readRegularFile(bundle); }
+      catch { response.writeHead(500); response.end("missing bundle"); return; }
       response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(readFileSync(bundle));
+      response.end(content);
       return;
     }
     if (pathname === "/pixel-world-bridge/pixel_world_bridge.js") {
@@ -433,7 +437,9 @@ function createFixtureServer({ releaseOnly = false } = {}) {
       return;
     }
     if (pathname === "/viewer.html") {
-      let html = readFileSync(resolve(viewerRoot, "viewer.html"), "utf8");
+      let html;
+      try { html = readRegularFile(resolve(viewerRoot, "viewer.html")).toString("utf8"); }
+      catch { response.writeHead(404); response.end("not found"); return; }
       const injected = releaseOnly
         ? `${config}`
         : `${config}<script>${canvasCompatSource}</script><script>${deriveSource()}</script><script>${fakeTransportSource(wsEndpoint)}</script>`;
@@ -445,9 +451,9 @@ function createFixtureServer({ releaseOnly = false } = {}) {
     const filePath = resolveStatic(pathname);
     if (!filePath) { response.writeHead(403); response.end("forbidden"); return; }
     try {
-      if (!statSync(filePath).isFile()) throw new Error("not a file");
+      const content = readRegularFile(filePath);
       response.writeHead(200, { "Content-Type": contentTypeFor(filePath), "Cache-Control": "no-store" });
-      response.end(readFileSync(filePath));
+      response.end(content);
     } catch {
       response.writeHead(404); response.end("not found");
     }
@@ -600,12 +606,20 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
 }
 
 export function resolveBrowserBinary(candidate) {
-  if (!candidate) throw new Error("agent-browser binary is required");
-  const probe = spawnSync("sh", ["-c", `command -v ${JSON.stringify(candidate)}`], { encoding: "utf8" });
-  if (probe.status !== 0 && !existsSync(candidate)) {
-    throw new Error(`required browser automation binary is unavailable: ${candidate}`);
+  if (typeof candidate !== "string" || !candidate) throw new Error("agent-browser binary is required");
+  const paths = candidate.includes("/") || candidate.includes(sep)
+    ? [resolve(candidate)]
+    : (process.env.PATH ?? "/usr/bin:/bin").split(delimiter).map(directory => resolve(directory, candidate));
+  for (const path of paths) {
+    try {
+      if (!statSync(path).isFile()) continue;
+      accessSync(path, constants.X_OK);
+      return path;
+    } catch {
+      // A missing or unusable PATH entry does not hide a later executable.
+    }
   }
-  return candidate;
+  throw new Error(`required browser automation binary is unavailable: ${candidate}`);
 }
 
 function waitForState(driver, readExpression, predicateSource, timeoutMs = 8000) {
@@ -1161,14 +1175,14 @@ function createArtifactWriter(outDir, caseId, viewportName, screenshotFn, trace 
   };
 }
 
-function describeArtifacts(written) {
+export function describeArtifacts(written) {
   return written.map((artifactPath) => {
-    const bytes = statSync(artifactPath).size;
+    const { bytes, sha256 } = fingerprintRegularFile(artifactPath);
     const repoRelative = relative(repoRoot, artifactPath).split("\\").join("/");
     return {
       path: repoRelative.startsWith("..") ? artifactPath : repoRelative,
       bytes,
-      sha256: bytes > 0 ? sha256File(artifactPath) : null,
+      sha256: bytes > 0 ? sha256 : null,
     };
   });
 }
@@ -1246,12 +1260,12 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
       promptControlErrors: delivered.filter((entry) => entry.message?.type === "prompt_control_error").length,
       networkRequests: (network.requests || []).length,
     };
-    const screenshotArtifacts = artifacts.written.filter((artifactPath) => artifactPath.endsWith(".png"));
-    assert(screenshotArtifacts.length > 0, "case produced no failure/state screenshots");
-    for (const artifactPath of screenshotArtifacts) {
-      assert(statSync(artifactPath).size > 0, `screenshot artifact is empty: ${artifactPath}`);
-    }
     record.artifacts = describeArtifacts(artifacts.written);
+    const screenshotArtifacts = record.artifacts.filter((artifact) => artifact.path.endsWith(".png"));
+    assert(screenshotArtifacts.length > 0, "case produced no failure/state screenshots");
+    for (const artifact of screenshotArtifacts) {
+      assert(artifact.bytes > 0, `screenshot artifact is empty: ${artifact.path}`);
+    }
     const storageAfter = await driver.evalJson("JSON.stringify({ keys: window.__BFR__.storageKeys() })");
     evidence.observations.finalStorageKeys = storageAfter.keys;
     record.status = "passed";
