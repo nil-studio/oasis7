@@ -801,3 +801,7 @@ pub(in crate::world) use entry::{CompletedNonmovementActionV1, NonmovementSelect
 
 #[cfg(test)]
 pub(in crate::world) use entry::NonmovementSelectedErrorV1;
+
+pub(in crate::world) use entry::SelectedAcceptedDispositionV1;
+
+pub(in crate::world) use entry::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};

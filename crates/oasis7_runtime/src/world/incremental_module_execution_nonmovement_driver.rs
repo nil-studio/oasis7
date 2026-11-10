@@ -1,4 +1,7 @@
 //! Selected nonmovement families: real Rule lane followed by the typed owner.
+#[path = "incremental_module_execution_effective_dispatch.rs"]
+mod effective_dispatch;
+use super::CoreDriverErrorV1;
 use super::*;
 use super::{ordinary_settlement::OrdinaryDriverErrorV1, selected_rule::SelectedRuleLaneErrorV1};
 use crate::world::{
@@ -11,7 +14,9 @@ use crate::world::{
     incremental_action_execution::SelectedPendingActionV1,
     incremental_module_invocation::RootRulePhaseOutcomeV1,
 };
+pub(in crate::world) use effective_dispatch::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
 pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
+    Core,
     Crisis(&'a mut crate::world::incremental_action_crisis::CrisisWorkV1, crate::world::incremental_action_crisis::CrisisSourcesV1<'a>),
     ContractAccept(&'a mut crate::world::incremental_action_contract_accept::ContractAcceptWorkV1, crate::world::incremental_action_contract_accept::ContractAcceptSourcesV1<'a>),
     MetaProgress(&'a mut crate::world::incremental_action_meta_progress::MetaProgressWorkV1,
@@ -30,8 +35,10 @@ pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
         &'a ReservedValue<oasis7_world_state::incremental_world_native::StarterBindingIndexV1>,
         &'a ReservedValue<oasis7_world_state::incremental_world_collection_controls::WorldCollectionControlsQualificationV1>),
     TransferResource(&'a mut TransferResourceWorkV1),
+    DispatchBank(&'a mut EffectiveActionWorkBankV1<'a>),
 }
 pub(in crate::world) enum CompletedNonmovementActionV1 {
+    Core(crate::world::incremental_action_execution_core::CompletedCoreActionV1),
     Crisis(crate::world::incremental_action_crisis::CompletedCrisisV1),
     ContractAccept(crate::world::incremental_action_contract_accept::CompletedContractAcceptV1),
     MetaProgress(crate::world::incremental_action_meta_progress::CompletedMetaProgressV1),
@@ -48,6 +55,39 @@ pub(in crate::world) enum CompletedNonmovementActionV1 {
     DataAccess(CompletedDataAccessV1),
     CollectData(CompletedCollectDataV1),
     TransferResource(CompletedTransferResourceV1),
+}
+
+impl<'a> NonmovementSelectedWorkV1<'a> {
+    fn family(&self) -> Option<EffectiveActionFamilyV1> {
+        Some(match self {
+            Self::Core => EffectiveActionFamilyV1::Core,
+            Self::Crisis(..) => EffectiveActionFamilyV1::Crisis,
+            Self::ContractAccept(..) => EffectiveActionFamilyV1::ContractAccept,
+            Self::MetaProgress(..) => EffectiveActionFamilyV1::MetaProgress,
+            Self::FactoryLifecycle(..) => EffectiveActionFamilyV1::FactoryLifecycle,
+            Self::RouteAvailability(..) => EffectiveActionFamilyV1::RouteAvailability,
+            Self::MaterialTransfer(..) => EffectiveActionFamilyV1::MaterialTransfer,
+            Self::Body(..) => EffectiveActionFamilyV1::Body,
+            Self::DataAccess(..) => EffectiveActionFamilyV1::DataAccess,
+            Self::CollectData(..) => EffectiveActionFamilyV1::CollectData,
+            Self::AuthenticatedCollectData(..) => EffectiveActionFamilyV1::AuthenticatedCollectData,
+            Self::TransferResource(..) => EffectiveActionFamilyV1::TransferResource,
+            Self::DispatchBank(..) => return None,
+        })
+    }
+
+    fn resolve_effective(
+        self,
+        original: &crate::Action,
+        action: &crate::Action,
+    ) -> Option<(Self, Option<&'a mut usize>)> {
+        let family = EffectiveActionFamilyV1::for_action(action)?;
+        match self {
+            Self::DispatchBank(bank) => bank.select_for_original(original, action),
+            work if work.family() == Some(family) => Some((work, None)),
+            _ => None,
+        }
+    }
 }
 #[derive(Debug)]
 pub(in crate::world) enum NonmovementSelectedErrorV1<OE> {
@@ -145,59 +185,14 @@ where
         let result = (|| {
             // Check the original family before Rule can write. The afterRules
             // owners independently authenticate the final family and receipt.
-            let compatible = match &work {
-                NonmovementSelectedWorkV1::Crisis(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::ResolveCrisis { .. }
-                ),
-                NonmovementSelectedWorkV1::ContractAccept(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::AcceptEconomicContract { .. }
-                ),
-                NonmovementSelectedWorkV1::MetaProgress(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::GrantMetaProgress { .. }
-                ),
-                NonmovementSelectedWorkV1::FactoryLifecycle(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::MaintainFactory { .. } | crate::Action::RecycleFactory { .. }
-                ),
-                NonmovementSelectedWorkV1::RouteAvailability(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::SetLogisticsRouteAvailability { .. }
-                ),
-                NonmovementSelectedWorkV1::MaterialTransfer(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::TransferMaterial { .. }
-                ),
-                NonmovementSelectedWorkV1::DataAccess(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::GrantDataAccess { .. } | crate::Action::RevokeDataAccess { .. }
-                ),
-                NonmovementSelectedWorkV1::Body(_) => matches!(
-                    selected.envelope().action,
-                    crate::Action::EmitBodyAttributes { .. }
-                        | crate::Action::QueryObservation { .. }
-                        | crate::Action::BodyAction { .. }
-                ),
-                NonmovementSelectedWorkV1::AuthenticatedCollectData(..) => matches!(
-                    selected.envelope().action,
-                    crate::Action::CollectDataAuthenticated { .. }
-                ),
-                NonmovementSelectedWorkV1::CollectData(_) => matches!(
-                    selected.envelope().action,
-                    crate::Action::CollectData { .. }
-                ),
-                NonmovementSelectedWorkV1::TransferResource(_) => matches!(
-                    selected.envelope().action,
-                    crate::Action::TransferResource { .. }
-                        | crate::Action::EmitResourceTransfer { .. }
-                ),
-            };
+            let original_family = EffectiveActionFamilyV1::for_action(&selected.envelope().action);
+            let compatible = original_family.is_some()
+                && (matches!(&work, NonmovementSelectedWorkV1::DispatchBank(_))
+                    || work.family() == original_family);
             if !compatible {
                 return Err(NonmovementSelectedErrorV1::Business(
                     OrdinaryDriverErrorV1::Module(RootModuleExecutionErrorV1::Body(
-                        BodyMutationError::Invalid("selected nonmovement original family"),
+                        BodyMutationError::Invalid("selected original family unsupported"),
                     )),
                 ));
             }
@@ -215,7 +210,68 @@ where
                     live_owner,
                 )
                 .map_err(NonmovementSelectedErrorV1::Rules)?;
+            let effective = outcome
+                .override_action_for_selected_v1(selected, self.ctx.transaction)
+                .map_err(|error| {
+                    NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
+                        RootModuleExecutionErrorV1::Body(error),
+                    ))
+                })?
+                .unwrap_or(&selected.envelope().action);
+            let (work, accepted_entries) = work
+                .resolve_effective(&selected.envelope().action, effective)
+                .ok_or_else(|| {
+                    NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
+                        RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                            "effective action work slot unavailable",
+                        )),
+                    ))
+                })?;
             let completed = match work {
+                NonmovementSelectedWorkV1::DispatchBank(_) => return Err(
+                    NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
+                        RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid("unresolved effective action work bank"))
+                    ))),
+                NonmovementSelectedWorkV1::Core => {
+                    CompletedNonmovementActionV1::Core(
+                        self.execute_core_after_rules_v1(
+                            selected,
+                            &admission,
+                            &outcome,
+                            materials,
+                            read,
+                            Some(parent_read),
+                            accepted_entries,
+                            policy_scan,
+                            policy_work,
+                            audit_work,
+                            directory,
+                            enumeration,
+                            tail_work,
+                            live_owner,
+                        )
+                        .map_err(|error| match error {
+                            CoreDriverErrorV1::Module(error) => {
+                                NonmovementSelectedErrorV1::Business(
+                                    OrdinaryDriverErrorV1::Module(error),
+                                )
+                            }
+                            CoreDriverErrorV1::Settlement(
+                                crate::world::incremental_action_execution_core::CoreSettlementErrorV1::Body(error),
+                            ) => NonmovementSelectedErrorV1::Business(
+                                OrdinaryDriverErrorV1::Module(RootModuleExecutionErrorV1::Body(error)),
+                            ),
+                            CoreDriverErrorV1::Settlement(
+                                crate::world::incremental_action_execution_core::CoreSettlementErrorV1::Resources(error),
+                            ) => NonmovementSelectedErrorV1::Business(
+                                OrdinaryDriverErrorV1::Settlement(super::ordinary_settlement::OrdinarySettlementErrorV1::Resources(error)),
+                            ),
+                            CoreDriverErrorV1::SelectedRules(error) => {
+                                NonmovementSelectedErrorV1::Rules(error)
+                            }
+                        })?,
+                    )
+                }
                 NonmovementSelectedWorkV1::Crisis(work, sources) => {
                     CompletedNonmovementActionV1::Crisis(
                         self.execute_crisis_after_rules_v1(
@@ -227,6 +283,7 @@ where
                             parent_read,
                             work,
                             &sources,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -247,6 +304,7 @@ where
                             parent_read,
                             work,
                             &sources,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -267,6 +325,7 @@ where
                             parent_read,
                             work,
                             &sources,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -287,6 +346,7 @@ where
                             parent_read,
                             work,
                             &sources,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -307,6 +367,7 @@ where
                             parent_read,
                             work,
                             logistics,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -326,6 +387,7 @@ where
                             read,
                             parent_read,
                             work,
+                            accepted_entries,
                             family,
                             audit_work,
                             directory,
@@ -361,6 +423,7 @@ where
                             index,
                             controls,
                             data_work,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -382,6 +445,7 @@ where
                             parent_read,
                             work,
                             controls,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -400,6 +464,7 @@ where
                         read,
                         parent_read,
                         work,
+                        accepted_entries,
                         audit_work,
                         directory,
                         enumeration,
@@ -418,6 +483,7 @@ where
                             read,
                             parent_read,
                             work,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,
@@ -437,6 +503,7 @@ where
                             read,
                             parent_read,
                             work,
+                            accepted_entries,
                             audit_work,
                             directory,
                             enumeration,

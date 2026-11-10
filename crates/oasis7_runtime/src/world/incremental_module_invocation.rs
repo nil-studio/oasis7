@@ -534,3 +534,7 @@ pub(in crate::world) use target::{CompletedNonmovementActionV1, NonmovementSelec
 
 #[cfg(test)]
 pub(in crate::world) use target::NonmovementSelectedErrorV1;
+
+pub(in crate::world) use target::SelectedAcceptedDispositionV1;
+
+pub(in crate::world) use target::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};

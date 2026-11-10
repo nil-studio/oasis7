@@ -716,6 +716,20 @@ fn evaluate<'a>(
             }
         };
         match completed {
+            CompletedNonmovementActionV1::Core(value) => (
+                outcome,
+                Some(value),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
             CompletedNonmovementActionV1::ContractAccept(value) => (
                 outcome,
                 None,

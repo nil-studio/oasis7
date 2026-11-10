@@ -55,6 +55,7 @@ where
             PC,
         >,
         data_work: &mut MaterialTransferWorkV1,
+        accepted_entries: Option<&mut usize>,
         material_family: &ReservedValue<
             oasis7_world_state::incremental_material_records::MaterialFamilyQualificationV1,
         >,
@@ -148,10 +149,7 @@ where
                 .override_action_for_selected_v1(selected, self.ctx.transaction)
                 .map_err(RootModuleExecutionErrorV1::Body)?
                 .unwrap_or(&selected.envelope().action);
-            if !data_family(&selected.envelope().action)
-                || !data_family(effective)
-                || !outcome.uses_budget(self.ctx.values.memory)
-            {
+            if !data_family(effective) || !outcome.uses_budget(self.ctx.values.memory) {
                 return Err(OrdinaryDriverErrorV1::Module(
                     RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
                         "MaterialTransfer driver action/rule/pool binding",
@@ -183,6 +181,23 @@ where
                     &live,
                 )
                 .map_err(RootModuleExecutionErrorV1::Body)?;
+            if crate::world::World::should_emit_action_accepted(&selected.envelope().action) {
+                let pending_entries = accepted_entries.ok_or_else(|| {
+                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                        "MaterialTransfer Accepted work missing",
+                    ))
+                })?;
+                self.append_selected_accepted_disposition_v1(
+                    selected,
+                    materials,
+                    self.families.agents,
+                    read,
+                    parent_read,
+                    pending_entries,
+                    audit_work,
+                    live_owner,
+                )?;
+            }
             let completed = {
                 let mut step = IwsStepContext::borrow_counted_at(
                     self.ctx.transaction,

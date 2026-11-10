@@ -71,6 +71,7 @@ where
         index: &ReservedValue<oasis7_world_state::incremental_world_native::StarterBindingIndexV1>,
         controls: &ReservedValue<oasis7_world_state::incremental_world_collection_controls::WorldCollectionControlsQualificationV1>,
         data_work: &mut CollectDataWorkV1,
+        accepted_entries: Option<&mut usize>,
         audit_work: &mut oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1,
         directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
         enumeration: &mut CurrentInvocationEnumerationWorkV1,
@@ -118,10 +119,7 @@ where
                 .override_action_for_selected_v1(selected, self.ctx.transaction)
                 .map_err(RootModuleExecutionErrorV1::Body)?
                 .unwrap_or(&selected.envelope().action);
-            if !data_family(&selected.envelope().action)
-                || !data_family(effective)
-                || !outcome.uses_budget(self.ctx.values.memory)
-            {
+            if !data_family(effective) || !outcome.uses_budget(self.ctx.values.memory) {
                 return Err(OrdinaryDriverErrorV1::Module(
                     RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
                         "CollectData driver action/rule/pool binding",
@@ -153,6 +151,18 @@ where
                     &live,
                 )
                 .map_err(RootModuleExecutionErrorV1::Body)?;
+            if crate::world::World::should_emit_action_accepted(&selected.envelope().action) {
+                self.append_selected_accepted_disposition_v1(
+                    selected,
+                    materials,
+                    self.families.agents,
+                    read,
+                    parent_read,
+                    accepted_entries.unwrap_or(&mut auth_work.claims.pending_entries_remaining),
+                    audit_work,
+                    live_owner,
+                )?;
+            }
             let completed = {
                 let mut step = IwsStepContext::borrow_counted_at(
                     self.ctx.transaction,

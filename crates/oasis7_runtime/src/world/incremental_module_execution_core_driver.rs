@@ -117,12 +117,14 @@ where
                     live_owner,
                 )
                 .map_err(CoreDriverErrorV1::SelectedRules)?;
-            let completed = self.execute_core_after_rules_v1(
+            let completed = self.execute_core_after_rules_v1::<P, ER, CR, ER, CR>(
                 selected,
                 &admission,
                 &outcome,
                 materials,
                 read,
+                None,
+                None,
                 policy_scan,
                 policy_work,
                 audit_work,
@@ -146,7 +148,7 @@ where
     /// through the original owner, then run the original two-stage routing order.
     /// No completed tick, Accepted parent or activation authority is minted.
     #[allow(clippy::too_many_arguments)]
-    pub(in crate::world) fn execute_core_after_rules_v1<P, ER, CR>(
+    pub(in crate::world) fn execute_core_after_rules_v1<P, ER, CR, PE, PC>(
         &mut self,
         selected: &SelectedPendingActionV1,
         admission: &UnboundActionAdmissionV1<'_>,
@@ -160,6 +162,16 @@ where
             ER,
             CR,
         >,
+        parent_read: Option<
+            &mut oasis7_world_state::incremental_field_read::WorldFieldReadContextV1<
+                '_,
+                P,
+                R,
+                PE,
+                PC,
+            >,
+        >,
+        accepted_entries: Option<&mut usize>,
         policy_scan: &mut StateScanBudget,
         policy_work: &mut oasis7_world_state::incremental_runtime_revocation::RevocationReadWorkV1,
         audit_work: &mut oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1,
@@ -172,20 +184,12 @@ where
         P: MerkleNodeReader,
         ER: FnMut() -> Option<ValueTreeError>,
         CR: FnMut() -> bool,
+        PE: FnMut() -> Option<ValueTreeError>,
+        PC: FnMut() -> bool,
     {
         let result: Result<_, CoreDriverErrorV1<O::Error>> = (|| {
-            // Register/Move have no selective Accepted audit or economy-module
-            // resolution in the original step. A Modify from another family
-            // must remain with that family's common driver and followups.
-            if !matches!(
-                selected.envelope().action,
-                crate::Action::RegisterAgent { .. } | crate::Action::MoveAgent { .. }
-            ) {
-                return Err(RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                    "Core driver original action family",
-                ))
-                .into());
-            }
+            // The Core reducer reads the effective action from the same
+            // Selected-bound outcome; Selected itself remains the original.
             let live = live_owner();
             let guard = self.ctx.transaction.guard();
             let prepared = {
@@ -222,6 +226,28 @@ where
                 &live_owner(),
             )
             .map_err(CoreDriverErrorV1::Settlement)?;
+            if crate::world::World::should_emit_action_accepted(&selected.envelope().action) {
+                let parent_read = parent_read.ok_or_else(|| {
+                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                        "selected Core Accepted parent read missing",
+                    ))
+                })?;
+                let pending_entries = accepted_entries.ok_or_else(|| {
+                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                        "selected Core Accepted work missing",
+                    ))
+                })?;
+                self.append_selected_accepted_disposition_v1(
+                    selected,
+                    materials,
+                    self.families.agents,
+                    read,
+                    parent_read,
+                    pending_entries,
+                    audit_work,
+                    live_owner,
+                )?;
+            }
             let live = live_owner();
             let guard = self.ctx.transaction.guard();
             let completed = {

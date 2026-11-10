@@ -152,17 +152,22 @@ enum CompletedContractAcceptResultV1 {
     Rejected(SelectedActionAuditV1),
 }
 pub(in crate::world) struct CompletedContractAcceptV1 {
-    accepted: SelectedActionAuditV1,
+    accepted: Option<SelectedActionAuditV1>,
+    identity: PreparedGuard,
     result: CompletedContractAcceptResultV1,
     _fee: MemoryReservation,
 }
-fn validate_accepted<M: MerkleNodeReader>(
-    audit: &SelectedActionAuditV1,
+fn validate_accepted<'a, M: MerkleNodeReader>(
+    disposition: &'a crate::world::incremental_module_invocation::SelectedAcceptedDispositionV1,
     selected: &SelectedPendingActionV1,
     tx: &ExecutionTransaction<'_, M>,
     memory: &MemoryBudget,
     now: u64,
-) -> Result<(), BodyMutationError> {
+) -> Result<Option<&'a SelectedActionAuditV1>, BodyMutationError> {
+    disposition.validate(selected, tx, memory)?;
+    let Some(audit) = disposition.audit() else {
+        return Ok(None);
+    };
     selected.validate(tx)?;
     audit.validate(tx)?;
     let event = audit.event();
@@ -187,7 +192,7 @@ fn validate_accepted<M: MerkleNodeReader>(
                 == crate::world::module_runtime_labels::action_kind_label(&envelope.action)
             && actor_id == envelope.action.actor_id().unwrap_or("system") =>
         {
-            Ok(())
+            Ok(Some(audit))
         }
         _ => Err(BodyMutationError::Invalid(
             "contract_accept Accepted receipt kind/action",
@@ -206,18 +211,19 @@ impl CompletedContractAcceptV1 {
         })
     }
     pub(in crate::world) fn from_rejection<M: MerkleNodeReader>(
-        accepted: SelectedActionAuditV1,
+        accepted: crate::world::incremental_module_invocation::SelectedAcceptedDispositionV1,
         rejected: SelectedActionAuditV1,
         selected: &SelectedPendingActionV1,
         tx: &ExecutionTransaction<'_, M>,
         memory: &MemoryBudget,
         prepaid: ContractAcceptRejectionReservationV1,
     ) -> Result<Self, BodyMutationError> {
-        validate_accepted(&accepted, selected, tx, memory, rejected.event().time)?;
+        let accepted_audit =
+            validate_accepted(&accepted, selected, tx, memory, rejected.event().time)?;
         rejected.validate(tx)?;
         if !prepaid.memory.same_pool(memory)
             || !rejected.uses_budget(memory)
-            || rejected.event().id == accepted.event().id
+            || accepted_audit.is_some_and(|audit| rejected.event().id == audit.event().id)
             || rejected.event().caused_by != Some(crate::CausedBy::Action(selected.envelope().id))
             || !matches!(&rejected.event().body,crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected {action_id,..})if *action_id==selected.envelope().id)
         {
@@ -226,7 +232,8 @@ impl CompletedContractAcceptV1 {
             ));
         }
         Ok(Self {
-            accepted,
+            accepted: accepted.into_audit(),
+            identity: tx.guard(),
             result: CompletedContractAcceptResultV1::Rejected(rejected),
             _fee: prepaid.fee,
         })
@@ -241,7 +248,10 @@ impl CompletedContractAcceptV1 {
         &self,
         tx: &ExecutionTransaction<'_, M>,
     ) -> Result<(), ExecutionError> {
-        self.accepted.validate(tx)?;
+        tx.validate_transaction_identity(&self.identity)?;
+        if let Some(accepted) = &self.accepted {
+            accepted.validate(tx)?;
+        }
         match &self.result {
             CompletedContractAcceptResultV1::Published { identity, .. } => {
                 tx.validate_transaction_identity(identity)
@@ -296,7 +306,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(in crate::world) fn commit_prepared_contract_accept_v1<M, P, V, W, E, C, PE, PC, ME, D, F>(
     prepared: PreparedContractAcceptActionV1<'_, '_>,
-    accepted: SelectedActionAuditV1,
+    accepted: crate::world::incremental_module_invocation::SelectedAcceptedDispositionV1,
     step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
     materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
     sources: &ContractAcceptSourcesV1<'_>,

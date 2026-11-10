@@ -869,6 +869,7 @@ mod body_driver;
 
 #[path = "incremental_module_execution_selected_accepted.rs"]
 mod selected_accepted;
+pub(in crate::world) use selected_accepted::SelectedAcceptedDispositionV1;
 
 #[path = "incremental_module_execution_ordinary_settlement.rs"]
 mod ordinary_settlement;
@@ -912,3 +913,7 @@ mod crisis_driver;
 
 #[path = "incremental_module_execution_contract_accept_driver.rs"]
 mod contract_accept_driver;
+
+pub(in crate::world) use core_driver::CoreDriverErrorV1;
+
+pub(in crate::world) use nonmovement_driver::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};

@@ -3,7 +3,7 @@ use super::*;
 #[allow(clippy::too_many_arguments)]
 pub(super) fn commit<M, P, V, W, E, C, PE, PC, ME, D, F>(
     prepared: PreparedCrisisActionV1<'_, '_>,
-    accepted: SelectedActionAuditV1,
+    accepted: crate::world::incremental_module_invocation::SelectedAcceptedDispositionV1,
     step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
     materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
     sources: &CrisisSourcesV1<'_>,
@@ -187,7 +187,8 @@ where
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(CompletedCrisisV1 {
-        accepted,
+        accepted: accepted.into_audit(),
+        identity: step.transaction.guard(),
         result: CompletedCrisisResultV1::Published {
             event: prepared.event,
             identity: step.transaction.guard(),

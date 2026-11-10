@@ -64,6 +64,7 @@ where
         >,
         data_work: &mut MetaProgressWorkV1,
         sources: &MetaProgressSourcesV1<'_>,
+        accepted_entries: Option<&mut usize>,
         audit_work: &mut oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1,
         directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
         enumeration: &mut CurrentInvocationEnumerationWorkV1,
@@ -107,10 +108,7 @@ where
                 .override_action_for_selected_v1(selected, self.ctx.transaction)
                 .map_err(RootModuleExecutionErrorV1::Body)?
                 .unwrap_or(&selected.envelope().action);
-            if !data_family(&selected.envelope().action)
-                || !data_family(effective)
-                || !outcome.uses_budget(self.ctx.values.memory)
-            {
+            if !data_family(effective) || !outcome.uses_budget(self.ctx.values.memory) {
                 return Err(OrdinaryDriverErrorV1::Module(
                     RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
                         "meta progress driver action/rule/pool binding",
@@ -178,22 +176,16 @@ where
                     .map_err(RootModuleExecutionErrorV1::Body)?,
                 )
             };
-            let accepted = self
-                .append_selected_accepted_v1(
-                    selected,
-                    materials,
-                    sources.agents,
-                    read,
-                    parent_read,
-                    &mut data_work.pending_entries_remaining,
-                    audit_work,
-                    live_owner,
-                )?
-                .ok_or_else(|| {
-                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                        "Meta requires its selective Accepted occurrence",
-                    ))
-                })?;
+            let accepted = self.append_selected_accepted_disposition_v1(
+                selected,
+                materials,
+                sources.agents,
+                read,
+                parent_read,
+                accepted_entries.unwrap_or(&mut data_work.pending_entries_remaining),
+                audit_work,
+                live_owner,
+            )?;
             let live = live_owner();
             let guard = self.ctx.transaction.guard();
             let completed = {

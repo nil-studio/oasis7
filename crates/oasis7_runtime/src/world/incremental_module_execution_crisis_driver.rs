@@ -63,6 +63,7 @@ where
         >,
         crisis_work: &mut CrisisWorkV1,
         sources: &CrisisSourcesV1<'_>,
+        accepted_entries: Option<&mut usize>,
         audit_work: &mut oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1,
         directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
         enumeration: &mut CurrentInvocationEnumerationWorkV1,
@@ -106,10 +107,7 @@ where
                 .override_action_for_selected_v1(selected, self.ctx.transaction)
                 .map_err(RootModuleExecutionErrorV1::Body)?
                 .unwrap_or(&selected.envelope().action);
-            if !crisis_family(&selected.envelope().action)
-                || !crisis_family(effective)
-                || !outcome.uses_budget(self.ctx.values.memory)
-            {
+            if !crisis_family(effective) || !outcome.uses_budget(self.ctx.values.memory) {
                 return Err(OrdinaryDriverErrorV1::Module(
                     RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
                         "crisis driver action/rule/pool binding",
@@ -175,22 +173,16 @@ where
                     .map_err(RootModuleExecutionErrorV1::Body)?,
                 )
             };
-            let accepted = self
-                .append_selected_accepted_v1(
-                    selected,
-                    materials,
-                    sources.agents,
-                    read,
-                    parent_read,
-                    &mut crisis_work.pending_entries_remaining,
-                    audit_work,
-                    live_owner,
-                )?
-                .ok_or_else(|| {
-                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                        "Crisis requires its selective Accepted occurrence",
-                    ))
-                })?;
+            let accepted = self.append_selected_accepted_disposition_v1(
+                selected,
+                materials,
+                sources.agents,
+                read,
+                parent_read,
+                accepted_entries.unwrap_or(&mut crisis_work.pending_entries_remaining),
+                audit_work,
+                live_owner,
+            )?;
             let live = live_owner();
             let guard = self.ctx.transaction.guard();
             let completed = {
