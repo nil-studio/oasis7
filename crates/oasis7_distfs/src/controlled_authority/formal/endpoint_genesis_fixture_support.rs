@@ -12,8 +12,8 @@ impl FileFormalEndpoint {
         provider: Arc<dyn fencing::MonotonicEndpointProvider>,
     ) -> Result<Self, FormalError> {
         let definition = authorization.authority.definition();
-        let primary = hex::encode(SigningKey::from_bytes(&[4; 32]).verifying_key().to_bytes());
-        let replica = hex::encode(SigningKey::from_bytes(&[5; 32]).verifying_key().to_bytes());
+        let primary = hex::encode(SigningKey::from_bytes(&[5; 32]).verifying_key().to_bytes());
+        let replica = hex::encode(SigningKey::from_bytes(&[6; 32]).verifying_key().to_bytes());
         let expected = match role {
             EndpointRole::Primary => &primary,
             EndpointRole::Replica => &replica,
