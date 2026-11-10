@@ -579,7 +579,7 @@ def main():
             terminal['native_preparation']='INCOMPLETE'
             # Reuse only native preparation, never the standalone Cargo check.
             # Its end-90 reserve becomes the capacity end-120 reserve.
-            native.prepare_native(source,out,end-30,env)
+            native.prepare_native(source,out,end-30,env,maximum_seconds=360 if qualifier_research else 180)
             terminal['native_preparation']='PASS'
             run(['rustc','-vV'],'project-toolchain',20)
             run([args.codeql,'version','--format=json'],'version',20)

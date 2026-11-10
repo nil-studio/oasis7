@@ -167,6 +167,8 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接[独立真实调
 
 整个研究 job 最多 150 分钟，提取最多 25 分钟；比较最多 120 分钟，每侧批次最多 60 分钟，均受同一个实际 job 截止约束。比较在总截止前至少 450 秒停止，内部另留 60 秒审计；不把阶段上限相加来延长 job。一次运行后停止，并分别报告提取、四个观察、对照和完整 job 成本。它不运行或验收默认 37 项和完整七表，相关状态为 `NOT_REQUESTED`，生产容量仍为 `UNKNOWN`、Rust 覆盖仍为 `HOLD`。研究成功不自动启用 Rust，也不解除其他回归或运营验收。原容量与附加 15 分钟比较入口保持不变。
 
+该模式的原生依赖准备最多 360 秒，prepare 步骤最多 11 分钟，均计入同一 150 分钟；其他模式仍为 180 秒原生准备。先读 `native-budget.json` 与 `native-update.stdout.result.json`、`native-install.stdout.result.json` 区分子阶段耗尽和总 job 超时：特权 `timeout` 的退出 124、安装尚未完成或探针未执行都不能计为依赖就绪。包/模块探针仍保留，失败停止 metadata 与提取。若源码提取和对照被 skipped，四个调用观察应写未运行；不能由失败采证步骤成功推断语义通过，也不能自动追加重跑。
+
 ## Hosted 验收与回退
 
 授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。

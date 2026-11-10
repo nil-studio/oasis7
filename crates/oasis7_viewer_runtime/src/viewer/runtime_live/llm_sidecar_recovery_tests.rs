@@ -621,6 +621,9 @@ fn provider_lineage_restore_terminal_marker_suppresses_queued_wait_replay() {
 
 #[test]
 fn provider_transport_exhaustion_closes_recovered_runtime_prefix_before_release() {
+    let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
+        .lock()
+        .expect("provider env lock");
     let mut world = crate::runtime_host::world::new();
     world
         .bind_cognition_runtime("world", "recovery-branch", 0, None, "pending", 0)
@@ -703,6 +706,9 @@ fn provider_transport_exhaustion_closes_recovered_runtime_prefix_before_release(
 
 #[test]
 fn restored_mismatched_active_identity_terminalizes_runtime_before_release() {
+    let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
+        .lock()
+        .expect("provider env lock");
     let path = std::env::temp_dir().join(format!(
         "oasis7-provider-quarantine-terminal-{}-{}.json",
         std::process::id(),
@@ -844,6 +850,9 @@ fn restored_mismatched_active_identity_terminalizes_runtime_before_release() {
 
 #[test]
 fn restored_missing_active_identity_terminalizes_runtime_and_feedback() {
+    let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
+        .lock()
+        .expect("provider env lock");
     let path = std::env::temp_dir().join(format!(
         "oasis7-provider-missing-terminal-{}-{}.json",
         std::process::id(),

@@ -23,6 +23,16 @@ mod participant_api;
 #[path = "world_service_private_goal.rs"]
 pub(super) mod private_goal;
 
+#[cfg(test)]
+std::thread_local! {
+    static LAST_SERVICE_ERROR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn take_last_service_error() -> Option<String> {
+    LAST_SERVICE_ERROR.with(|slot| slot.borrow_mut().take())
+}
+
 pub(super) struct Service<'a> {
     restore_context: world_service_read::RestoreContext,
     records: &'a Path,
@@ -341,6 +351,7 @@ fn maybe_handle_configured(
         DESCRIBE_PATH,
         SUBMIT_PATH,
         LOOKUP_PATH,
+        TERMINAL_LOOKUP_PATH,
         VIEW_PATH,
         oasis7_client_api::world_service::VIEW_JSON_PATH,
         CHANGES_PATH,
@@ -394,6 +405,7 @@ fn maybe_handle_configured(
             executor_api::EXECUTOR_LOOKUP_PATH => executor_api::lookup(&service, parse(body)?),
             SUBMIT_PATH => operations::submit(&service, parse(body)?),
             LOOKUP_PATH => operations::lookup(&service, parse(body)?),
+            TERMINAL_LOOKUP_PATH => operations::lookup_terminal(&service, parse(body)?),
             VIEW_PATH => operations::view(&service, parse(body)?),
             oasis7_client_api::world_service::VIEW_JSON_PATH => {
                 operations::view_json(&service, parse(body)?)
@@ -403,6 +415,13 @@ fn maybe_handle_configured(
             _ => unreachable!(),
         }
     })();
+    #[cfg(test)]
+    LAST_SERVICE_ERROR.with(|slot| {
+        *slot.borrow_mut() = result
+            .as_ref()
+            .err()
+            .map(|reason| reason.chars().take(4096).collect());
+    });
     let (status, value) = match result {
         Ok(value) => (200, value),
         Err(reason) if reason == UNSUPPORTED_REQUEST_FIELD => (

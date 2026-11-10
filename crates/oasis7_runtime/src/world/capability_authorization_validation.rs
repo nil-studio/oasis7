@@ -90,13 +90,27 @@ impl World {
             ));
         }
         let mut visited = BTreeSet::new();
-        self.verify_parent_chain_inner(grant, &mut visited)
+        self.verify_parent_chain_inner(grant, &mut visited, self.state.time)
+    }
+
+    pub(super) fn verify_parent_chain_at_tick(
+        &self,
+        grant: &CapabilityGrantV2,
+        tick: u64,
+    ) -> Result<(), WorldError> {
+        if grant.delegation_depth == 1 && grant.parent_grant_id.is_none() {
+            return Err(deny(
+                "delegated grant must carry an explicit parent authorization",
+            ));
+        }
+        self.verify_parent_chain_inner(grant, &mut BTreeSet::new(), tick)
     }
 
     fn verify_parent_chain_inner(
         &self,
         grant: &CapabilityGrantV2,
         visited: &mut BTreeSet<String>,
+        tick: u64,
     ) -> Result<(), WorldError> {
         let Some(parent_id) = &grant.parent_grant_id else {
             return Ok(());
@@ -124,10 +138,8 @@ impl World {
             return Err(deny("parent grant canonical body hash or id mismatch"));
         }
         if parent.expires_at_tick.is_none()
-            || parent
-                .expires_at_tick
-                .is_some_and(|expiry| self.state.time > expiry)
-            || parent.issued_at_tick > self.state.time
+            || parent.expires_at_tick.is_some_and(|expiry| tick > expiry)
+            || parent.issued_at_tick > tick
         {
             return Err(deny("parent grant lifetime is not currently valid"));
         }
@@ -159,6 +171,6 @@ impl World {
         {
             return Err(deny("delegated grant does not attenuate its parent"));
         }
-        self.verify_parent_chain_inner(&parent, visited)
+        self.verify_parent_chain_inner(&parent, visited, tick)
     }
 }
