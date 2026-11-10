@@ -73,6 +73,10 @@ Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWS
 
 **隔离与拒绝真实服务。** 每 case 使用新的命名私有浏览器 context/session、临时 storage 与合成身份，不导入用户登录态、provider 配置或凭据。静态服务仅绑定 loopback 的系统分配端口；HTTP、WebSocket、worker/service-worker 与跳转都限制到本次明确的本地资源，测试不读取 active LLM 配置。未知 endpoint/请求、生产域名或真实 provider 访问在到达网络前拒绝并使场景失败，不能靠响应超时才发现。跨 case 不共用 localStorage/IndexedDB/cache；重连只发生在本 case 内。复用既有 owned-session lifecycle 清理自有资源，失败/取消后也关闭；不使用全局 close-all。当前共享的测试构建输出先串行构建一次并冻结来源，执行使用独立产物目录；只有确证不共享端口、数据、context、全局模块和可写输出后才并行 case。
 
+runner 的浏览器程序配置只表示一个字面文件路径或 PATH 中的程序名。解析阶段不执行候选，也不经过 shell；按路径或 PATH 顺序确认可执行普通文件后返回绝对路径，后续以独立 argv 启动并处理启动失败。支持带空格、shell 特殊字符及指向可执行文件的符号链接；这些字符不获得命令语义。Unix 上未设置 PATH 时沿 Node 默认 `/usr/bin:/bin`，显式空 PATH 项表示当前目录。该检查不承诺锁定随后启动时的文件身份。
+
+静态文件、bundle、HTML、源码与产物指纹复用同一打开文件描述符完成普通文件检查和内容读取，成功或失败均关闭。HTTP 成功头只在读取成功后发送；无效文件按对应路由失败，不把路径检查与随后重开组合成安全保证。摘要的字节数和 hash 来自同一内容，截图非空判定使用这份已记录的字节数；这不保证其他进程原地写入时得到文件系统快照。沿用当前符号链接与根目录解释，本合同不新增可信外部文件来源。
+
 **产物与结果。** 每次输出新目录，记录候选/tree、bundle 来源与摘要、实际生产模块、fixture schema/替换集合、浏览器版本/平台、viewport、场景 ID/seed、命令、选择理由与开始/结束。每个适用 case 保存 pending/error/final 的实际截图、结构化重放 trace、DOM/只读状态断言、出站与交付消息计数、console/pageerror/network、结束与清理结果；driver 的原生 browser trace 可一并归档，但结构化场景 trace 不冒充 Playwright trace。预期拒绝/断线错误须逐 case 明确 allowlist，其余 console/network 错误失败；脱敏不删除请求关联与失败原因。产物身份遵循既有 locator/bytes/digest 合同，使用合成数据避免记录真实秘密。
 
 case 结果区分 pass、failed、blocked 与有具体不适用原因的 not_applicable；必要 case 缺浏览器/构建/fixture、超时、零执行、缺截图/trace 或报告失败均非零结束，不能记 skipped 后令 suite 通过。总通过仅覆盖实际执行且全部满足的适用 case 和声明的浏览器/viewport。CI 选择仍由现有 planner/Viewer driver 决定；本节不新增隐式 gate，不将普通视觉 fixture 的绿色结果充当该全矩阵结果。
