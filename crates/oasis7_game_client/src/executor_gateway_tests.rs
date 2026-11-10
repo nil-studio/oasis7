@@ -834,6 +834,7 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
                     _ => panic!("unexpected operation"),
                 };
                 let response: IntentResponse<Value> = IntentResponse {
+                    terminal_recovery_authority: None,
                     contract_version: 1,
                     formal_profile: None,
                     execution_evidence_scope: None,
@@ -936,6 +937,7 @@ fn trusted_first_gateway_send_posts_submit_before_any_recovery_lookup() {
                 assert_eq!(submitted, expected);
                 controls += 1;
                 let response: IntentResponse<Value> = IntentResponse {
+                    terminal_recovery_authority: None,
                     formal_profile: None,
                     execution_evidence_scope: None,
                     contract_version: 1,

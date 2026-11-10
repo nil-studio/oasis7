@@ -20,6 +20,7 @@ on:
         options:
           - capacity
           - official-default-research
+          - qualifier-research
 
 permissions:
   contents: read
@@ -30,7 +31,7 @@ jobs:
     name: CodeQL Rust capacity
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 90 }}
+    timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90 }}
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
@@ -68,10 +69,10 @@ jobs:
           jobs=[job for job in value['jobs'] if job['name']=='CodeQL Rust capacity' and job['status']=='in_progress']
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
           mode=os.environ['CAPACITY_MODE']
-          if mode not in ('capacity','official-default-research'):raise SystemExit('unknown mode')
+          if mode not in ('capacity','official-default-research','qualifier-research'):raise SystemExit('unknown mode')
           if os.environ.get('COMPARE_QUALIFIER_PATCH','false')=='true' and mode!='capacity':
               raise SystemExit('private qualifier comparison requires capacity mode')
-          budget=21600 if mode=='official-default-research' else 5400
+          budget=21600 if mode=='official-default-research' else (9000 if mode=='qualifier-research' else 5400)
           start=datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z','+00:00')).timestamp()
           # Compare timestamps from GitHub, then translate the remaining budget
           # to the runner clock. Charge request time and HTTP Date rounding.
@@ -141,7 +142,7 @@ jobs:
               - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
       - id: prepare
         name: ${{ inputs.mode == 'official-default-research' && 'Freeze official suite, source, graphs and resources' || 'Freeze suite, whole source, graphs, resources and witness inputs' }}
-        timeout-minutes: 8
+        timeout-minutes: ${{ inputs.mode == 'qualifier-research' && 11 || 8 }}
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
@@ -151,7 +152,7 @@ jobs:
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: analyze
-        name: Extraction and complete official default queries
+        name: ${{ inputs.mode == 'qualifier-research' && 'Extract the complete fixed source for public-callee research' || 'Extraction and complete official default queries' }}
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
@@ -162,6 +163,7 @@ jobs:
           output: ${{ runner.temp }}/rust-capacity-sarif
           upload: never
           upload-database: false
+          skip-queries: ${{ inputs.mode == 'qualifier-research' }}
       - id: capture
         name: Preserve failure evidence before any result admission gate
         if: always() && steps.snapshot.outcome == 'success'
@@ -181,7 +183,7 @@ jobs:
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: finish
-        name: ${{ inputs.mode == 'official-default-research' && 'Verify official default results only' || 'Verify every default result and complete public semantic witnesses' }}
+        name: ${{ inputs.mode == 'qualifier-research' && 'Verify the full extraction checkpoint without running queries' || inputs.mode == 'official-default-research' && 'Verify official default results only' || 'Verify every default result and complete public semantic witnesses' }}
         if: always() && steps.prepare.outcome == 'success' && steps.capture.outcome == 'success'
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
@@ -244,12 +246,12 @@ jobs:
           retention-days: 14
       - id: qualifier_comparison
         name: Compare public callees using the fixed private qualifier patch
-        if: always() && inputs.mode == 'capacity' && inputs.compare_qualifier_patch == true && steps.official_artifact.outcome == 'success' && steps.analyze.outcome == 'success' && steps.finish.outcome != 'skipped'
-        timeout-minutes: 16
+        if: always() && (inputs.mode == 'qualifier-research' || (inputs.mode == 'capacity' && inputs.compare_qualifier_patch == true)) && steps.official_artifact.outcome == 'success' && steps.analyze.outcome == 'success' && steps.finish.outcome != 'skipped'
+        timeout-minutes: ${{ inputs.mode == 'qualifier-research' && 121 || 16 }}
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
         run: |
-          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-qualifier-comparison.py" \
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-qualifier-comparison.py" --mode "$CAPACITY_MODE" \
             --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --official-evidence "$RUNNER_TEMP/rust-capacity-evidence" \

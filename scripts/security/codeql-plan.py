@@ -171,6 +171,12 @@ def plan(args):
             add('javascript-repo', path)
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):
             add('actions-repo', path)
+        elif path == 'scripts/ci-required-scope.json':
+            # Fixed policy consumed by the Python required-scope planner/result
+            # verifier and by rust.yml's job selection. This is not a blanket
+            # JSON registration; possible Rust consumers are still added below.
+            add('actions-repo', path)
+            add('python-repo', path)
         elif document_corpus_input(path):
             add('python-repo', path)
         elif path in WASM_CANDIDATE_INPUTS:

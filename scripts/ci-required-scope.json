@@ -14,7 +14,7 @@
     "step_anchor": "engineering-job-observation",
     "timeout_minutes": 1,
     "failure_mode": "nonblocking",
-    "emitter_sha256": "ee74f43758b6d6feb98232c4153875a49dc3336021aee894a9af3ab883006144"
+    "emitter_sha256": "e043a20428e1b4b69ce87e7a049d5514efa8738518dfb269bdd8674a693e59be"
   },
   "ordinary_support_contract_version": 1,
   "ordinary_fast_support_contracts": [
@@ -1842,6 +1842,20 @@
         "cargo_tooling_contracts"
       ],
       "reason": "cargo_tools"
+    },
+    {
+      "match": [
+        "scripts/install-ci-trunk.sh",
+        "scripts/install-ci-trunk.test.sh",
+        "scripts/install-ci-wasm-opt.py",
+        "scripts/install-ci-wasm-opt.test.py"
+      ],
+      "groups": [
+        "workflow_governance",
+        "packaging_contracts",
+        "launcher_web"
+      ],
+      "reason": "ci_download_contracts"
     },
     {
       "match": [

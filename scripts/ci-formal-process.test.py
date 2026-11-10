@@ -1035,6 +1035,148 @@ class CompleteArtifactPartitions(unittest.TestCase):
         self.assertEqual(len({(entry.get('binary'), entry.get('name'), entry.get('script')) for entry in combined}), len(combined))
 
 
+class OrdinaryExclusiveExecution(unittest.TestCase):
+    def manifest(self, selected=None):
+        selected = selected or CompleteArtifactPartitions().selection()
+        manifest = CompleteArtifactPartitions().manifest(selected)
+        self.cases = sorted(artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)
+        manifest['binaries']['runtime-tests']['tests'] = [
+            *self.cases, self.cases[0] + '_similar', 'unrelated', 'ignored']
+        manifest['binaries']['runtime-tests']['ignored_tests'] = ['ignored']
+        return manifest
+
+    def test_complete_inventory_is_partitioned_once_with_exact_skips(self):
+        manifest = self.manifest()
+        entries = [entry for entry in artifacts.expand_ordinary_batches(
+                   artifacts.ordinary_entries(manifest), manifest['binaries'])
+                   if entry['binary'] == 'runtime-tests']
+        self.assertEqual(len(entries), 3)
+        residual = next(entry for entry in entries if entry.get('batch'))
+        self.assertEqual(residual['skip_exact'], self.cases)
+        singles = [entry for entry in entries if not entry.get('batch')]
+        self.assertEqual([entry['name'] for entry in singles], self.cases)
+        self.assertTrue(all(entry['exclusive'] and not entry['ignored'] for entry in singles))
+        covered = set(manifest['binaries']['runtime-tests']['tests']) - {'ignored'}
+        self.assertEqual((covered - set(residual['skip_exact'])) | {entry['name'] for entry in singles}, covered)
+        self.assertFalse((covered - set(residual['skip_exact'])) & {entry['name'] for entry in singles})
+        selected = manifest['execution_plan']
+        groups = {part: artifacts.ordinary_artifact_entries(manifest, selected, part)
+                  for part in selected['ordinary_partitions']}
+        self.assertEqual(artifacts.expand_ordinary_batches(groups['runtime'], manifest['binaries']), entries)
+        self.assertCountEqual([entry for group in groups.values() for entry in group],
+                              artifacts.ordinary_entries(manifest))
+
+    def test_absent_ignored_other_targets_and_empty_residual_do_not_lose_tests(self):
+        for change in ('absent', 'ignored', 'other-package', 'other-target', 'other-kind', 'only-exclusive'):
+            manifest = self.manifest()
+            binary = manifest['binaries']['runtime-tests']
+            if change == 'absent':
+                binary['tests'] = ['unrelated']
+                binary['ignored_tests'] = []
+            elif change == 'ignored':
+                binary['ignored_tests'] += self.cases
+            elif change == 'other-package':
+                binary['package'] = 'oasis7_runtime'
+            elif change == 'other-target':
+                binary['target'] = 'integration'
+            elif change == 'other-kind':
+                binary['target_kind'] = ['test']
+            else:
+                binary['tests'] = self.cases
+                binary['ignored_tests'] = []
+            entries = [entry for entry in artifacts.expand_ordinary_batches(
+                       artifacts.ordinary_entries(manifest), manifest['binaries'])
+                       if entry['binary'] == 'runtime-tests']
+            with self.subTest(change=change):
+                self.assertEqual(len(entries), 2 if change == 'only-exclusive' else 1)
+                self.assertEqual(sum(entry.get('exclusive', False) for entry in entries),
+                                 2 if change == 'only-exclusive' else 0)
+
+    def test_ordinary_commands_keep_counts_environment_and_failure(self):
+        manifest = self.manifest()
+        selected = manifest['execution_plan']
+        for fail in (False, True):
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                self.assertEqual(suite, 'ordinary')
+                self.assertNotIn('OASIS7_FORMAL_TEST', env)
+                if name == 'runtime-tests':
+                    self.assertEqual(command[1:], ['--exact', '--skip', self.cases[0], '--skip', self.cases[1]])
+                    self.assertEqual(expected_count, 2)
+                else:
+                    self.assertIn(name, self.cases)
+                    self.assertEqual(command[1:], ['--exact', name, '--test-threads=1'])
+                    self.assertEqual(expected_count, 1)
+                return dict(passed=not (fail and name == self.cases[0]), cleanup_result='clean')
+            with tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(manifest, {'OASIS7_FORMAL_TEST': 'remove'})), \
+                 patch('ci_process_runner.run', side_effect=invoke) as runner:
+                if fail:
+                    with self.assertRaises(RuntimeError):
+                        artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'result',
+                                          plan=selected, ordinary_partition='runtime')
+                else:
+                    artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'result',
+                                      plan=selected, ordinary_partition='runtime')
+                self.assertEqual(runner.call_count, 3)
+
+    def test_inline_exclusive_jobs_never_overlap_another_harness(self):
+        selected = InlineExecutionSelection().selection()
+        manifest = self.manifest(selected)
+        lock = threading.Lock()
+        active, calls = set(), []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            with lock:
+                if name in self.cases:
+                    self.assertFalse(active)
+                    self.assertIn('--test-threads=1', command)
+                    self.assertEqual(env['RUST_TEST_THREADS'], '1')
+                self.assertFalse(active & set(self.cases))
+                active.add(name)
+                calls.append(name)
+            time.sleep(0.01)
+            try:
+                return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+            finally:
+                with lock:
+                    active.remove(name)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(manifest, {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'result', plan=selected)
+        self.assertEqual(sum(name in self.cases for name in calls), 2)
+        self.assertEqual(len(calls), len(set(calls)))
+
+    def test_real_libtest_exact_skip_preserves_similar_names_and_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'fixture.rs'
+            source.write_text('''
+#[test] fn heavy() {}
+#[test] fn other() {}
+#[test] fn heavy_suffix() {}
+#[test] fn prefix_heavy() {}
+#[test] fn unrelated() {}
+#[test] #[ignore] fn ignored() { panic!("must remain ignored"); }
+''')
+            executable = root / 'fixture'
+            subprocess.run(['rustc', '--test', str(source), '-o', str(executable)], check=True)
+            tests = artifacts.inventory(executable)
+            ignored = artifacts.inventory(executable, True)
+            manifest = dict(binaries={'runtime': dict(path='fixture', cwd='.', ordinary=True,
+                package='oasis7_chain_runtime', target='oasis7_chain_runtime', target_kind=['lib'],
+                tests=tests, ignored_tests=ignored)})
+            with patch.object(artifacts, 'ROOT', root), \
+                 patch.object(artifacts, 'ORDINARY_EXCLUSIVE_RUNTIME_CASES', frozenset(('heavy', 'other'))), \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'load', return_value=(manifest, {})):
+                artifacts.execute(root, 'ordinary', root / 'results.jsonl')
+            records = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines()]
+            self.assertEqual([(record['test_name'], record['expected_count']) for record in records],
+                             [('runtime', 3), ('heavy', 1), ('other', 1)])
+            self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+
+
 class NativePackagePartitions(unittest.TestCase):
     def selection(self):
         targets = [FastTargetInventory().target(package=package, target_kind=kind, target_name=name)

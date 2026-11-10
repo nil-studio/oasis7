@@ -965,6 +965,12 @@ test('actual Account activation reuses exact strict facts within its synchronous
         assert.ok(summary.memo_hits>0,'the central synchronous SQL scope must be active');
         assert.equal(summary.calls,summary.strict_attempts+summary.memo_hits,'all valid activation calls must be accounted for');
         assert.equal(summary.failures,0,'a memo hit cannot hide a failed strict verification');
+        for(const event of ['test_session_oracle','test_session_read_published','test_session_lifetime','test_session_activated']) {
+          const callbacks=metrics.recent_callbacks.filter(callback=>callback.event===event);
+          assert.ok(callbacks.length>0,'each actual preflight callback must be observed');
+          for(const callback of callbacks)assert.equal(callback.decode_count,0,
+            `${event} must reuse the exact restored SQL bytes while rechecking current authority`);
+        }
         // Do not print samples: their private diagnostic fields include snapshot digests.
       },
     });

@@ -1042,12 +1042,13 @@ def sha(value):
     return value if isinstance(value, str) and re.fullmatch('[0-9a-f]{40}', value) else None
 def token(value):
     return isinstance(value, str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', value) and not re.search(r'(?i)(password|secret|authorization|bearer|access.token|gh[pousr]_|github_pat_)', value)
-def safe_json(name, fallback):
+def safe_json(name, fallback, max_bytes=65536):
     raw = E.get(name, '')
-    if len(raw) > 65536:
+    if len(raw) > max_bytes or len(raw.encode('utf-8')) > max_bytes:
         raise ValueError('context_size')
     return json.loads(raw) if raw else fallback
-needs = safe_json('TELEMETRY_NEEDS', {})
+# needs includes upstream outputs such as the selection plan; only results survive.
+needs = safe_json('TELEMETRY_NEEDS', {}, max_bytes=1024 * 1024)
 matrix = safe_json('TELEMETRY_MATRIX', {}) or {}
 if not isinstance(needs, dict) or not isinstance(matrix, dict):
     raise ValueError('context_type')

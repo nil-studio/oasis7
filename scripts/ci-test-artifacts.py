@@ -2333,7 +2333,8 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_par
     handlers = {}
     failures, recorded = [], set()
     next_job = 0
-    weights = [min(cpus, job.get('cpu_weight', cpus)) if formal else threads for job in jobs]
+    weights = [min(cpus, job.get('cpu_weight', cpus)) if formal else
+               cpus if job.get('exclusive') else threads for job in jobs]
     if any(type(weight) is not int or weight < 1 for weight in weights):
         raise ValueError('invalid execution CPU weight')
     results.parent.mkdir(parents=True, exist_ok=True)
@@ -2350,7 +2351,7 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_par
         job = jobs[index]
         if stop.is_set():
             raise InterruptedError('cancelled before starting harness')
-        env = dict(job['env'], RUST_TEST_THREADS=str(threads))
+        env = dict(job['env'], RUST_TEST_THREADS=str(1 if job.get('exclusive') else threads))
         result = run(job['command'], job['cwd'], env, job['suite'], job['name'],
                      receipt, expected_count=job['count'], cancellation_event=stop)
         if not result.get('passed'):
@@ -2472,6 +2473,38 @@ def ordinary_artifact_entries(manifest, plan, partition):
     return buckets[partition]
 
 
+ORDINARY_EXCLUSIVE_RUNTIME_CASES = frozenset(
+    'execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::'
+    'formal_read::tests::header_certificate_v3_tests::node_execution_tests::'
+    'node_network_tests::membership_cases::' + name
+    for name in (
+        'wire3_membership_actual_world_noise_follower_installs_at_h_plus_two',
+        'wire3_membership_confirmation_proposal_timeout_recovers_after_original_governance_commit',
+    )
+)
+
+
+def expand_ordinary_batches(entries, binaries):
+    """Isolate four-Node cases without changing coverage or partition ownership."""
+    expanded = []
+    for entry in entries:
+        binary = binaries[entry['binary']]
+        tests = set(binary['tests']) - set(binary['ignored_tests'])
+        exclusive = sorted(tests & ORDINARY_EXCLUSIVE_RUNTIME_CASES) if (
+            entry.get('batch') and binary.get('target_kind') == ['lib']
+            and binary.get('package') == binary.get('target') == 'oasis7_chain_runtime') else []
+        if not exclusive:
+            expanded.append(entry)
+            continue
+        # Exact skips and exact singleton jobs partition this same validated
+        # nonignored inventory, even when another test contains a whole name.
+        if tests - set(exclusive):
+            expanded.append(dict(entry, skip_exact=exclusive, count=len(tests) - len(exclusive)))
+        expanded.extend(dict(binary=entry['binary'], name=name, ignored=False, exclusive=True)
+                        for name in exclusive)
+    return expanded
+
+
 def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
     from ci_process_runner import run
     # An omitted partition retains the local full-bundle execution path.
@@ -2487,6 +2520,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
     if suite == 'ordinary' and not shard:
         entries = (ordinary_artifact_entries(manifest, plan, ordinary_partition)
                    if artifact_partition else ordinary_entries(manifest))
+        entries = expand_ordinary_batches(entries, manifest['binaries'])
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
@@ -2517,7 +2551,11 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
             command = [str(bundle / binary['path'])]
             name = entry.get('name', entry['binary'])
             if entry.get('batch'):
-                count = len(set(binary['tests']) - set(binary['ignored_tests']))
+                count = entry.get('count', len(set(binary['tests']) - set(binary['ignored_tests'])))
+                if entry.get('skip_exact'):
+                    command.append('--exact')
+                    for skipped in entry['skip_exact']:
+                        command += ['--skip', skipped]
             elif 'filter' in entry:
                 command.append(entry['filter'])
                 name, count = entry['filter'], entry['count']
@@ -2528,10 +2566,14 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                 count = 1
             if logical_suite != 'ordinary':
                 command += ['--test-threads=1', '--nocapture']
+            elif entry.get('exclusive'):
+                command.append('--test-threads=1')
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
                    name=name, count=count, binary=entry.get('binary'))
+        if entry.get('exclusive'):
+            job['exclusive'] = True
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)

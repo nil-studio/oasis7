@@ -785,6 +785,8 @@ v2 输入的 `sources` 每项包含 `reference / kind / source_schema / payload`
 
 前向 `oasis7-engineering-job/v1` 观察记录由 workflow 的专用非阻断步骤输出。记录 `github.job`、实际 matrix、直接 needs 的结果、workflow SHA、运行目标 source/tested/policy，另列观察时实际 checkout 与允许配置文件摘要。目标 tested 不等于实际 checkout；无 checkout 的汇总节点和未执行分支不补造源码输入。v2 离线合同保持不变，新的绑定报告独立使用 `oasis7-engineering-bindings/v1`，不能把异构输入强填成同一 config。
 
+运行时 `needs` 上下文包含上游 outputs（包括 selection 计划），与只含维度的 matrix 分别限额：JSON 解析前按 UTF-8 字节检查，needs 最多 1 MiB、matrix 最多 64 KiB。解析后仍限制 100 个依赖、32 个矩阵键，校验键名、结果枚举和矩阵值；超额或无效输入使观察失败，不截断、猜测或放宽 gate。观察记录只保留依赖的结果映射，不保留 outputs，source/tested/policy 仍取显式目标字段。此解析额度不保证超过 runner 环境变量传递限制的输入能够启动。
+
 采集器从同一 run/attempt 的数值 job 日志读取专用步骤记录，核对 API 的数值身份、workflow 版本、唯一 job key/matrix 和完整分页。只接受该步骤内唯一标记；缺日志、冲突或错 attempt 保持 unknown。精确 workflow 的静态 needs 仅定义逻辑依赖，未绑定矩阵实例和 skipped 分支时不能发布完整 DAG。观察不是 GitHub 签名证明，也不赋予候选产物执行权限。
 
 Formal 的生产与消费双方观察允许位置的 manifest 原字节 SHA-256；merge 的组件输入与输出、pack 的每分片 manifest、消费者实际读取的 manifest 分开列出。相同摘要仅证明相同 manifest 内容，只有原生产与消费各自的数值 job 观察齐全才建立内容边；它不代替 GitHub artifact ID、下载成功或验证成功。未记录这些事实时分别为 unknown，不按文件名/测试名猜关联。诊断失败不影响测试、gate、清理或发布，日志保留期沿原 Actions 设置，报告建议保留 7 天。 精确非阻断例外在 `ci-required-scope.json.engineering_job_observation` 声明步骤、workflow、超时及 emitter 内容摘要；既有 workflow 合同只豁免匹配的整个独立诊断步骤，任何 required 步骤仍不得吞失败。此策略变化走已有 full/all-groups 迁移路径，不新增 required check；固定基线安全断言与真实 Rust fixture 保留，部分历史完整基线断言交由完整候选 suite 接替，因此不能称为治理规则完全未变。emitter 与声明可一起修改，其摘要不是独立信任根，仍须独立审阅和完整 CI。
@@ -946,6 +948,8 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 runtime 的两个完整 membership 场景分别放到 healthy-set（actual world noise follower）与 lifecycle-cli（confirmation proposal timeout recovery）；逻辑 suite 仍为 runtime-protocol，继续独占各 runner 的 CPU 预算。预计算物理分片同时考虑显式 case 和所选 environment batch 的 override；构建后仍须证明 override 命中真实库存，不能因为 case 来自非 ignored batch 而漏选目的分片。
 
+普通执行同样隔离这两个四 Node 时序敏感场景：按 runtime library 的真实 package/target 身份和完整测试名，将实际非 ignored 库存分为剩余 batch 与每项独立 exact 执行，三者不重叠且并集保持原库存。剩余 batch 使用 exact skip，不能以子串过滤误删相似名称；各项仍保留原计数、环境、超时和失败判定。完整物理分片仍归 runtime，inline 池中的独立场景占用全部 CPU 预算，不与其他 harness 同时运行。未包含这些场景的 feature 组合不新增测试，新增或其他用例继续按原库存执行。该隔离不放宽协议期限，也不以 Formal 通过代替普通环境验收。
+
 新完整 manifest 的 `formal_execution_version=1` 允许分片内采用有界完整用例执行池。只有可信 Formal 配置 `parallel_cases` 中按 binary 身份、完整测试名登记并审读隔离性的 case 可占 1 或 2 个 CPU 槽；总槽数不超过 `native_cpu_budget()`，worker 最多 4 个。未知、新增未登记 case 与 shell script 独占全部预算。候选运行只接受 BASE 的并发许可，不因候选配置扩大并发；旧或未知 execution version 保留串行。每个 case 拥有独立进程 owner、绝对期限、结果身份、计数和清理，取消后不再启动排队项；任一失败使本次选定执行失败，已完成成功的结果不被其他 worker 后续失败改写。结果核验通过后才追加逻辑 suite / 物理 shard 元数据，不能以并发掩盖缺项或重复。
 
 初始许可覆盖 18 个精确 runtime case：局部内存 snapshot、私有 Scratch/CAS 的 multivalue 与 prefix ledger、完整 SIGKILL 恢复、10 高度存储验收、单 Node publication 恢复，以及独立 endpoint 的 authenticated native pair。私有根使用 PID/序号或随机材料区分，故障配置通过各子进程环境传递，TCP listener 持有零端口绑定直到关闭，子进程有独立清理；有真实 Node/子进程的条目占 2 槽。先释放临时端口再重启固定地址的 protected runtime、四 Node 时序敏感 membership 和 70 步世界历史仍独占。此许可基于源代码隔离性审读，首次主线并发仍须核验实际期限、清理和资源，不能据此声称已有 hosted 加速。
@@ -1081,3 +1085,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、�
 该证据只用于同属 Worker 的静态、无环、无 opaque 生产模块路径，要求父路径与局部 cfg 在同一个实际组合全部成立。未声明 feature、未知谓词、矛盾角色、跨包路径及不可证明的 mount 保持拒绝。编译时 `test=false`；该库存不执行或授权 wasm `#[test]`、ignored 用例，不改变原 native/expanded 测试组合和忽略用例 runner 登记要求。新增平台组合须独立审查并先进入可信 main；候选自行修改 planner/config 不成为该候选的授权来源。
 
 第七项作为新引入的封闭条件合同预登记，不能称为既有主线编译证据：仅当 Worker manifest 声明空、默认关闭的 `execution-signer-harness=[]` 时，可信 driver 才追加 Executor+execution-signer-harness 的成功编译，并分别验证 Identity、Owner、RecoveryFence+该 feature 的失败编译及精确 guard 消息。feature 缺失时不执行这四项，也不声称已编译。每个 tuple 都以实际 manifest 的本地 feature 传递闭包，同时核对父路径和局部 cfg；不注入 default，不跨 tuple 合并。非空声明、default 闭包开启，或六个原组合通过角色或 harness 别名隐式开启该 feature 均直接拒绝；无法建模的 optional/weak/implicit 依赖传播不能推定为已编译。失败编译仅证明精确字面 `compile_error!` guard，不能证明其后的任意生产函数、模块或测试可执行；真实成功组合仍逐实际 parent/cfg 核对。此前所有新增 ignored 用例的 runner 缺口保持独立阻断。
+
+### Preview provider 测试附属产物
+
+Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用共享产物合同。本能力不登记新的 ignored 测试，也不改变可信 BASE 的选择权限。ordinary expanded／full producer 在实际 native 库存包含启用 `test_tier_full` 的 `oasis7_chain_runtime` 测试消费者时准备材料；不为仅含其他包的隔离编排夹具启动模块构建。准备仍使用官方 `scripts/build-wasm-module.sh --candidate-build`，按同 checkout 构建 `module.runtime.local-test-provider`；原 WASM、官方 metadata 与 native bundle 的 tested/source SHA、两个文件及官方 build receipt、同 candidate 只读 checker 的 hash 一并绑定。checker 复用既有 `sync_builtin_wasm_identity --verify-provider-artifact` 入口，使用官方 SourceRule2 完整闭包、builder recipe／execution 和 receipt 验证 API；不修改 producer recipe，不同步身份或生成发布材料。允许现 API 的 locked Cargo metadata 解析，不启动编译或模块执行。pack／load 验证完整材料、当前 source-input v2 和身份后，才向实际测试进程显式注入 `OASIS7_PREVIEW_TEST_PROVIDER_WASM` 与 `OASIS7_PREVIEW_TEST_PROVIDER_METADATA`。缺失、损坏、跨 source 或路径越界均失败，不回退 placeholder、其他 checkout 或本机缓存材料。`ci-tests.sh full-extended` 使用同一官方准备及验证入口；不新增 secret 或外部写权限。纯 Python 合同不代签真实 WASM 构建或 consumer 执行；后续实际 full-tier consumer 必须在材料缺失时失败而非 skip。

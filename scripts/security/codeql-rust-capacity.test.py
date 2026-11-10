@@ -288,11 +288,13 @@ class Capacity(unittest.TestCase):
         self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.4')
         self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.3')
         self.research_prepare_case(mode='capacity',source_sha=m.PREVIOUS_CAPACITY_SOURCE,actual_version='2.27.3')
+        self.research_prepare_case(mode='qualifier-research',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.4')
 
     def test_prepare_rejects_cli_from_the_other_assessment_configuration(self):
         self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.3',wrong_cli=True)
         self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.4',wrong_cli=True)
         self.research_prepare_case(actual_version='2.27.4',wrong_cli=True)
+        self.research_prepare_case(mode='qualifier-research',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.3',wrong_cli=True)
 
     def test_metadata_created_lock_stops_before_analysis_even_if_git_gate_is_clean(self):
         self.research_prepare_case(create_lock=True)
@@ -309,8 +311,16 @@ class Capacity(unittest.TestCase):
     def test_native_prerequisite_failure_stops_before_metadata_or_analysis(self):
         self.research_prepare_case(native_failure=True)
 
+    def test_qualifier_research_admits_slow_native_install_before_metadata(self):
+        self.research_prepare_case(mode='qualifier-research',source_sha=m.CAPACITY_SOURCE,
+                                  actual_version='2.27.4',slow_native=True)
+
+    def test_capacity_keeps_original_native_install_limit(self):
+        self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,
+                                  actual_version='2.27.4',slow_native=True)
+
     def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False,
-                              mode='official-default-research',source_sha=None,actual_version='2.27.3',wrong_cli=False):
+                              mode='official-default-research',source_sha=None,actual_version='2.27.3',wrong_cli=False,slow_native=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
@@ -328,9 +338,15 @@ class Capacity(unittest.TestCase):
                 (source/'vendor').mkdir();(source/'vendor/Cargo.toml').write_text('[workspace]\n')
                 manifests.append('vendor/Cargo.toml')
             frozen={'Cargo.lock':{'sha256':hashlib.sha256(b'initial lock').hexdigest()}}
-            commands=[]
+            commands=[];clock=[100.0]
             def run(argv,cwd,output,*args,**kwargs):
                 commands.append(argv)
+                if slow_native and argv[0]=='sudo':
+                    duration=6 if 'update' in argv else 200
+                    allowed=int(argv[5])
+                    clock[0]+=min(duration,allowed)
+                    if duration>allowed:
+                        raise m.runtime.PhaseError({'failure_kind':'child_exit','exit':124})
                 if native_failure and argv[0]=="pkg-config":raise RuntimeError("native prerequisite failed")
                 if create_lock and argv[0]=='cargo':(source/'Cargo.lock').write_text('created during metadata')
                 if mode=='official-default-research':self.assertNotIn('compile',argv)
@@ -342,7 +358,7 @@ class Capacity(unittest.TestCase):
                 output.write_text(json.dumps(value))
                 if metadata_failure and argv[0]=='cargo':raise RuntimeError('original metadata failure')
                 return {'exit':0}
-            job_seconds=21600 if mode=='official-default-research' else (5400 if source_sha==m.CAPACITY_SOURCE else 3600)
+            job_seconds=21600 if mode=='official-default-research' else (9000 if mode=='qualifier-research' else (5400 if source_sha==m.CAPACITY_SOURCE else 3600))
             patches=[patch.object(sys,'argv',['capacity','prepare','--mode',mode,'--source-sha',source_sha or m.EXCLUSION_SOURCE,
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
                 '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+job_seconds)]),
@@ -355,6 +371,7 @@ class Capacity(unittest.TestCase):
                 patch.object(m,'verify_action_config'),patch.object(m.runtime,'run',side_effect=run),
                 patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'})]
             if mode=='official-default-research':patches.append(patch.object(m,'semantic_queries',side_effect=AssertionError('custom queries forbidden')))
+            if slow_native:patches.append(patch.object(m.time,'monotonic',side_effect=lambda:clock[0]))
             for item in patches:stack.enter_context(item)
             # Layout admission still precedes expensive work.
             out.mkdir();(out/'collection-layout.json').write_text('{"status":"PASS"}')
@@ -377,6 +394,14 @@ class Capacity(unittest.TestCase):
                 self.assertFalse((root/"outputs").exists())
                 terminal=json.loads((out/"capacity-prepare-terminal.json").read_text())
                 self.assertEqual(terminal["native_preparation"],"INCOMPLETE")
+                return
+            if slow_native and mode!='qualifier-research':
+                with self.assertRaises(m.runtime.PhaseError) as failure:m.main()
+                self.assertEqual(failure.exception.result['exit'],124)
+                self.assertEqual(len(commands),2)
+                self.assertFalse((root/'outputs').exists())
+                terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
+                self.assertEqual(terminal['native_preparation'],'INCOMPLETE')
                 return
             if metadata_failure:
                 with self.assertRaisesRegex(RuntimeError,'original metadata failure'):m.main()
@@ -403,12 +428,16 @@ class Capacity(unittest.TestCase):
                 ['prepare','after-metadata-workspace','after-metadata-candidate',
                  'after-metadata-legacy','after-metadata-common','pre-analyze'])
             terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
-            self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED' if mode=='official-default-research' else 'NOT_REACHED')
+            self.assertEqual(terminal['public_semantics'],'NOT_REACHED' if mode=='capacity' else 'NOT_REQUESTED')
             self.assertEqual(terminal['expected_bundle_version'],actual_version)
             self.assertEqual(terminal['production_capacity'],'UNKNOWN')
             if mode=='official-default-research':self.assertGreater(terminal['analysis_minutes'],300)
+            elif mode=='qualifier-research':self.assertEqual(terminal['analysis_minutes'],25)
             else:self.assertEqual(terminal['analysis_minutes'],75 if source_sha==m.CAPACITY_SOURCE else 45)
             self.assertEqual(terminal['native_preparation'],'PASS')
+            native_budget=json.loads((out/'native-budget.json').read_text())
+            self.assertEqual(native_budget['maximum_seconds'],360 if mode=='qualifier-research' else 180)
+            self.assertEqual(len(native_budget['allocations']),4)
             native_index=next(i for i,argv in enumerate(commands) if argv[0]=='pkg-config')
             metadata_index=next(i for i,argv in enumerate(commands) if argv[0]=='cargo')
             self.assertLess(native_index,metadata_index)
@@ -454,6 +483,82 @@ class Capacity(unittest.TestCase):
                 self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
                 self.assertEqual(terminal['production_capacity'],'UNKNOWN')
                 self.assertEqual(terminal['full_rust_coverage'],'HOLD')
+
+    def test_qualifier_finish_requires_a_trusted_full_extraction_without_query_results(self):
+        import contextlib
+        import zipfile
+        failures = ('none', 'capture', 'guard', 'resource', 'archive', 'database-root', 'finalized', 'results', 'after-identity')
+        cases = [('qualifier-research', failure) for failure in failures] + [('capacity', 'missing-results')]
+        for mode, failure in cases:
+            with self.subTest(mode=mode, failure=failure), tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+                root=Path(directory);source=root/'source';source.mkdir();out=root/'out';out.mkdir();db=root/'db';db.mkdir()
+                metadata=db/'codeql-database.yml'
+                metadata.write_text('---\nfinalised: '+('false' if failure=='finalized' else 'true')+'\n')
+                selected=[m.model.DRIVER,m.model.BASE+'/common/src/protocol.rs',m.model.EXPECT,
+                          m.model.BASE+'/candidate/src/adapter.rs',m.model.BASE+'/legacy/src/adapter.rs']
+                frozen={}
+                with zipfile.ZipFile(db/'src.zip','w') as archive:
+                    for name in selected:
+                        content=('frozen '+name).encode()
+                        frozen[name]={'sha256':hashlib.sha256(content).hexdigest()}
+                        archive.writestr('source/'+name,b'changed' if failure=='archive' else content)
+                    archive.writestr('rustup/toolchains/1.99.0/lib/rustlib/src/rust/library/core/src/lib.rs','sysroot fixture')
+                if failure=='results':
+                    result=db/'results/old.bqrs';result.parent.mkdir();result.write_bytes(b'preexisting')
+                deadline=time.time()+(9000 if mode=='qualifier-research' else 5400)
+                resources={'CODEQL_RAM':14570,'CODEQL_THREADS':4}
+                captured=dict(mode=mode,source=m.CAPACITY_SOURCE,source_root=str(source),fixed_job_deadline=deadline,
+                    analyze_outcome='success',checkout_gate='PASS',lock_observation_gate='PASS',
+                    resource_gate='FAIL' if failure=='resource' else 'PASS',
+                    evidence_status='PARTIAL' if failure=='capture' else 'COMPLETE',coverage_capture={'status':'PASS'},
+                    cargo_guard={'status':'FAIL' if failure=='guard' else 'PASS'},resources=resources)
+                for name,value in [('capacity-capture-terminal.json',captured),('resources.json',resources),
+                        ('coverage.json',{'status':'COVERAGE_REQUIRES_REVIEW'}),('source-before.json',frozen)]:
+                    (out/name).write_text(json.dumps(value))
+                if mode=='capacity':
+                    query=root/'one.ql';query.write_text('/** @id rust/one */')
+                    (out/'default-suite.json').write_text(json.dumps({'query_root':str(root),'queries':m.suite_entries([str(query)],root)}))
+                    (db/'temp').mkdir();(db/'temp/config-queries.qls').write_text('official suite')
+                calls=[]
+                def run(argv,cwd,output,*args,**kwargs):
+                    calls.append(argv)
+                    if mode=='capacity':
+                        self.assertEqual(argv[1:3],['resolve','queries']);value=[str(query)]
+                    else:
+                        self.assertEqual(argv[1:3],['resolve','database'])
+                        value=dict(sourceLocationPrefix='/foreign' if failure=='database-root' else str(source),
+                                   languages=['rust'],datasetFolder=str(db/'db-rust'))
+                    output.write_text(json.dumps(value))
+                argv=['capacity','finish','--mode',mode,'--source-sha',m.CAPACITY_SOURCE,'--codeql',str(root/'codeql'),
+                      '--source',str(source),'--database',str(db),'--output',str(out),'--work',str(root/'work'),
+                      '--sarif',str(root/'absent-sarif'),'--deadline',str(deadline),'--analyze-outcome','success']
+                for item in [patch.object(sys,'argv',argv),patch.object(m,'snapshot',return_value=frozen),
+                        patch.object(m.runtime,'run',side_effect=run),
+                        patch.object(m,'after_identity',return_value={'source':'CHANGED' if failure=='after-identity' else 'UNCHANGED','official':'UNCHANGED'})]:
+                    stack.enter_context(item)
+                if failure=='none':m.main()
+                else:
+                    with self.assertRaises(RuntimeError):m.main()
+                terminal=json.loads((out/'capacity-finish-terminal.json').read_text())
+                self.assertEqual(terminal['status'],'EXTRACTION_READY' if failure=='none' else 'FAILED' if mode=='capacity' else 'RESEARCH_INCOMPLETE')
+                self.assertEqual(terminal['production_capacity'],'UNKNOWN')
+                self.assertEqual(terminal['full_rust_coverage'],'HOLD')
+                if mode=='qualifier-research':
+                    self.assertEqual(terminal['default_result_verification'],'NOT_REQUESTED')
+                    self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
+                    self.assertFalse((db/'temp/config-queries.qls').exists())
+                if failure in ('capture','guard','resource'):self.assertEqual(calls,[])
+                if failure=='none':
+                    self.assertEqual(terminal['database_metadata_sha256'],hashlib.sha256(metadata.read_bytes()).hexdigest())
+                    self.assertEqual(len(json.loads((out/'archived-source.json').read_text())['selected']),5)
+
+    def test_qualifier_mode_rejects_historical_source_before_any_capture(self):
+        argv=['capacity','capture','--mode','qualifier-research','--source-sha',m.PREVIOUS_CAPACITY_SOURCE,
+              '--source','/source','--database','/db','--output','/out','--work','/work','--sarif','/sarif','--deadline','9000']
+        with patch.object(sys,'argv',argv),patch.object(m.argparse.ArgumentParser,'error',side_effect=ValueError('rejected')), \
+                patch.object(m,'capture_failure_evidence') as capture:
+            with self.assertRaises(ValueError):m.main()
+            capture.assert_not_called()
 
     def test_gzip_progress_and_manifest_sections_survive_chunk_boundaries_and_reiteration(self):
         import gzip
@@ -542,6 +647,16 @@ class Capacity(unittest.TestCase):
         self.assertEqual(research['post_analysis_reserve_seconds'],600)
         with self.assertRaises(ValueError):m.analysis_budget('unknown',21400)
 
+    def test_qualifier_research_extraction_budget_keeps_original_job_deadline(self):
+        for remaining, minutes in ((9000, 25), (2100, 25), (2099, 24), (1200, 10), (660, 1), (600, 0)):
+            budget = m.analysis_budget('qualifier-research', remaining, m.CAPACITY_SOURCE)
+            self.assertEqual(budget['job_budget_seconds'], 9000)
+            self.assertEqual(budget['analysis_allocated_minutes'], minutes)
+            self.assertEqual(budget['post_analysis_reserve_seconds'], 600)
+            self.assertLessEqual(minutes * 60 + 600, remaining)
+        with self.assertRaisesRegex(ValueError, 'fixed current source'):
+            m.analysis_budget('qualifier-research', 9000, m.PREVIOUS_CAPACITY_SOURCE)
+
     def test_capacity_45_minute_analysis_preserves_global_reserve(self):
         for remaining,minutes in ((3600,45),(3435,45),(3300,45),(3299,44),(3110,41),(3059,40),(2999,39),(660,1),(600,0)):
             budget=m.analysis_budget('capacity',remaining)
@@ -562,8 +677,10 @@ class Capacity(unittest.TestCase):
         text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
         self.assertIn('default: capacity',text)
         self.assertIn('official-default-research',text)
-        self.assertIn("inputs.mode == 'official-default-research' && 360 || 90",text)
-        self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),3)
+        self.assertIn("inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90",text)
+        prepare=text.split('      - id: prepare\n',1)[1].split('      - id: analyze\n',1)[0]
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'qualifier-research' && 11 || 8 }}",prepare)
+        self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),4)
 
     def test_mode_specific_source_selection_preserves_research_pin(self):
         text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
@@ -733,14 +850,14 @@ assert value['found_manifests']==[]
         text=workflow.read_text()
         self.assertIn('default: false',text);self.assertIn('inputs.execute == true',text)
         self.assertNotIn('pull_request:',text);self.assertNotIn('schedule:',text)
-        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || 90 }}",text)
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90 }}",text)
         self.assertIn('source-root: ${{ github.workspace }}',text)
         self.assertIn('checkout_path: ${{ github.workspace }}',text)
         self.assertNotIn('/capacity-source',text)
         self.assertIn('upload: never',text);self.assertIn('upload-database: false',text)
         self.assertIn('trap-caching: false',text);self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none',text)
         self.assertNotIn('security-events: write',text);self.assertNotIn('upload-sarif@',text)
-        self.assertIn("budget=21600 if mode=='official-default-research' else 5400",text);self.assertIn('local_now+budget-age',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
+        self.assertIn("budget=21600 if mode=='official-default-research' else (9000 if mode=='qualifier-research' else 5400)",text);self.assertIn('local_now+budget-age',text);self.assertIn('oasis7-codeql-scan-slot-1',text)
         self.assertIn('codeql-rust-capacity.test.py',(P.parents[1]/'ci-tests.sh').read_text())
 
 def load_tests(loader, tests, pattern):
