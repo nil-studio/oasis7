@@ -467,6 +467,24 @@ Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不�
 
 终态使用明确的 `CANDIDATE_RESEARCH_*`，分别记录计算、默认结果、公共语义、证据、资源、身份和余量；始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、`production_acceptance=UNCHANGED`。完整研究仅证明本次私有配置的实际结果，不等于官方容量、全 Rust 覆盖、上游发布或运营启用。旧 capacity、official-default-research、qualifier-research 的预算与行为保持不变。
 
+#### 7.2.5 合法 WASM 单角色 metadata 诊断
+
+本入口承接 CQ-R03/R04/R05/R06 的上下文、预算、失败可见和信任边界，仅观察 Cargo 项目归属与依赖图，不运行 CodeQL 或 Rust 编译。独立 `CodeQL Rust WASM Metadata` workflow 默认关闭；仅可信默认分支的 `workflow_dispatch` 且精确 `execute=true` 执行，权限限 `contents: read` 和读取实际 job 时钟所需的 `actions: read`，复用 scan-slot-1 队列，不取消已有运行。它不改变生产批次、required policy 或其他诊断预算。
+
+固定完整业务源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`、根虚拟 workspace 的 53 个不同成员及 `oasis7_custody_worker/recovery-fence` 角色。实际 Cargo 固定为 1.99.0、commit `5f94df4789f005f9a352888e8355ffc645b7ed0e`、host `x86_64-unknown-linux-gnu`；本轮首次采集 analysis rustc 完整 commit 并前后比较，不从 Cargo commit 或历史 sysroot 路径推断。项目声明的 1.96.0、源码、manifest 与锁文件不改。
+
+首步用实际 hosted job start 与 GitHub 时钟绑定一次 1200 秒绝对截止；绑定失败拒绝，不退回当前时间加预算。所有 helper/源码获取、工具链安装、联网依赖准备、探针和身份核对都计时，准备最迟在总截止前 420 秒停止。仅剩余至少 420 秒才准入完整 300 秒观察窗口，其截止取准入后 300 秒与总截止前 120 秒的较早者；D1/D2 最晚在观察截止前 60 秒停止，尾部用于清理、after、guard 审计和封存。最后独立 120 秒留给 artifact upload/post，仍受原 job 截止约束。D1 最多 10 秒，D2 使用同一窗口剩余量；不重置、不自动重跑。helper 终态不代签完整 job，上传及 post 后须读回实际平台终态。
+
+启动链使用仅此任务的闭合 Python bootstrap：先绑定时钟，再按固定工具提交获取白名单 helper blobs，核验对象身份后交接；业务 archive 按固定 commit/tree 与全部 blob 对账。它不调用会自行打印 git 命令的 checkout Action。网络错误、重定向和异常只记录受限类别、字节数与摘要，不保存 token、临时 URL 或异常原文。宿主真实 Cargo/rustup proxy 留在原位置并核摘要，以任务 CARGO_HOME/RUSTUP_HOME/target 隔离工具与缓存，HOME/CODEX_HOME 不改；不绕过 guard 对 real_cargo 位于 guard work 下的拒绝。准备与最终 offline metadata 使用同一 cache/proxy。联网准备仅在专用动作表中，原 guard/runtime/layout 的共享命令权限不扩展。
+
+版本审计使用本任务 helper 内的投影 adapter，原共享 guard 源码、真实 Cargo 路径/摘要检查、参数约束及 inspect 均保留。仅在新 guard 的 counter=0、failed=0 且尚无调用记录时，对 owned regular wrapper/config 一次重绑；保存原/新 wrapper 摘要及 adapter helper 固定 SHA。wrapper 必须先核 helper 字节再执行，版本回调消费当次真实输出，在写入 actual_cargo_version 前严格校验版本、commit、header/date 一致性并规范化允许字段；未知字段/错身份先拒绝。finish_record 只追加白名单 bytes/hash/status，不删原字段、不改原错误或成功状态。原版本函数在返回前因超限、退出、UTF-8 或 timeout 失败时记 NOT_RETURNED、摘要未知，不伪造完整输出观察。
+
+D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-format=json`；D2 对根 manifest 执行一次完整 `metadata --locked --offline --format-version=1 --no-default-features --features oasis7_custody_worker/recovery-fence --filter-platform wasm32-unknown-unknown`，两者均经过本轮安装的原 guard。根成员按完整目录集合核验，虚拟根 `resolve.root=null` 是预期；不把子目录当独立 crate。核对 custody 的实际 resolve features 与四角色交集恰为 recovery-fence、无两种 harness，并保存 normal/build/dev 边及 target 表达式。六个本地身份为 crates 下同名 manifest 的 oasis7_custody_worker、oasis7_custody_core、oasis7_agent_api、oasis7_client_api、oasis7_proto、oasis7_wasm_abi；它们不替代完整 53 成员。filter-platform 只过滤 resolve 图，packages 清单和每编译单元 features、宏或语义分别解释。
+
+所有准备及执行路径从第一次写入起只保留允许的 manifest/cwd/toolchain/target/features、参数数量和摘要；异常、取消、临时输出和控制台同样适用，不能先落原文再删。合法有界 D1/D2 JSON 经批准图 schema 验证后保存完整依赖图；合法图的角色/成员不符另记 ROLE_CONTEXT_MISMATCH，保留实际 features 与固定失败项后使终态 INCOMPLETE，不把可诊断差异丢成只有摘要；未批准自由文本、非法或超限输出只留类别、字节与摘要，不回退原文。证据合计 64 MiB，含 guard audit/隐藏控制文件、元数据、前后身份、终态与清单；初始按普通 52 MiB、audit 8 MiB、配置/after/终态/hash 4 MiB 预留，启动前证明固定收尾结构够用，必要调整分账须保持总额。guard 原有 256 MiB 检查不代替本项合计上限。
+
+仅两命令、身份、图校验、清理和封存均成立时记 `ROOT_WORKSPACE_ROLE_METADATA_OBSERVED`；准备失败、范围不符、超时或证据不完整分别保留。开发回归覆盖真实启动交接、固定身份、首写投影、取消/TERM/KILL、残留进程、写入失败、预算和 metadata 独立 fixture。该观察不证明 WASM 编译、proc-macro、extractor 选择或 CodeQL 模型，始终保留 production_capacity=UNKNOWN、full_rust_coverage=HOLD；真实 hosted 结果另由父目标验收。
+
 ### 7.3 其他语言
 
 Python 与 JS/TS 默认只建立静态分析所需环境，不执行项目安装脚本和构建脚本。确实依赖生成源码时，单独批准最小生成步骤，隔离凭据，并评估放到定时档而非所有 PR。
