@@ -177,6 +177,8 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 先核对分析窗口在提取前已固定：整个 job 90 分钟，提取、私有复制/解析/编译和 44 项求值共用至多 75 分钟的绝对截止，动态保留 600 秒结果验证与收尾；所有阶段仍保留总截止前 120 秒的证据边界。不能在 checkpoint 后重新分配时间，CLI 查询 timeout 不能替代外层墙钟。最终完整 job 时长及至少 270 秒余量须在 artifact 上传与 post 后独立读回。
 
+同时读取官方 checkpoint 中的 `action-deadline-terminal.json` 与 owned-process 收据：真实官方 main 必须只运行一次，启动/退出/收尾均绑定同一分析截止，启动已过期时不得运行提取。监督器通过该 step 的显式 `NODE_OPTIONS` preload 接入，不通过 `GITHUB_ENV` 写该变量；stdout/stderr 保持 runner 处理，post 正常收尾。相对 step timeout 或预估启动余量不能代替绝对监督收据，监督/取消/采证失败均不得准入候选求值。
+
 从独立候选 artifact 检查私有包装差异、原 37/7 文本身份、44 条实际 closure、候选 TypeInference 摘要和源/库/query pack 的前后身份。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 
 默认 37 项逐项核对完整 info/decode，七表逐项读取实际结果与原 oracle 判定。SARIF 只对 37 项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。

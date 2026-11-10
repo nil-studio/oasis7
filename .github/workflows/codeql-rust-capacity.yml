@@ -168,9 +168,10 @@ jobs:
       - id: analyze
         name: ${{ (inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research') && 'Extract the complete fixed source for private research' || 'Extraction and complete official default queries' }}
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
-        timeout-minutes: ${{ fromJSON(inputs.mode == 'candidate-workload-research' && steps.candidate_prepare.outputs.extraction_minutes || steps.prepare.outputs.analysis_minutes) }}
+        timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
+          NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research' && format('--require={0}/rust-capacity-helper/codeql-rust-action-deadline.cjs', runner.temp) || env.NODE_OPTIONS }}
         with:
           checkout_path: ${{ github.workspace }}
           category: oasis7/rust-repo/default

@@ -496,6 +496,7 @@ class Capacity(unittest.TestCase):
         import zipfile
         failures = ('none', 'capture', 'guard', 'resource', 'archive', 'database-root', 'finalized', 'results', 'after-identity')
         cases = [(mode, failure) for mode in ('qualifier-research','candidate-workload-research') for failure in failures] + [('capacity', 'missing-results')]
+        cases.append(('candidate-workload-research','deadline'))
         for mode, failure in cases:
             with self.subTest(mode=mode, failure=failure), tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
                 root=Path(directory);source=root/'source';source.mkdir();out=root/'out';out.mkdir();db=root/'db';db.mkdir()
@@ -541,6 +542,7 @@ class Capacity(unittest.TestCase):
                       '--sarif',str(root/'absent-sarif'),'--deadline',str(deadline),'--analyze-outcome','success']
                 for item in [patch.object(sys,'argv',argv),patch.object(m,'snapshot',return_value=frozen),
                         patch.object(m.runtime,'run',side_effect=run),
+                        patch.object(m.action_deadline,'admit',side_effect=RuntimeError('absolute deadline missing') if failure=='deadline' else None,return_value={'status':'PASS'}),
                         patch.object(m,'after_identity',return_value={'source':'CHANGED' if failure=='after-identity' else 'UNCHANGED','official':'UNCHANGED'})]:
                     stack.enter_context(item)
                 if failure=='none':m.main()
@@ -557,6 +559,9 @@ class Capacity(unittest.TestCase):
                     self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
                     self.assertFalse((db/'temp/config-queries.qls').exists())
                 if failure in ('capture','guard','resource'):self.assertEqual(calls,[])
+                if mode!='candidate-workload-research':m.action_deadline.admit.assert_not_called()
+                elif failure=='none':m.action_deadline.admit.assert_called_once_with(out,source,deadline)
+                elif failure=='deadline':self.assertEqual(calls,[])
                 if failure=='none':
                     self.assertEqual(terminal['database_metadata_sha256'],hashlib.sha256(metadata.read_bytes()).hexdigest())
                     self.assertEqual(len(json.loads((out/'archived-source.json').read_text())['selected']),5)

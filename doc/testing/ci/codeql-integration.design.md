@@ -455,6 +455,10 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补�
 
 整个 job 从实际 hosted 起点绑定 90 分钟。在提取前只分配一次至多 75 分钟的绝对分析截止，并按当时剩余时间减 600 秒结果验证/收尾预留向下缩短。提取、私有布局、解析、编译和原 37 默认查询加原 7 公共见证的单批求值共用该截止；checkpoint 后不重置。所有 helper 子进程仍受总截止前 120 秒的证据边界约束。最终 job 成本包括上传与 post，独立读回实际完成时间核验至少 270 秒余量；阶段完成时间不能代签该余量。
 
+提取的绝对截止由候选分支专用入口监督器执行。保留固定官方 `uses`、Node executable/参数、cwd、输入与 `GITHUB_STATE`/`GITHUB_OUTPUT` 等命令文件；显式 step env 加载受信 preload，同步等待监督器并阻止外层再次执行 main。监督器在真实启动时复核原预算，以独立进程组执行一次未修改的官方 main；子 Node 在 main 前再次检查原截止。沿现有 owned-process runtime 处理采样、TERM/KILL 与失败收据，收尾时段计入分析窗口，启动延迟不能获得新窗口。原 `timeout-minutes` 仅为外层保护。post 保持官方入口且不受过期分析截止阻挡；旧模式不采用监督路径。
+
+Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
+
 候选仅在采集树外复制官方 `rust-all` 并应用 §7.2.1 的固定补丁，完整库差异只能为固定目标摘要的 `TypeInference.qll`。默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
 
 同一 finalized 数据库以一次 `run-queries` 执行原 44 项。37 项均须保存并核对 BQRS 身份、完整 info/decode；原七表沿既有正反例、行数和来源 oracle 逐项验证。仅对默认 37 项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。

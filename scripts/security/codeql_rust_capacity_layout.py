@@ -20,6 +20,8 @@ TOOL_FILES = (
     'codeql-rust-capacity.py',
     'codeql-rust-qualifier-comparison.py',
     'codeql-rust-candidate-workload.py',
+    'codeql-rust-action-deadline.cjs',
+    'codeql_rust_action_deadline.py',
     'codeql-rust-omitted-qualifier.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',

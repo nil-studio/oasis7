@@ -12,6 +12,8 @@ import re
 import shutil
 import time
 
+from codeql_rust_action_deadline import shared_budget
+
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('workload_comparison', HERE / 'codeql-rust-qualifier-comparison.py')
 comparison = importlib.util.module_from_spec(spec)
@@ -31,25 +33,6 @@ def read_json(path, limit=16 * 1024**2):
     if path.resolve() != path or not path.is_file() or path.stat().st_size > limit:
         raise RuntimeError('missing, unsafe or oversized JSON: ' + str(path))
     return json.loads(path.read_text())
-
-
-def shared_budget(value, deadline, analysis_deadline, now, monotonic):
-    """Translate persisted absolute clocks; never allocate a new analysis window."""
-    allocated = value.get('analysis_allocated_at')
-    minutes = value.get('analysis_allocated_minutes')
-    numbers = (deadline, analysis_deadline, allocated, now)
-    if (any(type(v) not in (int, float) or not math.isfinite(v) for v in numbers)
-            or type(minutes) is not int or not 1 <= minutes <= 75
-            or value.get('mode') != MODE or value.get('job_budget_seconds') != 5400
-            or value.get('fixed_job_deadline') != deadline
-            or value.get('analysis_deadline') != analysis_deadline
-            or value.get('post_analysis_reserve_seconds') != TAIL_SECONDS
-            or value.get('helper_terminal_and_upload_reserve_seconds') != EVIDENCE_SECONDS
-            or not 0 < deadline - allocated <= 5400 or allocated > now
-            or not allocated < analysis_deadline <= min(deadline - TAIL_SECONDS, allocated + minutes * 60)
-            or deadline - now > 5400):
-        raise RuntimeError('unbound or extended candidate analysis/job budget')
-    return monotonic + analysis_deadline - now, monotonic + deadline - now
 
 
 def regular_snapshot(root, end):
@@ -189,6 +172,7 @@ def admit_checkpoint(captured, finished, source, deadline):
             or any(captured.get(k) != 'PASS' for k in ('checkout_gate', 'lock_observation_gate', 'resource_gate'))
             or finished.get('status') != 'CANDIDATE_EXTRACTION_READY'
             or finished.get('assessment_status') != 'CANDIDATE_RESEARCH_READY'
+            or finished.get('absolute_action_deadline', {}).get('status') != 'PASS'
             or finished.get('verification_admitted') is not True
             or any(finished.get(k) != 'PASS' for k in ('extraction_checkpoint', 'archived_source'))
             or any(finished.get(k) != 'NOT_REQUESTED' for k in ('default_result_verification', 'public_semantics'))
@@ -457,14 +441,6 @@ def main():
                 if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
                 else: terminal['secondary_errors'].append(failure)
         terminal['elapsed_seconds'] = time.monotonic() - started
-        if args.phase == 'prepare' and terminal['status'] == 'CANDIDATE_RESEARCH_PREPARED':
-            # Charge completed layout and after checks; keep scheduling slack inside the original clock.
-            minutes = int((args.analysis_deadline - time.time() - 60) // 60)
-            if minutes < 1:
-                terminal.update(status='CANDIDATE_RESEARCH_INCOMPLETE', primary_failure=dict(stage='extraction-allocation', error='original analysis window exhausted'))
-            else:
-                terminal['extraction_timeout_minutes'] = minutes
-                with open(os.environ['GITHUB_OUTPUT'], 'a') as stream: stream.write('extraction_minutes=' + str(minutes) + '\n')
         try:
             seal(out, terminal, args.phase, args.deadline, end - EVIDENCE_SECONDS)
         except Exception as error:

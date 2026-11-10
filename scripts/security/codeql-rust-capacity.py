@@ -17,6 +17,7 @@ import zipfile
 import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_capacity_evidence as evidence
 import codeql_rust_cargo_guard as cargo_guard
+import codeql_rust_action_deadline as action_deadline
 
 BASE_SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
@@ -671,6 +672,8 @@ def main():
             if snapshot(source)!=frozen:raise RuntimeError('business source changed')
             terminal['verification_admitted']=True
             if extraction_research:
+                if workload_research:
+                    terminal['absolute_action_deadline']=action_deadline.admit(out,source,args.deadline)
                 metadata_sha=extraction_checkpoint(source,args.database,out,frozen,args.codeql,run)
                 terminal.update(status='EXTRACTION_READY',assessment_status='RESEARCH_READY',
                     extraction_checkpoint='PASS',archived_source='PASS',database_metadata_sha256=metadata_sha,

@@ -138,6 +138,7 @@ class Workload(unittest.TestCase):
         self.finish = dict(common, phase='finish', status='CANDIDATE_EXTRACTION_READY', assessment_status='CANDIDATE_RESEARCH_READY',
                            verification_admitted=True, extraction_checkpoint='PASS', archived_source='PASS',
                            default_result_verification='NOT_REQUESTED', public_semantics='NOT_REQUESTED', after_identity=self.protected,
+                           absolute_action_deadline={'status': 'PASS'},
                            database_metadata_sha256=m.runtime.digest(self.db / 'codeql-database.yml'))
         self.provenance = dict(candidate='/cargo/git/libp2p-0.57.0', legacy='/cargo/registry/libp2p-0.56.0')
         for name, value in [('capacity-budget', self.budget), ('default-suite', self.suite), ('library-closure', self.closure),
@@ -344,7 +345,10 @@ class Workflow(unittest.TestCase):
         self.assertLess(text.index('- id: candidate_prepare'), text.index('- id: analyze'))
         self.assertLess(text.index('- id: official_artifact'), text.index('- id: candidate_workload'))
         self.assertEqual(text.count('--analysis-deadline "$CAPACITY_ANALYSIS_DEADLINE"'), 2)
-        self.assertIn('steps.candidate_prepare.outputs.extraction_minutes', text)
+        self.assertNotIn('extraction_minutes', text)
+        self.assertIn("NODE_OPTIONS: ${{ inputs.mode == 'candidate-workload-research'", text)
+        self.assertIn('codeql-rust-action-deadline.cjs', text)
+        self.assertIn('|| env.NODE_OPTIONS', text)
         run = text.split('      - id: candidate_workload', 1)[1].split('      - id: qualifier_comparison', 1)[0]
         self.assertIn("if: always() && inputs.mode == 'candidate-workload-research'", run)
         self.assertIn('path: ${{ runner.temp }}/rust-candidate-workload-evidence', run)

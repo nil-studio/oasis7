@@ -16,6 +16,8 @@ MAX_PROCESS_RECEIPT = 256 * 1024
 MAX_CONTROL_RECEIPT = 32 * 1024
 MAX_HASH_RECEIPT = 64 * 1024
 IO_KEYS = {'rchar', 'wchar', 'syscr', 'syscw', 'read_bytes', 'write_bytes', 'cancelled_write_bytes'}
+CLEANUP_SIGNALS = ((signal.SIGTERM, 1), (signal.SIGKILL, 2))
+CLEANUP_SECONDS = sum(wait for _, wait in CLEANUP_SIGNALS)
 
 
 def output_bytes(root):
@@ -143,7 +145,7 @@ class PhaseError(RuntimeError):
         return self.result['failure_kind'] == 'timeout' and not self.result['cleanup_errors'] and not self.result.get('evidence_errors')
 
 
-def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None):
+def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None, *, inherit_stdio=False, reap_orphans=False):
     """Separate stdout/stderr/evaluator FIFO; all evidence writes pass the shared cap."""
     start = time.monotonic()
     deadline = min(end, start + timeout)
@@ -154,6 +156,10 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
         raise ValueError('invalid process data file bound')
     if observer is not None and evaluator is not None:
         raise ValueError('stream observation does not support evaluator FIFO')
+    if inherit_stdio and evaluator is not None:
+        raise ValueError('inherited Action streams cannot use an evaluator FIFO')
+    if inherit_stdio:
+        result['stdio'] = 'inherited runner channels; raw Action output is not persisted here'
     selector = selectors.DefaultSelector()
     proc = fifo_fd = None
     fifo_created = False
@@ -189,10 +195,12 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
         def limits():
             if file_limit is not None:
                 resource.setrlimit(resource.RLIMIT_FSIZE, (file_limit, file_limit))
-        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, start_new_session=True, preexec_fn=limits)
+        proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=None if inherit_stdio else subprocess.PIPE,
+                                stderr=None if inherit_stdio else subprocess.PIPE, start_new_session=True, preexec_fn=limits)
         result['pid'] = result['pgid'] = proc.pid
         for pipe, path in ((proc.stdout, output), (proc.stderr, output.with_name(output.name + '.stderr'))):
+            if pipe is None:
+                continue
             os.set_blocking(pipe.fileno(), False)
             streams[pipe.fileno()] = path.open('xb')
             stream_names[pipe.fileno()] = 'stdout' if pipe is proc.stdout else 'stderr'
@@ -235,7 +243,7 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
     finally:
         # Every cleanup step is independent; no close exception may hide owned reaping.
         if proc:
-            for sig, wait in ((signal.SIGTERM, 1), (signal.SIGKILL, 2)):
+            for sig, wait in CLEANUP_SIGNALS:
                 try:
                     os.killpg(proc.pid, sig)
                 except ProcessLookupError:
@@ -243,7 +251,26 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                 except BaseException as exc:
                     result['cleanup_errors'].append(repr(exc))
                 try:
-                    proc.wait(timeout=wait)
+                    if reap_orphans:
+                        # The Action supervisor is a Linux subreaper. Reap only this owned PGID;
+                        # normal diagnostic callers retain their original cleanup behavior.
+                        until = time.monotonic() + wait
+                        while True:
+                            proc.poll()
+                            try:
+                                while os.waitpid(-proc.pid, os.WNOHANG)[0] > 0:
+                                    pass
+                            except ChildProcessError:
+                                pass
+                            try:
+                                os.killpg(proc.pid, 0)
+                            except ProcessLookupError:
+                                break
+                            if time.monotonic() >= until:
+                                break
+                            time.sleep(min(.02, until - time.monotonic()))
+                    else:
+                        proc.wait(timeout=wait)
                 except subprocess.TimeoutExpired:
                     pass
                 except BaseException as exc:
@@ -288,6 +315,8 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                     result['failure_kind'] = 'unsafe'
                     result['error'] = result['error'] or 'stream observation incomplete'
             for pipe in (proc.stdout, proc.stderr):
+                if pipe is None:
+                    continue
                 try:
                     pipe.close()
                 except BaseException as exc:
