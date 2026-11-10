@@ -40,8 +40,7 @@ pub(crate) fn verify_existing_origin(
         || receipt.world.world_id != world_id
         || receipt.node_id != node_id
         || receipt.service_public_key != service_public
-        || (receipt.receipt_schema_hash != blake3_hex(RECEIPT_SCHEMA.as_bytes())
-            && receipt.receipt_schema_hash != blake3_hex(LEGACY_RECEIPT_SCHEMA.as_bytes()))
+        || (!receipt_schema_matches(&receipt))
     {
         return Err("preview origin scope or independent service pin mismatch".into());
     }
@@ -72,6 +71,14 @@ pub(crate) fn verify_existing_origin(
         || value["node_id"] != node_id
         || value["genesis_nonce"] != receipt.genesis_nonce
         || value["service_public_key"] != service_public
+        || value.get("provider")
+            != receipt
+                .provider
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|_| "provider commitment encoding failed")?
+                .as_ref()
     {
         return Err("preview origin artifact or genesis mismatch".into());
     }

@@ -124,6 +124,7 @@ fn persisted_acceptance_retains_original_ack_across_restart_and_identity_conflic
         original
     );
     let unknown = IntentResponse::<Value> {
+        terminal_recovery_authority: None,
         contract_version: 1,
         formal_profile: None,
         execution_evidence_scope: None,

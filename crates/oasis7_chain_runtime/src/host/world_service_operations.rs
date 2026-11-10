@@ -1,5 +1,7 @@
 use super::*;
 use oasis7_runtime::{WorldEvent, WorldEventBody};
+#[path = "world_service_terminal_recovery.rs"]
+mod terminal_recovery;
 
 pub(super) fn describe(
     service: &Service<'_>,
@@ -54,6 +56,15 @@ pub(super) fn outcome(
     pinned: &PinnedWorld,
     correlation: &RequestCorrelation,
 ) -> Result<IntentOutcome<Value>, String> {
+    outcome_with_historical(service, pinned, correlation, &mut None)
+}
+
+fn outcome_with_historical(
+    service: &Service<'_>,
+    pinned: &PinnedWorld,
+    correlation: &RequestCorrelation,
+    retained: &mut Option<PinnedWorld>,
+) -> Result<IntentOutcome<Value>, String> {
     let key = correlation::key_digest(&correlation.key)?;
     let Some(value) = pinned
         .world
@@ -99,10 +110,12 @@ pub(super) fn outcome(
     {
         return Err("historical snapshot does not bind canonical result".into());
     }
-    Ok(IntentOutcome::Committed {
-        commit: Box::new(historical.commit),
+    let outcome = IntentOutcome::Committed {
+        commit: Box::new(historical.commit.clone()),
         receipt: result.receipt,
-    })
+    };
+    *retained = Some(historical);
+    Ok(outcome)
 }
 
 pub(super) fn submit(
@@ -169,6 +182,7 @@ pub(super) fn submit(
         SUBMIT_PATH,
         &request,
         IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
                 oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
@@ -181,22 +195,64 @@ pub(super) fn submit(
 }
 
 pub(super) fn lookup(service: &Service<'_>, request: AuthenticatedLookup) -> Result<Value, String> {
+    lookup_with_mode(service, request, false)
+}
+
+pub(super) fn lookup_terminal(
+    service: &Service<'_>,
+    request: AuthenticatedLookup,
+) -> Result<Value, String> {
+    if service.guarded.is_some()
+        || !service
+            .restore_context
+            .permits_local_provider_terminal_recovery()
+    {
+        return Err("terminal Lookup requires verified ordinary DevLocal service".into());
+    }
+    lookup_with_mode(service, request, true)
+}
+
+fn lookup_with_mode(
+    service: &Service<'_>,
+    request: AuthenticatedLookup,
+    terminal: bool,
+) -> Result<Value, String> {
     request.request.validate().map_err(|e| e.to_string())?;
     let correlation = derive_correlation(service.identity.clone(), &request.original)?;
     if correlation.key != request.request.key {
         return Err("lookup proof does not bind key".into());
     }
     let pinned = service.pin(None)?;
-    let existing = outcome(service, &pinned, &correlation)?;
+    let mut historical = None;
+    let existing = outcome_with_historical(service, &pinned, &correlation, &mut historical)?;
+    let terminal_recovery_authority = if historical.is_some()
+        || (terminal && matches!(existing, IntentOutcome::HistoryUnavailable))
+    {
+        terminal_recovery::authority(
+            service,
+            &pinned,
+            historical.as_ref(),
+            &request.original,
+            &correlation,
+        )?
+    } else {
+        None
+    }
+    .map(Box::new);
     if matches!(existing, IntentOutcome::Unknown) {
         service.check_payload(&pinned, &request.original)?;
     } else {
         service.check_replay_payload(&pinned, &request.original)?;
     }
     service.signed(
-        LOOKUP_PATH,
+        if terminal {
+            TERMINAL_LOOKUP_PATH
+        } else {
+            LOOKUP_PATH
+        },
         &request,
         IntentResponse {
+            terminal_recovery_authority,
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
                 oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()

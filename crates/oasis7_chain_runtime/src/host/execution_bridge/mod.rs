@@ -36,6 +36,7 @@ mod provider_bootstrap;
 mod world_service_cleanup_v2;
 mod world_service_execution;
 pub(crate) mod world_service_read;
+pub(crate) mod historical_material;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionBridgeState {

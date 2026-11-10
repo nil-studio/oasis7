@@ -106,6 +106,7 @@ pub(super) fn lookup(
         LOOKUP_PATH,
         &request.lookup,
         IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
                 oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()

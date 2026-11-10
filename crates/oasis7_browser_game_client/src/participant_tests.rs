@@ -53,6 +53,7 @@ fn reused_imported_binding_accepts_previous_epoch_but_never_another_owner_or_acc
     receipt.identity_namespace.instance_epoch = DecimalU64(1);
     let response = |receipt: &GameParticipantReceiptV1| {
         serde_json::to_string(&ws::IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: None,
             contract_version: 1,

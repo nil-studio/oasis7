@@ -163,6 +163,8 @@ mod p2p_status;
 mod peer_record_cli;
 #[path = "host/preview_world_init.rs"]
 mod preview_world_init;
+#[path = "host/preview_world_history.rs"]
+mod preview_world_history;
 #[path = "host/publication_lifecycle.rs"]
 mod publication_lifecycle;
 #[path = "host/publication_proof.rs"]
