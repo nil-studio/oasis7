@@ -68,6 +68,53 @@ class Selection(unittest.TestCase):
             with self.assertRaises(selector.UnknownInputsError):
                 selector.select(trusted, self.base, self.commit())
 
+    def test_ci_download_exact_registration_and_old_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = ('scripts/install-ci-trunk.sh', 'scripts/install-ci-trunk.test.sh',
+                 'scripts/install-ci-wasm-opt.py', 'scripts/install-ci-wasm-opt.test.py')
+        expected = {'baseline', 'workflow_governance', 'packaging_contracts', 'launcher_web',
+                    'macos_package_contract'}
+        old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'ci_download_contracts'])
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in paths:
+                for operation in ('add', 'modify', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        else:
+                            self.write(path, '# synthetic download input ' + operation)
+                        head = self.commit()
+                        plan = selector.select(config, self.base, head)
+                        self.assertEqual(plan['scope'], 'targeted')
+                        self.assertEqual(set(plan['groups']), expected)
+                        with self.assertRaises(selector.UnknownInputsError):
+                            selector.select(old, self.base, head)
+                        self.base = head
+            # An otherwise full control change cannot grant its own ownership.
+            self.write('scripts/ci-required-scope.json', json.dumps(config))
+            self.write(paths[0], '# candidate self-registration')
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, head)
+            self.base = head
+            for unknown in ('scripts/install-ci-trunk-extra.sh',
+                            'scripts/install-ci-wasm-opt-extra.py'):
+                with self.subTest(unknown=unknown):
+                    self.write(unknown, '# unregistered neighbor')
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(config, self.base, self.commit())
+                    self.git('rm', unknown)
+                    self.base = self.commit()
+            unknown = 'scripts/install-ci-trunk-renamed.sh'
+            self.git('mv', paths[0], unknown)
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, head)
+            self.base = head
+            self.git('mv', unknown, paths[0])
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_engineering_telemetry_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         paths = (
