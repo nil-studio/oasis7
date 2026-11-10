@@ -73,6 +73,8 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；承接 [产品 SC-11](
 
 维护权限、`draft -> linked -> published -> revised` 与发布责任人复核仍见 [原功能矩阵](prd.md#deck-functional-contract)，不新增审批层。首页当前布局 authority 不因此改为 deck 布局，deck 也不进入 discovery 六叶的状态范围。Image2 与历史 #1484 只提供原设计/出处，不提供浏览器、a11y、导航、发布或新视觉 signoff。验证沿 [原专业验证入口](prd.md#validation-site-012)及 [页面比较说明](deck/html-roadshow-deck-page-2026-06-19.design.md#implementation-comparison-notes)，静态链、页面行为和实际发布分别取证，本次全部未运行。
 
+Deck 本地 Reveal 库以浏览器 `URL` 解析媒体地址，依据实际 origin 与路径识别播放器，不从 URL 的其他部分猜测服务。YouTube 的 `https://youtube.com`、`https://www.youtube.com` 仅在 `/embed/` 路径下使用专属控制；Vimeo 的 `https://player.vimeo.com` 仅在 `/video/` 路径下使用专属控制。带用户信息、其他端口、相似主机或仅在路径、query、fragment 中含服务名的地址均不作为这些播放器处理。初始化 API 参数通过 `URLSearchParams` 写入真正的 query，保留其余参数与 fragment；开始和停止使用同一识别结果，专属消息的接收 origin 必须与已解析地址一致。普通 iframe 保留不含状态或凭据的固定 `slide:start` / `slide:stop` 消息，不恢复外部窗口调用 deck API 的能力。该合同只约束既有库接口，不新增实际媒体内容。
+
 <a id="static-manual-design"></a>
 ### 静态手册的共享设计
 

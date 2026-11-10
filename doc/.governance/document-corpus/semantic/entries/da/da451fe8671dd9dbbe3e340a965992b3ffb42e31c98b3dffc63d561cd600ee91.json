@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "67a8a84baf8d0869b4c446014ef383d3017b880ac4116ff07c57d0e409dcc2c5",
+    "content_sha256": "14a7810139e593782470d5a79b60d90d8d025b1bf501dbc3b431fe455e5083df",
     "current_authority": "doc/site/prd.md",
     "decision_owner": "viewer_engineer",
     "disposition": "retain_current_authority",
-    "note": "current visual interaction and evidence-routing contract retained; author self-review of story route allowlist, mutually exclusive reader state and request-race validation design; browser behavior and independent approval not claimed",
+    "note": "Current site authority retained after full-file reading; bounded author review confirms the deck media contract uses parsed HTTPS player origins and paths, query-safe API parameters and origin-bound commands without adding media or changing public deck scope. This does not attest browser execution, independent approval or unrelated platform-upgrade implementation.",
     "path": "doc/site/design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
