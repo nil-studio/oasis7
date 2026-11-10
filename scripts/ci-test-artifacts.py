@@ -2600,8 +2600,9 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                     command.append('--exact')
                     for case in excluded:
                         command += ['--skip', case]
-                    print('ordinary_formal_deferred=' + json.dumps(dict(binary=entry['binary'],
-                          cases=excluded, reason='complete profiles only')), flush=True)
+                    if entry.get('skip'):
+                        print('ordinary_formal_deferred=' + json.dumps(dict(binary=entry['binary'],
+                              cases=entry['skip'], reason='complete profiles only')), flush=True)
             elif 'filter' in entry:
                 command.append(entry['filter'])
                 name, count = entry['filter'], entry['count']
