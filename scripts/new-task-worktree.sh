@@ -17,15 +17,16 @@ usage() {
 Usage: ./scripts/new-task-worktree.sh <module> <task> [options]
 
 Create or attach a standardized git worktree for one task slice.
+New branches require fetching origin/main; existing branches and setup recovery do not.
 
 Default conventions:
 - branch: codex/<module>-<task>
 - worktrees root: oasis7.task-worktrees-root Git config; fallback <repo-parent>/worktrees
 - worktree path: <worktrees root>/<repo-name>-<module>-<task>
-- base ref: HEAD
+- base ref: origin/main (fetched before creating a new branch)
 
 Options:
-  --base <ref>            Base ref for a new branch (default: HEAD)
+  --base <ref>            Explicit base for a new branch (default: refreshed origin/main)
   --branch <name>         Override branch name
   --path <path>           Override target worktree path
   --worktrees-root <dir>  Override default worktrees root
@@ -39,7 +40,7 @@ Options:
 Examples:
   ./scripts/new-task-worktree.sh scripts task-worktree-bootstrap
   ./scripts/new-task-worktree.sh scripts task-worktree-bootstrap --init-docs
-  ./scripts/new-task-worktree.sh viewer hud-redesign --base main
+  ./scripts/new-task-worktree.sh viewer hud-redesign --base origin/main
   ./scripts/new-task-worktree.sh p2p hosted-flow --json --path ../worktrees/oasis7-codex-p2p-hosted-flow
   ./scripts/new-task-worktree.sh viewer hud-redesign --with-harness
 USAGE
@@ -52,7 +53,7 @@ INIT_DOCS=0
 WITH_HARNESS=0
 OUTPUT_JSON=0
 RESUME_SETUP=0
-BASE_REF="HEAD"
+BASE_REF="origin/main"
 BRANCH_NAME=""
 TARGET_PATH=""
 WORKTREES_ROOT=""
@@ -282,7 +283,6 @@ else
   if [[ "$ALLOW_DIRTY_SOURCE" != 1 && -n "$(git status --short)" ]]; then
     echo 'error: source worktree is dirty; use --allow-dirty-source' >&2; exit 1
   fi
-  git rev-parse --verify --quiet "$BASE_REF^{commit}" >/dev/null || exit 2
   [[ ! -e "$TARGET_PATH" && ! -L "$TARGET_PATH" ]] || exit 2
   if branch_checkout_path "$BRANCH_NAME" >/dev/null 2>&1; then exit 2; fi
   FAILED_STEP="git_add"
@@ -291,6 +291,10 @@ else
     MODE="attach_existing_branch"
     git worktree add --quiet "$TARGET_PATH" "$BRANCH_NAME" >&2
   else
+    FAILED_STEP="refresh_base"
+    git fetch origin '+refs/heads/main:refs/remotes/origin/main' >&2
+    git rev-parse --verify --quiet "$BASE_REF^{commit}" >/dev/null || exit 2
+    FAILED_STEP="git_add"
     git worktree add --quiet -b "$BRANCH_NAME" "$TARGET_PATH" "$BASE_REF" >&2
   fi
   WORKTREE_CREATED=1
@@ -458,7 +462,7 @@ if [[ "$INIT_DOCS" == "1" ]]; then
     printf '  sed -n '\''1,160p'\'' %s\n' "${DOC_PRD_PATH#$TARGET_PATH/}"
   else
     printf '  mkdir -p %s\n' "doc/$MODULE_SLUG"
-    printf '  # create %s\n' "${DOC_PRD_PATH#$TARGET_PATH/}"
+    printf '  # create %s\n' "doc/$MODULE_SLUG/prd.md"
   fi
 else
   printf '  sed -n '\''1,160p'\'' %s\n' "doc/$MODULE_SLUG/prd.md"
