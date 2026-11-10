@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+"""Private 37+7 candidate workload, sharing the extraction's fixed analysis window."""
+import argparse
+import csv
+import hashlib
+import importlib.util
+import json
+import math
+import os
+from pathlib import Path
+import re
+import shutil
+import time
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location('workload_comparison', HERE / 'codeql-rust-qualifier-comparison.py')
+comparison = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(comparison)
+capacity, runtime = comparison.capacity, comparison.runtime
+
+MODE = 'candidate-workload-research'
+DEFAULT_PACK = 'oasis7/rust-default-candidate-research'
+WITNESS_PACK = 'oasis7/rust-public-candidate-research'
+DEFAULT_ENTRIES_SHA = '53422ffb03812452686f24b03ee61ebf3beabab3cceb09a733947877e4d777c6'
+SUITE_SHA = '97f06744235dc677060b14a4ca77d26d2a170b855f054a4672aa732321c86605'
+PRIVATE_CAP = 64 * 1024**2
+TAIL_SECONDS, EVIDENCE_SECONDS, REQUIRED_MARGIN = 600, 120, 270
+
+
+def read_json(path, limit=16 * 1024**2):
+    if path.resolve() != path or not path.is_file() or path.stat().st_size > limit:
+        raise RuntimeError('missing, unsafe or oversized JSON: ' + str(path))
+    return json.loads(path.read_text())
+
+
+def shared_budget(value, deadline, analysis_deadline, now, monotonic):
+    """Translate persisted absolute clocks; never allocate a new analysis window."""
+    allocated = value.get('analysis_allocated_at')
+    minutes = value.get('analysis_allocated_minutes')
+    numbers = (deadline, analysis_deadline, allocated, now)
+    if (any(type(v) not in (int, float) or not math.isfinite(v) for v in numbers)
+            or type(minutes) is not int or not 1 <= minutes <= 75
+            or value.get('mode') != MODE or value.get('job_budget_seconds') != 5400
+            or value.get('fixed_job_deadline') != deadline
+            or value.get('analysis_deadline') != analysis_deadline
+            or value.get('post_analysis_reserve_seconds') != TAIL_SECONDS
+            or value.get('helper_terminal_and_upload_reserve_seconds') != EVIDENCE_SECONDS
+            or not 0 < deadline - allocated <= 5400 or allocated > now
+            or not allocated < analysis_deadline <= min(deadline - TAIL_SECONDS, allocated + minutes * 60)
+            or deadline - now > 5400):
+        raise RuntimeError('unbound or extended candidate analysis/job budget')
+    return monotonic + analysis_deadline - now, monotonic + deadline - now
+
+
+def regular_snapshot(root, end):
+    if root.resolve() != root or not root.is_dir():
+        raise RuntimeError('unsafe private input root')
+    paths = list(root.rglob('*'))
+    if len(paths) > 8192 or any(p.is_symlink() or not (p.is_file() or p.is_dir()) for p in paths):
+        raise RuntimeError('unsafe private input inventory')
+    return capacity.official_snapshot(root, end=end)
+
+
+def private_inputs(work, end):
+    return {name: regular_snapshot(work / name, end) for name in
+            ('candidate-rust-all', 'default-queries', 'public-witnesses')}
+
+
+def suite_helper(official):
+    # This exact dependency is a query pack. Keep the older library-only parser strict.
+    root = official / 'qlpacks/codeql/suite-helpers/1.0.61'
+    manifest = root / 'qlpack.yml'
+    text = manifest.read_text()
+    for key, wanted in (('name', 'codeql/suite-helpers'), ('version', '1.0.61'),
+                        ('library', 'false'), ('dependencies', '{}')):
+        if re.findall(r'^' + key + r': (.*)$', text, re.M) != [wanted]:
+            raise RuntimeError('suite-helpers role or identity differs')
+    if manifest.resolve() != manifest:
+        raise RuntimeError('unsafe suite-helpers manifest')
+    return dict(name='codeql/suite-helpers', version='1.0.61', library=False,
+                dependencies={}, manifest_sha256=runtime.digest(manifest), root=str(root))
+
+
+def freeze_suite(suite):
+    entries = suite.get('queries')
+    digest = hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if not isinstance(entries, list) or len(entries) != 37 or digest != DEFAULT_ENTRIES_SHA or suite.get('suite_sha256') != SUITE_SHA:
+        raise RuntimeError('default workload differs from the fixed original 37 queries')
+    return entries
+
+
+def query_records(work, source, suite, frozen_witnesses):
+    default, witness = work / 'default-queries', work / 'public-witnesses'
+    texts = capacity.semantic_queries(source)
+    if len(texts) != 7 or {n: hashlib.sha256(t.encode()).hexdigest() for n, t in texts.items()} != frozen_witnesses:
+        raise RuntimeError('public witness text differs from the original seven tables')
+    records = [dict(entry, kind='default', pack=DEFAULT_PACK, path=str(default / entry['relative']), root=str(default))
+               for entry in freeze_suite(suite)]
+    records.extend(dict(relative=n + '.ql', id=n, sha256=frozen_witnesses[n], kind='witness',
+                        pack=WITNESS_PACK, path=str(witness / (n + '.ql')), root=str(witness)) for n in texts)
+    for record in records:
+        path, root = Path(record['path']), Path(record['root'])
+        if path.resolve() != path or not path.is_relative_to(root) or runtime.digest(path) != record['sha256']:
+            raise RuntimeError('query input differs from the frozen 37+7 source')
+    return records
+
+
+def source_layout(official, work, out, source, suite, frozen_witnesses, end):
+    """Copy original QL/support bytes, replacing only published packaging/bindings."""
+    freeze_suite(suite)
+    published = official / 'qlpacks/codeql/rust-queries/0.1.46'
+    if suite.get('query_root') != str(published):
+        raise RuntimeError('official query pack path differs')
+    default, witness = work / 'default-queries', work / 'public-witnesses'
+    default.mkdir(); witness.mkdir()
+    packaging = dict(copied_source_files={}, excluded_published_files={}, replacement_metadata={})
+    for relative, identity in regular_snapshot(published, end).items():
+        capacity.check_time(end)
+        path = Path(relative)
+        if path.parts[0] == '.codeql': reason = 'published embedded libraries or compilation material'
+        elif path.suffix == '.qlx': reason = 'published precompiled query'
+        elif relative in ('.packinfo', 'codeql-pack.lock.yml'): reason = 'published packaging/dependency binding'
+        elif relative == 'qlpack.yml': reason = 'explicit private source-pack wrapper'
+        else: reason = None
+        if reason:
+            packaging['excluded_published_files'][relative] = dict(identity, reason=reason)
+        else:
+            dest = default / relative
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(published / relative, dest)
+            if capacity.digest_until(dest, end) != identity['sha256']:
+                raise RuntimeError('source copy differs')
+            packaging['copied_source_files'][relative] = identity
+    manifest = ('name: ' + DEFAULT_PACK + '\nversion: 0.0.0\nlibrary: false\nwarnOnImplicitThis: true\n'
+                'dependencies:\n  codeql/rust-all: 0.2.25\n  codeql/suite-helpers: 1.0.61\n  codeql/util: 2.0.48\n'
+                'extractor: rust\ndefaultSuiteFile: codeql-suites/rust-code-scanning.qls\n')
+    (default / 'qlpack.yml').write_text(manifest)
+    packaging['replacement_metadata']['qlpack.yml'] = dict(text=manifest, sha256=runtime.digest(default / 'qlpack.yml'))
+    runtime.save(out / 'packaging-differences.json', packaging, out)
+    if capacity.digest_until(default / 'codeql-suites/rust-code-scanning.qls', end) != SUITE_SHA:
+        raise RuntimeError('source suite changed')
+    texts = capacity.semantic_queries(source)
+    if len(texts) != 7 or {name: hashlib.sha256(text.encode()).hexdigest() for name, text in texts.items()} != frozen_witnesses:
+        raise RuntimeError('public witness text differs from the original seven tables')
+    (witness / 'qlpack.yml').write_text('name: ' + WITNESS_PACK + '\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.25\n')
+    for name, text in texts.items():
+        path = witness / (name + '.ql'); path.write_text(text)
+    records = query_records(work, source, suite, frozen_witnesses)
+    runtime.save(out / 'query-inputs.json', records, out)
+    return records
+
+
+def query_options(closure, work, prefix):
+    return ['--additional-packs=' + os.pathsep.join(p['root'] for p in closure.values()),
+            '--no-default-compilation-cache', '--compilation-cache=' + str(work / (prefix + '-compilation-cache')),
+            '--common-caches=' + str(work / (prefix + '-common-cache'))]
+
+
+def resolve_layout(codeql, records, closures, work, out, run):
+    options = query_options(closures['default'], work, 'resolve')
+    run([codeql, 'resolve', 'queries', work / 'default-queries/codeql-suites/rust-code-scanning.qls',
+         '--format=json', options[0], options[-1]], 'private-default-suite', 30)
+    actual = capacity.suite_entries(read_json(out / 'private-default-suite.log'), work / 'default-queries')
+    expected = [{key: r[key] for key in ('relative', 'id', 'sha256')} for r in records if r['kind'] == 'default']
+    if actual != expected:
+        raise RuntimeError('private source wrapper changed the default suite selection')
+    receipts = []
+    for index, record in enumerate(records):
+        name = 'resolve-' + str(index).zfill(2)
+        run([codeql, 'resolve', 'library-path', '--query=' + record['path'], '--format=json', *options], name, 20)
+        actual = read_json(out / (name + '.log'))
+        capacity.bundle.verify_library_path(actual, Path(record['root']), str(Path(record['relative']).with_suffix('')),
+                                           closures[record['kind']], record['pack'])
+        if actual['compilationCache'] != [str(work / 'resolve-compilation-cache')]:
+            raise RuntimeError('resolver selected an unbound compilation cache')
+        receipts.append(dict(query=record['path'], kind=record['kind'], actual=actual, status='PASS_CANDIDATE_CLOSURE'))
+        runtime.save(out / 'library-resolution.json', receipts, out)
+
+
+def admit_checkpoint(captured, finished, source, deadline):
+    for phase, value in (('capture', captured), ('finish', finished)):
+        if (value.get('phase') != phase or value.get('mode') != MODE or value.get('source') != capacity.CAPACITY_SOURCE
+                or value.get('source_root') != str(source) or value.get('fixed_job_deadline') != deadline
+                or value.get('expected_bundle_version') != '2.27.4' or value.get('analyze_outcome') != 'success'):
+            raise RuntimeError('official checkpoint identity differs')
+    if (captured.get('status') != 'CAPTURED' or captured.get('evidence_status') != 'COMPLETE'
+            or captured.get('cargo_guard', {}).get('status') != 'PASS'
+            or captured.get('coverage_capture', {}).get('status') != 'PASS'
+            or any(captured.get(k) != 'PASS' for k in ('checkout_gate', 'lock_observation_gate', 'resource_gate'))
+            or finished.get('status') != 'CANDIDATE_EXTRACTION_READY'
+            or finished.get('assessment_status') != 'CANDIDATE_RESEARCH_READY'
+            or finished.get('verification_admitted') is not True
+            or any(finished.get(k) != 'PASS' for k in ('extraction_checkpoint', 'archived_source'))
+            or any(finished.get(k) != 'NOT_REQUESTED' for k in ('default_result_verification', 'public_semantics'))
+            or any(finished.get('after_identity', {}).get(k) != 'UNCHANGED' for k in ('source', 'official'))):
+        raise RuntimeError('official extraction checkpoint was not admitted')
+
+
+def result_paths(records, database):
+    return {str(i).zfill(2): database / 'results' / r['pack'] / Path(r['relative']).with_suffix('.bqrs')
+            for i, r in enumerate(records)}
+
+
+def preserve_results(results, out, end):
+    saved = {}
+    # Save the disposition after each file, retaining partial capture on failure.
+    for label, path in results.items():
+        capacity.check_time(end)
+        if path.resolve() != path:
+            raise RuntimeError('unsafe result path')
+        saved[label] = dict(path=str(path), status='NOT_PRODUCED')
+        runtime.save(out / 'raw-results.json', saved, out)
+        if not path.exists(): continue
+        size = path.stat().st_size
+        if not path.is_file() or size > runtime.WRITE_CAP - runtime.output_bytes(out):
+            raise RuntimeError('raw BQRS exceeds remaining private evidence bound')
+        data = path.read_bytes()
+        runtime.evidence_write(out / ('result-' + label + '.bqrs'), data, out)
+        saved[label].update(status='SAVED_UNVERIFIED', bytes=size, sha256=hashlib.sha256(data).hexdigest())
+        runtime.save(out / 'raw-results.json', saved, out)
+
+
+def verify_results(codeql, database, records, results, source, provenance, work, out, resources, closure, run, terminal):
+    terminal['default_result_verification'] = 'RUNNING'
+    manifest = []
+    for index, record in enumerate(records[:37]):
+        label = str(index).zfill(2); result = results[label]
+        if not result.is_file(): raise RuntimeError('missing default BQRS: ' + record['id'])
+        run([codeql, 'bqrs', 'info', result, '--format=json'], 'info-' + label, 20)
+        run([codeql, 'bqrs', 'decode', result, '--format=json'], 'decoded-' + label, 30)
+        info, decoded = read_json(out / ('info-' + label + '.log')), read_json(out / ('decoded-' + label + '.log'), PRIVATE_CAP)
+        capacity.verify_decoded(info, decoded)
+        manifest.append(dict(record, result_info=info, bqrs_sha256=runtime.digest(result), bqrs_bytes=result.stat().st_size))
+        runtime.save(out / 'default-query-results.json', manifest, out)
+    sarif = work / 'default-results.sarif'
+    run([codeql, 'database', 'interpret-results', '--format=sarifv2.1.0', '--output=' + str(sarif),
+         '--threads=' + str(resources['CODEQL_THREADS']), query_options(closure, work, 'batch')[0],
+         '--common-caches=' + str(work / 'batch-common-cache'), '--', database,
+         *[r['path'] for r in records[:37]]], 'interpret-default-results')
+    # The whole SARIF remains runner-local. Only bounded verification metadata is exportable.
+    findings = capacity.check_sarif(read_json(sarif, 256 * 1024**2))
+    runtime.save(out / 'local-sarif-verification.json', dict(status='PASS', findings=findings,
+                 bytes=sarif.stat().st_size, sha256=runtime.digest(sarif), queries=37,
+                 artifact_contains_sarif=False, security_upload=False), out)
+    terminal.update(default_result_verification='PASS', default_queries=37, findings=findings, public_semantics='RUNNING')
+    validated, failures = {}, {}
+    terminal['public_semantic_tables'], terminal['public_semantic_failures'] = validated, failures
+    for index, record in enumerate(records[37:], 37):
+        name, label = record['id'], str(index).zfill(2)
+        run([codeql, 'bqrs', 'decode', results[label], '--format=csv'], 'decode-' + name, 30)
+        with (out / ('decode-' + name + '.log')).open() as stream: rows = list(csv.reader(stream))
+        columns = 4 if name.startswith('Calls') else 2
+        if not rows or rows[0] != ['col' + str(i) for i in range(columns)]:
+            raise RuntimeError('public witness decode schema differs: ' + name)
+        try:
+            validated[name] = capacity.validate(name, rows[1:], source, provenance)
+        except RuntimeError as error:
+            failures[name] = str(error)
+            if terminal['primary_failure'] is None:
+                terminal['primary_failure'] = dict(stage='semantic-' + name, error=str(error))
+            runtime.save(out / ('semantic-' + name + '-terminal.json'), dict(status='FAIL', error=str(error)), out)
+        else:
+            runtime.save(out / ('semantic-' + name + '-terminal.json'), dict(status='PASS', validated=validated[name]), out)
+    terminal['public_semantics'] = 'FAIL' if failures else 'PASS'
+    if failures:
+        raise RuntimeError('public semantic validation failed: ' + ', '.join(failures))
+
+
+def seal(out, terminal, phase, deadline, end):
+    paths = list(out.rglob('*'))
+    if any(p.is_symlink() or not (p.is_file() or p.is_dir()) or p.suffix == '.sarif' for p in paths):
+        raise RuntimeError('unsafe or forbidden private evidence')
+    # Hash all nonterminal evidence first; charge that work before judging margin.
+    terminal_name = 'candidate-' + phase + '-terminal.json'
+    hashes = {str(p.relative_to(out)): capacity.digest_until(p, end) for p in sorted(paths)
+              if p.is_file() and p.name not in ('hashes.json', terminal_name)}
+    terminal['remaining_job_seconds'] = deadline - time.time()
+    if phase == 'run' and terminal['status'] == 'CANDIDATE_RESEARCH_COMPLETED' and terminal['remaining_job_seconds'] < REQUIRED_MARGIN:
+        terminal['status'] = 'CANDIDATE_RESEARCH_NEAR_LIMIT'
+    runtime.save(out / terminal_name, terminal, out, terminal=True)
+    hashes[terminal_name] = runtime.digest(out / terminal_name)
+    runtime.save(out / 'hashes.json', hashes, out, terminal=True)
+    if phase == 'run' and terminal['status'] == 'CANDIDATE_RESEARCH_COMPLETED' and deadline - time.time() < REQUIRED_MARGIN:
+        terminal.update(status='CANDIDATE_RESEARCH_NEAR_LIMIT', remaining_job_seconds=deadline - time.time())
+        runtime.save(out / terminal_name, terminal, out, terminal=True)
+        hashes[terminal_name] = runtime.digest(out / terminal_name)
+        runtime.save(out / 'hashes.json', hashes, out, terminal=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('phase', choices=('prepare', 'run'))
+    for name in ('codeql', 'source', 'database', 'official-evidence', 'output', 'work'):
+        parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--deadline', type=float, required=True)
+    parser.add_argument('--analysis-deadline', type=float, required=True)
+    for stage in ('candidate-prepare', 'extraction', 'capture', 'checkpoint', 'official-artifact'):
+        parser.add_argument('--' + stage + '-outcome', default='unknown')
+    args = parser.parse_args()
+    source, official, database = args.source.resolve(), args.codeql.parent.resolve(), args.database.resolve()
+    out, work, checkpoint = args.output.absolute(), args.work.absolute(), args.official_evidence.resolve()
+    runner = Path(os.environ['RUNNER_TEMP']).resolve()
+    for path in (out, work):
+        if (path.resolve() != path or not path.is_relative_to(runner) or path == runner
+                or any(path.is_relative_to(p) or p.is_relative_to(path) for p in (source, official, database, checkpoint))):
+            raise RuntimeError('candidate paths overlap protected inputs')
+    if out.is_relative_to(work) or work.is_relative_to(out):
+        raise RuntimeError('candidate evidence and work overlap')
+    out.mkdir(exist_ok=args.phase == 'run')
+    runtime.CAP, runtime.WRITE_CAP = PRIVATE_CAP, PRIVATE_CAP - 1024**2
+    started = time.monotonic()
+    end = started + max(0, args.deadline - time.time()) if math.isfinite(args.deadline) else started
+    terminal = dict(status='CANDIDATE_RESEARCH_INCOMPLETE', phase=args.phase, mode=MODE,
+                    source=capacity.CAPACITY_SOURCE, source_root=str(source), fixed_job_deadline=args.deadline,
+                    analysis_deadline=args.analysis_deadline, production_capacity='UNKNOWN', full_rust_coverage='HOLD',
+                    production_acceptance='UNCHANGED', security_upload=False, database_upload=False, sarif_upload=False,
+                    default_result_verification='NOT_REACHED', public_semantics='NOT_REACHED',
+                    primary_failure=None, secondary_errors=[], stage='admission',
+                    final_hosted_job_margin='NOT_OBSERVED', required_final_job_margin_seconds=REQUIRED_MARGIN,
+                    margin_scope='pre-upload evidence readiness; final hosted completion including upload/post requires independent readback')
+    before = protected = official_seal = db_sha = None
+    env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
+    def save(name, value, control=False): runtime.save(out / name, value, out, terminal=control)
+    def run(argv, name, limit=None, *, analysis=False):
+        terminal['stage'] = name
+        child_end = min(end - EVIDENCE_SECONDS, analysis_end) if analysis else end - EVIDENCE_SECONDS
+        remaining = child_end - time.monotonic()
+        if remaining <= 0: raise TimeoutError('fixed candidate deadline exhausted before ' + name)
+        return runtime.run(list(map(str, argv)), source, out / (name + '.log'), child_end,
+                           min(remaining, limit or remaining), out, env, file_limit=None)
+    try:
+        budget = read_json(checkpoint / 'capacity-budget.json')
+        analysis_end, end = shared_budget(budget, args.deadline, args.analysis_deadline, time.time(), time.monotonic())
+        terminal['budget'] = budget
+        if args.phase == 'run':
+            outcomes = {stage: getattr(args, stage.replace('-', '_') + '_outcome') for stage in
+                        ('candidate-prepare', 'extraction', 'capture', 'checkpoint', 'official-artifact')}
+            terminal['workflow_outcomes'] = outcomes
+            if any(value != 'success' for value in outcomes.values()):
+                raise RuntimeError('prior stage incomplete; no workload subprocess admitted')
+            # Verify the earlier private receipt before appending result evidence.
+            comparison.verify_seal(out, end - EVIDENCE_SECONDS)
+            prepared = read_json(out / 'candidate-prepare-terminal.json')
+            if (prepared.get('status') != 'CANDIDATE_RESEARCH_PREPARED' or prepared.get('budget') != budget
+                    or prepared.get('source_root') != str(source)):
+                raise RuntimeError('candidate preparation receipt differs')
+            before = read_json(out / 'private-inputs-before.json')
+        else:
+            work.mkdir(exist_ok=False)
+            prepared = read_json(checkpoint / 'capacity-prepare-terminal.json')
+            if (prepared.get('status') != 'PREPARED' or prepared.get('mode') != MODE
+                    or prepared.get('source') != capacity.CAPACITY_SOURCE or prepared.get('source_root') != str(source)
+                    or prepared.get('fixed_job_deadline') != args.deadline):
+                raise RuntimeError('official preparation was not admitted')
+        capacity.check_time(analysis_end)
+        terminal['stage'] = 'protected-input-admission'
+        protected = capacity.after_identity(source, official, checkpoint, end=min(analysis_end, end - EVIDENCE_SECONDS))
+        save('protected-inputs-' + args.phase + '-before.json', protected)
+        if any(protected.get(k) != 'UNCHANGED' for k in ('source', 'official')):
+            raise RuntimeError('business source or official bundle changed')
+        resources = capacity.resources(env)
+        recorded = read_json(checkpoint / 'resources.json')
+        if any(resources[k] != recorded[k] for k in ('CODEQL_RAM', 'CODEQL_THREADS')):
+            raise RuntimeError('Action resource selection differs')
+        save('resources-' + args.phase + '.json', resources)
+        original_closure = capacity.bundle.bundle_closure(official, '2.27.4')
+        if original_closure != read_json(checkpoint / 'library-closure.json'):
+            raise RuntimeError('official library closure differs')
+        if args.phase == 'prepare':
+            terminal['stage'] = 'prepare-candidate-library'
+            private = comparison.prepare_candidate(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
+            closure = comparison.candidate_closure(original_closure, private)
+            defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
+            if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
+            closures = dict(default=defaults, witness=closure)
+            save('selected-closures.json', closures)
+            terminal['stage'] = 'source-layout'
+            records = source_layout(official, work, out, source, read_json(checkpoint / 'default-suite.json'),
+                                    read_json(checkpoint / 'semantic-query-inputs.json'), analysis_end)
+            before = private_inputs(work, analysis_end)
+            save('private-inputs-before.json', before)
+            resolve_layout(args.codeql, records, closures, work, out,
+                           lambda argv, name, limit: run(argv, name, limit, analysis=True))
+            terminal.update(status='CANDIDATE_RESEARCH_PREPARED', resolved_default_queries=37, resolved_public_witnesses=7)
+        else:
+            terminal['stage'] = 'candidate-input-admission'
+            closures = read_json(out / 'selected-closures.json')
+            records = read_json(out / 'query-inputs.json')
+            expected = query_records(work, source, read_json(checkpoint / 'default-suite.json'),
+                                     read_json(checkpoint / 'semantic-query-inputs.json'))
+            witness_closure = comparison.candidate_closure(original_closure, work / 'candidate-rust-all')
+            if (records != expected or closures != dict(witness=witness_closure,
+                    default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
+                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA):
+                raise RuntimeError('candidate workload binding differs from the frozen inputs')
+            if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
+                raise RuntimeError('private input changed after preparation')
+            official_seal = comparison.verify_seal(checkpoint, min(analysis_end, end - EVIDENCE_SECONDS))
+            save('official-evidence-before.json', official_seal)
+            captured, finished = (read_json(checkpoint / ('capacity-' + phase + '-terminal.json')) for phase in ('capture', 'finish'))
+            terminal['stage'] = 'extraction-checkpoint-admission'
+            admit_checkpoint(captured, finished, source, args.deadline)
+            run([args.codeql, 'resolve', 'database', database, '--format=json'], 'database-identity', 20, analysis=True)
+            db_sha = capacity.finalized_database_identity(read_json(out / 'database-identity.log'), source, database)
+            if db_sha != finished.get('database_metadata_sha256'): raise RuntimeError('database differs from extraction checkpoint')
+            terminal['database_metadata_sha256'] = db_sha
+            results = result_paths(records, database)
+            if (database / 'results').is_symlink() or any(p.is_symlink() or p.suffix == '.bqrs' for p in (database / 'results').rglob('*')):
+                raise RuntimeError('extraction checkpoint already has query results')
+            for name in ('batch-compilation-cache', 'batch-common-cache'): (work / name).mkdir(exist_ok=False)
+            terminal['batch'] = dict(status='RUNNING', queries=44, default_queries=37, public_witnesses=7, invocations=1)
+            save('candidate-run-terminal.json', terminal, True)
+            batch_error = None
+            try:
+                run([args.codeql, 'database', 'run-queries', *query_options(closures['default'], work, 'batch'),
+                     '--no-use-precompiled', '--threads=' + str(resources['CODEQL_THREADS']), '--ram=' + str(resources['CODEQL_RAM']),
+                     '--', database, *[r['path'] for r in records]], 'candidate-workload-batch', analysis=True)
+                terminal['batch']['status'] = 'COMPUTED'
+            except Exception as error:
+                batch_error = error
+                terminal['primary_failure'] = dict(stage=terminal['stage'], error=repr(error)[:4096])
+                terminal['batch']['status'] = 'INCOMPLETE'
+                save('candidate-run-terminal.json', terminal, True)
+                raise
+            finally:
+                try: preserve_results(results, out, end - EVIDENCE_SECONDS)
+                except Exception as error:
+                    if batch_error is None: raise
+                    terminal['secondary_errors'].append(dict(stage='raw-results', error=repr(error)[:2048]))
+            verify_results(args.codeql, database, records, results, source, read_json(checkpoint / 'libp2p-provenance.json'),
+                           work, out, resources, closures['default'], run, terminal)
+            terminal.update(status='CANDIDATE_RESEARCH_COMPLETED')
+    except Exception as error:
+        terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+        if terminal['primary_failure'] is None: terminal['primary_failure'] = dict(stage=terminal['stage'], error=repr(error)[:4096])
+        for key in ('default_result_verification', 'public_semantics'):
+            if terminal[key] == 'RUNNING': terminal[key] = 'INCOMPLETE'
+    finally:
+        # Preserve primary failure before optional after checks; no child is spawned here.
+        save('candidate-' + args.phase + '-terminal.json', terminal, True)
+        for name, operation in (
+            ('private_inputs', lambda: private_inputs(work, end - EVIDENCE_SECONDS) if before is not None else None),
+            ('protected_inputs', lambda: capacity.after_identity(source, official, checkpoint, end=end - EVIDENCE_SECONDS) if protected is not None else None),
+            ('official_evidence', lambda: comparison.verify_seal(checkpoint, end - EVIDENCE_SECONDS) if official_seal is not None else None),
+            ('database_metadata', lambda: capacity.digest_until(database / 'codeql-database.yml', end - EVIDENCE_SECONDS) if db_sha else None),
+        ):
+            try:
+                actual = operation()
+                expected = {'private_inputs': before, 'protected_inputs': protected, 'official_evidence': official_seal, 'database_metadata': db_sha}[name]
+                if actual is not None: save(name + '-' + args.phase + '-after.json', actual, True)
+                if actual != expected: raise RuntimeError(name + ' changed during candidate research')
+                terminal[name + '_after'] = 'UNCHANGED' if expected is not None else 'NOT_REACHED'
+            except Exception as error:
+                terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+                failure = dict(stage=name + '-after', error=repr(error)[:2048])
+                if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
+                else: terminal['secondary_errors'].append(failure)
+        terminal['elapsed_seconds'] = time.monotonic() - started
+        if args.phase == 'prepare' and terminal['status'] == 'CANDIDATE_RESEARCH_PREPARED':
+            # Charge completed layout and after checks; keep scheduling slack inside the original clock.
+            minutes = int((args.analysis_deadline - time.time() - 60) // 60)
+            if minutes < 1:
+                terminal.update(status='CANDIDATE_RESEARCH_INCOMPLETE', primary_failure=dict(stage='extraction-allocation', error='original analysis window exhausted'))
+            else:
+                terminal['extraction_timeout_minutes'] = minutes
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as stream: stream.write('extraction_minutes=' + str(minutes) + '\n')
+        try:
+            seal(out, terminal, args.phase, args.deadline, end - EVIDENCE_SECONDS)
+        except Exception as error:
+            terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+            failure = dict(stage='evidence-seal', error=repr(error)[:2048])
+            if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
+            else: terminal['secondary_errors'].append(failure)
+            save('candidate-' + args.phase + '-terminal.json', terminal, True)
+    return 0 if terminal['status'] in ('CANDIDATE_RESEARCH_PREPARED', 'CANDIDATE_RESEARCH_COMPLETED') else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

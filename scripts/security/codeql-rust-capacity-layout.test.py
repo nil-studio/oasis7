@@ -21,6 +21,7 @@ FILES = (
     'codeql_rust_callee_diagnostic.py',
     'codeql-rust-capacity.py',
     'codeql-rust-qualifier-comparison.py',
+    'codeql-rust-candidate-workload.py',
     'codeql-rust-omitted-qualifier.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',

@@ -297,7 +297,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("inputs.mode == 'qualifier-research' || (inputs.mode == 'capacity' && inputs.compare_qualifier_patch == true)", step)
         self.assertIn("inputs.mode == 'qualifier-research' && 121 || 16", step)
         self.assertIn('--mode "$CAPACITY_MODE"', step)
-        self.assertIn("skip-queries: ${{ inputs.mode == 'qualifier-research' }}", text)
+        self.assertIn("skip-queries: ${{ inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research' }}", text)
         self.assertNotIn('continue-on-error', text)
         self.assertIn('rust-qualifier-comparison-${{ github.run_id }}', text[compare:])
         self.assertIn('path: ${{ runner.temp }}/rust-qualifier-evidence', text[compare:])

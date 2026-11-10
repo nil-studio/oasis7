@@ -21,6 +21,7 @@ on:
           - capacity
           - official-default-research
           - qualifier-research
+          - candidate-workload-research
 
 permissions:
   contents: read
@@ -69,7 +70,7 @@ jobs:
           jobs=[job for job in value['jobs'] if job['name']=='CodeQL Rust capacity' and job['status']=='in_progress']
           if len(jobs)!=1 or not jobs[0].get('started_at'):raise SystemExit('unknown actual capacity job start')
           mode=os.environ['CAPACITY_MODE']
-          if mode not in ('capacity','official-default-research','qualifier-research'):raise SystemExit('unknown mode')
+          if mode not in ('capacity','official-default-research','qualifier-research','candidate-workload-research'):raise SystemExit('unknown mode')
           if os.environ.get('COMPARE_QUALIFIER_PATCH','false')=='true' and mode!='capacity':
               raise SystemExit('private qualifier comparison requires capacity mode')
           budget=21600 if mode=='official-default-research' else (9000 if mode=='qualifier-research' else 5400)
@@ -151,10 +152,23 @@ jobs:
             --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
+      - id: candidate_prepare
+        name: Freeze candidate source layout and resolve the exact 37 plus 7 queries
+        if: inputs.mode == 'candidate-workload-research'
+        timeout-minutes: 8
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-candidate-workload.py" prepare \
+            --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
+            --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
+            --official-evidence "$RUNNER_TEMP/rust-capacity-evidence" \
+            --output "$RUNNER_TEMP/rust-candidate-workload-evidence" --work "$RUNNER_TEMP/rust-candidate-workload-data" \
+            --deadline "$CAPACITY_DEADLINE" --analysis-deadline "$CAPACITY_ANALYSIS_DEADLINE"
       - id: analyze
-        name: ${{ inputs.mode == 'qualifier-research' && 'Extract the complete fixed source for public-callee research' || 'Extraction and complete official default queries' }}
+        name: ${{ (inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research') && 'Extract the complete fixed source for private research' || 'Extraction and complete official default queries' }}
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
-        timeout-minutes: ${{ fromJSON(steps.prepare.outputs.analysis_minutes) }}
+        timeout-minutes: ${{ fromJSON(inputs.mode == 'candidate-workload-research' && steps.candidate_prepare.outputs.extraction_minutes || steps.prepare.outputs.analysis_minutes) }}
         env:
           RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
         with:
@@ -163,7 +177,7 @@ jobs:
           output: ${{ runner.temp }}/rust-capacity-sarif
           upload: never
           upload-database: false
-          skip-queries: ${{ inputs.mode == 'qualifier-research' }}
+          skip-queries: ${{ inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research' }}
       - id: capture
         name: Preserve failure evidence before any result admission gate
         if: always() && steps.snapshot.outcome == 'success'
@@ -183,7 +197,7 @@ jobs:
             --output "$RUNNER_TEMP/rust-capacity-evidence" --work "$RUNNER_TEMP/rust-capacity-data" \
             --sarif "$RUNNER_TEMP/rust-capacity-sarif" --deadline "$CAPACITY_DEADLINE"
       - id: finish
-        name: ${{ inputs.mode == 'qualifier-research' && 'Verify the full extraction checkpoint without running queries' || inputs.mode == 'official-default-research' && 'Verify official default results only' || 'Verify every default result and complete public semantic witnesses' }}
+        name: ${{ (inputs.mode == 'qualifier-research' || inputs.mode == 'candidate-workload-research') && 'Verify the full extraction checkpoint without running queries' || inputs.mode == 'official-default-research' && 'Verify official default results only' || 'Verify every default result and complete public semantic witnesses' }}
         if: always() && steps.prepare.outcome == 'success' && steps.capture.outcome == 'success'
         env:
           CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
@@ -243,6 +257,35 @@ jobs:
           name: rust-capacity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-capacity-evidence
           include-hidden-files: true
+          retention-days: 14
+      - id: candidate_workload
+        name: Run and verify the single private candidate workload or seal its failure
+        if: always() && inputs.mode == 'candidate-workload-research' && steps.candidate_prepare.outcome != 'skipped'
+        env:
+          CAPACITY_CLI: ${{ steps.init.outputs.codeql-path }}
+          CANDIDATE_PREPARE_OUTCOME: ${{ steps.candidate_prepare.outcome }}
+          EXTRACTION_OUTCOME: ${{ steps.analyze.outcome }}
+          CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
+          CHECKPOINT_OUTCOME: ${{ steps.finish.outcome }}
+          OFFICIAL_ARTIFACT_OUTCOME: ${{ steps.official_artifact.outcome }}
+        run: |
+          python3 "$RUNNER_TEMP/rust-capacity-helper/codeql-rust-candidate-workload.py" run \
+            --codeql "$CAPACITY_CLI" --source "$GITHUB_WORKSPACE" \
+            --database "$RUNNER_TEMP/rust-capacity-databases/rust" \
+            --official-evidence "$RUNNER_TEMP/rust-capacity-evidence" \
+            --output "$RUNNER_TEMP/rust-candidate-workload-evidence" --work "$RUNNER_TEMP/rust-candidate-workload-data" \
+            --deadline "$CAPACITY_DEADLINE" --analysis-deadline "$CAPACITY_ANALYSIS_DEADLINE" \
+            --candidate-prepare-outcome "$CANDIDATE_PREPARE_OUTCOME" --extraction-outcome "$EXTRACTION_OUTCOME" \
+            --capture-outcome "$CAPTURE_OUTCOME" --checkpoint-outcome "$CHECKPOINT_OUTCOME" \
+            --official-artifact-outcome "$OFFICIAL_ARTIFACT_OUTCOME"
+      - name: Upload private candidate workload evidence without SARIF or database
+        if: always() && inputs.mode == 'candidate-workload-research' && steps.candidate_prepare.outcome != 'skipped'
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+        with:
+          name: rust-candidate-workload-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-candidate-workload-evidence
+          if-no-files-found: error
           retention-days: 14
       - id: qualifier_comparison
         name: Compare public callees using the fixed private qualifier patch
