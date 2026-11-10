@@ -187,6 +187,7 @@ fn provider_preview_actual_module_commit_agent_read_and_immutable_rerun() {
     terminal_recovery::run(&options, &receipt);
 }
 
+#[cfg(feature = "test_tier_full")]
 fn authenticated_agent_http_read(options: &Options, receipt: &Receipt) {
     use oasis7::world_service::*;
     use std::{

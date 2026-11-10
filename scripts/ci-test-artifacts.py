@@ -312,6 +312,13 @@ ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integr
 
 def fast_plan(plan):
     """Old trusted planners retain the complete previous execution inventory."""
+    formal_full_only = isinstance(plan, dict) and 'formal_full_profiles_only_version' in plan
+    if formal_full_only and (type(plan['formal_full_profiles_only_version']) is not int
+                             or plan['formal_full_profiles_only_version'] != 1
+                             or 'fast_plan_version' not in plan):
+        raise ValueError('invalid Formal full-profile capability')
+    if isinstance(plan, dict) and 'formal_deferred_ordinary_cases' in plan and not formal_full_only:
+        raise ValueError('deferred ordinary Formal cases require a compatible capability')
     support_fields = {'ordinary_support_contract_version', 'ordinary_support_handoffs',
                       'ordinary_support_deferred'}
     support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
@@ -340,6 +347,24 @@ def fast_plan(plan):
             or len(plan['groups']) != len(set(plan['groups']))
             or type(plan.get('test_policy_changed', False)) is not bool):
         raise ValueError('unsupported fast execution plan')
+    if formal_full_only:
+        complete = plan['execution_profile'] in ('periodic-full', 'candidate-full')
+        suites = plan_list(plan, 'formal_suites', SHARDS, nonempty=complete)
+        shards = plan_list(plan, 'formal_shards', SHARDS, nonempty=complete)
+        if (complete != (plan['scope'] == 'explicit-full')
+                or complete != ('formal_process' in plan['groups'])
+                or (complete and set(suites) != set(SHARDS))
+                or (not complete and (suites or shards))):
+            raise ValueError('Formal full-profile selection disagrees with execution profile')
+        deferred = plan.get('formal_deferred_ordinary_cases', {})
+        if (not isinstance(deferred, dict) or set(deferred) - {'runtime-tests'}
+                or (complete and deferred)):
+            raise ValueError('invalid deferred ordinary Formal inventory')
+        for names in deferred.values():
+            if (not isinstance(names, list) or not names
+                    or any(not isinstance(name, str) or not re.fullmatch(r'\w+(?:::\w+)*', name)
+                           for name in names) or len(names) != len(set(names))):
+                raise ValueError('invalid deferred ordinary Formal case')
     if 'fast_execution_version' in plan:
         version = plan['fast_execution_version']
         if version == 1:
@@ -690,6 +715,9 @@ def formal_suites(plan=None):
     selected = plan_list(plan, 'formal_suites', SHARDS, nonempty=False)
     if bool(selected) != ('formal_process' in plan.get('groups', [])):
         raise ValueError('formal suite selection disagrees with selected groups')
+    if (plan.get('formal_full_profiles_only_version') == 1
+            and plan['execution_profile'] in ('pr-fast', 'main-fast')):
+        return selected
     if plan.get('scope') in ('full', 'explicit-full') or plan['execution_profile'] in ('periodic-full', 'candidate-full'):
         if not selected:
             raise ValueError('complete profile is missing formal suites')
@@ -2434,8 +2462,23 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_par
 
 
 def ordinary_entries(manifest):
-    entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items()
-               if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
+    plan = fast_plan(manifest.get('execution_plan'))
+    deferred = plan.get('formal_deferred_ordinary_cases', {}) if plan else {}
+    entries = []
+    for name, binary in manifest['binaries'].items():
+        if not binary['ordinary']:
+            continue
+        ordinary = set(binary['tests']) - set(binary['ignored_tests'])
+        excluded = ordinary.intersection(deferred.get(name, ()))
+        if excluded and (binary.get('package') != 'oasis7_chain_runtime'
+                         or binary.get('target_kind') != ['lib']
+                         or binary.get('target') != 'oasis7_chain_runtime'):
+            raise ValueError('deferred Formal case has a different target identity')
+        if ordinary - excluded:
+            entry = dict(binary=name, batch=True)
+            if excluded:
+                entry['skip'] = sorted(excluded)
+            entries.append(entry)
     for owner, pattern in snapshot_regressions(manifest):
         if owner not in manifest['binaries']:
             raise ValueError('missing default-feature snapshot harness: ' + owner)
@@ -2489,7 +2532,7 @@ def expand_ordinary_batches(entries, binaries):
     expanded = []
     for entry in entries:
         binary = binaries[entry['binary']]
-        tests = set(binary['tests']) - set(binary['ignored_tests'])
+        tests = set(binary['tests']) - set(binary['ignored_tests']) - set(entry.get('skip', []))
         exclusive = sorted(tests & ORDINARY_EXCLUSIVE_RUNTIME_CASES) if (
             entry.get('batch') and binary.get('target_kind') == ['lib']
             and binary.get('package') == binary.get('target') == 'oasis7_chain_runtime') else []
@@ -2551,11 +2594,14 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
             command = [str(bundle / binary['path'])]
             name = entry.get('name', entry['binary'])
             if entry.get('batch'):
-                count = entry.get('count', len(set(binary['tests']) - set(binary['ignored_tests'])))
-                if entry.get('skip_exact'):
+                excluded = sorted(set(entry.get('skip', [])) | set(entry.get('skip_exact', [])))
+                count = len(set(binary['tests']) - set(binary['ignored_tests']) - set(excluded))
+                if excluded:
                     command.append('--exact')
-                    for skipped in entry['skip_exact']:
-                        command += ['--skip', skipped]
+                    for case in excluded:
+                        command += ['--skip', case]
+                    print('ordinary_formal_deferred=' + json.dumps(dict(binary=entry['binary'],
+                          cases=excluded, reason='complete profiles only')), flush=True)
             elif 'filter' in entry:
                 command.append(entry['filter'])
                 name, count = entry['filter'], entry['count']

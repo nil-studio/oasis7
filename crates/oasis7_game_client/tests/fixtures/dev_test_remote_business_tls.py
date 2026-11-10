@@ -32,7 +32,10 @@ class Proxy(http.server.BaseHTTPRequestHandler):
         self.send_response(response.status);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
 proxy=http.server.HTTPServer(('127.0.0.1',0),Proxy);origin='https://localhost:'+str(proxy.server_port)
 subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(root/'key.pem'),'-out',str(root/'cert.pem'),'-days','1','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(root/'cert.pem',root/'key.pem');proxy.socket=context.wrap_socket(proxy.socket,server_side=True)
+context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.minimum_version=ssl.TLSVersion.TLSv1_2
+context.load_cert_chain(root/'cert.pem',root/'key.pem')
+proxy.socket=context.wrap_socket(proxy.socket,server_side=True)
 proxy_thread=threading.Thread(target=proxy.serve_forever);proxy_thread.start()
 config=dict(service=dict(profile='dev-test-accounts-v1',socket=str(backend_path),usage_directory=str(root/'usage'),grant_id='fixture',max_request_bytes=65536,timeout_ms=1000,max_calls=100,credentials=[dict(caller_id='connector',token=token,expires_at_unix=int(time.time())+120,revoked=False)]),catalog_directory=str(root/'catalog'),grants=[],resources={})
 def save():policy.write_text(json.dumps(config));policy.chmod(0o600)
