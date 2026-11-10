@@ -73,6 +73,10 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；承接 [产品 SC-11](
 
 维护权限、`draft -> linked -> published -> revised` 与发布责任人复核仍见 [原功能矩阵](prd.md#deck-functional-contract)，不新增审批层。首页当前布局 authority 不因此改为 deck 布局，deck 也不进入 discovery 六叶的状态范围。Image2 与历史 #1484 只提供原设计/出处，不提供浏览器、a11y、导航、发布或新视觉 signoff。验证沿 [原专业验证入口](prd.md#validation-site-012)及 [页面比较说明](deck/html-roadshow-deck-page-2026-06-19.design.md#implementation-comparison-notes)，静态链、页面行为和实际发布分别取证，本次全部未运行。
 
+媒体 URL 激活限于浏览器 URL 解析后的 HTTP(S)：绝对地址、协议相对及以 `document.baseURI` 为基准的相对路径均可使用，query 与 fragment 保留。空值、解析失败及其他协议（包括 javascript、data、blob、file）不能进入 img/video/audio/iframe 和 source 的 `src`；背景视频逐个处理既有逗号分隔项，背景 iframe 的 preload 与 active 使用同一检查。拒绝项不标记加载成功，不阻断同页有效资源；内部卸载使用的固定 `about:blank` 仍仅供卸载。CSS 背景图不属于这组媒体 src 激活入口。
+
+普通 load/preload 成功后沿既有 `data-lazy-loaded` / `data-src` 转换；按需激活的 iframe 保留 `data-src`，供离场与 fragment 隐藏时卸载。预加载背景按原近邻策略保留，远距卸载后可再次加载；重复激活同一解析结果不能重写 `src` 引发重复导航。此约束不扩展为对 `sync()` 重建背景的导航禁止，也不改变 autoplay、loop/muted、excludeIframes 等既有控制。
+
 <a id="static-manual-design"></a>
 ### 静态手册的共享设计
 
