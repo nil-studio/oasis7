@@ -36,6 +36,10 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 因果延迟探针只在已验证成功的 View 响应上等待，响应字节保持原样。串行运行目标用例时，可设置 `PRE2_CONFORMANCE_VIEW_DELAY_MS=600`（低于 transport timeout），分别过滤 `real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider`、`real_tcp_fresh_admission_waits_for_successful_metadata` 和 `real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns`。日志记录原请求和阶段推进；通过仍须获得同一原请求的 canonical result、唯一结算；双 turn 还须保留各自 memory。该探针验证多阶段累计延迟，不是吞吐或性能验收。
 
+Wait Admit 与 Resume 的崩溃恢复同样等待原请求的完整提交和精确 resumed memory，真实错误仍提前失败。初次 exit73 与恢复子进程分别使用独立 phase 日志和最多 60 秒的父进程硬截止；存在外层 completion deadline 时，两阶段继承同一绝对截止并预留清理时间，不刷新预算。没有外层截止时，每阶段各自有界，不将两阶段描述为合计 60 秒。持续观察使用 `Session::drain_for` 实际读取新 TCP 帧，保留原 exchange 的 Hello/Snapshot/Ack 顺序和未完整帧，不额外请求快照；已完成的 exchange 不能代替后续读取或重复计入新快照数量。
+
+`real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle` 保留成功 View 的 1000 毫秒响应延迟，并在恢复观察开始后，以原 request digest 与 lease 绑定一个 13 秒的真实 Wait 时钟屏障。只有同一 canonical Admit 和 Settled lease 已确认时才等待；放行前不得存在已选 wake 或 resumed model。等待期间释放 driver 锁，不阻塞 RPC；随后沿原空 tick、wake、Resume、Act 和 memory 路径完成。该专用探针沿用外层 child 截止，普通 Wait 时钟仍为原 20 秒。恢复耗时在完成循环退出时冻结，排除清理耗时；旧 12 秒观察器必须在原完成判据上失败，不能靠调整阈值、改响应字节或延长 transport timeout 通过。
+
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
 Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌套清理预留，分别保存 `completion-wait-rejection-initial.*.log` 与 `completion-wait-rejection-recovery.*.log`，不提高 ordinary/runtime-tests 总时限。fixture 生命周期回调先复制 root 并释放锁，再进入 gate 状态；补偿 selector 不持 gate 锁读取 root。`http_fixture::lock_order_tests` 用 channel 固定补偿锁与真实 finished/joined 回调的交错，旧锁作用域应明确失败而非挂起。`application_completion::launcher_tests` 覆盖真实初次挂起、exit73 后恢复挂起与独立日志；原 canonical、原身份、写失败及 exit73 断言仍须通过。

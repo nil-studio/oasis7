@@ -43,6 +43,7 @@ mod response_relay;
 use fixture_failure_diagnostics::{self as failure, Stage as FailureStage, Worker};
 mod fixture_stage_diagnostics;
 mod hosted_wait_clock;
+mod hosted_wait_recovery_delay;
 use fixture_stage_diagnostics::Stage;
 mod provider_metadata;
 use super::scenario_resource;
