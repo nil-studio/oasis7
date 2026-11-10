@@ -837,6 +837,22 @@ def validate_config(config):
                 or len(outputs) != len(set(outputs))):
             raise ValueError('invalid generated input identity')
         packages.add(package)
+    if 'formal_full_profiles_only_version' in config:
+        if (type(config['formal_full_profiles_only_version']) is not int
+                or config['formal_full_profiles_only_version'] != 1
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION
+                or 'formal_process' not in groups):
+            raise ValueError('invalid Formal full-profile capability or inventory')
+    if 'formal_deferred_ordinary_cases' in config:
+        deferred = config['formal_deferred_ordinary_cases']
+        if (config.get('formal_full_profiles_only_version') != 1 or not isinstance(deferred, dict)
+                or set(deferred) - {'runtime-tests'}):
+            raise ValueError('invalid deferred ordinary Formal inventory')
+        for names in deferred.values():
+            if (not isinstance(names, list) or not names
+                    or any(not isinstance(name, str) or not re.fullmatch(r'\w+(?:::\w+)*', name)
+                           for name in names) or len(names) != len(set(names))):
+                raise ValueError('invalid deferred ordinary Formal case')
     if 'fast_scope_version' in config:
         if config['fast_scope_version'] != FAST_PLAN_VERSION:
             raise ValueError('unknown fast scope version')
@@ -2661,6 +2677,9 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
                                                for key in sorted(config['ordinary_fast_targets'])]
     plan.update(python_control_plan(config))
+    if config.get('formal_full_profiles_only_version') == 1:
+        plan['formal_full_profiles_only_version'] = 1
+        plan['formal_deferred_ordinary_cases'] = {}
     complete_ordinary_partitions(config, plan)
     return plan
 
@@ -2929,6 +2948,19 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                                'all original DistFS group test targets remain serial')
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     complete_ordinary_partitions(config, plan)
+    if config.get('formal_full_profiles_only_version') == 1:
+        # Apply the deferral after ordinary coverage, Clippy and architecture
+        # decisions. Removing a Formal risk must not narrow those other checks.
+        chosen.discard('formal_process')
+        plan.update(formal_full_profiles_only_version=1,
+                    formal_deferred_ordinary_cases=config.get('formal_deferred_ordinary_cases', {}),
+                    groups=sorted(chosen),
+                    resources=sorted({resource for group in chosen for resource in config['resources'][group]}),
+                    formal_suites=[], formal_shards=[],
+                    fast_plan_exceptions=[reason for reason in exceptions
+                                          if not reason.startswith('necessary Formal risk suites: ')])
+        plan['reasons'].append('heavy Formal process tests run only in complete profiles: '
+                               'periodic-full and candidate-full')
     return plan
 
 

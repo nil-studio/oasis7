@@ -597,7 +597,7 @@ class PeriodicAdmission(unittest.TestCase):
 
     def test_noop_requires_actual_skips_and_no_full_execution_artifacts(self):
         for kind in ("select_ran", "gate_ran", "other_ran", "missing_select", "missing_gate",
-                     "duplicate_select", "old_select", "selection", "full-result", "failed_run"):
+                     "duplicate_select", "old_select", "selection", "full-result", "unknown_run"):
             with self.subTest(kind=kind):
                 run, _ = self.add_observation()
                 jobs = self.api.jobs[(41, 1)]
@@ -614,7 +614,7 @@ class PeriodicAdmission(unittest.TestCase):
                 elif kind in {"selection", "full-result"}:
                     self.api.artifacts[41].append({"id": 4199, "name": f"ci-{kind}-41-1", "expired": False})
                 else:
-                    run["conclusion"] = "failure"
+                    run["conclusion"] = "unknown"
                 with self.assertRaises(ValueError):
                     self.full(run)
                 self.api.runs.remove(run)
@@ -741,6 +741,59 @@ class PeriodicAdmission(unittest.TestCase):
                                 self.job("select", "skipped"), self.job("explicit-full-gate", "skipped")]
         self.assertEqual(self.full(run)["kind"], "control_failure")
         self.assertTrue(self.admit()["run_full"])
+
+    def test_failed_noop_after_successful_admission_allows_later_due_ticks(self):
+        for conclusion in ("cancelled", "failure"):
+            with self.subTest(conclusion=conclusion):
+                self.setUp()
+                run, _ = self.add_observation()
+                run["conclusion"] = conclusion
+                classified = self.full(run)
+                self.assertEqual(classified["kind"], "control_failure")
+                self.assertFalse(classified["successful"])
+                self.assertIsNone(classified["full_started_at"])
+                self.assertIsNone(classified["reserved_at"])
+                for index, seconds in enumerate((-1, 0, 1200)):
+                    self.api.runs = [self.green, run]
+                    decision = self.admit(self.now + timedelta(seconds=seconds), 90 + index)
+                    self.assertEqual(decision["run_full"], seconds >= 0)
+                    self.assertEqual(decision["previous_full"]["id"], self.green["id"])
+                    self.assertEqual(decision["control_failure_run_ids"], [run["id"]])
+                self.api.runs = [self.green, run]
+                with self.assertRaisesRegex(ValueError, "periodic admission failed") as caught:
+                    module.periodic_health(self.api, self.now)
+                report = json.loads(str(caught.exception).split("; schedule facts: ", 1)[1])
+                self.assertEqual(report["control_failure_run_ids"], [run["id"]])
+                self.assertEqual(report["last_successful_run"]["run_id"], self.green["id"])
+                self.assertEqual(module.selected_source_for_attempt(self.api, run, self.api.artifacts[41], 7), A)
+                with self.assertRaisesRegex(ValueError, "newer full attempt"):
+                    module.find_verified(self.api, A, CONFIG, "definition")
+
+    def test_cancelled_noop_recovery_cannot_ignore_incomplete_or_conflicting_evidence(self):
+        for kind in ("active", "unknown_conclusion", "select_cancelled", "other_ran", "selection", "full-result",
+                     "missing_decision", "wrong_attempt", "wrong_source"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                run, receipt = self.add_observation()
+                run["conclusion"] = "cancelled"
+                if kind == "active":
+                    run["status"] = "in_progress"
+                elif kind == "unknown_conclusion":
+                    run["conclusion"] = "timed_out"
+                elif kind == "select_cancelled":
+                    self.api.jobs[(41, 1)][1]["conclusion"] = "cancelled"
+                elif kind == "other_ran":
+                    self.api.jobs[(41, 1)].append(self.job("full-regression", "success"))
+                elif kind in {"selection", "full-result"}:
+                    self.api.artifacts[41].append({"id": 4199, "name": f"ci-{kind}-41-1", "expired": False})
+                elif kind == "missing_decision":
+                    self.api.artifacts[41].clear()
+                elif kind == "wrong_attempt":
+                    receipt["context"]["run_attempt"] = 2
+                else:
+                    receipt["context"]["source_sha"] = B
+                with self.assertRaises(ValueError):
+                    self.admit()
 
     def test_later_complete_full_restores_health_after_control_failure(self):
         failed = self.add_run(41, self.now - timedelta(hours=2), conclusion="failure")

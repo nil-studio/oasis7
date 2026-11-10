@@ -1,5 +1,12 @@
 {
   "fast_scope_version": 1,
+  "formal_full_profiles_only_version": 1,
+  "formal_deferred_ordinary_cases": {
+    "runtime-tests": [
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_actual_world_noise_follower_installs_at_h_plus_two",
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_confirmation_proposal_timeout_recovers_after_original_governance_commit"
+    ]
+  },
   "fast_test_inventory_version": 1,
   "fast_execution_version": 1,
   "ordinary_partition_version": 1,

@@ -182,6 +182,8 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `python_control_contract_version=1`、`python_control_paths`、`python_control_tests` | 可信精确路径命中的 CI Python 控制输入及按组归并的非空最低合同，由可信基线执行入口针对候选实现验证 |
 | `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
+| `formal_full_profiles_only_version=1` | 可信 BASE 启用重型 Formal 仅在完整 profile 执行；快速 profile 的组、逻辑 suite 和物理 shard 均不选择 Formal |
+| `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
 快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
@@ -190,7 +192,11 @@ PR/push 继续从事件可信 BASE 取得选择策略、配置及汇总规则；
 
 workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/push 调用旧接口，driver 缺少新版本字段时保留原 native、WASM、Formal 和 support 范围。可信 main 尚未具备完整 profile 时，非 main 的手动 full 可用旧完整组库存做首次接线验证，计划标记 `bootstrap_full=true`。该只读运行不能缩减旧覆盖，也不能被发布消费者接受；main 的周期/完整入口不以此 bootstrap 替代可信策略升级。
 
-风险映射由真实路径、消费者和行为合同决定，不依赖作者贴标签或模型猜测。没有已验证的窄用例映射时保留相应旧完整组，不能将缺映射解释为无风险。关键改动的定向测试仍在普通 CI 图内；环境专项只用于普通 runner 的具体能力缺口。
+风险映射由真实路径、消费者和行为合同决定，不依赖作者贴标签或模型猜测。没有已验证的窄用例映射时保留相应普通完整组，不能将缺映射解释为无风险。重型 Formal 由可信 `formal_full_profiles_only_version=1` 单独安排到完整 profile：`pr-fast/main-fast` 无论 targeted、保守 `scope=full`、风险映射或显式追加组，最终均移除 `formal_process`，输出空 `formal_suites/formal_shards` 并记录原因。`periodic-full/candidate-full` 保留全部组和五个逻辑 suite；`scope=full` 只表示普通检查扩测，不能据此恢复重型 Formal。旧 BASE 缺能力时沿用原风险选择，未知能力版本失败。普通 CAS/Formal Protocol 库、单元及控制合同测试继续执行。
+
+Formal producer、合并及物理矩阵继续消费同一可信选择输出；快速层不产生 Formal 产物，固定轻量 `formal-process` 汇总核对 producer/矩阵均 skipped 后报告 `not_selected`。完整层仍要求恰好一个 producer 成功及矩阵成功，`explicit-full-gate` 核齐全部配置组。执行器仅在新能力与快速 profile 同时成立时接受空 Formal；Python 控制迁移也仅在可信配置已启用该能力时，从普通 full 的精确应选组集合移除 `formal_process`，其他组缺失及完整 profile 缺 Formal 仍失败。候选新增能力不能给旧 BASE 的迁移计划授权。
+
+两个已登记的 BFT membership 长场景没有 ignored 或 Formal 环境门控，会在 ordinary `runtime-tests` 批次重复运行。可信 scope 配置以完整 case 名将其写入快速计划的 `formal_deferred_ordinary_cases`；执行器核对 Chain Runtime library 目标身份，以 libtest `--exact --skip` 精确后移并从实际应执行数中扣除，记录延期名称。近邻名称、其他 Formal 命名的单元/合同测试和失败计数保留。两 case 仍由完整 Formal 环境批次及物理分片各覆盖一次；完整 profile 清空延期表，旧 BASE 无能力时不排除任何普通 case。Formal 延期在普通目标、架构编译、Clippy 与 support 转交范围推导完成后应用，不借此进一步缩减其他检查。
 
 ### Python 与 CI 控制输入的职责选择
 
@@ -198,7 +204,7 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 普通 Python 路径沿用显式 `rules` 与 Cargo 输入图，按文档、治理、打包、架构或协议等真实职责选择已有组；直接调用、嵌入数据及反向消费者继续参与选择。无真实合同的工具不能为了缩短 CI 被任意登记为轻量治理组，未知路径仍由既有门禁阻断。
 
-进程监督 helper `ci_process_runner.py` 的直接消费者包括 native/Formal 执行、Viewer 并行分支和 storage acceptance。其精确路径登记到可信 Python 合同，最低执行 `ci-formal-process.test.py`、`ci-support-profiles.test.py` 与 `ci-storage-acceptance.test.py`，使 helper 变更也受到固定 BASE 行为断言保护；只有治理组映射不能替代该验证。单独修改 helper 保持原有 baseline 与 workflow-governance 职责范围，混合共享控制变更仍执行原全组。
+进程监督 helper `ci_process_runner.py` 的直接消费者包括 native/Formal 执行、Viewer 并行分支和 storage acceptance。其精确路径登记到可信 Python 合同，最低执行 `ci-formal-process.test.py`、`ci-support-profiles.test.py` 与 `ci-storage-acceptance.test.py`，使 helper 变更也受到固定 BASE 行为断言保护；只有治理组映射不能替代该验证。单独修改 helper 保持原有 baseline 与 workflow-governance 职责范围，混合共享控制变更仍执行该 profile 的完整必要组。
 
 对原本命中共享控制的 Python 脚本，可信 `scoped_control_paths` 允许登记规范化的精确 `scripts/` 路径，不接受扩展名通配豁免。对应 `python_control_contracts` 必须指定已选中的执行组与非空精确测试清单；未登记或合同不完整时不能取得窄范围。登记的最低测试文件自身变化也通过精确反向关联触发同一合同，不能仅因它原属普通文档检查而绕过可信验证。命中后的计划保留实际源码或测试路径、按组去重的测试清单，并选择 `workflow_governance` 执行独立可信合同。真实 Rust 消费者与混合变更要求的组照常取并集；scope 配置、共享执行器、可信合同入口及 workflow 自身变化继续按共享控制处理。
 
@@ -206,7 +212,7 @@ workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候�
 
 隔离执行 shell dispatcher 时，夹具加载受测 driver 的完整函数定义，再覆盖 `run`、Cargo 等明确的记录边界；不手工维护一份易随 helper 演进而遗漏的函数名单。driver 的 source 接口只提供定义，不解析 CLI、不选择解释器、不切换目录或执行检查，也不改变调用方的参数与 shell 选项；正常执行仍经原 CLI 初始化和分派。可信入口仅对明确登记的 support dispatcher 夹具提供这份候选定义闭包，使旧 BASE 测试仍能执行原断言；注入只影响该夹具启动的 shell，不传播到其真实子命令。没有该接口的历史 driver 保留既有夹具路径。缺失 helper、命令失败、空执行及提前成功退出仍判失败，不能将这类兼容问题处理为跳过 BASE 合同；新增 helper、跨版本组合和失败传播须分别回归。
 
-可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留全组时，才允许迁移旧的全量策略断言。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
+可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留该 profile 的完整必要组时，才允许迁移旧的全量策略断言。可信 Formal 新能力仅允许快速 profile 从全组中排除 `formal_process`，其余缺项仍失败。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整合同回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
 
 planner 的可信最低合同固定验证必要的选择、未知输入和失败边界，另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单，覆盖词法归属及门控变化。该合同不冻结每个历史路径的全量策略断言，允许经过评审的职责细分进入新 BASE；候选完整 planner 回归仍验证新策略。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
 
@@ -219,7 +225,7 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 选择按以下顺序进行：
 
-1. **先确定必要覆盖。** 从可信基线规则和完整差异产生基线、受影响快速候选及风险定向集合。修改测试、fixture、生成输入或依赖与修改业务源码一样按真实消费者处理；新增/重命名 case 与实际可执行清单核对，旧枚举、遗漏标签不能让它消失。关键风险所需的 full case 先加入必要集合，再处理其 feature/target 前置。
+1. **先确定必要覆盖。** 从可信基线规则和完整差异产生基线、受影响快速候选及风险定向集合。修改测试、fixture、生成输入或依赖与修改业务源码一样按真实消费者处理；新增/重命名 case 与实际可执行清单核对，旧枚举、遗漏标签不能让它消失。除明确安排到完整层的重型 Formal 外，关键风险所需的 full case 先加入普通必要集合，再处理其 feature/target 前置。
 2. **再形成可运行计划。** 把必要检查映射到最小完整 package/target/features 和平台闭包。对缺少可信窄映射的范围保留相关旧必要组；不确定图及共享控制仍按既有规则保守扩大。只有符合可重复、隔离、有界要求且整体成本适合快速目标的检查才标为已验证快速；其他必要检查继续执行，普通范围的超预算如实暴露。
 3. **最后核对实际结果。** 计划记录每项选择原因，执行器核对预期 case/命令/平台与真实结果，汇总拒绝缺项。估算关注共享准备与并行依赖形成的关键路径，不以各 case 耗时小于十分钟或相加各阶段 P95 证明达标；整条 workflow 的实际成功反馈 P95 单独验收。
 
@@ -233,11 +239,11 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 自动检查不冻结普通测试名称，也不证明任意 Rust 修改语义等价。普通 case 的删除/改名由既有独立评审核对原行为去留、替代检查或可信规则确认的不适用；未核清时保留相关旧必要组。Formal 的预期 case 另由可信最低库存强制核对，不能仅凭候选清单删除就视为无须执行。
 
-首次切换时逐项比对旧必要集合、新 PR 集合及周期集合。差集中的每个检查均需能回答“验证什么、何时必须回到 PR、由哪个完整入口执行”；相关新行为或缺陷修复所需的回归在本次 PR 首次执行，不能先合入等待周期发现。迁移的真实覆盖验证与 CI 控制独立评审完成后，才解除对应旧等待。
+首次切换时逐项比对旧必要集合、新 PR 集合及周期集合。差集中的每个检查均需说明验证对象、所属层和实际完整入口；相关普通行为或缺陷修复回归在本次 PR 执行，重型 Formal 按明确分层由定期或显式候选 full 承接。迁移核对完整库存、真实执行与失败传播，并接受 CI 控制独立评审；旧 BASE 仍保留其原有要求。
 
 ### 现有测试的首批归类依据
 
-下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile、Formal 按逻辑 suite 收窄；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
+下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile，重型 Formal 在完整 profile 执行全部逻辑 suite；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
 
 | 现有入口或用例 | PR 快速候选与触发范围 | 合入前必要加测 | 周期完整覆盖 |
 | --- | --- | --- | --- |
@@ -247,10 +253,10 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 | signed-read codegen/Python/JS 合同；custody/signer 库测试 | API、签名、授权及消费者变化时保留编码、身份绑定、允许与拒绝路径 | Worker 平台、真实 HTTP/CLI/浏览器身份链路变化追加实际消费者 | 全部适用平台与完整身份链路 |
 | Viewer `test:frontend-structure`、`test:feedback-contract`、`test:ui` | 前端、接口及消费者变化时执行相关逻辑、反馈合同与必要编译 | auth/会话/权限变化执行 `viewer-auth-browser-security-smoke.mjs`；WASM/runtime 变化验证真实消费者 | 完整浏览器、WASM 构建与跨模块组合 |
 | `oasis7_simulator --test oasis7_init_demo --features test_tier_full`，现有过滤 `oasis7_init_demo_runs_` | 场景资产/初始化及必要消费者变化时保留实际场景验证；能否快速须量测 | 初始化、资源守恒和世界配置的相关完整场景属于必要集合，不因 full 标签推迟 | 全部场景及扩展组合 |
-| Formal 五个逻辑 suite 的完整 case | 有界状态转换与关键不变量先由适用库/合同用例验证 | 历史裁剪、持久化恢复、exactly-once、owner 转移及 CLI 同步变化触发对应完整场景；缺窄映射沿用相关旧组 | 保留全部逻辑 suite 与原 70/40 次长场景，物理分片不决定风险归属 |
+| Formal 五个逻辑 suite 的完整 case | 有界状态转换与关键不变量由适用库/合同用例验证 | 需要提前验证重型场景时显式运行 candidate-full，普通 PR 不启动重型 Formal | 定期与候选 full 均保留全部逻辑 suite 与原 70/40 次长场景，物理分片不决定覆盖范围 |
 | `workflow_governance`、`packaging_contracts`、Command Center Core/UI/类型合同 | 对应控制、打包、Core/UI 输入变化时执行选测/失败传播/接口等适用合同与编译 | 来源/权限/缓存写边界接受可信旧验证；安装、路径、进程及平台变化验证实际 OS | 完整控制合同、原生 App/打包及运维平台矩阵 |
 
-例如 [共识用例](../../../crates/oasis7_consensus/src/quorum/tests.rs)中的冲突拒绝和提交后发布可作为快速层的真实不变量检查；[成员恢复认证矩阵](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs)使用真实签名并检查拒绝后原状态不变，不能用“只保留成功 smoke”替代。Formal 的 `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` 默认周期执行，命中历史裁剪/重开/原结果保留变化时仍须在 PR 执行；`protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_once` 对 durable 阶段和 crash/retry 变化同理。定向选择依据逻辑合同和实际 case，不按物理 shard 名推断覆盖。
+例如 [共识用例](../../../crates/oasis7_consensus/src/quorum/tests.rs)中的冲突拒绝和提交后发布可作为快速层的真实不变量检查；[成员恢复认证矩阵](../../../crates/oasis7_consensus/src/membership_restore_auth_tests.rs)使用真实签名并检查拒绝后原状态不变，不能用“只保留成功 smoke”替代。Formal 的 `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` 和 `protected_endpoint_children_sigkill_runtime_durable_phases_resume_original_once` 均在定期或显式候选 full 执行，历史裁剪、重开、durable 阶段及 crash/retry 修改也不改变其所属层。完整选择依据逻辑合同和实际 case，不按物理 shard 名推断覆盖。
 
 ### 快速基础检查与编译范围
 
@@ -282,7 +288,7 @@ Game Client 的 `dev_test_service_cli.rs` 只承接原 `dev-test-serve`、`dev-t
 
 该合同的性能目标是 workflow 创建到最终 required gate 不超过 600 秒，包含排队、checkout、缓存、编译、Clippy、全部所选测试与汇总。冷、暖缓存均按真实行为改动或新增回归取样，并核对 source/tested/policy、实际目标和完整用例回执。首次 CI 控制变更仍使用可信 BASE 范围；合成差异的诊断只证明候选计划和当前构建成本，不能代签真实 PR、P95 或把超时样本改列例外。
 
-完整反向消费者集合继续写入计划作为影响证据。已证明的组件合同承接普通行为，上层完整集成回归放入 periodic-full；直接规则、手动必要加测、未覆盖输入及平台风险仍取并集。Formal 显式风险规则先于组件合同应用，例如 retained history 仍选 world-history，projection 仍选 runtime-protocol 与 world-history；只有没有显式风险且行为已由快速目标承接的输入才取消默认五套长回归。Launcher release 构建只在其真实输入或必要风险要求时加入快速图。WASM 保留适用消费者编译；仅当源码路由与 cfg 可证明输入不进入 WASM 构建时，才排除纯传递依赖带来的无关 WASM 检查，解析不确定时保留。
+完整反向消费者集合继续写入计划作为影响证据。已证明的组件合同承接普通行为，上层完整集成回归放入 periodic-full；直接规则、手动必要加测、未覆盖输入及平台风险仍取并集。新能力下重型 Formal 始终由完整 profile 承接；原 Formal 风险推导保留旧 BASE 及其他普通覆盖边界，最终延期不能在快速层留下 world-history 等 suite。Launcher release 构建只在其真实输入或必要风险要求时加入快速图。WASM 保留适用消费者编译；仅当源码路由与 cfg 可证明输入不进入 WASM 构建时，才排除纯传递依赖带来的无关 WASM 检查，解析不确定时保留。
 
 不可达证明同时核对实际 library、binary 与 build script 入口、静态模块挂载和嵌入数据消费者。原生源码可能经直接或传递的 Cargo build-dependency、proc-macro 或 build script 在 host 上生成便携目标的输入；这种路线必须保留平台验证，不能仅凭 native cfg 排除。自定义或无法解析的入口同样保守处理；包里存在 build script 本身不等于所有 library 源码都作为 host 生成器执行。
 
@@ -340,7 +346,7 @@ baseline 保留必要治理、格式与一致性检查。文档路径按完整�
 
 未命中独立快速 target 合同时，`oasis7_required` 从可信 26 包库存选择受影响 package，对所选包执行 strict Clippy 和全部非 ignored `--tests`；便携 WASM 编译从原四包库存取实际受影响闭包。Viewer 子进程与默认 feature snapshot 变体只在对应真实消费者被选中时构建。support 的普通 profile 可能只执行 library 或指定 binary，不能据 Cargo target 存在就认定普通入口会执行它；测试政策变化时保留原 profile，并追加所选包的 `--all-targets` 及适用 full features。扩展 feature 集合为空仍执行这些 target，省略空的 `--features` 参数；空 feature 不表示没有新增用例。未知映射或保守 scope 恢复旧库存，不以空 package 列表通过选中的 ordinary 组。
 
-Formal 只在风险规则要求时构建其既有共用依赖闭包，再执行选中逻辑 suite 的全部 case；当前没有声称按任意单 case 继续收窄这份共用编译。逻辑 suite 按可信 `case_shards` 映射物理 shard，跨 shard 的完整 case 必须保留。artifact 把可信 BASE 最低库存与候选新增项合并，既有 case 身份、ignored filters、环境 batch、shell tests 与依赖不能由候选删除；缺预期 case 或新增所需 shard 不在可信计划内均失败。build、pack、run 绑定同一 authority 摘要、同一计划和实际 tested source。
+新能力下 Formal 仅在完整 profile 构建其既有共用依赖闭包，并执行全部五个逻辑 suite 的完整 case；旧 BASE 保留原风险选择。逻辑 suite 按可信 `case_shards` 映射物理 shard，跨 shard 的完整 case 必须保留。artifact 把可信 BASE 最低库存与候选新增项合并，既有 case 身份、ignored filters、环境 batch、shell tests 与依赖不能由候选删除；缺预期 case 或新增所需 shard 不在可信计划内均失败。build、pack、run 绑定同一 authority 摘要、同一计划和实际 tested source。
 
 Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证据。快速集合仍包含实际行为测试，不以 `cargo check` 或空 harness 代替；单个局部编译示例也不能证明所有普通 PR 已达到预算。
 
@@ -367,6 +373,8 @@ schedule 使用 `17,37,57 * * * *`（UTC）执行轻量观察。短串行 admiss
 PR 并发组按 PR 编号取消过期运行。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
 
 `ci-full-result.py health` 只读观察最近两天 main schedule 的实际 attempt，区分观察与实际 full，报告最近完整运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。为覆盖旧 run 最近重跑，metadata 按两天窗口回看三十七天，并单独查询全部活动轮；范围覆盖 GitHub 的[三十天重跑期限](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)及[三十五天 workflow 运行上限](https://docs.github.com/en/actions/reference/limits)加两天观察窗，不把创建时间当最新 attempt 时间。读取共享 120 秒、800 次请求上限，最多四个并发只读审计，预算不足保留 unknown。合法空跑必须有唯一、同 run/attempt/SHA/workflow 的 admission=false 产物，admission 实际成功，select 与 full gate 实际 skipped，且无矛盾的 selection/full receipt；缺失或冲突不能算健康。旧版本没有 admission job 的 schedule 保持原 full 语义。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
+
+admission 成功且上述证据完整证明未执行 full，但 workflow 随后失败或取消时，记录为控制失败：健康和发布资格仍失败，不刷新 full 启动时间或占用活动名额，后续观察可按原四小时条件恢复准入。未知结论、未完成状态、缺失或矛盾证据仍拒绝分类，不能用恢复路径掩盖实际执行。
 
 命令接入既有 [CI 耗时回顾任务](../../../.agents/dot/tasks/ci-duration-review.md)的只读检查说明；文档没有新建外部定时器，也不证明巡检已经运行。调用者独立读取 Actions 事实，不能只靠迟到的 schedule 报告自身漏跑。平台调度可能延迟或丢失，规则依据 [GitHub schedule 语义](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
@@ -471,7 +479,7 @@ affected 的最终 dirty 适配保守合并 base→HEAD、暂存、未暂存和�
 
 - **分配与选择**：新增或迁移用例时核对 cfg/feature 标签、Cargo feature 闭包、driver 参数与实际选中列表。
   标签存在但 runner 未执行不是覆盖；同名 case 在不同 target/features 下不能互相代签。
-  按[准入规则到实际选择](#ci-pr-fast-selection-design)形成必要集合；full 标签用例命中风险仍进入 PR，full 保留适用 required 及重型回归。
+  按[准入规则到实际选择](#ci-pr-fast-selection-design)形成必要集合；除明确后移的重型 Formal 外，full 标签用例命中风险仍进入 PR，full 保留适用 required 及重型回归。
 - **退化和冲突**：错标、漏标、full 回归被移除、预期用例未执行、旧硬编码与 feature 过滤重复都应可定位。
   先澄清对应需求与消费者再修正分配，不能为时延数字删断言、吞失败或把零匹配当通过。
   影响不明时沿现有选测规则扩大普通 required，不新设任务身份或通用审批。
@@ -917,7 +925,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 
-承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)。`ci-test-artifacts.py` 从 Cargo JSON 的 executable 字段收集可执行文件，并区分 formal、ordinary 与兼容本地入口的 all 构建范围。正式最小 producer 仅构建 required-feature 的 oasis7 library / chain-runtime binary harness、production runtime、release endpoint 及 default-feature distfs library harness；`oasis7-test-build` 按可信计划选择包级或独立 target 库存，完整 profile 保留原全包、Viewer、default-feature snapshot 并追加快速 feature 组合。两个构建范围独立依赖 select，正式矩阵不等待普通 producer 完成。
+承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)。可信 BASE 启用完整层策略后，以下正式 producer/矩阵只由 `periodic-full/candidate-full` 选择，普通快速层保留轻量未选中汇总；旧 BASE 继续原选择。`ci-test-artifacts.py` 从 Cargo JSON 的 executable 字段收集可执行文件，并区分 formal、ordinary 与兼容本地入口的 all 构建范围。正式最小 producer 仅构建 required-feature 的 oasis7 library / chain-runtime binary harness、production runtime、release endpoint 及 default-feature distfs library harness；`oasis7-test-build` 按可信计划选择包级或独立 target 库存，完整 profile 保留原全包、Viewer、default-feature snapshot 并追加快速 feature 组合。两个构建范围独立依赖 select，正式矩阵不等待普通 producer 完成。
 
 正式 harness 的最小构建显式启用 `oasis7/ci_formal_required_features`，通过 native target 与 host build 的 optional dependency aliases 保留完整 required 根包共同构建时的依赖 feature 集合。该标记不参与业务 `cfg`，不自动启用，也不加入 production runtime、ordinary 或 default-feature snapshot 的原命令；依赖版本复用现有锁文件。验证比较完整构建与正式最小构建保留的完整依赖子树，并分别核对 host/build 与 target context 的实际 feature 组合，不能只比较根包上的 `test_tier_required` 字符串或把同包不同 context 合并后判断等价。
 
@@ -931,7 +939,7 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 
 组件 artifact 名包含实际 producer run/attempt，并通过 job outputs 传给合并入口。同 run、同源码失败重跑可组合较早 attempt 的成功组件；producer attempt 必须为正整数且不晚于当前 attempt，记录两路来源，拒绝跨 run、未来 attempt 或身份不一致。组件成功后可独立完成可信缓存维护，维护不等待分包、测试或 full-regression，也不影响 required/full 结论。
 
-新构建 scope 同时决定缓存 profile 与族容量，可信 Python 合同登记因此要求 `ci-test-artifacts.py` 的修改执行容量策略及共享 profile 的存储验收回归，`ci-workspace-cache.py` 的修改执行维护回归，覆盖 profile 断言、两组件预算、writer 身份与不跨族退休。迁移沿既有 full/all-groups 策略路径，固定 BASE 安全断言和真实 Rust fixture 保留，不修改合同运行器或其固定最低测试清单。
+新构建 scope 同时决定缓存 profile 与族容量，可信 Python 合同登记因此要求 `ci-test-artifacts.py` 的修改执行容量策略及共享 profile 的存储验收回归，`ci-workspace-cache.py` 的修改执行维护回归，覆盖 profile 断言、两组件预算、writer 身份与不跨族退休。迁移沿 full 的精确完整组校验，仅在可信新策略的快速 profile 中排除已后移的 Formal；固定 BASE 安全断言、最低测试清单和真实 Rust fixture 保留。
 
 重型 `formal-process-tests` job 在既有 `always()` 和两构建入口状态判断上同时要求 `!cancelled()`。同一 PR 的并发替换或显式取消使该条件变为 false，停止旧分片；保留 `always()` 处理互斥构建入口中合法的 skipped。固定 `formal-process` 与 `required-gate` 继续 always 汇总，取消、失败或意外跳过仍阻断；分片故障的 `fail-fast: false` 与诊断上传步骤的 `always()` 保持原语义。条件回归须覆盖取消前后、合法/非法构建结果组合及未选中路径，不以只匹配一段 YAML 文本代替实际条件判断。
 
@@ -995,9 +1003,9 @@ key 隔离平台/架构、Rust 与 WASM 工具链、Cargo lock/manifests/config�
 
 CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`tests/`、`examples/`、`benches/` 的变化选择该包自身的检查，不自动沿 library 反向依赖传播；若这些文件被其他目标以静态路径引用，仍按引用者传播。无法确认输入关系时保留保守覆盖。
 
-世界 library、状态序列化、正式读投影与共享构建输入变化继续选择 formal 验证，不把玩法代码整体视为与正式运行无关。新增、删除、重命名及测试 fixture 都使用 base/source/tested 的关系并集。
+世界 library、状态序列化、正式读投影与共享构建输入变化继续选择适用普通库/合同验证，不把玩法代码整体视为与正式运行无关；重型 Formal 统一由完整层承接。新增、删除、重命名及测试 fixture 都使用 base/source/tested 的关系并集。
 
-`formal-process` 使用 always 汇总：选中时构建和计划内矩阵均须 success；未选中时矩阵须 skipped，明确输出 not_selected，required-gate 等待此固定依赖。新 profile 按[分层实施](#ci-fast-pr-periodic-full-design)的可信路径风险选择逻辑 suite，并保留跨物理 shard 的完整 case。旧 BASE、控制输入或缺窄映射仍保留原覆盖；可信 base 尚无 formal_process 时仅保守扩大，不改旧计划使旧校验器接受未知组。schedule/manual-full 始终包含全部重型 suite，full-extended 不重复执行其独立链路；专用 package dispatch 的独立用途保持。
+`formal-process` 使用 always 汇总：选中时构建和计划内矩阵均须 success；未选中时矩阵须 skipped，明确输出 not_selected，required-gate 等待此固定依赖。可信 `formal_full_profiles_only_version=1` 启用后，`pr-fast/main-fast` 输出空 Formal 选择，`periodic-full/candidate-full` 保留全部五个逻辑 suite 及跨物理 shard 的完整 case。缺能力的旧 BASE 继续按风险定向选择，控制输入或缺窄映射时保留其原覆盖；可信 base 尚无 formal_process 时仅保守扩大，不改旧计划使旧校验器接受未知组。schedule/manual-full 始终包含全部重型 suite，full-extended 不重复执行其独立链路；专用 package dispatch 的独立用途保持。
 
 进程运行器使用单调绝对期限、20 秒存活心跳及独立进程所有权标识。Linux 扫描同 UID 环境标识并核对进程 starttime，清理包括脱离原进程组的自有后代；macOS 本地兼容使用独立进程组。退出码、超时、实际测试数、清理结果分别保存。摘要产物只含测试名和运行元数据；原输出通过 nocapture 进入 job 日志，不打包临时世界目录。
 

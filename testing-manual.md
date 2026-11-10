@@ -172,7 +172,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 | 候选变更测试分级 | required 改 full 必须在实际 owner/driver 上扩测；嵌套 cfg、跨 module 同名、缺 feature 声明、无扩展 driver 和新 ignore 均有负例。普通 case 删除/改名核对语义替代；Formal 的可信最低库存缺项必须失败 |
 | 新增测试与辅助模块 | 沿实际 Cargo target 和静态父模块链证明普通组合可执行；`any(test, feature = "test-support")` 不因另一分支未启用而误拒绝。新增 native item 保留受影响包与风险范围；full 门控、未知宏、不可达父模块、禁用 harness、删除/改名混合与既有门控替换仍有保守或失败负例 |
 | support 的扩展 target | 用普通 profile 只执行 library、且没有扩展 feature 的真实小包验证新增 integration：PR 选择扩展后及周期 full 都实际执行该用例；故意失败必须传播，不能因 feature 集合为空或只观察 library 通过而放行 |
-| 周期用例回到 PR | 修改历史裁剪、crash/retry、身份或平台行为时，即使相关 case 标 full 也触发真实验证；缺窄映射保留相关旧必要组，mock 或另一个平台成功不能代替 |
+| 重型 Formal 分层 | 普通 pr-fast/main-fast 在历史裁剪、crash/retry、共享控制或保守 scope=full 时也不启动重型 Formal；两条可信精确登记的 membership 长例不被 ordinary 批次重复执行，近邻及普通合同仍实际运行。periodic-full/candidate-full 保留五 suite、原场景长度及失败传播，旧 BASE 保留原选择 |
 | 超预算与不稳定 | 构造 case 很短但编译很重、整体预计超预算及已有 flaky 的情形；必要集合不被静默裁剪，普通样本不在运行后改类，首次失败不被重试覆盖 |
 | 关键边界与共享输入 | 身份/持久化/共识等命中必要定向加测；依赖/工具链或影响不确定时保守扩大并显示原因；未知路径仍失败 |
 | 完整覆盖 | 对同源适用清单核对快速集合与迁出项均在 full 执行；保留原断言、场景长度和平台，包含 Clippy、独立浏览器安全 smoke、Command Center 及真实平台矩阵；故意漏项被识别 |
@@ -318,6 +318,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 
 要求与机制见[真实进程验收要求](doc/testing/ci/ci-tiered-execution.prd.md#ci-formal-process)和[调度设计](doc/testing/ci/ci-tiered-execution.design.md#ci-formal-process-design)。
 
+- 可信 BASE 启用 `formal_full_profiles_only_version=1` 后，普通 `pr-fast/main-fast` 不运行重型 Formal producer 或分片，即使 `scope=full`、命中关键风险或追加 `formal_process`。`periodic-full` 与显式 `candidate-full` 必须执行全部五个逻辑 suite；CAS/Formal Protocol 普通库、单元及 CI 合同测试继续按影响选择。旧 BASE 缺能力时仍按旧规则，策略 PR 自身可能仍运行 Formal。
+- 核对 ordinary 日志中的 `ordinary_formal_deferred`：只后移可信计划精确列出的两条 membership 长例，不按 `formal` 名称批量过滤。真实 libtest 回归验证近邻仍执行、普通失败仍阻断，full/旧 BASE 仍执行延期 case 并传播其失败；完整库存回归核对两 case 仍各归属一个实际 Formal 分片。
 - `./scripts/ci-tests.sh required`：普通检查，不隐式启动独立重型链路。
 - `./scripts/ci-tests.sh required --group formal_process`：准备产物后顺序执行全部真实进程分片；兼容入口 `./scripts/formal-live-local-tests.sh "$PWD"` 调用相同清单和运行器。
 - `./scripts/ci-tests.sh full`：full-standard 加重型验收。本地 `full-standard` 执行普通与扩展检查；hosted periodic/manual full 分别启动全部普通组、`full-extended` 与共享 Formal 产物矩阵，不重复调用整套普通入口。
@@ -375,7 +377,7 @@ v2 完整合成输入的 collect 应返回 0；缺失/冲突或 v1 输入保留 
 2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复合并 alias 与来源列表。加入 step/phase/test 不重复增加 job 资源；条件为 false 且 skipped 可零执行，但不能成为 pass。核对 known 指针的类型和值、unknown/not_applicable 的 null 与 reason、输出无 raw payload，未知来源不能凭名称补齐。
 3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
 4. 离线核验字节上限、允许字段、截断输入与采集器失败。继续核验请求/时长/响应与解码字节额度、重复/截断分页、坏压缩流、越界/重复/链接归档、非有限 JSON、未知大字段和信号取消。截止停止新读取与记录归一化；有界保存收尾和实际 elapsed_seconds 单列，不把尾部当作预算内。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
-5. 真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+5. 真实接入：在一条真实 periodic-full 或 candidate-full 的 Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。旧 BASE 的 PR Formal 链仍可作为对应历史版本证据。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
 6. 真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
 
 有界采集命令（输出目录须已存在，partial 返回 1 是预期结果，不代表原测试失败）：
@@ -1807,6 +1809,44 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 | 证明未入链 | 只有 CI / workflow artifact，缺少 node-side `proof_payload.json` 或未执行 attestation submit | 不得进入 `ModuleReleaseApply` | 先用 proof 脚本打包正式证据，生成稳定 `proof_cid`，再由发布节点提交 `ModuleReleaseSubmitAttestation`。 |
 | manifest 不可达/回滚/漂移 | `fault_signature=builtin_release_manifest_unreachable` / `fault_signature=builtin_release_manifest_missing_or_rolled_back` / `fault_signature=builtin_release_manifest_identity_drift` | 阻断 builtin 新版本加载，维持旧版本 | 检查 distfs artifact 可达性、release manifest 条目与 identity 是否一致，修复后再触发加载。 |
 
+<a id="test-issue-acceptance"></a>
+## 测试 Issue 接收与验收
+
+本节是 `type:test` 执行者的操作入口，适用于开发 PR 合入后的剩余复杂测试和独立测试任务。职责、认领、转换与关闭条件由[测试任务的接收与完成](doc/engineering/workflow/source-of-truth.md#test-task-acceptance)定义；Trace refs: O7-REQ-1a003dc5-18f2-4cd3-adbb-d1b95316086e。测试负责人可以是人或 Agent，复用原 Issue、现有测试方法和证据，不另建测试台账。
+
+开发角色随 PR 完成本项单元测试及不依赖外部条件、可自行准备运行的集成测试，保留已有合入前必要验证。无剩余复杂测试时，合入并满足全部原交付义务后直接结项；需要部署、真实外部系统、专门资源或持续观测等条件的剩余复杂测试，按主规范在所需开发 PR 均合入后沿用原 Issue 转入，再执行下述步骤。
+
+### 1. 读取任务并确认接收
+
+从用户指定、已有负责人交接或获准范围内的开放测试 Issue 接收任务。读取当前正文、必要评论、父项验收及关联 PR，区分本项原目标是合入后的复杂测试还是独立测试，保留全部未完义务。代码转入时核对开发测试证据、本项约定实现所需 PR 的实际合入记录及剩余复杂测试；开发未交付时保留代码任务和原执行者。独立测试按其约定对象与版本接收。核对实际 source/build、部署版本、环境、验证入口、权限/预算和退出条件；尚待部署或其他外部条件时，列明可先测的范围及仍需等待的条件。
+
+检查已有测试认领、会话、暂停和在途操作，再按主规范在原 Issue 确认本轮测试范围、执行者、固定版本及环境，并回读。原开发会话和本轮测试范围分别记录；发现重复认领或写入结果未知时，先核对已有结果。缺环境或接收能力时说明阻塞和解除动作，原负责人继续跟进；仅被列为下一责任人不能报告测试已启动。
+
+### 2. 对账证据与准备缺项
+
+对照原验收逐项读取实际证据，说明哪些已证明、哪些待验证、哪些受阻；已有等价记录直接引用。核对证据的版本、环境、输入、预期和实际覆盖，PR 自述、单个绿色检查或旧截图不能补足未验证范围。仅在原条件仍适用时复用已有结果；证据已齐时直接进入结论核对。
+
+按本手册的测试选择入口和相关领域方法确定剩余套件、场景及独立预期。检查实际测试环境身份、必要依赖和观察点，分配不冲突的进程、端口、数据及输出位置。需要新建测试框架、持久用例或 CI 接线时，按代码任务合同明确实现承接；临时诊断和已就绪的独立测试仍可继续。涉及自主试玩或真实 UI 时，进入适用专项手册，保留其独立执行及证据要求。
+
+### 3. 执行并记录实际结果
+
+固定本轮候选，按下方[共用执行剧本](#test-execution-playbook)运行选定范围，记录实际命令/操作、输入、预期与结果、失败和未覆盖项。失败只阻塞依赖该结果的测试，其他已授权且可独立执行的范围继续。源码、构建或相关环境发生变化时，保留原尝试的版本与结果，核对实际影响并安排必要复测；无关 main 前进不自动触发全量重跑。
+
+缺前置、超时、执行结果未知或证据无法读取时，报告具体原因及受影响范围，不将未执行算作通过。停止或中断时核对自有测试进程、外部操作及资源，保存已完成覆盖和恢复入口。续做或换人前先回读原认领和实际执行状态，按主规范确认停写/停止及暂停边界，不重复启动尚未确认结束的测试。
+
+### 4. 反馈问题并接收修复
+
+在原 Issue 记录失败 source/build、环境、最小复现、预期/实际和可读取证据，按[失败分诊](#test-failure-triage)判断问题，并沿主规范的设计检查和问题归属规则承接。代码转入验收的同源实现缺陷交回原开发会话，原项保留剩余测试；独立测试发现的问题关联有效实现项或独立缺陷，继续本项覆盖。环境缺口记录责任人与解除条件，不因纯部署等待启动代码修复。
+
+收到修复后回读实际 PR/提交、构建及环境；代码转入的返修须确认开发者已完成相应回归且修复 PR 已实际合入，再接收新的合入候选复测原失败及受影响范围。独立测试按原定版本及复测约定核实修复已进入待测对象。记录旧失败、新候选和各自结果，不以一次重跑成功覆盖前次事实；仍有必要未测项时保持对应义务。
+
+### 5. 交付结论与结束
+
+复用下方[结果记录模板](#test-result-record)或等价正文，在原 Issue 说明实际覆盖、逐项验收结论、未测/受阻范围、问题承接、下一责任人及动作。测试结论分别说明本轮是否结束、原退出条件是否满足和 Issue 是否可关闭。代码转入验收继续核对原代码目标及适用合入/部署等义务；独立测试按自身退出条件结项，保留关联缺陷及约定的后续复测。
+
+有关闭权限且全部原义务满足时，回读最新要求和状态后关闭并核实结果；缺权限则交给有权限的负责人执行。已处于测试阶段且当前有效证据完整时，可同轮完成接收、结论及获准关闭，适用的独立验证仍须有实际证据。按原资源清理规则处理本轮自有环境，未结束或仍用于排障的材料保留用途和后续动作。
+
+<a id="test-execution-playbook"></a>
 ## Human/AI 共用执行剧本
 
 ### 阶段 A：确定测试范围
@@ -1818,7 +1858,7 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 1. 先执行 S0。
 2. 再执行对应的 L1/L2/L3 套件（S1/S2/S3/S4/S5）。
 3. 最后执行 UI 闭环与压力（S6/S8；分布式改动需补 S9 或 S10）。
-4. 任意层失败立即停止上层，先定位并修复。
+4. 失败时停止依赖该结果的上层测试，先定位并按职责修复；其他独立就绪范围可继续。
 
 ### 阶段 C：记录结论
 1. 对每个套件记录：命令、结果、失败点、是否复跑。
@@ -1840,21 +1880,28 @@ rg -n "conflicting attestation already exists|attestation threshold not met|atte
 - `.tmp/p2p_longrun/<timestamp>/`
 - `.tmp/s10_game_longrun/<timestamp>/`
 
+<a id="test-result-record"></a>
 ### 结果记录模板
 ```md
+- 原 Issue 与测试目标（合入后复杂测试 / 独立测试，适用时）：
+- 开发测试证据及所需 PR 合入记录（代码转入时）：
 - 目标变更：
 - 触发路径：
 - 执行者（Human/AI）：
+- 实际 source/build、环境及原认领关联：
+- 原验收与已有证据：已证明 / 本轮待测 / 受阻范围及依据
 - 套件清单（S0~S10）：
   - Sx: 命令 / 结果 / 证据路径
 - 失败分诊：
   - 层级（L0~L5）：
   - 原因分类（确定性/环境/flaky）：
   - 处理结论：
-- 最终结论：
-- 遗留事项：
+- 最终结论：本轮测试结果、覆盖与未测范围、原退出条件是否满足
+- 遗留事项：缺陷承接、阻塞及解除条件、下一责任人和动作
+- Issue 结项：可关闭 / 保持开放及原因（适用时）
 ```
 
+<a id="test-failure-triage"></a>
 ## 失败分诊（按层）
 1. L0 失败：优先修复格式、工件、目标安装问题。
 2. L1 失败：优先定位业务逻辑回归或断言漂移。
@@ -2117,7 +2164,7 @@ Run `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib governance_history`
 
 Two additional ignored process regressions use the real authenticated Primary/Replica endpoints with the test custody oracle: a missing intermediate local publication is restored across signed parents, and a native-qualified silent policy replacement is rejected by `FormalLiveRuntime::open_with_native_history`. Build `oasis7_durability_endpoint --release`, set `OASIS7_FORMAL_ENDPOINT_TEST_BIN` to that candidate executable, then run `env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib governance_history_ -- --ignored --test-threads=1`. Both exact cases are registered in the formal `runtime-protocol` CI suite. Also run the existing 70-request `protected_endpoint_children_world_long_history_prunes_reopens_and_retains_original` process regression with the same configured operation deadline; inspect all intermediate and final reopen results rather than inferring long-history availability from short fixtures. The existing real signer-handoff process test covers the valid readback path; a separately constructed malicious signed read service for a direct negative handoff test is not covered by these fixtures. Local custody-oracle processes do not prove independent physical fault domains.
 
-The host fixtures exercise Runtime execution and the shipping history consumer; they do not claim Node committed-action ingress or the formal executor for these newly constructed candidates. Keep the existing governance authorization ingress suite and formal history/recovery suites in required CI. This change does not alter Agent gameplay entry or behavior, and does not trigger Agent self-playtest. Arbitrary raw-tail World reconstruction, BFT, component installation ACK and real isolated-fault-domain evidence remain separate obligations.
+host fixture 验证 Runtime 执行和实际历史消费者，尚未覆盖这些新候选的 Node committed-action 入口或 Formal executor。既有 governance authorization ingress suite 继续按影响进入普通 required；重型 Formal history/recovery suites 按完整层策略在 periodic-full 与 candidate-full 执行。该变更不影响 Agent 游戏入口或行为，不触发 Agent 自主试玩。任意 raw-tail World 重建、BFT、组件安装 ACK 及真实独立故障域证据仍由各自合同承接。
 
 <a id="discovery-observation-local-trust-boundary"></a>
 ## Discovery observations and local bootstrap trust

@@ -473,6 +473,28 @@ class SelectionAndMigration(unittest.TestCase):
             self.assertEqual(controls.migration_paths(root, base, plan | {'scope': 'targeted'}, self.config), [])
             with self.assertRaisesRegex(ValueError, 'omitted a required group'):
                 controls.migration_paths(root, base, plan | {'groups': ['baseline']}, self.config)
+            old = dict(self.config, groups=[*self.groups, 'formal_process'])
+            current = dict(old, formal_full_profiles_only_version=1)
+            for profile in ('pr-fast', 'main-fast'):
+                fast = plan | dict(execution_profile=profile, formal_full_profiles_only_version=1)
+                self.assertEqual(controls.migration_paths(root, base, fast, current),
+                                 ['scripts/ci-required-scope.json'])
+                # A candidate marker cannot narrow the old BASE inventory.
+                with self.assertRaisesRegex(ValueError, 'omitted a required group'):
+                    controls.migration_paths(root, base, fast, old)
+                for field, value in [('groups', ['baseline']), ('groups', old['groups']),
+                                     ('scope', 'explicit-full'), ('execution_profile', 'periodic-full'),
+                                     ('formal_full_profiles_only_version', True),
+                                     ('formal_full_profiles_only_version', None)]:
+                    with self.subTest(profile=profile, field=field, value=value), self.assertRaises(ValueError):
+                        controls.migration_paths(root, base, fast | {field: value}, current)
+            for profile in ('periodic-full', 'candidate-full'):
+                full = plan | dict(scope='explicit-full', groups=old['groups'], execution_profile=profile,
+                                   formal_full_profiles_only_version=1)
+                self.assertEqual(controls.migration_paths(root, base, full, current),
+                                 ['scripts/ci-required-scope.json'])
+                with self.assertRaisesRegex(ValueError, 'omitted a required group'):
+                    controls.migration_paths(root, base, full | {'groups': self.groups}, current)
 
     def test_target_only_policy_advance_does_not_authorize_source_migration(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -112,6 +112,26 @@ class Results(unittest.TestCase):
         plan['bootstrap_full'] = True
         self.assertTrue(result.validate_full(plan, needs, self.jobs, **args))
 
+    def test_formal_deferred_fast_scope_full_does_not_weaken_explicit_full_gate(self):
+        self.jobs['formal_process'] = 'formal-process'
+        for candidate in (False, True):
+            full, needs, args = self.full_fixture(candidate=candidate)
+            full['formal_full_profiles_only_version'] = 1
+            self.assertTrue(result.validate_full(full, needs, self.jobs, **args))
+            missing = copy.deepcopy(full)
+            missing['groups'].remove('formal_process')
+            with self.assertRaisesRegex(ValueError, 'omitted a configured group'):
+                result.validate_full(missing, needs, self.jobs, **args)
+            for status in ('failure', 'cancelled', 'skipped', None):
+                failed = copy.deepcopy(needs)
+                failed['formal-process']['result'] = status
+                with self.subTest(candidate=candidate, status=status), self.assertRaises(ValueError):
+                    result.validate_full(full, failed, self.jobs, **args)
+            fast = missing | dict(scope='full', execution_profile='pr-fast')
+            ordinary_needs = {key: value for key, value in needs.items()
+                              if key not in ('oasis7-test-build', 'full-regression', 'candidate-full-regression')}
+            self.assertTrue(result.validate(fast, ordinary_needs, self.jobs))
+
     def test_full_rejects_every_missing_or_unsuccessful_required_job(self):
         for name in ('select', *self.jobs.values(), 'oasis7-test-build', 'full-regression'):
             for state in ('failure', 'cancelled', 'skipped', 'unknown', None):

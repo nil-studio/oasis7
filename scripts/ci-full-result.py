@@ -451,8 +451,13 @@ def classify_periodic_attempt(api, run, workflow_id, artifacts=None):
             conflicts = [item for item in artifacts if re.fullmatch(
                 rf"ci-(selection|full-result)-{run['id']}-[1-9][0-9]*", item.get("name", ""))]
             if (not skipped or not other_skipped or conflicts or run.get("status") != "completed"
-                    or run.get("conclusion") != "success"):
+                    or run.get("conclusion") not in {"success", "failure", "cancelled"}):
                 raise ValueError("no-op admission conflicts with actual full execution or incomplete jobs")
+            if run["conclusion"] != "success":
+                # A terminal no-full attempt can be recovered by a later tick.
+                # Keep it unhealthy and release-blocking without treating its
+                # successful admission as a full start or active reservation.
+                return dict(result, kind="control_failure")
             return dict(result, kind="observation")
         result["reserved_at"] = decision["observed_at"]
     full_artifacts = [item for item in artifacts
