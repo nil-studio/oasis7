@@ -91,6 +91,26 @@ archive 下载上限 1 MiB、超时 30 秒，并校验平台 `sha256` digest；Z
 
 CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI 声明及生效保护决定。必需安全检查未成功时不得合入，不通过本地解释改写远端结果。
 
+<a id="native-configuration-lifecycle"></a>
+## 原生配置提示与生命周期
+
+原生 `configurations not found` 表示原生比较尚未匹配到目标分支既有配置的相应分析。PR 固定 default，extended 只参加默认分支维护；按影响范围未选中 default 单元时也不会补传结果。分别核对事件、可信计划和实际分析，再解释覆盖提示与同时展示的告警；不能仅凭检查标题判断失败原因。
+
+PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代表合入后的 main 已重新扫描。Actions job、SARIF 接收、原生告警状态及原生覆盖提示分别记录，不能用其中一项成功替代其他项。
+
+| 配置情况 | 核对依据与处置 |
+| --- | --- |
+| 活跃，但当前 PR 未运行 | 核对 profile、影响范围和事件适用性；保留原生配置，另核对该配置的维护扫描。main extended 与 PR default 的差异可以是预期行为。 |
+| 暂停、HOLD 或待验收 | 核对已有暂停及恢复条件；保留原生配置、失败记录与覆盖缺口。局部研究成功或批次变量缺键均不表示退役。 |
+| 已确认永久退役或完成迁移 | 核对精确配置身份、停止使用的决定、替代覆盖与历史告警影响，在已有授权覆盖删除时才清理该配置，并读回结果。 |
+| 身份或用途不明 | 记录 unknown 和缺失信息，保留配置；本次未看到分析不能证明配置已退役。 |
+
+原生配置身份结合 tool、category、workflow、适用 ref 及平台可见的 analysis key/environment 核对，不能只凭显示名或告警数量操作。删除批次变量键仅停止后续规划，不删除原生历史配置，也不代表该范围已验收。配置清理入口见 [GitHub Tool status](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/use-the-tools-status-page-for-code-scanning)。
+
+`codeql-health.py` 继续按八个 unit/profile 诊断执行、上传与新鲜度，不读取批次变量来决定 HOLD、退役或缩小 healthy 的范围。活跃和 HOLD 配置完成梳理后的结果可以是全部保留；如需让 PR 提供完整对应分析，应另行评估真实扫描范围与耗时，不能重标 category、借用旧 SHA 或上传空 SARIF 消除提示。
+
+误报按精确告警 ID 核对源码版本、实际输入和权限边界，在平台选择对应 dismissal 原因并记录证据，随后读回告警状态。历史探针注明实际受测版本，结合当前源码核对其适用性；判断条件改变时重审。处置某个 ID 不构成同类后续告警的自动豁免；操作参考 [GitHub 告警处置说明](https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/triage-alerts-in-pull-requests)。
+
 ## Tauri 上下文生成覆盖例外
 
 Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。

@@ -545,17 +545,21 @@ C3 必须同时审计 PR watch、最终 merge readiness、关闭任务、CI/revi
 
 ### 9.1 稳定 category
 
-建议格式：`/language:<language>/unit:<stable-unit>/profile:<default|extended>`。
+实际格式为 `oasis7/<unit>/<profile>`；unit 取第 4 节定义的稳定分析单元，profile 为 `default` 或 `extended`，与 workflow、planner 和健康报告一致。
 
 PR 与 main default 的 category 一致；extended 使用另一 category。同一 category 不包含 PR 编号、commit、run ID 或动态路径集合，不随事件变化范围。不得修改 CodeQL 工具名来区分子项目。[E10]
 
 未选中的单元不上传空 SARIF；失败单元不上传伪造“零告警”；旧 SHA 结果不重新标注为新 SHA。未来单元拆并要执行明确 category 迁移，防止错误关闭/重复悬挂历史告警。
+
+PR 固定 default，默认分支维护的 extended 可产生原生配置缺失提示。按[原生配置提示与生命周期](codeql-operations.md#native-configuration-lifecycle)区分事件未运行、活跃维护、暂停与永久退役；配置缺失提示不构成删除活跃或 HOLD 配置的依据。
 
 ### 9.2 三种状态分开记录
 
 `execution_status` 表示扫描是否真正执行成功；`upload_status` 表示结果是否被平台接受；`finding_status` 表示告警结果。planner 的 `not_applicable`/`disabled` 另列。
 
 扫描成功不等于零漏洞；上传失败不等于成功发布；取消、超时和队列溢出不等于完成。全部真实状态保留在 Actions/summary 和只读健康报告中。
+
+GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job success 不能代签原生检查通过或覆盖完整。closed 事件仅有 plan/summary 成功、分析 job 跳过时，没有产生新的扫描结果。
 
 ### 9.3 修复流程
 
