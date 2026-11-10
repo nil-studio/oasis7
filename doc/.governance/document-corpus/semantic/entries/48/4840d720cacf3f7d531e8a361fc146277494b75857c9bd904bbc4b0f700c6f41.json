@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "5d443078ea6714e0ce4f02c3b2f6f44255f764ed95bdef890d8876a764af0492",
+    "content_sha256": "879dfd35b1bb8959b48d2c70b5f0667490d0112d1b07383fa9c7f72a714acf34",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "独立复核测试接收与完成条款及直接入口：测试任务纳入认领，原开发关联与本轮测试执行分开，接收确认、未知结果、暂停和恢复边界明确。证据按实际候选、环境及受影响范围核对；代码转入验收与独立测试按各自原目标结项，保留失败承接、复测、全部原义务及适用独立验证。AGENTS、QA、TPM、dot、模板、并行方法与测试手册承接同一主责，未新增固定角色链或审批。保留原 owner、disposition 与权威归属；本结论仅证明本次文档语义和消费者一致性，不证明真实任务转换或调度已经执行。",
+    "note": "独立复核开发测试与合入后复杂测试分工及直接消费者：单元测试和无外部条件的集成测试由开发角色随 PR 完成；仅在本项所需 PR 均实际合入且仍有复杂测试时沿原 Issue 转类，无此剩余则满足全部原义务后直接结项。多 PR、父子验收归属、修复 PR 合入后复测及独立测试边界一致，保留既有合入前必要验证、认领恢复和权限约束。AGENTS、QA、TPM、dot、执行与并行方法、模板及测试手册承接同一主责，未新增固定角色链或审批。保留原 owner、disposition 与权威归属；本结论证明本次文档语义及入口一致性，不证明真实任务流转或调度已执行。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

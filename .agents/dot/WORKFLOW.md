@@ -30,7 +30,7 @@ Rust/JS 代码开发通过 GitHub Issue 交给 Coding Agent，dot 不直接启�
 
 具体子 Issue 的内容、依赖和授权满足[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)的交接要求后才为其添加 `implementation:ready`；父项设计完整或已有 ready/active 不代替子项就绪与领取。依赖未满足保留阻塞；用户暂停使用 `implementation:paused`，父项有效暂停同样约束受影响子项。不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和原生关系，启动状态以真实 Coding Agent 会话为准。未拆分任务按自身条件交接，简单修改仍可直接 PR。
 
-Coding Agent 承担实现、自测、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联实际执行项并保留父项关联，避免阶段交付提前关闭仍待部署或真实验收的父项。实现完成后按[代码转测试规则](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)在原 Issue 交接；dot 自行接收或在授权范围安排测试执行者，按[测试接收规则](../../doc/engineering/workflow/source-of-truth.md#test-task-acceptance)确认认领，沿[测试手册](../../testing-manual.md#test-issue-acceptance)推进。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；跨任务问题由整体负责人协调。dot 不把普通 CI 通过当作环境已部署或体验已验收。
+Coding Agent 承担实现、单元测试及不依赖外部条件的集成测试、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联实际执行项并保留父项关联，避免阶段交付提前关闭仍待部署或真实验收的父项。仅在本项所需开发 PR 均实际合入且仍有复杂测试时，按[测试分工与转换规则](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)沿用原 Issue 转测试；无剩余复杂测试且全部原义务满足时直接结项。dot 自行接收或在授权范围安排测试执行者，按[测试接收规则](../../doc/engineering/workflow/source-of-truth.md#test-task-acceptance)确认认领，沿[测试手册](../../testing-manual.md#test-issue-acceptance)推进。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；跨任务问题由整体负责人协调。dot 不把普通 CI 通过当作环境已部署或体验已验收。
 
 测试确认需代码修复时，按测试接收规则判断原项返修或关联问题承接，用普通文字附准确 source/build、环境、复现和证据，供原 Coding Agent 会话继续处理；纯部署进度不当作新代码任务。原 Issue 的实质反馈按[轻量交付摘要](REPORTING.md#issue-delivery-summary)说明结果、验证与版本、仍未满足、下一步及依据。按代码转入验收或独立测试的原退出条件核对全部义务后，再按已有权限关闭 Issue。不要求专用命令语法，也不把旧构建结果沿用到新候选。
 

@@ -92,7 +92,7 @@ Trace refs: O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c；承接任务拆分、�
 
 让执行者承担局部验证，集成者对已形成且可验证的组合及时执行跨边界验证，并保留父目标最终验收及现有必要检查。mock、各分支绿色及旧父分支结果只证明各自范围；验证记录写明实际受测组合，不让每个开发会话重复全仓测试。
 
-按[验证与评审](../../../doc/engineering/workflow/source-of-truth.md#3-验证与评审)检查必要结果，按[交付与状态](../../../doc/engineering/workflow/source-of-truth.md#5-交付状态与清理)核实实际合入。代码实现完成后沿用对应子 Issue 按[代码转测试规则](../../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)交接，由测试执行者按[测试接收规则](../../../doc/engineering/workflow/source-of-truth.md#test-task-acceptance)确认认领。PR 使用 `Refs` 关联对应子 Issue，阶段交付同时保留父项关联；本项验收及交付义务完成后才按授权关闭子项，原目标及适用部署、真实环境验收全部满足后再关闭父项。
+按[验证与评审](../../../doc/engineering/workflow/source-of-truth.md#3-验证与评审)检查必要结果，按[交付与状态](../../../doc/engineering/workflow/source-of-truth.md#5-交付状态与清理)核实实际合入。各开发会话随 PR 完成适用单元测试和无外部条件的集成测试；子项所需 PR 均已合入且自身仍承担复杂测试时，才沿用该子 Issue 按[测试分工与转换规则](../../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)交接，由测试执行者按[测试接收规则](../../../doc/engineering/workflow/source-of-truth.md#test-task-acceptance)确认认领。父项的整体复杂测试不复制给每个子项；无此剩余的子项按自身义务结项。PR 使用 `Refs` 关联对应子 Issue，阶段交付同时保留父项关联；本项验收及交付义务完成后才按授权关闭子项，原目标及适用部署、真实环境验收全部满足后再关闭父项。
 
 ## 7. 中断后恢复
 

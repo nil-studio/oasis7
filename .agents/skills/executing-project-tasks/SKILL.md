@@ -29,7 +29,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 排障修复在根因确认后先按[设计检查与修复](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：设计有缺陷先补受影响文档再实现，纯实现 bug 直接修复验证。只改有缺陷或受联动影响的层级，同一 PR 连续完成，不把设计修订变成额外审批或独立前置 PR。
 
-按[验证与评审](../../../doc/engineering/workflow/source-of-truth.md#3-验证与评审)选择覆盖本项行为和风险的测试，执行局部验证、修复并复测，随本项交付可复跑结果。可稳定自动复现的缺陷优先复用能检出问题的回归，覆盖不足再增加或修正，先观察失败再修复。机械修改不强制增加与实现重复的测试；父项继续负责实际组合和剩余环境验收。同步相关技术和使用文档。
+按[验证与评审](../../../doc/engineering/workflow/source-of-truth.md#3-验证与评审)选择覆盖本项行为和风险的测试，随开发 PR 完成适用单元测试及不依赖外部条件的集成测试，修复并复测，交付可复跑结果。仅剩复杂测试时，按[测试分工与转换规则](../../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)在本项所需开发 PR 均合入后交接原 Issue；无此剩余且全部原义务满足时直接结项。可稳定自动复现的缺陷优先复用能检出问题的回归，覆盖不足再增加或修正，先观察失败再修复。机械修改不强制增加与实现重复的测试；父项继续负责实际组合和剩余环境验收。同步相关技术和使用文档。
 
 使用验证和评审方法。同一交付范围继续更新原 PR。创建和更新时按[PR 描述要求](../../../doc/engineering/workflow/source-of-truth.md#pr-description)读取[默认模板](../../../.github/pull_request_template.md)，填写实际问题、改动结果、验证和适用风险；简单变更可用等价简短结构。
 

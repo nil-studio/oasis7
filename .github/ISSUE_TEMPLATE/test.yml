@@ -1,5 +1,5 @@
 name: "测试任务"
-description: "独立测试需求，或代码实现完成后的验收核对。"
+description: "独立测试需求，或开发 PR 合入后的剩余复杂测试。"
 title: "[测试] "
 labels: ["type:test"]
 body:
@@ -35,7 +35,7 @@ body:
     id: type_evidence
     attributes:
       label: "测试计划"
-      description: "对象/版本、环境、覆盖范围、方法、预期结果、权限/预算和退出条件。代码完成后沿用原 Issue 转入时，保留实现 PR/版本和原验收标准，逐项对账已有证据，只补缺项，不重复建单。"
+      description: "对象/版本、环境、覆盖范围、方法、预期结果、权限/预算和退出条件。代码转入时，确认开发测试已完成且本项所需 PR 均已实际合入，保留合入版本、开发测试证据和原验收标准，写明剩余复杂测试及外部条件；只补缺项，不重复建单。"
     validations:
       required: true
   - type: textarea
