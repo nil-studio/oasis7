@@ -7,6 +7,22 @@ pub const CAPABILITIES_TOOL: &str = "dev_test_accounts_capabilities";
 
 /// Projects an authenticated request onto the sole read-only capability provider.
 /// `None` denotes an accepted notification (HTTP 202, empty body).
+/// Protocol metadata is not a tool argument and never reaches a business backend.
+pub(crate) fn valid_tool_params(params: &Value, tool: &str) -> bool {
+    params.get("name").and_then(Value::as_str) == Some(tool)
+        && params.as_object().is_some_and(|fields| {
+            fields
+                .keys()
+                .all(|key| ["name", "arguments", "_meta"].contains(&key.as_str()))
+        })
+        && params.get("_meta").is_none_or(|meta| {
+            meta.is_object()
+                && meta
+                    .get("progressToken")
+                    .is_none_or(|token| token.is_string() || token.is_number())
+        })
+}
+
 pub fn dispatch_authenticated(
     request: &Value,
     capabilities: impl FnOnce() -> Value,
@@ -69,11 +85,8 @@ pub fn dispatch_authenticated(
             "inputSchema":{"type":"object","additionalProperties":false},
             "annotations":{"readOnlyHint":true,"destructiveHint":false}}]}),
         Some("tools/call") => {
-            if params.get("name").and_then(Value::as_str) != Some(CAPABILITIES_TOOL)
+            if !valid_tool_params(&params, CAPABILITIES_TOOL)
                 || params.get("arguments").is_some_and(|v| *v != json!({}))
-                || params
-                    .as_object()
-                    .is_none_or(|m| m.keys().any(|k| k != "name" && k != "arguments"))
             {
                 return error(-32602, "Unsupported tool or arguments");
             }
@@ -89,6 +102,41 @@ pub fn dispatch_authenticated(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_calls_accept_protocol_metadata_but_not_tool_arguments() {
+        let request = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":CAPABILITIES_TOOL,"arguments":{},"_meta":{"progressToken":"call-1","trace":"opaque"}
+        }});
+        let mut calls = 0;
+        let response = dispatch_authenticated(&request, || {
+            calls += 1;
+            json!({"ok":true})
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(response["result"]["structuredContent"], json!({"ok":true}));
+        for meta in [
+            json!(null),
+            json!([]),
+            json!("invalid"),
+            json!({"progressToken":false}),
+        ] {
+            let mut invalid = request.clone();
+            invalid["params"]["_meta"] = meta;
+            assert_eq!(
+                dispatch_authenticated(&invalid, || panic!("invalid metadata admitted")).unwrap()["error"]
+                    ["code"],
+                -32602
+            );
+        }
+        let mut invalid = request.clone();
+        invalid["params"]["arguments"] = json!({"credential":"forbidden"});
+        assert_eq!(
+            dispatch_authenticated(&invalid, || panic!("tool fields admitted")).unwrap()["error"]["code"],
+            -32602
+        );
+    }
     #[test]
     fn only_capabilities_can_reach_provider() {
         for params in [

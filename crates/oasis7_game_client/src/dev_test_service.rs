@@ -116,6 +116,19 @@ pub fn dispatch_authenticated(
     audience: &str,
     method: &str,
 ) -> Response {
+    dispatch_authenticated_with(config, now, caller, profile, audience, method, |caller| {
+        admit(config, caller)
+    })
+}
+fn dispatch_authenticated_with(
+    config: &Config,
+    now: u64,
+    caller: &AuthenticatedCaller,
+    profile: &str,
+    audience: &str,
+    method: &str,
+    admission: impl FnOnce(&str) -> Result<(), &'static str>,
+) -> Response {
     let status = if authenticate_local(config, &caller.caller_id, now).is_err() {
         "unauthorized"
     } else if profile != PROFILE {
@@ -128,14 +141,17 @@ pub fn dispatch_authenticated(
         "ok"
     };
     let status = if status == "ok" {
-        admit(config, &caller.caller_id).err().unwrap_or("ok")
+        admission(&caller.caller_id).err().unwrap_or("ok")
     } else {
         status
     };
+    response(status, Some(&caller.caller_id))
+}
+fn response(status: &str, caller: Option<&str>) -> Response {
     Response {
         profile: PROFILE.into(),
         status: status.into(),
-        caller_id: (status == "ok").then(|| caller.caller_id.clone()),
+        caller_id: caller.filter(|_| status == "ok").map(str::to_owned),
         methods: if status == "ok" {
             vec!["capabilities".into()]
         } else {
@@ -146,23 +162,25 @@ pub fn dispatch_authenticated(
     }
 }
 pub fn dispatch(config: &Config, request: &Request, now: u64) -> Response {
+    dispatch_with(config, request, now, |caller| admit(config, caller))
+}
+fn dispatch_with(
+    config: &Config,
+    request: &Request,
+    now: u64,
+    admission: impl FnOnce(&str) -> Result<(), &'static str>,
+) -> Response {
     match authenticate_token(config, &request.credential, now) {
-        Ok(caller) => dispatch_authenticated(
+        Ok(caller) => dispatch_authenticated_with(
             config,
             now,
             &caller,
             &request.profile,
             &request.audience,
             &request.method,
+            admission,
         ),
-        Err(status) => Response {
-            profile: PROFILE.into(),
-            status: status.into(),
-            caller_id: None,
-            methods: vec![],
-            accounts_available: false,
-            writes_available: false,
-        },
+        Err(status) => response(status, None),
     }
 }
 
@@ -181,7 +199,9 @@ pub(crate) fn read_private_cli_config(path: &str) -> Result<Config, String> {
     {
         return Err("private_configuration_required".into());
     }
-    let body = std::fs::read(path).map_err(|_| "configuration_unavailable")?;
+    let path = std::path::absolute(path).map_err(|_| "configuration_unavailable")?;
+    let body = crate::dev_test_private_config::read_private_config(&path)
+        .map_err(|_| "private_configuration_required")?;
     serde_json::from_slice(&body).map_err(|_| "invalid_service_configuration".into())
 }
 
@@ -198,11 +218,46 @@ pub(crate) fn read_cli_request(input: impl std::io::Read) -> Result<Request, Str
     serde_json::from_slice(&body).map_err(|_| "invalid_request".into())
 }
 
+/// Serve an explicitly supplied immutable snapshot. File-backed CLI callers use
+/// `serve_from_path` so every admission observes their current trusted policy.
 #[cfg(unix)]
 pub fn serve(config: Config) -> Result<(), String> {
-    use std::io::Write;
+    serve_reloading(config.clone(), || Ok(config.clone()))
+}
+pub(crate) fn serve_from_path(path: &str) -> Result<(), String> {
+    let path = std::path::absolute(path).map_err(|_| "configuration_unavailable")?;
+    let path = path.to_str().ok_or("configuration_unavailable")?;
+    let initial = read_private_cli_config(path)?;
+    serve_reloading(initial, || read_private_cli_config(path))
+}
+fn current_config(initial: &Config, next: Result<Config, String>) -> Result<Config, &'static str> {
+    let next = next.map_err(|_| "service_configuration_unavailable")?;
+    if next.validate().is_err()
+        || next.profile != initial.profile
+        || next.socket != initial.socket
+        || next.usage_directory != initial.usage_directory
+        || next.grant_id != initial.grant_id
+    {
+        return Err("service_configuration_unavailable");
+    }
+    Ok(next)
+}
+fn unix_now() -> Result<u64, &'static str> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.as_secs())
+        .map_err(|_| "clock_unavailable")
+}
+fn serve_reloading(
+    config: Config,
+    load: impl Fn() -> Result<Config, String>,
+) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
+    use std::{
+        io::Write,
+        time::{Duration, Instant},
+    };
     config.validate()?;
     let parent = config.socket.parent().ok_or("socket_parent_required")?;
     let metadata = std::fs::symlink_metadata(parent).map_err(|_| "socket_parent_unavailable")?;
@@ -214,34 +269,88 @@ pub fn serve(config: Config) -> Result<(), String> {
         .map_err(|_| "socket_permissions_failed")?;
     for stream in listener.incoming() {
         let mut stream = stream.map_err(|_| "socket_accept_failed")?;
-        let timeout = Some(std::time::Duration::from_millis(config.timeout_ms));
-        stream
-            .set_read_timeout(timeout)
-            .map_err(|_| "timeout_configuration_failed")?;
-        stream
-            .set_write_timeout(timeout)
-            .map_err(|_| "timeout_configuration_failed")?;
+        let started = Instant::now();
+        let received = current_config(&config, load());
+        // Even invalid policy is read under finite startup bounds, solely to
+        // return a closed denial. It never falls back to startup authorization.
+        let transport = received.as_ref().unwrap_or(&config);
+        let mut deadline = started + Duration::from_millis(transport.timeout_ms);
         let mut body = Vec::new();
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(config.timeout_ms);
-        if read_until(&mut stream, &mut body, config.max_request_bytes, deadline).is_err() {
-            continue;
-        }
-        if body.len() > config.max_request_bytes {
+        if read_until(
+            &mut stream,
+            &mut body,
+            transport.max_request_bytes,
+            deadline,
+        )
+        .is_err()
+        {
             continue;
         }
         let Ok(request) = serde_json::from_slice::<Request>(&body) else {
             continue;
         };
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| "clock_unavailable")?
-            .as_secs();
-        let result = dispatch(&config, &request, now);
+        let result = match received {
+            Err(status) => response(status, None),
+            Ok(received) => dispatch_reloading(
+                &config,
+                &received,
+                &load,
+                &request,
+                started,
+                &mut deadline,
+                body.len(),
+            ),
+        };
+        let Some(remaining) = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|time| !time.is_zero())
+        else {
+            continue;
+        };
+        stream
+            .set_write_timeout(Some(remaining))
+            .map_err(|_| "timeout_configuration_failed")?;
         let response = serde_json::to_vec(&result).map_err(|_| "response_encoding_failed")?;
         let _ = stream.write_all(&response);
     }
     Err("service_listener_closed".into())
+}
+
+fn dispatch_reloading(
+    initial: &Config,
+    received: &Config,
+    load: &impl Fn() -> Result<Config, String>,
+    request: &Request,
+    started: std::time::Instant,
+    deadline: &mut std::time::Instant,
+    body_size: usize,
+) -> Response {
+    use std::time::{Duration, Instant};
+    let now = match unix_now() {
+        Ok(now) => now,
+        Err(status) => return response(status, None),
+    };
+    let _scope = crate::request_deadline::Scope::enter(*deadline);
+    dispatch_with(received, request, now, |caller| {
+        // The shared ledger lock may block behind another adapter.
+        // Reload and reauthenticate inside that lock, immediately
+        // before changing usage, not only before waiting for it.
+        crate::dev_test_operations::admit_read_checked(initial, caller, || {
+            let current = current_config(initial, load())?;
+            *deadline = (*deadline).min(started + Duration::from_millis(current.timeout_ms));
+            if Instant::now() >= *deadline {
+                return Err("admission_deadline_exceeded");
+            }
+            if body_size > current.max_request_bytes {
+                return Err("request_too_large");
+            }
+            let authenticated = authenticate_token(&current, &request.credential, unix_now()?)?;
+            if authenticated.caller_id != caller {
+                return Err("unauthorized");
+            }
+            Ok(current.max_calls)
+        })
+    })
 }
 
 pub fn call_service(socket: &std::path::Path, request: &Request) -> Result<Response, String> {
@@ -483,6 +592,10 @@ pub(crate) fn connect_until(
         .map_err(|_| "socket_configuration_failed")?;
     Ok(stream)
 }
+
+#[cfg(test)]
+#[path = "dev_test_service_reload_tests.rs"]
+mod reload_tests;
 
 #[cfg(test)]
 mod tests {
