@@ -399,3 +399,34 @@ fn oversized_local_object_is_rejected_before_pin_publication() {
     );
     assert!(store.has(&old_world).expect("old root remains"));
 }
+
+#[test]
+fn synced_material_budget_charges_each_digest_once_across_provider_attempts() {
+    let mut budget = CasBudget::new(10);
+
+    // The first provider charges six bytes before it fails. The shared attempt
+    // budget keeps that charge for the next provider.
+    budget.add("a", 6).expect("charge first provider material");
+    budget.begin_traversal();
+
+    // Fetching the same digest again is verified by the caller but must not
+    // charge its material bytes twice.
+    budget.add("a", 6).expect("duplicate digest stays deduplicated");
+    budget.add("b", 4).expect("charge the remaining material exactly to the bound");
+    assert_eq!(budget.objects.len(), 2);
+    assert!(budget.add("c", 1).is_err());
+    assert_eq!(budget.objects.len(), 2);
+}
+
+#[test]
+fn synced_material_budget_resets_only_the_traversal_allowance_per_traversal() {
+    let mut budget = CasBudget::new(64);
+    budget.visited_paths = MAX_RETAINED_TREE_NODES;
+    budget.visited_paths = MAX_RETAINED_TREE_NODES;
+    budget.add("material", 1).expect("material bytes stay charged");
+
+    budget.begin_traversal();
+
+    assert_eq!(budget.visited_paths, 0);
+    assert!(budget.objects.contains("material"));
+}

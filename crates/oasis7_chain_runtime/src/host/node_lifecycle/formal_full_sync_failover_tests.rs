@@ -417,3 +417,164 @@ fn formal_full_sync_alternates_are_bounded_and_legacy_config_bytes_stay_unchange
         .collect();
     assert!(too_many.validate().is_err());
 }
+
+#[test]
+fn formal_full_sync_pins_the_first_verified_target_cut_across_providers() {
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let fixed_target = same_epoch_successor_fixture(&world, &anchor, &material);
+    let newer = same_epoch_successor_fixture(&world, &fixed_target.anchor, &fixed_target.material);
+
+    // The first provider independently publishes the fixed target, then serves
+    // damaged Snapshot roots so the transfer fails after the target is known.
+    let (
+        mut broken_server,
+        broken_endpoint,
+        broken_key,
+        broken_runtime,
+        broken_published,
+        broken_history,
+    ) = start_live_service(
+        world.clone(),
+        trust.clone(),
+        anchor.clone(),
+        material.clone(),
+        proof.clone(),
+    );
+    let mut damaged = fixed_target.clone();
+    damaged
+        .material
+        .roots
+        .insert(ArtifactRole::Snapshot, test_hash(117));
+    broken_history.push(damaged.clone());
+    broken_published
+        .publish(damaged.world.clone(), damaged.anchor.clone())
+        .unwrap();
+
+    // The second provider retains the fixed target but publishes a newer cut.
+    // Its newer head must not replace the target already selected this call.
+    let (
+        mut newer_server,
+        newer_endpoint,
+        newer_key,
+        newer_runtime,
+        newer_published,
+        newer_history,
+    ) = start_live_service(
+        world.clone(),
+        trust.clone(),
+        anchor.clone(),
+        material.clone(),
+        proof,
+    );
+    newer_history.push(fixed_target.clone());
+    newer_history.push(newer.clone());
+    newer_published
+        .publish(newer.world.clone(), newer.anchor.clone())
+        .unwrap();
+
+    let node_key = test_key(92);
+    let config = config(
+        broken_endpoint,
+        broken_key,
+        vec![FormalFullSyncEndpointV1 {
+            endpoint: newer_endpoint,
+            trusted_service_public_key: newer_key,
+        }],
+        trust,
+        &node_key,
+    );
+    let state_dir = TestPrivateDir::new();
+    let mut session = FormalFullSyncSession::new(
+        config,
+        hex::encode(node_key.to_bytes()),
+        &state_dir.0.join("full-sync"),
+        &local_instance("fixed-target-cut"),
+    )
+    .unwrap();
+
+    let restored = session.sync_latest().unwrap();
+
+    let target_cut = cut(&fixed_target.anchor);
+    let newer_cut = cut(&newer.anchor);
+    assert_eq!(restored.cut, target_cut);
+    assert_eq!(session.active_provider_index, 1);
+    assert_eq!(session.status().loaded_cut, Some(target_cut.clone()));
+    assert_eq!(session.status().last_verified_cut, Some(newer_cut.clone()));
+    assert_eq!(
+        session.status().lag_positions,
+        Some(newer_cut.position - target_cut.position)
+    );
+    assert!(session.status().ready);
+    assert!(session.status().state_root_verified);
+
+    broken_server.stop().unwrap();
+    newer_server.stop().unwrap();
+    broken_runtime.lock().unwrap().stop().unwrap();
+    newer_runtime.lock().unwrap().stop().unwrap();
+}
+
+#[test]
+fn formal_full_sync_rejects_over_budget_material_without_publishing_then_recovers() {
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let (mut server, endpoint, service_key, runtime, _published, _history) = start_live_service(
+        world,
+        trust.clone(),
+        anchor.clone(),
+        material,
+        proof,
+    );
+    let node_key = test_key(92);
+    let node_private_key = hex::encode(node_key.to_bytes());
+    let mut over_budget = config(
+        endpoint.clone(),
+        service_key.clone(),
+        vec![],
+        trust.clone(),
+        &node_key,
+    );
+    over_budget.max_total_sync_bytes = 1;
+    let state_dir = TestPrivateDir::new();
+    let cas_root = state_dir.0.join("full-sync");
+    let mut session = FormalFullSyncSession::new(
+        over_budget,
+        node_private_key.clone(),
+        &cas_root,
+        &local_instance("over-budget"),
+    )
+    .unwrap();
+
+    let error = match session.sync_latest() {
+        Ok(_) => panic!("a one-byte material bound must reject the record closure"),
+        Err(error) => error,
+    };
+    assert!(error.contains("transfer bound"), "{error}");
+    assert!(!session.status().ready);
+    assert!(!session.status().state_root_verified);
+    assert_eq!(session.status().loaded_cut, None);
+    drop(session);
+
+    // A later call with a valid bound replays the durable history and installs
+    // the same cut; the rejected material never became a loaded-world root.
+    let mut recovered = config(
+        endpoint,
+        service_key,
+        vec![],
+        trust,
+        &node_key,
+    );
+    recovered.max_total_sync_bytes = 64 * 1024 * 1024;
+    let mut session = FormalFullSyncSession::new(
+        recovered,
+        node_private_key,
+        &cas_root,
+        &local_instance("over-budget"),
+    )
+    .unwrap();
+    let restored = session.sync_latest().unwrap();
+    assert_eq!(restored.cut, cut(&anchor));
+    assert_eq!(session.status().loaded_cut, Some(cut(&anchor)));
+    assert!(session.status().ready);
+
+    server.stop().unwrap();
+    runtime.lock().unwrap().stop().unwrap();
+}

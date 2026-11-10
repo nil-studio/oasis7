@@ -228,6 +228,32 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
     retained_cas_hashes: std::collections::BTreeSet<String>,
 }
 
+/// One `sync_latest()` operation across every configured provider. The first
+/// independently verified target stays fixed for later providers, and material
+/// bytes already charged by a failed provider remain charged for this call.
+struct FullSyncAttemptV1 {
+    budget: CasBudget,
+    target: Option<FullSyncTargetV1>,
+}
+
+struct FullSyncTargetV1 {
+    anchor: VerifiedFormalReadAnchorV1,
+    cut: FormalFullSyncCutV1,
+}
+
+impl FullSyncAttemptV1 {
+    fn new(max_bytes: u64) -> Self {
+        Self {
+            budget: CasBudget::new(max_bytes),
+            target: None,
+        }
+    }
+
+    fn pin_target(&mut self, anchor: VerifiedFormalReadAnchorV1, cut: FormalFullSyncCutV1) {
+        self.target = Some(FullSyncTargetV1 { anchor, cut });
+    }
+}
+
 pub(crate) struct FormalFullSyncSession {
     config: FormalFullSyncConfigV1,
     client: RemoteWorldServiceClient,
@@ -504,12 +530,41 @@ impl FormalFullSyncSession {
         }
     }
 
-    fn sync_latest_inner(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
+    fn sync_latest_inner(
+        &mut self,
+        attempt: &mut FullSyncAttemptV1,
+    ) -> Result<RestoredFormalFullSyncWorldV1, String> {
         // Try to catch up through a bounded number of ordinary proof pages,
         // but keep the last verified page if the publisher keeps advancing.
         let view = self.read_best_effort_current_view()?;
-        let anchor = verified_anchor(&view, &self.config)?;
-        let cut = cut_from_anchor(&anchor)?;
+        let view_anchor = verified_anchor(&view, &self.config)?;
+        let view_cut = cut_from_anchor(&view_anchor)?;
+        // Material already charged by a failed provider stays charged for this
+        // call, but the retained-tree traversal allowance is per traversal and
+        // must not become a permanent charge across providers.
+        attempt.budget.begin_traversal();
+        let (anchor, cut) = match &attempt.target {
+            Some(target) => {
+                // A later provider may be at or ahead of the fixed target, but
+                // its own newer cut must not replace the target for this call.
+                if !nondecreasing_cut(&target.cut, &view_cut) {
+                    return Err(
+                        "full-sync provider head moved behind or forked from the fixed target cut"
+                            .into(),
+                    );
+                }
+                if target.cut.authority_epoch != view_cut.authority_epoch
+                    || target.cut.active_authority_id != view_cut.active_authority_id
+                {
+                    return Err(
+                        "formal full-sync grant epoch changed during provider failover; install a current grant"
+                            .into(),
+                    );
+                }
+                (target.anchor.clone(), target.cut.clone())
+            }
+            None => (view_anchor, view_cut),
+        };
         self.config
             .grant
             .as_ref()
@@ -527,10 +582,14 @@ impl FormalFullSyncSession {
                 cut.authority_epoch,
                 now_unix_ms().ok_or("system clock before Unix epoch")?,
             )?;
+        if attempt.target.is_none() {
+            // Pin only after the cut passed the independent anchor and grant
+            // checks; an invalid first target must not block other providers.
+            attempt.pin_target(anchor.clone(), cut.clone());
+        }
 
         let manifest = self.fetch_manifest(&cut)?;
-        let mut budget = CasBudget::new(self.config.max_total_sync_bytes);
-        let material = self.fetch_record_closure(&anchor, &cut, &manifest, &mut budget)?;
+        let material = self.fetch_record_closure(&anchor, &cut, &manifest, &mut attempt.budget)?;
         let _snapshot_hash = material
             .roots
             .get(&ArtifactRole::Snapshot)
@@ -571,7 +630,7 @@ impl FormalFullSyncSession {
             &cut,
             &retained.root_digest,
             &retained.index_root,
-            &mut budget,
+            &mut attempt.budget,
         )?;
         if tree_leaves != retained.index_root.leaf_count {
             return Err("full-sync retained tree leaf count mismatch".into());
@@ -612,7 +671,7 @@ impl FormalFullSyncSession {
         Ok(RestoredFormalFullSyncWorldV1 {
             world,
             cut,
-            retained_cas_hashes: budget.objects,
+            retained_cas_hashes: attempt.budget.objects.clone(),
         })
     }
 
