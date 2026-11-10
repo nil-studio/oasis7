@@ -12,8 +12,10 @@
   "ordinary_partition_version": 1,
   "ordinary_artifact_partition_version": 1,
   "workspace_support_partition_version": 1,
+  "custody_execution_version": 1,
   "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
+  "additive_governance_registration_version": 1,
   "engineering_job_observation": {
     "schema_version": 1,
     "workflow_path": ".github/workflows/rust.yml",
@@ -941,6 +943,8 @@
     "scripts/ci-cache-maintenance.test.py": ["workflow_governance"],
     "scripts/ci-cache-policy.py": ["workflow_governance"],
     "scripts/ci-cache-policy.test.py": ["workflow_governance"],
+    "scripts/ci-custody-platform.py": ["workflow_governance"],
+    "scripts/ci-custody-platform.test.py": ["workflow_governance"],
     "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
     "scripts/ci-ecs-build-metrics.test.py": ["compile_metrics"],
     "scripts/ci-ecs-cache.py": ["compile_metrics"],
@@ -1063,6 +1067,14 @@
       "tests": [
         "scripts/ci-cache-policy.test.py"
       ]
+    },
+    "scripts/ci-custody-platform.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-custody-platform.test.py"]
+    },
+    "scripts/ci-custody-platform.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-custody-platform.test.py"]
     },
     "scripts/ci-ecs-build-metrics.py": {
       "group": "compile_metrics",
@@ -1265,6 +1277,7 @@
     "scripts/ci_process_runner.py": {
       "group": "workflow_governance",
       "tests": [
+        "scripts/ci-custody-platform.test.py",
         "scripts/ci-formal-process.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-support-profiles.test.py"

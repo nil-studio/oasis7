@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: ["main"]
   schedule:
-    - cron: "17 */4 * * *"
+    - cron: "17,37,57 * * * *"
   workflow_dispatch:
     inputs:
       run_mode:
@@ -37,7 +37,7 @@ on:
         options: [release, dev]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && 'periodic-full-main' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && format('periodic-observe-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -133,8 +133,46 @@ jobs:
           path: ${{ runner.temp }}/rust-model-evidence
           retention-days: 14
           if-no-files-found: error
+  periodic-admission:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: rust-periodic-admission-main
+      cancel-in-progress: false
+    outputs:
+      run_full: ${{ steps.admit.outputs.run_full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Admit one due full run from actual history
+        id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 scripts/ci-full-result.py admit-periodic --output "$RUNNER_TEMP/admission.json" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-periodic-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/admission.json
+          if-no-files-found: error
+          retention-days: 30
+
   select:
-    if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'
+    needs: periodic-admission
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full') &&
+      (github.event_name != 'schedule' ||
+       (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
     runs-on: ubuntu-24.04
     outputs:
       plan: ${{ steps.select.outputs.plan }}
@@ -591,7 +629,7 @@ jobs:
   command-center:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_command_center == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     uses: ./.github/workflows/command-center.yml
@@ -602,7 +640,7 @@ jobs:
   baseline:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -644,7 +682,7 @@ jobs:
   rust-baseline:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -739,7 +777,7 @@ jobs:
       actions: read
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
         fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
@@ -1739,7 +1777,7 @@ jobs:
 
   formal-process:
     needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]
-    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
+    if: always() && needs.select.result != 'skipped' && (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -1756,7 +1794,7 @@ jobs:
   consensus:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1798,7 +1836,7 @@ jobs:
   distfs:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1861,7 +1899,7 @@ jobs:
   node:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_node == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1903,7 +1941,7 @@ jobs:
   net:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1952,7 +1990,7 @@ jobs:
   viewer-js-required:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2041,7 +2079,7 @@ jobs:
   viewer-performance-report:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2137,7 +2175,7 @@ jobs:
   pixel-world-bridge:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2184,7 +2222,7 @@ jobs:
   launcher-web:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2243,11 +2281,12 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "launcher_web" --repo-root "$GITHUB_WORKSPACE"
 
-  workspace-support:
-    name: workspace-support (${{ matrix.partition }})
+  workspace-support-legacy:
+    name: workspace-support-legacy (${{ matrix.partition }})
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version != 1 &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2328,10 +2367,321 @@ jobs:
           source scripts/ci-tests.sh
           support_capacity_snapshot job-exit
 
+  workspace-support-other:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
+      contains(fromJSON(needs.select.outputs.workspace_support_partitions), 'other')
+    runs-on: ubuntu-24.04
+    env:
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install pinned Rust toolchains
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Observe support capacity before cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot before-cache
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - name: Observe support capacity after cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-cache
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Execute selected group
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
+          SUPPORT_PARTITION: other
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-native-libraries
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN" --support-partition "$SUPPORT_PARTITION"
+      - name: Observe support capacity on job exit
+        if: always()
+        shell: bash
+        env:
+          OASIS7_SUPPORT_JOB_STATUS: ${{ job.status }}
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot job-exit
+
+  custody-native:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+      attempt: ${{ steps.bundle.outputs.attempt }}
+    env:
+      CUSTODY_COMPONENT: native
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps: &custody-build-steps
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install pinned Rust toolchains
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Observe support capacity before cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot before-cache
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - name: Observe support capacity after cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-cache
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - name: Build and verify the complete custody component
+        shell: bash
+        run: |
+          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$CUSTODY_COMPONENT"
+          if [[ "$CUSTODY_COMPONENT" == wasm-approval ]]; then
+            driver_dir="$GITHUB_WORKSPACE/scripts"
+            ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+            source scripts/ci-tests.sh
+            run_worker_wasm_compile_profiles
+          fi
+      - name: Bind complete component outputs
+        id: bundle
+        shell: bash
+        run: |
+          python3 scripts/ci-custody-platform.py pack --plan "$RUNNER_TEMP/selection.json" --component "$CUSTODY_COMPONENT" --bundle "$RUNNER_TEMP/custody-bundle"
+          echo "artifact=custody-${CUSTODY_COMPONENT}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.bundle.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-bundle
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  custody-wasm-production:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+      attempt: ${{ steps.bundle.outputs.attempt }}
+    env:
+      CUSTODY_COMPONENT: wasm-production
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps: *custody-build-steps
+
+  custody-wasm-approval:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+      attempt: ${{ steps.bundle.outputs.attempt }}
+    env:
+      CUSTODY_COMPONENT: wasm-approval
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps: *custody-build-steps
+
+  custody-node:
+    name: custody-node (${{ matrix.shard }})
+    needs: [select, custody-native, custody-wasm-production, custody-wasm-approval]
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      needs.custody-native.result == 'success' &&
+      needs.custody-wasm-production.result == 'success' &&
+      needs.custody-wasm-approval.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: ${{ fromJSON(needs.select.outputs.plan).custody_node_shards || fromJSON('[0,1,2,3]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.custody-native.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-inputs/native
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.custody-wasm-production.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-inputs/wasm-production
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.custody-wasm-approval.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-inputs/wasm-approval
+      - name: Verify and restore the exact successful producer outputs
+        env:
+          PRODUCER_ATTEMPTS: '{"native":${{ needs.custody-native.outputs.attempt }},"wasm-production":${{ needs.custody-wasm-production.outputs.attempt }},"wasm-approval":${{ needs.custody-wasm-approval.outputs.attempt }}}'
+        run: python3 scripts/ci-custody-platform.py restore --plan "$RUNNER_TEMP/selection.json" --bundles "$RUNNER_TEMP/custody-inputs" --producer-attempts "$PRODUCER_ATTEMPTS"
+      - name: Install platform test dependencies
+        run: npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
+      - name: Verify the TypeScript consumer once
+        if: matrix.shard == 0
+        run: npm run test:types --prefix crates/oasis7_custody_worker
+      - name: Execute complete Node files without local contention
+        env:
+          CUSTODY_SHARD: ${{ matrix.shard }}
+        run: python3 scripts/ci-custody-platform.py run --plan "$RUNNER_TEMP/selection.json" --shard "$CUSTODY_SHARD" --results "output/custody-$CUSTODY_SHARD"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: custody-node-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/custody-${{ matrix.shard }}
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
+  workspace-support:
+    needs: [select, workspace-support-legacy, workspace-support-other, custody-native, custody-wasm-production, custody-wasm-approval, custody-node]
+    if: >-
+      always() && needs.select.result != 'skipped' &&
+      (needs.select.result != 'success' || needs.select.outputs.run_workspace_support == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful support planning
+        env:
+          SELECT_RESULT: ${{ needs.select.result }}
+        run: test "$SELECT_RESULT" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+        with:
+          pattern: custody-node-${{ github.run_id }}-*
+          path: ${{ runner.temp }}/custody-results
+      - name: Require all selected support stages and complete file inventory
+        env:
+          SUPPORT_NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci-custody-platform.py validate --plan "$RUNNER_TEMP/selection.json" --needs "$SUPPORT_NEEDS" --results "$RUNNER_TEMP/custody-results"
+
   scenario-regression:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_scenario_regression == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2378,7 +2728,7 @@ jobs:
   operational-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2402,7 +2752,7 @@ jobs:
   packaging-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_packaging_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2426,7 +2776,7 @@ jobs:
   workflow-governance:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_workflow_governance == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     permissions:
@@ -2511,7 +2861,7 @@ jobs:
   codex-agent-config-validation:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2535,7 +2885,7 @@ jobs:
   compile-metrics:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_compile_metrics == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2563,7 +2913,7 @@ jobs:
   site-quality:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2604,7 +2954,7 @@ jobs:
   doc-checker-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_doc_checker_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2630,7 +2980,7 @@ jobs:
   cargo-tooling-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_cargo_tooling_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2672,7 +3022,7 @@ jobs:
   windows-rollout:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_windows_rollout == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: windows-2022
@@ -2694,7 +3044,7 @@ jobs:
   macos-package-contract:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2714,7 +3064,7 @@ jobs:
   fleet-health:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_fleet_health == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     name: fleet-health (${{ matrix.os }})
@@ -3100,7 +3450,7 @@ jobs:
   explicit-full-gate:
     name: explicit-full-gate
     if: >-
-      always() &&
+      always() && needs.select.result != 'skipped' &&
       (github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04

@@ -175,6 +175,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
 | `ordinary_artifact_partition_version=1`、`ordinary_partitions` | 完整普通产物的 controls 与四个 native 执行分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
 | `workspace_support_partition_version=1`、`workspace_support_partitions` | 选中 custody worker 时单列 custody，其余 profile 归 other；两路并集保留全部选中 profile，旧 BASE 使用 all |
+| `custody_execution_version=1`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与四个完整 Node 文件分片；缺能力或测试政策变化继续原完整 verifier，稳定 support 汇总核验全部实际结果 |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
 | `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
 | `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
@@ -198,6 +199,8 @@ Formal producer、合并及物理矩阵继续消费同一可信选择输出；�
 两个已登记的 BFT membership 长场景没有 ignored 或 Formal 环境门控，会在 ordinary `runtime-tests` 批次重复运行。可信 scope 配置以完整 case 名将其写入快速计划的 `formal_deferred_ordinary_cases`；执行器核对 Chain Runtime library 目标身份，以 libtest `--exact --skip` 精确后移并从实际应执行数中扣除，记录延期名称。近邻名称、其他 Formal 命名的单元/合同测试和失败计数保留。两 case 仍由完整 Formal 环境批次及物理分片各覆盖一次；完整 profile 清空延期表，旧 BASE 无能力时不排除任何普通 case。Formal 延期在普通目标、架构编译、Clippy 与 support 转交范围推导完成后应用，不借此进一步缩减其他检查。
 
 ### Python 与 CI 控制输入的职责选择
+
+共享 `ci-tests.sh` 仅有一类可证明的范围例外：可信 BASE 支持纯追加诊断测试注册时，唯一 `run_workflow_governance_operational_contract_tests` 函数外字节不变，原命令、顺序、参数与次数完整保留，只增加已登记到 workflow_governance 的 literal Python 测试调用。新增文件必须是实际 Git regular blob；source 与实际 merge 比较均须成立。只有文档及同职责诊断混改可收窄到 baseline/workflow_governance，Rust、其他职责、共享 workflow、策略或解析不确定继续 full。preview 复用同一证明，旧 BASE 保持原范围。
 
 普通 Python 路径沿用显式 `rules` 与 Cargo 输入图，按文档、治理、打包、架构或协议等真实职责选择已有组；直接调用、嵌入数据及反向消费者继续参与选择。无真实合同的工具不能为了缩短 CI 被任意登记为轻量治理组，未知路径仍由既有门禁阻断。
 
@@ -365,11 +368,13 @@ PR 汇总只等待本 PR 计划的必要检查，周期汇总等待本轮完整�
 
 ### 调度、并发与主线健康
 
-schedule 使用 `17 */4 * * *`（UTC），对应北京时间 00:17、04:17、08:17、12:17、16:17、20:17，保留 manual full。每轮从事件解析一次不可变 SHA，所有 checkout、产物和汇总都引用该值；运行期间 main 前进不更换待测对象。
+schedule 使用 `17,37,57 * * * *`（UTC）执行轻量观察。短串行 admission 从实际 Actions run、jobs 与版本化 admission 产物判断：无活动 full 且距最近真实 full 启动达到四小时，才启动本轮完整图；没有历史记录且查询完整时启动首轮。失败和取消仍计入真实启动间隔，不每二十分钟重跑测试；错过多个时隙只补当前一轮。每轮固定事件 main SHA，所有 checkout、产物和汇总引用该值，保留 manual full。
 
-PR 并发组按 PR 编号取消过期运行。periodic-full 使用独立 main-full 并发组且不取消运行中任务，最多保留一轮待执行任务；待执行轮被替代需留存取消事实。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
+PR 并发组按 PR 编号取消过期运行。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
 
-`ci-full-result.py health` 只读查询最近两天 main schedule，报告最近运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
+`ci-full-result.py health` 只读观察最近两天 main schedule 的实际 attempt，区分观察与实际 full，报告最近完整运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。为覆盖旧 run 最近重跑，metadata 按两天窗口回看三十七天，并单独查询全部活动轮；范围覆盖 GitHub 的[三十天重跑期限](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)及[三十五天 workflow 运行上限](https://docs.github.com/en/actions/reference/limits)加两天观察窗，不把创建时间当最新 attempt 时间。读取共享 120 秒、800 次请求上限，最多四个并发只读审计，预算不足保留 unknown。合法空跑必须有唯一、同 run/attempt/SHA/workflow 的 admission=false 产物，admission 实际成功，select 与 full gate 实际 skipped，且无矛盾的 selection/full receipt；缺失或冲突不能算健康。旧版本没有 admission job 的 schedule 保持原 full 语义。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
+
+admission 成功且上述证据完整证明未执行 full，但 workflow 随后失败或取消时，记录为控制失败：健康和发布资格仍失败，不刷新 full 启动时间或占用活动名额，后续观察可按原四小时条件恢复准入。未知结论、未完成状态、缺失或矛盾证据仍拒绝分类，不能用恢复路径掩盖实际执行。
 
 命令接入既有 [CI 耗时回顾任务](../../../.agents/dot/tasks/ci-duration-review.md)的只读检查说明；文档没有新建外部定时器，也不证明巡检已经运行。调用者独立读取 Actions 事实，不能只靠迟到的 schedule 报告自身漏跑。平台调度可能延迟或丢失，规则依据 [GitHub schedule 语义](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
@@ -381,7 +386,7 @@ Release/Testnet/Mainnet/ECS 发布或推广入口先固定 package source，再�
 
 消费者只接受 canonical Rust workflow 在 main 的 schedule/manual full，核对实际 API run/jobs、成功的 `explicit-full-gate`、相同 source/tested SHA 与 policy/check-definition 摘要。默认完整查询最近 30 天相关 runs 和必要分页，按最新实际 attempt 顺序判断；`--run-id` 可指定准确运行，但仍须满足其当前 attempt、来源和完整结果。较新的同源运行缺当前 attempt 成功 receipt（包括 pending/running）、失败重跑、过期/歧义产物、API 缺页或未知来源不能回退旧绿色放行。读取结果身份与用于查询的 selection artifact 均绑定实际成功的 producing attempt，失败重跑不能借旧 selection 假称验证了另一个候选。
 
-API 已证明为专用非 full 诊断的运行不会冒充完整结果，也不影响已有完整证据；单纯缺少 selection 不能据此排除未知 manual 运行。
+API 已证明为专用非 full 诊断或经上述严格核验的 schedule 空跑，不会冒充完整结果，也不影响已有完整证据；单纯缺少 selection 不能据此排除未知运行。实际较新的同源 full 失败、取消、未完成或缺当前 attempt 成功 receipt，仍不得回退旧绿色。
 
 普通候选分支自行修改 workflow 产生的绿色和 `bootstrap_full` 均不能取得发布资格。验证尚未覆盖的候选使用可信 main workflow 的 manual full 与 `source_ref`，select 一次解析不可变 source，所有执行 checkout 同一 SHA；变更中的策略/检查定义不等于受信任的新策略。验证代码不获得发布凭据，PR 产物不直接作为特权入口的可执行输入。当前 ECS 包/冷启动 smoke 与其他发布验证继续执行，完整结果不替代它们。
 
@@ -567,9 +572,13 @@ Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协�
 
 registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。
 
-`workspace-support` 在可信计划声明版本化分区时，以 custody / other 两路 matrix 执行完整原 profile 命令。custody worker 的 native 单测、role/WASM 正反编译、真实 World barrier、fixture、TypeScript 和平台测试仍由原 verifier 完整执行；其他支持包不再与其串联。full 在分区前扩展候选完整 profile 库存，缺失、重复、未知分区及任何失败均阻断。本地未指定 `--support-partition` 时，校验完整计划后执行全部选中 profile；显式 custody / other 仍按计划核对并收窄。旧 BASE 保留 all，矩阵 `fail-fast: false`、最多两路，最终 required/full gate 等待整个选中矩阵的真实终态。
+`workspace-support-legacy` 在可信计划声明版本化分区时，以 custody / other 两路 matrix 执行完整原 profile 命令。custody worker 的 native 单测、role/WASM 正反编译、真实 World barrier、fixture、TypeScript 和平台测试仍由原 verifier 完整执行；其他支持包不再与其串联。full 在分区前扩展候选完整 profile 库存，缺失、重复、未知分区及任何失败均阻断。本地未指定 `--support-partition` 时，校验完整计划后执行全部选中 profile；显式 custody / other 仍按计划核对并收窄。旧 BASE 保留 all，矩阵 `fail-fast: false`、最多两路，最终 required/full gate 经稳定 support 汇总等待整个选中矩阵的真实终态。
 
-Custody 平台测试保留完整 `tests/*.test.mjs`，Node 文件进程并发上限为 2；每个文件使用默认独立进程，文件内部仍串行，test-session 的故障注入全局状态不跨用例并发。准备阶段、角色构建锁及真实 fixture 保持原顺序，各文件继续创建自己的临时 SQLite/原生服务目录和零端口 listener。原生崩溃、异常退出和测试失败仍按原退出码阻断，不以吞错、自动重跑或减少 case 获得成功。
+Custody 的可信分阶段执行将 native、wasm-production、wasm-approval 放到三个独立 runner：native 承接完整原生单测、Launcher 回归、真实 World commit barrier、contract 和 context-body fixtures；production 承接全部有效/无效角色检查、四个生产角色、Wrangler dry-run 和 native harness；approval 产生 approval fixture 与 approval harness，并执行依赖该 fixture 的六个 Worker WASM profile。每个 WASM producer 内保持原角色构建锁与顺序，不在共享 build 目录并发。只有计划明确 `test_policy_changed=false` 才启用分阶段执行；测试政策变化或字段不确定时保留 legacy 路径及原有 `--all-targets` 扩展。
+
+产物绑定 source/tested/policy、run 与 producer attempt、平台及工具链、完整测试文件清单和每文件摘要/权限；consumer 仅接受本 run 明确成功的 producer 输出，核验全部文件后恢复到自己的路径，并重建 native/world 二进制指针。Node consumer 不重复 Cargo 构建或恢复 native target 缓存。四个分片按确定性文件清单执行全部 `tests/*.test.mjs`，每个 runner 内文件串行，测试内部操作、断言、超时与 freshness 合同保持。TestSession 按完整场景拆文件，共享 fixture 由每文件独立实例持有可变开关。TypeScript 检查保留一次必要执行。
+
+`workspace-support` 保持稳定汇总 ID：无新能力时执行 legacy 完整 verifier；新能力时独立 other 与 custody 图互不等待，选中的全部 producer、分片与完整结果库存必须成功，缺失、重复、取消、错身份及非零均失败。本地 `verify.sh --platform` 和 `npm test` 仍提供完整入口，默认文件进程并发上限为 2。原生崩溃、异常退出和测试失败按真实退出码阻断，不自动重跑。
 
 `workspace-support` 的只读容量采样在 cache 恢复前后、支持包 profile 边界、custody WASM/native/platform 边界及 job 退出时输出 `SUPPORT_CAPACITY` JSON 行。记录实际 source/tested/policy/range base、runner image、文件系统可用字节与 inode，以及固定目录的 allocated/apparent bytes 和 inode 数；精确 cache key 仍以同一 job 的 restore 日志为准。目录观察可能重叠，不能相加；每个目录内 hardlink 只计一次，不跟随目录符号链接，不读取文件内容。单次采样最多 25 秒，缺失、错误、超时明确标记为未知，不能冒充零占用。证据直接留在 job 日志，避免磁盘耗尽时依赖新建报告文件。采样失败不改变测试退出码，也不清理目录、调整缓存或 runner、减少既有验证；实际容量优化需另有测量依据。
 

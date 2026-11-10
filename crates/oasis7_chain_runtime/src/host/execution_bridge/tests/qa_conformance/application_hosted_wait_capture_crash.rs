@@ -137,12 +137,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
                 .unwrap();
             next_snapshot = Instant::now() + Duration::from_millis(250);
         }
-        snapshot_frames += usize::from(
-            session.snapshot(
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_millis(25)),
-            ),
+        snapshot_frames += session.drain_for(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(25)),
         );
         if crash && root.join("wait-capture-unpublished").exists() {
             let bytes = fs::read(root.join("wait-capture-checkpoint-backup.json")).unwrap();

@@ -40,7 +40,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let mut capture_seen = false;
     let mut capture_proven: Option<serde_json::Value> = None;
     let summary = loop {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
         let summary = shared
             .lock()
             .unwrap()

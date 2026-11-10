@@ -47,7 +47,7 @@ fn real_tcp_session_close_bounds_continuously_readable_peer_and_joins_it() {
     });
     let session = Session {
         reader: BufReader::new(socket),
-        partial_line: String::new(),
+        partial_line: Vec::new(),
         ordered_response: OrderedResponseProgress::default(),
         diagnostic: false,
         created: Instant::now(),

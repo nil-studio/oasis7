@@ -1977,6 +1977,37 @@ if os.environ['FAILED'] == action:
                     self.assertEqual('standalone_tool_lockfiles' in result.stdout.splitlines(),
                                      'standalone_tool_lockfiles' in expected and failed != 'newapi_accounting')
 
+    def test_format_failure_precedes_fetch_architecture_and_clippy(self):
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}',
+                    (HERE / 'ci-tests.sh').read_text(), re.M | re.S))['run_rust_baseline']
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cargo = root / 'cargo'
+            cargo.write_text('#!/bin/sh\necho "cargo:$*"\nexit "$FMT_EXIT"\n')
+            cargo.chmod(0o755)
+            script = 'set -euo pipefail\ntier=required; required_plan=""\n'
+            script += 'run() { if [[ "$1" == env ]]; then "$@"; else echo "run:$*"; fi; }\n'
+            script += 'run_cargo() { echo "fetch:$*"; }\n'
+            for function in ('run_rustsec_advisory_check', 'run_oasis7_required_clippy_for_group',
+                             'run_newapi_bridge_service_accounting_tests', 'run_standalone_tool_lockfiles_checks'):
+                script += function + '() { echo ' + function + '; }\n'
+            script += 'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
+            for code in (0, 37):
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                    env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'], FMT_EXIT=str(code)))
+                self.assertEqual(result.returncode, code, result.stderr)
+                lines = result.stdout.splitlines()
+                self.assertEqual(lines[0], 'cargo:fmt --all -- --check')
+                if code:
+                    self.assertEqual(lines, ['cargo:fmt --all -- --check'])
+                else:
+                    self.assertEqual(lines[1], 'fetch:fetch --locked')
+                    self.assertIn('cargo-dev-architecture.py', lines[2])
+                    self.assertIn('run_rustsec_advisory_check', lines)
+                    self.assertIn('run_oasis7_required_clippy_for_group', lines)
+                    self.assertIn('run_newapi_bridge_service_accounting_tests', lines)
+                    self.assertIn('run_standalone_tool_lockfiles_checks', lines)
+
     def test_target_clippy_executes_every_command_and_propagates_each_failure(self):
         driver = (HERE / 'ci-tests.sh').read_text()
         body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_oasis7_required_tier_clippy']
