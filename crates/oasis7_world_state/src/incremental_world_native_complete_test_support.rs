@@ -228,7 +228,7 @@ pub(super) fn rows(
             Ok(())
         })
         .unwrap();
-    assert_eq!(summary.native_fields, 97);
+    assert_eq!(summary.native_fields, 98);
     assert_eq!(summary.delegated_fields, 4);
     rows
 }

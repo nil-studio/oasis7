@@ -346,7 +346,7 @@ fn install(memory: &MemoryBudget, pages: &Pages, source: &WorldState) -> RootSet
         },
     )
     .unwrap();
-    assert_eq!(summary.native_fields, 97);
+    assert_eq!(summary.native_fields, 98);
     let mut roots = RootSetV1::empty("world-rules13-real-gen97".into(), [4; 32]).unwrap();
     for root in &mut roots.state {
         let mut writes: Vec<StateWriteV1> = rows

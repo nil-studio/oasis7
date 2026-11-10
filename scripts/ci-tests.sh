@@ -717,6 +717,8 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-rust-cache-admission.test.py
   run python3 ./scripts/ci-rust-cache-build.test.py
   run python3 ./scripts/ci-support-profiles.test.py
+  run python3 ./scripts/ci-custody-platform.test.py
+  run python3 crates/oasis7_custody_worker/scripts/verify-stages.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
   run python3 ./scripts/ci-local-signer-tests.test.py
@@ -734,7 +736,10 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/test_codeql_rust_trait_scope_plan.py
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
+  run python3 ./scripts/security/codeql-rust-native-diagnostic.test.py
   run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
+  run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
+  run python3 ./scripts/security/codeql-rust-action-deadline.test.py
   run python3 ./scripts/security/codeql-rust-capacity-evidence.test.py
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
@@ -1172,6 +1177,7 @@ run_rust_baseline() {
     extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase baseline-checks) || return
   fi
+  run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
@@ -1180,7 +1186,6 @@ run_rust_baseline() {
     architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
   fi
   run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
-  run env -u RUSTC_WRAPPER cargo fmt --all -- --check
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh

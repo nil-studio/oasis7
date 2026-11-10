@@ -1,4 +1,4 @@
-//! Fixed 23-field native coverage; never an arbitrary Codec/F mint or a complete
+//! Fixed 24-field native coverage; never an arbitrary Codec/F mint or a complete
 //! World capability. The independent global router and physical leases remain required.
 use super::*;
 use crate::incremental_field_overlay::WorldFieldOverlayErrorV1;
@@ -107,16 +107,20 @@ macro_rules! fields {
             if self.roots!=roots.digest().map_err(|_|invalid())? {return Err(invalid());}
             $(self.$slot.validate_binding(roots)?; if self.$slot.allocation_class()!=self.class{return Err(invalid());})+
             self.starter_binding_index.validate_aggregate_binding_v1(roots,self.class,self.starter_oc_claims.records())?;
+            crate::governance::validate_finality_key_rotation_history_capacity(
+                usize::try_from(self.governance_finality_key_rotations.records()).map_err(|_|invalid())?,
+                usize::try_from(self.governance_bootstrap_finality_key_rotations.records()).map_err(|_|invalid())?,
+            ).map_err(|_|invalid())?;
             // Each slot is a different fixed descriptor. Its count cannot be
             // used to claim more leaves than the authenticated RootSet owns.
             let records=0u128 $(+u128::from(self.$slot.records()))+;
             let leaves=roots.state.iter().map(|r|u128::from(r.leaf_count)).sum::<u128>();
-            if records+23>leaves{return Err(invalid());}Ok(())
+            if records+24>leaves{return Err(invalid());}Ok(())
         }
     }
     /// Exact catalogue membership only; callers still need this aggregate's
     /// private complete qualification and the independent global key router.
-    pub fn world_native_field_descriptors_v1()->Result<[FieldDescriptor;23],ValueTreeError>{
+    pub fn world_native_field_descriptors_v1()->Result<[FieldDescriptor;24],ValueTreeError>{
         let fields=[$(<$spec as WorldNativeFieldSpecV1>::descriptor()?,)+];
         let names=[$($name,)+];
         for (i,(field,name)) in fields.iter().zip(names).enumerate() {
@@ -205,6 +209,7 @@ fields! {
     governance_finality_signer_registry:crate::incremental_world_native_governance::GovernanceFinalitySignerRegistryFieldV1=>((),Option<crate::governance::GovernanceFinalitySignerRegistry>,recover_governance_finality_signer_registry_v1,"governance_finality_signer_registry");
     governance_validator_admissions:crate::incremental_world_native_governance::GovernanceValidatorAdmissionsFieldV1=>(String,crate::governance::GovernanceValidatorAdmissionRecord,recover_governance_validator_admissions_v1,"governance_validator_admissions");
     governance_finality_key_rotations:crate::incremental_world_native_governance::GovernanceFinalityKeyRotationsFieldV1=>(String,crate::governance::FinalityKeyRotationRecordV1,recover_governance_finality_key_rotations_v1,"governance_finality_key_rotations");
+    governance_bootstrap_finality_key_rotations:crate::incremental_world_native_governance::GovernanceBootstrapFinalityKeyRotationsFieldV1=>(String,crate::governance::BootstrapFinalityKeyRotationRecordV1,recover_governance_bootstrap_finality_key_rotations_v1,"governance_bootstrap_finality_key_rotations");
     governance_main_token_controller_registry:crate::incremental_world_native_governance::GovernanceMainTokenControllerRegistryFieldV1=>((),Option<crate::governance::GovernanceMainTokenControllerRegistry>,recover_governance_main_token_controller_registry_v1,"governance_main_token_controller_registry");
     main_token_node_points_bridge_records:crate::incremental_world_native_governance::MainTokenNodePointsBridgeRecordsFieldV1=>(u64,crate::main_token::MainTokenNodePointsBridgeEpochRecord,recover_main_token_node_points_bridge_records_v1,"main_token_node_points_bridge_records");
     main_token_treasury_distribution_records:crate::incremental_world_native_governance::MainTokenTreasuryDistributionRecordsFieldV1=>(String,crate::main_token::MainTokenTreasuryDistributionRecord,recover_main_token_treasury_distribution_records_v1,"main_token_treasury_distribution_records");

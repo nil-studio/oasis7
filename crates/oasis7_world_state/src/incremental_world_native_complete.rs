@@ -1,4 +1,4 @@
-//! Mandatory conjunction of all 97 native WorldState fields.
+//! Mandatory conjunction of all 98 native WorldState fields.
 use crate::{
     incremental_agent_authority_records as agent_authority, incremental_diplomacy as diplomacy,
     incremental_factory_authority_records as factory_authority,
@@ -39,7 +39,7 @@ pub struct WorldNativeCompleteWorkV1 {
     pub rules: rules::WorldRulesFamilyWorkV1,
     pub controls: controls::WorldCollectionControlsWorkV1,
 }
-/// Complete structural evidence for the 97 native WorldState descriptors.
+/// Complete structural evidence for the 98 native WorldState descriptors.
 /// Required private slots cannot omit empty/None source families. Dedicated
 /// Agent/module families, retained History and physical/original leases remain
 /// independent obligations; this is not a WorldReady capability.
@@ -146,7 +146,7 @@ impl WorldNativeCompleteQualificationV1 {
     }
 
     pub fn field_count(&self) -> usize {
-        97
+        98
     }
     pub fn family_count(&self) -> usize {
         17
@@ -331,7 +331,7 @@ impl From<WorldFieldOverlayErrorV1> for WorldNativeCompleteErrorV1 {
     }
 }
 fn invalid() -> ValueTreeError {
-    ValueTreeError::Invalid("complete native WorldState97 qualification")
+    ValueTreeError::Invalid("complete native WorldState98 qualification")
 }
 fn check<
     M: MerkleNodeReader,

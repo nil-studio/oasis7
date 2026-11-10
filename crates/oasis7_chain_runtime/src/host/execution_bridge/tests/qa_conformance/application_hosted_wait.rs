@@ -195,7 +195,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let mut summary = serde_json::Value::Null;
     let mut transport_failure_observed = false;
     loop {
-        session.snapshot(Duration::from_millis(25)); // Continuous bounded drain, no repeated queued requests.
+        session.drain_for(Duration::from_millis(25)); // Continuous bounded drain, no repeated queued requests.
         if let Ok(guard) = shared.try_lock() {
             summary = guard.test_canonical_provider_diagnostic_summary();
             if let Ok(bytes) = fs::read(root.join("hosted-resumed-model.json")) {

@@ -65,7 +65,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let mut paused_playing_false = false;
 
     while Instant::now() < deadline {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
         if let Ok(guard) = shared.try_lock() {
             summary = guard.test_canonical_provider_diagnostic_summary();
         }
@@ -87,7 +87,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
                     Duration::from_secs(2)
                 };
             while Instant::now() < observe_until {
-                session.snapshot(Duration::from_millis(25));
+                session.drain_for(Duration::from_millis(25));
                 if let Ok(guard) = shared.try_lock() {
                     summary = guard.test_canonical_provider_diagnostic_summary();
                 }

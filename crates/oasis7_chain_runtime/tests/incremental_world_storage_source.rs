@@ -181,7 +181,7 @@ fn real_default_world_genesis_qualifies_complete_storage_sources() {
         };
         let (physical_roots, summary) =
             physical_genesis::prepare(&world, &store, &config, &memory, &cancelled);
-        assert_eq!(summary.typed.world_state.native_fields, 97);
+        assert_eq!(summary.typed.world_state.native_fields, 98);
         assert_eq!(summary.typed.runtime_fields, 46);
         assert_eq!(summary.typed.cognition_fields, 9);
         let mut object_physical = physical();
@@ -398,7 +398,7 @@ fn real_default_world_genesis_qualifies_complete_storage_sources() {
         // This explicit one-operation allowance says nothing about ordinary D.
         let initial_native_outer_nodes = total_bootstrap_leaves
             .checked_mul(257)
-            .and_then(|n| n.checked_mul(97))
+            .and_then(|n| n.checked_mul(98))
             .expect("finite complete bootstrap scan allowance");
         current_budget.native_outer_scan.nodes_remaining = initial_native_outer_nodes;
         // Runtime Q likewise shares one outer scanner across its 46 fixed

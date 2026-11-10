@@ -15,6 +15,10 @@ fn invalid() -> ValueTreeError {
 }
 #[path = "incremental_world_native_governance_binding.rs"]
 mod binding;
+#[path = "incremental_world_native_governance_bootstrap.rs"]
+mod bootstrap;
+#[path = "incremental_world_native_governance_bootstrap_binding.rs"]
+mod bootstrap_binding;
 #[path = "incremental_world_native_governance_dto.rs"]
 mod dto;
 #[path = "incremental_world_native_governance_enums.rs"]
@@ -115,7 +119,40 @@ impl WorldNativeFieldSpecV1 for GovernanceFinalityKeyRotationsFieldV1 {
         binding::persisted(key, body, ctx, scan, work)
     }
 }
-/// This contributes exactly seven original field families, including both None
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GovernanceBootstrapFinalityKeyRotationsFieldV1;
+impl WorldNativeFieldSpecV1 for GovernanceBootstrapFinalityKeyRotationsFieldV1 {
+    type Key = String;
+    type Value = crate::governance::BootstrapFinalityKeyRotationRecordV1;
+    const NAME: &'static str = "governance_bootstrap_finality_key_rotations";
+    const COLUMNS: &'static str = "governance_bootstrap_finality_key_rotations.columns";
+    const SHAPE: FieldShape = FieldShape::Map;
+    const MAX_RECORDS: Option<u64> =
+        Some(crate::governance::MAX_FINALITY_KEY_ROTATION_RECORDS_V1 as u64);
+    fn validate_source_record(
+        key: &Self::Key,
+        value: &Self::Value,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<(), ValueTreeError> {
+        bootstrap_binding::source(key, value, memory, class)
+    }
+    fn validate_record_binding<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        key: WorldNativeKeyRefV1<'_>,
+        body: &StateRootV1,
+        ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+        scan: &mut StateScanBudget,
+        work: &mut TypedRecordReadWorkV1,
+    ) -> Result<(), ValueTreeError> {
+        bootstrap_binding::persisted(key, body, ctx, scan, work)
+    }
+}
+/// This contributes exactly eight original field families, including both None
 /// Value records. It grants neither complete World nor History readiness.
 pub fn prepare_world_native_governance_genesis_v1<
     W: StatePageWriter + ValueNodeReader,
@@ -131,11 +168,11 @@ pub fn prepare_world_native_governance_genesis_v1<
     if (ctx.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    if source.governance_finality_key_rotations.len()
-        > crate::governance::MAX_FINALITY_KEY_ROTATION_RECORDS_V1
-    {
-        return Err(invalid().into());
-    }
+    crate::governance::validate_finality_key_rotation_history_capacity(
+        source.governance_finality_key_rotations.len(),
+        source.governance_bootstrap_finality_key_rotations.len(),
+    )
+    .map_err(|_| invalid())?;
     macro_rules! value {
         ($spec:ty,$field:ident) => {
             prepare_world_native_metadata_v1::<$spec>(ctx, records, sink)?;
@@ -171,6 +208,10 @@ pub fn prepare_world_native_governance_genesis_v1<
         GovernanceFinalityKeyRotationsFieldV1,
         governance_finality_key_rotations
     );
+    map!(
+        GovernanceBootstrapFinalityKeyRotationsFieldV1,
+        governance_bootstrap_finality_key_rotations
+    );
     value!(
         GovernanceMainTokenControllerRegistryFieldV1,
         governance_main_token_controller_registry
@@ -202,3 +243,7 @@ mod genesis_tests;
 #[cfg(test)]
 #[path = "incremental_world_native_governance_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "incremental_world_native_governance_bootstrap_tests.rs"]
+mod bootstrap_tests;

@@ -673,6 +673,7 @@ impl World {
             | Action::ActivateGovernanceValidatorAdmission { .. }
             | Action::RevokeGovernanceValidatorAdmission { .. }
             | Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
+            | Action::RotateGovernanceBootstrapFinalityKeyV1 { .. }
             | Action::OpenEconomicContract { .. }
             | Action::AcceptEconomicContract { .. }
             | Action::SettleEconomicContract { .. } => self.action_to_event_policy_contract(

@@ -57,7 +57,7 @@ fn complete97_real_genesis_shared_scalar_delta_recovery_and_explicit_admission()
         &mut budget,
     )
     .unwrap();
-    assert_eq!(proof.field_count(), 97);
+    assert_eq!(proof.field_count(), 98);
     assert_eq!(proof.family_count(), 17);
     proof.validate_binding(&roots).unwrap();
     assert!(outer.nodes_remaining < 100_000_000);
@@ -322,6 +322,6 @@ fn complete97_none_family_still_requires_metadata_and_finite_work() {
         )))
     ));
     assert_eq!(memory.used(), used);
-    assert_eq!(coverage::FIELD_FAMILIES.len(), 97);
+    assert_eq!(coverage::FIELD_FAMILIES.len(), 98);
     coverage::check().unwrap();
 }

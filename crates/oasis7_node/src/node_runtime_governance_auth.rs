@@ -120,6 +120,7 @@ pub(super) fn validate(envelope: &LocalConsensusActionPayloadEnvelope) -> Result
                 | "ActivateGovernanceValidatorAdmission"
                 | "RevokeGovernanceValidatorAdmission"
                 | "RotateGovernanceValidatorFinalityKeyV1"
+                | "RotateGovernanceBootstrapFinalityKeyV1"
         )
     );
     if governance_required {

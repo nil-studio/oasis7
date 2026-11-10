@@ -36,6 +36,10 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 因果延迟探针只在已验证成功的 View 响应上等待，响应字节保持原样。串行运行目标用例时，可设置 `PRE2_CONFORMANCE_VIEW_DELAY_MS=600`（低于 transport timeout），分别过滤 `real_tcp_hosted_fresh_admission_observes_reserves_and_invokes_provider`、`real_tcp_fresh_admission_waits_for_successful_metadata` 和 `real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns`。日志记录原请求和阶段推进；通过仍须获得同一原请求的 canonical result、唯一结算；双 turn 还须保留各自 memory。该探针验证多阶段累计延迟，不是吞吐或性能验收。
 
+Wait Admit 与 Resume 的崩溃恢复同样等待原请求的完整提交和精确 resumed memory，真实错误仍提前失败。初次 exit73 与恢复子进程分别使用独立 phase 日志和最多 60 秒的父进程硬截止；存在外层 completion deadline 时，两阶段继承同一绝对截止并预留清理时间，不刷新预算。没有外层截止时，每阶段各自有界，不将两阶段描述为合计 60 秒。持续观察使用 `Session::drain_for` 实际读取新 TCP 帧，保留原 exchange 的 Hello/Snapshot/Ack 顺序和未完整帧，不额外请求快照；已完成的 exchange 不能代替后续读取或重复计入新快照数量。
+
+`real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle` 保留成功 View 的 1000 毫秒响应延迟，并在恢复观察开始后，以原 request digest 与 lease 绑定一个 13 秒的真实 Wait 时钟屏障。只有同一 canonical Admit 和 Settled lease 已确认时才等待；放行前不得存在已选 wake 或 resumed model。等待期间释放 driver 锁，不阻塞 RPC；随后沿原空 tick、wake、Resume、Act 和 memory 路径完成。该专用探针沿用外层 child 截止，普通 Wait 时钟仍为原 20 秒。恢复耗时在完成循环退出时冻结，排除清理耗时；旧 12 秒观察器必须在原完成判据上失败，不能靠调整阈值、改响应字节或延长 transport timeout 通过。
+
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
 Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌套清理预留，分别保存 `completion-wait-rejection-initial.*.log` 与 `completion-wait-rejection-recovery.*.log`，不提高 ordinary/runtime-tests 总时限。fixture 生命周期回调先复制 root 并释放锁，再进入 gate 状态；补偿 selector 不持 gate 锁读取 root。`http_fixture::lock_order_tests` 用 channel 固定补偿锁与真实 finished/joined 回调的交错，旧锁作用域应明确失败而非挂起。`application_completion::launcher_tests` 覆盖真实初次挂起、exit73 后恢复挂起与独立日志；原 canonical、原身份、写失败及 exit73 断言仍须通过。
@@ -157,7 +161,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 ## CI 现状与缺口（事实口径）
 
-要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。当前候选已接入快速 profile、完整库存、四小时 schedule 和发布结果消费；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
+要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。当前候选已接入快速 profile、完整库存、四小时到期调度和发布结果消费；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
 
 <a id="ci-fast-pr-periodic-full-validation"></a>
 ### 快速 PR 与周期完整回归的实施验收
@@ -231,7 +235,7 @@ gh workflow run rust.yml --ref main -f run_mode=full -f source_ref="$SOURCE_SHA"
 GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 ```
 
-它查询最近两天 schedule，报告最近运行、最近成功 SHA 与提交区间。五小时未启动、未完成轮超四小时、无最近成功或失败均返回非零；新 pending/running 不清除上一终态失败。该命令不是发布 qualification，也不代表外部定时巡检已启用，既有 CI 回顾任务按实际授权调用。
+它观察最近两天 schedule 的实际 attempt，并回看旧 run metadata 与全部活动轮，通过实际 jobs 和 admission 产物排除合法轻量空跑，报告最近实际 full、最近成功 SHA 与提交区间。空跑不会清除先前 full 失败或更新成功 SHA；缺失/错身份/冲突的 admission 保留未知。每二十分钟观察只增加补偿机会，实际 full 启动间隔仍须从 Actions 验收。五小时未启动、未完成轮超四小时、无最近成功或失败均返回非零；新 pending/running 不清除上一终态失败。该命令不是发布 qualification，也不代表外部定时巡检已启用，既有 CI 回顾任务按实际授权调用。
 
 ### 当前 CI/脚本已覆盖
 - 入口 A：`scripts/ci-tests.sh`（主流程）

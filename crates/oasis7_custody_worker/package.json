@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext tests/consumer.ts && node --test --test-concurrency=2 tests/*.test.mjs"
+    "test": "tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext tests/consumer.ts && node --test --test-concurrency=2 tests/*.test.mjs",
+    "test:types": "tsc --noEmit --strict --skipLibCheck --moduleResolution bundler --module esnext tests/consumer.ts"
   },
   "devDependencies": {
     "ajv": "8.20.0",

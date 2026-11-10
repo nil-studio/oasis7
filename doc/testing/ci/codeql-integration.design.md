@@ -427,7 +427,7 @@ Trace ID: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89
 
 本条是调用补丁研究的专业要求；产品层不适用，不新增玩家功能承诺。执行隔离、准入和预算由现有 capacity/comparison 回归验证，真实提取、四次调用结果与成本由对应单次 hosted 研究验证，离线替身测试不能代签。
 
-`mode=qualifier-research` 为同一调用解析问题提供独立、显式的研究入口，须设置 `execute=true`；它不使用容量模式的附加开关。输入仍固定为完整业务源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`、官方 2.27.4、`codeql/rust-all` 0.2.25 和 §7.2.1 的同一行为补丁。沿用原生准备、全部 manifest/锁文件、Cargo guard、Action 实际资源、完整源码提取和闭包核验。固定 Action 的 `skip-queries: true` 仅在此模式启用，先完成数据库 finalization，不运行默认 37 项查询或七项公共见证求值。
+`mode=qualifier-research` 为同一调用解析问题提供独立、显式的研究入口，须设置 `execute=true`；它不使用容量模式的附加开关。输入仍固定为完整业务源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`、官方 2.27.4、`codeql/rust-all` 0.2.25 和 §7.2.1 的同一行为补丁。沿用原生准备、全部 manifest/锁文件、Cargo guard、Action 实际资源、完整源码提取和闭包核验。固定 Action 设置 `skip-queries: true`，先完成数据库 finalization；本模式不运行默认 37 项查询或七项公共见证求值，候选完整工作负载另按 §7.2.4 执行。
 
 提取 checkpoint 必须确认源码、锁、guard、资源与官方库身份可信，数据库为预期源码根的 finalized Rust 数据库，五处规定源码归档内容一致，且尚无查询 BQRS。checkpoint 独立封存并上传后，才在同一数据库上依次运行官方、私有候选两个批次，每批包含原字节的 `CallsCandidate`、`CallsLegacy`。两个批次采用不同 pack 名称和独立编译/common cache、结果路径；官方两项完成后立即解码、校验、保存，再开始候选。超时或失败时保存已产生的有界 BQRS 与阶段收据，不追加解码、重试或续期，未校验结果不计通过。目标来源与已有目标不回退的 oracle 保持原样。共享数据库 evaluator 缓存的限制与 §7.2.1 相同。
 
@@ -436,6 +436,36 @@ Trace ID: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89
 仅此研究模式的原生依赖准备分配最多 360 秒，外层 prepare 步骤从 8 分钟等量增加到 11 分钟；其他容量、官方默认研究、独立 Cargo check 与正式扫描继续使用原 180 秒分配。原生准备仍受总截止前 120 秒的较早截止约束，update 最多 60 秒，install 可使用同一窗口中剩余时间；保留 20 秒包/模块探针空间和特权 timeout 的 5 秒收尾差额。启动前及各命令前写入 `native-budget.json`，记录固定分配、父截止、实际准备截止和各命令 timeout；真实退出状态仍取各自进程收据。依赖、探针、包源和不重试行为保持原样，失败即阻止 metadata 与提取。新增时间用于容忍已观察到的下载耗时变化，不保证包管理完成，也不把未确定的下载原因认定为镜像故障；消耗仍从本次 150 分钟中扣除，减少后续可用研究时间。
 
 提取成功只记 `EXTRACTION_READY`，研究另记 `COMPARISON_COMPLETED`、`INCOMPLETE` 或 `NOT_REACHED`；四个实际调用观察及其源码/官方库/数据库 metadata/已封存 checkpoint 的最终身份分别保存。默认结果与完整公共语义为 `NOT_REQUESTED`，`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 始终保留。该模式只验证真实调用补丁，不代签完整安全结果、覆盖、容量、上游官方回归或运营启用；不上传 SARIF/数据库、不修改批次设置、不自动发布上游补丁。
+
+#### 7.2.3 短原生准备诊断
+
+原生安装在查询之前耗尽时，可单独授权一次默认关闭的 `CodeQL Rust Native Diagnostic`。仅可信默认分支手动设置 `execute=true` 才执行，整个 job 从实际启动计最多 10 分钟，共用现有扫描槽位。入口复用同一 `prepare_native` 的 360 秒窗口、四个包、模块探针、update/install 顺序、发行版源与 `Acquire::Retries=0`、`Acquire::http::Timeout=20`；不改变镜像优先级、HTTPS 参数或失败即停行为。总截止前保留至少 90 秒收尾/上传，不续期、不重试。该入口只识别实际 helper 提交和 runner，不装 Rust/CodeQL、不提取源码数据库，也不以业务源码 pin 代签已分析该源码。
+
+只为本入口开启 `Debug::pkgAcquire::Worker=1`。运行时的可选观测器在任何 stdout/stderr 字节落盘前投影白名单：URI 状态/重定向/完成/失败、允许的数值/布尔获取配置、包与模块版本；配置帧仅保留必要键，URI 去除认证、查询和片段。未知格式、过长行及不在白名单内的内容只记长度、摘要与丢弃原因，绝不原样回退。普通调用不传观测器，沿用原字节采集。正常读取、无末尾换行与失败后 drain 均经过同一处理和共用 16 MiB 证据上限，预留 1 MiB 保存失败收据与摘要。
+
+每条投影记录接收端 wall/monotonic 时间、原进程流 byte offset/长度和投影文件 offset；这是接收时序，不是服务端时钟或精确网络耗时。记录实际 APT 版本、源/镜像配置的受限字段与文件摘要，实际命令的 601 配置投影是有效值观察，缺项保持未观察。对固定 archives/partial 目录执行有自身短 timeout 的只读元数据采样，最多每 10 秒一次，只读普通文件名称/大小/mtime，不读取包内容、不更改权限；不可读、超限或变化均显式保留。观测、采样及清理时间都计入原截止，不能据普通进程组清理推定 root apt 子树已空。
+
+仅在四条原生命令全部成功、证据正常封存时记 `NATIVE_READY`；失败保留原命令退出/超时以及已收集投影，观测缺项单列，不由丢弃条数推断网络原因。开发测试覆盖分块/尾部过滤、配置白名单、限额、父截止及失败停止，真实下载行为由单次 hosted 诊断核实。任何终态均不改变 Rust 覆盖 HOLD、生产容量 UNKNOWN 或批次配置；成功也不自动启动完整研究。
+
+#### 7.2.4 候选库完整工作负载研究
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补丁研究的完整查询、身份和失败采证要求，不新增玩家功能或生产库选择。
+
+`mode=candidate-workload-research` 是默认关闭的独立手动分支，仅在 `execute=true` 时运行，不接受附加比较开关。保持 §7.2.2 的完整业务 pin、官方 CLI/bundle、原生准备、锁/guard、features/targets、归档与 Action 资源；官方 Action 仅提取并 finalize 数据库。提取 checkpoint 沿原门槛检查并单独封存，候选结果不得冒称官方默认查询结果。
+
+整个 job 从实际 hosted 起点绑定 90 分钟。在提取前只分配一次至多 75 分钟的绝对分析截止，并按当时剩余时间减 600 秒结果验证/收尾预留向下缩短。提取、私有布局、解析、编译和原 37 默认查询加原 7 公共见证的单批求值共用该截止；checkpoint 后不重置。所有 helper 子进程仍受总截止前 120 秒的证据边界约束。最终 job 成本包括上传与 post，独立读回实际完成时间核验至少 270 秒余量；阶段完成时间不能代签该余量。
+
+提取的绝对截止由候选分支专用入口监督器执行。保留固定官方 `uses`、Node executable/参数、cwd、输入与 `GITHUB_STATE`/`GITHUB_OUTPUT` 等命令文件；显式 step env 加载受信 preload，同步等待监督器并阻止外层再次执行 main。监督器在真实启动时复核原预算，以独立进程组执行一次未修改的官方 main；子 Node 在 main 前再次检查原截止。沿现有 owned-process runtime 处理采样、TERM/KILL 与失败收据，收尾时段计入分析窗口，启动延迟不能获得新窗口。原 `timeout-minutes` 仅为外层保护。post 保持官方入口且不受过期分析截止阻挡；旧模式不采用监督路径。
+
+Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
+
+候选仅在采集树外复制官方 `rust-all` 并应用 §7.2.1 的固定补丁，完整库差异只能为固定目标摘要的 `TypeInference.qll`。默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
+
+同一 finalized 数据库以一次 `run-queries` 执行原 44 项。37 项均须保存并核对 BQRS 身份、完整 info/decode；原七表沿既有正反例、行数和来源 oracle 逐项验证。仅对默认 37 项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
+
+执行前后检查完整业务输入、官方 bundle、候选整个库、私有 query pack、DB metadata 和封存 checkpoint。缓存/结果与受保护源码隔离。失败仍在原截止内保存已有有界日志、BQRS/解码和退出收据；官方证据保持 256 MiB 上限，私有证据为 64 MiB 且保留终态空间，部分、超限、身份不明或封存失败不得报告完整研究。研究不追加查询、不自动重试、不改写旧结果。
+
+终态使用明确的 `CANDIDATE_RESEARCH_*`，分别记录计算、默认结果、公共语义、证据、资源、身份和余量；始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、`production_acceptance=UNCHANGED`。完整研究仅证明本次私有配置的实际结果，不等于官方容量、全 Rust 覆盖、上游发布或运营启用。旧 capacity、official-default-research、qualifier-research 的预算与行为保持不变。
 
 ### 7.3 其他语言
 
@@ -515,17 +545,21 @@ C3 必须同时审计 PR watch、最终 merge readiness、关闭任务、CI/revi
 
 ### 9.1 稳定 category
 
-建议格式：`/language:<language>/unit:<stable-unit>/profile:<default|extended>`。
+实际格式为 `oasis7/<unit>/<profile>`；unit 取第 4 节定义的稳定分析单元，profile 为 `default` 或 `extended`，与 workflow、planner 和健康报告一致。
 
 PR 与 main default 的 category 一致；extended 使用另一 category。同一 category 不包含 PR 编号、commit、run ID 或动态路径集合，不随事件变化范围。不得修改 CodeQL 工具名来区分子项目。[E10]
 
 未选中的单元不上传空 SARIF；失败单元不上传伪造“零告警”；旧 SHA 结果不重新标注为新 SHA。未来单元拆并要执行明确 category 迁移，防止错误关闭/重复悬挂历史告警。
+
+PR 固定 default，默认分支维护的 extended 可产生原生配置缺失提示。按[原生配置提示与生命周期](codeql-operations.md#native-configuration-lifecycle)区分事件未运行、活跃维护、暂停与永久退役；配置缺失提示不构成删除活跃或 HOLD 配置的依据。
 
 ### 9.2 三种状态分开记录
 
 `execution_status` 表示扫描是否真正执行成功；`upload_status` 表示结果是否被平台接受；`finding_status` 表示告警结果。planner 的 `not_applicable`/`disabled` 另列。
 
 扫描成功不等于零漏洞；上传失败不等于成功发布；取消、超时和队列溢出不等于完成。全部真实状态保留在 Actions/summary 和只读健康报告中。
+
+GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job success 不能代签原生检查通过或覆盖完整。closed 事件仅有 plan/summary 成功、分析 job 跳过时，没有产生新的扫描结果。
 
 ### 9.3 修复流程
 

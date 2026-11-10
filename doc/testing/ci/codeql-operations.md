@@ -91,6 +91,26 @@ archive 下载上限 1 MiB、超时 30 秒，并校验平台 `sha256` digest；Z
 
 CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI 声明及生效保护决定。必需安全检查未成功时不得合入，不通过本地解释改写远端结果。
 
+<a id="native-configuration-lifecycle"></a>
+## 原生配置提示与生命周期
+
+原生 `configurations not found` 表示原生比较尚未匹配到目标分支既有配置的相应分析。PR 固定 default，extended 只参加默认分支维护；按影响范围未选中 default 单元时也不会补传结果。分别核对事件、可信计划和实际分析，再解释覆盖提示与同时展示的告警；不能仅凭检查标题判断失败原因。
+
+PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代表合入后的 main 已重新扫描。Actions job、SARIF 接收、原生告警状态及原生覆盖提示分别记录，不能用其中一项成功替代其他项。
+
+| 配置情况 | 核对依据与处置 |
+| --- | --- |
+| 活跃，但当前 PR 未运行 | 核对 profile、影响范围和事件适用性；保留原生配置，另核对该配置的维护扫描。main extended 与 PR default 的差异可以是预期行为。 |
+| 暂停、HOLD 或待验收 | 核对已有暂停及恢复条件；保留原生配置、失败记录与覆盖缺口。局部研究成功或批次变量缺键均不表示退役。 |
+| 已确认永久退役或完成迁移 | 核对精确配置身份、停止使用的决定、替代覆盖与历史告警影响，在已有授权覆盖删除时才清理该配置，并读回结果。 |
+| 身份或用途不明 | 记录 unknown 和缺失信息，保留配置；本次未看到分析不能证明配置已退役。 |
+
+原生配置身份结合 tool、category、workflow、适用 ref 及平台可见的 analysis key/environment 核对，不能只凭显示名或告警数量操作。删除批次变量键仅停止后续规划，不删除原生历史配置，也不代表该范围已验收。配置清理入口见 [GitHub Tool status](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/use-the-tools-status-page-for-code-scanning)。
+
+`codeql-health.py` 继续按八个 unit/profile 诊断执行、上传与新鲜度，不读取批次变量来决定 HOLD、退役或缩小 healthy 的范围。活跃和 HOLD 配置完成梳理后的结果可以是全部保留；如需让 PR 提供完整对应分析，应另行评估真实扫描范围与耗时，不能重标 category、借用旧 SHA 或上传空 SARIF 消除提示。
+
+误报按精确告警 ID 核对源码版本、实际输入和权限边界，在平台选择对应 dismissal 原因并记录证据，随后读回告警状态。历史探针注明实际受测版本，结合当前源码核对其适用性；判断条件改变时重审。处置某个 ID 不构成同类后续告警的自动豁免；操作参考 [GitHub 告警处置说明](https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/triage-alerts-in-pull-requests)。
+
 ## Tauri 上下文生成覆盖例外
 
 Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
@@ -168,6 +188,28 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接[独立真实调
 整个研究 job 最多 150 分钟，提取最多 25 分钟；比较最多 120 分钟，每侧批次最多 60 分钟，均受同一个实际 job 截止约束。比较在总截止前至少 450 秒停止，内部另留 60 秒审计；不把阶段上限相加来延长 job。一次运行后停止，并分别报告提取、四个观察、对照和完整 job 成本。它不运行或验收默认 37 项和完整七表，相关状态为 `NOT_REQUESTED`，生产容量仍为 `UNKNOWN`、Rust 覆盖仍为 `HOLD`。研究成功不自动启用 Rust，也不解除其他回归或运营验收。原容量与附加 15 分钟比较入口保持不变。
 
 该模式的原生依赖准备最多 360 秒，prepare 步骤最多 11 分钟，均计入同一 150 分钟；其他模式仍为 180 秒原生准备。先读 `native-budget.json` 与 `native-update.stdout.result.json`、`native-install.stdout.result.json` 区分子阶段耗尽和总 job 超时：特权 `timeout` 的退出 124、安装尚未完成或探针未执行都不能计为依赖就绪。包/模块探针仍保留，失败停止 metadata 与提取。若源码提取和对照被 skipped，四个调用观察应写未运行；不能由失败采证步骤成功推断语义通过，也不能自动追加重跑。
+
+### 候选库完整工作负载研究
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选完整工作负载合同](codeql-integration.design.md#724-候选库完整工作负载研究)。
+
+需要验证候选库的完整查询时，选择 `execute=true, mode=candidate-workload-research, compare_qualifier_patch=false`。沿用完整固定 `7c2f99a…` 业务源、官方 2.27.4、原生准备及真实 Action 资源。官方 Action 只提取；独立 checkpoint 通过后，私有源码布局和固定行为候选以同一批次执行原 37 默认查询及七项公共见证。入口不选定生产库或启用 Rust。
+
+先核对分析窗口在提取前已固定：整个 job 90 分钟，提取、私有复制/解析/编译和 44 项求值共用至多 75 分钟的绝对截止，动态保留 600 秒结果验证与收尾；所有阶段仍保留总截止前 120 秒的证据边界。不能在 checkpoint 后重新分配时间，CLI 查询 timeout 不能替代外层墙钟。最终完整 job 时长及至少 270 秒余量须在 artifact 上传与 post 后独立读回。
+
+同时读取官方 checkpoint 中的 `action-deadline-terminal.json` 与 owned-process 收据：真实官方 main 必须只运行一次，启动/退出/收尾均绑定同一分析截止，启动已过期时不得运行提取。监督器通过该 step 的显式 `NODE_OPTIONS` preload 接入，不通过 `GITHUB_ENV` 写该变量；stdout/stderr 保持 runner 处理，post 正常收尾。相对 step timeout 或预估启动余量不能代替绝对监督收据，监督/取消/采证失败均不得准入候选求值。
+
+从独立候选 artifact 检查私有包装差异、原 37/7 文本身份、44 条实际 closure、候选 TypeInference 摘要和源/库/query pack 的前后身份。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+
+默认 37 项逐项核对完整 info/decode，七表逐项读取实际结果与原 oracle 判定。SARIF 只对 37 项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+
+### 短原生准备诊断
+
+安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
+
+从 `native-diagnostic-<run>-<attempt>-<sha>` artifact 先读 `native-terminal.json`、`native-budget.json` 和各命令 `.result.json`，再按 stdout/stderr 中的 JSONL 投影接收时间及原流 offset 关联 URI Start/Done/Failure/Redirect。文件是白名单投影，不是原字节日志；未知、截断和被丢弃内容的摘要不能当作下载结果。601 配置记录只含允许的有效参数，`sources.json` 保存受限源/镜像观察，`archives.jsonl` 保存固定缓存目录的只读元数据采样。只有 Done 才是协议报告的下载完成，Get 或 partial 大小变化均不能独立证明包安装完成。
+
+`NATIVE_READY` 仅表示本次四步原生准备通过；失败、不可读采样、未观察参数和 root 子树清理范围分别记录。用时间与失败事件缩小原因，不能仅凭一次通过/失败归因镜像或地区，也不能自动重跑长研究、启用批次或推定 Rust 覆盖完成。合同见[短原生准备诊断](codeql-integration.design.md#723-短原生准备诊断)。
 
 ## Hosted 验收与回退
 

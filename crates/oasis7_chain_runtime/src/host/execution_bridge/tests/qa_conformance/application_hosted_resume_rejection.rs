@@ -212,7 +212,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let deadline = Instant::now() + Duration::from_secs(15);
     // Pause once the original signed Resume is issued, rather than delaying its capture.
     while !root.join("resume-rejected-original.json").exists() && Instant::now() < deadline {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
     }
     session
         .send(serde_json::json!({"type":"live_control","mode":{"mode":"pause"},"request_id":1802}))
@@ -228,12 +228,12 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     while !root.join("resume-rejected-authenticated.json").exists()
         && Instant::now() < rejection_deadline
     {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
     }
     let until = Instant::now() + Duration::from_secs(8);
     let mut terminal_completed = false;
     while Instant::now() < until {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
         let summary = shared
             .lock()
             .unwrap()

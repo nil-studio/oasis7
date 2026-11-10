@@ -1,5 +1,6 @@
 //! Canonical typed world action contract shared by clients and execution adapters.
 mod action;
+mod bootstrap_finality_key_rotation;
 mod finality_key_rotation;
 mod geometry;
 mod governance_authorization;
@@ -7,6 +8,7 @@ mod ledger;
 mod main_token;
 mod support;
 pub use action::*;
+pub use bootstrap_finality_key_rotation::*;
 pub use finality_key_rotation::*;
 pub use geometry::GeoPos;
 pub use governance_authorization::*;

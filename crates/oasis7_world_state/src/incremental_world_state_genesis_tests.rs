@@ -139,10 +139,10 @@ fn native_world_genesis_covers_every_registered_state_field_and_delegates_four()
                 Ok(())
             })
             .unwrap();
-        assert_eq!(summary.native_fields, 97);
+        assert_eq!(summary.native_fields, 98);
         assert_eq!(summary.delegated_fields, 4);
         assert_eq!(summary.writes, writes);
-        assert_eq!(metadata, 97);
+        assert_eq!(metadata, 98);
         assert_eq!(rules_metadata, 1);
         assert!(work.records_remaining < before_records);
         assert!(context.io.write_bytes_remaining < before_write_bytes);

@@ -12,3 +12,5 @@ dto!(oasis7_agent_api::world_action::MainTokenTreasuryDistribution,{account_id,a
 dto!(oasis7_agent_api::world_action::GovernanceAuthorizationV1,{schema_version,world_id,chain_id,genesis_digest,parent_position,parent_record_id,parent_state_root,policy_digest,controller_account_id,nonce,valid_from_position,valid_through_position,signatures});
 dto!(oasis7_agent_api::world_action::FinalityKeyRotationBodyV1,{schema_version,authorization,rotation_id,candidate_id,node_id,expected_generation,old_public_key_hex,new_public_key_hex,decision_height,activation_height,target_epoch});
 dto!(oasis7_agent_api::world_action::FinalityKeyRotationProofV1,{schema_version,role,signature_hex});
+dto!(oasis7_agent_api::world_action::BootstrapFinalityKeyRotationBodyV1,{schema_version,authorization,rotation_id,bootstrap_registry_digest_hex,bootstrap_public_key_hex,node_id,expected_generation,old_public_key_hex,new_public_key_hex,decision_height,activation_height,target_epoch});
+dto!(oasis7_agent_api::world_action::BootstrapFinalityKeyRotationProofV1,{schema_version,role,signature_hex});

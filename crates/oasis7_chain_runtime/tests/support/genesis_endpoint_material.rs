@@ -46,10 +46,10 @@ pub(super) fn prepare(base: &Path, pdir: &Path, rdir: &Path, resource: &str) -> 
     };
     let world = World::new_with_state(WorldState::default());
     let (roots, summary) = physical_genesis::prepare(&world, &pages, &config, &memory, &stop);
-    assert_eq!(summary.typed.world_state.native_fields, 97);
+    assert_eq!(summary.typed.world_state.native_fields, 98);
     assert_eq!(summary.typed.runtime_fields, 46);
     assert_eq!(summary.typed.cognition_fields, 9);
-    // Reuse the real complete GEN producer bound: each of 97 native
+    // Reuse the real complete GEN producer bound: each declared native
     // descriptors can traverse at most 257 SMT nodes per bootstrap leaf.
     // This sets the original caller allowance once; it never resets a scan.
     let bootstrap_nodes = roots
@@ -58,7 +58,9 @@ pub(super) fn prepare(base: &Path, pdir: &Path, rdir: &Path, resource: &str) -> 
         .try_fold(0u64, |sum, root| sum.checked_add(root.leaf_count))
         .unwrap()
         .checked_mul(257)
-        .and_then(|n| n.checked_mul(97))
+        .and_then(|n| {
+            n.checked_mul(u64::try_from(summary.typed.world_state.native_fields).unwrap())
+        })
         .unwrap();
     let mut current_limits = limits();
     current_limits.current.nodes_remaining =

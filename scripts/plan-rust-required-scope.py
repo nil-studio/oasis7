@@ -32,6 +32,9 @@ DISTFS_CLIPPY_TARGETS = frozenset((
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 PYTHON_CONTROL_CONTRACT_VERSION = 1
+ADDITIVE_GOVERNANCE_REGISTRATION_VERSION = 1
+CUSTODY_EXECUTION_VERSION = 1
+CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
@@ -68,8 +71,9 @@ class TestPolicyError(ValueError):
     """An ignored test needs a trusted real execution path, not just a new tag."""
 
 
-def git(*args):
-    return subprocess.check_output(['git', *args], stderr=subprocess.DEVNULL)
+def git(*args, repo=None):
+    return subprocess.check_output(['git', *(['-C', str(repo)] if repo is not None else []), *args],
+                                   stderr=subprocess.DEVNULL)
 
 
 def changed_paths(base, head):
@@ -86,6 +90,112 @@ def changed_paths(base, head):
         for _ in range(count):
             result.append(records.pop(0).decode('utf-8', 'surrogateescape'))
     return list(dict.fromkeys(result))
+
+
+def additive_governance_registration(config, comparisons, paths, *, repo=None):
+    """Prove one additive diagnostic registration using immutable Git inputs.
+
+    This is deliberately not a shell parser or a general ci-tests.sh exception.
+    The trusted policy must opt in, every old literal invocation must survive in
+    order, and the complete script outside the one fixed function is identical.
+    The caller must retain Cargo ownership/embedded-consumer and other full
+    fallbacks; this proof never removes a selected Rust consumer.
+    """
+    driver = 'scripts/ci-tests.sh'
+    version = config.get('additive_governance_registration_version')
+    if (driver not in paths or type(version) is not int
+            or version != ADDITIVE_GOVERNANCE_REGISTRATION_VERSION):
+        return None
+    marker = 'run_workflow_governance_operational_contract_tests() {\n'
+    command = re.compile(r'  run python3 \./(scripts/security/'
+                         r'(?:[A-Za-z0-9_-]+\.test|test_[A-Za-z0-9_]+)\.py)\n')
+
+    def read_git(*args):
+        return subprocess.check_output(['git', *(['-C', str(repo)] if repo is not None else []),
+                                        *args], stderr=subprocess.DEVNULL)
+
+    def regular_blob(ref, path):
+        record = read_git('ls-tree', '-z', ref, '--', path).split(b'\0')
+        if len(record) != 2 or record[1] != b'':
+            raise ValueError('registration requires one tracked regular file')
+        metadata, name = record[0].split(b'\t', 1)
+        mode, kind, oid = metadata.decode('ascii').split()
+        if name.decode('utf-8') != path or kind != 'blob' or mode not in ('100644', '100755'):
+            raise ValueError('registration requires a tracked regular file')
+        return mode, oid
+
+    def driver_parts(ref):
+        mode, oid = regular_blob(ref, driver)
+        if int(read_git('cat-file', '-s', oid)) > 256 * 1024:
+            raise ValueError('unbounded diagnostic registration script')
+        text = read_git('cat-file', 'blob', oid).decode('utf-8')
+        if text.count(marker) != 1:
+            raise ValueError('ambiguous diagnostic registration function')
+        before, rest = text.split(marker)
+        if before and not before.endswith('\n'):
+            raise ValueError('registration function must start on its own line')
+        body, after = rest.split('\n}\n', 1)
+        lines = (body + '\n').splitlines(keepends=True)
+        if (not lines or any(command.fullmatch(line) is None for line in lines)
+                or len(lines) != len(set(lines))):
+            raise ValueError('registration body must contain unique literal test invocations')
+        return mode, before, lines, after
+
+    def mapped_groups(path):
+        scoped = config.get('scoped_control_paths', {}).get(path)
+        # Keep mixtures with other drivers/planners full even when that Python
+        # control has its own contract. Only already-scoped diagnostic workflows
+        # may accompany this one shell registration exception.
+        if (any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
+                and (scoped is None or not path.startswith('.github/'))):
+            return None
+        selected = set(scoped or ())
+        matched = scoped is not None
+        for rule in config['rules']:
+            if (any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
+                    and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule.get('exclude', []))):
+                if rule.get('full', False):
+                    return None
+                matched = True
+                selected.update(rule.get('groups', ()))
+        selected.update(python_control_inputs(config).get(path, {}))
+        if any(fnmatch.fnmatchcase(path, pattern)
+               for patterns in config.get('workspace_support_profile_paths', {}).values()
+               for pattern in patterns):
+            return None
+        if not matched or selected - {'baseline', 'workflow_governance'}:
+            return None
+        return selected
+
+    try:
+        if any(mapped_groups(path) is None for path in paths if path != driver):
+            return None
+        additions = set()
+        if not comparisons:
+            return None
+        for before, after in comparisons:
+            old_mode, old_prefix, old, old_suffix = driver_parts(before)
+            new_mode, new_prefix, new, new_suffix = driver_parts(after)
+            if (old_mode, old_prefix, old_suffix) != (new_mode, new_prefix, new_suffix):
+                return None
+            # A subsequence preserves every existing registration and its order.
+            pending = iter(old)
+            expected = next(pending, None)
+            for line in new:
+                if line == expected:
+                    expected = next(pending, None)
+            if expected is not None:
+                return None
+            for line in new:
+                if line not in old:
+                    target = command.fullmatch(line).group(1)
+                    regular_blob(after, target)
+                    if mapped_groups(target) != {'workflow_governance'}:
+                        return None
+                    additions.add(target)
+        return sorted(additions) or None
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
+        return None
 
 
 def independent_target_input(path, directory, manifest):
@@ -380,7 +490,8 @@ class GitSourceCache:
     content is a cache key, and no state survives a select() invocation.
     """
 
-    def __init__(self):
+    def __init__(self, *, repo=None):
+        self.repo = repo
         self.blobs = {}
         self.rust_inputs = {}
 
@@ -388,7 +499,8 @@ class GitSourceCache:
         missing = list(dict.fromkeys(oid for oid in oids if oid not in self.blobs))
         if not missing:
             return
-        data = subprocess.check_output(['git', 'cat-file', '--batch'],
+        data = subprocess.check_output(['git', *(['-C', str(self.repo)] if self.repo is not None else []),
+                                        'cat-file', '--batch'],
                                        input=b''.join(oid + b'\n' for oid in missing))
         fetched, offset = {}, 0
         for oid in missing:
@@ -416,13 +528,13 @@ class GitSourceCache:
         return self.rust_inputs[oid]
 
 
-def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
+def cargo_graph(ref, generated_inputs=(), *, source_cache=None, repo=None):
     """Resolve workspace path edges including dev/build/target and renamed dependencies.
 
     Optional dependencies are included conservatively, so no feature combination is lost.
     Unsupported/ambiguous workspace relationships widen selection rather than reject work.
     """
-    records = git('ls-tree', '-r', '-z', ref).split(b'\0')
+    records = git('ls-tree', '-r', '-z', ref, repo=repo).split(b'\0')
     entries = []
     blob_modes = {}
     tracked_paths = set()
@@ -435,7 +547,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
         if kind == b'blob' and (path.endswith(b'Cargo.toml') or path.endswith(b'.rs')):
             entries.append((oid, path.decode('utf-8', 'surrogateescape')))
             blob_modes[path.decode('utf-8', 'surrogateescape')] = mode
-    source_cache = source_cache if source_cache is not None else GitSourceCache()
+    source_cache = source_cache if source_cache is not None else GitSourceCache(repo=repo)
     source_cache.load(oid for oid, _ in entries)
     blob_oids = {path: oid for oid, path in entries}
     blobs = {path: source_cache.blobs[oid] for oid, path in entries}
@@ -780,6 +892,12 @@ def validate_config(config):
                 or config['workspace_support_partition_version'] != 1
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid workspace support partition capability')
+    if 'custody_execution_version' in config:
+        if (type(config['custody_execution_version']) is not int
+                or config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
+                or type(config.get('workspace_support_partition_version')) is not int
+                or config['workspace_support_partition_version'] != 1):
+            raise ValueError('invalid custody execution capability')
     if 'ordinary_artifact_partition_version' in config:
         if (type(config['ordinary_artifact_partition_version']) is not int
                 or config['ordinary_artifact_partition_version'] != 1
@@ -2514,6 +2632,13 @@ def complete_ordinary_partitions(config, plan):
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))
+        if (config.get('custody_execution_version') == CUSTODY_EXECUTION_VERSION
+                and 'oasis7_custody_worker' in plan['workspace_support_profiles']
+                and plan.get('test_policy_changed') is False):
+            # Policy edits keep the legacy support driver's expanded-feature
+            # --all-targets tail; the split build contract does not replace it.
+            plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
+                        custody_node_shards=list(CUSTODY_NODE_SHARDS))
 
 
 def support_partitions(profiles):
@@ -2932,6 +3057,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                 full = True
                 reasons.append('uncertain Git/dependency inputs: ' + str(error))
         reported_embeds = False
+        governance_registrations = additive_governance_registration(config, policy_comparisons, paths)
         for path in paths:
             path_affected[path] = set()
             path_rules[path] = set()
@@ -2943,6 +3069,11 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                 path_rules[path].update(scoped_groups)
                 support_rule |= 'workspace_support' in scoped_groups
                 reasons.append('scoped CI control changed: ' + path)
+            elif path == 'scripts/ci-tests.sh' and governance_registrations:
+                chosen.add('workflow_governance')
+                path_rules[path].add('workflow_governance')
+                reasons.append('proved additive diagnostic test registration: '
+                               + ', '.join(governance_registrations))
             elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
@@ -3015,6 +3146,9 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
         if affected:
             chosen.add('rust_baseline')
             reasons.append('changed packages and reverse consumers: ' + ', '.join(sorted(affected)))
+        if governance_registrations and (affected or chosen - {'baseline', 'workflow_governance'}):
+            full = True
+            reasons.append('diagnostic registration mixed with product or other validation inputs')
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
         full = True
         reasons.append('uncertain Git/dependency inputs: ' + str(error))

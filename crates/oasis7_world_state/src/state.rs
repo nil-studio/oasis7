@@ -622,6 +622,8 @@ pub struct WorldState {
     pub governance_validator_admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
     pub governance_finality_key_rotations:
         BTreeMap<String, super::governance::FinalityKeyRotationRecordV1>,
+    pub governance_bootstrap_finality_key_rotations:
+        BTreeMap<String, super::governance::BootstrapFinalityKeyRotationRecordV1>,
     pub governance_main_token_controller_registry: Option<GovernanceMainTokenControllerRegistry>,
     /// Successful controller nonces commit atomically with governance effects.
     pub governance_authorization_nonces: BTreeMap<String, u64>,

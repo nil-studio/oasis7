@@ -19,6 +19,9 @@ TOOL_FILES = (
     'codeql_rust_callee_diagnostic.py',
     'codeql-rust-capacity.py',
     'codeql-rust-qualifier-comparison.py',
+    'codeql-rust-candidate-workload.py',
+    'codeql-rust-action-deadline.cjs',
+    'codeql_rust_action_deadline.py',
     'codeql-rust-omitted-qualifier.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',
@@ -29,7 +32,7 @@ TOOL_FILES = (
     'codeql_rust_capacity_evidence.py',
     'codeql_rust_cargo_guard.py',
 )
-ACTION_SHA = '6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee'
+ACTION_SHA = '33d7b85da1a04171e211befe2c739303b9a4c066'
 FILE_LIMIT = 4 * 1024**2
 RECEIPT_LIMIT = 128 * 1024
 

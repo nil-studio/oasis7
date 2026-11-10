@@ -108,6 +108,7 @@ tagged_codec!(@fields pending_action_field, Action, units {}, tuples {}, records
     GovernRecipeProfile { operator_agent_id, proposal_id, profile } = 89,
     GovernFactoryProfile { operator_agent_id, proposal_id, profile } = 90,
     RotateGovernanceValidatorFinalityKeyV1 { controller_account_id, body, old_key_proof, new_key_proof } = 91,
+    RotateGovernanceBootstrapFinalityKeyV1 { controller_account_id, body, old_key_proof, new_key_proof } = 92,
 });
 dto!(ActionEnvelope, {governance_authorization, committed_recipe_origin, id, action});
 

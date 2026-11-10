@@ -49,8 +49,8 @@ fn native_governance_group_genesis_emits_all_seven_original_families() {
         },
     )
     .unwrap();
-    assert_eq!(rows.len(), 15);
-    assert_eq!(records, 985);
+    assert_eq!(rows.len(), 16);
+    assert_eq!(records, 984);
     let names: std::collections::BTreeSet<_> = rows
         .iter()
         .filter_map(|row| {
@@ -65,6 +65,7 @@ fn native_governance_group_genesis_emits_all_seven_original_families() {
                 GovernanceFinalitySignerRegistryFieldV1::NAME,
                 GovernanceValidatorAdmissionsFieldV1::NAME,
                 GovernanceFinalityKeyRotationsFieldV1::NAME,
+                GovernanceBootstrapFinalityKeyRotationsFieldV1::NAME,
                 GovernanceMainTokenControllerRegistryFieldV1::NAME,
                 MainTokenNodePointsBridgeRecordsFieldV1::NAME,
                 MainTokenTreasuryDistributionRecordsFieldV1::NAME,

@@ -24,7 +24,7 @@
 GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 ```
 
-使用当前 canonical 仓库名；旧 `eng-cc` 别名可能产生重定向，该客户端不会把认证请求转发到另一个 API 地址。helper 查询最近两天 main schedule，结果包括最近运行、`last_successful_sha` 和 `commit_range`。这是查询时刻的健康快照，单独附在报告中，不回填昨日耗时 cohort；仍需保留本任务的 PR、历史 attempts 与关键路径分析。
+使用当前 canonical 仓库名；旧 `eng-cc` 别名可能产生重定向，该客户端不会把认证请求转发到另一个 API 地址。helper 观察最近两天 main schedule 的实际 attempt，并回看旧 run metadata 与全部活动轮，结果区分轻量观察与实际 full，包括最近完整运行、`last_successful_sha` 和 `commit_range`；只有通过 admission/jobs 严格核验的空跑可排除，不能把绿色观察当作完整成功。这是查询时刻的健康快照，单独附在报告中，不回填昨日耗时 cohort；仍需保留本任务的 PR、历史 attempts 与关键路径分析。
 
 四小时 cadence 另留一小时观测余量，五小时未见新启动报告过期；任何未完成轮超过四小时、无最近成功、最近终态失败或数据不完整均按非零结果记录为失败/未知。新 pending/running 不清除上一终态失败，窗口内没有可核实绿色时不写“主线健康”。缺 helper、权限或完整数据时报告该检查未完成；不要临时改用候选策略或把错误吞为成功。
 
