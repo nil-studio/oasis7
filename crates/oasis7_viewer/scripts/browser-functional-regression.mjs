@@ -1570,7 +1570,10 @@ const CASES = {
   },
 
   // P05: duplicate and out-of-order results after B settled must not create a
-  // second refresh/version advance or let the old A result overwrite B.
+  // second refresh/version advance or let the old A result overwrite B. A
+  // locally timed-out request is not authoritative: its correlated server
+  // result must still settle the feedback, once, without a later duplicate
+  // re-triggering the refresh.
   "p05-duplicate-out-of-order": async (context) => {
     const { driver, phaseLog, evidence, artifacts, trace } = context;
     await bootstrapPromptScenario(driver, phaseLog, trace);
@@ -1614,8 +1617,35 @@ const CASES = {
     assert(outOfOrder.lastPromptFeedback?.stage === "applied", "an old A result overwrote the applied B feedback", outOfOrder);
     assert(outOfOrder.lastPromptFeedback?.requestId === requestB.request_id, "an old A result replaced the current B request id", outOfOrder);
     assert(outOfOrder.selectedPromptVersion === 4, "an old A result reverted the visible prompt version", outOfOrder);
+    const LATE_TEXT = "late authoritative prompt";
+    await typeDraft(driver, LATE_TEXT, trace);
+    const beforeC = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sentC = await waitOutbound(driver, beforeC.total, { type: "prompt_control", mode: "apply" }, 8000, trace);
+    const requestC = sentC.entry.message.command.request;
+    evidence.observations.requestC = { requestId: requestC.request_id, nonce: requestC.auth.nonce };
+    const timedOut = await expirePendingPromptAck(driver, trace);
+    const timedOutState = await promptFeedbackState(driver);
+    evidence.observations.timedOutC = { timer: timedOut, feedback: timedOutState };
+    assert(timedOutState.stage === "error" && timedOutState.requestId === requestC.request_id, "C did not settle locally as timed out", timedOutState);
+    const beforeLateAck = await requestSnapshotCount(driver);
+    await deliver(driver, promptControlApplied(requestC, 5, LATE_TEXT), trace);
+    const lateSettled = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied" && state.lastPromptFeedback?.requestId === ${JSON.stringify(requestC.request_id)}`);
+    await waitOutbound(driver, beforeLateAck.total, { type: "request_snapshot" }, 8000, trace);
+    await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 5, override: LATE_TEXT, time: 9 }) }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 5`);
+    const lateResult = await promptResultState(driver);
+    evidence.observations.lateAuthoritative = { settled: lateSettled.lastPromptFeedback, result: lateResult };
+    assert(lateResult.lastPromptFeedback?.stage === "applied" && lateResult.lastPromptFeedback?.requestId === requestC.request_id, "the authoritative result did not settle the locally timed-out request", lateResult);
+    assert(lateResult.selectedPromptVersion === 5, "the authoritative result did not refresh the timed-out request version", lateResult);
+    const beforeLateDuplicate = await requestSnapshotCount(driver);
+    await deliver(driver, promptControlApplied(requestC, 5, LATE_TEXT), trace);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+    const afterLateDuplicate = await requestSnapshotCount(driver);
+    evidence.observations.lateDuplicate = { beforeDuplicate: beforeLateDuplicate, afterDuplicate: afterLateDuplicate };
+    assert(afterLateDuplicate.count === beforeLateDuplicate.count, "a duplicate late result re-triggered the settled request refresh", { beforeLateDuplicate, afterLateDuplicate });
     const totals = await countOutbound(driver, { type: "prompt_control" });
-    assert(totals.count === 2, "duplicate/out-of-order results caused an extra prompt request", totals);
+    assert(totals.count === 3, "duplicate/out-of-order or late-result handling caused an extra prompt request", totals);
     await artifacts.screenshot("final");
   },
 

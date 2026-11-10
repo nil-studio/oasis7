@@ -1,5 +1,5 @@
 const PROMPT_RESULT_STATUSES = new Set(["accepted", "applied", "stale", "rejected", "blocked"]);
-const TERMINAL_PROMPT_STAGES = new Set(["applied", "stale", "rejected", "blocked", "error"]);
+const TERMINAL_PROMPT_STAGES = new Set(["applied", "stale", "rejected", "blocked"]);
 
 export function createViewerPromptControlModule({
   applyPromptAckLocally,
@@ -200,11 +200,14 @@ export function createViewerPromptControlModule({
 
   // Duplicate or late results for an already settled request must not re-enter
   // the ack/error path: an applied request may not trigger a second snapshot
-  // refresh, version advance or visible feedback rewrite.
+  // refresh, version advance or visible feedback rewrite. A locally timed-out
+  // request is different: it carries no authoritative response yet, so its
+  // correlated server ack/error must still be allowed to settle the feedback.
   function settledRequest(pending, requestId) {
     return TERMINAL_PROMPT_STAGES.has(String(pending?.stage || ""))
       && requestId != null
-      && requestId === pending?.requestId;
+      && requestId === pending?.requestId
+      && pending?.response != null;
   }
 
   function handleAck(ack) {
