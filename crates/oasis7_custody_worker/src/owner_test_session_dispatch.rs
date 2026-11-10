@@ -44,7 +44,13 @@ pub(crate) async fn dispatch(
             session_authority::observe(env, &saved, input.clone(), &original.signed, false).await?;
         store
             .consume_test_session((**original).clone(), || {
-                session_authority::approval_current(state, env, &observed, &enrollment, started)
+                session_authority::approval_current_from_store(
+                    &store,
+                    env,
+                    &observed,
+                    &enrollment,
+                    started,
+                )
             })
             .await
             .map_err(|_| denied())?;
@@ -81,7 +87,7 @@ pub(crate) async fn dispatch(
             json(
                 store
                     .claim_test_session_source(id, source, || {
-                        session_authority::current(state, env, &observed, false)
+                        session_authority::current_from_store(&store, env, &observed, false)
                     })
                     .map_err(|_| denied())?,
             )
@@ -96,7 +102,7 @@ pub(crate) async fn dispatch(
             let observed = session_authority::observe(env, &saved, input, &original, false).await?;
             store
                 .complete_test_session_source(id, source, *original, || {
-                    session_authority::current(state, env, &observed, true)
+                    session_authority::current_from_store(&store, env, &observed, true)
                 })
                 .await
                 .map_err(|_| denied())?;
@@ -126,7 +132,9 @@ pub(crate) async fn dispatch(
             let (permit, signing) = store
                 .test_session_preflight_permit(id, role, access.map(|v| *v), || {
                     Ok(TestSessionPreflightOwned {
-                        native: session_authority::current(state, env, &observed, true)?,
+                        native: session_authority::current_from_store(
+                            &store, env, &observed, true,
+                        )?,
                         source_operation_id: source.clone(),
                         source_ticket,
                         oracle_ticket,
@@ -164,7 +172,9 @@ pub(crate) async fn dispatch(
                 store
                     .publish_test_session_read(id, *original, || {
                         Ok(TestSessionPreflightOwned {
-                            native: session_authority::current(state, env, &observed, true)?,
+                            native: session_authority::current_from_store(
+                                &store, env, &observed, true,
+                            )?,
                             source_operation_id: source.clone(),
                             source_ticket,
                             oracle_ticket,
@@ -186,7 +196,9 @@ pub(crate) async fn dispatch(
             store
                 .record_test_session_lifetime(id, *original, || {
                     Ok(TestSessionPreflightOwned {
-                        native: session_authority::current(state, env, &observed, true)?,
+                        native: session_authority::current_from_store(
+                            &store, env, &observed, true,
+                        )?,
                         source_operation_id: source.clone(),
                         source_ticket,
                         oracle_ticket: 5,
@@ -202,7 +214,6 @@ pub(crate) async fn dispatch(
             private_sid_generation,
         } => {
             activate(
-                state,
                 env,
                 &store,
                 &saved,
@@ -230,7 +241,6 @@ extern "C" {
     async fn attest(env: &Env, raw: &str) -> std::result::Result<JsValue, JsValue>;
 }
 async fn activate(
-    state: &JsValue,
     env: &Env,
     store: &OwnerProvisionApprovalStore,
     saved: &ProvisionApprovalSnapshot,
@@ -318,7 +328,11 @@ async fn activate(
             world,
             attestation.private_sid_generation,
             descriptor.source_operation_id,
-            || session_authority::approval_current(state, env, &observed, &enrolled, started),
+            || {
+                session_authority::approval_current_from_store(
+                    store, env, &observed, &enrolled, started,
+                )
+            },
             &diagnostic,
         )
         .await
