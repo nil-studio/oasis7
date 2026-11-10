@@ -577,60 +577,7 @@ impl Store {
         self.validate_refs(&self.body)
     }
     fn validate_refs(&self, body: &HotBody) -> Result<(), FormalError> {
-        if let Some(reference) = &body.data_closure {
-            hash_hex(reference)?;
-            if body.head_node.is_none() {
-                return Err(invalid("local data closure requires local Qualified head"));
-            }
-            let record: super::incremental::local_closure::LocalDataClosureRecordV1 =
-                self.get(reference)?;
-            record.validate_scope(body)?;
-        }
-
-        if body.head.position > 0
-            && (body.index.is_none()
-                || (body.head_node.is_none() && body.imported_head_node.is_none()))
-        {
-            return Err(invalid(
-                "formal nonzero head requires permanent request/history roots",
-            ));
-        }
-
-        if let Some(id) = &body.imported_head_node {
-            let node: HistoryNode = self.get(id)?;
-            let parent = body
-                .base_parent
-                .as_ref()
-                .ok_or_else(|| invalid("formal imported archive missing verified cut"))?;
-            if node.head.position != parent.record.position
-                || node.head.record_id != parent.record.record_id()?
-            {
-                return Err(invalid("formal imported archive canonical cut"));
-            }
-        }
-        if let Some(root) = &body.index {
-            let _: Index = self.get(root)?;
-        }
-        if let Some(id) = &body.pending {
-            let _: FormalRequestStateV1 = self.get(id)?;
-        }
-        if let Some(id) = &body.head_node {
-            let node: HistoryNode = self.get(id)?;
-            if node.head != body.head || node.ancestors.len() > 64 {
-                return Err(invalid("formal head/node"));
-            }
-            let entry: FormalRequestStateV1 = self.get(&node.entry)?;
-            if entry.local_data_closure_reference() != body.data_closure.as_deref() {
-                return Err(invalid("local data closure checkpoint/Qualified mismatch"));
-            }
-            if !matches!(entry, FormalRequestStateV1::Qualified { .. })
-                || entry.position() != node.head.position
-                || entry.request_digest() != node.request
-            {
-                return Err(invalid("formal qualified head entry"));
-            }
-        }
-        Ok(())
+        native_refs::validate_refs_with(body, &mut native_refs::LegacyReferenceOps(self))
     }
     pub fn publish_with(
         &mut self,
@@ -1138,3 +1085,13 @@ impl Store {
 
 #[path = "endpoint_store_bounded_signed_checkpoint.rs"]
 pub(in crate::controlled_authority::formal) mod bounded_signed_checkpoint;
+
+#[cfg(feature = "test-support")]
+#[path = "endpoint_genesis_fixture_support.rs"]
+mod genesis_fixture_support;
+
+#[path = "endpoint_store_native_refs.rs"]
+mod native_refs;
+
+#[path = "endpoint_store_bounded_native_refs.rs"]
+pub(super) mod bounded_native_refs;

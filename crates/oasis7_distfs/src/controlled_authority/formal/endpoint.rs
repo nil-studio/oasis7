@@ -106,7 +106,7 @@ pub struct FileFormalEndpoint {
     published_closure_jobs:
         std::collections::BTreeMap<String, store::published_closure::ClosureJob>,
     iws_page_store: Option<incremental::IwsPageStoreCapabilityV1>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     controlled: bool,
 }
 impl FileFormalEndpoint {
@@ -212,10 +212,10 @@ impl FileFormalEndpoint {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled,
         };
-        if controlled && !cfg!(test) {
+        if controlled && !cfg!(any(test, feature = "test-support")) {
             return Err(FormalError::FencingUnproven);
         }
         let _guard = endpoint.guard()?;
@@ -266,7 +266,7 @@ impl FileFormalEndpoint {
                 return Err(FormalError::FencingUnproven);
             }
             let evidence = guard.evidence().map_err(fencing_error)?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             if self.controlled
                 && evidence.statement.capability
                     == fencing::ProviderCapabilityV1::ControlledLocalTest

@@ -35,6 +35,8 @@ polling = "3.11.0"
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
 
 [features]
+# Fresh IWS-only fixture entry; never enables local production signing.
+test-support = []
 sync-builtin-wasm-identity = ["dep:oasis7_wasm_build"]
 
 [[bin]]

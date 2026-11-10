@@ -507,7 +507,7 @@ impl DurableSetCandidateV1 {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;
@@ -627,7 +627,7 @@ impl FileFormalEndpoint {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;

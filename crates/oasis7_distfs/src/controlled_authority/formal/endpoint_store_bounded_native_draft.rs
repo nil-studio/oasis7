@@ -239,6 +239,9 @@ impl std::fmt::Debug for PaidNativeCheckpointDraftV1<'_> {
     }
 }
 impl PaidNativeCheckpointDraftV1<'_> {
+    pub(super) fn source_store(&self) -> &Store {
+        self.store
+    }
     pub(in crate::controlled_authority) fn body(&self) -> &HotBody {
         &self.body
     }
