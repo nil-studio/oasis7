@@ -311,8 +311,16 @@ class Capacity(unittest.TestCase):
     def test_native_prerequisite_failure_stops_before_metadata_or_analysis(self):
         self.research_prepare_case(native_failure=True)
 
+    def test_qualifier_research_admits_slow_native_install_before_metadata(self):
+        self.research_prepare_case(mode='qualifier-research',source_sha=m.CAPACITY_SOURCE,
+                                  actual_version='2.27.4',slow_native=True)
+
+    def test_capacity_keeps_original_native_install_limit(self):
+        self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,
+                                  actual_version='2.27.4',slow_native=True)
+
     def research_prepare_case(self,create_lock=False,identity_failure=False,metadata_failure=False,missing_vendor=False,native_failure=False,
-                              mode='official-default-research',source_sha=None,actual_version='2.27.3',wrong_cli=False):
+                              mode='official-default-research',source_sha=None,actual_version='2.27.3',wrong_cli=False,slow_native=False):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
@@ -330,9 +338,15 @@ class Capacity(unittest.TestCase):
                 (source/'vendor').mkdir();(source/'vendor/Cargo.toml').write_text('[workspace]\n')
                 manifests.append('vendor/Cargo.toml')
             frozen={'Cargo.lock':{'sha256':hashlib.sha256(b'initial lock').hexdigest()}}
-            commands=[]
+            commands=[];clock=[100.0]
             def run(argv,cwd,output,*args,**kwargs):
                 commands.append(argv)
+                if slow_native and argv[0]=='sudo':
+                    duration=6 if 'update' in argv else 200
+                    allowed=int(argv[5])
+                    clock[0]+=min(duration,allowed)
+                    if duration>allowed:
+                        raise m.runtime.PhaseError({'failure_kind':'child_exit','exit':124})
                 if native_failure and argv[0]=="pkg-config":raise RuntimeError("native prerequisite failed")
                 if create_lock and argv[0]=='cargo':(source/'Cargo.lock').write_text('created during metadata')
                 if mode=='official-default-research':self.assertNotIn('compile',argv)
@@ -357,6 +371,7 @@ class Capacity(unittest.TestCase):
                 patch.object(m,'verify_action_config'),patch.object(m.runtime,'run',side_effect=run),
                 patch.object(m,'after_identity',return_value={'source':'UNCHANGED','official':'UNCHANGED'})]
             if mode=='official-default-research':patches.append(patch.object(m,'semantic_queries',side_effect=AssertionError('custom queries forbidden')))
+            if slow_native:patches.append(patch.object(m.time,'monotonic',side_effect=lambda:clock[0]))
             for item in patches:stack.enter_context(item)
             # Layout admission still precedes expensive work.
             out.mkdir();(out/'collection-layout.json').write_text('{"status":"PASS"}')
@@ -379,6 +394,14 @@ class Capacity(unittest.TestCase):
                 self.assertFalse((root/"outputs").exists())
                 terminal=json.loads((out/"capacity-prepare-terminal.json").read_text())
                 self.assertEqual(terminal["native_preparation"],"INCOMPLETE")
+                return
+            if slow_native and mode!='qualifier-research':
+                with self.assertRaises(m.runtime.PhaseError) as failure:m.main()
+                self.assertEqual(failure.exception.result['exit'],124)
+                self.assertEqual(len(commands),2)
+                self.assertFalse((root/'outputs').exists())
+                terminal=json.loads((out/'capacity-prepare-terminal.json').read_text())
+                self.assertEqual(terminal['native_preparation'],'INCOMPLETE')
                 return
             if metadata_failure:
                 with self.assertRaisesRegex(RuntimeError,'original metadata failure'):m.main()
@@ -412,6 +435,9 @@ class Capacity(unittest.TestCase):
             elif mode=='qualifier-research':self.assertEqual(terminal['analysis_minutes'],25)
             else:self.assertEqual(terminal['analysis_minutes'],75 if source_sha==m.CAPACITY_SOURCE else 45)
             self.assertEqual(terminal['native_preparation'],'PASS')
+            native_budget=json.loads((out/'native-budget.json').read_text())
+            self.assertEqual(native_budget['maximum_seconds'],360 if mode=='qualifier-research' else 180)
+            self.assertEqual(len(native_budget['allocations']),4)
             native_index=next(i for i,argv in enumerate(commands) if argv[0]=='pkg-config')
             metadata_index=next(i for i,argv in enumerate(commands) if argv[0]=='cargo')
             self.assertLess(native_index,metadata_index)
@@ -652,6 +678,8 @@ class Capacity(unittest.TestCase):
         self.assertIn('default: capacity',text)
         self.assertIn('official-default-research',text)
         self.assertIn("inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90",text)
+        prepare=text.split('      - id: prepare\n',1)[1].split('      - id: analyze\n',1)[0]
+        self.assertIn("timeout-minutes: ${{ inputs.mode == 'qualifier-research' && 11 || 8 }}",prepare)
         self.assertEqual(text.count('--mode "$CAPACITY_MODE"'),4)
 
     def test_mode_specific_source_selection_preserves_research_pin(self):
