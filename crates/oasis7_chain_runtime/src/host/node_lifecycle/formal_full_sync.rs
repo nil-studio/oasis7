@@ -20,7 +20,7 @@ use oasis7_client_api::world_service::{
 };
 use oasis7_client_api::world_service_full_sync::{
     FORMAL_FULL_SYNC_MANIFEST_PATH, FORMAL_FULL_SYNC_OBJECT_PATH,
-    FormalFullSyncArtifactRoleV1 as WireArtifactRole, FormalFullSyncCutV1,
+    FormalFullSyncCutV1,
     FormalFullSyncManifestRequestV1, FormalFullSyncManifestV1, FormalFullSyncObjectChunkV1,
     FormalFullSyncObjectRequestV1, FormalNodeReadGrantV1, FormalNodeReadRoleV1,
     MAX_FULL_SYNC_CHUNK_BYTES, MAX_FULL_SYNC_RECORD_BYTES,
@@ -45,7 +45,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 #[path = "formal_full_sync_cas.rs"]
 pub(super) mod cas_lifecycle;
@@ -61,6 +61,12 @@ pub(super) mod history_chain;
 mod native_environment;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
+#[path = "formal_full_sync_attempt.rs"]
+mod attempt;
+use attempt::{
+    FullSyncAttemptV1, cut_from_anchor, native_role, nondecreasing_cut, now_unix_ms, object_bytes,
+    valid_hex, verified_anchor, verified_local_object,
+};
 use cas_lifecycle::CasBudget;
 pub(super) use compatibility::probe_runtime_compatibility;
 pub(crate) use providers::FormalFullSyncConfigV1;
@@ -226,32 +232,6 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
     pub world: World,
     pub cut: FormalFullSyncCutV1,
     retained_cas_hashes: std::collections::BTreeSet<String>,
-}
-
-/// One `sync_latest()` operation across every configured provider. The first
-/// independently verified target stays fixed for later providers, and material
-/// bytes already charged by a failed provider remain charged for this call.
-struct FullSyncAttemptV1 {
-    budget: CasBudget,
-    target: Option<FullSyncTargetV1>,
-}
-
-struct FullSyncTargetV1 {
-    anchor: VerifiedFormalReadAnchorV1,
-    cut: FormalFullSyncCutV1,
-}
-
-impl FullSyncAttemptV1 {
-    fn new(max_bytes: u64) -> Self {
-        Self {
-            budget: CasBudget::new(max_bytes),
-            target: None,
-        }
-    }
-
-    fn pin_target(&mut self, anchor: VerifiedFormalReadAnchorV1, cut: FormalFullSyncCutV1) {
-        self.target = Some(FullSyncTargetV1 { anchor, cut });
-    }
 }
 
 pub(crate) struct FormalFullSyncSession {
@@ -668,10 +648,26 @@ impl FormalFullSyncSession {
                     .into(),
             );
         }
+        // A failed provider may have charged a digest that it never persisted.
+        // Pinning those charges would make a healthy alternate fail later at
+        // `stored_blob_bytes`. Only objects that actually exist in the local
+        // CAS after a fully verified candidate can become the loaded-world pin.
+        let present: std::collections::BTreeSet<String> = self
+            .cas
+            .list_blob_hashes()
+            .map_err(|error| format!("list full-sync CAS blobs: {error:?}"))?
+            .into_iter()
+            .collect();
+        let retained_cas_hashes = attempt
+            .budget
+            .objects
+            .intersection(&present)
+            .cloned()
+            .collect();
         Ok(RestoredFormalFullSyncWorldV1 {
             world,
             cut,
-            retained_cas_hashes: attempt.budget.objects.clone(),
+            retained_cas_hashes,
         })
     }
 
@@ -1154,99 +1150,3 @@ impl BusinessIndexNodeReader for LocalVerifiedBusinessIndexReader {
     }
 }
 
-fn verified_anchor(
-    view: &VerifiedWorldView,
-    config: &FormalFullSyncConfigV1,
-) -> Result<VerifiedFormalReadAnchorV1, String> {
-    let commit = view
-        .formal_commit()
-        .ok_or("full-sync source read has no independently verified commit")?;
-    let anchor = view
-        .formal_read_anchor()
-        .ok_or("full-sync source read has no independently verified read anchor")?;
-    if commit.record() != anchor.head().record()
-        || commit.finalizing_authority_id() != anchor.head().finalizing_authority_id()
-        || anchor.authority().definition().profile_version != 2
-        || anchor.head().record().world.world_id != config.world_id
-        || anchor.head().record().world.chain_id != config.chain_id
-        || anchor.head().record().world.genesis_digest != config.genesis_digest
-    {
-        return Err("full-sync source proof differs from configured World or exact cut".into());
-    }
-    Ok(anchor.clone())
-}
-
-fn cut_from_anchor(anchor: &VerifiedFormalReadAnchorV1) -> Result<FormalFullSyncCutV1, String> {
-    let record = anchor.head().record();
-    Ok(FormalFullSyncCutV1 {
-        world: WorldIdentity {
-            world_id: record.world.world_id.clone(),
-            genesis_digest: record.world.genesis_digest.clone(),
-        },
-        chain_id: record.world.chain_id.clone(),
-        position: record.position,
-        record_id: record.record_id().map_err(|error| error.to_string())?,
-        after_state_root: record.after_state_root.clone(),
-        active_authority_id: anchor
-            .authority()
-            .authority_id()
-            .map_err(|error| error.to_string())?,
-        finalizing_authority_id: anchor.head().finalizing_authority_id().to_owned(),
-        authority_epoch: anchor.authority().definition().epoch,
-    })
-}
-
-fn native_role(role: WireArtifactRole) -> ArtifactRole {
-    match role {
-        WireArtifactRole::Input => ArtifactRole::Input,
-        WireArtifactRole::Result => ArtifactRole::Result,
-        WireArtifactRole::Snapshot => ArtifactRole::Snapshot,
-        WireArtifactRole::Journal => ArtifactRole::Journal,
-        WireArtifactRole::NonceIndex => ArtifactRole::NonceIndex,
-        WireArtifactRole::EffectOutbox => ArtifactRole::EffectOutbox,
-        WireArtifactRole::ExecutionManifest => ArtifactRole::ExecutionManifest,
-        WireArtifactRole::Wasm => ArtifactRole::Wasm,
-        WireArtifactRole::Rules => ArtifactRole::Rules,
-        WireArtifactRole::NativeExecutionEnvironment => ArtifactRole::NativeExecutionEnvironment,
-    }
-}
-
-fn object_bytes<'a>(material: &'a ClosedRecord, digest: &str) -> Result<&'a [u8], String> {
-    material
-        .objects
-        .iter()
-        .find(|object| object.content_hash == digest)
-        .map(|object| object.bytes.as_slice())
-        .ok_or_else(|| "full-sync artifact object missing from checked closure".into())
-}
-
-fn verified_local_object(store: &LocalCasStore, digest: &str) -> Result<Option<Vec<u8>>, String> {
-    match store.get_verified(digest) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(oasis7_proto::world_error::WorldError::BlobNotFound { .. }) => Ok(None),
-        Err(error) => Err(format!(
-            "local content-addressed object is invalid: {error:?}"
-        )),
-    }
-}
-
-fn nondecreasing_cut(previous: &FormalFullSyncCutV1, current: &FormalFullSyncCutV1) -> bool {
-    previous.world == current.world
-        && previous.chain_id == current.chain_id
-        && current.position >= previous.position
-        && (current.position != previous.position || current == previous)
-}
-
-fn valid_hex(value: &str, bytes: usize) -> bool {
-    value.len() == bytes * 2
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn now_unix_ms() -> Option<u64> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|time| u64::try_from(time.as_millis()).ok())
-}

@@ -422,7 +422,6 @@ fn synced_material_budget_charges_each_digest_once_across_provider_attempts() {
 fn synced_material_budget_resets_only_the_traversal_allowance_per_traversal() {
     let mut budget = CasBudget::new(64);
     budget.visited_paths = MAX_RETAINED_TREE_NODES;
-    budget.visited_paths = MAX_RETAINED_TREE_NODES;
     budget.add("material", 1).expect("material bytes stay charged");
 
     budget.begin_traversal();

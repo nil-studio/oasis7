@@ -578,3 +578,129 @@ fn formal_full_sync_rejects_over_budget_material_without_publishing_then_recover
     server.stop().unwrap();
     runtime.lock().unwrap().stop().unwrap();
 }
+
+#[test]
+fn formal_full_sync_pins_only_objects_the_successful_candidate_persisted() {
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let (mut server, endpoint, service_key, runtime, _published, _history) = start_live_service(
+        world,
+        trust.clone(),
+        anchor.clone(),
+        material.clone(),
+        proof,
+    );
+    let node_key = test_key(92);
+    let config = config(endpoint, service_key, vec![], trust, &node_key);
+    let state_dir = TestPrivateDir::new();
+    let mut session = FormalFullSyncSession::new(
+        config,
+        hex::encode(node_key.to_bytes()),
+        &state_dir.0.join("full-sync"),
+        &local_instance("failed-provider-charge"),
+    )
+    .unwrap();
+
+    // Model a provider that charged one of its unique digests and then failed
+    // before persisting it. The succeeding provider never fetches that digest.
+    let unpersisted = test_hash(200);
+    let mut attempt = super::super::FullSyncAttemptV1::new(64 * 1024 * 1024);
+    attempt
+        .budget
+        .add(&unpersisted, 4_096)
+        .expect("failed provider charged its unique digest");
+
+    let restored = session.sync_latest_inner(&mut attempt).unwrap();
+
+    assert!(!restored.retained_cas_hashes.contains(&unpersisted));
+    assert!(
+        restored
+            .retained_cas_hashes
+            .contains(&material.roots[&ArtifactRole::Snapshot])
+    );
+    super::super::cas_lifecycle::replace_loaded_world_pins(
+        &session.cas,
+        &restored.retained_cas_hashes,
+    )
+    .expect("a missing failed-provider charge must not block the verified candidate");
+
+    server.stop().unwrap();
+    runtime.lock().unwrap().stop().unwrap();
+}
+
+#[test]
+fn formal_full_sync_shared_budget_accumulates_prior_charges_without_publishing() {
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let (mut server, endpoint, service_key, runtime, _published, _history) = start_live_service(
+        world,
+        trust.clone(),
+        anchor.clone(),
+        material.clone(),
+        proof,
+    );
+    let node_key = test_key(92);
+    let node_private_key = hex::encode(node_key.to_bytes());
+    let declared: u64 = material
+        .objects
+        .iter()
+        .map(|object| object.bytes.len() as u64)
+        .sum();
+    // The record closure itself exactly fits; the digest already charged by a
+    // failed provider then pushes the shared attempt budget over its bound.
+    let mut limited = config(
+        endpoint.clone(),
+        service_key.clone(),
+        vec![],
+        trust.clone(),
+        &node_key,
+    );
+    limited.max_total_sync_bytes = declared;
+    let state_dir = TestPrivateDir::new();
+    let cas_root = state_dir.0.join("full-sync");
+    let mut session = FormalFullSyncSession::new(
+        limited,
+        node_private_key.clone(),
+        &cas_root,
+        &local_instance("shared-budget-limit"),
+    )
+    .unwrap();
+    let mut attempt = super::super::FullSyncAttemptV1::new(declared);
+    attempt
+        .budget
+        .add(&test_hash(201), 1)
+        .expect("prior provider charge is below the bound by itself");
+
+    let error = match session.sync_latest_inner(&mut attempt) {
+        Ok(_) => panic!("shared budget must reject the accumulated charges"),
+        Err(error) => error,
+    };
+
+    assert!(error.contains("exceeds configured protocol bound"), "{error}");
+    assert_eq!(session.status().loaded_cut, None);
+    assert!(
+        session
+            .cas
+            .list_effective_pins()
+            .unwrap()
+            .is_empty(),
+        "a rejected candidate must not publish a partial pin set"
+    );
+    drop(session);
+
+    // The unchanged record fits on its own, so a fresh attempt recovers.
+    let mut recovered = config(endpoint, service_key, vec![], trust, &node_key);
+    recovered.max_total_sync_bytes = 64 * 1024 * 1024;
+    let mut session = FormalFullSyncSession::new(
+        recovered,
+        node_private_key,
+        &cas_root,
+        &local_instance("shared-budget-limit"),
+    )
+    .unwrap();
+    let restored = session.sync_latest().unwrap();
+    assert_eq!(restored.cut, cut(&anchor));
+    assert_eq!(session.status().loaded_cut, Some(cut(&anchor)));
+    assert!(session.status().ready);
+
+    server.stop().unwrap();
+    runtime.lock().unwrap().stop().unwrap();
+}
