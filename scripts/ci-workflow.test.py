@@ -3783,5 +3783,69 @@ class AptWorkflow(unittest.TestCase):
                       (ROOT / 'scripts/ci-tests.sh').read_text())
 
 
+# Append this class before unittest.main() in scripts/ci-workflow.test.py.
+# It uses that module's existing JOBS, os, Path, subprocess, tempfile,
+# textwrap and unittest imports. Root owns the shared workflow test file.
+class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
+    def test_only_chain_runtime_native_artifact_owners_skip_compiler_preparation(self):
+        job = JOBS['oasis7-required']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        prepared = [step for step in steps if any(marker in step for marker in (
+            'name: Install pinned Rust toolchains', 'name: Stabilize Rust cache toolchains',
+            'uses: Swatinem/rust-cache@'))]
+        self.assertEqual(len(prepared), 3)
+        for step in prepared:
+            condition = re.search(r'^        if: >-\n(.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
+            for version in (None, 1, 2):
+                for owner in ('controls', 'native-0', 'native-1', 'native-2', 'native-3',
+                              'all', 'runtime', 'oasis7_runtime', 'unknown'):
+                    for packages in (['oasis7_chain_runtime'], ['oasis7_chain_runtime', 'oasis7_game_client'],
+                                     ['oasis7_game_client'], []):
+                        values = {
+                            'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': version,
+                            'matrix.partition': owner,
+                            "join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',')": ','.join(packages),
+                        }
+                        skipped = (version == 2 and owner in ('native-0', 'native-1', 'native-2', 'native-3')
+                                   and packages == ['oasis7_chain_runtime'])
+                        with self.subTest(version=version, owner=owner, packages=packages):
+                            self.assertEqual(effective_job_condition(condition, values, []), not skipped)
+                            self.assertFalse(effective_job_condition(condition, values, ['failure']))
+        native = next(step for step in steps if 'name: Install native libraries' in step)
+        self.assertNotIn('        if:', native)
+        self.assertIn('scripts/ci-apt-install.py --budget-seconds 600', native)
+
+    def test_actual_native_consumer_forwards_every_trusted_owner_and_failure(self):
+        job = JOBS['oasis7-required']
+        header = job.split('    steps:', 1)[0]
+        self.assertIn('partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}', header)
+        self.assertIn('max-parallel: 5', header)
+        self.assertIn('fail-fast: false', header)
+        self.assertNotIn('include:', header)
+        self.assertNotIn('exclude:', header)
+        self.assertIn('needs: [select, oasis7-test-build]', header)
+        self.assertIn('oasis7-required', JOBS['required-gate'])
+        step = job.split('      - name: Execute selected group\n', 1)[1]
+        script = textwrap.dedent(step.split('        run: ', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\nexit "$DRIVER_EXIT"\n')
+            for owner in ('controls', 'native-0', 'native-1', 'native-2', 'native-3',
+                          'all', 'runtime', 'component-libs', 'integrations-0', 'integrations-1',
+                          'oasis7_runtime', 'oasis7_world_state'):
+                for code in (0, 19):
+                    result = subprocess.run(['bash', '-c', script], cwd=root,
+                        text=True, capture_output=True, env=dict(os.environ,
+                        RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root), ORDINARY_PARTITION=owner,
+                        ARGV_LOG=str(root / 'args'), DRIVER_EXIT=str(code)))
+                    with self.subTest(owner=owner, code=code):
+                        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                        self.assertEqual((root / 'args').read_text().strip('\0').split('\0'), [
+                            'required', '--group', 'oasis7_required', '--plan', str(root / 'selection.json'),
+                            '--ordinary-partition', owner, '--repo-root', str(root)])
+
+
 if __name__ == '__main__':
     unittest.main()

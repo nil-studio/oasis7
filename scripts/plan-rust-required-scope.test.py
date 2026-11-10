@@ -3008,7 +3008,7 @@ class Selection(unittest.TestCase):
         old.pop('workspace_support_partition_version')
         self.assertNotIn('ordinary_partitions', selector.select(old, self.base, head, profile='pr-fast'))
         for field in ('ordinary_artifact_partition_version', 'workspace_support_partition_version'):
-            for invalid in (True, 2, None):
+            for invalid in (True, 3 if field == 'ordinary_artifact_partition_version' else 2, None):
                 with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
                     selector.validate_config(dict(config, **{field: invalid}))
 
@@ -3831,6 +3831,96 @@ class Selection(unittest.TestCase):
         self.assertEqual(json.loads(outputs['formal_shards']), sorted(selector.FORMAL_SUITES))
         self.assertEqual(outputs['command_center_package'], 'true')
 
+
+
+class TargetedRuntimePartitionPlans(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    source = 'crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync.rs'
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_chain_runtime/Cargo.toml',
+                   '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\n'
+                   '[features]\ndefault=["wasmtime","node-libp2p"]\nwasmtime=[]\nnode-libp2p=[]\n'
+                   'test_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
+        self.write('crates/oasis7_chain_runtime/src/lib.rs',
+                   '#[path="host/node_lifecycle/formal_full_sync.rs"] mod formal_full_sync;\n')
+        self.write(self.source, 'pub fn target_cut() -> u64 { 1 }\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def test_targeted_chain_runtime_retains_original_plan_and_all_build_inputs(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                current = selector.select(self.config, self.base, head, profile=profile)
+                legacy = selector.select(self.config | {'ordinary_artifact_partition_version': 1},
+                                         self.base, head, profile=profile)
+                self.assertEqual(current['scope'], 'targeted')
+                self.assertEqual(current['ordinary_artifact_partition_version'], 2)
+                self.assertEqual(current['ordinary_partitions'],
+                                 ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                self.assertEqual(current['oasis7_required_packages'], ['oasis7_chain_runtime'])
+                self.assertIs(current['test_policy_changed'], False)
+                self.assertNotIn('ordinary_fast_targets', current)
+                self.assertNotIn('fast_execution_version', current)
+                self.assertEqual({key: value for key, value in current.items()
+                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions')},
+                                 legacy)
+
+    def test_old_baseline_cannot_be_enrolled_by_candidate_configuration(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config) + '\n')
+        candidate_head = self.commit()
+        for version in (None, 1):
+            old = copy.deepcopy(self.config)
+            if version is None:
+                old.pop('ordinary_artifact_partition_version')
+            else:
+                old['ordinary_artifact_partition_version'] = version
+            with self.subTest(version=version):
+                selected = selector.select(old, self.base, head, profile='pr-fast')
+                self.assertNotIn('ordinary_partitions', selected)
+                candidate = selector.select(old, self.base, candidate_head, profile='pr-fast')
+                self.assertNotEqual(candidate.get('ordinary_artifact_partition_version'), 2)
+
+    def test_full_profiles_and_policy_changes_keep_the_existing_complete_path(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
+                   '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
+        head = self.commit()
+        changed = selector.select(self.config, self.base, head, profile='pr-fast')
+        self.assertIs(changed['test_policy_changed'], True)
+        self.assertNotEqual(changed.get('ordinary_artifact_partition_version'), 2)
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                complete = selector.full_plan(self.config, profile, head)
+                self.assertEqual(complete['ordinary_artifact_partition_version'], 1)
+                self.assertEqual(complete['ordinary_partitions'],
+                                 ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+
+    def test_only_targeted_noninline_chain_runtime_with_explicit_unchanged_policy_is_partitioned(self):
+        original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
+                        test_policy_changed=False, oasis7_required_packages=['oasis7_chain_runtime'])
+        for key, value in [
+            ('ordinary_execution', 'inline'), ('oasis7_required_packages', ['oasis7_runtime']),
+            ('groups', ['baseline']), ('execution_profile', 'candidate-full'),
+            *[('test_policy_changed', item) for item in (None, True, 0, '', [], {}, 'false')],
+        ]:
+            with self.subTest(key=key, value=value):
+                selected = original | {key: value}
+                selector.complete_ordinary_partitions(self.config, selected)
+                self.assertNotIn('ordinary_artifact_partition_version', selected)
+        for version in (None, False, True, 0, 3, '2'):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, 'ordinary artifact'):
+                selector.validate_config(self.config | {'ordinary_artifact_partition_version': version})
+        selector.validate_config(self.config | {'ordinary_artifact_partition_version': 1})
+        selector.validate_config(self.config)
 
 
 class CustodyExecutionPlans(unittest.TestCase):

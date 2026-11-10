@@ -1201,8 +1201,12 @@ run_group() {
     baseline) run_required_gate_checks ;;
     rust_baseline) run_rust_baseline ;;
     oasis7_required)
+      if [[ -n "${ordinary_partition:-}" ]]; then
+        run "$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+          --plan "$required_plan" --phase partition --ordinary-partition "$ordinary_partition" || return
+      fi
       case "${ordinary_partition:-all}" in
-        runtime|component-libs|integrations-0|integrations-1)
+        runtime|component-libs|integrations-0|integrations-1|native-[0-3])
           [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]] || { echo 'Complete ordinary partition requires the shared artifact' >&2; return 2; }
           run "$ci_python" "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" \
             --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary --plan "$required_plan" --ordinary-partition "$ordinary_partition"
