@@ -20,6 +20,34 @@ impl std::fmt::Debug for RetainedIndexRewriteV1 {
     }
 }
 impl RetainedIndexRewriteV1 {
+    pub(super) fn validate_source_directory(
+        &self,
+        store: &Store,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        let guarded = self._guard.initialized_root()?;
+        let bytes = self
+            ._directory
+            .as_os_str()
+            .as_encoded_bytes()
+            .len()
+            .checked_add(guarded.as_os_str().as_encoded_bytes().len())
+            .and_then(|n| n.checked_add(store.path.as_os_str().as_encoded_bytes().len()))
+            .ok_or_else(|| invalid("bounded Index source directory layout"))?;
+        work.charge(
+            1,
+            u64::try_from(bytes).map_err(|_| invalid("bounded Index source directory layout"))?,
+            stop,
+        )?;
+        if guarded != self._directory.as_path()
+            || self._directory.parent() != Some(store.path.as_path())
+            || self._directory.file_name() != Some(std::ffi::OsStr::new("formal-objects-v1"))
+        {
+            return Err(invalid("bounded Index foreign Store namespace"));
+        }
+        Ok(())
+    }
     pub(in crate::controlled_authority::formal::endpoint) fn id(&self) -> &str {
         &self.root
     }

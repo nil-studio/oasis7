@@ -11,6 +11,8 @@ pub(in crate::controlled_authority::formal::endpoint) struct PreparedPendingRequ
     request: ReservedValue<String>,
     entry: ReservedValue<String>,
     index: RetainedIndexRewriteV1,
+    before_checkpoint: ReservedValue<fencing::EndpointCheckpointBindingV1>,
+    identity: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
 }
 impl std::fmt::Debug for PreparedPendingRequestUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,6 +24,44 @@ impl std::fmt::Debug for PreparedPendingRequestUpdate {
     }
 }
 impl PreparedPendingRequestUpdate {
+    pub(super) fn validate_source(
+        &self,
+        store: &Store,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        work.consume_steps(1, stop)?;
+        if !self.uses_budget(memory)
+            || self.identity != work.bounded_context(memory, stop).work().identity()
+        {
+            return Err(invalid("bounded RequestState update foreign context"));
+        }
+        self.index.validate_source_directory(store, work, stop)?;
+        let bytes = self
+            .before_checkpoint
+            .commitment
+            .len()
+            .checked_add(self.before_checkpoint.head.decision_hash.len())
+            .and_then(|n| n.checked_add(store.checkpoint.commitment.len()))
+            .and_then(|n| n.checked_add(store.checkpoint.head.decision_hash.len()))
+            .and_then(|n| n.checked_add(self.before_index().map_or(0, str::len)))
+            .and_then(|n| n.checked_add(store.body.index.as_ref().map_or(0, String::len)))
+            .ok_or_else(|| invalid("bounded RequestState source layout"))?;
+        work.charge(
+            1,
+            u64::try_from(bytes).map_err(|_| invalid("bounded RequestState source layout"))?,
+            stop,
+        )?;
+        if *self.before_checkpoint != store.checkpoint
+            || self.before_index() != store.body.index.as_deref()
+        {
+            return Err(FormalError::Conflict(
+                "bounded RequestState source changed".into(),
+            ));
+        }
+        Ok(())
+    }
     pub(in crate::controlled_authority::formal::endpoint) fn request_digest(&self) -> &str {
         &self.request
     }
@@ -41,9 +81,13 @@ impl PreparedPendingRequestUpdate {
         self.request.uses_budget(memory)
             && self.entry.uses_budget(memory)
             && self.index.uses_budget(memory)
+            && self.before_checkpoint.uses_budget(memory)
     }
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
-        self.request.reserved_bytes() + self.entry.reserved_bytes() + self.index.reserved_bytes()
+        self.request.reserved_bytes()
+            + self.entry.reserved_bytes()
+            + self.index.reserved_bytes()
+            + self.before_checkpoint.reserved_bytes()
     }
 }
 pub(super) fn prepare_request_update_bounded_v1(
@@ -57,6 +101,32 @@ pub(super) fn prepare_request_update_bounded_v1(
     if !source.uses_budget(memory) {
         return Err(invalid("bounded RequestState update foreign pool"));
     }
+    let identity = work.bounded_context(memory, stop).work().identity();
+    let payload = store
+        .checkpoint
+        .commitment
+        .len()
+        .checked_add(store.checkpoint.head.decision_hash.len())
+        .ok_or_else(|| invalid("bounded RequestState checkpoint layout"))?;
+    work.charge(
+        1,
+        u64::try_from(payload).map_err(|_| invalid("bounded RequestState checkpoint layout"))?,
+        stop,
+    )?;
+    let layout = std::mem::size_of::<ReservedValue<fencing::EndpointCheckpointBindingV1>>()
+        .checked_add(std::mem::size_of_val(&identity))
+        .and_then(|n| n.checked_add(payload))
+        .ok_or_else(|| invalid("bounded RequestState checkpoint layout"))?;
+    let before_fee = memory
+        .reserve(layout, MemoryClass::Ordinary)
+        .map_err(|_| invalid("bounded RequestState checkpoint admission"))?;
+    let before = store.checkpoint.clone();
+    if before.commitment.capacity() > before.commitment.len()
+        || before.head.decision_hash.capacity() > before.head.decision_hash.len()
+    {
+        return Err(invalid("bounded RequestState checkpoint capacity"));
+    }
+    let before_checkpoint = before_fee.retain(before);
     let digest = source.state().request_digest();
     work.consume_read_bytes(
         u64::try_from(digest.len()).map_err(|_| invalid("bounded RequestState digest layout"))?,
@@ -108,6 +178,8 @@ pub(super) fn prepare_request_update_bounded_v1(
     let index = store.write_index_insert_plan_bounded(plan, memory, work, stop)?;
     work.consume_steps(1, stop)?;
     Ok(PreparedPendingRequestUpdate {
+        before_checkpoint,
+        identity,
         request,
         entry,
         index,

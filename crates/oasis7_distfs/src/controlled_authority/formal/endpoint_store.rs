@@ -1110,3 +1110,19 @@ impl Store {
         bounded_hot_read::read_hot_bounded_v1(self, expected_public_key, memory, work, stop)
     }
 }
+
+#[path = "endpoint_store_bounded_pending_draft.rs"]
+mod bounded_pending_draft;
+impl Store {
+    pub(super) fn prepare_pending_native_checkpoint_draft_bounded<'a>(
+        &'a self,
+        update: PreparedPendingRequestUpdate,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &super::FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<bounded_native_draft::PaidNativeCheckpointDraftV1<'a>, FormalError> {
+        bounded_pending_draft::prepare_pending_native_checkpoint_draft_bounded_v1(
+            self, update, memory, work, stop,
+        )
+    }
+}

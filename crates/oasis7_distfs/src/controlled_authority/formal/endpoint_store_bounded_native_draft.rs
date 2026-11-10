@@ -223,6 +223,11 @@ fn encode_body(
     )
 }
 
+struct PendingDraftSources {
+    update: super::bounded_request_write::PreparedPendingRequestUpdate,
+    entry: super::bounded_request::PaidRequestStateV1,
+    decision: Option<super::bounded_record_id::PaidCanonicalRecordIdV1>,
+}
 pub(in crate::controlled_authority) struct PaidNativeCheckpointDraftV1<'a> {
     store: &'a Store,
     identity: WorkIdentityV1,
@@ -230,6 +235,7 @@ pub(in crate::controlled_authority) struct PaidNativeCheckpointDraftV1<'a> {
     before: ReservedValue<fencing::EndpointCheckpointBindingV1>,
     preimage: ReservedValue<Vec<u8>>,
     outer: ReservedValue<()>,
+    _pending_sources: Option<PendingDraftSources>,
 }
 impl std::fmt::Debug for PaidNativeCheckpointDraftV1<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -264,12 +270,25 @@ impl PaidNativeCheckpointDraftV1<'_> {
             && self.before.uses_budget(memory)
             && self.preimage.uses_budget(memory)
             && self.outer.uses_budget(memory)
+            && self._pending_sources.as_ref().is_none_or(|source| {
+                source.update.uses_budget(memory)
+                    && source.entry.uses_budget(memory)
+                    && source
+                        .decision
+                        .as_ref()
+                        .is_none_or(|id| id.uses_budget(memory))
+            })
     }
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.body.reserved_bytes()
             + self.before.reserved_bytes()
             + self.preimage.reserved_bytes()
             + self.outer.reserved_bytes()
+            + self._pending_sources.as_ref().map_or(0, |source| {
+                source.update.reserved_bytes()
+                    + source.entry.reserved_bytes()
+                    + source.decision.as_ref().map_or(0, |id| id.reserved_bytes())
+            })
     }
     pub(in crate::controlled_authority) fn validate_context(
         &self,
@@ -297,6 +316,57 @@ pub(super) fn prepare_native_checkpoint_draft_bounded_v1<'a>(
     store: &'a Store,
     ctx: &mut FormalBoundedContextV1<'_>,
 ) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
+    prepare_draft(store, ctx, None)
+}
+pub(super) fn prepare_pending_draft_from_sources_v1<'a>(
+    store: &'a Store,
+    update: super::bounded_request_write::PreparedPendingRequestUpdate,
+    entry: super::bounded_request::PaidRequestStateV1,
+    decision: Option<super::bounded_record_id::PaidCanonicalRecordIdV1>,
+    memory: &MemoryBudget,
+    work: &super::super::FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
+    update.validate_source(store, memory, work, stop)?;
+    if !entry.uses_budget(memory) || decision.as_ref().is_some_and(|id| !id.uses_budget(memory)) {
+        return Err(invalid("bounded pending draft foreign pool"));
+    }
+    let mut ctx = work.bounded_context(memory, stop);
+    let state = entry.state();
+    debit(
+        &mut ctx,
+        add(state.request_digest().len(), update.request_digest().len())?,
+    )?;
+    if state.request_digest() != update.request_digest() {
+        return Err(invalid("bounded pending draft request binding"));
+    }
+    let requires_decision = matches!(
+        state,
+        FormalRequestStateV1::Decided { .. } | FormalRequestStateV1::Ready { .. }
+    );
+    if matches!(state, FormalRequestStateV1::Qualified { .. }) {
+        return Err(invalid(
+            "bounded pending draft Qualified history producer required",
+        ));
+    }
+    if requires_decision != decision.is_some() {
+        return Err(invalid("bounded pending draft decision source"));
+    }
+    prepare_draft(
+        store,
+        &mut ctx,
+        Some(PendingDraftSources {
+            update,
+            entry,
+            decision,
+        }),
+    )
+}
+fn prepare_draft<'a>(
+    store: &'a Store,
+    ctx: &mut FormalBoundedContextV1<'_>,
+    sources: Option<PendingDraftSources>,
+) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
     ctx.consume_steps(1)?;
     if store.body.seal.is_some() {
         return Err(FormalError::Conflict("formal epoch sealed".into()));
@@ -307,6 +377,19 @@ pub(super) fn prepare_native_checkpoint_draft_bounded_v1<'a>(
         .checked_add(1)
         .ok_or_else(|| invalid("formal revision overflow"))?;
     let (h, payload) = body_layout(&store.body, ctx)?;
+    // The original clone remains live while the real retained roots replace
+    // its strings. Reserve the full additional copied payload before cloning.
+    let additional = match &sources {
+        None => 0,
+        Some(source) => add(
+            add(
+                source.update.index_root().len(),
+                source.update.entry_id().len(),
+            )?,
+            source.decision.as_ref().map_or(0, |id| id.id().len()),
+        )?,
+    };
+    let h = add(h, additional)?;
     let body_fee = ctx
         .memory()
         .reserve(h, MemoryClass::Ordinary)
@@ -314,6 +397,22 @@ pub(super) fn prepare_native_checkpoint_draft_bounded_v1<'a>(
     debit(ctx, payload)?;
     let mut next = store.body.clone();
     next.revision = revision;
+    if let Some(source) = &sources {
+        debit(ctx, additional)?;
+        next.index = Some(source.update.index_root().to_owned());
+        next.pending = Some(source.update.entry_id().to_owned());
+        if let Some(id) = &source.decision {
+            let candidate = match source.entry.state() {
+                FormalRequestStateV1::Decided { candidate, .. }
+                | FormalRequestStateV1::Ready { candidate, .. } => candidate,
+                _ => return Err(invalid("bounded pending draft decision source")),
+            };
+            next.decision_head = Some(FormalHeadRefV1 {
+                position: candidate.candidate.record.position,
+                record_id: id.id().to_owned(),
+            });
+        }
+    }
     visit_body(&next, &mut |s| {
         ctx.consume_steps(1)?;
         if s.capacity() > s.len() {
@@ -399,6 +498,7 @@ pub(super) fn prepare_native_checkpoint_draft_bounded_v1<'a>(
         before,
         preimage,
         outer,
+        _pending_sources: sources,
     })
 }
 #[cfg(test)]
