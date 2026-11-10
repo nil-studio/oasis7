@@ -852,6 +852,9 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
             let _ = socket.write_all(&bytes);
         }
     });
+    crate::fresh_submit_timing::take_output();
+    let timing = crate::fresh_submit_timing::test_scope();
+    crate::fresh_submit_timing::arm();
     let result = client.submit_and_poll_until(&request, deadline);
     stop.store(true, Ordering::SeqCst);
     server.join().unwrap();
@@ -872,6 +875,24 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
         "no late capabilities request"
     );
     assert!(result.is_err());
+    drop(timing);
+    let lines = crate::fresh_submit_timing::take_output();
+    let record: Value = serde_json::from_str(&lines[0]).unwrap();
+    let stages: Vec<_> = record["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["stage"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        stages,
+        [
+            "gateway_prepare_begin",
+            "gateway_original_ready",
+            "session_http_send",
+            "session_call_return"
+        ]
+    );
 }
 
 #[test]
@@ -966,6 +987,9 @@ fn trusted_first_gateway_send_posts_submit_before_any_recovery_lookup() {
         }
         assert_eq!(controls, 1);
     });
+    crate::fresh_submit_timing::take_output();
+    let timing = crate::fresh_submit_timing::test_scope();
+    crate::fresh_submit_timing::arm();
     let response = client
         .submit_new_and_poll_until(&original, Instant::now() + Duration::from_secs(3))
         .unwrap();
@@ -977,4 +1001,26 @@ fn trusted_first_gateway_send_posts_submit_before_any_recovery_lookup() {
         }
     ));
     server.join().unwrap();
+    drop(timing);
+    let lines = crate::fresh_submit_timing::take_output();
+    let record: Value = serde_json::from_str(&lines[0]).unwrap();
+    let stages: Vec<_> = record["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["stage"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        stages,
+        [
+            "gateway_prepare_begin",
+            "gateway_original_ready",
+            "session_http_send",
+            "session_call_return",
+            "caps_http_send",
+            "caps_call_return",
+            "submit_http_send",
+            "submit_call_return"
+        ]
+    );
 }

@@ -528,6 +528,11 @@ impl ExecutorGatewayContext {
         maximum: usize,
     ) -> Result<zeroize::Zeroizing<Vec<u8>>, Error> {
         let operation = self.operation(path, request)?;
+        let _timing_transport = crate::fresh_submit_timing::transport(matches!(
+            &operation,
+            EntryExecutorOperationV1::Submit(_)
+        ));
+        crate::fresh_submit_timing::submit_event("gateway_prepare_begin");
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce).map_err(|_| assurance("executor access nonce unavailable"))?;
         let read = ReadWorldViewRequest {
@@ -557,6 +562,7 @@ impl ExecutorGatewayContext {
             .store
             .put_original(&self.scope, &digest, "transport-original", &original)
             .map_err(assurance)?;
+        crate::fresh_submit_timing::submit_event("gateway_original_ready");
         let reply = self
             .identity
             .authenticated_entry_call(
