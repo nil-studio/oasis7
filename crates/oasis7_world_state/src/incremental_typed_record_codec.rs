@@ -259,6 +259,38 @@ impl<T> RecoveredTypedRecordV1<T> {
     pub fn value(&self) -> &T {
         &self.value
     }
+    /// Sum the reservations retained by this decoded record without detaching
+    /// either its value or its fees. This is accounting data, not a guarantee
+    /// about an arbitrary `T::clone`; consumers must verify their closed type's
+    /// allocation model before using it to bound another operation.
+    pub fn retained_allocation_bytes_v1(
+        &self,
+        steps_remaining: &mut u64,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<usize, ValueTreeError> {
+        let mut bytes = 0usize;
+        for reservation in std::iter::once(&self._carrier).chain(self._charges.iter()) {
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled);
+            }
+            *steps_remaining =
+                steps_remaining
+                    .checked_sub(1)
+                    .ok_or(ValueTreeError::ResourceLimited(
+                        "typed record reservation accounting work",
+                    ))?;
+            bytes =
+                bytes
+                    .checked_add(reservation.bytes())
+                    .ok_or(ValueTreeError::ResourceLimited(
+                        "typed record retained allocation bytes",
+                    ))?;
+        }
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        Ok(bytes)
+    }
 }
 pub(crate) struct Decoder<'a, 'v, M, R, E, C> {
     pub(crate) ctx: &'a mut WorldFieldReadContextV1<'v, M, R, E, C>,
@@ -498,3 +530,6 @@ pub(crate) fn validate_typed_cell_v1<
 #[cfg(test)]
 #[path = "incremental_typed_record_charge_tests.rs"]
 mod charge_tests;
+
+#[path = "incremental_meta_progress_owned.rs"]
+pub(crate) mod meta_progress_owned;

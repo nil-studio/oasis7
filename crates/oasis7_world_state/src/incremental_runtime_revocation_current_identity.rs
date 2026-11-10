@@ -83,16 +83,7 @@ where
                 record_bytes: overlay.record_bytes,
                 cancelled: &mut overlay.cancelled,
             };
-            let field = family::outer();
-            let metadata = WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Metadata, None)
-                .map_err(ValueTreeError::Invalid)?;
-            let metadata_root = lookup(tx, &metadata, &mut records, &mut overlay.take_state_error)?
-                .ok_or_else(invalid)?;
-            records.presence(&metadata_root, &metadata, 0)?;
-            let (key, _) = records.key(field, WorldFieldRecordKindV1::Entry, &())?;
-            let value = lookup(tx, &key, &mut records, &mut overlay.take_state_error)?
-                .ok_or_else(invalid)?;
-            family::child_records(&key, &value, &mut records)?
+            current_body(tx, &mut records, &mut overlay.take_state_error)?
         };
         let identity_root = map_entry(&body, "agent_identities", agent, read, scan, work)?;
         let sequence = map_entry(
@@ -137,7 +128,7 @@ where
         }))
     })
 }
-fn map_entry<
+pub(super) fn map_entry<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -244,4 +235,27 @@ pub fn resolve_manufactured_identity_generation_v1(
                 .filter(|generation| *generation > 0)
         }
     }
+}
+
+/// Read the actual outer Current reference. The caller supplies and validates
+/// its own qualified token; this helper alone grants no revocation authority.
+pub(super) fn current_body<M, R, C, E>(
+    tx: &mut oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    take_state_error: &mut E,
+) -> Result<StateRootV1, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+{
+    let field = family::outer();
+    let metadata = WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Metadata, None)
+        .map_err(ValueTreeError::Invalid)?;
+    let metadata_root = lookup(tx, &metadata, records, take_state_error)?.ok_or_else(invalid)?;
+    records.presence(&metadata_root, &metadata, 0)?;
+    let (key, _) = records.key(field, WorldFieldRecordKindV1::Entry, &())?;
+    let value = lookup(tx, &key, records, take_state_error)?.ok_or_else(invalid)?;
+    Ok(family::child_records(&key, &value, records)?)
 }

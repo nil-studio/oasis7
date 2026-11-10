@@ -1,3 +1,4 @@
+use super::core_materials::{MaterialFixtureLimitsV1, MaterialFixtureV1};
 use super::*;
 use oasis7_agent_api::world_action::GeoPos;
 pub(super) fn audit_work()
@@ -29,12 +30,24 @@ fn accepted_audit_fixture(actor_present: bool, corrupt: u8) {
         claimer_agent_id: "queued-alice".into(),
         target_agent_id: "target".into(),
     });
+    let material_limits = MaterialFixtureLimitsV1::for_state(&world.state);
     let fixture = genesis::build(&world, &memory, workspace);
     drop(world);
     let reader = Reader {
         cas: fixture.cas.clone(),
         memory: &memory,
     };
+
+    let mut material_backing = MaterialFixtureV1::build(
+        &fixture.roots,
+        &reader,
+        &reader,
+        &memory,
+        material_limits,
+        || reader.cas.error(),
+        || false,
+    );
+    let mut materials = material_backing.context(&fixture.roots, &reader, || reader.cas.error());
     let mut originals = Originals {
         objects: fixture.objects.clone(),
         memory: &memory,
@@ -124,6 +137,9 @@ fn accepted_audit_fixture(actor_present: bool, corrupt: u8) {
     let mut persisted = Vec::new();
     let guard = tx.guard();
     let mut audit_work = audit_work();
+    if corrupt >= 3 {
+        audit_work.structure.values_remaining = 0;
+    }
     let initial_values = audit_work.structure.values_remaining;
     let mut parent_io = genesis::io();
     let mut parent_keys = genesis::keys();
@@ -163,7 +179,7 @@ fn accepted_audit_fixture(actor_present: bool, corrupt: u8) {
             &counter,
         )
         .unwrap();
-        step.append_selected_accepted(&selected, &mut actor_read, 64 << 10, &mut audit_work,
+        let mut persist =
             |producer: &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1| {
                 producer.persist_to(&mut |stream: &mut dyn crate::world::incremental_body_event::AgentEventOriginalStreamV1, _: &mut dyn FnMut() -> bool| {
                     let length = usize::try_from(stream.original_bytes()).unwrap();
@@ -176,15 +192,51 @@ fn accepted_audit_fixture(actor_present: bool, corrupt: u8) {
                     persisted.push(bytes);
                     Ok(())
                 })
-            }
-        )
+            };
+        if corrupt == 4 {
+            step.append_selected_rejection_owned(
+                &mut materials,
+                &live,
+                &selected,
+                crate::RejectReason::InvalidAmount { amount: 0 },
+                64 << 10,
+                &mut audit_work,
+                &mut persist,
+            )
+            .map(Some)
+        } else {
+            step.append_selected_accepted(
+                &mut materials,
+                &live,
+                &selected,
+                &mut actor_read,
+                64 << 10,
+                &mut audit_work,
+                &mut persist,
+            )
+        }
     };
     if corrupt != 0 {
         assert!(
             owned_result.is_err(),
-            "partial Current agent must be rejected before audit persistence"
+            "audit prerequisites must fail before original persistence"
         );
         assert!(persisted.is_empty());
+        if corrupt >= 3 {
+            assert_eq!(
+                (0..tx.ordered_fact_count())
+                    .filter_map(|i| tx.ordered_fact(i))
+                    .filter(|fact| fact.kind == ExecutionFactKindV1::Event)
+                    .count(),
+                0
+            );
+            let guard = tx.guard();
+            assert!(matches!(
+                tx.seal(&guard, &live, 1),
+                Err(ExecutionError::Aborted)
+            ));
+            return;
+        }
         let guard = tx.guard();
         assert!(tx.seal(&guard, &live, 1).is_err());
         return;
@@ -253,7 +305,7 @@ fn accepted_audit_fixture(actor_present: bool, corrupt: u8) {
             &counter,
         )
         .unwrap();
-        step.append_selected_rejection_owned(&selected, crate::RejectReason::AgentNotFound { agent_id: "target".into() }, 64 << 10, &mut audit_work,
+        step.append_selected_rejection_owned(&mut materials, &live, &selected, crate::RejectReason::AgentNotFound { agent_id: "target".into() }, 64 << 10, &mut audit_work,
             |producer: &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1| {
                 producer.persist_to(&mut |stream: &mut dyn crate::world::incremental_body_event::AgentEventOriginalStreamV1, _: &mut dyn FnMut() -> bool| {
                     let len = usize::try_from(stream.original_bytes()).unwrap(); assert!(len <= 64 << 10);
@@ -341,4 +393,14 @@ fn actual_accepted_audit_rejects_current_identity_deletion_before_sink() {
 #[test]
 fn actual_accepted_audit_rejects_current_body_deletion_before_sink() {
     accepted_audit_fixture(true, 2);
+}
+
+#[test]
+fn actual_accepted_audit_budget_is_prepaid_before_any_original() {
+    accepted_audit_fixture(true, 3);
+}
+
+#[test]
+fn actual_rejected_audit_budget_is_prepaid_before_any_original() {
+    accepted_audit_fixture(true, 4);
 }

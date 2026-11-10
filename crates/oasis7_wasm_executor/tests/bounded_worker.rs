@@ -381,3 +381,61 @@ fn cloexec_regular_file_is_rejected_before_worker_spawn() {
     );
     assert_eq!(pool.used.load(Ordering::Acquire), 0);
 }
+
+#[test]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn native_bound_invocation_never_falls_back_without_actual_capture_hook() {
+    use std::{
+        fs::File,
+        os::fd::{AsRawFd, FromRawFd},
+    };
+    unsafe extern "C" {
+        fn memfd_create(name: *const std::ffi::c_char, flags: u32) -> i32;
+        fn fcntl(fd: i32, command: i32, ...) -> i32;
+    }
+    // This actual generic worker supports ordinary VM execution but has no
+    // binary-owner native verifier. A bound request must fail before its sink.
+    // SAFETY: static C string; success transfers one descriptor to File below.
+    let fd = unsafe { memfd_create(c"native-bound-missing-hook".as_ptr(), 3) };
+    assert!(fd >= 0);
+    // SAFETY: fd is the new owned descriptor from memfd_create.
+    let mut sealed = unsafe { File::from_raw_fd(fd) };
+    std::io::copy(&mut File::open(executable()).unwrap(), &mut sealed).unwrap();
+    // SAFETY: applies irreversible seals to the live owned memfd.
+    assert_eq!(unsafe { fcntl(sealed.as_raw_fd(), 1033, 15) }, 0);
+    let pool = Pool {
+        used: AtomicUsize::new(0),
+        limit: 600 << 20,
+    };
+    let allocator = Allocator(&pool);
+    let stop = AtomicBool::new(false);
+    let mut sandbox = BoundedWorkerSandboxV1 {
+        executable: WorkerExecutableV1::NativeBoundSealedFd {
+            file: &sealed,
+            descriptor: &[0xa0],
+        },
+        allocator: &allocator,
+        limits: limits(512 << 20),
+        cancelled: &stop,
+    };
+    let mut sink = Sink {
+        bytes: Vec::new(),
+        calls: 0,
+    };
+    assert!(matches!(
+        sandbox.call_to_typed_v1(&request(false), &mut sink),
+        Err(WorkerExecutionErrorV1::Host(_))
+    ));
+    assert_eq!(sink.calls, 0);
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+    stop.store(true, Ordering::Release);
+    assert!(matches!(
+        sandbox.call_to_typed_v1(&request(false), &mut sink),
+        Err(WorkerExecutionErrorV1::Host(_))
+    ));
+    assert_eq!(sink.calls, 0);
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+}

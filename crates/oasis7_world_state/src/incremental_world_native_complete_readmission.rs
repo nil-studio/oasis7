@@ -52,6 +52,11 @@ pub(super) fn run<
         &mut ctx.cancelled,
     )?;
     check(ctx)?;
+    let lifecycle_index = {
+        let mut local = local!(ctx, roots.state_root(StateNamespaceV1::Business));
+        lifecycle_budget::readmit(source, &factory, &industry, roots, &mut local, work)?
+    };
+    check(ctx)?;
     let market = market::readmit_module_marketplace_family_ordinary_v1(
         &source.market,
         roots,
@@ -115,8 +120,11 @@ pub(super) fn run<
         &mut ctx.cancelled,
     )?;
     check(ctx)?;
-    let diplomacy =
-        diplomacy::readmit_diplomacy_family_ordinary_v1(&source.diplomacy, ctx.values.memory)?;
+    let diplomacy = diplomacy::readmit_diplomacy_family_ordinary_cancellable_v1(
+        &source.diplomacy,
+        ctx.values.memory,
+        &mut ctx.cancelled,
+    )?;
     check(ctx)?;
     let rules = rules::readmit_world_rules_ordinary_v1(
         &source.rules,
@@ -141,6 +149,7 @@ pub(super) fn run<
         inventory,
         factory,
         industry,
+        lifecycle_index,
         market,
         fixed,
         reward,

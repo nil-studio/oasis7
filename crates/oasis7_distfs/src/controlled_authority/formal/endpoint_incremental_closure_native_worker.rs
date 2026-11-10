@@ -7,6 +7,10 @@ pub struct NativeWorkerLeaseV1<'a> {
     _material: &'a CandidateExecutionMaterialV1,
 }
 impl NativeWorkerLeaseV1<'_> {
+    pub fn descriptor_bytes(&self) -> &[u8] {
+        self._material.baseline.descriptor.as_slice()
+    }
+
     pub fn file(&self) -> &std::fs::File {
         self.executable.file()
     }
@@ -26,7 +30,10 @@ impl CandidateExecutionMaterialV1 {
         if cancelled() {
             return Err(invalid("native worker lease cancelled"));
         }
-        if !self.baseline.uses_budget(memory) || !self.baseline.proof.uses_budget(memory) {
+        if !self.baseline.uses_budget(memory)
+            || !self.baseline.proof.uses_budget(memory)
+            || !self.baseline.descriptor.uses_budget(memory)
+        {
             return Err(invalid("native worker lease pool"));
         }
         let executable = self

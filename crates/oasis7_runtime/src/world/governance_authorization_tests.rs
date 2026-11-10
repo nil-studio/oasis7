@@ -37,6 +37,42 @@ fn command() -> Action {
 }
 
 #[test]
+fn unprotected_envelope_rejects_attached_governance_proof_before_parent_lookup() {
+    let envelope = ActionEnvelope {
+        id: 1,
+        action: Action::RegisterAgent {
+            agent_id: "agent".into(),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+        },
+        committed_recipe_origin: None,
+        governance_authorization: Some(GovernanceAuthorizationV1 {
+            schema_version: 1,
+            world_id: "world".into(),
+            chain_id: "chain".into(),
+            genesis_digest: "a".repeat(64),
+            parent_position: 0,
+            parent_record_id: "b".repeat(64),
+            parent_state_root: "c".repeat(64),
+            policy_digest: "d".repeat(64),
+            controller_account_id: "controller".into(),
+            nonce: 1,
+            valid_from_position: 1,
+            valid_through_position: 1,
+            signatures: BTreeMap::new(),
+        }),
+    };
+    for result in [
+        is_unprotected_governance_envelope(&envelope).map(|_| ()),
+        World::new().validate_governance_action_authorization(&envelope),
+    ] {
+        assert!(
+            matches!(result, Err(WorldError::GovernancePolicyInvalid { reason })
+            if reason == "governance proof attached to unsupported action")
+        );
+    }
+}
+
+#[test]
 fn new_unsigned_actions_and_raw_events_cannot_publish_governance() {
     let mut world = world();
     world.submit_action(command());

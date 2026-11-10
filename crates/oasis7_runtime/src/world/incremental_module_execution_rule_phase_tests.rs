@@ -1,5 +1,8 @@
+#[path = "incremental_module_execution_rule_phase_fixture.rs"]
+mod fixture;
 use super::*;
 use crate::world::incremental_module_invocation::CurrentInvocationEnumerationWorkV1;
+use fixture::{RuleOracle, pre_action_world};
 fn directory_work() -> CurrentInvocationEnumerationWorkV1 {
     let scan = || StateScanBudget {
         nodes_remaining: 10_000_000,
@@ -15,63 +18,6 @@ fn directory_work() -> CurrentInvocationEnumerationWorkV1 {
         max_key_bytes: 1024,
         max_text_bytes: 1024,
     }
-}
-fn rule_output(case: u8) -> ModuleOutput {
-    let mut output = ModuleOutput {
-        new_state: Some(b"new".to_vec()),
-        effects: vec![ModuleEffectIntent {
-            kind: "fixture.effect".into(),
-            params: serde_json::json!({"amount":1}),
-            cap_ref: String::new(),
-            cap_slot: Some("main".into()),
-        }],
-        emits: vec![ModuleEmit {
-            kind: "rule.decision".into(),
-            payload: serde_json::to_value(crate::RuleDecision {
-                action_id: 1,
-                verdict: crate::RuleVerdict::Allow,
-                override_action: None,
-                cost: crate::ResourceDelta {
-                    entries: [(
-                        oasis7_agent_api::world_action::ResourceKind::Electricity,
-                        -3,
-                    )]
-                    .into(),
-                },
-                notes: vec!["real-rule".into()],
-            })
-            .unwrap(),
-        }],
-        tick_lifecycle: None,
-        output_bytes: 0,
-    };
-    match case {
-        1 => {
-            output.emits[0].payload["verdict"] = serde_json::json!("modify");
-            output.emits[0].payload["override_action"] =
-                serde_json::to_value(crate::Action::MoveAgent {
-                    agent_id: "alice".into(),
-                    to: oasis7_agent_api::world_action::GeoPos::new(20, 30, 40),
-                })
-                .unwrap();
-        }
-        2 => {
-            output.emits[0].payload = serde_json::json!({"action_id":"not-an-id","verdict":"allow"})
-        }
-        3 => output.emits[0].payload["action_id"] = serde_json::json!(999),
-        4 => output.emits.push(output.emits[0].clone()),
-        5 => {
-            output.emits[0].payload =
-                serde_json::json!({"action_id":"not-an-id","verdict":"allow"});
-            output.emits.push(output.emits[0].clone());
-        }
-        6 => {
-            output.emits[0].payload["action_id"] = serde_json::json!(999);
-            output.emits.push(output.emits[0].clone());
-        }
-        _ => {}
-    }
-    output
 }
 #[test]
 #[cfg(feature = "wasmtime")]
@@ -113,129 +59,43 @@ fn run_rule_fixture(case: u8) {
 }
 
 pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
+    run_rule_fixture_composed(case, publish_override, 0);
+}
+#[test]
+#[cfg(all(feature = "wasmtime", target_os = "linux"))]
+fn selected_core_consumes_actual_nonempty_rule_modify_and_pricing() {
+    run_rule_fixture_composed(1, true, 1);
+}
+#[test]
+#[cfg(all(feature = "wasmtime", target_os = "linux"))]
+fn selected_core_rejected_move_settles_general_cost_without_pricing_cost() {
+    run_rule_fixture_composed(1, true, 2);
+}
+#[test]
+#[cfg(all(feature = "wasmtime", target_os = "linux"))]
+fn selected_core_insufficient_rule_cost_preserves_position_and_balance() {
+    run_rule_fixture_composed(1, true, 3);
+}
+#[test]
+#[cfg(all(feature = "wasmtime", target_os = "linux"))]
+fn selected_core_genuine_rule_denial_preserves_balance_and_position() {
+    run_rule_fixture_composed(7, false, 4);
+}
+pub(super) fn run_rule_fixture_composed(case: u8, publish_override: bool, core_mode: u8) {
+    let execute_core = core_mode != 0;
     let with_regex = false;
     let memory = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
     let workspace = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
-    fn pre_action_world(with_regex: bool, case: u8) -> World {
-        let mut world = initialized_world();
-        let record = world
-            .module_registry
-            .records
-            .get_mut(&crate::ModuleRegistry::record_key("main", "1"))
-            .unwrap();
-        record.manifest.subscriptions[0].stage = Some(ModuleSubscriptionStage::PreAction);
-        record.manifest.subscriptions[0].action_kinds = vec!["action.move_agent".into()];
-        if with_regex {
-            record.manifest.subscriptions[0].filters = Some(serde_json::json!({
-                "action": [{"path": "/action/data/agent_id", "re": "^alice$"}]
-            }));
-        }
-        world.submit_action(crate::Action::MoveAgent {
-            agent_id: "alice".into(),
-            to: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
-        });
-        let output = rule_output(case);
-        let bytes = wasm(&output);
-        use sha2::Digest;
-        let hash = hex::encode(sha2::Sha256::digest(&bytes));
-        world
-            .register_module_artifact(hash.clone(), &bytes)
-            .unwrap();
-        world
-            .state
-            .module_artifact_owners
-            .insert(hash.clone(), "alice".into());
-        world
-            .module_registry
-            .records
-            .get_mut(&crate::ModuleRegistry::record_key("main", "1"))
-            .unwrap()
-            .manifest
-            .wasm_hash = hash.clone();
-        world
-            .state
-            .module_instances
-            .get_mut("main#stable")
-            .unwrap()
-            .wasm_hash = hash;
-        if case == 1 {
-            let bytes = wasm(&rule_output(0));
-            let mut pricing = manifest("m1.rule.move", ModuleKind::Reducer, &bytes);
-            pricing.subscriptions = vec![ModuleSubscription {
-                event_kinds: vec![],
-                action_kinds: vec!["action.move_agent".into()],
-                stage: Some(ModuleSubscriptionStage::PreAction),
-                filters: None,
-            }];
-            pricing.required_caps = vec!["cap-main".into()];
-            pricing
-                .abi_contract
-                .cap_slots
-                .insert("main".into(), "cap-main".into());
-            pricing.abi_contract.policy_hooks = vec!["policy".into()];
-            world
-                .register_module_artifact(pricing.wasm_hash.clone(), &bytes)
-                .unwrap();
-            world
-                .state
-                .module_artifact_owners
-                .insert(pricing.wasm_hash.clone(), "alice".into());
-            world
-                .module_registry
-                .active
-                .insert("m1.rule.move".into(), "1".into());
-            world.module_registry.records.insert(
-                crate::ModuleRegistry::record_key("m1.rule.move", "1"),
-                crate::ModuleRecord {
-                    manifest: pricing.clone(),
-                    registered_at: 11,
-                    registered_by: "genesis".into(),
-                    audit_event_id: None,
-                },
-            );
-            let mut instance = world.state.module_instances["main#stable"].clone();
-            instance.instance_id = "pricing#real".into();
-            instance.module_id = "m1.rule.move".into();
-            instance.wasm_hash = pricing.wasm_hash;
-            world
-                .state
-                .module_instances
-                .insert(instance.instance_id.clone(), instance);
-        }
-        world
-    }
-    struct RuleOracle {
-        case: u8,
-        last: Option<(usize, [u8; 32])>,
-    }
-    impl ModuleSandbox for RuleOracle {
-        fn call(&mut self, request: &ModuleCallRequest) -> Result<ModuleOutput, ModuleCallFailure> {
-            if matches!(request.module_id.as_str(), "main" | "m1.rule.move") {
-                self.last = Some((
-                    request.input.len(),
-                    *blake3::hash(&request.input).as_bytes(),
-                ));
-            }
-            Ok(if request.module_id == "main" {
-                rule_output(self.case)
-            } else if request.module_id == "m1.rule.move" {
-                rule_output(0)
-            } else {
-                ModuleOutput {
-                    new_state: None,
-                    effects: vec![],
-                    emits: vec![],
-                    tick_lifecycle: None,
-                    output_bytes: 0,
-                }
-            })
-        }
-    }
-    let mut reference = pre_action_world(false, case);
+    let mut reference = pre_action_world(false, case, core_mode);
     let envelope = reference.pending_actions.front().unwrap().clone();
-    let mut rule_oracle = RuleOracle { case, last: None };
+    let mut rule_oracle = RuleOracle {
+        case,
+        core_mode,
+        last: None,
+    };
     let expected_rule = reference.evaluate_rule_decisions(&envelope, &mut rule_oracle);
     let final_rule_input = rule_oracle.last;
+    let post_rule_resources = reference.state.resources.clone();
     let expected_override = if publish_override {
         assert_eq!(case, 1);
         let replacement = expected_rule
@@ -263,10 +123,81 @@ pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
         None
     };
 
+    let mut expected_core_resources = None;
+    let mut expected_core_position = None;
+    let expected_core = if execute_core {
+        let rule = expected_rule.as_ref().unwrap();
+        let effective = crate::ActionEnvelope {
+            governance_authorization: None,
+            committed_recipe_origin: None,
+            id: envelope.id,
+            action: rule
+                .0
+                .override_action
+                .as_ref()
+                .unwrap_or(&envelope.action)
+                .clone(),
+        };
+        let mut body = if rule.0.verdict == crate::RuleVerdict::Deny {
+            crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected {
+                action_id: envelope.id,
+                reason: crate::RejectReason::RuleDenied {
+                    notes: rule.0.notes.clone(),
+                },
+            })
+        } else {
+            reference.action_to_event(&effective).unwrap()
+        };
+        if rule.0.verdict != crate::RuleVerdict::Deny {
+            let cost = if matches!(
+                &body,
+                crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected { .. })
+            ) {
+                rule.1.as_ref().unwrap_or(&rule.0.cost)
+            } else {
+                &rule.0.cost
+            };
+            let deficits = cost.deficits(&reference.state.resources);
+            if !deficits.is_empty() {
+                body = crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected {
+                    action_id: envelope.id,
+                    reason: crate::RejectReason::InsufficientResources { deficits },
+                });
+            } else if let Err(error) = reference.apply_resource_delta(cost) {
+                body = crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected {
+                    action_id: envelope.id,
+                    reason: crate::RejectReason::RuleDenied {
+                        notes: vec![format!("rule decision cost apply rejected: {error:?}")],
+                    },
+                });
+            }
+        }
+        if core_mode == 3 {
+            assert!(
+                matches!(&body,
+                crate::WorldEventBody::Domain(crate::DomainEvent::ActionRejected {
+                    reason: crate::RejectReason::InsufficientResources { deficits }, ..
+                }) if !deficits.is_empty()),
+                "insufficient-cost fixture must actually reject"
+            );
+        }
+        reference
+            .append_event(body, Some(crate::CausedBy::Action(envelope.id)))
+            .unwrap();
+        expected_core_resources = Some(reference.state.resources.clone());
+        expected_core_position = Some(reference.state.agents["alice"].state.pos);
+        Some(
+            oasis7_wasm_abi::encode_canonical_cbor(reference.journal.events.last().unwrap())
+                .unwrap(),
+        )
+    } else {
+        None
+    };
+
     drop(reference);
     // The legacy oracle is independently initialized: a failed legacy route
     // may append journal events and must never contaminate the GEN source.
-    let mut oracle = pre_action_world(with_regex, case);
+    let mut oracle = pre_action_world(with_regex, case, core_mode);
     struct Capture(Option<(usize, [u8; 32])>);
     impl ModuleSandbox for Capture {
         fn call(&mut self, request: &ModuleCallRequest) -> Result<ModuleOutput, ModuleCallFailure> {
@@ -313,9 +244,10 @@ pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
         expected_input = final_rule_input.unwrap();
     }
     drop(oracle);
-    let world = pre_action_world(with_regex, case);
+    let world = pre_action_world(with_regex, case, core_mode);
     assert!(world.journal.events.is_empty());
     let expected_manifest_hash = crate::util::hash_json(&world.manifest).unwrap();
+    let material_limits = crate::world::incremental_body_event::materials::test_support::MaterialFixtureLimitsV1::for_state(&world.state);
     let fixture = genesis::build(&world, &memory, workspace);
     assert!(fixture.memory.same_pool(&memory));
     drop(world); // Execution below has no materialized World to hydrate/fall back to.
@@ -526,6 +458,7 @@ pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
     rule_work.enumeration.registry_scan.nodes_remaining = 0;
     let mut observed = None;
     let mut override_audit = None;
+    let mut completed_core = None;
     let mut override_work =
         oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1 {
             structure: oasis7_proto::cbor_decode_preflight::CborPreflightWorkV1 {
@@ -564,31 +497,90 @@ pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
             manifest_cache: &fixture.manifest_hash,
             manifest_work: &mut hash_work,
             work: &mut work,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             input_observation: Some(&mut observed),
         };
-        target
-            .execute_pre_action_rule_phases_v1(
-                &selected,
-                &directory,
-                &mut rule_work,
-                &mut live_owner,
-            )
-            .and_then(|outcome| {
-                if publish_override {
-                    override_audit = target.publish_action_override_v1(
-                        &selected,
-                        &outcome,
-                        &mut override_work,
-                        &mut live_owner,
-                    )?;
-                }
-                Ok(outcome)
-            })
+        if execute_core {
+            // Exercise the full Root selected entry once: it owns both real
+            // admission reads, Rule/Modify audit, settlement and post routing.
+            let mut backing = crate::world::incremental_body_event::materials::test_support::MaterialFixtureV1::build(
+                &fixture.roots, &reader, &reader, &memory, material_limits,
+                || reader.cas.error(), || false);
+            let mut materials = backing.context(&fixture.roots, &reader, || reader.cas.error());
+            let mut ai = genesis::io();
+            let mut ak = genesis::keys();
+            let mut admission_read =
+                oasis7_world_state::incremental_field_read::WorldFieldReadContextV1 {
+                    root: fixture.roots.state_root(StateNamespaceV1::Authorization),
+                    state: &reader,
+                    values: ValueReadContext {
+                        source: &reader,
+                        memory: &memory,
+                        class: MemoryClass::Ordinary,
+                        io: &mut ai,
+                    },
+                    key_work: &mut ak,
+                    semantic_bytes: 4096,
+                    record_bytes: 16 << 20,
+                    take_state_error: || reader.cas.error(),
+                    cancelled: || false,
+                };
+            let mut policy_scan = genesis::scan();
+            let mut policy_work = genesis::current_work(&fixture.roots).runtime.revocation;
+            let guard = target.ctx.transaction.guard();
+            let current = oasis7_world_state::incremental_runtime_revocation::begin_runtime_revocation_current_v1(
+                fixture.current.runtime().revocation(), target.ctx, &mut admission_read,
+                &mut policy_scan, &mut policy_work, target.members, &guard, &live).unwrap();
+            let mut tail =
+                crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1 {
+                    originals_remaining: 1,
+                    original_bytes_remaining: 1 << 20,
+                    decode: super::action_body::audit_work(),
+                };
+            let (outcome, completed) = target
+                .execute_selected_core_v1(
+                    &selected,
+                    fixture.current.runtime().revocation(),
+                    &current,
+                    &mut admission_read,
+                    &mut materials,
+                    &mut read,
+                    &mut policy_scan,
+                    &mut policy_work,
+                    &mut override_work,
+                    &directory,
+                    &mut rule_work,
+                    &mut directory_work(),
+                    &mut tail,
+                    &mut live_owner,
+                )
+                .unwrap();
+            completed_core = Some(completed);
+            Ok(outcome)
+        } else {
+            target
+                .execute_pre_action_rule_phases_v1(
+                    &selected,
+                    &directory,
+                    &mut rule_work,
+                    &mut live_owner,
+                )
+                .and_then(|outcome| {
+                    if publish_override {
+                        override_audit = target.publish_action_override_v1(
+                            &selected,
+                            &outcome,
+                            &mut override_work,
+                            &mut live_owner,
+                        )?;
+                    }
+                    Ok(outcome)
+                })
+        }
     };
     assert_eq!(observed, Some(expected_input));
     if cfg!(target_os = "linux") {
-        if case >= 2 {
+        if (2..=6).contains(&case) {
             let expected = expected_rule.unwrap_err();
             let Err(RootModuleExecutionErrorV1::Business(actual)) = result else {
                 panic!("expected original business failure");
@@ -623,7 +615,25 @@ pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
             return;
         }
         let outcome = result.unwrap();
-        if publish_override {
+        if publish_override && execute_core {
+            let expected = expected_override.as_ref().unwrap();
+            assert!(
+                saved
+                    .borrow()
+                    .iter()
+                    .any(|id| fixture.objects.original(id) == *expected),
+                "Root must persist the exact old World Modify audit once"
+            );
+            assert_eq!(
+                saved
+                    .borrow()
+                    .iter()
+                    .filter(|id| fixture.objects.original(id) == *expected)
+                    .count(),
+                1
+            );
+        }
+        if publish_override && !execute_core {
             let audit = override_audit
                 .as_ref()
                 .expect("actual Modify must publish its original audit");
@@ -683,11 +693,95 @@ pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
         assert_eq!(
             counter.journal_height(overlay.transaction).unwrap(),
             if case == 1 {
-                12 + u64::from(publish_override)
+                12 + u64::from(publish_override) + u64::from(execute_core)
             } else {
-                6
+                6 + u64::from(execute_core)
             }
         );
+        if execute_core {
+            drop(overlay);
+            let completed = completed_core
+                .take()
+                .expect("actual Root selected Core result");
+            if case == 7 {
+                assert!(!completed.event_before_post_action());
+                assert_eq!(
+                    expected_core_resources.as_ref().unwrap(),
+                    &post_rule_resources,
+                    "Deny preserves the treasury after genuine module fees, with no Rule business debit"
+                );
+            }
+            let persisted = crate::world::incremental_module_execution_event::PersistedWorldEventV1::from_core_action(&completed);
+            persisted.validate(&transaction).unwrap();
+            let expected = expected_core.as_ref().unwrap();
+            assert_eq!(
+                &oasis7_wasm_abi::encode_canonical_cbor(persisted.event()).unwrap(),
+                expected
+            );
+            assert_eq!(
+                &fixture.objects.original(saved.borrow().last().unwrap()),
+                expected
+            );
+            assert_eq!(
+                counter.journal_height(&transaction).unwrap(),
+                if case == 7 { 7 } else { 14 }
+            );
+            assert_eq!(
+                completed.event().time,
+                11,
+                "reborrowing phases must not advance the tick clock"
+            );
+            let mut inventory = WorldFieldOverlayContextV1 {
+                transaction: &mut transaction,
+                values: ValueReadContext {
+                    source: &reader,
+                    memory: &memory,
+                    class: MemoryClass::Ordinary,
+                    io: &mut *read.values.io,
+                },
+                key_work: &mut *read.key_work,
+                semantic_bytes: read.semantic_bytes,
+                record_bytes: read.record_bytes,
+                take_state_error: &mut read.take_state_error,
+                cancelled: &mut read.cancelled,
+            };
+            for (&kind, &expected) in expected_core_resources.as_ref().unwrap() {
+                assert_eq!(
+                    inventory.resource(kind).unwrap(),
+                    Some(expected),
+                    "Current global resource {kind:?}"
+                );
+            }
+            use oasis7_world_state::incremental_agent_fields::AgentFieldV1;
+            use oasis7_world_state::incremental_agent_subtree::*;
+            let position = expected_core_position.unwrap();
+            for (field, expected) in [
+                (AgentFieldV1::PositionX, position.x_cm),
+                (AgentFieldV1::PositionY, position.y_cm),
+                (AgentFieldV1::PositionZ, position.z_cm),
+            ] {
+                let guard = inventory.transaction.guard();
+                let actual = read_agent_subtree_scalar_overlay_v1(
+                    AgentSubtreeQualifiedRequestV1 {
+                        cell: AgentSubtreeScalarRequestV1 {
+                            agent: "alice",
+                            field,
+                            ordinal: 0,
+                        },
+                        qualification: fixture.current.raw().agents(),
+                    },
+                    &mut inventory,
+                    16 << 20,
+                    &mut std::io::sink(),
+                    &guard,
+                    &live,
+                )
+                .unwrap();
+                assert!(
+                    matches!(actual, Some(AgentSubtreeValueV1::I64(value)) if value == expected)
+                );
+            }
+        }
     } else {
         assert!(matches!(
             result,

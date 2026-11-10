@@ -30,6 +30,18 @@ pub(super) fn validate_roots(
     state: &str,
     manifest: &str,
 ) -> Result<(), FormalError> {
+    validate_roots_with_work(roots, initial, world, state, manifest, &mut |_| {
+        Ok::<(), FormalError>(())
+    })
+}
+pub(super) fn validate_roots_with_work<E: From<FormalError>>(
+    roots: &BTreeMap<ArtifactRole, String>,
+    initial: bool,
+    world: &FormalWorldIdentityV1,
+    state: &str,
+    manifest: &str,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), E> {
     const INITIAL: [ArtifactRole; 6] = [
         ArtifactRole::IncrementalGenesisConfig,
         ArtifactRole::IncrementalRootSet,
@@ -50,24 +62,54 @@ pub(super) fn validate_roots(
         ArtifactRole::NativeExecutionEnvironment,
     ];
     let required: &[ArtifactRole] = if initial { &INITIAL } else { &RECORD };
+    work(0)?;
     if roots.len() != required.len()
-        || required.iter().any(|role| !roots.contains_key(role))
-        || roots
-            .get(&ArtifactRole::IncrementalGenesisConfig)
-            .map(String::as_str)
-            != Some(world.genesis_digest.as_str())
-        || roots
-            .get(&ArtifactRole::IncrementalRootSet)
-            .map(String::as_str)
-            != Some(state)
-        || roots
-            .get(&ArtifactRole::ExecutionManifest)
-            .map(String::as_str)
-            != Some(manifest)
+        || {
+            let mut missing = false;
+            for role in required {
+                work(0)?;
+                if !roots.contains_key(role) {
+                    missing = true;
+                    break;
+                }
+            }
+            missing
+        }
+        || {
+            work((world.genesis_digest.as_str()).len())?;
+            if let Some(value) = roots.get(&ArtifactRole::IncrementalGenesisConfig) {
+                work(value.len())?;
+            }
+            roots
+                .get(&ArtifactRole::IncrementalGenesisConfig)
+                .map(String::as_str)
+                != Some(world.genesis_digest.as_str())
+        }
+        || {
+            work((state).len())?;
+            if let Some(value) = roots.get(&ArtifactRole::IncrementalRootSet) {
+                work(value.len())?;
+            }
+            roots
+                .get(&ArtifactRole::IncrementalRootSet)
+                .map(String::as_str)
+                != Some(state)
+        }
+        || {
+            work((manifest).len())?;
+            if let Some(value) = roots.get(&ArtifactRole::ExecutionManifest) {
+                work(value.len())?;
+            }
+            roots
+                .get(&ArtifactRole::ExecutionManifest)
+                .map(String::as_str)
+                != Some(manifest)
+        }
     {
-        return Err(invalid("incremental authority typed root set"));
+        return Err(invalid("incremental authority typed root set").into());
     }
     for value in roots.values() {
+        work(value.len())?;
         hash_hex(value)?;
     }
     Ok(())

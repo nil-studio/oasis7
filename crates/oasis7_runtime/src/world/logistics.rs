@@ -287,7 +287,7 @@ pub(super) fn select_logistics_path(
     })
 }
 
-const MATERIAL_TRANSIT_URGENT_KEYWORDS: &[&str] = &[
+pub(super) const MATERIAL_TRANSIT_URGENT_KEYWORDS: &[&str] = &[
     "survival",
     "lifeline",
     "critical",

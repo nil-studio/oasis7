@@ -4,15 +4,25 @@ use oasis7_formal_protocol::{
     incremental_state::{StateEntryV1, StateScanContext, StateScanError},
 };
 use std::cell::RefCell;
+#[path = "incremental_diplomacy_index.rs"]
+pub(super) mod relations;
+pub use relations::{
+    DiplomacyIndexWorkV1, DiplomacyRelationObservationV1, observe_current_active_wars_v1,
+    observe_current_alliance_memberships_v1, open_current_diplomacy_relation_record_v1,
+};
 #[derive(Debug)]
 pub struct DiplomacyFamilyQualificationV1 {
     pub(super) roots: [u8; 32],
     pub(super) counts: [u64; 4],
     pub(super) class: MemoryClass,
+    pub(super) relations: relations::DiplomacyRelationsIndexV1,
 }
 impl DiplomacyFamilyQualificationV1 {
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
-        if self.roots != *roots {
+        if self.roots != *roots
+            || u64::try_from(self.relations.record_count()).ok()
+                != self.counts[0].checked_add(self.counts[1])
+        {
             Err(closure::invalid())
         } else {
             Ok(())
@@ -38,13 +48,61 @@ pub fn readmit_diplomacy_family_ordinary_v1(
             "diplomacy family ordinary readmission",
         ));
     }
-    let retained = memory.reserve(512, MemoryClass::Ordinary)?;
-    Ok(retained.retain(DiplomacyFamilyQualificationV1 {
+    readmit_diplomacy_family_ordinary_cancellable_v1(source, memory, || false)
+}
+/// Compatibility for aggregate readmission, with a finite private copy/sort
+/// allowance derived only from the genuine source's checked index metrics.
+/// This does not reset a caller's Current or qualification work allowance.
+pub fn readmit_diplomacy_family_ordinary_cancellable_v1(
+    source: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(closure::invalid());
+    }
+    let mut work = relations::readmit_work(&source.relations)?;
+    readmit_diplomacy_family_ordinary_with_work_v1(source, memory, &mut work, &mut cancelled)
+}
+/// Paid, cancellable copy of the complete index into Ordinary in the same pool.
+/// No action, Accepted or publication permission is introduced by readmission.
+pub fn readmit_diplomacy_family_ordinary_with_work_v1(
+    source: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    work: &mut DiplomacyIndexWorkV1,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(closure::invalid());
+    }
+    let fee = memory.reserve(
+        std::mem::size_of::<DiplomacyFamilyQualificationV1>() + 512,
+        MemoryClass::Ordinary,
+    )?;
+    let relations = relations::copied_index(
+        &source.relations,
+        memory,
+        MemoryClass::Ordinary,
+        work,
+        &mut cancelled,
+    )?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(fee.retain(DiplomacyFamilyQualificationV1 {
         roots: source.roots,
         counts: source.counts,
         class: MemoryClass::Ordinary,
+        relations,
     }))
 }
+
 type Outer = (DiplomacyFieldV1, [u8; 32], ReservedValue<StateRootV1>);
 pub(super) fn outer<
     M: MerkleNodeReader,
@@ -145,6 +203,7 @@ pub fn qualify_diplomacy_family_v1<
     cells: &mut u64,
     max: u64,
 ) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, ValueTreeError> {
+    let _phase = ctx.values.memory.reserve(32 << 10, ctx.values.class)?;
     roots.validate().map_err(|_| closure::invalid())?;
     ctx.check()?;
     let business = roots
@@ -161,7 +220,13 @@ pub fn qualify_diplomacy_family_v1<
         let value = ctx.lookup(&key)?.ok_or_else(closure::invalid)?;
         ctx.records().presence(&value, &key, 0)?;
     }
-    let retained = ctx.values.memory.reserve(512, ctx.values.class)?;
+    let retained = ctx.values.memory.reserve(
+        std::mem::size_of::<DiplomacyFamilyQualificationV1>() + 512,
+        ctx.values.class,
+    )?;
+    let mut index =
+        relations::DiplomacyRelationsIndexV1::empty(ctx.values.memory, ctx.values.class)?;
+    let mut index_work = DiplomacyIndexWorkV1::from_cells(*cells, max.max(ctx.semantic_bytes))?;
     let cancel = RefCell::new(&mut ctx.cancelled);
     let mut counts = [0u64; 4];
     for state_root in &roots.state {
@@ -209,6 +274,19 @@ pub fn qualify_diplomacy_family_v1<
                         cancelled: &mut local.cancelled,
                     };
                     qualify_diplomacy_body_v1(field, digest, &mut body, inner_scan, cells, max)?;
+                    // Qualification above authenticates the whole typed body;
+                    // cache only the original relation projection in this same
+                    // one-time parent visitor.
+                    index_work.cells_remaining = *cells;
+                    let indexed =
+                        relations::genesis_row(entry, field, &child, &mut local, &mut index_work);
+                    *cells = index_work.cells_remaining;
+                    if let Some(row) = indexed? {
+                        index_work.cells_remaining = *cells;
+                        let pushed = index.push(row, &mut index_work);
+                        *cells = index_work.cells_remaining;
+                        pushed?;
+                    }
                     let i = field as usize;
                     counts[i] = counts[i].checked_add(1).ok_or_else(closure::invalid)?;
                 }
@@ -234,6 +312,15 @@ pub fn qualify_diplomacy_family_v1<
             Err(_) => return Err(closure::invalid()),
         }
     }
+    index_work.cells_remaining = *cells;
+    let finished = index.finish(
+        &mut index_work,
+        || (cancel.borrow_mut())(),
+        ctx.values.memory,
+        ctx.values.class,
+    );
+    *cells = index_work.cells_remaining;
+    finished?;
     let digest = roots.digest().map_err(|_| closure::invalid())?;
     if (cancel.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
@@ -242,5 +329,6 @@ pub fn qualify_diplomacy_family_v1<
         roots: digest,
         counts,
         class: ctx.values.class,
+        relations: index,
     }))
 }

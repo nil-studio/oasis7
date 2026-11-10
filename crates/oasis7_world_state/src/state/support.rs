@@ -13,6 +13,49 @@ pub fn integer_sqrt_u64(value: u64) -> u64 {
     x0
 }
 
+/// Scalar material arithmetic only. Callers retain ledger selection, ordering,
+/// memory admission for error text, and all business authorization.
+pub fn checked_material_addition_total_v1(
+    kind: &str,
+    total: i64,
+    amount: i64,
+) -> Result<i64, String> {
+    if amount < 0 {
+        return Err(format!("negative material amount not allowed: {amount}"));
+    }
+    total
+        .checked_add(amount)
+        .ok_or_else(|| format!("material balance addition overflow: kind={kind} amount={amount}"))
+}
+
+/// Original signed-ledger semantics: a negative amount or result is not by
+/// itself an error here. This is deliberately separate from Resource Stock.
+pub fn checked_material_balance_add_v1(
+    kind: &str,
+    current: i64,
+    amount: i64,
+) -> Result<i64, String> {
+    current.checked_add(amount).ok_or_else(|| {
+        format!("material balance overflow: kind={kind} current={current} amount={amount}")
+    })
+}
+
+pub fn checked_material_balance_remove_v1(
+    kind: &str,
+    current: i64,
+    amount: i64,
+) -> Result<i64, String> {
+    if amount < 0 {
+        return Err(format!("negative material amount not allowed: {amount}"));
+    }
+    if current < amount {
+        return Err(format!(
+            "insufficient material {kind}: requested={amount} available={current}"
+        ));
+    }
+    Ok(current - amount)
+}
+
 pub fn preflight_material_balance_additions(
     ledgers: &BTreeMap<MaterialLedgerId, BTreeMap<String, i64>>,
     ledger: &MaterialLedgerId,
@@ -20,19 +63,9 @@ pub fn preflight_material_balance_additions(
 ) -> Result<(), String> {
     let mut additions = BTreeMap::<String, i64>::new();
     for stack in stacks {
-        if stack.amount < 0 {
-            return Err(format!(
-                "negative material amount not allowed: {}",
-                stack.amount
-            ));
-        }
-        let total = additions.entry(stack.kind.clone()).or_default();
-        *total = total.checked_add(stack.amount).ok_or_else(|| {
-            format!(
-                "material balance addition overflow: kind={} amount={}",
-                stack.kind, stack.amount
-            )
-        })?;
+        let total = additions.get(&stack.kind).copied().unwrap_or(0);
+        let next = checked_material_addition_total_v1(&stack.kind, total, stack.amount)?;
+        additions.insert(stack.kind.clone(), next);
     }
     let balances = ledgers.get(ledger);
     for (kind, amount) in additions {
@@ -40,9 +73,7 @@ pub fn preflight_material_balance_additions(
             .and_then(|entries| entries.get(&kind))
             .copied()
             .unwrap_or(0);
-        current.checked_add(amount).ok_or_else(|| {
-            format!("material balance overflow: kind={kind} current={current} amount={amount}")
-        })?;
+        checked_material_balance_add_v1(&kind, current, amount)?;
     }
     Ok(())
 }
@@ -58,9 +89,7 @@ pub fn add_material_balance_for_ledger(
         .and_then(|balances| balances.get(kind))
         .copied()
         .unwrap_or(0);
-    let next = current.checked_add(amount).ok_or_else(|| {
-        format!("material balance overflow: kind={kind} current={current} amount={amount}")
-    })?;
+    let next = checked_material_balance_add_v1(kind, current, amount)?;
     let balances = ledgers.entry(ledger.clone()).or_default();
     if next == 0 {
         balances.remove(kind);
@@ -75,16 +104,8 @@ fn remove_material_balance(
     kind: &str,
     amount: i64,
 ) -> Result<(), String> {
-    if amount < 0 {
-        return Err(format!("negative material amount not allowed: {amount}"));
-    }
     let current = balances.get(kind).copied().unwrap_or(0);
-    if current < amount {
-        return Err(format!(
-            "insufficient material {kind}: requested={amount} available={current}"
-        ));
-    }
-    let next = current - amount;
+    let next = checked_material_balance_remove_v1(kind, current, amount)?;
     if next == 0 {
         balances.remove(kind);
     } else {

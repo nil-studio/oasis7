@@ -323,27 +323,23 @@ fn refreshed_industry_progress(
     now: WorldTime,
 ) -> IndustryProgressState {
     let mut progress = state.industry_progress.clone();
-    let jobs = state
+    let jobs = super::industry_transition::aggregate_stage_completed_jobs_v1(
+        state
+            .factories
+            .values()
+            .map(|factory| factory.production.completed_jobs),
+    );
+    let stable = state
         .factories
         .values()
-        .map(|factory| factory.production.completed_jobs)
-        .sum::<u64>();
-    let mut next = if state
-        .factories
-        .values()
-        .any(super::industry_transition::factory_has_canonical_stable_line)
-    {
-        IndustryStage::ScaleOut
-    } else {
-        IndustryStage::Bootstrap
-    };
+        .any(super::industry_transition::factory_has_canonical_stable_line);
     let governed = policy.electricity_tax_bps > 0 || policy.data_tax_bps > 0;
-    if next == IndustryStage::ScaleOut
-        && governed
-        && (jobs >= 6 || progress.completed_material_transits >= 3)
-    {
-        next = IndustryStage::Governance;
-    }
+    let next = super::industry_transition::industry_stage_for_progress(
+        stable,
+        jobs,
+        progress.completed_material_transits,
+        governed,
+    );
     if next != progress.stage {
         progress.stage = next;
         progress.stage_updated_at = now;

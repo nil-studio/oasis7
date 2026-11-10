@@ -415,3 +415,6 @@ mod empty_guard;
 
 #[path = "incremental_runtime_revocation_current_identity_tests.rs"]
 mod current_identity_tests;
+
+#[path = "incremental_runtime_revocation_action_index_tests.rs"]
+mod action_index_tests;

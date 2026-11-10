@@ -147,6 +147,7 @@ pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields}
 pub use world::incremental_agent_genesis;
 pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
+pub use world::incremental_body_event::materials::CorePolicyMaterialContextV1;
 pub use world::incremental_body_event::{
     AgentEventContext, AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1,
 };
@@ -599,3 +600,6 @@ pub use world::{
     incremental_module_execution_emit, incremental_module_execution_visual_anchor,
     incremental_module_execution_visual_decode, incremental_module_execution_worker,
 };
+
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
+pub use world::iws_rule_core_test_support::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};

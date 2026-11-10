@@ -44,7 +44,7 @@ where
 ))]
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OwnedProbe {
+pub(super) struct OwnedProbe {
     pattern: String,
     text: Option<String>,
 }
@@ -184,7 +184,10 @@ impl<A: CanonicalCborAllocator> BoundedWorkerSandboxV1<'_, A> {
         if cancelled() {
             return Err(RegexWorkerErrorV1::Cancelled);
         }
-        if !matches!(self.executable, WorkerExecutableV1::SealedFd(_)) {
+        if !matches!(
+            self.executable,
+            WorkerExecutableV1::SealedFd(_) | WorkerExecutableV1::NativeBoundSealedFd { .. }
+        ) {
             return Err(RegexWorkerErrorV1::Unsupported);
         }
         if self.limits.address_space_bytes == 0
@@ -272,21 +275,46 @@ impl<A: CanonicalCborAllocator> BoundedWorkerSandboxV1<'_, A> {
                 invalid: None,
                 seen: false,
             };
-            let result = run_shared(
-                self,
-                &diagnostic,
-                &ProbeSequence(probes),
-                &mut sink,
-                WorkerProtocolV1 {
-                    mode: Some("regex-batch-v1"),
-                    request_max: self
-                        .limits
-                        .max_request_bytes
-                        .min(REGEX_MAX_REQUEST_BYTES_V1),
-                    output_max: self.limits.max_output_bytes.min(REGEX_MAX_OUTPUT_BYTES_V1),
-                },
-                &mut cancelled,
-            );
+            let request_max = self
+                .limits
+                .max_request_bytes
+                .min(REGEX_MAX_REQUEST_BYTES_V1);
+            let output_max = self.limits.max_output_bytes.min(REGEX_MAX_OUTPUT_BYTES_V1);
+            let result = if let WorkerExecutableV1::NativeBoundSealedFd { descriptor, .. } =
+                &self.executable
+            {
+                if descriptor.is_empty() || descriptor.len() > 1 << 20 {
+                    return Err(RegexWorkerErrorV1::Limit);
+                }
+                run_shared(
+                    self,
+                    &diagnostic,
+                    &super::native_bound::NativeBoundRegexRequestV1 {
+                        descriptor,
+                        probes: ProbeSequence(probes),
+                    },
+                    &mut sink,
+                    WorkerProtocolV1 {
+                        mode: Some("--oasis7-native-bound-regex-worker-v1"),
+                        request_max,
+                        output_max,
+                    },
+                    &mut cancelled,
+                )
+            } else {
+                run_shared(
+                    self,
+                    &diagnostic,
+                    &ProbeSequence(probes),
+                    &mut sink,
+                    WorkerProtocolV1 {
+                        mode: Some("regex-batch-v1"),
+                        request_max,
+                        output_max,
+                    },
+                    &mut cancelled,
+                )
+            };
             if cancelled() {
                 return Err(RegexWorkerErrorV1::Cancelled);
             }
@@ -323,6 +351,27 @@ pub(super) fn child_regex(
         return Err("regex protocol caps");
     }
     let probes: Vec<OwnedProbe> = serde_cbor::from_slice(bytes).map_err(|_| "regex request")?;
+    let values = evaluate_regex_probes(&probes, request_max, output_max)?;
+    let mut out = std::io::stdout().lock();
+    out.write_all(&[0]).map_err(|_| "regex output")?;
+    out.write_all(&(values.len() as u64).to_be_bytes())
+        .map_err(|_| "regex output")?;
+    out.write_all(&values).map_err(|_| "regex output")?;
+    out.flush().map_err(|_| "regex output")
+}
+#[cfg(all(
+    feature = "wasmtime",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub(super) fn evaluate_regex_probes(
+    probes: &[OwnedProbe],
+    request_max: u64,
+    output_max: u64,
+) -> Result<Vec<u8>, &'static str> {
+    if request_max > REGEX_MAX_REQUEST_BYTES_V1 || output_max > REGEX_MAX_OUTPUT_BYTES_V1 {
+        return Err("regex protocol caps");
+    }
     validate(
         probes
             .iter()
@@ -357,12 +406,7 @@ pub(super) fn child_regex(
     if values.len() as u64 > output_max {
         return Err("regex output bound");
     }
-    let mut out = std::io::stdout().lock();
-    out.write_all(&[0]).map_err(|_| "regex output")?;
-    out.write_all(&(values.len() as u64).to_be_bytes())
-        .map_err(|_| "regex output")?;
-    out.write_all(&values).map_err(|_| "regex output")?;
-    out.flush().map_err(|_| "regex output")
+    Ok(values)
 }
 #[cfg(test)]
 mod tests {

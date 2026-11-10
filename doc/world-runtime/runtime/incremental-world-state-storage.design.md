@@ -1278,6 +1278,10 @@ Owner bootstrap/recovery 聚合从完整 RootSet 六根绑定 typed owner 诊断
 
 Profile-3 endpoint 必须显式安装同一实际 PageStore/pool 的 capability，在有限 originals/core/state/value 配额和组合取消下运行原件与 bootstrap owner coverage。Normal candidate 继续通过现行 Formal verifier 核对真实 Frozen certificate；certificate/material 存在必须配对，Recovery 分支仍明确不支持。该入口在 owner registry 不完整时无条件阻止进入旧 profile receipt/persistence writer；普通转移只核 changed values 后明确拒绝尚未实现的 owner delta verifier，不全扫状态替代普通增量证明。取消在实际写 receipt 前仍须检查，已开始跨端点写入后的取消沿原 OutcomeUnknown/query-only 规则处理。本组件不授完整 World、普通续跑、原件物理可用性、独立故障域或 GC 资格。
 
+Schema 4 的执行前 Frozen material 沿用 ClosedRecord 的自包含对象闭包，不引入从未认证外部引用补齐闭包的例外。九个角色中，Input 与 ExecutionManifest 是本次预留的新原件；IncrementalGenesisConfig、IncrementalRootSet、IncrementalCommitBody、IncrementalHistoryPrefix、Wasm、Rules、NativeExecutionEnvironment 七个角色必须逐项等于真实已接受父提交的原角色。这里的 CommitBody 与 HistoryPrefix 是父提交原件，不是执行后 candidate；不得要求未来结果来授权本次启动。Input 角色等于原 payload digest，前后状态均等于预留的原 prestate，完整 material 使用原 Frozen 哈希域与原 CBOR wire 绑定；原对象排序、显式引用闭包、256 个对象和 8 MiB 原材料上限保持。组装时仅从已绑定的实际 store/lease 有界读取这些原件，不恢复 World、不遍历父状态树或重扫完整模块目录。GEN 没有普通 Frozen 预留；首个 ordinary Frozen 只能消费真正完成耐久接受的 GEN 父资格。
+
+执行前专用验证必须先认证原 reservation、实际父 head/record、authority/epoch/position 与父环境、policy，再以同一 Ordinary pool 的持续 metadata、比较、wire 和原件流预算读取本次 canonical manifest、完整 Input、policy 和 continuation，分别核对实际摘要与声明长度；manifest 限于 Execution 模式且绑定原父 commit/roots、operation/input、scope/profile、native、Wasm、Rules 和 policy。源错误保留原类型，取消或配额耗尽不产生成功证明或 Frozen receipt。内容验证证明只绑定精确预留、父提交与 material，不授业务、durableAccepted 或 Runtime tick 权限；每个端点还须独立绑定自身真实 accepted cache、PageStore/native namespace lease 与 live 权限后才能落原 receipt。coordinator 仍验证双端原回执与证书，恢复仍核原预留及原材料，不以 candidate 后验、staged cache、相等 DTO 或 caller roots 补授执行前资格。
+
 Endpoint 的 `max_pending_node_bytes` 是整次 Merkle 重放的有限暂存总额度，不能用单页 `STATE_MAX_PAGE_BYTES` 作为其最大值；单页 codec/reader/sink 继续执行原单页上限。暂存总额度必须非零，实际每次分配仍先从同一个有限 MemoryBudget/pool 的 Ordinary 配额取得准入，不因显式放宽 caller pending 总额度而免除内存、页数、I/O 或取消验证。
 
 本批 owner registry 对原 ModuleStates/Instances 的兼容解析与 descriptor 计数，不是后续专业 typed ModuleState/Instance 家族的完整资格；新格式不兼容时必须 fail closed，不能把诊断计数提升为完整 World 激活、正常续跑或兼容导入。
@@ -1571,5 +1575,7 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；承接 REQ-LWS-001 的
 新格式 worker 在实际封存文件上执行有界 `--oasis7-wasm-worker-handshake-v1` 模式，再使用同一封存文件执行原 `--oasis7-wasm-worker-v1` 调用。握手声明实际子进程支持的 worker protocol v1、typed output v1 及已编译的 Wasm/regex 能力；Host 核对本次任务必需能力，未知版本、缺能力、错误输出、取消或进程失败均拒绝。这里的协议版本限定 Host/worker 的执行边界，不替代模块自身的 ABI 校验，也不把 caller 提供的 feature 标签当作子进程能力。握手与调用复用有限输入输出、资源限制和取消合同，不回退到其他磁盘 executable、进程内 VM 或未绑定环境。
 
 主 ELF 的封存不固定内核按 `PT_INTERP` 打开的加载器，也不固定动态加载器重新打开的 DSO。握手只证明执行协议与能力，不能代替原 descriptor 中 LoadedLibrary 和构建环境的完整加载等价。正式 Host 执行还须在执行实际调用的同一子进程内完成原 native 环境的加载绑定，或使用按已验证原件装载的依赖命名空间；仅校验父进程环境、另起握手进程，或保留原件 namespace pin 均不足以证明该条件。此条件未闭合时不得授予完整格式执行资格。
+
+同进程绑定模式分别使用 `--oasis7-native-bound-worker-v1` 与 `--oasis7-native-bound-regex-worker-v1`，请求携带原 descriptor 和相应 typed 输入。两者复用唯一的 native capture/verifier，在实际 Wasm 或 regex 运算前后验证同一加载闭包，并持有依赖文件 pin。后置验证成功前不得发布结果；regex 的非法表达式响应也须通过后置验证。缺少真实 verifier 时拒绝，不回退到普通 worker 模式。
 
 验收需要实际 Linux 封存 worker 的握手与 typed 调用正例，以及错误 executable、版本/能力不匹配、foreign head、取消和 lease 生命周期负例。编译通过、字段被读取或单独保留 descriptor 均不能代签真实 Host 执行；完整执行与持久闭包守卫在其余启用条件满足前继续保留。

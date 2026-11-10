@@ -12,7 +12,7 @@ pub struct DiplomacyEmptyCreateV1<'a> {
     pub family: &'a ReservedValue<DiplomacyFamilyQualificationV1>,
     pub max_pending_node_bytes: usize,
 }
-pub fn create_qualified_diplomacy_empty_v1<
+fn create_impl<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -26,6 +26,7 @@ pub fn create_qualified_diplomacy_empty_v1<
     guard: &PreparedGuard,
     live: &ExecutionFence,
     cells: &mut u64,
+    allow_alliance_members: bool,
 ) -> Result<ReservedValue<DiplomacyRecordQualificationV1>, WorldFieldOverlayErrorV1> {
     let field = change.source.field();
     let cancel = &mut context.cancelled;
@@ -35,7 +36,9 @@ pub fn create_qualified_diplomacy_empty_v1<
         change
             .family
             .validate_binding(&tx.parent_fence().parent_roots)?;
-        if change.source.length() != 0 {
+        if change.source.length() != 0
+            && !(allow_alliance_members && field == DiplomacyFieldV1::Alliances)
+        {
             return Err(ValueTreeError::Invalid("diplomacy empty creation source vectors").into());
         }
         if context.values.class != MemoryClass::Ordinary
@@ -46,6 +49,10 @@ pub fn create_qualified_diplomacy_empty_v1<
         {
             return Err(closure::invalid().into());
         }
+        let _phase = write
+            .memory
+            .reserve(64 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
         let outer = {
             let mut combined = || cancel() || (write.cancelled)();
             let mut records = InventoryValueReader {
@@ -107,4 +114,60 @@ pub fn create_qualified_diplomacy_empty_v1<
         }
         Ok(proof)
     })
+}
+
+pub fn create_qualified_diplomacy_empty_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    change: DiplomacyEmptyCreateV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    cells: &mut u64,
+) -> Result<ReservedValue<DiplomacyRecordQualificationV1>, WorldFieldOverlayErrorV1> {
+    create_impl(change, context, write, guard, live, cells, false)
+}
+pub struct AllianceCreateV1<'a> {
+    pub id: &'a str,
+    pub source: &'a AllianceState,
+    pub family: &'a ReservedValue<DiplomacyFamilyQualificationV1>,
+    pub max_pending_node_bytes: usize,
+}
+/// Atomically creates the actual typed child, all initial members and its outer
+/// reference. This is a storage primitive, not approval of the supplied action.
+pub fn create_qualified_alliance_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    change: AllianceCreateV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    cells: &mut u64,
+) -> Result<ReservedValue<DiplomacyRecordQualificationV1>, WorldFieldOverlayErrorV1> {
+    create_impl(
+        DiplomacyEmptyCreateV1 {
+            id: change.id,
+            source: DiplomacySourceV1::Alliance(change.source),
+            family: change.family,
+            max_pending_node_bytes: change.max_pending_node_bytes,
+        },
+        context,
+        write,
+        guard,
+        live,
+        cells,
+        true,
+    )
 }

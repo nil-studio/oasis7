@@ -323,6 +323,8 @@ mod incremental_expected_bytes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_factory_authority_records;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_lifecycle_index;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_factory_records;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_identity_amounts;

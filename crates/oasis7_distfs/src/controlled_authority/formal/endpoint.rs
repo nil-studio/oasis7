@@ -18,7 +18,7 @@ mod published_closure;
 mod storage_maintenance;
 pub use storage_maintenance::{FormalStorageLogicalInventoryPage, FormalStorageLogicalObject};
 #[path = "endpoint_store.rs"]
-mod store;
+pub(super) mod store;
 pub use chunk::{FORMAL_ARCHIVE_CHUNK_LIMIT, FORMAL_ARCHIVE_OBJECT_LIMIT, FormalArchiveChunkV1};
 #[path = "endpoint_native_restore.rs"]
 mod native_restore;
@@ -1162,3 +1162,39 @@ pub(crate) use committed_material::verify_committed_historical_material;
 
 #[path = "endpoint_native_environment.rs"]
 mod native_environment;
+
+#[path = "endpoint_archive_bounded_read.rs"]
+mod archive_bounded_read;
+pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
+
+impl FileFormalEndpoint {
+    /// Paid data loading preserves the existing failure poison; it neither
+    /// issues a serving permit nor replaces the formal freeze admission path.
+    fn load_bounded(
+        &mut self,
+        request: &str,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<store::PaidRequestStateV1>, FormalError> {
+        let result = self
+            .store
+            .read_request_bounded(request, memory, work, cancelled);
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+}
+
+#[cfg(test)]
+pub(super) use store::with_store_for_bounded_retention_fixture;
+
+#[cfg(test)]
+pub(in crate::controlled_authority) use tests::{
+    with_remote_acquire_fixture, with_remote_sign_fixture, with_signed_checkpoint_fixture,
+};
+
+pub(in crate::controlled_authority) use store::bounded_wire::{
+    BoundedWireErrorV1, BoundedWireWorkV1, encode_bounded_wire_v1,
+};

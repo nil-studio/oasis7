@@ -314,7 +314,7 @@ where
         let fee = memory
             .reserve(size(work, false)?, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
-        let _accepted = WorldEventCounterV1::begin(parent, head, tx, memory)?;
+        let _accepted = WorldEventCounterV1::validate_parent_source(parent, head, tx, memory)?;
         if roots
             .digest()
             .map_err(|_| ValueTreeError::Invalid("directory root set"))?
@@ -654,3 +654,9 @@ where
     }
     result
 }
+
+#[path = "incremental_factory_directory_records_freeze.rs"]
+mod freeze;
+pub(in crate::world) use freeze::{
+    FrozenFactoryRecipeDirectoryV1, freeze_current_factory_recipe_directory_v1,
+};

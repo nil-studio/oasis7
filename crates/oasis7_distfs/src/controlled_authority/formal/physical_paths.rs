@@ -16,16 +16,29 @@ pub(crate) fn metadata(metadata: &fs::Metadata, directory: bool) -> Result<(), F
     Ok(())
 }
 pub(super) fn directory(path: &Path) -> Result<(), FormalError> {
+    directory_with_step(path, &mut || Ok(()))
+}
+pub(crate) fn directory_with_step(
+    path: &Path,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+) -> Result<(), FormalError> {
+    step()?;
     metadata(&fs::symlink_metadata(path).map_err(io)?, true)
 }
 /// Check every controlled inner directory through its storage root. We do not
 /// require ownership of system ancestors such as /tmp or /Users.
 pub(crate) fn parents(path: &Path) -> Result<(), FormalError> {
+    parents_with_step(path, &mut || Ok(()))
+}
+pub(crate) fn parents_with_step(
+    path: &Path,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+) -> Result<(), FormalError> {
     let mut cursor = path
         .parent()
         .ok_or_else(|| invalid("physical path parent"))?;
     loop {
-        directory(cursor)?;
+        directory_with_step(cursor, step)?;
         let name = cursor
             .file_name()
             .and_then(|name| name.to_str())
@@ -54,20 +67,31 @@ pub(crate) fn parents(path: &Path) -> Result<(), FormalError> {
     Ok(())
 }
 pub(super) fn sync(path: &Path) -> Result<(), FormalError> {
+    sync_with_step(path, &mut || Ok(()))
+}
+pub(crate) fn sync_with_step(
+    path: &Path,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+) -> Result<(), FormalError> {
+    step()?;
     let expected = fs::symlink_metadata(path).map_err(io)?;
     metadata(&expected, expected.is_dir())?;
     if expected.is_dir() {
-        parents(&path.join(".directory-check"))?;
+        parents_with_step(&path.join(".directory-check"), step)?;
     } else {
-        parents(path)?;
+        parents_with_step(path, step)?;
     }
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
+    step()?;
     let file = options.open(path).map_err(io)?;
+    step()?;
     metadata(&file.metadata().map_err(io)?, expected.is_dir())?;
-    file.sync_all().map_err(io)
+    step()?;
+    file.sync_all().map_err(io)?;
+    step()
 }
 
 #[cfg(test)]

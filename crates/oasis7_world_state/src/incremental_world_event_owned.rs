@@ -35,6 +35,17 @@ impl Write for Raw {
 /// zero-copy transfer: serialized shape cannot bound input spare capacity.
 /// The caller covers every input allocation until this function returns,
 /// including the overlap while the normalized output is decoded.
+pub fn retain_borrowed_world_event_owned_v1(
+    event: &WorldEvent,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    work: &mut WorldEventDecodeWorkV1,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<WorldEvent>, ValueTreeError> {
+    retain_serialized_world_event(event, memory, class, work, cancelled)
+}
+
+/// Consume the input after the same bounded borrowed-event admission.
 pub fn retain_world_event_owned_v1(
     event: WorldEvent,
     memory: &MemoryBudget,
@@ -42,7 +53,7 @@ pub fn retain_world_event_owned_v1(
     work: &mut WorldEventDecodeWorkV1,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<WorldEvent>, ValueTreeError> {
-    let result = retain_serialized_world_event(&event, memory, class, work, cancelled);
+    let result = retain_borrowed_world_event_owned_v1(&event, memory, class, work, cancelled);
     drop(event);
     result
 }

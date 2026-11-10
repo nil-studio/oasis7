@@ -198,8 +198,18 @@ fn load_with_cache(
     prefix: &str,
     use_cache: bool,
 ) -> Result<Arc<Node>, FormalError> {
+    load_with_reader(dir, value, prefix, use_cache, &mut read)
+}
+fn load_with_reader<B: AsRef<[u8]>>(
+    dir: &Path,
+    value: &NodeRef,
+    prefix: &str,
+    use_cache: bool,
+    reader: &mut impl FnMut(&Path, usize) -> Result<B, FormalError>,
+) -> Result<Arc<Node>, FormalError> {
     reference(value)?;
-    let bytes = read(&dir.join(CATALOG).join(&value.digest), NODE_BYTES)?;
+    let owner = reader(&dir.join(CATALOG).join(&value.digest), NODE_BYTES)?;
+    let bytes = owner.as_ref();
     let digest = blake3::hash(&bytes);
     if digest.to_hex().as_str() != value.digest {
         return Err(invalid("generation node checksum"));
@@ -468,6 +478,23 @@ pub(super) fn contains_with_cache(
     id: &str,
     use_cache: bool,
 ) -> Result<bool, FormalError> {
+    contains_with_reader(dir, catalog, id, use_cache, &mut read)
+}
+pub(super) fn contains_uncached_with_reader<B: AsRef<[u8]>>(
+    dir: &Path,
+    catalog: &Catalogs,
+    id: &str,
+    reader: &mut impl FnMut(&Path, usize) -> Result<B, FormalError>,
+) -> Result<bool, FormalError> {
+    contains_with_reader(dir, catalog, id, false, reader)
+}
+fn contains_with_reader<B: AsRef<[u8]>>(
+    dir: &Path,
+    catalog: &Catalogs,
+    id: &str,
+    use_cache: bool,
+    reader: &mut impl FnMut(&Path, usize) -> Result<B, FormalError>,
+) -> Result<bool, FormalError> {
     hash_hex(id)?;
     validate(catalog)?;
     let Some(mut value) = catalog.root.clone() else {
@@ -475,7 +502,7 @@ pub(super) fn contains_with_cache(
     };
     let mut prefix = String::new();
     loop {
-        let node = load_with_cache(dir, &value, &prefix, use_cache)?;
+        let node = load_with_reader(dir, &value, &prefix, use_cache, reader)?;
         match &node.kind {
             Kind::Leaf(ids) => {
                 return Ok(ids
@@ -715,4 +742,23 @@ mod tests {
 #[cfg(test)]
 pub(super) fn cache_accesses() -> u64 {
     CACHE_ACCESSES.with(std::cell::Cell::get)
+}
+
+// One uncached membership node is live at a time. Decode may grow its leaf
+// vector, and canonical re-encoding may double its output capacity. Branch
+// references and leaf strings are alternatives, not a retained whole tree.
+pub(super) fn lookup_workspace_bytes() -> Result<usize, FormalError> {
+    use std::mem::size_of;
+    let overflow = || invalid("generation lookup workspace layout");
+    let leaf = LEAF_IDS
+        .checked_mul(2 * size_of::<String>() + 64)
+        .ok_or_else(overflow)?;
+    let branch = size_of::<[Option<NodeRef>; 16]>()
+        .checked_add(16 * 64)
+        .ok_or_else(overflow)?;
+    leaf.max(branch)
+        .checked_add(size_of::<Node>() + 2 * size_of::<usize>() + size_of::<Arc<Node>>())
+        .and_then(|n| n.checked_add(2 * NODE_BYTES + size_of::<Vec<u8>>()))
+        .and_then(|n| n.checked_add(4096))
+        .ok_or_else(overflow)
 }

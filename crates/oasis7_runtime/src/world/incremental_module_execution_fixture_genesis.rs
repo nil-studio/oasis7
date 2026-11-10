@@ -185,7 +185,7 @@ pub(super) fn build<'a>(
     world
         .prepare_iws_genesis_v1(
             &mut member(&mut cas, memory, &mut io(), &mut keys(), || false),
-            &mut super::super::work(),
+            &mut super::runtime_genesis_work(),
             &mut |reference, bytes| {
                 assert_eq!(reference.id, objects.put(bytes));
                 Ok(())
@@ -395,7 +395,7 @@ pub(super) fn build<'a>(
         },
         &mut ctx,
         &mut current_work,
-        &super::super::raw_complete::Scratch::new(memory, MemoryClass::Ordinary),
+        &super::FixtureScratch::new(memory, MemoryClass::Ordinary),
         &mut originals,
         &mut mailbox,
     )

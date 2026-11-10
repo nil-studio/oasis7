@@ -13,6 +13,8 @@ pub struct RuntimeRevocationQualificationV1 {
     body: StateRootV1,
     class: MemoryClass,
     safe_alternatives_len: usize,
+    pub(super) safe_alternative_actions:
+        ReservedValue<super::action_index::SafeAlternativeActionIndexV1>,
 }
 impl RuntimeRevocationQualificationV1 {
     pub(super) fn validate_digest(&self, digest: &[u8; 32]) -> Result<(), ValueTreeError> {
@@ -34,6 +36,10 @@ impl RuntimeRevocationQualificationV1 {
     /// authenticate the exact current parent with begin_runtime_revocation_current_v1.
     pub fn safe_alternatives_len(&self) -> usize {
         self.safe_alternatives_len
+    }
+    /// Lookup only; callers must re-read the matching Current member before admission.
+    pub fn safe_alternative_lineage_for_action(&self, action: u64) -> Option<&str> {
+        self.safe_alternative_actions.lineage(action)
     }
     pub fn body(&self) -> &StateRootV1 {
         &self.body
@@ -303,11 +309,13 @@ pub fn qualify_runtime_revocation_v1<
     };
     validate_body(None, &body, ctx, scan, work)?;
     let safe_alternatives_len = safe_alternatives_length(&body, ctx, scan, work)?;
+    let safe_alternative_actions = super::action_index::advance(None, &body, ctx, scan, work)?;
     ctx.check()?;
     Ok(retained.retain(RuntimeRevocationQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         body,
         safe_alternatives_len,
+        safe_alternative_actions,
         class: ctx.values.class,
     }))
 }
@@ -332,6 +340,11 @@ pub fn readmit_runtime_revocation_ordinary_v1(
         roots: proof.roots,
         body: proof.body.clone(),
         safe_alternatives_len: proof.safe_alternatives_len,
+        safe_alternative_actions: proof.safe_alternative_actions.readmit(
+            memory,
+            MemoryClass::Ordinary,
+            &mut cancelled,
+        )?,
         class: MemoryClass::Ordinary,
     });
     if cancelled() {
@@ -456,11 +469,19 @@ pub(crate) fn accept_runtime_revocation_verified_v1<
             }
         }
     }
+    let safe_alternative_actions = super::action_index::advance(
+        Some(&parent.safe_alternative_actions),
+        &body,
+        ctx,
+        scan,
+        work,
+    )?;
     ctx.check()?;
     Ok(charge.retain(RuntimeRevocationQualificationV1 {
         roots: checked.record.after.digest().map_err(|_| invalid())?,
         body,
         safe_alternatives_len,
+        safe_alternative_actions,
         class: ctx.values.class,
     }))
 }

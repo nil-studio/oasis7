@@ -104,8 +104,20 @@ fn fake_sink_consumption_does_not_pass_real_fact_original_verification() {
         MailboxFrontierV1 { head: 0, tail: 0 },
     );
     let source = values.clone();
+    let mut material_owner = super::material_fixture(&world, &parent, &pages, &source, &memory);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let live = parent.fence().unwrap();
-    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &material_owner.pages,
+        &memory,
+        limits(),
+    )
+    .unwrap();
     world
         .contribute_iws_agent_event(
             &event(&world, 1),
@@ -131,6 +143,8 @@ fn fake_sink_consumption_does_not_pass_real_fact_original_verification() {
                 max_event_bytes: 4096,
                 original_work: original_work(),
             },
+            &mut materials,
+            &live,
         )
         .unwrap();
     let guard = txn.guard();

@@ -158,6 +158,28 @@ impl<T> WorldNativeRecordV1<T> {
         &self.value
     }
 }
+impl WorldNativeRecordV1<crate::MetaProgressState> {
+    /// Only the specialized, prepaid Meta owner may mutate its decoded DTO.
+    /// This data transform creates no action or storage qualification.
+    pub(crate) fn apply_prepaid_meta_progress_v1<E>(
+        &mut self,
+        track: &str,
+        points: i64,
+        achievement: Option<&str>,
+        now: u64,
+        visit: impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        crate::world::governance_meta_publication::apply_meta_progress_delta_v1(
+            &mut self.value,
+            track,
+            points,
+            achievement,
+            now,
+            visit,
+        )
+    }
+}
+
 impl<T: Codec> Codec for WorldNativeRecordV1<T> {
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,

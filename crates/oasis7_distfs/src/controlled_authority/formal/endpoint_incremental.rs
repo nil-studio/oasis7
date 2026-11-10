@@ -563,3 +563,7 @@ pub(super) mod local_closure;
 mod native_worker;
 #[cfg(not(target_arch = "wasm32"))]
 pub use closure::NativeWorkerLeaseV1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_frozen_content.rs"]
+mod frozen_content;

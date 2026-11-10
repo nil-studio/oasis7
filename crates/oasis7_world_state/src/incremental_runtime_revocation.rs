@@ -90,6 +90,8 @@ pub fn recover_runtime_revocation_body_v1<
         work,
     )
 }
+#[path = "incremental_runtime_revocation_action_index.rs"]
+mod action_index;
 #[path = "incremental_runtime_revocation_family.rs"]
 mod family;
 pub use family::*;
@@ -109,4 +111,9 @@ mod current_identity;
 pub use current_identity::{
     CurrentRevocationAgentIdentityV1, read_current_revocation_agent_identity_v1,
     resolve_manufactured_identity_generation_v1,
+};
+#[path = "incremental_runtime_revocation_current_alternative.rs"]
+mod current_alternative;
+pub use current_alternative::{
+    CurrentSafeAlternativeRecordV1, read_current_safe_alternative_for_action_v1,
 };

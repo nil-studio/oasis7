@@ -1,0 +1,258 @@
+//! Immediate MaterialTransfer settlement and post routing in the actual Root context.
+use super::*;
+use crate::world::{
+    incremental_action_admission::UnboundActionAdmissionV1,
+    incremental_action_execution::SelectedPendingActionV1,
+    incremental_material_normalization::transfer::{
+        CompletedMaterialTransferV1, MaterialTransferWorkV1, execute_selected_material_transfer_v1,
+    },
+    incremental_module_execution_event::PersistedWorldEventV1,
+    incremental_module_invocation::RootRulePhaseOutcomeV1,
+    incremental_step::IwsStepContext,
+};
+
+use super::ordinary_settlement::{OrdinaryDriverErrorV1, settle_ordinary_rules_v1};
+
+impl<'a, 't, 's, 'v, M, R, E, C, W, F, O>
+    RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader
+        + ValueNodeWriter
+        + oasis7_formal_protocol::incremental_state::StatePageWriter,
+    F: FnMut(
+        &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
+    ) -> Result<(), BodyMutationError>,
+    O: OriginalObjectStreamReader,
+{
+    /// The caller runs genuine admission and Rule first, and re-reads Current
+    /// admission after Rule/Modify contributions. The existing economy resolver
+    /// leaves TransferMaterial unchanged; this lane has no selective Accepted.
+    /// Routed or non-Agent transfers still require their own genuine business
+    /// owners; this caller does not convert them to ordinary action rejection.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::world) fn execute_material_transfer_after_rules_v1<P, ER, CR, PE, PC>(
+        &mut self,
+        selected: &SelectedPendingActionV1,
+        admission: &UnboundActionAdmissionV1<'_>,
+        outcome: &ReservedValue<RootRulePhaseOutcomeV1>,
+        materials: &mut crate::world::incremental_body_event::materials::CorePolicyMaterialContextV1<'_, M, impl FnMut() -> Option<ValueTreeError>>,
+        read: &mut oasis7_world_state::incremental_field_read::WorldFieldReadContextV1<
+            '_,
+            P,
+            R,
+            ER,
+            CR,
+        >,
+        parent_read: &mut oasis7_world_state::incremental_field_read::WorldFieldReadContextV1<
+            '_,
+            P,
+            R,
+            PE,
+            PC,
+        >,
+        data_work: &mut MaterialTransferWorkV1,
+        material_family: &ReservedValue<
+            oasis7_world_state::incremental_material_records::MaterialFamilyQualificationV1,
+        >,
+        audit_work: &mut oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1,
+        directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+        enumeration: &mut CurrentInvocationEnumerationWorkV1,
+        tail_work: &mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<CompletedMaterialTransferV1, OrdinaryDriverErrorV1<O::Error>>
+    where
+        P: MerkleNodeReader,
+        ER: FnMut() -> Option<ValueTreeError>,
+        CR: FnMut() -> bool,
+        PE: FnMut() -> Option<ValueTreeError>,
+        PC: FnMut() -> bool,
+    {
+        let result: Result<_, OrdinaryDriverErrorV1<O::Error>> = (|| {
+            let data_family =
+                |action: &crate::Action| matches!(action, crate::Action::TransferMaterial { .. });
+            let live = live_owner();
+            if !self.ctx.transaction.uses_budget(self.ctx.values.memory)
+                || self.ctx.values.class != MemoryClass::Ordinary
+                || !self
+                    .events
+                    .mutation
+                    .memory
+                    .same_pool(self.ctx.values.memory)
+                || !self.members.memory.same_pool(self.ctx.values.memory)
+            {
+                return Err(OrdinaryDriverErrorV1::Module(
+                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                        "MaterialTransfer driver context pool/class",
+                    )),
+                ));
+            }
+            if !material_family.uses_budget(self.ctx.values.memory)
+                || material_family.allocation_class() != MemoryClass::Ordinary
+            {
+                return Err(RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                    "material transfer family pool/class",
+                ))
+                .into());
+            }
+            let world_bytes = self.families.roots.world_id.len();
+            if world_bytes == 0 || world_bytes > 256 {
+                return Err(RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                    "material transfer world ID bound",
+                ))
+                .into());
+            }
+            // RootSet encoding holds one exact-capacity vector. Each namespace
+            // temporarily encodes a StateRoot vector whose geometric growth is
+            // bounded by twice STATE_ROOT_BYTES; include its workspace as well.
+            let encoding_bytes = world_bytes
+                .checked_add(b"oasis7.iws.root-set.v1\0".len() + 4 + 2 + 48)
+                .and_then(|n| {
+                    8usize
+                        .checked_mul(oasis7_formal_protocol::incremental_state::STATE_ROOT_BYTES)
+                        .and_then(|roots| n.checked_add(roots))
+                })
+                .and_then(|n| n.checked_add(512))
+                .ok_or_else(|| {
+                    RootModuleExecutionErrorV1::Value(ValueTreeError::ResourceLimited(
+                        "material transfer root encoding",
+                    ))
+                })?;
+            let _root_encoding_fee = self
+                .ctx
+                .values
+                .memory
+                .reserve(encoding_bytes, MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)
+                .map_err(RootModuleExecutionErrorV1::Value)?;
+            let roots = self.families.roots.digest().map_err(|_| {
+                RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                    "material transfer parent roots",
+                ))
+            })?;
+            material_family
+                .validate_binding(&roots)
+                .map_err(RootModuleExecutionErrorV1::Value)?;
+            admission
+                .validate(
+                    selected,
+                    self.ctx.transaction,
+                    self.ctx.values.memory,
+                    &live,
+                )
+                .map_err(RootModuleExecutionErrorV1::from)?;
+            let effective = outcome
+                .override_action_for_selected_v1(selected, self.ctx.transaction)
+                .map_err(RootModuleExecutionErrorV1::Body)?
+                .unwrap_or(&selected.envelope().action);
+            if !data_family(&selected.envelope().action)
+                || !data_family(effective)
+                || !outcome.uses_budget(self.ctx.values.memory)
+            {
+                return Err(OrdinaryDriverErrorV1::Module(
+                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                        "MaterialTransfer driver action/rule/pool binding",
+                    )),
+                ));
+            }
+            if (self.events.mutation.cancelled)() {
+                return Err(RootModuleExecutionErrorV1::Value(ValueTreeError::Cancelled).into());
+            }
+            let mut settlement = settle_ordinary_rules_v1(
+                selected,
+                admission,
+                outcome,
+                self.ctx,
+                self.members,
+                live_owner,
+            )
+            .map_err(OrdinaryDriverErrorV1::Settlement)?;
+            let applied = settlement.applied();
+            let rejection = settlement.take_rejection();
+            let live = live_owner();
+            let guard = self.ctx.transaction.guard();
+            settlement
+                .validate(
+                    selected,
+                    outcome,
+                    self.ctx.transaction,
+                    self.ctx.values.memory,
+                    &live,
+                )
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+            let completed = {
+                let mut step = IwsStepContext::borrow_counted_at(
+                    self.ctx.transaction,
+                    self.now,
+                    &guard,
+                    &live,
+                    self.events.values,
+                    &mut self.events.mutation,
+                    &mut self.events.original_work,
+                    self.events.world_events,
+                )
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+                if let Some(reason) = rejection {
+                    CompletedMaterialTransferV1::from_rejection(
+                        step.append_selected_rejection_owned(
+                            materials,
+                            &live,
+                            selected,
+                            reason,
+                            self.events.max_event_bytes,
+                            audit_work,
+                            &mut self.events.persist_original,
+                        )
+                        .map_err(RootModuleExecutionErrorV1::Body)?,
+                        selected,
+                        step.transaction,
+                        step.mutation.memory,
+                    )
+                    .map_err(RootModuleExecutionErrorV1::Body)?
+                } else {
+                    execute_selected_material_transfer_v1(
+                        &mut step,
+                        materials,
+                        selected,
+                        outcome,
+                        self.families.agents,
+                        material_family,
+                        read,
+                        parent_read,
+                        data_work,
+                        audit_work,
+                        self.events.max_event_bytes,
+                        &guard,
+                        &live,
+                        &mut self.events.persist_original,
+                    )
+                    .map_err(RootModuleExecutionErrorV1::Body)?
+                }
+            };
+            let event = PersistedWorldEventV1::from_material_transfer(&completed);
+            if applied {
+                self.route_persisted_event_v1(&event, None, directory, enumeration, live_owner)?;
+            }
+            self.route_post_action_after_rules_v1(
+                selected,
+                outcome,
+                Some(&event),
+                directory,
+                enumeration,
+                live_owner,
+            )?;
+            self.route_latest_world_event_v1(directory, enumeration, tail_work, live_owner)?;
+            Ok(completed)
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+}

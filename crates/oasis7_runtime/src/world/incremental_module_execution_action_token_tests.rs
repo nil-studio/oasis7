@@ -31,12 +31,24 @@ fn selected_pending_action_identity_rejects_other_transaction_after_real_pop() {
             *blake3::hash(&bytes).as_bytes()
         })
         .collect();
+    let material_limits = crate::world::incremental_body_event::materials::test_support::MaterialFixtureLimitsV1::for_state(world.state());
     let fixture = genesis::build(&world, &memory, workspace);
     drop(world);
     let reader = Reader {
         cas: fixture.cas.clone(),
         memory: &memory,
     };
+    let mut material_backing =
+        crate::world::incremental_body_event::materials::test_support::MaterialFixtureV1::build(
+            &fixture.roots,
+            &reader,
+            &reader,
+            &memory,
+            material_limits,
+            || reader.cas.error(),
+            || false,
+        );
+    let mut materials = material_backing.context(&fixture.roots, &reader, || reader.cas.error());
     let mut originals = Originals {
         objects: fixture.objects.clone(),
         memory: &memory,
@@ -148,6 +160,8 @@ fn selected_pending_action_identity_rejects_other_transaction_after_real_pop() {
         .unwrap();
         assert!(
             step.append_selected_rejection(
+                &mut materials,
+                &other_live,
                 &selected,
                 crate::RejectReason::AgentNotFound {
                     agent_id: "queued-alice".into()
@@ -192,7 +206,7 @@ fn selected_pending_action_identity_rejects_other_transaction_after_real_pop() {
             &counter,
         )
         .unwrap();
-        step.append_selected_rejection_owned(&selected, crate::RejectReason::AgentNotFound { agent_id: "queued-alice".into() }, 64 << 10, &mut audit_work,
+        step.append_selected_rejection_owned(&mut materials, &live, &selected, crate::RejectReason::AgentNotFound { agent_id: "queued-alice".into() }, 64 << 10, &mut audit_work,
             |producer: &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1| {
                 producer.persist_to(&mut |stream: &mut dyn crate::world::incremental_body_event::AgentEventOriginalStreamV1, _: &mut dyn FnMut() -> bool| {
                     let len = usize::try_from(stream.original_bytes()).unwrap();

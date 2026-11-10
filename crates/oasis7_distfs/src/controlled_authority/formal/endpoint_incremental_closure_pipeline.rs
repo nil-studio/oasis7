@@ -143,6 +143,13 @@ pub(crate) fn consume_candidate_data_closure_v1(
     } else {
         None
     };
+    super::super::super::frozen_content::verify_candidate_frozen_content(
+        endpoint,
+        candidate,
+        memory,
+        &mut source_work.frozen_material,
+        &mut *cancelled,
+    )?;
     let mut bridge_work = super::super::NativeChunkReadWorkV1 {
         occurrences_remaining: source_work.native_chunk_occurrences,
         bytes_remaining: source_work.native_chunk_bytes,

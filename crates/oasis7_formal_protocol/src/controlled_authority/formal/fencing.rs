@@ -38,11 +38,13 @@ pub fn invalid(s: impl Into<String>) -> FencingError {
     FencingError::Invalid(s.into())
 }
 pub fn hash_value<T: Serialize>(value: &T) -> Result<String, FencingError> {
-    Ok(
-        blake3::hash(&serde_cbor::to_vec(value).map_err(|e| invalid(e.to_string()))?)
-            .to_hex()
-            .to_string(),
-    )
+    Ok(hash_encoded(
+        &serde_cbor::to_vec(value).map_err(|e| invalid(e.to_string()))?,
+    ))
+}
+/// The same digest over an already encoded canonical protocol value.
+pub fn hash_encoded(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 pub fn canonical_hash(hash: &str) -> Result<(), FencingError> {
     if hash.len() != 64
@@ -69,7 +71,20 @@ pub(crate) fn sign<T: Serialize>(
     value: &T,
     key: &SigningKey,
 ) -> Result<String, FencingError> {
-    Ok(hex::encode(key.sign(&bytes(domain, value)?).to_bytes()))
+    sign_with_preimage(key, || bytes(domain, value), |_| Ok(()))
+}
+/// Build the original framing at its evaluation point, with caller-paid IO.
+pub fn sign_with_preimage<B, E>(
+    key: &SigningKey,
+    build: impl FnOnce() -> Result<B, E>,
+    mut work: impl FnMut(usize) -> Result<(), E>,
+) -> Result<String, E>
+where
+    B: AsRef<[u8]>,
+{
+    let preimage = build()?;
+    work(preimage.as_ref().len())?;
+    Ok(hex::encode(key.sign(preimage.as_ref()).to_bytes()))
 }
 /// Sign a fencing protocol preimage with the adapter's explicitly held key.
 pub fn sign_fencing_body<T: Serialize>(
@@ -85,19 +100,38 @@ pub fn verify<T: Serialize>(
     signature: &str,
     key: &str,
 ) -> Result<(), FencingError> {
-    canonical_hash(key)?;
+    verify_with_preimage(signature, key, || bytes(domain, value), |_| Ok(()))
+}
+/// The legacy key/signature/error order is shared by bounded adapters.
+pub fn verify_with_preimage<B, E>(
+    signature: &str,
+    key: &str,
+    build: impl FnOnce() -> Result<B, E>,
+    mut work: impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), E>
+where
+    B: AsRef<[u8]>,
+    E: From<FencingError>,
+{
+    work(key.len())?;
+    canonical_hash(key).map_err(E::from)?;
+    work(key.len())?;
     let key: [u8; 32] = hex::decode(key)
-        .map_err(|e| invalid(e.to_string()))?
+        .map_err(|e| E::from(invalid(e.to_string())))?
         .try_into()
-        .map_err(|_| invalid("fencing key size"))?;
+        .map_err(|_| E::from(invalid("fencing key size")))?;
+    work(signature.len())?;
     let signature: [u8; 64] = hex::decode(signature)
-        .map_err(|e| invalid(e.to_string()))?
+        .map_err(|e| E::from(invalid(e.to_string())))?
         .try_into()
-        .map_err(|_| invalid("fencing signature size"))?;
-    VerifyingKey::from_bytes(&key)
-        .map_err(|e| invalid(e.to_string()))?
-        .verify_strict(&bytes(domain, value)?, &Signature::from_bytes(&signature))
-        .map_err(|e| invalid(e.to_string()))
+        .map_err(|_| E::from(invalid("fencing signature size")))?;
+    work(key.len())?;
+    let verifier = VerifyingKey::from_bytes(&key).map_err(|e| E::from(invalid(e.to_string())))?;
+    let preimage = build()?;
+    work(preimage.as_ref().len())?;
+    verifier
+        .verify_strict(preimage.as_ref(), &Signature::from_bytes(&signature))
+        .map_err(|e| E::from(invalid(e.to_string())))
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -362,23 +396,45 @@ pub fn verify_monotonic_checkpoint_evidence(
     checkpoint: &EndpointCheckpointBindingV1,
     policy: &TrustedFencingPolicyV1,
 ) -> Result<(), FencingError> {
+    verify_monotonic_checkpoint_evidence_with(
+        evidence,
+        instance,
+        checkpoint,
+        policy,
+        |statement, signature, key| verify(PROVIDER_DOMAIN, statement, signature, key),
+        EndpointInstanceBindingV1::digest,
+        |policy, resource| {
+            Ok(policy
+                .authorized_resource_bindings
+                .iter()
+                .any(|v| v == resource))
+        },
+    )
+}
+/// Preserve the original statement verification and comparison order while
+/// allowing operational adapters to pay for encoding, hashing and traversal.
+pub fn verify_monotonic_checkpoint_evidence_with<E>(
+    evidence: &MonotonicProviderEvidenceV1,
+    instance: &EndpointInstanceBindingV1,
+    checkpoint: &EndpointCheckpointBindingV1,
+    policy: &TrustedFencingPolicyV1,
+    verify_statement: impl FnOnce(&MonotonicProviderStatementV1, &str, &str) -> Result<(), E>,
+    instance_digest: impl FnOnce(&EndpointInstanceBindingV1) -> Result<String, E>,
+    authorized: impl FnOnce(&TrustedFencingPolicyV1, &str) -> Result<bool, E>,
+) -> Result<(), E>
+where
+    E: From<FencingError>,
+{
     let statement = &evidence.statement;
-    verify(
-        PROVIDER_DOMAIN,
-        statement,
-        &evidence.signature,
-        &policy.provider_public_key,
-    )?;
+    verify_statement(statement, &evidence.signature, &policy.provider_public_key)?;
     if statement.schema_version != 1
         || statement.capability != ProviderCapabilityV1::MonotonicExclusiveSignerStorageV1
-        || !policy
-            .authorized_resource_bindings
-            .contains(&statement.resource_binding)
-        || statement.instance_digest != instance.digest()?
+        || !authorized(policy, &statement.resource_binding)?
+        || statement.instance_digest != instance_digest(instance)?
         || &statement.checkpoint != checkpoint
         || statement.epoch_floor < instance.authority_epoch
     {
-        return Err(FencingError::FencingUnproven);
+        return Err(E::from(FencingError::FencingUnproven));
     }
     Ok(())
 }

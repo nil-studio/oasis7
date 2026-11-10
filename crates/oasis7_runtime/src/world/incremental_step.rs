@@ -106,6 +106,35 @@ where
         Ok(step)
     }
 
+    /// Reborrow an already-started counted tick between concrete phases. The
+    /// authenticated clock must already equal `now`; this never advances it.
+    /// The caller retains the same transaction and counter across module calls.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn borrow_counted_at(
+        transaction: &'tx mut ExecutionTransaction<'parent, R>,
+        now: u64,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        values: &'context V,
+        context: &'context mut BodyMutationContext<'io, W, C>,
+        original_work: &'context mut CanonicalCborWorkV1,
+        counter: &super::incremental_world_event_counter::WorldEventCounterV1,
+    ) -> Result<Self, BodyMutationError> {
+        transaction.contribute(|transaction| {
+            transaction.validate_guard(guard, live)?;
+            counter.validate(transaction)?;
+            super::incremental_clock::check_clock(now, transaction, context)
+        })?;
+        Ok(Self {
+            transaction,
+            values,
+            mutation: context,
+            original_work,
+            now,
+            world_events: Some(counter.clone()),
+        })
+    }
+
     pub fn journal_height(&self) -> Result<u64, BodyMutationError> {
         self.world_events
             .as_ref()
@@ -146,6 +175,12 @@ where
     pub fn dispatch_agent_event<F>(
         &mut self,
         event: &WorldEvent,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+        >,
+        live: &ExecutionFence,
         max_event_bytes: usize,
         persist_original: F,
     ) -> Result<(), BodyMutationError>
@@ -174,8 +209,14 @@ where
             max_event_bytes,
             original_work: std::mem::replace(self.original_work, placeholder),
         };
-        let result =
-            World::contribute_iws_agent_event_at(self.now, event, self.transaction, &mut context);
+        let result = World::contribute_iws_agent_event_at(
+            self.now,
+            event,
+            self.transaction,
+            &mut context,
+            materials,
+            live,
+        );
         *self.original_work = context.original_work;
         result?;
         self.finish_world_event(before)
@@ -184,6 +225,12 @@ where
     pub(super) fn dispatch_persisted_agent_event<'event, F>(
         &mut self,
         event: &'event WorldEvent,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+        >,
+        live: &ExecutionFence,
         max_event_bytes: usize,
         persist_original: F,
     ) -> Result<
@@ -201,7 +248,7 @@ where
                 ))?
                 .validate(tx)
         })?;
-        self.dispatch_agent_event(event, max_event_bytes, persist_original)?;
+        self.dispatch_agent_event(event, materials, live, max_event_bytes, persist_original)?;
         Ok(
             super::incremental_module_execution_event::PersistedWorldEventV1::from_agent(
                 PersistedAgentEventV1 {
@@ -265,6 +312,11 @@ where
             oasis7_world_state::incremental_agent_subtree::AgentSubtreeStructureQualificationV1,
         >,
         event: &WorldEvent,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+        >,
         key_work: &mut oasis7_world_state::incremental_semantic_key::SemanticKeyBudget,
         read_io: &mut oasis7_formal_protocol::incremental_value::ValueIoBudget,
         semantic_bytes: u64,
@@ -299,6 +351,7 @@ where
                 cancelled: || false,
             },
             self.mutation,
+            materials,
             &guard,
             live,
             self.original_work,

@@ -68,7 +68,7 @@ pub struct RootModuleExecutionContextV1<
     pub manifest_cache: &'a ReservedValue<AcceptedWorldManifestHashV1>,
     pub manifest_work: &'a mut RootWorldManifestHashWorkV1,
     pub work: &'a mut RootModuleExecutionWorkV1,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub input_observation: Option<&'a mut Option<(usize, [u8; 32])>>,
 }
 impl<'a, 't, 's, 'v, M, R, E, C, W, F, O>
@@ -592,13 +592,18 @@ where
             limits: selected.manifest().limits.clone(),
             wasm_bytes: Arc::clone(&selected.wasm),
         };
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some(observation) = self.input_observation.as_mut() {
             **observation = Some((
                 request.input.len(),
                 *blake3::hash(&request.input).as_bytes(),
             ));
         }
+        scoped::verify_scoped_native_protocol_v1(self.worker, &request, memory, &self.work.output)
+            .map_err(RootModuleExecutionErrorV1::Worker)?;
+        self.ctx
+            .transaction
+            .validate_guard(selected.guard(), &live_owner())?;
         let output = match execute_root_module_worker_v1(
             self.ctx.transaction,
             self.worker,
@@ -657,6 +662,9 @@ where
             .map_err(ValueTreeError::Memory)?;
         let legacy_executable: WorkerExecutableV1<'v> = match &self.worker.executable {
             WorkerExecutableV1::SealedFd(file) => WorkerExecutableV1::SealedFd(file),
+            WorkerExecutableV1::NativeBoundSealedFd { file, descriptor } => {
+                WorkerExecutableV1::NativeBoundSealedFd { file, descriptor }
+            }
             WorkerExecutableV1::FixturePath(path) => WorkerExecutableV1::FixturePath(path),
         };
         // The shared old kernel carries its sandbox argument to the target.
@@ -846,3 +854,61 @@ mod envelope_tests;
 mod action_override;
 pub(in crate::world) use action_override::PreparedRuleOverrideEventV1;
 pub use action_override::RootRuleOverrideAuditV1;
+
+#[path = "incremental_module_execution_scoped.rs"]
+mod scoped;
+
+#[path = "incremental_module_execution_tail.rs"]
+mod event_tail;
+
+#[path = "incremental_module_execution_core_driver.rs"]
+mod core_driver;
+
+#[path = "incremental_module_execution_body_driver.rs"]
+mod body_driver;
+
+#[path = "incremental_module_execution_selected_accepted.rs"]
+mod selected_accepted;
+
+#[path = "incremental_module_execution_ordinary_settlement.rs"]
+mod ordinary_settlement;
+
+#[path = "incremental_module_execution_collect_data_driver.rs"]
+mod collect_data_driver;
+
+#[path = "incremental_module_execution_transfer_resource_driver.rs"]
+mod transfer_resource_driver;
+
+#[path = "incremental_module_execution_selected_rule.rs"]
+mod selected_rule;
+
+#[path = "incremental_module_execution_nonmovement_driver.rs"]
+mod nonmovement_driver;
+#[cfg(test)]
+pub(in crate::world) use nonmovement_driver::NonmovementSelectedErrorV1;
+pub(in crate::world) use nonmovement_driver::{
+    CompletedNonmovementActionV1, NonmovementSelectedWorkV1,
+};
+
+#[path = "incremental_module_execution_data_access_driver.rs"]
+mod data_access_driver;
+
+#[path = "incremental_module_execution_authenticated_data_driver.rs"]
+mod authenticated_data_driver;
+
+#[path = "incremental_module_execution_factory_lifecycle_driver.rs"]
+mod factory_lifecycle_driver;
+#[path = "incremental_module_execution_material_transfer_driver.rs"]
+mod material_transfer_driver;
+
+#[path = "incremental_module_execution_route_availability_driver.rs"]
+mod route_availability_driver;
+
+#[path = "incremental_module_execution_meta_progress_driver.rs"]
+mod meta_progress_driver;
+
+#[path = "incremental_module_execution_crisis_driver.rs"]
+mod crisis_driver;
+
+#[path = "incremental_module_execution_contract_accept_driver.rs"]
+mod contract_accept_driver;

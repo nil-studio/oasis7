@@ -177,3 +177,44 @@ fn regex_wait_polls_callback_and_releases_after_join() {
     assert!(matches!(result, Err(RegexWorkerErrorV1::Cancelled)));
     assert_eq!(pool.used.load(Ordering::Acquire), 0);
 }
+
+#[test]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    feature = "wasmtime"
+))]
+fn native_bound_regex_without_actual_verifier_never_falls_back() {
+    let file = sealed();
+    let pool = Pool {
+        used: AtomicUsize::new(0),
+        max: 300 << 20,
+    };
+    let allocator = &pool;
+    let stop = AtomicBool::new(false);
+    let mut host = BoundedWorkerSandboxV1 {
+        executable: WorkerExecutableV1::NativeBoundSealedFd {
+            file: &file,
+            descriptor: &[0xa0],
+        },
+        allocator: &allocator,
+        limits: limits(),
+        cancelled: &stop,
+    };
+    let probes = [RegexProbeV1 {
+        pattern: "x",
+        text: Some("x"),
+    }];
+    // The actual generic fixture can execute regex, but lacks the binary
+    // owner's native verifier. A bound request cannot use its generic lane.
+    assert!(matches!(
+        host.match_regex_batch_v1(&probes, &mut || false),
+        Err(RegexWorkerErrorV1::Host(_))
+    ));
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+    assert!(matches!(
+        host.match_regex_batch_v1(&probes, &mut || true),
+        Err(RegexWorkerErrorV1::Cancelled)
+    ));
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+}

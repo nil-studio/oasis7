@@ -135,6 +135,14 @@ impl World {
         )
     }
 
+    #[cfg(test)]
+    pub(in crate::world) fn append_legacy_action_accepted_for_test(
+        &mut self,
+        envelope: &ActionEnvelope,
+    ) -> Result<(), WorldError> {
+        self.append_action_accepted_event(envelope)
+    }
+
     fn append_action_accepted_event(
         &mut self,
         envelope: &ActionEnvelope,

@@ -1,4 +1,5 @@
 //! Qualified registration and original event contribution in the same transaction.
+use super::materials::CorePolicyMaterialContextV1;
 use super::*;
 use oasis7_formal_protocol::incremental_execution::{ExecutionFence, PreparedGuard};
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
@@ -25,6 +26,7 @@ impl World {
         C: FnMut() -> bool,
         W: ValueNodeWriter,
         CW: FnMut() -> bool,
+        ME: FnMut() -> Option<ValueTreeError>,
         F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
     >(
         now: u64,
@@ -32,6 +34,7 @@ impl World {
         qualification: &ReservedValue<AgentSubtreeStructureQualificationV1>,
         overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, V, E, C>,
         write: &mut BodyMutationContext<'_, W, CW>,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
         guard: &PreparedGuard,
         live: &ExecutionFence,
         original_work: &mut CanonicalCborWorkV1,
@@ -132,8 +135,15 @@ impl World {
                 max_event_bytes,
                 original_work: std::mem::replace(original_work, placeholder),
             };
-            let result =
-                Self::contribute_iws_agent_event_core(now, event, transaction, &mut context, true);
+            let result = Self::contribute_iws_agent_event_core(
+                now,
+                event,
+                transaction,
+                &mut context,
+                materials,
+                live,
+                true,
+            );
             *original_work = context.original_work;
             result
         })

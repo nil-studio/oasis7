@@ -93,6 +93,11 @@ pub(super) fn run<
         )?
     };
     check(ctx)?;
+    let lifecycle_index = {
+        let mut local = local!(ctx, roots.state_root(StateNamespaceV1::Business));
+        lifecycle_budget::accept(parent, &factory, &industry, witness, &mut local, work)?
+    };
+    check(ctx)?;
     let market = {
         let mut local = local!(ctx, roots.state_root(StateNamespaceV1::Business));
         market::accept_module_marketplace_family_verified_v1(
@@ -248,6 +253,7 @@ pub(super) fn run<
         inventory,
         factory,
         industry,
+        lifecycle_index,
         market,
         fixed,
         reward,

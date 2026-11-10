@@ -117,7 +117,7 @@ fn read_durable_batch_inner(
 }
 
 #[cfg(unix)]
-mod unix {
+pub(super) mod unix {
     use super::*;
     use std::io::{Seek, SeekFrom};
     struct Member {
@@ -134,7 +134,10 @@ mod unix {
         recipe: std::sync::Arc<Recipe>,
         members: Vec<Member>,
     }
-    fn open_selector(path: &Path, id: &str) -> Result<Option<(PathBuf, File)>, FormalError> {
+    pub(in crate::controlled_authority::formal::physical) fn open_selector(
+        path: &Path,
+        id: &str,
+    ) -> Result<Option<(PathBuf, File)>, FormalError> {
         hash_hex(id)?;
         let root = path
             .parent()

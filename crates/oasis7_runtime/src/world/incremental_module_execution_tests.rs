@@ -1,4 +1,6 @@
 //! Real GEN/accepted baseline + one complete scheduled module invocation.
+use super::raw_complete::Scratch as FixtureScratch;
+use super::work as runtime_genesis_work;
 use super::*;
 use crate::world::{
     incremental_body::BodyMutationContext,
@@ -30,10 +32,18 @@ mod fixture_store;
 #[path = "incremental_module_execution_fixture_genesis.rs"]
 mod genesis;
 use fixture_store::{Originals, Reader};
+#[path = "incremental_action_body_tests.rs"]
+mod action_body;
+#[path = "incremental_factory_depreciation_tests.rs"]
+mod factory_depreciation;
+#[path = "incremental_factory_depreciation_reduce_tests.rs"]
+mod factory_depreciation_reduce;
 #[path = "incremental_factory_directory_orders_tests.rs"]
 mod factory_order_directory;
 #[path = "incremental_factory_directory_records_tests.rs"]
 mod factory_recipe_directory;
+#[path = "incremental_industrial_eligibility_tests.rs"]
+mod industrial_eligibility;
 
 fn leb(mut n: usize) -> Vec<u8> {
     let mut out = Vec::new();
@@ -53,7 +63,7 @@ fn section(wasm: &mut Vec<u8>, id: u8, bytes: &[u8]) {
     wasm.extend(bytes);
 }
 fn wasm(output: &ModuleOutput) -> Vec<u8> {
-    let raw = crate::util::to_canonical_cbor(output).unwrap();
+    let raw = oasis7_wasm_abi::encode_canonical_cbor(output).unwrap();
     assert!(raw.len() < 4096);
     let mut wasm = b"\0asm\x01\0\0\0".to_vec();
     section(
@@ -650,6 +660,8 @@ fn actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_count
     }
 }
 
+#[path = "incremental_action_admission_fixture.rs"]
+mod action_admission_fixture;
 #[path = "incremental_action_execution_tests.rs"]
 mod action_execution_tests;
 
@@ -670,3 +682,17 @@ mod rule_phase;
 
 #[path = "incremental_module_execution_override_tests.rs"]
 mod override_audit;
+
+#[path = "incremental_factory_lifecycle_current_tests.rs"]
+mod factory_lifecycle_current;
+#[path = "incremental_factory_phase_tests.rs"]
+mod factory_phase;
+#[path = "incremental_material_normalization_tests.rs"]
+mod material_normalization;
+
+#[path = "incremental_directory_bundle_tests.rs"]
+mod directory_bundle;
+
+use crate::world::incremental_body_event::materials::test_support as core_materials;
+#[path = "incremental_commit_directories_tests.rs"]
+mod commit_directories;

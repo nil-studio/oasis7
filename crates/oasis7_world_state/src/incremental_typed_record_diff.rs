@@ -275,7 +275,7 @@ fn row<
         d.work.max_tree_heap,
     )
 }
-fn key<
+pub(crate) fn key<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,

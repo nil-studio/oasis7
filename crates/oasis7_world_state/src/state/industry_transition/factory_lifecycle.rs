@@ -7,12 +7,13 @@ fn refresh_progress_without_factory(
     removed: &str,
 ) {
     let current = progress.stage;
-    let active_completed_jobs = state
-        .factories
-        .iter()
-        .filter(|(id, _)| id.as_str() != removed)
-        .map(|(_, factory)| factory.production.completed_jobs)
-        .sum::<u64>();
+    let active_completed_jobs = aggregate_stage_completed_jobs_v1(
+        state
+            .factories
+            .iter()
+            .filter(|(id, _)| id.as_str() != removed)
+            .map(|(_, factory)| factory.production.completed_jobs),
+    );
     let stable = state
         .factories
         .iter()

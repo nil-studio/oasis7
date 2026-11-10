@@ -8,8 +8,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const FACTORY_DURABILITY_PPM_BASE: i64 = 1_000_000;
 const FACTORY_MAINTENANCE_PART_KIND: &str = "hardware_part";
-const FACTORY_MAINTENANCE_REPAIR_PPM_PER_PART: i64 = 25_000;
-const FACTORY_RECYCLE_BASE_PPM: i64 = 700_000;
 const BOTTLENECK_TAG_KINDS: &[&str] = &["iron_ingot", "copper_wire", "control_chip", "motor_mk1"];
 impl World {
     pub(super) fn action_to_event_economy(
@@ -325,14 +323,12 @@ impl World {
                     }));
                 }
 
-                let repair_ppm = requested_parts
-                    .saturating_mul(FACTORY_MAINTENANCE_REPAIR_PPM_PER_PART)
-                    .max(0);
-                let durability_ppm = current
-                    .saturating_add(repair_ppm)
-                    .clamp(0, FACTORY_DURABILITY_PPM_BASE);
-                let recovered_ppm = durability_ppm.saturating_sub(current);
-                if recovered_ppm <= 0 {
+                let Some(repair) =
+                    crate::world::incremental_action_factory_lifecycle::math::maintenance_repair_v1(
+                        current,
+                        requested_parts,
+                    )
+                else {
                     return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
                         action_id,
                         reason: RejectReason::RuleDenied {
@@ -342,11 +338,9 @@ impl World {
                             )],
                         },
                     }));
-                }
-                let consumed_parts = recovered_ppm
-                    .saturating_add(FACTORY_MAINTENANCE_REPAIR_PPM_PER_PART - 1)
-                    .saturating_div(FACTORY_MAINTENANCE_REPAIR_PPM_PER_PART)
-                    .clamp(1, requested_parts);
+                };
+                let consumed_parts = repair.consumed_parts;
+                let durability_ppm = repair.durability_ppm;
 
                 Ok(WorldEventBody::Domain(DomainEvent::FactoryMaintained {
                     operator_agent_id: operator_agent_id.clone(),
@@ -410,20 +404,8 @@ impl World {
                     .build_cost
                     .iter()
                     .filter_map(|stack| {
-                        if stack.amount <= 0 {
-                            return None;
-                        }
-                        let recovered_amount = ((stack.amount as i128)
-                            .saturating_mul(FACTORY_RECYCLE_BASE_PPM as i128)
-                            .saturating_mul(durability_ppm as i128)
-                            / (FACTORY_DURABILITY_PPM_BASE as i128)
-                            / (FACTORY_DURABILITY_PPM_BASE as i128))
-                            as i64;
-                        if recovered_amount <= 0 {
-                            None
-                        } else {
-                            Some(MaterialStack::new(stack.kind.clone(), recovered_amount))
-                        }
+                        crate::world::incremental_action_factory_lifecycle::math::recycle_stack_amount_v1(stack.amount, durability_ppm)
+                            .map(|amount| MaterialStack::new(stack.kind.clone(), amount))
                     })
                     .collect();
 

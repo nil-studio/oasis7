@@ -90,7 +90,7 @@ pub fn build_accepted_invocation_directory_v1<
     live: &ExecutionFence,
 ) -> Result<ReservedValue<AcceptedInvocationDirectoryV1>, CurrentInvocationEnumerationErrorV1> {
     let result = (|| {
-        let _source = crate::world::incremental_world_event_counter::WorldEventCounterV1::begin(
+        let _source = crate::world::incremental_world_event_counter::WorldEventCounterV1::validate_parent_source(
             parent,
             head,
             ctx.transaction,
@@ -384,3 +384,9 @@ pub fn collect_current_module_invocation_ids_v1<
     }
     result
 }
+
+#[path = "incremental_module_invocation_directory_freeze.rs"]
+mod freeze;
+pub(in crate::world) use freeze::{
+    FrozenInvocationDirectoryV1, freeze_current_invocation_directory_v1,
+};

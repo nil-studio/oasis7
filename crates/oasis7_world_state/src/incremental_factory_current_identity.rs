@@ -206,7 +206,7 @@ fn decode_factory_root<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok((identity, child))
 }
 
-fn capture_factory_id<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn capture_factory_id<R: ValueNodeReader, C: FnMut() -> bool>(
     value_root: &[u8; 32],
     key: &WorldFieldKeyV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,

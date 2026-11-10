@@ -525,3 +525,12 @@ pub use enumerate::{
     CurrentInvocationEnumerationWorkV1, build_accepted_invocation_directory_v1,
     collect_current_module_invocation_ids_v1,
 };
+
+pub(in crate::world) use enumerate::{
+    FrozenInvocationDirectoryV1, freeze_current_invocation_directory_v1,
+};
+
+pub(in crate::world) use target::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
+
+#[cfg(test)]
+pub(in crate::world) use target::NonmovementSelectedErrorV1;

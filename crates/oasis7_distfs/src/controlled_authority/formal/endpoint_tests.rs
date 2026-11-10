@@ -917,6 +917,9 @@ fn native_formal_sealed_index_transfer_preserves_old_context_and_rejects_second_
 
 #[path = "endpoint_protected_tests.rs"]
 mod protected_tests;
+pub(in crate::controlled_authority) use protected_tests::{
+    with_remote_acquire_fixture, with_remote_sign_fixture, with_signed_checkpoint_fixture,
+};
 
 #[test]
 fn known_qualified_restores_exact_current_parent_and_never_regresses_historical_retry() {
@@ -1120,3 +1123,42 @@ mod incremental_tests;
 
 #[path = "endpoint_local_closure_tests.rs"]
 mod local_closure_tests;
+
+#[path = "endpoint_store_bounded_consumer_tests.rs"]
+mod bounded_store_consumer_tests;
+
+// Fresh data-only Store fixture. It never signs or accepts an incremental GEN,
+// supplies a serving permit, or upgrades an arbitrary index root to authority.
+pub(super) fn with_store_for_bounded_index_fixture<T>(
+    run: impl FnOnce(&mut Store, &Path) -> T,
+) -> T {
+    let fixture = Fixture::new();
+    let mut endpoint = fixture.endpoint(EndpointRole::Primary);
+    run(&mut endpoint.store, &fixture.pdir)
+}
+
+#[path = "endpoint_bounded_request_fixture.rs"]
+mod bounded_request_fixture;
+pub(super) use bounded_request_fixture::{
+    with_fresh_endpoint_for_bounded_request_fixture, with_signed_request_states_fixture,
+};
+
+#[path = "endpoint_bounded_insert_plan_fixture.rs"]
+mod bounded_insert_plan_fixture;
+pub(super) use bounded_insert_plan_fixture::{InsertPlanFixtureV1, with_index_insert_plan_fixture};
+#[path = "endpoint_bounded_native_draft_fixture.rs"]
+mod bounded_native_draft_fixture;
+pub(super) use bounded_native_draft_fixture::{
+    NativeDraftFixtureV1, NativeDraftLayoutFixtureV1, with_native_draft_fixture,
+    with_native_draft_layout_fixture,
+};
+
+#[path = "endpoint_bounded_history_read_fixture.rs"]
+mod bounded_history_read_fixture;
+pub(super) use bounded_history_read_fixture::with_history_read_fixture;
+
+#[path = "endpoint_bounded_local_closure_read_fixture.rs"]
+mod bounded_local_closure_read_fixture;
+pub(super) use bounded_local_closure_read_fixture::{
+    LocalClosureReadFixtureV1, with_local_closure_read_fixture,
+};

@@ -678,3 +678,6 @@ fn signed_ordinary_replaced_page_lease_cannot_inherit_static_baseline() {
         .is_err()
     );
 }
+
+#[path = "endpoint_incremental_closure_frozen_parent_tests.rs"]
+mod frozen_parent;

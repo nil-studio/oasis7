@@ -6201,6 +6201,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "wat",
  "windows-sys 0.61.2",
  "zeroize",
 ]
@@ -6713,6 +6714,13 @@ dependencies = [
  "sha2 0.11.0",
  "unicode-normalization",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "oasis7_runtime_iws_tests"
+version = "0.1.0"
+dependencies = [
+ "oasis7_runtime",
 ]
 
 [[package]]

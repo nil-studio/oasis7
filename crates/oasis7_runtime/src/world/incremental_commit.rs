@@ -34,6 +34,14 @@ pub struct CommitPreparationRequest<'a> {
     pub limits: TransactionLimits,
 }
 
+#[path = "incremental_commit_directories.rs"]
+mod directories;
+use directories::CandidateBoundRuntimeDirectoriesV1;
+pub(in crate::world) use directories::{
+    prepare_iws_runtime_commit_with_directories_v1,
+    prepare_iws_runtime_commit_with_results_and_directories_v1,
+};
+
 /// Immutable candidate. No certificate, accepted receipt, selected head or
 /// cache-install permission is issued by constructing or persisting this value.
 #[derive(Debug)]
@@ -44,8 +52,19 @@ pub struct PreparedRuntimeCommit {
     root_set_bytes: ReservedValue<Vec<u8>>,
     catalog_bytes: ReservedValue<Vec<u8>>,
     fence: ExecutionFence,
+    directories: Option<ReservedValue<CandidateBoundRuntimeDirectoriesV1>>,
 }
 impl PreparedRuntimeCommit {
+    /// Enabling the root-backed directory driver requires this boundary.
+    /// Compatibility candidates from the old entrypoints cannot bypass it.
+    pub(in crate::world) fn require_directories_v1(
+        &self,
+    ) -> Result<&ReservedValue<CandidateBoundRuntimeDirectoriesV1>, ExecutionError> {
+        self.directories.as_ref().ok_or(ExecutionError::Invalid(
+            "runtime candidate has no sealed directory bundle",
+        ))
+    }
+
     pub fn transition(&self) -> &ReservedValue<PreparedTransition> {
         &self.transition
     }
@@ -195,7 +214,11 @@ pub fn prepare_iws_runtime_commit_v1<R: MerkleNodeReader, E: From<ExecutionError
         memory,
         live_fence,
         apply,
-        |txn, guard, live, tick| txn.seal(guard, live, tick).map_err(E::from),
+        |txn, guard, live, tick, ()| {
+            txn.seal(guard, live, tick)
+                .map(|transition| (transition, None))
+                .map_err(E::from)
+        },
     )
 }
 
@@ -217,8 +240,9 @@ pub fn prepare_iws_runtime_commit_with_results_v1<R: MerkleNodeReader, E: From<E
         memory,
         live_fence,
         apply,
-        |txn, guard, live, tick| {
+        |txn, guard, live, tick, ()| {
             txn.seal_with_final_results(guard, live, tick, cancelled, produce)
+                .map(|transition| (transition, None))
                 .map_err(|error| match error {
                     SealWithFinalFactError::Execution(error) => E::from(error),
                     SealWithFinalFactError::Producer(error) => error,
@@ -230,18 +254,29 @@ pub fn prepare_iws_runtime_commit_with_results_v1<R: MerkleNodeReader, E: From<E
     )
 }
 
-fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>>(
+fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>, A>(
     request: &CommitPreparationRequest<'_>,
     source: &'a R,
     memory: &'a MemoryBudget,
     mut live_fence: impl FnMut() -> Result<ExecutionFence, E>,
-    apply: impl FnOnce(&mut ExecutionTransaction<'a, R>) -> Result<(), E>,
+    apply: impl FnOnce(&mut ExecutionTransaction<'a, R>) -> Result<A, E>,
     seal: impl FnOnce(
         ExecutionTransaction<'a, R>,
         &PreparedGuard,
         &ExecutionFence,
         u64,
-    ) -> Result<ReservedValue<PreparedTransition>, E>,
+        A,
+    ) -> Result<
+        (
+            ReservedValue<PreparedTransition>,
+            Option<
+                ReservedValue<
+                    crate::world::incremental_directory_bundle::SealedRuntimeDirectoryBundleV1,
+                >,
+            >,
+        ),
+        E,
+    >,
 ) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
     let mut workspace = memory
         .reserve(64 * 1024, MemoryClass::Ordinary)
@@ -267,9 +302,10 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>>(
     if fence != live_fence()? {
         return Err(ExecutionError::ParentConflict.into());
     }
-    txn.contribute(apply)?;
+    let payload = txn.contribute(apply)?;
     let guard = txn.guard();
-    let transition = seal(txn, &guard, &live_fence()?, request.next_tick)?;
+    let (transition, sealed_directories) =
+        seal(txn, &guard, &live_fence()?, request.next_tick, payload)?;
     let history = HeaderPreparation {
         config: request.parent.config,
         catalog: request.parent.catalog,
@@ -290,6 +326,19 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>>(
         memory,
         request.limits.max_pending_node_bytes,
     )?;
+    let directories = sealed_directories
+        .map(|sealed| {
+            directories::bind_actual_candidate_v1(
+                sealed,
+                &transition,
+                &history,
+                &catalog,
+                &fence,
+                memory,
+            )
+        })
+        .transpose()
+        .map_err(E::from)?;
     let mut encoding = memory
         .reserve(4096, MemoryClass::Ordinary)
         .map_err(ExecutionError::Memory)?;
@@ -310,6 +359,7 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>>(
         root_set_bytes,
         catalog_bytes,
         fence,
+        directories,
     };
     prepared.validate_live_fence(&live_fence()?)?;
     let charge = workspace

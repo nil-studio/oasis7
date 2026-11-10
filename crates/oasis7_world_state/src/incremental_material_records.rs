@@ -200,6 +200,12 @@ pub use pages::{
 mod overlay_read;
 pub use overlay_read::read_qualified_material_cell_overlay_v1;
 
+#[path = "incremental_material_records_current_profile.rs"]
+mod current_profile;
+pub use current_profile::{
+    MaterialProfileCurrentReadWorkV1, read_current_material_default_priority_overlay_v1,
+};
+
 #[cfg(test)]
 #[path = "incremental_material_records_phase_tests.rs"]
 mod phase_tests;

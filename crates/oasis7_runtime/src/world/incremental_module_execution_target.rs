@@ -52,6 +52,7 @@ pub enum RootModuleExecutionErrorV1<OE> {
     Emit(RootModuleEmitErrorV1),
     Worker(RootModuleWorkerErrorV1),
     Body(BodyMutationError),
+    EventTail(crate::world::incremental_world_event_tail::CurrentWorldEventTailErrorV1<OE>),
     Manifest(RootWorldManifestHashErrorV1),
     Routing(
         ReservedValue<
@@ -795,3 +796,8 @@ pub use entry::{
 mod rule_capture;
 
 pub(in crate::world) use entry::PreparedRuleOverrideEventV1;
+
+pub(in crate::world) use entry::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
+
+#[cfg(test)]
+pub(in crate::world) use entry::NonmovementSelectedErrorV1;

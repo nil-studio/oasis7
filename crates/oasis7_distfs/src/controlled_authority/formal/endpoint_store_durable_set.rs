@@ -16,7 +16,7 @@ impl Store {
     ) -> Result<Vec<u8>, FormalError> {
         let bytes = encode(&Hot {
             body: body.clone(),
-            signature: signature.into(),
+            signature: String::from(signature),
         })?;
         if Self::verify_public(&bytes, public_key)? != *body {
             return Err(invalid("provider native checkpoint signature"));

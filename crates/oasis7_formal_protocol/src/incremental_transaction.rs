@@ -62,6 +62,7 @@ pub struct ExecutionTransaction<'a, R> {
     revision: u64,
     owner: Arc<ReservedValue<()>>,
     aborted: bool,
+    world_event_counter_claimed: std::sync::atomic::AtomicBool,
     _workspace: MemoryReservation,
 }
 
@@ -97,8 +98,28 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             revision: 0,
             owner: Arc::new(identity.retain(())),
             aborted: false,
+            world_event_counter_claimed: std::sync::atomic::AtomicBool::new(false),
             _workspace: workspace,
         })
+    }
+
+    /// Claim the sole provisional WorldEvent counter. This grants no fact,
+    /// original, business execution or committed-state authority.
+    pub fn claim_world_event_counter(&self) -> Result<(), ExecutionError> {
+        if self.aborted || !self.facts.is_empty() {
+            return Err(ExecutionError::Invalid(
+                "WorldEvent counter requires fresh transaction",
+            ));
+        }
+        self.world_event_counter_claimed
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .map(|_| ())
+            .map_err(|_| ExecutionError::Invalid("WorldEvent counter already claimed"))
     }
 
     pub fn guard(&self) -> PreparedGuard {
@@ -292,6 +313,12 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
     /// Current ordered position only, not proof of an accepted occurrence.
     pub fn ordered_fact_count(&self) -> usize {
         self.facts.len()
+    }
+
+    /// Borrow an already appended provisional fact. This supplies neither an
+    /// accepted occurrence nor permission to interpret its original content.
+    pub fn ordered_fact(&self, position: usize) -> Option<&ExecutionFactRefV1> {
+        self.facts.get(&position).map(|fact| &fact.value)
     }
 
     /// Visit the final writes already admitted to this overlay, borrowing keys

@@ -15,6 +15,8 @@ mod native_reader;
 pub(crate) use native_reader::NativeChunkReadWorkV1;
 #[path = "endpoint_incremental_closure_executable.rs"]
 mod executable;
+#[path = "endpoint_incremental_closure_native_descriptor.rs"]
+mod native_descriptor;
 #[path = "endpoint_incremental_closure_native_worker.rs"]
 mod native_worker;
 pub use native_worker::NativeWorkerLeaseV1;
@@ -34,6 +36,7 @@ pub(crate) struct StaticExecutionMaterialV1 {
     page_identity: (u64, u64),
     native_identity: (u64, u64),
     executable: Option<ReservedValue<executable::VerifiedNativeExecutableV1>>,
+    descriptor: ReservedValue<Vec<u8>>,
 }
 pub(crate) struct CandidateExecutionMaterialV1 {
     baseline: Arc<ReservedValue<StaticExecutionMaterialV1>>,
@@ -478,6 +481,13 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
             return Err(invalid("execution full closure body/manifest"));
         }
         let executable = executable::prepare(&native, &descriptor, &mut bridge, memory)?;
+        let descriptor = native_descriptor::retain_native_descriptor_v1(
+            descriptor_bytes,
+            &refs.native,
+            memory,
+            &mut || (*stopped.borrow_mut())(),
+        )?;
+
         let proof = proof_charge.retain(DeclaredExecutionMaterial {
             native,
             _artifacts: artifacts,
@@ -499,6 +509,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
             page_identity,
             native_identity,
             executable,
+            descriptor,
         }))
     };
     if cancelled() {
@@ -516,3 +527,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
 #[cfg(all(test, unix))]
 #[path = "endpoint_incremental_closure_material_tests.rs"]
 mod tests;
+
+#[path = "endpoint_incremental_closure_frozen_parent.rs"]
+mod frozen_parent;
+pub(crate) use frozen_parent::FrozenParentMaterialLeaseV1;

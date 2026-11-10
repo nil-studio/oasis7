@@ -662,3 +662,7 @@ where
 #[cfg(test)]
 #[path = "incremental_inventory_material_scope_tests.rs"]
 mod tests;
+
+#[path = "incremental_inventory_material_scope_freeze.rs"]
+mod freeze;
+pub use freeze::{FrozenInventoryMaterialScopeV1, freeze_current_inventory_material_scope_v1};

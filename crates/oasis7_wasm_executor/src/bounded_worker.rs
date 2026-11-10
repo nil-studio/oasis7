@@ -14,7 +14,10 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[path = "bounded_worker_child.rs"]
 mod child;
-pub use child::worker_main_v1;
+pub use child::{worker_main_v1, worker_main_with_native_verifier_v1};
+#[path = "bounded_worker_native_bound.rs"]
+mod native_bound;
+pub use native_bound::NativeEnvironmentVerifierV1;
 #[path = "bounded_worker_exec.rs"]
 mod executable;
 pub use executable::WorkerExecutableV1;
@@ -130,7 +133,10 @@ impl<A: CanonicalCborAllocator> BoundedWorkerSandboxV1<'_, A> {
         request: &ModuleCallRequest,
         sink: &mut dyn ModuleRawOutputSinkV1,
     ) -> Result<(), WorkerExecutionErrorV1> {
-        if !matches!(self.executable, WorkerExecutableV1::SealedFd(_)) {
+        if !matches!(
+            self.executable,
+            WorkerExecutableV1::SealedFd(_) | WorkerExecutableV1::NativeBoundSealedFd { .. }
+        ) {
             return Err(WorkerExecutionErrorV1::Host(WorkerHostFailureV1 {
                 failure: failure(
                     request,
@@ -253,6 +259,30 @@ fn run<A>(
     r: &ModuleCallRequest,
     sink: &mut dyn ModuleRawOutputSinkV1,
 ) -> Result<Option<ModuleCallFailure>, ModuleCallFailure> {
+    if let WorkerExecutableV1::NativeBoundSealedFd { descriptor, .. } = &host.executable {
+        if descriptor.is_empty() || descriptor.len() > 1 << 20 {
+            return Err(failure(
+                r,
+                ModuleCallErrorCode::SandboxUnavailable,
+                "native-bound descriptor limit",
+            ));
+        }
+        return run_shared(
+            host,
+            r,
+            &native_bound::NativeBoundRequestV1 {
+                request: r,
+                descriptor,
+            },
+            sink,
+            WorkerProtocolV1 {
+                mode: Some("--oasis7-native-bound-worker-v1"),
+                request_max: host.limits.max_request_bytes,
+                output_max: host.limits.max_output_bytes,
+            },
+            &mut || false,
+        );
+    }
     run_shared(
         host,
         r,
@@ -403,13 +433,21 @@ fn run_shared<A, T: serde::Serialize, C: FnMut() -> bool>(
     command
         .arg(if mode == Some("--oasis7-wasm-worker-handshake-v1") {
             "--oasis7-wasm-worker-handshake-v1"
+        } else if mode == Some("--oasis7-native-bound-worker-v1") {
+            "--oasis7-native-bound-worker-v1"
+        } else if mode == Some("--oasis7-native-bound-regex-worker-v1") {
+            "--oasis7-native-bound-regex-worker-v1"
         } else {
             "--oasis7-wasm-worker-v1"
         })
         .arg(request_max.to_string())
         .arg(output_max.to_string())
         .arg(host.limits.address_space_bytes.to_string());
-    if let Some(mode) = mode.filter(|mode| *mode != "--oasis7-wasm-worker-handshake-v1") {
+    if let Some(mode) = mode.filter(|mode| {
+        *mode != "--oasis7-wasm-worker-handshake-v1"
+            && *mode != "--oasis7-native-bound-worker-v1"
+            && *mode != "--oasis7-native-bound-regex-worker-v1"
+    }) {
         command.arg(mode);
     }
     command

@@ -15,8 +15,10 @@ impl<A: CanonicalCborAllocator> BoundedWorkerSandboxV1<'_, A> {
                 message,
             ))
         };
-        if !matches!(self.executable, WorkerExecutableV1::SealedFd(_))
-            || self.limits.address_space_bytes == 0
+        if !matches!(
+            self.executable,
+            WorkerExecutableV1::SealedFd(_) | WorkerExecutableV1::NativeBoundSealedFd { .. }
+        ) || self.limits.address_space_bytes == 0
             || self.limits.wall_time_ms == 0
             || self.limits.max_request_bytes == 0
             || self.limits.max_output_bytes < HANDSHAKE.len() as u64

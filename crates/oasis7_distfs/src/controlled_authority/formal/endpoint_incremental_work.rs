@@ -36,6 +36,10 @@ pub struct IwsCandidateSourceWorkV1 {
     pub native_chunk_occurrences: u64,
     pub native_chunk_bytes: u64,
     pub frozen_wire_bytes: u64,
+    /// Continuing content work for the original Frozen envelope.
+    /// This is an allowance, never execution or accepted-parent authority.
+    pub frozen_material:
+        oasis7_formal_protocol::controlled_authority::formal::IncrementalFrozenMaterialWorkV1,
     /// All retained originals share these two continuous logical counters,
     /// including Cognition pull reads; physical accounts are explicit by lane.
     pub original_sync_occurrences: u64,

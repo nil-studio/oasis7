@@ -1,5 +1,6 @@
 //! Trusted single-use worker. No input is decoded and no Engine is constructed
 //! until Linux confirms the inherited hard address-space/core limits.
+use super::NativeEnvironmentVerifierV1;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -11,18 +12,34 @@ use super::*;
 ))]
 use std::io::{self, Read, Write};
 pub fn worker_main_v1() -> Result<(), &'static str> {
+    struct Missing;
+    impl NativeEnvironmentVerifierV1 for Missing {
+        type Guard = ();
+        fn before(&mut self, _: &[u8]) -> Result<(), &'static str> {
+            Err("native environment verifier unavailable")
+        }
+        fn after(&mut self, _: &[u8], _: &()) -> Result<(), &'static str> {
+            Err("native environment verifier unavailable")
+        }
+    }
+    worker_main_with_native_verifier_v1(&mut Missing)
+}
+pub fn worker_main_with_native_verifier_v1<V: NativeEnvironmentVerifierV1>(
+    verifier: &mut V,
+) -> Result<(), &'static str> {
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     {
-        linux_main()
+        linux_main(verifier)
     }
     #[cfg(not(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     )))]
     {
+        let _ = verifier;
         Err("unsupported kernel worker platform")
     }
 }
@@ -30,11 +47,13 @@ pub fn worker_main_v1() -> Result<(), &'static str> {
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-fn linux_main() -> Result<(), &'static str> {
+fn linux_main<V: NativeEnvironmentVerifierV1>(verifier: &mut V) -> Result<(), &'static str> {
     let mut args = std::env::args().skip(1);
     let flag = args.next();
+    let bound = flag.as_deref() == Some("--oasis7-native-bound-worker-v1");
+    let bound_regex = flag.as_deref() == Some("--oasis7-native-bound-regex-worker-v1");
     let handshake = flag.as_deref() == Some("--oasis7-wasm-worker-handshake-v1");
-    if !handshake && flag.as_deref() != Some("--oasis7-wasm-worker-v1") {
+    if !bound_regex && !bound && !handshake && flag.as_deref() != Some("--oasis7-wasm-worker-v1") {
         return Err("worker mode flag required");
     }
     let mut number = || {
@@ -46,15 +65,22 @@ fn linux_main() -> Result<(), &'static str> {
     let request_max = number()?;
     let output_max = number()?;
     let cap = number()?;
-    let mode = if handshake {
+    let mode = if bound_regex {
+        Some("native-bound-regex-v1".to_owned())
+    } else if bound {
+        Some("native-bound-v1".to_owned())
+    } else if handshake {
         Some("handshake-v1".to_owned())
     } else {
         args.next()
     };
     if args.next().is_some()
-        || mode
-            .as_deref()
-            .is_some_and(|mode| mode != "regex-batch-v1" && mode != "handshake-v1")
+        || mode.as_deref().is_some_and(|mode| {
+            mode != "regex-batch-v1"
+                && mode != "handshake-v1"
+                && mode != "native-bound-v1"
+                && mode != "native-bound-regex-v1"
+        })
         || request_max == 0
         || output_max == 0
         || cap == 0
@@ -84,9 +110,11 @@ fn linux_main() -> Result<(), &'static str> {
     if mode.as_deref() == Some("handshake-v1") {
         return super::handshake::child_handshake(output_max);
     }
-    if mode.as_deref() == Some("regex-batch-v1")
-        && (request_max > super::regex_batch::REGEX_MAX_REQUEST_BYTES_V1
-            || output_max > super::regex_batch::REGEX_MAX_OUTPUT_BYTES_V1)
+    if matches!(
+        mode.as_deref(),
+        Some("regex-batch-v1" | "native-bound-regex-v1")
+    ) && (request_max > super::regex_batch::REGEX_MAX_REQUEST_BYTES_V1
+        || output_max > super::regex_batch::REGEX_MAX_OUTPUT_BYTES_V1)
     {
         return Err("regex protocol caps");
     }
@@ -97,6 +125,24 @@ fn linux_main() -> Result<(), &'static str> {
         .map_err(|_| "worker input")?;
     if bytes.len() as u64 > request_max {
         return Err("worker input bound");
+    }
+    if mode.as_deref() == Some("native-bound-regex-v1") {
+        #[cfg(feature = "wasmtime")]
+        {
+            return super::native_bound::child_regex_call(
+                &bytes,
+                request_max,
+                output_max,
+                verifier,
+            );
+        }
+        #[cfg(not(feature = "wasmtime"))]
+        {
+            return Err("native-bound regex worker feature unavailable");
+        }
+    }
+    if mode.as_deref() == Some("native-bound-v1") {
+        return super::native_bound::child_call(&bytes, output_max, verifier);
     }
     if mode.as_deref() == Some("regex-batch-v1") {
         #[cfg(feature = "wasmtime")]

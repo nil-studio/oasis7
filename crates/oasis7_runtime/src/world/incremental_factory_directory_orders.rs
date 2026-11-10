@@ -203,8 +203,12 @@ where
                 MemoryClass::Ordinary,
             )
             .map_err(ValueTreeError::Memory)?;
-        let _accepted =
-            WorldEventCounterV1::begin(parent, head, ctx.transaction, ctx.values.memory)?;
+        let _accepted = WorldEventCounterV1::validate_parent_source(
+            parent,
+            head,
+            ctx.transaction,
+            ctx.values.memory,
+        )?;
         let mut changed = false;
         for namespace in [
             StateNamespaceV1::Business,
@@ -456,3 +460,9 @@ where
     }
     result
 }
+
+#[path = "incremental_factory_directory_orders_freeze.rs"]
+mod freeze;
+pub(in crate::world) use freeze::{
+    FrozenFactoryOrderDirectoryV1, freeze_current_factory_order_directory_v1,
+};

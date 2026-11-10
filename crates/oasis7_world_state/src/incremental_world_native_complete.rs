@@ -51,6 +51,8 @@ pub struct WorldNativeCompleteQualificationV1 {
     inventory: ReservedValue<inventory::InventoryFamilyQualificationV1>,
     factory: ReservedValue<factory::FactoryFamilyQualificationV1>,
     industry: ReservedValue<industry::IndustryFamilyQualificationV1>,
+    lifecycle_index:
+        ReservedValue<crate::incremental_factory_lifecycle_index::FactoryLifecycleIndexV1>,
     market: ReservedValue<market::ModuleMarketplaceFamilyQualificationV1>,
     fixed: ReservedValue<fixed::FixedEconomyFamilyQualificationV1>,
     reward: ReservedValue<reward::RewardFamilyQualificationV1>,
@@ -83,6 +85,12 @@ impl WorldNativeCompleteQualificationV1 {
 
     pub fn industry(&self) -> &ReservedValue<industry::IndustryFamilyQualificationV1> {
         &self.industry
+    }
+
+    pub fn factory_lifecycle_index(
+        &self,
+    ) -> &ReservedValue<crate::incremental_factory_lifecycle_index::FactoryLifecycleIndexV1> {
+        &self.lifecycle_index
     }
 
     pub fn market(&self) -> &ReservedValue<market::ModuleMarketplaceFamilyQualificationV1> {
@@ -156,6 +164,12 @@ impl WorldNativeCompleteQualificationV1 {
         self.inventory.validate_binding(roots)?;
         self.factory.validate_binding(&digest)?;
         self.industry.validate_binding(&digest)?;
+        self.lifecycle_index.validate_aggregate_binding(
+            &self.factory,
+            &self.industry,
+            &digest,
+            self.class,
+        )?;
         self.market.validate_binding(roots)?;
         self.fixed.validate_binding(&digest)?;
         self.reward.validate_binding(&digest)?;
@@ -198,6 +212,15 @@ impl WorldNativeCompleteQualificationV1 {
         if !self.industry.uses_budget(memory)
             || self.industry.reserved_bytes()
                 < std::mem::size_of::<industry::IndustryFamilyQualificationV1>()
+        {
+            return Err(invalid());
+        }
+        if !self.lifecycle_index.uses_budget(memory)
+            || self.lifecycle_index.allocation_class() != self.class
+            || self.lifecycle_index.reserved_bytes()
+                < std::mem::size_of::<
+                    crate::incremental_factory_lifecycle_index::FactoryLifecycleIndexV1,
+                >()
         {
             return Err(invalid());
         }
@@ -494,3 +517,6 @@ mod receiver;
 #[cfg(test)]
 #[path = "incremental_world_native_complete_tests.rs"]
 mod tests;
+
+#[path = "incremental_world_native_factory_lifecycle_budget.rs"]
+mod lifecycle_budget;

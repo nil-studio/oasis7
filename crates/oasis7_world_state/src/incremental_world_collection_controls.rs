@@ -293,3 +293,10 @@ fn final_counts(
 #[cfg(test)]
 #[path = "incremental_world_collection_controls_tests.rs"]
 mod tests;
+
+#[path = "incremental_world_collection_controls_current_group.rs"]
+mod current_group;
+pub use current_group::{
+    DataAccessMembershipChangeV1, change_current_data_access_membership_v1,
+    read_current_data_access_group_size_v1,
+};

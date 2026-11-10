@@ -1,3 +1,4 @@
+use super::core_materials::{MaterialFixtureLimitsV1, MaterialFixtureV1};
 fn stage_directory_work()
 -> crate::world::incremental_module_invocation::CurrentInvocationEnumerationWorkV1 {
     let scan = || StateScanBudget {
@@ -175,6 +176,7 @@ fn run_action_stage_fixture(with_regex: bool, post: bool, event_route: bool) {
     }
     assert!(world.journal.events.is_empty());
     let expected_manifest_hash = crate::util::hash_json(&world.manifest).unwrap();
+    let material_limits = MaterialFixtureLimitsV1::for_state(&world.state);
     let fixture = genesis::build(&world, &memory, workspace);
     assert!(fixture.memory.same_pool(&memory));
     drop(world); // Execution below has no materialized World to hydrate/fall back to.
@@ -185,6 +187,17 @@ fn run_action_stage_fixture(with_regex: bool, post: bool, event_route: bool) {
         cas: fixture.cas.clone(),
         memory: &memory,
     };
+
+    let mut material_backing = MaterialFixtureV1::build(
+        &fixture.roots,
+        &reader,
+        &reader,
+        &memory,
+        material_limits,
+        || reader.cas.error(),
+        || false,
+    );
+    let mut materials = material_backing.context(&fixture.roots, &reader, || reader.cas.error());
     let mut original_reader = Originals {
         objects: fixture.objects.clone(),
         memory: &memory,
@@ -365,6 +378,8 @@ fn run_action_stage_fixture(with_regex: bool, post: bool, event_route: bool) {
         Some(
             step.dispatch_persisted_agent_event(
                 &routed_event,
+                &mut materials,
+                &live,
                 64 << 10,
                 &mut events.persist_original,
             )

@@ -25,15 +25,26 @@ mod family;
 mod receiver;
 pub use family::{qualify_inventory_family_v1, readmit_inventory_family_ordinary_v1};
 pub use receiver::accept_inventory_transition_v1;
+#[path = "incremental_inventory_agent_transfer.rs"]
+mod agent_transfer;
+#[path = "incremental_factory_lifecycle_ledger.rs"]
+mod factory_output_group;
 #[path = "incremental_inventory_group_overlay.rs"]
 mod group_overlay;
+pub use factory_output_group::{
+    FactoryOutputLedgerGroupWorkV1, ensure_current_factory_output_ledger_group_v1,
+};
 #[path = "incremental_inventory_material_scope.rs"]
 mod material_scope;
+pub use agent_transfer::{
+    AgentLedgerTransferOutcomeV1, AgentLedgerTransferWorkV1,
+    transfer_current_agent_material_overlay_v1,
+};
 pub use group_overlay::{InventoryWorldGroupWorkV1, ensure_world_ledger_group_overlay_v1};
 pub use material_scope::{
-    CurrentInventoryMaterialScopeV1, InventoryMaterialScopeWorkV1, MaterialQuantityV1,
-    ParentInventoryMaterialScopeV1, build_parent_inventory_material_scope_v1,
-    open_current_inventory_material_scope_v1,
+    CurrentInventoryMaterialScopeV1, FrozenInventoryMaterialScopeV1, InventoryMaterialScopeWorkV1,
+    MaterialQuantityV1, ParentInventoryMaterialScopeV1, build_parent_inventory_material_scope_v1,
+    freeze_current_inventory_material_scope_v1, open_current_inventory_material_scope_v1,
 };
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("complete inventory family")

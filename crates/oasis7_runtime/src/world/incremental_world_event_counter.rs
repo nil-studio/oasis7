@@ -21,6 +21,7 @@ use std::sync::{
 struct Counts {
     appended: u64,
     last_world_fact_end: usize,
+    last_original: Option<[u8; 32]>,
 }
 struct Inner {
     memory: MemoryBudget,
@@ -28,6 +29,7 @@ struct Inner {
     base_hot: u64,
     counts: Mutex<Counts>,
     failed: AtomicBool,
+    factory_prologue_claimed: AtomicBool,
     _charge: MemoryReservation,
 }
 /// Clones share the SAME sealed counter; they never start another event count.
@@ -51,6 +53,33 @@ impl WorldEventCounterV1 {
         let charge = memory
             .reserve(4096, MemoryClass::Ordinary)
             .map_err(ExecutionError::Memory)?;
+        Self::validate_parent_source(parent, head, transaction, memory)?;
+        transaction.claim_world_event_counter()?;
+        let guard = transaction.guard();
+        Ok(Self {
+            inner: Arc::new(Inner {
+                memory: memory.clone(),
+                guard,
+                base_hot: parent.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()].count,
+                counts: Mutex::new(Counts {
+                    appended: 0,
+                    last_world_fact_end: 0,
+                    last_original: None,
+                }),
+                failed: AtomicBool::new(false),
+                factory_prologue_claimed: AtomicBool::new(false),
+                _charge: charge,
+            }),
+        })
+    }
+    /// Validate a fresh parent for directory construction without minting a
+    /// counter. All actual event producers share the sole claimed counter.
+    pub(super) fn validate_parent_source<M: MerkleNodeReader>(
+        parent: &ReservedValue<AcceptedRuntimeHistorySourceV1>,
+        head: &VerifiedFormalCommitV1,
+        transaction: &ExecutionTransaction<'_, M>,
+        memory: &MemoryBudget,
+    ) -> Result<(), BodyMutationError> {
         let fact = parent.occurrence();
         let fence = transaction.parent_fence();
         if transaction.ordered_fact_count() != 0
@@ -68,19 +97,10 @@ impl WorldEventCounterV1 {
         }
         let guard = transaction.guard();
         transaction.validate_transaction_identity(&guard)?;
-        Ok(Self {
-            inner: Arc::new(Inner {
-                memory: memory.clone(),
-                guard,
-                base_hot: parent.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()].count,
-                counts: Mutex::new(Counts {
-                    appended: 0,
-                    last_world_fact_end: 0,
-                }),
-                failed: AtomicBool::new(false),
-                _charge: charge,
-            }),
-        })
+        Ok(())
+    }
+    pub(super) fn same_counter(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
     }
     pub(super) fn validate<M: MerkleNodeReader>(
         &self,
@@ -92,6 +112,27 @@ impl WorldEventCounterV1 {
         }
         transaction.validate_transaction_identity(&self.inner.guard)?;
         Ok(())
+    }
+    /// One prologue claim across every clone of this sole transaction counter.
+    /// It is bookkeeping only: the Runtime owner must still authenticate and
+    /// advance the actual clock before producing a private execution permit.
+    pub(super) fn claim_factory_prologue<M: MerkleNodeReader>(
+        &self,
+        transaction: &mut ExecutionTransaction<'_, M>,
+    ) -> Result<(), BodyMutationError> {
+        transaction.contribute(|tx| {
+            self.validate(tx)?;
+            if tx.ordered_fact_count() != 0 {
+                return Err(BodyMutationError::Invalid(
+                    "factory prologue requires no contributed facts",
+                ));
+            }
+            self.inner
+                .factory_prologue_claimed
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .map_err(|_| BodyMutationError::Invalid("factory prologue already claimed"))?;
+            Ok(())
+        })
     }
     pub fn journal_height<M: MerkleNodeReader>(
         &self,
@@ -119,6 +160,12 @@ impl WorldEventCounterV1 {
             if before_fact_count.checked_add(1) != Some(after) {
                 return Err(invalid());
             }
+            let fact = transaction
+                .ordered_fact(before_fact_count)
+                .ok_or_else(invalid)?;
+            if fact.kind != ExecutionFactKindV1::Event {
+                return Err(invalid());
+            }
             let mut counts = self.inner.counts.lock().map_err(|_| invalid())?;
             if before_fact_count < counts.last_world_fact_end {
                 return Err(invalid());
@@ -133,11 +180,65 @@ impl WorldEventCounterV1 {
                 .ok_or(ExecutionError::ResourceLimited("WorldEvent journal height"))?;
             counts.appended = next;
             counts.last_world_fact_end = after;
+            counts.last_original = Some(fact.id);
             Ok(())
         })();
         if result.is_err() {
             self.inner.failed.store(true, Ordering::Release);
         }
         result
+    }
+
+    /// Only a typed WorldEvent success site can advance this source. Unrelated
+    /// Input/Result/Cognition facts appended later do not replace the tail.
+    pub(super) fn latest_source<M: MerkleNodeReader>(
+        &self,
+        transaction: &ExecutionTransaction<'_, M>,
+    ) -> Result<Option<CountedWorldEventSourceV1>, BodyMutationError> {
+        self.validate(transaction)?;
+        let counts = self.inner.counts.lock().map_err(|_| invalid())?;
+        let Some(original) = counts.last_original else {
+            if counts.appended != 0 || counts.last_world_fact_end != 0 {
+                return Err(invalid());
+            }
+            return Ok(None);
+        };
+        let ordinal = counts
+            .last_world_fact_end
+            .checked_sub(1)
+            .ok_or_else(invalid)?;
+        let fact = transaction.ordered_fact(ordinal).ok_or_else(invalid)?;
+        if fact.kind != ExecutionFactKindV1::Event || fact.id != original {
+            return Err(invalid());
+        }
+        Ok(Some(CountedWorldEventSourceV1 {
+            original,
+            ordinal,
+            identity: transaction.guard(),
+        }))
+    }
+}
+
+/// Source provenance from a real typed producer's counted success. This is not
+/// a business execution permit, accepted occurrence or durable cache receipt.
+pub(super) struct CountedWorldEventSourceV1 {
+    original: [u8; 32],
+    ordinal: usize,
+    identity: PreparedGuard,
+}
+impl CountedWorldEventSourceV1 {
+    pub(super) fn original(&self) -> &[u8; 32] {
+        &self.original
+    }
+    pub(super) fn validate<M: MerkleNodeReader>(
+        &self,
+        transaction: &ExecutionTransaction<'_, M>,
+    ) -> Result<(), BodyMutationError> {
+        transaction.validate_transaction_identity(&self.identity)?;
+        let fact = transaction.ordered_fact(self.ordinal).ok_or_else(invalid)?;
+        if fact.kind != ExecutionFactKindV1::Event || fact.id != self.original {
+            return Err(invalid());
+        }
+        Ok(())
     }
 }

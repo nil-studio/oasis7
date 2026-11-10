@@ -55,7 +55,7 @@ where
             manifest_cache,
             manifest_work,
             work,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
                 input_observation: _,
         } = self;
         let WorldFieldOverlayContextV1 {
@@ -145,6 +145,9 @@ where
                 // cache or separate budget is created by copying these refs.
                 let executable = match &worker.executable {
                     WorkerExecutableV1::SealedFd(file) => WorkerExecutableV1::SealedFd(file),
+                    WorkerExecutableV1::NativeBoundSealedFd { file, descriptor } => {
+                        WorkerExecutableV1::NativeBoundSealedFd { file, descriptor }
+                    }
                     WorkerExecutableV1::FixturePath(path) => WorkerExecutableV1::FixturePath(path),
                 };
                 let mut backend = BoundedWorkerSandboxV1 {
@@ -172,7 +175,7 @@ where
                         manifest_cache,
                         manifest_work,
                         work,
-                        #[cfg(test)]
+                        #[cfg(any(test, feature = "test-support"))]
                         input_observation: None,
                     };
                     actual.execute_tick_invocation_v1(instance, live_owner)

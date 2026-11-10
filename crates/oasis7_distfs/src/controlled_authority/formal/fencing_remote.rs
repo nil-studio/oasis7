@@ -31,6 +31,15 @@ fn connect_oracle(address: &SocketAddr, timeout: Duration) -> Result<TcpStream, 
     Ok(stream)
 }
 
+#[path = "fencing_remote_bounded_acquire.rs"]
+mod bounded_acquire;
+pub use bounded_acquire::{
+    BoundedAcquireErrorV1, BoundedMonotonicEndpointProvider, PaidRemoteLeaseV1,
+    acquire_provider_lease_bounded_v1,
+};
+pub(in crate::controlled_authority) use bounded_acquire::{
+    PaidNativeCheckpointSignatureV1, sign_native_checkpoint_bounded_v1,
+};
 #[path = "fencing_remote_durable_set.rs"]
 mod durable_set_client;
 #[path = "fencing_remote_protected.rs"]
@@ -179,59 +188,242 @@ fn exchange(
         .map_err(|e| FencingError::Io(format!("monotonic oracle response body read: {e}")))?;
     let reply: SignedMonotonicOracleReplyV1 =
         serde_cbor::from_slice(&bytes).map_err(|e| invalid(e.to_string()))?;
-    verify(
-        RESPONSE,
-        &reply.body,
-        &reply.signature,
-        &policy.provider_public_key,
+    validate_reply_with(
+        &reply,
+        &request_digest,
+        &request.body.challenge,
+        lease,
+        instance,
+        policy,
+        &mut LegacyReplyValidation,
     )?;
-    let state = reply.body;
-    canonical_hash(&state.lease)?;
+    Ok(reply.body)
+}
+trait ReplyValidationOps {
+    type Error: From<FencingError>;
+    fn verify_reply(
+        &mut self,
+        reply: &SignedMonotonicOracleReplyV1,
+        policy: &TrustedFencingPolicyV1,
+    ) -> Result<(), Self::Error>;
+    fn compare(&mut self, bytes: usize) -> Result<(), Self::Error>;
+    fn resource_allowed(
+        &mut self,
+        resource: &str,
+        policy: &TrustedFencingPolicyV1,
+    ) -> Result<bool, Self::Error>;
+    fn validate_checkpoint(
+        &mut self,
+        value: &EndpointCheckpointBindingV1,
+    ) -> Result<(), Self::Error>;
+    fn validate_seal(&mut self, value: &EpochSealBodyV1) -> Result<(), Self::Error>;
+    fn verify_evidence(
+        &mut self,
+        value: &MonotonicProviderEvidenceV1,
+        instance: &EndpointInstanceBindingV1,
+        checkpoint: &EndpointCheckpointBindingV1,
+        policy: &TrustedFencingPolicyV1,
+    ) -> Result<(), Self::Error>;
+    fn seal_digest(&mut self, value: &EpochSealBodyV1) -> Result<String, Self::Error>;
+}
+struct LegacyReplyValidation;
+impl ReplyValidationOps for LegacyReplyValidation {
+    type Error = FencingError;
+    fn verify_reply(
+        &mut self,
+        reply: &SignedMonotonicOracleReplyV1,
+        policy: &TrustedFencingPolicyV1,
+    ) -> Result<(), FencingError> {
+        verify(
+            RESPONSE,
+            &reply.body,
+            &reply.signature,
+            &policy.provider_public_key,
+        )
+    }
+    fn compare(&mut self, _: usize) -> Result<(), FencingError> {
+        Ok(())
+    }
+    fn resource_allowed(
+        &mut self,
+        resource: &str,
+        policy: &TrustedFencingPolicyV1,
+    ) -> Result<bool, FencingError> {
+        Ok(policy
+            .authorized_resource_bindings
+            .iter()
+            .any(|v| v == resource))
+    }
+    fn validate_checkpoint(
+        &mut self,
+        value: &EndpointCheckpointBindingV1,
+    ) -> Result<(), FencingError> {
+        value.validate()
+    }
+    fn validate_seal(&mut self, value: &EpochSealBodyV1) -> Result<(), FencingError> {
+        value.validate()
+    }
+    fn verify_evidence(
+        &mut self,
+        value: &MonotonicProviderEvidenceV1,
+        instance: &EndpointInstanceBindingV1,
+        checkpoint: &EndpointCheckpointBindingV1,
+        policy: &TrustedFencingPolicyV1,
+    ) -> Result<(), FencingError> {
+        verify_monotonic_checkpoint_evidence(value, instance, checkpoint, policy)
+    }
+    fn seal_digest(&mut self, value: &EpochSealBodyV1) -> Result<String, FencingError> {
+        value.digest()
+    }
+}
+fn reply_text_equal<O: ReplyValidationOps>(
+    ops: &mut O,
+    left: &str,
+    right: &str,
+) -> Result<bool, O::Error> {
+    ops.compare(left.len().saturating_add(right.len()))?;
+    Ok(left == right)
+}
+fn reply_instance_bytes(value: &EndpointInstanceBindingV1) -> usize {
+    [
+        &value.world_id,
+        &value.chain_id,
+        &value.genesis_digest,
+        &value.endpoint_id,
+        &value.endpoint_public_key,
+        &value.instance_id,
+        &value.storage_id,
+        &value.storage_fingerprint,
+    ]
+    .into_iter()
+    .fold(std::mem::size_of::<EndpointInstanceBindingV1>(), |n, v| {
+        n.saturating_add(v.len())
+    })
+}
+fn validate_reply_with<O: ReplyValidationOps>(
+    reply: &SignedMonotonicOracleReplyV1,
+    request_digest: &str,
+    challenge: &str,
+    old_lease: Option<&str>,
+    instance: &EndpointInstanceBindingV1,
+    policy: &TrustedFencingPolicyV1,
+    ops: &mut O,
+) -> Result<(), O::Error> {
+    ops.verify_reply(reply, policy)?;
+    let state = &reply.body;
+    ops.compare(state.lease.len())?;
+    canonical_hash(&state.lease).map_err(O::Error::from)?;
+    ops.compare(std::mem::size_of::<u32>() + std::mem::size_of::<ProviderCapabilityV1>())?;
     if state.schema_version != 1
         || state.capability != ProviderCapabilityV1::MonotonicExclusiveSignerStorageV1
-        || !policy
-            .authorized_resource_bindings
-            .contains(&state.resource_binding)
-        || state.request_digest != request_digest
-        || state.challenge != request.body.challenge
-        || lease.is_some_and(|old| old != state.lease)
+        || !ops.resource_allowed(&state.resource_binding, policy)?
+        || !reply_text_equal(ops, &state.request_digest, request_digest)?
+        || !reply_text_equal(ops, &state.challenge, challenge)?
+        || match old_lease {
+            Some(old) => !reply_text_equal(ops, old, &state.lease)?,
+            None => false,
+        }
     {
-        return Err(FencingError::FencingUnproven);
+        return Err(O::Error::from(FencingError::FencingUnproven));
     }
-    state.checkpoint.validate()?;
+    ops.validate_checkpoint(&state.checkpoint)?;
     if let Some(seal) = &state.seal {
-        seal.validate()?;
+        ops.validate_seal(seal)?;
+        ops.compare(
+            reply_instance_bytes(&seal.instance).saturating_add(reply_instance_bytes(instance)),
+        )?;
         if &seal.instance != instance {
-            return Err(FencingError::FencingUnproven);
+            return Err(O::Error::from(FencingError::FencingUnproven));
         }
     }
     if state.pending.is_none() {
         let evidence = state
             .evidence
             .as_ref()
-            .ok_or(FencingError::FencingUnproven)?;
-        verify_monotonic_checkpoint_evidence(evidence, instance, &state.checkpoint, policy)?;
-        if evidence.statement.resource_binding != state.resource_binding {
-            return Err(FencingError::FencingUnproven);
+            .ok_or_else(|| O::Error::from(FencingError::FencingUnproven))?;
+        ops.verify_evidence(evidence, instance, &state.checkpoint, policy)?;
+        if !reply_text_equal(
+            ops,
+            &evidence.statement.resource_binding,
+            &state.resource_binding,
+        )? {
+            return Err(O::Error::from(FencingError::FencingUnproven));
         }
-        if evidence.statement.seal_digest
+        let seal_digest = state
+            .seal
+            .as_ref()
+            .map(|seal| ops.seal_digest(seal))
+            .transpose()?;
+        let equal_digest = match (&evidence.statement.seal_digest, &seal_digest) {
+            (Some(left), Some(right)) => reply_text_equal(ops, left, right)?,
+            (None, None) => true,
+            _ => false,
+        };
+        if !equal_digest {
+            return Err(O::Error::from(FencingError::FencingUnproven));
+        }
+        ops.compare(2 * std::mem::size_of::<u64>())?;
+        if evidence.statement.epoch_floor
             != state
                 .seal
                 .as_ref()
-                .map(EpochSealBodyV1::digest)
-                .transpose()?
-            || evidence.statement.epoch_floor
-                != state
-                    .seal
-                    .as_ref()
-                    .map(|s| s.next_epoch_floor)
-                    .unwrap_or(instance.authority_epoch)
+                .map(|s| s.next_epoch_floor)
+                .unwrap_or(instance.authority_epoch)
         {
-            return Err(FencingError::FencingUnproven);
+            return Err(O::Error::from(FencingError::FencingUnproven));
         }
     }
-    Ok(state)
+    Ok(())
 }
+
+// The original Begin predicates/order; callbacks meter equality only.
+trait BeginReplyValidationOps {
+    type Error: From<FencingError>;
+    fn same<T: Serialize + PartialEq>(&mut self, a: &T, b: &T) -> Result<bool, Self::Error>;
+}
+struct LegacyBeginValidation;
+impl BeginReplyValidationOps for LegacyBeginValidation {
+    type Error = FencingError;
+    fn same<T: Serialize + PartialEq>(&mut self, a: &T, b: &T) -> Result<bool, FencingError> {
+        Ok(a == b)
+    }
+}
+fn validate_begin_gate_with<E: From<FencingError>>(
+    state: &MonotonicOracleReplyBodyV1,
+    mut work: impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), E> {
+    work(std::mem::size_of_val(&state.durable_set))?;
+    if state
+        .durable_set
+        .as_ref()
+        .is_some_and(|s| s.activation_digest.is_none())
+    {
+        return Err(FencingError::FencingUnproven.into());
+    }
+    work(std::mem::size_of_val(&state.seal))?;
+    if state.seal.is_some() {
+        return Err(FencingError::EpochSealed.into());
+    }
+    Ok(())
+}
+fn validate_begin_reply_with<O: BeginReplyValidationOps>(
+    state: &MonotonicOracleReplyBodyV1,
+    previous_state: &MonotonicOracleReplyBodyV1,
+    intent: &CheckpointIntentV1,
+    ops: &mut O,
+) -> Result<(), O::Error> {
+    if !ops.same(&state.checkpoint, &intent.previous)?
+        || !ops.same(&state.pending.as_ref(), &Some(intent))?
+        || !ops.same(&state.resource_binding, &previous_state.resource_binding)?
+        || !ops.same(&state.durable_set, &previous_state.durable_set)?
+        || !ops.same(&state.protected_custody, &previous_state.protected_custody)?
+        || !ops.same(&state.seal, &previous_state.seal)?
+    {
+        return Err(FencingError::FencingUnproven.into());
+    }
+    Ok(())
+}
+
 impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
     fn install_durable_set(
         &self,
@@ -313,17 +505,7 @@ impl MonotonicEndpointGuard for RemoteGuard {
         self.state.seal.as_ref()
     }
     fn begin(&mut self, intent: CheckpointIntentV1) -> Result<(), FencingError> {
-        if self
-            .state
-            .durable_set
-            .as_ref()
-            .is_some_and(|s| s.activation_digest.is_none())
-        {
-            return Err(FencingError::FencingUnproven);
-        }
-        if self.state.seal.is_some() {
-            return Err(FencingError::EpochSealed);
-        }
+        validate_begin_gate_with(&self.state, |_| Ok::<(), FencingError>(()))?;
         let state = exchange(
             self.stream
                 .get_mut()
@@ -334,15 +516,7 @@ impl MonotonicEndpointGuard for RemoteGuard {
             Some(&self.state.lease),
             MonotonicOracleCommandV1::Begin(Box::new(intent.clone())),
         )?;
-        if state.checkpoint != intent.previous
-            || state.pending.as_ref() != Some(&intent)
-            || state.resource_binding != self.state.resource_binding
-            || state.durable_set != self.state.durable_set
-            || state.protected_custody != self.state.protected_custody
-            || state.seal != self.state.seal
-        {
-            return Err(FencingError::FencingUnproven);
-        }
+        validate_begin_reply_with(&state, &self.state, &intent, &mut LegacyBeginValidation)?;
         self.state = state;
         Ok(())
     }

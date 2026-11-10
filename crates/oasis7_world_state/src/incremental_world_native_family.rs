@@ -22,6 +22,9 @@ pub(crate) struct WorldNativeFieldQualificationV1<F> {
     _field: PhantomData<fn() -> F>,
 }
 impl<F> WorldNativeFieldQualificationV1<F> {
+    pub(crate) fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
     pub(crate) fn records(&self) -> u64 {
         self.records
     }
@@ -318,3 +321,22 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) use receiver::accept_world_native_field_transition_v1;
+
+/// Exact original-key decoder for the starter binding index; no new grammar.
+pub(crate) fn starter_original_key_v1(
+    entry: &StateEntryV1,
+    ctx: &mut WorldFieldReadContextV1<
+        '_,
+        impl MerkleNodeReader,
+        impl ValueNodeReader,
+        impl FnMut() -> Option<ValueTreeError>,
+        impl FnMut() -> bool,
+    >,
+    max_key_heap: usize,
+) -> Result<ReservedValue<Vec<u8>>, ValueTreeError> {
+    key::original::<crate::incremental_world_native_gameplay::StarterOcClaimsFieldV1>(
+        entry,
+        ctx,
+        max_key_heap,
+    )
+}

@@ -1,5 +1,6 @@
 //! Formal-profile wire contracts and independent verification; no endpoint actor.
 pub mod activation;
+pub mod bounded_context;
 pub mod crypto;
 pub mod frozen;
 pub mod proof;
@@ -35,3 +36,6 @@ pub mod test_fixtures;
 mod tests;
 
 pub mod incremental;
+
+pub mod incremental_frozen_material;
+pub use incremental_frozen_material::*;

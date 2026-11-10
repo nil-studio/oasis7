@@ -284,3 +284,77 @@ pub use pages::{
 mod phase_tests;
 
 pub(crate) use receiver::accept_factory_verified_v1;
+
+/// Validate only the original typed child closure/delta. This produces no
+/// permission or family qualification; the joint owner authenticates its source.
+pub(crate) fn validate_factory_lifecycle_child_delta_v1<
+    R: oasis7_formal_protocol::incremental_value::ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    before: Option<&oasis7_formal_protocol::incremental_state::StateRootV1>,
+    after: &oasis7_formal_protocol::incremental_state::StateRootV1,
+    context: &mut FactoryTransitionReadContextV1<'_, R, C>,
+    work: &mut FactoryWorkBudgetV1,
+) -> Result<(), crate::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+    let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+        values: &mut context.values,
+        key_work: &mut *context.key_work,
+        semantic_bytes: context.semantic_bytes,
+        record_bytes: context.record_bytes,
+        cancelled: &mut context.cancelled,
+    };
+    match before {
+        Some(before) => advance::child(
+            FactoryRecordKindV1::Factory,
+            before,
+            after,
+            &mut records,
+            work,
+            context.max_payload_bytes,
+        ),
+        None => closure::verify_child(
+            FactoryRecordKindV1::Factory,
+            after,
+            &mut records,
+            context.max_payload_bytes,
+            work,
+        ),
+    }
+    .map_err(Into::into)
+}
+
+#[path = "incremental_factory_lifecycle_delete.rs"]
+mod lifecycle_delete;
+pub use lifecycle_delete::{
+    PreparedCurrentFactoryDeleteV1, delete_prepared_current_factory_v1,
+    prepare_current_factory_delete_v1,
+};
+
+/// A paid decoded outer observation only. The joint lifecycle owner separately
+/// binds its genuine parent/new family qualifications and verified write source.
+pub(crate) fn decode_factory_lifecycle_outer_record_v1<
+    R: oasis7_formal_protocol::incremental_value::ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    value_root: &[u8; 32],
+    key: &crate::incremental_world_field_key::WorldFieldKeyV1,
+    context: &mut FactoryTransitionReadContextV1<'_, R, C>,
+) -> Result<
+    ReservedValue<FactoryQualifiedOuterIdentityV1>,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+> {
+    let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+        values: &mut context.values,
+        key_work: &mut *context.key_work,
+        semantic_bytes: context.semantic_bytes,
+        record_bytes: context.record_bytes,
+        cancelled: &mut context.cancelled,
+    };
+    let (id, record_root, fee) =
+        current_identity::capture_factory_id(value_root, key, &mut records)?;
+    Ok(fee.retain(FactoryQualifiedOuterIdentityV1::Record {
+        id,
+        value_root: *value_root,
+        record_root,
+    }))
+}

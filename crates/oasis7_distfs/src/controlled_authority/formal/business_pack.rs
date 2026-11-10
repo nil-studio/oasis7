@@ -19,8 +19,12 @@ pub(super) const MAX_PACK: u64 = 80 * 1024 * 1024;
 const MAX_LOGICAL: u64 = 64 * 1024 * 1024;
 pub(crate) const MAX_PACK_NODE: u64 = 4 * 1024 * 1024 + 128;
 const MAX_ENTRIES: usize = BUSINESS_INDEX_MAX_UPDATES * (BUSINESS_INDEX_DEPTH + 1);
+#[path = "business_pack_bounded_read.rs"]
+mod bounded_read;
 #[path = "business_pack_legacy_batch.rs"]
 mod legacy_batch;
+pub(crate) use bounded_read::{LegacyReadWorkV1, read_legacy_unknown_length_durable_v1};
+
 #[cfg(test)]
 static NEXT: AtomicU64 = AtomicU64::new(0);
 fn io(error: std::io::Error) -> FormalError {
@@ -34,12 +38,16 @@ struct ObjectFile {
 // Legacy raw payloads may themselves begin with the marker. Only this rare
 // ambiguous/error path hashes the whole bounded file; normal pack lookup stays
 // logarithmic and never reads unrelated logical objects.
+#[allow(clippy::too_many_arguments)]
 fn raw_or_invalid(
     mut file: File,
     len: u64,
     id: &str,
     reason: &str,
     expected: Option<usize>,
+    max_raw: usize,
+    seek: &mut impl FnMut(&mut File, SeekFrom) -> Result<(), FormalError>,
+    raw_hash: &mut impl FnMut(&mut File, u64) -> Result<blake3::Hash, FormalError>,
 ) -> Result<Option<ObjectFile>, FormalError> {
     if expected.is_some_and(|expected| len != expected as u64) {
         return Err(invalid("CAS expected logical byte length differs"));
@@ -47,17 +55,12 @@ fn raw_or_invalid(
     if len > MAX_LOGICAL {
         return Err(invalid(reason));
     }
-    file.seek(SeekFrom::Start(0)).map_err(io)?;
-    let mut hash = blake3::Hasher::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let size = file.read(&mut buffer).map_err(io)?;
-        if size == 0 {
-            break;
-        }
-        hash.update(&buffer[..size]);
+    if len > max_raw as u64 {
+        return Err(invalid("bounded legacy raw caller cap"));
     }
-    if hash.finalize().to_hex().as_str() != id {
+    seek(&mut file, SeekFrom::Start(0))?;
+    let digest = raw_hash(&mut file, len)?;
+    if digest.to_hex().as_str() != id {
         return Err(invalid(reason));
     }
     Ok(Some(ObjectFile {
@@ -73,6 +76,37 @@ fn open_expected(
     path: &Path,
     id: &str,
     expected: Option<usize>,
+) -> Result<Option<ObjectFile>, FormalError> {
+    open_expected_with_readers(
+        path,
+        id,
+        expected,
+        MAX_LOGICAL as usize,
+        &mut |file, bytes| Ok(file.read_exact(bytes)),
+        &mut |file, position| file.seek(position).map(|_| ()).map_err(io),
+        &mut |file, _| {
+            let mut hash = blake3::Hasher::new();
+            let mut buffer = [0u8; 65536];
+            loop {
+                let size = file.read(&mut buffer).map_err(io)?;
+                if size == 0 {
+                    break;
+                }
+                hash.update(&buffer[..size]);
+            }
+            Ok(hash.finalize())
+        },
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn open_expected_with_readers(
+    path: &Path,
+    id: &str,
+    expected: Option<usize>,
+    max_raw: usize,
+    read_exact: &mut impl FnMut(&mut File, &mut [u8]) -> Result<std::io::Result<()>, FormalError>,
+    seek: &mut impl FnMut(&mut File, SeekFrom) -> Result<(), FormalError>,
+    raw_hash: &mut impl FnMut(&mut File, u64) -> Result<blake3::Hash, FormalError>,
 ) -> Result<Option<ObjectFile>, FormalError> {
     hash_hex(id)?;
     super::physical::paths::parents(path)?;
@@ -101,13 +135,16 @@ fn open_expected(
         return Err(invalid("logical CAS regular file/physical bound"));
     }
     let mut prefix = vec![0; std::cmp::min(metadata.len(), MAGIC.len() as u64) as usize];
-    file.read_exact(&mut prefix).map_err(io)?;
+    read_exact(&mut file, &mut prefix)?.map_err(io)?;
     if prefix != MAGIC {
         if expected.is_some_and(|expected| metadata.len() != expected as u64) {
             return Err(invalid("CAS expected logical byte length differs"));
         }
         if metadata.len() > MAX_LOGICAL {
             return Err(invalid("raw logical CAS object byte bound"));
+        }
+        if metadata.len() > max_raw as u64 {
+            return Err(invalid("bounded legacy raw caller cap"));
         }
         return Ok(Some(ObjectFile {
             file,
@@ -116,13 +153,16 @@ fn open_expected(
         }));
     }
     let mut rest = [0u8; 24];
-    if file.read_exact(&mut rest).is_err() {
+    if read_exact(&mut file, &mut rest)?.is_err() {
         return raw_or_invalid(
             file,
             metadata.len(),
             id,
             "truncated CAS pack header",
             expected,
+            max_raw,
+            seek,
+            raw_hash,
         );
     }
     let version = u32::from_be_bytes(rest[0..4].try_into().unwrap());
@@ -145,6 +185,9 @@ fn open_expected(
             id,
             "CAS pack header/count/index/length",
             expected,
+            max_raw,
+            seek,
+            raw_hash,
         );
     }
     let wanted = hex::decode(id).map_err(|_| invalid("CAS pack object digest"))?;
@@ -158,9 +201,9 @@ fn open_expected(
                     .ok_or_else(|| invalid("CAS pack lookup overflow"))?,
             )
             .ok_or_else(|| invalid("CAS pack lookup overflow"))?;
-        file.seek(SeekFrom::Start(position)).map_err(io)?;
+        seek(&mut file, SeekFrom::Start(position))?;
         let mut row = [0u8; INDEX_ENTRY as usize];
-        file.read_exact(&mut row).map_err(io)?;
+        read_exact(&mut file, &mut row)?.map_err(io)?;
         match row[..32].cmp(&wanted) {
             std::cmp::Ordering::Less => low = middle + 1,
             std::cmp::Ordering::Greater => high = middle,
@@ -187,6 +230,9 @@ fn open_expected(
         id,
         "CAS pack lacks its linked logical object",
         expected,
+        max_raw,
+        seek,
+        raw_hash,
     )
 }
 fn read_open_object(object: &mut ObjectFile, id: &str) -> Result<Vec<u8>, FormalError> {
@@ -583,4 +629,32 @@ pub(crate) fn persist_kill_after_first_link_for_test(
     writes: &[BusinessIndexNodeWriteV1],
 ) -> Result<(), FormalError> {
     persist_inner(directory, writes, Some(usize::MAX - 1))
+}
+
+impl LegacyReadWorkV1 {
+    /// A single fixed Store lookup; limits derive from the original locator
+    /// grammar and at most two reads of the capped logical value (magic raw).
+    pub(crate) fn one_fixed_object_allowance(max: usize) -> Result<Self, FormalError> {
+        let comparisons = u64::from(usize::BITS - MAX_ENTRIES.leading_zeros());
+        let cap = u64::try_from(max).map_err(|_| invalid("legacy fixed consumer cap layout"))?;
+        let controls = (HEADER as u64)
+            .checked_add(
+                comparisons
+                    .checked_mul(INDEX_ENTRY)
+                    .ok_or_else(|| invalid("legacy fixed consumer control layout"))?,
+            )
+            .ok_or_else(|| invalid("legacy fixed consumer control layout"))?;
+        Ok(Self {
+            remaining_steps: comparisons
+                .checked_mul(3)
+                .and_then(|n| n.checked_add(2 * (cap / 8192 + 1)))
+                .and_then(|n| n.checked_add(32))
+                .ok_or_else(|| invalid("legacy fixed consumer steps layout"))?,
+            remaining_read_bytes: cap
+                .checked_mul(2)
+                .and_then(|n| controls.checked_mul(2).and_then(|c| n.checked_add(c)))
+                .and_then(|n| n.checked_add(1))
+                .ok_or_else(|| invalid("legacy fixed consumer bytes layout"))?,
+        })
+    }
 }

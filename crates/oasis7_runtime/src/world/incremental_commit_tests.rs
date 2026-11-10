@@ -105,6 +105,11 @@ fn root_driver_commits_real_step_after_genesis_world_is_dropped() {
     let before_time = original.time;
     let next_time = before_time.checked_add(1).unwrap();
     original.time = next_time;
+    let mut material_owner = super::material_fixture(&world, &parent, &state, &values, &memory);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     drop(world);
     let source = values.clone();
     let fence = parent.fence().unwrap();
@@ -115,7 +120,7 @@ fn root_driver_commits_real_step_after_genesis_world_is_dropped() {
     let mut stored = Vec::new();
     let prepared = prepare_iws_runtime_commit_v1(
         &request,
-        &state,
+        &material_owner.pages,
         &memory,
         || Ok::<_, BodyMutationError>(fence),
         |txn| {
@@ -136,7 +141,7 @@ fn root_driver_commits_real_step_after_genesis_world_is_dropped() {
                 &mut original_budget,
             )?;
             assert_eq!(step.time(), next_time);
-            step.dispatch_agent_event(&original, 1 << 20, |original| {
+            step.dispatch_agent_event(&original, &mut materials, &fence, 1 << 20, |original| {
                 stored.push(original.original_id());
                 collect_original(original, &memory)?;
                 Ok(())
@@ -223,83 +228,92 @@ fn root_driver_final_results_failure_returns_no_prepared_header() {
 fn actual_body_driver_seals_one_consistent_candidate_and_keeps_all_charges() {
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let (world, parent, state, mut values, config, genesis, catalog) = setup(&memory);
-    let source = values.clone();
-    let before = world.state.clone();
-    let fence = parent.fence().unwrap();
-    let calls = Cell::new(0);
-    let mut stored = Vec::new();
-    let mut quota = io();
-    let original = event(&world, 1);
-    let request = request(&parent, &config, &genesis, &catalog);
-    let prepared = world
-        .prepare_iws_commit(
-            &request,
-            &state,
-            &memory,
-            || {
-                calls.set(calls.get() + 1);
-                Ok::<_, BodyMutationError>(fence)
-            },
-            |world, txn| {
-                world.contribute_iws_agent_event(
-                    &original,
-                    txn,
-                    &mut AgentEventContext {
-                        values: &source,
-                        mutation: BodyMutationContext {
-                            sink: &mut values,
-                            memory: &memory,
-                            io: &mut quota,
-                            cancelled: || false,
+    {
+        let source = values.clone();
+        let before = world.state.clone();
+        let fence = parent.fence().unwrap();
+        let mut material_owner = super::material_fixture(&world, &parent, &state, &values, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
+        let calls = Cell::new(0);
+        let mut stored = Vec::new();
+        let mut quota = io();
+        let original = event(&world, 1);
+        let request = request(&parent, &config, &genesis, &catalog);
+        let prepared = world
+            .prepare_iws_commit(
+                &request,
+                &material_owner.pages,
+                &memory,
+                || {
+                    calls.set(calls.get() + 1);
+                    Ok::<_, BodyMutationError>(fence)
+                },
+                |world, txn| {
+                    world.contribute_iws_agent_event(
+                        &original,
+                        txn,
+                        &mut AgentEventContext {
+                            values: &source,
+                            mutation: BodyMutationContext {
+                                sink: &mut values,
+                                memory: &memory,
+                                io: &mut quota,
+                                cancelled: || false,
+                            },
+                            persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                                stored.push(original.original_id());
+                                collect_original(original, &memory)?;
+                                Ok(())
+                            },
+                            max_event_bytes: 1024 * 1024,
+                            original_work: original_work(),
                         },
-                        persist_original: |original: &mut dyn AgentEventOriginalV1| {
-                            stored.push(original.original_id());
-                            collect_original(original, &memory)?;
-                            Ok(())
-                        },
-                        max_event_bytes: 1024 * 1024,
-                        original_work: original_work(),
-                    },
-                )
-            },
-        )
-        .unwrap();
-    assert_eq!(calls.get(), 3);
-    assert_eq!(prepared.transition().record.after.height, 1);
-    assert_eq!(prepared.transition().record.after.simulation_tick, 0);
-    assert_eq!(prepared.history().body.parent_commit, Some(parent.commit));
-    assert_eq!(prepared.history().body.catalog_before, catalog);
-    assert_eq!(prepared.catalog().after.count, 2);
-    assert_eq!(
-        prepared.catalog().entry.commit,
-        prepared.history().body.digest().unwrap()
-    );
-    assert_eq!(
-        prepared.commit_id(),
-        prepared.history().body.digest().unwrap()
-    );
-    assert_eq!(prepared.history().facts.facts[0].id, stored[0]);
-    assert_eq!(
-        *blake3::hash(prepared.root_set_bytes()).as_bytes(),
-        prepared.history().body.roots
-    );
-    assert_eq!(
-        CatalogRootV1::from_canonical_bytes(prepared.catalog_bytes()).unwrap(),
-        prepared.catalog().after
-    );
-    assert!(prepared.uses_budget(&memory));
-    assert!(prepared.root_set_bytes().uses_budget(&memory));
-    assert!(prepared.catalog_bytes().uses_budget(&memory));
-    assert_eq!(world.state, before);
-    let mut changed = fence;
-    changed.authority.epoch += 1;
-    assert!(matches!(
-        prepared.validate_live_fence(&changed),
-        Err(ExecutionError::ParentConflict)
-    ));
-    assert!(memory.used() > value_charge(&values));
-    drop(prepared);
-    drop(genesis);
+                        &mut materials,
+                        &fence,
+                    )
+                },
+            )
+            .unwrap();
+        assert_eq!(calls.get(), 3);
+        assert_eq!(prepared.transition().record.after.height, 1);
+        assert_eq!(prepared.transition().record.after.simulation_tick, 0);
+        assert_eq!(prepared.history().body.parent_commit, Some(parent.commit));
+        assert_eq!(prepared.history().body.catalog_before, catalog);
+        assert_eq!(prepared.catalog().after.count, 2);
+        assert_eq!(
+            prepared.catalog().entry.commit,
+            prepared.history().body.digest().unwrap()
+        );
+        assert_eq!(
+            prepared.commit_id(),
+            prepared.history().body.digest().unwrap()
+        );
+        assert_eq!(prepared.history().facts.facts[0].id, stored[0]);
+        assert_eq!(
+            *blake3::hash(prepared.root_set_bytes()).as_bytes(),
+            prepared.history().body.roots
+        );
+        assert_eq!(
+            CatalogRootV1::from_canonical_bytes(prepared.catalog_bytes()).unwrap(),
+            prepared.catalog().after
+        );
+        assert!(prepared.uses_budget(&memory));
+        assert!(prepared.root_set_bytes().uses_budget(&memory));
+        assert!(prepared.catalog_bytes().uses_budget(&memory));
+        assert_eq!(world.state, before);
+        let mut changed = fence;
+        changed.authority.epoch += 1;
+        assert!(matches!(
+            prepared.validate_live_fence(&changed),
+            Err(ExecutionError::ParentConflict)
+        ));
+        assert!(memory.used() > value_charge(&values));
+        drop(prepared);
+        drop(genesis);
+    }
     assert_eq!(memory.used(), value_charge(&values));
 }
 
@@ -308,55 +322,65 @@ fn live_fence_conflicts_at_each_driver_boundary_discard_candidate_only() {
     for boundary in 0..3 {
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let (world, parent, state, mut values, config, genesis, catalog) = setup(&memory);
-        let source = values.clone();
-        let before = world.state.clone();
-        let fence = parent.fence().unwrap();
-        let calls = Cell::new(0);
-        let applied = Cell::new(false);
-        let mut quota = io();
-        let original = event(&world, 1);
-        let result = world.prepare_iws_commit(
-            &request(&parent, &config, &genesis, &catalog),
-            &state,
-            &memory,
-            || {
-                let call = calls.get();
-                calls.set(call + 1);
-                let mut live = fence;
-                if call == boundary {
-                    live.authority.token[0] ^= 1;
-                }
-                Ok::<_, BodyMutationError>(live)
-            },
-            |world, txn| {
-                applied.set(true);
-                world.contribute_iws_agent_event(
-                    &original,
-                    txn,
-                    &mut AgentEventContext {
-                        values: &source,
-                        mutation: BodyMutationContext {
-                            sink: &mut values,
-                            memory: &memory,
-                            io: &mut quota,
-                            cancelled: || false,
+        {
+            let source = values.clone();
+            let before = world.state.clone();
+            let fence = parent.fence().unwrap();
+            let mut material_owner =
+                super::material_fixture(&world, &parent, &state, &values, &memory);
+            let mut materials =
+                material_owner
+                    .fixture
+                    .context(&parent.roots, &material_owner.pages, || None);
+            let calls = Cell::new(0);
+            let applied = Cell::new(false);
+            let mut quota = io();
+            let original = event(&world, 1);
+            let result = world.prepare_iws_commit(
+                &request(&parent, &config, &genesis, &catalog),
+                &material_owner.pages,
+                &memory,
+                || {
+                    let call = calls.get();
+                    calls.set(call + 1);
+                    let mut live = fence;
+                    if call == boundary {
+                        live.authority.token[0] ^= 1;
+                    }
+                    Ok::<_, BodyMutationError>(live)
+                },
+                |world, txn| {
+                    applied.set(true);
+                    world.contribute_iws_agent_event(
+                        &original,
+                        txn,
+                        &mut AgentEventContext {
+                            values: &source,
+                            mutation: BodyMutationContext {
+                                sink: &mut values,
+                                memory: &memory,
+                                io: &mut quota,
+                                cancelled: || false,
+                            },
+                            persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                                collect_original(original, &memory).map(|_| ())
+                            },
+                            max_event_bytes: 1024 * 1024,
+                            original_work: original_work(),
                         },
-                        persist_original: |original: &mut dyn AgentEventOriginalV1| {
-                            collect_original(original, &memory).map(|_| ())
-                        },
-                        max_event_bytes: 1024 * 1024,
-                        original_work: original_work(),
-                    },
-                )
-            },
-        );
-        assert!(matches!(
-            result,
-            Err(BodyMutationError::Execution(ExecutionError::ParentConflict))
-        ));
-        assert_eq!(applied.get(), boundary > 0);
-        assert_eq!(world.state, before);
-        drop(genesis);
+                        &mut materials,
+                        &fence,
+                    )
+                },
+            );
+            assert!(matches!(
+                result,
+                Err(BodyMutationError::Execution(ExecutionError::ParentConflict))
+            ));
+            assert_eq!(applied.get(), boundary > 0);
+            assert_eq!(world.state, before);
+            drop(genesis);
+        }
         assert_eq!(memory.used(), value_charge(&values));
     }
 }

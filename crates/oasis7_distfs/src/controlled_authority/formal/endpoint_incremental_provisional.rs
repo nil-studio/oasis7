@@ -249,3 +249,6 @@ impl AcceptedCandidateCache {
         Ok(())
     }
 }
+
+#[path = "endpoint_incremental_frozen_parent_cache.rs"]
+mod frozen_parent_cache;

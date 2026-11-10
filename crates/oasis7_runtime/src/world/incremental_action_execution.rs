@@ -203,6 +203,9 @@ pub(super) struct SelectedActionAuditV1 {
     identity: oasis7_formal_protocol::incremental_execution::PreparedGuard,
 }
 impl SelectedActionAuditV1 {
+    pub(super) fn uses_budget(&self, memory: &oasis7_proto::memory_budget::MemoryBudget) -> bool {
+        self.event.uses_budget(memory)
+    }
     pub(super) fn event(&self) -> &crate::WorldEvent {
         &self.event
     }
@@ -244,6 +247,12 @@ where
     /// Emit the original selective Accepted audit and its actual actor mailbox.
     pub(super) fn append_selected_accepted<P, E, D, PE, PD, F>(
         &mut self,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<ValueTreeError>,
+        >,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
         selected: &SelectedPendingActionV1,
         actor_read: &mut AcceptedActorReadContextV1<'_, '_, '_, P, V, E, D, PE, PD>,
         max_event_bytes: usize,
@@ -330,6 +339,9 @@ where
                 notes: vec!["accepted_for_gameplay_processing".into()],
             }),
         };
+        // Admit the owned audit before any original callback or Event fact.
+        // This is only an owned DTO until the actual producer succeeds.
+        let event = self.retain_audit_event(event, audit_work)?;
         let time = self.time();
         let before = self.begin_world_event()?;
         let placeholder = oasis7_wasm_abi::CanonicalCborWorkV1 {
@@ -356,12 +368,13 @@ where
             &event,
             self.transaction,
             &mut context,
+            materials,
+            live,
             &scope,
         );
         *self.original_work = context.original_work;
         result?;
         self.finish_world_event(before)?;
-        let event = self.retain_audit_event(event, audit_work)?;
         drop(fee);
         Ok(Some(SelectedActionAuditV1 {
             event,
@@ -373,6 +386,12 @@ where
     /// Rejection has no mailbox recipient in the original event routing contract.
     pub(super) fn append_selected_rejection<F>(
         &mut self,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<ValueTreeError>,
+        >,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
         selected: &SelectedPendingActionV1,
         reason: crate::RejectReason,
         max_event_bytes: usize,
@@ -383,12 +402,25 @@ where
             &mut dyn super::incremental_body_event::AgentEventOriginalV1,
         ) -> Result<(), BodyMutationError>,
     {
-        self.append_selected_rejection_event(selected, reason, max_event_bytes, persist_original)
-            .map(|_| ())
+        self.append_selected_rejection_event(
+            materials,
+            live,
+            selected,
+            reason,
+            max_event_bytes,
+            persist_original,
+        )
+        .map(|_| ())
     }
 
     pub(super) fn append_selected_rejection_owned<F>(
         &mut self,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<ValueTreeError>,
+        >,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
         selected: &SelectedPendingActionV1,
         reason: crate::RejectReason,
         max_event_bytes: usize,
@@ -400,30 +432,74 @@ where
             &mut dyn super::incremental_body_event::AgentEventOriginalV1,
         ) -> Result<(), BodyMutationError>,
     {
-        let event = self.append_selected_rejection_event(
-            selected,
-            reason,
-            max_event_bytes,
+        let (_, event) = self.append_selected_rejection_with_owner(
+            materials, live, selected, reason, max_event_bytes,
+            |event, memory, cancelled| {
+                oasis7_world_state::incremental_world_event_owned::retain_borrowed_world_event_owned_v1(
+                    event, memory, oasis7_proto::memory_budget::MemoryClass::Ordinary, audit_work, cancelled,
+                ).map_err(BodyMutationError::Value)
+            },
             persist_original,
         )?;
-        let event = self.retain_audit_event(event, audit_work)?;
         Ok(SelectedActionAuditV1 {
             event,
             identity: self.transaction.guard(),
         })
     }
 
-    fn append_selected_rejection_event<F>(
+    pub(super) fn append_selected_rejection_event<F>(
         &mut self,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<ValueTreeError>,
+        >,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
         selected: &SelectedPendingActionV1,
         reason: crate::RejectReason,
         max_event_bytes: usize,
-        mut persist_original: F,
+        persist_original: F,
     ) -> Result<crate::WorldEvent, BodyMutationError>
     where
         F: FnMut(
             &mut dyn super::incremental_body_event::AgentEventOriginalV1,
         ) -> Result<(), BodyMutationError>,
+    {
+        self.append_selected_rejection_with_owner(
+            materials,
+            live,
+            selected,
+            reason,
+            max_event_bytes,
+            |_, _, _| Ok(()),
+            persist_original,
+        )
+        .map(|(event, ())| event)
+    }
+
+    fn append_selected_rejection_with_owner<F, T, Prepare>(
+        &mut self,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<ValueTreeError>,
+        >,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+        selected: &SelectedPendingActionV1,
+        reason: crate::RejectReason,
+        max_event_bytes: usize,
+        prepare_owner: Prepare,
+        mut persist_original: F,
+    ) -> Result<(crate::WorldEvent, T), BodyMutationError>
+    where
+        F: FnMut(
+            &mut dyn super::incremental_body_event::AgentEventOriginalV1,
+        ) -> Result<(), BodyMutationError>,
+        Prepare: FnOnce(
+            &crate::WorldEvent,
+            &oasis7_proto::memory_budget::MemoryBudget,
+            &mut C,
+        ) -> Result<T, BodyMutationError>,
     {
         use super::incremental_allocators::RuntimeAllocatorV1;
         use super::incremental_body_event::original;
@@ -432,6 +508,14 @@ where
         };
         self.transaction
             .contribute(|tx| selected.validate(tx).map_err(BodyMutationError::from))?;
+        let material_guard = self.transaction.guard();
+        materials.contribute(
+            self.transaction,
+            self.values,
+            self.mutation,
+            &material_guard,
+            live,
+        )?;
         let before = self.begin_world_event()?;
         let time = self.time();
         let sequence = self.read_allocator(RuntimeAllocatorV1::Event)?;
@@ -445,6 +529,9 @@ where
                 reason,
             }),
         };
+        let owner = self.transaction.contribute(|_| {
+            prepare_owner(&event, self.mutation.memory, &mut self.mutation.cancelled)
+        })?;
         self.transaction
             .contribute(|tx| -> Result<(), BodyMutationError> {
                 let measured = original::measure(
@@ -474,6 +561,6 @@ where
                 Ok(())
             })?;
         self.finish_world_event(before)?;
-        Ok(event)
+        Ok((event, owner))
     }
 }

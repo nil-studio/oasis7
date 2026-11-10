@@ -11,6 +11,11 @@ pub enum WorkerExecutableV1<'a> {
     FixturePath(&'a Path),
     /// Production must borrow this FD from its actual opaque native baseline.
     SealedFd(&'a File),
+    /// Production IWS obtains both borrows from one authenticated native lease.
+    NativeBoundSealedFd {
+        file: &'a File,
+        descriptor: &'a [u8],
+    },
 }
 #[cfg(all(
     target_os = "linux",
@@ -20,7 +25,8 @@ pub(super) fn path(executable: &WorkerExecutableV1<'_>) -> io::Result<PathBuf> {
     use std::os::fd::AsRawFd;
     match executable {
         WorkerExecutableV1::FixturePath(path) => Ok(path.to_path_buf()),
-        WorkerExecutableV1::SealedFd(file) => {
+        WorkerExecutableV1::SealedFd(file)
+        | WorkerExecutableV1::NativeBoundSealedFd { file, .. } => {
             unsafe extern "C" {
                 fn fcntl(fd: i32, command: i32, ...) -> i32;
             }

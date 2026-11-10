@@ -11,6 +11,10 @@ use super::super::{
 use super::economy_data_publication::SparseMapProjection;
 use crate::state::LastProductValidationState;
 
+#[path = "../incremental_meta_progress_kernel.rs"]
+mod meta_progress_kernel;
+pub use meta_progress_kernel::apply_meta_progress_delta_v1;
+
 #[derive(Debug)]
 pub enum PreparedGovernanceMetaEvent {
     Proposal(PreparedProposal),
@@ -524,22 +528,15 @@ impl PreparedMetaProgress {
                     unlocked_tiers: BTreeMap::new(),
                     last_granted_at: now,
                 });
-        let next = progress
-            .track_points
-            .get(track)
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(*points);
-        progress.track_points.insert(track.clone(), next);
-        progress.total_points = progress.total_points.saturating_add(*points);
-        progress.last_granted_at = now;
-        if let Some(id) = achievement_id
-            && !progress.achievements.contains(id)
-        {
-            progress.achievements.push(id.clone());
-            progress.achievements.sort();
-        }
-        unlock_tiers(track, next, &mut progress);
+        apply_meta_progress_delta_v1(
+            &mut progress,
+            track,
+            *points,
+            achievement_id.as_deref(),
+            now,
+            |_| Ok::<(), std::convert::Infallible>(()),
+        )
+        .unwrap_or_else(|never| match never {});
         let mut agents = BTreeMap::new();
         touch(state, &mut agents, operator_agent_id, now);
         touch(state, &mut agents, target_agent_id, now);
@@ -595,24 +592,4 @@ fn invalid(reason: impl Into<String>) -> WorldError {
     WorldError::ResourceBalanceInvalid {
         reason: reason.into(),
     }
-}
-fn unlock_tiers(track: &str, points: i64, progress: &mut MetaProgressState) {
-    for (tier, threshold) in [("bronze", 20), ("silver", 50), ("gold", 100)] {
-        if points >= threshold {
-            let tiers = progress.unlocked_tiers.entry(track.into()).or_default();
-            if !tiers.iter().any(|v| v == tier) {
-                tiers.push(tier.into());
-            }
-            let id = format!("tier.{track}.{tier}");
-            if !progress.achievements.contains(&id) {
-                progress.achievements.push(id);
-            }
-        }
-    }
-    if let Some(tiers) = progress.unlocked_tiers.get_mut(track) {
-        tiers.sort();
-        tiers.dedup();
-    }
-    progress.achievements.sort();
-    progress.achievements.dedup();
 }

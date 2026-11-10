@@ -1,71 +1,15 @@
 //! Authenticate the actual Frozen material commitment using its original hash
 //! domain/framing and exact serde-CBOR wire, without a whole encoded Vec.
 use super::*;
-use std::io::{self, Write};
-const DOMAIN: &[u8] = b"oasis7.formal.frozen_material.v1";
-struct Sink<'a, C> {
-    hash: blake3::Hasher,
-    encoded: u64,
-    left: &'a mut u64,
-    cancelled: C,
-    failed: bool,
-}
-impl<C: FnMut() -> bool> Write for Sink<'_, C> {
-    fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        if self.failed {
-            return Err(io::Error::other("Frozen hash poisoned"));
-        }
-        self.failed = true;
-        if (self.cancelled)() {
-            return Err(io::Error::other("Frozen hash cancelled"));
-        }
-        let input = &input[..input.len().min(64 << 10)];
-        let next = self
-            .encoded
-            .checked_add(input.len() as u64)
-            .filter(|n| *n <= 64 << 20)
-            .ok_or_else(|| io::Error::other("Frozen canonical frame bound"))?;
-        *self.left = self
-            .left
-            .checked_sub(input.len() as u64)
-            .ok_or_else(|| io::Error::other("Frozen wire allowance"))?;
-        self.hash.update(input);
-        self.encoded = next;
-        self.failed = false;
-        Ok(input.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        if self.failed {
-            Err(io::Error::other("Frozen hash poisoned"))
-        } else {
-            Ok(())
-        }
-    }
-}
 fn digest<C: FnMut() -> bool>(
     material: &crate::controlled_authority::replicated_protocol::ClosedRecord,
     memory: &MemoryBudget,
     left: &mut u64,
     cancelled: C,
 ) -> Result<[u8; 32], FormalError> {
-    let _phase = memory
-        .reserve(4096, MemoryClass::Ordinary)
-        .map_err(|_| invalid("Frozen hash admission"))?;
-    let mut sink = Sink {
-        hash: blake3::Hasher::new(),
-        encoded: 0,
-        left,
-        cancelled,
-        failed: false,
-    };
-    sink.hash.update(&(DOMAIN.len() as u64).to_be_bytes());
-    sink.hash.update(DOMAIN);
-    serde_cbor::to_writer(&mut sink, material)
-        .map_err(|_| invalid("Frozen actual material stream"))?;
-    if sink.failed || (sink.cancelled)() {
-        return Err(invalid("Frozen hash stopped"));
-    }
-    Ok(*sink.hash.finalize().as_bytes())
+    oasis7_formal_protocol::controlled_authority::formal::frozen_material_digest_bounded_v1(
+        material, memory, left, cancelled,
+    )
 }
 pub(super) fn verify(
     candidate: &FormalCandidateMaterialV1,

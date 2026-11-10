@@ -111,6 +111,13 @@ fn registration_is_one_transaction_and_failed_original_poisoned() {
         for page in delta.new_nodes {
             state.0.insert(page.digest, page.bytes);
         }
+        super::seed_core_policy_inventory(
+            &clock_world,
+            &mut parent,
+            &mut state,
+            &mut values,
+            &memory,
+        );
         // Qualification must match the exact parent, including the allocator root.
         let charged = ChargedState {
             pages: &state,
@@ -151,11 +158,17 @@ fn registration_is_one_transaction_and_failed_original_poisoned() {
         if case == 7 {
             parent.roots.height = 1;
         }
+        let mut material_owner =
+            super::material_fixture(&clock_world, &parent, &state, &values, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
         let live = parent.fence().unwrap();
         let mut tx = ExecutionTransaction::begin(
-            parent,
+            parent.clone(),
             [9; 32],
-            &charged,
+            &material_owner.pages,
             &memory,
             oasis7_formal_protocol::incremental_execution::TransactionLimits {
                 max_reads: 256,
@@ -219,6 +232,7 @@ fn registration_is_one_transaction_and_failed_original_poisoned() {
                 io: &mut write_io,
                 cancelled: || case == 4,
             },
+            &mut materials,
             &guard,
             &passed_live,
             &mut original_work(),
@@ -266,6 +280,8 @@ fn registration_is_one_transaction_and_failed_original_poisoned() {
                     max_event_bytes: 1 << 20,
                     original_work: original_work(),
                 },
+                &mut materials,
+                &live,
             )
             .unwrap();
             let guard = tx.guard();

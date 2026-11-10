@@ -11,7 +11,7 @@ use oasis7_formal_protocol::{
 fn invalid() -> ValueTreeError {
     closure::invalid()
 }
-fn child<
+pub(super) fn child<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -191,6 +191,11 @@ pub(crate) fn accept_diplomacy_verified_v1<
     max: u64,
 ) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
+    let _phase = ctx
+        .values
+        .memory
+        .reserve(32 << 10, ctx.values.class)
+        .map_err(ValueTreeError::Memory)?;
     witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
     if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
         return Err(invalid().into());
@@ -266,7 +271,7 @@ pub(crate) fn accept_diplomacy_verified_v1<
                 child(owner, Some(&old), &new, ctx, cells, max)?;
             }
             (Some(_), None) => {
-                if matches!(field, DiplomacyFieldV1::Alliances | DiplomacyFieldV1::Wars) {
+                if field == DiplomacyFieldV1::Wars {
                     return Err(invalid().into());
                 }
                 counts[index] = counts[index].checked_sub(1).ok_or_else(invalid)?;
@@ -275,15 +280,32 @@ pub(crate) fn accept_diplomacy_verified_v1<
         }
         ctx.check()?;
     }
+    // The parent index contains complete before-child qualifications. Update
+    // only actual verified outer writes and their authenticated inner deltas.
+    let mut index_work =
+        family::DiplomacyIndexWorkV1::from_cells(*cells, max.max(ctx.semantic_bytes))?;
+    let indexed = family::relations::accepted_index(
+        &parent.relations,
+        &verified.record.writes,
+        ctx,
+        &mut index_work,
+        max,
+    );
+    *cells = index_work.cells_remaining;
+    let relations = indexed?;
     let proof = ctx
         .values
         .memory
-        .reserve(512, ctx.values.class)
+        .reserve(
+            std::mem::size_of::<DiplomacyFamilyQualificationV1>() + 512,
+            ctx.values.class,
+        )
         .map_err(ValueTreeError::Memory)?
         .retain(DiplomacyFamilyQualificationV1 {
             roots: verified.record.after.digest().map_err(|_| invalid())?,
             counts,
             class: ctx.values.class,
+            relations,
         });
     ctx.check()?;
     Ok(proof)

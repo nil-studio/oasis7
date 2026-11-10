@@ -73,7 +73,7 @@ fn marker_key<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok((marker, marker_bytes, metadata))
 }
 
-fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
     value_root: &[u8; 32],
     key: &WorldFieldKeyV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,

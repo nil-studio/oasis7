@@ -305,15 +305,21 @@ fn change_runtime_revocation_inner_v1<
 /// Authenticated current body for one in-process shared transaction. Its fields
 /// cannot be fabricated from an arbitrary provisional root or another transaction.
 pub struct RuntimeRevocationCurrentV1 {
+    safe_alternative_actions: ReservedValue<super::action_index::SafeAlternativeActionIndexV1>,
     parent: [u8; 32],
     guard: PreparedGuard,
     body: ReservedValue<StateRootV1>,
 }
 impl RuntimeRevocationCurrentV1 {
+    /// A bounded lookup observation, not an admission permit. Current member
+    /// point reads must still authenticate this token against the actual body.
+    pub fn safe_alternative_lineage_for_action(&self, action: u64) -> Option<&str> {
+        self.safe_alternative_actions.lineage(action)
+    }
     pub fn body(&self) -> &StateRootV1 {
         &self.body
     }
-    fn check<M: MerkleNodeReader>(
+    pub(super) fn check<M: MerkleNodeReader>(
         &self,
         transaction: &oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
         expected: &StateRootV1,
@@ -381,7 +387,21 @@ pub fn begin_runtime_revocation_current_v1<
                 return Err(ValueTreeError::Cancelled.into());
             }
             transaction.validate_guard(&transaction.guard(), live)?;
+            let safe_alternative_actions = qualification.safe_alternative_actions.readmit(
+                write.memory,
+                MemoryClass::Ordinary,
+                &mut write.cancelled,
+            )?;
+            read.check()?;
+            if (context.cancelled)() || (read.cancelled)() || (write.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            if let Some(error) = (context.take_state_error)() {
+                return Err(error.into());
+            }
+            transaction.validate_guard(&transaction.guard(), live)?;
             Ok(RuntimeRevocationCurrentV1 {
+                safe_alternative_actions,
                 parent,
                 guard: transaction.guard(),
                 body,
@@ -483,6 +503,19 @@ pub fn patch_runtime_revocation_overlay_v1<
     // No parent mutation occurred during the charged child edits. Revalidate the
     // current outer body and live fence, then close the entire typed batch before
     // the single publication. This also validates empty/no-op batches.
+    // Derive the new lookup from exactly the changed authenticated members,
+    // before publishing the outer root. Failure poisons the sole transaction;
+    // the old token/index remains unchanged and cannot escape as a successor.
+    let safe_alternative_actions = context.transaction.contribute(|_| {
+        super::action_index::advance(
+            Some(&current.safe_alternative_actions),
+            &after,
+            read,
+            scan,
+            work,
+        )
+        .map_err(WorldFieldOverlayErrorV1::from)
+    })?;
     let changed = change_runtime_revocation_inner_v1(
         qualification,
         Some(current),
@@ -497,5 +530,6 @@ pub fn patch_runtime_revocation_overlay_v1<
         live,
     )?;
     current.body = after;
+    current.safe_alternative_actions = safe_alternative_actions;
     Ok(changed)
 }

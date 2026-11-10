@@ -68,6 +68,30 @@ fn fact(kind: ExecutionFactKindV1, n: u8) -> ExecutionFactRefV1 {
 }
 
 #[test]
+fn world_event_counter_claim_is_unique_per_fresh_transaction() {
+    let pages = Pages::default();
+    let memory = memory();
+    let mut tx =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    let guard = tx.guard();
+    tx.claim_world_event_counter().unwrap();
+    assert!(tx.claim_world_event_counter().is_err());
+    assert_eq!(tx.ordered_fact_count(), 0);
+    tx.validate_guard(&guard, &tx.parent_fence()).unwrap();
+    tx.append_fact(fact(ExecutionFactKindV1::Event, 1)).unwrap();
+    assert!(tx.claim_world_event_counter().is_err());
+    let other =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    other.claim_world_event_counter().unwrap();
+    let mut nonfresh =
+        ExecutionTransaction::begin(empty_parent(), [2; 32], &pages, &memory, limits()).unwrap();
+    nonfresh
+        .append_fact(fact(ExecutionFactKindV1::Input, 2))
+        .unwrap();
+    assert!(nonfresh.claim_world_event_counter().is_err());
+}
+
+#[test]
 fn pending_write_inspection_is_net_delta_bounded_and_never_reads_parent() {
     let pages = Pages::default();
     let memory = memory();

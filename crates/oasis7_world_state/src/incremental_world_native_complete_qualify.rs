@@ -87,6 +87,11 @@ pub(super) fn run<
         industry::qualify_industry_family_v1(roots, &mut local, &mut work.industry)?
     };
     check(ctx)?;
+    let lifecycle_index = {
+        let mut local = local!(ctx, roots.state_root(StateNamespaceV1::Business));
+        lifecycle_budget::qualify(&factory, &industry, roots, &mut local, outer_scan, work)?
+    };
+    check(ctx)?;
     let market = {
         let mut local = local!(ctx, roots.state_root(StateNamespaceV1::Business));
         market::qualify_module_marketplace_family_v1(
@@ -241,6 +246,7 @@ pub(super) fn run<
         inventory,
         factory,
         industry,
+        lifecycle_index,
         market,
         fixed,
         reward,

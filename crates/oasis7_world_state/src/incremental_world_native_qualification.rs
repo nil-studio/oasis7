@@ -9,6 +9,14 @@ use oasis7_formal_protocol::incremental_execution::{
 };
 pub type WorldNativeRecoveredRecordV1<T> = RecoveredTypedRecordV1<WorldNativeRecordV1<T>>;
 pub use crate::incremental_typed_record_codec::TypedRecordReadWorkV1 as WorldNativeSelectedReadWorkV1;
+#[path = "incremental_world_native_starter_binding_index.rs"]
+mod starter_binding_index;
+pub use starter_binding_index::{
+    StarterBindingIndexV1, StarterBindingIndexWorkV1, StarterBindingObservationV1,
+    observe_current_starter_binding_v1, readmit_starter_binding_index_ordinary_v1,
+};
+#[path = "incremental_world_native_starter_binding_budget.rs"]
+mod starter_binding_budget;
 fn qualify_at<F: WorldNativeFieldSpecV1>(
     roots: &RootSetV1,
     ctx: &mut WorldFieldReadContextV1<
@@ -86,15 +94,19 @@ fn accept_at<F: WorldNativeFieldSpecV1>(
 }
 macro_rules! fields {
 ($($slot:ident:$spec:ty => ($key:ty,$value:ty,$recover:ident,$name:literal);)+)=>{
+    struct WorldNativeFieldPartsV1 { $($slot:ReservedValue<WorldNativeFieldQualificationV1<$spec>>,)+ }
     pub struct WorldNativeFieldsQualificationV1 {
+        starter_binding_index:ReservedValue<StarterBindingIndexV1>,
         roots:[u8;32],class:MemoryClass,
         $($slot:ReservedValue<WorldNativeFieldQualificationV1<$spec>>,)+
     }
     impl WorldNativeFieldsQualificationV1 {
+        pub fn starter_binding_index(&self)->&ReservedValue<StarterBindingIndexV1>{&self.starter_binding_index}
         pub fn validate_binding(&self,roots:&RootSetV1)->Result<(),ValueTreeError>{
             roots.validate().map_err(|_|invalid())?;
             if self.roots!=roots.digest().map_err(|_|invalid())? {return Err(invalid());}
-            $(self.$slot.validate_binding(roots)?;)+
+            $(self.$slot.validate_binding(roots)?; if self.$slot.allocation_class()!=self.class{return Err(invalid());})+
+            self.starter_binding_index.validate_aggregate_binding_v1(roots,self.class,self.starter_oc_claims.records())?;
             // Each slot is a different fixed descriptor. Its count cannot be
             // used to claim more leaves than the authenticated RootSet owns.
             let records=0u128 $(+u128::from(self.$slot.records()))+;
@@ -117,7 +129,9 @@ macro_rules! fields {
             read::check(ctx)?;roots.validate().map_err(|_|invalid())?;world_native_field_descriptors_v1()?;
             if !roots.state.iter().any(|root|root==ctx.root){return Err(invalid());}
             let charge=ctx.values.memory.reserve(std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512,ctx.values.class)?;
-            let value=WorldNativeFieldsQualificationV1 {roots:roots.digest().map_err(|_|invalid())?,class:ctx.values.class,$($slot:qualify_at::<$spec>(roots,ctx,scan,work)?,)+};
+            let fields=WorldNativeFieldPartsV1 {$($slot:qualify_at::<$spec>(roots,ctx,scan,work)?,)+};
+            let starter_binding_index=starter_binding_budget::build(&fields.starter_oc_claims,roots,ctx,scan,work)?;
+            let value=WorldNativeFieldsQualificationV1 {roots:roots.digest().map_err(|_|invalid())?,class:ctx.values.class,starter_binding_index,$($slot:fields.$slot,)+};
             value.validate_binding(roots)?;Ok(charge.retain(value))
         })();read::check(ctx)?;result
     }
@@ -142,7 +156,9 @@ macro_rules! fields {
             let record=verified.record();
             let _phase=world_native_fields_preflight_v1(parent,record,ctx)?;
             let charge=ctx.values.memory.reserve(std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
-            let value=WorldNativeFieldsQualificationV1 {roots:record.after.digest().map_err(|_|invalid())?,class:MemoryClass::Ordinary,$($slot:accept_at::<$spec>(&parent.$slot,verified,ctx,scan,work)?,)+};
+            let fields=WorldNativeFieldPartsV1 {$($slot:accept_at::<$spec>(&parent.$slot,verified,ctx,scan,work)?,)+};
+            let starter_binding_index=starter_binding_budget::accept(&parent.starter_binding_index,&fields.starter_oc_claims,verified,ctx,scan,work)?;
+            let value=WorldNativeFieldsQualificationV1 {roots:record.after.digest().map_err(|_|invalid())?,class:MemoryClass::Ordinary,starter_binding_index,$($slot:fields.$slot,)+};
             value.validate_binding(&record.after)?;Ok(charge.retain(value))
         })();read::check(ctx)?;result
     }
@@ -154,7 +170,9 @@ macro_rules! fields {
             if !source.uses_budget(memory)||source.class!=MemoryClass::Recovery||source.reserved_bytes()<std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512{return Err(invalid());}
             source.validate_binding(roots)?;
             let charge=memory.reserve(std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512,MemoryClass::Ordinary)?;
-            let value=WorldNativeFieldsQualificationV1 {roots:source.roots,class:MemoryClass::Ordinary,$($slot:family::readmit_world_native_field_ordinary_v1::<$spec>(&source.$slot,roots,memory,&mut cancelled)?,)+};
+            let fields=WorldNativeFieldPartsV1 {$($slot:family::readmit_world_native_field_ordinary_v1::<$spec>(&source.$slot,roots,memory,&mut cancelled)?,)+};
+            let starter_binding_index=starter_binding_index::readmit_starter_binding_index_ordinary_bounded_v1(&source.starter_binding_index,roots,memory,&mut cancelled)?;
+            let value=WorldNativeFieldsQualificationV1 {roots:source.roots,class:MemoryClass::Ordinary,starter_binding_index,$($slot:fields.$slot,)+};
             value.validate_binding(roots)?;Ok(charge.retain(value))
         })();if cancelled(){return Err(ValueTreeError::Cancelled);}result
     }
@@ -200,3 +218,19 @@ mod tests;
 #[path = "incremental_world_native_current_claims.rs"]
 mod current_claims;
 pub use current_claims::{recover_current_agent_claim_v1, recover_current_starter_oc_claim_v1};
+
+#[path = "incremental_factory_lifecycle_native_current.rs"]
+mod factory_lifecycle_current;
+pub use factory_lifecycle_current::{
+    CurrentFactoryNativeRecordV1, change_current_factory_industry_stage_v1,
+    recover_current_factory_industry_progress_v1, recover_current_factory_recycle_receipt_v1,
+    write_current_factory_recycle_receipt_v1,
+};
+
+#[path = "incremental_meta_progress_current.rs"]
+mod meta_progress_current;
+pub use meta_progress_current::{
+    CurrentMetaProgressRecordV1, MetaProgressMutationWorkV1, PreparedCurrentMetaProgressV1,
+    prepare_current_meta_progress_delta_v1, recover_current_meta_progress_v1,
+    write_prepared_current_meta_progress_v1,
+};

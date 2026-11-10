@@ -40,6 +40,9 @@ fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<
 #[path = "endpoint_test_oracle.rs"]
 mod oracle;
 use oracle::Oracle;
+#[path = "endpoint_bounded_remote_acquire_fixture.rs"]
+mod bounded_remote_acquire_fixture;
+pub(in crate::controlled_authority) use bounded_remote_acquire_fixture::with_remote_acquire_fixture;
 #[cfg(unix)]
 #[path = "endpoint_recovery_process_tests.rs"]
 mod recovery_process_tests;
@@ -706,3 +709,9 @@ pub(super) fn native_rpc_endpoint(fixture: &Fixture) -> (FileFormalEndpoint, imp
     .unwrap();
     (endpoint, oracle)
 }
+
+#[path = "endpoint_bounded_remote_sign_fixture.rs"]
+mod bounded_remote_sign_fixture;
+pub(in crate::controlled_authority) use bounded_remote_sign_fixture::{
+    with_remote_sign_fixture, with_signed_checkpoint_fixture,
+};

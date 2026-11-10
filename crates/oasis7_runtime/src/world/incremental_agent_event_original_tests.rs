@@ -89,9 +89,20 @@ fn callback_skip_partial_finish_failure_or_suppressed_error_cannot_append_fact()
             MailboxFrontierV1 { head: 0, tail: 0 },
         );
         let source = values.clone();
+        let mut material_owner = super::material_fixture(&world, &parent, &state, &source, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
         let live = parent.fence().unwrap();
-        let mut txn =
-            ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [4; 32],
+            &material_owner.pages,
+            &memory,
+            limits(),
+        )
+        .unwrap();
         txn.write(Ns::Business, b"successful-outer-prefix", Some([9; 32]))
             .unwrap();
         let result = world.contribute_iws_agent_event(
@@ -145,6 +156,8 @@ fn callback_skip_partial_finish_failure_or_suppressed_error_cannot_append_fact()
                 max_event_bytes: 1 << 20,
                 original_work: original_work(),
             },
+            &mut materials,
+            &live,
         );
         assert!(result.is_err(), "mode={mode}");
         let guard = txn.guard();
@@ -179,8 +192,20 @@ fn second_stream_pass_cannot_reset_the_measurement_work_allowance() {
         MailboxFrontierV1 { head: 0, tail: 0 },
     );
     let source = values.clone();
+    let mut material_owner = super::material_fixture(&world, &parent, &state, &source, &memory);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let live = parent.fence().unwrap();
-    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &material_owner.pages,
+        &memory,
+        limits(),
+    )
+    .unwrap();
     txn.write(Ns::Business, b"successful-prefix", Some([9; 32]))
         .unwrap();
     let result = world.contribute_iws_agent_event(
@@ -200,6 +225,8 @@ fn second_stream_pass_cannot_reset_the_measurement_work_allowance() {
             max_event_bytes: 4096,
             original_work: work,
         },
+        &mut materials,
+        &live,
     );
     assert!(matches!(
         result,
