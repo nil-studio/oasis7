@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,14 @@ import codeql_rust_diagnostic_runtime as r
 P = Path(__file__).with_name('codeql-rust-model-diagnostic.py')
 spec = importlib.util.spec_from_file_location('diagnostic', P)
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+
+def workflow_job(text, name):
+    matches = re.findall(r'^  ' + re.escape(name) + r':\n(.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)',
+                         text, re.M | re.S)
+    if len(matches) != 1:
+        raise ValueError('expected one workflow job: ' + name)
+    return matches[0]
 
 
 class Runtime(unittest.TestCase):
@@ -197,21 +206,56 @@ class OfficialInputs(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_literal_manual_has_no_scan_or_required_override(self):
-        root=P.resolve().parents[2];text=(root/'.github/workflows/rust.yml').read_text()
-        job=text.split('  codeql-rust-model-diagnostic:\n',1)[1].split('\n  select:',1)[0]
+    def assert_diagnostic_job_contract(self, job):
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.run_mode == 'codeql_rust_model_diagnostic'",job)
         self.assertIn('timeout-minutes: 20',job)
         self.assertIn('permissions:\n      contents: read',job)
         for forbidden in ('security-events','GH_TOKEN','GITHUB_TOKEN','upload-sarif','codeql/analyze','--admin','continue-on-error'):
             self.assertNotIn(forbidden,job)
-        self.assertIn("if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'",text)
+
+    def test_literal_manual_has_no_scan_or_required_override(self):
+        root=P.resolve().parents[2];text=(root/'.github/workflows/rust.yml').read_text()
+        job=workflow_job(text, 'codeql-rust-model-diagnostic')
+        self.assert_diagnostic_job_contract(job)
+        # Evaluate the real selection guard instead of requiring its historical
+        # one-line spelling. Schedule-only admission may precede select.
+        condition=re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
+                            workflow_job(text, 'select'), re.M | re.S)[1]
+        condition=condition.strip().removeprefix('>-').strip()
+        for mode, expected in (('codeql_rust_model_diagnostic', False), ('full', True)):
+            expression=condition
+            values={'always()':True, 'cancelled()':False, 'github.event_name':'workflow_dispatch',
+                    'inputs.run_mode':mode, 'needs.periodic-admission.result':'skipped',
+                    'needs.periodic-admission.outputs.run_full':''}
+            for token, value in values.items(): expression=expression.replace(token, repr(value))
+            expression=re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
+            with self.subTest(mode=mode):
+                self.assertEqual(bool(eval(' '.join(expression.split()), {'__builtins__':{}}, {})), expected)
         self.assertIn("if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')",text)
         self.assertEqual(m.MODEL_BUNDLE_VERSIONS,('2.27.2','2.27.3'))
         for version in m.MODEL_BUNDLE_VERSIONS:self.assertIn(version,job);self.assertIn(m.BUNDLES[version]['sha256'],job)
         self.assertIn(' + 1080 ',job);self.assertIn('64 * 1024**2',job)
         for test in ('codeql-rust-model-diagnostic.test.py','codeql-rust-refactored-source.test.py'):
             self.assertIn('run python3 ./scripts/security/'+test,(root/'scripts/ci-tests.sh').read_text())
+
+    def test_job_boundary_excludes_neighbors_but_keeps_own_security_checks(self):
+        text=(P.resolve().parents[2]/'.github/workflows/rust.yml').read_text()
+        job=workflow_job(text, 'codeql-rust-model-diagnostic')
+        for neighbor in ('periodic-admission', 'different_job', 'select'):
+            fixture=('jobs:\n  codeql-rust-model-diagnostic:\n' + job
+                     + '\n  ' + neighbor + ':\n    env:\n      GH_TOKEN: neighbor-only\n')
+            with self.subTest(neighbor=neighbor):
+                extracted=workflow_job(fixture, 'codeql-rust-model-diagnostic')
+                self.assertEqual(extracted.strip(), job.strip())
+                self.assert_diagnostic_job_contract(extracted)
+        for forbidden in ('security-events','GH_TOKEN','GITHUB_TOKEN','upload-sarif',
+                          'codeql/analyze','--admin','continue-on-error'):
+            with self.subTest(forbidden=forbidden), self.assertRaises(AssertionError):
+                self.assert_diagnostic_job_contract(job + '\n    probe: ' + forbidden + '\n')
+        for invalid in ('jobs:\n  other:\n    runs-on: ubuntu-24.04\n',
+                        'jobs:\n  codeql-rust-model-diagnostic:\n' + job
+                        + '\n  codeql-rust-model-diagnostic:\n' + job):
+            with self.assertRaises(ValueError): workflow_job(invalid, 'codeql-rust-model-diagnostic')
 
 
 if __name__=='__main__':unittest.main()
