@@ -2503,6 +2503,29 @@ jobs:
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-cache
+      - name: Identify pinned Worker build tool
+        id: worker-meta
+        if: env.CUSTODY_COMPONENT != 'native'
+        run: python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
+      - name: Restore exact Worker build tool
+        id: worker-tool-cache
+        if: env.CUSTODY_COMPONENT != 'native'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.worker-meta.outputs.root }}
+          key: worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}
+      - name: Prepare verified Worker build tool
+        if: env.CUSTODY_COMPONENT != 'native'
+        shell: bash
+        timeout-minutes: 11
+        env:
+          TOOL_CACHE_HIT: ${{ steps.worker-tool-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$TOOL_CACHE_HIT" == true ]]; then
+            python3 scripts/ci-worker-build.py check
+          else
+            python3 scripts/ci-worker-build.py ensure
+          fi
       - name: Install native libraries
         shell: bash
         timeout-minutes: 11
