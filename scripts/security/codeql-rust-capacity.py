@@ -464,18 +464,46 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     terminal['status']='CAPTURED'
 
 
+def finalized_database_identity(value,source,database):
+    metadata=database/'codeql-database.yml'
+    if (value.get('sourceLocationPrefix')!=str(source) or value.get('languages')!=['rust']
+            or value.get('datasetFolder')!=str(database/'db-rust')
+            or metadata.is_symlink() or not metadata.is_file() or metadata.stat().st_size>1024**2
+            or '\nfinalised: true\n' not in metadata.read_text()):
+        raise RuntimeError('finalized database identity differs')
+    return runtime.digest(metadata)
+
+
+def extraction_checkpoint(source,database,out,frozen,codeql,run):
+    run([codeql,'resolve','database',database,'--format=json'],'extraction-database-identity',20)
+    value=json.loads((out/'extraction-database-identity.log').read_text())
+    metadata_sha=finalized_database_identity(value,source,database)
+    results=database/'results'
+    if results.is_symlink() or any(p.is_symlink() or p.suffix=='.bqrs' for p in results.rglob('*')):
+        raise RuntimeError('extraction-only checkpoint contains query results or unsafe paths')
+    selected=[model.DRIVER,model.BASE+'/common/src/protocol.rs',model.EXPECT,
+              model.BASE+'/candidate/src/adapter.rs',model.BASE+'/legacy/src/adapter.rs']
+    before={name:item['sha256'] for name,item in frozen.items() if 'sha256' in item}
+    save(out/'archived-source.json',archive_identity(database,selected,before),out)
+    return metadata_sha
+
+
 def analysis_budget(mode,remaining,source_sha=None):
-    if mode not in ('capacity','official-default-research'):
+    if mode not in ('capacity','official-default-research','qualifier-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
+    qualifier_research=mode=='qualifier-research'
+    if qualifier_research and source_sha!=CAPACITY_SOURCE:
+        raise ValueError('qualifier research requires the fixed current source')
     current_capacity=not research and source_sha==CAPACITY_SOURCE
-    budget=21600 if research else (5400 if current_capacity else 3600)
+    budget=21600 if research else (9000 if qualifier_research else (5400 if current_capacity else 3600))
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(75 if current_capacity else 45,minutes)
+    if not research:minutes=min(25 if qualifier_research else (75 if current_capacity else 45),minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
-            'scope':'official-default research; not production capacity' if research else
+            'scope':'full extraction for public-callee research; not production capacity' if qualifier_research else
+                'official-default research; not production capacity' if research else
                 f'internal analysis allocation; not a measurement of the complete {budget//60} minute assessment'}
 
 
@@ -485,7 +513,7 @@ def main():
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
     parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,PREVIOUS_CAPACITY_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
-    parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
+    parser.add_argument('--mode',choices=('capacity','official-default-research','qualifier-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
     parser.add_argument('--checkout-outcome',default='unknown')
@@ -497,6 +525,8 @@ def main():
     args=parser.parse_args()
     SOURCE=args.source_sha;out=args.output;work=args.work;source=args.source.resolve()
     research=args.mode=='official-default-research'
+    qualifier_research=args.mode=='qualifier-research'
+    if qualifier_research and SOURCE!=CAPACITY_SOURCE:parser.error('qualifier research requires the fixed current source')
     # Historical profile also uses capacity mode; its source and bundle stay frozen.
     selected_bundle='2.27.4' if not research and SOURCE==CAPACITY_SOURCE else '2.27.3'
     if args.phase!='capture' and args.codeql is None:parser.error('--codeql is required for prepare/finish')
@@ -511,7 +541,8 @@ def main():
         'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[],
         'mode':args.mode,'expected_bundle_version':selected_bundle,
         'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
-    if research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
+    if research or qualifier_research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
+    if qualifier_research:terminal.update(default_result_verification='NOT_REQUESTED',extraction_checkpoint='NOT_REACHED')
     for stage in ('checkout','layout','tools','init','prepare','analyze'):
         outcome=getattr(args,stage+'_outcome')
         if outcome in ('failure','cancelled'):
@@ -620,6 +651,12 @@ def main():
             frozen=json.loads((out/'source-before.json').read_text())
             if snapshot(source)!=frozen:raise RuntimeError('business source changed')
             terminal['verification_admitted']=True
+            if qualifier_research:
+                metadata_sha=extraction_checkpoint(source,args.database,out,frozen,args.codeql,run)
+                terminal.update(status='EXTRACTION_READY',assessment_status='RESEARCH_READY',
+                    extraction_checkpoint='PASS',archived_source='PASS',database_metadata_sha256=metadata_sha,
+                    assessment_scope='full extraction checkpoint for public-callee research; no default suite, complete public semantics or production capacity acceptance')
+                return
             suite=json.loads((out/'default-suite.json').read_text());manifest=[]
             actual_suite=args.database/'temp/config-queries.qls'
             runtime.evidence_write(out/'action-config-queries.qls',actual_suite.read_bytes(),out)
@@ -673,7 +710,7 @@ def main():
         else:terminal['secondary_errors'].append(failure)
         for key in ('default_result_verification','public_semantics'):
             if terminal[key]=='RUNNING':terminal[key]='INCOMPLETE'
-        if research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
+        if research or qualifier_research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
         terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production-capacity conclusion'
         raise
     finally:
@@ -684,12 +721,12 @@ def main():
             else:integrity=after_identity(source,args.codeql.parent,out,end=end-120)
             terminal['after_identity']=integrity
             if 'CHANGED' in integrity.values():
-                terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'FAILED'
-                terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'ASSESSMENT_INCOMPLETE'
+                terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'FAILED'
+                terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'ASSESSMENT_INCOMPLETE'
                 if primary is None:raise RuntimeError('post-assessment identity changed')
         except BaseException as exc:
-            terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'FAILED'
-            terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'ASSESSMENT_INCOMPLETE'
+            terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'FAILED'
+            terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'ASSESSMENT_INCOMPLETE'
             terminal['identity_error']=repr(exc)[:1024]
             if primary is None:primary=exc
         try:runtime.save(out/('capacity-'+args.phase+'-terminal.json'),terminal,out,terminal=True)

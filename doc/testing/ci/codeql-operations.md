@@ -157,6 +157,16 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 
 研究最多 15 分钟，并必须在原 job 截止前 450 秒停止；余量不足 60 秒记 `NOT_REACHED`。研究使用单独编译缓存、BQRS 和 artifact，但同一数据库的 evaluator 缓存共享，不能将两侧耗时差解释为提速。核对实际闭包、补丁前后摘要、结果目标所属的真实 libp2p 路径，以及研究前后源码、官方库和官方 evidence 不变。最终报告分别列官方分析/见证、补丁对照、完整 job 与最终余量；不上传数据库或自动发表上游补丁。
 
+### 独立真实调用对照研究
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接[独立真实调用对照研究合同](codeql-integration.design.md#722-独立真实调用对照研究)的运行与结果解释边界。
+
+需要单独验证 #5658 的真实调用补丁时，使用同一 workflow 的 `execute=true, mode=qualifier-research, compare_qualifier_patch=false`。该模式不等待容量七表完成：仍对完整固定 `7c2f99a…` 源码使用官方 2.27.4 提取，Action 设置 `skip-queries: true`，完成后核验 finalized 数据库、源码归档、锁/guard、资源、官方闭包及尚无查询结果，封存并上传提取 checkpoint。
+
+随后以两个隔离 pack 顺序运行官方、私有补丁的原 `CallsCandidate`/`CallsLegacy` 查询。官方两项完成后先解码并保存，再运行候选；两侧采用独立编译/common cache、BQRS 路径和研究 artifact，同一数据库 evaluator 缓存仍共享。失败保留已有有界原始结果与收据，不追加解码或重跑。最终重新核验源码、官方库、数据库 metadata 和已封存 checkpoint；身份失败不得报告完整对照。
+
+整个研究 job 最多 150 分钟，提取最多 25 分钟；比较最多 120 分钟，每侧批次最多 60 分钟，均受同一个实际 job 截止约束。比较在总截止前至少 450 秒停止，内部另留 60 秒审计；不把阶段上限相加来延长 job。一次运行后停止，并分别报告提取、四个观察、对照和完整 job 成本。它不运行或验收默认 37 项和完整七表，相关状态为 `NOT_REQUESTED`，生产容量仍为 `UNKNOWN`、Rust 覆盖仍为 `HOLD`。研究成功不自动启用 Rust，也不解除其他回归或运营验收。原容量与附加 15 分钟比较入口保持不变。
+
 ## Hosted 验收与回退
 
 授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。
