@@ -683,7 +683,7 @@ impl Fixture {
                         &worker_gate,
                         &request,
                     );
-                    controlled_admission::execute(
+                    controlled_admission::execute_post_response(
                         &worker_driver,
                         &worker_root.join("store"),
                         request,
