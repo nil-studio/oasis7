@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -57,9 +58,11 @@ class Response:
 
 class RepositoryFixture:
     """Independent small API fixture, retaining the production endpoint restrictions."""
-    def __init__(self, tool, missing_date=False, corrupt=False, failure=None):
+    def __init__(self, tool, missing_date=False, corrupt=False, failure=None,
+                 started_at=None, server_date=None):
         self.tool = tool; self.requests = []; self.responses = []
         self.missing_date, self.corrupt, self.failure = missing_date, corrupt, failure
+        self.started_at, self.server_date = started_at, server_date
         self.files = {f'scripts/security/{name}': (name + '\n').encode() for name in b.HELPERS}
         self.files[b.WORKFLOW] = b'name: fixture\n'
         self.blobs = {b.blob_id(data): data for data in self.files.values()}
@@ -73,7 +76,8 @@ class RepositoryFixture:
         url = req.full_url
         if '/jobs?' in url:
             now = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=3)
-            value = {'jobs': [{'name': b.JOB_NAME, 'status': 'in_progress', 'started_at': now.isoformat(), 'id': 17,
+            value = {'jobs': [{'name': b.JOB_NAME, 'status': 'in_progress',
+                               'started_at': self.started_at or now.isoformat(), 'id': 17,
                                'head_sha': self.tool, 'run_id': 42, 'run_attempt': 1}]}
         elif '/git/commits/' in url:
             value = {'sha': self.tool, 'tree': {'sha': 'a' * 40}}
@@ -86,6 +90,8 @@ class RepositoryFixture:
         else:
             raise AssertionError('unexpected endpoint')
         response = Response(value, date=not self.missing_date)
+        if self.server_date is not None and not self.missing_date:
+            response.headers['Date'] = self.server_date
         self.responses.append(response)
         return response
 
@@ -107,7 +113,10 @@ class BootstrapTests(unittest.TestCase):
         for name, item in identity['files'].items():
             self.assertEqual(hashlib.sha256((session / 'tools' / name).read_bytes()).hexdigest(), item['sha256'])
         self.assertLess(clock['prepare_end_monotonic'], clock['deadline_monotonic'])
-        self.assertEqual(clock['deadline_monotonic'] - clock['prepare_end_monotonic'], 420)
+        deadline, prepare = clock['deadline_monotonic'], clock['prepare_end_monotonic']
+        # Independent absolute-clock arithmetic may round at different magnitudes.
+        self.assertAlmostEqual(deadline - prepare, 420,
+                               delta=math.ulp(deadline) + math.ulp(prepare))
         return 0
 
     def invoke(self, fixture, handoff=None):
@@ -120,7 +129,7 @@ class BootstrapTests(unittest.TestCase):
 
     def test_verified_fixed_blobs_reach_handoff_with_original_clock(self):
         fixture = RepositoryFixture(self.env['GITHUB_SHA'])
-        self.assertEqual(self.invoke(fixture), 0)
+        self.assertEqual(self.invoke(fixture), 0, self.console.getvalue())
         self.assertEqual(len(self.handoffs), 1)
         self.assertEqual(len(fixture.requests), 9)
         self.assertTrue(all(x.closed for x in fixture.responses))
@@ -129,6 +138,44 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(all(url.startswith('https://api.github.com/repos/nil-studio/oasis7/') for url, _ in fixture.requests))
         terminal = json.loads((self.root / 'rust-wasm-metadata/evidence/bootstrap-terminal.json').read_text())
         self.assertEqual(terminal['status'], 'BOOTSTRAP_VERIFIED')
+
+    def fixed_clock_fixture(self):
+        return RepositoryFixture(self.env['GITHUB_SHA'],
+                                 started_at='2026-11-11T00:00:00+00:00',
+                                 server_date='Wed, 11 Nov 2026 00:00:02 GMT')
+
+    def test_clock_roundoff_preserves_the_original_handoff_reserve(self):
+        fixture = self.fixed_clock_fixture()
+        with patch.object(b.time, 'monotonic', return_value=1.1), \
+                patch.object(b.time, 'time', return_value=1794355202.0):
+            self.assertEqual(self.invoke(fixture), 0, self.console.getvalue())
+        self.assertEqual(len(self.handoffs), 1)
+        clock = self.handoffs[0][1]
+        self.assertEqual(clock['job_age_upper_seconds'], 3)
+        self.assertLess(clock['deadline_monotonic'] - clock['prepare_end_monotonic'], 420)
+        self.assertEqual(len(fixture.requests), 9)
+        self.assertTrue(all(response.closed for response in fixture.responses))
+        terminal = json.loads((self.root / 'rust-wasm-metadata/evidence/bootstrap-terminal.json').read_text())
+        self.assertEqual(terminal['status'], 'BOOTSTRAP_VERIFIED')
+
+    def test_handoff_rejects_changed_deadline_reserve(self):
+        original_bind_clock = b.bind_clock
+        for shift in (-0.001, 0.001):
+            with self.subTest(shift=shift), tempfile.TemporaryDirectory(dir=self.root) as root:
+                previous_handoffs = len(self.handoffs)
+                def shifted_clock(api):
+                    clock = original_bind_clock(api)
+                    clock['deadline_monotonic'] += shift
+                    return clock
+                with patch.dict(self.env, RUNNER_TEMP=root), \
+                        patch.object(b.time, 'monotonic', return_value=1.1), \
+                        patch.object(b.time, 'time', return_value=1794355202.0), \
+                        patch.object(b, 'bind_clock', shifted_clock):
+                    self.assertEqual(self.invoke(self.fixed_clock_fixture()), 1)
+                self.assertEqual(len(self.handoffs), previous_handoffs + 1)
+                terminal = json.loads((Path(root) / 'rust-wasm-metadata/evidence/bootstrap-terminal.json').read_text())
+                self.assertEqual(terminal['status'], 'BOOTSTRAP_INCOMPLETE')
+                self.assertEqual(terminal['error_class'], 'AssertionError')
 
     def test_corrupt_blob_never_reaches_handoff_or_file_persistence(self):
         fixture = RepositoryFixture(self.env['GITHUB_SHA'], corrupt=True)
