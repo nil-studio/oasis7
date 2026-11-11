@@ -27,14 +27,14 @@ def main():
     previous = {sig: signal.signal(sig, installer.cancel) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
     try:
         installer.log('mechanism_only=true automatic_failover_not_exercised=true')
-        eligible = recovery.eligible(mechanism_only=True)
+        eligible = recovery.eligible()
         installer.log(f'mechanism_eligible={eligible} reason={recovery.reason}')
         if not eligible:
             return 1
         if not recovery.claim_lock():
             installer.log('mechanism_refused=exclusive_lock_unavailable')
             return 1
-        if not recovery.default_routes(mechanism_only=True):
+        if not recovery.default_routes():
             installer.log('mechanism_refused=' + recovery.reason)
             return 1
         prefix = recovery.namespace_prefix()

@@ -759,7 +759,7 @@ helper 以具备清理权限的独立进程管理受控子进程，超时和取�
 
 可信 workflow 可通过 `--hosted-dns-recovery` 显式启用临时 hosted Ubuntu 的 DNS 恢复；sudo 仅保留托管身份标识及代理、解析覆写等否决变量的白名单，不保留 token 或其他无关环境。默认调用不改变解析路径。仅在 update 已报告暂时域名解析失败、固定官方域的系统解析也失败时，核对托管环境、默认 stub/NSS、无代理及无自定义或私有软件源，才允许尝试备用 resolver。NXDOMAIN、连接、TLS、签名、完整性和配置错误不能触发此恢复。
 
-备用 resolver 仅作用于 APT 子进程的私有 mount namespace：worker 自己创建并验证 namespace 不同于进入前，完成私有挂载传播设置后才绑定临时 resolver 文件。不得写入宿主 resolver、systemd DNS、hosts 或软件源；临时文件必须可被 APT 降权后的读取方读取，源目录仍私有。必须在该 namespace 内用实际 NSS/getaddrinfo 证实固定官方域可解析，才可运行原 APT 命令。namespace 或探针不可用时保留失败，不提升 runner 权限、不跳过安装、不改变 TLS 或 APT 签名验证。
+备用 resolver 仅作用于 APT 子进程及其维护脚本后代的私有 mount namespace：worker 自己创建并验证 namespace 不同于进入前，完成私有挂载传播设置后才绑定临时 resolver 文件。正常 DHCP search/domain 不依赖具体后缀文本判断，也不复制到备用文件；备用文件固定为 `nameserver 1.1.1.1` 与 `search .`，其他 nameserver/options 和静态覆写仍拒绝。该边界是进程树解析配置隔离，不是四个域名的网络防火墙。不得写入宿主 resolver、systemd DNS、hosts 或软件源；临时文件必须可被 APT 降权后的读取方读取，源目录仍私有。必须在该 namespace 内用实际 NSS/getaddrinfo 证实固定官方域可解析，才可运行原 APT 命令。namespace 或探针不可用时保留失败，不提升 runner 权限、不跳过安装、不改变 TLS 或 APT 签名验证。
 
 探针、namespace 准备、APT 命令、重试和全部清理共用原单调截止及最多三次 update 尝试，install 仍只运行一次。取消、失败和父进程退出后均须清理原 helper 拥有的全部子进程，namespace 随子进程退出撤销；清理不确定不得报告成功。合同测试使用假解析器与假命令保护正常零干预、拒绝边界、总预算和取消；另在独立临时 hosted job 核验真实安装、原 resolver/symlink 不变及无遗留进程。采集诊断成功不能代签安装或本任务 CI 成功。
 

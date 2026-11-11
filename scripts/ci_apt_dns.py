@@ -31,8 +31,28 @@ def stub_shape(text):
                 nameserver_count=len(servers), nameservers_default=servers == [['127.0.0.53']],
                 option_count=len(options), options_known=all(value in ('edns0', 'trust-ad') for value in options),
                 search_suffix_count=len(searches), search_azure_dhcp_default=searches == ['reddog.microsoft.com'],
+                search_azure_cloudapp_suffix=(len(searches) == 1 and searches[0].lower().rstrip('.').endswith('.internal.cloudapp.net')),
                 search_root_only=searches in ([], ['.']),
                 unknown_line_count=sum(row[0] not in keys for row in rows))
+
+
+def effective_proxy_clear(output):
+    """Parse apt-config's effective tree, never source comments or raw values in logs."""
+    if not output.strip():
+        return False
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        entry = re.fullmatch(r'\s*(\S+)\s+"((?:\\.|[^"\\])*)";\s*', line)
+        if entry is None:
+            return False
+        parts = entry[1].lower().split('::')
+        for key in ('proxy', 'proxyautodetect', 'proxy-auto-detect'):
+            if key in parts:
+                value = entry[2].strip()
+                if value and not (key == 'proxy' and value.lower() == 'direct'):
+                    return False
+    return True
 
 
 def direct_source_allowed(value, image):
@@ -107,13 +127,13 @@ class Recovery:
         self.reason = reason
         return False
 
-    def eligible(self, mechanism_only=False):
+    def eligible(self):
         try:
-            return self._eligible(mechanism_only)
+            return self._eligible()
         except (OSError, UnicodeError, ValueError):
             return self.decline('unsupported_configuration')
 
-    def _eligible(self, mechanism_only=False):
+    def _eligible(self):
         if not self.enabled:
             return self.decline('opt_in_required')
         release = dict(re.findall(r'^(\w+)="?([^"\n]+)"?$', Path('/etc/os-release').read_text(), re.M))
@@ -124,7 +144,7 @@ class Recovery:
         lines = [line.strip() for line in Path(TARGET).read_text().splitlines()
                  if line.strip() and not line.lstrip().startswith('#')]
         if any(line not in ('nameserver 127.0.0.53', 'options edns0 trust-ad', 'search .') and
-               not (mechanism_only and line.startswith('search ')) for line in lines):
+               not (len(line.split()) >= 2 and line.split()[0] in ('search', 'domain')) for line in lines):
             return self.decline('custom_stub_configuration')
         if lines.count('nameserver 127.0.0.53') != 1:
             return self.decline('custom_stub_nameserver')
@@ -146,8 +166,13 @@ class Recovery:
         if len(configs) > 128:
             return self.decline('too_many_apt_configurations')
         for path in configs:
-            if path.is_file() and (path.stat().st_size > 65536 or 'proxy' in path.read_text().lower()):
-                return self.decline('custom_apt_proxy_or_oversized_configuration')
+            if path.is_file() and path.stat().st_size > 65536:
+                return self.decline('oversized_apt_configuration')
+        status, output, valid = self.installer.run_command('apt-proxy-config', ['/usr/bin/apt-config', 'dump'], report_output=False)
+        if not valid or status != 0:
+            return self.decline('effective_apt_proxy_query_failed')
+        if not effective_proxy_clear(output):
+            return self.decline('effective_apt_proxy_or_unknown_dump')
         sources = [Path('/etc/apt/sources.list'), *Path('/etc/apt/sources.list.d').glob('*')]
         if len(sources) > 128:
             return self.decline('too_many_apt_sources')
@@ -171,7 +196,7 @@ class Recovery:
         self.reason = 'eligible' if all(Path(p).is_file() for p in ('/usr/bin/mount', '/usr/bin/resolvectl')) else 'resolver_tool_unavailable'
         return self.reason == 'eligible'
 
-    def default_routes(self, mechanism_only=False):
+    def default_routes(self):
         for option in ('dns', 'domain', 'default-route'):
             status, output, valid = self.installer.run_command('dns-config-' + option, ['/usr/bin/resolvectl', option], report_output=False)
             if not valid or status != 0:
@@ -185,7 +210,7 @@ class Recovery:
                 value = line.split(':', 1)[1].strip()
                 allowed = {'dns': ('', '168.63.129.16'), 'domain': ('', '~.'),
                            'default-route': ('', 'yes', 'no')}[option]
-                if value not in allowed and not (mechanism_only and option == 'domain'):
+                if value not in allowed and option != 'domain':
                     return self.decline('dynamic_resolver_configuration_custom')
                 has_default_dns |= value == '168.63.129.16'
             if option == 'dns' and not has_default_dns:

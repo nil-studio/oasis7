@@ -16,6 +16,16 @@ dns = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dns)
 
 class RecoveryTests(unittest.TestCase):
+    def test_effective_proxy_tree_not_comments_controls_eligibility(self):
+        for dump in ('APT "";\nAcquire "";\n', 'Acquire::http::Proxy "";\n',
+                     'Acquire::http::Proxy::archive.ubuntu.com "DIRECT";\n',
+                     'APT::Comment "ProxyAutoDetect is only documentation";\n'):
+            self.assertTrue(dns.effective_proxy_clear(dump))
+        for dump in ('Acquire::http::Proxy "http://private:secret@proxy.internal";\n',
+                     'Acquire::https::ProxyAutoDetect "/private/detect";\n',
+                     'Binary::apt-get::Acquire::http::Proxy-Auto-Detect "auto";\n', '', 'malformed'):
+            self.assertFalse(dns.effective_proxy_clear(dump))
+
     def test_real_cli_shape_entry_and_file_read_boundaries_are_json(self):
         script = str(Path(dns.__file__).resolve())
         direct = subprocess.run([sys.executable, script, '--shape'], capture_output=True, text=True, timeout=5)
@@ -72,8 +82,8 @@ with patch.object(Path, 'read_text', read):
              patch.object(module.apt, 'establish_owner') as owner:
             self.assertEqual(module.main(), 0)
         owner.assert_called_once()
-        recovery.eligible.assert_called_once_with(mechanism_only=True)
-        recovery.default_routes.assert_called_once_with(mechanism_only=True)
+        recovery.eligible.assert_called_once_with()
+        recovery.default_routes.assert_called_once_with()
         recovery.close.assert_called_once()
         self.assertIn('automatic_failover_not_exercised=true', str(installer.log.call_args_list))
 
@@ -84,6 +94,8 @@ with patch.object(Path, 'read_text', read):
         self.assertFalse(shape['options_known'])
         self.assertNotIn('private', str(shape))
         self.assertTrue(dns.stub_shape('search reddog.microsoft.com\n')['search_azure_dhcp_default'])
+        self.assertTrue(dns.stub_shape('search private.internal.cloudapp.net\n')['search_azure_cloudapp_suffix'])
+        self.assertNotIn('private', str(dns.stub_shape('search private.internal.cloudapp.net\n')))
 
     def test_direct_sources_have_only_public_exact_roots(self):
         for url in ('http://azure.archive.ubuntu.com/ubuntu', 'https://archive.ubuntu.com/ubuntu/',
@@ -103,6 +115,16 @@ with patch.object(Path, 'read_text', read):
         self.assertFalse(recovery.default_routes())
         self.assertEqual(recovery.reason, 'dynamic_resolver_configuration_custom')
         self.assertNotIn('private', recovery.reason)
+
+    def test_dynamic_dhcp_domain_is_ignored_without_relaxing_default_dns(self):
+        class Installer:
+            def run_command(self, _stage, command, **options):
+                self_options.append(options)
+                value = {'dns': '168.63.129.16', 'domain': 'private.internal.cloudapp.net', 'default-route': 'yes'}[command[-1]]
+                return 0, 'Global: ' + value + '\n', True
+        self_options = []
+        self.assertTrue(dns.Recovery(Installer(), True).default_routes())
+        self.assertTrue(all(options == {'report_output': False} for options in self_options))
 
     def test_only_explicit_hosted_ubuntu_without_proxy(self):
         env = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted', RUNNER_OS='Linux', ImageOS='ubuntu24')
@@ -212,6 +234,7 @@ with patch.object(Path, 'read_text', read):
                 path = root / str(index); path.write_text(text); mapping[name] = path
             for name in ('/etc/apt/apt.conf.d', '/etc/apt/sources.list.d', '/etc/systemd/resolved.conf.d'):
                 path = root / name.lstrip('/'); path.mkdir(parents=True); mapping[name] = path
+            (mapping['/etc/apt/apt.conf.d'] / 'comment-only').write_text('// Proxy and ProxyAutoDetect examples are not active settings\n')
             for name in ('/etc/apt/apt.conf', '/etc/apt/sources.list', '/etc/systemd/resolved.conf'):
                 mapping[name] = root / (name.replace('/', '-') + '-absent')
             resolver = root / 'resolv.conf'; resolver.symlink_to(mapping[dns.TARGET]); mapping['/etc/resolv.conf'] = resolver
@@ -222,12 +245,18 @@ with patch.object(Path, 'read_text', read):
                  patch.object(dns.os.path, 'realpath', return_value=dns.TARGET), \
                  patch.dict(dns.os.environ, env, clear=True), \
                  patch.object(dns, 'default_mirror_allowed', return_value=True) as mirror:
-                recovery = dns.Recovery(None, True)
+                installer = Mock()
+                installer.work_end = time.monotonic() + 5
+                installer.run_command.return_value = (0, 'APT "";\n', True)
+                recovery = dns.Recovery(installer, True)
                 self.assertTrue(recovery.eligible(), recovery.reason)
                 mirror.assert_called_once()
                 mapping[dns.TARGET].write_text('nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch private.internal\n')
-                self.assertFalse(recovery.eligible())
-                self.assertTrue(recovery.eligible(mechanism_only=True))
+                self.assertTrue(recovery.eligible())
+                with patch.object(dns, 'RUNTIME_ROOT', str(root)):
+                    recovery.namespace_prefix()
+                    self.assertEqual((Path(recovery.directory.name) / 'resolv.conf').read_text(), 'nameserver 1.1.1.1\nsearch .\n')
+                    recovery.close()
                 mapping[dns.TARGET].write_text(files[dns.TARGET])
                 for uri in ('mirror+file:/etc/apt/private-mirrors.txt', 'custom://internal.example/repo',
                             'custom:internal.example/repo', 'ssh:/internal.example/repo',
