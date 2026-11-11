@@ -19,9 +19,27 @@ import {
   selectViewports,
 } from "./browser-functional-regression.mjs";
 
-test("case selection accepts the declared P01-P03 matrix", () => {
-  const selected = selectCases(["p01-loading", "p02-success", "p03-control-lost"]);
-  assert.deepEqual(selected, ["p01-loading", "p02-success", "p03-control-lost"]);
+test("case selection accepts the declared P01-P07 matrix", () => {
+  const selected = selectCases([
+    "p01-loading",
+    "p02-success",
+    "p03-control-lost",
+    "p04-signing-deferred",
+    "p04-sent-late-error",
+    "p05-duplicate-out-of-order",
+    "p06-reconnect-recovery",
+    "p07-unmount-remount",
+  ]);
+  assert.deepEqual(selected, [
+    "p01-loading",
+    "p02-success",
+    "p03-control-lost",
+    "p04-signing-deferred",
+    "p04-sent-late-error",
+    "p05-duplicate-out-of-order",
+    "p06-reconnect-recovery",
+    "p07-unmount-remount",
+  ]);
 });
 
 test("empty case selection fails instead of silently reporting pass", () => {

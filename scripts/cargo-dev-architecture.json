@@ -1091,6 +1091,99 @@
         "normal",
         "build"
       ]
+    },
+    {
+      "key": "executable-image",
+      "upstream": "doc/testing/ci/ci-tiered-execution.design.md#loaded-executable-component",
+      "roots": [
+        {
+          "name": "oasis7_executable_image",
+          "source": null,
+          "version": "0.1.0"
+        }
+      ],
+      "forbidden": [
+        {
+          "name": "oasis7"
+        },
+        {
+          "name": "oasis7_chain_runtime"
+        },
+        {
+          "name": "oasis7_runtime"
+        },
+        {
+          "name": "oasis7_world_state"
+        },
+        {
+          "name": "oasis7_world_projection"
+        },
+        {
+          "name": "oasis7_world_service"
+        },
+        {
+          "name": "oasis7_simulator"
+        },
+        {
+          "name": "oasis7_viewer_runtime"
+        },
+        {
+          "name": "oasis7_node"
+        },
+        {
+          "name": "oasis7_net"
+        },
+        {
+          "name": "oasis7_wasm_executor"
+        },
+        {
+          "name": "oasis7_launcher_backend"
+        },
+        {
+          "name": "wasmtime"
+        },
+        {
+          "name": "libp2p"
+        }
+      ],
+      "kinds": [
+        "normal",
+        "build"
+      ],
+      "declaration_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ],
+      "profiles": [
+        {
+          "id": "host",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "production"
+        },
+        {
+          "id": "unit-tests",
+          "target": "host",
+          "default_features": false,
+          "features": [],
+          "mode": "test"
+        }
+      ],
+      "allows": [
+        "Local loaded-file identity, hashing and OS APIs; no host or execution dependencies"
+      ],
+      "exceptions": [],
+      "required_profiles": [
+        "host",
+        "unit-tests"
+      ],
+      "test_kinds": [
+        "normal",
+        "build",
+        "dev"
+      ]
     }
   ]
 }

@@ -1,5 +1,6 @@
 """Owned process execution and bounded evidence for the manual Rust model diagnostic."""
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -145,37 +146,99 @@ class PhaseError(RuntimeError):
         return self.result['failure_kind'] == 'timeout' and not self.result['cleanup_errors'] and not self.result.get('evidence_errors')
 
 
-def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None, *, inherit_stdio=False, reap_orphans=False):
+class CancelledError(RuntimeError):
+    pass
+
+
+@contextmanager
+def cancellation_guard():
+    """Opt-in polling cancellation; signals never interrupt resource registration."""
+    current = signal.getsignal(signal.SIGTERM)
+    if getattr(current, '_codeql_cancellation', None) is not None:
+        yield current._codeql_cancellation
+        return
+    state = dict(cancelled=False)
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    def cancel(signum, frame):
+        state['cancelled'] = True
+    cancel._codeql_cancellation = state
+    try:
+        for sig in previous:
+            signal.signal(sig, cancel)
+        yield state
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None, *, inherit_stdio=False, reap_orphans=False,
+        evaluator_capture=None, restricted_output=False):
+    options = dict(file_limit=file_limit, evaluator=evaluator, observer=observer,
+                   inherit_stdio=inherit_stdio, reap_orphans=reap_orphans,
+                   evaluator_capture=evaluator_capture, restricted_output=restricted_output)
+    active_guard = getattr(signal.getsignal(signal.SIGTERM), '_codeql_cancellation', None)
+    if restricted_output or evaluator_capture is not None or active_guard is not None:
+        with cancellation_guard() as state:
+            return _run(argv, cwd, output, end, timeout, root, env, _cancellation=state, **options)
+    return _run(argv, cwd, output, end, timeout, root, env, **options)
+
+
+def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None, *, inherit_stdio=False, reap_orphans=False,
+         evaluator_capture=None, restricted_output=False, _cancellation=None):
     """Separate stdout/stderr/evaluator FIFO; all evidence writes pass the shared cap."""
     start = time.monotonic()
     deadline = min(end, start + timeout)
+    restricted_output = restricted_output or evaluator_capture is not None
+    # The opt-in private observation owns its cleanup/drain inside this same end.
+    payload_end = deadline - CLEANUP_SECONDS - .75 if restricted_output else deadline
+    def error_text(exc):
+        if not restricted_output:
+            return repr(exc)
+        # Parser exceptions can contain an entire raw line, including bad UTF-8.
+        return next((name for kind, name in ((CancelledError, 'CANCELLED'), (TimeoutError, 'TIMEOUT'), (OSError, 'OS_ERROR'),
+                    (ValueError, 'INVALID_DATA'), (KeyboardInterrupt, 'INTERRUPTED'),
+                    (SystemExit, 'CANCELLED')) if isinstance(exc, kind)), 'OBSERVATION_ERROR')
     result = {'argv': argv, 'cwd': str(cwd), 'started_wall': time.time(), 'pid': None,
               'exit': None, 'error': None, 'failure_kind': None, 'cleanup_errors': [], 'evidence_errors': [],
               'file_size_limit_bytes': file_limit}
     if file_limit is not None and not 0 < file_limit <= DATA_LIMIT:
         raise ValueError('invalid process data file bound')
-    if observer is not None and evaluator is not None:
+    if evaluator_capture is not None and (evaluator is None or observer is None or inherit_stdio):
+        raise ValueError('private evaluator capture requires FIFO and projected streams')
+    if observer is not None and evaluator is not None and evaluator_capture is None:
         raise ValueError('stream observation does not support evaluator FIFO')
     if inherit_stdio and evaluator is not None:
         raise ValueError('inherited Action streams cannot use an evaluator FIFO')
     if inherit_stdio:
         result['stdio'] = 'inherited runner channels; raw Action output is not persisted here'
     selector = selectors.DefaultSelector()
-    proc = fifo_fd = None
+    proc = fifo_fd = fifo_anchor = None
+    fifo_eof = False
     fifo_created = False
     files = []
     sample = None
     streams = {}
     stream_names = {}
+    finalized_streams = set()
     def write_chunk(fd, chunk, final=False):
         # Projection precedes persistence, including EOF and TERM-handler drain.
         # An observer error never falls back to raw bytes.
+        if fd == fifo_fd and evaluator_capture is not None:
+            if chunk:
+                evaluator_capture.feed(chunk)
+            return
+        if final and restricted_output and fd in finalized_streams:
+            return
         data = observer.feed(stream_names[fd], chunk, final=final) if observer else chunk
+        if final:
+            finalized_streams.add(fd)
         if output_bytes(root) + len(data) > WRITE_CAP:
             raise RuntimeError('combined evidence budget exceeded before write')
         streams[fd].write(data); streams[fd].flush()
     try:
-        if deadline <= start:
+        if _cancellation and _cancellation['cancelled']:
+            raise CancelledError('CANCELLED_BEFORE_SPAWN')
+        if payload_end <= start:
             raise TimeoutError('diagnostic phase deadline exhausted before spawn')
         if len(json.dumps(argv).encode()) > 16*1024:
             result['argv'] = {'rejected_count': len(argv), 'sha256': hashlib.sha256(json.dumps(argv).encode()).hexdigest()}
@@ -186,11 +249,16 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
             fifo = evaluator.with_suffix('.fifo')
             os.mkfifo(fifo, 0o600)
             fifo_created = True
-            fifo_fd = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+            if evaluator_capture is None:
+                fifo_fd = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+            else:
+                fifo_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+                fifo_anchor = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
             argv = [str(fifo) if x == '{EVALUATOR_FIFO}' else x for x in argv]
             result['argv'] = argv
-            streams[fifo_fd] = evaluator.open('xb')
-            files.append(streams[fifo_fd])
+            if evaluator_capture is None:
+                streams[fifo_fd] = evaluator.open('xb')
+                files.append(streams[fifo_fd])
             selector.register(fifo_fd, selectors.EVENT_READ)
         def limits():
             if file_limit is not None:
@@ -211,10 +279,12 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
         files.append(samples)
         last_sample = 0
         while True:
-            if time.monotonic() >= deadline:
+            if _cancellation and _cancellation['cancelled']:
+                raise CancelledError('CANCELLED')
+            if time.monotonic() >= payload_end:
                 raise TimeoutError('diagnostic phase deadline exhausted')
             if observer:
-                observer.poll(deadline)
+                observer.poll(payload_end)
             if time.monotonic() - last_sample >= .2:
                 data = (json.dumps(sample.sample(), separators=(',', ':')) + '\n').encode()
                 if output_bytes(root) + len(data) > WRITE_CAP:
@@ -225,6 +295,8 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
             for key, _ in events:
                 chunk = os.read(key.fd, 65536)
                 if not chunk:
+                    if key.fd == fifo_fd:
+                        fifo_eof = True
                     if observer:
                         write_chunk(key.fd, b'', final=True)
                     selector.unregister(key.fd)
@@ -238,9 +310,11 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
             result['failure_kind'] = 'child_exit'
             raise RuntimeError('child nonzero exit')
     except BaseException as exc:
-        result['error'] = repr(exc)[:8192]
-        result['failure_kind'] = result['failure_kind'] or ('timeout' if isinstance(exc, TimeoutError) else 'unsafe')
+        result['error'] = error_text(exc)[:8192]
+        result['failure_kind'] = result['failure_kind'] or ('cancelled' if isinstance(exc, CancelledError) else 'timeout' if isinstance(exc, TimeoutError) else 'unsafe')
     finally:
+        if restricted_output:
+            result['execution_failure_kind'] = result['failure_kind']
         # Every cleanup step is independent; no close exception may hide owned reaping.
         if proc:
             for sig, wait in CLEANUP_SIGNALS:
@@ -249,19 +323,20 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                 except ProcessLookupError:
                     pass
                 except BaseException as exc:
-                    result['cleanup_errors'].append(repr(exc))
+                    result['cleanup_errors'].append(error_text(exc))
                 try:
-                    if reap_orphans:
+                    if reap_orphans or restricted_output:
                         # The Action supervisor is a Linux subreaper. Reap only this owned PGID;
                         # normal diagnostic callers retain their original cleanup behavior.
-                        until = time.monotonic() + wait
+                        until = min(deadline - .75, time.monotonic() + wait) if restricted_output else time.monotonic() + wait
                         while True:
                             proc.poll()
-                            try:
-                                while os.waitpid(-proc.pid, os.WNOHANG)[0] > 0:
+                            if reap_orphans:
+                                try:
+                                    while os.waitpid(-proc.pid, os.WNOHANG)[0] > 0:
+                                        pass
+                                except ChildProcessError:
                                     pass
-                            except ChildProcessError:
-                                pass
                             try:
                                 os.killpg(proc.pid, 0)
                             except ProcessLookupError:
@@ -274,26 +349,40 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                 except subprocess.TimeoutExpired:
                     pass
                 except BaseException as exc:
-                    result['cleanup_errors'].append(repr(exc))
+                    result['cleanup_errors'].append(error_text(exc))
             result['exit'] = proc.returncode
             try:
                 os.killpg(proc.pid, 0)
             except ProcessLookupError:
                 pass
             except BaseException as exc:
-                result['cleanup_errors'].append(repr(exc))
+                result['cleanup_errors'].append(error_text(exc))
             else:
                 result['cleanup_errors'].append('owned process group still exists')
+            if fifo_anchor is not None:
+                try:
+                    os.close(fifo_anchor)
+                except BaseException as exc:
+                    result['cleanup_errors'].append(error_text(exc))
+                finally:
+                    fifo_anchor = None
             # TERM handlers can emit final events. Preserve pending bytes after reaping;
             # never close the read ends first, and never bypass the combined cap.
             try:
-                for _ in range(16):
-                    ready = selector.select(0)
+                drain_end = min(deadline - .25, time.monotonic() + .5)
+                for _ in range(256 if restricted_output else 16):
+                    if restricted_output and (not selector.get_map() or time.monotonic() >= drain_end):
+                        break
+                    ready = selector.select(min(.01, max(0, drain_end-time.monotonic())) if restricted_output else 0)
                     if not ready:
+                        if restricted_output:
+                            continue
                         break
                     for key, _ in ready:
                         chunk = os.read(key.fd, 65536)
                         if not chunk:
+                            if key.fd == fifo_fd:
+                                fifo_eof = True
                             if observer:
                                 write_chunk(key.fd, b'', final=True)
                             selector.unregister(key.fd)
@@ -301,17 +390,20 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                             write_chunk(key.fd, chunk)
                 else:
                     raise RuntimeError('bounded final drain incomplete')
+                if restricted_output and selector.get_map():
+                    raise RuntimeError('bounded final drain incomplete')
             except BaseException as exc:
-                result['evidence_errors'].append(repr(exc)[:1024])
+                result['evidence_errors'].append(error_text(exc)[:1024])
                 result['failure_kind'] = 'unsafe'
-                result['error'] = result['error'] or repr(exc)[:8192]
+                result['error'] = result['error'] or error_text(exc)[:8192]
             if observer:
                 try:
                     for fd in stream_names:
-                        write_chunk(fd, b'', final=True)
+                        if not restricted_output or fd in finalized_streams:
+                            write_chunk(fd, b'', final=True)
                     result['output_observation'] = observer.summary()
                 except BaseException as exc:
-                    result['evidence_errors'].append(repr(exc)[:1024])
+                    result['evidence_errors'].append(error_text(exc)[:1024])
                     result['failure_kind'] = 'unsafe'
                     result['error'] = result['error'] or 'stream observation incomplete'
             for pipe in (proc.stdout, proc.stderr):
@@ -320,24 +412,39 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
                 try:
                     pipe.close()
                 except BaseException as exc:
-                    result['cleanup_errors'].append(repr(exc))
+                    result['cleanup_errors'].append(error_text(exc))
         for file in files:
             try:
                 file.close()
             except BaseException as exc:
-                result['cleanup_errors'].append(repr(exc))
-        for closer in (selector.close, (lambda: os.close(fifo_fd)) if fifo_fd is not None else lambda: None):
+                result['cleanup_errors'].append(error_text(exc))
+        for closer in (selector.close, (lambda: os.close(fifo_fd)) if fifo_fd is not None else lambda: None,
+                       (lambda: os.close(fifo_anchor)) if fifo_anchor is not None else lambda: None):
             try:
                 closer()
             except BaseException as exc:
-                result['cleanup_errors'].append(repr(exc))
+                result['cleanup_errors'].append(error_text(exc))
         if fifo_created:
             try:
                 fifo.unlink()
             except FileNotFoundError:
                 pass
             except BaseException as exc:
-                result['cleanup_errors'].append(repr(exc))
+                result['cleanup_errors'].append(error_text(exc))
+        if evaluator_capture is not None:
+            try:
+                evaluator_capture.finish(fifo_eof, not result['cleanup_errors'] and not result['evidence_errors'])
+                result['evaluator_capture'] = evaluator_capture.summary()
+            except BaseException as exc:
+                result['evidence_errors'].append(error_text(exc))
+                result['failure_kind'] = 'unsafe'
+                result['error'] = result['error'] or 'CAPTURE_CLOSEOUT_ERROR'
+        if restricted_output and time.monotonic() > deadline:
+            result['cleanup_errors'].append('FIXED_DEADLINE_EXCEEDED')
+        if _cancellation and _cancellation['cancelled']:
+            result['cancelled'] = True
+            result['failure_kind'] = 'cancelled'
+            result['error'] = result['error'] or 'CANCELLED'
         result['elapsed'] = time.monotonic() - start
         result['cleanup_errors'] = [str(error)[:1024] for error in result['cleanup_errors']]
         if sample:
@@ -347,6 +454,15 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
             result['error'] = result['error'] or 'maximum process receipt exceeded'
             result['failure_kind'] = 'unsafe'
         save(output.with_name(output.name + '.result.json'), result, root, terminal=True)
+        late_cancel = _cancellation and _cancellation['cancelled'] and not result.get('cancelled')
+        late_write = restricted_output and time.monotonic() > deadline
+        if late_cancel or late_write:
+            result['error'] = result['error'] or ('CANCELLED' if late_cancel else 'RECEIPT_EXCEEDED_FIXED_DEADLINE')
+            result['failure_kind'] = 'cancelled' if late_cancel else 'unsafe'
+            if late_cancel:
+                result['cancelled'] = True
+            # Late evidence is a failure receipt, never a fresh execution window.
+            save(output.with_name(output.name + '.result.json'), result, root, terminal=True)
     if result['error'] or result['cleanup_errors']:
         raise PhaseError(result)
     return result

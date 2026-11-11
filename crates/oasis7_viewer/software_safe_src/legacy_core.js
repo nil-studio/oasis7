@@ -1140,6 +1140,13 @@ function expirePendingPromptControlAckTimeoutForTest() {
   return expirePromptControlAckTimeout(state.lastPromptFeedback);
 }
 
+function connectionGenerationForTest() {
+  if (!isTestApiEnabled()) {
+    throw new Error("connectionGenerationForTest requires test_api=1");
+  }
+  return authConnectionGeneration();
+}
+
 function expirePendingGameplayActionAckTimeoutForTest() {
   if (!isTestApiEnabled()) {
     throw new Error("expirePendingGameplayActionAckTimeoutForTest requires test_api=1");
@@ -2724,12 +2731,16 @@ function sendPromptControl(mode, payload = null) {
     return { ok: false, reason: String(error) };
   }
 
-  const feedback = createSemanticFeedback("prompt", `prompt_${normalizedMode}`, agentId, {
+  const createdFeedback = createSemanticFeedback("prompt", `prompt_${normalizedMode}`, agentId, {
     effect: "queued for signing and send",
     toVersion: request.to_version ?? null,
     requestId: request.request_id || null,
   });
-  state.lastPromptFeedback = feedback;
+  state.lastPromptFeedback = createdFeedback;
+  // Mutate the store-owned proxy, not the raw object: a rendered feedback field
+  // has a reactive node, so direct writes to the detached object would never
+  // update the visible stage, timer guards or ack/error correlation reads.
+  const feedback = state.lastPromptFeedback;
   enqueueSemanticCommand({
     kind: "prompt",
     feedback,
@@ -4267,6 +4278,7 @@ function installTestApi() {
     expireHostedRuntimeSyncTimeoutForTest,
     expirePendingPromptControlAckTimeoutForTest,
     expirePendingGameplayActionAckTimeoutForTest,
+    connectionGenerationForTest,
     offerBrowserRaceIdentityForTest: viewerBrowserRaceIdentityTestApi.offerBrowserRaceIdentityForTest, claimBrowserRaceIdentityForTest: viewerBrowserRaceIdentityTestApi.claimBrowserRaceIdentityForTest, connectBrowserRaceActorForTest: viewerBrowserRaceIdentityTestApi.connectBrowserRaceActorForTest,
     reportFatalError,
   };

@@ -2,6 +2,8 @@ use super::super::super::checkpoint;
 
 #[path = "world_service_private_task_context_phases.rs"]
 mod phases;
+#[path = "world_service_private_task_context_queue.rs"]
+mod queue;
 use super::private_goal_tests::{consumer, http, http_with_hook};
 use super::*;
 use oasis7::world_service::{

@@ -6,7 +6,7 @@ import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-export async function worldAuthority(directory,{liveContext=false,settleSubmits=false,settleBaseline=false}={}) {
+export async function worldAuthority(directory,{liveContext=false,settleSubmits=false,settleBaseline=false,retainHistory=false}={}) {
   const ready=resolve(directory,'world-ready.json'),stop=resolve(directory,'world-stop');
   const binary=readFileSync(resolve(root,'artifacts/world-test-binary.txt'),'utf8').trim();
   const baselineMarker=resolve(directory,"baseline-world-settlement");
@@ -17,6 +17,7 @@ export async function worldAuthority(directory,{liveContext=false,settleSubmits=
       OASIS7_CUSTODY_WORLD_HTTP_READY:ready,OASIS7_CUSTODY_WORLD_HTTP_STOP:stop,
       ...(settleSubmits?{OASIS7_CUSTODY_WORLD_SETTLE_SUBMITS:'true'}:{}),
       ...(settleBaseline?{OASIS7_CUSTODY_WORLD_SETTLE_BASELINE_FILE:baselineMarker}:{}),
+      ...(retainHistory?{OASIS7_CUSTODY_WORLD_RETAIN_HISTORY:'true'}:{}),
       ...(liveContext?{OASIS7_LIVE_CONTEXT_ADVANCE:resolve(directory,'advance'),OASIS7_LIVE_CONTEXT_NEXT:resolve(directory,'next.json'),OASIS7_LIVE_CONTEXT_STATS_REQUEST:resolve(directory,'stats-request'),OASIS7_LIVE_CONTEXT_STATS:resolve(directory,'stats.json')}: {})},
     stdio:['ignore','pipe','pipe']});
   let exited=false,output='';

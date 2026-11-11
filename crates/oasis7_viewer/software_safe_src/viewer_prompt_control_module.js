@@ -1,4 +1,5 @@
 const PROMPT_RESULT_STATUSES = new Set(["accepted", "applied", "stale", "rejected", "blocked"]);
+const TERMINAL_PROMPT_STAGES = new Set(["applied", "stale", "rejected", "blocked"]);
 
 export function createViewerPromptControlModule({
   applyPromptAckLocally,
@@ -197,9 +198,22 @@ export function createViewerPromptControlModule({
     }
   }
 
+  // Duplicate or late results for an already settled request must not re-enter
+  // the ack/error path: an applied request may not trigger a second snapshot
+  // refresh, version advance or visible feedback rewrite. A locally timed-out
+  // request is different: it carries no authoritative response yet, so its
+  // correlated server ack/error must still be allowed to settle the feedback.
+  function settledRequest(pending, requestId) {
+    return TERMINAL_PROMPT_STAGES.has(String(pending?.stage || ""))
+      && requestId != null
+      && requestId === pending?.requestId
+      && pending?.response != null;
+  }
+
   function handleAck(ack) {
     const pending = state.lastPromptFeedback;
     if (!pending || (pending.requestAuthNonce != null && ack?.request_auth_nonce !== pending.requestAuthNonce) || (ack?.request_id != null && ack.request_id !== pending.requestId) || ack?.agent_id !== pending.agentId) return;
+    if (settledRequest(pending, ack?.request_id)) return;
     clearPendingPromptControlAckTimer();
     const feedback = state.lastPromptFeedback || createSemanticFeedback("prompt", "prompt_ack", ack?.agent_id || null);
     const operation = String(ack?.operation || (ack?.preview ? "preview" : "apply"));
@@ -258,6 +272,7 @@ export function createViewerPromptControlModule({
     if (!pending || (pending.requestAuthNonce != null && error?.request_auth_nonce !== pending.requestAuthNonce)
       || (error?.agent_id != null && error.agent_id !== pending.agentId)
       || (pending.requestId != null && error?.request_id !== pending.requestId)) return;
+    if (settledRequest(pending, error?.request_id)) return;
     clearPendingPromptControlAckTimer();
     const controlLost = String(error?.code || error?.reason_code || "").trim().toLowerCase() === "agent_control_forbidden"
       || String(error?.code || error?.reason_code || "").trim().toLowerCase() === "control_lost";

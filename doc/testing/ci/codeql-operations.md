@@ -111,6 +111,24 @@ PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代�
 
 误报按精确告警 ID 核对源码版本、实际输入和权限边界，在平台选择对应 dismissal 原因并记录证据，随后读回告警状态。历史探针注明实际受测版本，结合当前源码核对其适用性；判断条件改变时重审。处置某个 ID 不构成同类后续告警的自动豁免；操作参考 [GitHub 告警处置说明](https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/triage-alerts-in-pull-requests)。
 
+Actions 的预期候选代码执行与错误识别的可信 policy checkout 分别记录：前者在核对实际 runner、token/secrets、缓存写权限及仓内产物消费者后，可按精确 ID 使用 `won't fix`，后者有固定可信来源证据时使用 `false positive`。保留官方 checkout 查询，不以只读缓存、job 名或路径给同类告警统一豁免。已 dismissed 的同一 fingerprint 不保证在边界变化后自动重开；事件/来源选择、权限、runner、缓存模式、可复用调用关系或产物消费者变化时，评审须重新核对相应处置，必要时重开。记录应区分扫描自然关闭和人工 dismissal，不把减少的告警数称为修复漏洞数。
+
+## Actions 缓存只读误报兼容
+
+`scripts/security/codeql-actions` 在 default / extended 中只替换官方 `actions/cache-poisoning/poisonable-step`。仅当前 job 明确配置原始标量 `read` / `none`，或 job 未覆盖且 workflow 明确配置该值时消除该查询结果。表达式、重复 cache-mode、合并键、别名值及未知模式保持官方告警；显式可写 job 不继承 workflow 的只读结论。其他缓存规则、checkout 规则与源码范围保持原配置。
+
+工作流同时直接表达真实信任边界：Command Center callee 自身声明只读缓存；四个受 main 来源与事件约束的 workspace/full writer 首次 checkout 使用 `github.sha`，候选 job 保留计划的 `tested_sha`。共享构建步骤按 job 复用，不能把只读候选上下文的结论应用到 writer；完整回归保留 npm、wasm-bindgen、Trunk 和 sentinel 的合法写入。该调整不为查询新增可信 job/output 名单。
+
+兼容基线为 CodeQL CLI `2.27.4`、`actions-all 0.7.1`、`actions-queries 0.6.39`，上游源码 `1be292a1e54696ca543b4ad0f9b4537b9687caa7`。本地 bundle 的解析可能忽略 suite 版本约束，因此不以依赖声明或空 lock 作为实际版本证明。每个 Actions job 在 init 后校验实际 CLI、编译依赖、上游源码摘要及 init 最终查询集，再运行临时目录中的真实提取/查询反例；失败时后续 analyze/upload 跳过。两套查询总数为 18 / 24（各含一条提取诊断），目标 ID 均只出现一次。
+
+本地复跑（`CODEQL_BIN` 指向相同官方 bundle 的可执行文件）：
+
+```bash
+python3 scripts/security/codeql-actions/model.test.py --codeql "$CODEQL_BIN"
+```
+
+测试只提取临时生成的 workflow 文本，不执行其中步骤，也不把测试 SARIF 上传。升级 Action / CLI / 查询包时，应先评审上游变化；已支持相同语义时移除此兼容层，否则更新版本和摘要并复跑两个 suite 的集合对等、实际 init 选择及模型正反例。不可通过跳过兼容检查或忽略整个规则恢复绿灯。因模型修正而消失的原生告警按误报修正记录，不表述为修复了相同数量的可利用漏洞。
+
 ## Tauri 上下文生成覆盖例外
 
 Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
@@ -199,9 +217,31 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 同时读取官方 checkpoint 中的 `action-deadline-terminal.json` 与 owned-process 收据：真实官方 main 必须只运行一次，启动/退出/收尾均绑定同一分析截止，启动已过期时不得运行提取。监督器通过该 step 的显式 `NODE_OPTIONS` preload 接入，不通过 `GITHUB_ENV` 写该变量；stdout/stderr 保持 runner 处理，post 正常收尾。相对 step timeout 或预估启动余量不能代替绝对监督收据，监督/取消/采证失败均不得准入候选求值。
 
-从独立候选 artifact 检查私有包装差异、原 37/7 文本身份、44 条实际 closure、候选 TypeInference 摘要和源/库/query pack 的前后身份。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+预算文件的大小检查、内容读取和摘要绑定必须一致：Node preload 以 nofollow/nonblock 打开 regular file，在同一文件描述符上最多读取 256 KiB + 1，并拒绝超限；supervisor 对同一有界读取的字节执行预算解析和摘要计算。路径替换不能改为读取另一对象，检查后的文件增长不能突破实际读取上限。这是 admission 的局部加固，不改变绝对截止、官方 post 或 Rust 启用状态。
 
-默认 37 项逐项核对完整 info/decode，七表逐项读取实际结果与原 oracle 判定。SARIF 只对 37 项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+从独立候选 artifact 检查 `qualifier-lines-v2` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。先核对原 qualifier 单文件补丁通过，再核对 `lines-model-identity.json` 中唯一通用 `str::lines` summary 的原/新摘要及完整库差异恰为 TypeInference/core.model 两文件；第三项变化、错误版本或缺少身份不得准入。旧 qualifier 对照仍是原单文件候选。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+
+Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format、同一函数/循环/比较式的结构见证、expected→RHS localFlow、原 output→LHS Global taint，以及错函数、交叉操作数和 whole-bool 零负例。读取实际 QL、版本、标签和配对结果，不只看表的 PASS；派生 taint 不能称为字符串值相等。小 fixture、双 receiver 和同名非 stdlib 控制的通过范围另列，不能代替完整原仓库。历史 v1 的零值和 hosted failure 保留，不把本次修正后的判据追写为旧运行成功。
+
+默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；新的两文件候选必须重新完整计算37+7，不能复用旧37结果。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+
+该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。原始事件只在 owned FIFO 和最多 48 MiB sealed memfd 中存活；不上传或另存原文。64 MiB 总限同时包含临时内存、持久化证据和终态预留，memfd 存活期间预留完整 48 MiB；所有观测投影、样本与收据合计最多 8 MiB。先核对 batch 原退出、已有结果和身份，再读官方 predicates 摘要的独立状态；摘要最多一次、20 秒且含清理，仍受原证据截止约束，余量不足不启动。
+
+进度时刻是 stdout/stderr 接收时刻，不能视为内部精确编译/求值阶段。summary 首写前严格验证版本/schema，任意名称、路径、RA、源码位置和异常只保留受限 hash/类别；缺 footer、未知形状、截断和容量耗尽必须保留不完整及实际字节覆盖。literal 毫秒、已知迭代小计与未知 `-1` 分列，不重复归因共享工作；部分记录不是整个批次完整排名，采样资源不是硬峰值或独占 CPU。采集完整、日志完整、查询完成和 oracle 通过各自判定，观测错误不覆盖原首失败；开启观测带来的额外成本也不能用于证明 Image 或 lines 是唯一根因。
+
+记录身份使用本次官方摘要 stdout 的 SHA256 与 header 后的原记录序号。`raHash` 可以复用，不是事件 ID；同 RA、同策略或不同名称的合法记录均保留各自计时，复用计数不改变完整性。不按 RA 去重、跨记录求和或向多个查询重复分配成本。
+
+### 合法 WASM 单角色 metadata 诊断
+
+在默认分支手动选择 `CodeQL Rust WASM Metadata` 并显式设 `execute=true`。本入口固定完整 7c2f99a 源码、Cargo 1.99.0 的完整提交、recovery-fence 和 wasm32-unknown-unknown，不提供任意命令/版本/源码输入，不运行 CodeQL、Cargo check/build 或部署。实现和验收边界见[metadata 诊断合同](codeql-integration.design.md#725-合法-wasm-单角色-metadata-诊断)。
+
+先核对真实 job start 绑定的 1200 秒时钟：准备至多使用前 780 秒；剩余至少 420 秒才进入 300 秒 D1/D2 窗口，其中最后 60 秒用于清理、after/guard 审计和封存，另留 120 秒给上传/post。源码获取、工具安装和联网依赖预取都计入；clock 失败、精确版本不符或准备超时不得用新截止、另一 nightly 或在线 D2 回退。宿主 proxy 保持原位置，HOME/CODEX_HOME 不改，任务 Cargo/Rustup/cache 与业务源码和 evidence 分离。
+
+先读 bootstrap/工具与源码身份、阶段收据及终态，再核对 D1 的父根和 D2 的完整 53 成员集合、custody 实际角色、六个固定本地 package、依赖种类和 target 表达式。元数据图与非图自由文本分开处理；stderr、安装/网络输出及异常采用首次写入前投影，不是原始日志。合法图若记 ROLE_CONTEXT_MISMATCH，按其实际 features、成员差异和固定失败项解释，终态仍为 INCOMPLETE；缺失或被拒绝的输出不构成阴性语义结果。sealed 清单须覆盖所有普通证据文件，包括 guard 的隐藏控制文件，合计不超过 64 MiB。
+
+`ROOT_WORKSPACE_ROLE_METADATA_OBSERVED` 仅表示本次 Cargo 上下文观察完整；实际 upload/post 和整 job 成本需平台终态另行回读。metadata 不证明目标标准库已安装、WASM 编译、宏展开、每个编译单元 features 或 CodeQL 语义；Rust HOLD 和生产容量 UNKNOWN 保留。每次只运行一次 D1/D2，不自动重跑；父目标按后续真实结果决定下一项建模观察。
+
+核对 guard 版本投影 adapter 的首次绑定回执：counter/failed 初值为 0、原/新 wrapper 与 helper SHA 均齐全；原 guard 未修改，真实 Cargo 的当次输出先投影再进入 audit。NOT_RETURNED 表示原版本调用未交付可验证完整输出，bytes/hash 保持未知；不能用已缓存版本或事后删日志补成通过。
 
 ### 短原生准备诊断
 

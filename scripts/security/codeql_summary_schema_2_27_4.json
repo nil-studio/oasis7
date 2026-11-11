@@ -1,0 +1,344 @@
+{
+  "codeqlVersion": "2.27.4",
+  "summaryLogVersion": "0.4.0",
+  "rawLogVersion": "0.5.0",
+  "evaluatorLogLevel": 3,
+  "codeql_jar_sha256": "ebb281fad305c343c06981a1418fb70ae158c403610376bc6180036341b1d0ab",
+  "scope": "Observed completed AST/localFlow fixture shapes, not all future shapes or full workspace coverage. Unknown combinations remain partial.",
+  "observation": {
+    "raw_event_bytes": 36312368,
+    "raw_event_sha256": "b6b3b9716798899dd103d065e872d1446356dd2f430acd26190775b741b7f6af",
+    "summary_bytes": 9659862,
+    "summary_sha256": "5b50816c7f2246c1345a87c55b82c03282999270c5881e1f87ba715d8fa37574",
+    "inventory_sha256": "980808e567a53feefeb251e26d039748adf5c7e29d57da5cb6f03256b305bda1",
+    "summary_records": 9515,
+    "elapsed_seconds": 157.41938044400013,
+    "maximum_seconds": 600,
+    "source_inputs_sha256": "8d55e0827f32016087882463c2dddd29e65378dda6a2a34c6c21666380ede2a4"
+  },
+  "signatures": [
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "evaluationStrategy": "str",
+        "sentinelRaHash": "str",
+        "isCached": "bool"
+      },
+      "enums": {
+        "evaluationStrategy": "SENTINEL_EMPTY",
+        "isCached": true
+      },
+      "records": 151,
+      "first_record_sha256": "1c42ee5a81bc73305a6fc50f026842c8a6b5474b1d6b936fbc0a5c797a40a3ee"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "evaluationStrategy": "str",
+        "sentinelRaHash": "str"
+      },
+      "enums": {
+        "evaluationStrategy": "SENTINEL_EMPTY"
+      },
+      "records": 2715,
+      "first_record_sha256": "5a10db2abd082d760371f4031f3b5a8fc5ca451771577f66cdc3f0b4816feddd"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict"
+      },
+      "enums": {
+        "evaluationStrategy": "EXTENSIONAL"
+      },
+      "records": 562,
+      "first_record_sha256": "801f2aa52653363a1058fbce781771cc0e36fd65ef980273ab60210344673205"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_SIMPLE"
+      },
+      "records": 4104,
+      "first_record_sha256": "4497b14a1b1c43352f1e77ede1930c461a3827db6afc0527e954a8c14e5f89f0"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict",
+        "isCached": "bool"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTED_EXTENSIONAL",
+        "isCached": true
+      },
+      "records": 257,
+      "first_record_sha256": "8ff50c391467e0bbcb0af8fe92f9bdf4fe364e549c9a0369c0bbacc42fd415d7"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "evaluationStrategy": "str",
+        "resultSize": "int"
+      },
+      "enums": {
+        "evaluationStrategy": "CACHACA"
+      },
+      "records": 672,
+      "first_record_sha256": "f7ddb9882b235c790c3d1211845aca663521257c3f84521c1a56c59b95e2aec2"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "evaluationStrategy": "str",
+        "resultSize": "int",
+        "isCached": "bool"
+      },
+      "enums": {
+        "evaluationStrategy": "CACHACA",
+        "isCached": true
+      },
+      "records": 39,
+      "first_record_sha256": "02ee4c0199125cd75403e22e521c1a937f7d22e63980621fe21c490260f5b0fd"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_SIMPLE"
+      },
+      "records": 98,
+      "first_record_sha256": "2dc806759096052adfe8c77658e7b51132dfb0d5b0120dfd430d1370ea96afcb"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict"
+      },
+      "enums": {
+        "evaluationStrategy": "EXTENSIBLE_PREDICATE"
+      },
+      "records": 5,
+      "first_record_sha256": "3710fd43e4ed56a56437cd7753cca8d10ce6af9b32ef07eb4f3319f4b7483cf6"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "resultSize": "int",
+        "dependencies": "dict",
+        "layerSize": "int",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_RECURSIVE"
+      },
+      "records": 75,
+      "first_record_sha256": "6cc395595182b521dd41efdc6a561ad57d8d342a1e686cd15f2862853de607bd"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "resultSize": "int",
+        "mainHash": "str",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "IN_LAYER"
+      },
+      "records": 680,
+      "first_record_sha256": "afc93a256daf2b2bb570c2d01e0f7ac9cfd3d72d1195ea9c252f81cedab4fbe2"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "resultSize": "int",
+        "mainHash": "str",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "IN_LAYER"
+      },
+      "records": 14,
+      "first_record_sha256": "179e853f6dd0f039f50fd5df27f506dd02701e229eead0d38c44d3ea9a9dc98f"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_SIMPLE"
+      },
+      "records": 14,
+      "first_record_sha256": "fdd4ed99295d63b71cd507742b2280e5d60df1ea44a76c57b3fc52d5b84dfa2b"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "resultSize": "int",
+        "dependencies": "dict"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_SIMPLE"
+      },
+      "records": 7,
+      "first_record_sha256": "b210e5741a5652138796f4153810fa694b942d7c3a11b911e2a78fcedf636028"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "resultSize": "int",
+        "dependencies": "dict",
+        "layerSize": "int",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_RECURSIVE"
+      },
+      "records": 2,
+      "first_record_sha256": "0148464433b06e063f2d710f5698792056edcc99935a2a904a7df3abb9c85046"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "mainHash": "str",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "NAMED_LOCAL"
+      },
+      "records": 76,
+      "first_record_sha256": "67d2d7af20126bac679389a23a6a3c48a2c07a7643972140677928ea3a139b5e"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "mainHash": "str"
+      },
+      "enums": {
+        "evaluationStrategy": "NAMED_LOCAL"
+      },
+      "records": 44,
+      "first_record_sha256": "d9b0fb4ebd2492e4e4f64c89dcc018064b34d95d51f9c39962e5a303af6e4c74"
+    }
+  ]
+}
