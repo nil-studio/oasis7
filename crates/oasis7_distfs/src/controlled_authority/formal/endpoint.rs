@@ -1159,7 +1159,6 @@ pub use business_parent::VerifiedFormalBusinessParentV1;
 mod committed_material;
 pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
-
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
 #[path = "endpoint_native_environment.rs"]
@@ -1186,6 +1185,7 @@ impl FileFormalEndpoint {
 }
 pub use incremental::genesis::PaidGenesisAcceptanceV1;
 pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
+pub use incremental::host_source::PaidAcceptedGenesisHostSourceV1;
 pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
 pub(in crate::controlled_authority) use store::bounded_wire::{
     BoundedWireErrorV1, BoundedWireWorkV1, encode_bounded_wire_v1,
@@ -1196,5 +1196,5 @@ pub(super) use store::with_store_for_bounded_retention_fixture;
 pub(in crate::controlled_authority) use tests::{
     with_bounded_transaction_fixture, with_cold_transaction_fixture,
     with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
-    with_signed_checkpoint_fixture,
+    with_signed_checkpoint_fixture, with_unaccepted_host_endpoint_fixture,
 };

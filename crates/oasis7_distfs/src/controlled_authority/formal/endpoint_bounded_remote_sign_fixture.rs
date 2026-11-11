@@ -363,3 +363,42 @@ pub(in crate::controlled_authority) fn with_finish_loss_transaction_fixture(
     );
     proxy.join().unwrap();
 }
+
+/// Fresh original protected endpoint, deliberately without an accepted cache.
+pub(in crate::controlled_authority) fn with_unaccepted_host_endpoint_fixture(
+    run: impl FnOnce(FileFormalEndpoint, Arc<RemoteMonotonicEndpointProvider>, &TrustedFencingPolicyV1),
+) {
+    let fixture = Fixture::new();
+    let oracle = Oracle::start(&fixture, EndpointRole::Primary);
+    let policy = TrustedFencingPolicyV1 {
+        provider_public_key: public(3),
+        authorized_resource_bindings: fixture
+            .authority
+            .policy()
+            .authorized_fencing_resource_bindings
+            .clone(),
+    };
+    let provider = Arc::new(
+        RemoteMonotonicEndpointProvider::new(
+            oracle.address,
+            Duration::from_secs(3),
+            key(17),
+            policy.clone(),
+        )
+        .unwrap(),
+    );
+    let endpoint = FileFormalEndpoint::open_protected(
+        &fixture.pdir,
+        FormalEndpointAuthorizationV1 {
+            authority: fixture.authority.clone(),
+            original: fixture.authority.clone(),
+            recovery: None,
+            parent: None,
+        },
+        EndpointRole::Primary,
+        provider.clone(),
+        None,
+    )
+    .unwrap();
+    run(endpoint, provider, &policy);
+}

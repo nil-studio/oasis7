@@ -74,15 +74,7 @@ impl VerifiedAuthorityV1 {
     pub fn context_digest(&self) -> Result<String, FormalError> {
         let legacy = hash(
             "oasis7.formal.verified_authority_context.v1",
-            &(
-                &self.definition,
-                &self.policy,
-                &self.activation_ref,
-                self.first_normal_position,
-                &self.recovery_cut,
-                &self.recovery_retained_record,
-                &self.initial_input_digest,
-            ),
+            &self.context_digest_payload(),
         )?;
         match &self.durable_set_activation_digest {
             None => Ok(legacy),
@@ -92,7 +84,22 @@ impl VerifiedAuthorityV1 {
             ),
         }
     }
+    // The original tuple/order is shared by the compatibility and paid paths.
+    fn context_digest_payload(&self) -> impl Serialize + '_ {
+        (
+            &self.definition,
+            &self.policy,
+            &self.activation_ref,
+            self.first_normal_position,
+            &self.recovery_cut,
+            &self.recovery_retained_record,
+            &self.initial_input_digest,
+        )
+    }
 }
+
+#[path = "activation_bounded_context.rs"]
+mod bounded_context;
 impl InitialActivationBodyV1 {
     pub fn validate(&self) -> Result<(), FormalError> {
         self.authority.verify_policy(&self.recovery_policy)?;

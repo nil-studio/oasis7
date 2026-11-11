@@ -575,3 +575,7 @@ pub(super) mod genesis;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_genesis_receipts.rs"]
 pub(super) mod genesis_receipts;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_host_source.rs"]
+pub(super) mod host_source;

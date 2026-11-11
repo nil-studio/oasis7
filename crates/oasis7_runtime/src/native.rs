@@ -594,6 +594,8 @@ pub use world::incremental_module_execution_fee::contribute_root_module_fee_and_
 pub use world::incremental_module_execution_manifest_hash::*;
 pub use world::incremental_module_execution_output::*;
 
+pub use world::incremental_cache_move;
+
 pub use world::incremental_world_event_counter::WorldEventCounterV1;
 
 pub use world::{

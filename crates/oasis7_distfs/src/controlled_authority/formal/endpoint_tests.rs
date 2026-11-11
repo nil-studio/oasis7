@@ -920,7 +920,7 @@ mod protected_tests;
 pub(in crate::controlled_authority) use protected_tests::{
     with_bounded_transaction_fixture, with_cold_transaction_fixture,
     with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
-    with_signed_checkpoint_fixture,
+    with_signed_checkpoint_fixture, with_unaccepted_host_endpoint_fixture,
 };
 
 #[test]

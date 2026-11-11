@@ -1147,3 +1147,6 @@ pub(in crate::controlled_authority) mod bounded_reopen;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_store_bounded_genesis_qualified.rs"]
 mod bounded_genesis_qualified;
+
+#[path = "endpoint_store_host_current.rs"]
+mod host_current;
