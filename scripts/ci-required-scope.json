@@ -10,7 +10,7 @@
   "fast_test_inventory_version": 1,
   "fast_execution_version": 1,
   "ordinary_partition_version": 1,
-  "ordinary_artifact_partition_version": 1,
+  "ordinary_artifact_partition_version": 2,
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
   "distfs_clippy_contract_version": 1,

@@ -173,7 +173,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `execution_profile`、`fast_plan_version=1`、`check_inventory_version=1` | 区分快速/完整策略及接口、库存版本；旧 BASE 不含 capability 时不得套用候选的窄范围 |
 | `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
-| `ordinary_artifact_partition_version=1`、`ordinary_partitions` | 完整普通产物的 controls 与四个 native 执行分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
+| `ordinary_artifact_partition_version=1/2`、`ordinary_partitions` | v1 保留 full 完整目标分区；v2 对有 chain-runtime 的 targeted 非 inline 普通库存执行 controls 与四个 native case 分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
 | `workspace_support_partition_version=1`、`workspace_support_partitions` | 选中 custody worker 时单列 custody，其余 profile 归 other；两路并集保留全部选中 profile，旧 BASE 使用 all |
 | `custody_execution_version=1`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与四个完整 Node 文件分片；缺能力或测试政策变化继续原完整 verifier，稳定 support 汇总核验全部实际结果 |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
@@ -948,6 +948,10 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 producer 核对完整清单后，为普通组及各物理分片输出独立 tar.gz，gzip level 1；保留 executable 权限，不传输整个 target。每包只带该消费者的 harness、生产子进程和动态库闭包，并报告原始字节、压缩字节和逐 binary 体积分布。consumer 核对原 run/source/tested identity、全局清单及所选闭包的 hash、profile 和实际 `--list`，不能因缺少不属于自己的二进制而补编。producer attempt 记录供审计；同 run、相同源码和构建身份的 consumer 重跑可复用先前 attempt 的产物。保持相同 checkout 布局，恢复编译时嵌入的 Cargo 程序路径，设置包工作目录、动态库路径及原二进制环境。普通集成测试需要的 Cargo binary 和 default-feature snapshot 不得被正式分包移除。
 
 完整 ordinary 由可信计划的 `ordinary_artifact_partition_version=1` 启用物理执行分片，保留唯一 producer 的完整 Cargo 命令、feature resolution 和完整 archive。`controls` 单独执行原 Clippy/WASM 检查；`runtime`、`component-libs` 分别执行主 runtime harness、其余 library harness；其余 harness 及两个 default-feature snapshot 检查按完整 binary/filter 身份排序后交替归属 `integrations-0`、`integrations-1`。每个消费者先核验完整产物，再按实际 variant/package/target 身份分配完整执行项；并集必须等于全部原执行项且各有唯一归属，新增 target 进入对应剩余类别。消费者内部串行，不重复 Cargo 构建或减少测试。本地未指定 `--ordinary-partition` 时，保留一次构建完整 bundle 后执行全部 ordinary 项的入口，并执行原 Clippy/WASM 检查。旧 BASE 没有该能力时保留 `all`，版本或分片缺失、重复、未知均拒绝。矩阵保持 `fail-fast: false`，任何必选分片失败、取消或跳过都阻断汇总。
+
+可信配置支持 v2 后，只有 `pr-fast/main-fast`、`scope=targeted`、非 inline、明确 `test_policy_changed=false` 且选中 chain-runtime required 包时，才输出 `controls/native-0/native-1/native-2/native-3`。full/explicit-full 继续原 v1；其它 targeted、inline 和旧 BASE 保持原路。producer 的完整 targets、默认 wasmtime/node-libp2p 与 test_tier_required features 不变。每个消费者先校验同一完整 bundle 的 source/tested/policy、内容和实际 `--list` 库存，再以 `required/oasis7_chain_runtime/lib/oasis7_chain_runtime` 完整身份寻找唯一 runtime library。先展开原 exclusive singleton，剩余原 ordinary case 按完整名称 SHA-256 排序后轮转四片，以 exact skip 补集执行完整 case；原 ignored/deferred 语义保持。所有分片非空，并集与原普通库存相等、交集为空，其余完整 harness、snapshot 和 exclusive singleton 各有唯一 owner。未知版本/owner、错身份、空执行、缺失、重复、少测、异常、取消、超时或进程遗留都失败；原断言、超时与清理不变。数量估计仅用于确定性分配，不作为历史时长数据或十分钟收益证明。
+
+v2 中仅当包集合精确为 `[oasis7_chain_runtime]` 且 owner 为上述四个 native 分片时，consumer 省去 Rust toolchain 安装、Rust cache 稳定化和依赖 cache 恢复；产物执行及当前测试所调用脚本不需要编译器，真实小型 Cargo fixture 用失败哨兵验证制品消费没有补编。controls、含其它包的 v2、v1、inline 和旧路径保留原准备，避免省略 Game Client 等测试实际调用的 rustc；APT 原依赖仍完整安装。日志记录 runtime 总库存及当前分片摘要、预期执行数与附带完整 harness，真实产品四片耗时、producer 成本及端到端 P95 仍由托管运行验收。
 
 分片清单由 `scripts/ci-formal-process-suites.json` 拥有，实际名称以下载 harness 的 `--list`/`--ignored --list` 核对。清单中的旧过滤器用于检出重命名、遗漏和新增未分配验收；辅助入口单独登记，不运行整个 ignored 集合。
 
