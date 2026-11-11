@@ -141,7 +141,7 @@ test(rollback?'reconcile final SQL failure rolls back both old and new results a
     const created=saved.setups[0].stages.find(stage=>stage.stage===targetStage);
     assert.deepEqual(created.result_provenance,{kind:'reconcile',reconcile_id:'owner-reconcile-one',attempt_id:'read-one'});
     assert.deepEqual(created.archived_sources,targetStage==='final_observation'?[]:['submit'],'recovery never overwrites the original stage history');
-  },{settleSubmits:true});
+  },{settleSubmits:true,retainHistory:true});
 });
 
 }

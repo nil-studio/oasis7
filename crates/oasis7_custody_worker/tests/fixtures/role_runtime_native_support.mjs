@@ -105,12 +105,12 @@ export async function nativeLiveContextAuthority(directory,worldData) {
   assert.equal(worldData.live_context_read,true);
   return authority(directory,true,worldData);
 }
-export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits=false,settleBaseline=false}={}) {
+export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits=false,settleBaseline=false,retainHistory=false}={}) {
   const directory=mkdtempSync(resolve(tmpdir(),'oasis7-role-runtime-negative-'));
   let native,mf,worldProcess;
   try {
     const nativeMode=mode.startsWith('native-');
-    if(mode.startsWith('native-participant')) worldProcess=await worldAuthority(directory,{settleSubmits,settleBaseline});
+    if(mode.startsWith('native-participant')) worldProcess=await worldAuthority(directory,{settleSubmits,settleBaseline,retainHistory});
     native=await authority(directory,nativeMode,worldProcess?{...worldProcess.data,owner_setup:mode.startsWith('native-participant-owner-setup')}:undefined);
     const world=worldProcess?.data.world??defaultWorld;
     const routes={...defaultRoutes,world_identity:world.world_id};
