@@ -232,6 +232,8 @@ class Recovery:
                 return self.decline('dynamic_resolver_query_failed')
             if not output.strip():
                 return self.decline('dynamic_resolver_query_empty')
+            if index is not None and len(output.splitlines()) != 1:
+                return self.decline('dynamic_resolver_interface_response_invalid')
             has_default_dns = False
             for line in output.splitlines():
                 if not re.fullmatch(RESOLVER_HEADER, line):
@@ -244,13 +246,15 @@ class Recovery:
                     return self.decline('dynamic_resolver_interface_mismatch')
                 value = line.split(':', 1)[1].strip()
                 allowed = {'dns': ('', '168.63.129.16'), 'domain': ('', '~.'),
-                           'default-route': ('', 'yes', 'no')}[option]
+                           'default-route': ('yes', 'no')}[option]
                 if value not in allowed and option != 'domain':
                     return self.decline('dynamic_resolver_configuration_custom')
                 has_default_dns |= value == '168.63.129.16'
             if option == 'dns':
                 if not has_default_dns:
                     return self.decline('dynamic_default_dns_missing')
+                if len(links) > 16:
+                    return self.decline('dynamic_resolver_interfaces_excessive')
                 if not links:
                     return self.decline('dynamic_resolver_interfaces_missing')
                 # systemd's all-interface default-route falls through global status

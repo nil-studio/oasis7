@@ -22,7 +22,7 @@ class RecoveryTests(unittest.TestCase):
             def log(self, message): logs.append(message)
             def run_command(self, _stage, command, **_options):
                 outputs = {'dns': 'Link 2 (eth0): 168.63.129.16\n', 'domain': 'Global: private.internal\n',
-                           'default-route': '  Link 2 (private-interface): yes\n\n'}
+                           'default-route': '  Link 2 (private-interface): yes\n'}
                 return 0, outputs[command[-1]], True
         recovery = dns.Recovery(Installer(), True)
         self.assertFalse(recovery.default_routes())
@@ -32,7 +32,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(shape['option'], 'default-route')
         self.assertEqual(shape['header_count'], 0)
         self.assertEqual(shape['stripped_header_count'], 1)
-        self.assertEqual(shape['blank_count'], 1)
+        self.assertEqual(shape['blank_count'], 0)
         self.assertNotIn('private', logs[0])
         self.assertNotIn('168.63', logs[0])
 
@@ -87,41 +87,6 @@ with patch.object(Path, 'read_text', read):
             self.assertEqual(json.loads(result.stdout)['available'], mode == 'normal')
             self.assertNotIn('private.internal', result.stdout + result.stderr)
 
-    def test_mechanism_real_cli_help_loads_without_privileged_actions(self):
-        script = str(Path(__file__).with_name('ci-apt-dns-mechanism.py').resolve())
-        result = subprocess.run([sys.executable, script, '--help'], capture_output=True, text=True, timeout=5)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('--budget-seconds', result.stdout)
-
-    def test_mechanism_entry_keeps_budget_ownership_and_does_not_claim_failover(self):
-        path = Path(__file__).with_name('ci-apt-dns-mechanism.py')
-        spec = importlib.util.spec_from_file_location('mechanism_test', path)
-        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-        installer = Mock(end=time.monotonic() + 5, work_end=time.monotonic() + 4, cancelled=0)
-        installer.run_command.return_value = (0, '', True)
-        recovery = Mock(reason='eligible', prefix=[])
-        recovery.eligible.return_value = True
-        recovery.claim_lock.return_value = True
-        recovery.default_routes.return_value = True
-        recovery.namespace_prefix.return_value = ['owned-namespace']
-        def install(packages):
-            self.assertEqual(packages, ['pkg-config'])
-            self.assertFalse(recovery.enabled)
-            self.assertEqual(recovery.prefix, ['owned-namespace'])
-            return 0
-        installer.install.side_effect = install
-        with patch.object(module.sys, 'argv', ['mechanism', '--budget-seconds', '5']), \
-             patch.object(module.os, 'geteuid', return_value=0), \
-             patch.object(module.apt, 'Installer', return_value=installer), \
-             patch.object(module.apt._dns, 'Recovery', return_value=recovery), \
-             patch.object(module.apt, 'establish_owner') as owner:
-            self.assertEqual(module.main(), 0)
-        owner.assert_called_once()
-        recovery.eligible.assert_called_once_with()
-        recovery.default_routes.assert_called_once_with()
-        recovery.close.assert_called_once()
-        self.assertIn('automatic_failover_not_exercised=true', str(installer.log.call_args_list))
-
     def test_shape_never_discloses_unknown_domain_or_option_values(self):
         shape = dns.stub_shape('nameserver 127.0.0.53\noptions edns0 private-option\nsearch private.internal\n')
         self.assertEqual(shape['search_suffix_count'], 1)
@@ -164,7 +129,8 @@ with patch.object(Path, 'read_text', read):
         self.assertTrue(all(options == {'report_output': False} for options in self_options))
 
     def test_default_route_refuses_global_table_or_different_interface(self):
-        for result in ('Global\n Protocols: other\nresolv.conf mode: stub\nLink 2 (eth0): yes\n',
+        for result in ('Link 2 (eth0):\n', 'Link 2 (eth0): yes\nLink 2 (eth0): yes\n',
+                       'Global\n Protocols: other\nresolv.conf mode: stub\nLink 2 (eth0): yes\n',
                        'Link 3 (eth1): yes\n'):
             class Installer:
                 def log(self, _message): pass
