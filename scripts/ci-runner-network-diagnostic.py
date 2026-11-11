@@ -9,6 +9,8 @@ import re
 import shutil
 import subprocess
 import sys
+import socket
+import struct
 import time
 from urllib.parse import urlsplit
 
@@ -104,6 +106,67 @@ def transport(host):
     return result
 
 
+def raw_dns(item):
+    server, host = item
+    started = time.monotonic()
+    ident = int.from_bytes(os.urandom(2), 'big')
+    query = struct.pack('!HHHHHH', ident, 0x0100, 1, 0, 0, 0)
+    query += b''.join(bytes([len(p)])+p.encode('ascii') for p in host.split('.'))
+    query += b'\x00'+struct.pack('!HH', 1, 1)
+    result = dict(server=server, host=host)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(2)
+            sock.connect((server, 53))
+            sock.send(query)
+            data = sock.recv(4096)
+        response_id, flags, questions, answers, _, _ = struct.unpack('!HHHHHH', data[:12])
+        result.update(valid_header=response_id == ident and bool(flags & 0x8000),
+                      rcode=flags & 15, answers=answers, truncated=bool(flags & 0x0200))
+    except (OSError, struct.error) as error:
+        result['error_type'] = type(error).__name__
+    result['elapsed'] = round(time.monotonic()-started, 3)
+    return result
+
+
+def dns_path_probes():
+    servers = ['127.0.0.53', '1.1.1.1', '8.8.8.8']
+    upstream = Path('/run/systemd/resolve/resolv.conf')
+    if upstream.exists():
+        for line in upstream.read_text()[:16384].splitlines():
+            fields = line.split()
+            if len(fields) >= 2 and fields[0] == 'nameserver':
+                try:
+                    addr = ipaddress.ip_address(fields[1])
+                    if addr.version == 4 and str(addr) not in servers:
+                        servers.append(str(addr))
+                except ValueError:
+                    pass
+    servers = servers[:4]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        for result in pool.map(raw_dns, [(s,h) for s in servers for h in HOSTS]):
+            emit('explicit_dns_read_only', result)
+    # Current public A records observed on the operator host; diagnostic only.
+    # These are NOT installed as hosts entries or used for package installation.
+    if any(os.environ.get(n) for n in
+           ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy')):
+        emit('https_verified_diagnostic_ip', dict(skipped='proxy_environment_present'))
+        return  # do not bypass operator proxy policy or misattribute proxy DNS
+    curl = shutil.which('curl')
+    for host, addr in [('archive.ubuntu.com','185.125.190.81'),
+                       ('security.ubuntu.com','185.125.190.81')]:
+        if not curl:
+            continue
+        path = '/ubuntu/dists/noble/InRelease' if host.startswith('archive') else '/ubuntu/dists/noble-security/InRelease'
+        result = command([curl, '--disable','--silent','--connect-timeout','4',
+            '--max-time','8','--max-filesize','1048576','--output',os.devnull,
+            '--resolve', host+':443:'+addr, '--write-out','%{http_code} %{time_connect} %{time_appconnect}',
+            'https://'+host+path], 10)
+        result.update(host=host, diagnostic_ip=addr)
+        result['timings'] = result.pop('stdout','').strip()
+        emit('https_verified_diagnostic_ip', result)
+
+
 def main():
     configuration()
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -111,6 +174,7 @@ def main():
             emit('dns', value)
         for value in pool.map(transport, HOSTS):
             emit('http_transport', value)
+    dns_path_probes()
     emit('collection', dict(completed=True, network_health_not_asserted=True))
 
 
