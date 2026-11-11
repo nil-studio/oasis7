@@ -61,7 +61,7 @@ fn visit_checkpoint(
     visit(&value.commitment)?;
     visit(&value.head.decision_hash)
 }
-fn visit_body(
+pub(super) fn visit_body(
     value: &HotBody,
     visit: &mut impl FnMut(&String) -> Result<(), FormalError>,
 ) -> Result<(), FormalError> {
@@ -191,7 +191,7 @@ fn role_map_nodes(entries: usize) -> Result<usize, FormalError> {
     )?;
     add(mul(2, leaf)?, internal)
 }
-fn body_layout(
+pub(super) fn body_layout(
     value: &HotBody,
     ctx: &mut FormalBoundedContextV1<'_>,
 ) -> Result<(usize, usize), FormalError> {
@@ -518,3 +518,26 @@ fn prepare_draft<'a>(
 #[cfg(test)]
 #[path = "endpoint_store_bounded_native_draft_tests.rs"]
 mod tests;
+
+impl PaidNativeCheckpointDraftV1<'_> {
+    pub(super) fn paid_cache_copy(
+        &self,
+        ctx: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<(HotBody, ReservedValue<()>), FormalError> {
+        self.validate_context(ctx)?;
+        let (layout, payload) = body_layout(&self.body, ctx)?;
+        let fee = ctx
+            .memory()
+            .reserve(layout, MemoryClass::Ordinary)
+            .map_err(|_| invalid("bounded cache admission"))?;
+        debit(ctx, payload)?;
+        let body = (*self.body).clone();
+        visit_body(&body, &mut |s| {
+            if s.capacity() > s.len() {
+                return Err(invalid("bounded cache clone capacity"));
+            }
+            Ok(())
+        })?;
+        Ok((body, fee.retain(())))
+    }
+}

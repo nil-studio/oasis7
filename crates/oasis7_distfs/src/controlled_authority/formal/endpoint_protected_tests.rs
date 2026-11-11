@@ -713,5 +713,5 @@ pub(super) fn native_rpc_endpoint(fixture: &Fixture) -> (FileFormalEndpoint, imp
 #[path = "endpoint_bounded_remote_sign_fixture.rs"]
 mod bounded_remote_sign_fixture;
 pub(in crate::controlled_authority) use bounded_remote_sign_fixture::{
-    with_remote_sign_fixture, with_signed_checkpoint_fixture,
+    with_bounded_transaction_fixture, with_remote_sign_fixture, with_signed_checkpoint_fixture,
 };

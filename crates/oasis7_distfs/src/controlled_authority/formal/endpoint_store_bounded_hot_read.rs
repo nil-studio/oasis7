@@ -380,6 +380,16 @@ pub(super) fn read_hot_bounded_v1(
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<PaidNativeHotV1, FormalError> {
     let (wire, path_fee) = read_wire(store, memory, work, stop)?;
+    decode_hot_paid_wire(wire, path_fee, expected_public_key, memory, work, stop)
+}
+pub(super) fn decode_hot_paid_wire(
+    wire: ReservedValue<Vec<u8>>,
+    path_fee: ReservedValue<()>,
+    expected_public_key: &str,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<PaidNativeHotV1, FormalError> {
     charge(work, 0, stop)?;
     let extra = size_of::<PaidNativeHotV1>()
         .checked_sub(add(size_of::<Hot>(), size_of::<ReservedValue<Vec<u8>>>())?)

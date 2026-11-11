@@ -135,3 +135,47 @@ pub(in crate::controlled_authority) fn with_signed_checkpoint_fixture(
         initial.revision
     );
 }
+
+pub(in crate::controlled_authority) fn with_bounded_transaction_fixture(
+    run: impl FnOnce(
+        &mut Store,
+        &RemoteMonotonicEndpointProvider,
+        &EndpointInstanceBindingV1,
+        &TrustedFencingPolicyV1,
+    ),
+) {
+    let fixture = Fixture::new();
+    let oracle = Oracle::start(&fixture, EndpointRole::Primary);
+    let policy = TrustedFencingPolicyV1 {
+        provider_public_key: public(3),
+        authorized_resource_bindings: fixture
+            .authority
+            .policy()
+            .authorized_fencing_resource_bindings
+            .clone(),
+    };
+    let provider = Arc::new(
+        RemoteMonotonicEndpointProvider::new(
+            oracle.address,
+            Duration::from_secs(3),
+            key(17),
+            policy.clone(),
+        )
+        .unwrap(),
+    );
+    let mut endpoint = FileFormalEndpoint::open_protected(
+        &fixture.pdir,
+        FormalEndpointAuthorizationV1 {
+            authority: fixture.authority.clone(),
+            original: fixture.authority.clone(),
+            recovery: None,
+            parent: None,
+        },
+        EndpointRole::Primary,
+        provider.clone(),
+        None,
+    )
+    .unwrap();
+    let instance = endpoint.instance().clone();
+    run(&mut endpoint.store, provider.as_ref(), &instance, &policy);
+}

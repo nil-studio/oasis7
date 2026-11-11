@@ -190,3 +190,21 @@ pub(super) fn validate_native_checkpoint_refs_bounded_v1<'a>(
 #[cfg(test)]
 #[path = "endpoint_store_bounded_native_refs_tests.rs"]
 mod tests;
+
+pub(super) fn validate_recovery_refs(
+    store: &Store,
+    body: &HotBody,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<(), FormalError> {
+    super::native_refs::validate_refs_with(
+        body,
+        &mut BoundedRefs {
+            store,
+            memory,
+            work,
+            stop,
+        },
+    )
+}

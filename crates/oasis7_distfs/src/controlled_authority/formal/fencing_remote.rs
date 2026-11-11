@@ -425,6 +425,32 @@ fn validate_begin_reply_with<O: BeginReplyValidationOps>(
     Ok(())
 }
 
+fn validate_finish_reply_with<O: BeginReplyValidationOps>(
+    state: &MonotonicOracleReplyBodyV1,
+    previous_state: &MonotonicOracleReplyBodyV1,
+    intent: &CheckpointIntentV1,
+    ops: &mut O,
+) -> Result<(), O::Error> {
+    if !ops.same(&state.checkpoint, &intent.next)?
+        || !ops.same(&state.resource_binding, &previous_state.resource_binding)?
+        || !ops.same(&state.durable_set, &previous_state.durable_set)?
+        || !ops.same(&state.protected_custody, &previous_state.protected_custody)?
+        || (previous_state.protected_custody.is_some()
+            && !ops.same(
+                &state.native_checkpoint_bytes.as_ref(),
+                &Some(&intent.checkpoint_bytes),
+            )?)
+        || !ops.same(&state.pending.is_none(), &true)?
+        || !ops.same(
+            &state.seal.as_ref(),
+            &intent.seal.as_ref().or(previous_state.seal.as_ref()),
+        )?
+    {
+        return Err(FencingError::FencingUnproven.into());
+    }
+    Ok(())
+}
+
 impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
     fn install_durable_set(
         &self,
@@ -537,17 +563,7 @@ impl MonotonicEndpointGuard for RemoteGuard {
             Some(&self.state.lease),
             MonotonicOracleCommandV1::Finish,
         )?;
-        if state.checkpoint != intent.next
-            || state.resource_binding != self.state.resource_binding
-            || state.durable_set != self.state.durable_set
-            || state.protected_custody != self.state.protected_custody
-            || (self.state.protected_custody.is_some()
-                && state.native_checkpoint_bytes.as_ref() != Some(&intent.checkpoint_bytes))
-            || state.pending.is_some()
-            || state.seal != intent.seal.or(self.state.seal.clone())
-        {
-            return Err(FencingError::FencingUnproven);
-        }
+        validate_finish_reply_with(&state, &self.state, &intent, &mut LegacyBeginValidation)?;
         self.state = state;
         Ok(())
     }

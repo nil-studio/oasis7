@@ -295,3 +295,28 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
 #[cfg(test)]
 #[path = "fencing_remote_bounded_begin_tests.rs"]
 mod tests;
+
+// Private Store transaction composition: the owner remains alive across IO.
+impl<'a> PaidNativeCheckpointBeginV1<'a> {
+    pub(in crate::controlled_authority) fn native_bytes(&self) -> &[u8] {
+        &self.wire
+    }
+    pub(in crate::controlled_authority) fn draft(&self) -> &PaidNativeCheckpointDraftV1<'a> {
+        &self.evidence.draft
+    }
+    pub(in crate::controlled_authority) fn next_checkpoint(&self) -> &EndpointCheckpointBindingV1 {
+        &self.binding
+    }
+    pub(in crate::controlled_authority) fn finish_bounded(
+        mut self,
+        provider: &RemoteMonotonicEndpointProvider,
+        ctx: &mut FormalBoundedContextV1<'_>,
+    ) -> ResultV<Self> {
+        self.evidence.draft.validate_context(ctx)?;
+        finish_lease_bounded(&mut self.lease, provider, ctx)?;
+        Ok(self)
+    }
+}
+#[path = "fencing_remote_bounded_finish.rs"]
+mod bounded_finish;
+use bounded_finish::finish_lease_bounded;

@@ -1192,7 +1192,7 @@ pub(super) use store::with_store_for_bounded_retention_fixture;
 
 #[cfg(test)]
 pub(in crate::controlled_authority) use tests::{
-    with_remote_acquire_fixture, with_remote_sign_fixture, with_signed_checkpoint_fixture,
+    with_remote_acquire_fixture, with_remote_sign_fixture, with_signed_checkpoint_fixture, with_bounded_transaction_fixture,
 };
 
 pub(in crate::controlled_authority) use store::bounded_wire::{
