@@ -51,6 +51,8 @@ Command Center 的独立 Cargo workspace 由 `command_center` 组承接，工具
 
 Rust workflow 调用可复用的 `command-center.yml`，将 Core、生成类型、UI、workspace host Clippy 和适用的 macOS App 打包结果纳入汇总。可信规则确认只影响已登记 Core/UI 输入时，`command_center_package=false` 仅跳过 App 打包，host 编译仍验证 Core API 消费者；原生打包、平台、共享控制或不确定输入保留打包。完整 profile 始终打包。专用 workflow 不独立重复触发 PR/push，checkout 使用计划固定的 tested SHA。
 
+可复用 Command Center workflow 自身显式声明 `cache-mode: read`，与当前调用方的只读权限一致；后续调用方也不能借此入口写入共享缓存。
+
 该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
 
 文档 corpus 对象、索引及 evidence inventory 数据更新由始终执行的 baseline 文档治理检查校验一致性；三平台 corpus/evidence 工具回归只在检查器实现、fixture、Git 路径配置、scope 配置或平台 workflow 变化时触发，数据更新不单独触发三平台回归。
