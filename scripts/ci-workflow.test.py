@@ -1774,6 +1774,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             for sample, groups in (
                 ('runtime-world', ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node')),
                 ('game-client-private-unix', ('baseline', 'rust_baseline', 'oasis7_required')),
+                ('world-state-unit-tests', ('baseline', 'rust_baseline', 'oasis7_required')),
             ):
                 selection = root / 'previews' / sample / 'selection.json'
                 selection.parent.mkdir(parents=True)

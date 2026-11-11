@@ -49,6 +49,11 @@ SAMPLES = {
         targets=frozenset((('oasis7_executable_image', 'lib', 'oasis7_executable_image'),)),
         packages=['oasis7_executable_image'], default_features=False, features=[],
         consumer_groups=frozenset()),
+    'world-state-unit-tests': dict(
+        paths=('crates/oasis7_world_state/src/incremental_runtime_artifact_config_fault_tests.rs',),
+        targets=frozenset((('oasis7_world_state', 'lib', 'oasis7_world_state'),)),
+        packages=['oasis7_world_state'], default_features=False, features=['test_tier_required'],
+        consumer_groups=frozenset()),
 }
 
 
@@ -209,6 +214,24 @@ def validate_plan(plan, source, *, sample='runtime-world'):
                 or plan.get('ordinary_support_deferred') != ['oasis7_agent_harness', 'oasis7_model_provider']
                 or any(plan.get(key) != [] for key in ('workspace_support_profiles', 'formal_suites', 'formal_shards'))):
             raise ValueError('private Unix preview must retain its complete support handoff and lint contract')
+    if sample == 'world-state-unit-tests':
+        refs = plan.get('ordinary_unit_test_proof_refs')
+        omitted = plan.get('ordinary_unit_test_excluded_targets')
+        omitted_identities = {(target.get('package'), target.get('target_kind'), target.get('target_name'))
+                              for target in omitted if isinstance(target, dict)
+                              and all(isinstance(target.get(key), str) for key in
+                                      ('package', 'target_kind', 'target_name'))} if isinstance(omitted, list) else set()
+        if (type(plan.get('ordinary_unit_test_contract_version')) is not int
+                or plan['ordinary_unit_test_contract_version'] != 1
+                or plan.get('ordinary_unit_test_sources') != {expected['paths'][0]: 'oasis7_world_state'}
+                or not isinstance(refs, list) or len(refs) != 2
+                or any(not isinstance(ref, str) or len(ref) != 40 for ref in refs)
+                or set(refs) != {source, architecture.get('base')}
+                or plan.get('ordinary_unit_test_excluded_groups') != ['distfs', 'net', 'node']
+                or not isinstance(omitted, list) or len(omitted) != 3
+                or omitted_identities != EXPECTED_TARGETS - expected['targets']
+                or plan.get('oasis7_required_packages') != ['oasis7_world_state']):
+            raise ValueError('private WorldState preview requires its complete source isolation proof')
 
 
 def write_outputs(path, values):
