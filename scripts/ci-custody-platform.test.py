@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 SPEC = importlib.util.spec_from_file_location('custody', Path(__file__).with_name('ci-custody-platform.py'))
 C = importlib.util.module_from_spec(SPEC)
@@ -83,6 +84,42 @@ class Custody(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'empty custody artifacts'):
             C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
 
+    def test_hidden_build_files_survive_transport_and_missing_payload_fails_before_restore(self):
+        hidden = {'executor/.gitignore': b'generated build output\n',
+                  'approval-harness/.metadata/provenance.json': b'{"fixture":true}\n'}
+        for name, content in hidden.items():
+            path = self.artifacts / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        # The upload root is the freshly packed bundle, never the checkout.
+        (self.root / '.env').write_text('outside-the-generated-bundle\n')
+        self.packed()
+        transported = {}
+        for component, bundle in self.bundles.items():
+            archive = Path(self.temporary.name) / f'{component}.zip'
+            with zipfile.ZipFile(archive, 'w') as writer:
+                for path in bundle.rglob('*'):
+                    if path.is_file():
+                        writer.write(path, path.relative_to(bundle).as_posix())
+            transported[component] = Path(self.temporary.name) / f'download-{component}'
+            with zipfile.ZipFile(archive) as reader:
+                reader.extractall(transported[component])
+            C.check_bundle(self.root, self.plan, component, transported[component], '71', 2)
+            self.assertNotIn('.env', [row['path'] for row in C.load(bundle / 'manifest.json')['files']])
+        missing = transported['wasm-production'] / 'files/executor/.gitignore'
+        missing.unlink()
+        consumer = Path(self.temporary.name) / 'consumer'
+        shutil.copytree(self.root, consumer, ignore=shutil.ignore_patterns('artifacts', 'target'))
+        with self.assertRaises(FileNotFoundError):
+            C.restore(consumer, self.plan, transported, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+        self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+        missing.write_bytes(hidden['executor/.gitignore'])
+        C.restore(consumer, self.plan, transported, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+        for name, content in hidden.items():
+            restored = consumer / C.WORKER / 'artifacts' / name
+            self.assertEqual(restored.read_bytes(), content)
+            self.assertEqual(restored.stat().st_mode & 0o777, 0o644)
+
     def test_source_policy_run_attempt_test_inventory_and_build_contract_are_bound(self):
         self.packed()
         for key in ('source_sha', 'tested_sha', 'policy_sha'):
@@ -94,6 +131,29 @@ class Custody(unittest.TestCase):
         (self.worker / 'tests/0.test.mjs').write_text('changed')
         with self.assertRaises(ValueError):
             C.check_bundle(self.root, self.plan, 'native', self.bundles['native'], '71', 2)
+
+    def test_compile_proof_ownership_is_bound_to_approval_before_restore(self):
+        self.assertEqual(C.BUILD_CONTRACTS['wasm-production'], list(C.ROLES))
+        self.assertEqual(C.BUILD_CONTRACTS['wasm-approval'], [
+            'owner,approval-harness', 'approval-admission:export',
+            'role-feature-negative-checks', 'worker-wasm-six-profiles'])
+        self.packed()
+        consumer = Path(self.temporary.name) / 'consumer'
+        shutil.copytree(self.root, consumer, ignore=shutil.ignore_patterns('artifacts', 'target'))
+        for component in ('wasm-production', 'wasm-approval'):
+            path = self.bundles[component] / 'manifest.json'
+            original = C.load(path)
+            changed = copy.deepcopy(original)
+            if component == 'wasm-production':
+                changed['build_contract'].append('role-feature-negative-checks')
+            else:
+                changed['build_contract'].remove('role-feature-negative-checks')
+            path.write_text(json.dumps(changed))
+            with self.subTest(component=component), self.assertRaisesRegex(ValueError, 'identity mismatch'):
+                C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+            self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+            path.write_text(json.dumps(original))
+        C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
 
     def test_bad_payloads_duplicate_paths_modes_and_traversal_are_rejected(self):
         self.packed()

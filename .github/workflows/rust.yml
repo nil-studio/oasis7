@@ -1656,6 +1656,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned Rust toolchains
+        if: >-
+          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -1664,9 +1669,19 @@ jobs:
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
       - name: Stabilize Rust cache toolchains
+        if: >-
+          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: >-
+          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
         with:
           save-if: false
           shared-key: ci-shared-native-trusted-v4
@@ -2509,6 +2524,29 @@ jobs:
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-cache
+      - name: Identify pinned Worker build tool
+        id: worker-meta
+        if: env.CUSTODY_COMPONENT != 'native'
+        run: python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
+      - name: Restore exact Worker build tool
+        id: worker-tool-cache
+        if: env.CUSTODY_COMPONENT != 'native'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.worker-meta.outputs.root }}
+          key: worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}
+      - name: Prepare verified Worker build tool
+        if: env.CUSTODY_COMPONENT != 'native'
+        shell: bash
+        timeout-minutes: 11
+        env:
+          TOOL_CACHE_HIT: ${{ steps.worker-tool-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$TOOL_CACHE_HIT" == true ]]; then
+            python3 scripts/ci-worker-build.py check
+          else
+            python3 scripts/ci-worker-build.py ensure
+          fi
       - name: Install native libraries
         shell: bash
         timeout-minutes: 11
@@ -2539,6 +2577,8 @@ jobs:
         with:
           name: ${{ steps.bundle.outputs.artifact }}
           path: ${{ runner.temp }}/custody-bundle
+          # The verified manifest includes generated dotfiles such as .gitignore.
+          include-hidden-files: true
           compression-level: 0
           if-no-files-found: error
           retention-days: 7

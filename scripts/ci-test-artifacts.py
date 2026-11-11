@@ -318,6 +318,7 @@ DISTFS_CLIPPY_COMMANDS = (
 
 
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
+TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'native-2', 'native-3')
 
 
 def fast_plan(plan):
@@ -442,14 +443,22 @@ def validate_distfs_clippy_handoff(plan):
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
     if 'ordinary_artifact_partition_version' in plan:
-        if (type(plan['ordinary_artifact_partition_version']) is not int
-                or plan['ordinary_artifact_partition_version'] != 1
+        version = plan['ordinary_artifact_partition_version']
+        expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else TARGETED_ORDINARY_ARTIFACT_PARTITIONS
+        if (type(version) is not int or version not in (1, 2)
                 or 'ordinary_partition_version' in plan
                 or 'fast_execution_version' in plan
                 or plan.get('ordinary_execution') == 'inline'
-                or plan.get('scope') not in ('full', 'explicit-full')
                 or 'oasis7_required' not in plan.get('groups', [])
-                or plan.get('ordinary_partitions') != list(ORDINARY_ARTIFACT_PARTITIONS)):
+                or plan.get('ordinary_partitions') != list(expected)
+                or (version == 1 and plan.get('scope') not in ('full', 'explicit-full'))
+                or (version == 2 and (
+                    plan.get('scope') != 'targeted'
+                    or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                    or plan.get('test_policy_changed') is not False
+                    or 'ordinary_fast_targets' in plan or 'ordinary_full_fast_targets' in plan
+                    or not isinstance(plan.get('oasis7_required_packages'), list)
+                    or 'oasis7_chain_runtime' not in plan.get('oasis7_required_packages', [])))):
             raise ValueError('invalid complete ordinary artifact partitions')
         return
     targets = plan.get('ordinary_fast_targets')
@@ -481,7 +490,7 @@ def ordinary_partition_targets(plan=None, partition=None):
         return targets
     if partition not in ordinary_partitions(plan):
         raise ValueError('unknown ordinary partition for the complete parent plan')
-    if plan is not None and plan.get('ordinary_artifact_partition_version') == 1:
+    if plan is not None and plan.get('ordinary_artifact_partition_version') in (1, 2):
         raise ValueError('complete artifact partitions cannot rebuild or narrow Cargo targets')
     if partition == 'all':
         return targets
@@ -2623,8 +2632,10 @@ def ordinary_entries(manifest):
 
 def ordinary_artifact_entries(manifest, plan, partition):
     fast_plan(plan)
-    if plan.get('ordinary_artifact_partition_version') != 1 or partition not in ordinary_partitions(plan):
+    if plan.get('ordinary_artifact_partition_version') not in (1, 2) or partition not in ordinary_partitions(plan):
         raise ValueError('unknown complete ordinary artifact partition')
+    if plan['ordinary_artifact_partition_version'] == 2:
+        return targeted_ordinary_artifact_entries(manifest, partition)
     buckets = {name: [] for name in ORDINARY_ARTIFACT_PARTITIONS}
     entries = ordinary_entries(manifest)
     identities = [(entry['binary'], entry.get('filter')) for entry in entries]
@@ -2679,14 +2690,88 @@ def expand_ordinary_batches(entries, binaries):
     return expanded
 
 
+def targeted_ordinary_artifact_entries(manifest, partition):
+    """Partition real runtime cases, retaining every other complete harness."""
+    owners = TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]
+    entries = expand_ordinary_batches(ordinary_entries(manifest), manifest['binaries'])
+    runtime = [entry for entry in entries if entry.get('batch') and (
+        manifest['binaries'][entry['binary']].get('package'),
+        manifest['binaries'][entry['binary']].get('target'),
+        manifest['binaries'][entry['binary']].get('target_kind'),
+        manifest['binaries'][entry['binary']].get('variant')) == (
+            'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')]
+    if len(runtime) != 1:
+        raise ValueError('targeted ordinary partitions require one complete runtime library')
+    parent = runtime[0]
+    binary = manifest['binaries'][parent['binary']]
+    if len(binary['tests']) != len(set(binary['tests'])):
+        raise ValueError('duplicate runtime case inventory')
+    skipped = set(parent.get('skip', ())) | set(parent.get('skip_exact', ()))
+    cases = set(binary['tests']) - set(binary['ignored_tests']) - skipped
+    if len(cases) < len(owners):
+        raise ValueError('targeted ordinary runtime partitions must each execute behavior tests')
+    # No per-case duration history exists yet. Hash ordering avoids clustering
+    # names from one module, then round-robin balances counts deterministically.
+    ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
+    selected = {owner: set(ordered[index::len(owners)]) for index, owner in enumerate(owners)}
+    if (set.union(*selected.values()) != cases
+            or sum(map(len, selected.values())) != len(cases)
+            or any(not names for names in selected.values())):
+        raise ValueError('incomplete or overlapping runtime case partitions')
+    buckets, loads = {}, {}
+    for owner, names in selected.items():
+        buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
+                               count=len(names))]
+        loads[owner] = len(names)
+
+    def behavior_count(entry):
+        target = manifest['binaries'][entry['binary']]
+        tests = set(target['tests']) - set(target['ignored_tests'])
+        if entry.get('batch'):
+            return len(tests - set(entry.get('skip', ())) - set(entry.get('skip_exact', ())))
+        if 'filter' in entry:
+            return sum(entry['filter'] in name for name in tests)
+        return 1
+
+    remaining = [entry for entry in entries if entry is not parent]
+    identities = [(entry['binary'], entry.get('filter'), entry.get('name')) for entry in remaining]
+    if len(identities) != len(set(identities)):
+        raise ValueError('duplicate ordinary execution item')
+    # Complete integrations, other libraries, snapshots and exclusive singleton
+    # cases stay intact. Count is only a deterministic load estimate, not timing.
+    for entry in sorted(remaining, key=lambda item: (
+            -behavior_count(item), item['binary'], item.get('filter', ''), item.get('name', ''))):
+        count = behavior_count(entry)
+        if count < 1:
+            raise ValueError('empty ordinary execution item')
+        owner = min(owners, key=lambda name: (loads[name], name))
+        buckets[owner].append(entry)
+        loads[owner] += count
+    if sum(len(items) - 1 for items in buckets.values()) != len(remaining):
+        raise ValueError('incomplete ordinary harness partition inventory')
+    if partition == 'controls':
+        return []
+    if partition not in buckets:
+        raise ValueError('unknown targeted ordinary artifact partition')
+    print('ordinary_partition_inventory=' + json.dumps(dict(
+        partition=partition, runtime_binary=parent['binary'], runtime_count=len(selected[partition]),
+        runtime_total=len(cases), runtime_inventory_sha256=hashlib.sha256(
+            '\n'.join(sorted(cases)).encode()).hexdigest(),
+        runtime_selected_sha256=hashlib.sha256('\n'.join(sorted(selected[partition])).encode()).hexdigest(),
+        complete_harnesses=[entry['binary'] for entry in buckets[partition][1:]],
+        expected_count=loads[partition])), flush=True)
+    return buckets[partition]
+
+
 def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
     from ci_process_runner import run
     # An omitted partition retains the local full-bundle execution path.
     # Explicit hosted consumers still require a known native partition.
     artifact_partition = bool(suite == 'ordinary' and not shard and plan
-                              and plan.get('ordinary_artifact_partition_version') == 1
+                              and plan.get('ordinary_artifact_partition_version') in (1, 2)
                               and ordinary_partition is not None)
-    if artifact_partition and (suite != 'ordinary' or shard or ordinary_partition not in ORDINARY_ARTIFACT_PARTITIONS[1:]):
+    if artifact_partition and (suite != 'ordinary' or shard
+                               or ordinary_partition not in ordinary_partitions(plan)[1:]):
         raise ValueError('complete ordinary execution requires its native artifact partition')
     manifest, env = (load(bundle, suite if not shard else None, shard, plan, ordinary_partition=ordinary_partition)
                      if ordinary_partition is not None and not artifact_partition
@@ -2694,7 +2779,8 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
     if suite == 'ordinary' and not shard:
         entries = (ordinary_artifact_entries(manifest, plan, ordinary_partition)
                    if artifact_partition else ordinary_entries(manifest))
-        entries = expand_ordinary_batches(entries, manifest['binaries'])
+        if not (artifact_partition and plan['ordinary_artifact_partition_version'] == 2):
+            entries = expand_ordinary_batches(entries, manifest['binaries'])
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
@@ -2814,7 +2900,7 @@ def main():
     parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
-    parser.add_argument('--ordinary-partition', help='exact native package owner declared by the complete trusted plan')
+    parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
     parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'partition'], default='native')
     args = parser.parse_args()
@@ -2833,7 +2919,7 @@ def main():
         if args.phase == 'partition':
             if args.ordinary_partition is None:
                 parser.error('partition validation requires --ordinary-partition')
-            if plan is not None and plan.get('ordinary_artifact_partition_version') == 1:
+            if plan is not None and plan.get('ordinary_artifact_partition_version') in (1, 2):
                 if args.ordinary_partition not in ordinary_partitions(plan):
                     raise ValueError('unknown complete ordinary artifact partition')
             else:

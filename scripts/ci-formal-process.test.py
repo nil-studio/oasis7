@@ -1413,6 +1413,378 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
 
 
+class TargetedArtifactPartitions(unittest.TestCase):
+    full_sync_cases = (
+        'formal_full_sync_pins_the_first_verified_target_cut_across_providers',
+        'formal_full_sync_rejects_over_budget_material_without_publishing_then_recovers',
+        'formal_full_sync_pins_only_objects_the_successful_candidate_persisted',
+        'formal_full_sync_shared_budget_accumulates_prior_charges_without_publishing',
+    )
+
+    def selection(self):
+        return FastExecutionSelection().selection(packages=('oasis7_chain_runtime',)) | dict(
+            ordinary_artifact_partition_version=2,
+            ordinary_partitions=['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+
+    def manifest(self, selected=None):
+        cases = [f'case_{index:04d}' for index in range(1288)] + list(self.full_sync_cases)
+        cases += sorted(artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)
+        return dict(scope='ordinary', execution_plan=selected or self.selection(), binaries={
+            'runtime-tests': dict(package='oasis7_chain_runtime', target='oasis7_chain_runtime',
+                target_kind=['lib'], variant='required', ordinary=True, test=True, path='runtime', cwd='.',
+                tests=cases + ['ignored_child'], ignored_tests=['ignored_child']),
+            'integration': dict(package='oasis7_chain_runtime', target='real_http',
+                target_kind=['test'], variant='required', ordinary=True, test=True, path='integration', cwd='.',
+                tests=['real_http_success', 'real_http_refusal', 'real_http_recovery'], ignored_tests=[]),
+            'new-integration': dict(package='oasis7_chain_runtime', target='new_fixture',
+                target_kind=['test'], variant='required', ordinary=True, test=True, path='new', cwd='.',
+                tests=['new_case'], ignored_tests=[]),
+        })
+
+    def coverage(self, manifest, entries):
+        selected = []
+        for entry in entries:
+            binary = manifest['binaries'][entry['binary']]
+            if entry.get('batch'):
+                names = set(binary['tests']) - set(binary['ignored_tests'])
+                names -= set(entry.get('skip', ())) | set(entry.get('skip_exact', ()))
+            elif 'filter' in entry:
+                names = {name for name in binary['tests'] if entry['filter'] in name
+                         and name not in binary['ignored_tests']}
+            else:
+                names = {entry['name']}
+            selected.extend((entry['binary'], name) for name in names)
+        return selected
+
+    def test_complete_runtime_and_other_harness_inventory_has_one_nonempty_owner(self):
+        selected = self.selection()
+        manifest = self.manifest(selected)
+        groups = {owner: artifacts.ordinary_artifact_entries(manifest, selected, owner)
+                  for owner in selected['ordinary_partitions']}
+        self.assertEqual(groups.pop('controls'), [])
+        actual = [item for entries in groups.values() for item in self.coverage(manifest, entries)]
+        expected = [('runtime-tests', name) for name in manifest['binaries']['runtime-tests']['tests']
+                    if name != 'ignored_child']
+        expected += [('integration', name) for name in
+                     ('real_http_success', 'real_http_refusal', 'real_http_recovery')]
+        expected.append(('new-integration', 'new_case'))
+        self.assertCountEqual(actual, expected)
+        self.assertEqual(len(actual), len(set(actual)))
+        self.assertTrue(all(self.coverage(manifest, entries) for entries in groups.values()))
+        self.assertEqual(sum(owner == 'runtime-tests' for owner, _ in actual), 1294)
+        self.assertTrue(all(('runtime-tests', name) in actual for name in self.full_sync_cases))
+        exclusive = [entry for entries in groups.values() for entry in entries if entry.get('exclusive')]
+        self.assertCountEqual([entry['name'] for entry in exclusive], artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)
+        self.assertTrue(all(entry.get('batch') is not True for entry in exclusive))
+        reordered = copy.deepcopy(manifest)
+        reordered['binaries'] = dict(reversed(list(reordered['binaries'].items())))
+        for binary in reordered['binaries'].values():
+            binary['tests'].reverse()
+        for owner, entries in groups.items():
+            self.assertEqual(artifacts.ordinary_artifact_entries(reordered, selected, owner), entries)
+        manifest['binaries']['runtime-tests']['tests'].append('new_runtime_case')
+        updated = [item for owner in groups for item in self.coverage(manifest,
+                   artifacts.ordinary_artifact_entries(manifest, selected, owner))]
+        self.assertCountEqual(updated, expected + [('runtime-tests', 'new_runtime_case')])
+
+    def test_same_original_producer_features_and_complete_targets_are_required(self):
+        selected = self.selection()
+        original = {key: value for key, value in selected.items()
+                    if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions')}
+        self.assertEqual(artifacts.build_variants('ordinary', selected),
+                         artifacts.build_variants('ordinary', original))
+        self.assertEqual(artifacts.required_native_commands(selected),
+                         artifacts.required_native_commands(original))
+        command = next(args for name, args, _ in artifacts.build_variants('ordinary', selected)
+                       if name == 'required')
+        self.assertIn('--tests', command)
+        self.assertNotIn('--no-default-features', command)
+        self.assertIn('oasis7_chain_runtime/test_tier_required', command)
+        for owner in selected['ordinary_partitions']:
+            with self.subTest(owner=owner), self.assertRaisesRegex(ValueError, 'cannot rebuild'):
+                artifacts.build_variants('ordinary', selected, ordinary_partition=owner)
+        self.assertEqual(artifacts.ordinary_partitions(original), ['all'])
+        self.assertEqual(artifacts.ordinary_partitions(CompleteArtifactPartitions().selection()),
+                         list(artifacts.ORDINARY_ARTIFACT_PARTITIONS))
+
+    def test_capability_rejects_missing_unknown_duplicate_and_incompatible_owners(self):
+        changes = [
+            ('ordinary_artifact_partition_version', value) for value in (True, None, 0, 3, '2')
+        ] + [
+            ('ordinary_partitions', []), ('ordinary_partitions', ['all']),
+            ('ordinary_partitions', ['controls', 'native-0', 'native-1', 'native-2']),
+            ('ordinary_partitions', ['controls', 'native-0', 'native-1', 'native-2', 'native-2']),
+            ('ordinary_partitions', ['controls', 'native-0', 'native-1', 'native-2', 'unknown']),
+            ('scope', 'full'), ('execution_profile', 'candidate-full'),
+            ('test_policy_changed', True), ('test_policy_changed', 0),
+            ('oasis7_required_packages', []), ('oasis7_required_packages', None),
+            ('groups', ['baseline']), ('fast_execution_version', 1),
+            ('ordinary_partition_version', 1), ('ordinary_execution', 'inline'),
+            ('ordinary_fast_targets', []), ('ordinary_full_fast_targets', []),
+        ]
+        for key, value in changes:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(self.selection() | {key: value})
+        for field in ('ordinary_artifact_partition_version', 'ordinary_partitions', 'fast_plan_version',
+                      'test_policy_changed', 'oasis7_required_packages'):
+            selected = self.selection()
+            del selected[field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(selected)
+        for owner in ('all', 'controls', 'runtime', 'unknown', '../native-0'):
+            with self.subTest(owner=owner), patch.object(artifacts, 'load') as load:
+                with self.assertRaises(ValueError):
+                    artifacts.execute(Path('.'), 'ordinary', Path('unused'), plan=self.selection(),
+                                      ordinary_partition=owner)
+                load.assert_not_called()
+
+    def test_runtime_identity_empty_and_duplicate_inventory_fail_closed(self):
+        for change in ('missing', 'package', 'target', 'kind', 'variant', 'duplicate-target',
+                       'duplicate-case', 'empty', 'too-small'):
+            manifest = self.manifest()
+            binary = manifest['binaries']['runtime-tests']
+            if change == 'missing':
+                del manifest['binaries']['runtime-tests']
+            elif change in ('package', 'target', 'variant'):
+                binary[change] = 'unrelated'
+            elif change == 'kind':
+                binary['target_kind'] = ['test']
+            elif change == 'duplicate-target':
+                manifest['binaries']['second-runtime'] = dict(binary)
+            elif change == 'duplicate-case':
+                binary['tests'].append(binary['tests'][0])
+            else:
+                binary['tests'] = [] if change == 'empty' else ['one', 'two', 'three']
+                binary['ignored_tests'] = []
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                artifacts.ordinary_artifact_entries(manifest, self.selection(), 'native-0')
+
+    def test_deferred_cases_stay_deferred_and_unpartitioned_fallback_stays_complete(self):
+        selected = self.selection() | dict(formal_full_profiles_only_version=1, formal_shards=[],
+            formal_deferred_ordinary_cases={'runtime-tests': sorted(artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)})
+        manifest = self.manifest(selected)
+        actual = [item for owner in selected['ordinary_partitions'][1:] for item in self.coverage(
+                  manifest, artifacts.ordinary_artifact_entries(manifest, selected, owner))]
+        expected = self.coverage(manifest, artifacts.ordinary_entries(manifest))
+        self.assertCountEqual(actual, expected)
+        self.assertFalse(set(name for _, name in actual) & artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)
+        calls = []
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(manifest, {})), \
+             patch('ci_process_runner.run', side_effect=lambda command, cwd, env, suite, name, *args, **kwargs:
+                   calls.append(name) or dict(passed=True, cleanup_result='clean')):
+            artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results', plan=selected)
+        self.assertCountEqual(calls, ['runtime-tests', 'integration', 'new-integration'])
+
+
+class TargetedArtifactProcess(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.root = Path(cls.temporary.name).resolve()
+        (cls.root / 'Cargo.toml').write_text('[workspace]\nmembers=["runtime","viewer"]\nresolver="2"\n')
+        (cls.root / '.gitignore').write_text('target/\nbundle/\nconsumer/\n*.tar.gz\n')
+        runtime, viewer = cls.root / 'runtime', cls.root / 'viewer'
+        for member in (runtime, viewer):
+            (member / 'src').mkdir(parents=True)
+        (runtime / 'Cargo.toml').write_text(
+            '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2021"\n'
+            '[features]\ndefault=["wasmtime","node-libp2p"]\nwasmtime=[]\nnode-libp2p=[]\n'
+            'test_tier_required=[]\n')
+        source = r'''
+#[cfg(not(all(feature="wasmtime", feature="node-libp2p", feature="test_tier_required")))]
+compile_error!("the original runtime feature combination is required");
+pub fn mark(name: &str) {
+    let path = std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap()).join(name);
+    std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();
+}
+#[test] fn case() { mark("case"); }
+#[test] fn case_suffix() { mark("case_suffix"); }
+#[test] fn prefix_case() { mark("prefix_case"); }
+#[test] fn exclusive_first() { mark("exclusive_first"); }
+#[test] fn exclusive_second() { mark("exclusive_second"); }
+#[test] fn parent() {
+    let result = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "ignored_child", "--ignored"])
+        .env("FIXTURE_CHILD", "1").output().unwrap();
+    assert!(result.status.success(), "{:?}", result);
+    mark("parent");
+}
+#[test] #[ignore] fn ignored_child() {
+    assert_eq!(std::env::var("FIXTURE_CHILD").unwrap(), "1");
+    mark("child-called");
+}
+#[test] fn fault() {
+    let mode = std::env::var("FIXTURE_MODE").unwrap_or_default();
+    if mode == "panic" { panic!("real shard failure"); }
+    if mode == "timeout" || mode == "cancel" {
+        mark("fault-started");
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
+    if mode == "leak" {
+        let child = std::process::Command::new(std::env::var("FIXTURE_PYTHON").unwrap())
+            .args(["-c", "import time; time.sleep(30)"])
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()).spawn().unwrap();
+        std::fs::write(std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap())
+            .join("leaked-pid"), child.id().to_string()).unwrap();
+        std::mem::forget(child);
+    }
+    mark("fault");
+}
+'''
+        source += ''.join(f'#[test] fn generated_{index}() {{ mark("generated_{index}"); }}\n'
+                          for index in range(12))
+        source += ''.join(f'#[test] fn {name}() {{ mark("{name}"); }}\n'
+                          for name in TargetedArtifactPartitions.full_sync_cases)
+        (runtime / 'src/lib.rs').write_text(source)
+        (runtime / 'src/main.rs').write_text('fn main() {}\n')
+        (runtime / 'tests').mkdir()
+        (runtime / 'tests/process.rs').write_text(
+            '#[test] fn complete_integration() {\n'
+            ' assert!(std::process::Command::new(env!("CARGO_BIN_EXE_oasis7_chain_runtime")).status().unwrap().success());\n'
+            ' oasis7_chain_runtime::mark("complete_integration");\n}\n'
+            '#[test] fn new_integration_case() { oasis7_chain_runtime::mark("new_integration_case"); }\n')
+        (viewer / 'Cargo.toml').write_text(
+            '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\nedition="2021"\n'
+            '[features]\ntest_tier_required=[]\n[[bin]]\nname="oasis7_viewer_live"\npath="src/main.rs"\n')
+        (viewer / 'src/main.rs').write_text('fn main() {}\n')
+        cls.config = cls.root / 'scripts/ci-formal-process-suites.json'
+        cls.config.parent.mkdir()
+        cls.config.write_text('{}')
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=cls.root, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for command in (['git', 'init', '-q'], ['git', 'add', '.'],
+                        ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                         'commit', '-qm', 'fixture']):
+            subprocess.run(command, cwd=cls.root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        cls.sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.root, text=True).strip()
+        cls.selected = TargetedArtifactPartitions().selection() | dict(
+            source_sha=cls.sha, tested_sha=cls.sha, policy_sha=cls.sha,
+            architecture=dict(source=cls.sha, tested=cls.sha))
+        cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
+        with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
+             patch.dict(os.environ, SOURCE_SHA=cls.sha):
+            artifacts.build(cls.bundle, 'ordinary', plan=cls.selected)
+            archive = cls.root / 'ordinary.tar.gz'
+            artifacts.pack(cls.bundle, archive, suite='ordinary', plan=cls.selected)
+        cls.consumer.mkdir()
+        with tarfile.open(archive) as compressed:
+            compressed.extractall(cls.consumer, filter='data')
+        cls.manifest = json.loads((cls.consumer / 'manifest.json').read_text())
+
+    def context(self, records, **environment):
+        stack = ExitStack()
+        stack.enter_context(patch.object(artifacts, 'ROOT', self.root))
+        stack.enter_context(patch.object(artifacts, 'CONFIG', self.config))
+        stack.enter_context(patch.object(artifacts, 'ORDINARY_EXCLUSIVE_RUNTIME_CASES',
+                                        frozenset(('exclusive_first', 'exclusive_second'))))
+        stack.enter_context(patch.dict(os.environ, SOURCE_SHA=self.sha, FIXTURE_RECORDS=str(records),
+                                        FIXTURE_PYTHON=sys.executable, **environment))
+        return stack
+
+    def test_real_build_pack_load_and_four_owners_equal_the_original_complete_execution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline, partitioned = root / 'baseline', root / 'partitioned'
+            baseline.mkdir()
+            partitioned.mkdir()
+            with self.context(baseline):
+                artifacts.execute(self.consumer, 'ordinary', root / 'baseline.jsonl', plan=self.selected)
+            tools = root / 'tools'
+            tools.mkdir()
+            calls = root / 'unexpected-compiler'
+            for name in ('cargo', 'rustc', 'rustup'):
+                executable = tools / name
+                executable.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
+                                      f'Path({str(calls)!r}).write_text("unexpected compiler")\nraise SystemExit(91)\n')
+                executable.chmod(0o755)
+            with self.context(partitioned, PATH=str(tools) + os.pathsep + os.environ['PATH']):
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futures = [pool.submit(artifacts.execute, self.consumer, 'ordinary',
+                               root / (owner + '.jsonl'), plan=self.selected, ordinary_partition=owner)
+                               for owner in self.selected['ordinary_partitions'][1:]]
+                    for future in futures:
+                        future.result()
+            self.assertFalse(calls.exists(), 'compiled consumers cannot require Cargo, rustc or rustup')
+            self.assertEqual(sorted(path.name for path in baseline.iterdir()),
+                             sorted(path.name for path in partitioned.iterdir()))
+            self.assertTrue((partitioned / 'child-called').is_file())
+            self.assertTrue(all((partitioned / name).is_file()
+                                for name in TargetedArtifactPartitions.full_sync_cases))
+            baseline_records = [json.loads(line) for line in (root / 'baseline.jsonl').read_text().splitlines()]
+            records = [json.loads(line) for owner in self.selected['ordinary_partitions'][1:]
+                       for line in (root / (owner + '.jsonl')).read_text().splitlines()]
+            self.assertEqual(sum(record['expected_count'] for record in records),
+                             sum(record['expected_count'] for record in baseline_records))
+            self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+
+    def test_real_panic_partial_count_timeout_cancel_and_leaked_child_fail_the_owner(self):
+        for mode in ('panic', 'count', 'timeout', 'cancel', 'leak'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                records = root / 'records'
+                records.mkdir()
+                receipts = root / 'receipts.jsonl'
+                with self.context(records, FIXTURE_MODE=mode):
+                    owner = next(owner for owner in self.selected['ordinary_partitions'][1:] if
+                        ('runtime-tests', 'fault') in TargetedArtifactPartitions().coverage(self.manifest,
+                         artifacts.ordinary_artifact_entries(self.manifest, self.selected, owner)))
+                    def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                        if mode == 'count' and name == 'runtime-tests':
+                            command = command + ['--skip', 'fault']
+                        stop, waiter = threading.Event(), None
+                        if mode == 'cancel' and name == 'runtime-tests':
+                            def cancel_after_start():
+                                deadline = time.monotonic() + 5
+                                while not (records / 'fault-started').exists() and time.monotonic() < deadline:
+                                    time.sleep(0.01)
+                                stop.set()
+                            waiter = threading.Thread(target=cancel_after_start)
+                            waiter.start()
+                        try:
+                            return run(command, cwd, env, suite, name, results, expected_count=expected_count,
+                                       timeout_seconds=0.3 if mode == 'timeout' else 6,
+                                       cancellation_event=stop)
+                        finally:
+                            if waiter:
+                                waiter.join(timeout=6)
+                    with patch('ci_process_runner.run', side_effect=invoke):
+                        with self.assertRaises(RuntimeError):
+                            artifacts.execute(self.consumer, 'ordinary', receipts, plan=self.selected,
+                                              ordinary_partition=owner)
+                failed = next(record for record in map(json.loads, receipts.read_text().splitlines())
+                              if record['test_name'] == 'runtime-tests')
+                self.assertFalse(failed['passed'])
+                if mode == 'panic':
+                    self.assertNotEqual(failed['exit_code'], 0)
+                elif mode == 'count':
+                    self.assertEqual(failed['exit_code'], 0)
+                    self.assertFalse(failed['count_ok'])
+                else:
+                    self.assertTrue(failed[{'timeout': 'timeout', 'cancel': 'cancelled',
+                                            'leak': 'leaked_processes'}[mode]])
+                    self.assertEqual(failed['cleanup_result'], 'clean')
+
+    def test_actual_downloaded_inventory_and_source_tested_policy_identity_remain_required(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.context(root):
+                for field in ('source_sha', 'tested_sha', 'policy_sha'):
+                    with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'identity|execution plan'):
+                        artifacts.load(self.consumer, 'ordinary', plan=self.selected | {field: 'f' * 40})
+                damaged = root / 'damaged'
+                shutil.copytree(self.consumer, damaged)
+                manifest = copy.deepcopy(self.manifest)
+                manifest['binaries']['runtime-tests']['tests'].remove('case_suffix')
+                (damaged / 'manifest.json').write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(ValueError, 'downloaded test inventory'):
+                    artifacts.execute(damaged, 'ordinary', root / 'never-created', plan=self.selected,
+                                      ordinary_partition='native-0')
+                self.assertFalse((root / 'never-created').exists())
+
+
 class NativePackagePartitions(unittest.TestCase):
     def selection(self):
         targets = [FastTargetInventory().target(package=package, target_kind=kind, target_name=name)
@@ -1877,6 +2249,53 @@ class ParallelNativeExecution(unittest.TestCase):
 
 
 class DriverCoverage(unittest.TestCase):
+    def test_targeted_native_driver_keeps_one_controls_owner_and_rejects_unknown_before_cargo(self):
+        root = HERE.parent
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        selected = TargetedArtifactPartitions().selection() | dict(
+            source_sha=sha, tested_sha=sha, policy_sha=sha, architecture=dict(source=sha, tested=sha),
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_viewer_codec'],
+            oasis7_required_wasm_packages=['oasis7_viewer_codec'])
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary = Path(temporary)
+            log, selection = temporary / 'calls', temporary / 'selection.json'
+            selection.write_text(json.dumps(selected))
+            cargo = temporary / 'cargo'
+            cargo.write_text('#!' + sys.executable + '\nimport json,os,sys\n'
+                'args=[arg for arg in sys.argv[1:] if arg!="--verbose"]\n'
+                'with open(os.environ["CARGO_CALLS"],"a") as stream: stream.write(json.dumps(args)+"\\n")\n'
+                'raise SystemExit(19 if os.environ.get("FAIL_CARGO")==args[0] else 0)\n')
+            cargo.chmod(0o755)
+            environment = dict(os.environ, PATH=str(temporary) + os.pathsep + os.environ['PATH'],
+                CARGO_CALLS=str(log), SOURCE_SHA=sha, CI_VERBOSE='1',
+                OASIS7_CI_TEST_BUNDLE=str(temporary / 'missing-bundle'))
+            for owner, failure in [('controls', ''), ('controls', 'clippy'), ('controls', 'check'),
+                                   *[(owner, '') for owner in selected['ordinary_partitions'][1:]],
+                                   ('all', ''), ('unknown', ''), ('native-4', '')]:
+                log.unlink(missing_ok=True)
+                result = subprocess.run(['bash', str(HERE / 'ci-tests.sh'), 'required',
+                    '--group', 'oasis7_required', '--plan', str(selection), '--ordinary-partition', owner,
+                    '--repo-root', str(root)], cwd=root, env=environment | {'FAIL_CARGO': failure},
+                    capture_output=True, text=True)
+                calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+                with self.subTest(owner=owner, failure=failure):
+                    if owner == 'controls':
+                        self.assertEqual(result.returncode, 19 if failure else 0, result.stderr)
+                        self.assertEqual([call[0] for call in calls],
+                                         ['clippy'] if failure == 'clippy' else ['clippy', 'check'])
+                        self.assertIn('oasis7_chain_runtime', calls[0])
+                        self.assertIn('oasis7_viewer_codec', calls[0])
+                        if len(calls) == 2:
+                            self.assertIn('wasm32-unknown-unknown', calls[1])
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertEqual(calls, [])
+                        if owner in selected['ordinary_partitions']:
+                            self.assertIn('manifest.json', result.stderr)
+                        else:
+                            self.assertIn('unknown complete ordinary artifact partition', result.stderr)
+                            self.assertNotIn('manifest.json', result.stderr)
+
     def test_complete_artifact_cli_controls_run_once_and_consumers_never_call_cargo(self):
         root = HERE.parent
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
