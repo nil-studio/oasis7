@@ -353,6 +353,18 @@ class Workflow(unittest.TestCase):
                 'name: governance-preview-${{ github.run_id }}-${{ github.run_attempt }}',
                 'if: always()'):
             self.assertIn(required, job)
+        condition = re.search(r'^    if: >-\n(.*?)^    runs-on:', job, re.M | re.S)[1]
+        values = {'github.event_name': 'pull_request', 'needs.select.result': 'success',
+                  'needs.pr-fast-preview-plan.result': 'success',
+                  'needs.pr-fast-preview-plan.outputs.enabled': 'true'}
+        # select admits PRs after its periodic-only ancestor is skipped.
+        ancestors = ['skipped', 'success', 'success']
+        self.assertTrue(effective_job_condition(condition, values, ancestors))
+        self.assertFalse(effective_job_condition(condition, values, ancestors, cancelled=True))
+        for prerequisite in ('needs.select.result', 'needs.pr-fast-preview-plan.result'):
+            for outcome in ('failure', 'cancelled', 'skipped'):
+                changed = dict(values, **{prerequisite: outcome})
+                self.assertFalse(effective_job_condition(condition, changed, ancestors))
         self.assertNotIn('continue-on-error', job)
         self.assertNotRegex(job, r'(?m)^\s+[a-z-]+:\s+write\s*$')
         self.assertNotIn('uses: actions/cache', job)

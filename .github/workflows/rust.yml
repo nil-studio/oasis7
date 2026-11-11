@@ -458,6 +458,7 @@ jobs:
   pr-governance-preview:
     needs: [select, pr-fast-preview-plan]
     if: >-
+      always() && !cancelled() &&
       github.event_name == 'pull_request' && needs.select.result == 'success' &&
       needs.pr-fast-preview-plan.result == 'success' &&
       needs.pr-fast-preview-plan.outputs.enabled == 'true'
