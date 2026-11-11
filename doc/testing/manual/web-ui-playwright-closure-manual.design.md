@@ -44,7 +44,7 @@
 每条 UI 记录绑定 `caseId`、可见 action、候选/world/window 身份、访问模式和执行 lane、关键输入/输出、反馈阶段、provider kind/model/endpoint route/preflight provenance（如适用）、raw screenshot/state/console/request-error/API/journal refs、每份 artifact 的 byte length/digest、mock 禁用/检测结果、失败 signature 与 exact unmet assertion。秘密只由受控运行时持有，不复制进报告或 artifact。PWT-003/005/006/007 按手册矩阵保持 planned，直到相同候选实际执行并保存可读产物。
 
 <a id="browser-functional-fixture-contract"></a>
-### 可控时序的真实前端功能回归（目标，未实现）
+### 可控时序的真实前端功能回归（fixture-functional）
 
 Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](../prd.md#browser-functional-regression)。当前已有 JS-required、Vitest/jsdom、tooling fixture smoke 与真实 shell 的视觉 fixture；本节补可复用时序控制，未把现有能力描述为缺失。
 
@@ -81,7 +81,7 @@ runner 的浏览器程序配置只表示一个字面文件路径或 PATH 中的�
 
 case 结果区分 pass、failed、blocked 与有具体不适用原因的 not_applicable；必要 case 缺浏览器/构建/fixture、超时、零执行、缺截图/trace 或报告失败均非零结束，不能记 skipped 后令 suite 通过。总通过仅覆盖实际执行且全部满足的适用 case 和声明的浏览器/viewport。CI 选择仍由现有 planner/Viewer driver 决定；本节不新增隐式 gate，不将普通视觉 fixture 的绿色结果充当该全矩阵结果。
 
-首个实现片只交付真实装配、网络隔离、barrier、BFR-P01–P03 及失败产物；其余 P04–P07 与选测负例沿 #5387 保留，矩阵只执行一部分时报告部分覆盖。域缺陷分别回到 #5167、#4966、#5116 的原责任边界，不在测试机制里重写反馈/权限规则。真实后端/provider、合法签名/权限、canonical receipt/world delta 与发布验证仍按原 PWT/S6/full 接续，fixture-functional 无需先启动完整 launcher/LLM 栈，也不能代替这些验收。
+当前 runner 已覆盖真实装配、网络隔离、barrier、BFR-P01–P07、deferred signer、连接代次与真实 dispose/remount，并接入既有 `viewer_js_required` 选测和证据归档；矩阵只执行一部分时报告部分覆盖。P05 的旧连接/过期授权隔离与 P06 合并覆盖，重复结果由消费端幂等守卫拒绝。域缺陷分别回到 #5167、#4966、#5116 的原责任边界，不在测试机制里重写反馈/权限规则。真实后端/provider、合法签名/权限、canonical receipt/world delta 与发布验证仍按原 PWT/S6/full 接续，fixture-functional 无需先启动完整 launcher/LLM 栈，也不能代替这些验收。
 
 <a id="4-约束与边界"></a>
 ## 4. 约束与边界：风险限制

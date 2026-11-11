@@ -95,5 +95,5 @@ test('final participant publication and audit roll back together after actual Wo
     assert.equal(saved.participants[0].has_result,false);
     assert.equal(saved.participants[0].reads,8);
     assert.equal(saved.participant_final_audits,0);
-  });
+  },{settleSubmits:true});
 });

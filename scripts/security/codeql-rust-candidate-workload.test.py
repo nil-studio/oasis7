@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import sys
 import tempfile
 import time
@@ -159,6 +160,9 @@ class Workload(unittest.TestCase):
         original = Path(self.closure['codeql/rust-all']['root'])
         (original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
         (original / m.comparison.TYPE_FILE).write_text('stock')
+        self.core_bytes=b'extensions:\n'+m.MODEL_MARKER+b'      # Existing fixed models\n'
+        (original / m.MODEL_FILE).parent.mkdir(parents=True)
+        (original / m.MODEL_FILE).write_bytes(self.core_bytes)
         (original / 'rust.dbscheme').write_text('schema')
         (self.db / 'codeql-database.yml').write_text('language: rust\nfinalised: true\n')
         self.deadline = time.time() + 5000
@@ -181,14 +185,19 @@ class Workload(unittest.TestCase):
         self.provenance = dict(candidate='/cargo/git/libp2p-0.57.0', legacy='/cargo/registry/libp2p-0.56.0')
         for name, value in [('capacity-budget', self.budget), ('default-suite', self.suite), ('library-closure', self.closure),
                             ('resources', self.resources), ('libp2p-provenance', self.provenance),
-                            ('capacity-prepare-terminal', dict(common, status='PREPARED')),
+                            ('capacity-prepare-terminal', dict(common, status='PREPARED', image_contract_version=m.IMAGE_CONTRACT)),
                             ('capacity-capture-terminal', self.capture), ('capacity-finish-terminal', self.finish),
-                            ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest() for n, t in m.capacity.semantic_queries(self.source).items()})]:
+                            ('semantic-query-contract', m.capacity.semantic_contract(self.source,image_version=m.IMAGE_CONTRACT)),
+                            ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest() for n, t in m.capacity.semantic_queries(self.source,image_version=m.IMAGE_CONTRACT).items()})]:
             self.write(self.checkpoint / (name + '.json'), value)
         self.write(self.checkpoint / 'hashes.json', {p.name: m.runtime.digest(p) for p in self.checkpoint.iterdir()})
         self.calls = []; self.failed_stage = self.mutate = self.oracle_failure = self.bad_decode = self.bad_header = None
+        self.clean_batch_timeout = self.bad_summary = self.cancel_after_batch = False
         self.stack = contextlib.ExitStack(); self.addCleanup(self.stack.close)
         for target, key, value in ((m, 'DEFAULT_ENTRIES_SHA', self.entries_sha), (m, 'SUITE_SHA', self.suite_sha),
+                                   (m, 'MODEL_OFFICIAL_SHA', hashlib.sha256(self.core_bytes).hexdigest()),
+                                   (m, 'MODEL_CANDIDATE_SHA', hashlib.sha256(self.core_bytes.replace(m.MODEL_MARKER,m.MODEL_MARKER+m.MODEL_LINE)).hexdigest()),
+                                   (m.comparison, 'OFFICIAL_SHA', hashlib.sha256(b'stock').hexdigest()),
                                    (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
         self.stack.enter_context(patch.dict(os.environ, RUNNER_TEMP=str(self.runner), GITHUB_OUTPUT=str(self.output)))
@@ -208,7 +217,7 @@ class Workload(unittest.TestCase):
         return private
 
     def rows(self, name):
-        expected = m.capacity.expected(name)
+        expected = m.capacity.expected(name,image_version=m.IMAGE_CONTRACT)
         if expected is not None: return [[key, str(value)] for key, value in expected.items()]
         if name == 'Files':
             model = m.capacity.model
@@ -218,7 +227,7 @@ class Workload(unittest.TestCase):
         return [[str(self.source / m.capacity.model.BASE / context / 'src/adapter.rs'), '42', 'with_existing_identity',
                  self.provenance[context] + '/src/builder/phase/identity.rs']]
 
-    def cli(self, argv, cwd, output, end, timeout, out, env, file_limit=None):
+    def cli(self, argv, cwd, output, end, timeout, out, env, file_limit=None, **observation):
         name = output.name[:-4]
         self.calls.append((name, argv, end, timeout, file_limit))
         self.assertIsNone(file_limit, 'full database must not inherit the small probe file limit')
@@ -237,15 +246,42 @@ class Workload(unittest.TestCase):
                                    relativeName=pack + '/' + str(path.relative_to(root)), qlPackName=pack))
         elif name == 'database-identity': self.write(output, dict(sourceLocationPrefix=str(self.source), languages=['rust'], datasetFolder=str(self.db / 'db-rust')))
         elif name == 'candidate-workload-batch':
+            self.assertTrue(observation['restricted_output'])
+            self.assertIn('--evaluator-log-level=3', argv)
+            self.assertIn('--no-tuple-counting', argv)
+            self.assertEqual(m.runtime.CAP, m.candidate_profile.OUTPUT_CAP +
+                             m.runtime.output_bytes(out)-m.runtime.output_bytes(output.parent))
             records = m.read_json(self.out / 'query-inputs.json')
             paths = m.result_paths(records, self.db)
             for label, path in paths.items():
                 path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(('BQRS-' + label).encode())
                 if self.failed_stage == name: break
             output.write_text('batch output')
+            capture = observation['evaluator_capture']
+            capture.feed((json.dumps(dict(type='LOG_HEADER', logVersion='0.5.0', codeqlVersion='2.27.4'))+
+                          '\n'+json.dumps(dict(type='LOG_FOOTER'))).encode())
+            capture.finish(True, True)
+            for stream in ('stdout','stderr'): observation['observer'].feed(stream, b'', final=True)
             if self.mutate == 'candidate': (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('mutated')
+            if self.mutate == 'model': (self.work / 'candidate-rust-all' / m.MODEL_FILE).write_text('mutated')
             if self.mutate == 'query': (self.work / 'default-queries/queries/Q00.ql').write_text('mutated')
             if self.mutate == 'database': (self.db / 'codeql-database.yml').write_text('mutated')
+        elif name == 'official-summary':
+            self.assertTrue(observation['restricted_output'])
+            self.assertEqual(argv[1:3], ['generate','log-summary'])
+            self.assertEqual(timeout, 20)
+            self.assertGreater(m.runtime.output_bytes(self.out / 'candidate-observation'), 0)
+            self.assertTrue((self.out / 'raw-results.json').is_file())
+            self.assertTrue((self.out / 'database_metadata-run-after.json').is_file())
+            value = dict(raHash='fixture-ra', predicateName='fixture-predicate', appearsAs={},
+                         evaluationStrategy='EXTENSIONAL', completionTime='2026-11-11T00:00:00Z',
+                         dependencies={}, millis=7, position='', queryCausingWork='fixture-query', resultSize=1)
+            if self.bad_summary: value['unrecognized'] = 'RAW_CANARY_UNKNOWN_SUMMARY'
+            observer = observation['observer']
+            data = (json.dumps(dict(summaryLogVersion='0.4.0', codeqlVersion='2.27.4', startTime='2026-11-11T00:00:00Z'))+
+                    '\n'+json.dumps(value)).encode()
+            output.write_bytes(observer.feed('stdout', data, final=True))
+            observer.feed('stderr', b'', final=True)
         elif name.startswith('info-'): self.write(output, {'result-sets': [{'name': '#select', 'rows': 1}]})
         elif name.startswith('decoded-'): self.write(output, {'#select': {'tuples': [] if self.bad_decode == name else [[1]]}})
         elif name == 'interpret-default-results':
@@ -267,7 +303,13 @@ class Workload(unittest.TestCase):
                 writer = csv.writer(stream); writer.writerow(headers[query])
                 writer.writerows([] if query == self.oracle_failure else rows)
         else: self.fail('unrecognized CLI stage ' + name)
-        if name == self.failed_stage: raise TimeoutError('injected command timeout')
+        if name == 'candidate-workload-batch' and self.cancel_after_batch:
+            os.kill(os.getpid(), signal.SIGTERM)
+        if name == self.failed_stage:
+            if name == 'candidate-workload-batch' and self.clean_batch_timeout:
+                raise m.runtime.PhaseError(dict(exit=143, failure_kind='timeout', cleanup_errors=[], evidence_errors=[],
+                                               error='injected command timeout'))
+            raise TimeoutError('injected command timeout')
         return dict(exit=0, argv=argv)
 
     def invoke(self, phase, **outcomes):
@@ -309,8 +351,16 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-v2')
+        self.assertEqual(terminal['image_contract_version'],'image-v2')
+        self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
+        model=m.read_json(self.out/'lines-model-identity.json')
+        self.assertEqual(model['changed_files'],sorted([m.MODEL_FILE,m.comparison.TYPE_FILE]))
+        self.assertEqual(set(model['official_files']),set(model['candidate_files']))
         self.assertEqual(terminal['production_capacity'], 'UNKNOWN'); self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
         self.assertEqual(terminal['final_hosted_job_margin'], 'NOT_OBSERVED')
+        self.assertEqual(terminal['performance_observation']['status'], 'COMPLETE')
+        self.assertEqual(sum(c[0]=='official-summary' for c in self.calls), 1)
         self.assertEqual(len(terminal['public_semantic_tables']), 7)
         self.assertEqual(len(m.read_json(self.out / 'default-query-results.json')), 37)
         self.assertTrue((self.work / 'default-results.sarif').exists()); self.assertFalse(any(self.out.rglob('*.sarif')))
@@ -328,6 +378,90 @@ class Workload(unittest.TestCase):
         self.assertEqual(raw['01']['status'], 'NOT_PRODUCED')
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['primary_failure']['stage'], self.failed_stage)
+        self.assertNotIn('official-summary', names)
+
+    def test_clean_timeout_preserves_primary_failure_and_allows_one_bounded_summary(self):
+        self.prepare(); self.failed_stage='candidate-workload-batch'; self.clean_batch_timeout=True
+        self.assertEqual(self.invoke('run'),1)
+        terminal=m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertEqual(terminal['primary_failure']['stage'],'candidate-workload-batch')
+        self.assertEqual(terminal['batch']['status'],'INCOMPLETE')
+        self.assertEqual(terminal['public_semantics'],'NOT_REACHED')
+        self.assertEqual(sum(c[0]=='official-summary' for c in self.calls),1)
+
+    def test_core_result_preservation_failure_blocks_summary_after_clean_timeout(self):
+        self.prepare(); self.failed_stage='candidate-workload-batch'; self.clean_batch_timeout=True
+        with patch.object(m,'preserve_results',side_effect=RuntimeError('injected core evidence failure')):
+            self.assertEqual(self.invoke('run'),1)
+        terminal=m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertEqual(terminal['primary_failure']['stage'],'candidate-workload-batch')
+        self.assertEqual(terminal['raw_result_preservation'],'INCOMPLETE')
+        self.assertTrue(any(e['stage']=='raw-results' for e in terminal['secondary_errors']))
+        self.assertFalse(any(c[0]=='official-summary' for c in self.calls))
+
+    def test_unknown_summary_keeps_computation_and_oracles_separate(self):
+        self.prepare(); self.bad_summary=True
+        self.assertEqual(self.invoke('run'),1)
+        terminal=m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertEqual(terminal['batch']['status'],'COMPUTED')
+        self.assertEqual(terminal['default_result_verification'],'PASS')
+        self.assertEqual(terminal['public_semantics'],'PASS')
+        self.assertEqual(terminal['primary_failure']['stage'],'performance-observation')
+        self.assertEqual(terminal['performance_observation']['summary_status'],'PARTIAL')
+        for path in self.out.rglob('*'):
+            if path.is_file(): self.assertNotIn(b'RAW_CANARY_UNKNOWN_SUMMARY',path.read_bytes())
+        m.comparison.verify_seal(self.out,time.monotonic()+30)
+
+    def test_capture_close_failure_keeps_original_failure_and_still_seals(self):
+        self.prepare(); self.failed_stage='candidate-workload-batch'; self.clean_batch_timeout=True
+        real_close=m.candidate_profile.Capture.close
+        failed=[]
+        def close(capture):
+            real_close(capture)
+            if not failed:
+                failed.append(True);raise OSError('injected close error')
+        with patch.object(m.candidate_profile.Capture,'close',close):
+            self.assertEqual(self.invoke('run'),1)
+        terminal=m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertEqual(terminal['primary_failure']['stage'],'candidate-workload-batch')
+        self.assertTrue(any(e['stage']=='performance-observation-cleanup' for e in terminal['secondary_errors']))
+        m.comparison.verify_seal(self.out,time.monotonic()+30)
+
+    def test_failed_first_closeout_write_still_closes_capture_and_restores_budget(self):
+        self.prepare(); captures=[]
+        real_start=m.candidate_profile.Observation.start
+        real_save=m.runtime.save
+        def start(observation):
+            real_start(observation);captures.append(observation.capture)
+        def save(path,value,root,terminal=False):
+            if path.name=='candidate-run-terminal.json' and value.get('status')=='CANDIDATE_RESEARCH_COMPLETED':
+                raise RuntimeError('injected terminal write failure')
+            return real_save(path,value,root,terminal)
+        with patch.object(m.candidate_profile.Observation,'start',start),patch.object(m.runtime,'save',side_effect=save):
+            with self.assertRaisesRegex(RuntimeError,'injected terminal write failure'): self.invoke('run')
+        self.assertTrue(captures)
+        self.assertTrue(all(c.fd is None for c in captures))
+        self.assertEqual(m.runtime.CAP,m.PRIVATE_CAP)
+
+    def test_cancel_after_batch_prevents_default_decode_and_optional_summary(self):
+        self.prepare();self.cancel_after_batch=True
+        self.assertEqual(self.invoke('run'),1)
+        terminal=m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertTrue(terminal['cancelled'])
+        self.assertEqual(terminal['batch']['status'],'COMPUTED')
+        self.assertFalse(any(c[0].startswith(('info-','decode-','decoded-','official-summary')) for c in self.calls))
+
+    def test_cancel_during_seal_updates_terminal_and_manifest_to_incomplete(self):
+        self.prepare();real_seal=m.seal
+        def seal(out,terminal,phase,deadline,end):
+            real_seal(out,terminal,phase,deadline,end)
+            if phase=='run':os.kill(os.getpid(),signal.SIGTERM)
+        with patch.object(m,'seal',side_effect=seal):self.assertEqual(self.invoke('run'),1)
+        terminal=m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertTrue(terminal['cancelled'])
+        self.assertEqual(terminal['status'],'CANDIDATE_RESEARCH_INCOMPLETE')
+        self.assertEqual(terminal['primary_failure']['error'],'CANCELLED')
+        m.comparison.verify_seal(self.out,time.monotonic()+30)
 
     def test_oracle_mismatch_records_all_seven_without_retrying_batch(self):
         self.prepare(); self.oracle_failure = 'CallsCandidate'
@@ -343,13 +477,13 @@ class Workload(unittest.TestCase):
     def test_recorded_image_flow_failure_remains_a_semantic_failure(self):
         self.prepare()
         original_rows = self.rows
-        missing_flows = {'original-flow', 'replacement-flow', 'whole-line-flow', 'output-line-flow'}
-
         def recorded_rows(name):
-            rows = original_rows(name)
             if name == 'Image':
-                return [[label, '0' if label in missing_flows else value] for label, value in rows]
-            return rows
+                # Exact historical v1 observations cannot be accepted as v2.
+                return [['format-original','1'],['format-replacement','1'],['original-flow','0'],
+                        ['replacement-flow','0'],['contains-line-callee','1'],['replacement-line-callee','1'],
+                        ['whole-line-flow','0'],['output-line-flow','0'],['wrong-function-flow','0']]
+            return original_rows(name)
 
         with patch.object(self, 'rows', side_effect=recorded_rows):
             self.assertEqual(self.invoke('run'), 1)
@@ -410,6 +544,69 @@ class Workload(unittest.TestCase):
         self.prepare(); (self.work / 'default-queries/queries/Q00.ql').write_text('changed')
         before = len(self.calls); self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
+
+    def test_v1_contract_is_rejected_before_candidate_preparation(self):
+        contract=m.capacity.semantic_contract(self.source)
+        self.write(self.checkpoint/'semantic-query-contract.json',contract)
+        self.write(self.checkpoint/'semantic-query-inputs.json',contract['query_sha256'])
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertFalse(self.work.exists())
+
+    def test_missing_contract_is_rejected_before_candidate_preparation(self):
+        (self.checkpoint/'semantic-query-contract.json').unlink()
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertFalse(self.work.exists())
+
+    def test_wrong_frozen_image_hash_is_rejected_before_candidate_preparation(self):
+        inputs=m.read_json(self.checkpoint/'semantic-query-inputs.json');inputs['Image']='0'*64
+        self.write(self.checkpoint/'semantic-query-inputs.json',inputs)
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+
+    def test_wrong_core_input_or_target_is_rejected(self):
+        original=Path(self.closure['codeql/rust-all']['root'])
+        (original/m.MODEL_FILE).write_bytes(self.core_bytes+b'changed\n')
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertFalse((self.out/'lines-model-identity.json').exists())
+
+    def test_wrong_core_target_is_rejected_before_writing_the_candidate(self):
+        with patch.object(m,'MODEL_CANDIDATE_SHA','0'*64):
+            self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual((self.work/'candidate-rust-all'/m.MODEL_FILE).read_bytes(),self.core_bytes)
+        self.assertEqual(self.calls,[])
+
+    def test_third_candidate_change_is_not_admitted(self):
+        prepare=self.prepare_candidate
+        def with_extra(*args,**kwargs):
+            private=prepare(*args,**kwargs);(private/'rust.dbscheme').write_text('changed')
+            return private
+        with patch.object(m.comparison,'prepare_candidate',side_effect=with_extra):
+            self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertIn('two-file model',m.read_json(self.out/'candidate-prepare-terminal.json')['primary_failure']['error'])
+
+    def test_missing_qualifier_change_is_not_admitted(self):
+        prepare=self.prepare_candidate
+        def without_qualifier(*args,**kwargs):
+            private=prepare(*args,**kwargs);(private/m.comparison.TYPE_FILE).write_text('stock')
+            return private
+        with patch.object(m.comparison,'prepare_candidate',side_effect=without_qualifier):
+            self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+
+    def test_core_model_mutation_before_batch_is_not_admitted(self):
+        self.prepare();(self.work/'candidate-rust-all'/m.MODEL_FILE).write_text('changed')
+        before=len(self.calls)
+        self.assertEqual(self.invoke('run'),1)
+        self.assertEqual(len(self.calls),before)
+
+    def test_core_model_mutation_during_batch_fails_after_identity(self):
+        self.prepare();self.mutate='model'
+        self.assertEqual(self.invoke('run'),1)
+        self.assertEqual(m.read_json(self.out/'candidate-run-terminal.json')['primary_failure']['stage'],'private_inputs-after')
 
     def test_missing_checkpoint_verification_or_wrong_bundle_is_rejected(self):
         m.admit_checkpoint(self.capture, self.finish, self.source, self.deadline)

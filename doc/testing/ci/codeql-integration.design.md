@@ -210,6 +210,10 @@ Shell 不是独立受支持的 CodeQL 语言。单独 `.sh` 变更保留现有�
 
 首版策略不使用按 diff 生成的极窄 `paths`。生成物、下载缓存和打包输出仅按明确目录排除；测试、fixtures、scripts、tools 与 patched vendor 不得整类忽略。
 
+已确认的误报只能通过保守的语义修正消除。Actions 的 `cache-mode` 兼容查询保留官方 `actions/cache-poisoning/poisonable-step` 的 ID、路径、事件与默认分支范围判断，仅在当前 job 或其 workflow 可静态证明缓存模式为 `read` / `none` 时排除该结果。job 显式值优先；表达式、重复键、合并键、标量别名及其他未知值不作为排除依据。共享步骤按各 job 的实际上下文判断。默认与扩展查询集分别只替换这一条官方查询，其余规则和扫描路径保持不变。
+
+该兼容层固定到已验证的官方查询版本；升级时必须检查原查询及依赖版本、验证两个查询集的一进一出，并运行可写、未知及只读反例。它不补全官方规则的 reusable caller 或显式 write 事件模型，不把规则不报等同于漏洞已修复，也不以批量排除规则、文件或修改 SARIF 消除告警。
+
 ### 5.5 候选策略与信任
 
 PR 路径的规划代码、配置和范围规则读取可信 base 上的实现；候选策略变更只作为待测试的数据。可以把可信脚本提取至 `RUNNER_TEMP`，以隔离模式运行，避免从候选 worktree 导入同名模块。
@@ -459,13 +463,49 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补�
 
 Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
 
-候选仅在采集树外复制官方 `rust-all` 并应用 §7.2.1 的固定补丁，完整库差异只能为固定目标摘要的 `TypeInference.qll`。默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
+本模式使用明确版本 `qualifier-lines-v2`：仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；完整文件集合及前后摘要核验最终仅有这两项差异，不允许第三处修改。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。旧 capacity/qualifier 对照仍沿原单文件合同。
 
-同一 finalized 数据库以一次 `run-queries` 执行原 44 项。37 项均须保存并核对 BQRS 身份、完整 info/decode；原七表沿既有正反例、行数和来源 oracle 逐项验证。仅对默认 37 项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
+默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
+
+七表中的 Image 使用显式 `image-v2` 合同，其他六表保持原字节和 oracle。参数经公开 `Param`/`IdentPat` 名称接口选择，不把参数或比较式的 `toString()` 展示文本当名称。完整冻结 `expectations.rs` 中，同一 `contains_line` 函数的原 `output`/`expected` 参数、`output.lines()` 的循环绑定与原 `EqualsOperation` 左右操作数必须共享 AST 所属关系；LHS 是该循环的 `line`，RHS 是该函数的 `expected`。保留两处真实 format 展开、两个 digest 到各自展开的 localFlow、两处精确 `contains_line` callee 和跨函数负例。原 `expected` 到同一 RHS 用 localFlow，原 `output` 到同一 LHS 用公开 `TaintTracking::Global<Config>`；不能把起点改为循环变量或给查询添加业务流边。每次 `flow(a,b)` 绑定具体源/汇，Config 同时纳入需检查的负例端点，不能用配置之外的节点产生天然零值。新增 expected→LHS、output→RHS 及两个参数→整个 bool 比较结果的零负例；结构见证与新端点标签显式带 v2。prepare、私有布局、query-inputs、oracle 和终态记录同一合同及 QL/标签预期身份，旧 v1 查询和历史失败保留在原版本及旧模式。
+
+该模型的开发回归使用真实固定源码小样本及独立双 receiver、同名非 stdlib `lines` 控制；后者须先证明来源到实际 receiver 的传播，避免把没有来源的零值当模型隔离通过。小样本只验证候选模型及查询，不代签完整原 crate/workspace、显式 `into_iter`/`next` 或整个 iterator 家族。模型改变影响全部默认查询，后续完整结果必须由同一新候选的一次37+7运行取得，不能拼接旧37结果。
+
+同一 finalized 数据库以一次 `run-queries` 执行44项。37项均须保存并核对 BQRS 身份、完整 info/decode；七表按上述版本的完整正反例、行数和来源 oracle 逐项验证，Image v2 不覆盖或追认 v1 的失败。仅对默认37项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
+
+本候选模式的 `candidate-evaluator-v1` 观测只接入上述唯一批次，固定官方 2.27.4、`--evaluator-log-minify`、日志级别 3 和禁用 tuple counting；不额外运行查询或预热。固定 2.27.4 的 summary collector 会读取 stage-result usages；level 1/2 缺此字段，实测 level 1 summary 出现 NullPointerException，因此使用最低提供 usages 的 level 3，不开启 level 4 cache-miss 或 level 5 RA。原始 evaluator 事件经 owned FIFO 进入至多 48 MiB 的 Linux memfd，不写普通文件、artifact 或控制台。停止生产并清理 owned 进程组后，关闭父写端、有限 drain 到真实 EOF，再封住内存文件的写入/增长/截断；传输 EOF、日志 footer 与查询成功分别记录。官方摘要器需要可 seek 输入，只读取仍由父进程持有的 sealed memfd；不把实时 FIFO 当摘要输入，不回退原文文件。
+
+临时原始内存、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间保守预留完整 48 MiB；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。容量、写入、组身份或有限 drain 不可信时记观测不完整并停止后续子进程，不把超限解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再在原证据截止内尝试至多一次、最多 20 秒的官方 predicates 摘要；其清理也计时，剩余时间/空间不足记 `NOT_REACHED`。不重置分析截止或增加收尾预算。
+
+官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
+
+每条观察由本次官方摘要流 SHA256 与 header 后的原记录序号共同标识。`raHash` 是内容身份，不能当执行事件 ID；官方允许其复用，名称也不唯一。所有合法记录按原序号保留各自 literal 计时并参与有界排名，复用仅计数和留受限示例，不据此拒绝、去重或合计成本，也不将同一记录复制归因到多个查询。
+
+batch stdout/stderr 的受限查询进度保留 wall/monotonic 接收时刻、流完整性和冻结查询身份。该时刻含缓冲和观察误差，不是 CLI 内部阶段边界，不能用每 query 标签相加推断整体编译 wall。终态分别记录计算、oracle、capture、summary 与研究完整性；摘要成功不会提升原 timeout 或 `NOT_REACHED`，原首失败不会被后续观测错误覆盖。观测明确标记 `instrumented=true`，资源采样仍是观察下界；部分摘要只描述已观察记录，不能称为全批次完整排名或最后活跃谓词。
+
+开发验收以新 600 秒 D0、独立小 fixture/DB/cache、2 threads/3072 MiB 验证真实 2.27.4 的 memfd/官方摘要链，再覆盖原 candidate 接线及成功、未知 schema、内存/证据边界、取消/超时、尾部 drain、异常隐私和 FD/组清理。它只验收观测适配，不代签完整37+7或性能根因；旧 2.27.3 profile 与其他 runtime 调用保持原行为。
 
 执行前后检查完整业务输入、官方 bundle、候选整个库、私有 query pack、DB metadata 和封存 checkpoint。缓存/结果与受保护源码隔离。失败仍在原截止内保存已有有界日志、BQRS/解码和退出收据；官方证据保持 256 MiB 上限，私有证据为 64 MiB 且保留终态空间，部分、超限、身份不明或封存失败不得报告完整研究。研究不追加查询、不自动重试、不改写旧结果。
 
 终态使用明确的 `CANDIDATE_RESEARCH_*`，分别记录计算、默认结果、公共语义、证据、资源、身份和余量；始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、`production_acceptance=UNCHANGED`。完整研究仅证明本次私有配置的实际结果，不等于官方容量、全 Rust 覆盖、上游发布或运营启用。旧 capacity、official-default-research、qualifier-research 的预算与行为保持不变。
+
+#### 7.2.5 合法 WASM 单角色 metadata 诊断
+
+本入口承接 CQ-R03/R04/R05/R06 的上下文、预算、失败可见和信任边界，仅观察 Cargo 项目归属与依赖图，不运行 CodeQL 或 Rust 编译。独立 `CodeQL Rust WASM Metadata` workflow 默认关闭；仅可信默认分支的 `workflow_dispatch` 且精确 `execute=true` 执行，权限限 `contents: read` 和读取实际 job 时钟所需的 `actions: read`，复用 scan-slot-1 队列，不取消已有运行。它不改变生产批次、required policy 或其他诊断预算。
+
+固定完整业务源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef`、根虚拟 workspace 的 53 个不同成员及 `oasis7_custody_worker/recovery-fence` 角色。实际 Cargo 固定为 1.99.0、commit `5f94df4789f005f9a352888e8355ffc645b7ed0e`、host `x86_64-unknown-linux-gnu`；本轮首次采集 analysis rustc 完整 commit 并前后比较，不从 Cargo commit 或历史 sysroot 路径推断。项目声明的 1.96.0、源码、manifest 与锁文件不改。
+
+首步用实际 hosted job start 与 GitHub 时钟绑定一次 1200 秒绝对截止；绑定失败拒绝，不退回当前时间加预算。所有 helper/源码获取、工具链安装、联网依赖准备、探针和身份核对都计时，准备最迟在总截止前 420 秒停止。仅剩余至少 420 秒才准入完整 300 秒观察窗口，其截止取准入后 300 秒与总截止前 120 秒的较早者；D1/D2 最晚在观察截止前 60 秒停止，尾部用于清理、after、guard 审计和封存。最后独立 120 秒留给 artifact upload/post，仍受原 job 截止约束。D1 最多 10 秒，D2 使用同一窗口剩余量；不重置、不自动重跑。helper 终态不代签完整 job，上传及 post 后须读回实际平台终态。
+
+启动链使用仅此任务的闭合 Python bootstrap：先绑定时钟，再按固定工具提交获取白名单 helper blobs，核验对象身份后交接；业务 archive 按固定 commit/tree 与全部 blob 对账。它不调用会自行打印 git 命令的 checkout Action。网络错误、重定向和异常只记录受限类别、字节数与摘要，不保存 token、临时 URL 或异常原文。宿主真实 Cargo/rustup proxy 留在原位置并核摘要，以任务 CARGO_HOME/RUSTUP_HOME/target 隔离工具与缓存，HOME/CODEX_HOME 不改；不绕过 guard 对 real_cargo 位于 guard work 下的拒绝。准备与最终 offline metadata 使用同一 cache/proxy。联网准备仅在专用动作表中，原 guard/runtime/layout 的共享命令权限不扩展。
+
+版本审计使用本任务 helper 内的投影 adapter，原共享 guard 源码、真实 Cargo 路径/摘要检查、参数约束及 inspect 均保留。仅在新 guard 的 counter=0、failed=0 且尚无调用记录时，对 owned regular wrapper/config 一次重绑；保存原/新 wrapper 摘要及 adapter helper 固定 SHA。wrapper 必须先核 helper 字节再执行，版本回调消费当次真实输出，在写入 actual_cargo_version 前严格校验版本、commit、header/date 一致性并规范化允许字段；未知字段/错身份先拒绝。finish_record 只追加白名单 bytes/hash/status，不删原字段、不改原错误或成功状态。原版本函数在返回前因超限、退出、UTF-8 或 timeout 失败时记 NOT_RETURNED、摘要未知，不伪造完整输出观察。
+
+D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-format=json`；D2 对根 manifest 执行一次完整 `metadata --locked --offline --format-version=1 --no-default-features --features oasis7_custody_worker/recovery-fence --filter-platform wasm32-unknown-unknown`，两者均经过本轮安装的原 guard。根成员按完整目录集合核验，虚拟根 `resolve.root=null` 是预期；不把子目录当独立 crate。核对 custody 的实际 resolve features 与四角色交集恰为 recovery-fence、无两种 harness，并保存 normal/build/dev 边及 target 表达式。六个本地身份为 crates 下同名 manifest 的 oasis7_custody_worker、oasis7_custody_core、oasis7_agent_api、oasis7_client_api、oasis7_proto、oasis7_wasm_abi；它们不替代完整 53 成员。filter-platform 只过滤 resolve 图，packages 清单和每编译单元 features、宏或语义分别解释。
+
+所有准备及执行路径从第一次写入起只保留允许的 manifest/cwd/toolchain/target/features、参数数量和摘要；异常、取消、临时输出和控制台同样适用，不能先落原文再删。合法有界 D1/D2 JSON 经批准图 schema 验证后保存完整依赖图；合法图的角色/成员不符另记 ROLE_CONTEXT_MISMATCH，保留实际 features 与固定失败项后使终态 INCOMPLETE，不把可诊断差异丢成只有摘要；未批准自由文本、非法或超限输出只留类别、字节与摘要，不回退原文。证据合计 64 MiB，含 guard audit/隐藏控制文件、元数据、前后身份、终态与清单；初始按普通 52 MiB、audit 8 MiB、配置/after/终态/hash 4 MiB 预留，启动前证明固定收尾结构够用，必要调整分账须保持总额。guard 原有 256 MiB 检查不代替本项合计上限。
+
+仅两命令、身份、图校验、清理和封存均成立时记 `ROOT_WORKSPACE_ROLE_METADATA_OBSERVED`；准备失败、范围不符、超时或证据不完整分别保留。开发回归覆盖真实启动交接、固定身份、首写投影、取消/TERM/KILL、残留进程、写入失败、预算和 metadata 独立 fixture。该观察不证明 WASM 编译、proc-macro、extractor 选择或 CodeQL 模型，始终保留 production_capacity=UNKNOWN、full_rust_coverage=HOLD；真实 hosted 结果另由父目标验收。
 
 ### 7.3 其他语言
 

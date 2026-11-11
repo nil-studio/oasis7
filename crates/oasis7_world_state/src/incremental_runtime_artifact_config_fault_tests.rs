@@ -86,8 +86,9 @@ fn run(mode: Mode, channel: bool, stop: Option<u64>) -> u64 {
     } else {
         None
     };
-    let (recovery, recovery_body) =
-        family_in_pool(&roots, &pages, &memory, MemoryClass::Recovery).unwrap();
+    // Only class-mismatch cases need Recovery qualification, retained through the operation.
+    let recovery = matches!(mode, Mode::Family | Mode::Body | Mode::Json)
+        .then(|| family_in_pool(&roots, &pages, &memory, MemoryClass::Recovery).unwrap());
     let json_address = ArtifactConfigAddressV1 {
         section: "subscriptions",
         ordinal: Some(0),
@@ -95,13 +96,18 @@ fn run(mode: Mode, channel: bool, stop: Option<u64>) -> u64 {
         member: None,
         column: "filters",
     };
-    let recovery_json = json_in_pool(
-        &recovery_body,
-        json_address,
-        &pages,
-        &memory,
-        MemoryClass::Recovery,
-    );
+    let recovery_json = matches!(mode, Mode::Json).then(|| {
+        json_in_pool(
+            &recovery
+                .as_ref()
+                .expect("Recovery qualification for JSON")
+                .1,
+            json_address,
+            &pages,
+            &memory,
+            MemoryClass::Recovery,
+        )
+    });
     let armed = Cell::new(false);
     let puts = Cell::new(0);
     let polls = Cell::new(0);
@@ -231,14 +237,14 @@ fn run(mode: Mode, channel: bool, stop: Option<u64>) -> u64 {
         key: ArtifactConfigRecordKeyV1::Member("raw external key"),
         address,
         family: if matches!(mode, Mode::Family) {
-            &recovery
+            &recovery.as_ref().expect("Recovery family qualification").0
         } else if let Some((family, _)) = &foreign {
             family
         } else {
             &family
         },
         qualification: if matches!(mode, Mode::Body) {
-            &recovery_body
+            &recovery.as_ref().expect("Recovery body qualification").1
         } else {
             &body
         },
@@ -254,12 +260,13 @@ fn run(mode: Mode, channel: bool, stop: Option<u64>) -> u64 {
         )
         .map(|_| ())
     } else if matches!(mode, Mode::Json) {
+        let recovery_json = recovery_json.as_ref().expect("Recovery JSON qualification");
         let mut request = request;
         request.address = json_address;
         change_qualified_artifact_config_json_v1(
             ArtifactConfigJsonChangeV1 {
                 request,
-                json: &recovery_json,
+                json: recovery_json,
                 path: &[],
                 edit: crate::incremental_json_records::JsonSubtreeEditV1::Replace {
                     expected: recovery_json.root(),
@@ -382,17 +389,49 @@ fn typed_prefix_class_faults_and_independent_getter_noop_completion() {
     );
     run(Mode::NoOp, false, Some(getter + 1));
     run(Mode::NoOp, true, Some(getter + 1));
-    for mode in [
-        Mode::Family,
-        Mode::Body,
-        Mode::Json,
-        Mode::Put,
-        Mode::Read,
-        Mode::Foreign,
-        Mode::Quota,
-    ] {
-        run(mode, false, None);
-    }
+}
+
+#[test]
+fn typed_prefix_rejects_recovery_family_qualification() {
+    run(Mode::Family, false, None);
+}
+
+#[test]
+fn typed_prefix_rejects_recovery_body_qualification() {
+    run(Mode::Body, false, None);
+}
+
+#[test]
+fn typed_prefix_rejects_recovery_json_qualification() {
+    run(Mode::Json, false, None);
+}
+
+#[test]
+fn typed_prefix_aborts_after_injected_put_failure() {
+    run(Mode::Put, false, None);
+}
+
+#[test]
+fn typed_prefix_aborts_after_injected_read_failure() {
+    run(Mode::Read, false, None);
+}
+
+#[test]
+fn typed_prefix_rejects_foreign_memory_qualification() {
+    run(Mode::Foreign, false, None);
+}
+
+#[test]
+fn typed_prefix_rejects_exhausted_write_quota() {
+    run(Mode::Quota, false, None);
+}
+
+#[test]
+fn typed_prefix_field_cancel_after_put_aborts() {
     run(Mode::AfterPut, false, None);
+}
+
+#[test]
+fn typed_prefix_write_cancel_after_put_aborts() {
     run(Mode::AfterPut, true, None);
 }

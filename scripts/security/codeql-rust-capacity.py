@@ -147,7 +147,100 @@ def suite_entries(value,root):
     return result
 
 
-def semantic_queries(root):
+IMAGE_V1='image-v1'
+IMAGE_V2='image-v2'
+IMAGE_V2_EXPECTED={
+    'format-original':1,'format-replacement':1,'original-flow':1,'replacement-flow':1,
+    'contains-line-callee':1,'replacement-line-callee':1,'same-line-comparison-v2':1,
+    'whole-line-rhs-flow-v2':1,'output-line-lhs-taint-v2':1,'wrong-function-flow':0,
+    'wrong-expected-lhs-taint-v2':0,'wrong-output-rhs-taint-v2':0,
+    'output-bool-taint-v2':0,'expected-bool-taint-v2':0,
+}
+
+
+def image_v2_query(root):
+    return model.metrics_query(root,'''// Contract: image-v2. Historical image-v1 remains unchanged.
+import codeql.rust.dataflow.TaintTracking
+string image() { result = "'''+model.EXPECT+'''" }
+string labels() { result = '''+json.dumps(list(IMAGE_V2_EXPECTED))+''' }
+predicate parameterOf(Function f, DataFlow::Node n, int index, string name) {
+ n.asParameter() = f.getParam(index) and
+ f.getParam(index).getPat().(IdentPat).getName().getText() = name
+}
+predicate containsLine(Function f) {
+ lineAt(f.getName(),image(),2) and f.getName().getText() = "contains_line"
+}
+predicate comparisonOf(Function f, EqualsOperation eq) {
+ containsLine(f) and lineAt(eq,image(),4) and
+ exists(DataFlow::Node booleanResult | booleanResult.asExpr() = eq) and
+ exists(ForExpr loop, MethodCallExpr call |
+  lineAt(loop,image(),3) and loop.getParentNode*() = f.getBody() and
+  eq.getParentNode*() = loop.getLoopBody() and
+  loop.getPat().(IdentPat).getName().getText() = "line" and
+  call = loop.getIterable() and call.getIdentifier().getText() = "lines" and
+  call.getReceiver().(VariableAccess).getVariable().getPat() = f.getParam(0).getPat() and
+  eq.getLhs().(VariableAccess).getVariable().getPat() = loop.getPat() and
+  eq.getRhs().(VariableAccess).getVariable().getPat() = f.getParam(1).getPat() and
+  eq.getLhs().(PathExpr).getPath().toString() = "line" and
+  eq.getRhs().(PathExpr).getPath().toString() = "expected")
+}
+predicate imageFlow(int sourceLine, int macroLine) {
+ exists(Function f,DataFlow::Node a,DataFlow::Node b |
+  lineAt(f.getName(),image(),sourceLine) and
+  (sourceLine = 12 and parameterOf(f,a,1,"original_digest") or
+   sourceLine = 22 and parameterOf(f,a,1,"replacement_digest")) and
+  inExpansion(b.asExpr(),image(),macroLine) and DataFlow::localFlow(a,b))
+}
+predicate sourceOf(Function f, DataFlow::Node n, string name) {
+ containsLine(f) and
+ (name = "output" and parameterOf(f,n,0,name) or
+  name = "expected" and parameterOf(f,n,1,name))
+}
+predicate sinkOf(EqualsOperation eq, DataFlow::Node n, string name) {
+ name = "lhs" and n.asExpr() = eq.getLhs()
+ or name = "rhs" and n.asExpr() = eq.getRhs()
+ or name = "bool" and n.asExpr() = eq
+}
+module ImageConfig implements DataFlow::ConfigSig {
+ predicate isSource(DataFlow::Node n) { sourceOf(_,n,_) }
+ predicate isSink(DataFlow::Node n) {
+  exists(Function f, EqualsOperation eq | comparisonOf(f,eq) and sinkOf(eq,n,_))
+ }
+}
+module ImageTaint = TaintTracking::Global<ImageConfig>;
+predicate pairedTaint(string sourceName, string sinkName) {
+ exists(Function f, EqualsOperation eq, DataFlow::Node a, DataFlow::Node b |
+  comparisonOf(f,eq) and sourceOf(f,a,sourceName) and sinkOf(eq,b,sinkName) and
+  ImageTaint::flow(a,b))
+}
+predicate rhsFlow(Function f, EqualsOperation eq) {
+ exists(DataFlow::Node a,DataFlow::Node b |
+  comparisonOf(f,eq) and sourceOf(f,a,"expected") and sinkOf(eq,b,"rhs") and
+  DataFlow::localFlow(a,b))
+}
+predicate witness(string label) {
+ label = "format-original" and exists(MacroCall m,AstNode n | macroAt(m,image(),13) and m.getMacroCallExpansion()=n.getParentNode*())
+ or label = "format-replacement" and exists(MacroCall m,AstNode n | macroAt(m,image(),23) and m.getMacroCallExpansion()=n.getParentNode*())
+ or label = "original-flow" and imageFlow(12,13)
+ or label = "replacement-flow" and imageFlow(22,23)
+ or label = "contains-line-callee" and exists(Call c,Function f | containsLine(f) and lineAt(c,image(),14) and c.getTargetName()="contains_line" and c.getStaticTarget()=f)
+ or label = "replacement-line-callee" and exists(Call c,Function f | containsLine(f) and lineAt(c,image(),24) and c.getTargetName()="contains_line" and c.getStaticTarget()=f)
+ or label = "same-line-comparison-v2" and comparisonOf(_,_)
+ or label = "whole-line-rhs-flow-v2" and rhsFlow(_,_)
+ or label = "output-line-lhs-taint-v2" and
+  exists(Function f,EqualsOperation eq,DataFlow::Node a,DataFlow::Node b |
+   rhsFlow(f,eq) and sourceOf(f,a,"output") and sinkOf(eq,b,"lhs") and ImageTaint::flow(a,b))
+ or label = "wrong-function-flow" and imageFlow(12,23)
+ or label = "wrong-expected-lhs-taint-v2" and pairedTaint("expected","lhs")
+ or label = "wrong-output-rhs-taint-v2" and pairedTaint("output","rhs")
+ or label = "output-bool-taint-v2" and pairedTaint("output","bool")
+ or label = "expected-bool-taint-v2" and pairedTaint("expected","bool")
+}
+''')
+
+
+def semantic_queries(root, *, image_version=IMAGE_V1):
+    if image_version not in (IMAGE_V1,IMAGE_V2):raise ValueError('unknown Image contract version')
     result=model.queries(root)
     result['PeerLegacy']=result['PeerCandidate'].replace('"candidate"','"legacy"')
     result['CallsLegacy']=result['CallsCandidate'].replace('"candidate"','"legacy"')
@@ -170,19 +263,28 @@ predicate witness(string label) {
  or label = "wrong-function-flow" and imageFlow(12,23)
 }
 ''')
-    result['Image']=image
+    result['Image']=image if image_version==IMAGE_V1 else image_v2_query(root)
     return result
 
 
-def expected(name):
+def expected(name, *, image_version=IMAGE_V1):
+    if image_version not in (IMAGE_V1,IMAGE_V2):raise ValueError('unknown Image contract version')
     if name in ('PeerCandidate','PeerLegacy'):return model.EXPECTED['Peer']
     if name=='Driver':return model.EXPECTED['Driver']
+    if name=='Image' and image_version==IMAGE_V2:return dict(IMAGE_V2_EXPECTED)
     if name=='Image':return {k:(0 if k=='wrong-function-flow' else 1) for k in ('format-original','format-replacement','original-flow','replacement-flow','contains-line-callee','replacement-line-callee','whole-line-flow','output-line-flow','wrong-function-flow')}
     return None
 
 
-def validate(name,rows,source,libp2p):
-    wanted=expected(name)
+def semantic_contract(root, *, image_version=IMAGE_V1):
+    texts=semantic_queries(root,image_version=image_version)
+    return dict(image_contract_version=image_version,
+                query_sha256={n:hashlib.sha256(t.encode()).hexdigest() for n,t in texts.items()},
+                metric_oracles={n:expected(n,image_version=image_version) for n in texts if expected(n,image_version=image_version) is not None})
+
+
+def validate(name,rows,source,libp2p, *, image_version=IMAGE_V1):
+    wanted=expected(name,image_version=image_version)
     if wanted is not None:
         if any(len(row)!=2 or row[1] not in ('0','1') for row in rows):raise RuntimeError('invalid semantic rows')
         values={row[0]:int(row[1]) for row in rows}
@@ -623,9 +725,12 @@ def main():
             if not research:
                 query_dir=work/'queries';query_dir.mkdir(exist_ok=False)
                 (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: '+closure['codeql/rust-all']['version']+'\n')
-                texts=semantic_queries(source)
+                image_version=IMAGE_V2 if workload_research else IMAGE_V1
+                texts=semantic_queries(source,image_version=image_version)
                 for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
                 save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)
+                save(out/'semantic-query-contract.json',semantic_contract(source,image_version=image_version),out)
+                terminal['image_contract_version']=image_version
                 packs=os.pathsep.join(item['root'] for item in closure.values())
                 if not workload_research:
                     for name in texts:

@@ -305,6 +305,11 @@ DISTFS_CLIPPY_COMMANDS = (
     ('-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'),
     ('-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'),
 )
+UNIT_TEST_CONTRACT_FIELDS = frozenset((
+    'ordinary_unit_test_contract_version', 'ordinary_unit_test_sources',
+    'ordinary_unit_test_proof_refs', 'ordinary_unit_test_excluded_groups',
+    'ordinary_unit_test_excluded_targets',
+))
 
 
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
@@ -323,6 +328,7 @@ def fast_plan(plan):
     support_fields = {'ordinary_support_contract_version', 'ordinary_support_handoffs',
                       'ordinary_support_deferred'}
     support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
+    private_tests = isinstance(plan, dict) and bool(UNIT_TEST_CONTRACT_FIELDS.intersection(plan))
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions'}.intersection(plan))
     distfs_clippy = isinstance(plan, dict) and bool(
@@ -333,6 +339,8 @@ def fast_plan(plan):
         raise ValueError('ordinary partitions require a compatible fast plan')
     if support and 'fast_plan_version' not in plan:
         raise ValueError('support handoff requires a compatible fast plan')
+    if private_tests and 'fast_plan_version' not in plan:
+        raise ValueError('private unit-test contract requires a compatible fast plan')
     if (isinstance(plan, dict) and 'fast_execution_version' in plan
             and type(plan['fast_execution_version']) is not int):
         raise ValueError('invalid fast execution capability')
@@ -386,11 +394,59 @@ def fast_plan(plan):
                 raise ValueError('ordinary Clippy owner is not a selected required group')
     if support:
         validate_support_handoff(plan)
+    if private_tests:
+        validate_private_unit_test_contract(plan)
     if partitioned:
         validate_ordinary_partitions(plan)
     if distfs_clippy:
         validate_distfs_clippy_handoff(plan)
     return plan
+
+
+def validate_private_unit_test_contract(plan):
+    """Consume a complete owner plan; malformed evidence cannot erase work."""
+    targets = plan.get('ordinary_fast_targets')
+    if (not UNIT_TEST_CONTRACT_FIELDS.issubset(plan)
+            or type(plan.get('ordinary_unit_test_contract_version')) is not int
+            or plan['ordinary_unit_test_contract_version'] != 1
+            or plan.get('scope') != 'targeted'
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or plan.get('fast_plan_exceptions') != []
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
+            or set(plan['groups']) != {'baseline', 'rust_baseline', 'oasis7_required'}
+            or plan.get('formal_suites') != [] or plan.get('oasis7_required_wasm_packages') != []
+            or not isinstance(targets, list) or len(targets) != 1
+            or not isinstance(targets[0], dict) or targets[0].get('target_kind') != 'lib'):
+        raise ValueError('invalid private unit-test execution contract')
+    owner = targets[0].get('package')
+    architecture = plan.get('architecture', {})
+    inputs, refs = plan['ordinary_unit_test_sources'], plan['ordinary_unit_test_proof_refs']
+    excluded, omitted = plan['ordinary_unit_test_excluded_groups'], plan['ordinary_unit_test_excluded_targets']
+    identity = {key: targets[0].get(key) for key in ('package', 'target_kind', 'target_name')}
+    if (not isinstance(owner, str) or not owner
+            or plan.get('oasis7_required_packages') != [owner]
+            or not isinstance(inputs, dict) or not inputs
+            or any(not isinstance(path, str) or not path.endswith('.rs')
+                   or Path(path).is_absolute() or '\\' in path
+                   or any(part in ('', '.', '..') for part in path.split('/'))
+                   or any(ord(character) < 32 for character in path)
+                   or package != owner for path, package in inputs.items())
+            or not isinstance(refs, list) or not refs
+            or any(not isinstance(ref, str) or re.fullmatch('[0-9a-f]{40}', ref) is None for ref in refs)
+            or len(refs) != len(set(refs))
+            or not isinstance(architecture, dict)
+            or not {plan.get('source_sha'), plan.get('tested_sha'), architecture.get('base')}.issubset(refs)
+            or not isinstance(excluded, list)
+            or any(group not in ('consensus', 'distfs', 'net', 'node') for group in excluded)
+            or len(excluded) != len(set(excluded))
+            or not isinstance(omitted, list)
+            or any(not isinstance(target, dict) or set(target) != set(identity) or target == identity
+                   or any(not isinstance(value, str) or not value for value in target.values())
+                   or target['target_kind'] not in ('lib', 'test') for target in omitted)):
+        raise ValueError('incomplete private unit-test source evidence')
 
 
 def validate_distfs_clippy_handoff(plan):
@@ -980,7 +1036,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
         ('viewer', ['build', '-p', 'oasis7_viewer_runtime', '--bin', 'oasis7_viewer_live', '--features', 'test_tier_required'], required_features),
-        ('required', ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_launcher_config', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
+        ('required', ['test', '-p', 'oasis7', '-p', 'oasis7_simulator', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '-p', 'scenario_test_runner', '-p', 'oasis7_chain_runtime', '-p', 'oasis7_executable_image', '-p', 'oasis7_client_cli', '-p', 'oasis7_protocol_tools', '-p', 'oasis7_launcher_backend', '-p', 'oasis7_newapi_bridge_service', '-p', 'oasis7_ops_tools', '-p', 'oasis7_provider_local_bridge', '-p', 'oasis7_provider_tools', '-p', 'oasis7_viewer_runtime', '-p', 'oasis7_viewer_codec', '-p', 'oasis7_observability', '-p', 'oasis7_hosted_access', '-p', 'oasis7_letai_credit_adapter', '-p', 'oasis7_launcher_config', '-p', 'oasis7_wasm_materializer', '-p', 'oasis7_game_client', '-p', 'oasis7_browser_game_client', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--tests', '--features', 'test_tier_required', '--no-run'], required_features),
         ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime', '--features', 'test_tier_required'], required_features),
         ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
         ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
