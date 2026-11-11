@@ -5,6 +5,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,7 @@ import zipfile
 import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_capacity_evidence as evidence
 import codeql_rust_cargo_guard as cargo_guard
+import codeql_rust_action_deadline as action_deadline
 
 BASE_SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
@@ -489,12 +491,15 @@ def extraction_checkpoint(source,database,out,frozen,codeql,run):
 
 
 def analysis_budget(mode,remaining,source_sha=None):
-    if mode not in ('capacity','official-default-research','qualifier-research'):
+    if mode not in ('capacity','official-default-research','qualifier-research','candidate-workload-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
     qualifier_research=mode=='qualifier-research'
+    workload_research=mode=='candidate-workload-research'
     if qualifier_research and source_sha!=CAPACITY_SOURCE:
         raise ValueError('qualifier research requires the fixed current source')
+    if workload_research and (source_sha!=CAPACITY_SOURCE or not math.isfinite(remaining) or remaining>5400):
+        raise ValueError('invalid candidate workload source or fixed job remainder')
     current_capacity=not research and source_sha==CAPACITY_SOURCE
     budget=21600 if research else (9000 if qualifier_research else (5400 if current_capacity else 3600))
     minutes=int((remaining-600)//60)
@@ -502,7 +507,8 @@ def analysis_budget(mode,remaining,source_sha=None):
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
-            'scope':'full extraction for public-callee research; not production capacity' if qualifier_research else
+            'scope':'shared extraction/layout/compilation/44-query candidate research window; not production capacity' if workload_research else
+                'full extraction for public-callee research; not production capacity' if qualifier_research else
                 'official-default research; not production capacity' if research else
                 f'internal analysis allocation; not a measurement of the complete {budget//60} minute assessment'}
 
@@ -513,7 +519,7 @@ def main():
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
     parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,PREVIOUS_CAPACITY_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
-    parser.add_argument('--mode',choices=('capacity','official-default-research','qualifier-research'),default='capacity')
+    parser.add_argument('--mode',choices=('capacity','official-default-research','qualifier-research','candidate-workload-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
     parser.add_argument('--checkout-outcome',default='unknown')
@@ -526,7 +532,10 @@ def main():
     SOURCE=args.source_sha;out=args.output;work=args.work;source=args.source.resolve()
     research=args.mode=='official-default-research'
     qualifier_research=args.mode=='qualifier-research'
+    workload_research=args.mode=='candidate-workload-research'
+    extraction_research=qualifier_research or workload_research
     if qualifier_research and SOURCE!=CAPACITY_SOURCE:parser.error('qualifier research requires the fixed current source')
+    if workload_research and SOURCE!=CAPACITY_SOURCE:parser.error('candidate workload requires the fixed current source')
     # Historical profile also uses capacity mode; its source and bundle stay frozen.
     selected_bundle='2.27.4' if not research and SOURCE==CAPACITY_SOURCE else '2.27.3'
     if args.phase!='capture' and args.codeql is None:parser.error('--codeql is required for prepare/finish')
@@ -541,8 +550,11 @@ def main():
         'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[],
         'mode':args.mode,'expected_bundle_version':selected_bundle,
         'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
-    if research or qualifier_research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
-    if qualifier_research:terminal.update(default_result_verification='NOT_REQUESTED',extraction_checkpoint='NOT_REACHED')
+    if research or extraction_research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
+    if extraction_research:terminal.update(default_result_verification='NOT_REQUESTED',extraction_checkpoint='NOT_REACHED')
+    if workload_research:
+        terminal.update(assessment_status='CANDIDATE_RESEARCH_INCOMPLETE',official_extraction_outcome=args.analyze_outcome)
+        terminal.pop('official_analysis_outcome')
     for stage in ('checkout','layout','tools','init','prepare','analyze'):
         outcome=getattr(args,stage+'_outcome')
         if outcome in ('failure','cancelled'):
@@ -615,13 +627,14 @@ def main():
                 for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
                 save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)
                 packs=os.pathsep.join(item['root'] for item in closure.values())
-                for name in texts:
-                    run([args.codeql,'resolve','library-path','--query='+str(query_dir/(name+'.ql')),'--format=json','--additional-packs='+packs],'library-'+name,20)
-                    bundle.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query_dir,name,closure,pack_name='oasis7/rust-capacity')
-                # Exact CLI type/import validation before the expensive production analysis.
-                run([args.codeql,'query','compile','--check-only','--keep-going','--additional-packs='+packs,
-                     '--threads='+str(resource_values['CODEQL_THREADS']),'--ram='+str(resource_values['CODEQL_RAM']),
-                     *[query_dir/(name+'.ql') for name in texts]],'semantic-typecheck',120)
+                if not workload_research:
+                    for name in texts:
+                        run([args.codeql,'resolve','library-path','--query='+str(query_dir/(name+'.ql')),'--format=json','--additional-packs='+packs],'library-'+name,20)
+                        bundle.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query_dir,name,closure,pack_name='oasis7/rust-capacity')
+                    # Exact CLI type/import validation before the expensive production analysis.
+                    run([args.codeql,'query','compile','--check-only','--keep-going','--additional-packs='+packs,
+                         '--threads='+str(resource_values['CODEQL_THREADS']),'--ram='+str(resource_values['CODEQL_RAM']),
+                         *[query_dir/(name+'.ql') for name in texts]],'semantic-typecheck',120)
             action_config=Path(os.environ['CODEQL_ACTION_TEMP'])/'config'
             config=json.loads(action_config.read_text())
             save(out/'action-config.json',{'sha256':runtime.digest(action_config),'settings':{key:config.get(key) for key in ('languages','buildMode','dbLocation','repositoryRoot','overlayDatabaseMode','trapCaches','dependencyCachingEnabled','computedConfig','useOverlayDatabaseCaching')}},out)
@@ -632,6 +645,13 @@ def main():
             with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CARGO_HOME='+str(guard_home)+'\n')
             remaining=args.deadline-time.time()
             budget=analysis_budget(args.mode,remaining,SOURCE);minutes=budget['analysis_allocated_minutes']
+            if workload_research:
+                # Freeze before private layout and extraction. Later phases only consume this window.
+                allocated_at=time.time()
+                budget.update(analysis_allocated_at=allocated_at,
+                    analysis_deadline=min(args.deadline-600,allocated_at+minutes*60))
+                with open(os.environ['GITHUB_ENV'],'a') as output:
+                    output.write('CAPACITY_ANALYSIS_DEADLINE='+str(budget['analysis_deadline'])+'\n')
             save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
             if minutes<1:raise RuntimeError('NOT_REACHED no analysis+semantic+receipt capacity')
             with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('analysis_minutes='+str(minutes)+'\n')
@@ -651,11 +671,16 @@ def main():
             frozen=json.loads((out/'source-before.json').read_text())
             if snapshot(source)!=frozen:raise RuntimeError('business source changed')
             terminal['verification_admitted']=True
-            if qualifier_research:
+            if extraction_research:
+                if workload_research:
+                    terminal['absolute_action_deadline']=action_deadline.admit(out,source,args.deadline)
                 metadata_sha=extraction_checkpoint(source,args.database,out,frozen,args.codeql,run)
                 terminal.update(status='EXTRACTION_READY',assessment_status='RESEARCH_READY',
                     extraction_checkpoint='PASS',archived_source='PASS',database_metadata_sha256=metadata_sha,
                     assessment_scope='full extraction checkpoint for public-callee research; no default suite, complete public semantics or production capacity acceptance')
+                if workload_research:
+                    terminal.update(status='CANDIDATE_EXTRACTION_READY',assessment_status='CANDIDATE_RESEARCH_READY',
+                        assessment_scope='official extraction checkpoint only; candidate workload runs separately')
                 return
             suite=json.loads((out/'default-suite.json').read_text());manifest=[]
             actual_suite=args.database/'temp/config-queries.qls'
@@ -710,7 +735,7 @@ def main():
         else:terminal['secondary_errors'].append(failure)
         for key in ('default_result_verification','public_semantics'):
             if terminal[key]=='RUNNING':terminal[key]='INCOMPLETE'
-        if research or qualifier_research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
+        if research or extraction_research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
         terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production-capacity conclusion'
         raise
     finally:
@@ -729,6 +754,8 @@ def main():
             terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'ASSESSMENT_INCOMPLETE'
             terminal['identity_error']=repr(exc)[:1024]
             if primary is None:primary=exc
+        if terminal.get('mode')=='candidate-workload-research' and terminal['status'] in ('FAILED','RESEARCH_INCOMPLETE'):
+            terminal.update(status='CANDIDATE_RESEARCH_INCOMPLETE',assessment_status='CANDIDATE_RESEARCH_INCOMPLETE')
         try:runtime.save(out/('capacity-'+args.phase+'-terminal.json'),terminal,out,terminal=True)
         except BaseException:
             if primary is None:raise

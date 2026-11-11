@@ -900,7 +900,7 @@ def validate_config(config):
             raise ValueError('invalid custody execution capability')
     if 'ordinary_artifact_partition_version' in config:
         if (type(config['ordinary_artifact_partition_version']) is not int
-                or config['ordinary_artifact_partition_version'] != 1
+                or config['ordinary_artifact_partition_version'] not in (1, 2)
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary artifact partition capability')
     if 'ordinary_partition_version' in config:
@@ -2620,15 +2620,25 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 
 
 ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
+TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1', 'native-2', 'native-3']
 
 
 def complete_ordinary_partitions(config, plan):
-    if (config.get('ordinary_artifact_partition_version') == 1
+    if (config.get('ordinary_artifact_partition_version') in (1, 2)
             and 'oasis7_required' in plan['groups']
-            and plan.get('ordinary_execution') != 'inline'
-            and plan['scope'] in ('full', 'explicit-full')):
-        plan.update(ordinary_artifact_partition_version=1,
-                    ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
+            and plan.get('ordinary_execution') != 'inline'):
+        if plan['scope'] in ('full', 'explicit-full'):
+            plan.update(ordinary_artifact_partition_version=1,
+                        ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
+        elif (config.get('ordinary_artifact_partition_version') == 2
+                and plan['scope'] == 'targeted'
+                and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                and plan.get('test_policy_changed') is False
+                and 'oasis7_chain_runtime' in plan.get('oasis7_required_packages', ())):
+            # The original producer and every target/feature remain unchanged.
+            # Only the complete runtime case inventory gets multiple owners.
+            plan.update(ordinary_artifact_partition_version=2,
+                        ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))

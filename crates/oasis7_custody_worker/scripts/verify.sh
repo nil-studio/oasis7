@@ -28,7 +28,9 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  checks|platform|wasm-production)
+  # Keep the complete role/profile proof on the approval runner, which also
+  # executes the trusted dynamic WASM profiles with the same dev dependencies.
+  checks|platform|wasm-approval)
     env -u RUSTC_WRAPPER cargo check -p oasis7_custody_core --target wasm32-unknown-unknown --locked
     if env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --locked >"$scratch/no-role" 2>&1; then
       echo 'invalid role-less Worker unexpectedly built' >&2; exit 1
@@ -64,9 +66,8 @@ esac
 # WASM producers: worker-build uses one locked build/ directory per checkout.
 case "$mode" in
   platform|wasm-production|wasm-approval)
-    if ! command -v worker-build >/dev/null || [[ "$(worker-build --version)" != "0.7.5" ]]; then
-      cargo install worker-build --version 0.7.5 --locked
-    fi
+    worker_build_bin="$(python3 scripts/ci-worker-build.py ensure --print-bin)"
+    export PATH="$(dirname "$worker_build_bin"):$PATH"
     npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
     [[ "${OASIS7_SUPPORT_CAPACITY:-0}" != 1 ]] || support_capacity_snapshot custody-platform-dependencies
     ;;

@@ -182,6 +182,21 @@ class DefinitionDigest(unittest.TestCase):
         (self.root / 'scripts/ordinary-helper.py').write_text('VALUE=7\n')
         self.assertEqual(module.definition_digest(self.root, self.commit()), previous)
 
+    def test_registered_worker_tool_definition_invalidates_previous_receipt(self):
+        path = 'scripts/ci-worker-build.py'
+        (self.root / path).write_text('# pinned tool preparation\n')
+        self.config['python_control_contracts'][path] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        self.assert_rejects_previous_definition(path)
+
+    def test_registered_worker_tool_definition_must_exist_at_fixed_revision(self):
+        self.config['python_control_contracts']['scripts/ci-worker-build.py'] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+
     def test_invalid_trusted_contract_paths_fail_before_reading_unowned_data(self):
         for path in ('../outside.test.py', '/tmp/outside.test.py', 'scripts/*.test.py',
                      'scripts/../outside.test.py', 'scripts/ordinary.py'):

@@ -85,8 +85,33 @@ def check_core(path, text, previous_text=None):
     return [finding(path, 1, 'missing-core-section', f'缺少核心章节（可使用等价标题或说明结构裁剪）：{group}') for group in groups if not re.search(group, headings, re.I)]
 
 
-def check_design_evidence(path, number, block, evidence, root, read_target):
+def _design_relations_reader(root, read_target):
+    """Reuse validated rows only within this reader's content snapshot.
+
+    Relation records and the returned tuple are immutable. Baseline/current
+    readers must have separate instances, as must separate checker invocations.
+    Every row still passes the original relation validation before it can match
+    a feature; invalid rows are never promoted to usable evidence.
+    """
+    @lru_cache(maxsize=128)
+    def read(target):
+        table = system.table_after_heading(read_target(target), system.DEMAND_HEADING)
+        relations = []
+        if table and system.is_demand_table(table):
+            for row_number, cells in table.rows:
+                row_errors = []
+                relation = system.relation_from_demand_row(
+                    root, target, row_number, cells, row_errors, False, read_target)
+                if relation is not None and not row_errors:
+                    relations.append(relation)
+        return tuple(relations)
+    return read
+
+
+def check_design_evidence(path, number, block, evidence, root, read_target, *, read_design_relations=None):
     """Check exact mechanical relations; semantic completeness remains human review."""
+    if read_design_relations is None:
+        read_design_relations = _design_relations_reader(root, read_target)
     errors = []
     source = root / path
     identities = system.declared_trace_ids(block)
@@ -113,24 +138,19 @@ def check_design_evidence(path, number, block, evidence, root, read_target):
         if not system.is_system_design_path(relative):
             errors.append(finding(path, number, 'invalid-design-evidence', f'设计依据须指向专业系统设计条款：{raw}'))
             continue
-        target_text = read_target(target)
-        table = system.table_after_heading(target_text, system.DEMAND_HEADING)
         matched = False
-        if table and system.is_demand_table(table):
-            for row_number, cells in table.rows:
-                row_errors = []
-                relation = system.relation_from_demand_row(root, target, row_number, cells, row_errors, False, read_target)
-                if relation is None or row_errors or relation.local_fragment != fragment:
-                    continue
-                upstream = read_target(root / relation.upstream_path)
-                if relation.upstream_path == path and system.fragment_occurrences(block, relation.upstream_fragment) == 1:
+        for relation in read_design_relations(target):
+            if relation.local_fragment != fragment:
+                continue
+            upstream = read_target(root / relation.upstream_path)
+            if relation.upstream_path == path and system.fragment_occurrences(block, relation.upstream_fragment) == 1:
+                matched = True
+            elif upstream is not None:
+                upstream_ids, _product_chain = system.resolved_requirement_context(
+                    root, root / relation.upstream_path, upstream, relation.upstream_fragment, read_target, follow_symlinks=False)
+                eligible_ids = {identity for identity in identities if relation.upstream_path == path or identity.startswith('O7-REQ-')}
+                if eligible_ids.intersection(upstream_ids):
                     matched = True
-                elif upstream is not None:
-                    upstream_ids, _product_chain = system.resolved_requirement_context(
-                        root, root / relation.upstream_path, upstream, relation.upstream_fragment, read_target, follow_symlinks=False)
-                    eligible_ids = {identity for identity in identities if relation.upstream_path == path or identity.startswith('O7-REQ-')}
-                    if eligible_ids.intersection(upstream_ids):
-                        matched = True
         if not matched:
             errors.append(finding(path, number, 'design-feature-relation-missing', f'设计条款须有指向本功能或其明确 Trace ID 的需求承接关系：{raw}'))
     return errors
@@ -140,7 +160,9 @@ def is_anchor_line(line):
     return re.fullmatch(r"\s*<a\b[^>]*\bid\s*=\s*['\"][^'\"]+['\"][^>]*>\s*(?:</a>)?\s*", line, re.I) is not None
 
 
-def check_status(path, text, *, root=None, read_target=None):
+def check_status(path, text, *, root=None, read_target=None, read_design_relations=None):
+    if read_design_relations is None and root is not None and read_target is not None:
+        read_design_relations = _design_relations_reader(root, read_target)
     lines = product.visible_lines(text)
     starts = []
     for i, (_, line) in enumerate(lines):
@@ -178,7 +200,8 @@ def check_status(path, text, *, root=None, read_target=None):
             if fields[status] in positive and not product.markdown_links(fields[evidence]):
                 errors.append(finding(path, number, 'missing-status-evidence', f'{status}必须关联真实证据链接（链接真实性/内容仍需人工核对）'))
         if fields['系统设计状态'] in {'部分覆盖', '已覆盖'} and root is not None and read_target is not None:
-            errors.extend(check_design_evidence(path, number, block, fields['系统设计依据'], root, read_target))
+            errors.extend(check_design_evidence(path, number, block, fields['系统设计依据'], root, read_target,
+                                                read_design_relations=read_design_relations))
         if fields['系统设计状态'] == '不适用':
             values = [re.search(word + r'[:：]\s*([^；;]+)', fields['系统设计依据']) for word in ('理由', '范围')]
             if not all(value and value[1].strip(' `。') not in {'无', '-', 'N/A', '待补', '无独立技术义务'} for value in values):
@@ -193,7 +216,7 @@ def check_status(path, text, *, root=None, read_target=None):
     return errors
 
 
-def newly_broken_status_relations(root, base, head, worktree, selected_paths, read_target):
+def newly_broken_status_relations(root, base, head, worktree, selected_paths, read_target, *, read_design_relations=None):
     """Unchanged consumers only pay for newly broken relations, never legacy debt."""
     paths = set(product.run_git(root, 'ls-tree', '-r', '--name-only', head, '--', 'doc/product').splitlines())
     if worktree:
@@ -202,21 +225,25 @@ def newly_broken_status_relations(root, base, head, worktree, selected_paths, re
     @lru_cache(maxsize=None)
     def base_reader(target):
         return system.committed_target_text(root, base, target)
-    def relation_findings(path, text, reader):
+    base_design_relations = _design_relations_reader(root, base_reader)
+    if read_design_relations is None:
+        read_design_relations = _design_relations_reader(root, read_target)
+    def relation_findings(path, text, reader, design_relations):
         if not text:
             return []
         lifecycle = product.metadata_value(product.document_identity_text(text), '生命周期')
         if lifecycle and lifecycle.strip('` ') in {'superseded', 'retired'}:
             return []
-        return [error for error in check_status(path, text, root=root, read_target=reader)
+        return [error for error in check_status(path, text, root=root, read_target=reader,
+                                                read_design_relations=design_relations)
                 if ': invalid-design-evidence:' in error or ': design-feature-relation-missing:' in error]
     for path in sorted(paths - selected_paths):
         if not (path.endswith('.prd.md') or path.endswith('/prd.md')):
             continue
         current = read_target(root / path)
         old = base_reader(root / path)
-        old_errors = set(relation_findings(path, old, base_reader))
-        errors.extend(error for error in relation_findings(path, current, read_target) if error not in old_errors)
+        old_errors = set(relation_findings(path, old, base_reader, base_design_relations))
+        errors.extend(error for error in relation_findings(path, current, read_target, read_design_relations) if error not in old_errors)
     return errors
 
 
@@ -269,24 +296,31 @@ def main():
             selected = [(d.path, d.new_text) for d in documents]
             checkout = product.run_git(root, 'rev-parse', '--verify', 'HEAD^{commit}').strip()
             source_base = product.run_git(root, 'merge-base', base, head).strip()
+            read_worktree = system.worktree_text_reader(root, checkout) if args.worktree else None
             @lru_cache(maxsize=None)
             def read_target(target):
                 relative = target.relative_to(root).as_posix()
                 if args.worktree:
                     # Validate lexical paths and symlinks before any worktree read.
                     system.full_corpus_read(root, target)
-                    return system.worktree_file_text(root, checkout, relative)
+                    return read_worktree(relative)
                 return system.committed_target_text(root, head, target)
-            for path in system.changed_system_design_paths(root, base, head, args.worktree):
+            system_paths = system.changed_system_design_paths(
+                root, base, head, args.worktree, worktree_reader=read_worktree)
+            rename_origins = system.design_rename_origins(root, source_base, head, args.worktree) if system_paths else None
+            for path in system_paths:
                 relative = path.relative_to(root).as_posix()
                 text = read_target(root / relative)
                 if text is None:
                     raise OSError(f'selected document cannot be read: {relative}')
                 selected.append((relative, text))
-                previous[relative] = system.previous_design_text(root, source_base, head, relative, include_worktree=args.worktree)
+                previous[relative] = system.previous_design_text(root, source_base, head, relative,
+                    include_worktree=args.worktree, rename_origins=rename_origins)
+        read_design_relations = _design_relations_reader(root, read_target)
         errors = []
         if not args.full_corpus:
-            errors.extend(newly_broken_status_relations(root, source_base, head, args.worktree, {path for path, _ in selected}, read_target))
+            errors.extend(newly_broken_status_relations(root, source_base, head, args.worktree,
+                {path for path, _ in selected}, read_target, read_design_relations=read_design_relations))
         for path, text in selected:
             lifecycle = product.metadata_value(product.document_identity_text(text), '生命周期')
             if path.startswith('doc/product/') and lifecycle and lifecycle.strip('` ') in {'superseded', 'retired'}:
@@ -297,7 +331,8 @@ def main():
             if not core_findings and any('结构裁剪' in line for _, line in product.visible_lines(text)):
                 print(f'::notice::doc-core-content: {path}: 结构裁剪映射可定位；理由、适用范围和风险仍需人工复核')
             if path.startswith('doc/product/') and (path.endswith('.prd.md') or path.endswith('/prd.md')):
-                errors.extend(check_status(path, text, root=root, read_target=read_target))
+                errors.extend(check_status(path, text, root=root, read_target=read_target,
+                                          read_design_relations=read_design_relations))
         print(f'doc-core-content: checked {len(selected)} documents; selected documents scanned in full, including legacy REQ blocks; unrecognized feature prose and evidence truth require human review')
         return report_findings(errors, args.warn_only or args.full_corpus) if errors else 0
     except (OSError, ValueError) as exc:
