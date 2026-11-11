@@ -2,6 +2,7 @@
 """Linux 临时 CI runner 的有界 apt 准备；调用方通过 sudo 提供清理权限。"""
 import argparse
 import ctypes
+import importlib.util
 import math
 import os
 from pathlib import Path
@@ -13,6 +14,10 @@ import subprocess
 import sys
 import threading
 import time
+
+_dns_spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_name('ci_apt_dns.py'))
+_dns = importlib.util.module_from_spec(_dns_spec)
+_dns_spec.loader.exec_module(_dns)
 
 MAX_OUTPUT = 1024 * 1024
 MAX_ATTEMPTS = 3
@@ -132,7 +137,7 @@ def reap():
 
 
 class Installer:
-    def __init__(self, budget, command=('/usr/bin/apt-get',), backoff=1):
+    def __init__(self, budget, command=('/usr/bin/apt-get',), backoff=1, hosted_dns_recovery=False):
         self.started = time.monotonic()
         self.end = self.started + budget
         self.reserve = min(2.0, budget / 4)
@@ -141,6 +146,7 @@ class Installer:
         self.backoff = backoff
         self.cancelled = 0
         self.log = Log()
+        self.dns = _dns.Recovery(self, hosted_dns_recovery)
 
     def cancel(self, signum, _frame):
         self.cancelled = signum
@@ -163,13 +169,16 @@ class Installer:
             time.sleep(min(0.01, max(0, self.end - time.monotonic())))
 
     def run(self, stage, args, attempt=1):
+        return self.run_command(stage, self.dns.prefix + self.command + OPTIONS + args, attempt)
+
+    def run_command(self, stage, command, attempt=1, report_output=True):
         start = time.monotonic()
         if self.cancelled or start >= self.work_end:
             return None, '', False
         self.log(f'stage={stage} attempt={attempt} event=start elapsed={start - self.started:.3f}s')
         env = dict(os.environ, DEBIAN_FRONTEND='noninteractive', LC_ALL='C',
                    DEBCONF_NONINTERACTIVE_SEEN='true', APT_LISTCHANGES_FRONTEND='none')
-        proc = subprocess.Popen(self.command + OPTIONS + args, stdin=subprocess.DEVNULL,
+        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 start_new_session=True, env=env)
         output = bytearray()
@@ -208,7 +217,7 @@ class Installer:
             proc.stdout.close()
         text = output.decode('utf-8', errors='replace')
         self.log(f'stage={stage} attempt={attempt} exit={status} reason={reason} elapsed={time.monotonic() - start:.3f}s output_truncated={overflow}')
-        if status != 0 or reason != 'exit':
+        if report_output and (status != 0 or reason != 'exit'):
             self.log('diagnostic=' + repr(text[-4096:]))
         valid = clean and reason == 'exit' and not overflow and time.monotonic() < self.end
         return status, text, valid
@@ -217,12 +226,16 @@ class Installer:
         establish_owner()
         previous = {s: signal.signal(s, self.cancel) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
         try:
+            if self.dns.enabled:
+                eligible = self.dns.eligible()
+                self.log(f'dns_recovery_opt_in=true eligible={eligible} reason={self.dns.reason}')
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 status, output, valid = self.run('update', ['update'], attempt=attempt)
                 if status == 0 and valid:
                     break
                 if not (valid and status == 100 and transient_update(output) and attempt < MAX_ATTEMPTS):
                     return 128 + self.cancelled if self.cancelled else 1
+                self.dns.try_enable(output)
                 delay = self.backoff * attempt
                 self.log(f'stage=update retry={attempt} backoff={delay:.3f}s')
                 until = time.monotonic() + delay
@@ -235,21 +248,26 @@ class Installer:
             self.log(f'dependencies_ready={str(success).lower()} elapsed={time.monotonic() - self.started:.3f}s')
             return 0 if success else (128 + self.cancelled if self.cancelled else 1)
         finally:
-            for sig, handler in previous.items():
-                signal.signal(sig, handler)
-            self.log.flush(min(self.end, time.monotonic() + 0.1))
+            try:
+                self.dns.close()
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+                self.log.flush(min(self.end, time.monotonic() + 0.1))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--budget-seconds', type=float, required=True)
+    parser.add_argument('--hosted-dns-recovery', action='store_true',
+                        help='opt in only for verified disposable GitHub-hosted Ubuntu runners')
     parser.add_argument('packages', nargs='+')
     args = parser.parse_args()
     if not math.isfinite(args.budget_seconds) or args.budget_seconds <= 0:
         parser.error('budget must be finite and positive')
     if os.geteuid() != 0:
         parser.error('run with sudo -n /usr/bin/python3 on a disposable Linux CI runner')
-    installer = Installer(args.budget_seconds)
+    installer = Installer(args.budget_seconds, hosted_dns_recovery=args.hosted_dns_recovery)
     try:
         return installer.install(args.packages)
     except (OSError, RuntimeError) as error:
