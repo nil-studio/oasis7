@@ -20,22 +20,21 @@ BASE_PLANNER = '''import json, sys\nprint(json.dumps({'groups': ['baseline'], 'r
 
 class CheckLocal(unittest.TestCase):
     def test_governance_driver_runs_adapter_tests_and_propagates_failure(self):
-        driver = (ENTRY.parent / 'ci-tests.sh').read_text()
-        function = re.search(r'^run_workflow_governance_baseline_contract_tests\(\) \{\n.*?^\}',
-                             driver, re.M | re.S).group()
+        config = json.loads((ENTRY.parent / 'ci-required-scope.json').read_text())
+        path = 'scripts/ci-local-check-plan.test.py'
+        self.assertEqual(config['workflow_governance_python_tests'].count(path), 1)
+        (self.root / 'scripts/ci-required-scope.json').write_text(json.dumps(
+            dict(workflow_governance_python_tests=[path])))
+        (self.root / 'scripts/ci-tests.sh').write_text(
+            'run_workflow_governance_remaining_contract_tests() { echo completed; }\n')
         for status in (0, 37):
             with self.subTest(status=status):
-                result = subprocess.run(['bash', '-c', '''set -euo pipefail
-run_dot_todo_contract_tests() { :; }
-run() {
-  printf '%s\\n' "$*"
-  if [[ "$*" == 'python3 ./scripts/ci-local-check-plan.test.py' ]]; then return ''' + str(status) + '''; fi
-}
-''' + function + '\nrun_workflow_governance_baseline_contract_tests\necho completed\n'],
+                (self.root / path).write_text(f'print("adapter")\nraise SystemExit({status})\n')
+                result = subprocess.run([sys.executable, str(ENTRY.parent / 'ci-python-control-contracts.py'),
+                                         'local-governance', '--repo-root', str(self.root)],
                                         text=True, capture_output=True)
                 self.assertEqual(result.returncode, status, result.stderr)
-                self.assertEqual(result.stdout.splitlines().count(
-                    'python3 ./scripts/ci-local-check-plan.test.py'), 1)
+                self.assertEqual(result.stdout.splitlines().count('adapter'), 1)
                 self.assertEqual('completed' in result.stdout.splitlines(), status == 0)
 
     def setUp(self):

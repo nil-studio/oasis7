@@ -18,6 +18,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
 
@@ -97,13 +98,45 @@ def checked(command, *, root, env=None):
     return result.stdout
 
 
-def git_source(root, revision, path):
+def git_source(root, revision, path, *, governance=False):
     if not re.fullmatch(r'[0-9a-f]{40}', revision):
         raise ValueError('policy must be a fixed commit identity')
-    if (not isinstance(path, str) or not path.startswith('scripts/')
+    if (not isinstance(path, str) or not path.startswith(('scripts/', 'crates/') if governance else 'scripts/')
             or '..' in path.split('/') or '\\' in path or Path(path).is_absolute()):
         raise ValueError('invalid trusted Python contract path')
     return checked(['git', 'show', f'{revision}:{path}'], root=root)
+
+
+def governance_tests(config):
+    """An explicit file inventory, never a candidate-supplied skip receipt."""
+    paths = config.get('workflow_governance_python_tests')
+    if (not isinstance(paths, list) or not paths or len(paths) > 256
+            or any(not isinstance(path, str) or not path.startswith(('scripts/', 'crates/'))
+                   or not path.endswith('.test.py')
+                   or any(part in ('', '.', '..') for part in path.split('/'))
+                   or any(character in path for character in ('\\', '*', '?', '[', ']'))
+                   or any(ord(character) < 32 for character in path) for path in paths)
+            or len(paths) != len(set(paths))):
+        raise ValueError('invalid complete governance Python inventory')
+    return paths
+
+
+def run_governance_remaining(root):
+    # Keep the final call outside an if/|| context: Bash would otherwise disable
+    # errexit inside its functions and mask an earlier failing contract.
+    subprocess.run(['bash', '--noprofile', '--norc', '-e', '-u', '-o', 'pipefail', '-c',
+                    'driver_dir="$1/scripts"\nrepo_root="$1"\nci_python="$2"\ntier=required\n'
+                    'source "$driver_dir/ci-tests.sh"\ncd "$repo_root"\n'
+                    'run_workflow_governance_remaining_contract_tests\n',
+                    'governance-remaining', str(root), sys.executable], cwd=root, check=True)
+
+
+def local_governance(root):
+    """Preserve each canonical CLI's local platform/optional-tool semantics."""
+    paths = governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text()))
+    for path in paths:
+        subprocess.run([sys.executable, str(root / path)], cwd=root, check=True)
+    run_governance_remaining(root)
 
 
 def contract_selection(config, plan):
@@ -291,6 +324,7 @@ def run_worker(request_path, witness_path):
     # assertions. Implementations and data continue to come from the candidate.
     importlib.machinery.SourceFileLoader.get_code = trusted_test_code
     sys.path.insert(0, str(root / 'scripts'))
+    sys.path.insert(0, str((root / path).parent))
     sys.dont_write_bytecode = True
     module = types.ModuleType('__main__')
     module.__file__ = filename
@@ -377,6 +411,7 @@ def run_worker(request_path, witness_path):
 
 
 def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=False, origin='trusted-baseline'):
+    started = time.monotonic()
     source = (snapshot / path).read_text()
     kind, inventory = test_inventory(source)
     selected = inventory if identifiers is None else identifiers
@@ -408,7 +443,8 @@ def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=Fal
                              + json.dumps(evidence, sort_keys=True))
     counts = (f'cases={len(selected)}' if kind == 'unittest' else
               f'entrypoints=1 scenarios={len(selected) - 1} assertions={report["assertions"]}')
-    print(f'python_control_contract={path} {counts} source={origin}', flush=True)
+    print(f'python_control_contract={path} {counts} source={origin} '
+          f'elapsed_seconds={time.monotonic() - started:.3f}', flush=True)
     return len(selected)
 
 
@@ -444,7 +480,7 @@ def migration_paths(root, policy_sha, plan, config):
     return sorted(changed)
 
 
-def run_contracts(root, policy_sha, plan):
+def run_contracts(root, policy_sha, plan, *, governance=False):
     config = json.loads(git_source(root, policy_sha, 'scripts/ci-required-scope.json'))
     selected = contract_selection(config, plan)
     if (any(not isinstance(plan.get(field), str) or not re.fullmatch(r'[0-9a-f]{40}', plan[field])
@@ -457,27 +493,34 @@ def run_contracts(root, policy_sha, plan):
     all_tests = {test for spec in config['python_control_contracts'].values() for test in spec['tests']}
     if not set(FIXED_TESTS) <= all_tests:
         raise ValueError('fixed safety assertions are missing from the hashed contract inventory')
+    governed = set()
+    if governance:
+        baseline_governed = set(governance_tests(config))
+        governed = set(governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text())))
+        if not baseline_governed <= governed:
+            raise ValueError('candidate retired complete governance test files')
+        all_tests.update(baseline_governed)
     with tempfile.TemporaryDirectory(prefix='ci-python-baseline-') as directory:
         snapshot = Path(directory)
         for path in sorted(all_tests):
             destination = snapshot / path
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(git_source(root, policy_sha, path))
+            destination.write_text(git_source(root, policy_sha, path, governance=governance))
         candidate_snapshot = snapshot / 'candidate'
-        for path in all_tests:
+        for path in all_tests | governed:
             destination = candidate_snapshot / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             if (root / path).is_file():
                 if (root / path).resolve() != root / path:
                     raise ValueError('candidate Python test is not a regular contained file: ' + path)
                 destination.write_text((root / path).read_text())
-        cases = 0
+        baseline_tasks, candidate_tasks, retain = {}, {}, set()
         for path, identifiers in FIXED_TESTS.items():
-            cases += run_contract(root, snapshot, path, identifiers)
+            baseline_tasks[path] = identifiers
             required = identifiers or test_inventory((snapshot / path).read_text())[1]
             if not set(required) <= set(test_inventory((root / path).read_text())[1]):
                 raise ValueError('candidate retired fixed safety tests: ' + path)
-            cases += run_contract(root, candidate_snapshot, path, required, origin='candidate')
+            candidate_tasks[path] = required
         if migration:
             print('python_control_policy_migration=' + json.dumps(dict(
                 changed_paths=migration, retained='fixed baseline safety tests and real Rust fixture',
@@ -488,16 +531,26 @@ def run_contracts(root, policy_sha, plan):
             if path == PLANNER_TEST:
                 continue
             if not migration:
-                if path not in FIXED_TESTS or FIXED_TESTS[path] is not None:
-                    cases += run_contract(root, snapshot, path, retain_candidate=True)
-                else:
-                    old = set(test_inventory((snapshot / path).read_text())[1])
-                    if not old <= set(test_inventory((root / path).read_text())[1]):
-                        raise ValueError('candidate retired baseline Python test identities: ' + path)
-            # Re-running candidate tests under the same completion protocol
-            # rejects a newly added skip and proves new regression cases.
-            cases += run_contract(root, candidate_snapshot, path, origin='candidate')
+                # A complete suite subsumes its fixed subset without losing the
+                # original requirement to preserve every baseline identity.
+                baseline_tasks[path] = None
+                retain.add(path)
+            candidate_tasks[path] = None
+        if governance:
+            # One owner executes the complete candidate suite, including fixed
+            # safety, selected non-governance contracts, and newly added cases.
+            candidate_tasks = {path: None for path in sorted(governed | set(selected) | set(FIXED_TESTS))}
+        cases = 0
+        for path, identifiers in baseline_tasks.items():
+            cases += run_contract(root, snapshot, path, identifiers, retain_candidate=path in retain)
+        for path, identifiers in candidate_tasks.items():
+            cases += run_contract(root, candidate_snapshot, path, identifiers, origin='candidate')
         run_rust_fixture(root, config)
+    if governance:
+        run_governance_remaining(root)
+    print('python_control_schedule=' + json.dumps(dict(
+        baseline_files=len(baseline_tasks), candidate_files=len(candidate_tasks),
+        complete_governance=governance, witnessed_checks=cases), sort_keys=True), flush=True)
     return cases
 
 
@@ -661,22 +714,30 @@ fn free_function() -> usize {
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('run', '_worker', 'fixture'))
+    parser.add_argument('action', choices=('run', '_worker', 'fixture', 'local-governance'))
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
     parser.add_argument('--policy-sha')
     parser.add_argument('--plan', type=Path)
     parser.add_argument('--request', type=Path)
     parser.add_argument('--witness', type=Path)
+    parser.add_argument('--governance', action='store_true',
+                        help='Own complete candidate governance and remaining contracts in this invocation')
     args = parser.parse_args()
     if args.action == '_worker':
         run_worker(args.request, args.witness)
     elif args.action == 'fixture':
         config = json.loads((args.repo_root / 'scripts/ci-required-scope.json').read_text())
         run_rust_fixture(args.repo_root.resolve(), config)
+    elif args.action == 'local-governance':
+        try:
+            local_governance(args.repo_root.resolve())
+        except subprocess.CalledProcessError as error:
+            raise SystemExit(error.returncode if error.returncode > 0 else 128 - error.returncode) from error
     else:
         if not args.policy_sha or not args.plan:
             parser.error('run requires --policy-sha and --plan')
-        cases = run_contracts(args.repo_root.resolve(), args.policy_sha, json.loads(args.plan.read_text()))
+        cases = run_contracts(args.repo_root.resolve(), args.policy_sha, json.loads(args.plan.read_text()),
+                              governance=args.governance)
         print(f'Python control contracts passed ({cases} witnessed checks plus real offline Rust fixture).')
 
 

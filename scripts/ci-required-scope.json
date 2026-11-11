@@ -325,6 +325,23 @@
         "viewer::runtime_live::stream_budget_diagnostics::tests::numeric_ring_is_bounded_and_disabled_after_snapshot"
       ]
     },
+    "executable-image-lib": {
+      "package": "oasis7_executable_image",
+      "target_kind": "lib",
+      "target_name": "oasis7_executable_image",
+      "default_features": false,
+      "features": [],
+      "cases": [
+        "executable_image::tests::actual_image_is_accepted_but_a_copied_same_bytes_file_is_not_loaded",
+        "executable_image::replacement_tests::frozen_artifact_digest_never_hashes_an_atomic_replacement_as_loaded_image",
+        "executable_image::replacement_tests::fixture::failed_directory_creation_does_not_remove_an_existing_directory",
+        "executable_image::replacement_tests::expectations::replacement_digest_is_always_rejected",
+        "executable_image::replacement_tests::expectations::platform_report_rejects_a_different_digest",
+        "executable_image::replacement_tests::expectations::platform_report_rejects_empty_output",
+        "executable_image::replacement_tests::expectations::platform_report_accepts_the_platform_result",
+        "executable_image::replacement_tests::expectations::report_matches_whole_lines_without_accepting_a_digest_prefix"
+      ]
+    },
     "launcher-config-lib": {
       "package": "oasis7_launcher_config",
       "target_kind": "lib",
@@ -475,6 +492,16 @@
   "ordinary_fast_component_rules": [
     {
       "match": [
+        "crates/oasis7_executable_image/src/digest.rs"
+      ],
+      "exclude": [],
+      "targets": [
+        "executable-image-lib"
+      ],
+      "reason": "loaded_executable_digest_with_stable_facade_and_complete_native_tests"
+    },
+    {
+      "match": [
         "crates/oasis7_viewer_runtime/src/viewer/runtime_live/agent_service_*.rs",
         "crates/oasis7_viewer_runtime/src/viewer/runtime_live/stream_budget_diagnostics.rs"
       ],
@@ -609,7 +636,7 @@
   "oasis7_required_packages": [
     "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
-    "oasis7_chain_runtime", "oasis7_client_cli", "oasis7_protocol_tools",
+    "oasis7_chain_runtime", "oasis7_executable_image", "oasis7_client_cli", "oasis7_protocol_tools",
     "oasis7_launcher_backend", "oasis7_newapi_bridge_service", "oasis7_ops_tools",
     "oasis7_provider_local_bridge", "oasis7_provider_tools", "oasis7_viewer_runtime",
     "oasis7_viewer_codec", "oasis7_observability", "oasis7_hosted_access",
@@ -919,6 +946,8 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-governance-preview.py": ["workflow_governance"],
+    "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
     "scripts/ci-apt-install.test.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
@@ -983,6 +1012,33 @@
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
   },
+  "workflow_governance_python_tests": [
+    "scripts/plan-rust-required-scope.test.py",
+    "scripts/ci-local-check-plan.test.py",
+    "scripts/ci-python-control-contracts.test.py",
+    "scripts/ci-formal-process.test.py",
+    "scripts/ci-storage-acceptance.test.py",
+    "scripts/ci-storage-network.test.py",
+    "scripts/ci-required-result.test.py",
+    "scripts/ci-full-result.test.py",
+    "scripts/ci-apt-install.test.py",
+    "scripts/ci-workflow.test.py",
+    "scripts/ci-fast-preview.test.py",
+    "scripts/ci-cache-maintenance.test.py",
+    "scripts/ci-cache-policy.test.py",
+    "scripts/ci-cache-archive.test.py",
+    "scripts/ci-workspace-cache.test.py",
+    "scripts/ci-rust-cache-toolchains.test.py",
+    "scripts/ci-rust-cache-admission.test.py",
+    "scripts/ci-rust-cache-build.test.py",
+    "scripts/ci-support-profiles.test.py",
+    "scripts/ci-custody-platform.test.py",
+    "scripts/ci-worker-build.test.py",
+    "crates/oasis7_custody_worker/scripts/verify-stages.test.py",
+    "scripts/ci-local-signer-tests.test.py",
+    "scripts/pr-review-threads.test.py",
+    "scripts/ci-governance-preview.test.py"
+  ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
     "scripts/ci-apt-install.py": {
@@ -1318,6 +1374,19 @@
       "tests": [
         "scripts/plan-rust-required-scope.test.py"
       ]
+    },
+    "scripts/ci-governance-preview.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-governance-preview.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-governance-preview.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-governance-preview.test.py"
+      ]
     }
   },
   "generated_inputs": [
@@ -1436,6 +1505,9 @@
     "oasis7_secure_envelope": [
       "workspace_support",
       "command_center"
+    ],
+    "oasis7_executable_image": [
+      "oasis7_required"
     ],
     "oasis7_chain_runtime": [
       "oasis7_required",

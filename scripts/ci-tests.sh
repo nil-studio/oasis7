@@ -196,7 +196,7 @@ PY_VIEWER
 run_oasis7_package_tests() {
   local features="$1"
   shift
-  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
+  run_cargo test -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_executable_image -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol "$@" --features "$features"
 }
 
 run_oasis7_test_tier_with_viewer() {
@@ -281,7 +281,7 @@ for command in commands:
     fi
     return
   fi
-  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
+  run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_executable_image -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
 }
 
 run_oasis7_required_clippy_for_group() {
@@ -694,35 +694,11 @@ PY_TELEMETRY
 run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
-  run python3 ./scripts/plan-rust-required-scope.test.py
-  run python3 ./scripts/ci-local-check-plan.test.py
-  run python3 ./scripts/ci-python-control-contracts.test.py
-  run python3 ./scripts/ci-formal-process.test.py
-  run python3 ./scripts/ci-storage-acceptance.test.py
-  run python3 ./scripts/ci-storage-network.test.py
-  run python3 ./scripts/ci-required-result.test.py
-  run python3 ./scripts/ci-full-result.test.py
-  run python3 ./scripts/ci-apt-install.test.py
-  run python3 ./scripts/ci-workflow.test.py
-  run python3 ./scripts/ci-fast-preview.test.py
-  run python3 ./scripts/ci-cache-maintenance.test.py
-  run python3 ./scripts/ci-cache-policy.test.py
-  run python3 ./scripts/ci-cache-archive.test.py
-  run python3 ./scripts/ci-workspace-cache.test.py
-  run python3 ./scripts/ci-rust-cache-toolchains.test.py
-  run python3 ./scripts/ci-rust-cache-admission.test.py
-  run python3 ./scripts/ci-rust-cache-build.test.py
-  run python3 ./scripts/ci-support-profiles.test.py
-  run python3 ./scripts/ci-custody-platform.test.py
-  run python3 ./scripts/ci-worker-build.test.py
-  run python3 crates/oasis7_custody_worker/scripts/verify-stages.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
-  run python3 ./scripts/ci-local-signer-tests.test.py
   run bash ./scripts/rust-full-tier-trunk-prerequisite-contract.test.sh
   run bash ./scripts/worktree-gc-report.test.sh
   run python3 ./scripts/resource-cleanup-executor.test.py
-  run python3 ./scripts/pr-review-threads.test.py
 }
 
 run_workflow_governance_operational_contract_tests() {
@@ -749,11 +725,17 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-acceptance.test.py
 }
 
-run_workflow_governance_contract_tests() {
+run_workflow_governance_remaining_contract_tests() {
   run_ci_wasm_opt_contract_tests
   run_engineering_telemetry_contract_tests
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests
+  run python3 ./scripts/package-source-plan.test.py
+  run python3 ./scripts/safe-git-archive.test.py
+}
+
+run_workflow_governance_contract_tests() {
+  run python3 ./scripts/ci-python-control-contracts.py local-governance --repo-root "$repo_root"
 }
 
 run_packaging_artifact_contract_tests() {

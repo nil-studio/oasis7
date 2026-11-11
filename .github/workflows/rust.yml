@@ -455,6 +455,53 @@ jobs:
           print('OASIS7_' + 'ENGINEERING_JOB_V1=' + json.dumps(row, sort_keys=True, separators=(',', ':')))
           PY_OBSERVATION
 
+  pr-governance-preview:
+    needs: [select, pr-fast-preview-plan]
+    if: >-
+      always() && !cancelled() &&
+      github.event_name == 'pull_request' && needs.select.result == 'success' &&
+      needs.pr-fast-preview-plan.result == 'success' &&
+      needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Prepare governance comparison tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          command -v zstd
+          command -v zstdmt
+      - name: Compare complete governance execution without gate authority
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ACTUAL_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          python3 scripts/ci-governance-preview.py --repo-root "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" --source-sha "$ACTUAL_SOURCE_SHA" --tested-sha "$TESTED_SHA" \
+            --output-dir "$RUNNER_TEMP/governance-preview"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: governance-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/governance-preview/
+          if-no-files-found: warn
+          retention-days: 14
+
   pr-fast-preview-plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
@@ -2469,6 +2516,25 @@ jobs:
           source scripts/ci-tests.sh
           support_capacity_snapshot job-exit
 
+  custody-native-contracts:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          persist-credentials: false
+      - name: Install pinned Rust for native contracts
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Execute all native custody contracts
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: bash crates/oasis7_custody_worker/scripts/verify.sh --stage native-contracts
+
   custody-native:
     needs: select
     if: >-
@@ -2561,7 +2627,11 @@ jobs:
       - name: Build and verify the complete custody component
         shell: bash
         run: |
-          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$CUSTODY_COMPONENT"
+          stage="$CUSTODY_COMPONENT"
+          if [[ "$stage" == native ]]; then
+            stage=native-fixtures
+          fi
+          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$stage"
           if [[ "$CUSTODY_COMPONENT" == wasm-approval ]]; then
             driver_dir="$GITHUB_WORKSPACE/scripts"
             ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
@@ -2694,7 +2764,7 @@ jobs:
           retention-days: 7
 
   workspace-support:
-    needs: [select, workspace-support-legacy, workspace-support-other, custody-native, custody-wasm-production, custody-wasm-approval, custody-node]
+    needs: [select, workspace-support-legacy, workspace-support-other, custody-native-contracts, custody-native, custody-wasm-production, custody-wasm-approval, custody-node]
     if: >-
       always() && needs.select.result != 'skipped' &&
       (needs.select.result != 'success' || needs.select.outputs.run_workspace_support == 'true' ||
@@ -2850,6 +2920,19 @@ jobs:
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}/ci-control-selection
+      - name: Inspect trusted governance capability
+        id: control-mode
+        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py"
+          help=$(python3 -I "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" --help)
+          if grep -Fq -- '--governance' <<< "$help"; then
+            echo 'complete_governance=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'complete_governance=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Install document contract parser
         run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned tools for offline control fixtures
@@ -2868,13 +2951,21 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+          COMPLETE_GOVERNANCE: ${{ steps.control-mode.outputs.complete_governance }}
           RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: |
           set -euo pipefail
           test -s "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py"
+          complete=()
+          if [[ "$COMPLETE_GOVERNANCE" == true ]]; then
+            complete=(--governance)
+          fi
           python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run \
             --repo-root "$GITHUB_WORKSPACE" --policy-sha "$POLICY_SHA" \
-            --plan "$RUNNER_TEMP/ci-control-selection/selection.json"
+            --plan "$RUNNER_TEMP/ci-control-selection/selection.json" "${complete[@]}"
       - name: Verify scoped candidate cache permission
         uses: ./.github/actions/cache-permission-probe
       - name: Restore trusted cache sentinel
@@ -2894,6 +2985,7 @@ jobs:
             echo 'cache_permission_probe=trusted_writer_not_yet_seeded'
           fi
       - name: Execute selected group
+        if: steps.control-mode.outputs.complete_governance != 'true'
         shell: bash
         env:
           CI_VERBOSE: "1"
@@ -2901,6 +2993,7 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "workflow_governance" --repo-root "$GITHUB_WORKSPACE"
       - name: Verify new source archive and cache permission contracts
+        if: steps.control-mode.outputs.complete_governance != 'true'
         run: |
           python3 scripts/package-source-plan.test.py
           python3 scripts/safe-git-archive.test.py

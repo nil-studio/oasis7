@@ -230,6 +230,23 @@ class VerifyStagesTests(unittest.TestCase):
         self.assertFalse(any("wasm32-unknown-unknown" in command for command in commands))
         self.assertEqual(commands[-1], ["export-context-body-fixture.sh"])
 
+    def test_native_contracts_and_fixtures_preserve_legacy_commands_exactly_once(self):
+        result, native = self.run_verify("--stage", "native")
+        self.assert_success(result)
+        result, contracts = self.run_verify("--stage", "native-contracts")
+        self.assert_success(result)
+        self.assertEqual(contracts, [[
+            "cargo", "test", "-p", "oasis7_custody_core", "-p",
+            "oasis7_custody_worker", "--locked",
+        ]])
+        result, fixtures = self.run_verify("--stage", "native-fixtures")
+        self.assert_success(result)
+        self.assertEqual(Counter(map(tuple, contracts + fixtures)), Counter(map(tuple, native)))
+        self.assertFalse(any("oasis7_custody_core" in command for command in fixtures))
+        self.assertIn(["build-native-fixture.sh"], fixtures)
+        self.assertIn(["build-world-fixture.sh"], fixtures)
+        self.assertTrue(any(command[0] == "world-fixture" and "--exact" in command for command in fixtures))
+
     def test_wasm_stages_own_disjoint_build_outputs(self):
         result, production = self.run_verify("--stage", "wasm-production")
         self.assert_success(result)
@@ -265,6 +282,9 @@ class VerifyStagesTests(unittest.TestCase):
     def test_producer_and_commit_barrier_failures_propagate(self):
         for stage, command, match in (
             ("native", "cargo", "test -p oasis7_custody_core"),
+            ("native-contracts", "cargo", "test -p oasis7_custody_core"),
+            ("native-fixtures", "cargo", "test -p oasis7_launcher_backend"),
+            ("native-fixtures", "world-fixture", "--exact"),
             ("native", "world-fixture", "--exact"),
             ("native", "node", "contract.mjs check"),
             ("wasm-production", "build-role.sh", "owner"),
