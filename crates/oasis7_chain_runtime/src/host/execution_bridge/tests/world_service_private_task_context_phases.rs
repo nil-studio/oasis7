@@ -1029,6 +1029,7 @@ fn apply_captured_context_and_publish_replacement(
             );
         }
     }
+    super::queue::assert_queued_original_across_tick(dir, world, &submit);
     commit(driver, age + 9, submit.clone());
     assert!(
         game_task_tests::recorded(driver, &submit)
