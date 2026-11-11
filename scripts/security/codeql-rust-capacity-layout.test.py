@@ -22,6 +22,8 @@ FILES = (
     'codeql-rust-capacity.py',
     'codeql-rust-qualifier-comparison.py',
     'codeql-rust-candidate-workload.py',
+    'codeql_rust_candidate_profile.py',
+    'codeql_summary_schema_2_27_4.json',
     'codeql-rust-action-deadline.cjs',
     'codeql_rust_action_deadline.py',
     'codeql-rust-omitted-qualifier.patch',
@@ -117,6 +119,10 @@ class CapacityLayout(unittest.TestCase):
             actual = hashlib.sha256((self.tools / name).read_bytes()).hexdigest()
             self.assertEqual(item['source_sha256'], actual)
             self.assertEqual(item['snapshot_sha256'], actual)
+        help_result = subprocess.run([sys.executable, str(self.tools / 'codeql-rust-candidate-workload.py'), '--help'],
+                                     cwd=self.source, env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn('--analysis-deadline', help_result.stdout)
 
     def test_old_nested_layout_is_rejected_even_with_correct_action_repository_root(self):
         result = self.invoke('stage')
