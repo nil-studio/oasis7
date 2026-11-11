@@ -1029,7 +1029,7 @@ env -u RUSTC_WRAPPER cargo check -p pixel_world_bridge --target wasm32-unknown-u
 - JS-required（结构/反馈/Vitest/freshness/build）：触达 `crates/oasis7_viewer/**` 的 source、生成物边界或 bundle 时，执行 `npm --prefix crates/oasis7_viewer run test:frontend-structure`、`npm --prefix crates/oasis7_viewer run test:feedback-contract`、`npm --prefix crates/oasis7_viewer run test:ui`、`./scripts/agent-browser-viewer-dist-freshness-test.sh` 与 `./scripts/build-viewer-software-safe.sh`。
 - JS-browser（真实浏览器）：WASM bundle ready 后，以真实 browser 验证关键交互、console、desktop 与 narrow viewport；任何 player-visible 改动必须通过此层，不能只以 JS-required 替代。
 - JS-full（release/risk-triggered）：跨模式、恢复路径、长运行与性能验证；发布或风险触发时执行，包含适用的 raster/browser/performance 证据。
-- 受控浏览器功能回归使用显式 `fixture-functional` profile，目标是用真实组件/状态处理复现响应时序；当前仍待实现，详见[目标合同](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)与下方[实施核验](#browser-functional-regression-validation)。其合成依赖结论与真实栈/正式 S6 分开记录。
+- 受控浏览器功能回归使用显式 `fixture-functional` profile，用真实组件/状态处理复现响应时序；统一 runner 已覆盖 BFR-P01–P07 并接入 `viewer_js_required` 选测，详见[受控浏览器合同](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)与下方[实施核验](#browser-functional-regression-validation)。其合成依赖结论与真实栈/正式 S6 分开记录。
 - S6 详细执行步骤、agent-browser 命令、发布门禁与补充约定已拆分到：
   - `doc/testing/manual/web-ui-agent-browser-closure-manual.manual.md`
   - `doc/testing/manual/web-ui-playwright-closure-manual.manual.md`（Playwright 实跑系列入口，管理真实本地栈 + 真实 UI 操作流程矩阵）
@@ -1155,7 +1155,14 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
 <a id="browser-functional-regression-validation"></a>
 #### 受控浏览器功能回归核验（实施阶段）
 
-Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](doc/testing/prd.md#browser-functional-regression)。现有 `npm --prefix crates/oasis7_viewer run test:ui` 是 Vitest/jsdom；`./scripts/viewer-software-safe-step-regression-smoke.sh` 是 tooling fixture 预检；`node crates/oasis7_viewer/scripts/player-visual-feedback-browser-smoke.mjs` 已使用真实 shell 和固定 bridge/feed 采证。三者各保留原证明范围，均不能单凭入口存在宣称[全部 BFR-P01–P07](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-pilot)已覆盖。新的统一 runner/场景选择入口尚未实现，不提供伪可执行命令。
+Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](doc/testing/prd.md#browser-functional-regression)。现有 `npm --prefix crates/oasis7_viewer run test:ui` 是 Vitest/jsdom；`./scripts/viewer-software-safe-step-regression-smoke.sh` 是 tooling fixture 预检；`node crates/oasis7_viewer/scripts/player-visual-feedback-browser-smoke.mjs` 已使用真实 shell 和固定 bridge/feed 采证。三者各保留原证明范围，均不能单凭入口存在宣称[全部 BFR-P01–P07](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-pilot)已覆盖。统一入口为 `crates/oasis7_viewer/scripts/browser-functional-regression.mjs`（CI 组 `viewer_js_required`）；`--cases`/`--viewports` 是同一矩阵的精确选测，空选择、未知 ID、重复项、零执行、缺产物和自检失败均非零退出。
+
+```bash
+npm --prefix crates/oasis7_viewer run build:viewer:visual-test
+npm --prefix crates/oasis7_viewer run build:viewer
+node crates/oasis7_viewer/scripts/browser-functional-regression.mjs --skip-build
+```
+
 
 1. 在实施候选记录准确 source/tree、依赖锁定和测试构建身份，先运行适用 JS-required；确认服务的 bundle 来自当前真实 `viewer_app.jsx` 与 PromptControl/feedback 模块。核对 test entry、synthetic auth/bridge/feed/transport 的替换清单，release 加 query 不能开启控制器。只为本 profile 启动本地静态资源和受控依赖，不启动完整 worktree launcher/active LLM 栈。
 2. 为每 case 新建独立命名 context、loopback 端口、storage 和产物目录，先用一个非 allowlist HTTP/WebSocket/worker 请求确认网络在发送前被阻断；核对没有继承用户 session 或真实 provider 配置。共享构建先串行冻结，case 并行前检查实际隔离；失败/取消也只回收自己拥有的资源。
