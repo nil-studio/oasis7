@@ -62,7 +62,7 @@ export function roleRuntimeOptions(persist, data, bridge, mode, configureOptions
       ...(mode.startsWith('native-participant-owner-setup')?{CUSTODY_OWNER_SETUP_ENABLED:'true'}:{}),
       ...(native?{CUSTODY_NATIVE_PROVISION_ENABLED:'true',CUSTODY_NATIVE_ORIGIN:'https://localhost',
         CUSTODY_NATIVE_BINDING_OWNER_PIN:JSON.stringify(data.managed_binding_owner_pin),CUSTODY_NATIVE_BINDING_SIGNING_SEED:Buffer.alloc(32,93).toString('hex')}:{})},
-    ...(mode.startsWith('native-stage-gap-')?{outboundService:bridge}:{}),
+    ...(mode.startsWith('native-stage-gap-')||mode.startsWith('native-participant-owner-setup-real-fence-reconcile')?{outboundService:bridge}:{}),
     serviceBindings:{...(mode==='native-participant-role-capability'?{PARTICIPANT_IDENTITY_REAL:{name:'owner',entrypoint:'ParticipantIdentityReal'}}:{}),IDENTITY_NATIVE_APPROVAL:{name:'identity',entrypoint:'IdentityNativeApproval'},RECOVERY_FENCE:{name:'fence',entrypoint:'RecoveryFenceReader'},
       ACCOUNT_KEY_PERMITS:{name:'owner',entrypoint:'OwnerKeyPermits'},IDENTITY_PROVISION_KEYS:{name:'identity',entrypoint:'RoleKeyProvision'},
       OWNER_PROVISION_KEYS:{name:'owner',entrypoint:'RoleKeyProvision'},EXECUTOR_PROVISION_KEYS:{name:'executor',entrypoint:'RoleKeyProvision'},
@@ -122,13 +122,16 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
     const nativeRequests={};
     const approvalFacts=[];
     const worldResults=[];
+    let setupArchiveExpiries=0;
     let lostBindingReply=false;
     let lostLoginReply=false;
     let lostParticipantReply=false;
     const bridge=async request=>{
       const url=new URL(request.url);
       if(mode.startsWith('native-participant-owner-setup-real-fence-reconcile') && url.href==='https://fixture.test/_after-setup-submit-archive') {
-        await delay(5100);return new MiniflareResponse(null,{status:204});
+        await delay(5100);
+        setupArchiveExpiries++;
+        return new MiniflareResponse(null,{status:204});
       }
       if(mode.startsWith('native-participant-owner-setup-real-fence-gap') && url.href==='https://fixture.test/_after-setup-create-commit') {
         if(mode.endsWith('-revoke')) {
@@ -280,6 +283,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       readPrivateNativeHistory:async call=>{identity=await mf.getWorker('identity');return identity.fetch('https://localhost/fixture/native-history',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(call)});},
       managementFetch:async(suffix,body)=>{identity=await mf.getWorker('identity');return identity.fetch(base+suffix,{method:'POST',headers,body:JSON.stringify(body)});},
       approveIntent:async request=>{const response=await fetch(native.data.address+'/_fixture/approve-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});const raw=await response.text();assert.equal(response.status,200,raw);const proof=JSON.parse(raw);assert.ok(proof.approval,'actual native fixture must issue UV evidence');return proof.approval;},planExpires:Number(draft.plan.expires_at),restart,suspend:async()=>{await mf?.dispose();mf=undefined;},
+      setupArchiveExpiries:()=>setupArchiveExpiries,
       reconcileBasis:async(setup_id,stage)=>{
         identity=await mf.getWorker('identity');
         const reply=await identity.fetch(base+'/owner-setup-reconciles/basis',{method:'POST',headers,body:JSON.stringify({api_version:1,setup_id,stage})});

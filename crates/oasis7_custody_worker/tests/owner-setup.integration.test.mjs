@@ -97,6 +97,8 @@ test(rollback?'reconcile final SQL failure rolls back both old and new results a
     const stopped=await runtime.continueSetup(plan.setup_id);
     assert.equal(stopped.status,200,await stopped.clone().text());
     assert.equal((await stopped.json()).stage,'ready_for_setup');
+    assert.equal(runtime.setupArchiveExpiries(),targetStage==='final_observation'?0:1,
+      'submit recovery must finish the local archive-expiry hook; final observation loses record_result directly');
     const basis=await runtime.reconcileBasis(plan.setup_id,targetStage);
     const reconcile={api_version:1,reconcile_id:'owner-reconcile-one',setup_id:basis.setup_id,
       provision_id:basis.provision_id,stage:basis.stage,setup_plan_digest:basis.setup_plan_digest,
@@ -139,7 +141,7 @@ test(rollback?'reconcile final SQL failure rolls back both old and new results a
     const created=saved.setups[0].stages.find(stage=>stage.stage===targetStage);
     assert.deepEqual(created.result_provenance,{kind:'reconcile',reconcile_id:'owner-reconcile-one',attempt_id:'read-one'});
     assert.deepEqual(created.archived_sources,targetStage==='final_observation'?[]:['submit'],'recovery never overwrites the original stage history');
-  });
+  },{settleSubmits:true});
 });
 
 }

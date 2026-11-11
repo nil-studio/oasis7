@@ -36,3 +36,36 @@ test('Miniflare conversion does not promote worker-only cf flags to the shared o
   assert.equal(isolated.cf,false,'the shared opt-out must survive the actual locked converter');
   assert.equal(isolated.workers.length,misplaced.workers.length);
 });
+
+test('Owner expiry fixtures retain their local bridge through Miniflare conversion',()=>{
+  const data={namespace:'fixture-namespace',identity_instance_epoch:'0',audience:'fixture-audience',
+    key_id:'fixture-key',public_key:'ab'.repeat(32),adapter_secret:'synthetic-adapter',
+    revocation_poll_secret:'synthetic-poll',revocation_ack_secret:'synthetic-ack',
+    managed_binding_owner_pin:{}};
+  let bridgeCalls=0;
+  const bridge=()=>{bridgeCalls++;throw new Error('configuration must not invoke the bridge');};
+  const cases=[
+    ['native-participant-owner-setup-real-fence-reconcile',true],
+    ['native-participant-owner-setup-real-fence-reconcile-bind',true],
+    ['native-participant-owner-setup-real-fence-reconcile-final',true],
+    ['native-participant-owner-setup-real-fence-reconcile-rollback',true],
+    ['native-stage-gap-revoke',true],
+    ['native-participant',false],
+    ['native-participant-owner-setup-real-fence',false],
+  ];
+  for(const [mode,ownerUsesBridge] of cases) {
+    const options=roleRuntimeOptions(resolve('unused-role-options-persistence'),data,bridge,mode,raw=>{
+      for(const worker of raw.workers)worker.modules=worker.modules.map(module=>({...module,
+        contents:module.type==='CompiledWasm'?new Uint8Array([0,97,115,109,1,0,0,0]):'export default {}'}));
+      return raw;
+    });
+    const owner=options.workers.find(worker=>worker.config.name==='owner');
+    const identity=options.workers.find(worker=>worker.config.name==='identity');
+    assert.equal(identity.dev.outboundService.handler,bridge,mode);
+    if(ownerUsesBridge) {
+      assert.equal(owner.dev.outboundService?.type,'fetcher',mode);
+      assert.equal(owner.dev.outboundService.handler,bridge,mode);
+    } else assert.equal(owner.dev.outboundService,undefined,mode);
+  }
+  assert.equal(bridgeCalls,0);
+});
