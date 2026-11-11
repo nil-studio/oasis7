@@ -112,6 +112,11 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(set(identity['files']), {*b.HELPERS, 'workflow.yml'})
         for name, item in identity['files'].items():
             self.assertEqual(hashlib.sha256((session / 'tools' / name).read_bytes()).hexdigest(), item['sha256'])
+        # The real handoff constructs this production clock before source preparation.
+        # Checking only a test-side tolerance missed a rejection in the actual consumer.
+        admitted = d.Clock(clock)
+        self.assertEqual(admitted.end, clock['deadline_monotonic'])
+        self.assertEqual(admitted.prepare, clock['prepare_end_monotonic'])
         self.assertLess(clock['prepare_end_monotonic'], clock['deadline_monotonic'])
         deadline, prepare = clock['deadline_monotonic'], clock['prepare_end_monotonic']
         # Independent absolute-clock arithmetic may round at different magnitudes.
@@ -175,7 +180,7 @@ class BootstrapTests(unittest.TestCase):
                 self.assertEqual(len(self.handoffs), previous_handoffs + 1)
                 terminal = json.loads((Path(root) / 'rust-wasm-metadata/evidence/bootstrap-terminal.json').read_text())
                 self.assertEqual(terminal['status'], 'BOOTSTRAP_INCOMPLETE')
-                self.assertEqual(terminal['error_class'], 'AssertionError')
+                self.assertEqual(terminal['error_class'], 'Rejected')
 
     def test_corrupt_blob_never_reaches_handoff_or_file_persistence(self):
         fixture = RepositoryFixture(self.env['GITHUB_SHA'], corrupt=True)
@@ -419,6 +424,42 @@ class ClockEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name); self.evidence = d.Evidence(self.root)
+
+    @staticmethod
+    def hosted_receipt():
+        # Real bootstrap receipt from run 42997006344; keep its unrounded values.
+        return dict(maximum_job_seconds=1200,
+                    deadline_monotonic=1218.0190288919998,
+                    prepare_end_monotonic=798.019028892,
+                    deadline_wall=1794391166.897273,
+                    prepare_end_wall=1794390746.897273)
+
+    def test_real_hosted_roundoff_preserves_both_absolute_deadlines(self):
+        receipt = self.hosted_receipt()
+        self.assertNotEqual(receipt['deadline_monotonic'] - receipt['prepare_end_monotonic'], 420)
+        with patch.object(d.time, 'monotonic', return_value=24.0), \
+                patch.object(d.time, 'time', return_value=1794389975.0):
+            clock = d.Clock(receipt)
+            self.assertIs(clock.receipt, receipt)
+            self.assertEqual(clock.end, receipt['deadline_monotonic'])
+            self.assertEqual(clock.prepare, receipt['prepare_end_monotonic'])
+            self.assertEqual(clock.wall, receipt['deadline_wall'])
+            clock.check(clock.prepare)
+
+    def test_real_hosted_clock_rejects_changed_reserve_and_invalid_times(self):
+        receipt = self.hosted_receipt()
+        with patch.object(d.time, 'monotonic', return_value=24.0), \
+                patch.object(d.time, 'time', return_value=1794389975.0):
+            for field in ('deadline_monotonic', 'prepare_end_monotonic'):
+                for shift in (-0.001, 0.001):
+                    with self.subTest(field=field, shift=shift), self.assertRaises(d.Rejected):
+                        d.Clock(dict(receipt, **{field: receipt[field] + shift}))
+            for field in ('deadline_monotonic', 'prepare_end_monotonic', 'deadline_wall', 'prepare_end_wall'):
+                for invalid in (float('nan'), float('inf'), float('-inf')):
+                    with self.subTest(field=field, invalid=invalid), self.assertRaises(d.Rejected):
+                        d.Clock(dict(receipt, **{field: invalid}))
+            with self.assertRaises(d.Rejected):
+                d.Clock(dict(receipt, maximum_job_seconds=1201))
 
     def test_absolute_budget_has_no_phase_reset_or_late_admission(self):
         receipt = clock_receipt(500); clock = d.Clock(receipt)
