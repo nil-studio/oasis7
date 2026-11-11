@@ -289,6 +289,7 @@ class Capacity(unittest.TestCase):
         self.research_prepare_case(mode='capacity',source_sha=m.PROFILE_SOURCE,actual_version='2.27.3')
         self.research_prepare_case(mode='capacity',source_sha=m.PREVIOUS_CAPACITY_SOURCE,actual_version='2.27.3')
         self.research_prepare_case(mode='qualifier-research',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.4')
+        self.research_prepare_case(mode='candidate-workload-research',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.4')
 
     def test_prepare_rejects_cli_from_the_other_assessment_configuration(self):
         self.research_prepare_case(mode='capacity',source_sha=m.CAPACITY_SOURCE,actual_version='2.27.3',wrong_cli=True)
@@ -423,7 +424,13 @@ class Capacity(unittest.TestCase):
             else:
                 self.assertIn('codeql/rust-all: '+rust_all+'\n',(work/'queries/qlpack.yml').read_text())
                 self.assertEqual(len(list((work/'queries').glob('*.ql'))),7)
-                self.assertTrue(any('compile' in argv for argv in commands))
+                self.assertEqual(any('compile' in argv for argv in commands),mode!='candidate-workload-research')
+                if mode=='candidate-workload-research':
+                    self.assertFalse(any('library-path' in argv for argv in commands))
+                    budget=json.loads((out/'capacity-budget.json').read_text())
+                    self.assertLessEqual(budget['analysis_deadline'],budget['fixed_job_deadline']-600)
+                    self.assertLessEqual(budget['analysis_deadline'],budget['analysis_allocated_at']+75*60)
+                    self.assertIn('CAPACITY_ANALYSIS_DEADLINE='+str(budget['analysis_deadline']),(root/'github-env').read_text())
             self.assertEqual([call.kwargs['prefix'] for call in m.evidence.capture_identity.call_args_list],
                 ['prepare','after-metadata-workspace','after-metadata-candidate',
                  'after-metadata-legacy','after-metadata-common','pre-analyze'])
@@ -488,7 +495,8 @@ class Capacity(unittest.TestCase):
         import contextlib
         import zipfile
         failures = ('none', 'capture', 'guard', 'resource', 'archive', 'database-root', 'finalized', 'results', 'after-identity')
-        cases = [('qualifier-research', failure) for failure in failures] + [('capacity', 'missing-results')]
+        cases = [(mode, failure) for mode in ('qualifier-research','candidate-workload-research') for failure in failures] + [('capacity', 'missing-results')]
+        cases.append(('candidate-workload-research','deadline'))
         for mode, failure in cases:
             with self.subTest(mode=mode, failure=failure), tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
                 root=Path(directory);source=root/'source';source.mkdir();out=root/'out';out.mkdir();db=root/'db';db.mkdir()
@@ -534,20 +542,26 @@ class Capacity(unittest.TestCase):
                       '--sarif',str(root/'absent-sarif'),'--deadline',str(deadline),'--analyze-outcome','success']
                 for item in [patch.object(sys,'argv',argv),patch.object(m,'snapshot',return_value=frozen),
                         patch.object(m.runtime,'run',side_effect=run),
+                        patch.object(m.action_deadline,'admit',side_effect=RuntimeError('absolute deadline missing') if failure=='deadline' else None,return_value={'status':'PASS'}),
                         patch.object(m,'after_identity',return_value={'source':'CHANGED' if failure=='after-identity' else 'UNCHANGED','official':'UNCHANGED'})]:
                     stack.enter_context(item)
                 if failure=='none':m.main()
                 else:
                     with self.assertRaises(RuntimeError):m.main()
                 terminal=json.loads((out/'capacity-finish-terminal.json').read_text())
-                self.assertEqual(terminal['status'],'EXTRACTION_READY' if failure=='none' else 'FAILED' if mode=='capacity' else 'RESEARCH_INCOMPLETE')
+                success='CANDIDATE_EXTRACTION_READY' if mode=='candidate-workload-research' else 'EXTRACTION_READY'
+                failed='CANDIDATE_RESEARCH_INCOMPLETE' if mode=='candidate-workload-research' else 'FAILED' if mode=='capacity' else 'RESEARCH_INCOMPLETE'
+                self.assertEqual(terminal['status'],success if failure=='none' else failed)
                 self.assertEqual(terminal['production_capacity'],'UNKNOWN')
                 self.assertEqual(terminal['full_rust_coverage'],'HOLD')
-                if mode=='qualifier-research':
+                if mode in ('qualifier-research','candidate-workload-research'):
                     self.assertEqual(terminal['default_result_verification'],'NOT_REQUESTED')
                     self.assertEqual(terminal['public_semantics'],'NOT_REQUESTED')
                     self.assertFalse((db/'temp/config-queries.qls').exists())
                 if failure in ('capture','guard','resource'):self.assertEqual(calls,[])
+                if mode!='candidate-workload-research':m.action_deadline.admit.assert_not_called()
+                elif failure=='none':m.action_deadline.admit.assert_called_once_with(out,source,deadline)
+                elif failure=='deadline':self.assertEqual(calls,[])
                 if failure=='none':
                     self.assertEqual(terminal['database_metadata_sha256'],hashlib.sha256(metadata.read_bytes()).hexdigest())
                     self.assertEqual(len(json.loads((out/'archived-source.json').read_text())['selected']),5)

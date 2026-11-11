@@ -442,7 +442,6 @@ fn service_deadline_bounds_a_contended_usage_lock() {
         os::{fd::AsRawFd, unix::net::UnixStream},
     };
     let fixture = Fixture::new();
-    update_config(&fixture, |config| config["timeout_ms"] = json!(50));
     let _service = fixture.serve();
     response(fixture.call(&request("capabilities", TOKEN)), "ok");
     let path = fs::read_dir(fixture.root.join("usage"))
@@ -455,6 +454,8 @@ fn service_deadline_bounds_a_contended_usage_lock() {
         .unwrap();
     let lock = File::open(path).unwrap();
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+    // The tight deadline belongs only to the deliberately blocked request.
+    update_config(&fixture, |config| config["timeout_ms"] = json!(50));
     let mut stream = UnixStream::connect(fixture.socket()).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(1)))
@@ -469,6 +470,7 @@ fn service_deadline_bounds_a_contended_usage_lock() {
     assert!(started.elapsed() < Duration::from_secs(1));
     assert_eq!(fixture.used(), 1);
     drop(lock);
+    update_config(&fixture, |config| config["timeout_ms"] = json!(1000));
     response(fixture.call(&request("capabilities", TOKEN)), "ok");
     assert_eq!(fixture.used(), 2);
 }

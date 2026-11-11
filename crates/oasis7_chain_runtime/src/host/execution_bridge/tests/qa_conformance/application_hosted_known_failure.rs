@@ -40,11 +40,11 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let mut capture_seen = false;
     let mut capture_proven: Option<serde_json::Value> = None;
     let summary = loop {
-        session.snapshot(Duration::from_millis(25));
-        let summary = shared
-            .lock()
-            .unwrap()
-            .test_canonical_provider_diagnostic_summary();
+        session.drain_for(Duration::from_millis(25));
+        // Bind the acknowledged state and its durable proof to one observation.
+        // The service pump needs this lock to advance or acknowledge a publication.
+        let observation = shared.lock().unwrap();
+        let summary = observation.test_canonical_provider_diagnostic_summary();
         let done = summary["terminal_states"]["agent-a"]["status"] == "failed"
             && summary["publication_pending"] == false
             && summary["publication_capture_failed"] == false
@@ -64,6 +64,12 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
         {
             capture_seen = true;
             capture_drain = Some((ticket, summary.clone()));
+        }
+        if !capture_seen
+            && let Some(original_error) = acknowledged_capture(&root, &summary)
+        {
+            capture_seen = true;
+            capture_proven = Some(original_error);
         }
         if let Some((ticket, original_error)) = &capture_drain {
             if exact_prepare && pending && summary["publication_ticket"].as_u64() == Some(*ticket) {
@@ -99,6 +105,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
         {
             watched["terminal_states"]["agent-a"]["status"] = serde_json::json!("committed");
         }
+        drop(observation);
         if watch.finished_after_injected_rollback(&watched, done, false) {
             if !done {
                 save_private_summary(&root, &summary);
@@ -314,9 +321,16 @@ fn matches_capture_transition(
     durable: &serde_json::Value,
     origin: &serde_json::Value,
 ) -> bool {
+    let publication_matches = match summary["publication_pending"].as_bool() {
+        Some(true) => summary["publication_ticket"]
+            .as_u64()
+            .is_some_and(|ticket| ticket != 0),
+        Some(false) => summary["publication_ticket"].as_u64() == Some(0),
+        None => false,
+    };
     if summary["agent_service_pump_error"]
         != "Agent service preparation is blocked; original work remains pending"
-        || summary["publication_pending"] != true
+        || !publication_matches
         || summary["publication_capture_failed"] != false
         || durable["schema_version"] != 3
         || origin["reserve_committed"] != true
@@ -422,6 +436,24 @@ fn expected_failed_publication(root: &std::path::Path, summary: &serde_json::Val
             && lease[*key] == origin[*key]
             && durable["provider_raw_outcomes"][0]["prepared_request_context"][*key] == origin[*key]
     })
+}
+
+// The observer may first see an already acknowledged capture. Its exact durable
+// original must be proved before waiting for the existing recovery to finish.
+fn acknowledged_capture(
+    root: &std::path::Path,
+    summary: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    if summary["agent_service_pump_error"]
+        != "Agent service preparation is blocked; original work remains pending"
+        || summary["publication_pending"] != false
+        || summary["publication_ticket"].as_u64() != Some(0)
+        || !summary["hosted_service_memory_failure"].is_null()
+        || !expected_original_recovery(root, summary, summary)
+    {
+        return None;
+    }
+    Some(summary.clone())
 }
 
 fn expected_original_recovery(
@@ -542,4 +574,139 @@ fn durable_original_cleanup_complete(root: &std::path::Path, summary: &serde_jso
             && terminal[*key] == origin[*key]
             && terminal["feedback"][*key] == origin[*key]
     })
+}
+
+#[test]
+fn acknowledged_capture_requires_exact_durable_original() {
+    use serde_json::{Value, json};
+
+    struct ProofFiles(std::path::PathBuf);
+    impl Drop for ProofFiles {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let files = ProofFiles(temp_dir("known-failure-ack-observation"));
+    fs::create_dir_all(&files.0).unwrap();
+    let origin = json!({
+        "reserve_committed": true, "signed_reserved_lease": true, "prefix_exact_request": true,
+        "agent_session_id": "session-a", "agent_turn_id": "turn-a",
+        "decision_request_id": "request-a", "request_digest": "digest-a", "lease_id": "lease-a"
+    });
+    let context = json!({
+        "agent_session_id": "session-a", "agent_turn_id": "turn-a",
+        "decision_request_id": "request-a", "request_digest": "digest-a"
+    });
+    let active = json!({"turn_context": context, "request_context": context});
+    let lease = json!({
+        "agent_id": "agent-a", "agent_session_id": "session-a", "agent_turn_id": "turn-a",
+        "decision_request_id": "request-a", "request_digest": "digest-a", "lease_id": "lease-a",
+        "idempotency_key": "original-key", "account_id": "account-a", "quote": {"amount": 1},
+        "reserved_amount": 1, "reserved_at_tick": 3, "status": "Reserved"
+    });
+    let raw = json!({
+        "agent_id": "agent-a", "cognition_lease": lease,
+        "prepared_context": context, "prepared_request_context": context,
+        "prepared_response_context": null, "feedback": {"ProviderError": {"code": "qa_known_nonretryable"}}
+    });
+    let durable = json!({
+        "schema_version": 3,
+        "provider_active_turns": {"agent-a": active},
+        "provider_recovery_pending": {"agent-a": {
+            "active": active,
+            "reason": "executor_failed_after_dispatch:known_provider_failure:hosted provider outcome missing response artifact"
+        }},
+        "provider_cognition_leases": {"agent-a": lease}, "provider_raw_outcomes": [raw]
+    });
+    let summary = json!({
+        "publication_pending": false, "publication_ticket": 0, "publication_capture_failed": false,
+        "agent_service_pump_error": "Agent service preparation is blocked; original work remains pending",
+        "hosted_service_phase": null, "hosted_service_memory_failure": null, "terminal_states": {}
+    });
+    let check = |summary: &Value, durable: &Value, origin: &Value, expected: bool| {
+        fs::write(
+            files.0.join("hosted-wait-private-lineage.json"),
+            serde_json::to_vec(durable).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            files.0.join("hosted-wait-origin.json"),
+            serde_json::to_vec(origin).unwrap(),
+        )
+        .unwrap();
+        let captured = acknowledged_capture(&files.0, summary);
+        assert_eq!(captured.is_some(), expected);
+        if expected {
+            assert_eq!(captured.as_ref(), Some(summary));
+        }
+    };
+
+    // No pending observation is supplied before the first acknowledged snapshot.
+    check(&summary, &durable, &origin, true);
+    assert!(application_completion::has_failure(&summary));
+    let mut pending = summary.clone();
+    pending["publication_pending"] = json!(true);
+    pending["publication_ticket"] = json!(7);
+    assert!(matches_capture_transition(&pending, &durable, &origin));
+    check(&pending, &durable, &origin, false);
+
+    for (key, value) in [
+        ("publication_pending", Value::Null),
+        ("publication_ticket", json!(1)),
+        ("publication_ticket", json!("0")),
+        ("publication_ticket", Value::Null),
+        ("publication_capture_failed", json!(true)),
+        ("agent_service_pump_error", json!("different failure")),
+        ("hosted_service_phase", json!("act")),
+        ("hosted_service_memory_failure", json!("memory failure")),
+    ] {
+        let mut wrong = summary.clone();
+        wrong[key] = value;
+        check(&wrong, &durable, &origin, false);
+    }
+    for key in [
+        "agent_session_id",
+        "agent_turn_id",
+        "decision_request_id",
+        "request_digest",
+        "lease_id",
+    ] {
+        let mut wrong = origin.clone();
+        wrong[key] = json!("different-original");
+        check(&summary, &durable, &wrong, false);
+    }
+    for key in [
+        "reserve_committed",
+        "signed_reserved_lease",
+        "prefix_exact_request",
+    ] {
+        let mut wrong = origin.clone();
+        wrong[key] = json!(false);
+        check(&summary, &durable, &wrong, false);
+    }
+    let mut wrong = durable.clone();
+    wrong["schema_version"] = json!(2);
+    check(&summary, &wrong, &origin, false);
+    let mut wrong = durable.clone();
+    wrong["provider_raw_outcomes"][0]["feedback"] = json!({"ProviderError": {"code": "other"}});
+    check(&summary, &wrong, &origin, false);
+    let mut wrong = durable.clone();
+    wrong["provider_cognition_leases"]["agent-a"]["account_id"] = json!("different-account");
+    check(&summary, &wrong, &origin, false);
+    let mut wrong = durable.clone();
+    wrong["provider_recovery_pending"]["agent-a"]["reason"] = json!("different-recovery");
+    check(&summary, &wrong, &origin, false);
+    let mut wrong = durable.clone();
+    wrong["provider_active_turns"]["agent-b"] = active;
+    check(&summary, &wrong, &origin, false);
+    let mut wrong = durable.clone();
+    wrong["provider_raw_outcomes"]
+        .as_array_mut()
+        .unwrap()
+        .push(raw);
+    check(&summary, &wrong, &origin, false);
+
+    check(&summary, &durable, &origin, true);
+    fs::remove_file(files.0.join("hosted-wait-origin.json")).unwrap();
+    assert!(acknowledged_capture(&files.0, &summary).is_none());
 }

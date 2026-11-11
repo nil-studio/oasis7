@@ -85,7 +85,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut paused = false;
     while Instant::now() < deadline {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
         if !paused && root.join("wait-admit-actual-rejected.json").exists() {
             session.send(serde_json::json!({"type":"live_control","mode":{"mode":"pause"},"request_id":1402})).unwrap();
             session.send(serde_json::json!({"type":"hello_v2","client":"PRE2 issued compensation paused","version":2,"capabilities":[]})).unwrap();

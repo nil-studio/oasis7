@@ -3008,7 +3008,7 @@ class Selection(unittest.TestCase):
         old.pop('workspace_support_partition_version')
         self.assertNotIn('ordinary_partitions', selector.select(old, self.base, head, profile='pr-fast'))
         for field in ('ordinary_artifact_partition_version', 'workspace_support_partition_version'):
-            for invalid in (True, 2, None):
+            for invalid in (True, 3 if field == 'ordinary_artifact_partition_version' else 2, None):
                 with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
                     selector.validate_config(dict(config, **{field: invalid}))
 
@@ -3833,6 +3833,394 @@ class Selection(unittest.TestCase):
 
 
 
+class TargetedRuntimePartitionPlans(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    source = 'crates/oasis7_chain_runtime/src/host/node_lifecycle/formal_full_sync.rs'
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_chain_runtime/Cargo.toml',
+                   '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\n'
+                   '[features]\ndefault=["wasmtime","node-libp2p"]\nwasmtime=[]\nnode-libp2p=[]\n'
+                   'test_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
+        self.write('crates/oasis7_chain_runtime/src/lib.rs',
+                   '#[path="host/node_lifecycle/formal_full_sync.rs"] mod formal_full_sync;\n')
+        self.write(self.source, 'pub fn target_cut() -> u64 { 1 }\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def test_targeted_chain_runtime_retains_original_plan_and_all_build_inputs(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                current = selector.select(self.config, self.base, head, profile=profile)
+                legacy = selector.select(self.config | {'ordinary_artifact_partition_version': 1},
+                                         self.base, head, profile=profile)
+                self.assertEqual(current['scope'], 'targeted')
+                self.assertEqual(current['ordinary_artifact_partition_version'], 2)
+                self.assertEqual(current['ordinary_partitions'],
+                                 ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                self.assertEqual(current['oasis7_required_packages'], ['oasis7_chain_runtime'])
+                self.assertIs(current['test_policy_changed'], False)
+                self.assertNotIn('ordinary_fast_targets', current)
+                self.assertNotIn('fast_execution_version', current)
+                self.assertEqual({key: value for key, value in current.items()
+                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions')},
+                                 legacy)
+
+    def test_old_baseline_cannot_be_enrolled_by_candidate_configuration(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config) + '\n')
+        candidate_head = self.commit()
+        for version in (None, 1):
+            old = copy.deepcopy(self.config)
+            if version is None:
+                old.pop('ordinary_artifact_partition_version')
+            else:
+                old['ordinary_artifact_partition_version'] = version
+            with self.subTest(version=version):
+                selected = selector.select(old, self.base, head, profile='pr-fast')
+                self.assertNotIn('ordinary_partitions', selected)
+                candidate = selector.select(old, self.base, candidate_head, profile='pr-fast')
+                self.assertNotEqual(candidate.get('ordinary_artifact_partition_version'), 2)
+
+    def test_full_profiles_and_policy_changes_keep_the_existing_complete_path(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
+                   '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
+        head = self.commit()
+        changed = selector.select(self.config, self.base, head, profile='pr-fast')
+        self.assertIs(changed['test_policy_changed'], True)
+        self.assertNotEqual(changed.get('ordinary_artifact_partition_version'), 2)
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                complete = selector.full_plan(self.config, profile, head)
+                self.assertEqual(complete['ordinary_artifact_partition_version'], 1)
+                self.assertEqual(complete['ordinary_partitions'],
+                                 ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+
+    def test_only_targeted_noninline_chain_runtime_with_explicit_unchanged_policy_is_partitioned(self):
+        original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
+                        test_policy_changed=False, oasis7_required_packages=['oasis7_chain_runtime'])
+        for key, value in [
+            ('ordinary_execution', 'inline'), ('oasis7_required_packages', ['oasis7_runtime']),
+            ('groups', ['baseline']), ('execution_profile', 'candidate-full'),
+            *[('test_policy_changed', item) for item in (None, True, 0, '', [], {}, 'false')],
+        ]:
+            with self.subTest(key=key, value=value):
+                selected = original | {key: value}
+                selector.complete_ordinary_partitions(self.config, selected)
+                self.assertNotIn('ordinary_artifact_partition_version', selected)
+        for version in (None, False, True, 0, 3, '2'):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, 'ordinary artifact'):
+                selector.validate_config(self.config | {'ordinary_artifact_partition_version': version})
+        selector.validate_config(self.config | {'ordinary_artifact_partition_version': 1})
+        selector.validate_config(self.config)
+
+
+class CustodyExecutionPlans(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for package in ('oasis7_custody_worker', 'oasis7_proto'):
+            self.write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n'
+                       '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
+            self.write(f'crates/{package}/src/lib.rs', '')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def test_worker_plan_contains_complete_fixed_shards_in_fast_and_full_profiles(self):
+        self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// complete platform case\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                plan = (selector.full_plan(self.config, profile, head) if profile.endswith('-full')
+                        else selector.select(self.config, self.base, head, profile=profile))
+                self.assertIn('workspace_support', plan['groups'])
+                self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
+                self.assertIn('custody', plan['workspace_support_partitions'])
+                self.assertEqual(plan['custody_execution_version'], 1)
+                self.assertEqual(plan['custody_node_shards'], [0, 1, 2, 3])
+
+    def test_other_support_and_docs_do_not_select_custody_jobs(self):
+        for path in ('crates/oasis7_proto/src/lib.rs', 'doc/readme.md'):
+            with self.subTest(path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(path, '// unrelated input\n')
+                plan = selector.select(self.config, self.base, self.commit(), profile='pr-fast')
+                self.assertNotIn('custody_execution_version', plan)
+                self.assertNotIn('custody_node_shards', plan)
+                self.assertNotIn('oasis7_custody_worker', plan['workspace_support_profiles'])
+
+    def test_missing_baseline_capability_cannot_be_self_enrolled_by_candidate(self):
+        old = copy.deepcopy(self.config)
+        old.pop('custody_execution_version')
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.base = self.commit()
+        self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// worker case\n')
+        head = self.commit()
+        for candidate_enrollment in (False, True):
+            with self.subTest(candidate_enrollment=candidate_enrollment):
+                if candidate_enrollment:
+                    self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+                    head = self.commit()
+                plan = selector.select(old, self.base, head, profile='pr-fast')
+                self.assertIn('custody', plan['workspace_support_partitions'])
+                self.assertNotIn('custody_execution_version', plan)
+                self.assertNotIn('custody_node_shards', plan)
+
+    def test_custody_requires_exact_version_and_support_partition_capability(self):
+        for invalid in (None, False, True, 0, 2, '1'):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'custody execution'):
+                selector.validate_config(self.config | {'custody_execution_version': invalid})
+        old = copy.deepcopy(self.config)
+        old.pop('workspace_support_partition_version')
+        with self.assertRaisesRegex(ValueError, 'custody execution'):
+            selector.validate_config(old)
+
+    def test_worker_test_tier_edit_retains_legacy_expanded_feature_execution(self):
+        self.write('crates/oasis7_custody_worker/src/lib.rs',
+                   '#[cfg(feature="test_tier_full")] #[test] fn expanded_worker_case() {}\n')
+        plan = selector.select(self.config, self.base, self.commit(), profile='pr-fast')
+        self.assertIs(plan['test_policy_changed'], True)
+        self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
+        self.assertIn('custody', plan['workspace_support_partitions'])
+        self.assertNotIn('custody_execution_version', plan)
+        self.assertNotIn('custody_node_shards', plan)
+
+    def test_only_explicit_false_test_policy_grants_split_custody(self):
+        for value in (None, True, 0, '', [], {}, 'false'):
+            with self.subTest(test_policy_changed=value):
+                plan = {'scope': 'targeted', 'groups': ['workspace_support'],
+                        'workspace_support_profiles': ['oasis7_custody_worker']}
+                if value is not None:
+                    plan['test_policy_changed'] = value
+                selector.complete_ordinary_partitions(self.config, plan)
+                self.assertNotIn('custody_execution_version', plan)
+                self.assertNotIn('custody_node_shards', plan)
+
+
+class AdditiveGovernanceRegistrations(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    driver = 'scripts/ci-tests.sh'
+    first = '  run python3 ./scripts/security/first.test.py\n'
+    second = '  run python3 ./scripts/security/test_second.py\n'
+    added = '  run python3 ./scripts/security/new.test.py\n'
+    body = ('#!/bin/sh\nset -eu\n\n'
+            'run_workflow_governance_operational_contract_tests() {\n'
+            + first + second + '}\n\nrun_workflow_governance_operational_contract_tests\n')
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write(self.driver, self.body)
+        self.write('scripts/security/first.test.py', '# existing first diagnostic\n')
+        self.write('scripts/security/test_second.py', '# existing second diagnostic\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def candidate(self, body=None, target='# new diagnostic\n'):
+        self.git('checkout', '-q', self.base)
+        self.write(self.driver, body if body is not None else self.body.replace(self.second, self.added + self.second))
+        if target is not None:
+            self.write('scripts/security/new.test.py', target)
+
+    def select(self, source, tested=None, config=None):
+        return selector.select(config if config is not None else self.config,
+                               self.base, source, tested, profile='pr-fast', policy_ref=self.base)
+
+    def assert_full(self, plan):
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(set(plan['groups']), set(self.config['groups']) - {'formal_process'})
+        self.assertEqual(plan['formal_suites'], [])
+        self.assertEqual(plan['formal_shards'], [])
+
+    def test_old_formal_policy_preserves_full_fallback_for_invalid_registration(self):
+        old = copy.deepcopy(self.config)
+        old.pop('formal_full_profiles_only_version')
+        old.pop('formal_deferred_ordinary_cases')
+        self.candidate(self.body + 'exit 0\n')
+        plan = self.select(self.commit(), config=old)
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(set(plan['groups']), set(self.config['groups']))
+        self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+
+    def test_addition_keeps_existing_tests_and_trusted_diagnostic_companions(self):
+        self.candidate()
+        self.write('.github/workflows/codeql-rust-capacity.yml', '# already scoped diagnostic workflow\n')
+        self.write('doc/readme.md', 'diagnostic documentation\n')
+        plan = self.select(self.commit())
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline', 'workflow_governance'])
+        self.assertEqual(plan['affected_packages'], [])
+        self.assertEqual(plan['formal_suites'], [])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertTrue(any('proved additive diagnostic test registration' in reason for reason in plan['reasons']))
+
+    def test_existing_test_prefix_naming_can_be_added(self):
+        self.candidate(self.body.replace(self.second, self.second +
+                       '  run python3 ./scripts/security/test_new_diagnostic.py\n'), target=None)
+        self.write('scripts/security/test_new_diagnostic.py', '# diagnostic\n')
+        self.assertEqual(self.select(self.commit())['groups'], ['baseline', 'workflow_governance'])
+
+    def test_removal_reorder_duplicate_shell_syntax_and_other_driver_changes_stay_full(self):
+        valid = self.body.replace(self.second, self.added + self.second)
+        variants = {
+            'remove old registration': valid.replace(self.first, ''),
+            'change old arguments': valid.replace(self.first, self.first.rstrip() + ' --skip\n'),
+            'reorder old registrations': valid.replace(self.first + self.added + self.second,
+                                                       self.second + self.added + self.first),
+            'duplicate old registration': valid.replace(self.first, self.first * 2),
+            'duplicate new registration': valid.replace(self.added, self.added * 2),
+            'shell substitution': valid.replace('new.test.py', '$(true).test.py'),
+            'new arguments': valid.replace(self.added, self.added.rstrip() + ' --skip\n'),
+            'control flow': valid.replace(self.added, '  if true; then\n' + self.added + '  fi\n'),
+            'comment': valid.replace(self.added, '  # allow additional shell syntax\n' + self.added),
+            'blank line': valid.replace(self.added, '\n' + self.added),
+            'outside function': valid + 'exit 0\n',
+            'duplicate function': valid + self.body,
+            'renamed function': valid.replace('run_workflow_governance_operational_contract_tests', 'other'),
+            'non-test executable': valid.replace('new.test.py', 'new.py'),
+            'nested path': valid.replace('new.test.py', 'nested/new.test.py'),
+            'invalid encoding': valid + '\udcff',
+            'unbounded input': valid + '#' * (256 * 1024),
+        }
+        for reason, body in variants.items():
+            with self.subTest(reason=reason):
+                self.candidate(target=None)
+                Path(self.driver).write_bytes(body.encode('utf-8', errors='surrogateescape'))
+                self.write('scripts/security/new.test.py', '# diagnostic\n')
+                self.assert_full(self.select(self.commit()))
+
+    def test_new_registration_requires_regular_existing_trusted_diagnostic_test(self):
+        for kind in ('missing', 'symlink', 'directory', 'excluded', 'other group', 'full rule'):
+            with self.subTest(kind=kind):
+                self.candidate(target=None)
+                target = Path('scripts/security/new.test.py')
+                if kind == 'symlink':
+                    target.symlink_to('first.test.py')
+                elif kind == 'directory':
+                    self.write(str(target / 'child'), '# not a regular executable\n')
+                elif kind not in ('missing',):
+                    target.write_text('# diagnostic\n')
+                config = copy.deepcopy(self.config)
+                if kind == 'excluded':
+                    for rule in config['rules']:
+                        if rule['reason'] == 'security':
+                            rule['exclude'] = [str(target)]
+                    # This path stays registered as a document-like input, but
+                    # that does not authorize running it as a diagnostic test.
+                    config['rules'].append({'match': [str(target)], 'groups': [], 'reason': 'fixture'})
+                elif kind in ('other group', 'full rule'):
+                    config['rules'].append({'match': [str(target)], 'groups': ['net'],
+                                            'reason': 'fixture', 'full': kind == 'full rule'})
+                self.assert_full(self.select(self.commit(), config=config))
+
+    def test_mode_change_deletion_and_rename_do_not_gain_the_exception(self):
+        self.candidate()
+        Path(self.driver).chmod(0o755)
+        self.assert_full(self.select(self.commit()))
+        self.candidate()
+        Path(self.driver).unlink()
+        self.assert_full(self.select(self.commit()))
+        self.candidate()
+        self.git('mv', self.driver, 'scripts/ci-tests-other.sh')
+        self.assert_full(self.select(self.commit()))
+
+    def test_missing_unsupported_or_boolean_baseline_capability_stays_full(self):
+        self.candidate()
+        source = self.commit()
+        for version in (None, False, True, 0, 2, '1'):
+            with self.subTest(version=version):
+                config = copy.deepcopy(self.config)
+                config.pop('additive_governance_registration_version')
+                if version is not None:
+                    config['additive_governance_registration_version'] = version
+                self.assert_full(self.select(source, config=config))
+
+    def test_candidate_policy_cannot_enroll_its_own_registration(self):
+        old = copy.deepcopy(self.config)
+        old.pop('additive_governance_registration_version')
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.base = self.commit()
+        self.candidate()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.assert_full(self.select(self.commit(), config=old))
+
+    def test_product_and_shared_control_mixtures_stay_full(self):
+        for path, contents in (
+                ('crates/core/src/lib.rs', 'pub fn changed() {}\n'),
+                ('tools/oasis7-command-center/ui/src/app.tsx', '// UI change\n'),
+                ('.github/workflows/rust.yml', '# required workflow change\n'),
+                ('Cargo.toml', '[workspace]\nmembers=["crates/*"]\nresolver="2"\n'
+                               '[workspace.dependencies]\ncore={path="crates/core"}\n'),
+                ('scripts/ci-required-scope.json', json.dumps(self.config) + '\n'),
+                ('scripts/build-diagnostic.sh', '# shared build change\n')):
+            with self.subTest(path=path):
+                self.candidate()
+                self.write(path, contents)
+                self.assert_full(self.select(self.commit()))
+
+    def test_registered_security_fixture_with_rust_consumer_stays_full(self):
+        self.write('scripts/security/new.test.py', 'VALUE = 1\n')
+        self.write('crates/core/src/lib.rs',
+                   'pub const DIAGNOSTIC: &str = include_str!("../../../scripts/security/new.test.py");\n')
+        self.base = self.commit()
+        self.candidate(target='VALUE = 2\n')
+        plan = self.select(self.commit())
+        self.assert_full(plan)
+        self.assertIn('core', plan['affected_packages'])
+
+    def test_unknown_companion_remains_an_ownership_error(self):
+        self.candidate()
+        self.write('unregistered/new-input.bin', 'unknown input\n')
+        with self.assertRaises(selector.UnknownInputsError):
+            self.select(self.commit())
+
+    def test_source_and_tested_merge_both_must_preserve_registrations(self):
+        for mutate in (False, True):
+            with self.subTest(merge_mutation=mutate):
+                self.candidate()
+                source = self.commit()
+                self.git('checkout', '-q', self.base)
+                self.write('doc/readme.md', 'target advanced\n')
+                self.commit()
+                self.git('merge', '--no-ff', '--no-commit', source)
+                if mutate:
+                    self.write(self.driver, self.body.replace(self.second, self.added + self.second)
+                               .replace(self.first, ''))
+                tested = self.commit()
+                plan = self.select(source, tested)
+                if mutate:
+                    self.assert_full(plan)
+                else:
+                    self.assertEqual(plan['groups'], ['baseline', 'workflow_governance'])
+
+    def test_merge_only_addition_is_proved_without_attributing_target_history(self):
+        self.write('doc/readme.md', 'source docs\n')
+        source = self.commit()
+        self.git('checkout', '-q', self.base)
+        self.write('doc/target.md', 'target advanced\n')
+        self.commit()
+        self.git('merge', '--no-ff', '--no-commit', source)
+        self.write(self.driver, self.body.replace(self.second, self.added + self.second))
+        self.write('scripts/security/new.test.py', '# diagnostic\n')
+        self.assertEqual(self.select(source, self.commit())['groups'], ['baseline', 'workflow_governance'])
+
+
 class PythonControlContracts(unittest.TestCase):
     setUp = Selection.setUp
     tearDown = Selection.tearDown
@@ -4061,6 +4449,10 @@ class PythonControlContracts(unittest.TestCase):
         config = self.trusted()
         cases = {
             'scripts/ci_process_runner.py': {'workflow_governance'},
+            'scripts/ci-custody-platform.py': {'workflow_governance'},
+            'scripts/ci-custody-platform.test.py': {'workflow_governance'},
+            'scripts/ci-worker-build.py': {'workflow_governance'},
+            'scripts/ci-worker-build.test.py': {'workflow_governance'},
             'scripts/doc_content_warnings.py': {'doc_checker_contracts'},
             'scripts/pr-review-threads.py': {'workflow_governance'},
             'scripts/pr-review-threads.test.py': {'workflow_governance'},
@@ -4081,9 +4473,11 @@ class PythonControlContracts(unittest.TestCase):
                     self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
                     self.assertEqual(plan['python_control_paths'], [path])
                     self.assertEqual(plan['python_control_tests'], {'workflow_governance': [
+                        'scripts/ci-custody-platform.test.py',
                         'scripts/ci-formal-process.test.py',
                         'scripts/ci-storage-acceptance.test.py',
                         'scripts/ci-support-profiles.test.py',
+                        'scripts/ci-worker-build.test.py',
                     ]})
                     older = copy.deepcopy(config)
                     del older['scoped_control_paths'][path]

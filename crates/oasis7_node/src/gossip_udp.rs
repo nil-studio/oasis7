@@ -111,6 +111,11 @@ impl Default for GossipTrafficMetricsSnapshot {
 }
 
 impl GossipEndpoint {
+    #[cfg(all(test, unix))]
+    pub(crate) fn local_addr_for_test(&self) -> std::io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
     pub(crate) fn broadcast_hello(&self, message: &GossipHelloMessage) -> Result<(), NodeError> {
         self.broadcast_message(GossipMessage::Hello(message.clone()))
     }
