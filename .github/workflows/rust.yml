@@ -2030,8 +2030,20 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/viewer-security-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-security-browser/node_modules/.bin/agent-browser"
-          "$browser_bin" install --with-deps
-          printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
+          if "$browser_bin" install --with-deps; then
+            printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
+          else
+            install_status=$?
+            python3 scripts/security/viewer-browser-install-diagnostic.py output/viewer-browser-install/diagnostic.json || echo 'Browser install diagnostic unavailable'
+            exit "$install_status"
+          fi
+      - name: Upload browser installation failure observation
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viewer-browser-install-failure
+          path: output/viewer-browser-install/diagnostic.json
+          if-no-files-found: ignore
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
