@@ -16,6 +16,26 @@ dns = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dns)
 
 class RecoveryTests(unittest.TestCase):
+    def test_unknown_resolvectl_shape_is_diagnosed_without_disclosing_values(self):
+        logs = []
+        class Installer:
+            def log(self, message): logs.append(message)
+            def run_command(self, _stage, command, **_options):
+                outputs = {'dns': 'Global: 168.63.129.16\n', 'domain': 'Global: private.internal\n',
+                           'default-route': '  Link 2 (private-interface): yes\n\n'}
+                return 0, outputs[command[-1]], True
+        recovery = dns.Recovery(Installer(), True)
+        self.assertFalse(recovery.default_routes())
+        self.assertEqual(recovery.reason, 'dynamic_resolver_shape_unknown')
+        self.assertEqual(len(logs), 1)
+        shape = json.loads(logs[0].split('=', 1)[1])
+        self.assertEqual(shape['option'], 'default-route')
+        self.assertEqual(shape['header_count'], 0)
+        self.assertEqual(shape['stripped_header_count'], 1)
+        self.assertEqual(shape['blank_count'], 1)
+        self.assertNotIn('private', logs[0])
+        self.assertNotIn('168.63', logs[0])
+
     def test_effective_proxy_tree_not_comments_controls_eligibility(self):
         for dump in ('APT "";\nAcquire "";\n', 'Acquire::http::Proxy "";\n',
                      'Acquire::http::Proxy::archive.ubuntu.com "DIRECT";\n',

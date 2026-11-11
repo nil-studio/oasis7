@@ -19,6 +19,19 @@ LOCK_PATH = '/run/lock/oasis7-ci-apt-dns.lock'
 RUNTIME_ROOT = '/run'
 MIRROR_PATH = '/etc/apt/apt-mirrors.txt'
 MIRROR_URI = 'mirror+file:/etc/apt/apt-mirrors.txt'
+RESOLVER_HEADER = r'(Global|Link \d+ \([\w.-]+\)):.*'
+
+
+def resolver_output_shape(option, output):
+    lines = output.splitlines()
+    return dict(option=option if option in ('dns', 'domain', 'default-route') else 'unknown',
+                line_count=len(lines), blank_count=sum(not line.strip() for line in lines),
+                leading_whitespace_count=sum(bool(line.strip()) and line != line.lstrip() for line in lines),
+                header_count=sum(re.fullmatch(RESOLVER_HEADER, line) is not None for line in lines),
+                stripped_header_count=sum(re.fullmatch(RESOLVER_HEADER, line.strip()) is not None for line in lines),
+                bare_boolean_count=sum(line.strip().lower() in ('yes', 'no') for line in lines),
+                link_prefix_count=sum(re.match(r'^\s*Link \d+', line) is not None for line in lines),
+                global_prefix_count=sum(line.lstrip().startswith('Global:') for line in lines))
 
 
 def stub_shape(text):
@@ -205,7 +218,8 @@ class Recovery:
                 return self.decline('dynamic_resolver_query_empty')
             has_default_dns = False
             for line in output.splitlines():
-                if not re.fullmatch(r'(Global|Link \d+ \([\w.-]+\)):.*', line):
+                if not re.fullmatch(RESOLVER_HEADER, line):
+                    self.installer.log('dns_config_shape=' + json.dumps(resolver_output_shape(option, output), sort_keys=True))
                     return self.decline('dynamic_resolver_shape_unknown')
                 value = line.split(':', 1)[1].strip()
                 allowed = {'dns': ('', '168.63.129.16'), 'domain': ('', '~.'),
