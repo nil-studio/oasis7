@@ -36,6 +36,21 @@ class RecoveryTests(unittest.TestCase):
         self.assertNotIn('private', logs[0])
         self.assertNotIn('168.63', logs[0])
 
+    def test_resolver_diagnostic_classifies_ansi_and_warning_tokens_only(self):
+        output = ('\x1b[1mLink 2 (private-interface)\x1b[0m: yes\n'
+                  'Warning: private.internal 192.0.2.1 secret\n'
+                  '  Hint: private-secret\nunknown-private\n')
+        shape = dns.resolver_output_shape('default-route', output)
+        self.assertTrue(shape['ansi_present'])
+        self.assertEqual(shape['ansi_stripped_header_count'], 1)
+        self.assertEqual(shape['yes_no_suffix_count'], 1)
+        self.assertEqual(shape['colon_line_count'], 3)
+        self.assertEqual(shape['known_warning_prefix_counts']['Warning:'], 1)
+        self.assertEqual(shape['known_warning_prefix_counts']['Hint:'], 1)
+        encoded = json.dumps(shape)
+        for secret in ('private', '192.0.2.1', 'secret'):
+            self.assertNotIn(secret, encoded)
+
     def test_effective_proxy_tree_not_comments_controls_eligibility(self):
         for dump in ('APT "";\nAcquire "";\n', 'Acquire::http::Proxy "";\n',
                      'Acquire::http::Proxy::archive.ubuntu.com "DIRECT";\n',

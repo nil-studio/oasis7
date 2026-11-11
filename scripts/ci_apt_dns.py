@@ -24,7 +24,17 @@ RESOLVER_HEADER = r'(Global|Link \d+ \([\w.-]+\)):.*'
 
 def resolver_output_shape(option, output):
     lines = output.splitlines()
-    return dict(option=option if option in ('dns', 'domain', 'default-route') else 'unknown',
+    # Diagnostic only: do not normalize output accepted by the configuration gate.
+    plain = [re.sub(r'\x1b\[[0-9;]*m', '', line) for line in lines]
+    warning_prefixes = ('Warning:', 'WARNING:', 'Notice:', 'NOTICE:', 'Failed ',
+                        'resolvectl:', 'Note:', 'Hint:')
+    return dict(ansi_present='\x1b' in output,
+                ansi_stripped_header_count=sum(re.fullmatch(RESOLVER_HEADER, line.strip()) is not None for line in plain),
+                yes_no_suffix_count=sum(re.search(r':\s*(?:yes|no)\s*$', line) is not None for line in plain),
+                colon_line_count=sum(':' in line for line in plain),
+                known_warning_prefix_counts={prefix: sum(line.lstrip().startswith(prefix) for line in plain)
+                                             for prefix in warning_prefixes},
+                option=option if option in ('dns', 'domain', 'default-route') else 'unknown',
                 line_count=len(lines), blank_count=sum(not line.strip() for line in lines),
                 leading_whitespace_count=sum(bool(line.strip()) and line != line.lstrip() for line in lines),
                 header_count=sum(re.fullmatch(RESOLVER_HEADER, line) is not None for line in lines),
