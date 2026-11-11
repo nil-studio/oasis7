@@ -918,7 +918,8 @@ fn native_formal_sealed_index_transfer_preserves_old_context_and_rejects_second_
 #[path = "endpoint_protected_tests.rs"]
 mod protected_tests;
 pub(in crate::controlled_authority) use protected_tests::{
-    with_bounded_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
+    with_bounded_transaction_fixture, with_cold_transaction_fixture,
+    with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
     with_signed_checkpoint_fixture,
 };
 

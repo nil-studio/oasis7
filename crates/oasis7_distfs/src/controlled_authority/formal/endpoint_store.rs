@@ -55,6 +55,7 @@ pub(super) struct Store {
     _lock: File,
     _bounded_cache_fee: Option<oasis7_proto::memory_budget::ReservedValue<()>>,
     _bounded_checkpoint_fee: Option<oasis7_proto::memory_budget::ReservedValue<()>>,
+    _bounded_open_fee: Option<oasis7_proto::memory_budget::ReservedValue<()>>,
     sources: Vec<Arc<dyn super::archive_transfer::FormalArchiveSourceV1>>,
     #[cfg(test)]
     pub fault: Option<u8>,
@@ -206,6 +207,7 @@ impl Store {
             _lock: lock,
             _bounded_cache_fee: None,
             _bounded_checkpoint_fee: None,
+            _bounded_open_fee: None,
             sources,
             #[cfg(test)]
             fault: None,
@@ -1138,3 +1140,6 @@ mod bounded_transaction;
 
 #[path = "endpoint_store_bounded_atomic.rs"]
 mod bounded_atomic;
+
+#[path = "endpoint_store_bounded_reopen.rs"]
+pub(in crate::controlled_authority) mod bounded_reopen;

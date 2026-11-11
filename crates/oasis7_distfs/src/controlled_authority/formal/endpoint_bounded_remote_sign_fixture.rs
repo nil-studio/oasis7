@@ -179,3 +179,187 @@ pub(in crate::controlled_authority) fn with_bounded_transaction_fixture(
     let instance = endpoint.instance().clone();
     run(&mut endpoint.store, provider.as_ref(), &instance, &policy);
 }
+
+pub(in crate::controlled_authority) fn with_cold_transaction_fixture(
+    run: impl FnOnce(
+        &Path,
+        &VerifiedAuthorityV1,
+        &RemoteMonotonicEndpointProvider,
+        &EndpointInstanceBindingV1,
+        &TrustedFencingPolicyV1,
+    ),
+) {
+    let fixture = Fixture::new();
+    let oracle = Oracle::start(&fixture, EndpointRole::Primary);
+    let policy = TrustedFencingPolicyV1 {
+        provider_public_key: public(3),
+        authorized_resource_bindings: fixture
+            .authority
+            .policy()
+            .authorized_fencing_resource_bindings
+            .clone(),
+    };
+    let provider = Arc::new(
+        RemoteMonotonicEndpointProvider::new(
+            oracle.address,
+            Duration::from_secs(3),
+            key(17),
+            policy.clone(),
+        )
+        .unwrap(),
+    );
+    let mut endpoint = FileFormalEndpoint::open_protected(
+        &fixture.pdir,
+        FormalEndpointAuthorizationV1 {
+            authority: fixture.authority.clone(),
+            original: fixture.authority.clone(),
+            recovery: None,
+            parent: None,
+        },
+        EndpointRole::Primary,
+        provider.clone(),
+        None,
+    )
+    .unwrap();
+    let instance = endpoint.instance().clone();
+    drop(endpoint);
+    run(
+        &fixture.pdir,
+        &fixture.authority,
+        provider.as_ref(),
+        &instance,
+        &policy,
+    );
+}
+
+/// Use `via` for exactly one publication; cold open/reconcile uses `direct`.
+/// The proxy verifies the original server Finish reply before dropping it.
+pub(in crate::controlled_authority) fn with_finish_loss_transaction_fixture(
+    run: impl FnOnce(
+        &Path,
+        &VerifiedAuthorityV1,
+        &RemoteMonotonicEndpointProvider,
+        &RemoteMonotonicEndpointProvider,
+        &EndpointInstanceBindingV1,
+        &TrustedFencingPolicyV1,
+    ),
+) {
+    let fixture = Fixture::new();
+    let oracle = Oracle::start(&fixture, EndpointRole::Primary);
+    let policy = TrustedFencingPolicyV1 {
+        provider_public_key: public(3),
+        authorized_resource_bindings: fixture
+            .authority
+            .policy()
+            .authorized_fencing_resource_bindings
+            .clone(),
+    };
+    let provider = Arc::new(
+        RemoteMonotonicEndpointProvider::new(
+            oracle.address,
+            Duration::from_secs(3),
+            key(17),
+            policy.clone(),
+        )
+        .unwrap(),
+    );
+    let mut endpoint = FileFormalEndpoint::open_protected(
+        &fixture.pdir,
+        FormalEndpointAuthorizationV1 {
+            authority: fixture.authority.clone(),
+            original: fixture.authority.clone(),
+            recovery: None,
+            parent: None,
+        },
+        EndpointRole::Primary,
+        provider.clone(),
+        None,
+    )
+    .unwrap();
+
+    use std::io::{Read, Write};
+    let instance = endpoint.instance().clone();
+    drop(endpoint);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let upstream = oracle.address;
+    let proxy = std::thread::spawn(move || {
+        fn frame(stream: &mut std::net::TcpStream) -> Vec<u8> {
+            let mut header = [0; 4];
+            stream.read_exact(&mut header).unwrap();
+            let n = u32::from_be_bytes(header) as usize;
+            assert!((1..=1024 * 1024).contains(&n));
+            let mut bytes = vec![0; n];
+            stream.read_exact(&mut bytes).unwrap();
+            bytes
+        }
+        fn send(stream: &mut std::net::TcpStream, bytes: &[u8]) {
+            stream
+                .write_all(&(bytes.len() as u32).to_be_bytes())
+                .unwrap();
+            stream.write_all(bytes).unwrap();
+        }
+        let (mut client, _) = listener.accept().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut server = std::net::TcpStream::connect(upstream).unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut expected = None;
+        for phase in 0..4 {
+            let request = frame(&mut client);
+            let decoded: SignedMonotonicOracleRequestV1 = serde_cbor::from_slice(&request).unwrap();
+            match (&decoded.body.command, phase) {
+                (MonotonicOracleCommandV1::Acquire(_), 0)
+                | (MonotonicOracleCommandV1::ProtectedSign(_), 1) => {}
+                (MonotonicOracleCommandV1::Begin(intent), 2) => expected = Some((**intent).clone()),
+                (MonotonicOracleCommandV1::Finish, 3) => {}
+                _ => panic!("actual Acquire/Sign/Begin/Finish sequence"),
+            }
+            send(&mut server, &request);
+            let response = frame(&mut server);
+            if phase < 3 {
+                send(&mut client, &response);
+                continue;
+            }
+            let reply: SignedMonotonicOracleReplyV1 = serde_cbor::from_slice(&response).unwrap();
+            fencing::verify(
+                "oasis7.formal.monotonic_oracle.response.v1",
+                &reply.body,
+                &reply.signature,
+                &public(3),
+            )
+            .unwrap();
+            let expected = expected.as_ref().unwrap();
+            assert_eq!(reply.body.checkpoint, expected.next);
+            assert!(reply.body.pending.is_none());
+            assert_eq!(
+                reply.body.native_checkpoint_bytes.as_ref(),
+                Some(&expected.checkpoint_bytes)
+            );
+            // Real server commit has completed. Client observes only EOF.
+            client.shutdown(std::net::Shutdown::Write).unwrap();
+        }
+        drop(server);
+        let mut byte = [0];
+        assert!(matches!(client.read(&mut byte), Ok(0)));
+    });
+    let via = RemoteMonotonicEndpointProvider::new(
+        address,
+        Duration::from_secs(3),
+        key(17),
+        policy.clone(),
+    )
+    .unwrap();
+    run(
+        &fixture.pdir,
+        &fixture.authority,
+        &via,
+        provider.as_ref(),
+        &instance,
+        &policy,
+    );
+    proxy.join().unwrap();
+}

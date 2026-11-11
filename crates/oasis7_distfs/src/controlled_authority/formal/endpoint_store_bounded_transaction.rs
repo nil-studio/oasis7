@@ -10,7 +10,7 @@ use crate::controlled_authority::fencing::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
-fn same<T: Serialize + PartialEq>(
+pub(super) fn same<T: Serialize + PartialEq>(
     a: &T,
     b: &T,
     memory: &MemoryBudget,
@@ -67,7 +67,7 @@ fn copy_checkpoint(
     }
     Ok((value, reservation.retain(())))
 }
-fn copy_body(
+pub(super) fn copy_body(
     source: &HotBody,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
@@ -86,7 +86,7 @@ fn copy_body(
     })?;
     Ok((body, reservation.retain(())))
 }
-fn disk_binding(
+pub(super) fn disk_binding(
     source: &PaidNativeHotV1,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
@@ -132,6 +132,64 @@ fn disk_binding(
         },
         reservation.retain(()),
     ))
+}
+pub(super) enum RecoveryScope<'a> {
+    Strict,
+    Cold {
+        authority: &'a VerifiedAuthorityV1,
+        role: EndpointRole,
+    },
+}
+impl RecoveryScope<'_> {
+    fn validate(
+        &self,
+        body: &HotBody,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        match self {
+            Self::Strict => Ok(()),
+            Self::Cold { authority, role } => super::bounded_reopen::validate_cold_scope(
+                body, authority, *role, memory, work, stop,
+            ),
+        }
+    }
+}
+fn decode_provider_hot(
+    bytes: &[u8],
+    key: &str,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<PaidNativeHotV1, FormalError> {
+    if bytes.len() > LIMIT {
+        return Err(invalid("formal storage byte limit"));
+    }
+    let reservation = fee(
+        memory,
+        bytes
+            .len()
+            .checked_add(size_of::<Vec<u8>>())
+            .ok_or_else(|| invalid("bounded recovery wire layout"))?,
+    )?;
+    let mut copied = Vec::with_capacity(bytes.len());
+    if copied.capacity() > bytes.len() {
+        return Err(invalid("bounded recovery wire capacity"));
+    }
+    for chunk in bytes.chunks(8192) {
+        work.charge(1, chunk.len() as u64, stop)?;
+        copied.extend_from_slice(chunk);
+    }
+    let shell = fee(memory, size_of::<ReservedValue<()>>())?.retain(());
+    super::bounded_hot_read::decode_hot_paid_wire(
+        reservation.retain(copied),
+        shell,
+        key,
+        memory,
+        work,
+        stop,
+    )
 }
 impl Store {
     pub(super) fn publish_pending_update_bounded(
@@ -198,17 +256,90 @@ impl Store {
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<()> {
-        let disk = self.read_hot_bounded(&instance.endpoint_public_key, memory, work, stop)?;
-        let (actual, _actual_fee) = disk_binding(&disk, memory, work, stop)?;
-        let mut ctx = work.bounded_context(memory, stop);
-        let lease = acquire_provider_lease_bounded_v1(
+        self.reconcile_pending_update_with_scope(
             provider,
             instance,
-            &self.checkpoint,
             policy,
-            &mut ctx,
-        )?;
-        drop(ctx);
+            memory,
+            work,
+            stop,
+            &RecoveryScope::Strict,
+        )
+    }
+    pub(super) fn reconcile_pending_update_with_scope(
+        &mut self,
+        provider: &RemoteMonotonicEndpointProvider,
+        instance: &EndpointInstanceBindingV1,
+        policy: &TrustedFencingPolicyV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+        scope: &RecoveryScope<'_>,
+    ) -> ResultV<()> {
+        let disk = self.read_hot_bounded(&instance.endpoint_public_key, memory, work, stop)?;
+        scope.validate(disk.body(), memory, work, stop)?;
+        let (actual, _actual_fee) = disk_binding(&disk, memory, work, stop)?;
+        let lease = match scope {
+            RecoveryScope::Strict => {
+                let mut ctx = work.bounded_context(memory, stop);
+                acquire_provider_lease_bounded_v1(
+                    provider,
+                    instance,
+                    &self.checkpoint,
+                    policy,
+                    &mut ctx,
+                )?
+            }
+            RecoveryScope::Cold { authority, role } => {
+                let registration =
+                    super::bounded_reopen::cold_registration(authority, *role, memory, work, stop)?;
+                let mut ctx = work.bounded_context(memory, stop);
+                let discovery=crate::controlled_authority::fencing::initialize_protected_registration_bounded_v1(provider,registration,policy,&mut ctx)?;
+                drop(ctx);
+                let native = discovery
+                    .native_checkpoint_bytes()
+                    .ok_or(FormalError::FencingUnproven)?;
+                let current =
+                    decode_provider_hot(native, &instance.endpoint_public_key, memory, work, stop)?;
+                scope.validate(current.body(), memory, work, stop)?;
+                let (checkpoint, _checkpoint_fee) = disk_binding(&current, memory, work, stop)?;
+                if !same(&checkpoint, discovery.checkpoint(), memory, work, stop)?
+                    || !same(
+                        &current.body().seal.as_ref(),
+                        &discovery.seal(),
+                        memory,
+                        work,
+                        stop,
+                    )?
+                {
+                    return Err(FormalError::FencingUnproven.into());
+                }
+                drop(discovery); // Initialize is never passed as an Acquire lease.
+                let mut ctx = work.bounded_context(memory, stop);
+                acquire_provider_lease_bounded_v1(
+                    provider,
+                    instance,
+                    &checkpoint,
+                    policy,
+                    &mut ctx,
+                )?
+            }
+        };
+        // Registration discovery and Acquire are different signed sources.
+        // Require protection on the actual fresh lease before any Cold write,
+        // pending Finish or cache promotion, not just on the discovery reply.
+        if matches!(scope, RecoveryScope::Cold { .. }) {
+            work.charge(1, (3 * size_of::<usize>()) as u64, stop)?;
+            if lease.protected_custody()
+                != Some(&fencing::ProtectedSignerCustodyV1::NonexportableLeaseBoundV1)
+                || lease.native_checkpoint_bytes().is_none()
+                || lease
+                    .durable_set_state()
+                    .is_some_and(|s| s.activation_digest.is_none())
+            {
+                return Err(FormalError::FencingUnproven.into());
+            }
+        }
         if let Some(intent) = lease.pending() {
             if !same(&actual, &intent.previous, memory, work, stop)?
                 && !same(&actual, &intent.next, memory, work, stop)?
@@ -246,6 +377,7 @@ impl Store {
                 work,
                 stop,
             )?;
+            scope.validate(next.body(), memory, work, stop)?;
             let (binding, binding_fee) = disk_binding(&next, memory, work, stop)?;
             if !same(&binding, &intent.next, memory, work, stop)?
                 || !same(
@@ -292,6 +424,51 @@ impl Store {
             self._bounded_cache_fee = Some(body_fee);
             self._bounded_checkpoint_fee = Some(binding_fee);
         } else {
+            if matches!(scope, RecoveryScope::Cold { .. })
+                && actual.revision < lease.checkpoint().revision
+            {
+                work.charge(1, 2 * size_of::<usize>() as u64, stop)?;
+                if lease.protected_custody()
+                    != Some(&fencing::ProtectedSignerCustodyV1::NonexportableLeaseBoundV1)
+                    || lease
+                        .durable_set_state()
+                        .is_some_and(|s| s.activation_digest.is_none())
+                {
+                    return Err(FormalError::FencingUnproven.into());
+                }
+                let bytes = lease
+                    .native_checkpoint_bytes()
+                    .ok_or(FormalError::FencingUnproven)?;
+                let current =
+                    decode_provider_hot(bytes, &instance.endpoint_public_key, memory, work, stop)?;
+                scope.validate(current.body(), memory, work, stop)?;
+                let (binding, binding_fee) = disk_binding(&current, memory, work, stop)?;
+                if !same(&binding, lease.checkpoint(), memory, work, stop)?
+                    || !same(
+                        &current.body().seal.as_ref(),
+                        &lease.seal(),
+                        memory,
+                        work,
+                        stop,
+                    )?
+                {
+                    return Err(FormalError::FencingUnproven.into());
+                }
+                super::bounded_native_refs::validate_recovery_refs(
+                    self,
+                    current.body(),
+                    memory,
+                    work,
+                    stop,
+                )?;
+                let (body, body_fee) = copy_body(current.body(), memory, work, stop)?;
+                self.atomic_hot_bounded(current.bytes(), memory, work, stop)?;
+                self.body = body;
+                self.checkpoint = binding;
+                self._bounded_cache_fee = Some(body_fee);
+                self._bounded_checkpoint_fee = Some(binding_fee);
+                return Ok(());
+            }
             if !same(&actual, lease.checkpoint(), memory, work, stop)?
                 || !same(
                     &lease.seal(),

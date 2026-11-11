@@ -175,6 +175,7 @@ impl Store {
             _lock: lock,
             _bounded_cache_fee: None,
             _bounded_checkpoint_fee: None,
+            _bounded_open_fee: None,
             sources: vec![],
             #[cfg(test)]
             fault: None,

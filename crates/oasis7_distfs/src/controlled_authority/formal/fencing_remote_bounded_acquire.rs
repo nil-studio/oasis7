@@ -14,7 +14,8 @@ use std::cell::RefCell;
 mod bounded_sign;
 pub(in crate::controlled_authority) use bounded_sign::{
     PaidNativeCheckpointBeginV1, PaidNativeCheckpointSignatureV1,
-    begin_signed_native_checkpoint_bounded_v1, sign_native_checkpoint_bounded_v1,
+    begin_signed_native_checkpoint_bounded_v1, initialize_protected_registration_bounded_v1,
+    sign_native_checkpoint_bounded_v1,
 };
 
 #[derive(Debug)]
@@ -643,6 +644,11 @@ impl PaidRemoteLeaseV1 {
     pub fn evidence(&self) -> Option<&MonotonicProviderEvidenceV1> {
         self.reply.body.evidence.as_ref()
     }
+    pub(in crate::controlled_authority) fn protected_custody(
+        &self,
+    ) -> Option<&ProtectedSignerCustodyV1> {
+        self.reply.body.protected_custody.as_ref()
+    }
     pub fn native_checkpoint_bytes(&self) -> Option<&[u8]> {
         self.reply.body.native_checkpoint_bytes.as_deref()
     }
@@ -717,6 +723,45 @@ pub fn acquire_provider_lease_bounded_v1(
 }
 #[cfg(not(unix))]
 impl BoundedMonotonicEndpointProvider for RemoteMonotonicEndpointProvider {}
+fn copy_policy_paid(
+    source: &TrustedFencingPolicyV1,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> ResultV<ReservedValue<TrustedFencingPolicyV1>> {
+    let mut policy_bytes = add(
+        source.provider_public_key.len(),
+        std::mem::size_of::<TrustedFencingPolicyV1>(),
+    )?;
+    policy_bytes = add(
+        policy_bytes,
+        mul(
+            source.authorized_resource_bindings.len(),
+            std::mem::size_of::<String>(),
+        )?,
+    )?;
+    for resource in &source.authorized_resource_bindings {
+        step(ctx)?;
+        policy_bytes = add(policy_bytes, resource.len())?;
+    }
+    let policy_fee = ctx
+        .memory()
+        .reserve(policy_bytes, MemoryClass::Ordinary)
+        .map_err(|_| FormalError::Invalid("bounded remote policy admission".into()))?;
+    debit(ctx, source.provider_public_key.len())?;
+    let public_key = text(&source.provider_public_key)?;
+    let mut resources = Vec::with_capacity(source.authorized_resource_bindings.len());
+    if resources.capacity() > source.authorized_resource_bindings.len() {
+        return Err(layout());
+    }
+    for resource in &source.authorized_resource_bindings {
+        debit(ctx, resource.len())?;
+        resources.push(text(resource)?);
+    }
+    let policy = policy_fee.retain(TrustedFencingPolicyV1 {
+        provider_public_key: public_key,
+        authorized_resource_bindings: resources,
+    });
+    Ok(policy)
+}
 #[cfg(unix)]
 impl BoundedMonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
     fn acquire_bounded(
@@ -836,39 +881,7 @@ impl BoundedMonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
         )?;
         // The complete peak fee deliberately remains with the returned reply.
         // Policy cloning has its own actual-layout admission and lifetime.
-        let mut policy_bytes = add(
-            self.policy.provider_public_key.len(),
-            std::mem::size_of::<TrustedFencingPolicyV1>(),
-        )?;
-        policy_bytes = add(
-            policy_bytes,
-            mul(
-                self.policy.authorized_resource_bindings.len(),
-                std::mem::size_of::<String>(),
-            )?,
-        )?;
-        for resource in &self.policy.authorized_resource_bindings {
-            step(ctx)?;
-            policy_bytes = add(policy_bytes, resource.len())?;
-        }
-        let policy_fee = ctx
-            .memory()
-            .reserve(policy_bytes, MemoryClass::Ordinary)
-            .map_err(|_| FormalError::Invalid("bounded remote policy admission".into()))?;
-        debit(ctx, self.policy.provider_public_key.len())?;
-        let public_key = text(&self.policy.provider_public_key)?;
-        let mut resources = Vec::with_capacity(self.policy.authorized_resource_bindings.len());
-        if resources.capacity() > self.policy.authorized_resource_bindings.len() {
-            return Err(layout());
-        }
-        for resource in &self.policy.authorized_resource_bindings {
-            debit(ctx, resource.len())?;
-            resources.push(text(resource)?);
-        }
-        let policy = policy_fee.retain(TrustedFencingPolicyV1 {
-            provider_public_key: public_key,
-            authorized_resource_bindings: resources,
-        });
+        let policy = copy_policy_paid(&self.policy, ctx)?;
         step(ctx)?;
         Ok(PaidRemoteLeaseV1 {
             _stream: stream,

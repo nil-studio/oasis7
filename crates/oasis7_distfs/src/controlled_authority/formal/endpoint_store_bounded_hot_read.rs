@@ -239,7 +239,7 @@ impl PaidNativeHotV1 {
     }
 }
 fn read_wire(
-    store: &Store,
+    directory: &Path,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
@@ -250,7 +250,7 @@ fn read_wire(
     ));
     charge(work, 0, stop)?;
     let path_bytes = add(
-        add(store.path.as_os_str().as_encoded_bytes().len(), HOT.len())?,
+        add(directory.as_os_str().as_encoded_bytes().len(), HOT.len())?,
         1,
     )?;
     // PathBuf plus escaped two-buffer IO diagnostic, headers and fixed IO text.
@@ -269,7 +269,7 @@ fn read_wire(
         .map_err(|_| invalid("bounded Hot path admission"))?
         .retain(());
     let mut path = PathBuf::with_capacity(path_bytes);
-    path.push(&store.path);
+    path.push(directory);
     path.push(HOT);
     if path.capacity() > path_bytes {
         return Err(invalid("bounded Hot path capacity"));
@@ -379,7 +379,16 @@ pub(super) fn read_hot_bounded_v1(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<PaidNativeHotV1, FormalError> {
-    let (wire, path_fee) = read_wire(store, memory, work, stop)?;
+    read_hot_from_directory_bounded_v1(&store.path, expected_public_key, memory, work, stop)
+}
+pub(super) fn read_hot_from_directory_bounded_v1(
+    directory: &Path,
+    expected_public_key: &str,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<PaidNativeHotV1, FormalError> {
+    let (wire, path_fee) = read_wire(directory, memory, work, stop)?;
     decode_hot_paid_wire(wire, path_fee, expected_public_key, memory, work, stop)
 }
 pub(super) fn decode_hot_paid_wire(

@@ -3,6 +3,8 @@ use crate::controlled_authority::replicated_protocol::{ArtifactRole, ClosedRecor
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub const GENESIS_HEAD_DOMAIN_V1: &str = "oasis7.formal.genesis.v1";
+pub const AUTHORITY_ID_DOMAIN_V1: &str = "oasis7.formal.authority.v1";
 pub const CANONICAL_RECORD_ID_DOMAIN_V1: &str = "oasis7.formal.canonical_record.v1";
 pub const FORMAL_PROFILE: &str = "controlled_single_authority";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,7 +66,7 @@ impl FormalWorldIdentityV1 {
         self.validate()?;
         Ok(FormalHeadRefV1 {
             position: 0,
-            record_id: hash("oasis7.formal.genesis.v1", self)?,
+            record_id: hash(GENESIS_HEAD_DOMAIN_V1, self)?,
         })
     }
 }
@@ -160,7 +162,7 @@ impl AuthorityDefinitionV1 {
     }
     pub fn authority_id(&self) -> Result<String, FormalError> {
         self.validate()?;
-        hash("oasis7.formal.authority.v1", self)
+        hash(AUTHORITY_ID_DOMAIN_V1, self)
     }
     pub fn verify_policy(&self, policy: &RecoveryPolicyV1) -> Result<(), FormalError> {
         self.validate()?;
