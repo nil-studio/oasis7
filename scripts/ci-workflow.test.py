@@ -4109,7 +4109,7 @@ class AptWorkflow(unittest.TestCase):
             self.assertIn(test, CONFIG['python_control_contracts'][path]['tests'])
         self.assertIn('scripts/ci-workflow.test.py', CONFIG['python_control_contracts'][helper]['tests'])
         self.assertIn('scripts/ci-apt-install.test.py', CONFIG['workflow_governance_python_tests'])
-        for path in ('scripts/ci_apt_dns.py', 'scripts/ci-apt-dns.test.py'):
+        for path in ('scripts/ci-apt-dns.py', 'scripts/ci-apt-dns.test.py'):
             self.assertEqual(CONFIG['scoped_control_paths'][path], ['workflow_governance'])
             self.assertIn('scripts/ci-apt-dns.test.py', CONFIG['python_control_contracts'][path]['tests'])
         self.assertIn('scripts/ci-apt-dns.test.py', CONFIG['workflow_governance_python_tests'])
