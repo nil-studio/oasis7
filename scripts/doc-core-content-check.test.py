@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
+import contextlib
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -152,6 +154,25 @@ class FeatureRelationTests(unittest.TestCase):
         self.docs[self.DESIGN] = self.design(upstream='../product/demo.prd.md#feature-stable')
         self.assertEqual(self.check('<a id="feature-stable"></a>\n' + self.card()), [])
 
+    def test_invalid_demand_row_cannot_be_cached_as_feature_evidence(self):
+        self.docs[self.DESIGN] = self.design().replace('[功能]', '[REQ-OTHER-001]')
+        errors = self.check(self.card())
+        self.assertEqual(sum(': design-feature-relation-missing:' in error for error in errors), 1)
+        self.docs[self.DESIGN] = self.design()
+        self.assertEqual(self.check(self.card()), [])
+
+    def test_later_row_read_failure_is_not_hidden_by_an_earlier_match(self):
+        self.docs[self.PATH] = self.card()
+        self.docs[self.DESIGN] = self.design().replace('### design-one',
+            '| [后续功能](../product/unreadable.prd.md#req-demo-002) | 条件 | [条款](#design-one) | engineer | 无 |\n### design-one')
+        def reader(path):
+            relative = path.relative_to(self.root).as_posix()
+            if relative == 'doc/product/unreadable.prd.md':
+                raise PermissionError('unreadable relation target')
+            return self.docs.get(relative)
+        with self.assertRaisesRegex(PermissionError, 'unreadable relation target'):
+            module.check_status(self.PATH, self.docs[self.PATH], root=self.root, read_target=reader)
+
 
 class FullCorpusTests(unittest.TestCase):
     def setUp(self):
@@ -180,6 +201,104 @@ class FullCorpusTests(unittest.TestCase):
 
     def run_checker(self, name, *args):
         return subprocess.run([sys.executable, str(HERE / (name + '.py')), '--repo-root', str(self.root), *args], capture_output=True, text=True)
+
+    def run_main(self, *args):
+        output, errors = io.StringIO(), io.StringIO()
+        with patch.object(sys, 'argv', [str(HERE / 'doc-core-content-check.py'), '--repo-root', str(self.root), *args]), \
+             contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            result = module.main()
+        return result, output.getvalue() + errors.getvalue()
+
+    def test_shared_design_rows_are_bounded_and_last_feature_still_checks(self):
+        fixture = FeatureRelationTests()
+        count = 12
+        text = '\n\n'.join(fixture.card(heading=f'REQ-DEMO-{index:03d}') for index in range(1, count + 1))
+        extra_rows = ''.join(
+            f'| [功能](../product/demo.prd.md#req-demo-{index:03d}) | 条件 | [条款](#design-one) | engineer | 无 |\n'
+            for index in range(2, count + 1))
+        design = fixture.design().replace('### design-one', extra_rows + '### design-one')
+        self.put(fixture.PATH, text)
+        self.put(fixture.DESIGN, design)
+        base = self.commit()
+        with patch.object(module.system, 'relation_from_demand_row', wraps=module.system.relation_from_demand_row) as rows:
+            result, output = self.run_main('--base', base, '--head', base, '--worktree')
+        self.assertEqual(result, 0, output)
+        self.assertLessEqual(rows.call_count, count * 2, 'baseline and current rows must not scale with feature-card count')
+
+        # The base is valid at this exact path. The current last row now points
+        # at the first feature, so sharing rows must not share feature decisions
+        # or let the baseline's valid relation hide the current breakage.
+        self.put(fixture.DESIGN, design.replace(f'#req-demo-{count:03d}', '#req-demo-001'))
+        head = self.commit()
+        with patch.object(module.system, 'relation_from_demand_row', wraps=module.system.relation_from_demand_row) as rows:
+            result, output = self.run_main('--base', base, '--head', head, '--worktree')
+        self.assertEqual(result, 1, output)
+        self.assertEqual(output.count(': design-feature-relation-missing:'), 1, output)
+        last_line = text[:text.index(f'### REQ-DEMO-{count:03d}')].count('\n') + 1
+        self.assertIn(f'{fixture.PATH}:{last_line}:', output)
+        self.assertLessEqual(rows.call_count, count * 2)
+
+    def test_reference_targets_share_one_worktree_status_snapshot(self):
+        fixture = FeatureRelationTests()
+        cards = []
+        for index in range(1, 13):
+            design_path = f'doc/system/consumer-{index}.design.md'
+            cards.append(fixture.card(heading=f'REQ-DEMO-{index:03d}',
+                evidence=f'[条款](../system/consumer-{index}.design.md#design-one)'))
+            self.put(design_path, fixture.design(upstream=f'../product/demo.prd.md#req-demo-{index:03d}'))
+        self.put(fixture.PATH, '\n\n'.join(cards))
+        base = self.commit()
+        with patch.object(module.system, 'run_git', wraps=module.system.run_git) as git_calls:
+            result, output = self.run_main('--base', base, '--head', base, '--worktree')
+        self.assertEqual(result, 0, output)
+        scans = [call.args[1:] for call in git_calls.call_args_list if call.args[1] in {'diff', 'ls-files'}]
+        self.assertLessEqual(len(scans), 16, f'twelve real reference targets repeated repository scans: {scans}')
+
+    def test_invocation_cache_keeps_staged_dirty_and_deleted_relations_fresh(self):
+        fixture = FeatureRelationTests()
+        self.put(fixture.PATH, fixture.card())
+        self.put(fixture.DESIGN, fixture.design())
+        base = self.commit()
+        args = ('--base', base, '--head', base, '--worktree')
+        result, output = self.run_main(*args)
+        self.assertEqual(result, 0, output)
+
+        self.put(fixture.DESIGN, fixture.design(upstream='../product/demo.prd.md#missing'))
+        self.git('add', fixture.DESIGN)
+        self.git('restore', '--source=HEAD', '--worktree', '--', fixture.DESIGN)
+        result, output = self.run_main(*args)
+        self.assertEqual(result, 1, output)
+        self.assertIn(': design-feature-relation-missing:', output)
+
+        self.git('reset', '-q', 'HEAD', '--', fixture.DESIGN)
+        result, output = self.run_main(*args)
+        self.assertEqual(result, 0, output)
+        self.put(fixture.DESIGN, fixture.design(upstream='../product/demo.prd.md#missing'))
+        result, output = self.run_main(*args)
+        self.assertEqual(result, 1, output)
+        self.assertIn(': design-feature-relation-missing:', output)
+
+        (self.root / fixture.DESIGN).unlink()
+        result, output = self.run_main(*args)
+        self.assertEqual(result, 1, output)
+        self.assertIn(': invalid-design-evidence:', output)
+
+    def test_new_invocation_rejects_unsafe_target_even_after_cached_success(self):
+        fixture = FeatureRelationTests()
+        self.put(fixture.PATH, fixture.card())
+        target = self.put(fixture.DESIGN, fixture.design())
+        base = self.commit()
+        args = ('--base', base, '--head', base, '--worktree', '--warn-only')
+        result, output = self.run_main(*args)
+        self.assertEqual(result, 0, output)
+        with tempfile.TemporaryDirectory() as outside:
+            foreign = Path(outside) / 'foreign.design.md'
+            foreign.write_text(fixture.design())
+            target.unlink()
+            target.symlink_to(foreign)
+            result, output = self.run_main(*args)
+        self.assertEqual(result, 2, output)
+        self.assertIn('unsafe corpus target', output)
 
     def test_full_reports_untouched_professional_and_scoped_stays_strict(self):
         self.put('doc/system/legacy.design.md', '# Legacy')
