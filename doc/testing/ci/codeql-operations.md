@@ -215,9 +215,11 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 预算文件的大小检查、内容读取和摘要绑定必须一致：Node preload 以 nofollow/nonblock 打开 regular file，在同一文件描述符上最多读取 256 KiB + 1，并拒绝超限；supervisor 对同一有界读取的字节执行预算解析和摘要计算。路径替换不能改为读取另一对象，检查后的文件增长不能突破实际读取上限。这是 admission 的局部加固，不改变绝对截止、官方 post 或 Rust 启用状态。
 
-从独立候选 artifact 检查私有包装差异、原 37/7 文本身份、44 条实际 closure、候选 TypeInference 摘要和源/库/query pack 的前后身份。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+从独立候选 artifact 检查 `qualifier-lines-v2` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。先核对原 qualifier 单文件补丁通过，再核对 `lines-model-identity.json` 中唯一通用 `str::lines` summary 的原/新摘要及完整库差异恰为 TypeInference/core.model 两文件；第三项变化、错误版本或缺少身份不得准入。旧 qualifier 对照仍是原单文件候选。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 
-默认 37 项逐项核对完整 info/decode，七表逐项读取实际结果与原 oracle 判定。SARIF 只对 37 项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format、同一函数/循环/比较式的结构见证、expected→RHS localFlow、原 output→LHS Global taint，以及错函数、交叉操作数和 whole-bool 零负例。读取实际 QL、版本、标签和配对结果，不只看表的 PASS；派生 taint 不能称为字符串值相等。小 fixture、双 receiver 和同名非 stdlib 控制的通过范围另列，不能代替完整原仓库。历史 v1 的零值和 hosted failure 保留，不把本次修正后的判据追写为旧运行成功。
+
+默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；新的两文件候选必须重新完整计算37+7，不能复用旧37结果。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
 
 ### 合法 WASM 单角色 metadata 诊断
 
