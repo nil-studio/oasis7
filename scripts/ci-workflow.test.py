@@ -1062,6 +1062,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_command_center_is_reusable_and_required(self):
         workflow = (ROOT / '.github/workflows/command-center.yml').read_text()
         self.assertIn('  workflow_call:', workflow)
+        self.assertIn('\ncache-mode: read\n', workflow)
         self.assertIn('ref: ${{ inputs.source_sha }}', workflow)
         self.assertIn('persist-credentials: false', workflow)
         self.assertNotIn('  pull_request:', workflow)

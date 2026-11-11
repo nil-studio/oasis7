@@ -838,24 +838,28 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps: &ordinary-build-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &ordinary-download-selection-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &ordinary-actions-setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Report ordinary workspace cache capacity
+      - &ordinary-report-ordinary-workspace-cache-capacity
+        name: Report ordinary workspace cache capacity
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope ordinary --report "$RUNNER_TEMP/ordinary-cache-preflight.json"
-      - name: Install pinned Rust toolchains
+      - &ordinary-install-pinned-rust-toolchains
+        name: Install pinned Rust toolchains
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -863,26 +867,31 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Stabilize Rust cache toolchains
+      - &ordinary-stabilize-rust-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Reclaim unused candidate SDK capacity
+      - &ordinary-reclaim-unused-candidate-sdk-capacity
+        name: Reclaim unused candidate SDK capacity
         if: github.job == 'oasis7-test-build-candidate'
         env:
           OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
         run: |
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --apply --min-free-bytes 1073741824 --min-free-inodes 10000
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &ordinary-shared-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
           shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - name: Identify ordinary workspace cache
+      - &ordinary-ordinary-cache-identity
+        name: Identify ordinary workspace cache
         id: ordinary-cache-identity
         run: python3 scripts/ci-workspace-cache.py identity --scope ordinary
-      - name: Restore compatible ordinary workspace cache
+      - &ordinary-ordinary-workspace-cache
+        name: Restore compatible ordinary workspace cache
         id: ordinary-workspace-cache
         if: steps.ordinary-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -890,7 +899,8 @@ jobs:
           path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.ordinary-cache-identity.outputs.key }}
           restore-keys: ${{ steps.ordinary-cache-identity.outputs.prefix }}
-      - name: Validate and restore ordinary workspace units
+      - &ordinary-validate-and-restore-ordinary-workspace-units
+        name: Validate and restore ordinary workspace units
         env:
           REQUESTED_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
           MATCHED_KEY: ${{ steps.ordinary-workspace-cache.outputs.cache-matched-key }}
@@ -899,18 +909,21 @@ jobs:
           python3 scripts/ci-workspace-cache.py restore --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/ordinary-cache-restore.json"
-      - name: Install native libraries
+      - &ordinary-install-native-libraries
+        name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
           sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - name: Build ordinary test artifacts
+      - &ordinary-build-ordinary-test-artifacts
+        name: Build ordinary test artifacts
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         run: |
           python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json"
           python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - &ordinary-actions-upload-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-tests-${{ github.sha }}
           path: ${{ runner.temp }}/native-tests.tar.gz
@@ -918,11 +931,13 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Measure ordinary workspace cache footprint
+      - &ordinary-measure-ordinary-workspace-cache-footprint
+        name: Measure ordinary workspace cache footprint
         run: |
           python3 scripts/ci-workspace-cache.py measure --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
             --state "$RUNNER_TEMP/ordinary-cache-state.json" --report "$RUNNER_TEMP/ordinary-cache-measure.json"
-      - name: Stage bounded ordinary workspace units
+      - &ordinary-ordinary-cache-stage
+        name: Stage bounded ordinary workspace units
         id: ordinary-cache-stage
         if: >-
           github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-identity.outputs.key != '' &&
@@ -932,14 +947,16 @@ jobs:
         run: |
           python3 scripts/ci-workspace-cache.py stage --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
             --state "$RUNNER_TEMP/ordinary-cache-state.json" --report "$RUNNER_TEMP/ordinary-cache-stage.json"
-      - name: Save bounded trusted ordinary workspace cache
+      - &ordinary-ordinary-cache-save
+        name: Save bounded trusted ordinary workspace cache
         id: ordinary-cache-save
         if: github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.ordinary-cache-identity.outputs.key }}
-      - name: Confirm ordinary workspace cache
+      - &ordinary-ordinary-cache-observe
+        name: Confirm ordinary workspace cache
         id: ordinary-cache-observe
         if: >-
           github.job == 'oasis7-test-build-trusted' &&
@@ -949,7 +966,8 @@ jobs:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
           CACHE_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
         run: python3 scripts/ci-workspace-cache.py observe-save --scope ordinary --key "$CACHE_KEY" --report "$RUNNER_TEMP/ordinary-cache-save.json"
-      - name: Upload ordinary workspace cache diagnostics
+      - &ordinary-upload-ordinary-workspace-cache-diagnostics
+        name: Upload ordinary workspace cache diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -957,7 +975,8 @@ jobs:
           path: ${{ runner.temp }}/ordinary-cache-*.json
           if-no-files-found: ignore
           retention-days: 2
-      - name: Report candidate build capacity on failure
+      - &ordinary-report-candidate-build-capacity-on-failure
+        name: Report candidate build capacity on failure
         if: failure() && github.job == 'oasis7-test-build-candidate'
         shell: bash
         run: |
@@ -991,7 +1010,31 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    steps: *ordinary-build-steps
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - *ordinary-download-selection-artifact
+      - *ordinary-actions-setup-python
+      - *ordinary-report-ordinary-workspace-cache-capacity
+      - *ordinary-install-pinned-rust-toolchains
+      - *ordinary-stabilize-rust-cache-toolchains
+      - *ordinary-reclaim-unused-candidate-sdk-capacity
+      - *ordinary-shared-rust-cache
+      - *ordinary-ordinary-cache-identity
+      - *ordinary-ordinary-workspace-cache
+      - *ordinary-validate-and-restore-ordinary-workspace-units
+      - *ordinary-install-native-libraries
+      - *ordinary-build-ordinary-test-artifacts
+      - *ordinary-actions-upload-artifact
+      - *ordinary-measure-ordinary-workspace-cache-footprint
+      - *ordinary-ordinary-cache-stage
+      - *ordinary-ordinary-cache-save
+      - *ordinary-ordinary-cache-observe
+      - *ordinary-upload-ordinary-workspace-cache-diagnostics
+      - *ordinary-report-candidate-build-capacity-on-failure
 
   oasis7-test-build:
     needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
@@ -1039,28 +1082,33 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps: &formal-debug-build-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-debug-download-selection-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-debug-download-authority-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &formal-debug-actions-setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Report formal-debug workspace cache capacity
+      - &formal-debug-report-formal-debug-workspace-cache-capacity
+        name: Report formal-debug workspace cache capacity
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope formal-debug --report "$RUNNER_TEMP/formal-debug-cache-preflight.json"
-      - name: Install pinned Rust toolchains
+      - &formal-debug-install-pinned-rust-toolchains
+        name: Install pinned Rust toolchains
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -1068,10 +1116,12 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Stabilize Rust cache toolchains
+      - &formal-debug-stabilize-rust-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Install dependency cache admission
+      - &formal-debug-dependency-cache-tools
+        name: Install dependency cache admission
         id: dependency-cache-tools
         if: >-
           github.job == 'formal-debug-build-trusted' && github.ref == 'refs/heads/main' &&
@@ -1079,7 +1129,8 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
         continue-on-error: true
         run: python3 scripts/ci-rust-cache-admission.py install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-debug-shared-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           !(github.job == 'formal-debug-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1092,7 +1143,8 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM OASIS7_FORMAL_BUILD_INPUTS
           cache-on-failure: false
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-debug-admitted-dependency-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           github.job == 'formal-debug-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1114,10 +1166,12 @@ jobs:
             needs.select.outputs.trusted_source == 'true' &&
             (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
           cache-on-failure: false
-      - name: Identify formal-debug workspace cache
+      - &formal-debug-formal-debug-cache-identity
+        name: Identify formal-debug workspace cache
         id: formal-debug-cache-identity
         run: python3 scripts/ci-workspace-cache.py identity --scope formal-debug
-      - name: Restore compatible formal-debug workspace cache
+      - &formal-debug-formal-debug-workspace-cache
+        name: Restore compatible formal-debug workspace cache
         id: formal-debug-workspace-cache
         if: steps.formal-debug-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1125,7 +1179,8 @@ jobs:
           path: ${{ runner.temp }}/formal-debug-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-debug-cache-identity.outputs.key }}
           restore-keys: ${{ steps.formal-debug-cache-identity.outputs.prefix }}
-      - name: Validate and restore formal-debug workspace units
+      - &formal-debug-validate-and-restore-formal-debug-workspace-units
+        name: Validate and restore formal-debug workspace units
         env:
           REQUESTED_KEY: ${{ steps.formal-debug-cache-identity.outputs.key }}
           MATCHED_KEY: ${{ steps.formal-debug-workspace-cache.outputs.cache-matched-key }}
@@ -1134,23 +1189,27 @@ jobs:
           python3 scripts/ci-workspace-cache.py restore --scope formal-debug --cache "$RUNNER_TEMP/formal-debug-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/formal-debug-cache-restore.json"
-      - name: Install native libraries
+      - &formal-debug-install-native-libraries
+        name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
           sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - id: component-artifact
+      - &formal-debug-component-artifact
+        id: component-artifact
         shell: bash
         run: |
           printf 'artifact=formal-debug-%s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-      - name: Build and archive formal-debug component
+      - &formal-debug-build-and-archive-formal-debug-component
+        name: Build and archive formal-debug component
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         shell: bash
         run: |
           python3 scripts/ci-test-artifacts.py build --scope formal-debug --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-debug-tests" --cache-state "$RUNNER_TEMP/formal-debug-cache-state.json" --build-diagnostics "$RUNNER_TEMP/formal-debug-build-diagnostics"
           tar -C "$RUNNER_TEMP/formal-debug-tests" -I 'gzip -1' -cf "$RUNNER_TEMP/formal-debug-tests.tar.gz" .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - &formal-debug-actions-upload-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.component-artifact.outputs.artifact }}
           path: ${{ runner.temp }}/formal-debug-tests.tar.gz
@@ -1158,7 +1217,8 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Upload formal-debug build diagnostics
+      - &formal-debug-upload-formal-debug-build-diagnostics
+        name: Upload formal-debug build diagnostics
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1167,11 +1227,13 @@ jobs:
           path: ${{ runner.temp }}/formal-debug-build-diagnostics
           if-no-files-found: warn
           retention-days: 2
-      - name: Measure formal-debug workspace cache footprint
+      - &formal-debug-measure-formal-debug-workspace-cache-footprint
+        name: Measure formal-debug workspace cache footprint
         run: |
           python3 scripts/ci-workspace-cache.py measure --scope formal-debug --cache "$RUNNER_TEMP/formal-debug-workspace-cache" \
             --state "$RUNNER_TEMP/formal-debug-cache-state.json" --report "$RUNNER_TEMP/formal-debug-cache-measure.json"
-      - name: Stage bounded formal-debug workspace units
+      - &formal-debug-formal-debug-cache-stage
+        name: Stage bounded formal-debug workspace units
         id: formal-debug-cache-stage
         if: >-
           github.job == 'formal-debug-build-trusted' && steps.formal-debug-cache-identity.outputs.key != '' &&
@@ -1181,14 +1243,16 @@ jobs:
         run: |
           python3 scripts/ci-workspace-cache.py stage --scope formal-debug --cache "$RUNNER_TEMP/formal-debug-workspace-cache" \
             --state "$RUNNER_TEMP/formal-debug-cache-state.json" --report "$RUNNER_TEMP/formal-debug-cache-stage.json"
-      - name: Save bounded trusted formal-debug workspace cache
+      - &formal-debug-formal-debug-cache-save
+        name: Save bounded trusted formal-debug workspace cache
         id: formal-debug-cache-save
         if: github.job == 'formal-debug-build-trusted' && steps.formal-debug-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/formal-debug-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-debug-cache-identity.outputs.key }}
-      - name: Confirm formal-debug workspace cache
+      - &formal-debug-formal-debug-cache-observe
+        name: Confirm formal-debug workspace cache
         id: formal-debug-cache-observe
         if: >-
           github.job == 'formal-debug-build-trusted' &&
@@ -1198,7 +1262,8 @@ jobs:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
           CACHE_KEY: ${{ steps.formal-debug-cache-identity.outputs.key }}
         run: python3 scripts/ci-workspace-cache.py observe-save --scope formal-debug --key "$CACHE_KEY" --report "$RUNNER_TEMP/formal-debug-cache-save.json"
-      - name: Upload formal-debug workspace cache diagnostics
+      - &formal-debug-upload-formal-debug-workspace-cache-diagnostics
+        name: Upload formal-debug workspace cache diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1235,7 +1300,35 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    steps: *formal-debug-build-steps
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - *formal-debug-download-selection-artifact
+      - *formal-debug-download-authority-artifact
+      - *formal-debug-actions-setup-python
+      - *formal-debug-report-formal-debug-workspace-cache-capacity
+      - *formal-debug-install-pinned-rust-toolchains
+      - *formal-debug-stabilize-rust-cache-toolchains
+      - *formal-debug-dependency-cache-tools
+      - *formal-debug-shared-rust-cache
+      - *formal-debug-admitted-dependency-cache
+      - *formal-debug-formal-debug-cache-identity
+      - *formal-debug-formal-debug-workspace-cache
+      - *formal-debug-validate-and-restore-formal-debug-workspace-units
+      - *formal-debug-install-native-libraries
+      - *formal-debug-component-artifact
+      - *formal-debug-build-and-archive-formal-debug-component
+      - *formal-debug-actions-upload-artifact
+      - *formal-debug-upload-formal-debug-build-diagnostics
+      - *formal-debug-measure-formal-debug-workspace-cache-footprint
+      - *formal-debug-formal-debug-cache-stage
+      - *formal-debug-formal-debug-cache-save
+      - *formal-debug-formal-debug-cache-observe
+      - *formal-debug-upload-formal-debug-workspace-cache-diagnostics
+      - *engineering-job-observation
 
   formal-endpoint-build:
     cache-mode: read
@@ -1262,28 +1355,33 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps: &formal-endpoint-build-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-endpoint-download-selection-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-endpoint-download-authority-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &formal-endpoint-actions-setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Report formal-endpoint workspace cache capacity
+      - &formal-endpoint-report-formal-endpoint-workspace-cache-capacity
+        name: Report formal-endpoint workspace cache capacity
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope formal-endpoint --report "$RUNNER_TEMP/formal-endpoint-cache-preflight.json"
-      - name: Install pinned Rust toolchains
+      - &formal-endpoint-install-pinned-rust-toolchains
+        name: Install pinned Rust toolchains
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -1291,10 +1389,12 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Stabilize Rust cache toolchains
+      - &formal-endpoint-stabilize-rust-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Install dependency cache admission
+      - &formal-endpoint-dependency-cache-tools
+        name: Install dependency cache admission
         id: dependency-cache-tools
         if: >-
           github.job == 'formal-endpoint-build-trusted' && github.ref == 'refs/heads/main' &&
@@ -1302,7 +1402,8 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
         continue-on-error: true
         run: python3 scripts/ci-rust-cache-admission.py install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-endpoint-shared-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           !(github.job == 'formal-endpoint-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1315,7 +1416,8 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM OASIS7_FORMAL_BUILD_INPUTS
           cache-on-failure: false
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-endpoint-admitted-dependency-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           github.job == 'formal-endpoint-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1337,10 +1439,12 @@ jobs:
             needs.select.outputs.trusted_source == 'true' &&
             (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
           cache-on-failure: false
-      - name: Identify formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-cache-identity
+        name: Identify formal-endpoint workspace cache
         id: formal-endpoint-cache-identity
         run: python3 scripts/ci-workspace-cache.py identity --scope formal-endpoint
-      - name: Restore compatible formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-workspace-cache
+        name: Restore compatible formal-endpoint workspace cache
         id: formal-endpoint-workspace-cache
         if: steps.formal-endpoint-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1348,7 +1452,8 @@ jobs:
           path: ${{ runner.temp }}/formal-endpoint-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
           restore-keys: ${{ steps.formal-endpoint-cache-identity.outputs.prefix }}
-      - name: Validate and restore formal-endpoint workspace units
+      - &formal-endpoint-validate-and-restore-formal-endpoint-workspace-units
+        name: Validate and restore formal-endpoint workspace units
         env:
           REQUESTED_KEY: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
           MATCHED_KEY: ${{ steps.formal-endpoint-workspace-cache.outputs.cache-matched-key }}
@@ -1357,23 +1462,27 @@ jobs:
           python3 scripts/ci-workspace-cache.py restore --scope formal-endpoint --cache "$RUNNER_TEMP/formal-endpoint-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/formal-endpoint-cache-restore.json"
-      - name: Install native libraries
+      - &formal-endpoint-install-native-libraries
+        name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
           sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - id: component-artifact
+      - &formal-endpoint-component-artifact
+        id: component-artifact
         shell: bash
         run: |
           printf 'artifact=formal-endpoint-%s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-      - name: Build and archive formal-endpoint component
+      - &formal-endpoint-build-and-archive-formal-endpoint-component
+        name: Build and archive formal-endpoint component
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         shell: bash
         run: |
           python3 scripts/ci-test-artifacts.py build --scope formal-endpoint --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-endpoint-tests" --cache-state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --build-diagnostics "$RUNNER_TEMP/formal-endpoint-build-diagnostics"
           tar -C "$RUNNER_TEMP/formal-endpoint-tests" -I 'gzip -1' -cf "$RUNNER_TEMP/formal-endpoint-tests.tar.gz" .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - &formal-endpoint-actions-upload-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.component-artifact.outputs.artifact }}
           path: ${{ runner.temp }}/formal-endpoint-tests.tar.gz
@@ -1381,7 +1490,8 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Upload formal-endpoint build diagnostics
+      - &formal-endpoint-upload-formal-endpoint-build-diagnostics
+        name: Upload formal-endpoint build diagnostics
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1390,11 +1500,13 @@ jobs:
           path: ${{ runner.temp }}/formal-endpoint-build-diagnostics
           if-no-files-found: warn
           retention-days: 2
-      - name: Measure formal-endpoint workspace cache footprint
+      - &formal-endpoint-measure-formal-endpoint-workspace-cache-footprint
+        name: Measure formal-endpoint workspace cache footprint
         run: |
           python3 scripts/ci-workspace-cache.py measure --scope formal-endpoint --cache "$RUNNER_TEMP/formal-endpoint-workspace-cache" \
             --state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --report "$RUNNER_TEMP/formal-endpoint-cache-measure.json"
-      - name: Stage bounded formal-endpoint workspace units
+      - &formal-endpoint-formal-endpoint-cache-stage
+        name: Stage bounded formal-endpoint workspace units
         id: formal-endpoint-cache-stage
         if: >-
           github.job == 'formal-endpoint-build-trusted' && steps.formal-endpoint-cache-identity.outputs.key != '' &&
@@ -1404,14 +1516,16 @@ jobs:
         run: |
           python3 scripts/ci-workspace-cache.py stage --scope formal-endpoint --cache "$RUNNER_TEMP/formal-endpoint-workspace-cache" \
             --state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --report "$RUNNER_TEMP/formal-endpoint-cache-stage.json"
-      - name: Save bounded trusted formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-cache-save
+        name: Save bounded trusted formal-endpoint workspace cache
         id: formal-endpoint-cache-save
         if: github.job == 'formal-endpoint-build-trusted' && steps.formal-endpoint-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/formal-endpoint-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
-      - name: Confirm formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-cache-observe
+        name: Confirm formal-endpoint workspace cache
         id: formal-endpoint-cache-observe
         if: >-
           github.job == 'formal-endpoint-build-trusted' &&
@@ -1421,7 +1535,8 @@ jobs:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
           CACHE_KEY: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
         run: python3 scripts/ci-workspace-cache.py observe-save --scope formal-endpoint --key "$CACHE_KEY" --report "$RUNNER_TEMP/formal-endpoint-cache-save.json"
-      - name: Upload formal-endpoint workspace cache diagnostics
+      - &formal-endpoint-upload-formal-endpoint-workspace-cache-diagnostics
+        name: Upload formal-endpoint workspace cache diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1458,7 +1573,35 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    steps: *formal-endpoint-build-steps
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - *formal-endpoint-download-selection-artifact
+      - *formal-endpoint-download-authority-artifact
+      - *formal-endpoint-actions-setup-python
+      - *formal-endpoint-report-formal-endpoint-workspace-cache-capacity
+      - *formal-endpoint-install-pinned-rust-toolchains
+      - *formal-endpoint-stabilize-rust-cache-toolchains
+      - *formal-endpoint-dependency-cache-tools
+      - *formal-endpoint-shared-rust-cache
+      - *formal-endpoint-admitted-dependency-cache
+      - *formal-endpoint-formal-endpoint-cache-identity
+      - *formal-endpoint-formal-endpoint-workspace-cache
+      - *formal-endpoint-validate-and-restore-formal-endpoint-workspace-units
+      - *formal-endpoint-install-native-libraries
+      - *formal-endpoint-component-artifact
+      - *formal-endpoint-build-and-archive-formal-endpoint-component
+      - *formal-endpoint-actions-upload-artifact
+      - *formal-endpoint-upload-formal-endpoint-build-diagnostics
+      - *formal-endpoint-measure-formal-endpoint-workspace-cache-footprint
+      - *formal-endpoint-formal-endpoint-cache-stage
+      - *formal-endpoint-formal-endpoint-cache-save
+      - *formal-endpoint-formal-endpoint-cache-observe
+      - *formal-endpoint-upload-formal-endpoint-workspace-cache-diagnostics
+      - *engineering-job-observation
 
   formal-test-build:
     cache-mode: read
@@ -3304,7 +3447,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.select.outputs.tested_sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Resolve product-document gate range

@@ -111,9 +111,13 @@ PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代�
 
 误报按精确告警 ID 核对源码版本、实际输入和权限边界，在平台选择对应 dismissal 原因并记录证据，随后读回告警状态。历史探针注明实际受测版本，结合当前源码核对其适用性；判断条件改变时重审。处置某个 ID 不构成同类后续告警的自动豁免；操作参考 [GitHub 告警处置说明](https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/triage-alerts-in-pull-requests)。
 
+Actions 的预期候选代码执行与错误识别的可信 policy checkout 分别记录：前者在核对实际 runner、token/secrets、缓存写权限及仓内产物消费者后，可按精确 ID 使用 `won't fix`，后者有固定可信来源证据时使用 `false positive`。保留官方 checkout 查询，不以只读缓存、job 名或路径给同类告警统一豁免。已 dismissed 的同一 fingerprint 不保证在边界变化后自动重开；事件/来源选择、权限、runner、缓存模式、可复用调用关系或产物消费者变化时，评审须重新核对相应处置，必要时重开。记录应区分扫描自然关闭和人工 dismissal，不把减少的告警数称为修复漏洞数。
+
 ## Actions 缓存只读误报兼容
 
 `scripts/security/codeql-actions` 在 default / extended 中只替换官方 `actions/cache-poisoning/poisonable-step`。仅当前 job 明确配置原始标量 `read` / `none`，或 job 未覆盖且 workflow 明确配置该值时消除该查询结果。表达式、重复 cache-mode、合并键、别名值及未知模式保持官方告警；显式可写 job 不继承 workflow 的只读结论。其他缓存规则、checkout 规则与源码范围保持原配置。
+
+工作流同时直接表达真实信任边界：Command Center callee 自身声明只读缓存；四个受 main 来源与事件约束的 workspace/full writer 首次 checkout 使用 `github.sha`，候选 job 保留计划的 `tested_sha`。共享构建步骤按 job 复用，不能把只读候选上下文的结论应用到 writer；完整回归保留 npm、wasm-bindgen、Trunk 和 sentinel 的合法写入。该调整不为查询新增可信 job/output 名单。
 
 兼容基线为 CodeQL CLI `2.27.4`、`actions-all 0.7.1`、`actions-queries 0.6.39`，上游源码 `1be292a1e54696ca543b4ad0f9b4537b9687caa7`。本地 bundle 的解析可能忽略 suite 版本约束，因此不以依赖声明或空 lock 作为实际版本证明。每个 Actions job 在 init 后校验实际 CLI、编译依赖、上游源码摘要及 init 最终查询集，再运行临时目录中的真实提取/查询反例；失败时后续 analyze/upload 跳过。两套查询总数为 18 / 24（各含一条提取诊断），目标 ID 均只出现一次。
 
