@@ -228,15 +228,6 @@ fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
             .authorized_fencing_resource_bindings
             .clone(),
     };
-    let context = formal::verify_formal_candidate(
-        &fixture.candidate.candidate,
-        None,
-        &fixture.authority,
-        None,
-        None,
-        formal::FormalCompletionBranchV1::Normal,
-    )
-    .unwrap();
     let candidate = &fixture.candidate;
     let authority = &fixture.authority;
     let limits = fixture.current_limits.clone();
@@ -290,189 +281,88 @@ fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
                 )
                 .unwrap();
             let request = &candidate.candidate.record.request_digest;
-            // The existing public guard remains in place. These calls do the REAL
-            // CompleteEvidence/localwriter/jobs.stage on each independent endpoint.
-            for endpoint in [&mut primary, &mut replica] {
-                endpoint
-                    .supply_iws_candidate_work(endpoint_material::source_work())
-                    .unwrap();
-                let error = endpoint.prepare(candidate.clone()).unwrap_err();
-                assert!(
-                    error
-                        .to_string()
-                        .contains("IWS typed owner coverage incomplete"),
-                    "{error}"
-                );
-                assert!(matches!(
-                    endpoint.query(request).unwrap(),
-                    FormalQueryOutcomeV1::NotRecorded
-                ));
-            }
-            let work = FormalArchiveReadWorkV1::new(1_000_000_000, 16u64 << 30).unwrap();
-            let mut no = || false;
-            // Cancellation cannot create a receipt or move the accepted cache.
-            assert!(
-                primary
-                    .prepare_genesis_bounded(
-                        candidate,
-                        &context,
-                        primary_provider.as_ref(),
-                        &policy,
-                        &memory,
-                        &work,
-                        &mut || true
-                    )
-                    .is_err()
-            );
+            primary
+                .supply_iws_candidate_work(endpoint_material::source_work())
+                .unwrap();
+            replica
+                .supply_iws_candidate_work(endpoint_material::source_work())
+                .unwrap();
+            // The production source API succeeds directly. No expected error
+            // from old guards is used as coordinator control flow.
+            let context = primary.stage_genesis_source(candidate, || false).unwrap();
+            let replica_context = replica.stage_genesis_source(candidate, || false).unwrap();
+            assert_eq!(context.record(), replica_context.record());
             assert!(matches!(
                 primary.query(request).unwrap(),
                 FormalQueryOutcomeV1::NotRecorded
             ));
-            let p = primary
-                .prepare_genesis_bounded(
-                    candidate,
-                    &context,
-                    primary_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let r = replica
-                .prepare_genesis_bounded(
-                    candidate,
-                    &context,
-                    replica_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let pf = primary
-                .finalize_genesis_bounded(
-                    candidate,
-                    &context,
-                    p.receipt(),
-                    r.receipt(),
-                    primary_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let rf = replica
-                .finalize_genesis_bounded(
-                    candidate,
-                    &context,
-                    p.receipt(),
-                    r.receipt(),
-                    replica_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let decision = formal::FormalDecisionProofV1 {
-                schema_version: 1,
-                record: candidate.candidate.record.clone(),
-                branch: formal::FormalCompletionBranchV1::Normal,
-                writer_signature_hex: candidate.candidate.writer_signature_hex.clone(),
-                frozen: None,
-                primary: pf.receipt().clone(),
-                replica: rf.receipt().clone(),
+            assert!(matches!(
+                replica.query(request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+            use oasis7_chain_runtime::iws_genesis::{
+                GenesisEndpointsV1, GenesisSubmissionStageV1, submit_staged_genesis_bounded,
             };
-            let pc = primary
-                .complete_genesis_bounded(
-                    candidate,
-                    &context,
-                    &decision,
-                    primary_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let rc = replica
-                .complete_genesis_bounded(
-                    candidate,
-                    &context,
-                    &decision,
-                    replica_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let proof = formal::FormalQualifiedCommitProofV1 {
-                schema_version: 1,
-                decision,
-                primary_complete: pc.receipt().clone(),
-                replica_complete: rc.receipt().clone(),
-            };
-            let expected = formal::verify_formal_qualified(&proof, authority, None, None).unwrap();
-            assert!(
-                primary
-                    .publish_genesis_qualified_bounded(
-                        candidate,
-                        &proof,
-                        &context,
-                        primary_provider.as_ref(),
-                        &policy,
-                        &memory,
-                        &work,
-                        &mut || true
-                    )
-                    .is_err()
-            );
-            let ph = primary
-                .publish_genesis_qualified_bounded(
-                    candidate,
-                    &proof,
-                    &context,
-                    primary_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            let rh = replica
-                .publish_genesis_qualified_bounded(
-                    candidate,
-                    &proof,
-                    &context,
-                    replica_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut no,
-                )
-                .unwrap();
-            assert_eq!(ph.head(), &expected.head());
-            assert_eq!(rh.head(), &expected.head());
-            assert!(ph.uses_budget(&memory));
-            assert!(rh.uses_budget(&memory));
+            let work = FormalArchiveReadWorkV1::new(1_000_000_000, 16u64 << 30).unwrap();
+            let cancelled = submit_staged_genesis_bounded(
+                candidate,
+                &context,
+                GenesisEndpointsV1 {
+                    primary: &mut primary,
+                    replica: &mut replica,
+                    primary_provider: primary_provider.as_ref(),
+                    replica_provider: replica_provider.as_ref(),
+                    primary_policy: &policy,
+                    replica_policy: &policy,
+                },
+                &memory,
+                &work,
+                &mut || true,
+            )
+            .err()
+            .unwrap();
+            assert_eq!(cancelled.stage(), GenesisSubmissionStageV1::Admission);
+            assert!(matches!(
+                primary.query(request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+            assert!(matches!(
+                replica.query(request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+            let result = submit_staged_genesis_bounded(
+                candidate,
+                &context,
+                GenesisEndpointsV1 {
+                    primary: &mut primary,
+                    replica: &mut replica,
+                    primary_provider: primary_provider.as_ref(),
+                    replica_provider: replica_provider.as_ref(),
+                    primary_policy: &policy,
+                    replica_policy: &policy,
+                },
+                &memory,
+                &work,
+                &mut || false,
+            )
+            .unwrap();
+            let expected =
+                formal::verify_formal_qualified(result.proof(), authority, None, None).unwrap();
+            assert_eq!(result.primary().head(), &expected.head());
+            assert_eq!(result.replica().head(), &expected.head());
+            assert!(result.uses_budget(&memory));
             for endpoint in [&mut primary, &mut replica] {
                 let FormalQueryOutcomeV1::Recorded(state) = endpoint.query(request).unwrap() else {
-                    panic!("actual durable Qualified missing")
+                    panic!("durable Qualified missing")
                 };
                 let FormalRequestStateV1::Qualified {
                     proof: installed, ..
                 } = state.as_ref()
                 else {
-                    panic!("actual durable entry not Qualified")
+                    panic!("durable entry not Qualified")
                 };
-                assert_eq!(installed, &proof);
+                assert_eq!(installed, result.proof());
             }
-            // A real successor read admission consults the private accepted cache;
-            // the dedicated read-only observation below checks its exact retained
-            // GEN record/History/Current rather than a caller bool.
             assert_eq!(
                 primary.accepted_genesis_record_id().unwrap(),
                 Some(expected.verified_record_id())
@@ -481,83 +371,29 @@ fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
                 replica.accepted_genesis_record_id().unwrap(),
                 Some(expected.verified_record_id())
             );
-            // Exact persisted original receipts/proof are reusable after GEN consumed
-            // staged state. No source work is re-supplied and no new signature made.
             let before_primary = std::fs::read(pdir.join("formal-checkpoint-v1.cbor")).unwrap();
             let before_replica = std::fs::read(rdir.join("formal-checkpoint-v1.cbor")).unwrap();
-            for (endpoint, provider, role) in [
-                (
-                    &mut primary,
-                    primary_provider.as_ref(),
-                    EndpointRole::Primary,
-                ),
-                (
-                    &mut replica,
-                    replica_provider.as_ref(),
-                    EndpointRole::Replica,
-                ),
-            ] {
-                assert!(
-                    endpoint
-                        .prepare_genesis_bounded(
-                            candidate, &context, provider, &policy, &memory, &work, &mut no
-                        )
-                        .unwrap_err()
-                        .to_string()
-                        .contains("already Qualified")
-                );
-                let f = endpoint
-                    .finalize_genesis_bounded(
-                        candidate,
-                        &context,
-                        p.receipt(),
-                        r.receipt(),
-                        provider,
-                        &policy,
-                        &memory,
-                        &work,
-                        &mut no,
-                    )
-                    .unwrap();
-                let FormalQueryOutcomeV1::Recorded(state) = endpoint.query(request).unwrap() else {
-                    panic!("actual durable Qualified missing")
-                };
-                let FormalRequestStateV1::Qualified { proof: old, .. } = state.as_ref() else {
-                    panic!("actual durable entry not Qualified")
-                };
-                assert_eq!(
-                    f.receipt(),
-                    match role {
-                        EndpointRole::Primary => &old.decision.primary,
-                        EndpointRole::Replica => &old.decision.replica,
-                    }
-                );
-                let c = endpoint
-                    .complete_genesis_bounded(
-                        candidate,
-                        &context,
-                        &proof.decision,
-                        provider,
-                        &policy,
-                        &memory,
-                        &work,
-                        &mut no,
-                    )
-                    .unwrap();
-                assert_eq!(
-                    c.receipt(),
-                    match role {
-                        EndpointRole::Primary => &old.primary_complete,
-                        EndpointRole::Replica => &old.replica_complete,
-                    }
-                );
-                let retry = endpoint
-                    .publish_genesis_qualified_bounded(
-                        candidate, &proof, &context, provider, &policy, &memory, &work, &mut no,
-                    )
-                    .unwrap();
-                assert_eq!(retry.head(), &expected.head());
-            }
+            // Accepted exact retry reads retained full proofs before prepare;
+            // no source-work reset, re-signing or fresh staged lease is needed.
+            let retry = submit_staged_genesis_bounded(
+                candidate,
+                &context,
+                GenesisEndpointsV1 {
+                    primary: &mut primary,
+                    replica: &mut replica,
+                    primary_provider: primary_provider.as_ref(),
+                    replica_provider: replica_provider.as_ref(),
+                    primary_policy: &policy,
+                    replica_policy: &policy,
+                },
+                &memory,
+                &work,
+                &mut || false,
+            )
+            .unwrap();
+            assert_eq!(retry.proof(), result.proof());
+            assert_eq!(retry.primary().head(), result.primary().head());
+            assert_eq!(retry.replica().head(), result.replica().head());
             assert_eq!(
                 std::fs::read(pdir.join("formal-checkpoint-v1.cbor")).unwrap(),
                 before_primary

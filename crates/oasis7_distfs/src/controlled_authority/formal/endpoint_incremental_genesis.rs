@@ -1,6 +1,8 @@
 //! GEN-only typed admission and final installation. Ordinary guards remain closed.
 //! Complete staged bytes alone cannot construct an install permit: the SAME
 //! dual-quorum proof and actual durable local Ready/ProofComplete are required.
+#[path = "endpoint_incremental_genesis_stage.rs"]
+mod stage;
 use super::super::FormalArchiveReadWorkV1;
 use super::*;
 use crate::controlled_authority::fencing::{

@@ -1160,11 +1160,10 @@ mod committed_material;
 pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
 
-#[path = "endpoint_native_environment.rs"]
-mod native_environment;
-
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
+#[path = "endpoint_native_environment.rs"]
+mod native_environment;
 pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
 impl FileFormalEndpoint {
     /// Paid data loading preserves the existing failure poison; it neither
@@ -1185,6 +1184,7 @@ impl FileFormalEndpoint {
         result
     }
 }
+pub use incremental::genesis::PaidGenesisAcceptanceV1;
 pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
 pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
 pub(in crate::controlled_authority) use store::bounded_wire::{

@@ -3,7 +3,7 @@ use super::*;
 use crate::controlled_authority::formal::{
     bounded_context::FormalBoundedWorkV1, test_fixtures as f,
 };
-fn fixture() -> (
+pub(super) fn fixture() -> (
     FormalQualifiedCommitProofV1,
     SignedCanonicalCandidateV1,
     VerifiedCandidateContextV1,

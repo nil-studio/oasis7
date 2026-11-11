@@ -135,6 +135,7 @@ pub fn verify_formal_qualified_from_decision(
 #[path = "proof_genesis_bounded.rs"]
 mod genesis_bounded;
 pub use genesis_bounded::{
-    PaidVerifiedGenesisCommitV1, PaidVerifiedGenesisDecisionV1, genesis_final_receipt_body_bounded,
+    PaidVerifiedGenesisCommitV1, PaidVerifiedGenesisDecisionV1, build_genesis_decision_bounded,
+    build_genesis_qualified_bounded, genesis_final_receipt_body_bounded,
     verify_genesis_decision_bounded, verify_genesis_qualified_bounded,
 };

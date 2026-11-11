@@ -1,9 +1,12 @@
 //! Fixed GEN quorum verifier. No caller-supplied verifier/hash callbacks.
+#[path = "proof_genesis_build.rs"]
+mod build;
 use super::*;
 use crate::controlled_authority::formal::bounded_context::{
     FormalBoundedContextV1, WorkIdentityV1,
 };
 use crate::controlled_authority::replicated_protocol::ArtifactRole;
+pub use build::{build_genesis_decision_bounded, build_genesis_qualified_bounded};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::{
     cell::RefCell,
