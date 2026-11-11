@@ -64,6 +64,61 @@ env:
 cache-mode: read
 
 jobs:
+  pr-apt-network-diagnostic:
+    # Temporary investigation for #5745; remove once the runner failure is identified.
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 5745
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    cache-mode: none
+    permissions: {}
+    steps:
+      - name: Compare bounded public DNS and HTTPS probes without changing the runner
+        shell: bash
+        timeout-minutes: 1
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures, json, os, subprocess, time
+          hosts = ('azure.archive.ubuntu.com', 'archive.ubuntu.com',
+                   'security.ubuntu.com', 'packages.microsoft.com')
+          prefixes = {'runner': [], 'root': ['sudo', '-n'],
+                      '_apt': ['sudo', '-n', '/usr/bin/timeout', '--kill-after=1s', '9s',
+                               'sudo', '-n', '-u', '_apt']}
+          print(json.dumps({'diagnostic_only': True, 'proxy_environment_present': {
+              key: bool(os.environ.get(key)) for key in
+              ('http_proxy', 'https_proxy', 'all_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY')}}), flush=True)
+          tasks = []
+          for user, prefix in prefixes.items():
+              for host in hosts:
+                  for family in ('ahosts', 'ahostsv4'):
+                      tasks.append((user, host, family, prefix + ['/usr/bin/timeout', '--kill-after=1s',
+                                    '6s', '/usr/bin/getent', family, host]))
+                  path = ('/ubuntu/24.04/prod/dists/noble/InRelease' if host == 'packages.microsoft.com'
+                          else '/ubuntu/dists/noble/InRelease')
+                  tasks.append((user, host, 'https', prefix + ['/usr/bin/timeout', '--kill-after=1s', '9s',
+                                '/usr/bin/curl', '--silent', '--show-error', '--head', '--proto', '=https',
+                                '--connect-timeout', '4', '--max-time', '7', '--retry', '0', '--output',
+                                '/dev/null', '--write-out', '%{http_code}', 'https://' + host + path]))
+          def probe(task):
+              user, host, kind, command = task
+              start = time.monotonic()
+              row = dict(diagnostic_only=True, user=user, host=host, probe=kind)
+              try:
+                  result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
+                                          text=True, timeout=12)
+                  row['exit_code'] = result.returncode
+                  row['resolved'] = kind != 'https' and result.returncode == 0 and bool(result.stdout.strip())
+                  if kind == 'https':
+                      status = result.stdout.strip()
+                      row['http_status'] = status if len(status) == 3 and status.isdigit() else 'unavailable'
+              except subprocess.TimeoutExpired:
+                  row['timeout'] = True
+              row['seconds'] = round(time.monotonic() - start, 3)
+              return row
+          with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+              for row in pool.map(probe, tasks):
+                  print(json.dumps(row, sort_keys=True), flush=True)
+          PY
+
   codeql-rust-model-diagnostic:
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'codeql_rust_model_diagnostic'
     runs-on: ubuntu-24.04
