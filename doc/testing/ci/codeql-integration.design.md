@@ -463,9 +463,15 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补�
 
 Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
 
-候选仅在采集树外复制官方 `rust-all` 并应用 §7.2.1 的固定补丁，完整库差异只能为固定目标摘要的 `TypeInference.qll`。默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
+本模式使用明确版本 `qualifier-lines-v2`：仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；完整文件集合及前后摘要核验最终仅有这两项差异，不允许第三处修改。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。旧 capacity/qualifier 对照仍沿原单文件合同。
 
-同一 finalized 数据库以一次 `run-queries` 执行原 44 项。37 项均须保存并核对 BQRS 身份、完整 info/decode；原七表沿既有正反例、行数和来源 oracle 逐项验证。仅对默认 37 项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
+默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
+
+七表中的 Image 使用显式 `image-v2` 合同，其他六表保持原字节和 oracle。参数经公开 `Param`/`IdentPat` 名称接口选择，不把参数或比较式的 `toString()` 展示文本当名称。完整冻结 `expectations.rs` 中，同一 `contains_line` 函数的原 `output`/`expected` 参数、`output.lines()` 的循环绑定与原 `EqualsOperation` 左右操作数必须共享 AST 所属关系；LHS 是该循环的 `line`，RHS 是该函数的 `expected`。保留两处真实 format 展开、两个 digest 到各自展开的 localFlow、两处精确 `contains_line` callee 和跨函数负例。原 `expected` 到同一 RHS 用 localFlow，原 `output` 到同一 LHS 用公开 `TaintTracking::Global<Config>`；不能把起点改为循环变量或给查询添加业务流边。每次 `flow(a,b)` 绑定具体源/汇，Config 同时纳入需检查的负例端点，不能用配置之外的节点产生天然零值。新增 expected→LHS、output→RHS 及两个参数→整个 bool 比较结果的零负例；结构见证与新端点标签显式带 v2。prepare、私有布局、query-inputs、oracle 和终态记录同一合同及 QL/标签预期身份，旧 v1 查询和历史失败保留在原版本及旧模式。
+
+该模型的开发回归使用真实固定源码小样本及独立双 receiver、同名非 stdlib `lines` 控制；后者须先证明来源到实际 receiver 的传播，避免把没有来源的零值当模型隔离通过。小样本只验证候选模型及查询，不代签完整原 crate/workspace、显式 `into_iter`/`next` 或整个 iterator 家族。模型改变影响全部默认查询，后续完整结果必须由同一新候选的一次37+7运行取得，不能拼接旧37结果。
+
+同一 finalized 数据库以一次 `run-queries` 执行44项。37项均须保存并核对 BQRS 身份、完整 info/decode；七表按上述版本的完整正反例、行数和来源 oracle 逐项验证，Image v2 不覆盖或追认 v1 的失败。仅对默认37项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
 
 执行前后检查完整业务输入、官方 bundle、候选整个库、私有 query pack、DB metadata 和封存 checkpoint。缓存/结果与受保护源码隔离。失败仍在原截止内保存已有有界日志、BQRS/解码和退出收据；官方证据保持 256 MiB 上限，私有证据为 64 MiB 且保留终态空间，部分、超限、身份不明或封存失败不得报告完整研究。研究不追加查询、不自动重试、不改写旧结果。
 

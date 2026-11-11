@@ -21,6 +21,13 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
+VARIANT = 'qualifier-lines-v2'
+IMAGE_CONTRACT = capacity.IMAGE_V2
+MODEL_FILE = 'codeql/rust/frameworks/stdlib/core.model.yml'
+MODEL_OFFICIAL_SHA = '756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400'
+MODEL_CANDIDATE_SHA = '4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734'
+MODEL_MARKER = b'      # Str\n'
+MODEL_LINE = b'      - ["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]\n'
 DEFAULT_PACK = 'oasis7/rust-default-candidate-research'
 WITNESS_PACK = 'oasis7/rust-public-candidate-research'
 DEFAULT_ENTRIES_SHA = '53422ffb03812452686f24b03ee61ebf3beabab3cceb09a733947877e4d777c6'
@@ -66,6 +73,37 @@ def private_inputs(work, end):
             ('candidate-rust-all', 'default-queries', 'public-witnesses')}
 
 
+def lines_identity(original, private, end):
+    official_files, candidate_files = regular_snapshot(original, end), regular_snapshot(private, end)
+    changed = sorted(p for p in set(official_files) | set(candidate_files)
+                     if official_files.get(p) != candidate_files.get(p))
+    if (set(official_files) != set(candidate_files) or changed != sorted((comparison.TYPE_FILE, MODEL_FILE))
+            or runtime.digest(original / comparison.TYPE_FILE) != comparison.OFFICIAL_SHA
+            or runtime.digest(private / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA
+            or runtime.digest(original / MODEL_FILE) != MODEL_OFFICIAL_SHA
+            or runtime.digest(private / MODEL_FILE) != MODEL_CANDIDATE_SHA
+            or any(official_files[p]['mode'] != candidate_files[p]['mode'] for p in changed)):
+        raise RuntimeError('candidate differs from the fixed qualifier/lines two-file model')
+    return dict(variant=VARIANT, image_contract_version=IMAGE_CONTRACT,
+                summary=MODEL_LINE.decode().strip(), changed_files=changed,
+                official_files=official_files, candidate_files=candidate_files)
+
+
+def prepare_lines_model(original, private, out, end):
+    path = private / MODEL_FILE
+    capacity.check_time(end)
+    if path.resolve() != path or runtime.digest(path) != MODEL_OFFICIAL_SHA:
+        raise RuntimeError('official core model identity differs')
+    original_bytes = path.read_bytes()
+    if original_bytes.count(MODEL_MARKER) != 1:
+        raise RuntimeError('core model insertion point is not unique')
+    candidate_bytes = original_bytes.replace(MODEL_MARKER, MODEL_MARKER + MODEL_LINE, 1)
+    if hashlib.sha256(candidate_bytes).hexdigest() != MODEL_CANDIDATE_SHA:
+        raise RuntimeError('lines summary target identity differs')
+    path.write_bytes(candidate_bytes)
+    runtime.save(out / 'lines-model-identity.json', lines_identity(original, private, end), out)
+
+
 def suite_helper(official):
     # This exact dependency is a query pack. Keep the older library-only parser strict.
     root = official / 'qlpacks/codeql/suite-helpers/1.0.61'
@@ -91,9 +129,9 @@ def freeze_suite(suite):
 
 def query_records(work, source, suite, frozen_witnesses):
     default, witness = work / 'default-queries', work / 'public-witnesses'
-    texts = capacity.semantic_queries(source)
+    texts = capacity.semantic_queries(source, image_version=IMAGE_CONTRACT)
     if len(texts) != 7 or {n: hashlib.sha256(t.encode()).hexdigest() for n, t in texts.items()} != frozen_witnesses:
-        raise RuntimeError('public witness text differs from the original seven tables')
+        raise RuntimeError('public witness text differs from the image-v2 seven-table contract')
     records = [dict(entry, kind='default', pack=DEFAULT_PACK, path=str(default / entry['relative']), root=str(default))
                for entry in freeze_suite(suite)]
     records.extend(dict(relative=n + '.ql', id=n, sha256=frozen_witnesses[n], kind='witness',
@@ -139,9 +177,9 @@ def source_layout(official, work, out, source, suite, frozen_witnesses, end):
     runtime.save(out / 'packaging-differences.json', packaging, out)
     if capacity.digest_until(default / 'codeql-suites/rust-code-scanning.qls', end) != SUITE_SHA:
         raise RuntimeError('source suite changed')
-    texts = capacity.semantic_queries(source)
+    texts = capacity.semantic_queries(source, image_version=IMAGE_CONTRACT)
     if len(texts) != 7 or {name: hashlib.sha256(text.encode()).hexdigest() for name, text in texts.items()} != frozen_witnesses:
-        raise RuntimeError('public witness text differs from the original seven tables')
+        raise RuntimeError('public witness text differs from the image-v2 seven-table contract')
     (witness / 'qlpack.yml').write_text('name: ' + WITNESS_PACK + '\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.25\n')
     for name, text in texts.items():
         path = witness / (name + '.ql'); path.write_text(text)
@@ -251,14 +289,16 @@ def verify_results(codeql, database, records, results, source, provenance, work,
         run([codeql, 'bqrs', 'decode', results[label], '--format=csv'], 'decode-' + name, 30)
         rows = witness_rows(name, out / ('decode-' + name + '.log'))
         try:
-            validated[name] = capacity.validate(name, rows, source, provenance)
+            validated[name] = capacity.validate(name, rows, source, provenance, image_version=IMAGE_CONTRACT)
         except RuntimeError as error:
             failures[name] = str(error)
             if terminal['primary_failure'] is None:
                 terminal['primary_failure'] = dict(stage='semantic-' + name, error=str(error))
-            runtime.save(out / ('semantic-' + name + '-terminal.json'), dict(status='FAIL', error=str(error)), out)
+            runtime.save(out / ('semantic-' + name + '-terminal.json'), dict(status='FAIL', error=str(error),
+                         image_contract_version=IMAGE_CONTRACT if name == 'Image' else None), out)
         else:
-            runtime.save(out / ('semantic-' + name + '-terminal.json'), dict(status='PASS', validated=validated[name]), out)
+            runtime.save(out / ('semantic-' + name + '-terminal.json'), dict(status='PASS', validated=validated[name],
+                         image_contract_version=IMAGE_CONTRACT if name == 'Image' else None), out)
     terminal['public_semantics'] = 'FAIL' if failures else 'PASS'
     if failures:
         raise RuntimeError('public semantic validation failed: ' + ', '.join(failures))
@@ -309,6 +349,7 @@ def main():
     started = time.monotonic()
     end = started + max(0, args.deadline - time.time()) if math.isfinite(args.deadline) else started
     terminal = dict(status='CANDIDATE_RESEARCH_INCOMPLETE', phase=args.phase, mode=MODE,
+                    candidate_variant=VARIANT, image_contract_version=IMAGE_CONTRACT,
                     source=capacity.CAPACITY_SOURCE, source_root=str(source), fixed_job_deadline=args.deadline,
                     analysis_deadline=args.analysis_deadline, production_capacity='UNKNOWN', full_rust_coverage='HOLD',
                     production_acceptance='UNCHANGED', security_upload=False, database_upload=False, sarif_upload=False,
@@ -330,6 +371,11 @@ def main():
         budget = read_json(checkpoint / 'capacity-budget.json')
         analysis_end, end = shared_budget(budget, args.deadline, args.analysis_deadline, time.time(), time.monotonic())
         terminal['budget'] = budget
+        contract = capacity.semantic_contract(source, image_version=IMAGE_CONTRACT)
+        if (read_json(checkpoint / 'semantic-query-contract.json') != contract
+                or read_json(checkpoint / 'semantic-query-inputs.json') != contract['query_sha256']):
+            raise RuntimeError('candidate public query contract differs from the frozen preparation')
+        terminal['semantic_contract_sha256'] = runtime.digest(checkpoint / 'semantic-query-contract.json')
         if args.phase == 'run':
             outcomes = {stage: getattr(args, stage.replace('-', '_') + '_outcome') for stage in
                         ('candidate-prepare', 'extraction', 'capture', 'checkpoint', 'official-artifact')}
@@ -340,7 +386,9 @@ def main():
             comparison.verify_seal(out, end - EVIDENCE_SECONDS)
             prepared = read_json(out / 'candidate-prepare-terminal.json')
             if (prepared.get('status') != 'CANDIDATE_RESEARCH_PREPARED' or prepared.get('budget') != budget
-                    or prepared.get('source_root') != str(source)):
+                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != VARIANT
+                    or prepared.get('image_contract_version') != IMAGE_CONTRACT
+                    or prepared.get('semantic_contract_sha256') != terminal['semantic_contract_sha256']):
                 raise RuntimeError('candidate preparation receipt differs')
             before = read_json(out / 'private-inputs-before.json')
         else:
@@ -348,7 +396,8 @@ def main():
             prepared = read_json(checkpoint / 'capacity-prepare-terminal.json')
             if (prepared.get('status') != 'PREPARED' or prepared.get('mode') != MODE
                     or prepared.get('source') != capacity.CAPACITY_SOURCE or prepared.get('source_root') != str(source)
-                    or prepared.get('fixed_job_deadline') != args.deadline):
+                    or prepared.get('fixed_job_deadline') != args.deadline
+                    or prepared.get('image_contract_version') != IMAGE_CONTRACT):
                 raise RuntimeError('official preparation was not admitted')
         capacity.check_time(analysis_end)
         terminal['stage'] = 'protected-input-admission'
@@ -368,6 +417,7 @@ def main():
             terminal['stage'] = 'prepare-candidate-library'
             private = comparison.prepare_candidate(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
+            prepare_lines_model(Path(original_closure['codeql/rust-all']['root']), private, out, analysis_end)
             closure = comparison.candidate_closure(original_closure, private)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
             if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
@@ -392,6 +442,9 @@ def main():
                     default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
                     or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA):
                 raise RuntimeError('candidate workload binding differs from the frozen inputs')
+            if lines_identity(Path(original_closure['codeql/rust-all']['root']), work / 'candidate-rust-all',
+                              min(analysis_end, end - EVIDENCE_SECONDS)) != read_json(out / 'lines-model-identity.json'):
+                raise RuntimeError('candidate lines model identity differs after preparation')
             if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
                 raise RuntimeError('private input changed after preparation')
             official_seal = comparison.verify_seal(checkpoint, min(analysis_end, end - EVIDENCE_SECONDS))
