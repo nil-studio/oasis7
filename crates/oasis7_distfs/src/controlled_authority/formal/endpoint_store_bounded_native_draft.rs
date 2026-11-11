@@ -236,6 +236,7 @@ pub(in crate::controlled_authority) struct PaidNativeCheckpointDraftV1<'a> {
     preimage: ReservedValue<Vec<u8>>,
     outer: ReservedValue<()>,
     _pending_sources: Option<PendingDraftSources>,
+    _disk_source: Option<super::PaidNativeHotV1>,
 }
 impl std::fmt::Debug for PaidNativeCheckpointDraftV1<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -245,6 +246,10 @@ impl std::fmt::Debug for PaidNativeCheckpointDraftV1<'_> {
     }
 }
 impl PaidNativeCheckpointDraftV1<'_> {
+    pub(super) fn retain_disk_source(mut self, source: super::PaidNativeHotV1) -> Self {
+        self._disk_source = Some(source);
+        self
+    }
     pub(super) fn source_store(&self) -> &Store {
         self.store
     }
@@ -267,6 +272,10 @@ impl PaidNativeCheckpointDraftV1<'_> {
     }
     pub(in crate::controlled_authority) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
         self.body.uses_budget(memory)
+            && self
+                ._disk_source
+                .as_ref()
+                .is_none_or(|source| source.uses_budget(memory))
             && self.before.uses_budget(memory)
             && self.preimage.uses_budget(memory)
             && self.outer.uses_budget(memory)
@@ -281,6 +290,10 @@ impl PaidNativeCheckpointDraftV1<'_> {
     }
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.body.reserved_bytes()
+            + self
+                ._disk_source
+                .as_ref()
+                .map_or(0, |source| source.reserved_bytes())
             + self.before.reserved_bytes()
             + self.preimage.reserved_bytes()
             + self.outer.reserved_bytes()
@@ -499,6 +512,7 @@ fn prepare_draft<'a>(
         preimage,
         outer,
         _pending_sources: sources,
+        _disk_source: None,
     })
 }
 #[cfg(test)]

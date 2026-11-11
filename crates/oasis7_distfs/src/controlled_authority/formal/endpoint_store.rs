@@ -1111,6 +1111,8 @@ impl Store {
     }
 }
 
+#[path = "endpoint_store_bounded_fresh_draft.rs"]
+mod bounded_fresh_draft;
 #[path = "endpoint_store_bounded_pending_draft.rs"]
 mod bounded_pending_draft;
 impl Store {
