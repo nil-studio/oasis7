@@ -93,6 +93,11 @@ fn root_step_dispatches_successive_events_and_due_work_in_one_overlay() {
     let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();
     let mut encoding_work = original_work();
     let (world, parent, pages, mut values) = setup(&memory);
+    let mut material_owner = super::material_fixture(&world, &parent, &pages, &values, &memory);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let mut body_event = event(&world, 2);
     body_event.time = 12;
     // No World is passed to the context or reducers after input construction.
@@ -100,9 +105,14 @@ fn root_step_dispatches_successive_events_and_due_work_in_one_overlay() {
     let source = values.clone();
     let mut work = quota();
     let live = parent.fence().unwrap();
-    let mut txn =
-        ExecutionTransaction::begin(parent.clone(), [7; 32], &pages, &memory, txn_limits())
-            .unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [7; 32],
+        &material_owner.pages,
+        &memory,
+        txn_limits(),
+    )
+    .unwrap();
     let guard = txn.guard();
     let mut mutation = BodyMutationContext {
         sink: &mut values,
@@ -126,7 +136,7 @@ fn root_step_dispatches_successive_events_and_due_work_in_one_overlay() {
         .unwrap();
     assert_eq!(id, 1);
     assert_eq!(next, Seq { next: 2, era: 0 });
-    step.dispatch_agent_event(&body_event, 4096, |original| {
+    step.dispatch_agent_event(&body_event, &mut materials, &live, 4096, |original| {
         collect_original(original, &memory).map(|_| ())
     })
     .unwrap();
@@ -140,7 +150,7 @@ fn root_step_dispatches_successive_events_and_due_work_in_one_overlay() {
             to: GeoPos::new(4, 5, 6),
         }),
     };
-    step.dispatch_agent_event(&moved, 4096, |original| {
+    step.dispatch_agent_event(&moved, &mut materials, &live, 4096, |original| {
         collect_original(original, &memory).map(|_| ())
     })
     .unwrap();
@@ -193,12 +203,22 @@ fn root_step_original_callback_final_cancel_must_abort_prefix() {
     let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();
     let mut encoding_work = original_work();
     let (world, parent, pages, mut values) = setup(&memory);
+    let mut material_owner = super::material_fixture(&world, &parent, &pages, &values, &memory);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let mut original = event(&world, 1);
     original.time = 12;
     let source = values.clone();
-    let mut txn =
-        ExecutionTransaction::begin(parent.clone(), [8; 32], &pages, &memory, txn_limits())
-            .unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [8; 32],
+        &material_owner.pages,
+        &memory,
+        txn_limits(),
+    )
+    .unwrap();
     let guard = txn.guard();
     let cancelled = Cell::new(false);
     let persisted = Cell::new(false);
@@ -219,12 +239,18 @@ fn root_step_original_callback_final_cancel_must_abort_prefix() {
         &mut encoding_work,
     )
     .unwrap();
-    let result = step.dispatch_agent_event(&original, 4096, |original| {
-        collect_original(original, &memory)?;
-        persisted.set(true);
-        cancelled.set(true);
-        Ok(())
-    });
+    let result = step.dispatch_agent_event(
+        &original,
+        &mut materials,
+        &parent.fence().unwrap(),
+        4096,
+        |original| {
+            collect_original(original, &memory)?;
+            persisted.set(true);
+            cancelled.set(true);
+            Ok(())
+        },
+    );
     assert!(persisted.get());
     assert!(matches!(
         result,
@@ -242,6 +268,11 @@ fn root_step_stream_requires_consumption_and_finish_and_preserves_spent_work_on_
     for mode in 0..3 {
         let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();
         let (world, parent, pages, mut values) = setup(&memory);
+        let mut material_owner = super::material_fixture(&world, &parent, &pages, &values, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
         let mut original = event(&world, 2);
         original.time = 12;
         drop(world);
@@ -263,9 +294,14 @@ fn root_step_stream_requires_consumption_and_finish_and_preserves_spent_work_on_
             io: &mut work,
             cancelled: || false,
         };
-        let mut txn =
-            ExecutionTransaction::begin(parent.clone(), [8; 32], &pages, &memory, txn_limits())
-                .unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [8; 32],
+            &material_owner.pages,
+            &memory,
+            txn_limits(),
+        )
+        .unwrap();
         let guard = txn.guard();
         let consumed = Cell::new(false);
         let result = {
@@ -282,27 +318,33 @@ fn root_step_stream_requires_consumption_and_finish_and_preserves_spent_work_on_
             step.allocate(Alloc::Event, Seq { next: 1, era: 0 })
                 .unwrap();
             assert!(puts.get() > 0);
-            step.dispatch_agent_event(&original, 4096, |original| {
-                if mode == 0 {
-                    return Ok(());
-                }
-                let result = original.persist_to(
-                    &mut |stream: &mut dyn AgentEventOriginalStreamV1,
-                          _cancelled: &mut dyn FnMut() -> bool| {
-                        stream.write_to(&mut std::io::sink())?;
-                        consumed.set(true);
-                        Err(BodyMutationError::Original(Box::new(
-                            std::io::Error::other("step finish failure"),
-                        )))
-                    },
-                );
-                if mode == 1 {
-                    result
-                } else {
-                    assert!(result.is_err());
-                    Ok(()) // Swallowing finish failure cannot manufacture completion.
-                }
-            })
+            step.dispatch_agent_event(
+                &original,
+                &mut materials,
+                &parent.fence().unwrap(),
+                4096,
+                |original| {
+                    if mode == 0 {
+                        return Ok(());
+                    }
+                    let result = original.persist_to(
+                        &mut |stream: &mut dyn AgentEventOriginalStreamV1,
+                              _cancelled: &mut dyn FnMut() -> bool| {
+                            stream.write_to(&mut std::io::sink())?;
+                            consumed.set(true);
+                            Err(BodyMutationError::Original(Box::new(
+                                std::io::Error::other("step finish failure"),
+                            )))
+                        },
+                    );
+                    if mode == 1 {
+                        result
+                    } else {
+                        assert!(result.is_err());
+                        Ok(()) // Swallowing finish failure cannot manufacture completion.
+                    }
+                },
+            )
         };
         assert_eq!(consumed.get(), mode != 0);
         if mode == 1 {
@@ -330,15 +372,26 @@ fn root_step_rejects_stale_clock_fence_and_later_failure_aborts_prefix() {
     for mode in 0..4 {
         let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();
         let mut encoding_work = original_work();
-        let (_, parent, pages, mut values) = setup(&memory);
+        let (world, parent, pages, mut values) = setup(&memory);
+        let mut material_owner = super::material_fixture(&world, &parent, &pages, &values, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
+        drop(world);
         let source = values.clone();
         let mut live = parent.fence().unwrap();
         if mode == 1 {
             live.parent_commit = [9; 32];
         }
-        let mut txn =
-            ExecutionTransaction::begin(parent.clone(), [8; 32], &pages, &memory, txn_limits())
-                .unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [8; 32],
+            &material_owner.pages,
+            &memory,
+            txn_limits(),
+        )
+        .unwrap();
         let guard = txn.guard();
         let mut work = quota();
         let mut context = BodyMutationContext {
@@ -379,9 +432,13 @@ fn root_step_rejects_stale_clock_fence_and_later_failure_aborts_prefix() {
                     }),
                 };
                 assert!(matches!(
-                    step.dispatch_agent_event(&unsupported, 4096, |_| panic!(
-                        "unsupported event persisted"
-                    ),),
+                    step.dispatch_agent_event(
+                        &unsupported,
+                        &mut materials,
+                        &live,
+                        4096,
+                        |_| panic!("unsupported event persisted"),
+                    ),
                     Err(BodyMutationError::Invalid(
                         "unsupported incremental agent event"
                     ))
@@ -533,6 +590,11 @@ fn root_step_retains_one_value_budget_and_source_errors_abort_real_prefix() {
         } else {
             values.clone()
         };
+        let mut material_owner = super::material_fixture(&world, &parent, &pages, &values, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
         let puts = Rc::new(Cell::new(0));
         let mut counted = CountWrites {
             values: &mut values,
@@ -550,9 +612,14 @@ fn root_step_retains_one_value_budget_and_source_errors_abort_real_prefix() {
             io: &mut work,
             cancelled: || false,
         };
-        let mut txn =
-            ExecutionTransaction::begin(parent.clone(), [8; 32], &pages, &memory, txn_limits())
-                .unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [8; 32],
+            &material_owner.pages,
+            &memory,
+            txn_limits(),
+        )
+        .unwrap();
         let guard = txn.guard();
         let mut step = IwsStepContext::begin(
             &mut txn,
@@ -566,11 +633,17 @@ fn root_step_retains_one_value_budget_and_source_errors_abort_real_prefix() {
         .unwrap();
         assert!(puts.get() > 0);
         let original_staged = Cell::new(false);
-        let result = step.dispatch_agent_event(&original, 4096, |original| {
-            collect_original(original, &memory)?;
-            original_staged.set(true);
-            Ok(())
-        });
+        let result = step.dispatch_agent_event(
+            &original,
+            &mut materials,
+            &parent.fence().unwrap(),
+            4096,
+            |original| {
+                collect_original(original, &memory)?;
+                original_staged.set(true);
+                Ok(())
+            },
+        );
         if missing_source {
             assert!(!original_staged.get());
             assert!(matches!(
@@ -670,18 +743,28 @@ fn root_step_does_not_read_unmodified_large_agent_summary() {
                 .to_vec(),
             forbidden,
         );
-        let mut original = event(&world, 1);
-        original.time = 12;
-        drop(input);
-        drop(world);
         let source = ForbidValueRoot {
             values: values.clone(),
             forbidden,
         };
+        let mut material_owner = super::material_fixture(&world, &parent, &pages, &source, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
+        let mut original = event(&world, 1);
+        original.time = 12;
+        drop(input);
+        drop(world);
         source.values.reads.set(0);
-        let mut txn =
-            ExecutionTransaction::begin(parent.clone(), [7; 32], &pages, &memory, txn_limits())
-                .unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [7; 32],
+            &material_owner.pages,
+            &memory,
+            txn_limits(),
+        )
+        .unwrap();
         let guard = txn.guard();
         let mut work = oasis7_formal_protocol::incremental_value::ValueIoBudget {
             nodes_remaining: 256,
@@ -704,9 +787,13 @@ fn root_step_does_not_read_unmodified_large_agent_summary() {
             &mut encoding_work,
         )
         .unwrap();
-        step.dispatch_agent_event(&original, 4096, |original| {
-            collect_original(original, &memory).map(|_| ())
-        })
+        step.dispatch_agent_event(
+            &original,
+            &mut materials,
+            &parent.fence().unwrap(),
+            4096,
+            |original| collect_original(original, &memory).map(|_| ()),
+        )
         .unwrap();
         let guard = txn.guard();
         let prepared = txn.seal(&guard, &parent.fence().unwrap(), 0).unwrap();

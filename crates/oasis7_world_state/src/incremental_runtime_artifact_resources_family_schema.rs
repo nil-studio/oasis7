@@ -330,8 +330,18 @@ pub(super) fn classify(record: Record, kind: u8, key: ParsedKey) -> Option<Cell>
                 ("manifest_hash", text),
                 ("world_seed", u64v),
                 ("seed", u64v),
-                ("fragment_count", u64v),
-                ("block_count", u64v),
+                (
+                    "fragment_count",
+                    P::U64 {
+                        maximum: Some(u64::from(u32::MAX)),
+                    },
+                ),
+                (
+                    "block_count",
+                    P::U64 {
+                        maximum: Some(u64::from(u32::MAX)),
+                    },
+                ),
                 ("coord.x", i64v),
                 ("coord.y", i64v),
                 ("coord.z", i64v),
@@ -570,3 +580,7 @@ pub(super) fn classify(record: Record, kind: u8, key: ParsedKey) -> Option<Cell>
         }
     }
 }
+
+#[path = "incremental_runtime_artifact_resources_receiver_checkpoints.rs"]
+mod checkpoints;
+pub(super) use checkpoints::{CheckpointKey, coordinate_i32, counts, exact_variant, options};

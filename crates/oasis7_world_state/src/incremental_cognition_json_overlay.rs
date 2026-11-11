@@ -397,3 +397,7 @@ pub fn qualify_cognition_json_path_overlay_v1<
         Ok(proof)
     })
 }
+
+#[path = "incremental_cognition_json_overlay_empty.rs"]
+mod empty;
+pub use empty::require_current_delegation_grants_empty_v1;

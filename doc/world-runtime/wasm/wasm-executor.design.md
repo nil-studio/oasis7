@@ -35,6 +35,46 @@
 - `max_gas=0` 回退到配置 fuel；epoch 与 memory limiter 保证可抢占和有界资源。
 - compiled cache 按 engine/OS/arch 隔离，损坏缓存降级为 miss；storage lifecycle 仍由 root world-runtime authority 拥有。
 
+### 根存储模块调用的原始输出与内存边界
+
+Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；适用预算由
+[增量世界存储 §8.2](../runtime/incremental-world-state-storage.design.md#iws-resource-budgets) 声明。
+
+根存储调用使用独立的 `ModuleSandboxRawOutputV1` 能力。真实执行器复用原 VM
+执行段，在 typed 输出解码前将实际结果交给 `ModuleRawOutputSinkV1`；旧
+`ModuleSandbox` 实现不自动获得该能力。接收端只接受一次完整输出，未回调、重复
+回调、取消、限额和解码失败均不能取得输出。调用、结构扫描及原件工作额度连续
+消费；typed 分配前按闭合 DTO 布局准入，返回的输出及诊断持有自身费用。
+
+两条执行入口共用原 effects/emits/output 限额判定，保留原业务失败身份和错误
+语义。根事务 owner 还须完成授权、费用、状态、effects、事件及生命周期贡献，
+并在封存前重新读取实际 live fence。存储或准入错误不得被通用业务错误映射吞掉，
+从而作为正常 `ModuleCallFailed` 接受；原始输出本身不授予调用或发布权限。
+
+线性内存和输出 buffer 的预付只覆盖对应工作集。`max_cache_entries` 只是条目
+上限；fuel、epoch 和 StoreLimits 不提供编译器、JIT、磁盘 compiled artifact
+解码及缓存字节的统一进程预算。完整启用仍须使这些实际消费者符合上述预算合同，
+不能以输出准入、缓存条目数或组件测试替代该条件。
+
+### 受限 worker 的版本化正则批处理
+
+本条复用 `O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c` 的实际工作集预算合同。
+PREACTION 正则使用同一 sealed native worker 的 `regex-batch-v1` 子模式；在确认
+Linux AS/CORE 硬限制后、构造 Wasmtime Engine 前分流。VM 和正则共用唯一的
+spawn/wait/kill/wait 骨干，包括 sealed fd、env_clear、PDEATHSIG、0600 scratch、
+墙钟和取消轮询；正则模式不另建 launcher，也不回退进程内 regex cache。
+
+父进程预付完整 AS ceiling、结果上限和固定 IPC scratch，费用持续到结果 owner
+销毁。请求借用 pattern/text，无克隆 manifest；协议限制请求/响应字节、probe 数、
+单 pattern/text 字节与总工作。`text=None` 仅编译校验；`Some` 编译并匹配，每项
+恰有一个布尔结果。非法 pattern、OOM、超限、超时、取消、子进程失败及非法 IPC
+均为 typed abort，不能转成 false。等待期间同时轮询 sandbox AtomicBool 和本次
+调用的取消回调。旧 VM wire 及 VM/host 错误分类保持原义。
+
+SealedFd 只证明内核 seal；正式 Host 仍须绑定 native descriptor ABI、feature 与实际
+可执行文件 digest。测试 companion 环境变量不提供生产身份。macOS 的编译或
+Unsupported 证据不代签 Linux 真实受限进程验收；完整启用仍需该平台 fresh evidence。
+
 ### Wasmtime Cargo 功能选择与执行兼容
 
 执行器使用 Core WASM、Cranelift 和同步 `Module/Store/Linker/TypedFunc` 调用。

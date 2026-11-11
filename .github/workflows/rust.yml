@@ -640,6 +640,9 @@ jobs:
           if [[ "$PREVIEW_GROUP" == oasis7_required ]]; then
             plan_args+=(--ordinary-partition "$PREVIEW_PARTITION")
           fi
+          if [[ "$PREVIEW_SAMPLE" == runtime-world && "$PREVIEW_GROUP" == oasis7_required && "$PREVIEW_PARTITION" == oasis7_world_state ]]; then
+            export OASIS7_CI_BUILD_DIAGNOSTICS="$RUNNER_TEMP/pr-fast-preview-build-diagnostics"
+          fi
           bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
             --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
       - name: Record preview group timing and outcome
@@ -670,6 +673,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pr-fast-preview.log
             ${{ runner.temp }}/pr-fast-preview-timing.json
+            ${{ runner.temp }}/pr-fast-preview-build-diagnostics
           retention-days: 14
           if-no-files-found: error
 
@@ -919,8 +923,10 @@ jobs:
         name: Build ordinary test artifacts
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          # Avoid overlapping large rustc processes on the hosted runner.
+          CARGO_BUILD_JOBS: "1"
         run: |
-          python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json"
+          python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json" --build-diagnostics "$RUNNER_TEMP/ordinary-build-diagnostics"
           python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
       - &ordinary-actions-upload-artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

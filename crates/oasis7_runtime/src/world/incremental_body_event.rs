@@ -22,6 +22,9 @@ use oasis7_world_state::incremental_agent_body::{
 };
 use oasis7_world_state::incremental_event_fields::*;
 pub use original::{AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1};
+#[path = "incremental_core_policy_materials.rs"]
+pub mod materials;
+use materials::CorePolicyMaterialContextV1;
 
 pub struct AgentEventContext<'a, V, W, C, F> {
     pub values: &'a V,
@@ -78,13 +81,16 @@ impl World {
         W: ValueNodeWriter,
         C: FnMut() -> bool,
         F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
     >(
         &self,
         event: &WorldEvent,
         txn: &mut ExecutionTransaction<'_, R>,
         context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
     ) -> Result<(), BodyMutationError> {
-        Self::contribute_iws_agent_event_at(self.state.time, event, txn, context)
+        Self::contribute_iws_agent_event_at(self.state.time, event, txn, context, materials, live)
     }
 
     pub(super) fn contribute_iws_agent_event_at<
@@ -93,11 +99,91 @@ impl World {
         W: ValueNodeWriter,
         C: FnMut() -> bool,
         F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
     >(
         now: u64,
         event: &WorldEvent,
         txn: &mut ExecutionTransaction<'_, R>,
         context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_core(now, event, txn, context, materials, live, false)
+    }
+
+    pub(super) fn contribute_iws_accepted_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+        scope: &super::incremental_action_execution::AcceptedActorScopeV1<'_>,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            event,
+            txn,
+            context,
+            materials,
+            live,
+            false,
+            Some(scope),
+        )
+    }
+
+    fn contribute_iws_agent_event_core<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+        registration_created: bool,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            event,
+            txn,
+            context,
+            materials,
+            live,
+            registration_created,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn contribute_iws_agent_event_qualified_core<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+        registration_created: bool,
+        accepted_scope: Option<&super::incremental_action_execution::AcceptedActorScopeV1<'_>>,
     ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
@@ -111,9 +197,21 @@ impl World {
                     "unsupported incremental agent event",
                 ));
             };
+            if let DomainEvent::ActionAccepted { actor_id, .. } = domain {
+                accepted_scope
+                    .ok_or(BodyMutationError::Invalid(
+                        "accepted event requires actual actor scope",
+                    ))?
+                    .validate(txn, actor_id)?;
+            }
             let agent_id = match domain {
-                DomainEvent::BodyAttributesUpdated { agent_id, .. }
+                DomainEvent::ActionAccepted {
+                    actor_id: agent_id, ..
+                }
+                | DomainEvent::BodyAttributesUpdated { agent_id, .. }
+                | DomainEvent::BodyAttributesRejected { agent_id, .. }
                 | DomainEvent::AgentMoved { agent_id, .. } => agent_id,
+                DomainEvent::AgentRegistered { agent_id, .. } if registration_created => agent_id,
                 _ => {
                     return Err(BodyMutationError::Invalid(
                         "unsupported incremental agent event",
@@ -128,8 +226,20 @@ impl World {
                     "event time differs from reducer clock",
                 ));
             }
-            // Both supported variants are independent of AgentIntent receipt
-            // validation. No journal/cache or borrowed World state is read.
+            // Every supported event uses the original CorePolicy two-map
+            // normalization, including rejected/absent Accepted actors and
+            // registration. Its genuine parent cache is opened against the
+            // actual Current transaction, not this borrowed event or a World.
+            let material_guard = txn.guard();
+            materials.contribute(
+                txn,
+                context.values,
+                &mut context.mutation,
+                &material_guard,
+                live,
+            )?;
+            // AgentIntent receipt validation remains independent. No journal,
+            // cache hydration or borrowed World state is read.
             let sequence = EventSequenceV1::from_canonical_bytes(&read_fixed::<
                 EVENT_SEQUENCE_BYTES,
                 _,
@@ -147,6 +257,67 @@ impl World {
             let (allocated, next, era) = Self::preview_next_event_id(sequence.next, sequence.era);
             if event.id != allocated {
                 return Err(BodyMutationError::Invalid("event allocator precondition"));
+            }
+            // Legacy ActionAccepted routes only to an existing actor. A missing
+            // actor still produces the audit original and allocator successor.
+            if matches!(domain, DomainEvent::ActionAccepted { .. }) {
+                let body_key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
+                let body_exists = txn.read(Ns::Business, body_key.as_bytes())?.is_some();
+                if body_exists
+                    != accepted_scope
+                        .expect("Accepted scope checked above")
+                        .existing()
+                {
+                    return Err(BodyMutationError::Invalid("accepted actor scope changed"));
+                }
+                if !body_exists {
+                    let frontier_key =
+                        MailboxKeyV1::new(agent_id, None).map_err(BodyMutationError::Invalid)?;
+                    if txn.read(Ns::Scheduler, frontier_key.as_bytes())?.is_some() {
+                        return Err(BodyMutationError::Invalid(
+                            "absent accepted actor has mailbox",
+                        ));
+                    }
+                    let measured = original::measure(
+                        event,
+                        context.mutation.memory,
+                        &mut context.original_work,
+                        &mut context.mutation.cancelled,
+                        context.max_event_bytes,
+                    )?;
+                    let original_id = measured.id();
+                    let next_ref = write_field_bytes(
+                        &EventSequenceV1 { next, era }.canonical_bytes(),
+                        &mut context.mutation,
+                    )?;
+                    txn.write(Ns::Allocator, EVENT_SEQUENCE_KEY_V1, Some(next_ref))?;
+                    let mut producer = original::Producer::new(
+                        measured,
+                        context.mutation.memory,
+                        &mut context.original_work,
+                        &mut context.mutation.cancelled,
+                    );
+                    (context.persist_original)(&mut producer)?;
+                    producer.check_complete()?;
+                    drop(producer);
+                    if (context.mutation.cancelled)() {
+                        return Err(
+                            oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled
+                                .into(),
+                        );
+                    }
+                    txn.append_fact(ExecutionFactRefV1 {
+                        kind: ExecutionFactKindV1::Event,
+                        id: original_id,
+                    })?;
+                    if (context.mutation.cancelled)() {
+                        return Err(
+                            oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled
+                                .into(),
+                        );
+                    }
+                    return Ok(());
+                }
             }
             let frontier_key =
                 MailboxKeyV1::new(agent_id, None).map_err(BodyMutationError::Invalid)?;
@@ -186,7 +357,8 @@ impl World {
             let id = original.id();
 
             match domain {
-                DomainEvent::BodyAttributesUpdated { view, .. } => {
+                DomainEvent::BodyAttributesUpdated { .. }
+                | DomainEvent::BodyAttributesRejected { .. } => {
                     let key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
                     let current = AgentBodyValueV1::from_canonical_bytes(&read_fixed::<
                         AGENT_BODY_VALUE_BYTES,
@@ -202,8 +374,15 @@ impl World {
                         &mut context.mutation,
                     )?)
                     .map_err(BodyMutationError::Invalid)?;
-                    super::body::validate_body_kernel_view(&current.body_view, view)
-                        .map_err(BodyMutationError::Rejected)?;
+                    let view = match domain {
+                        DomainEvent::BodyAttributesUpdated { view, .. } => {
+                            super::body::validate_body_kernel_view(&current.body_view, view)
+                                .map_err(BodyMutationError::Rejected)?;
+                            view
+                        }
+                        DomainEvent::BodyAttributesRejected { .. } => &current.body_view,
+                        _ => unreachable!("matched body attribute event"),
+                    };
                     let _prepared_charge = context
                         .mutation
                         .memory
@@ -231,6 +410,8 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
+                DomainEvent::ActionAccepted { .. } => {}
+                DomainEvent::AgentRegistered { .. } if registration_created => {}
                 _ => unreachable!("event kind was checked before any contribution"),
             }
             let next_ref = write_field_bytes(
@@ -277,3 +458,6 @@ impl World {
 #[cfg(test)]
 #[path = "incremental_body_event_tests.rs"]
 mod tests;
+
+#[path = "incremental_agent_registration.rs"]
+mod registration;

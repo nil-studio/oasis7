@@ -1,8 +1,6 @@
 use super::pos;
 use crate::state::FactoryProductionSnapshot;
-use crate::state::industry_transition::{
-    PreparedFactoryLifecycle, PreparedRecipeLifecycle,
-};
+use crate::state::industry_transition::{PreparedFactoryLifecycle, PreparedRecipeLifecycle};
 use crate::*;
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_wasm_abi::{FactoryModuleSpec, MaterialStack};
@@ -110,7 +108,7 @@ fn recipe_started_cost_preflight_reads_legacy_world_materials() {
         .set(ResourceKind::Electricity, 10)
         .unwrap();
     let event = DomainEvent::RecipeStarted {
-            emergency_power_obligation: None,
+        emergency_power_obligation: None,
         committed_recipe_origin: None,
         job_id: 7002,
         requester_agent_id: "actor".into(),

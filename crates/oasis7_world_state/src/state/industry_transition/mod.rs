@@ -9,17 +9,42 @@ mod material_transit;
 mod recipe_lifecycle;
 
 pub fn factory_has_canonical_stable_line(factory: &FactoryState) -> bool {
-    factory.production.same_recipe_repeat_count >= 3
-        && factory
+    factory_has_canonical_stable_line_parts_v1(
+        u64::from(factory.production.same_recipe_repeat_count),
+        factory
             .production
             .last_completed_canonical_snapshot
             .as_ref()
-            .zip(factory.production.last_completed_recipe_id.as_ref())
-            .is_some_and(|(snapshot, recipe_id)| {
-                !snapshot.recipe_id.trim().is_empty()
-                    && !recipe_id.trim().is_empty()
-                    && snapshot.recipe_id == *recipe_id
+            .map(|snapshot| snapshot.recipe_id.as_str()),
+        factory.production.last_completed_recipe_id.as_deref(),
+    )
+}
+/// The same pure kernel for a qualified typed projection, without constructing
+/// a materialized FactoryState or changing its original string semantics.
+pub(crate) fn factory_has_canonical_stable_line_parts_v1(
+    repeat_count: u64,
+    snapshot_recipe_id: Option<&str>,
+    last_completed_recipe_id: Option<&str>,
+) -> bool {
+    repeat_count >= 3
+        && snapshot_recipe_id
+            .zip(last_completed_recipe_id)
+            .is_some_and(|(snapshot, recipe)| {
+                !snapshot.trim().is_empty() && !recipe.trim().is_empty() && snapshot == recipe
             })
+}
+
+/// Bound only the stage decision input, leaving stored and diagnostic counts intact.
+pub(crate) fn stage_completed_jobs_threshold_v1(total: u128) -> u64 {
+    total.min(6) as u64
+}
+
+/// Stage decisions need only the mathematical threshold, never an overflowing
+/// exact u64 sum. Recompute from remaining members after any removal.
+pub(crate) fn aggregate_stage_completed_jobs_v1(jobs: impl Iterator<Item = u64>) -> u64 {
+    jobs.fold(0, |sum, count| {
+        stage_completed_jobs_threshold_v1(u128::from(sum) + u128::from(count))
+    })
 }
 
 /// Select the canonical industry stage from the supplied scope's progress.

@@ -183,6 +183,16 @@ def update(report, initial, current):
     report["sample_count"] += 1
 
 
+def cgroup_heartbeat(current, events):
+    """Stream bounded existing observations, not paths or a build-success claim."""
+    observed = {key: current["cgroup"][key] for key in
+                ("memory_current_bytes", "memory_max_bytes", "memory_peak_since_creation_bytes")}
+    observed["events"] = {phase: {key: events[phase].get(key) for key in
+                        ("low", "high", "max", "oom", "oom_kill", "oom_group_kill")}
+                        if events[phase] is not None else None for phase in ("start", "end", "delta")}
+    return observed
+
+
 def write_report(path, report):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -242,6 +252,7 @@ def main():
             print("native_build_heartbeat=" + json.dumps(dict(label=args.label,
                 elapsed_seconds=report["elapsed_seconds"], complete=report["complete"],
                 host=current["host"], swap_pages=current["swap_pages"],
+                cgroup=cgroup_heartbeat(current, report["cgroup"]["events"]),
                 process_tree=report["process_tree"]), sort_keys=True), flush=True)
             next_heartbeat = now + args.heartbeat_seconds
         if report["complete"]:

@@ -189,7 +189,8 @@ fn manifest_hash<C: FnMut() -> bool>(
     clippy::too_many_arguments,
     reason = "Independent state, value, schema and original contexts retain their continuous admission budgets."
 )]
-pub fn prepare_root_module_invocation_v1<M, R, E, C, O>(
+fn prepare_root_module_invocation_route_v1<M, R, E, C, O>(
+    route: InvocationRouteV1,
     request: ModuleInvocationPreparationRequestV1<'_>,
     state: &M,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
@@ -249,7 +250,9 @@ where
             .ok_or(ValueTreeError::ResourceLimited(
                 "module selection text workspace",
             ))?;
-        let selection = {
+        let selection = if matches!(route, InvocationRouteV1::RegistryActive) {
+            None
+        } else {
             let mut read = ModuleReadContext {
                 qualification: request.instances,
                 values: values.source,
@@ -377,12 +380,16 @@ where
             let version = String::from_utf8(bytes).map_err(|_| invalid())?;
             let mut target_bytes = vec![0; limits.max_text_bytes];
             let mut output = Cursor::new(target_bytes.as_mut_slice());
-            let target = read_installed_module_target_overlay_v1(
-                request.invocation_id,
-                &mut overlay,
-                limits.max_text_bytes as u64,
-                &mut output,
-            )?;
+            let target = if matches!(route, InvocationRouteV1::RegistryActive) {
+                None
+            } else {
+                read_installed_module_target_overlay_v1(
+                    request.invocation_id,
+                    &mut overlay,
+                    limits.max_text_bytes as u64,
+                    &mut output,
+                )?
+            };
             let used = output.position() as usize;
             target_bytes.truncate(used);
             let target = match target {
@@ -488,3 +495,46 @@ where
         }))
     })
 }
+
+#[path = "incremental_module_execution_selected.rs"]
+mod execution;
+pub use execution::execute_selected_root_module_output_v1;
+
+#[derive(Clone, Copy)]
+enum InvocationRouteV1 {
+    InstanceOrActive,
+    RegistryActive,
+}
+#[path = "incremental_module_invocation_route.rs"]
+mod route;
+pub use route::{prepare_root_module_invocation_v1, prepare_root_module_registry_invocation_v1};
+
+#[path = "incremental_module_execution_target.rs"]
+mod target;
+pub(in crate::world) use target::{PreparedRuleOverrideEventV1, RootRuleOverrideAuditV1};
+pub use target::{
+    RootModuleExecutionContextV1, RootModuleExecutionErrorV1, RootModuleExecutionFamiliesV1,
+    RootModuleExecutionWorkV1, RootModuleTickOutcomeV1, RootRulePhaseOutcomeV1,
+    RootRulePhaseWorkV1,
+};
+
+#[path = "incremental_module_invocation_enumerate.rs"]
+mod enumerate;
+pub use enumerate::{
+    AcceptedInvocationDirectoryV1, CurrentInvocationEnumerationErrorV1,
+    CurrentInvocationEnumerationWorkV1, build_accepted_invocation_directory_v1,
+    collect_current_module_invocation_ids_v1,
+};
+
+pub(in crate::world) use enumerate::{
+    FrozenInvocationDirectoryV1, freeze_current_invocation_directory_v1,
+};
+
+pub(in crate::world) use target::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
+
+#[cfg(test)]
+pub(in crate::world) use target::NonmovementSelectedErrorV1;
+
+pub(in crate::world) use target::SelectedAcceptedDispositionV1;
+
+pub(in crate::world) use target::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};

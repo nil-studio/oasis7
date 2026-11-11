@@ -37,3 +37,5 @@ pub mod memory_budget;
 
 #[cfg(test)]
 mod cbor_compatibility_tests;
+
+pub mod cbor_decode_preflight;

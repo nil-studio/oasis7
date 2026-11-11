@@ -814,6 +814,7 @@ fn guarded_get_spends_exact_node_and_byte_budget_without_leaf_visits() {
             leaves: &leaves,
             cancelled: &cancelled,
             stop: &stop,
+            failed: None,
         };
         let result = reader.get(&root, b"a");
         (result, nodes.get(), bytes.get(), leaves.get())
@@ -864,6 +865,7 @@ fn guarded_get_spends_exact_node_and_byte_budget_without_leaf_visits() {
         leaves: &leaves,
         cancelled: &cancelled,
         stop: &stop,
+        failed: None,
     };
     assert!(matches!(
         reader.get(&cancelled_root, b"a"),
@@ -887,6 +889,7 @@ fn guarded_get_spends_exact_node_and_byte_budget_without_leaf_visits() {
         leaves: &leaves,
         cancelled: &cancelled,
         stop: &stop,
+        failed: None,
     };
     assert_eq!(reader.get(&cancelled_root, b"missing").unwrap(), None);
     assert!(!matches!(
@@ -915,6 +918,7 @@ fn guarded_get_spends_exact_node_and_byte_budget_without_leaf_visits() {
         leaves: &leaves,
         cancelled: &cancelled,
         stop: &stop,
+        failed: None,
     };
     let reads_before_memory_error = source.reads.get();
     assert!(matches!(
@@ -1026,3 +1030,6 @@ fn fixed_root_page_errors_and_cancel_never_return_partial_page_metadata() {
         Err(StateScanError::Invalid(_))
     ));
 }
+
+#[path = "incremental_state_scoped_reader_tests.rs"]
+mod scoped_reader_tests;

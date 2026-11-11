@@ -157,7 +157,9 @@ mod tests;
 
 #[path = "incremental_material_records_closure.rs"]
 mod closure;
-pub use closure::{MaterialRecordQualificationV1, qualify_material_body_v1};
+pub use closure::{
+    MaterialRecordQualificationV1, qualify_material_body_v1, readmit_material_record_ordinary_v1,
+};
 #[path = "incremental_material_records_read.rs"]
 mod read;
 pub use read::{
@@ -169,6 +171,7 @@ pub use read::{
 mod family;
 pub use family::{
     MaterialFamilyQualificationV1, open_qualified_material_record_v1, qualify_material_family_v1,
+    readmit_material_family_ordinary_v1,
 };
 
 #[path = "incremental_material_records_point.rs"]
@@ -196,3 +199,15 @@ pub use pages::{
 #[path = "incremental_material_records_overlay_read.rs"]
 mod overlay_read;
 pub use overlay_read::read_qualified_material_cell_overlay_v1;
+
+#[path = "incremental_material_records_current_profile.rs"]
+mod current_profile;
+pub use current_profile::{
+    MaterialProfileCurrentReadWorkV1, read_current_material_default_priority_overlay_v1,
+};
+
+#[cfg(test)]
+#[path = "incremental_material_records_phase_tests.rs"]
+mod phase_tests;
+
+pub(crate) use receiver::accept_material_verified_v1;

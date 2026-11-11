@@ -236,8 +236,12 @@ run_oasis7_required_tier_tests() {
   fi
   if [[ -n "${required_plan:-}" ]]; then
     local temporary status=0
+    local diagnostics_args=()
+    if [[ -n "${OASIS7_CI_BUILD_DIAGNOSTICS:-}" ]]; then
+      diagnostics_args=(--build-diagnostics "$OASIS7_CI_BUILD_DIAGNOSTICS")
+    fi
     temporary=$(mktemp -d)
-    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}"; then
+    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}" "${diagnostics_args[@]}"; then
       run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$temporary/bundle" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" || status=$?
     else
       status=$?
@@ -462,7 +466,7 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_wasm_store \
     -p pixel_world_bridge \
     --lib
-  run_cargo test -p oasis7_wasm_executor --features wasmtime --lib
+  run_cargo test -p oasis7_wasm_executor --features wasmtime --lib --test bounded_worker
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
   run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
@@ -541,7 +545,7 @@ PY
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
-      oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
+      oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib --test bounded_worker ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;

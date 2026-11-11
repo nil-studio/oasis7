@@ -22,13 +22,7 @@ use oasis7_world_state::{
 };
 use std::io::Write;
 
-/// Finite content limits shared by module-state genesis and recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ModuleStateContentBudgetV1 {
-    pub states_remaining: u64,
-    pub logical_bytes_remaining: u64,
-    pub max_state_bytes: u64,
-}
+pub use oasis7_world_state::incremental_module_state_recovery::ModuleStateContentBudgetV1;
 
 /// Stream opaque state values into their dedicated key family. The callback
 /// owns provisional state-index writes; it does not install a World or head.

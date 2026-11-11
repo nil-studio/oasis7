@@ -48,6 +48,18 @@ fn prepare(
     }
     .fence()
     .unwrap();
+    let mut material_backing = agent_fixture::materials::MaterialFixtureV1::build(
+        request.parent.roots,
+        &pages,
+        &values,
+        memory,
+        agent_fixture::materials::MaterialFixtureLimitsV1::for_state(world.state()),
+        || pages.take_read_error().map(agent_fixture::state_error),
+        || false,
+    );
+    let mut materials = material_backing.context(request.parent.roots, &pages, || {
+        pages.take_read_error().map(agent_fixture::state_error)
+    });
     world
         .prepare_iws_commit(
             request,
@@ -81,6 +93,8 @@ fn prepare(
                         max_event_bytes: 1 << 20,
                         original_work: agent_fixture::original_work(),
                     },
+                    &mut materials,
+                    &fence,
                 )
             },
         )

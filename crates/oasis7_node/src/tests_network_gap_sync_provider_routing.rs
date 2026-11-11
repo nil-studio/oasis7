@@ -598,14 +598,6 @@ fn runtime_network_replication_gap_sync_blocks_without_generic_fallback_after_pr
         dyn oasis7_proto::distributed_net::DistributedNetwork<WorldError> + Send + Sync,
     > = network_impl.clone();
 
-    let config_a = NodeConfig::new("node-a", world_id, NodeRole::Sequencer)
-        .expect("config a")
-        .with_tick_interval(Duration::from_millis(10))
-        .expect("tick a")
-        .with_pos_config(pos_config.clone())
-        .expect("pos config a")
-        .with_auto_attest_all_validators(true)
-        .with_replication(signed_replication_config(dir_a.clone(), 100));
     let config_b = NodeConfig::new("node-b", world_id, NodeRole::Observer)
         .expect("config b")
         .with_tick_interval(Duration::from_millis(10))
@@ -614,14 +606,46 @@ fn runtime_network_replication_gap_sync_blocks_without_generic_fallback_after_pr
         .expect("pos config b")
         .with_replication(signed_replication_config(dir_b.clone(), 101));
 
-    let mut runtime_a = with_noop_execution_hook(NodeRuntime::new(config_a));
-    runtime_a.start().expect("start a");
-    let reached = wait_until(Instant::now() + Duration::from_secs(2), || {
-        runtime_a.snapshot().consensus.committed_height >= 3
-    });
-    assert!(reached, "sequencer did not reach target height in time");
-    let target_height = runtime_a.snapshot().consensus.committed_height;
-    runtime_a.stop().expect("stop a");
+    // 本例验证 observer 的 provider 路由；同步准备签名历史，避免依赖后台出块时序。
+    let target_height = 3;
+    let mut generated_commits = HashMap::new();
+    {
+        let mut replication_runtime_a = super::replication::ReplicationRuntime::new(
+            &signed_replication_config(dir_a.clone(), 100),
+            "node-a",
+        )
+        .expect("open replication fixture writer");
+        for height in 1..=target_height {
+            let decision = PosDecision {
+                height,
+                slot: height.saturating_sub(1),
+                epoch: 0,
+                proposer_id: "node-a".to_string(),
+                status: PosConsensusStatus::Committed,
+                block_hash: format!("block-{height}"),
+                action_root: empty_action_root(),
+                committed_actions: Vec::new(),
+                approved_stake: 100,
+                rejected_stake: 0,
+                required_stake: 67,
+                total_stake: 100,
+            };
+            let execution_block_hash = format!("exec-block-{height:020}");
+            let execution_state_root = format!("exec-state-{height:020}");
+            let message = replication_runtime_a
+                .build_local_commit_message(
+                    "node-a",
+                    world_id,
+                    1_000 + height as i64,
+                    &decision,
+                    Some(execution_block_hash.as_str()),
+                    Some(execution_state_root.as_str()),
+                )
+                .expect("build local commit message")
+                .expect("commit payload");
+            generated_commits.insert(height, message);
+        }
+    }
 
     let mut commit_map = HashMap::<u64, super::replication::GossipReplicationMessage>::new();
     let replication_runtime_a = super::replication::ReplicationRuntime::new(
@@ -634,6 +658,17 @@ fn runtime_network_replication_gap_sync_blocks_without_generic_fallback_after_pr
             .load_commit_message_by_height(world_id, height)
             .expect("load commit by height")
             .expect("commit payload");
+        assert_eq!(
+            Some(&message),
+            generated_commits.get(&height),
+            "reopened commit must preserve the signed fixture"
+        );
+        let blob = super::replication::load_blob_from_root(
+            dir_a.as_path(),
+            message.record.content_hash.as_str(),
+        )
+        .expect("load persisted fixture blob");
+        assert_eq!(blob.as_deref(), Some(message.payload.as_slice()));
         commit_map.insert(height, message);
     }
     let high_message = commit_map
@@ -716,6 +751,11 @@ fn runtime_network_replication_gap_sync_blocks_without_generic_fallback_after_pr
         snapshot_b.consensus.committed_height,
         snapshot_b.consensus.network_committed_height,
         snapshot_b.last_error
+    );
+    assert_eq!(
+        snapshot_b.consensus.replication_gap_sync_blocked_height,
+        Some(1),
+        "provider route must block the first missing commit"
     );
     assert!(
         provider_attempts.iter().any(|providers| {

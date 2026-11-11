@@ -46,9 +46,18 @@ pub enum FormalRequestStateV1 {
     Qualified {
         candidate: FormalCandidateMaterialV1,
         proof: FormalQualifiedCommitProofV1,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_closure: Option<String>,
     },
 }
 impl FormalRequestStateV1 {
+    /// Local signed-checkpoint reference, not a physical closure permit.
+    pub fn local_data_closure_reference(&self) -> Option<&str> {
+        match self {
+            Self::Qualified { data_closure, .. } => data_closure.as_deref(),
+            _ => None,
+        }
+    }
     pub fn request_digest(&self) -> &str {
         match self {
             Self::Frozen { input, .. } => &input.body.request_digest,
@@ -87,10 +96,12 @@ pub fn formal_prepare_receipt_signing_bytes(
 ) -> Result<Vec<u8>, FormalError> {
     super::crypto::bytes("oasis7.formal.prepare_receipt.sign.v1", body)
 }
+pub(in crate::controlled_authority) const CANDIDATE_MATERIAL_DOMAIN_V1: &str =
+    "oasis7.formal.candidate_material.v1";
 pub fn formal_candidate_material_digest(
     candidate: &FormalCandidateMaterialV1,
 ) -> Result<String, FormalError> {
-    super::crypto::hash("oasis7.formal.candidate_material.v1", candidate)
+    super::crypto::hash(CANDIDATE_MATERIAL_DOMAIN_V1, candidate)
 }
 pub fn verify_formal_prepare_receipt(
     receipt: &FormalPrepareReceiptV1,

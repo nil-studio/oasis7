@@ -193,3 +193,77 @@ where
         Ok(Some(result))
     })
 }
+
+/// Empty registry implies no registry-derived subscriptions. Refuse all pending
+/// Artifacts writes conservatively; changed state needs the full dispatcher.
+pub fn require_empty_artifact_registry_overlay_v1<M, R, E, C>(
+    family: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    remaining_entries: &mut usize,
+) -> Result<(), WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    use oasis7_formal_protocol::incremental_state::StateNamespaceV1;
+    ctx.transaction.contribute(|tx| {
+        if ctx.values.class != MemoryClass::Ordinary
+            || !tx.uses_budget(ctx.values.memory)
+            || !family.uses_budget(ctx.values.memory)
+            || family.allocation_class() != MemoryClass::Ordinary
+            || family.reserved_bytes() < 512
+        {
+            return Err(read::invalid().into());
+        }
+        family.validate_binding(&tx.parent_fence().parent_roots)?;
+        tx.visit_pending_writes::<WorldFieldOverlayErrorV1>(
+            StateNamespaceV1::Artifacts,
+            remaining_entries,
+            || {
+                if (ctx.cancelled)() {
+                    Err(ValueTreeError::Cancelled.into())
+                } else {
+                    Ok(())
+                }
+            },
+            |_, _, _| {
+                Err(ValueTreeError::Invalid(
+                    "unsupported bootstrap action: pending artifact changes",
+                )
+                .into())
+            },
+        )?;
+        let mut records = InventoryValueReader {
+            values: &mut ctx.values,
+            key_work: ctx.key_work,
+            semantic_bytes: ctx.semantic_bytes,
+            record_bytes: ctx.record_bytes,
+            cancelled: &mut ctx.cancelled,
+        };
+        for field in family::RECORD_FIELDS {
+            let key =
+                WorldFieldKeyV1::new(field.descriptor(), WorldFieldRecordKindV1::Metadata, None)
+                    .map_err(ValueTreeError::Invalid)?;
+            let id = crate::incremental_field_overlay::lookup(
+                tx,
+                &key,
+                &mut records,
+                &mut ctx.take_state_error,
+            )?
+            .ok_or_else(read::invalid)?;
+            records.presence(&id, &key, 0)?;
+        }
+        if family.registry_records() != 0 {
+            return Err(ValueTreeError::Invalid(
+                "unsupported bootstrap action: nonempty module registry",
+            )
+            .into());
+        }
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        Ok(())
+    })
+}

@@ -561,3 +561,6 @@ fn point_getter_noop_and_real_put_failures_preserve_one_transaction_and_skip_unr
         baseline + 1
     );
 }
+
+#[path = "incremental_runtime_module_authorization_receiver_tests.rs"]
+mod receiver_tests;

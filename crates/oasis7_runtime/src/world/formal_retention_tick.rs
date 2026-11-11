@@ -1,9 +1,7 @@
 //! Rebind only an unqualified execution Tick after its deterministic archive plan.
 use super::{World, WorldError};
 use crate::world_event::WorldEvent;
-use crate::{
-    RuntimeCommittedTickContext, TICK_BLOCK_HEADER_SCHEMA_V2, TickConsensusRecord,
-};
+use crate::{RuntimeCommittedTickContext, TICK_BLOCK_HEADER_SCHEMA_V2, TickConsensusRecord};
 impl World {
     pub(super) fn refresh_candidate_tick_after_retention(
         &mut self,

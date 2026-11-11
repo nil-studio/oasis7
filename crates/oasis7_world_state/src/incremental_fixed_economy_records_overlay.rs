@@ -31,6 +31,12 @@ pub(super) fn resolve<
     if records.values.class != MemoryClass::Ordinary
         || !tx.uses_budget(records.values.memory)
         || !request.qualification.uses_budget(records.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            request.qualification,
+            records.values.memory,
+            records.values.class,
+        )
+        .is_err()
     {
         return Err(read::invalid().into());
     }

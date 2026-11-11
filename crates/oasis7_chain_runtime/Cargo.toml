@@ -9,6 +9,17 @@ name = "oasis7_chain_runtime"
 path = "src/bin/oasis7_chain_runtime.rs"
 required-features = ["node-libp2p"]
 
+[[bin]]
+name = "oasis7-native-bound-fixture"
+path = "src/bin/oasis7-native-bound-fixture.rs"
+required-features = ["native-worker-test-support"]
+test = false
+
+[[test]]
+name = "native_bound_worker"
+path = "tests/native_bound_worker.rs"
+required-features = ["native-worker-test-support", "wasmtime"]
+
 [dependencies]
 oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_world_projection = { path = "../oasis7_world_projection" }
@@ -60,8 +71,11 @@ node-libp2p = ["dep:oasis7_executable_image", "oasis7_node/libp2p", "dep:oasis7_
 wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
+native-worker-test-support = ["node-libp2p"]
 
 [dev-dependencies]
+oasis7_distfs = { path = "../oasis7_distfs", features = ["test-support"] }
+wat = "1"
 # Signed History fixtures use the existing test authority; no production feature changes.
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
 oasis7_viewer_runtime = { path = "../oasis7_viewer_runtime", default-features = false, features = ["test_tier_required"] }

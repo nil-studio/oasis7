@@ -97,7 +97,7 @@ impl World {
         Ok(self.journal.events.last().cloned())
     }
 
-    fn should_emit_action_accepted(action: &Action) -> bool {
+    pub(super) fn should_emit_action_accepted(action: &Action) -> bool {
         if matches!(
             action,
             Action::OpenEconomicContract {
@@ -134,6 +134,14 @@ impl World {
                 | Action::IssueRestrictedStarterClaimGrant { .. }
                 | Action::RevokeRestrictedStarterClaimGrant { .. }
         )
+    }
+
+    #[cfg(test)]
+    pub(in crate::world) fn append_legacy_action_accepted_for_test(
+        &mut self,
+        envelope: &ActionEnvelope,
+    ) -> Result<(), WorldError> {
+        self.append_action_accepted_event(envelope)
     }
 
     fn append_action_accepted_event(

@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use oasis7_agent_api::world_action::GeoPos;
 use crate::major_world_event::project_major_world_events_with_canonical_state_indexed_for_test;
 use crate::{
     CausedBy, CrisisState, CrisisStatus, DomainEvent, MajorWorldEventCategory,
@@ -8,6 +7,7 @@ use crate::{
     MajorWorldEventVisibilityPermission, WorldEvent, WorldEventBody, project_major_world_events,
     project_major_world_events_with_canonical_state,
 };
+use oasis7_agent_api::world_action::GeoPos;
 
 fn crisis_spawned(id: u64, crisis_id: &str, severity: u32) -> WorldEvent {
     WorldEvent {
@@ -140,7 +140,7 @@ fn projection_is_explicitly_fail_closed_for_non_major_or_incomplete_events() {
             time: 1,
             caused_by: None,
             body: WorldEventBody::Domain(DomainEvent::AgentRegistered {
-            registration_contract_version: 0,
+                registration_contract_version: 0,
                 agent_id: "agent-1".to_string(),
                 pos: GeoPos::new(1, 2, 3),
             }),
@@ -460,7 +460,7 @@ fn bounded_journal_projection_builds_one_linear_history_index() {
                 time: id,
                 caused_by: None,
                 body: WorldEventBody::Domain(DomainEvent::AgentRegistered {
-            registration_contract_version: 0,
+                    registration_contract_version: 0,
                     agent_id: format!("ambient-{id}"),
                     pos: GeoPos::new(id as i64, 0, 0),
                 }),

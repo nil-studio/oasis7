@@ -22,6 +22,16 @@ import tomllib
 
 import shlex
 
+RUNTIME_WORKER_TEST = 'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter'
+RUNTIME_WORKER_PACKAGE = 'oasis7_runtime'
+RUNTIME_WORKER_TARGET = 'oasis7_runtime'
+# Observation label for an inventory-selected test resource, never a planned
+# test variant or a dependency-cache warming context.
+RUNTIME_WORKER_BUILD = 'runtime-worker-companion'
+RUNTIME_WORKER_PATH = 'bin/oasis7-wasm-worker'
+RUNTIME_WORKER_VARIABLE = 'OASIS7_WASM_WORKER_TEST_EXE'
+RUNTIME_WORKER_FEATURE = 'wasmtime'
+
 class ProviderArtifact:
     subprocess = subprocess
     MODULE = 'module.runtime.local-test-provider'
@@ -1085,6 +1095,12 @@ def build_variants(scope, plan=None, ordinary_partition=None):
     raise ValueError('unknown build scope: ' + scope)
 
 
+def runtime_worker_case_selected(cases):
+    return any(isinstance(case, str) and
+               (case == RUNTIME_WORKER_TEST or case.endswith('::' + RUNTIME_WORKER_TEST))
+               for case in cases)
+
+
 def artifact_logical_name(variant, package, target, test):
     """Formal aliases identify package, target kind and name, never name alone."""
     name, kinds = target['name'], tuple(target['kind'])
@@ -1279,6 +1295,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                target=str((ROOT / 'target').resolve()), selection=selection,
                                complete=False, error=str(error))
     binaries, timings = {}, []
+    worker_companion = None
     variants = (build_variants(scope, plan, ordinary_partition=ordinary_partition) if ordinary_partition is not None
                 else build_variants(scope, plan) if plan is not None else build_variants(scope))
     target_specs = {}
@@ -1286,7 +1303,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
                                 ('required-full-fast-', ordinary_full_fast_targets(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
-    for variant, args, features in variants:
+    def build_variant(variant, args, features):
+        nonlocal worker_companion
         members = {variant: target_specs[variant]} if variant in target_specs else {}
         if (members and scope == 'ordinary' and plan is not None
                 and plan.get('fast_execution_version') == 1):
@@ -1331,6 +1349,32 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 name = target['name']
                 manifest = Path(artifact['manifest_path'])
                 package = tomllib.loads(manifest.read_text())['package']['name']
+                if variant == RUNTIME_WORKER_BUILD:
+                    if (worker_companion is not None or package != 'oasis7_wasm_executor'
+                            or name != 'oasis7-wasm-worker' or target['kind'] != ['bin'] or test
+                            or artifact['features'] != [RUNTIME_WORKER_FEATURE]
+                            or features != [RUNTIME_WORKER_FEATURE]):
+                        raise ValueError('unexpected Runtime worker companion artifact')
+                    source = Path(executable)
+                    destination = bundle / RUNTIME_WORKER_PATH
+                    shutil.copy2(source, destination)
+                    libraries = []
+                    if sys.platform == 'linux':
+                        linked = subprocess.run(['ldd', str(source)], text=True, capture_output=True)
+                        for line in linked.stdout.splitlines():
+                            fields = line.split()
+                            if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(ROOT / 'target') + '/'):
+                                library = Path(fields[2])
+                                relative = 'lib/' + library.name
+                                shutil.copy2(library, bundle / relative)
+                                libraries.append(relative)
+                    worker_companion = dict(
+                        path=RUNTIME_WORKER_PATH, sha256=digest(destination),
+                        package=package, target=name, target_kind=target['kind'], test=False,
+                        profile=artifact['profile'], features=artifact['features'],
+                        requested_features=features, original_executable=str(source),
+                        libraries=sorted(set(libraries)))
+                    continue
                 artifact_variant = variant
                 if members and test:
                     matching = [name for name, spec in members.items()
@@ -1372,6 +1416,9 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         if len(members) > 1:
             timings[-1]['target_variants'] = list(members)
         print('native_build=' + json.dumps(timings[-1]), flush=True)
+
+    for variant, args, features in variants:
+        build_variant(variant, args, features)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
         producer_run_id=os.environ.get('GITHUB_RUN_ID', 'local'),
@@ -1393,6 +1440,17 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             binary['tests'] = inventory(bundle / binary['path'], env=list_env)
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+    # Companion executables are test resources, not additional test variants.
+    # The actual active libtest inventory is authoritative: a minimum case list
+    # or a package name cannot prove that this particular harness needs a worker.
+    if scope in ('ordinary', 'all') and runtime_worker_test_selected(manifest):
+        build_variant(RUNTIME_WORKER_BUILD,
+                      ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
+                       '--features', RUNTIME_WORKER_FEATURE, '--bin', 'oasis7-wasm-worker'],
+                      [RUNTIME_WORKER_FEATURE])
+        if worker_companion is None:
+            raise ValueError('missing Runtime worker companion build artifact')
+        manifest['worker_companion'] = worker_companion
     config = formal_configuration()
     component = scope in FORMAL_COMPONENTS
     manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
@@ -1404,6 +1462,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     if scope != 'ordinary' and not component:
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
+    if worker_companion is not None:
+        validate_runtime_worker_companion(bundle, manifest)
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
@@ -1657,6 +1717,62 @@ def checked_file(bundle, name, sha):
     return path
 
 
+def runtime_worker_test_selected(manifest, included=None):
+    if sys.platform != 'linux':
+        return False
+    binaries = manifest.get('binaries', {})
+    included = set(included if included is not None else manifest.get('included_binaries', binaries))
+    for logical in included:
+        binary = binaries.get(logical, {})
+        if (binary.get('ordinary') is not True or binary.get('test') is not True
+                or binary.get('package') != RUNTIME_WORKER_PACKAGE
+                or binary.get('target') != RUNTIME_WORKER_TARGET
+                or binary.get('target_kind') != ['lib']):
+            continue
+        tests, ignored = binary.get('tests', []), binary.get('ignored_tests', [])
+        if (not isinstance(tests, list) or any(not isinstance(case, str) for case in tests)
+                or not isinstance(ignored, list) or any(not isinstance(case, str) for case in ignored)):
+            continue
+        active = set(tests) - set(ignored)
+        if runtime_worker_case_selected(active):
+            return True
+    return False
+
+
+def validate_runtime_worker_companion(bundle, manifest):
+    entry = manifest.get('worker_companion')
+    if not isinstance(entry, dict):
+        raise ValueError('missing Runtime worker companion')
+    if (entry.get('path') != RUNTIME_WORKER_PATH
+            or entry.get('package') != 'oasis7_wasm_executor'
+            or entry.get('target') != 'oasis7-wasm-worker'
+            or entry.get('target_kind') != ['bin'] or entry.get('test') is not False
+            or entry.get('requested_features') != [RUNTIME_WORKER_FEATURE]
+            or not isinstance(entry.get('features'), list)
+            or entry['features'] != [RUNTIME_WORKER_FEATURE]
+            or not isinstance(entry.get('profile'), dict)
+            or entry['profile'].get('test') is not False):
+        raise ValueError('Runtime worker companion role or feature mismatch')
+    path = checked_file(bundle, entry['path'], entry.get('sha256'))
+    if path.is_symlink() or not os.access(path, os.X_OK):
+        raise ValueError('Runtime worker companion is not executable')
+    libraries = entry.get('libraries')
+    recorded_libraries = manifest.get('libraries')
+    if (not isinstance(libraries, list) or any(not isinstance(name, str) for name in libraries)
+            or len(libraries) != len(set(libraries))
+            or not isinstance(recorded_libraries, dict)):
+        raise ValueError('Runtime worker companion libraries are invalid')
+    for name in libraries:
+        parts = name.split('/')
+        if (len(parts) != 2 or parts[0] != 'lib' or parts[1] in ('', '.', '..') or '\\' in name
+                or name not in recorded_libraries):
+            raise ValueError('Runtime worker companion library identity mismatch')
+        library = checked_file(bundle, name, recorded_libraries[name])
+        if library.is_symlink():
+            raise ValueError('Runtime worker companion library identity mismatch')
+    return path
+
+
 def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     """Publish one consumption closure; the producer's complete inventory remains auditable."""
     manifest = json.loads((bundle / 'manifest.json').read_text())
@@ -1675,9 +1791,20 @@ def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     manifest['included_binaries'] = sorted(included)
     manifest['selection'] = {'shard': shard} if shard else {'suite': suite}
     libraries = {name for logical in included for name in manifest['binaries'][logical].get('libraries', [])}
+    worker_selected = runtime_worker_test_selected(manifest, included)
+    if worker_selected:
+        worker = manifest.get('worker_companion')
+        validate_runtime_worker_companion(bundle, manifest)
+        libraries.update(worker['libraries'])
+        worker_file = (worker['path'], worker['sha256'])
+    else:
+        manifest.pop('worker_companion', None)
+        worker_file = None
     manifest['libraries'] = {name: manifest['libraries'][name] for name in sorted(libraries)}
     files = [(manifest['binaries'][name]['path'], manifest['binaries'][name]['sha256']) for name in sorted(included)]
     files += list(manifest['libraries'].items())
+    if worker_file is not None:
+        files.append(worker_file)
     if preview_provider_required(manifest):
         provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest)
         files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['files'].values()]
@@ -2317,8 +2444,12 @@ def load(bundle, suite=None, shard=None, plan=None, ordinary_partition=None):
         if not path.resolve().is_relative_to(bundle.resolve()) or digest(path) != sha:
             raise ValueError('invalid dynamic library')
     env = dict(os.environ)
+    env.pop(RUNTIME_WORKER_VARIABLE, None)
     for variable in provider_artifact.VARIABLES:
         env.pop(variable, None)
+    if runtime_worker_test_selected(manifest, included):
+        worker_path = validate_runtime_worker_companion(bundle, manifest)
+        env[RUNTIME_WORKER_VARIABLE] = str(worker_path.resolve())
     if preview_provider_required(manifest):
         env.update(provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest))
     elif 'preview_provider' in manifest:
@@ -2755,8 +2886,19 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                 count = 1
             if logical_suite != 'ordinary':
                 command += ['--test-threads=1', '--nocapture']
-            elif entry.get('exclusive'):
-                command.append('--test-threads=1')
+            else:
+                if entry.get('exclusive'):
+                    command.append('--test-threads=1')
+                if (artifact_partition and ordinary_partition == 'component-libs'
+                      and entry.get('batch')
+                      and entry['binary'] == 'required-test-oasis7_runtime-lib-oasis7_runtime'
+                      and binary.get('variant') == 'required'
+                      and binary.get('package') == binary.get('target') == 'oasis7_runtime'
+                      and binary.get('target_kind') == ['lib']):
+                    # This complete Runtime batch must emit its first panic even
+                    # if another test outlives the deadline. Other ordinary paths
+                    # keep capture; inventory, threads and failure handling stay intact.
+                    command.append('--nocapture')
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,

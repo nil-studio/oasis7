@@ -43,7 +43,6 @@ impl World {
         Ok(())
     }
 
-
     /// Construct an unpublished world and validate all initial visual entities atomically.
     pub fn new_with_initial_module_visuals(
         policy: ReleaseSecurityPolicy,
@@ -60,16 +59,28 @@ impl World {
         recipe_id: &str,
         plan: &RecipeExecutionPlan,
     ) -> Result<RecipeExecutionReadiness, String> {
-        let (local_shortage_delay_ticks, shortage_reason) = self.schedule_recipe_local_scarcity_delay_for_quote(
-            factory_id, recipe_id, &plan.consume, &plan.produce,
-        )?;
-        Ok(RecipeExecutionReadiness { local_shortage_delay_ticks, shortage_reason })
+        let (local_shortage_delay_ticks, shortage_reason) = self
+            .schedule_recipe_local_scarcity_delay_for_quote(
+                factory_id,
+                recipe_id,
+                &plan.consume,
+                &plan.produce,
+            )?;
+        Ok(RecipeExecutionReadiness {
+            local_shortage_delay_ticks,
+            shortage_reason,
+        })
     }
     /// Full rolling journal cursor, including the era when scalar event IDs wrap.
     pub fn last_journal_event_position(&self) -> JournalEventPosition {
         JournalEventPosition {
             era: self.observer_last_event_era(),
-            event_id: self.journal.events.last().map(|event| event.id).unwrap_or_else(|| self.next_event_id.saturating_sub(1)),
+            event_id: self
+                .journal
+                .events
+                .last()
+                .map(|event| event.id)
+                .unwrap_or_else(|| self.next_event_id.saturating_sub(1)),
         }
     }
 }

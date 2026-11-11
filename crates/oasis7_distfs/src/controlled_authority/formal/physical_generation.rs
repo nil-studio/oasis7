@@ -9,10 +9,13 @@ mod import;
 mod overlay;
 #[path = "physical_generation_retire.rs"]
 mod retirement;
+#[path = "physical_generation_selected_read.rs"]
+mod selected_read;
 #[path = "physical_generation_transaction.rs"]
 mod transaction;
 use catalog::Catalogs;
 use retirement::retire;
+pub(crate) use selected_read::{GenerationSelectedReadWorkV1, with_selected_path_bounded_v1};
 const GENERATIONS: &str = ".generations-v1";
 const CURRENT: &str = ".generation-current-v1";
 const BUILD: &str = ".generation-build-v1.cbor";
@@ -51,27 +54,43 @@ pub struct FormalGenerationProgress {
     pub total_objects: usize,
 }
 fn current(root: &Path) -> Result<Option<String>, FormalError> {
+    current_with_reader(root, &mut read)
+}
+fn current_with_reader<B: AsRef<[u8]>>(
+    root: &Path,
+    reader: &mut impl FnMut(&Path, usize) -> Result<B, FormalError>,
+) -> Result<Option<String>, FormalError> {
     match fs::symlink_metadata(root.join(CURRENT)) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io(e)),
         Ok(_) => {
-            let id = String::from_utf8(read(&root.join(CURRENT), 64)?).map_err(io)?;
+            let bytes = reader(&root.join(CURRENT), 64)?;
+            let id = std::str::from_utf8(bytes.as_ref()).map_err(io)?.to_owned();
             hash_hex(&id)?;
             Ok(Some(id))
         }
     }
 }
 fn manifest(root: &Path, id: &str) -> Result<Manifest, FormalError> {
+    manifest_with_reader(root, id, &mut read)
+}
+fn manifest_with_reader<B: AsRef<[u8]>>(
+    root: &Path,
+    id: &str,
+    reader: &mut impl FnMut(&Path, usize) -> Result<B, FormalError>,
+) -> Result<Manifest, FormalError> {
     hash_hex(id)?;
     for dir in [root.join(GENERATIONS), root.join(GENERATIONS).join(id)] {
         if !fs::symlink_metadata(dir).map_err(io)?.is_dir() {
             return Err(invalid("generation regular directory"));
         }
     }
-    let bytes = read(&root.join(GENERATIONS).join(id).join(MANIFEST), META_LIMIT)?;
+    let owner = reader(&root.join(GENERATIONS).join(id).join(MANIFEST), META_LIMIT)?;
+    let bytes = owner.as_ref();
     if blake3::hash(&bytes).to_hex().as_str() != id {
         return Err(invalid("generation manifest checksum"));
     }
+    metadata_preflight::check(&bytes, META_LIMIT)?;
     let value: Manifest = serde_cbor::from_slice(&bytes).map_err(io)?;
     if value.version != 3 {
         return Err(invalid("generation manifest schema"));
@@ -81,6 +100,12 @@ fn manifest(root: &Path, id: &str) -> Result<Manifest, FormalError> {
     Ok(value)
 }
 pub(crate) fn selected_path(path: &Path, id: &str) -> Result<PathBuf, FormalError> {
+    selected_path_inner(path, id, true)
+}
+pub(crate) fn selected_path_uncached(path: &Path, id: &str) -> Result<PathBuf, FormalError> {
+    selected_path_inner(path, id, false)
+}
+fn selected_path_inner(path: &Path, id: &str, use_cache: bool) -> Result<PathBuf, FormalError> {
     hash_hex(id)?;
     let root = path
         .parent()
@@ -90,7 +115,7 @@ pub(crate) fn selected_path(path: &Path, id: &str) -> Result<PathBuf, FormalErro
     };
     let selected = manifest(root, &generation)?;
     let dir = root.join(GENERATIONS).join(generation);
-    if catalog::contains(&dir, &selected.catalogs, id)? {
+    if catalog::contains_with_cache(&dir, &selected.catalogs, id, use_cache)? {
         let logical = dir.join(id);
         let regular = |path: &Path| -> Result<bool, FormalError> {
             match fs::symlink_metadata(path) {
@@ -488,3 +513,12 @@ fn advance_inner(
 #[cfg(test)]
 #[path = "physical_generation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(super) fn cache_accesses() -> u64 {
+    catalog::cache_accesses()
+}
+
+#[path = "physical_generation_identity.rs"]
+mod identity;
+pub(crate) use identity::current_generation_digest_uncached;

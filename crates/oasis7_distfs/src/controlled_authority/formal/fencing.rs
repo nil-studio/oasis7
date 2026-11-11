@@ -53,16 +53,26 @@ pub(crate) fn fresh_challenge() -> Result<String, FencingError> {
     #[cfg(unix)]
     {
         use std::io::Read;
-        let mut bytes = [0; 32];
-        std::fs::File::open("/dev/urandom")
-            .and_then(|mut file| file.read_exact(&mut bytes))
-            .map_err(|error| FencingError::Io(error.to_string()))?;
-        Ok(hex::encode(bytes))
+        fresh_challenge_with_reader(|bytes| {
+            std::fs::File::open("/dev/urandom")
+                .and_then(|mut file| file.read_exact(bytes))
+                .map_err(|error| FencingError::Io(error.to_string()))
+        })
     }
     #[cfg(not(unix))]
     {
         Err(FencingError::FencingUnproven)
     }
+}
+
+/// Keep the original 32-byte challenge encoding while the caller accounts for
+/// actual source operations. This helper supplies no fencing evidence.
+pub(super) fn fresh_challenge_with_reader<E>(
+    read: impl FnOnce(&mut [u8; 32]) -> Result<(), E>,
+) -> Result<String, E> {
+    let mut bytes = [0; 32];
+    read(&mut bytes)?;
+    Ok(hex::encode(bytes))
 }
 
 #[cfg(test)]

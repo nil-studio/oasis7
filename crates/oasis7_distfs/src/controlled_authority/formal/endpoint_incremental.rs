@@ -16,12 +16,7 @@ use oasis7_formal_protocol::controlled_authority::formal::{
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_formal_protocol::{
     controlled_authority::replicated_protocol::ClosedRecord,
-    incremental_material::{
-        CoreBudget, CoreRequest, OriginalObjectReader, WrittenValueBudget, verify_commit_core,
-        verify_state_values, verify_written_values,
-    },
-    incremental_state::StateScanBudget,
-    incremental_value::{ValueIoBudget, ValueReadContext},
+    incremental_material::{OriginalObjectReader, OriginalObjectStreamReader},
 };
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
@@ -51,6 +46,11 @@ pub struct IwsEndpointVerificationBudgetsV1 {
     pub max_pending_node_bytes: usize,
     pub state_page_io: PageIoBudget,
     pub value_page_io: PageIoBudget,
+    /// Independent physical/logical quotas for already retained original
+    /// objects. Candidate-byte reads continue borrowing the ClosedRecord.
+    pub original_page_io: PageIoBudget,
+    pub original_value_nodes: u64,
+    pub original_value_read_bytes: u64,
 }
 
 /// Explicit endpoint capability: physical IWS pages, one shared pool and
@@ -61,6 +61,17 @@ pub struct IwsPageStoreCapabilityV1 {
     pages: IncrementalPageStore,
     #[cfg(not(target_arch = "wasm32"))]
     budgets: IwsEndpointVerificationBudgetsV1,
+    #[cfg(not(target_arch = "wasm32"))]
+    current_limits: Option<current::IwsCurrentLimitsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    source_work: std::cell::RefCell<Option<work::IwsCandidateSourceWorkV1>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    // The staged/accepted owner slots are large inline values. Keep them off
+    // every FileFormalEndpoint stack, including endpoints with no IWS store.
+    // This reservation is retained with the Box for the entire capability.
+    jobs: ReservedValue<Box<jobs::EndpointIwsState>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    state_memo: Option<(usize, usize)>,
 }
 
 impl IwsPageStoreCapabilityV1 {
@@ -73,10 +84,35 @@ impl IwsPageStoreCapabilityV1 {
         if budgets.max_pending_node_bytes == 0 {
             return Err(invalid("IWS endpoint pending node bound"));
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let jobs = {
+            // Both RefCell<Option<...>> slots reserve their maximum inline
+            // layout once. Admit that heap owner before allocating it.
+            let bytes = std::mem::size_of::<jobs::EndpointIwsState>()
+                .checked_add(512)
+                .ok_or_else(|| invalid("IWS endpoint job-state admission size"))?;
+            let charge = pages
+                .memory_budget()
+                .reserve(bytes, MemoryClass::Ordinary)
+                .map_err(|error| {
+                    FormalError::Invalid(format!(
+                        "IWS endpoint job-state Ordinary admission: {error}"
+                    ))
+                })?;
+            charge.retain(Box::new(jobs::EndpointIwsState::new()))
+        };
         Ok(Self {
             pages,
             #[cfg(not(target_arch = "wasm32"))]
             budgets,
+            #[cfg(not(target_arch = "wasm32"))]
+            current_limits: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            source_work: std::cell::RefCell::new(None),
+            #[cfg(not(target_arch = "wasm32"))]
+            jobs,
+            #[cfg(not(target_arch = "wasm32"))]
+            state_memo: None,
         })
     }
 
@@ -89,6 +125,76 @@ impl IwsPageStoreCapabilityV1 {
 struct ClosedRecordOriginalReader<'a> {
     record: &'a ClosedRecord,
     memory: &'a MemoryBudget,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct EndpointOriginalReader<'a, 'record, O> {
+    candidate: ClosedRecordOriginalReader<'record>,
+    retained: &'a mut O,
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl<O> EndpointOriginalReader<'_, '_, O> {
+    fn candidate_contains(&self, id: &[u8; 32]) -> bool {
+        let mut encoded = [0u8; 64];
+        // Fixed-size input/output; this cannot fail and does not allocate.
+        if hex::encode_to_slice(id, &mut encoded).is_err() {
+            return false;
+        }
+        self.candidate
+            .record
+            .objects
+            .iter()
+            .any(|object| object.content_hash.as_bytes() == encoded)
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl<O: OriginalObjectReader> OriginalObjectReader for EndpointOriginalReader<'_, '_, O>
+where
+    O::Error: std::fmt::Display,
+{
+    type Error = String;
+    fn allocation_budget(&self) -> &MemoryBudget {
+        self.candidate.memory
+    }
+    fn allocation_class(&self) -> MemoryClass {
+        MemoryClass::Ordinary
+    }
+    fn read_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, Self::Error> {
+        if self.candidate_contains(id) {
+            self.candidate.read_original(id, max_bytes, memory)
+        } else {
+            self.retained
+                .read_original(id, max_bytes, memory)
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl<O: OriginalObjectStreamReader> OriginalObjectStreamReader for EndpointOriginalReader<'_, '_, O>
+where
+    O::Error: std::fmt::Display,
+{
+    fn stream_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: u64,
+        memory: &MemoryBudget,
+        output: &mut dyn std::io::Write,
+    ) -> Result<u64, Self::Error> {
+        if self.candidate_contains(id) {
+            self.candidate
+                .stream_original(id, max_bytes, memory, output)
+        } else {
+            self.retained
+                .stream_original(id, max_bytes, memory, output)
+                .map_err(|error| error.to_string())
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -141,6 +247,56 @@ impl OriginalObjectReader for ClosedRecordOriginalReader<'_> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+impl OriginalObjectStreamReader for ClosedRecordOriginalReader<'_> {
+    fn stream_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: u64,
+        memory: &MemoryBudget,
+        output: &mut dyn std::io::Write,
+    ) -> Result<u64, Self::Error> {
+        if !self.memory.same_pool(memory) {
+            return Err("IWS original stream pool mismatch".into());
+        }
+        let mut id_hex = [0u8; 64];
+        hex::encode_to_slice(id, &mut id_hex)
+            .map_err(|_| "IWS original stream ID encoding".to_owned())?;
+        let object = self
+            .record
+            .objects
+            .iter()
+            .find(|object| object.content_hash.as_bytes() == id_hex)
+            .ok_or_else(|| "IWS original stream not in closed record".to_owned())?;
+        let len = u64::try_from(object.bytes.len())
+            .map_err(|_| "IWS original stream length overflow".to_owned())?;
+        if len > max_bytes {
+            return Err("IWS original stream byte bound".into());
+        }
+        // The retained ClosedRecord owns these bytes. Borrow bounded slices;
+        // never duplicate a large original just to hash or observe its facts.
+        let _phase = memory
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(|_| "IWS original stream workspace admission".to_owned())?;
+        let mut hash = blake3::Hasher::new();
+        for chunk in object
+            .bytes
+            .chunks(oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES)
+        {
+            // write_all honors partial writes, Interrupted and WriteZero. Any
+            // failure stops this provisional stream and cannot return success.
+            output
+                .write_all(chunk)
+                .map_err(|_| "IWS original stream output stopped".to_owned())?;
+            hash.update(chunk);
+        }
+        if hash.finalize().as_bytes() != id {
+            return Err("IWS original stream checksum".into());
+        }
+        Ok(len)
+    }
+}
+
 impl FileFormalEndpoint {
     /// Attach a page store explicitly. Profile 1/2 endpoints cannot install it,
     /// and profile 3 receipt paths reject until it is present.
@@ -183,6 +339,15 @@ impl FileFormalEndpoint {
             None,
             candidate.branch,
         )?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(capability) = &self.iws_page_store
+            && capability.jobs.matches(candidate, cancelled)?
+        {
+            if cancelled() {
+                return Err(invalid("IWS candidate reuse cancelled"));
+            }
+            return Ok(context);
+        }
         self.verify_iws_page_backed_material(candidate, &context, cancelled)?;
         Ok(context)
     }
@@ -209,153 +374,7 @@ impl FileFormalEndpoint {
         context: &VerifiedCandidateContextV1,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<(), FormalError> {
-        let capability = self
-            .iws_page_store
-            .as_ref()
-            .ok_or_else(|| invalid("IWS endpoint page-store capability missing"))?;
-        let pages = &capability.pages;
-        let memory = pages.memory_budget();
-        let limits = &capability.budgets;
-        let mut objects = ClosedRecordOriginalReader {
-            record: &candidate.material,
-            memory,
-        };
-        let state = pages
-            .state_session(limits.state_page_io.clone(), MemoryClass::Ordinary)
-            .map_err(page_store_formal_error)?;
-        let mut core_budget = CoreBudget {
-            objects_remaining: limits.original_objects,
-            original_bytes_remaining: limits.original_bytes,
-            new_pages_remaining: limits.new_pages,
-            merkle_reads_remaining: limits.core_merkle_reads,
-        };
-        let core_request = CoreRequest {
-            candidate: context,
-            original_authority: &self.authority,
-            parent: self.parent.as_ref(),
-            max_pending_node_bytes: limits.max_pending_node_bytes,
-        };
-        let core = verify_commit_core(
-            &core_request,
-            &mut objects,
-            &state,
-            memory,
-            &mut core_budget,
-            &mut *cancelled,
-        )
-        .map_err(|error| {
-            state
-                .take_read_error()
-                .map(page_store_formal_error)
-                .unwrap_or_else(|| invalid(format!("IWS structural core: {error}")))
-        })?;
-        if core.body().roots
-            != core
-                .roots()
-                .digest()
-                .map_err(|error| invalid(error.to_string()))?
-        {
-            return Err(invalid("IWS checked core root/body binding"));
-        }
-
-        let values = pages.value_session(limits.value_page_io.clone());
-        let mut value_io = ValueIoBudget {
-            nodes_remaining: limits.value_nodes,
-            read_bytes_remaining: limits.value_read_bytes,
-            write_bytes_remaining: 0,
-        };
-        let mut value_context = ValueReadContext {
-            source: &values,
-            memory,
-            class: MemoryClass::Ordinary,
-            io: &mut value_io,
-        };
-
-        if core.transition().is_some() {
-            let mut transition_budget = WrittenValueBudget {
-                values_remaining: limits.transition_value_occurrences,
-                logical_bytes_remaining: limits.transition_value_bytes,
-                max_value_bytes: limits.max_transition_value_bytes,
-            };
-            verify_written_values(&core, &mut value_context, &mut transition_budget, || {
-                cancelled()
-            })
-            .map_err(|error| invalid(format!("IWS final written values: {error}")))?;
-            return Err(invalid(
-                "IWS ordinary transition owner delta verifier unavailable",
-            ));
-        }
-
-        let mut scan = StateScanBudget {
-            nodes_remaining: limits.state_scan_nodes,
-            read_bytes_remaining: limits.state_scan_bytes,
-            leaves_remaining: limits.state_scan_leaves,
-        };
-        let mut full_values = WrittenValueBudget {
-            values_remaining: limits.full_value_occurrences,
-            logical_bytes_remaining: limits.full_value_bytes,
-            max_value_bytes: limits.max_full_value_bytes,
-        };
-        let checked = verify_state_values(
-            &core,
-            &state,
-            &mut value_context,
-            &mut scan,
-            &mut full_values,
-            &mut *cancelled,
-        )
-        .map_err(|error| {
-            state
-                .take_read_error()
-                .map(page_store_formal_error)
-                .unwrap_or_else(|| invalid(format!("IWS state/value closure: {error}")))
-        })?;
-        // The owner pass consumes the remainder of the same scan allowance;
-        // it cannot silently double the per-candidate state traversal budget.
-        let coverage =
-            oasis7_world_state::incremental_owner_closure::verify_world_state_owner_closure_v1(
-                core.roots(),
-                &state,
-                &mut value_context,
-                &mut scan,
-                limits.max_full_value_bytes,
-                cancelled,
-            )
-            .map_err(|error| {
-                state
-                    .take_read_error()
-                    .map(page_store_formal_error)
-                    .unwrap_or_else(|| invalid(format!("IWS typed owner coverage: {error}")))
-            })?;
-        let report = coverage.report();
-        if checked.body_id()
-            != core
-                .body()
-                .digest()
-                .map_err(|error| invalid(error.to_string()))?
-            || coverage.root_set_digest() != core.body().roots
-            || report.checked_u64_fields() != 7
-            || report.checked_id_set_fields() != 5
-            || report.checked_number_map_fields() != 11
-            || report.checked_text_byte_fields() != 4
-            || report.checked_governance_fields() != 3
-            || report.checked_factory_authority_fields() != 2
-            || report.checked_main_token_policy_fields() != 5
-            || report.checked_material_fields() != 2
-            || report.checked_logistics_fields() != 2
-            || report.checked_fixed_economy_fields() != 4
-            || report.checked_agent_authority_fields() != 3
-            || report.checked_reward_fields() != 2
-            || report.checked_organization_fields() != 2
-            || report.checked_supply_fields() != 2
-            || report.checked_diplomacy_fields() != 4
-            || !report.unsupported_fields().is_empty()
-            || report.runtime_registry_missing()
-            || report.cognition_registry_missing()
-        {
-            return Err(invalid("IWS typed owner coverage incomplete"));
-        }
-        Ok(())
+        closure::consume_candidate_data_closure_v1(self, candidate, context, cancelled)
     }
 }
 
@@ -363,3 +382,200 @@ impl FileFormalEndpoint {
 fn page_store_formal_error(error: PageStoreError) -> FormalError {
     FormalError::Io(format!("IWS page store: {error}"))
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "endpoint_incremental_stream_tests.rs"]
+mod stream_tests;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_current.rs"]
+mod current;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_scratch.rs"]
+mod scratch;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use current::IwsCurrentLimitsV1;
+#[cfg(not(target_arch = "wasm32"))]
+impl IwsPageStoreCapabilityV1 {
+    /// Explicitly enable complete Current checks; receipts still require the
+    /// independent History/source and formal lifecycle closure.
+    pub fn with_current_limits(mut self, limits: IwsCurrentLimitsV1) -> Result<Self, FormalError> {
+        limits
+            .validate()
+            .map_err(|e| invalid(format!("IWS Current limits: {e}")))?;
+        self.current_limits = Some(limits);
+        Ok(self)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_provisional.rs"]
+mod provisional;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_mailbox.rs"]
+mod mailbox;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_persist.rs"]
+mod persist;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_history_originals.rs"]
+mod history_originals;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_jobs.rs"]
+pub(super) mod jobs;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(super) fn iws_job_state_layout_bytes_for_test() -> usize {
+    std::mem::size_of::<jobs::EndpointIwsState>()
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_work.rs"]
+mod work;
+#[cfg(not(target_arch = "wasm32"))]
+pub use work::IwsCandidateSourceWorkV1;
+#[cfg(not(target_arch = "wasm32"))]
+impl FileFormalEndpoint {
+    pub fn supply_iws_candidate_work(
+        &mut self,
+        work: IwsCandidateSourceWorkV1,
+    ) -> Result<(), FormalError> {
+        let capability = self
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS page capability missing"))?;
+        let mut slot = capability
+            .source_work
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS work slot borrowed"))?;
+        if slot.is_some() {
+            return Err(invalid("IWS work already supplied"));
+        }
+        *slot = Some(work);
+        Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl FileFormalEndpoint {
+    pub(super) fn iws_local_data_reference(
+        &self,
+        commit: &VerifiedFormalCommitV1,
+    ) -> Result<Option<String>, FormalError> {
+        self.iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS local closure capability missing"))?
+            .jobs
+            .local_data_reference(commit)
+    }
+    pub(super) fn check_iws_qualified_install(
+        &self,
+        commit: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError> {
+        let capability = self
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted capability missing"))?;
+        if !capability.jobs.ready(commit.verified_record_id())? {
+            return Err(invalid(
+                "IWS complete prepared candidate required before Qualified",
+            ));
+        }
+        // A staged source proof is not the still-missing execution/native and
+        // durable closure permit, even when a genuine external quorum signed.
+        Err(invalid("IWS execution and durable closure incomplete"))
+    }
+    pub(super) fn finish_iws_qualified_install(
+        &self,
+        commit: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError> {
+        self.iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted capability missing"))?
+            .jobs
+            .accepted(commit)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_parent.rs"]
+mod parent_binding;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl IwsPageStoreCapabilityV1 {
+    /// Optional, explicitly admitted Ordinary-only memo. No quotas grow.
+    /// Cold recovery must choose a separate Recovery memo configuration.
+    pub fn with_state_read_memo(
+        mut self,
+        max_entries: usize,
+        max_retained_bytes: usize,
+    ) -> Result<Self, FormalError> {
+        if max_entries == 0
+            || max_retained_bytes == 0
+            || max_entries == usize::MAX
+            || max_retained_bytes == usize::MAX
+        {
+            return Err(invalid("IWS finite positive memo allowances"));
+        }
+        self.state_memo = Some((max_entries, max_retained_bytes));
+        Ok(self)
+    }
+}
+
+// Complete closure consumers use native owner qualification and physical leases.
+// Wasm retains the explicit unsupported verification entry above.
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_closure.rs"]
+mod closure;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold.rs"]
+mod cold;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_cognition.rs"]
+mod cold_cognition;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_mailbox.rs"]
+mod cold_mailbox;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_restore.rs"]
+mod cold_restore;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_roots.rs"]
+mod cold_roots;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_runtime.rs"]
+mod cold_runtime;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_mailbox_history.rs"]
+mod mailbox_history;
+#[cfg(not(target_arch = "wasm32"))]
+pub use cold_restore::{IwsColdParentHintsV1, IwsColdParentWorkV1};
+
+#[path = "endpoint_incremental_local_closure.rs"]
+pub(super) mod local_closure;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_native_worker.rs"]
+mod native_worker;
+#[cfg(not(target_arch = "wasm32"))]
+pub use closure::NativeWorkerLeaseV1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_frozen_content.rs"]
+mod frozen_content;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_genesis.rs"]
+pub(super) mod genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_genesis_receipts.rs"]
+pub(super) mod genesis_receipts;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_host_source.rs"]
+pub(super) mod host_source;

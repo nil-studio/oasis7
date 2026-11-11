@@ -156,6 +156,22 @@ impl IncrementalPageStore {
         &self.root
     }
 
+    /// Observe this actual opened fixed lease, after checking that its path
+    /// still identifies the same protected inode. This is no closure proof.
+    pub(crate) fn opened_lease_identity(&self) -> Result<(u64, u64)> {
+        files::validate_lease(&self.root, &self._lease)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = self._lease.metadata()?;
+            Ok((metadata.dev(), metadata.ino()))
+        }
+        #[cfg(not(unix))]
+        {
+            Err(PageStoreError::UnsupportedPlatform)
+        }
+    }
+
     /// Exact admission pool shared by this store's state/value sessions.
     /// This borrowed handle grants no owner qualification or allocation class.
     pub fn memory_budget(&self) -> &MemoryBudget {
@@ -321,6 +337,21 @@ impl IncrementalPageStore {
             store: self,
             io: Mutex::new(io),
             cancelled: AtomicBool::new(false),
+            caller_cancelled: None,
+        }
+    }
+    /// Use one caller-owned flag throughout physical reads and writes. The
+    /// ordinary session's local flag remains an additional boundary stop.
+    pub fn value_session_with_cancelled<'a>(
+        &'a self,
+        io: PageIoBudget,
+        cancelled: &'a AtomicBool,
+    ) -> ValuePageSession<'a> {
+        ValuePageSession {
+            store: self,
+            io: Mutex::new(io),
+            cancelled: AtomicBool::new(false),
+            caller_cancelled: Some(cancelled),
         }
     }
 }
@@ -350,8 +381,16 @@ pub struct ValuePageSession<'a> {
     store: &'a IncrementalPageStore,
     io: Mutex<PageIoBudget>,
     pub cancelled: AtomicBool,
+    caller_cancelled: Option<&'a AtomicBool>,
 }
 impl ValuePageSession<'_> {
+    pub(crate) fn physical_cancelled(&self) -> &AtomicBool {
+        self.caller_cancelled.unwrap_or(&self.cancelled)
+    }
+    pub(crate) fn check_cancelled(&self) -> Result<()> {
+        check_cancelled(&self.cancelled)?;
+        check_cancelled(self.physical_cancelled())
+    }
     pub fn remaining_io(&self) -> Result<PageIoBudget> {
         self.io
             .lock()
@@ -365,13 +404,22 @@ impl ValueNodeWriter for ValuePageSession<'_> {
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
     ) -> std::result::Result<(), ValueTreeError> {
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
+        let cancelled = self.caller_cancelled.unwrap_or(&self.cancelled);
         let io = self
             .io
             .get_mut()
             .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
-        self.store
-            .put_page(id, &bytes, io, &self.cancelled)
-            .map_err(value_error)
+        let result = self
+            .store
+            .put_page(id, &bytes, io, cancelled)
+            .map_err(value_error);
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
+        result
     }
 }
 impl ValueNodeReader for ValuePageSession<'_> {
@@ -385,13 +433,21 @@ impl ValueNodeReader for ValuePageSession<'_> {
         if !self.store.memory.same_pool(memory) {
             return Err(ValueTreeError::Invalid("physical session memory pool"));
         }
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
         let mut io = self
             .io
             .lock()
             .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
-        self.store
-            .read_page(id, max_bytes, class, &mut io, &self.cancelled)
-            .map_err(value_error)
+        let result = self
+            .store
+            .read_page(id, max_bytes, class, &mut io, self.physical_cancelled())
+            .map_err(value_error);
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
+        result
     }
 }
 fn value_error(error: PageStoreError) -> ValueTreeError {
@@ -450,7 +506,14 @@ pub use state_store::{ChargedMerklePage, StatePageSession};
 
 #[path = "incremental_buffered_page_writer.rs"]
 mod buffered_writer;
-pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriter};
+pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriteErrorV1, BufferedPageWriter};
 
 #[path = "incremental_object_store.rs"]
 pub mod objects;
+
+#[path = "incremental_genesis_store.rs"]
+pub mod genesis;
+
+#[cfg(all(test, unix))]
+#[path = "incremental_caller_cancel_tests.rs"]
+mod caller_cancel_tests;

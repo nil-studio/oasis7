@@ -254,6 +254,34 @@ fn child<
 }
 /// Integrity/schema acceptance only. The exact qualified parent supplies all
 /// unchanged owner closure; neither generic verification nor a codec token does.
+fn organization_preflight<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<OrganizationFamilyQualificationV1>,
+    record: &TransitionRecordV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<oasis7_proto::memory_budget::MemoryReservation, WorldFieldOverlayErrorV1> {
+    context.check()?;
+    if context.values.class != MemoryClass::Ordinary
+        || !parent.uses_budget(context.values.memory)
+        || !parent.permits_class(MemoryClass::Ordinary)
+        || parent.reserved_bytes() < std::mem::size_of::<OrganizationFamilyQualificationV1>()
+        || context.root != record.after.state_root(StateNamespaceV1::Authorization)
+    {
+        return Err(invalid().into());
+    }
+    let phase = context
+        .values
+        .memory
+        .reserve(128 << 10, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
+    context.check()?;
+    Ok(phase)
+}
 pub fn accept_organization_transition_v1<
     M: MerkleNodeReader,
     S: MerkleNodeReader,
@@ -270,33 +298,39 @@ pub fn accept_organization_transition_v1<
     max_payload: u64,
 ) -> Result<ReservedValue<OrganizationFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     context.check()?;
-    if !parent.uses_budget(context.values.memory)
-        || !parent.permits_class(context.values.class)
-        || !verifier.memory.same_pool(context.values.memory)
-        || verifier.class != context.values.class
+    if verifier.class != MemoryClass::Ordinary || !verifier.memory.same_pool(context.values.memory)
     {
-        return Err(ValueTreeError::Invalid("organization receiver pool/class").into());
-    }
-    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let original = (context.take_state_error)();
-    if (context.cancelled)() {
-        return Err(ValueTreeError::Cancelled.into());
-    }
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let verified = verified?;
-    let auth = verified
-        .record
-        .after
-        .state
-        .iter()
-        .find(|root| root.namespace == StateNamespaceV1::Authorization)
-        .ok_or_else(invalid)?;
-    if context.root != auth {
         return Err(invalid().into());
     }
+    {
+        let _phase = organization_preflight(parent, record, context)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, context,
+    )?;
+    let result =
+        accept_organization_verified_v1(parent, &witness, context, scan, cells, max_payload);
+    context.check()?;
+    result
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn accept_organization_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<OrganizationFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    cells: &mut u64,
+    max_payload: u64,
+) -> Result<ReservedValue<OrganizationFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    context.check()?;
+    witness.check_context(context.values.memory, context.values.class, context.root)?;
+    let verified = witness.prepared();
+    let _phase = organization_preflight(parent, &verified.record, context)?;
     let mut counts = parent.record_counts();
     for write in &verified.record.writes {
         *cells = cells.checked_sub(1).ok_or(ValueTreeError::ResourceLimited(

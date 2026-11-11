@@ -1,3 +1,5 @@
+#[path = "incremental_materials.rs"]
+pub mod materials;
 use oasis7::AgentState;
 use oasis7_agent_api::world_action::{BodyKernelView, GeoPos};
 use oasis7_distfs::incremental_page_store::{
@@ -192,6 +194,28 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
                 after: Some(id),
             });
     }
+    let mut inventory_rows = InventoryRows(Vec::new());
+    oasis7_world_state::incremental_inventory_genesis::prepare_inventory_genesis_v1(
+        world.state(),
+        &mut oasis7_world_state::incremental_inventory_genesis::InventoryGenesisContext {
+            values: &mut sink,
+            writes: &mut inventory_rows,
+            memory,
+            io: &mut logical(),
+            key_work: &mut oasis7_world_state::incremental_semantic_key::SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            },
+            semantic_bytes: 4096,
+            record_bytes: 16 << 20,
+            records_remaining: 10_000,
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    fields
+        .entry(Ns::Business as u8)
+        .or_default()
+        .extend(inventory_rows.0.iter().map(|row| (**row).clone()));
     let mut parent = ExecutionParent {
         commit: [1; 32],
         roots: RootSetV1::empty("agent-event-physical".into(), [2; 32]).unwrap(),
@@ -322,6 +346,19 @@ pub fn contribute(
     let objects =
         IncrementalObjectStore::open(store, MemoryClass::Ordinary, &mut physical_io, &cancelled)
             .unwrap();
+    let roots = parent.roots.clone();
+    let mut material_backing = materials::MaterialFixtureV1::build(
+        &roots,
+        &source,
+        &values,
+        memory,
+        materials::MaterialFixtureLimitsV1::for_state(world.state()),
+        || source.take_read_error().map(state_error),
+        || false,
+    );
+    let mut material_context = material_backing.context(&roots, &source, || {
+        source.take_read_error().map(state_error)
+    });
     let live = parent.fence().unwrap();
     let mut txn = ExecutionTransaction::begin(
         parent,
@@ -364,6 +401,8 @@ pub fn contribute(
                 max_event_bytes: 1 << 20,
                 original_work: original_work(),
             },
+            &mut material_context,
+            &live,
         )
         .unwrap();
     let after_contribute = source.remaining_io().unwrap();
@@ -375,4 +414,32 @@ pub fn contribute(
         source.remaining_io()
     );
     sealed.unwrap()
+}
+
+struct InventoryRows(Vec<ReservedValue<StateWriteV1>>);
+impl oasis7_world_state::incremental_inventory_genesis::InventoryWriteSink for InventoryRows {
+    fn put_write(
+        &mut self,
+        write: ReservedValue<StateWriteV1>,
+    ) -> Result<(), oasis7_formal_protocol::incremental_value::ValueTreeError> {
+        self.0.push(write);
+        Ok(())
+    }
+}
+pub fn state_error(
+    error: PageStoreError,
+) -> oasis7_formal_protocol::incremental_value::ValueTreeError {
+    use oasis7_formal_protocol::incremental_value::ValueTreeError as V;
+    match error {
+        PageStoreError::Memory(e) => V::Memory(e),
+        PageStoreError::ResourceLimited(e) => V::ResourceLimited(e),
+        PageStoreError::Cancelled => V::Cancelled,
+        PageStoreError::Io(e) => V::Io(e),
+        PageStoreError::Missing(_) => V::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "material physical page",
+        )),
+        PageStoreError::Corrupt(e) => V::Invalid(e),
+        PageStoreError::UnsupportedPlatform => V::Invalid("material physical platform"),
+    }
 }

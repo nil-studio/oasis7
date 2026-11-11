@@ -71,6 +71,8 @@ mod formal_bft_header_cli;
 #[cfg(unix)]
 #[path = "host/formal_bft_header_http.rs"]
 mod formal_bft_header_http;
+#[path = "host/formal_iws_native_worker.rs"]
+mod formal_iws_native_worker;
 
 #[cfg(unix)]
 #[path = "host/formal_bft_prefix_cli.rs"]
@@ -1160,3 +1162,41 @@ mod tests;
 
 #[cfg(test)]
 use crate::execution_config::EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER;
+
+/// Process entry for an IWS worker which verifies its own loaded native closure.
+/// This only dispatches the bounded worker protocol; it grants no world writes.
+pub fn native_bound_worker_main_v1() -> Result<(), &'static str> {
+    #[cfg(target_os = "linux")]
+    {
+        native_environment_capture::native_bound_worker_main_v1()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("native-bound worker platform unsupported")
+    }
+}
+
+#[cfg(feature = "native-worker-test-support")]
+pub fn native_worker_fixture_capture_v1(path: Option<&std::path::Path>) -> Result<Vec<u8>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        native_environment_capture::fixture_capture_v1(path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = path;
+        Err("native fixture platform unsupported".into())
+    }
+}
+
+#[cfg(feature = "native-worker-test-support")]
+pub fn native_worker_fixture_main_v1() -> Result<(), &'static str> {
+    #[cfg(target_os = "linux")]
+    {
+        native_environment_capture::fixture_worker_main_v1()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("native fixture platform unsupported")
+    }
+}

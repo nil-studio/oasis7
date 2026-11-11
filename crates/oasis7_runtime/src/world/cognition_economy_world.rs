@@ -63,7 +63,8 @@ impl World {
                 reason: "cognition provisioning requires a live agent".to_string(),
             });
         }
-        let identity = self.current_agent_identity(agent_id)
+        let identity = self
+            .current_agent_identity(agent_id)
             .ok_or_else(|| WorldError::DistributedValidationFailed {
                 reason: "cognition provisioning requires a live capability identity".to_string(),
             })?
@@ -129,7 +130,8 @@ impl World {
             return Ok(None);
         }
         let binding = self.current_cognition_runtime_binding()?;
-        let identity = self.current_agent_identity(request.agent_id.as_str())
+        let identity = self
+            .current_agent_identity(request.agent_id.as_str())
             .ok_or_else(|| {
                 world_economy_error(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_identity_missing",

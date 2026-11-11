@@ -3,6 +3,9 @@ use crate::controlled_authority::replicated_protocol::{ArtifactRole, ClosedRecor
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub const GENESIS_HEAD_DOMAIN_V1: &str = "oasis7.formal.genesis.v1";
+pub const AUTHORITY_ID_DOMAIN_V1: &str = "oasis7.formal.authority.v1";
+pub const CANONICAL_RECORD_ID_DOMAIN_V1: &str = "oasis7.formal.canonical_record.v1";
 pub const FORMAL_PROFILE: &str = "controlled_single_authority";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FormalRecordKindV1 {
@@ -43,18 +46,27 @@ pub struct CanonicalRecordV1 {
 }
 impl FormalWorldIdentityV1 {
     pub fn validate(&self) -> Result<(), FormalError> {
+        self.validate_with_work(&mut |_| Ok::<(), FormalError>(()))
+    }
+    pub fn validate_with_work<E: From<FormalError>>(
+        &self,
+        work: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
         for value in [&self.world_id, &self.chain_id] {
+            work(value.len())?;
             if value.trim().is_empty() || value.len() > 256 {
-                return Err(invalid("formal world identity bounds"));
+                return Err(invalid("formal world identity bounds").into());
             }
         }
-        hash_hex(&self.genesis_digest)
+        work(self.genesis_digest.len())?;
+        hash_hex(&self.genesis_digest)?;
+        Ok(())
     }
     pub fn genesis_head(&self) -> Result<FormalHeadRefV1, FormalError> {
         self.validate()?;
         Ok(FormalHeadRefV1 {
             position: 0,
-            record_id: hash("oasis7.formal.genesis.v1", self)?,
+            record_id: hash(GENESIS_HEAD_DOMAIN_V1, self)?,
         })
     }
 }
@@ -150,7 +162,7 @@ impl AuthorityDefinitionV1 {
     }
     pub fn authority_id(&self) -> Result<String, FormalError> {
         self.validate()?;
-        hash("oasis7.formal.authority.v1", self)
+        hash(AUTHORITY_ID_DOMAIN_V1, self)
     }
     pub fn verify_policy(&self, policy: &RecoveryPolicyV1) -> Result<(), FormalError> {
         self.validate()?;
@@ -180,13 +192,22 @@ impl AuthorityDefinitionV1 {
 }
 impl ProfileHandoffV1 {
     pub fn validate(&self, position: u64) -> Result<(), FormalError> {
+        self.validate_with_work(position, &mut |_| Ok::<(), FormalError>(()))
+    }
+    pub fn validate_with_work<E: From<FormalError>>(
+        &self,
+        position: u64,
+        work: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        work(self.next_authority_digest.len())?;
         hash_hex(&self.next_authority_digest)?;
+        work(self.next_profile.len())?;
         if self.next_profile.trim().is_empty()
             || self.next_profile.len() > 256
             || self.next_profile_version == 0
             || position.checked_add(1) != Some(self.valid_from_position)
         {
-            return Err(invalid("formal handoff target/boundary"));
+            return Err(invalid("formal handoff target/boundary").into());
         }
         Ok(())
     }
@@ -194,10 +215,17 @@ impl ProfileHandoffV1 {
 impl CanonicalRecordV1 {
     pub fn record_id(&self) -> Result<String, FormalError> {
         self.validate()?;
-        hash("oasis7.formal.canonical_record.v1", self)
+        hash(CANONICAL_RECORD_ID_DOMAIN_V1, self)
     }
     pub fn validate(&self) -> Result<(), FormalError> {
-        self.world.validate()?;
+        self.validate_with_work(&mut |_| Ok::<(), FormalError>(()))
+    }
+    pub fn validate_with_work<E: From<FormalError>>(
+        &self,
+        work: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        self.world.validate_with_work(work)?;
+        work(0)?;
         if !matches!(
             (self.schema_version, &self.durable_set_transition_digest),
             (1, None)
@@ -225,32 +253,46 @@ impl CanonicalRecordV1 {
                 .contains_key(&ArtifactRole::NativeExecutionEnvironment)
                 != (self.schema_version >= 5)
         {
-            return Err(invalid("formal record version/position/closure roots"));
+            return Err(invalid("formal record version/position/closure roots").into());
         }
         if super::incremental::is_iws_record(self.schema_version) {
-            if self.artifact_roots.get(&ArtifactRole::Input) != Some(&self.payload_digest) {
-                return Err(invalid("incremental record original input root"));
+            if {
+                work(self.payload_digest.len())?;
+                if let Some(input) = self.artifact_roots.get(&ArtifactRole::Input) {
+                    work(input.len())?;
+                }
+                self.artifact_roots.get(&ArtifactRole::Input) != Some(&self.payload_digest)
+            } {
+                return Err(invalid("incremental record original input root").into());
             }
-            super::incremental::validate_roots(
+            super::incremental::validate_roots_with_work(
                 &self.artifact_roots,
                 false,
                 &self.world,
                 &self.after_state_root,
                 &self.runtime_manifest_digest,
+                work,
             )?;
-        } else if self
-            .artifact_roots
-            .keys()
-            .any(|role| super::incremental::is_iws_role(*role))
-        {
-            return Err(invalid("legacy record cannot carry incremental roots"));
+        } else {
+            let mut carries_iws = false;
+            for role in self.artifact_roots.keys() {
+                work(0)?;
+                if super::incremental::is_iws_role(*role) {
+                    carries_iws = true;
+                    break;
+                }
+            }
+            if carries_iws {
+                return Err(invalid("legacy record cannot carry incremental roots").into());
+            }
         }
         if let Some(digest) = &self.durable_set_transition_digest {
+            work(digest.len())?;
             hash_hex(digest)?;
             if self.handoff.is_some() {
-                return Err(invalid(
-                    "durable set transition cannot combine profile handoff",
-                ));
+                return Err(
+                    invalid("durable set transition cannot combine profile handoff").into(),
+                );
             }
         }
         for digest in [
@@ -269,31 +311,35 @@ impl CanonicalRecordV1 {
             &self.result_root,
             &self.projection_root,
         ] {
+            work(digest.len())?;
             hash_hex(digest)?;
         }
         for digest in self.artifact_roots.values() {
+            work(digest.len())?;
             hash_hex(digest)?;
         }
+        work(0)?;
         match self.kind {
             FormalRecordKindV1::InitialActivation
                 if self.position != 1
                     || self.frozen_reservation_id.is_some()
                     || self.handoff.is_some() =>
             {
-                return Err(invalid("formal initial record boundary"));
+                return Err(invalid("formal initial record boundary").into());
             }
             FormalRecordKindV1::Execution if self.frozen_reservation_id.is_none() => {
-                return Err(invalid(
-                    "formal execution requires original frozen reservation",
-                ));
+                return Err(
+                    invalid("formal execution requires original frozen reservation").into(),
+                );
             }
             _ => {}
         }
         if let Some(reservation) = &self.frozen_reservation_id {
+            work(reservation.len())?;
             hash_hex(reservation)?;
         }
         if let Some(handoff) = &self.handoff {
-            handoff.validate(self.position)?;
+            handoff.validate_with_work(self.position, work)?;
         }
         Ok(())
     }

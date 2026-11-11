@@ -1063,10 +1063,11 @@ fn refresh_progress(
             .unwrap_or(factory)
     });
     let collected = factories.collect::<Vec<_>>();
-    let jobs = collected
-        .iter()
-        .map(|factory| factory.production.completed_jobs)
-        .sum::<u64>();
+    let jobs = aggregate_stage_completed_jobs_v1(
+        collected
+            .iter()
+            .map(|factory| factory.production.completed_jobs),
+    );
     let stable = collected
         .iter()
         .any(|factory| factory_has_canonical_stable_line(factory));

@@ -50,15 +50,30 @@ pub fn verify<T: Serialize>(
     signature: &str,
     public_key: &str,
 ) -> Result<(), FormalError> {
+    verify_with_preimage(
+        signature,
+        public_key,
+        || bytes(domain, value),
+        |_| Ok::<(), FormalError>(()),
+    )
+}
+/// Same original verification predicates/order; only preimage production and
+/// continuing work are supplied by a caller. No verification verdict is minted.
+pub fn verify_with_preimage<B: AsRef<[u8]>, E: From<FormalError>>(
+    signature: &str,
+    public_key: &str,
+    build: impl FnOnce() -> Result<B, E>,
+    mut work: impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), E> {
+    work(public_key.len())?;
     hash_hex(public_key)?;
+    work(signature.len())?;
     if signature.len() != 128
         || !signature
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {
-        return Err(invalid(
-            "formal signature requires canonical lowercase hex64",
-        ));
+        return Err(invalid("formal signature requires canonical lowercase hex64").into());
     }
     let key: [u8; 32] = hex::decode(public_key)
         .map_err(|_| invalid("formal public key"))?
@@ -68,8 +83,9 @@ pub fn verify<T: Serialize>(
         .map_err(|_| invalid("formal signature"))?
         .try_into()
         .map_err(|_| invalid("formal signature"))?;
-    VerifyingKey::from_bytes(&key)
-        .map_err(|_| invalid("formal public key"))?
-        .verify_strict(&bytes(domain, value)?, &Signature::from_bytes(&signature))
-        .map_err(|_| invalid("formal signature verification"))
+    let key = VerifyingKey::from_bytes(&key).map_err(|_| invalid("formal public key"))?;
+    let preimage = build()?;
+    work(preimage.as_ref().len())?;
+    key.verify_strict(preimage.as_ref(), &Signature::from_bytes(&signature))
+        .map_err(|_| invalid("formal signature verification").into())
 }

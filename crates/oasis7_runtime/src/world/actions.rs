@@ -21,7 +21,10 @@ impl World {
     ) -> ActionId {
         let id = self.allocate_next_action_id();
         self.pending_actions.push_back(ActionEnvelope {
-            id, action, governance_authorization: Some(authorization), committed_recipe_origin: None,
+            id,
+            action,
+            governance_authorization: Some(authorization),
+            committed_recipe_origin: None,
         });
         self.enforce_pending_action_limit();
         id

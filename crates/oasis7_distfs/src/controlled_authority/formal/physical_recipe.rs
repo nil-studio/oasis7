@@ -16,6 +16,7 @@ pub(super) fn encode_recipe(recipe: &Recipe) -> Result<Vec<u8>, FormalError> {
     serde_cbor::to_vec(&RecipeEnvelope { body, checksum }).map_err(|e| invalid(e.to_string()))
 }
 pub(super) fn decode_recipe(bytes: &[u8]) -> Result<Recipe, FormalError> {
+    metadata_preflight::check(bytes, META_LIMIT)?;
     let envelope: RecipeEnvelope =
         serde_cbor::from_slice(bytes).map_err(|e| invalid(e.to_string()))?;
     if blake3::hash(&envelope.body).to_hex().as_str() != envelope.checksum
@@ -25,6 +26,7 @@ pub(super) fn decode_recipe(bytes: &[u8]) -> Result<Recipe, FormalError> {
             "physical recipe descriptor checksum/canonical encoding",
         ));
     }
+    metadata_preflight::check(&envelope.body, META_LIMIT)?;
     let recipe: Recipe = serde_cbor::from_slice(&envelope.body)
         .map_err(|e| invalid(format!("physical recipe decode: {e}")))?;
     if serde_cbor::to_vec(&recipe).map_err(io)? != envelope.body {
@@ -124,10 +126,14 @@ impl ParsedCache {
         Ok(recipe)
     }
 }
+#[cfg(test)]
+thread_local! {static CACHE_ACCESSES:std::cell::Cell<u64>=const{std::cell::Cell::new(0)};}
 /// Callers must first read the current no-follow file. Only that complete fresh
 /// byte digest can reuse a prior canonical parse; no path/inode/mtime is trusted.
 /// This process-wide cache has fixed decoded-allocation and entry budgets.
 pub(super) fn decode_recipe_cached(bytes: &[u8]) -> Result<std::sync::Arc<Recipe>, FormalError> {
+    #[cfg(test)]
+    CACHE_ACCESSES.with(|n| n.set(n.get() + 1));
     PARSED
         .get_or_init(|| std::sync::Mutex::new(ParsedCache::default()))
         .lock()
@@ -223,4 +229,33 @@ mod tests {
         assert!(cache.bytes <= CACHE_BYTES);
         assert_eq!(cache.parses, 40);
     }
+    #[test]
+    fn hostile_recipe_unknown_control_key_has_bounded_error_before_serde() {
+        let bytes = metadata_preflight::hostile_unknown_key(2 << 20);
+        let error = match decode_recipe(&bytes) {
+            Err(e) => e,
+            Ok(_) => panic!("unknown key accepted"),
+        };
+        assert!(
+            format!("{error}").len() < 512,
+            "untrusted field text must not be Debug-escaped into a proportional error"
+        );
+        let inner = metadata_preflight::hostile_unknown_key(2 << 20);
+        let checksum = blake3::hash(&inner).to_hex().to_string();
+        let bytes = serde_cbor::to_vec(&RecipeEnvelope {
+            body: inner,
+            checksum,
+        })
+        .unwrap();
+        let error = match decode_recipe(&bytes) {
+            Err(e) => e,
+            Ok(_) => panic!("unknown inner key accepted"),
+        };
+        assert!(format!("{error}").len() < 512);
+    }
+}
+
+#[cfg(test)]
+pub(super) fn cache_accesses() -> u64 {
+    CACHE_ACCESSES.with(std::cell::Cell::get)
 }

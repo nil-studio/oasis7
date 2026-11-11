@@ -1,6 +1,125 @@
 use super::*;
 
 #[test]
+fn final_result_pair_uses_one_frozen_root_and_appends_both_in_order() {
+    let pages = Pages::default();
+    let memory = memory();
+    let parent = empty_parent();
+    let live = parent.fence().unwrap();
+    let mut tx =
+        ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
+    tx.write(StateNamespaceV1::Business, b"changed", Some([3; 32]))
+        .unwrap();
+    tx.append_fact(fact(ExecutionFactKindV1::Input, 1)).unwrap();
+    let guard = tx.guard();
+    let prepared = tx
+        .seal_with_final_results(
+            &guard,
+            &live,
+            9,
+            || false,
+            |after| {
+                assert_eq!(after.simulation_tick, 9);
+                assert_ne!(after.digest().unwrap(), parent.roots.digest().unwrap());
+                Ok::<_, &str>([
+                    ExecutionFactRefV1 {
+                        kind: ExecutionFactKindV1::Result,
+                        id: after.digest().unwrap(),
+                    },
+                    fact(ExecutionFactKindV1::Result, 7),
+                ])
+            },
+        )
+        .unwrap();
+    assert_eq!(prepared.record.facts.len(), 3);
+    assert_eq!(
+        prepared.record.facts[0],
+        fact(ExecutionFactKindV1::Input, 1)
+    );
+    assert_eq!(
+        prepared.record.facts[1].id,
+        prepared.record.after.digest().unwrap()
+    );
+    assert_eq!(
+        prepared.record.facts[2],
+        fact(ExecutionFactKindV1::Result, 7)
+    );
+    TransitionVerifier {
+        parent: &parent,
+        operation: [1; 32],
+        source: &pages,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        max_pending_node_bytes: limits().max_pending_node_bytes,
+    }
+    .verify(&prepared.record)
+    .unwrap();
+}
+
+#[test]
+fn final_result_pair_admits_both_before_io_and_rejects_partial_or_wrong_results() {
+    for mode in 0..5 {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut bounds = limits();
+        if mode == 0 {
+            bounds.max_facts = 2;
+        }
+        let mut tx = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, bounds).unwrap();
+        tx.append_fact(fact(ExecutionFactKindV1::Input, 1)).unwrap();
+        let guard = tx.guard();
+        let called = Cell::new(false);
+        let cancel = Cell::new(false);
+        let result = tx.seal_with_final_results(
+            &guard,
+            &live,
+            9,
+            || cancel.get(),
+            |_| {
+                called.set(true);
+                if mode == 3 {
+                    return Err("second original failed");
+                }
+                cancel.set(mode == 4);
+                Ok([
+                    fact(
+                        if mode == 1 {
+                            ExecutionFactKindV1::Event
+                        } else {
+                            ExecutionFactKindV1::Result
+                        },
+                        2,
+                    ),
+                    fact(ExecutionFactKindV1::Result, if mode == 2 { 2 } else { 3 }),
+                ])
+            },
+        );
+        assert_eq!(called.get(), mode != 0);
+        match mode {
+            0 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(
+                    ExecutionError::ResourceLimited(_)
+                ))
+            )),
+            1 | 2 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(ExecutionError::Invalid(
+                    "final Result pair"
+                )))
+            )),
+            3 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Producer("second original failed"))
+            )),
+            _ => assert!(matches!(result, Err(SealWithFinalFactError::Cancelled))),
+        }
+    }
+}
+
+#[test]
 fn final_fact_observes_frozen_actual_after_roots_and_preserves_prior_order() {
     let pages = Pages::default();
     let memory = memory();

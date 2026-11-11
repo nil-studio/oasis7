@@ -200,6 +200,7 @@ fn make_candidate(
         pending: None,
         decision_head: None,
         seal: None,
+        data_closure: None,
         durable_set: Some(fencing::DurableSetNativeBindingV1 {
             transition_digest: transition.digest().into(),
             independent_inventory_digest: inventory.inventory_digest.clone(),
@@ -506,7 +507,7 @@ impl DurableSetCandidateV1 {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;
@@ -626,7 +627,7 @@ impl FileFormalEndpoint {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;

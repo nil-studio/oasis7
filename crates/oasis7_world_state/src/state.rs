@@ -54,6 +54,7 @@ mod body_projection;
 mod command_projection;
 pub mod core_policy_transition;
 mod factory_authority;
+pub use factory_authority::require_active_location_anchor_point_v1;
 mod formal_retention_projection;
 mod governance_identity_projection;
 pub mod industry_history_transition;
@@ -66,6 +67,8 @@ pub use module_admission_freeze::ModuleAdmissionFreeze;
 pub mod module_marketplace_transition;
 pub mod module_release_transition;
 mod module_visual;
+pub use module_visual::ModuleVisualPointErrorV1;
+pub(crate) use module_visual::check_module_visual_point_v1;
 mod projection;
 mod starter_industrial;
 #[path = "state_defaults.rs"]

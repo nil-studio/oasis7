@@ -27,6 +27,20 @@ use oasis7_agent_api::world_entity::ModuleVisualEntity;
 const MODULE_RUNTIME_FEE_BYTES_PER_UNIT: u64 = 1_024;
 
 pub(super) trait ModuleCallTarget {
+    /// Root-backed targets override this with their actual admitted streaming
+    /// encoder; materialized legacy stages preserve their original encoder.
+    fn encode_module_input_for_call<T: serde::Serialize>(
+        &self,
+        input: &T,
+    ) -> Result<Vec<u8>, WorldError> {
+        super::super::util::to_canonical_cbor(input)
+    }
+    fn module_manifest_hash_for_call(
+        &self,
+        manifest: &ModuleManifest,
+    ) -> Result<String, WorldError> {
+        super::super::util::hash_json(manifest)
+    }
     fn active_manifest_for_call(&self, module_id: &str) -> Result<ModuleManifest, WorldError>;
     fn current_manifest_hash_for_call(&self) -> Result<String, WorldError>;
     fn state_time_for_call(&self) -> WorldTime;

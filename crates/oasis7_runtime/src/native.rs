@@ -147,6 +147,7 @@ pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields}
 pub use world::incremental_agent_genesis;
 pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
+pub use world::incremental_body_event::materials::CorePolicyMaterialContextV1;
 pub use world::incremental_body_event::{
     AgentEventContext, AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1,
 };
@@ -158,6 +159,11 @@ pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1}
 pub use world::incremental_step::IwsStepContext;
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
+};
+pub use world::{
+    incremental_action_original, incremental_genesis, incremental_genesis_raw,
+    incremental_genesis_typed, incremental_runtime_history_decode,
+    incremental_runtime_history_original, incremental_runtime_history_source,
 };
 
 // Consensus
@@ -507,6 +513,7 @@ pub use oasis7_world_state::incremental_authorization_mapsets;
 
 pub use world::incremental_commit::{
     CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
+    prepare_iws_runtime_commit_v1, prepare_iws_runtime_commit_with_results_v1,
 };
 
 pub use oasis7_world_state::incremental_factory_authority_records;
@@ -580,3 +587,21 @@ pub use world::incremental_scheduler_recovery::{
 };
 
 pub use oasis7_world_state::incremental_cognition_history;
+
+pub use world::incremental_module_execution_authorization::*;
+pub use world::incremental_module_execution_effects::*;
+pub use world::incremental_module_execution_fee::contribute_root_module_fee_and_event_v1;
+pub use world::incremental_module_execution_manifest_hash::*;
+pub use world::incremental_module_execution_output::*;
+
+pub use world::incremental_cache_move;
+
+pub use world::incremental_world_event_counter::WorldEventCounterV1;
+
+pub use world::{
+    incremental_module_execution_emit, incremental_module_execution_visual_anchor,
+    incremental_module_execution_visual_decode, incremental_module_execution_worker,
+};
+
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
+pub use world::iws_rule_core_test_support::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};

@@ -14,8 +14,8 @@ mod read;
 pub use crate::incremental_record_value_read::RecordValueV1 as RuntimeArtifactValueV1;
 pub use read::{
     RuntimeArtifactChildRootV1, RuntimeArtifactMemberProfileV1, RuntimeArtifactRootBindingV1,
-    inspect_runtime_artifact_record_root_v1, read_runtime_artifact_member_v1,
-    read_runtime_artifact_record_reference_v1,
+    inspect_runtime_artifact_record_root_v1, open_current_chain_resource_manifest_v1,
+    read_runtime_artifact_member_v1, read_runtime_artifact_record_reference_v1,
 };
 #[path = "incremental_runtime_artifact_resources_family.rs"]
 mod family;
@@ -24,7 +24,8 @@ mod key;
 pub use family::{
     RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1, RuntimeArtifactResourcesPreparedTransitionV1,
     RuntimeArtifactResourcesQualificationV1, RuntimeArtifactResourcesReadContextV1,
-    qualify_runtime_artifact_resources_v1, readmit_runtime_artifact_resources_ordinary_v1,
+    accept_runtime_artifact_resources_transition_v1, qualify_runtime_artifact_resources_v1,
+    readmit_runtime_artifact_resources_ordinary_v1,
     verify_runtime_artifact_resources_change_transition_v1,
     verify_runtime_artifact_resources_transition_v1,
 };
@@ -129,3 +130,9 @@ mod change;
 pub use change::{
     change_runtime_artifact_body_overlay_v1, change_runtime_builtin_entry_overlay_v1,
 };
+
+#[cfg(test)]
+#[path = "incremental_runtime_artifact_resources_receiver_cold_tests.rs"]
+mod receiver_cold_tests;
+
+pub(crate) use family::accept_runtime_artifact_resources_verified_v1;

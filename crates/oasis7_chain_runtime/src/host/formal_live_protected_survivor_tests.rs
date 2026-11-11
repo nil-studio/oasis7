@@ -277,6 +277,7 @@ pub(in super::super) fn run(
             pending: old.pending.clone(),
             decision_head: old.decision_head.clone(),
             seal: None,
+            data_closure: None,
             durable_set: None,
         })
     };
@@ -421,7 +422,10 @@ pub(in super::super) fn run(
         let FormalQueryOutcomeV1::Recorded(entry) = queried else {
             return Err("survivor original missing".into());
         };
-        let FormalRequestStateV1::Qualified { candidate, proof } = *entry else {
+        let FormalRequestStateV1::Qualified {
+            candidate, proof, ..
+        } = *entry
+        else {
             return Err("survivor original not Qualified".into());
         };
         if candidate.frozen.as_ref() != Some(&frozen_certificate) {

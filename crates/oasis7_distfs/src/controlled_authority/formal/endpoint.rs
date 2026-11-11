@@ -18,7 +18,7 @@ mod published_closure;
 mod storage_maintenance;
 pub use storage_maintenance::{FormalStorageLogicalInventoryPage, FormalStorageLogicalObject};
 #[path = "endpoint_store.rs"]
-mod store;
+pub(super) mod store;
 pub use chunk::{FORMAL_ARCHIVE_CHUNK_LIMIT, FORMAL_ARCHIVE_OBJECT_LIMIT, FormalArchiveChunkV1};
 #[path = "endpoint_native_restore.rs"]
 mod native_restore;
@@ -38,6 +38,11 @@ pub use archive_file::FileFormalArchiveSourceV1;
 mod business;
 #[path = "endpoint_incremental.rs"]
 mod incremental;
+#[cfg(not(target_arch = "wasm32"))]
+pub use incremental::{
+    IwsCandidateSourceWorkV1, IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1,
+    NativeWorkerLeaseV1,
+};
 pub use incremental::{IwsEndpointVerificationBudgetsV1, IwsPageStoreCapabilityV1};
 #[path = "endpoint_durable_set_install.rs"]
 mod durable_set_install;
@@ -101,7 +106,7 @@ pub struct FileFormalEndpoint {
     published_closure_jobs:
         std::collections::BTreeMap<String, store::published_closure::ClosureJob>,
     iws_page_store: Option<incremental::IwsPageStoreCapabilityV1>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     controlled: bool,
 }
 impl FileFormalEndpoint {
@@ -207,10 +212,10 @@ impl FileFormalEndpoint {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled,
         };
-        if controlled && !cfg!(test) {
+        if controlled && !cfg!(any(test, feature = "test-support")) {
             return Err(FormalError::FencingUnproven);
         }
         let _guard = endpoint.guard()?;
@@ -261,7 +266,7 @@ impl FileFormalEndpoint {
                 return Err(FormalError::FencingUnproven);
             }
             let evidence = guard.evidence().map_err(fencing_error)?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             if self.controlled
                 && evidence.statement.capability
                     == fencing::ProviderCapabilityV1::ControlledLocalTest
@@ -298,7 +303,10 @@ impl FileFormalEndpoint {
         provider: &fencing::MonotonicProviderEvidenceV1,
     ) -> Result<(), FormalError> {
         if let Some(entry) = self.store.head_entry()? {
-            let FormalRequestStateV1::Qualified { candidate, proof } = entry else {
+            let FormalRequestStateV1::Qualified {
+                candidate, proof, ..
+            } = entry
+            else {
                 return Err(invalid("formal checkpoint qualified entry"));
             };
             verify_record_material(&proof.decision.record, &candidate.material)?;
@@ -433,6 +441,7 @@ impl FileFormalEndpoint {
                 let FormalRequestStateV1::Qualified { proof, .. } = &entry else {
                     return Err(invalid("formal qualified state"));
                 };
+                next.data_closure = entry.local_data_closure_reference().map(str::to_owned);
                 next.head = FormalHeadRefV1 {
                     position: proof.decision.record.position,
                     record_id: proof.decision.record.record_id()?,
@@ -1103,13 +1112,42 @@ impl FileFormalEndpoint {
             .then_some(self.recovery.as_ref())
             .flatten();
         let verified = verify_formal_qualified(&proof, original, self.parent.as_ref(), recovery)?;
+        let iws=self.authority.definition().profile_version==oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION;
+        #[cfg(not(target_arch = "wasm32"))]
+        if iws {
+            self.check_iws_qualified_install(&verified)?;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if iws {
+            return Err(invalid("IWS Qualified installation unavailable on wasm"));
+        }
+        // Any allocating Formal compatibility outputs are prepared before
+        // the durable accepted checkpoint; IWS refinement itself only moves.
+        let installed_head = verified.head();
+        #[cfg(not(target_arch = "wasm32"))]
+        let data_closure = if iws {
+            self.iws_local_data_reference(&verified)?
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let data_closure = None;
+
         self.write(
-            FormalRequestStateV1::Qualified { candidate, proof },
+            FormalRequestStateV1::Qualified {
+                candidate,
+                proof,
+                data_closure,
+            },
             true,
             guard.as_mut(),
         )?;
-        self.parent = Some(verified.clone());
-        Ok(verified.head())
+        #[cfg(not(target_arch = "wasm32"))]
+        if iws {
+            self.finish_iws_qualified_install(&verified)?;
+        }
+        self.parent = Some(verified);
+        Ok(installed_head)
     }
 }
 
@@ -1121,6 +1159,42 @@ pub use business_parent::VerifiedFormalBusinessParentV1;
 mod committed_material;
 pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
-
+#[path = "endpoint_archive_bounded_read.rs"]
+mod archive_bounded_read;
 #[path = "endpoint_native_environment.rs"]
 mod native_environment;
+pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
+impl FileFormalEndpoint {
+    /// Paid data loading preserves the existing failure poison; it neither
+    /// issues a serving permit nor replaces the formal freeze admission path.
+    fn load_bounded(
+        &mut self,
+        request: &str,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<store::PaidRequestStateV1>, FormalError> {
+        let result = self
+            .store
+            .read_request_bounded(request, memory, work, cancelled);
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
+    }
+}
+pub use incremental::genesis::PaidGenesisAcceptanceV1;
+pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
+pub use incremental::host_source::PaidAcceptedGenesisHostSourceV1;
+pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
+pub(in crate::controlled_authority) use store::bounded_wire::{
+    BoundedWireErrorV1, BoundedWireWorkV1, encode_bounded_wire_v1,
+};
+#[cfg(test)]
+pub(super) use store::with_store_for_bounded_retention_fixture;
+#[cfg(test)]
+pub(in crate::controlled_authority) use tests::{
+    with_bounded_transaction_fixture, with_cold_transaction_fixture,
+    with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
+    with_signed_checkpoint_fixture, with_unaccepted_host_endpoint_fixture,
+};

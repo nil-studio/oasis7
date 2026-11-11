@@ -1,18 +1,34 @@
 use super::*;
 use crate::CausedBy;
 use crate::world::incremental_body::tests::{Pages, fixture, io, limits};
+use crate::world::incremental_body_event::materials::test_support as core_materials;
 use oasis7_formal_protocol::{
-    incremental_execution::{ExecutionParent, TransitionVerifier},
+    incremental_execution::{ExecutionParent, TransitionRecordV1, TransitionVerifier},
     incremental_state::{StateDeltaV1, StateWriteV1},
     incremental_value::ValueTreeError,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+use oasis7_world_state::{
+    incremental_inventory_genesis::{
+        InventoryGenesisContext, InventoryWriteSink, prepare_inventory_genesis_v1,
+    },
+    incremental_semantic_key::SemanticKeyBudget,
+    incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
+};
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     rc::Rc,
     sync::Arc,
 };
+
+struct InventoryWrites(Vec<ReservedValue<StateWriteV1>>);
+impl InventoryWriteSink for InventoryWrites {
+    fn put_write(&mut self, write: ReservedValue<StateWriteV1>) -> Result<(), ValueTreeError> {
+        self.0.push(write);
+        Ok(())
+    }
+}
 
 fn original_work() -> CanonicalCborWorkV1 {
     CanonicalCborWorkV1 {
@@ -165,7 +181,180 @@ fn seed(
     .unwrap();
 
     assert_eq!(world.state.agents.len(), 1);
+    seed_core_policy_inventory(world, parent, state, values, memory);
 }
+
+fn seed_core_policy_inventory(
+    world: &World,
+    parent: &mut ExecutionParent,
+    state: &mut Pages,
+    values: &mut Values,
+    memory: &MemoryBudget,
+) {
+    let mut rows = InventoryWrites(Vec::new());
+    prepare_inventory_genesis_v1(
+        &world.state,
+        &mut InventoryGenesisContext {
+            values,
+            writes: &mut rows,
+            memory,
+            io: &mut io(),
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            },
+            semantic_bytes: 4096,
+            record_bytes: 16 << 20,
+            records_remaining: 10000,
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    let mut writes: Vec<_> = rows.0.iter().map(|row| (**row).clone()).collect();
+    writes.sort_by(|a, b| a.key.cmp(&b.key));
+    let index = Ns::Business as usize - 1;
+    let delta =
+        StateDeltaV1::build(parent.roots.state[index].clone(), writes, state, 8 << 20).unwrap();
+    parent.roots.state[index] = delta.after;
+    for page in delta.new_nodes {
+        state.0.insert(page.digest, page.bytes);
+    }
+}
+
+/// State reader used by the low-level material tests. The raw `Pages` fixture
+/// clones each node without an allocation reservation, so these consumers
+/// must read through a charged adapter backed by the same Ordinary pool as
+/// their transaction.
+pub(super) struct ChargedPages<'a> {
+    pages: &'a Pages,
+    memory: &'a MemoryBudget,
+}
+
+pub(super) struct ChargedPage(ReservedValue<Vec<u8>>);
+
+impl AsRef<[u8]> for ChargedPage {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+impl MerkleNodeReader for ChargedPages<'_> {
+    type Node = ChargedPage;
+
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        Some(MemoryClass::Ordinary)
+    }
+
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        Some(self.memory)
+    }
+
+    fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
+        let Some(bytes) = self.pages.0.get(id) else {
+            return Err("missing test page".into());
+        };
+        if bytes.len() > max {
+            return Err("test page bound".into());
+        }
+        let charge = self
+            .memory
+            .reserve(bytes.len(), MemoryClass::Ordinary)
+            .map_err(|error| error.to_string())?;
+        Ok(Some(ChargedPage(charge.retain(bytes.clone()))))
+    }
+}
+
+pub(super) struct MaterialFixtureOwner<'a> {
+    pub(super) pages: ChargedPages<'a>,
+    pub(super) fixture: core_materials::MaterialFixtureV1,
+}
+
+fn material_fixture<'a, V: ValueNodeReader>(
+    world: &World,
+    roots: &ExecutionParent,
+    pages: &'a Pages,
+    values: &V,
+    memory: &'a MemoryBudget,
+) -> MaterialFixtureOwner<'a> {
+    let pages = ChargedPages { pages, memory };
+    let fixture = core_materials::MaterialFixtureV1::build(
+        &roots.roots,
+        &pages,
+        values,
+        memory,
+        core_materials::MaterialFixtureLimitsV1::for_state(&world.state),
+        || None,
+        || false,
+    );
+    MaterialFixtureOwner { pages, fixture }
+}
+
+/// Separate cold parent discovery from event-time reads. GEN qualifies the
+/// complete inventory family once; the test projection below measures only
+/// the three fixed event values and the two Current material-presence records.
+fn finish_inventory_genesis_read_phase(values: &Values) {
+    let reads = values.reads.replace(0);
+    assert!(
+        reads > 0,
+        "GEN inventory qualification must read its values"
+    );
+}
+
+/// Controls use one root plus one range each. Presence framing authenticates
+/// the header and embedded field key in separate ranges; a Group also checks
+/// its semantic key. Each fixture value/range fits one VALUE_CHUNK_BYTES leaf.
+/// Thus the bound counts protocol passes, rather than assuming one traversal
+/// per logical presence record or including the separate GEN discovery pass.
+fn body_event_value_read_projection(events: usize) -> usize {
+    const ROOT_READS: usize = 1;
+    const READS_PER_SMALL_RANGE: usize = 1;
+    const CONTROL_VALUES: usize = 3;
+    const PRESENCE_HEADER_AND_FIELD_RANGES: usize = 2;
+    const GROUP_SEMANTIC_RANGES: usize = 1;
+    let controls = CONTROL_VALUES * (ROOT_READS + READS_PER_SMALL_RANGE);
+    let metadata = ROOT_READS + PRESENCE_HEADER_AND_FIELD_RANGES * READS_PER_SMALL_RANGE;
+    let group = ROOT_READS
+        + (PRESENCE_HEADER_AND_FIELD_RANGES + GROUP_SEMANTIC_RANGES) * READS_PER_SMALL_RANGE;
+    events
+        .checked_mul(controls + metadata + group)
+        .expect("bounded test event count")
+}
+
+fn assert_body_event_value_reads_within_projection(values: &Values, events: usize) {
+    let reads = values.reads.get();
+    assert!(reads > 0, "event controls must be read");
+    assert!(
+        reads <= body_event_value_read_projection(events),
+        "event value reads {reads} exceed the {events}-event projection"
+    );
+}
+
+/// Keep the six event-specific state-key reads distinct from the two explicit
+/// Current world-ledger lookups (metadata and group). This lets GEN discovery
+/// and per-event normalization grow independently without treating every read
+/// as an event control read.
+fn assert_body_event_state_read_projection(record: &TransitionRecordV1) {
+    let mut control_reads = 0;
+    let mut material_reads = Vec::new();
+    for read in &record.reads {
+        if read.namespace == Ns::Business
+            && let Ok(key) = WorldFieldKeyV1::from_bytes(&read.key)
+            && matches!(key.name, "materials" | "material_ledgers")
+        {
+            material_reads.push((key.name, key.kind));
+        } else {
+            control_reads += 1;
+        }
+    }
+    assert_eq!(control_reads, 6, "six body-event control keys");
+    assert_eq!(
+        material_reads.len(),
+        2,
+        "Current reads only metadata and group"
+    );
+    assert!(material_reads.contains(&("material_ledgers", WorldFieldRecordKindV1::Metadata)));
+    assert!(material_reads.contains(&("material_ledgers", WorldFieldRecordKindV1::Group)));
+}
+
 fn event(world: &World, id: u64) -> WorldEvent {
     let mut view = world.state.agents["alice"].state.body_view.clone();
     view.mass_kg += 1;
@@ -198,13 +387,26 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
         MailboxFrontierV1 { head: 0, tail: 0 },
     );
     let source = values.clone();
+    source.reads.set(0);
+    let mut material_owner = material_fixture(&world, &parent, &state, &source, &memory);
+    finish_inventory_genesis_read_phase(&source);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let original = event(&world, 1);
     let expected = oasis7_wasm_abi::encode_canonical_cbor(&original).unwrap();
     let before = world.state.clone();
     let mut originals = BTreeMap::new();
     let live = parent.fence().unwrap();
-    let mut txn =
-        ExecutionTransaction::begin(parent.clone(), [4; 32], &state, &memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &material_owner.pages,
+        &memory,
+        limits(),
+    )
+    .unwrap();
     world
         .contribute_iws_agent_event(
             &original,
@@ -226,12 +428,14 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
                 max_event_bytes: 1024 * 1024,
                 original_work: original_work(),
             },
+            &mut materials,
+            &live,
         )
         .unwrap();
     let guard = txn.guard();
     let prepared = txn.seal(&guard, &live, 0).unwrap();
     assert_eq!(prepared.record.writes.len(), 4);
-    assert_eq!(prepared.record.reads.len(), 6); // clock metadata/entry, body, sequence, frontier, ordinal
+    assert_body_event_state_read_projection(&prepared.record);
     assert_eq!(prepared.record.facts.len(), 1);
     let fact = &prepared.record.facts[0];
     assert_eq!(fact.kind, ExecutionFactKindV1::Event);
@@ -264,7 +468,7 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
             _ => unreachable!(),
         })
     );
-    assert_eq!(source.reads.get(), 6); // two controls and the current body value
+    assert_body_event_value_reads_within_projection(&source, 1);
     assert_eq!(world.state, before);
     TransitionVerifier {
         parent: &parent,
@@ -319,6 +523,11 @@ fn late_original_or_fact_failure_prevents_sealing_all_staged_state() {
             MailboxFrontierV1 { head: 0, tail: 0 },
         );
         let source = values.clone();
+        let mut material_owner = material_fixture(&world, &parent, &state, &source, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
         let mut original = event(&world, 1);
         if mode == 2 {
             original.id = 2;
@@ -331,8 +540,14 @@ fn late_original_or_fact_failure_prevents_sealing_all_staged_state() {
         if mode == 1 {
             profile.max_facts = 0;
         }
-        let mut txn =
-            ExecutionTransaction::begin(parent, [4; 32], &state, &memory, profile).unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [4; 32],
+            &material_owner.pages,
+            &memory,
+            profile,
+        )
+        .unwrap();
         txn.write(Ns::Business, b"outer-debit", Some([9; 32]))
             .unwrap();
         let called = Cell::new(false);
@@ -361,6 +576,8 @@ fn late_original_or_fact_failure_prevents_sealing_all_staged_state() {
                 max_event_bytes: if mode == 4 { 1 } else { 1024 * 1024 },
                 original_work: original_work(),
             },
+            &mut materials,
+            &live,
         );
         assert!(result.is_err());
         if mode == 0 {
@@ -401,8 +618,22 @@ fn mailbox_offsets_and_event_era_preserve_original_allocator_semantics() {
         },
     );
     let source = values.clone();
+    source.reads.set(0);
+    let mut material_owner = material_fixture(&world, &parent, &state, &source, &memory);
+    finish_inventory_genesis_read_phase(&source);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let live = parent.fence().unwrap();
-    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &material_owner.pages,
+        &memory,
+        limits(),
+    )
+    .unwrap();
     world
         .contribute_iws_agent_event(
             &event(&world, u64::MAX),
@@ -421,6 +652,8 @@ fn mailbox_offsets_and_event_era_preserve_original_allocator_semantics() {
                 max_event_bytes: 1024 * 1024,
                 original_work: original_work(),
             },
+            &mut materials,
+            &live,
         )
         .unwrap();
     let guard = txn.guard();
@@ -431,7 +664,7 @@ fn mailbox_offsets_and_event_era_preserve_original_allocator_semantics() {
                 .unwrap()
                 .as_bytes()
     }));
-    assert_eq!(source.reads.get(), 6);
+    assert_body_event_value_reads_within_projection(&source, 1);
     let sequence = prepared
         .record
         .writes
@@ -517,8 +750,22 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
         MailboxFrontierV1 { head: 0, tail: 0 },
     );
     let source = values.clone();
+    source.reads.set(0);
+    let mut material_owner = material_fixture(&world, &parent, &state, &source, &memory);
+    finish_inventory_genesis_read_phase(&source);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let live = parent.fence().unwrap();
-    let mut txn = ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &material_owner.pages,
+        &memory,
+        limits(),
+    )
+    .unwrap();
     let mut ids = Vec::new();
     let mut quota = io();
     let mut context = AgentEventContext {
@@ -545,8 +792,9 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
             view.mass_kg += id - 1;
         }
         world
-            .contribute_iws_agent_event(&next, &mut txn, &mut context)
+            .contribute_iws_agent_event(&next, &mut txn, &mut context, &mut materials, &live)
             .unwrap();
+        assert_body_event_value_reads_within_projection(&source, id as usize);
     }
     let guard = txn.guard();
     let prepared = txn.seal(&guard, &live, 0).unwrap();
@@ -561,7 +809,6 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
     );
     assert_eq!(prepared.record.writes.len(), 5);
     assert_eq!(world.state, original_state);
-    assert_eq!(source.reads.get(), 12);
 }
 
 #[path = "incremental_agent_move_tests.rs"]
@@ -580,3 +827,6 @@ mod originals;
 
 #[path = "incremental_agent_event_original_fact_tests.rs"]
 mod original_fact;
+
+#[path = "incremental_agent_registration_tests.rs"]
+mod registration;

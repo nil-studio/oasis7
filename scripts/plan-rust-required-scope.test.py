@@ -5081,6 +5081,27 @@ class NativeSupportContracts(unittest.TestCase):
         plan = selector.select(config, target, self.commit(), profile='pr-fast')
         self.assertNotIn('ordinary_support_handoffs', plan)
 
+    def test_native_manifest_codec_keeps_private_cli_support_handoff(self):
+        config, _ = self.fixture()
+        source = (HERE.parent / 'crates/oasis7_world_state/src/incremental_world_native_gameplay_manifest.rs').read_text()
+        self.write('crates/native_dto/Cargo.toml', '[package]\nname="native_dto"\nversion="0.1.0"\n')
+        self.write('crates/native_dto/src/lib.rs', source)
+        base = self.commit()
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertEqual(plan.get('ordinary_support_handoffs'), [self.OWNER])
+        self.assertEqual(plan['ordinary_support_deferred'], self.CONSUMERS)
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(len(plan['ordinary_fast_targets']), 5)
+
+    def test_unreviewed_dto_command_macro_keeps_conservative_consumer_coverage(self):
+        config, _ = self.fixture()
+        self.write('crates/native_dto/Cargo.toml', '[package]\nname="native_dto"\nversion="0.1.0"\n')
+        self.write('crates/native_dto/src/lib.rs', 'dto!(ModuleSchemaDeclarations, { commands, });\n')
+        base = self.commit()
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertIn(self.CONSUMERS[0], plan['workspace_support_profiles'])
+
     def test_local_proc_macro_in_consumer_dependencies_requires_generator_review(self):
         config, _ = self.fixture()
         self.write('crates/macro_tools/Cargo.toml',

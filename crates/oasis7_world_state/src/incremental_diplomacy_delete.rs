@@ -8,7 +8,7 @@ pub struct DiplomacyClosedDeleteV1<'a> {
     pub expected: DiplomacySourceV1<'a>,
     pub max_current_payload_bytes: u64,
 }
-pub fn delete_qualified_diplomacy_closed_v1<
+fn delete_impl<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -18,14 +18,17 @@ pub fn delete_qualified_diplomacy_closed_v1<
     context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     guard: &PreparedGuard,
     live: &ExecutionFence,
+    allow_alliance: bool,
+    cells: &mut u64,
 ) -> Result<(), WorldFieldOverlayErrorV1> {
     context.transaction.contribute(|tx| {
         tx.validate_guard(guard, live)?;
         let field = request.expected.field();
-        if !matches!(
+        if !(matches!(
             field,
             DiplomacyFieldV1::Crises | DiplomacyFieldV1::EconomicContracts
-        ) {
+        ) || (allow_alliance && field == DiplomacyFieldV1::Alliances))
+        {
             return Err(closure::invalid().into());
         }
         let _scratch = context
@@ -52,6 +55,12 @@ pub fn delete_qualified_diplomacy_closed_v1<
             .iter()
             .zip(profile::fixed(request.expected))
         {
+            *cells = cells
+                .checked_sub(1)
+                .ok_or(ValueTreeError::ResourceLimited("diplomacy delete cells"))?;
+            if (records.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
             let key = spec.path.overlay(field, &mut records)?;
             let root = inner_tree::lookup(child, &key.0, &mut records)?;
             match (payload, root) {
@@ -66,6 +75,28 @@ pub fn delete_qualified_diplomacy_closed_v1<
                 _ => return Err(closure::invalid().into()),
             }
         }
+        if let DiplomacySourceV1::Alliance(expected) = request.expected {
+            for (i, member) in expected.members.iter().enumerate() {
+                *cells = cells
+                    .checked_sub(1)
+                    .ok_or(ValueTreeError::ResourceLimited("diplomacy delete members"))?;
+                if (records.cancelled)() {
+                    return Err(ValueTreeError::Cancelled.into());
+                }
+                let key =
+                    Path::Ordinal("members", u64::try_from(i).map_err(|_| closure::invalid())?)
+                        .overlay(field, &mut records)?;
+                let value = inner_tree::lookup(child, &key.0, &mut records)?
+                    .ok_or_else(closure::invalid)?;
+                scalars::expected(
+                    MemberPayloadRefV1::Text(member),
+                    &value,
+                    &key,
+                    &mut records,
+                    request.max_current_payload_bytes,
+                )?;
+            }
+        }
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
@@ -75,4 +106,42 @@ pub fn delete_qualified_diplomacy_closed_v1<
         }
         Ok(())
     })
+}
+
+pub fn delete_qualified_diplomacy_closed_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    request: DiplomacyClosedDeleteV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    let mut cells = u64::try_from(profile::specs(request.expected.field()).len())
+        .map_err(|_| closure::invalid())?;
+    delete_impl(request, context, guard, live, false, &mut cells)
+}
+/// Deletes only after the genuine Current child and the complete original
+/// expected projection (including every member ordinal) agree. War/business
+/// restrictions remain with the business consumer.
+pub fn delete_qualified_alliance_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    request: DiplomacyClosedDeleteV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    cells: &mut u64,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    if !matches!(request.expected, DiplomacySourceV1::Alliance(_)) {
+        return context
+            .transaction
+            .contribute(|_| Err(closure::invalid().into()));
+    }
+    delete_impl(request, context, guard, live, true, cells)
 }

@@ -16,15 +16,33 @@ use oasis7_formal_protocol::{
 };
 use oasis7_wasm_abi::{CanonicalCborWorkV1, ModuleTickLifecycleDirective};
 
+/// Proof produced only after an agent event and its counted original succeed.
+pub(super) struct PersistedAgentEventV1<'event> {
+    event: &'event WorldEvent,
+    identity: oasis7_formal_protocol::incremental_execution::PreparedGuard,
+}
+impl PersistedAgentEventV1<'_> {
+    pub(super) fn event(&self) -> &WorldEvent {
+        self.event
+    }
+    pub(super) fn validate<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+    ) -> Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> {
+        tx.validate_transaction_identity(&self.identity)
+    }
+}
+
 /// Borrows, rather than begins or seals, the one parent-bound transaction.
 /// The private clock is minted only after authenticating the overlay's old
 /// clock and staging its successor. No materialized World is retained.
 pub struct IwsStepContext<'tx, 'parent, 'context, 'io, R: MerkleNodeReader, V, W, C> {
-    transaction: &'tx mut ExecutionTransaction<'parent, R>,
-    values: &'context V,
-    mutation: &'context mut BodyMutationContext<'io, W, C>,
-    original_work: &'context mut CanonicalCborWorkV1,
+    pub(super) transaction: &'tx mut ExecutionTransaction<'parent, R>,
+    pub(super) values: &'context V,
+    pub(super) mutation: &'context mut BodyMutationContext<'io, W, C>,
+    pub(super) original_work: &'context mut CanonicalCborWorkV1,
     now: u64,
+    world_events: Option<super::incremental_world_event_counter::WorldEventCounterV1>,
 }
 
 impl<'tx, 'parent, 'context, 'io, R, V, W, C>
@@ -54,7 +72,91 @@ where
             mutation: context,
             original_work,
             now,
+            world_events: None,
         })
+    }
+
+    /// Bind the same genuine parent ledger counter used by every WorldEvent
+    /// sink in this step. Input and Cognition facts never advance this count.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The actual transaction, clock and finite stream contexts remain explicit."
+    )]
+    pub fn begin_counted(
+        transaction: &'tx mut ExecutionTransaction<'parent, R>,
+        expected_time: u64,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        values: &'context V,
+        context: &'context mut BodyMutationContext<'io, W, C>,
+        original_work: &'context mut CanonicalCborWorkV1,
+        counter: &super::incremental_world_event_counter::WorldEventCounterV1,
+    ) -> Result<Self, BodyMutationError> {
+        transaction.contribute(|tx| counter.validate(tx))?;
+        let mut step = Self::begin(
+            transaction,
+            expected_time,
+            guard,
+            live,
+            values,
+            context,
+            original_work,
+        )?;
+        step.world_events = Some(counter.clone());
+        Ok(step)
+    }
+
+    /// Reborrow an already-started counted tick between concrete phases. The
+    /// authenticated clock must already equal `now`; this never advances it.
+    /// The caller retains the same transaction and counter across module calls.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn borrow_counted_at(
+        transaction: &'tx mut ExecutionTransaction<'parent, R>,
+        now: u64,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        values: &'context V,
+        context: &'context mut BodyMutationContext<'io, W, C>,
+        original_work: &'context mut CanonicalCborWorkV1,
+        counter: &super::incremental_world_event_counter::WorldEventCounterV1,
+    ) -> Result<Self, BodyMutationError> {
+        transaction.contribute(|transaction| {
+            transaction.validate_guard(guard, live)?;
+            counter.validate(transaction)?;
+            super::incremental_clock::check_clock(now, transaction, context)
+        })?;
+        Ok(Self {
+            transaction,
+            values,
+            mutation: context,
+            original_work,
+            now,
+            world_events: Some(counter.clone()),
+        })
+    }
+
+    pub fn journal_height(&self) -> Result<u64, BodyMutationError> {
+        self.world_events
+            .as_ref()
+            .ok_or(BodyMutationError::Invalid(
+                "step requires WorldEvent counter",
+            ))?
+            .journal_height(self.transaction)
+    }
+
+    pub(super) fn begin_world_event(&mut self) -> Result<usize, BodyMutationError> {
+        if let Some(counter) = &self.world_events {
+            self.transaction.contribute(|tx| counter.validate(tx))?;
+        }
+        Ok(self.transaction.ordered_fact_count())
+    }
+
+    pub(super) fn finish_world_event(&mut self, before: usize) -> Result<(), BodyMutationError> {
+        if let Some(counter) = &self.world_events {
+            self.transaction
+                .contribute(|tx| counter.note_success(tx, before))?;
+        }
+        Ok(())
     }
 
     pub fn time(&self) -> u64 {
@@ -73,12 +175,19 @@ where
     pub fn dispatch_agent_event<F>(
         &mut self,
         event: &WorldEvent,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+        >,
+        live: &ExecutionFence,
         max_event_bytes: usize,
         persist_original: F,
     ) -> Result<(), BodyMutationError>
     where
         F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
     {
+        let before = self.begin_world_event()?;
         // Preserve the public stream context's owned work API without copying
         // or resetting allowances between events, including failed attempts.
         let placeholder = CanonicalCborWorkV1 {
@@ -100,10 +209,54 @@ where
             max_event_bytes,
             original_work: std::mem::replace(self.original_work, placeholder),
         };
-        let result =
-            World::contribute_iws_agent_event_at(self.now, event, self.transaction, &mut context);
+        let result = World::contribute_iws_agent_event_at(
+            self.now,
+            event,
+            self.transaction,
+            &mut context,
+            materials,
+            live,
+        );
         *self.original_work = context.original_work;
-        result
+        result?;
+        self.finish_world_event(before)
+    }
+
+    pub(super) fn dispatch_persisted_agent_event<'event, F>(
+        &mut self,
+        event: &'event WorldEvent,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+        >,
+        live: &ExecutionFence,
+        max_event_bytes: usize,
+        persist_original: F,
+    ) -> Result<
+        super::incremental_module_execution_event::PersistedWorldEventV1<'event>,
+        BodyMutationError,
+    >
+    where
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    {
+        self.transaction.contribute(|tx| {
+            self.world_events
+                .as_ref()
+                .ok_or(BodyMutationError::Invalid(
+                    "persisted agent event requires WorldEvent counter",
+                ))?
+                .validate(tx)
+        })?;
+        self.dispatch_agent_event(event, materials, live, max_event_bytes, persist_original)?;
+        Ok(
+            super::incremental_module_execution_event::PersistedWorldEventV1::from_agent(
+                PersistedAgentEventV1 {
+                    event,
+                    identity: self.transaction.guard(),
+                },
+            ),
+        )
     }
 
     /// Contribute a ModuleStateUpdated event without creating or advancing an
@@ -121,6 +274,7 @@ where
     where
         F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
     {
+        let before = self.begin_world_event()?;
         let placeholder = CanonicalCborWorkV1 {
             visits_remaining: 0,
             bytes_remaining: 0,
@@ -143,7 +297,72 @@ where
         };
         let result = contribute_module_state_event(self.now, event, self.transaction, &mut context);
         *self.original_work = context.original_work;
-        result
+        result?;
+        self.finish_world_event(before)
+    }
+
+    /// Register a qualified absent cell using this step's authenticated clock.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Qualified registration keeps the same transaction, read budgets, event writer and live fence explicit."
+    )]
+    pub fn dispatch_agent_registration<F, E>(
+        &mut self,
+        qualification: &oasis7_proto::memory_budget::ReservedValue<
+            oasis7_world_state::incremental_agent_subtree::AgentSubtreeStructureQualificationV1,
+        >,
+        event: &WorldEvent,
+        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
+            '_,
+            R,
+            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+        >,
+        key_work: &mut oasis7_world_state::incremental_semantic_key::SemanticKeyBudget,
+        read_io: &mut oasis7_formal_protocol::incremental_value::ValueIoBudget,
+        semantic_bytes: u64,
+        record_bytes: u64,
+        take_state_error: E,
+        live: &ExecutionFence,
+        max_event_bytes: usize,
+        persist_original: F,
+    ) -> Result<(), BodyMutationError>
+    where
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        E: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    {
+        let before = self.begin_world_event()?;
+        let guard = self.transaction.guard();
+        let result = World::contribute_iws_agent_registration_at(
+            self.now,
+            event,
+            qualification,
+            &mut oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1 {
+                transaction: self.transaction,
+                values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                    source: self.values,
+                    memory: self.mutation.memory,
+                    class: oasis7_proto::memory_budget::MemoryClass::Ordinary,
+                    io: read_io,
+                },
+                key_work,
+                semantic_bytes,
+                record_bytes,
+                take_state_error,
+                cancelled: || false,
+            },
+            self.mutation,
+            materials,
+            &guard,
+            live,
+            self.original_work,
+            max_event_bytes,
+            persist_original,
+        );
+        result?;
+        self.transaction.contribute(|transaction| {
+            super::incremental_clock::check_clock(self.now, transaction, self.mutation)
+        })?;
+        self.finish_world_event(before)
     }
 
     pub fn allocate(

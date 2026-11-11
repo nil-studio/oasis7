@@ -292,7 +292,14 @@ impl VerifiedFormalReadAnchorV1 {
         };
         // This construction is confined to an independently pinned checkpoint;
         // ordinary unpinned response data can never reach it.
+        let mut verified_record_id = [0u8; 32];
+        hex::decode_to_slice(
+            &checkpoint.head_record.record_id()?,
+            &mut verified_record_id,
+        )
+        .map_err(|_| invalid("verified commit cached record id"))?;
         let head = VerifiedFormalCommitV1 {
+            verified_record_id,
             record: checkpoint.head_record.clone(),
             finalizing_authority_id: checkpoint.head_finalizing_authority_id.clone(),
         };

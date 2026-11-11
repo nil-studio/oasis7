@@ -6202,6 +6202,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "wat",
  "windows-sys 0.61.2",
  "zeroize",
 ]
@@ -6370,6 +6371,7 @@ dependencies = [
  "oasis7_consensus",
  "oasis7_formal_protocol",
  "oasis7_proto",
+ "oasis7_wasm_abi",
  "oasis7_wasm_build",
  "oasis7_world_state",
  "polling",
@@ -6724,6 +6726,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oasis7_runtime_iws_tests"
+version = "0.1.0"
+dependencies = [
+ "oasis7_runtime",
+]
+
+[[package]]
 name = "oasis7_secure_envelope"
 version = "0.1.0"
 dependencies = [
@@ -6835,6 +6844,8 @@ name = "oasis7_wasm_executor"
 version = "0.1.0"
 dependencies = [
  "oasis7_wasm_abi",
+ "regex",
+ "rustix 1.1.4",
  "serde",
  "serde_cbor_2",
  "sha2 0.11.0",

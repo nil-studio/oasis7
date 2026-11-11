@@ -113,13 +113,16 @@ pub use read::{
 mod closure;
 #[path = "incremental_governance_records_key_read.rs"]
 mod key_read;
-pub use closure::{GovernanceRecordQualificationV1, qualify_governance_body_v1};
+pub use closure::{
+    GovernanceRecordQualificationV1, qualify_governance_body_v1,
+    readmit_governance_record_ordinary_v1,
+};
 
 #[path = "incremental_governance_records_family.rs"]
 mod family;
 pub use family::{
     GovernanceFamilyQualificationV1, open_qualified_governance_record_v1,
-    qualify_governance_family_v1,
+    qualify_governance_family_v1, readmit_governance_family_ordinary_v1,
 };
 
 #[path = "incremental_governance_records_point.rs"]
@@ -158,3 +161,5 @@ pub use pages::{
     GovernanceFamilyPagesV1, GovernancePagesWorkV1, mark_governance_family_pages_v1,
     transfer_governance_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_governance_verified_v1;

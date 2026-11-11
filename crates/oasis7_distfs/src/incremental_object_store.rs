@@ -18,6 +18,8 @@ pub use recovery_reader::RecoveryObjectReadSession;
 #[path = "incremental_object_cursor.rs"]
 mod cursor;
 pub use cursor::VerifiedOriginalCursor;
+#[path = "incremental_object_durable.rs"]
+mod durable;
 
 pub struct IncrementalObjectStore<'a> {
     pages: &'a IncrementalPageStore,

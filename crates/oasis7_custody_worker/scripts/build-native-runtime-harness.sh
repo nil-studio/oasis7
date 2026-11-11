@@ -7,6 +7,8 @@ if [[ "$(worker-build --version)" != "0.7.5" ]]; then
 fi
 mkdir .role-build-lock 2>/dev/null || { echo 'another role build is running' >&2; exit 2; }
 trap 'rmdir .role-build-lock' EXIT
+WASM_BINDGEN_BIN="$(../../scripts/ensure-wasm-bindgen-cli.sh --print-bin)"
+export WASM_BINDGEN_BIN
 # Isolated test artifact; never overwrite artifacts/identity or enable in deployment.
 env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-features --features identity,native-runtime-harness
 mkdir -p artifacts

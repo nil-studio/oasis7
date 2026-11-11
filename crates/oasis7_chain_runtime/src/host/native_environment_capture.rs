@@ -13,80 +13,7 @@ pub(crate) fn capture(
 ) -> Result<NativeExecutionEnvironmentV1, String> {
     #[cfg(target_os = "linux")]
     {
-        let mut total_bytes = 0u64;
-        let mut bounded_sink = |digest: &str, bytes: &[u8]| {
-            total_bytes = total_bytes
-                .checked_add(bytes.len() as u64)
-                .ok_or("native total length overflow")?;
-            if total_bytes > 4 * 1024 * 1024 * 1024u64 {
-                return Err("native environment total byte budget".to_string());
-            }
-            sink(digest, bytes)
-        };
-        let mut executable = crate::executable_image::open_loaded_image()?;
-        let before = executable.metadata().map_err(|e| e.to_string())?;
-        let inventory = linux::inventory()?;
-        let mut libraries = linux::pin(&inventory, &before)?;
-        let mut components = vec![component(
-            NativeEnvironmentRole::Executable,
-            "loaded-executable",
-            &mut executable,
-            &mut bounded_sink,
-        )?];
-        for (name, file, _) in &mut libraries {
-            components.push(component(
-                NativeEnvironmentRole::LoadedLibrary,
-                name,
-                file,
-                &mut bounded_sink,
-            )?);
-        }
-        for (name, bytes) in [
-            (
-                "build/metadata",
-                include_bytes!(concat!(env!("OUT_DIR"), "/native-build-metadata.txt")).as_slice(),
-            ),
-            (
-                "build/toolchain",
-                include_bytes!(concat!(env!("OUT_DIR"), "/native-toolchain.txt")).as_slice(),
-            ),
-            (
-                "build/Cargo.lock",
-                include_bytes!(concat!(env!("OUT_DIR"), "/native-Cargo.lock")).as_slice(),
-            ),
-        ] {
-            components.push(component(
-                NativeEnvironmentRole::BuildMetadata,
-                name,
-                &mut &bytes[..],
-                &mut bounded_sink,
-            )?);
-        }
-        crate::executable_image::validate_loaded_file(&executable)?;
-        if !crate::executable_image::unchanged(
-            &before,
-            &executable.metadata().map_err(|e| e.to_string())?,
-        ) || inventory != linux::inventory()?
-        {
-            return Err("Unavailable: loaded native environment changed during capture".into());
-        }
-        for (_, file, before) in &libraries {
-            if !crate::executable_image::unchanged(
-                before,
-                &file.metadata().map_err(|e| e.to_string())?,
-            ) {
-                return Err("Unavailable: mapped dependency changed during capture".into());
-            }
-        }
-        let descriptor = NativeExecutionEnvironmentV1 {
-            schema_version: 1,
-            target: env!("NATIVE_BUILD_TARGET").into(),
-            os: env!("NATIVE_BUILD_CARGO_CFG_TARGET_OS").into(),
-            arch: env!("NATIVE_BUILD_CARGO_CFG_TARGET_ARCH").into(),
-            components,
-        };
-        descriptor.validate()?;
-        Ok(descriptor)
+        Ok(worker::capture_pinned_v1(worker::CaptureModeV1::Ordinary, &mut sink)?.descriptor)
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -165,3 +92,15 @@ mod linux;
 #[cfg(test)]
 #[path = "native_environment_capture_tests.rs"]
 mod tests;
+
+#[cfg(target_os = "linux")]
+#[path = "native_environment_capture_worker.rs"]
+mod worker;
+#[cfg(target_os = "linux")]
+pub(crate) use worker::worker_main_v1 as native_bound_worker_main_v1;
+
+#[cfg(all(feature = "native-worker-test-support", target_os = "linux"))]
+#[path = "native_environment_worker_test_support.rs"]
+mod fixture_support;
+#[cfg(all(feature = "native-worker-test-support", target_os = "linux"))]
+pub(crate) use fixture_support::{fixture_capture_v1, fixture_worker_main_v1};

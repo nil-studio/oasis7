@@ -58,6 +58,7 @@ impl<R: MerkleNodeReader> ScheduleScanContext<'_, R> {
             leaves,
             cancelled: &cancelled,
             stop: &stop,
+            failed: None,
         };
         let mut view = Updater::<ScheduleCodec<1>, _>::new(
             &source,

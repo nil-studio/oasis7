@@ -42,6 +42,8 @@ pub(super) struct HotBody {
     pub seal: Option<EpochSealBodyV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub durable_set: Option<DurableSetNativeBindingV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_closure: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

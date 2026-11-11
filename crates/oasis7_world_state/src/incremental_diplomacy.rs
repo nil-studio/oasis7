@@ -168,3 +168,25 @@ mod scalar_point;
 pub use scalar_point::{
     DiplomacyScalarChangeV1, DiplomacyScalarValueV1, change_qualified_diplomacy_scalar_v1,
 };
+
+pub(crate) use receiver::accept_diplomacy_verified_v1;
+
+pub use create::{AllianceCreateV1, create_qualified_alliance_v1};
+pub use delete::delete_qualified_alliance_v1;
+pub use family::{
+    DiplomacyIndexWorkV1, DiplomacyRelationObservationV1, observe_current_active_wars_v1,
+    observe_current_alliance_memberships_v1, open_current_diplomacy_relation_record_v1,
+    readmit_diplomacy_family_ordinary_cancellable_v1,
+    readmit_diplomacy_family_ordinary_with_work_v1,
+};
+
+#[path = "incremental_diplomacy_crisis_current.rs"]
+mod crisis_current;
+pub use crisis_current::open_current_diplomacy_crisis_record_v1;
+
+#[path = "incremental_diplomacy_current.rs"]
+mod current;
+
+#[path = "incremental_diplomacy_contract_current.rs"]
+mod contract_current;
+pub use contract_current::open_current_diplomacy_contract_record_v1;

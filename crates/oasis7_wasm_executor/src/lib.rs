@@ -1,5 +1,12 @@
 //! Sandbox execution scaffolding for WASM modules.
 
+pub mod bounded_worker;
+mod incremental_output;
+#[cfg(feature = "wasmtime")]
+mod worker_execution_context;
+mod worker_execution_entry;
+#[cfg(feature = "wasmtime")]
+use worker_execution_context::WorkerExecutionContextV1;
 mod metrics;
 
 pub use metrics::{
@@ -36,13 +43,6 @@ use std::time::Instant;
 const COMPILED_CACHE_MAGIC: &[u8; 8] = b"O7CWASM1";
 #[cfg(feature = "wasmtime")]
 const COMPILED_CACHE_VERSION: u32 = 1;
-
-fn count_exceeds_limit(count: usize, limit: u32) -> bool {
-    match u32::try_from(count) {
-        Ok(value) => value > limit,
-        Err(_) => true,
-    }
-}
 
 /// A sandbox stub that always returns a fixed result.
 #[derive(Debug, Clone)]
@@ -118,6 +118,7 @@ pub struct WasmExecutor {
 #[cfg(feature = "wasmtime")]
 struct WasmStoreState {
     limits: wasmtime::StoreLimits,
+    worker: Option<Arc<WorkerExecutionContextV1>>,
 }
 
 #[cfg(feature = "wasmtime")]
@@ -310,6 +311,32 @@ impl WasmExecutor {
         metrics: SharedWasmExecutorMetrics,
         wall_clock_timeout_enabled: bool,
     ) -> Result<Self, WasmExecutorInitError> {
+        Self::new_with_worker_mode(config, metrics, wall_clock_timeout_enabled, false)
+    }
+
+    /// Configure the engine used inside the OS-limited worker. This constructor
+    /// alone does not install a process limit; the worker launcher owns that
+    /// boundary before exec. Existing in-process constructors retain their
+    /// original virtual-memory configuration.
+    pub fn new_for_bounded_worker_v1(
+        mut config: WasmExecutorConfig,
+    ) -> Result<Self, WasmExecutorInitError> {
+        if config.max_fuel == 0 || config.max_mem_bytes == 0 || config.max_output_bytes == 0 {
+            return Err(WasmExecutorInitError::EngineInit(
+                "bounded worker requires finite positive budgets".into(),
+            ));
+        }
+        config.max_cache_entries = 1;
+        config.compiled_cache_dir = None;
+        Self::new_with_worker_mode(config, global_wasm_executor_metrics(), false, true)
+    }
+
+    fn new_with_worker_mode(
+        config: WasmExecutorConfig,
+        metrics: SharedWasmExecutorMetrics,
+        wall_clock_timeout_enabled: bool,
+        _bounded_worker: bool,
+    ) -> Result<Self, WasmExecutorInitError> {
         #[cfg(feature = "wasmtime")]
         {
             let mut engine_config = wasmtime::Config::new();
@@ -322,6 +349,11 @@ impl WasmExecutor {
             engine_config.wasm_threads(false);
             engine_config.wasm_wide_arithmetic(false);
             engine_config.cranelift_nan_canonicalization(true);
+            if _bounded_worker {
+                engine_config.memory_reservation(config.max_mem_bytes);
+                engine_config.memory_guard_size(0);
+                engine_config.memory_reservation_for_growth(0);
+            }
             if !wall_clock_timeout_enabled {
                 // Relaxed SIMD otherwise permits architecture-dependent results.
                 engine_config.relaxed_simd_deterministic(true);
@@ -601,29 +633,8 @@ impl WasmExecutor {
         request: &ModuleCallRequest,
         output: &ModuleOutput,
     ) -> Result<(), ModuleCallFailure> {
-        let limits = &request.limits;
-        if count_exceeds_limit(output.effects.len(), limits.max_effects) {
-            return Err(self.failure(
-                request,
-                ModuleCallErrorCode::EffectLimitExceeded,
-                "effects exceeded",
-            ));
-        }
-        if count_exceeds_limit(output.emits.len(), limits.max_emits) {
-            return Err(self.failure(
-                request,
-                ModuleCallErrorCode::EmitLimitExceeded,
-                "emits exceeded",
-            ));
-        }
-        if output.output_bytes > limits.max_output_bytes {
-            return Err(self.failure(
-                request,
-                ModuleCallErrorCode::OutputTooLarge,
-                "output bytes exceeded",
-            ));
-        }
-        Ok(())
+        oasis7_wasm_abi::module_raw_output::validate_module_output_limits_v1(request, output)
+            .map_err(|(code, detail)| self.failure(request, code, detail))
     }
 
     #[cfg_attr(not(feature = "wasmtime"), allow(dead_code))]
@@ -664,6 +675,36 @@ impl WasmExecutor {
 
 impl ModuleSandbox for WasmExecutor {
     fn call(&mut self, request: &ModuleCallRequest) -> Result<ModuleOutput, ModuleCallFailure> {
+        self.call_with_raw_output(request, |output_buf| {
+            #[cfg(feature = "wasmtime")]
+            let decode_started = Instant::now();
+            let mut output: ModuleOutput = serde_cbor::from_slice(output_buf).map_err(|err| {
+                #[cfg(feature = "wasmtime")]
+                #[cfg(feature = "wasmtime")]
+                metrics::observe_wasm_executor_decode(&self.metrics, elapsed_ms(decode_started));
+                self.failure(
+                    request,
+                    ModuleCallErrorCode::InvalidOutput,
+                    format!("output CBOR decode failed: {err}"),
+                )
+            })?;
+            #[cfg(feature = "wasmtime")]
+            metrics::observe_wasm_executor_decode(&self.metrics, elapsed_ms(decode_started));
+            output.output_bytes = output_buf.len() as u64;
+            self.validate_output_limits(request, &output)?;
+            Ok(output)
+        })
+    }
+}
+impl WasmExecutor {
+    fn call_with_raw_output_context<T>(
+        &self,
+        request: &ModuleCallRequest,
+        consume: impl FnOnce(&[u8]) -> Result<T, ModuleCallFailure>,
+        #[cfg(feature = "wasmtime")] context: Option<&Arc<WorkerExecutionContextV1>>,
+    ) -> Result<T, ModuleCallFailure> {
+        #[cfg(not(feature = "wasmtime"))]
+        let _ = &consume;
         let total_started = Instant::now();
         #[cfg(feature = "wasmtime")]
         {
@@ -692,9 +733,14 @@ impl ModuleSandbox for WasmExecutor {
                     &self.engine,
                     WasmStoreState {
                         limits: self.build_store_limits(request),
+                        worker: context.cloned(),
                     },
                 );
-                store.limiter(|state| &mut state.limits);
+                if context.is_some() {
+                    store.limiter(|state| state);
+                } else {
+                    store.limiter(|state| &mut state.limits);
+                }
                 store.epoch_deadline_trap();
                 store.set_epoch_deadline(1);
                 let _watchdog = self
@@ -712,7 +758,8 @@ impl ModuleSandbox for WasmExecutor {
                     &self.metrics,
                     elapsed_ms(instantiate_started),
                 );
-                let instance = instance.map_err(|err| self.map_wasmtime_error(request, err))?;
+                let instance = instance
+                    .map_err(|err| self.map_worker_execution_error(request, err, context))?;
                 let memory = instance.get_memory(&mut store, "memory").ok_or_else(|| {
                     self.failure(
                         request,
@@ -802,7 +849,7 @@ impl ModuleSandbox for WasmExecutor {
                 })?;
                 let input_ptr = alloc
                     .call(&mut store, input_len)
-                    .map_err(|err| self.map_wasmtime_error(request, err))?;
+                    .map_err(|err| self.map_worker_execution_error(request, err, context))?;
                 if input_ptr < 0 {
                     return Err(self.failure(
                         request,
@@ -840,11 +887,11 @@ impl ModuleSandbox for WasmExecutor {
                 let output_pair = match call {
                     EntrypointAbi::Multi(func) => func
                         .call(&mut store, (input_ptr, input_len))
-                        .map_err(|err| self.map_wasmtime_error(request, err))?,
+                        .map_err(|err| self.map_worker_execution_error(request, err, context))?,
                     EntrypointAbi::PackedI64(func) => {
                         let packed = func
                             .call(&mut store, (input_ptr, input_len))
-                            .map_err(|err| self.map_wasmtime_error(request, err))?
+                            .map_err(|err| self.map_worker_execution_error(request, err, context))?
                             as u64;
                         (
                             (packed & 0xffff_ffff) as u32 as i32,
@@ -852,9 +899,9 @@ impl ModuleSandbox for WasmExecutor {
                         )
                     }
                     EntrypointAbi::SRet(func) => {
-                        let out_pair_ptr = alloc
-                            .call(&mut store, 8)
-                            .map_err(|err| self.map_wasmtime_error(request, err))?;
+                        let out_pair_ptr = alloc.call(&mut store, 8).map_err(|err| {
+                            self.map_worker_execution_error(request, err, context)
+                        })?;
                         if out_pair_ptr < 0 {
                             return Err(self.failure(
                                 request,
@@ -863,7 +910,9 @@ impl ModuleSandbox for WasmExecutor {
                             ));
                         }
                         func.call(&mut store, (out_pair_ptr, input_ptr, input_len))
-                            .map_err(|err| self.map_wasmtime_error(request, err))?;
+                            .map_err(|err| {
+                                self.map_worker_execution_error(request, err, context)
+                            })?;
                         let mut pair = [0_u8; 8];
                         memory
                             .read(&mut store, out_pair_ptr as usize, &mut pair)
@@ -875,6 +924,16 @@ impl ModuleSandbox for WasmExecutor {
                         (output_ptr, output_len)
                     }
                 };
+                if let Some(context) = context {
+                    context.returned();
+                    if context.resource_failed() {
+                        return Err(self.failure(
+                            request,
+                            ModuleCallErrorCode::SandboxUnavailable,
+                            "worker resource limit failed",
+                        ));
+                    }
+                }
                 metrics::observe_wasm_executor_entrypoint_call(
                     &self.metrics,
                     elapsed_ms(entrypoint_started),
@@ -931,23 +990,17 @@ impl ModuleSandbox for WasmExecutor {
                         "execution exceeded max_call_ms",
                     ));
                 }
-                let decode_started = Instant::now();
-                let mut output: ModuleOutput =
-                    serde_cbor::from_slice(&output_buf).map_err(|err| {
-                        metrics::observe_wasm_executor_decode(
-                            &self.metrics,
-                            elapsed_ms(decode_started),
-                        );
-                        self.failure(
+                if let Some(context) = context {
+                    if context.resource_failed() {
+                        return Err(self.failure(
                             request,
-                            ModuleCallErrorCode::InvalidOutput,
-                            format!("output CBOR decode failed: {err}"),
-                        )
-                    })?;
-                metrics::observe_wasm_executor_decode(&self.metrics, elapsed_ms(decode_started));
-                output.output_bytes = output_buf.len() as u64;
-                self.validate_output_limits(request, &output)?;
-                Ok(output)
+                            ModuleCallErrorCode::SandboxUnavailable,
+                            "worker resource limit failed",
+                        ));
+                    }
+                    context.consuming();
+                }
+                consume(&output_buf)
             })();
             metrics::observe_wasm_executor_call_result(
                 &self.metrics,
@@ -1139,3 +1192,7 @@ impl CompiledModuleCache {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "wasmtime"))]
+#[path = "worker_execution_context_tests.rs"]
+mod worker_execution_context_tests;

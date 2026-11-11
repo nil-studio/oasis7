@@ -447,7 +447,7 @@ impl ModuleTickRoutingMetrics {
     }
 }
 
-fn module_has_tick_subscription(manifest: &ModuleManifest) -> bool {
+pub(super) fn module_has_tick_subscription(manifest: &ModuleManifest) -> bool {
     manifest
         .subscriptions
         .iter()

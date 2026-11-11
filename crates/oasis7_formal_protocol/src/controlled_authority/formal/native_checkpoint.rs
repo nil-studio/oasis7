@@ -25,6 +25,9 @@ pub struct NativeHotBodyV1 {
     pub seal: Option<fencing::EpochSealBodyV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub durable_set: Option<fencing::DurableSetNativeBindingV1>,
+    /// Local-only complete-data commitment. No execution or consensus grant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_closure: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeCheckpointParentV1 {
@@ -52,7 +55,11 @@ struct SignedHot {
 }
 #[derive(Deserialize)]
 enum ArchivedEntry {
-    Qualified { proof: FormalQualifiedCommitProofV1 },
+    Qualified {
+        proof: FormalQualifiedCommitProofV1,
+        #[serde(default)]
+        data_closure: Option<String>,
+    },
 }
 /// Private checked provenance; callers cannot promote a raw parent record.
 pub struct NativeCheckpointVerdictV1 {
@@ -62,6 +69,7 @@ pub struct NativeCheckpointVerdictV1 {
     authority_id: String,
     minimum: FormalHeadRefV1,
     current_head: FormalHeadRefV1,
+    data_closure: Option<String>,
 }
 fn object<T: DeserializeOwned>(
     id: &str,
@@ -209,7 +217,10 @@ impl NativeCheckpointVerdictV1 {
             return Err(invalid("native provenance genesis minimum"));
         }
         let node = descend(body, target, &mut load)?;
-        let ArchivedEntry::Qualified { proof } = object(&node.entry, &mut load)?;
+        let ArchivedEntry::Qualified {
+            proof,
+            data_closure: archived_data_closure,
+        } = object(&node.entry, &mut load)?;
         if proof.decision.record.position != target.position
             || proof.decision.record.record_id()? != target.record_id
             || proof.decision.primary.body.finalizing_authority_id != authority_id
@@ -219,6 +230,23 @@ impl NativeCheckpointVerdictV1 {
                 "native provenance exact archived proof/head/finalizer",
             ));
         }
+        if let Some(id) = &archived_data_closure {
+            crypto::hash_hex(id)?;
+        }
+        if let Some(id) = &body.data_closure {
+            crypto::hash_hex(id)?;
+            if body.head_node.is_none() {
+                return Err(invalid("local closure requires a local Qualified node"));
+            }
+        }
+        let data_closure = if *target == body.head {
+            if body.head_node.is_some() && body.data_closure != archived_data_closure {
+                return Err(invalid("local closure checkpoint/Qualified ref mismatch"));
+            }
+            body.data_closure.clone()
+        } else {
+            archived_data_closure
+        };
         let parent = if let Some(link) = node.ancestors.first() {
             if link.head.position.checked_add(1) != Some(node.head.position) {
                 return Err(invalid("native provenance immediate parent position"));
@@ -227,7 +255,8 @@ impl NativeCheckpointVerdictV1 {
             if parent_node.head != link.head {
                 return Err(invalid("native provenance immediate parent node"));
             }
-            let ArchivedEntry::Qualified { proof: parent } = object(&parent_node.entry, &mut load)?;
+            let ArchivedEntry::Qualified { proof: parent, .. } =
+                object(&parent_node.entry, &mut load)?;
             if parent.decision.record.position != link.head.position
                 || parent.decision.record.record_id()? != link.head.record_id
                 || parent.decision.primary.body.finalizing_authority_id
@@ -254,7 +283,13 @@ impl NativeCheckpointVerdictV1 {
             authority_id: authority_id.into(),
             minimum: minimum.clone(),
             current_head: body.head.clone(),
+            data_closure,
         })
+    }
+    /// Authenticated local reference only; callers must check its exact domain,
+    /// namespace continuity and complete evidence. This grants no durability.
+    pub fn local_data_closure_reference(&self) -> Option<&str> {
+        self.data_closure.as_deref()
     }
     pub fn proof(&self) -> &FormalQualifiedCommitProofV1 {
         &self.proof
@@ -329,6 +364,7 @@ mod tests {
             pending: None,
             decision_head: None,
             seal: None,
+            data_closure: None,
             durable_set: None,
         };
         let bytes = serde_cbor::to_vec(&Signed {
@@ -493,6 +529,7 @@ mod tests {
             pending: None,
             decision_head: None,
             seal: None,
+            data_closure: None,
             durable_set: None,
         };
         let bytes = serde_cbor::to_vec(&Signed {
@@ -563,3 +600,7 @@ mod tests {
         assert_eq!(publication.checkpoint(), trusted.checkpoint());
     }
 }
+
+#[cfg(test)]
+#[path = "native_checkpoint_local_closure_tests.rs"]
+mod local_closure_tests;

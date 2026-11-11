@@ -15,8 +15,13 @@ pub struct RewardFamilyQualificationV1 {
     roots: [u8; 32],
     counts: [u64; 2],
     mint_length: u64,
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl RewardFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if self.roots != *roots {
             Err(read::invalid())
@@ -44,6 +49,7 @@ pub(super) fn mint(
             roots,
             counts,
             mint_length,
+            class,
         }))
 }
 pub(super) enum Outer {
@@ -145,6 +151,7 @@ pub fn qualify_reward_family_v1<
 ) -> Result<ReservedValue<RewardFamilyQualificationV1>, ValueTreeError> {
     roots.validate().map_err(|_| read::invalid())?;
     ctx.check()?;
+    let _phase = ctx.values.memory.reserve(128 << 10, ctx.values.class)?;
     if !roots.state.iter().any(|root| root == ctx.root) {
         return Err(read::invalid());
     }
@@ -267,6 +274,7 @@ pub fn qualify_reward_family_v1<
         roots: roots.digest().map_err(|_| read::invalid())?,
         counts,
         mint_length: length,
+        class: ctx.values.class,
     }))
 }
 pub fn open_qualified_reward_record_v1<
@@ -281,10 +289,23 @@ pub fn open_qualified_reward_record_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<ReservedValue<RewardRecordQualificationV1>>, ValueTreeError> {
     ctx.check()?;
-    if !family.uses_budget(ctx.values.memory) {
+    if !family.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            family,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
         return Err(read::invalid());
     }
-    family.validate_binding(&roots.digest().map_err(|_| read::invalid())?)?;
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        family,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        ctx.values.memory,
+        ctx.values.class,
+        &mut ctx.cancelled,
+    )?;
     let top = roots
         .state
         .iter()
@@ -304,4 +325,42 @@ pub fn open_qualified_reward_record_v1<
         .transpose()?;
     ctx.check()?;
     Ok(proof)
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for RewardFamilyQualificationV1
+{
+    const RETAINED_BYTES: usize = 512;
+    type Binding<'a> = crate::incremental_record_qualification_phase::FamilyBindingV1<'a>;
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(&binding.digest()?)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            roots: source.roots,
+            counts: source.counts,
+            mint_length: source.mint_length,
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_reward_family_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<RewardFamilyQualificationV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<oasis7_proto::memory_budget::ReservedValue<RewardFamilyQualificationV1>, ValueTreeError>
+{
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        memory,
+        cancelled,
+    )
 }

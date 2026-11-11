@@ -97,13 +97,16 @@ pub use read::{
 
 #[path = "incremental_agent_authority_records_closure.rs"]
 mod closure;
-pub use closure::{AgentAuthorityRecordQualificationV1, qualify_agent_authority_body_v1};
+pub use closure::{
+    AgentAuthorityRecordQualificationV1, qualify_agent_authority_body_v1,
+    readmit_agent_authority_record_ordinary_v1,
+};
 
 #[path = "incremental_agent_authority_records_family.rs"]
 mod family;
 pub use family::{
     AgentAuthorityFamilyQualificationV1, open_qualified_agent_authority_record_v1,
-    qualify_agent_authority_family_v1,
+    qualify_agent_authority_family_v1, readmit_agent_authority_family_ordinary_v1,
 };
 
 #[path = "incremental_agent_authority_records_point.rs"]
@@ -128,3 +131,9 @@ pub use pages::{
     AgentAuthorityFamilyPagesV1, AgentAuthorityPagesWorkV1, mark_agent_authority_family_pages_v1,
     transfer_agent_authority_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_agent_authority_verified_v1;
+
+#[path = "incremental_agent_authority_records_selected.rs"]
+mod selected;
+pub use selected::open_agent_authority_body_overlay_v1;

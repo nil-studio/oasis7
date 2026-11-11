@@ -21,7 +21,9 @@ impl World {
             .values()
             .filter(|registration| {
                 !registration.activity_sources.is_empty()
-                    && registration.activity_observation_started_at_world_tick.is_some()
+                    && registration
+                        .activity_observation_started_at_world_tick
+                        .is_some()
                     && registration.activity_close_cursor_world_tick < now
                     && current_binding.as_deref() == Some(registration.world_binding.as_str())
             })
@@ -35,8 +37,7 @@ impl World {
                 continue;
             };
             let through_event_hash = crate::util::hash_json(last_event)?;
-            let source_catalog_root =
-                crate::world_rules::activity_catalog_root(&registration)?;
+            let source_catalog_root = crate::world_rules::activity_catalog_root(&registration)?;
             let previous_close_hash = registration.activity_close_hash.clone();
             let close_hash = crate::world_rules::activity_close_commitment(
                 &registration,
@@ -63,7 +64,10 @@ impl World {
             let event = DomainEvent::WorldRuleCommitted {
                 action_id: 0,
                 actor_id,
-                request_id: format!("organization-activity-close:{}:{now}", &organization_digest[..16]),
+                request_id: format!(
+                    "organization-activity-close:{}:{now}",
+                    &organization_digest[..16]
+                ),
                 command: WorldRuleCommandV1::OrganizationContinuity {
                     command: Command::CloseActivityTick {
                         organization_id: registration.organization_id.clone(),

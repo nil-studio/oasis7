@@ -228,3 +228,5 @@ pub use overlay::*;
 #[path = "incremental_runtime_artifact_content_pages.rs"]
 mod pages;
 pub use pages::*;
+
+pub(crate) use receiver::accept_runtime_artifact_content_verified_v1;

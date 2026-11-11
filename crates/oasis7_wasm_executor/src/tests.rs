@@ -415,12 +415,6 @@ fn wasm_executor_rejects_output_limit_overflow() {
 }
 
 #[test]
-fn count_exceeds_limit_treats_usize_overflow_as_exceeded() {
-    assert!(count_exceeds_limit(usize::MAX, 1));
-    assert!(!count_exceeds_limit(1, 1));
-}
-
-#[test]
 fn wasm_executor_rejects_fuel_limit_as_timeout() {
     let executor = test_executor(WasmExecutorConfig {
         max_fuel: 10,

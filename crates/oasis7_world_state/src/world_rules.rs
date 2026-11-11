@@ -10,6 +10,7 @@ pub use authority::verify_world_rule_authority;
 
 pub mod industrial;
 mod industrial_completion;
+pub mod industrial_eligibility_kernel;
 pub mod industrial_work;
 pub mod industrial_work_admission;
 pub mod industrial_work_start;

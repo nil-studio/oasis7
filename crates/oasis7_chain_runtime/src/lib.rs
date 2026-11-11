@@ -12,3 +12,9 @@ include!("host.rs");
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_store;
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub mod iws_genesis;
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub mod iws_host_runtime;

@@ -49,6 +49,7 @@ pub(super) fn initial_hot(
         pending: None,
         decision_head: None,
         seal: None,
+        data_closure: None,
         durable_set: None,
     };
     let mut sources = vec![];
@@ -318,7 +319,7 @@ impl FileFormalEndpoint {
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;

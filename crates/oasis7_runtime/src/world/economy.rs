@@ -23,11 +23,7 @@ use oasis7_agent_api::world_action::ResourceKind;
 const FACTORY_BUILD_DECISION_EMIT_KIND: &str = "economy.factory_build_decision";
 const RECIPE_EXECUTION_PLAN_EMIT_KIND: &str = "economy.recipe_execution_plan";
 const PRODUCT_VALIDATION_EMIT_KIND: &str = "economy.product_validation";
-const FACTORY_DURABILITY_PPM_BASE: i64 = 1_000_000;
-const FACTORY_DEPRECIATION_PPM_PER_MAINTENANCE_UNIT: i64 = 1_000;
-const FACTORY_DEPRECIATION_REASON: &str = "depreciation_tick";
-const FACTORY_LOAD_FACTOR_BASE_BPS: i64 = 10_000;
-const FACTORY_LOAD_FACTOR_MAX_BPS: i64 = 20_000;
+use super::incremental_factory_depreciation::{FACTORY_DEPRECIATION_REASON, depreciation_v1};
 const SURVIVAL_KEYWORDS: &[&str] = &[
     "survival",
     "lifeline",
@@ -420,7 +416,9 @@ impl World {
 
         bodies.reserve(due_recipes.len());
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) =
+                self.industrial_completion_guard(&job)
+            {
                 bodies.extend(body.map(|body| *body));
                 continue;
             }
@@ -502,10 +500,14 @@ impl World {
         });
 
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) =
+                self.industrial_completion_guard(&job)
+            {
                 if let Some(body) = body {
                     self.append_event(*body, None)?;
-                    if let Some(event) = self.journal.events.last() { emitted.push(event.clone()); }
+                    if let Some(event) = self.journal.events.last() {
+                        emitted.push(event.clone());
+                    }
                 }
                 continue;
             }
@@ -684,10 +686,7 @@ impl World {
             if validation_rejected {
                 continue;
             }
-            self.append_event(
-                Self::recipe_completion_body(job),
-                None,
-            )?;
+            self.append_event(Self::recipe_completion_body(job), None)?;
             if let Some(event) = self.journal.events.last() {
                 emitted.push(event.clone());
             }
@@ -710,49 +709,20 @@ impl World {
 
         self.add_manufacturing_factory_workload(&mut active_jobs_by_factory, now);
         for factory in factories {
-            if factory.built_at >= now {
-                continue;
-            }
-            let current = factory.durability_ppm.clamp(0, FACTORY_DURABILITY_PPM_BASE);
-            if current <= 0 {
-                continue;
-            }
-            let maintenance_rate = factory.spec.maintenance_per_tick.max(0);
-            if maintenance_rate <= 0 {
-                continue;
-            }
-            let base_decay = maintenance_rate
-                .saturating_mul(FACTORY_DEPRECIATION_PPM_PER_MAINTENANCE_UNIT)
-                .clamp(0, FACTORY_DURABILITY_PPM_BASE);
-            if base_decay <= 0 {
-                continue;
-            }
             let active_jobs = active_jobs_by_factory
                 .get(factory.factory_id.as_str())
                 .copied()
                 .unwrap_or(0);
-            let recipe_slots = i64::from(factory.spec.recipe_slots.max(1));
-            let utilization_bps = ((active_jobs as i128)
-                .saturating_mul(FACTORY_LOAD_FACTOR_BASE_BPS as i128)
-                .saturating_div(recipe_slots as i128))
-            .clamp(0, FACTORY_LOAD_FACTOR_BASE_BPS as i128)
-                as i64;
-            let load_factor_bps = FACTORY_LOAD_FACTOR_BASE_BPS
-                .saturating_add(utilization_bps)
-                .clamp(FACTORY_LOAD_FACTOR_BASE_BPS, FACTORY_LOAD_FACTOR_MAX_BPS);
-            let decay = ((base_decay as i128)
-                .saturating_mul(load_factor_bps as i128)
-                .saturating_div(FACTORY_LOAD_FACTOR_BASE_BPS as i128))
-            .clamp(0, FACTORY_DURABILITY_PPM_BASE as i128) as i64;
-            if decay <= 0 {
+            let Some((current, durability_ppm)) = depreciation_v1(
+                now,
+                factory.built_at,
+                factory.durability_ppm,
+                factory.spec.maintenance_per_tick,
+                factory.spec.recipe_slots,
+                active_jobs,
+            ) else {
                 continue;
-            }
-            let durability_ppm = current
-                .saturating_sub(decay)
-                .clamp(0, FACTORY_DURABILITY_PPM_BASE);
-            if durability_ppm == current {
-                continue;
-            }
+            };
 
             prepared.push(WorldEventBody::Domain(
                 DomainEvent::FactoryDurabilityChanged {
