@@ -26,14 +26,19 @@ RUNNER_MIRRORS = (
     'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
     'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
     'https://security.ubuntu.com/ubuntu/\tpriority:3\n').encode()
-PREFERRED_MIRRORS = (
+CANONICAL_FIRST_MIRRORS = (
     'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
     'https://security.ubuntu.com/ubuntu/\tpriority:2\n'
     'http://azure.archive.ubuntu.com/ubuntu/\tpriority:3\n').encode()
+PREFERRED_MIRRORS = (
+    'https://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n'
+    'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+    'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+    'http://azure.archive.ubuntu.com/ubuntu/\tpriority:4\n').encode()
 
 
-def prefer_official_mirrors(path):
-    """Only reorder the complete known runner list; keep every source and trust setting."""
+def prepare_runner_mirrors(path):
+    """Prefer an independently hosted Ubuntu mirror; preserve source trust and fallbacks."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
@@ -45,7 +50,7 @@ def prefer_official_mirrors(path):
         content = stream.read(4097)
     if content == PREFERRED_MIRRORS:
         return 'already_preferred'
-    if content != RUNNER_MIRRORS:
+    if content not in (RUNNER_MIRRORS, CANONICAL_FIRST_MIRRORS):
         return 'unchanged_unrecognized'
     temporary = None
     try:
@@ -59,7 +64,7 @@ def prefer_official_mirrors(path):
         if not stat.S_ISREG(current.st_mode) or identity(current) != identity(before):
             raise RuntimeError('APT mirror list changed during preparation')
         os.replace(temporary, path)
-        return 'preferred_official_https'
+        return 'preferred_independent_https'
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -194,7 +199,7 @@ class Installer:
         if self.cancelled or time.monotonic() >= self.work_end:
             return False
         if self.mirror_list is not None:
-            result = prefer_official_mirrors(self.mirror_list)
+            result = prepare_runner_mirrors(self.mirror_list)
             self.log(f'mirror_preparation={result} elapsed={time.monotonic() - self.started:.3f}s')
         return not self.cancelled and time.monotonic() < self.work_end
 

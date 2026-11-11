@@ -754,7 +754,9 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 关闭 apt 内部重试并限制网络及锁等待。只有 update 中明确的瞬态网络错误可有限重试，最多三次尝试；未知、混合永久错误、权限、配置、签名或完整性失败直接失败。install 只执行一次，即使发生网络错误也不重跑，避免 dpkg 修改后状态不明时盲目恢复。
 
-临时 GitHub Ubuntu runner 的已知 `/etc/apt/apt-mirrors.txt` 使用 Azure HTTP、Ubuntu archive HTTPS、Ubuntu security HTTPS 三条带优先级的来源。依赖准备先将这份精确识别的列表调整为两个既有官方 HTTPS 来源优先，Azure 来源保留为最后回退；不增加镜像、密钥或 DNS/IP 覆盖，不改 suites、components、architecture、Signed-By、其他 APT 来源或验签要求。只接受完整已知内容，未知或自定义列表原样保留；缺失文件保留原安装路径，symlink、非普通文件及写入错误失败。原子替换保留文件权限和所有者，重复准备不再写入。准备计入当前调用预算，未完成或预算耗尽不得开始 update；配置完成不代表依赖安装成功。
+临时 GitHub Ubuntu runner 的已知 `/etc/apt/apt-mirrors.txt` 使用 Azure HTTP、Ubuntu archive HTTPS、Ubuntu security HTTPS 三条带优先级的来源；这三个 Ubuntu 域可能同时发生解析失败，调换彼此顺序不足以恢复。依赖准备对精确识别的列表增加独立域的 `https://mirrors.edge.kernel.org/ubuntu/` 为首选，原三个来源作为后备。该端点由 [Linux Kernel Archives](https://mirrors.edge.kernel.org/) 提供，Kernel.org 在 [Ubuntu 官方 archive mirror 名单](https://launchpad.net/ubuntu/+archivemirrors) 中登记；镜像只提供传输，信任仍来自原 Ubuntu archive keyring、签名和文件摘要。保留 noble、updates、backports、security 套件及既有组件、架构与 By-Hash 行为，不新增密钥，不改 Signed-By、其他 APT 来源、DNS/IP 或验签要求，也不接受不安全/过期元数据来换取安装成功。
+
+只接受完整原 runner 列表或本 helper 既有的 Canonical HTTPS 优先列表；未知或自定义内容原样保留。缺失文件保留原安装路径，symlink、非普通文件及写入错误失败。原子替换保留文件权限和所有者，当前目标列表重复准备不再写入。准备计入当前调用预算，未完成或预算耗尽不得开始 update；配置完成不代表依赖安装成功。镜像可用性及包的真实验签/安装必须由 hosted 运行确认，不能用外部目录浏览或诊断探测代替。
 
 native 安装在同一 helper 内复用上述准备；Viewer 安全浏览器和 Deck 安全浏览器在原固定版本 `--with-deps` 命令之前调用同一 helper 的 `--prepare-sources-only` 入口。该入口只准备来源，不调用 apt/dpkg，也不宣称浏览器或其依赖就绪；准备失败阻断后续命令。浏览器原有依赖安装与退出码仍完整保留，Viewer 安装 step 设 11 分钟上限，Deck 保留既有 10 分钟上限；实际网络恢复须由新的 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
 
