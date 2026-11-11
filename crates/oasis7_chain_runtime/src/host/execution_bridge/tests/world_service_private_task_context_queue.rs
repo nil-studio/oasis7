@@ -98,16 +98,15 @@ pub(super) fn assert_queued_original_across_tick(
                     &dir.join("store"),
                     world,
                     None,
-                ) {
-                    if pinned.world.state().time > base_tick {
-                        before_resources =
-                            Some(serde_json::to_value(&pinned.world.state().resources).unwrap());
-                        before_pending = Some(
-                            serde_json::to_value(pinned.world.snapshot().pending_actions).unwrap(),
-                        );
-                        advanced = true;
-                        break;
-                    }
+                ) && pinned.world.state().time > base_tick
+                {
+                    before_resources =
+                        Some(serde_json::to_value(&pinned.world.state().resources).unwrap());
+                    before_pending = Some(
+                        serde_json::to_value(pinned.world.snapshot().pending_actions).unwrap(),
+                    );
+                    advanced = true;
+                    break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
