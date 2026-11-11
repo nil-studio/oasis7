@@ -1034,7 +1034,8 @@
     "scripts/ci-worker-build.test.py",
     "crates/oasis7_custody_worker/scripts/verify-stages.test.py",
     "scripts/ci-local-signer-tests.test.py",
-    "scripts/pr-review-threads.test.py"
+    "scripts/pr-review-threads.test.py",
+    "scripts/ci-governance-preview.test.py"
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
@@ -1370,6 +1371,19 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/ci-governance-preview.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-governance-preview.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-governance-preview.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-governance-preview.test.py"
       ]
     }
   },

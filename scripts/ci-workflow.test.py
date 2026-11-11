@@ -336,6 +336,32 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def test_governance_preview_is_complete_read_only_and_has_no_gate_authority(self):
+        job = JOBS['pr-governance-preview']
+        for required in (
+                'needs: [select, pr-fast-preview-plan]',
+                "github.event_name == 'pull_request'",
+                "needs.pr-fast-preview-plan.outputs.enabled == 'true'",
+                'contents: read', 'persist-credentials: false', 'fetch-depth: 0',
+                'ref: ${{ needs.select.outputs.tested_sha }}',
+                'python3 scripts/ci-governance-preview.py',
+                '--base-sha "$BASE_SHA"', '--source-sha "$ACTUAL_SOURCE_SHA"',
+                '--tested-sha "$TESTED_SHA"',
+                'BASE_SHA: ${{ github.event.pull_request.base.sha }}',
+                'ACTUAL_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}',
+                'TESTED_SHA: ${{ needs.select.outputs.tested_sha }}',
+                'name: governance-preview-${{ github.run_id }}-${{ github.run_attempt }}',
+                'if: always()'):
+            self.assertIn(required, job)
+        self.assertNotIn('continue-on-error', job)
+        self.assertNotRegex(job, r'(?m)^\s+[a-z-]+:\s+write\s*$')
+        self.assertNotIn('uses: actions/cache', job)
+        self.assertNotIn('uses: Swatinem/rust-cache', job)
+        self.assertNotIn('full-result', job)
+        for gate in ('required-gate', 'explicit-full-gate'):
+            self.assertNotIn('pr-governance-preview', JOBS[gate])
+            self.assertNotIn('governance-preview-', JOBS[gate])
+
     def shared_cache_workflow(self):
         path = ROOT / '.github/workflows/rust-cache.yml'
         self.assertTrue(path.is_file(), 'dependency warming must have an independent workflow')

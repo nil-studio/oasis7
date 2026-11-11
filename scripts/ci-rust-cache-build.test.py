@@ -424,17 +424,31 @@ run() {
 
     def test_exact_consumer_variants_are_compiled_without_executing_tests(self):
         legacy = {compile_context(call) for call in self.frozen_full_and_legacy_calls()}
+        # Preserve the historical driver byte-for-byte. The current complete
+        # inventory additionally owns the extracted leaf in all four original
+        # whole-package feature/target combinations.
+        whole_package = {context for context in legacy
+                         if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
+        self.assertEqual(len(whole_package), 4)
+        expected = legacy - whole_package | {
+            (context[0], tuple(sorted((*context[1], 'oasis7_executable_image'))), *context[2:])
+            for context in whole_package}
         for verbose in ('0', '1'):
             with self.subTest(verbose=verbose):
                 self.env['CI_VERBOSE'] = verbose
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 51)
-                self.assertIn('cache_build_complete variants=51 verification=false', result.stdout)
+                self.assertEqual(len(named), 52)
+                self.assertIn('cache_build_complete variants=52 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
-                                  if not name.startswith('fast-')}, legacy)
+                                  if not name.startswith('fast-')}, expected)
                 self.assert_fast_inventory(named, self.config)
+                leaf = [compile_context(call) for name, call in named.items()
+                        if name.startswith('fast-')
+                        and compile_context(call)[1] == ('oasis7_executable_image',)]
+                self.assertEqual(leaf, [('test', ('oasis7_executable_image',), (('--lib', ''),),
+                                        False, (), 'default', '1')])
                 self.assertFalse(self.behaviors.exists(), 'cache warming must not execute a verification guard')
                 for call in named.values():
                     self.assertIsNone(call['wrapper'])
@@ -449,8 +463,47 @@ run() {
                                      {'CARGO_INCREMENTAL': '0', 'CARGO_PROFILE_DEV_DEBUG': '0',
                                       'CARGO_PROFILE_TEST_DEBUG': '0'})
 
+    def test_no_plan_required_full_and_clippy_keep_every_root_including_the_leaf(self):
+        legacy = {compile_context(call) for call in self.frozen_full_and_legacy_calls()}
+        roots = {context[1] for context in legacy
+                 if 'oasis7' in context[1] and 'oasis7_chain_runtime' in context[1]}
+        self.assertEqual(len(roots), 1)
+        expected = sorted((*roots.pop(), 'oasis7_executable_image'))
+        script = r'''set -euo pipefail
+source "$1"
+repo_root="$2"; driver_dir="$3"; ci_python="$4"
+required_plan=; ordinary_partition=
+unset OASIS7_CI_TEST_BUNDLE
+cd "$repo_root"
+"$5"
+'''
+        for function, operation, features in (
+                ('run_oasis7_required_tier_tests', 'test', 'test_tier_required'),
+                ('run_oasis7_full_tier_tests', 'test', 'test_tier_full,wasmtime,viewer_live_integration'),
+                ('run_oasis7_required_tier_clippy', 'clippy', 'test_tier_required')):
+            with self.subTest(function=function):
+                self.reset_logs()
+                result = subprocess.run(
+                    ['bash', '-c', script, 'no-plan-inventory', str(DRIVER), str(self.root),
+                     str(ROOT / 'scripts'), sys.executable, function],
+                    env=self.env, text=True, capture_output=True, timeout=45)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = [call for call in self.calls() if call['args'][0] == operation]
+                self.assertEqual(len(calls), 1)
+                args = calls[0]['args']
+                packages = [args[index + 1] for index, value in enumerate(args) if value == '-p']
+                self.assertCountEqual(packages, expected)
+                self.assertIn('--tests', args)
+                self.assertNotIn('--no-run', args)
+                self.assertEqual(args[args.index('--features') + 1], features)
+                self.assertIsNone(calls[0]['wrapper'])
+                if operation == 'clippy':
+                    self.assertEqual(args[args.index('--') + 1:],
+                                     ['-D', 'warnings', '-D', 'clippy::correctness',
+                                      '-D', 'clippy::suspicious'])
+
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50, 51):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -517,7 +570,7 @@ run() {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 14)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 15)
 
 
 if __name__ == '__main__':

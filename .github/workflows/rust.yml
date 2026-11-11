@@ -455,6 +455,52 @@ jobs:
           print('OASIS7_' + 'ENGINEERING_JOB_V1=' + json.dumps(row, sort_keys=True, separators=(',', ':')))
           PY_OBSERVATION
 
+  pr-governance-preview:
+    needs: [select, pr-fast-preview-plan]
+    if: >-
+      github.event_name == 'pull_request' && needs.select.result == 'success' &&
+      needs.pr-fast-preview-plan.result == 'success' &&
+      needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Prepare governance comparison tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          command -v zstd
+          command -v zstdmt
+      - name: Compare complete governance execution without gate authority
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ACTUAL_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          python3 scripts/ci-governance-preview.py --repo-root "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" --source-sha "$ACTUAL_SOURCE_SHA" --tested-sha "$TESTED_SHA" \
+            --output-dir "$RUNNER_TEMP/governance-preview"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: governance-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/governance-preview/
+          if-no-files-found: warn
+          retention-days: 14
+
   pr-fast-preview-plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04

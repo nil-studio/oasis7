@@ -214,6 +214,8 @@ workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候�
 
 所有受托管协调器执行的 suite 继续由 BASE worker 逐项见证，保持原非空、身份保留、零意外 skip、真实结束及失败传播检查。协调器成功完成后直接执行同一候选 driver 的剩余治理函数，不写可复用成功回执、不接受候选提供的跳过清单，也不跨 run 缓存测试结果。workflow 仅探测下载的 BASE 入口是否支持该完整模式；旧 BASE 仍执行原可信合同加候选完整组，新候选不能自行声明已获得去重复权限。本地完整治理入口沿用各测试文件的原 Python CLI 和平台 skip 语义，不能代签托管的严格完成见证。执行日志记录每文件来源、用例数和单调耗时，实际前后结果归 PR。Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29。
 
+迁移期可通过独立只读 `pr-governance-preview` 比较完整治理入口。两边固定同一实际 tested merge、候选 self-policy 与 planner 生成的已登记 workflow-control 场景，保留完整治理清单；事件 BASE 只提供旧 runner 和 driver 的实现。旧方式重放最低合同、完整 driver 及 workflow 原有的两个 archive 与额外 Node 合同，新方式执行完整 `run --governance`。诊断不提供 BASE 授权，不被 required/full gate 消费；仅双方全部成功后记录耗时差，任一失败则保留不完整证据并失败。同 runner 顺序执行会受到后执行者的缓存预热影响，结果不是独立冷启动或 P95；BASE 已含新协调入口时明确记为不适用，不继续生成旧方式对比。Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29。
+
 隔离执行 shell dispatcher 时，夹具加载受测 driver 的完整函数定义，再覆盖 `run`、Cargo 等明确的记录边界；不手工维护一份易随 helper 演进而遗漏的函数名单。driver 的 source 接口只提供定义，不解析 CLI、不选择解释器、不切换目录或执行检查，也不改变调用方的参数与 shell 选项；正常执行仍经原 CLI 初始化和分派。可信入口仅对明确登记的 support dispatcher 夹具提供这份候选定义闭包，使旧 BASE 测试仍能执行原断言；注入只影响该夹具启动的 shell，不传播到其真实子命令。没有该接口的历史 driver 保留既有夹具路径。缺失 helper、命令失败、空执行及提前成功退出仍判失败，不能将这类兼容问题处理为跳过 BASE 合同；新增 helper、跨版本组合和失败传播须分别回归。
 
 可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留该 profile 的完整必要组时，才允许迁移旧的全量策略断言。可信 Formal 新能力仅允许快速 profile 从全组中排除 `formal_process`，其余缺项仍失败。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整合同回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
