@@ -38,7 +38,7 @@ def main():
             installer.log('mechanism_refused=' + recovery.reason)
             return 1
         prefix = recovery.namespace_prefix()
-        probe = [sys.executable, str(Path(__file__).with_name('ci_apt_dns.py')), '--probe']
+        probe = [sys.executable, str(Path(__file__).with_name('ci-apt-dns.py')), '--probe']
         status, _, valid = installer.run_command('mechanism-nss', prefix + probe)
         if not valid or status != 0 or installer.cancelled:
             return 128 + installer.cancelled if installer.cancelled else 1

@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-_dns_spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_name('ci_apt_dns.py'))
+_dns_spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_name('ci-apt-dns.py'))
 _dns = importlib.util.module_from_spec(_dns_spec)
 _dns_spec.loader.exec_module(_dns)
 

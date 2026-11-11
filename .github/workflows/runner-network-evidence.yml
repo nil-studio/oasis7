@@ -6,7 +6,7 @@ on:
       - .github/workflows/runner-network-evidence.yml
       - scripts/ci-runner-network-diagnostic.py
       - scripts/ci-apt-install.py
-      - scripts/ci_apt_dns.py
+      - scripts/ci-apt-dns.py
       - scripts/ci-apt-dns.test.py
       - scripts/ci-apt-dns-mechanism.py
 permissions:
@@ -31,7 +31,7 @@ jobs:
       - name: Resolver contract tests (no network mutation)
         run: python3 scripts/ci-apt-dns.test.py
       - name: Resolver shape only (never disclose private suffix values)
-        run: python3 scripts/ci_apt_dns.py --shape
+        run: python3 scripts/ci-apt-dns.py --shape
       - name: Bounded real apt with opt-in private namespace recovery
         shell: bash
         run: |
@@ -59,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ci_apt_dns.py --shape
+          python3 scripts/ci-apt-dns.py --shape
           before=$(sha256sum /etc/resolv.conf)
           link_before=$(readlink /etc/resolv.conf)
           stat_before=$(stat -c '%i:%f:%u:%g:%s' /etc/resolv.conf)

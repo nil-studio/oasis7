@@ -11,7 +11,7 @@ import tempfile
 import time
 from unittest.mock import Mock, patch
 
-spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_name('ci_apt_dns.py'))
+spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_name('ci-apt-dns.py'))
 dns = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dns)
 

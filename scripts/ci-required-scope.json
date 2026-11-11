@@ -952,7 +952,7 @@
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
     "scripts/ci-apt-install.test.py": ["workflow_governance"],
-    "scripts/ci_apt_dns.py": ["workflow_governance"],
+    "scripts/ci-apt-dns.py": ["workflow_governance"],
     "scripts/ci-apt-dns.test.py": ["workflow_governance"],
     "scripts/ci-apt-dns-mechanism.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
@@ -1051,7 +1051,7 @@
       "group": "workflow_governance",
       "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-apt-dns.test.py", "scripts/ci-workflow.test.py"]
     },
-    "scripts/ci_apt_dns.py": {
+    "scripts/ci-apt-dns.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-apt-dns.test.py", "scripts/ci-apt-install.test.py"]
     },
