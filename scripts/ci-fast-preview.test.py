@@ -68,6 +68,11 @@ def valid_plan(source, sample='runtime-world'):
         plan.update(ordinary_support_contract_version=1, ordinary_support_handoffs=['oasis7_game_client'],
                     ordinary_support_deferred=['oasis7_agent_harness', 'oasis7_model_provider'],
                     workspace_support_profiles=[], formal_suites=[], formal_shards=[])
+    elif sample == 'executable-image':
+        plan['ordinary_partitions'] = ['all']
+        plan['architecture']['packages'] = ['oasis7_executable_image']
+        plan['ordinary_fast_targets'] = [dict(package='oasis7_executable_image', target_kind='lib',
+            target_name='oasis7_executable_image', default_features=False, features=[])]
     return plan
 
 
@@ -299,6 +304,27 @@ class DiagnosticRegistrationPreview(unittest.TestCase):
 
 
 class Preview(unittest.TestCase):
+    def test_executable_image_sample_restores_with_exact_leaf_target_and_features(self):
+        sample = 'executable-image'
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = fixture(directory)
+            fixture_planner(repo, sample=sample)
+            write_files(repo, {PREVIEW.SAMPLES[sample]['paths'][0]: 'fn digest() {}\n',
+                               'scripts/ci-tests.sh': '# changed driver\n'})
+            source = commit(repo, 'leaf component and diagnostic driver')
+            metadata = PREVIEW.plan_preview(repo, base, source, Path(directory) / 'plan.json', sample=sample)
+            plan = json.loads((Path(directory) / 'plan.json').read_text())
+            self.assertEqual(metadata['paths'], ['crates/oasis7_executable_image/src/digest.rs'])
+            clone = Path(directory) / 'fresh'
+            command(repo, 'clone', '--quiet', '--no-local', str(repo), str(clone))
+            PREVIEW.restore_baseline(clone, metadata, sample=sample, plan=plan)
+            for mutation in ({'default_features': True}, {'features': ['test_tier_required']},
+                             {'package': 'oasis7_chain_runtime'}, {'target_kind': 'bin'}):
+                changed = copy.deepcopy(plan)
+                changed['ordinary_fast_targets'][0].update(mutation)
+                with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                    PREVIEW.validate_plan(changed, source, sample=sample)
+
     def test_private_unix_sample_requires_complete_cli_targets_and_lint_handoffs(self):
         sample, source = 'game-client-private-unix', 'a' * 40
         selected = valid_plan(source, sample)
@@ -374,7 +400,10 @@ class Preview(unittest.TestCase):
                              synthetic_base_sha='b' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required', 'net']),
                         dict(sample='game-client-private-unix', source_sha=source, tested_sha=source,
                              ordinary_partitions=['all'],
-                             synthetic_base_sha='c' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required'])]
+                             synthetic_base_sha='c' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required']),
+                        dict(sample='executable-image', source_sha=source, tested_sha=source,
+                             ordinary_partitions=['all'],
+                             synthetic_base_sha='d' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required'])]
             by_sample = {item['sample']: item for item in metadata}
             with patch.object(PREVIEW, 'plan_preview',
                               side_effect=lambda *args, **kwargs: by_sample[kwargs['sample']]) as plan:
@@ -382,14 +411,14 @@ class Preview(unittest.TestCase):
                 calls = plan.call_args_list
             values = dict(line.split('=', 1) for line in output.read_text().splitlines())
             rows = json.loads(values['matrix'])['include']
-            self.assertEqual(len(rows), 8)
-            self.assertEqual({row['sample'] for row in rows}, {'runtime-world', 'game-client-private-unix'})
+            self.assertEqual(len(rows), 11)
+            self.assertEqual({row['sample'] for row in rows}, set(PREVIEW.SAMPLES))
             self.assertIn({'sample': 'runtime-world', 'group': 'net', 'partition': 'all',
                            'synthetic_base_sha': 'b' * 40}, rows)
             ordinary = [row for row in rows if row['sample'] == 'runtime-world' and row['group'] == 'oasis7_required']
             self.assertEqual([row['partition'] for row in ordinary], ['oasis7_runtime', 'oasis7_world_state'])
             self.assertEqual(len({(row['sample'], row['group'], row['partition']) for row in rows}), len(rows))
-            self.assertEqual(len({str(call.args[3]) for call in calls}), 2)
+            self.assertEqual(len({str(call.args[3]) for call in calls}), 3)
             self.assertTrue(all(len(call.args) == 4 and 'github_output' not in call.kwargs for call in calls))
             output.unlink()
             def fail_cli(*args, **kwargs):
@@ -411,7 +440,8 @@ class Preview(unittest.TestCase):
 
             def plan_sample(*args, **kwargs):
                 sample = kwargs['sample']
-                entered.wait()  # A serial implementation cannot enter both planners.
+                if sample != 'executable-image':
+                    entered.wait()  # A serial implementation cannot enter the first two planners.
                 if sample == 'runtime-world':
                     runtime_finished.set()
                 else:

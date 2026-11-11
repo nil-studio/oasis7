@@ -44,6 +44,11 @@ SAMPLES = {
             ('lib', 'oasis7_game_client'), ('test', 'identity_cli'), ('test', 'dev_test_catalog_cli'),
             ('test', 'legacy_profile'), ('test', 'dev_test_service_cli'))),
         packages=['oasis7_game_client'], default_features=True, features=[], consumer_groups=frozenset()),
+    'executable-image': dict(
+        paths=('crates/oasis7_executable_image/src/digest.rs',),
+        targets=frozenset((('oasis7_executable_image', 'lib', 'oasis7_executable_image'),)),
+        packages=['oasis7_executable_image'], default_features=False, features=[],
+        consumer_groups=frozenset()),
 }
 
 
@@ -339,7 +344,7 @@ def restore_baseline(repo, metadata, *, sample=None, plan=None, group=None, part
 
 def plan_matrix(repo, base_ref, head_ref, output_dir, github_output=None, *, source_ref=None):
     # Publish one complete matrix only after every independent fixed sample has
-    # passed. A failed second plan must never leave enabled=true or a partial DAG.
+    # passed. Any failed plan must never leave enabled=true or a partial DAG.
     # Each worker owns its output path and temporary Git index. The checkout,
     # real index and refs remain read-only, and each planner has its own process.
     def plan_sample(sample):

@@ -564,5 +564,123 @@ class RealRustControlFixture(unittest.TestCase):
         controls.run_rust_fixture(HERE.parent, config)
 
 
+class GovernanceOwnership(unittest.TestCase):
+    """Execute real worker processes: a complete suite must subsume its subset."""
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.control = 'scripts/control.test.py'
+        self.fixed = 'scripts/fixed.test.py'
+        self.other = 'scripts/other.test.py'
+        self.governed = 'scripts/governed.test.py'
+        self.config = dict(python_control_contract_version=1,
+                           groups={'workflow_governance': {}},
+                           workflow_governance_python_tests=[self.control, self.governed],
+                           python_control_contracts={
+                               'scripts/control.py': dict(group='workflow_governance',
+                                                         tests=[self.control, self.other]),
+                               'scripts/fixed.py': dict(group='workflow_governance', tests=[self.fixed])})
+        for path, names in ((self.control, ['required', 'preserved']),
+                            (self.fixed, ['required']), (self.other, ['required']),
+                            (self.governed, ['required'])):
+            self.write_test(path, names, 'baseline')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.write('scripts/ci-tests.sh',
+                   'run_workflow_governance_remaining_contract_tests() {\n'
+                   '  printf "remaining\\n" >> "$repo_root/trace.log"\n}\n')
+        self.git('init', '-q')
+        self.policy = self.commit()
+        for path, names in ((self.control, ['required', 'preserved', 'new']),
+                            (self.fixed, ['required', 'new']), (self.other, ['required']),
+                            (self.governed, ['required'])):
+            self.write_test(path, names, 'candidate')
+        candidate = self.commit()
+        self.plan = dict(scope='targeted', groups=['workflow_governance'],
+                         python_control_contract_version=1,
+                         python_control_paths=['scripts/control.py'],
+                         python_control_tests={'workflow_governance': [self.control, self.other]},
+                         source_sha=candidate, tested_sha=candidate, policy_sha=self.policy)
+
+    def write(self, path, text):
+        TrustedContracts.write(self.root, path, text)
+
+    def git(self, *args):
+        return subprocess.check_output(['git', *args], cwd=self.root, text=True,
+                                       stderr=subprocess.DEVNULL).strip()
+
+    def commit(self):
+        self.git('add', '.')
+        self.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                 'commit', '-qm', 'governance fixture')
+        return self.git('rev-parse', 'HEAD')
+
+    def write_test(self, path, names, origin):
+        source = 'import unittest\nfrom pathlib import Path\nclass Check(unittest.TestCase):\n'
+        for name in names:
+            source += (f'    def test_{name}(self):\n'
+                       '        with (Path(__file__).resolve().parent.parent / "trace.log").open("a") as log:\n'
+                       f'            log.write("{origin}:{path}:{name}\\n")\n'
+                       '        self.assertTrue(True)\n')
+        self.write(path, source)
+
+    def execute(self):
+        with patch.object(controls, 'FIXED_TESTS', {
+                self.control: ['Check.test_required'], self.fixed: ['Check.test_required']}), \
+             patch.object(controls, 'run_rust_fixture') as rust, \
+             patch.dict(controls.os.environ, SOURCE_SHA=self.plan['source_sha']):
+            result = controls.run_contracts(self.root, self.policy, self.plan, governance=True)
+            rust.assert_called_once()
+            return result
+
+    def test_complete_suites_execute_every_origin_and_case_once(self):
+        self.assertEqual(self.execute(), 11)
+        records = (self.root / 'trace.log').read_text().splitlines()
+        expected = []
+        for origin, path, names in (
+                ('baseline', self.control, ['required', 'preserved']),
+                ('baseline', self.fixed, ['required']), ('baseline', self.other, ['required']),
+                ('candidate', self.control, ['required', 'preserved', 'new']),
+                ('candidate', self.fixed, ['required', 'new']),
+                ('candidate', self.other, ['required']), ('candidate', self.governed, ['required'])):
+            expected.extend(f'{origin}:{path}:{name}' for name in names)
+        self.assertCountEqual(records, [*expected, 'remaining'])
+        self.assertEqual(records[-1], 'remaining')
+
+    def test_candidate_cannot_retire_governance_files_or_selected_baseline_cases(self):
+        with self.subTest(kind='file'):
+            self.write('scripts/ci-required-scope.json', json.dumps(dict(
+                self.config, workflow_governance_python_tests=[self.control])))
+            with self.assertRaisesRegex(ValueError, 'retired complete governance'):
+                self.execute()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.write_test(self.control, ['required', 'new'], 'candidate')
+        with self.subTest(kind='case'), self.assertRaisesRegex(ValueError, 'retired baseline'):
+            self.execute()
+
+    def test_new_candidate_skip_fails_before_remaining(self):
+        path = self.root / self.control
+        path.write_text(path.read_text().replace('    def test_new(self):',
+                        '    @unittest.skip("candidate omitted new regression")\n    def test_new(self):'))
+        with self.assertRaisesRegex(ValueError, 'did not completely execute'):
+            self.execute()
+        self.assertNotIn('remaining', (self.root / 'trace.log').read_text().splitlines())
+
+    def test_remaining_stops_on_first_failure(self):
+        self.write('scripts/ci-tests.sh',
+                   'run_workflow_governance_remaining_contract_tests() {\n'
+                   '  false\n  printf "incorrect\\n" >> "$repo_root/trace.log"\n}\n')
+        with self.assertRaises(subprocess.CalledProcessError):
+            controls.run_governance_remaining(self.root)
+        self.assertFalse((self.root / 'trace.log').exists())
+
+    def test_inventory_rejects_ambiguous_or_escaping_paths(self):
+        for paths in ([], [self.control, self.control], ['../escape.test.py'],
+                      ['scripts/../escape.test.py'], ['/scripts/root.test.py'],
+                      ['scripts/*.test.py'], ['scripts/a\\b.test.py'], ['scripts//a.test.py']):
+            with self.subTest(paths=paths), self.assertRaises(ValueError):
+                controls.governance_tests(dict(workflow_governance_python_tests=paths))
+
+
 if __name__ == '__main__':
     unittest.main()

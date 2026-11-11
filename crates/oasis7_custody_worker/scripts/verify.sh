@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 usage() {
-  echo 'usage: verify.sh [--platform | --stage <native|wasm-production|wasm-approval>]' >&2
+  echo 'usage: verify.sh [--platform | --stage <native|native-contracts|native-fixtures|wasm-production|wasm-approval>]' >&2
   exit 2
 }
 mode=checks
@@ -11,7 +11,7 @@ if [[ "$#" == 1 && "$1" == --platform ]]; then
   mode=platform
 elif [[ "$#" == 2 && "$1" == --stage ]]; then
   case "$2" in
-    native|wasm-production|wasm-approval) mode=$2 ;;
+    native|native-contracts|native-fixtures|wasm-production|wasm-approval) mode=$2 ;;
     *) usage ;;
   esac
 elif [[ "$#" != 0 ]]; then
@@ -23,10 +23,11 @@ fi
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 case "$mode" in
-  checks|platform|native)
+  checks|platform|native|native-contracts)
     env -u RUSTC_WRAPPER cargo test -p oasis7_custody_core -p oasis7_custody_worker --locked
     ;;
 esac
+[[ "$mode" != native-contracts ]] || exit 0
 case "$mode" in
   # Keep the complete role/profile proof on the approval runner, which also
   # executes the trusted dynamic WASM profiles with the same dev dependencies.
@@ -97,7 +98,7 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  platform|native)
+  platform|native|native-fixtures)
     # Execute native custody regressions, including the Provision bootstrap wire
     # contract; compiling the HTTP fixture alone does not run these assertions.
     env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher hosted_identity::custody::tests --locked

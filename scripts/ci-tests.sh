@@ -694,35 +694,11 @@ PY_TELEMETRY
 run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
-  run python3 ./scripts/plan-rust-required-scope.test.py
-  run python3 ./scripts/ci-local-check-plan.test.py
-  run python3 ./scripts/ci-python-control-contracts.test.py
-  run python3 ./scripts/ci-formal-process.test.py
-  run python3 ./scripts/ci-storage-acceptance.test.py
-  run python3 ./scripts/ci-storage-network.test.py
-  run python3 ./scripts/ci-required-result.test.py
-  run python3 ./scripts/ci-full-result.test.py
-  run python3 ./scripts/ci-apt-install.test.py
-  run python3 ./scripts/ci-workflow.test.py
-  run python3 ./scripts/ci-fast-preview.test.py
-  run python3 ./scripts/ci-cache-maintenance.test.py
-  run python3 ./scripts/ci-cache-policy.test.py
-  run python3 ./scripts/ci-cache-archive.test.py
-  run python3 ./scripts/ci-workspace-cache.test.py
-  run python3 ./scripts/ci-rust-cache-toolchains.test.py
-  run python3 ./scripts/ci-rust-cache-admission.test.py
-  run python3 ./scripts/ci-rust-cache-build.test.py
-  run python3 ./scripts/ci-support-profiles.test.py
-  run python3 ./scripts/ci-custody-platform.test.py
-  run python3 ./scripts/ci-worker-build.test.py
-  run python3 crates/oasis7_custody_worker/scripts/verify-stages.test.py
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
-  run python3 ./scripts/ci-local-signer-tests.test.py
   run bash ./scripts/rust-full-tier-trunk-prerequisite-contract.test.sh
   run bash ./scripts/worktree-gc-report.test.sh
   run python3 ./scripts/resource-cleanup-executor.test.py
-  run python3 ./scripts/pr-review-threads.test.py
 }
 
 run_workflow_governance_operational_contract_tests() {
@@ -748,11 +724,17 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-acceptance.test.py
 }
 
-run_workflow_governance_contract_tests() {
+run_workflow_governance_remaining_contract_tests() {
   run_ci_wasm_opt_contract_tests
   run_engineering_telemetry_contract_tests
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests
+  run python3 ./scripts/package-source-plan.test.py
+  run python3 ./scripts/safe-git-archive.test.py
+}
+
+run_workflow_governance_contract_tests() {
+  run python3 ./scripts/ci-python-control-contracts.py local-governance --repo-root "$repo_root"
 }
 
 run_packaging_artifact_contract_tests() {

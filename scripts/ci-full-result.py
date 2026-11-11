@@ -77,6 +77,17 @@ def definition_digest(root, revision):
             raise ValueError("invalid trusted custody execution definition")
         contents["scripts/ci-custody-platform.py"] = read("scripts/ci-custody-platform.py")
     contract_tests = set()
+    if "workflow_governance_python_tests" in config:
+        governed = config["workflow_governance_python_tests"]
+        if (not isinstance(governed, list) or not governed or len(governed) > 256
+                or any(not isinstance(path, str) or not path.startswith(("scripts/", "crates/"))
+                       or not path.endswith(".test.py")
+                       or any(part in ("", ".", "..") for part in path.split("/"))
+                       or any(character in path for character in ("\\", "*", "?", "[", "]"))
+                       or any(ord(character) < 32 for character in path) for path in governed)
+                or len(governed) != len(set(governed))):
+            raise ValueError("invalid complete governance Python definition")
+        contract_tests.update(governed)
     if {"python_control_contract_version", "python_control_contracts"}.intersection(config):
         contracts = config.get("python_control_contracts")
         if (type(config.get("python_control_contract_version")) is not int

@@ -5265,6 +5265,64 @@ class ExpandedNativeContracts(unittest.TestCase):
             self.assertIn('oasis7_viewer_runtime', plan['oasis7_required_packages'])
 
 
+class LoadedExecutableComponent(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def fixture(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        image = 'oasis7_executable_image'
+        self.write(f'crates/{image}/Cargo.toml',
+                   '[package]\nname="oasis7_executable_image"\nversion="0.1.0"\nedition="2024"\n'
+                   '[dependencies]\nblake3="1"\n')
+        self.write('crates/oasis7_chain_runtime/Cargo.toml',
+                   '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2024"\n'
+                   '[dependencies]\noasis7_executable_image={path="../oasis7_executable_image"}\n')
+        self.write('crates/oasis7_chain_runtime/src/lib.rs',
+                   'pub use oasis7_executable_image::executable_digest;\n')
+        for path in ('crates/oasis7_executable_image/src/lib.rs',
+                     'crates/oasis7_executable_image/src/digest.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/mod.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/replacement_tests.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/replacement_tests/fixture.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/replacement_tests/expectations.rs'):
+            self.write(path, (HERE.parent / path).read_text())
+        return config, self.commit()
+
+    def test_digest_uses_leaf_target_but_facade_and_platform_keep_host_consumers(self):
+        config, base = self.fixture()
+        path = 'crates/oasis7_executable_image/src/digest.rs'
+        self.write(path, Path(path).read_text().replace('64 * 1024', '32 * 1024'))
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['executable-image-lib']])
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertIn('oasis7_chain_runtime', plan['affected_packages'])
+        for path in ('crates/oasis7_executable_image/src/lib.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/mod.rs'):
+            previous = self.git('rev-parse', 'HEAD')
+            self.write(path, Path(path).read_text() + '\n// interface or platform input\n')
+            expanded = selector.select(config, previous, self.commit(), profile='pr-fast')
+            self.assertNotIn('ordinary_fast_targets', expanded)
+            self.assertIn('oasis7_chain_runtime', expanded['oasis7_required_packages'])
+
+    def test_full_inventory_keeps_leaf_behavior_and_real_host(self):
+        config, base = self.fixture()
+        target = config['ordinary_fast_targets']['executable-image-lib']
+        self.assertEqual(len(target['cases']), 8)
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, base)
+            self.assertIn(target, plan['ordinary_full_fast_targets'])
+            self.assertIn('oasis7_executable_image', plan['oasis7_required_packages'])
+            self.assertIn('oasis7_chain_runtime', plan['oasis7_required_packages'])
+
+
 class NativeRootModuleAdditions(unittest.TestCase):
     setUp = Selection.setUp
     tearDown = Selection.tearDown

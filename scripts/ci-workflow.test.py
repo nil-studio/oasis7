@@ -255,7 +255,7 @@ def validate_candidate_graph(workflow, config):
         if group == 'workspace_support':
             summary = jobs['workspace-support']
             expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other',
-                                'custody-native', 'custody-wasm-production', 'custody-wasm-approval', 'custody-node']
+                                'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-wasm-approval', 'custody-node']
             dependencies = re.search(r'    needs: \[(.*)\]', summary).group(1).split(', ')
             if (dependencies != expected_support or 'always()' not in summary
                     or 'ci-custody-platform.py validate' not in summary
@@ -276,12 +276,19 @@ def validate_candidate_graph(workflow, config):
                     or 'ci-custody-platform.py restore' not in node or 'ci-custody-platform.py run' not in node
                     or 'if: matrix.shard == 0' not in node or 'npm run test:types' not in node):
                 raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
+            proof = jobs['custody-native-contracts']
+            if ('    needs: select' not in proof or 'custody_execution_version == 1' not in proof
+                    or 'verify.sh --stage native-contracts' not in proof
+                    or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
+                    or 'custody-native-contracts' in node):
+                raise ValueError('native proof must remain required without blocking artifact consumers')
             for component in ('native', 'wasm-production', 'wasm-approval'):
                 producer = jobs['custody-' + component]
                 if ('    needs: select' not in producer
                         or 'custody_execution_version == 1' not in producer
                         or 'CUSTODY_COMPONENT: ' + component not in producer
-                        or 'verify.sh --stage "$CUSTODY_COMPONENT"' not in producer
+                        or 'verify.sh --stage "$stage"' not in producer
+                        or 'stage=native-fixtures' not in producer
                         or 'run_worker_wasm_compile_profiles' not in producer
                         or 'ci-custody-platform.py pack' not in producer):
                     raise ValueError('custody producer must preserve every verification stage')
@@ -681,6 +688,7 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
                 policy_files.add('scripts/ci-worker-build.py')
             policy_files.update(test for entry in CONFIG.get('python_control_contracts', {}).values()
                                 for test in entry['tests'])
+            policy_files.update(CONFIG.get('workflow_governance_python_tests', []))
             for path in policy_files:
                 destination = repo / path
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2089,7 +2097,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_ci_wasm_opt_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(function)
-        governance = re.search(r'^run_workflow_governance_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        governance = re.search(r'^run_workflow_governance_remaining_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(governance)
         self.assertEqual(governance.group().count('  run_ci_wasm_opt_contract_tests'), 1)
         paths = ('scripts/install-ci-wasm-opt.py', 'scripts/install-ci-wasm-opt.test.py')
@@ -2099,6 +2107,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         for kind, changed in cases:
             with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
+                (root / 'scripts').mkdir()
+                for archive in ('package-source-plan.test.py', 'safe-git-archive.test.py'):
+                    (root / 'scripts' / archive).write_text('pass\n')
                 if kind != 'absent':
                     for path in paths:
                         target = root / path
@@ -2125,7 +2136,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                          'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
                          'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
                          + function.group() + '\n' + governance.group()
-                         + '\nrun_workflow_governance_contract_tests\n')
+                         + '\nrun_workflow_governance_remaining_contract_tests\n')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
                 if kind in ('absent', 'complete'):
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -2147,7 +2158,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(function)
-        governance = re.search(r'^run_workflow_governance_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        governance = re.search(r'^run_workflow_governance_remaining_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(governance)
         self.assertEqual(governance.group().count('  run_engineering_telemetry_contract_tests'), 1)
         paths = (
@@ -2163,6 +2174,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         for kind, changed in cases:
             with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
+                (root / 'scripts').mkdir()
+                for archive in ('package-source-plan.test.py', 'safe-git-archive.test.py'):
+                    (root / 'scripts' / archive).write_text('pass\n')
                 if kind != 'absent':
                     for path in paths:
                         target = root / path
@@ -2189,7 +2203,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                          'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
                          'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
                          + function.group() + '\n' + governance.group()
-                         + '\nrun_workflow_governance_contract_tests\n')
+                         + '\nrun_workflow_governance_remaining_contract_tests\n')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
                 if kind in ('absent', 'complete'):
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -2239,8 +2253,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         packaging = driver.split('run_packaging_contract_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertEqual(packaging.count('run python3 ./scripts/ci-local-signer-tests.py'), 1)
         governance = driver.split('run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
-        for test in ('plan-wasm-determinism-scope.test.sh', 'ensure-wasm-bindgen-cli.test.sh', 'ci-local-signer-tests.test.py'):
+        for test in ('plan-wasm-determinism-scope.test.sh', 'ensure-wasm-bindgen-cli.test.sh'):
             self.assertEqual(governance.count(test), 1)
+        self.assertEqual(CONFIG['workflow_governance_python_tests'].count('scripts/ci-local-signer-tests.test.py'), 1)
 
     def test_stable_install_is_minimal_with_required_components(self):
         self.assertNotIn('--profile default', WORKFLOW)
@@ -2880,7 +2895,7 @@ run_cargo() {
         self.assertNotIn('dependency-cache-tools', ecs_jobs['web'])
         governance = (ROOT / 'scripts/ci-tests.sh').read_text().split(
             'run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
-        self.assertEqual(governance.count('run python3 ./scripts/ci-rust-cache-admission.test.py'), 1)
+        self.assertEqual(CONFIG['workflow_governance_python_tests'].count('scripts/ci-rust-cache-admission.test.py'), 1)
 
     def test_dependency_save_inputs_reject_step_only_status_functions(self):
         # GitHub permits status functions in step `if`, not action inputs.
@@ -3113,7 +3128,8 @@ run_cargo() {
         self.assertNotIn('cargo test -p', job)
         self.assertNotIn('Swatinem/rust-cache', job)
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        self.assertIn('run python3 ./scripts/ci-python-control-contracts.test.py', driver)
+        self.assertIn('scripts/ci-python-control-contracts.test.py', CONFIG['workflow_governance_python_tests'])
+        self.assertIn('ci-python-control-contracts.py local-governance', driver)
         for legacy in (False, True):
             with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as directory:
                 result, _, plan, _, _ = self.run_selection(
@@ -3126,6 +3142,64 @@ run_cargo() {
                     self.assertNotIn('python_control_contract_version', plan)
                 else:
                     self.assertEqual(runner.read_bytes(), (ROOT / 'scripts/ci-python-control-contracts.py').read_bytes())
+
+    def test_governance_mode_is_fixed_before_candidate_code_can_write_outputs(self):
+        job = JOBS['workflow-governance']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        mode = next(step for step in steps if 'id: control-mode\n' in step)
+        execute = next(step for step in steps if 'name: Execute trusted baseline Python' in step)
+        fallback = next(step for step in steps if 'name: Execute selected group\n' in step)
+        self.assertLess(job.index(mode), job.index('name: Install document contract parser'))
+        self.assertIn('python3 -I "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" --help', mode)
+        self.assertIn('COMPLETE_GOVERNANCE: ${{ steps.control-mode.outputs.complete_governance }}', execute)
+        self.assertNotIn('GITHUB_OUTPUT', execute)
+        self.assertIn("if: steps.control-mode.outputs.complete_governance != 'true'", fallback)
+
+        def script(step):
+            body = step.split('        run: ', 1)[1]
+            return textwrap.dedent(body[2:] if body.startswith('|\n') else body)
+
+        for capable, fails in ((False, False), (True, False), (True, True)):
+            with self.subTest(capable=capable, fails=fails), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                authority = root / 'temp/ci-authority'
+                authority.mkdir(parents=True)
+                (root / 'scripts').mkdir()
+                (root / 'scripts/ci-tests.sh').write_text('echo fallback-completed\n')
+                # The candidate advertises the new mode even when BASE cannot.
+                (root / 'scripts/ci-python-control-contracts.py').write_text('print("--governance")\n')
+                (authority / 'ci-python-control-contracts.py').write_text(
+                    'import os,sys\nfrom pathlib import Path\n'
+                    'if "--help" in sys.argv:\n'
+                    f'    print({"--governance" if capable else "legacy runner"!r})\n'
+                    '    raise SystemExit(0)\n'
+                    'print("complete" if "--governance" in sys.argv else "legacy")\n'
+                    'Path(os.environ["GITHUB_OUTPUT"]).write_text("complete_governance=true\\n")\n'
+                    f'raise SystemExit({42 if fails else 0})\n')
+                mode_output = root / 'mode-output'
+                environment = dict(os.environ, RUNNER_TEMP=str(root / 'temp'),
+                                   GITHUB_WORKSPACE=str(root), GITHUB_OUTPUT=str(mode_output),
+                                   POLICY_SHA='a' * 40)
+                probe = subprocess.run(['bash', '-e', '-u', '-o', 'pipefail', '-c', script(mode)],
+                                       env=environment, cwd=root, text=True, capture_output=True)
+                self.assertEqual(probe.returncode, 0, probe.stderr)
+                fixed_mode = mode_output.read_text().strip().split('=', 1)[1]
+                self.assertEqual(fixed_mode, str(capable).lower())
+                execution_output = root / 'execution-output'
+                environment.update(GITHUB_OUTPUT=str(execution_output), COMPLETE_GOVERNANCE=fixed_mode)
+                result = subprocess.run(['bash', '-e', '-u', '-o', 'pipefail', '-c', script(execute)],
+                                        env=environment, cwd=root, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 42 if fails else 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), 'complete' if capable else 'legacy')
+                self.assertEqual(execution_output.read_text().strip(), 'complete_governance=true')
+                # Actions snapshots the earlier step's outputs and applies its
+                # default success() condition; later output writes cannot replace it.
+                if result.returncode == 0 and fixed_mode != 'true':
+                    tail = subprocess.run(['bash', '-e', '-c', script(fallback)],
+                                          env=environment, cwd=root, text=True, capture_output=True)
+                    self.assertEqual(tail.returncode, 0, tail.stderr)
+                    self.assertEqual(tail.stdout.strip(), 'fallback-completed')
+                self.assertEqual(mode_output.read_text().strip(), 'complete_governance=' + fixed_mode)
 
     def test_runner_discovers_supported_python_when_default_is_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -3336,16 +3410,16 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             'command-center', 'baseline', 'rust-baseline', 'oasis7-test-build-candidate',
             'consensus', 'distfs', 'node', 'net', 'viewer-js-required',
             'viewer-performance-report', 'pixel-world-bridge', 'launcher-web',
-            'workspace-support-legacy', 'workspace-support-other', 'custody-native',
+            'workspace-support-legacy', 'workspace-support-other', 'custody-native', 'custody-native-contracts',
             'custody-wasm-production', 'custody-wasm-approval', 'custody-node',
             'scenario-regression', 'operational-contracts', 'packaging-contracts',
             'workflow-governance', 'codex-agent-config-validation', 'compile-metrics',
             'site-quality', 'doc-checker-contracts', 'cargo-tooling-contracts',
             'windows-rollout', 'macos-package-contract', 'fleet-health',
         )
-        self.assertEqual(len(names), 30)
+        self.assertEqual(len(names), 31)
         producers = ('custody-native', 'custody-wasm-production', 'custody-wasm-approval')
-        split_jobs = {*producers, 'custody-node', 'workspace-support-other'}
+        split_jobs = {*producers, 'custody-native-contracts', 'custody-node', 'workspace-support-other'}
         conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
@@ -3843,8 +3917,7 @@ class AptWorkflow(unittest.TestCase):
             self.assertEqual(CONFIG['python_control_contracts'][path]['group'], 'workflow_governance')
             self.assertIn(test, CONFIG['python_control_contracts'][path]['tests'])
         self.assertIn('scripts/ci-workflow.test.py', CONFIG['python_control_contracts'][helper]['tests'])
-        self.assertIn('run python3 ./scripts/ci-apt-install.test.py',
-                      (ROOT / 'scripts/ci-tests.sh').read_text())
+        self.assertIn('scripts/ci-apt-install.test.py', CONFIG['workflow_governance_python_tests'])
 
 
 # Append this class before unittest.main() in scripts/ci-workflow.test.py.
@@ -3932,7 +4005,7 @@ class WorkerToolCache(unittest.TestCase):
             self.assertNotIn('GH_TOKEN:', job)
         self.assertEqual(CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['group'], 'workflow_governance')
         self.assertIn('scripts/ci-worker-build.test.py', CONFIG['python_control_contracts']['scripts/ci-worker-build.py']['tests'])
-        self.assertIn('run python3 ./scripts/ci-worker-build.test.py', (ROOT / 'scripts/ci-tests.sh').read_text())
+        self.assertIn('scripts/ci-worker-build.test.py', CONFIG['workflow_governance_python_tests'])
 
     def test_writer_rejects_foreign_identity_unbounded_keys_and_unadmitted_save(self):
         writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']

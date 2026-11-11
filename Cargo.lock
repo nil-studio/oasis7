@@ -6179,6 +6179,7 @@ dependencies = [
  "oasis7_client_api",
  "oasis7_consensus",
  "oasis7_distfs",
+ "oasis7_executable_image",
  "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_net",
@@ -6377,6 +6378,14 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "zstd",
+]
+
+[[package]]
+name = "oasis7_executable_image"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "libc",
 ]
 
 [[package]]
