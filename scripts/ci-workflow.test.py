@@ -12,9 +12,10 @@ from pathlib import Path
 import re
 import shlex
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW = (ROOT / '.github/workflows/rust.yml').read_text()
+RAW_WORKFLOW = (ROOT / '.github/workflows/rust.yml').read_text()
 CONFIG = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
 def workspace_support_fixture_functions(driver):
     prefix = ('ci_python=' + shlex.quote(sys.executable) + '\n'
@@ -39,14 +40,67 @@ def workflow_jobs(workflow):
     for job in jobs.values():
         match = re.search(r'^    steps: &([a-z0-9-]+)\n(.*)', job, re.M | re.S)
         if match:
+            assert match[1] not in anchors, 'duplicate step sequence anchor'
             anchors[match[1]] = match[2]
-    return {name: re.sub(r'^    steps: &[a-z0-9-]+\n', '    steps:\n',
+    jobs = {name: re.sub(r'^    steps: &[a-z0-9-]+\n', '    steps:\n',
                         re.sub(r'^    steps: \*([a-z0-9-]+)\n',
                                lambda match: '    steps:\n' + anchors[match[1]], job, flags=re.M), flags=re.M)
             for name, job in jobs.items()}
+    # Resolve individual step aliases as well as complete step sequences. Keep
+    # the old observation alias opaque: contracts inspect that step separately.
+    definitions = re.findall(
+        r'^      - &([a-z0-9-]+)\n(.*?)(?=^      - |^\S|^  [a-z]|\Z)',
+        workflow, re.M | re.S)
+    step_anchors = dict(definitions)
+    assert len(step_anchors) == len(definitions), 'duplicate step anchor'
+    assert not set(step_anchors).intersection(anchors), 'ambiguous step anchor'
+    known_steps = set(step_anchors)
+    step_anchors.pop('engineering-job-observation', None)
+    for name, body in step_anchors.items():
+        assert body.startswith('        '), f'invalid step anchor {name}'
+        step_anchors[name] = '      - ' + body.removeprefix('        ')
+    for name, job in jobs.items():
+        for alias in re.findall(r'^      - \*([a-z0-9-]+)\n', job, re.M):
+            assert alias in known_steps, f'undefined step alias {alias}'
+        job = re.sub(r'^      - &([a-z0-9-]+)\n(.*?)(?=^      - |\Z)',
+                     lambda match: step_anchors.get(match[1], match[0]), job, flags=re.M | re.S)
+        jobs[name] = re.sub(r'^      - \*([a-z0-9-]+)\n',
+                           lambda match: step_anchors.get(match[1], match[0]), job, flags=re.M)
+    return jobs
 
 
+def workflow_contract_view(workflow):
+    """Use each job's actual steps for both positive contracts and mutations."""
+    header = workflow.split('\njobs:\n', 1)[0]
+    return header + '\njobs:\n' + ''.join(
+        '  ' + name + ':\n' + body.rstrip('\n') + '\n\n'
+        for name, body in workflow_jobs(workflow).items())
+
+
+WORKFLOW = workflow_contract_view(RAW_WORKFLOW)
 JOBS = workflow_jobs(WORKFLOW)
+
+TRUSTED_SOURCE_WRITERS = (
+    'oasis7-test-build-trusted', 'formal-debug-build-trusted',
+    'formal-endpoint-build-trusted', 'full-regression',
+)
+
+
+def selected_source_steps(name):
+    """Normalize only the equivalent first checkout of admitted main writers."""
+    steps = JOBS[name].split('    steps:\n', 1)[1]
+    checkouts = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
+                 if re.search(r'^\s+(?:- )?uses: actions/checkout@', step, re.M)]
+    assert len(checkouts) == 1, 'one selected checkout is required'
+    if name in TRUSTED_SOURCE_WRITERS:
+        assert steps.startswith(checkouts[0]), 'writer checkout must be first'
+    checkout = checkouts[0]
+    refs = re.findall(r'^          ref: (.*)$', checkout, re.M)
+    tested = '${{ needs.select.outputs.tested_sha }}'
+    allowed = (tested, '${{ github.sha }}') if name in TRUSTED_SOURCE_WRITERS else (tested,)
+    assert len(refs) == 1 and refs[0] in allowed, 'checkout must use the selected or proven identical source'
+    # Do not normalize any other checkout setting, later step, or candidate ref.
+    return steps.replace('          ref: ' + refs[0] + '\n', '          ref: ' + tested + '\n', 1)
 
 
 def effective_job_condition(condition, values, ancestor_results, *, cancelled=False):
@@ -192,23 +246,25 @@ def viewer_cache_kind(job):
 def without_optional_dependency_cache_install(workflow, config=None):
     if config is None:
         config = CONFIG
+    workflow = workflow_contract_view(workflow)
     # Only these exact optional installers and diagnostics uploads may fail.
     # Removing a writer condition, renaming the command or swallowing any build,
     # required artifact, merge or test failure is never exempt.
-    for name in ('formal-debug-build', 'formal-endpoint-build'):
+    for base, suffix in itertools.product(('formal-debug-build', 'formal-endpoint-build'), ('', '-trusted')):
+        name = base + suffix
         job = re.search(r'^  ' + name + r':\n.*?(?=^  [a-z][a-z0-9-]*:|\Z)', workflow, re.M | re.S)
         if not job:
             continue
         condition = (
             '        if: >-\n'
-            f"          github.job == '{name}-trusted' && github.ref == 'refs/heads/main' &&\n"
+            f"          github.job == '{base}-trusted' && github.ref == 'refs/heads/main' &&\n"
             "          github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&\n"
             "          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))\n")
         installer = ('      - name: Install dependency cache admission\n'
                      '        id: dependency-cache-tools\n' + condition +
                      '        continue-on-error: true\n'
                      '        run: python3 scripts/ci-rust-cache-admission.py install\n')
-        component = name.removesuffix('-build')
+        component = base.removesuffix('-build')
         diagnostics = (f'      - name: Upload {component} build diagnostics\n'
                        '        if: always()\n'
                        '        continue-on-error: true\n'
@@ -336,6 +392,94 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def test_step_aliases_preserve_order_and_reject_unknown_or_duplicate_definitions(self):
+        workflow = '''jobs:
+  reader:
+    steps:
+      - &prepare
+        name: Prepare
+        run: prepare
+      - &validate
+        run: validate
+  writer:
+    steps:
+      - *prepare
+      - *validate
+'''
+        jobs = workflow_jobs('\n' + workflow)
+        self.assertEqual(jobs['reader'], jobs['writer'])
+        self.assertIn('      - name: Prepare\n        run: prepare\n      - run: validate\n', jobs['writer'])
+        reordered = workflow.replace('      - *prepare\n      - *validate', '      - *validate\n      - *prepare')
+        self.assertNotEqual(workflow_jobs('\n' + reordered)['writer'], jobs['reader'])
+        for broken in (workflow.replace('*prepare', '*missing'),
+                       workflow.replace('&validate', '&prepare'),
+                       workflow.replace('        run: validate\n', '')):
+            with self.subTest(workflow=broken), self.assertRaises(AssertionError):
+                workflow_jobs('\n' + broken)
+
+    def test_selected_checkout_normalizes_only_the_trusted_writer_ref(self):
+        reader, writer = 'oasis7-test-build-candidate', 'oasis7-test-build-trusted'
+        original = JOBS[writer]
+        direct = original.replace('ref: ${{ needs.select.outputs.tested_sha }}', 'ref: ${{ github.sha }}', 1)
+        with patch.dict(JOBS, {writer: direct}):
+            self.assertEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
+        for ref in ('${{ inputs.ref }}', '${{ needs.other.outputs.tested_sha }}',
+                    '${{ github.sha || inputs.ref }}'):
+            with patch.dict(JOBS, {writer: direct.replace('${{ github.sha }}', ref, 1)}):
+                with self.subTest(ref=ref), self.assertRaises(AssertionError):
+                    selected_source_steps(writer)
+        with patch.dict(JOBS, {reader: JOBS[reader].replace('ref: ${{ needs.select.outputs.tested_sha }}',
+                                                        'ref: ${{ github.sha }}', 1)}):
+            with self.assertRaises(AssertionError):
+                selected_source_steps(reader)
+        extra_checkout = ('      - name: Another checkout\n'
+                          '        uses: actions/checkout@v4\n'
+                          '        with:\n          ref: ${{ inputs.ref }}\n')
+        with patch.dict(JOBS, {writer: direct + extra_checkout}):
+            with self.assertRaises(AssertionError):
+                selected_source_steps(writer)
+        for changed in (direct.replace('persist-credentials: false', 'persist-credentials: true', 1),
+                        direct.replace('          fetch-depth: 0', '          path: another', 1),
+                        direct.replace('          fetch-depth: 0', '          repository: another/repo', 1),
+                        direct.replace('run: python3 scripts/ci-workspace-cache.py identity', 'run: false #', 1)):
+            with patch.dict(JOBS, {writer: changed}):
+                self.assertNotEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
+
+    def test_writer_identity_is_bound_by_the_real_selector_and_job_conditions(self):
+        selection = re.search(r'^          trusted_source=false\n.*?^          fi\n',
+                              JOBS['select'], re.M | re.S).group()
+        script = textwrap.dedent(selection) + 'printf "%s" "$trusted_source"\n'
+        for ref, workflow_sha, source_sha in itertools.product(
+                ('refs/heads/main', 'refs/heads/candidate', 'refs/pull/1/merge'), ('a', 'b'), ('a', 'b')):
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                                    env=dict(os.environ, GITHUB_REF=ref, WORKFLOW_SHA=workflow_sha,
+                                             GITHUB_SHA='a', source_sha=source_sha),
+                                    text=True, capture_output=True, check=True)
+            trusted = ref == 'refs/heads/main' and workflow_sha == source_sha == 'a'
+            self.assertEqual(result.stdout, str(trusted).lower())
+            for event, mode in (('push', ''), ('schedule', ''), ('workflow_dispatch', 'full'),
+                                ('workflow_dispatch', 'required'), ('pull_request', '')):
+                values = {
+                    'needs.select.result': 'success',
+                    'needs.select.outputs.run_oasis7_required': 'true',
+                    'needs.select.outputs.run_formal_process': 'true',
+                    'needs.select.outputs.trusted_source': result.stdout,
+                    'fromJSON(needs.select.outputs.plan).scope': 'full',
+                    'fromJSON(needs.select.outputs.plan).execution_profile': 'periodic-full',
+                    'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                    'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                    'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
+                    'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
+                    'github.workflow_sha': workflow_sha, 'github.sha': 'a',
+                }
+                for name in TRUSTED_SOURCE_WRITERS:
+                    condition = JOBS[name].split('    if:', 1)[1].split('    runs-on:', 1)[0]
+                    allowed_event = (event == 'schedule' or (event == 'workflow_dispatch' and mode == 'full')
+                                     or (event == 'push' and name != 'full-regression'))
+                    with self.subTest(job=name, ref=ref, event=event, workflow=workflow_sha, source=source_sha):
+                        self.assertEqual(effective_job_condition(condition, values, ['success']),
+                                         trusted and allowed_event)
+
     def test_governance_preview_is_complete_read_only_and_has_no_gate_authority(self):
         job = JOBS['pr-governance-preview']
         for required in (
@@ -918,6 +1062,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_command_center_is_reusable_and_required(self):
         workflow = (ROOT / '.github/workflows/command-center.yml').read_text()
         self.assertIn('  workflow_call:', workflow)
+        self.assertIn('ref: ${{ inputs.source_sha }}', workflow)
+        self.assertIn('persist-credentials: false', workflow)
         self.assertNotIn('  pull_request:', workflow)
         self.assertNotIn('  push:', workflow)
         self.assertIn('uses: ./.github/workflows/command-center.yml', JOBS['command-center'])
@@ -1035,7 +1181,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 dependencies = re.search(r'    needs: (.*)', job).group(1)
                 expected = '[select, cache-bootstrap-maintenance]' if name.endswith('-trusted') else 'select'
                 self.assertEqual(dependencies, expected)
-                self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', job)
+                self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', selected_source_steps(name))
                 self.assertIn('name: ${{ needs.select.outputs.selection_artifact }}', job)
                 self.assertIn('name: ${{ needs.select.outputs.authority_artifact }}', job)
                 component = 'formal-debug' if 'debug' in name else 'formal-endpoint'
@@ -1415,7 +1561,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertIn(text, writer.split('    steps:', 1)[0])
                 self.assertIn(text, reader.split('    steps:', 1)[0])
             self.assertIn('!(', reader.split('    steps:', 1)[0])
-            self.assertEqual(reader.split('    steps:', 1)[1].strip(), writer.split('    steps:', 1)[1].strip())
+            self.assertEqual(selected_source_steps(reader_name).strip(), selected_source_steps(writer_name).strip())
             for job in (reader, writer):
                 self.assertIn('actions: read', job)
                 self.assertNotIn('actions: write', job)
@@ -1948,8 +2094,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_candidate_full_preserves_full_setup_and_execution(self):
         # Both lanes run the same full validation. Only the trusted main lane
         # additionally saves its existing tool caches and sentinel.
-        writer = JOBS['full-regression'].split('    steps:\n', 1)[1]
-        candidate = JOBS['candidate-full-regression'].split('    steps:\n', 1)[1]
+        writer = selected_source_steps('full-regression')
+        candidate = selected_source_steps('candidate-full-regression')
         for job in (writer, candidate):
             self.assertNotIn('cache-native', job)
             self.assertNotIn('dependency-cache-tools', job)
@@ -3116,7 +3262,8 @@ run_cargo() {
         self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', WORKFLOW)), WORKFLOW.count('persist-credentials: false'))
         self.assertNotIn('secrets.', WORKFLOW)
         without_admitted_uploads = WORKFLOW
-        for name, family in (('formal-debug-build', 'formal-debug'), ('formal-endpoint-build', 'formal-endpoint')):
+        for family, suffix in itertools.product(('formal-debug', 'formal-endpoint'), ('', '-trusted')):
+            name = family + '-build' + suffix
             dependency_cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
                                                                  JOBS[name], re.M | re.S)
                                     if 'uses: Swatinem/rust-cache@' in step
@@ -3576,7 +3723,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
         # The native producer owns the shared steps used by both WASM producers.
         anchor = '    steps: &custody-build-steps\n'
-        original = WORKFLOW.split(anchor, 1)[1].split('\n  custody-wasm-production:', 1)[0]
+        original = RAW_WORKFLOW.split(anchor, 1)[1].split('\n  custody-wasm-production:', 1)[0]
         for before, after in [
                 ('          include-hidden-files: true\n', ''),
                 ('          include-hidden-files: true\n', '          include-hidden-files: false\n'),
@@ -3589,13 +3736,13 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 ('          name: ${{ steps.bundle.outputs.artifact }}\n', '          name: stale-custody\n')]:
             with self.subTest(after=after), self.assertRaisesRegex(ValueError, 'custody upload'):
                 self.assertIn(before, original)
-                candidate = WORKFLOW.replace(original, original.replace(before, after, 1), 1)
+                candidate = RAW_WORKFLOW.replace(original, original.replace(before, after, 1), 1)
                 validate_candidate_graph(candidate, CONFIG)
         upload = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', original, re.M | re.S)
                       if 'uses: actions/upload-artifact@' in step)
         for replacement in ('', upload + upload.replace('steps.bundle.outputs.artifact', 'steps.other.outputs.artifact')):
             with self.subTest(replacement=replacement), self.assertRaisesRegex(ValueError, 'custody upload'):
-                candidate = WORKFLOW.replace(original, original.replace(upload, replacement, 1), 1)
+                candidate = RAW_WORKFLOW.replace(original, original.replace(upload, replacement, 1), 1)
                 validate_candidate_graph(candidate, CONFIG)
 
     def test_custody_approval_step_initializes_real_driver_and_propagates_compile_failure(self):
@@ -3704,7 +3851,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                      'formal-process-tests', 'workspace-support', 'full-regression', 'candidate-full-regression',
                      'windows-rollout', 'fleet-health'):
             with self.subTest(job=name):
-                self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', JOBS[name])
+                self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', selected_source_steps(name))
         for name in ('oasis7-test-build-candidate', 'formal-test-build', 'formal-test-build-trusted',
                      'formal-debug-build', 'formal-debug-build-trusted',
                      'formal-endpoint-build', 'formal-endpoint-build-trusted', 'oasis7-required', 'formal-process-tests'):
