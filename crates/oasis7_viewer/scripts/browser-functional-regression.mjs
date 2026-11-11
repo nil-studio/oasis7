@@ -37,6 +37,11 @@ const ALL_CASES = [
   "p03-stale",
   "p03-control-lost",
   "p03-control-lost-unknown",
+  "p04-signing-deferred",
+  "p04-sent-late-error",
+  "p05-duplicate-out-of-order",
+  "p06-reconnect-recovery",
+  "p07-unmount-remount",
 ];
 const SELECTABLE_CASES = [...ALL_CASES];
 const PRODUCTION_MODULES = [
@@ -164,6 +169,7 @@ function fakeTransportSource(endpoint) {
   const state = { outbound: [], delivered: [], violations: [] };
   const listeners = new WeakMap();
   const sockets = [];
+  let nextSocketId = 0;
   const emit = (socket, type, payload = {}) => {
     for (const callback of listeners.get(socket)?.[type] || []) callback({ type, ...payload });
   };
@@ -229,6 +235,7 @@ function fakeTransportSource(endpoint) {
         throw new Error("blocked by browser functional regression network guard: websocket " + url);
       }
       this.url = String(url);
+      this.__bfrId = ++nextSocketId;
       this.readyState = FixtureWebSocket.CONNECTING;
       listeners.set(this, {});
       sockets.push(this);
@@ -311,7 +318,31 @@ function fakeTransportSource(endpoint) {
         attempt();
       });
     },
-    closeSocket() { const socket = currentSocket(); if (socket) socket.close(); },
+    closeSocket() { const socket = currentSocket(); if (socket) socket.close(); return socket ? socket.__bfrId : null; },
+    socketInfo() { return sockets.map((socket) => ({ id: socket.__bfrId, readyState: socket.readyState })); },
+    currentSocketId() { return currentSocket()?.__bfrId ?? null; },
+    deliverToSocket(socketId, message) {
+      const socket = sockets.find((entry) => entry.__bfrId === socketId);
+      if (!socket) return { ok: false, reason: "unknown fixture socket", socketId };
+      state.delivered.push({ index: state.delivered.length + 1, at: Date.now(), message, socketId });
+      emit(socket, "message", { data: JSON.stringify(message) });
+      return { ok: true, delivered: state.delivered.length, socketId };
+    },
+    armSigningGate() {
+      const signer = window.__BFR_SIGNER__;
+      if (!signer || !signer.installed) return { installed: false, reason: signer?.reason || "deferred signer gate is unavailable" };
+      return { installed: true, ...signer.arm() };
+    },
+    signingState() {
+      const signer = window.__BFR_SIGNER__;
+      if (!signer) return { installed: false };
+      return { installed: signer.installed, ...signer.entered() };
+    },
+    releaseSigning() {
+      const signer = window.__BFR_SIGNER__;
+      if (!signer) return Promise.resolve({ released: false, reason: "deferred signer gate is unavailable" });
+      return signer.release();
+    },
     storageKeys() { return Object.keys(localStorage).sort(); },
     async networkGuardProbes() {
       const results = {};
@@ -329,6 +360,57 @@ function fakeTransportSource(endpoint) {
       anchor.click();
       anchor.remove();
       return JSON.stringify({ results, violations: state.violations, location: location.href });
+    },
+  };
+})();`;
+}
+
+// Test-only signing barrier. The real installed identity still produces the
+// signature through WebCrypto; the gate only defers delivery of the next sign
+// Promise so a scenario can fix one request in its signing stage. It never
+// fabricates signature bytes and never changes the signed payload.
+function deferredSignerSource() {
+  return `(() => {
+  const subtle = window.crypto && window.crypto.subtle;
+  if (!subtle || typeof subtle.sign !== "function") {
+    window.__BFR_SIGNER__ = { installed: false, reason: "SubtleCrypto.sign is unavailable" };
+    return;
+  }
+  const nativeSign = subtle.sign.bind(subtle);
+  const gate = { armed: false, entered: false, calls: 0, released: 0, pending: null };
+  const wrapped = function deferredSign(algorithm, key, data) {
+    gate.calls += 1;
+    if (!gate.armed || gate.entered) return nativeSign(algorithm, key, data);
+    gate.armed = false;
+    gate.entered = true;
+    return new Promise((resolveResult, rejectResult) => {
+      gate.pending = { resolveResult, rejectResult, args: [algorithm, key, data] };
+    });
+  };
+  let installed = false;
+  try {
+    Object.defineProperty(subtle, "sign", { value: wrapped, configurable: true });
+    installed = subtle.sign === wrapped;
+  } catch (_) {}
+  if (!installed) {
+    try {
+      Object.defineProperty(Object.getPrototypeOf(subtle), "sign", { value: wrapped, configurable: true, writable: true });
+      installed = subtle.sign === wrapped;
+    } catch (_) {}
+  }
+  window.__BFR_SIGNER__ = {
+    installed,
+    arm() { gate.armed = true; gate.entered = false; return { calls: gate.calls }; },
+    entered() { return { entered: gate.entered, calls: gate.calls, released: gate.released, deferred: Boolean(gate.pending) }; },
+    release() {
+      const pending = gate.pending;
+      if (!pending) return Promise.resolve({ released: false, calls: gate.calls });
+      gate.pending = null;
+      gate.entered = false;
+      return nativeSign(...pending.args).then(
+        (signature) => { gate.released += 1; pending.resolveResult(signature); return { released: true, calls: gate.calls }; },
+        (error) => { pending.rejectResult(error); return { released: false, calls: gate.calls, error: String(error) }; },
+      );
     },
   };
 })();`;
@@ -442,7 +524,7 @@ export function createFixtureServer({ releaseOnly = false } = {}) {
       catch { response.writeHead(404); response.end("not found"); return; }
       const injected = releaseOnly
         ? `${config}`
-        : `${config}<script>${canvasCompatSource}</script><script>${deriveSource()}</script><script>${fakeTransportSource(wsEndpoint)}</script>`;
+        : `${config}<script>${canvasCompatSource}</script><script>${deriveSource()}</script><script>${deferredSignerSource()}</script><script>${fakeTransportSource(wsEndpoint)}</script>`;
       html = html.replace('<script type="module" src="./viewer.js"></script>', `${injected}<script type="module" src="./viewer.js"></script>`);
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
       response.end(html);
@@ -602,7 +684,11 @@ function createBrowserDriver({ sessionPrefix, headed, outDir }) {
     lifecycle.close();
   }
 
-  return { binary, session, run, runJson, evalJson, screenshot, close, closeWithVerification, prepare: lifecycle.prepare };
+  // Each case owns a unique pid-scoped session, so there is no same-name
+  // session to clear before opening. Pre-open close races the agent-browser
+  // daemon socket on 0.37.x and produces "Failed to connect"; keep cleanup on
+  // exit and skip the unnecessary pre-open close.
+  return { binary, session, run, runJson, evalJson, screenshot, close, closeWithVerification, prepare() {} };
 }
 
 export function resolveBrowserBinary(candidate) {
@@ -679,6 +765,215 @@ async function countOutbound(driver, spec) {
   return driver.evalJson(`JSON.stringify({ count: window.__BFR__.countOutbound(${JSON.stringify(spec)}), total: window.__BFR__.outboundCount() })`);
 }
 
+async function socketInfo(driver) {
+  return driver.evalJson("JSON.stringify(window.__BFR__.socketInfo())");
+}
+
+async function currentSocketId(driver) {
+  return driver.evalJson("JSON.stringify(window.__BFR__.currentSocketId())");
+}
+
+async function deliverToSocket(driver, socketId, message, trace = null) {
+  trace?.push("deliver-old-socket", { socketId, type: message.type });
+  const result = await driver.evalJson(`JSON.stringify(window.__BFR__.deliverToSocket(${socketId}, ${JSON.stringify(message)}))`);
+  assert(result.ok === true, "fixture could not deliver a late message to the requested socket", result);
+  return result;
+}
+
+async function armSigningGate(driver) {
+  const armed = await driver.evalJson("JSON.stringify(window.__BFR__.armSigningGate())");
+  assert(armed.installed === true, "deferred signer gate was not installed in the visual-test page", armed);
+  return armed;
+}
+
+async function waitForSigning(driver, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await driver.evalJson("JSON.stringify(window.__BFR__.signingState())");
+    if (last.entered === true && last.deferred === true) return last;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
+  }
+  throw new Error(`request did not enter the deferred signing stage\n${JSON.stringify(last)}`);
+}
+
+async function releaseSigning(driver, trace = null) {
+  const released = await driver.evalJson("window.__BFR__.releaseSigning().then((value) => JSON.stringify(value))");
+  trace?.push("release-signing", released);
+  assert(released.released === true, "deferred signing release did not produce a real signature", released);
+  return released;
+}
+
+async function expirePendingPromptAck(driver, trace = null) {
+  const result = await driver.evalJson(`JSON.stringify((() => {
+    const value = window.__AW_TEST__.expirePendingPromptControlAckTimeoutForTest();
+    return { result: value, stage: window.__AW_TEST__.getState().lastPromptFeedback?.stage || null };
+  })())`);
+  trace?.push("expire-prompt-ack", result);
+  assert(result.result === true, "test hook could not terminate the pending prompt request", result);
+  return result;
+}
+
+async function promptFeedbackState(driver) {
+  return driver.evalJson(`(() => {
+    const feedback = window.__AW_TEST__.getState().lastPromptFeedback;
+    return JSON.stringify(feedback ? {
+      id: feedback.id,
+      action: feedback.action,
+      stage: feedback.stage,
+      requestId: feedback.requestId ?? null,
+      requestAuthNonce: feedback.requestAuthNonce ?? null,
+      agentId: feedback.agentId ?? null,
+      effect: feedback.effect ?? null,
+    } : null);
+  })()`);
+}
+
+async function promptResultState(driver) {
+  return driver.evalJson(`(() => {
+    const state = window.__AW_TEST__.getState();
+    return JSON.stringify({
+      selectedPromptVersion: state.selectedPromptVersion ?? null,
+      promptDraftVersion: state.selectedPromptVersion ?? null,
+      draftSystemPrompt: document.querySelector("#prompt-system")?.value ?? null,
+      lastPromptFeedback: state.lastPromptFeedback ? {
+        action: state.lastPromptFeedback.action,
+        stage: state.lastPromptFeedback.stage,
+        requestId: state.lastPromptFeedback.requestId ?? null,
+      } : null,
+    });
+  })()`);
+}
+
+async function requestSnapshotCount(driver) {
+  return driver.evalJson(`JSON.stringify({
+    count: window.__BFR__.countOutbound({ type: "request_snapshot" }),
+    total: window.__BFR__.outboundCount(),
+  })`);
+}
+
+async function connectionGeneration(driver) {
+  return driver.evalJson("window.__AW_TEST__.connectionGenerationForTest()");
+}
+
+async function waitForStableSockets(driver, minimum, { stableMs = 900, timeoutMs = 15000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  let signature = null;
+  let stableSince = 0;
+  while (Date.now() < deadline) {
+    last = await socketInfo(driver);
+    const outbound = await countOutbound(driver, {});
+    const next = JSON.stringify({ sockets: last, outbound: outbound.total });
+    if ((last || []).length >= minimum && next === signature) {
+      if (Date.now() - stableSince >= stableMs) return last;
+    } else {
+      signature = next;
+      stableSince = Date.now();
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+  }
+  throw new Error(`fixture socket set did not stabilize with ${minimum} sockets\n${JSON.stringify(last)}`);
+}
+
+async function beginRollbackRequest(driver, trace = null) {
+  await driver.runJson(["fill", "#prompt-rollback-version", "999"]);
+  trace?.push("ui-input", { selector: "#prompt-rollback-version", value: 999 });
+  const before = await countOutbound(driver, {});
+  await scrollIntoViewport(driver, '[data-prompt-action="rollback"]', trace);
+  await driver.runJson(["click", '[data-prompt-action="rollback"]']);
+  trace?.push("ui-click", { selector: "[data-prompt-action=rollback]" });
+  const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "rollback" }, 8000, trace);
+  await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "sent" && state.lastPromptFeedback?.action === "prompt_rollback"`);
+  return sent.entry.message.command.request;
+}
+
+function promptControlError(request, message = "late result for an already terminated request") {
+  return {
+    type: "prompt_control_error",
+    request_auth_nonce: request.auth.nonce,
+    error: {
+      request_id: request.request_id,
+      agent_id: request.agent_id,
+      status: "blocked",
+      reason_code: "control_lost",
+      value_visibility: "hidden",
+      next_step: "reauthenticate_and_refresh_binding",
+      message,
+    },
+  };
+}
+
+function promptControlApplied(request, version = 4, override = DRAFT_TEXT) {
+  return {
+    type: "prompt_control_ack",
+    request_auth_nonce: request.auth.nonce,
+    ack: {
+      request_id: request.request_id,
+      agent_id: request.agent_id,
+      operation: "apply",
+      status: "applied",
+      version,
+      applied_fields: ["system_prompt_override"],
+      applied_scope: "current_runtime",
+      persistence_scope: "none",
+      sync_scope: "none",
+      system_prompt_override: override,
+    },
+  };
+}
+
+async function remountState(driver) {
+  return driver.evalJson(`(() => {
+    const api = window.__BFR_REMOUNT__;
+    return JSON.stringify({
+      available: Boolean(api),
+      mountCount: api ? api.mountCount() : null,
+      rootChildren: document.getElementById("app")?.childElementCount ?? null,
+      viewerShells: document.querySelectorAll("#app .viewer-shell").length,
+      promptPanels: document.querySelectorAll(".command-surface__prompt-panel").length,
+      applyControls: document.querySelectorAll('[data-prompt-action="apply"]').length,
+      detailsPanel: Boolean(document.getElementById("viewer-details-panel")),
+    });
+  })()`);
+}
+
+async function disposeViewer(driver, trace = null) {
+  const result = await driver.evalJson(`JSON.stringify((() => {
+    const api = window.__BFR_REMOUNT__;
+    if (!api) return { available: false };
+    api.dispose();
+    return { available: true, mountCount: api.mountCount() };
+  })())`);
+  trace?.push("dispose-viewer", result);
+  assert(result.available === true, "visual-test page did not expose the real viewer disposer", result);
+  return result;
+}
+
+async function mountViewer(driver, trace = null) {
+  const count = await driver.evalJson("JSON.stringify((() => window.__BFR_REMOUNT__.mount())())");
+  trace?.push("mount-viewer", { mountCount: count });
+  return count;
+}
+
+async function ensurePromptEditorVisible(driver, trace = null) {
+  const summarySelector = "#viewer-details-panel details.command-surface__advanced-details > summary";
+  await scrollIntoViewport(driver, summarySelector, trace);
+  const open = await driver.evalJson(`document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true`);
+  if (!open) {
+    await driver.runJson(["click", summarySelector]);
+    trace?.push("ui-click", { selector: summarySelector });
+    await waitForState(driver, STATE_READER, `() => document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true`, 8000);
+  }
+  const visible = await driver.evalJson(`Boolean(document.querySelector(".command-surface__prompt-panel"))`);
+  if (!visible) {
+    await scrollIntoViewport(driver, "[data-prompt-visibility-toggle=\"1\"]", trace);
+    await driver.runJson(["click", "[data-prompt-visibility-toggle=\"1\"]"]);
+    trace?.push("ui-click", { selector: "[data-prompt-visibility-toggle]" });
+  }
+  await waitForState(driver, STATE_READER, `() => Boolean(document.querySelector('.command-surface__prompt-panel')) && document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, 8000);
+}
+
 async function openAdvancedPromptDetails(driver, trace = null) {
   const summarySelector = "#viewer-details-panel details.command-surface__advanced-details > summary";
   await driver.runJson(["scrollintoview", summarySelector]);
@@ -720,7 +1015,49 @@ async function typeDraft(driver, text, trace = null) {
   trace?.push("ui-input", { selector: "#prompt-system", length: text.length });
 }
 
+async function scrollIntoViewport(driver, selector, trace = null) {
+  // The viewer scrolls inside its own panels, so a window-level scroll probe can
+  // stay off-screen after a reconnect re-render. Scroll the owning container and
+  // require a stable in-viewport rect before a real click.
+  const deadline = Date.now() + 8000;
+  let probe = null;
+  while (Date.now() < deadline) {
+    probe = await driver.evalJson(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return JSON.stringify({ found: false });
+      let rect = element.getBoundingClientRect();
+      for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (/(auto|scroll)/.test(style.overflowY)) {
+          node.scrollTop = Math.max(0, rect.top - node.clientHeight / 2 + rect.height / 2 + node.scrollTop);
+          rect = element.getBoundingClientRect();
+        }
+      }
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        const scroller = document.scrollingElement || document.documentElement;
+        scroller.scrollTop += rect.top - window.innerHeight / 2 + rect.height / 2;
+        rect = element.getBoundingClientRect();
+      }
+      return JSON.stringify({
+        found: true,
+        inView: rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.left >= 0
+          && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth,
+        top: rect.top,
+        bottom: rect.bottom,
+        innerHeight: window.innerHeight,
+      });
+    })()`);
+    if (probe?.found && probe.inView) {
+      trace?.push("ui-scroll", { selector, top: probe.top });
+      return;
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 80));
+  }
+  throw new Error(`could not scroll ${selector} into the viewport\n${JSON.stringify(probe)}`);
+}
+
 async function clickApply(driver, trace = null) {
+  await scrollIntoViewport(driver, "[data-prompt-action=\"apply\"]", trace);
   await driver.runJson(["click", "[data-prompt-action=\"apply\"]"]);
   trace?.push("ui-click", { selector: "[data-prompt-action=apply]" });
 }
@@ -1143,6 +1480,332 @@ const CASES = {
     assert(totals.count === 1, "hidden blocked path retried the prompt request", totals);
     await artifacts.screenshot("final");
   },
+
+  // P04: the old request is terminated while the new request is fixed in its
+  // real signing stage. A late result for A must not touch B's timer, request
+  // identity, feedback or transport. The deferred signer only delays the real
+  // WebCrypto signature result; it never fabricates or edits the payload.
+  "p04-signing-deferred": async (context) => {
+    const { driver, phaseLog, evidence, artifacts, trace } = context;
+    await bootstrapPromptScenario(driver, phaseLog, trace);
+    await openPromptEditor(driver, trace);
+    const rollback = await beginRollbackRequest(driver, trace);
+    phaseLog.push("old A rollback request observed once through real UI controls");
+    const terminated = await expirePendingPromptAck(driver, trace);
+    assert(terminated.stage === "error", "old A request did not terminate before B started", terminated);
+    const armed = await armSigningGate(driver);
+    evidence.observations.signingGate = armed;
+    await typeDraft(driver, DRAFT_TEXT, trace);
+    const before = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const signing = await waitForSigning(driver);
+    const signingFeedback = await promptFeedbackState(driver);
+    evidence.observations.signing = { signing, feedback: signingFeedback };
+    assert(signingFeedback.stage === "signing", "B was not fixed in its signing stage", signingFeedback);
+    const outboundWhileSigning = await countOutbound(driver, { type: "prompt_control" });
+    assert(outboundWhileSigning.count === 1, "B reached the transport before its real signature completed", outboundWhileSigning);
+    await deliver(driver, promptControlError(rollback, "late error for terminated request A"), trace);
+    const afterLate = await promptFeedbackState(driver);
+    evidence.observations.feedbackAfterLateA = afterLate;
+    assert(afterLate.stage === "signing", "a late result for A moved B out of signing", { before: signingFeedback, after: afterLate });
+    assert(afterLate.requestId === signingFeedback.requestId && afterLate.requestAuthNonce === signingFeedback.requestAuthNonce, "a late result for A rewrote B request identity", { before: signingFeedback, after: afterLate });
+    const released = await releaseSigning(driver, trace);
+    evidence.observations.released = released;
+    const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "apply" }, 8000, trace);
+    const requestB = sent.entry.message.command.request;
+    evidence.observations.requestA = { requestId: rollback.request_id, nonce: rollback.auth.nonce, toVersion: rollback.to_version };
+    evidence.observations.requestB = {
+      requestId: requestB.request_id,
+      nonce: requestB.auth.nonce,
+      expectedVersion: requestB.expected_version,
+      sessionEpoch: requestB.session_epoch,
+      bindingEpoch: requestB.binding_epoch,
+    };
+    assert(requestB.request_id && requestB.request_id !== rollback.request_id, "B reused the terminated A request identity", { A: rollback.request_id, B: requestB.request_id });
+    assert(requestB.auth.nonce !== rollback.auth.nonce, "B reused the terminated A auth nonce", { A: rollback.auth.nonce, B: requestB.auth.nonce });
+    assert(requestB.expected_version === 3, "B request did not carry the visible prompt version", requestB.expected_version);
+    const sentFeedback = await promptFeedbackState(driver);
+    assert(sentFeedback.stage === "sent" && sentFeedback.requestId === requestB.request_id, "B feedback did not follow its real send", sentFeedback);
+    await deliver(driver, promptControlError(rollback, "late error for terminated request A after B sent"), trace);
+    const afterSentLate = await promptFeedbackState(driver);
+    evidence.observations.feedbackAfterSentLateA = afterSentLate;
+    assert(afterSentLate.stage === "sent", "a late result for A changed B after B was sent", afterSentLate);
+    assert(afterSentLate.requestId === requestB.request_id && afterSentLate.requestAuthNonce === requestB.auth.nonce, "a late result for A rewrote B identity after B was sent", afterSentLate);
+    const timer = await expirePendingPromptAck(driver, trace);
+    evidence.observations.timerOwnership = timer;
+    assert(timer.result === true, "B lost its own acknowledgement timer to the late A result", timer);
+    const totals = await countOutbound(driver, { type: "prompt_control" });
+    assert(totals.count === 2, "A/B scenario sent an unexpected prompt request count", totals);
+    await artifacts.screenshot("final");
+  },
+
+  // P04 variant: B is already sent when A's late error arrives. B must keep its
+  // own pending state and only its own correlated applied result may settle it.
+  "p04-sent-late-error": async (context) => {
+    const { driver, phaseLog, evidence, artifacts, trace } = context;
+    await bootstrapPromptScenario(driver, phaseLog, trace);
+    await openPromptEditor(driver, trace);
+    const rollback = await beginRollbackRequest(driver, trace);
+    const terminated = await expirePendingPromptAck(driver, trace);
+    assert(terminated.stage === "error", "old A request did not terminate", terminated);
+    await typeDraft(driver, DRAFT_TEXT, trace);
+    const before = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "apply" });
+    const requestB = sent.entry.message.command.request;
+    evidence.observations.requestA = { requestId: rollback.request_id, nonce: rollback.auth.nonce };
+    evidence.observations.requestB = { requestId: requestB.request_id, nonce: requestB.auth.nonce };
+    await deliver(driver, promptControlError(rollback, "late error for terminated request A"), trace);
+    const afterLate = await promptFeedbackState(driver);
+    evidence.observations.feedbackAfterLateA = afterLate;
+    assert(afterLate.stage === "sent", "a late result for A settled B after B was sent", afterLate);
+    assert(afterLate.requestId === requestB.request_id && afterLate.requestAuthNonce === requestB.auth.nonce, "a late result for A rewrote the sent B identity", afterLate);
+    await deliver(driver, promptControlApplied(requestB), trace);
+    const applied = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    evidence.observations.applied = { stage: applied.lastPromptFeedback.stage, requestId: applied.lastPromptFeedback.requestId };
+    assert(applied.lastPromptFeedback.requestId === requestB.request_id, "applied result was not correlated with B", applied.lastPromptFeedback.requestId);
+    const totals = await countOutbound(driver, { type: "prompt_control" });
+    assert(totals.count === 2, "late A error caused an extra prompt request", totals);
+    await artifacts.screenshot("final");
+  },
+
+  // P05: duplicate and out-of-order results after B settled must not create a
+  // second refresh/version advance or let the old A result overwrite B. A
+  // locally timed-out request is not authoritative: its correlated server
+  // result must still settle the feedback, once, without a later duplicate
+  // re-triggering the refresh.
+  "p05-duplicate-out-of-order": async (context) => {
+    const { driver, phaseLog, evidence, artifacts, trace } = context;
+    await bootstrapPromptScenario(driver, phaseLog, trace);
+    await openPromptEditor(driver, trace);
+    const rollback = await beginRollbackRequest(driver, trace);
+    const terminated = await expirePendingPromptAck(driver, trace);
+    assert(terminated.stage === "error", "old A request did not terminate", terminated);
+    await typeDraft(driver, DRAFT_TEXT, trace);
+    const before = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "apply" });
+    const requestB = sent.entry.message.command.request;
+    evidence.observations.requestA = { requestId: rollback.request_id, nonce: rollback.auth.nonce };
+    evidence.observations.requestB = { requestId: requestB.request_id, nonce: requestB.auth.nonce };
+    await deliver(driver, {
+      type: "prompt_control_ack",
+      request_auth_nonce: requestB.auth.nonce,
+      ack: { request_id: requestB.request_id, agent_id: "agent-0", operation: "apply", status: "accepted" },
+    }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "accepted"`);
+    await deliver(driver, promptControlApplied(requestB), trace);
+    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    await waitOutbound(driver, 0, { type: "request_snapshot" }, 8000, trace);
+    await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 4, override: DRAFT_TEXT, time: 8 }) }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 4`);
+    phaseLog.push("B applied result and its authoritative version 4 snapshot were adopted");
+    const beforeDuplicate = await requestSnapshotCount(driver);
+    await deliver(driver, promptControlApplied(requestB), trace);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+    const afterDuplicate = await requestSnapshotCount(driver);
+    const duplicateResult = await promptResultState(driver);
+    evidence.observations.duplicate = { beforeDuplicate, afterDuplicate, result: duplicateResult };
+    assert(afterDuplicate.count === beforeDuplicate.count, "a duplicate applied result triggered another snapshot refresh/commit", { beforeDuplicate, afterDuplicate });
+    assert(duplicateResult.selectedPromptVersion === 4, "a duplicate applied result advanced or reset the visible version", duplicateResult);
+    assert(duplicateResult.draftSystemPrompt === DRAFT_TEXT, "a duplicate applied result rewrote the applied draft value", duplicateResult);
+    await deliver(driver, promptControlError(rollback, "old A error after B applied"), trace);
+    await deliver(driver, promptControlApplied(rollback), trace);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+    const outOfOrder = await promptResultState(driver);
+    evidence.observations.outOfOrder = outOfOrder;
+    assert(outOfOrder.lastPromptFeedback?.stage === "applied", "an old A result overwrote the applied B feedback", outOfOrder);
+    assert(outOfOrder.lastPromptFeedback?.requestId === requestB.request_id, "an old A result replaced the current B request id", outOfOrder);
+    assert(outOfOrder.selectedPromptVersion === 4, "an old A result reverted the visible prompt version", outOfOrder);
+    const LATE_TEXT = "late authoritative prompt";
+    await typeDraft(driver, LATE_TEXT, trace);
+    const beforeC = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sentC = await waitOutbound(driver, beforeC.total, { type: "prompt_control", mode: "apply" }, 8000, trace);
+    const requestC = sentC.entry.message.command.request;
+    evidence.observations.requestC = { requestId: requestC.request_id, nonce: requestC.auth.nonce };
+    const timedOut = await expirePendingPromptAck(driver, trace);
+    const timedOutState = await promptFeedbackState(driver);
+    evidence.observations.timedOutC = { timer: timedOut, feedback: timedOutState };
+    assert(timedOutState.stage === "error" && timedOutState.requestId === requestC.request_id, "C did not settle locally as timed out", timedOutState);
+    const beforeLateAck = await requestSnapshotCount(driver);
+    await deliver(driver, promptControlApplied(requestC, 5, LATE_TEXT), trace);
+    const lateSettled = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied" && state.lastPromptFeedback?.requestId === ${JSON.stringify(requestC.request_id)}`);
+    await waitOutbound(driver, beforeLateAck.total, { type: "request_snapshot" }, 8000, trace);
+    await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 5, override: LATE_TEXT, time: 9 }) }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 5`);
+    const lateResult = await promptResultState(driver);
+    evidence.observations.lateAuthoritative = { settled: lateSettled.lastPromptFeedback, result: lateResult };
+    assert(lateResult.lastPromptFeedback?.stage === "applied" && lateResult.lastPromptFeedback?.requestId === requestC.request_id, "the authoritative result did not settle the locally timed-out request", lateResult);
+    assert(lateResult.selectedPromptVersion === 5, "the authoritative result did not refresh the timed-out request version", lateResult);
+    const beforeLateDuplicate = await requestSnapshotCount(driver);
+    await deliver(driver, promptControlApplied(requestC, 5, LATE_TEXT), trace);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+    const afterLateDuplicate = await requestSnapshotCount(driver);
+    evidence.observations.lateDuplicate = { beforeDuplicate: beforeLateDuplicate, afterDuplicate: afterLateDuplicate };
+    assert(afterLateDuplicate.count === beforeLateDuplicate.count, "a duplicate late result re-triggered the settled request refresh", { beforeLateDuplicate, afterLateDuplicate });
+    const totals = await countOutbound(driver, { type: "prompt_control" });
+    assert(totals.count === 3, "duplicate/out-of-order or late-result handling caused an extra prompt request", totals);
+    await artifacts.screenshot("final");
+  },
+
+  // P06: a held request is stranded by the disconnect; the next connection gets
+  // its own generation, old-socket events cannot negotiate or overwrite the new
+  // snapshot, submission stays closed until the new binding is restored, and a
+  // new visible request settles only on its own correlated result.
+  "p06-reconnect-recovery": async (context) => {
+    const { driver, phaseLog, evidence, artifacts, trace } = context;
+    await bootstrapPromptScenario(driver, phaseLog, trace);
+    await openPromptEditor(driver, trace);
+    await typeDraft(driver, DRAFT_TEXT, trace);
+    const before = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "apply" });
+    const requestA = sent.entry.message.command.request;
+    evidence.observations.heldRequest = { requestId: requestA.request_id, nonce: requestA.auth.nonce, sessionEpoch: requestA.session_epoch, bindingEpoch: requestA.binding_epoch };
+    const generationBefore = await connectionGeneration(driver);
+    const oldSocketId = await currentSocketId(driver);
+    const afterCloseIndex = (await countOutbound(driver, {})).total;
+    await driver.evalJson("JSON.stringify(window.__BFR__.closeSocket())");
+    trace.push("close-socket", { socketId: oldSocketId });
+    const socketList = await waitForStableSockets(driver, 2);
+    const newSocketId = await currentSocketId(driver);
+    await waitOutbound(driver, afterCloseIndex, { type: "hello_v2" }, 12000, trace);
+    const generationAfter = await connectionGeneration(driver);
+    evidence.observations.connection = { generationBefore, generationAfter, oldSocketId, newSocketId, sockets: socketList };
+    assert(newSocketId !== oldSocketId, "reconnect reused the previous socket", { oldSocketId, newSocketId });
+    assert(generationAfter > generationBefore, "reconnect did not advance the auth connection generation", { generationBefore, generationAfter });
+    // Old-socket events are queued after the new socket exists, then released.
+    await deliverToSocket(driver, oldSocketId, helloAck, trace);
+    await deliverToSocket(driver, oldSocketId, { type: "snapshot", snapshot: promptSnapshot({ version: 9, override: "old-connection-secret", time: 99 }) }, trace);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+    const afterOldHandshake = await driver.evalJson(`(() => JSON.stringify({
+      state: window.__AW_TEST__.getState(),
+      selectedPromptVersion: window.__AW_TEST__.getState().selectedPromptVersion,
+    }))()`);
+    evidence.observations.afterOldHandshake = afterOldHandshake;
+    assert(afterOldHandshake.state.viewerProtocol?.negotiated === false, "an old-connection hello negotiated the new connection", afterOldHandshake.state.viewerProtocol);
+    assert(afterOldHandshake.selectedPromptVersion !== 9, "an old-connection snapshot was adopted as the current world state", afterOldHandshake);
+    const recoveryFrom = (await countOutbound(driver, {})).total;
+    await deliver(driver, helloAck, trace);
+    await waitOutbound(driver, recoveryFrom, { type: "authoritative_recovery", mode: "reconnect_sync" }, 8000, trace);
+    const unready = await driver.evalJson(`(() => {
+      const apply = document.querySelector('[data-prompt-action="apply"]');
+      return JSON.stringify({
+        applyFound: Boolean(apply),
+        applyEnabled: apply ? apply.disabled === false : false,
+        registration: window.__AW_TEST__.getState().authRegistrationStatus,
+        sessionEpoch: window.__AW_TEST__.getState().authSessionEpoch,
+      });
+    })()`);
+    evidence.observations.beforeRebind = unready;
+    assert(unready.applyEnabled === false, "prompt submission opened before the new connection restored the session binding", unready);
+    const identity = await driver.evalJson("JSON.stringify(window.__BFR__.identity())");
+    await deliver(driver, {
+      type: "authoritative_recovery_ack",
+      ack: { status: "catch_up_ready", player_id: identity.playerId, session_pubkey: identity.publicKey, agent_id: "agent-0", session_epoch: 13, binding_epoch: 10 },
+    }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.authRegistrationStatus === "registered" && state.authBindingEpoch === 10 && state.authSessionEpoch === 13`);
+    await deliver(driver, { type: "snapshot", snapshot: promptSnapshot() }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.selectedKind === "agent" && state.selectedId === "agent-0"`);
+    phaseLog.push("new connection restored hello, session/binding epochs and canonical snapshot");
+    await deliverToSocket(driver, oldSocketId, { type: "snapshot", snapshot: promptSnapshot({ version: 9, override: "old-connection-secret", time: 99 }) }, trace);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
+    const afterOldSnapshot = await promptResultState(driver);
+    evidence.observations.afterOldSocketSnapshot = afterOldSnapshot;
+    assert(afterOldSnapshot.selectedPromptVersion === 3, "an old-connection snapshot overwrote the new connection profile", afterOldSnapshot);
+    assert(afterOldSnapshot.draftSystemPrompt !== "old-connection-secret", "an old-connection snapshot leaked into the current prompt draft", afterOldSnapshot);
+    // The reconnect re-render recreates the advanced details element closed;
+    // re-open it through the real summary control before submitting.
+    await openAdvancedPromptDetails(driver, trace);
+    await waitForState(driver, STATE_READER, `() => document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, 8000);
+    await typeDraft(driver, DRAFT_TEXT, trace);
+    const beforeB = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sentB = await waitOutbound(driver, beforeB.total, { type: "prompt_control", mode: "apply" });
+    const requestB = sentB.entry.message.command.request;
+    evidence.observations.recoveredRequest = { requestId: requestB.request_id, nonce: requestB.auth.nonce, sessionEpoch: requestB.session_epoch, bindingEpoch: requestB.binding_epoch };
+    assert(requestB.request_id !== requestA.request_id, "new connection reused the stranded request identity", { A: requestA.request_id, B: requestB.request_id });
+    assert(requestB.session_epoch === 13 && requestB.binding_epoch === 10, "new request did not use the recovered session/binding epochs", requestB);
+    const sentFeedback = await promptFeedbackState(driver);
+    evidence.observations.feedbackAfterSend = sentFeedback;
+    assert(sentFeedback.stage === "sent" && sentFeedback.requestId === requestB.request_id, "new request feedback did not follow its real send", sentFeedback);
+    await deliverToSocket(driver, oldSocketId, promptControlError(requestA, "old-connection error for the pre-disconnect request"), trace);
+    const afterOldError = await promptFeedbackState(driver);
+    evidence.observations.afterOldSocketError = afterOldError;
+    assert(afterOldError.stage === "sent" && afterOldError.requestId === requestB.request_id, "an old-connection result consumed the new request wait", afterOldError);
+    await deliver(driver, promptControlApplied(requestB), trace);
+    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    phaseLog.push("old-connection late events were ignored and the new request settled only on its own result");
+    await artifacts.screenshot("final");
+  },
+
+  // P07: the real disposer stops DOM updates without logging out or closing the
+  // shared transport; remounting reuses that transport and one visible click
+  // still sends exactly one request with one prompt surface.
+  "p07-unmount-remount": async (context) => {
+    const { driver, phaseLog, evidence, artifacts, trace } = context;
+    await bootstrapPromptScenario(driver, phaseLog, trace);
+    await openPromptEditor(driver, trace);
+    const initial = await remountState(driver);
+    evidence.observations.initial = initial;
+    assert(initial.available === true && initial.mountCount === 1, "visual-test page did not expose the initial mount lifecycle", initial);
+    assert(initial.detailsPanel === true && initial.applyControls === 1, "initial mount did not render one prompt surface", initial);
+    const socketBefore = await currentSocketId(driver);
+    const socketsBefore = await socketInfo(driver);
+    await disposeViewer(driver, trace);
+    const disposed = await remountState(driver);
+    evidence.observations.disposed = disposed;
+    assert(disposed.rootChildren === 0 && disposed.viewerShells === 0 && disposed.detailsPanel === false, "real disposer left a rendered viewer tree mounted", disposed);
+    await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 4, override: "post-dispose-prompt", time: 9 }) }, trace);
+    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 4`, 6000);
+    const disposedAfterUpdate = await remountState(driver);
+    evidence.observations.disposedAfterUpdate = disposedAfterUpdate;
+    assert(disposedAfterUpdate.viewerShells === 0 && disposedAfterUpdate.detailsPanel === false, "a disposed viewer updated DOM after a transport message", disposedAfterUpdate);
+    const mountCount = await mountViewer(driver, trace);
+    assert(mountCount === 2, "real remount did not run through the viewer mount entry", mountCount);
+    await waitForState(driver, STATE_READER, `() => Boolean(document.querySelector(".viewer-shell"))`, 8000);
+    // The pixel-world focus UI session outlives the component lifecycle, so a
+    // remount restores cinematic focus. Leave it through the visible control
+    // before exercising the command surface.
+    // A replaced route target keeps the old URL fragment but Chrome does not
+    // re-resolve :target for the recreated element, so the command route stays
+    // hidden after a real remount. Re-enter the same in-page route the way the
+    // shell's links do; this is hash navigation, not a reload.
+    const routeState = await driver.evalJson(`(() => {
+      window.location.hash = "#viewer-stage-panel";
+      window.location.hash = "#viewer-details-panel";
+      return JSON.stringify({ hash: window.location.hash, route: document.getElementById("viewer-details-panel")?.getAttribute("data-route-open") ?? null });
+    })()`);
+    evidence.observations.routeAfterRemount = routeState;
+    await waitForState(driver, STATE_READER, `() => getComputedStyle(document.getElementById("viewer-details-panel")).display !== "none"`, 5000);
+    await ensurePromptEditorVisible(driver, trace);
+    await ensurePromptEditorVisible(driver, trace);
+    await ensurePromptEditorVisible(driver, trace);
+    const remounted = await remountState(driver);
+    evidence.observations.remounted = remounted;
+    assert(remounted.viewerShells === 1 && remounted.promptPanels === 1 && remounted.applyControls === 1, "remount duplicated the viewer or prompt surface", remounted);
+    assert(remounted.mountCount === 2, "remount count did not advance exactly once", remounted);
+    const socketAfter = await currentSocketId(driver);
+    const socketsAfter = await socketInfo(driver);
+    evidence.observations.transport = { socketBefore, socketAfter, socketsBefore, socketsAfter };
+    assert(socketAfter === socketBefore, "dispose/remount replaced the shared transport socket", { socketBefore, socketAfter });
+    const currentAfter = (socketsAfter || []).find((entry) => entry.id === socketAfter);
+    assert(currentAfter?.readyState === 1, "dispose/remount closed the current shared transport socket", socketsAfter);
+    await typeDraft(driver, DRAFT_TEXT, trace);
+    const before = await countOutbound(driver, {});
+    await clickApply(driver, trace);
+    const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "apply" });
+    const request = sent.entry.message.command.request;
+    evidence.observations.request = { requestId: request.request_id, nonce: request.auth.nonce, expectedVersion: request.expected_version };
+    assert(request.expected_version === 4, "remounted visible form did not carry the current prompt version", request.expected_version);
+    const totals = await countOutbound(driver, { type: "prompt_control" });
+    assert(totals.count === 1, "one visible click after remount produced duplicate requests", totals);
+    await deliver(driver, promptControlApplied(request), trace);
+    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    phaseLog.push("single visible click after remount sent one request and settled on its correlated result");
+    await artifacts.screenshot("final");
+  },
 };
 
 // ---- artifact helpers ---------------------------------------------------
@@ -1212,6 +1875,7 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
       secureContext: window.isSecureContext,
       width: window.innerWidth,
       height: window.innerHeight,
+      viewerShells: document.querySelectorAll("#app .viewer-shell").length,
     }))()`);
     evidence.observations.pageEnvironment = pageEnv;
     assert(pageEnv.testApi !== "undefined", "visual-test bundle did not install the read-only test API");
@@ -1373,6 +2037,34 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
       driver.close();
     }
   });
+  await check("old-socket-delivery-requires-a-known-fixture-socket", async () => {
+    const driver = createBrowserDriver({ sessionPrefix: `bfr-unknown-socket-${Date.now()}`, headed: options.headed, outDir });
+    try {
+      driver.prepare();
+      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
+      await waitForState(driver, STATE_READER, `() => typeof window.__BFR__ === "object"`, 8000);
+      const result = await driver.evalJson(`JSON.stringify(window.__BFR__.deliverToSocket(9999, { type: "snapshot", snapshot: {} }))`);
+      assert(result.ok === false, "an unknown fixture socket was reported as delivered", result);
+      assert(/unknown fixture socket/.test(result.reason || ""), "unknown socket delivery did not surface its reason", result);
+    } finally {
+      driver.close();
+    }
+  });
+  await check("remount-lifecycle-requires-explicit-test-api", async () => {
+    const driver = createBrowserDriver({ sessionPrefix: `bfr-remount-guard-${Date.now()}`, headed: options.headed, outDir });
+    try {
+      driver.prepare();
+      await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?connect=0&hosted_bootstrap=0&locale=en`]);
+      const observed = await driver.evalJson(`(() => JSON.stringify({
+        remountApi: typeof window.__BFR_REMOUNT__,
+        viewerShell: Boolean(document.querySelector(".viewer-shell")),
+      }))()`);
+      assert(observed.remountApi === "undefined", "the remount lifecycle leak is exposed without test_api=1", observed);
+      assert(observed.viewerShell === true, "the no-test-api page did not mount the real viewer", observed);
+    } finally {
+      driver.close();
+    }
+  });
   await check("delivery-barrier-settles-after-page-delivery", async () => {
     const driver = createBrowserDriver({ sessionPrefix: `bfr-deliver-settles-${Date.now()}`, headed: options.headed, outDir });
     try {
@@ -1442,7 +2134,7 @@ function writeSummary(outDir, summary) {
     "| --- | --- | --- | --- | --- |",
     ...summary.cases.map((entry) => `| ${entry.caseId} | ${entry.viewport.name} | ${entry.status} | ${(entry.artifacts || []).length} | ${entry.evidence.observations.requestCounts?.promptControl ?? "-"} |`),
     "",
-    `- coverage: ${summary.executed?.partialMatrix ? "partial matrix" : "declared P01-P03 matrix"} (${summary.executed?.cases ?? 0}/${summary.executed?.expected ?? 0} runs)`,
+    `- coverage: ${summary.executed?.partialMatrix ? "partial matrix" : "declared P01-P07 matrix"} (${summary.executed?.cases ?? 0}/${summary.executed?.expected ?? 0} runs)`,
     `- release-controller-probe: ${summary.releaseProbe?.status ?? "not-run"}`,
     `- runner-negative-self-check: ${summary.selfCheck ? (summary.selfCheck.failures === 0 ? "passed" : "failed") : "not-run"}`,
     `- failures: ${summary.failures.length}`,
@@ -1471,7 +2163,7 @@ async function main() {
   mkdirSync(options.outDir, { recursive: true });
   const startedAt = new Date().toISOString();
   const summary = {
-    caseId: "BFR-P01-P03",
+    caseId: "BFR-P01-P07",
     profile: "fixture-functional",
     command: `node crates/oasis7_viewer/scripts/browser-functional-regression.mjs ${process.argv.slice(2).join(" ")}`.trim(),
     startedAt,
@@ -1481,14 +2173,33 @@ async function main() {
     cases: [],
     failures: [],
     coverage: {
-      covered: ["BFR-P01 loading", "BFR-P01 empty", "BFR-P02 unready-no-send", "BFR-P02 accepted/applied", "BFR-P03 rejected", "BFR-P03 stale", "BFR-P03 correlated control-lost receipt", "BFR-P03 hidden blocked runtime error"],
-      notCovered: ["BFR-P04 late results", "BFR-P05 duplicate/out-of-order", "BFR-P06 reconnect recovery", "BFR-P07 unmount/remount", "CI selector wiring", "real auth/provider/runtime/world verification"],
+      covered: [
+        "BFR-P01 loading",
+        "BFR-P01 empty",
+        "BFR-P02 unready-no-send",
+        "BFR-P02 accepted/applied",
+        "BFR-P03 rejected",
+        "BFR-P03 stale",
+        "BFR-P03 correlated control-lost receipt",
+        "BFR-P03 hidden blocked runtime error",
+        "BFR-P04 deferred signing + sent late results",
+        "BFR-P05 duplicate and out-of-order results",
+        "BFR-P06 reconnect, new connection generation and old-socket isolation",
+        "BFR-P07 real dispose/remount single-send",
+      ],
+      notCovered: [
+        "real auth service/provider/runtime/world verification",
+        "canonical receipt and world delta",
+        "cross-browser/platform matrix beyond the selected Chromium viewports",
+        "production StrongAuth/real signing identity",
+      ],
     },
   };
   let serverHandle = null;
   let releaseHandle = null;
   try {
-    const version = spawnSync("agent-browser", ["--version"], { encoding: "utf8" });
+    const browserBinary = process.env.AGENT_BROWSER_BIN || "agent-browser";
+    const version = spawnSync(browserBinary, ["--version"], { encoding: "utf8" });
     const gitHead = (() => {
       try { return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim(); }
       catch { return null; }
@@ -1498,7 +2209,7 @@ async function main() {
       catch { return null; }
     })();
     summary.environment = {
-      agentBrowserVersion: (version.stdout || "").trim() || "unknown",
+      agentBrowserVersion: String(version.stdout || "").trim().replace(/^agent-browser\s+/i, "") || "unknown",
       node: process.version,
       platform: process.platform,
       arch: process.arch,
@@ -1593,11 +2304,13 @@ async function runReleaseProbe({ releasePort, options }) {
     observed = await driver.evalJson(`(() => JSON.stringify({
       testApi: typeof window.__AW_TEST__,
       transportShim: typeof window.__BFR__,
+      remountApi: typeof window.__BFR_REMOUNT__,
       viewerMounted: Boolean(document.querySelector(".viewer-shell")),
       query: location.search,
     }))()`);
     if (observed.testApi !== "undefined") failures.push("release bundle exposed the test API with test_api=1");
     if (observed.transportShim !== "undefined") failures.push("release bundle page installed a transport controller");
+    if (observed.remountApi !== "undefined") failures.push("release bundle page exposed the remount lifecycle controller");
     if (!observed.viewerMounted) failures.push("release probe page did not mount the real viewer shell");
   } catch (error) {
     failures.push(String(error && error.stack ? error.stack : error));

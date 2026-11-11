@@ -710,6 +710,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-refactored-source.test.py
   run python3 ./scripts/security/codeql-rust-capacity.test.py
   run python3 ./scripts/security/codeql-rust-native-diagnostic.test.py
+  run python3 ./scripts/security/codeql-rust-wasm-metadata.test.py
   run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
   run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
   run python3 ./scripts/security/codeql-rust-action-deadline.test.py
@@ -891,6 +892,10 @@ run_pixel_world_bridge_lib_tests() {
 
 run_pixel_world_bridge_wasm_check() {
   run_cargo check -p pixel_world_bridge --target wasm32-unknown-unknown
+}
+
+run_oasis7_viewer_browser_functional_regression() {
+  AGENT_BROWSER_BIN="${AGENT_BROWSER_BIN:-agent-browser}" run node crates/oasis7_viewer/scripts/browser-functional-regression.mjs
 }
 
 run_oasis7_viewer_visual_test_build() {
@@ -1095,6 +1100,7 @@ run_full_required_superset() {
   run_oasis7_viewer_software_safe_build --with-ui
   run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs
   run_oasis7_viewer_visual_test_build
+  run_oasis7_viewer_browser_functional_regression
   run_oasis7_viewer_performance_smoke_report_only
   run_pixel_world_bridge_lib_tests
   run_pixel_world_bridge_wasm_check
@@ -1209,7 +1215,7 @@ run_group() {
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
     node) run_oasis7_node_clippy; run_oasis7_node_tests ;;
     net) run_oasis7_net_clippy; run_oasis7_net_libp2p_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_tests ;;
-    viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
+    viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run_oasis7_viewer_browser_functional_regression; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;
     launcher_web) run_oasis7_client_launcher_web_build ;;
