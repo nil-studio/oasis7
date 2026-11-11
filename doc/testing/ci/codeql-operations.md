@@ -203,6 +203,18 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 默认 37 项逐项核对完整 info/decode，七表逐项读取实际结果与原 oracle 判定。SARIF 只对 37 项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
 
+### 合法 WASM 单角色 metadata 诊断
+
+在默认分支手动选择 `CodeQL Rust WASM Metadata` 并显式设 `execute=true`。本入口固定完整 7c2f99a 源码、Cargo 1.99.0 的完整提交、recovery-fence 和 wasm32-unknown-unknown，不提供任意命令/版本/源码输入，不运行 CodeQL、Cargo check/build 或部署。实现和验收边界见[metadata 诊断合同](codeql-integration.design.md#725-合法-wasm-单角色-metadata-诊断)。
+
+先核对真实 job start 绑定的 1200 秒时钟：准备至多使用前 780 秒；剩余至少 420 秒才进入 300 秒 D1/D2 窗口，其中最后 60 秒用于清理、after/guard 审计和封存，另留 120 秒给上传/post。源码获取、工具安装和联网依赖预取都计入；clock 失败、精确版本不符或准备超时不得用新截止、另一 nightly 或在线 D2 回退。宿主 proxy 保持原位置，HOME/CODEX_HOME 不改，任务 Cargo/Rustup/cache 与业务源码和 evidence 分离。
+
+先读 bootstrap/工具与源码身份、阶段收据及终态，再核对 D1 的父根和 D2 的完整 53 成员集合、custody 实际角色、六个固定本地 package、依赖种类和 target 表达式。元数据图与非图自由文本分开处理；stderr、安装/网络输出及异常采用首次写入前投影，不是原始日志。合法图若记 ROLE_CONTEXT_MISMATCH，按其实际 features、成员差异和固定失败项解释，终态仍为 INCOMPLETE；缺失或被拒绝的输出不构成阴性语义结果。sealed 清单须覆盖所有普通证据文件，包括 guard 的隐藏控制文件，合计不超过 64 MiB。
+
+`ROOT_WORKSPACE_ROLE_METADATA_OBSERVED` 仅表示本次 Cargo 上下文观察完整；实际 upload/post 和整 job 成本需平台终态另行回读。metadata 不证明目标标准库已安装、WASM 编译、宏展开、每个编译单元 features 或 CodeQL 语义；Rust HOLD 和生产容量 UNKNOWN 保留。每次只运行一次 D1/D2，不自动重跑；父目标按后续真实结果决定下一项建模观察。
+
+核对 guard 版本投影 adapter 的首次绑定回执：counter/failed 初值为 0、原/新 wrapper 与 helper SHA 均齐全；原 guard 未修改，真实 Cargo 的当次输出先投影再进入 audit。NOT_RETURNED 表示原版本调用未交付可验证完整输出，bytes/hash 保持未知；不能用已缓存版本或事后删日志补成通过。
+
 ### 短原生准备诊断
 
 安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
