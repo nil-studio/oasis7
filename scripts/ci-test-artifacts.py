@@ -1953,7 +1953,7 @@ def unpack_ordinary_delivery(common, payload, bundle, plan, partition, *, diagno
 def measure_ordinary_delivery(archive_path, directory, plan):
     """Diagnostic transport roundtrip only; never execute behavior tests or rewrite a plan."""
     directory.mkdir(parents=True, exist_ok=False)
-    restored = []
+    restored = {}
     with tempfile.TemporaryDirectory(prefix='roundtrip-', dir=directory) as temporary:
         root = Path(temporary)
         original, archives = root / 'original', root / 'archives'
@@ -1977,7 +1977,10 @@ def measure_ordinary_delivery(archive_path, directory, plan):
             if not entry['test'] and path.is_relative_to(ROOT / 'target'):
                 if path.exists() or path.is_symlink() or not path.resolve().is_relative_to((ROOT / 'target').resolve()):
                     raise ValueError('ordinary delivery diagnostic requires absent helper destinations')
-                restored.append((path, entry['sha256']))
+                # Cargo variants can share an original path. Match load()'s
+                # sorted logical order and verify its final file once, while
+                # retaining every logical binary in the parent and archives.
+                restored[path] = entry['sha256']
         report.update(behavior_tests_executed=0, partitions={},
                       legacy_compressed_bytes=archive_path.stat().st_size,
                       legacy_consumer_compressed_bytes=len(ORDINARY_ARTIFACT_PARTITIONS) * archive_path.stat().st_size)
@@ -1991,7 +1994,7 @@ def measure_ordinary_delivery(archive_path, directory, plan):
                                  ordinary_artifact_partition=partition, diagnostic_delivery=True)
                 if loaded != manifest:
                     raise ValueError('ordinary delivery diagnostic changed the parent inventory')
-                for path, sha in restored:
+                for path, sha in restored.items():
                     if not path.is_file() or digest(path) != sha or not os.access(path, os.X_OK):
                         raise ValueError('ordinary delivery did not restore an original helper')
                     path.unlink()
@@ -2001,7 +2004,7 @@ def measure_ordinary_delivery(archive_path, directory, plan):
                 shutil.rmtree(destination)
         finally:
             # Only destinations verified absent before this diagnostic are ours.
-            for path, sha in restored:
+            for path, sha in restored.items():
                 if path.is_file() and digest(path) == sha:
                     path.unlink()
         report['complete'] = set(report['partitions']) == set(ORDINARY_ARTIFACT_PARTITIONS[1:])

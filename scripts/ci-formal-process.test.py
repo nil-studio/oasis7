@@ -1426,6 +1426,55 @@ class OrdinaryArtifactDelivery(unittest.TestCase):
         self.assertFalse((self.root / 'target/debug/viewer').exists())
         self.assertEqual([path.name for path in (self.root / 'diagnostic').iterdir()], ['report.json'])
 
+    def test_diagnostic_roundtrip_keeps_aliases_and_restores_each_cargo_path_once(self):
+        self.plan.pop('ordinary_artifact_delivery_version')
+        helper = self.manifest['binaries']['required-executable-helper']
+        viewer = self.manifest['binaries']['viewer']
+        helper['original_executable'] = viewer['original_executable']
+        original = Path(viewer['original_executable'])
+        for distinct in (False, True):
+            with self.subTest(distinct_bytes=distinct):
+                if distinct:
+                    self.file(helper['path'], (self.bundle / viewer['path']).read_bytes() + b'# another build variant\n', True)
+                    helper['sha256'] = artifacts.digest(self.bundle / helper['path'])
+                self.write_parent()
+                legacy = self.root / f'legacy-alias-{distinct}.tar.gz'
+                artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
+                report = artifacts.measure_ordinary_delivery(legacy, self.root / f'diagnostic-alias-{distinct}', self.plan)
+                self.assertTrue(report['complete'])
+                self.assertEqual(len(report['archives']['common']['binaries']), 2)
+                self.assertEqual(len({row['sha256'] for row in report['archives']['common']['binaries']}),
+                                 2 if distinct else 1)
+                self.assertTrue(all(row['helpers_restored'] == 1 and row['inventory_verified']
+                                    for row in report['partitions'].values()))
+                self.assertEqual(report['behavior_tests_executed'], 0)
+                self.assertFalse(original.exists())
+
+    def test_diagnostic_roundtrip_rejects_missing_or_corrupt_final_helper_alias(self):
+        self.plan.pop('ordinary_artifact_delivery_version')
+        helper = self.manifest['binaries']['required-executable-helper']
+        viewer = self.manifest['binaries']['viewer']
+        helper['original_executable'] = viewer['original_executable']
+        self.file(helper['path'], (self.bundle / viewer['path']).read_bytes() + b'# another build variant\n', True)
+        helper['sha256'] = artifacts.digest(self.bundle / helper['path'])
+        self.write_parent()
+        legacy = self.root / 'legacy-bad-alias.tar.gz'
+        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
+        original = Path(viewer['original_executable'])
+        real_load = artifacts.load
+        for damage in ('missing', 'earlier-variant'):
+            def damaged_load(*args, **kwargs):
+                loaded = real_load(*args, **kwargs)
+                if damage == 'missing':
+                    original.unlink()
+                else:
+                    original.write_bytes((self.bundle / helper['path']).read_bytes())
+                return loaded
+            with self.subTest(damage=damage), patch.object(artifacts, 'load', side_effect=damaged_load):
+                with self.assertRaisesRegex(ValueError, 'did not restore an original helper'):
+                    artifacts.measure_ordinary_delivery(legacy, self.root / f'diagnostic-bad-alias-{damage}', self.plan)
+            original.unlink(missing_ok=True)
+
     def test_shared_provider_and_builtin_resources_keep_full_parent_requirements(self):
         self.manifest['binaries']['runtime-tests']['features'] = ['test_tier_full']
         self.manifest['binaries']['component']['features'] = ['wasmtime', 'test_tier_full']
