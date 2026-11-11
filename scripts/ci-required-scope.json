@@ -946,6 +946,8 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-governance-preview.py": ["workflow_governance"],
+    "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
     "scripts/ci-apt-install.test.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
