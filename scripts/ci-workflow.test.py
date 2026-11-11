@@ -4047,7 +4047,7 @@ class AptWorkflow(unittest.TestCase):
             self.assertNotIn('sudo apt-get ', source)
             for name, job in workflow_jobs(source).items():
                 for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S):
-                    if 'scripts/ci-apt-install.py' in step:
+                    if 'scripts/ci-apt-install.py' in step and '--prepare-sources-only' not in step:
                         title = step.splitlines()[0].split('name: ', 1)[1]
                         found[workflow, name, title] = step
         return found
@@ -4105,6 +4105,37 @@ class AptWorkflow(unittest.TestCase):
             self.assertIn(test, CONFIG['python_control_contracts'][path]['tests'])
         self.assertIn('scripts/ci-workflow.test.py', CONFIG['python_control_contracts'][helper]['tests'])
         self.assertIn('scripts/ci-apt-install.test.py', CONFIG['workflow_governance_python_tests'])
+
+    def test_browser_install_prepares_the_shared_mirrors_and_blocks_on_failure(self):
+        expected = {'viewer-js-required': ('Install pinned security smoke browser', 11),
+                    'site-quality': ('Install pinned deck security browser', 10)}
+        actual = {}
+        for name, job in JOBS.items():
+            for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S):
+                if '--prepare-sources-only' in step:
+                    actual[name] = step
+        self.assertEqual(set(actual), set(expected))
+        for name, step in actual.items():
+            title, limit = expected[name]
+            self.assertIn('name: ' + title, step)
+            self.assertIn('        shell: bash\n', step)
+            self.assertIn(f'        timeout-minutes: {limit}\n', step)
+            self.assertNotIn('continue-on-error', step)
+            self.assertIn('--with-deps', step)
+            script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+            prefix = script.split('--prepare-sources-only', 1)[0] + '--prepare-sources-only\n'
+            self.assertEqual(prefix.strip(), 'sudo -n /usr/bin/python3 scripts/ci-apt-install.py '
+                             '--budget-seconds 10 --prepare-sources-only')
+            for code in (0, 42):
+                with self.subTest(job=name, code=code):
+                    result = subprocess.run(['bash', '-euo', 'pipefail', '-c',
+                        'sudo() { return "$CODE"; };\n' + prefix + 'printf browser-install'],
+                        env=dict(os.environ, CODE=str(code)), text=True, capture_output=True)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertEqual('browser-install' in result.stdout, code == 0)
+        performance = JOBS['viewer-performance-report']
+        self.assertLess(performance.index('scripts/ci-apt-install.py --budget-seconds 600'),
+                        performance.index('install --with-deps'))
 
 
 # Append this class before unittest.main() in scripts/ci-workflow.test.py.

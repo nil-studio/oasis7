@@ -2351,7 +2351,9 @@ jobs:
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned security smoke browser
         shell: bash
+        timeout-minutes: 11
         run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
           npm install --prefix "$RUNNER_TEMP/viewer-security-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-security-browser/node_modules/.bin/agent-browser"
           "$browser_bin" install --with-deps
@@ -3348,6 +3350,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
           node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Deck browser tests require Node >= 20"); console.log("Using runner Node", process.version);'
           npm --version
           npm install --prefix "$RUNNER_TEMP/site-security-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1

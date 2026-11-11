@@ -754,6 +754,10 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 关闭 apt 内部重试并限制网络及锁等待。只有 update 中明确的瞬态网络错误可有限重试，最多三次尝试；未知、混合永久错误、权限、配置、签名或完整性失败直接失败。install 只执行一次，即使发生网络错误也不重跑，避免 dpkg 修改后状态不明时盲目恢复。
 
+临时 GitHub Ubuntu runner 的已知 `/etc/apt/apt-mirrors.txt` 使用 Azure HTTP、Ubuntu archive HTTPS、Ubuntu security HTTPS 三条带优先级的来源。依赖准备先将这份精确识别的列表调整为两个既有官方 HTTPS 来源优先，Azure 来源保留为最后回退；不增加镜像、密钥或 DNS/IP 覆盖，不改 suites、components、architecture、Signed-By、其他 APT 来源或验签要求。只接受完整已知内容，未知或自定义列表原样保留；缺失文件保留原安装路径，symlink、非普通文件及写入错误失败。原子替换保留文件权限和所有者，重复准备不再写入。准备计入当前调用预算，未完成或预算耗尽不得开始 update；配置完成不代表依赖安装成功。
+
+native 安装在同一 helper 内复用上述准备；Viewer 安全浏览器和 Deck 安全浏览器在原固定版本 `--with-deps` 命令之前调用同一 helper 的 `--prepare-sources-only` 入口。该入口只准备来源，不调用 apt/dpkg，也不宣称浏览器或其依赖就绪；准备失败阻断后续命令。浏览器原有依赖安装与退出码仍完整保留，Viewer 安装 step 设 11 分钟上限，Deck 保留既有 10 分钟上限；实际网络恢复须由新的 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
+
 helper 以具备清理权限的独立进程管理受控子进程，超时和取消先终止、必要时强制终止并等待回收。父进程先退出、忽略终止信号或脱离原进程组都不能被当作清理完成；不得删除锁文件、终止无关进程或恢复不明的 dpkg 状态。清理无法完成时明确失败，交由临时 runner 销毁，不报告安装成功。
 
 此实现仅面向临时 Linux CI runner，不推广到开发机器或部署主机。helper 与测试在 `ci-required-scope.json` 的 `scoped_control_paths`、`python_control_contracts` 注册为 `workflow_governance`，同时进入 `ci-tests.sh`；candidate 和未来可信 baseline 都保留合同。使用假命令与临时进程 fixture 验证正常、瞬态/永久错误、重试耗尽、挂起、父进程先退出、忽略终止、预算耗尽及取消，不对真实 apt/dpkg 故障注入。本地合同与实际 hosted 结果分别记录，未执行的场景不得写成已验证。

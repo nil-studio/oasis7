@@ -9,8 +9,10 @@ import queue
 import re
 import selectors
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -19,6 +21,48 @@ MAX_ATTEMPTS = 3
 OPTIONS = ['-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20',
            '-o', 'Acquire::https::Timeout=20', '-o', 'DPkg::Lock::Timeout=20',
            '-o', 'APT::Update::Error-Mode=any']
+MIRROR_LIST = Path('/etc/apt/apt-mirrors.txt')
+RUNNER_MIRRORS = (
+    'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
+    'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+    'https://security.ubuntu.com/ubuntu/\tpriority:3\n').encode()
+PREFERRED_MIRRORS = (
+    'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+    'https://security.ubuntu.com/ubuntu/\tpriority:2\n'
+    'http://azure.archive.ubuntu.com/ubuntu/\tpriority:3\n').encode()
+
+
+def prefer_official_mirrors(path):
+    """Only reorder the complete known runner list; keep every source and trust setting."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return 'missing'
+    with os.fdopen(fd, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise RuntimeError('APT mirror list is not a regular file')
+        content = stream.read(4097)
+    if content == PREFERRED_MIRRORS:
+        return 'already_preferred'
+    if content != RUNNER_MIRRORS:
+        return 'unchanged_unrecognized'
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.ci-apt-mirrors-', delete=False) as stream:
+            temporary = Path(stream.name)
+            os.fchown(stream.fileno(), before.st_uid, before.st_gid)
+            os.fchmod(stream.fileno(), stat.S_IMODE(before.st_mode))
+            stream.write(PREFERRED_MIRRORS)
+        current = path.stat(follow_symlinks=False)
+        identity = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+        if not stat.S_ISREG(current.st_mode) or identity(current) != identity(before):
+            raise RuntimeError('APT mirror list changed during preparation')
+        os.replace(temporary, path)
+        return 'preferred_official_https'
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def transient_update(output):
@@ -132,18 +176,27 @@ def reap():
 
 
 class Installer:
-    def __init__(self, budget, command=('/usr/bin/apt-get',), backoff=1):
+    def __init__(self, budget, command=('/usr/bin/apt-get',), backoff=1, mirror_list=None):
         self.started = time.monotonic()
         self.end = self.started + budget
         self.reserve = min(2.0, budget / 4)
         self.work_end = self.end - self.reserve
         self.command = list(command)
         self.backoff = backoff
+        self.mirror_list = mirror_list
         self.cancelled = 0
         self.log = Log()
 
     def cancel(self, signum, _frame):
         self.cancelled = signum
+
+    def prepare_sources(self):
+        if self.cancelled or time.monotonic() >= self.work_end:
+            return False
+        if self.mirror_list is not None:
+            result = prefer_official_mirrors(self.mirror_list)
+            self.log(f'mirror_preparation={result} elapsed={time.monotonic() - self.started:.3f}s')
+        return not self.cancelled and time.monotonic() < self.work_end
 
     def cleanup(self, proc):
         start = time.monotonic()
@@ -217,6 +270,8 @@ class Installer:
         establish_owner()
         previous = {s: signal.signal(s, self.cancel) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
         try:
+            if not self.prepare_sources():
+                return 128 + self.cancelled if self.cancelled else 1
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 status, output, valid = self.run('update', ['update'], attempt=attempt)
                 if status == 0 and valid:
@@ -243,14 +298,21 @@ class Installer:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--budget-seconds', type=float, required=True)
-    parser.add_argument('packages', nargs='+')
+    parser.add_argument('--prepare-sources-only', action='store_true')
+    parser.add_argument('packages', nargs='*')
     args = parser.parse_args()
     if not math.isfinite(args.budget_seconds) or args.budget_seconds <= 0:
         parser.error('budget must be finite and positive')
     if os.geteuid() != 0:
         parser.error('run with sudo -n /usr/bin/python3 on a disposable Linux CI runner')
-    installer = Installer(args.budget_seconds)
+    if args.prepare_sources_only == bool(args.packages):
+        parser.error('provide packages or --prepare-sources-only, exclusively')
+    installer = Installer(args.budget_seconds, mirror_list=MIRROR_LIST)
     try:
+        if args.prepare_sources_only:
+            result = installer.prepare_sources()
+            installer.log.flush(min(installer.end, time.monotonic() + 0.1))
+            return 0 if result else 1
         return installer.install(args.packages)
     except (OSError, RuntimeError) as error:
         installer.log(f'failure={type(error).__name__}: {error}')
