@@ -799,19 +799,23 @@ class CompleteFixtureTests(unittest.TestCase):
         self.fixture.files['rust-toolchain.toml'] = b'[toolchain]\nchannel="1.96.0"\n'
         self.tree = tree_fixture(self.fixture.files); self.archive = archive_fixture(self.fixture.files)
         self.bin = self.root/'bin'; self.bin.mkdir(); self.settings = self.root/'settings.json'; self.events = self.root/'events.jsonl'
-        self.settings.write_text(json.dumps({'graph': self.fixture.document, 'fail_fetch': False, 'bad_discovery': False, 'mutate_lock': False}))
+        self.settings.write_text(json.dumps({'graph': self.fixture.document, 'fail_install': False, 'fail_fetch': False, 'bad_discovery': False, 'mutate_lock': False}))
         source = '''#!PYTHON
 import json,os,pathlib,shutil,sys
 settings=json.loads(pathlib.Path(SETTINGS).read_text())
 name=pathlib.Path(sys.argv[0]).name
 args=sys.argv[1:]
 with pathlib.Path(EVENTS).open('a') as out: out.write(json.dumps({'program':name,'operation':args[0] if args else None,'argument_count':len(args)})+'\\n')
-if name=='rustup' and args==['toolchain','install','1.99.0','--profile','minimal']:
+if name=='rustup' and args[:5]==['toolchain','install','1.99.0','--profile','minimal'] and args[5:] in ([],['--no-self-update']):
  root=pathlib.Path(os.environ['RUSTUP_HOME'])/'toolchains/1.99.0-x86_64-unknown-linux-gnu'
  (root/'bin').mkdir(parents=True)
  for kind in ('cargo','rustc'): shutil.copyfile(sys.argv[0],root/'bin'/kind); (root/'bin'/kind).chmod(0o700)
  (root/'lib/rustlib').mkdir(parents=True)
  (root/'lib/rustlib/multirust-channel-manifest.toml').write_text('fixture = true\\n')
+ # Real rustup installs first, then fails its default self-update when the
+ # isolated CARGO_HOME has no bin/rustup. The host proxy must stay unchanged.
+ if '--no-self-update' not in args or settings['fail_install']:
+  print('PRIVATE-INSTALL-SELF-UPDATE-ERROR',file=sys.stderr); sys.exit(1)
  sys.exit(0)
 if args==['-Vv']:
  kind='rustc' if name=='rustc' else 'cargo'; commit='a'*40 if kind=='rustc' else '5f94df4789f005f9a352888e8355ffc645b7ed0e'
@@ -880,6 +884,19 @@ sys.exit(13)
         self.assertEqual(terminal['phase'], 'dependency-fetch')
         self.assertEqual(terminal['metadata_observation'], 'NOT_RUN')
         self.assertTrue((self.session/'evidence/sha256.json').is_file())
+
+    def test_install_failure_never_attempts_fetch_d1_or_d2(self):
+        self.change(fail_install=True)
+        self.assertEqual(self.execute(), 1)
+        self.assertFalse(any(r['operation'] in ('fetch', 'metadata', 'locate-project') for r in self.observed()))
+        out = self.session/'evidence'
+        terminal = json.loads((out/'terminal.json').read_bytes())
+        self.assertEqual(terminal['phase'], 'toolchain-install')
+        self.assertEqual(terminal['metadata_observation'], 'NOT_RUN')
+        self.assertEqual(terminal['command_failure']['exit'], 1)
+        self.assertTrue((out/'sha256.json').is_file())
+        for path in out.rglob('*'):
+            if path.is_file(): self.assertNotIn(b'PRIVATE-INSTALL-SELF-UPDATE-ERROR', path.read_bytes())
 
     def test_failed_discovery_never_attempts_d2(self):
         self.change(bad_discovery=True)

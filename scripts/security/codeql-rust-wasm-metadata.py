@@ -1036,7 +1036,9 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                       'rustup_home': env['RUSTUP_HOME'], 'target_directory': env['CARGO_TARGET_DIR'],
                       'workspace_members': members, 'home_unchanged': True, 'codex_home_unchanged': True})
         terminal['phase'] = 'toolchain-install'
-        run_owned('toolchain-install', [str(rustup), 'toolchain', 'install', '1.99.0', '--profile', 'minimal'],
+        # Install only the fixed toolchain. The isolated Cargo home deliberately
+        # has no rustup installation, and the verified host proxy must not change.
+        run_owned('toolchain-install', [str(rustup), 'toolchain', 'install', '1.99.0', '--profile', 'minimal', '--no-self-update'],
                   work, env, clock, clock.prepare, evidence, {'toolchain': '1.99.0', 'cwd': str(work)})
         binary_before = analysis_binary_identity(work, clock, clock.prepare)
         versions = {}
