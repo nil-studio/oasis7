@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
-import {retentionFocusScript,validateRetentionFocusAnchor} from './viewer-retention-focus.mjs';
+import {retentionFocusScript,retentionFilterScript,validateRetentionFocusAnchor} from './viewer-retention-focus.mjs';
 function context({readyAfter=0,count=1000,identity=false}={}) {
  let now=0,attempts=0,focused=0;const reads=[];
  const document={activeElement:null,querySelector(){attempts++;return attempts>readyAfter?button:null;}};
@@ -14,3 +14,7 @@ test('never-ready preparation is bounded and sends no focus/input',async()=>{con
 test('complete999 or acquired identity stops before focus instead of retrying',async()=>{for(const options of [{count:999},{identity:true}]){const c=context(options);await assert.rejects(runInNewContext(retentionFocusScript('button','cut'),c.globals),/cardinality|identity/);assert.equal(c.focused,0);assert.equal(c.elapsed,0);}});
 
 test('scope, instance and page changes reject before the caller can send Enter',()=>{const before={scope:2,instance:1,origin:1000};for(const change of [{scope:3},{instance:2},{origin:1001}]){let sent=0;assert.throws(()=>{validateRetentionFocusAnchor(before,{focused:true,...before,...change});sent++;},/changed/);assert.equal(sent,0);}assert.deepEqual(validateRetentionFocusAnchor(before,{focused:true,...before,generation:99},before),before);});
+
+function filterContext(value,count,disabledTicks=0){const c=context({count});let ticks=0;const button={isConnected:true,get disabled(){return ticks++<disabledTicks;},focus(){c.globals.document.activeElement=this;}};const input={value};const form={querySelector:q=>q==='input'?input:button};c.globals.document.querySelector=()=>form;return c;}
+test('filter predicate and empty restore wait through disabled submit and focus once without input',async()=>{for(const [value,count] of [['qa-agent-049',1000],['',10]]){const c=filterContext(value,count,4);const r=await runInNewContext(retentionFilterScript('cut',count,value),c.globals);assert.equal(r.focused,true);assert.equal(r.disabled,false);assert.equal(r.valueMatches,true);assert(c.elapsed>0);assert(c.reads.every(r=>r.measure===false));}});
+test('disabled forever, mismatched value and full cardinality loss cannot send filter input',async()=>{for(const [value,count,disabled,expected] of [['qa-agent-049',1000,Infinity,1000],['wrong',1000,0,1000],['',999,0,10]]){const c=filterContext(value,count,disabled);await assert.rejects(runInNewContext(retentionFilterScript('cut',expected,value==='wrong'?'qa-agent-049':value),c.globals),/not ready|cardinality/);assert.equal(c.globals.document.activeElement,null);}});
