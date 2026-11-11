@@ -31,10 +31,11 @@ class Contracts(unittest.TestCase):
 
     def test_source_projection_excludes_credentials_and_auth_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp); (root/'sources.list.d').mkdir()
+            root = Path(tmp).resolve(); (root/'sources.list.d').mkdir()
             (root/'sources.list').write_text('deb https://user:secret@archive.ubuntu.com/ubuntu?token=secret noble main\n')
             (root/'auth.conf').write_text('private-auth-secret')
             result = diag.observer.source_snapshot(root)
+            self.assertIn('archive.ubuntu.com', str(result))
             self.assertNotIn('secret', str(result)); self.assertNotIn('auth.conf', str(result))
 
     def test_failed_diagnostic_cannot_turn_install_failure_green(self):
