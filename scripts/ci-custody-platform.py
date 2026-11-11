@@ -31,8 +31,9 @@ FILE_SECONDS = {
 }
 BUILD_CONTRACTS = {
     'native': ['custody-core+worker:test', 'launcher:custody', 'world:commit-barrier', 'contract:check', 'context-body:export'],
-    'wasm-production': [*ROLES, 'role-feature-negative-checks'],
-    'wasm-approval': ['owner,approval-harness', 'approval-admission:export', 'worker-wasm-six-profiles'],
+    'wasm-production': [*ROLES],
+    'wasm-approval': ['owner,approval-harness', 'approval-admission:export',
+                      'role-feature-negative-checks', 'worker-wasm-six-profiles'],
 }
 
 
