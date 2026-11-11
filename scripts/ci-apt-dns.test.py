@@ -4,15 +4,87 @@ import importlib.util
 from pathlib import Path
 import unittest
 import os
+import json
+import subprocess
+import sys
 import tempfile
 import time
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_name('ci_apt_dns.py'))
 dns = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dns)
 
 class RecoveryTests(unittest.TestCase):
+    def test_real_cli_shape_entry_and_file_read_boundaries_are_json(self):
+        script = str(Path(dns.__file__).resolve())
+        direct = subprocess.run([sys.executable, script, '--shape'], capture_output=True, text=True, timeout=5)
+        self.assertEqual(direct.returncode, 0, direct.stderr)
+        self.assertIsInstance(json.loads(direct.stdout)['available'], bool)
+        child = r'''
+import runpy, sys
+from pathlib import Path
+from unittest.mock import patch
+script, mode = sys.argv[1:]
+original = Path.read_text
+def read(path, *args, **kwargs):
+    if str(path) == '/run/systemd/resolve/stub-resolv.conf':
+        if mode == 'missing': raise FileNotFoundError()
+        return 'nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch private.internal\n'
+    return original(path, *args, **kwargs)
+sys.argv = [script, '--shape']
+with patch.object(Path, 'read_text', read):
+    runpy.run_path(script, run_name='__main__')
+'''
+        for mode in ('normal', 'missing'):
+            result = subprocess.run([sys.executable, '-c', child, script, mode], capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['available'], mode == 'normal')
+            self.assertNotIn('private.internal', result.stdout + result.stderr)
+
+    def test_mechanism_real_cli_help_loads_without_privileged_actions(self):
+        script = str(Path(__file__).with_name('ci-apt-dns-mechanism.py').resolve())
+        result = subprocess.run([sys.executable, script, '--help'], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--budget-seconds', result.stdout)
+
+    def test_mechanism_entry_keeps_budget_ownership_and_does_not_claim_failover(self):
+        path = Path(__file__).with_name('ci-apt-dns-mechanism.py')
+        spec = importlib.util.spec_from_file_location('mechanism_test', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        installer = Mock(end=time.monotonic() + 5, work_end=time.monotonic() + 4, cancelled=0)
+        installer.run_command.return_value = (0, '', True)
+        recovery = Mock(reason='eligible', prefix=[])
+        recovery.eligible.return_value = True
+        recovery.claim_lock.return_value = True
+        recovery.default_routes.return_value = True
+        recovery.namespace_prefix.return_value = ['owned-namespace']
+        def install(packages):
+            self.assertEqual(packages, ['pkg-config'])
+            self.assertFalse(recovery.enabled)
+            self.assertEqual(recovery.prefix, ['owned-namespace'])
+            return 0
+        installer.install.side_effect = install
+        with patch.object(module.sys, 'argv', ['mechanism', '--budget-seconds', '5']), \
+             patch.object(module.os, 'geteuid', return_value=0), \
+             patch.object(module.apt, 'Installer', return_value=installer), \
+             patch.object(module.apt._dns, 'Recovery', return_value=recovery), \
+             patch.object(module.apt, 'establish_owner') as owner:
+            self.assertEqual(module.main(), 0)
+        owner.assert_called_once()
+        recovery.eligible.assert_called_once_with(mechanism_only=True)
+        recovery.default_routes.assert_called_once_with(mechanism_only=True)
+        recovery.close.assert_called_once()
+        self.assertIn('automatic_failover_not_exercised=true', str(installer.log.call_args_list))
+
+    def test_shape_never_discloses_unknown_domain_or_option_values(self):
+        shape = dns.stub_shape('nameserver 127.0.0.53\noptions edns0 private-option\nsearch private.internal\n')
+        self.assertEqual(shape['search_suffix_count'], 1)
+        self.assertFalse(shape['search_azure_dhcp_default'])
+        self.assertFalse(shape['options_known'])
+        self.assertNotIn('private', str(shape))
+        self.assertTrue(dns.stub_shape('search reddog.microsoft.com\n')['search_azure_dhcp_default'])
+
     def test_direct_sources_have_only_public_exact_roots(self):
         for url in ('http://azure.archive.ubuntu.com/ubuntu', 'https://archive.ubuntu.com/ubuntu/',
                     'https://security.ubuntu.com/ubuntu', 'https://packages.microsoft.com/ubuntu/24.04/prod'):
@@ -83,7 +155,7 @@ class RecoveryTests(unittest.TestCase):
             self.assertIn('--namespace', recovery.prefix)
             self.assertEqual(float(recovery.prefix[-2]), installer.work_end)
             resolver = Path(recovery.directory.name) / 'resolv.conf'
-            self.assertEqual(resolver.read_text(), 'nameserver 1.1.1.1\n')
+            self.assertEqual(resolver.read_text(), 'nameserver 1.1.1.1\nsearch .\n')
             self.assertEqual(resolver.stat().st_mode & 0o777, 0o644)
             self.assertEqual(resolver.parent.stat().st_mode & 0o777, 0o700)
         self.exercise([(75, '', True), (0, '', True)], check)
@@ -153,6 +225,10 @@ class RecoveryTests(unittest.TestCase):
                 recovery = dns.Recovery(None, True)
                 self.assertTrue(recovery.eligible(), recovery.reason)
                 mirror.assert_called_once()
+                mapping[dns.TARGET].write_text('nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch private.internal\n')
+                self.assertFalse(recovery.eligible())
+                self.assertTrue(recovery.eligible(mechanism_only=True))
+                mapping[dns.TARGET].write_text(files[dns.TARGET])
                 for uri in ('mirror+file:/etc/apt/private-mirrors.txt', 'custom://internal.example/repo',
                             'custom:internal.example/repo', 'ssh:/internal.example/repo',
                             'https://archive.ubuntu.com/ubuntu#private', 'https://archive.ubuntu.com/ubuntu?token=x'):

@@ -1,6 +1,7 @@
 """Opt-in hosted-runner DNS recovery confined to an owned mount namespace."""
 import fcntl
 import ctypes
+import json
 import os
 from pathlib import Path
 import re
@@ -18,6 +19,20 @@ LOCK_PATH = '/run/lock/oasis7-ci-apt-dns.lock'
 RUNTIME_ROOT = '/run'
 MIRROR_PATH = '/etc/apt/apt-mirrors.txt'
 MIRROR_URI = 'mirror+file:/etc/apt/apt-mirrors.txt'
+
+
+def stub_shape(text):
+    rows = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    keys = ('nameserver', 'options', 'search', 'domain')
+    servers = [row[1:] for row in rows if row[0] == 'nameserver']
+    options = [value for row in rows if row[0] == 'options' for value in row[1:]]
+    searches = [value for row in rows if row[0] == 'search' for value in row[1:]]
+    return dict(available=True, command_keys=sorted({row[0] for row in rows if row[0] in keys}),
+                nameserver_count=len(servers), nameservers_default=servers == [['127.0.0.53']],
+                option_count=len(options), options_known=all(value in ('edns0', 'trust-ad') for value in options),
+                search_suffix_count=len(searches), search_azure_dhcp_default=searches == ['reddog.microsoft.com'],
+                search_root_only=searches in ([], ['.']),
+                unknown_line_count=sum(row[0] not in keys for row in rows))
 
 
 def direct_source_allowed(value, image):
@@ -92,13 +107,13 @@ class Recovery:
         self.reason = reason
         return False
 
-    def eligible(self):
+    def eligible(self, mechanism_only=False):
         try:
-            return self._eligible()
+            return self._eligible(mechanism_only)
         except (OSError, UnicodeError, ValueError):
             return self.decline('unsupported_configuration')
 
-    def _eligible(self):
+    def _eligible(self, mechanism_only=False):
         if not self.enabled:
             return self.decline('opt_in_required')
         release = dict(re.findall(r'^(\w+)="?([^"\n]+)"?$', Path('/etc/os-release').read_text(), re.M))
@@ -108,7 +123,8 @@ class Recovery:
             return self.decline('custom_resolver_path')
         lines = [line.strip() for line in Path(TARGET).read_text().splitlines()
                  if line.strip() and not line.lstrip().startswith('#')]
-        if any(line not in ('nameserver 127.0.0.53', 'options edns0 trust-ad', 'search .') for line in lines):
+        if any(line not in ('nameserver 127.0.0.53', 'options edns0 trust-ad', 'search .') and
+               not (mechanism_only and line.startswith('search ')) for line in lines):
             return self.decline('custom_stub_configuration')
         if lines.count('nameserver 127.0.0.53') != 1:
             return self.decline('custom_stub_nameserver')
@@ -155,7 +171,7 @@ class Recovery:
         self.reason = 'eligible' if all(Path(p).is_file() for p in ('/usr/bin/mount', '/usr/bin/resolvectl')) else 'resolver_tool_unavailable'
         return self.reason == 'eligible'
 
-    def default_routes(self):
+    def default_routes(self, mechanism_only=False):
         for option in ('dns', 'domain', 'default-route'):
             status, output, valid = self.installer.run_command('dns-config-' + option, ['/usr/bin/resolvectl', option], report_output=False)
             if not valid or status != 0:
@@ -169,16 +185,14 @@ class Recovery:
                 value = line.split(':', 1)[1].strip()
                 allowed = {'dns': ('', '168.63.129.16'), 'domain': ('', '~.'),
                            'default-route': ('', 'yes', 'no')}[option]
-                if value not in allowed:
+                if value not in allowed and not (mechanism_only and option == 'domain'):
                     return self.decline('dynamic_resolver_configuration_custom')
                 has_default_dns |= value == '168.63.129.16'
             if option == 'dns' and not has_default_dns:
                 return self.decline('dynamic_default_dns_missing')
         return True
 
-    def try_enable(self, output):
-        if self.prefix or not dns_failure(output) or not self.eligible():
-            return False
+    def claim_lock(self):
         self.lock = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
         info = os.fstat(self.lock)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
@@ -189,6 +203,25 @@ class Recovery:
         except BlockingIOError:
             self.close()
             return False
+        return True
+
+    def namespace_prefix(self):
+        if self.directory is not None:
+            raise RuntimeError('namespace directory already prepared')
+        self.directory = tempfile.TemporaryDirectory(prefix='oasis7-ci-apt-dns-', dir=RUNTIME_ROOT)
+        resolver = Path(self.directory.name) / 'resolv.conf'
+        fd = os.open(resolver, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, 'w') as stream:
+            stream.write('nameserver 1.1.1.1\nsearch .\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        return [sys.executable, str(Path(__file__).resolve()), '--namespace', str(resolver),
+                str(self.installer.work_end), '--']
+
+    def try_enable(self, output):
+        if self.prefix or not dns_failure(output) or not self.eligible() or not self.claim_lock():
+            return False
         if not self.default_routes():
             self.close()
             return False
@@ -197,16 +230,7 @@ class Recovery:
         if not valid or status != 75 or self.installer.cancelled:
             self.close()
             return False
-        self.directory = tempfile.TemporaryDirectory(prefix='oasis7-ci-apt-dns-', dir=RUNTIME_ROOT)
-        resolver = Path(self.directory.name) / 'resolv.conf'
-        fd = os.open(resolver, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        os.fchmod(fd, 0o644)
-        with os.fdopen(fd, 'w') as stream:
-            stream.write('nameserver 1.1.1.1\n')
-            stream.flush()
-            os.fsync(stream.fileno())
-        prefix = [sys.executable, str(Path(__file__).resolve()), '--namespace', str(resolver),
-                  str(self.installer.work_end), '--']
+        prefix = self.namespace_prefix()
         status, _, valid = self.installer.run_command('dns-alternate', prefix + probe)
         if not valid or status != 0 or self.installer.cancelled:
             self.close()
@@ -236,7 +260,7 @@ def namespace_main(argv):
             stat.S_IMODE(info.st_mode) != 0o644 or resolver.is_symlink() or
             parent.st_uid != 0 or stat.S_IMODE(parent.st_mode) != 0o700):
         raise RuntimeError('resolver must be an owned private regular file')
-    if resolver.read_text() != 'nameserver 1.1.1.1\n' or os.path.realpath('/etc/resolv.conf') != TARGET:
+    if resolver.read_text() != 'nameserver 1.1.1.1\nsearch .\n' or os.path.realpath('/etc/resolv.conf') != TARGET:
         raise RuntimeError('unexpected resolver configuration')
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -254,6 +278,12 @@ def namespace_main(argv):
 
 
 if __name__ == '__main__':
+    if sys.argv[1:] == ['--shape']:
+        try:
+            print(json.dumps(stub_shape(Path(TARGET).read_text())))
+        except OSError:
+            print(json.dumps(dict(available=False)))
+        sys.exit(0)
     if sys.argv[1:] == ['--probe']:
         try:
             addresses = socket.getaddrinfo(DOMAIN, 80, socket.AF_INET, socket.SOCK_STREAM)

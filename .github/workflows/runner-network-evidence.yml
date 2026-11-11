@@ -8,6 +8,7 @@ on:
       - scripts/ci-apt-install.py
       - scripts/ci_apt_dns.py
       - scripts/ci-apt-dns.test.py
+      - scripts/ci-apt-dns-mechanism.py
 permissions:
   contents: read
 jobs:
@@ -29,6 +30,8 @@ jobs:
           persist-credentials: false
       - name: Resolver contract tests (no network mutation)
         run: python3 scripts/ci-apt-dns.test.py
+      - name: Resolver shape only (never disclose private suffix values)
+        run: python3 scripts/ci_apt_dns.py --shape
       - name: Bounded real apt with opt-in private namespace recovery
         shell: bash
         run: |
@@ -44,4 +47,28 @@ jobs:
           }
           trap verify_host EXIT
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 180 --hosted-dns-recovery -- pkg-config
+          pkg-config --version
+  apt-dns-namespace-mechanism-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Safe resolver shape and explicit namespace mechanism (not automatic failover)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_apt_dns.py --shape
+          before=$(sha256sum /etc/resolv.conf)
+          link_before=$(readlink /etc/resolv.conf)
+          stat_before=$(stat -c '%i:%f:%u:%g:%s' /etc/resolv.conf)
+          verify_host() {
+            test "$before" = "$(sha256sum /etc/resolv.conf)"
+            test "$link_before" = "$(readlink /etc/resolv.conf)"
+            test "$stat_before" = "$(stat -c '%i:%f:%u:%g:%s' /etc/resolv.conf)"
+            echo 'mechanism_host_resolver_bytes_symlink_metadata_unchanged=true'
+          }
+          trap verify_host EXIT
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-dns-mechanism.py --budget-seconds 180
           pkg-config --version
