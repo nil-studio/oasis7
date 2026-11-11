@@ -153,7 +153,9 @@ pub(super) fn visit_body(
     }
     Ok(())
 }
-fn role_map_nodes(entries: usize) -> Result<usize, FormalError> {
+pub(in crate::controlled_authority::formal::endpoint) fn role_map_nodes(
+    entries: usize,
+) -> Result<usize, FormalError> {
     // Locked Rust 1.96 Clone::clone_subtree preserves shape without insert or
     // split. Empty clone takes is_empty->new_in even if source has an empty leaf.
     // B=6: nonroot min5, capacity11. Height2 requires >=71 keys. At <=14 keys
@@ -228,6 +230,37 @@ struct PendingDraftSources {
     entry: super::bounded_request::PaidRequestStateV1,
     decision: Option<super::bounded_record_id::PaidCanonicalRecordIdV1>,
 }
+enum GenesisDraftSources {
+    None,
+    #[cfg(not(target_arch = "wasm32"))]
+    Complete(super::bounded_genesis_qualified::PreparedGenesisQualifiedUpdate),
+}
+impl GenesisDraftSources {
+    fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        match self {
+            Self::None => true,
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Complete(s) => s.uses_budget(memory),
+        }
+    }
+    fn reserved_bytes(&self) -> usize {
+        match self {
+            Self::None => 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Complete(s) => s.reserved_bytes(),
+        }
+    }
+    fn payload(&self) -> Result<usize, FormalError> {
+        match self {
+            Self::None => Ok(0),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Complete(s) => add(
+                add(s.update.index_root().len(), s.history.len())?,
+                add(s.record.len(), s.closure().len())?,
+            ),
+        }
+    }
+}
 pub(in crate::controlled_authority) struct PaidNativeCheckpointDraftV1<'a> {
     store: &'a Store,
     identity: WorkIdentityV1,
@@ -236,6 +269,7 @@ pub(in crate::controlled_authority) struct PaidNativeCheckpointDraftV1<'a> {
     preimage: ReservedValue<Vec<u8>>,
     outer: ReservedValue<()>,
     _pending_sources: Option<PendingDraftSources>,
+    _genesis_sources: GenesisDraftSources,
     _disk_source: Option<super::PaidNativeHotV1>,
 }
 impl std::fmt::Debug for PaidNativeCheckpointDraftV1<'_> {
@@ -271,7 +305,8 @@ impl PaidNativeCheckpointDraftV1<'_> {
         self.identity
     }
     pub(in crate::controlled_authority) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.body.uses_budget(memory)
+        self._genesis_sources.uses_budget(memory)
+            && self.body.uses_budget(memory)
             && self
                 ._disk_source
                 .as_ref()
@@ -289,7 +324,8 @@ impl PaidNativeCheckpointDraftV1<'_> {
             })
     }
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
-        self.body.reserved_bytes()
+        self._genesis_sources.reserved_bytes()
+            + self.body.reserved_bytes()
             + self
                 ._disk_source
                 .as_ref()
@@ -329,7 +365,7 @@ pub(super) fn prepare_native_checkpoint_draft_bounded_v1<'a>(
     store: &'a Store,
     ctx: &mut FormalBoundedContextV1<'_>,
 ) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
-    prepare_draft(store, ctx, None)
+    prepare_draft(store, ctx, None, GenesisDraftSources::None)
 }
 pub(super) fn prepare_pending_draft_from_sources_v1<'a>(
     store: &'a Store,
@@ -373,12 +409,14 @@ pub(super) fn prepare_pending_draft_from_sources_v1<'a>(
             entry,
             decision,
         }),
+        GenesisDraftSources::None,
     )
 }
 fn prepare_draft<'a>(
     store: &'a Store,
     ctx: &mut FormalBoundedContextV1<'_>,
     sources: Option<PendingDraftSources>,
+    genesis: GenesisDraftSources,
 ) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
     ctx.consume_steps(1)?;
     if store.body.seal.is_some() {
@@ -402,6 +440,7 @@ fn prepare_draft<'a>(
             source.decision.as_ref().map_or(0, |id| id.id().len()),
         )?,
     };
+    let additional = add(additional, genesis.payload()?)?;
     let h = add(h, additional)?;
     let body_fee = ctx
         .memory()
@@ -425,6 +464,19 @@ fn prepare_draft<'a>(
                 record_id: id.id().to_owned(),
             });
         }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if let GenesisDraftSources::Complete(source) = &genesis {
+        debit(ctx, genesis.payload()?)?;
+        next.head = FormalHeadRefV1 {
+            position: source.inputs.verified().record().position,
+            record_id: (*source.record).clone(),
+        };
+        next.index = Some(source.update.index_root().to_owned());
+        next.head_node = Some((*source.history).clone());
+        next.pending = None;
+        next.decision_head = None;
+        next.data_closure = Some(source.closure().to_owned());
     }
     visit_body(&next, &mut |s| {
         ctx.consume_steps(1)?;
@@ -512,6 +564,7 @@ fn prepare_draft<'a>(
         preimage,
         outer,
         _pending_sources: sources,
+        _genesis_sources: genesis,
         _disk_source: None,
     })
 }
@@ -539,5 +592,30 @@ impl PaidNativeCheckpointDraftV1<'_> {
             Ok(())
         })?;
         Ok((body, fee.retain(())))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn prepare_genesis_draft_from_sources_v1<'a>(
+    store: &'a Store,
+    source: super::bounded_genesis_qualified::PreparedGenesisQualifiedUpdate,
+    memory: &MemoryBudget,
+    work: &super::super::FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
+    source.update.validate_source(store, memory, work, stop)?;
+    source.inputs.validate_context(memory, work, stop)?;
+    let mut ctx = work.bounded_context(memory, stop);
+    prepare_draft(store, &mut ctx, None, GenesisDraftSources::Complete(source))
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl PaidNativeCheckpointDraftV1<'_> {
+    pub(super) fn into_genesis_sources(
+        self,
+    ) -> Result<super::bounded_genesis_qualified::PreparedGenesisQualifiedUpdate, FormalError> {
+        match self._genesis_sources {
+            GenesisDraftSources::Complete(source) => Ok(source),
+            GenesisDraftSources::None => Err(invalid("GEN publication requires real typed source")),
+        }
     }
 }

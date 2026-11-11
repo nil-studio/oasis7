@@ -6,16 +6,12 @@ use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
-#[derive(Clone)]
-struct Ledger {
-    checkpoint: EndpointCheckpointBindingV1,
-    native: Vec<u8>,
-    pending: Option<CheckpointIntentV1>,
-    seal: Option<EpochSealBodyV1>,
-}
+#[path = "endpoint_test_oracle_ledger.rs"]
+mod oracle_ledger;
+use oracle_ledger::Ledger;
 #[path = "endpoint_test_oracle_frame.rs"]
 mod oracle_frame;
-use oracle_frame::recv;
+use oracle_frame::{recv, send};
 
 #[test]
 fn oracle_idle_is_retryable_but_started_frames_are_bounded() {
@@ -30,13 +26,6 @@ fn oracle_idle_is_retryable_but_started_frames_are_bounded() {
     assert!(recv::<u8>(&mut server).is_err());
 }
 
-fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<(), ()> {
-    let bytes = serde_cbor::to_vec(reply).unwrap();
-    stream
-        .write_all(&(bytes.len() as u32).to_be_bytes())
-        .and_then(|_| stream.write_all(&bytes))
-        .map_err(|_| ())
-}
 #[path = "endpoint_test_oracle.rs"]
 mod oracle;
 use oracle::Oracle;

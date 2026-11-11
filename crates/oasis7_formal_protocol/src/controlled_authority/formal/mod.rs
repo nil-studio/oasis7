@@ -39,3 +39,6 @@ pub mod incremental;
 
 pub mod incremental_frozen_material;
 pub use incremental_frozen_material::*;
+
+pub mod bounded_wire;
+pub mod context_wire;

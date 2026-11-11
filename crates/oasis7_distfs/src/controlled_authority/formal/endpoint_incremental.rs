@@ -427,7 +427,7 @@ mod history_originals;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_jobs.rs"]
-mod jobs;
+pub(super) mod jobs;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(super) fn iws_job_state_layout_bytes_for_test() -> usize {
     std::mem::size_of::<jobs::EndpointIwsState>()
@@ -567,3 +567,11 @@ pub use closure::NativeWorkerLeaseV1;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_frozen_content.rs"]
 mod frozen_content;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_genesis.rs"]
+pub(super) mod genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_genesis_receipts.rs"]
+pub(super) mod genesis_receipts;

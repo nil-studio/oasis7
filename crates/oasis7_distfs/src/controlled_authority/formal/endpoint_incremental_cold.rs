@@ -136,6 +136,8 @@ where
         complete_data: None,
         local_closure: None,
         recovered_pages: None,
+        genesis_quorum: None,
+        formal_parent_fee: None,
         roots,
         cognition,
         runtime,

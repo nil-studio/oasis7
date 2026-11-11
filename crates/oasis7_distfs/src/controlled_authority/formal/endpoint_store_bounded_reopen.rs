@@ -34,7 +34,7 @@ fn reserve(
         .reserve(n, MemoryClass::Ordinary)
         .map_err(|_| invalid("bounded cold reopen admission"))
 }
-fn hash_encoded<T: Serialize>(
+pub(in crate::controlled_authority::formal::endpoint) fn hash_encoded<T: Serialize>(
     value: &T,
     domain: Option<&str>,
     memory: &MemoryBudget,

@@ -336,10 +336,12 @@ pub(super) fn prepare(base: &Path, pdir: &Path, rdir: &Path, resource: &str) -> 
         put(&objects, bytes, &mut object_io);
     }
     drop(objects);
-    let native_dir = pdir.join("formal-objects-v1");
-    std::fs::create_dir_all(&native_dir).unwrap();
-    for (id, bytes) in &originals {
-        std::fs::write(native_dir.join(hex::encode(id)), bytes).unwrap();
+    for endpoint_dir in [pdir, rdir] {
+        let native_dir = endpoint_dir.join("formal-objects-v1");
+        std::fs::create_dir_all(&native_dir).unwrap();
+        for (id, bytes) in &originals {
+            std::fs::write(native_dir.join(hex::encode(id)), bytes).unwrap();
+        }
     }
     let body_id = history.body.digest().unwrap();
     let dependencies = originals

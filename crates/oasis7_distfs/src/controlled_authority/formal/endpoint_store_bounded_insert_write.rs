@@ -217,3 +217,9 @@ pub(super) fn write_insert_plan_bounded_v1<'a>(
 #[cfg(test)]
 #[path = "endpoint_store_bounded_insert_write_tests.rs"]
 mod tests;
+
+impl RetainedIndexRewriteV1 {
+    pub(super) fn publication_guard(&self) -> &ReservedValue<physical::PublicationGuard> {
+        &self._guard
+    }
+}

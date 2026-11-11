@@ -381,3 +381,57 @@ pub(super) fn stage_request_state_bounded_v1<'g>(
         },
     })
 }
+
+/// History token can only follow successful original HistoryNode serialization,
+/// immutable publication and the same real session guard used by retention.
+pub(in crate::controlled_authority::formal) struct StagedHistoryNodeV1<'g> {
+    object: StagedObjectV1<'g>,
+}
+impl StagedHistoryNodeV1<'_> {
+    pub(super) fn id(&self) -> &str {
+        self.object.id()
+    }
+    pub(in crate::controlled_authority::formal) fn retention_source(
+        &self,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(&physical::PublicationGuard, &str), FormalError> {
+        self.object.retention_source(memory, work, stop)
+    }
+}
+pub(super) fn stage_history_node_bounded_v1<'g>(
+    guard: &'g ReservedValue<physical::PublicationGuard>,
+    node: &HistoryNode,
+    memory: &MemoryBudget,
+    work: &'g FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<StagedHistoryNodeV1<'g>, FormalError> {
+    let (child_cap, layout) = stage_object_layout(
+        guard,
+        memory,
+        work,
+        stop,
+        std::mem::size_of::<StagedHistoryNodeV1<'_>>(),
+    )?;
+    let bytes = encode_wire(node, memory, work, LIMIT, stop)?;
+    let id = super::stage_core::stage_wire_with_layout(
+        guard,
+        bytes.as_slice(),
+        LIMIT,
+        child_cap,
+        super::stage_core::TEMP_NAME_CAP,
+        memory,
+        work,
+        stop,
+    )?;
+    Ok(StagedHistoryNodeV1 {
+        object: StagedObjectV1 {
+            guard,
+            work,
+            bytes,
+            id,
+            layout,
+        },
+    })
+}

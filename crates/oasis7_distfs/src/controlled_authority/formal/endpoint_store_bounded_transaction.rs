@@ -10,7 +10,7 @@ use crate::controlled_authority::fencing::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
-pub(super) fn same<T: Serialize + PartialEq>(
+pub(in crate::controlled_authority::formal::endpoint) fn same<T: Serialize + PartialEq>(
     a: &T,
     b: &T,
     memory: &MemoryBudget,
@@ -47,7 +47,7 @@ fn fee(
         .reserve(n, MemoryClass::Ordinary)
         .map_err(|_| invalid("bounded native transaction admission"))
 }
-fn copy_checkpoint(
+pub(in crate::controlled_authority::formal::endpoint) fn copy_checkpoint(
     source: &fencing::EndpointCheckpointBindingV1,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
@@ -133,7 +133,7 @@ pub(super) fn disk_binding(
         reservation.retain(()),
     ))
 }
-pub(super) enum RecoveryScope<'a> {
+pub(in crate::controlled_authority::formal::endpoint) enum RecoveryScope<'a> {
     Strict,
     Cold {
         authority: &'a VerifiedAuthorityV1,
@@ -192,7 +192,7 @@ fn decode_provider_hot(
     )
 }
 impl Store {
-    pub(super) fn publish_pending_update_bounded(
+    pub(in crate::controlled_authority::formal::endpoint) fn publish_pending_update_bounded(
         &mut self,
         update: PreparedPendingRequestUpdate,
         provider: &RemoteMonotonicEndpointProvider,
@@ -266,7 +266,7 @@ impl Store {
             &RecoveryScope::Strict,
         )
     }
-    pub(super) fn reconcile_pending_update_with_scope(
+    pub(in crate::controlled_authority::formal::endpoint) fn reconcile_pending_update_with_scope(
         &mut self,
         provider: &RemoteMonotonicEndpointProvider,
         instance: &EndpointInstanceBindingV1,

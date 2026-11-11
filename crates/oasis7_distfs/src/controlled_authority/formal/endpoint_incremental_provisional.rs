@@ -75,6 +75,9 @@ pub(super) struct AcceptedCandidateCache {
     pub(super) runtime: ReservedValue<AcceptedRuntimeHistorySourceV1>,
     pub(super) complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
     pub(super) local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
+    pub(super) genesis_quorum:
+        Option<oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedGenesisCommitV1>,
+    pub(super) formal_parent_fee: Option<ReservedValue<()>>,
     pub(super) recovered_pages: Option<ReservedValue<super::closure::StoreReadWitness>>,
 }
 impl PreparedCandidateInstall {
@@ -171,6 +174,8 @@ impl PreparedCandidateInstall {
             complete_data: self.complete_data,
             local_closure: self.local_closure,
             recovered_pages: None,
+            genesis_quorum: None,
+            formal_parent_fee: None,
         })
     }
 }
@@ -252,3 +257,73 @@ impl AcceptedCandidateCache {
 
 #[path = "endpoint_incremental_frozen_parent_cache.rs"]
 mod frozen_parent_cache;
+
+impl PreparedCandidateInstall {
+    pub(super) fn genesis_reference<'a>(
+        &'a self,
+        commit: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+        memory: &MemoryBudget,
+    ) -> Result<&'a str, super::FormalError> {
+        let core = &self.provisional.core;
+        if !core.uses_budget(memory)
+            || core.body().height != 0
+            || core.transition().is_some()
+            || core.parent_record_id().is_some()
+            || core.body().parent_commit.is_some()
+            || self.candidate_record_id() != commit.verified_record_id()
+        {
+            return Err(super::invalid("GEN requires exact complete genesis source"));
+        }
+        let data = self
+            .complete_data
+            .as_ref()
+            .ok_or_else(|| super::invalid("GEN complete data evidence missing"))?;
+        if !data.uses_budget(memory)
+            || data.candidate_record_id() != commit.verified_record_id()
+            || data.body_id() != self.provisional.source.runtime().occurrence().body_id()
+            || data.roots_id() != self.provisional.source.runtime().occurrence().roots_id()
+        {
+            return Err(super::invalid("GEN complete data source binding"));
+        }
+        self.local_closure
+            .as_ref()
+            .ok_or_else(|| super::invalid("GEN genuine local closure missing"))?
+            .reference_for(commit)
+    }
+}
+
+impl PreparedCandidateInstall {
+    pub(super) fn genesis_receipt_binding(
+        &self,
+        record: [u8; 32],
+        memory: &MemoryBudget,
+    ) -> Result<(), super::FormalError> {
+        let core = &self.provisional.core;
+        if !core.uses_budget(memory)
+            || core.body().height != 0
+            || core.transition().is_some()
+            || core.parent_record_id().is_some()
+            || core.body().parent_commit.is_some()
+            || self.candidate_record_id() != record
+        {
+            return Err(super::invalid("GEN receipt exact complete source"));
+        }
+        let data = self
+            .complete_data
+            .as_ref()
+            .ok_or_else(|| super::invalid("GEN receipt complete data missing"))?;
+        let local = self
+            .local_closure
+            .as_ref()
+            .ok_or_else(|| super::invalid("GEN receipt local closure missing"))?;
+        if !data.uses_budget(memory)
+            || data.candidate_record_id() != record
+            || local.candidate_record_id() != record
+            || data.body_id() != self.provisional.source.runtime().occurrence().body_id()
+            || data.roots_id() != self.provisional.source.runtime().occurrence().roots_id()
+        {
+            return Err(super::invalid("GEN receipt complete source binding"));
+        }
+        Ok(())
+    }
+}

@@ -5,7 +5,7 @@ use super::bounded_native_draft::PaidNativeCheckpointDraftV1;
 use super::*;
 use oasis7_proto::memory_budget::MemoryBudget;
 
-fn disk_source(
+pub(super) fn disk_source(
     store: &Store,
     public_key: &str,
     memory: &MemoryBudget,

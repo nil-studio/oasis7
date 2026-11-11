@@ -320,3 +320,12 @@ impl<'a> PaidNativeCheckpointBeginV1<'a> {
 #[path = "fencing_remote_bounded_finish.rs"]
 mod bounded_finish;
 use bounded_finish::finish_lease_bounded;
+
+impl<'a> PaidNativeCheckpointBeginV1<'a> {
+    pub(in crate::controlled_authority) fn consume_draft<T>(
+        self,
+        run: impl FnOnce(PaidNativeCheckpointDraftV1<'a>) -> T,
+    ) -> T {
+        run(self.evidence.draft)
+    }
+}

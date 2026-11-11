@@ -188,3 +188,9 @@ pub(super) fn prepare_request_update_bounded_v1(
 #[cfg(test)]
 #[path = "endpoint_store_bounded_request_write_tests.rs"]
 mod tests;
+
+impl PreparedPendingRequestUpdate {
+    pub(super) fn publication_guard(&self) -> &ReservedValue<physical::PublicationGuard> {
+        self.index.publication_guard()
+    }
+}

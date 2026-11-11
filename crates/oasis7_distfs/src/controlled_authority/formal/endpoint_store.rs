@@ -901,7 +901,7 @@ impl Store {
 mod paid_read;
 
 #[path = "endpoint_store_bounded_request.rs"]
-mod bounded_request;
+pub(super) mod bounded_request;
 pub(super) use bounded_request::PaidRequestStateV1;
 impl Store {
     pub(super) fn read_request_bounded(
@@ -1057,10 +1057,10 @@ impl Store {
 }
 
 #[path = "endpoint_store_context_wire.rs"]
-mod context_wire;
+pub(in crate::controlled_authority::formal::endpoint) mod context_wire;
 
 #[path = "endpoint_store_bounded_record_id.rs"]
-mod bounded_record_id;
+pub(super) mod bounded_record_id;
 pub(super) use bounded_record_id::PaidCanonicalRecordIdV1;
 impl Store {
     /// A data identifier derived from original history; never a verified commit.
@@ -1136,10 +1136,14 @@ impl Store {
 }
 
 #[path = "endpoint_store_bounded_transaction.rs"]
-mod bounded_transaction;
+pub(super) mod bounded_transaction;
 
 #[path = "endpoint_store_bounded_atomic.rs"]
 mod bounded_atomic;
 
 #[path = "endpoint_store_bounded_reopen.rs"]
 pub(in crate::controlled_authority) mod bounded_reopen;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_store_bounded_genesis_qualified.rs"]
+mod bounded_genesis_qualified;

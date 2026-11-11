@@ -395,3 +395,13 @@ pub(in crate::controlled_authority::formal) fn append_staged_request_bounded_v1(
     let (guard, id) = source.retention_source(memory, work, stop)?;
     append_source_bounded(guard, id, memory, work, stop)
 }
+
+pub(in crate::controlled_authority::formal) fn append_staged_history_bounded_v1(
+    node: &crate::controlled_authority::formal::endpoint::store::stage_io::StagedHistoryNodeV1<'_>,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<RetainedAppend, FormalError> {
+    let (guard, id) = node.retention_source(memory, work, stop)?;
+    append_source_bounded(guard, id, memory, work, stop)
+}

@@ -339,8 +339,43 @@ pub(in crate::controlled_authority) fn sign_native_checkpoint_bounded_v1<'a>(
         &lease.policy,
         &mut Validation { ctx },
     )?;
+    validate_protected_result_paid(
+        &reply,
+        &lease.reply.body,
+        &rpc,
+        instance,
+        &lease.policy,
+        ctx,
+    )?;
+    step(ctx)?;
+    // The old reply and fees stay alive throughout all verification. Only a
+    // completely verified replacement can become the returned lease state.
+    lease.reply = reply;
+    Ok(PaidNativeCheckpointSignatureV1 { draft, lease, rpc })
+}
+#[cfg(test)]
+#[path = "fencing_remote_bounded_sign_tests.rs"]
+mod tests;
+
+#[path = "fencing_remote_bounded_begin.rs"]
+mod bounded_begin;
+pub(in crate::controlled_authority) use bounded_begin::{
+    PaidNativeCheckpointBeginV1, begin_signed_native_checkpoint_bounded_v1,
+};
+
+#[path = "fencing_remote_bounded_initialize.rs"]
+mod bounded_initialize;
+pub(in crate::controlled_authority) use bounded_initialize::initialize_protected_registration_bounded_v1;
+
+fn validate_protected_result_paid(
+    reply: &SignedMonotonicOracleReplyV1,
+    old: &MonotonicOracleReplyBodyV1,
+    rpc: &SignedMonotonicOracleRequestV1,
+    instance: &EndpointInstanceBindingV1,
+    policy: &TrustedFencingPolicyV1,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> ResultV<()> {
     let state = &reply.body;
-    let old = &lease.reply.body;
     if !same(&state.durable_set, &old.durable_set, ctx)?
         || !same(&state.resource_binding, &old.resource_binding, ctx)?
         || !same(&state.protected_custody, &old.protected_custody, ctx)?
@@ -373,25 +408,14 @@ pub(in crate::controlled_authority) fn sign_native_checkpoint_bounded_v1<'a>(
         signature,
         request,
         instance,
-        &lease.policy,
+        policy,
         &mut ProtectedValidation { ctx },
     )?;
-    step(ctx)?;
-    // The old reply and fees stay alive throughout all verification. Only a
-    // completely verified replacement can become the returned lease state.
-    lease.reply = reply;
-    Ok(PaidNativeCheckpointSignatureV1 { draft, lease, rpc })
+    Ok(())
 }
-#[cfg(test)]
-#[path = "fencing_remote_bounded_sign_tests.rs"]
-mod tests;
 
-#[path = "fencing_remote_bounded_begin.rs"]
-mod bounded_begin;
-pub(in crate::controlled_authority) use bounded_begin::{
-    PaidNativeCheckpointBeginV1, begin_signed_native_checkpoint_bounded_v1,
+#[path = "fencing_remote_bounded_genesis_receipt.rs"]
+mod genesis_receipt;
+pub(in crate::controlled_authority) use genesis_receipt::{
+    PaidGenesisReceiptSignatureV1, sign_genesis_receipt_bounded_v1,
 };
-
-#[path = "fencing_remote_bounded_initialize.rs"]
-mod bounded_initialize;
-pub(in crate::controlled_authority) use bounded_initialize::initialize_protected_registration_bounded_v1;

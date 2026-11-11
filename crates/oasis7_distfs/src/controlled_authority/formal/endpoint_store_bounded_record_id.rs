@@ -52,7 +52,7 @@ impl PaidCanonicalRecordIdV1 {
         self.value.reserved_bytes()
     }
 }
-pub(super) fn hash_canonical_record_bounded_v1(
+pub(in crate::controlled_authority::formal::endpoint) fn hash_canonical_record_bounded_v1(
     record: &CanonicalRecordV1,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,

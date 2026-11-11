@@ -1,3 +1,4 @@
+pub const PROOF_COMPLETE_SIGN_DOMAIN_V1: &str = "oasis7.formal.proof_complete.sign.v1";
 use super::*;
 /// Attests that this endpoint durably retained the complete dual-decision proof.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,7 +31,7 @@ pub struct FormalQualifiedCommitProofV1 {
 pub fn formal_proof_complete_signing_bytes(
     body: &FormalProofCompleteBodyV1,
 ) -> Result<Vec<u8>, FormalError> {
-    bytes("oasis7.formal.proof_complete.sign.v1", body)
+    bytes(PROOF_COMPLETE_SIGN_DOMAIN_V1, body)
 }
 pub fn formal_qualified_proof_digest(
     proof: &FormalQualifiedCommitProofV1,
@@ -112,7 +113,7 @@ pub fn verify_formal_qualified_from_decision(
             EndpointRole::Replica => &decision.finalizer.definition().replica,
         };
         verify(
-            "oasis7.formal.proof_complete.sign.v1",
+            PROOF_COMPLETE_SIGN_DOMAIN_V1,
             &receipt.body,
             &receipt.signature_hex,
             &binding.instance.endpoint_public_key,
@@ -130,3 +131,10 @@ pub fn verify_formal_qualified_from_decision(
         finalizing_authority_id: decision.finalizer.authority_id()?,
     })
 }
+
+#[path = "proof_genesis_bounded.rs"]
+mod genesis_bounded;
+pub use genesis_bounded::{
+    PaidVerifiedGenesisCommitV1, PaidVerifiedGenesisDecisionV1, genesis_final_receipt_body_bounded,
+    verify_genesis_decision_bounded, verify_genesis_qualified_bounded,
+};

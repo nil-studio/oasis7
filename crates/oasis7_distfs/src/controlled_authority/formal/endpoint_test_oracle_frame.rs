@@ -55,3 +55,13 @@ fn frame_exact(
     }
     Ok(())
 }
+
+use super::SignedMonotonicOracleReplyV1;
+use std::io::Write;
+pub(super) fn send(stream: &mut TcpStream, reply: &SignedMonotonicOracleReplyV1) -> Result<(), ()> {
+    let bytes = serde_cbor::to_vec(reply).unwrap();
+    stream
+        .write_all(&(bytes.len() as u32).to_be_bytes())
+        .and_then(|_| stream.write_all(&bytes))
+        .map_err(|_| ())
+}

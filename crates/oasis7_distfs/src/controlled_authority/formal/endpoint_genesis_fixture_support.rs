@@ -1,6 +1,16 @@
 //! Fresh pre-accept IWS fixture only. This cannot sign production receipts.
 use super::*;
 impl FileFormalEndpoint {
+    pub fn with_genesis_remote_pair_for_fixture(
+        authority: &VerifiedAuthorityV1,
+        run: impl FnOnce(
+            Arc<fencing::RemoteMonotonicEndpointProvider>,
+            Arc<fencing::RemoteMonotonicEndpointProvider>,
+        ),
+    ) -> Result<(), FormalError> {
+        with_genesis_remote_pair_for_fixture(authority, run)
+    }
+
     /// Reuses the original controlled storage fixture for content issuance.
     /// Restricted to fresh GEN, IWS profile and the explicit public test keys.
     /// Production constructors and protected signer checks remain unchanged.
@@ -29,3 +39,7 @@ impl FileFormalEndpoint {
         Self::open_inner(path, authorization, role, key, provider, true, None)
     }
 }
+
+#[path = "endpoint_genesis_remote_pair_fixture.rs"]
+mod remote_pair;
+pub(in crate::controlled_authority) use remote_pair::with_genesis_remote_pair_for_fixture;

@@ -1166,7 +1166,6 @@ mod native_environment;
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
 pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
-
 impl FileFormalEndpoint {
     /// Paid data loading preserves the existing failure poison; it neither
     /// issues a serving permit nor replaces the formal freeze admission path.
@@ -1186,15 +1185,16 @@ impl FileFormalEndpoint {
         result
     }
 }
-
-#[cfg(test)]
-pub(super) use store::with_store_for_bounded_retention_fixture;
-
-#[cfg(test)]
-pub(in crate::controlled_authority) use tests::{
-    with_remote_acquire_fixture, with_remote_sign_fixture, with_signed_checkpoint_fixture, with_bounded_transaction_fixture, with_cold_transaction_fixture, with_finish_loss_transaction_fixture,
-};
+pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
 pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
 pub(in crate::controlled_authority) use store::bounded_wire::{
     BoundedWireErrorV1, BoundedWireWorkV1, encode_bounded_wire_v1,
+};
+#[cfg(test)]
+pub(super) use store::with_store_for_bounded_retention_fixture;
+#[cfg(test)]
+pub(in crate::controlled_authority) use tests::{
+    with_bounded_transaction_fixture, with_cold_transaction_fixture,
+    with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
+    with_signed_checkpoint_fixture,
 };

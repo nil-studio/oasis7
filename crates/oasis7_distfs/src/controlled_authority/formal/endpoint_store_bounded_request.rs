@@ -231,7 +231,9 @@ fn diagnostic_constant() -> Result<usize, FormalError> {
 /// cautious(size_hint), which would otherwise preallocate up to 1MiB per Vec.
 /// Qualified reaches at most four Role maps; certificates are flat structs,
 /// Option and String, with no signature Vec hidden in their reachable graph.
-fn decode_workspace(n: usize) -> Result<usize, FormalError> {
+pub(in crate::controlled_authority::formal::endpoint) fn decode_workspace(
+    n: usize,
+) -> Result<usize, FormalError> {
     let object_slots = mul(2 * 512, std::mem::size_of::<ArtifactObject>())?;
     let reference_slots = mul(513 * 512, std::mem::size_of::<String>())?;
     let minimum_byte_capacity = 513 * 8;
@@ -255,7 +257,7 @@ fn decode_workspace(n: usize) -> Result<usize, FormalError> {
     let bridge = add(add(add(mul(24, n)?, mul(4, k)?)?, 64)?, headers)?;
     Ok(parse.max(bridge))
 }
-pub(super) fn decode_request_bounded_v1(
+pub(in crate::controlled_authority::formal::endpoint) fn decode_request_bounded_v1(
     raw: &FormalArchiveReadOwnerV1,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
@@ -265,13 +267,22 @@ pub(super) fn decode_request_bounded_v1(
     if !raw.uses_budget(memory) || raw.as_slice().len() > LIMIT {
         return Err(invalid("bounded request raw pool/limit"));
     }
+    decode_request_bytes_bounded_v1(raw.as_slice(), memory, work, cancelled)
+}
+pub(in crate::controlled_authority::formal::endpoint) fn decode_request_bytes_bounded_v1(
+    bytes: &[u8],
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    cancelled: &mut dyn FnMut() -> bool,
+) -> Result<PaidRequestStateV1, FormalError> {
+    work.consume_steps(1, cancelled)?;
+    if bytes.len() > LIMIT {
+        return Err(invalid("bounded request raw pool/limit"));
+    }
     let fee = memory
-        .reserve(
-            decode_workspace(raw.as_slice().len())?,
-            MemoryClass::Ordinary,
-        )
+        .reserve(decode_workspace(bytes.len())?, MemoryClass::Ordinary)
         .map_err(|_| invalid("bounded request heap admission"))?;
-    let mut reader = PaidRead::new(raw.as_slice(), work, cancelled);
+    let mut reader = PaidRead::new(bytes, work, cancelled);
     let result = serde_cbor::from_reader::<FormalRequestStateV1, _>(&mut reader);
     if let Some(first) = reader.take_first_error() {
         return Err(first);

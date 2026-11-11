@@ -195,3 +195,84 @@ impl EndpointIwsState {
         Ok(())
     }
 }
+
+/// A borrowed private job with complete GEN evidence, not a serving or receipt permit.
+pub(in crate::controlled_authority::formal::endpoint) struct GenesisJobLease<'a> {
+    slot: std::cell::Ref<'a, Option<Staged>>,
+}
+impl GenesisJobLease<'_> {
+    pub(super) fn reference<'a>(
+        &'a self,
+        commit: &VerifiedFormalCommitV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<&'a str, FormalError> {
+        let staged = self
+            .slot
+            .as_ref()
+            .ok_or_else(|| invalid("GEN staged source missing"))?;
+        if staged.record != commit.verified_record_id() {
+            return Err(invalid("GEN exact staged record"));
+        }
+        staged.install.genesis_reference(commit, memory)
+    }
+}
+impl EndpointIwsState {
+    pub(super) fn genesis_job(&self) -> Result<GenesisJobLease<'_>, FormalError> {
+        if self
+            .accepted
+            .try_borrow()
+            .map_err(|_| invalid("GEN accepted slot borrowed"))?
+            .is_some()
+        {
+            return Err(invalid("GEN cannot replace an accepted parent"));
+        }
+        let slot = self
+            .staged
+            .try_borrow()
+            .map_err(|_| invalid("GEN staged job borrowed"))?;
+        if slot.is_none() {
+            return Err(invalid("GEN complete staged source missing"));
+        }
+        Ok(GenesisJobLease { slot })
+    }
+}
+
+impl EndpointIwsState {
+    pub(super) fn accepted_genesis(
+        &self,
+        quorum: oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedGenesisCommitV1,
+        parent_fee: oasis7_proto::memory_budget::ReservedValue<()>,
+    ) -> Result<(), FormalError> {
+        self.accepted(quorum.verified())?;
+        let mut slot = self
+            .accepted
+            .try_borrow_mut()
+            .map_err(|_| invalid("GEN accepted slot borrowed"))?;
+        let accepted = slot
+            .as_mut()
+            .ok_or_else(|| invalid("GEN accepted cache missing"))?;
+        if accepted.commit_record != quorum.verified().verified_record_id() {
+            return Err(invalid("GEN accepted exact quorum"));
+        }
+        accepted.genesis_quorum = Some(quorum);
+        accepted.formal_parent_fee = Some(parent_fee);
+        Ok(())
+    }
+}
+
+impl GenesisJobLease<'_> {
+    pub(super) fn receipt_binding(
+        &self,
+        record: [u8; 32],
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<(), FormalError> {
+        let staged = self
+            .slot
+            .as_ref()
+            .ok_or_else(|| invalid("GEN receipt stage missing"))?;
+        if staged.record != record {
+            return Err(invalid("GEN receipt exact staged record"));
+        }
+        staged.install.genesis_receipt_binding(record, memory)
+    }
+}
