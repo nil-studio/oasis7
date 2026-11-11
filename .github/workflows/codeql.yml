@@ -240,9 +240,11 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
-          queries: ${{ matrix.queries }}
+          db-location: ${{ runner.temp }}/codeql_databases
+          queries: ${{ matrix.language == 'actions' && format('./scripts/security/codeql-actions/{0}.qls', needs.plan.outputs.profile) || matrix.queries }}
           dependency-caching: false
           config: |
+            disable-default-queries: ${{ matrix.language == 'actions' }}
             paths-ignore:
               - third_party/**
               - target/**
@@ -251,6 +253,16 @@ jobs:
               - .pm/**
               - tools/oasis7-command-center/src-tauri/src/generated_context.rs
               - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
+      - name: Verify Actions query compatibility and cache-mode boundaries
+        if: matrix.language == 'actions'
+        timeout-minutes: 5
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+          CODEQL_PROFILE: ${{ needs.plan.outputs.profile }}
+        run: |
+          python3 scripts/security/codeql-actions/model.test.py --codeql "$CODEQL_BIN" \
+            --initialized-suite "$RUNNER_TEMP/codeql_databases/actions/temp/config-queries.qls" \
+            --profile "$CODEQL_PROFILE"
       - id: rust_budget
         name: Reserve Rust upload time within the actual job budget
         if: matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request'

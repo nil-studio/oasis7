@@ -111,6 +111,20 @@ PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代�
 
 误报按精确告警 ID 核对源码版本、实际输入和权限边界，在平台选择对应 dismissal 原因并记录证据，随后读回告警状态。历史探针注明实际受测版本，结合当前源码核对其适用性；判断条件改变时重审。处置某个 ID 不构成同类后续告警的自动豁免；操作参考 [GitHub 告警处置说明](https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/triage-alerts-in-pull-requests)。
 
+## Actions 缓存只读误报兼容
+
+`scripts/security/codeql-actions` 在 default / extended 中只替换官方 `actions/cache-poisoning/poisonable-step`。仅当前 job 明确配置原始标量 `read` / `none`，或 job 未覆盖且 workflow 明确配置该值时消除该查询结果。表达式、重复 cache-mode、合并键、别名值及未知模式保持官方告警；显式可写 job 不继承 workflow 的只读结论。其他缓存规则、checkout 规则与源码范围保持原配置。
+
+兼容基线为 CodeQL CLI `2.27.4`、`actions-all 0.7.1`、`actions-queries 0.6.39`，上游源码 `1be292a1e54696ca543b4ad0f9b4537b9687caa7`。本地 bundle 的解析可能忽略 suite 版本约束，因此不以依赖声明或空 lock 作为实际版本证明。每个 Actions job 在 init 后校验实际 CLI、编译依赖、上游源码摘要及 init 最终查询集，再运行临时目录中的真实提取/查询反例；失败时后续 analyze/upload 跳过。两套查询总数为 18 / 24（各含一条提取诊断），目标 ID 均只出现一次。
+
+本地复跑（`CODEQL_BIN` 指向相同官方 bundle 的可执行文件）：
+
+```bash
+python3 scripts/security/codeql-actions/model.test.py --codeql "$CODEQL_BIN"
+```
+
+测试只提取临时生成的 workflow 文本，不执行其中步骤，也不把测试 SARIF 上传。升级 Action / CLI / 查询包时，应先评审上游变化；已支持相同语义时移除此兼容层，否则更新版本和摘要并复跑两个 suite 的集合对等、实际 init 选择及模型正反例。不可通过跳过兼容检查或忽略整个规则恢复绿灯。因模型修正而消失的原生告警按误报修正记录，不表述为修复了相同数量的可利用漏洞。
+
 ## Tauri 上下文生成覆盖例外
 
 Rust 的 CodeQL、容量及 CFG 诊断入口精确忽略 `tools/oasis7-command-center/src-tauri/src/generated_context.rs`。该文件只包装 `tauri::generate_context!()`，普通构建继续使用真实生成上下文；入口与命令实现仍参与分析。新增业务逻辑不得放入该文件。结果注明这个生成代码覆盖例外，不把排除后变快记为上游算法修复或无例外完整覆盖。旧诊断使用固定业务 SHA，其中旧宏位置不因新路径配置而消失；后续验证须明确采用含隔离文件的新源码身份。
@@ -198,6 +212,8 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 先核对分析窗口在提取前已固定：整个 job 90 分钟，提取、私有复制/解析/编译和 44 项求值共用至多 75 分钟的绝对截止，动态保留 600 秒结果验证与收尾；所有阶段仍保留总截止前 120 秒的证据边界。不能在 checkpoint 后重新分配时间，CLI 查询 timeout 不能替代外层墙钟。最终完整 job 时长及至少 270 秒余量须在 artifact 上传与 post 后独立读回。
 
 同时读取官方 checkpoint 中的 `action-deadline-terminal.json` 与 owned-process 收据：真实官方 main 必须只运行一次，启动/退出/收尾均绑定同一分析截止，启动已过期时不得运行提取。监督器通过该 step 的显式 `NODE_OPTIONS` preload 接入，不通过 `GITHUB_ENV` 写该变量；stdout/stderr 保持 runner 处理，post 正常收尾。相对 step timeout 或预估启动余量不能代替绝对监督收据，监督/取消/采证失败均不得准入候选求值。
+
+预算文件的大小检查、内容读取和摘要绑定必须一致：Node preload 以 nofollow/nonblock 打开 regular file，在同一文件描述符上最多读取 256 KiB + 1，并拒绝超限；supervisor 对同一有界读取的字节执行预算解析和摘要计算。路径替换不能改为读取另一对象，检查后的文件增长不能突破实际读取上限。这是 admission 的局部加固，不改变绝对截止、官方 post 或 Rust 启用状态。
 
 从独立候选 artifact 检查私有包装差异、原 37/7 文本身份、44 条实际 closure、候选 TypeInference 摘要和源/库/query pack 的前后身份。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 

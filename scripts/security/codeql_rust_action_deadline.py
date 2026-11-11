@@ -11,7 +11,7 @@ import sys
 import time
 
 import codeql_rust_diagnostic_runtime as runtime
-from codeql_rust_capacity_layout import ACTION_SHA
+from codeql_rust_capacity_layout import ACTION_SHA, _read_regular
 
 MODE = 'candidate-workload-research'
 SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
@@ -37,9 +37,7 @@ def shared_budget(value, deadline, analysis_deadline, now, monotonic):
 
 
 def read_json(path):
-    if path.resolve() != path or not path.is_file() or path.stat().st_size > 256 * 1024:
-        raise RuntimeError('unsafe Action deadline receipt')
-    return json.loads(path.read_text())
+    return json.loads(_read_regular(path, limit=256 * 1024))
 
 
 def process_identity(pid):
@@ -136,10 +134,11 @@ def main():
             raise RuntimeError('bounded Action invocation missing')
         argv, monitor = invocation(json.loads(sys.argv[1]), source)
         deadline, analysis_deadline = float(os.environ['CAPACITY_DEADLINE']), float(os.environ['CAPACITY_ANALYSIS_DEADLINE'])
-        budget = read_json(out / 'capacity-budget.json')
+        budget_raw = _read_regular(out / 'capacity-budget.json', limit=256 * 1024)
+        budget = json.loads(budget_raw)
         analysis_end, end = shared_budget(budget, deadline, analysis_deadline, time.time(), time.monotonic())
         terminal.update(fixed_job_deadline=deadline, analysis_deadline=analysis_deadline,
-                        budget_sha256=runtime.digest(out / 'capacity-budget.json'), invocation=argv,
+                        budget_sha256=hashlib.sha256(budget_raw).hexdigest(), invocation=argv,
                         outer_action=monitor.identity)
         # This window covers TERM (1s) and KILL/reaping (2s), not an estimate of step startup latency.
         child_end = min(analysis_end, end - 120) - runtime.CLEANUP_SECONDS
