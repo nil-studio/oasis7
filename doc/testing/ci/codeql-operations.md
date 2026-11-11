@@ -225,6 +225,12 @@ Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format
 
 默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；新的两文件候选必须重新完整计算37+7，不能复用旧37结果。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
 
+该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。原始事件只在 owned FIFO 和最多 48 MiB sealed memfd 中存活；不上传或另存原文。64 MiB 总限同时包含临时内存、持久化证据和终态预留，memfd 存活期间预留完整 48 MiB；所有观测投影、样本与收据合计最多 8 MiB。先核对 batch 原退出、已有结果和身份，再读官方 predicates 摘要的独立状态；摘要最多一次、20 秒且含清理，仍受原证据截止约束，余量不足不启动。
+
+进度时刻是 stdout/stderr 接收时刻，不能视为内部精确编译/求值阶段。summary 首写前严格验证版本/schema，任意名称、路径、RA、源码位置和异常只保留受限 hash/类别；缺 footer、未知形状、截断和容量耗尽必须保留不完整及实际字节覆盖。literal 毫秒、已知迭代小计与未知 `-1` 分列，不重复归因共享工作；部分记录不是整个批次完整排名，采样资源不是硬峰值或独占 CPU。采集完整、日志完整、查询完成和 oracle 通过各自判定，观测错误不覆盖原首失败；开启观测带来的额外成本也不能用于证明 Image 或 lines 是唯一根因。
+
+记录身份使用本次官方摘要 stdout 的 SHA256 与 header 后的原记录序号。`raHash` 可以复用，不是事件 ID；同 RA、同策略或不同名称的合法记录均保留各自计时，复用计数不改变完整性。不按 RA 去重、跨记录求和或向多个查询重复分配成本。
+
 ### 合法 WASM 单角色 metadata 诊断
 
 在默认分支手动选择 `CodeQL Rust WASM Metadata` 并显式设 `execute=true`。本入口固定完整 7c2f99a 源码、Cargo 1.99.0 的完整提交、recovery-fence 和 wasm32-unknown-unknown，不提供任意命令/版本/源码输入，不运行 CodeQL、Cargo check/build 或部署。实现和验收边界见[metadata 诊断合同](codeql-integration.design.md#725-合法-wasm-单角色-metadata-诊断)。
