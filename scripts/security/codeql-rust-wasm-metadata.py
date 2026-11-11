@@ -135,7 +135,11 @@ class Clock:
         self.end = receipt['deadline_monotonic']
         self.wall = receipt['deadline_wall']
         self.prepare = receipt['prepare_end_monotonic']
-        if (receipt.get('maximum_job_seconds') != 1200 or self.end - self.prepare != 420
+        # Bootstrap computes these absolute times separately. Accept only their
+        # representational roundoff; retain both original deadlines unchanged.
+        span_roundoff = math.ulp(self.end) + math.ulp(self.prepare)
+        if (receipt.get('maximum_job_seconds') != 1200
+                or abs(self.end - self.prepare - 420) > span_roundoff
                 or abs(receipt['deadline_wall'] - receipt['prepare_end_wall'] - 420) > .001
                 or not 0 < self.remaining() <= 1200):
             raise Rejected()
