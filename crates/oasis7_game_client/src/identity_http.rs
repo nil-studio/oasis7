@@ -87,7 +87,9 @@ impl IdentityClient {
                     .body(original.body.clone());
             }
         }
-        let response = crate::request_deadline::bound(request, Duration::from_secs(10))?
+        let request = crate::request_deadline::bound(request, Duration::from_secs(10))?;
+        let _timing_http = crate::fresh_submit_timing::http(method, path);
+        let response = request
             .send()
             .map_err(|_| "identity response unknown; retain original operation")?;
         let status = response.status();

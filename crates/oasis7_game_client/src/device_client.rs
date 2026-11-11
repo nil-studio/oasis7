@@ -464,14 +464,22 @@ impl Client {
         {
             return Err("original action exists; query its result".into());
         }
+        let _timing = crate::fresh_submit_timing::Scope::operator_enabled();
+        crate::fresh_submit_timing::event("capture_begin");
         let captured = self.captured_until(operation, deadline)?;
+        crate::fresh_submit_timing::event("capture_return");
         Self::check_tool_deadline(Some(deadline))?;
+        crate::fresh_submit_timing::event("sign_begin");
         let signed = self.sign("cognition", cognition_intent(&captured, action)?)?;
+        crate::fresh_submit_timing::event("sign_return");
+        crate::fresh_submit_timing::event("client_cache_begin");
         let request = self.cache_intent(
             ClientStateKind::Action,
             operation,
             WorldServicePayloadV1::Cognition(signed),
         )?;
+        crate::fresh_submit_timing::event("client_cache_return");
+        crate::fresh_submit_timing::arm();
         self.submit_new_and_poll_until(&request, deadline)
     }
     pub fn task_fence(&self) -> Result<GameTaskFenceV1, String> {
