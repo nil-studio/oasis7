@@ -70,6 +70,60 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exclusion'):
             self.run_plan(policy=str(self.root / 'candidate.json'))
 
+    def test_architecture_policy_keeps_owners_across_add_edit_rename_delete(self):
+        path = 'scripts/cargo-dev-architecture.json'
+        for value in ('original fixture', 'changed fixture'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, value); self.commit()
+            result = self.run_plan()
+            self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo'])
+            for unit in ('actions-repo', 'python-repo'):
+                self.assertIn(path, result['reasons'][unit])
+        self.base = self.git('rev-parse', 'HEAD')
+        (self.root / path).rename(self.root / 'moved.js'); self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo', 'javascript-repo'])
+        self.assertEqual(result['completeness']['diff_paths'], ['moved.js', path])
+        self.write(path); self.base = self.commit()
+        (self.root / path).unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['actions-repo', 'python-repo'])
+
+    def test_architecture_policy_preserves_old_rust_consumers_and_batch_limits(self):
+        path = 'scripts/cargo-dev-architecture.json'
+        self.write(path, '{}')
+        self.write('build.rs', 'fn main() {}')
+        self.write('src/lib.rs', 'const S: &str = include_str!("../scripts/cargo-dev-architecture.json");\n')
+        self.base = self.commit()
+        (self.root / 'build.rs').unlink()
+        self.write('src/lib.rs', '')
+        self.write(path, '{"revision":1}'); self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo', 'rust-repo'])
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+        limited = self.run_plan(batch_modes=json.dumps({'python-repo/default': 'observe'}))
+        self.assertEqual(limited['candidate_units'], ['actions-repo', 'python-repo', 'rust-repo'])
+        self.assertEqual(limited['selected_units'], ['python-repo'])
+        for unit in ('actions-repo', 'rust-repo'):
+            self.assertEqual(limited['not_selected_reasons'][unit], 'batch_disabled')
+
+    def test_architecture_policy_does_not_register_neighboring_inputs(self):
+        for path in ('scripts/cargo-dev-architecture-v2.json',
+                     'scripts/nested/cargo-dev-architecture.json',
+                     'other/cargo-dev-architecture.json',
+                     'scripts/cargo-dev-architecture.json.extra'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_architecture_policy_symlink_still_requires_review(self):
+        path = self.root / 'scripts/cargo-dev-architecture.json'
+        path.parent.mkdir(parents=True)
+        path.symlink_to('../docs/guide.md'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
         path = 'scripts/ci-required-scope.json'
         self.write(path, '{"groups":["baseline"]}\n')
