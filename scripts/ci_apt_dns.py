@@ -220,8 +220,14 @@ class Recovery:
         return self.reason == 'eligible'
 
     def default_routes(self):
-        for option in ('dns', 'domain', 'default-route'):
-            status, output, valid = self.installer.run_command('dns-config-' + option, ['/usr/bin/resolvectl', option], report_output=False)
+        links = set()
+        queries = [('dns', None), ('domain', None)]
+        for option, index in queries:
+            command = ['/usr/bin/resolvectl']
+            if index is not None:
+                command.append('--interface=' + index)
+            command.append(option)
+            status, output, valid = self.installer.run_command('dns-config-' + option, command, report_output=False)
             if not valid or status != 0:
                 return self.decline('dynamic_resolver_query_failed')
             if not output.strip():
@@ -231,14 +237,25 @@ class Recovery:
                 if not re.fullmatch(RESOLVER_HEADER, line):
                     self.installer.log('dns_config_shape=' + json.dumps(resolver_output_shape(option, output), sort_keys=True))
                     return self.decline('dynamic_resolver_shape_unknown')
+                link = re.match(r'^Link ([1-9][0-9]*) ', line)
+                if option == 'dns' and link:
+                    links.add(link[1])
+                if index is not None and (not link or link[1] != index):
+                    return self.decline('dynamic_resolver_interface_mismatch')
                 value = line.split(':', 1)[1].strip()
                 allowed = {'dns': ('', '168.63.129.16'), 'domain': ('', '~.'),
                            'default-route': ('', 'yes', 'no')}[option]
                 if value not in allowed and option != 'domain':
                     return self.decline('dynamic_resolver_configuration_custom')
                 has_default_dns |= value == '168.63.129.16'
-            if option == 'dns' and not has_default_dns:
-                return self.decline('dynamic_default_dns_missing')
+            if option == 'dns':
+                if not has_default_dns:
+                    return self.decline('dynamic_default_dns_missing')
+                if not links:
+                    return self.decline('dynamic_resolver_interfaces_missing')
+                # systemd's all-interface default-route falls through global status
+                # formatting. Query only the numeric interfaces just enumerated.
+                queries.extend(('default-route', item) for item in sorted(links, key=int))
         return True
 
     def claim_lock(self):

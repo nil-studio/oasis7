@@ -21,7 +21,7 @@ class RecoveryTests(unittest.TestCase):
         class Installer:
             def log(self, message): logs.append(message)
             def run_command(self, _stage, command, **_options):
-                outputs = {'dns': 'Global: 168.63.129.16\n', 'domain': 'Global: private.internal\n',
+                outputs = {'dns': 'Link 2 (eth0): 168.63.129.16\n', 'domain': 'Global: private.internal\n',
                            'default-route': '  Link 2 (private-interface): yes\n\n'}
                 return 0, outputs[command[-1]], True
         recovery = dns.Recovery(Installer(), True)
@@ -156,10 +156,23 @@ with patch.object(Path, 'read_text', read):
             def run_command(self, _stage, command, **options):
                 self_options.append(options)
                 value = {'dns': '168.63.129.16', 'domain': 'private.internal.cloudapp.net', 'default-route': 'yes'}[command[-1]]
-                return 0, 'Global: ' + value + '\n', True
+                if command[-1] == 'default-route':
+                    assert command == ['/usr/bin/resolvectl', '--interface=2', 'default-route']
+                return 0, 'Link 2 (eth0): ' + value + '\n', True
         self_options = []
         self.assertTrue(dns.Recovery(Installer(), True).default_routes())
         self.assertTrue(all(options == {'report_output': False} for options in self_options))
+
+    def test_default_route_refuses_global_table_or_different_interface(self):
+        for result in ('Global\n Protocols: other\nresolv.conf mode: stub\nLink 2 (eth0): yes\n',
+                       'Link 3 (eth1): yes\n'):
+            class Installer:
+                def log(self, _message): pass
+                def run_command(self, _stage, command, **_options):
+                    if command[-1] == 'dns': return 0, 'Link 2 (eth0): 168.63.129.16\n', True
+                    if command[-1] == 'domain': return 0, 'Global: private.internal\n', True
+                    return 0, result, True
+            self.assertFalse(dns.Recovery(Installer(), True).default_routes())
 
     def test_only_explicit_hosted_ubuntu_without_proxy(self):
         env = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted', RUNNER_OS='Linux', ImageOS='ubuntu24')
