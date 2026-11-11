@@ -3882,6 +3882,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             old = copy.deepcopy(self.config)
             if version is None:
                 old.pop('ordinary_artifact_partition_version')
+                old.pop('ordinary_artifact_delivery_version', None)
             else:
                 old['ordinary_artifact_partition_version'] = version
             with self.subTest(version=version):
@@ -3921,6 +3922,36 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 selector.validate_config(self.config | {'ordinary_artifact_partition_version': version})
         selector.validate_config(self.config | {'ordinary_artifact_partition_version': 1})
         selector.validate_config(self.config)
+
+
+    def test_delivery_capability_changes_only_transport_of_complete_v1_plans(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        old = dict(self.config)
+        old.pop('ordinary_artifact_delivery_version')
+        for profile in ('periodic-full', 'candidate-full'):
+            current = selector.full_plan(self.config, profile, head)
+            legacy = selector.full_plan(old, profile, head)
+            self.assertEqual(current.pop('ordinary_artifact_delivery_version'), 1)
+            self.assertEqual(current, legacy)
+        for profile in ('pr-fast', 'main-fast'):
+            targeted = selector.select(self.config, self.base, head, profile=profile)
+            self.assertEqual(targeted['ordinary_artifact_partition_version'], 2)
+            self.assertNotIn('ordinary_artifact_delivery_version', targeted)
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# full control input\n')
+        head = self.commit()
+        current = selector.select(self.config, self.base, head, profile='pr-fast')
+        legacy = selector.select(old, self.base, head, profile='pr-fast')
+        self.assertEqual(current.pop('ordinary_artifact_delivery_version'), 1)
+        self.assertEqual(current, legacy)
+        # Candidate configuration already contains delivery=1; the old authority
+        # still cannot authorize it, including a complete conservative fallback.
+        self.assertNotIn('ordinary_artifact_delivery_version', legacy)
+        for version in (True, False, None, 0, 2, '1'):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                selector.validate_config(self.config | {'ordinary_artifact_delivery_version': version})
+        for partition_version in (1, 2):
+            selector.validate_config(self.config | {'ordinary_artifact_partition_version': partition_version})
 
 
 class CustodyExecutionPlans(unittest.TestCase):

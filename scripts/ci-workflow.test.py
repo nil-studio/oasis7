@@ -4030,7 +4030,7 @@ class AptWorkflow(unittest.TestCase):
     NATIVE = ('pkg-config libwayland-dev wayland-protocols libxkbcommon-dev '
               'libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev '
               'libasound2-dev libudev-dev').split()
-    NATIVE_JOBS = {'pr-fast-preview', 'rust-baseline', 'oasis7-test-build-candidate',
+    NATIVE_JOBS = {'pr-fast-preview', 'pr-ordinary-delivery-preview', 'rust-baseline', 'oasis7-test-build-candidate',
                    'oasis7-test-build-trusted', 'formal-debug-build',
                    'formal-debug-build-trusted', 'formal-endpoint-build',
                    'formal-endpoint-build-trusted', 'formal-test-build',
@@ -4169,6 +4169,96 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
                         self.assertEqual((root / 'args').read_text().strip('\0').split('\0'), [
                             'required', '--group', 'oasis7_required', '--plan', str(root / 'selection.json'),
                             '--ordinary-partition', owner, '--repo-root', str(root)])
+
+
+class OrdinaryDeliveryWorkflow(unittest.TestCase):
+    def steps(self, name):
+        return re.findall(r'^      - .*?(?=^      - |\Z)', JOBS[name], re.M | re.S)
+
+    def condition(self, step):
+        return re.search(r'^        if: (.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
+
+    def test_native_consumers_download_exactly_their_closure_and_controls_download_none(self):
+        steps = [step for step in self.steps('oasis7-required')
+                 if 'name: native-tests-' in step or 'name: Unpack ' in step]
+        self.assertEqual(len(steps), 5)
+        for delivery, inline, owner in itertools.product((None, 1), (False, True),
+                ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1', 'all', 'native-0')):
+            if delivery == 1 and (inline or owner in ('all', 'native-0')):
+                continue  # Independently rejected by the plan consumer.
+            values = {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': delivery,
+                      'fromJSON(needs.select.outputs.plan).fast_execution_version': 1 if inline else None,
+                      'fromJSON(needs.select.outputs.plan).ordinary_execution': 'inline' if inline else None,
+                      'matrix.partition': owner}
+            active = [step for step in steps if effective_job_condition(self.condition(step), values, [])]
+            with self.subTest(delivery=delivery, inline=inline, owner=owner):
+                self.assertEqual(len(active), 0 if inline or delivery == 1 and owner == 'controls'
+                                 else 3 if delivery == 1 else 2)
+                if delivery == 1 and owner != 'controls':
+                    self.assertIn('name: native-tests-common-${{ github.sha }}', ''.join(active))
+                    self.assertIn('name: native-tests-${{ matrix.partition }}-${{ github.sha }}', ''.join(active))
+                    self.assertIn('ci-test-artifacts.py unpack-ordinary --plan "$RUNNER_TEMP/selection.json"', ''.join(active))
+                for step in steps:
+                    self.assertFalse(effective_job_condition(self.condition(step), values, ['failure']))
+
+    def test_producer_keeps_one_build_fails_closed_and_publishes_all_five_packages(self):
+        steps = self.steps('oasis7-test-build-candidate')
+        build = next(step for step in steps if 'name: Build ordinary test artifacts' in step)
+        script = textwrap.dedent(build.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stub = ('python3() { printf "%s\\n" "$*" >> "$CALLS"; '
+                    'if [[ "$2" == "$FAIL_ACTION" ]]; then return 17; fi; };\n')
+            for version, failed in itertools.product(('0', '1'), ('', 'build', 'pack')):
+                calls = root / 'calls'
+                calls.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-c', stub + script], text=True, capture_output=True,
+                    env=dict(os.environ, RUNNER_TEMP=str(root), ORDINARY_DELIVERY_VERSION=version,
+                             CALLS=str(calls), FAIL_ACTION=failed))
+                with self.subTest(version=version, failed=failed):
+                    self.assertEqual(result.returncode, 17 if failed else 0, result.stderr)
+                    lines = calls.read_text().splitlines()
+                    self.assertEqual(len(lines), 1 if failed == 'build' else 2)
+                    self.assertIn('build --scope ordinary --plan', lines[0])
+                    if len(lines) == 2:
+                        self.assertEqual('--split-ordinary' in lines[1], version == '1')
+        uploads = [step for step in steps if 'uses: actions/upload-artifact@' in step and 'name: native-tests-' in step]
+        self.assertEqual(len(uploads), 6)
+        for version in (None, 1):
+            selected = [step for step in uploads if effective_job_condition(self.condition(step),
+                        {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': version}, [])]
+            self.assertEqual(len(selected), 5 if version == 1 else 1)
+            for step in selected:
+                for required in ('compression-level: 0', 'overwrite: true', 'if-no-files-found: error'):
+                    self.assertIn(required, step)
+            if version == 1:
+                self.assertEqual({re.search(r'/ordinary-archives/(.*)\.tar\.gz', step)[1] for step in selected},
+                                 {'common', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'})
+
+    def test_diagnostic_uses_actual_producer_identity_without_gate_or_execution_authority(self):
+        job = JOBS['pr-ordinary-delivery-preview']
+        condition = job.split('    if: ', 1)[1].split('    runs-on:', 1)[0]
+        values = {'github.event_name': 'pull_request', 'needs.select.result': 'success',
+                  'needs.oasis7-test-build.result': 'success',
+                  'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 1,
+                  'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': None}
+        self.assertTrue(effective_job_condition(condition, values, []))
+        for field, value in [('github.event_name', 'push'), ('needs.select.result', 'failure'),
+                             ('needs.oasis7-test-build.result', 'skipped'),
+                             ('fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version', 2),
+                             ('fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version', 1)]:
+            self.assertFalse(effective_job_condition(condition, values | {field: value}, []))
+        self.assertFalse(effective_job_condition(condition, values, [], cancelled=True))
+        for exact in ('ref: ${{ needs.select.outputs.tested_sha }}',
+                      'SOURCE_SHA: ${{ needs.select.outputs.source_sha }}',
+                      'name: ${{ needs.select.outputs.selection_artifact }}',
+                      'measure-ordinary-delivery', 'contents: read', 'persist-credentials: false'):
+            self.assertIn(exact, job)
+        for forbidden in ('ci-test-artifacts.py run ', 'ci-tests.sh', 'ci-fast-preview.py',
+                          'actions/cache/', 'cache-mode: write', 'actions: write', 'continue-on-error'):
+            self.assertNotIn(forbidden, job)
+        for gate in ('required-gate', 'explicit-full-gate'):
+            self.assertNotIn('pr-ordinary-delivery-preview', JOBS[gate])
 
 
 class WorkerToolCache(unittest.TestCase):

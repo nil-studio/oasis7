@@ -13,6 +13,7 @@
   "ordinary_unit_test_targets": ["runtime-lib", "world-state-lib"],
   "ordinary_partition_version": 1,
   "ordinary_artifact_partition_version": 2,
+  "ordinary_artifact_delivery_version": 1,
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
   "distfs_clippy_contract_version": 1,
