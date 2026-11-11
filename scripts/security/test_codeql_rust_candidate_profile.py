@@ -16,10 +16,11 @@ import codeql_rust_candidate_profile as profile
 import codeql_rust_diagnostic_runtime as runtime
 
 HERE = Path(__file__).resolve().parent
-SECRET = 'RAW_CANARY_NEVER_PERSIST_937542'
+# Public synthetic input: fake producer source may contain it; observed evidence must not.
+SYNTHETIC_CANARY = 'RAW_CANARY_NEVER_PERSIST_937542'
 HEADER = {'type': 'LOG_HEADER', 'logVersion': '0.5.0', 'codeqlVersion': '2.27.4'}
 FOOTER = {'type': 'LOG_FOOTER'}
-RAW = (json.dumps(HEADER) + '\n' + json.dumps({'type': 'PREDICATE_STARTED', 'predicateName': SECRET})
+RAW = (json.dumps(HEADER) + '\n' + json.dumps({'type': 'PREDICATE_STARTED', 'predicateName': SYNTHETIC_CANARY})
        + '\n' + json.dumps(FOOTER)).encode()
 QUERY = dict(path='/frozen/Query.ql', relative='Query.ql', pack='fixture/profile', sha256='a'*64)
 
@@ -109,13 +110,13 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertFalse((self.root/'events.jsonl').exists())
         self.assertFalse((self.root/'events.fifo').exists())
         for path in self.out.rglob('*'):
-            if path.is_file(): self.assertNotIn(SECRET.encode(), path.read_bytes(), str(path))
+            if path.is_file(): self.assertNotIn(SYNTHETIC_CANARY.encode(), path.read_bytes(), str(path))
 
     def test_interleaved_three_streams_never_persist_raw_text(self):
         body = ('import os,sys\n'
                 f'fd=os.open(sys.argv[1],os.O_WRONLY);os.write(fd,{RAW!r});os.close(fd)\n'
-                f'os.write(1,{(SECRET+chr(10)).encode()!r})\n'
-                f'os.write(2,{(SECRET+chr(10)).encode()!r})\n'
+                f'os.write(1,{(SYNTHETIC_CANARY+chr(10)).encode()!r})\n'
+                f'os.write(2,{(SYNTHETIC_CANARY+chr(10)).encode()!r})\n'
                 'os.write(2,b"Compiling query plan for /frozen/Query.ql.\\n")\n'
                 'os.write(2,b"[1/1 comp 2ms] Compiled /frozen/Query.ql.\\n")\n')
         result = self.execute(body)
@@ -143,7 +144,7 @@ class OwnedProcessTests(unittest.TestCase):
         class Reject(profile.Lines):
             def line(self, name, data):
                 json.loads(data)  # the resulting exception must not expose its input
-        argv = self.child(f'import os,sys\nos.write(1,{(SECRET+chr(10)).encode()!r})\n')
+        argv = self.child(f'import os,sys\nos.write(1,{(SYNTHETIC_CANARY+chr(10)).encode()!r})\n')
         with self.assertRaises(runtime.PhaseError) as caught:
             runtime.run(argv[:-1], self.root, self.out/'reject.log', time.monotonic()+8, 8,
                         self.out, os.environ.copy(), observer=Reject(), restricted_output=True)
@@ -281,9 +282,9 @@ class BudgetTests(unittest.TestCase):
 
 class SummaryTests(unittest.TestCase):
     def row(self, **changes):
-        value = dict(raHash='physical-relation-1', predicateName=SECRET, appearsAs={SECRET: {QUERY['path']: [1,2]}},
+        value = dict(raHash='physical-relation-1', predicateName=SYNTHETIC_CANARY, appearsAs={SYNTHETIC_CANARY: {QUERY['path']: [1,2]}},
                      evaluationStrategy='EXTENSIONAL', completionTime='2026-11-11T00:00:01Z',
-                     dependencies={SECRET:'dependency-id'}, millis=100, position=SECRET,
+                     dependencies={SYNTHETIC_CANARY:'dependency-id'}, millis=100, position=SYNTHETIC_CANARY,
                      queryCausingWork=QUERY['path'], resultSize=5)
         value.update(changes); return value
 
@@ -297,13 +298,13 @@ class SummaryTests(unittest.TestCase):
         report = observer.summary()
         self.assertEqual(report['streams']['stdout']['bytes'], len(data))
         self.assertEqual(report['streams']['stdout']['sha256'], hashlib.sha256(data).hexdigest())
-        self.assertNotIn(SECRET, json.dumps(report))
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
         return report
 
     def member(self, **changes):
         value = self.row(raHash='physical-member', evaluationStrategy='IN_LAYER',
                          predicateIterationMillis=[3,-1,7], deltaSizes=[1,-1,2], mainHash='physical-layer',
-                         pipelineRuns=[{'raReference':SECRET}])
+                         pipelineRuns=[{'raReference':SYNTHETIC_CANARY}])
         del value['millis']; del value['dependencies']
         value.update(changes); return value
 
@@ -337,7 +338,7 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(len(report['rankings']['known_iteration_subtotal']),1)
 
     def test_reused_ra_hash_is_not_an_event_id_and_does_not_drop_official_records(self):
-        for second in (self.row(), self.row(predicateName=SECRET+'-another-name')):
+        for second in (self.row(), self.row(predicateName=SYNTHETIC_CANARY+'-another-name')):
             with self.subTest(second_name=second['predicateName']):
                 report=self.project([self.row(),second])
                 self.assertEqual(report['status'],'PROJECTED')
@@ -348,15 +349,15 @@ class SummaryTests(unittest.TestCase):
                 self.assertEqual([r['reported_millis'] for r in ranking],[100,100])
 
     def test_unknown_shape_bad_type_nested_fields_and_bad_encoding_never_escape(self):
-        mutations=[dict(millis=True),dict(millis=-1),dict(extra=SECRET),dict(raHash=None),
-                   dict(dependencies={SECRET:17}),dict(appearsAs={SECRET:{QUERY['path']:[True]}}),
-                   dict(pipelineRuns=[{'unknown':SECRET}]),dict(position='\ud800')]
+        mutations=[dict(millis=True),dict(millis=-1),dict(extra=SYNTHETIC_CANARY),dict(raHash=None),
+                   dict(dependencies={SYNTHETIC_CANARY:17}),dict(appearsAs={SYNTHETIC_CANARY:{QUERY['path']:[True]}}),
+                   dict(pipelineRuns=[{'unknown':SYNTHETIC_CANARY}]),dict(position='\ud800')]
         for mutation in mutations:
             with self.subTest(fields=sorted(mutation)):
                 report=self.project([self.row(**mutation)])
                 self.assertEqual(report['status'],'PARTIAL')
                 self.assertEqual(report['accepted_records'],0)
-        for suffix in (b'\n{"x":"'+SECRET.encode()+b'",', b'\n\xff'+SECRET.encode(),
+        for suffix in (b'\n{"x":"'+SYNTHETIC_CANARY.encode()+b'",', b'\n\xff'+SYNTHETIC_CANARY.encode(),
                        b'\n{"millis":NaN}', b'\n{"x":1,"x":2}'):
             report=self.project([self.row()],suffix=suffix)
             self.assertEqual(report['status'],'PARTIAL')
@@ -386,7 +387,7 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(report['unobserved_delta_null_entries'],1)
 
     def test_pipeline_failure_or_exception_cannot_be_lost_in_implicit_success(self):
-        report=self.project([self.member(pipelineRuns=[dict(raReference=SECRET,completionType='FAILURE',exceptionName=SECRET)])])
+        report=self.project([self.member(pipelineRuns=[dict(raReference=SYNTHETIC_CANARY,completionType='FAILURE',exceptionName=SYNTHETIC_CANARY)])])
         self.assertEqual(report['status'],'PARTIAL')
         self.assertEqual(report['pipeline_non_success'],1)
         self.assertEqual(report['exception_records'],1)
@@ -397,7 +398,7 @@ class SummaryTests(unittest.TestCase):
         for mode in ('bytes','line','records'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);out=root/'out';out.mkdir();ready=root/'parsed'
-                extra=(SECRET+'x'*2048+'\n').encode() if mode=='line' else (json.dumps(self.row(raHash='new-ra'))+'\n').encode()
+                extra=(SYNTHETIC_CANARY+'x'*2048+'\n').encode() if mode=='line' else (json.dumps(self.row(raHash='new-ra'))+'\n').encode()
                 child=root/'producer.py'
                 child.write_text('import os,time\nfrom pathlib import Path\n'+f'os.write(1,{prefix!r})\n'+
                     f'ready=Path({str(ready)!r})\nend=time.monotonic()+3\n'+
@@ -423,7 +424,7 @@ class SummaryTests(unittest.TestCase):
                 self.assertEqual(stream['sha256'],hashlib.sha256(prefix+extra).hexdigest())
                 self.assertEqual(stream['processed_prefix_bytes'],len(prefix))
                 for path in out.rglob('*'):
-                    if path.is_file():self.assertNotIn(SECRET.encode(),path.read_bytes())
+                    if path.is_file():self.assertNotIn(SYNTHETIC_CANARY.encode(),path.read_bytes())
 
 
 if __name__ == '__main__':
