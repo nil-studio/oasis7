@@ -54,7 +54,13 @@ impl Store {
         let source = disk_source(self, public_key, memory, work, stop)?;
         let mut ctx = work.bounded_context(memory, stop);
         let draft = self.prepare_native_checkpoint_draft_bounded(&mut ctx)?;
-        Ok(draft.retain_disk_source(source))
+        let draft = draft.retain_disk_source(source);
+        Ok(
+            super::bounded_native_refs::validate_native_checkpoint_refs_bounded_v1(
+                draft, memory, work, stop,
+            )?
+            .into_draft(),
+        )
     }
 
     pub(super) fn prepare_pending_native_checkpoint_draft_from_disk_bounded<'a>(
@@ -71,7 +77,13 @@ impl Store {
         let source = disk_source(self, public_key, memory, work, stop)?;
         let draft =
             self.prepare_pending_native_checkpoint_draft_bounded(update, memory, work, stop)?;
-        Ok(draft.retain_disk_source(source))
+        let draft = draft.retain_disk_source(source);
+        Ok(
+            super::bounded_native_refs::validate_native_checkpoint_refs_bounded_v1(
+                draft, memory, work, stop,
+            )?
+            .into_draft(),
+        )
     }
 }
 

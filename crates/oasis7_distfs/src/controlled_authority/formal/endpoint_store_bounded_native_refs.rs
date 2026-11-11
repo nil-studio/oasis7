@@ -25,6 +25,14 @@ impl PaidNativeCheckpointRefsV1<'_> {
         self.draft.reserved_bytes() + self.outer.reserved_bytes()
     }
 }
+impl<'a> PaidNativeCheckpointRefsV1<'a> {
+    // Private producer composition: validation has completed and all reference
+    // readers have finished. The original Draft and its retained sources move
+    // unchanged; no publication permission is minted by this transfer.
+    pub(super) fn into_draft(self) -> PaidNativeCheckpointDraftV1<'a> {
+        self.draft
+    }
+}
 fn add(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_add(b)
         .ok_or_else(|| invalid("bounded native references layout"))
