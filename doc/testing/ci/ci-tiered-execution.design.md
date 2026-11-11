@@ -276,11 +276,19 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 | World State `pr_fast_reducers` | Runtime `src/tests/apply_domain_event_guards.rs` 的 11 个用例 | 已登记归约测试源，保留幂等、篡改重复、legacy 格式、错误 service 合约及缺失角色的拒绝与状态不变 |
 | Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
 | Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
-| 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
+| 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 的生产及未证明私有测试输入同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
 | Viewer Runtime `--lib` | `runtime_live/agent_service_*.rs` 与 `stream_budget_diagnostics.rs` 的行为由全部非 ignored library tests 承接 | 无默认 feature、启用 `test_tier_required`；最低清单保留同阶段精确分派、身份变化拒绝、失败后原请求查询恢复和诊断有界性；其他 Viewer 源码继续使用原范围 |
 | Game Client 本地服务 CLI | 完整 library，以及 `identity_cli`、`dev_test_catalog_cli`、`legacy_profile`、`dev_test_service_cli` 四个完整 integration targets | 仅登记私有 Unix CLI 适配文件及上述独立测试入口；真实二进制保护参数分派、私有配置、输入边界、socket 调用、凭据拒绝和子进程回收；共享 SDK、权限校验实现、身份、存储与恢复源码不在该合同内 |
 
 目标使用配置中明确登记的默认 feature 设置与显式 features；声明 `test_tier_required` 的目标启用该 feature。Game Client 使用默认 features，与原 support library 入口相同；不能把该包没有 feature 声明当成永久不变量。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
+
+#### 私有 library 单元测试输入
+
+可信 `ordinary_unit_test_contract_version=1` 及 `ordinary_unit_test_targets` 登记可独立承接私有测试源码的完整 library，首批为 Runtime、World State。该能力只适用于所有改动输入均为既有 Rust 文件、全部比较树都证明同一真实 owner 的普通计划。先闭合所有静态 `mod`、`#[path]`、`include!` 引用，再逐路确认唯一 Cargo 根为所选 library，且每路均有明确 `cfg(test)`；同时按该 target 的真实 features 证明执行可达。其他 library、binary、integration、example、bench 或禁用 harness 的根均不能被遗漏。文件名包含 test、只有一条成功路由、Unix 或非 WASM 门控均不足以取得此能力。
+
+该登记合同限定这些私有源码不是其他消费者的运行时数据输入；新增数据消费者必须登记真实输入边，不能以动态路径读取绕过已有影响分析。静态检查不声称证明任意 Rust 程序的文件 I/O 或外部宏行为。它保守拒绝跨包/其他 target 挂载、未知或宏生成模块路径、include 宏别名与参数转发、Git 符号链接、非 NFC 标识符、已知改动源码的数据读者及未解析嵌入。正常嵌套的已解析 include 调用仍按其真实输入检查；读取未改祖先文件的字节不等于读取改动叶子。全部本地 host 生成入口须属于已有可信摘要登记的自包含 producer，且无未登记 build script、proc-macro 或传递本地 build dependency；不能以有限字符串扫描声称证明任意 host 文件访问。BASE、source、实际 target 与 tested merge 所涉及的树分别证明，候选不能改变能力、target 或生成器登记来授权自己。新增/删除文件、测试门控迁移、混合生产或控制输入、路径加测及显式请求均保留原范围。额外词法库存只在可信能力登记的候选源码变更中启用，未扫描不能当作空库存授权；文档和控制输入沿原路径处理。
+
+通过证明时仅去掉这些输入没有实际消费关系的反向测试目标和组；保留完整 affected 集合作为证据，另列每个输入的 owner、比较树和排除的原组。完整 owner library 的全部非 ignored case、原 feature 组合、strict Clippy、基线、格式与完整架构声明图继续执行。World State 的生产及未证明输入仍绑定 Runtime lib、reducers 和适用的物理 incremental target；共享测试按全部真实 owner 执行。旧 BASE 缺少该能力时沿用原选择，周期 full 的完整库存不变。候选 preview 只测量新规则，不替代迁移 PR 的旧可信门禁；hosted 端到端和普通 PR 分布分别验收。
 
 Game Client 的 `dev_test_service_cli.rs` 只承接原 `dev-test-serve`、`dev-test-call` 的参数分派与调用适配。Linux 本地身份代理的 `dev-test-local-serve`、`dev-test-local-call` 由可信公共分派入口按完整命令名提前交给未登记的 `dev_test_local_adapter`，平台条件、模型请求解码和本地身份校验均留在该模块；这些输入与公共分派入口变化继续扩测，不能进入 legacy 私有叶子的快速合同。私有配置的文件类型、权限、UID 校验和原请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
 
