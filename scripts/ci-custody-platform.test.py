@@ -241,10 +241,13 @@ class Custody(unittest.TestCase):
     def test_job_summary_requires_every_selected_success_and_unselected_skip(self):
         needs = {'select': dict(result='success'), 'workspace-support-legacy': dict(result='skipped'),
                  'workspace-support-other': dict(result='skipped'), 'custody-node': dict(result='success'),
+                 'custody-native-contracts': dict(result='success'),
                  **{f'custody-{part}': dict(result='success') for part in C.COMPONENTS}}
         self.assertTrue(C.validate_jobs(self.plan, needs))
         for job in needs:
-            for state in ('failure', 'cancelled', None):
+            for state in ('failure', 'cancelled', 'skipped', None):
+                if state == 'skipped' and needs[job]['result'] == 'skipped':
+                    continue
                 changed = copy.deepcopy(needs)
                 changed[job]['result'] = state
                 with self.subTest(job=job, state=state), self.assertRaises(ValueError):

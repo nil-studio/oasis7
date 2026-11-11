@@ -169,6 +169,23 @@ class DefinitionDigest(unittest.TestCase):
     def test_registered_baseline_assertion_change_invalidates_previous_definition(self):
         self.assert_rejects_previous_definition(self.CONTRACT)
 
+    def test_complete_governance_assertions_are_hashed_at_the_fixed_revision(self):
+        path = 'crates/fixture/scripts/governance.test.py'
+        destination = self.root / path
+        destination.parent.mkdir(parents=True)
+        destination.write_text('# complete governance fixture\n')
+        self.config['workflow_governance_python_tests'] = [self.CONTRACT, path]
+        self.write_config()
+        self.assert_rejects_previous_definition(path)
+
+    def test_complete_governance_inventory_cannot_escape_or_duplicate_files(self):
+        for paths in ([], [self.CONTRACT, self.CONTRACT], ['scripts/../outside.test.py'],
+                      ['/outside.test.py'], ['scripts/*.test.py']):
+            self.config['workflow_governance_python_tests'] = paths
+            self.write_config()
+            with self.subTest(paths=paths), self.assertRaises(ValueError):
+                module.definition_digest(self.root, self.commit())
+
     def test_digest_reads_contracts_at_fixed_revision_not_worktree(self):
         revision = self.commit()
         previous = module.definition_digest(self.root, revision)

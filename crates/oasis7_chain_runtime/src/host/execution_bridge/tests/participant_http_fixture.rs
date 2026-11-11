@@ -19,6 +19,16 @@ fn serve_custody_world_http_fixture() {
         std::env::var_os("OASIS7_CUSTODY_WORLD_SETTLE_BASELINE_FILE").map(PathBuf::from);
     let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
     let _directory = FixtureDirectory(dir.clone());
+    if std::env::var("OASIS7_CUSTODY_WORLD_RETAIN_HISTORY").is_ok_and(|v| v == "true") {
+        // Reconciliation success needs the real committed snapshot after the old
+        // HTTP grant expires. Default DevLocal retains only 32 x 100ms ticks;
+        // opt-in cases retain 512 heights without changing grants or receipts.
+        driver.hot_window_heights =
+            oasis7_proto::storage_profile::StorageProfileConfig::for_profile(
+                oasis7_proto::storage_profile::StorageProfile::SoakForensics,
+            )
+            .execution_hot_head_heights;
+    }
     // Match the real native test authority, not the unrelated historical HTTP fixture namespace.
     let ns = GameIdentityNamespaceV1 {
         service_id: "model-contract".into(),

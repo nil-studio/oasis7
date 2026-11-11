@@ -9,6 +9,27 @@ const ACTION = '33d7b85da1a04171e211befe2c739303b9a4c066';
 const MAIN_BLOB = '8b8462e5a06f394cd0504d57868488cebc7030c9';
 const POST_BLOB = 'ea0e9ead88d0835b98aac612aa89b76fed74b7a5';
 
+function readBudget(file) {
+  const limit = 256 * 1024;
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > limit) throw new Error('unsafe Action budget file');
+    // Keep identity and the read bound even if the pathname is replaced or the inode grows.
+    const raw = Buffer.alloc(limit + 1);
+    let size = 0;
+    while (size < raw.length) {
+      const count = fs.readSync(fd, raw, size, raw.length - size, null);
+      if (count === 0) break;
+      size += count;
+    }
+    if (size > limit) throw new Error('unsafe Action budget size');
+    return raw.subarray(0, size);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function main() {
   if (process.env.CAPACITY_MODE !== MODE) return;
   const entry = process.argv[1];
@@ -27,9 +48,8 @@ function main() {
     if (String(process.ppid) !== process.env.OASIS7_CODEQL_ACTION_SUPERVISOR) throw new Error('supervisor parent differs');
     const out = path.join(process.env.RUNNER_TEMP, 'rust-capacity-evidence');
     const budgetFile = path.join(out, 'capacity-budget.json');
-    if (fs.realpathSync(out) !== out || fs.realpathSync(budgetFile) !== budgetFile
-        || fs.statSync(budgetFile).size > 256 * 1024) throw new Error('unsafe Action budget path');
-    const raw = fs.readFileSync(budgetFile);
+    if (fs.realpathSync(out) !== out || fs.realpathSync(budgetFile) !== budgetFile) throw new Error('unsafe Action budget path');
+    const raw = readBudget(budgetFile);
     const budget = JSON.parse(raw.toString());
     const digest = crypto.createHash('sha256').update(raw).digest('hex');
     const cutoff = Number(process.env.CAPACITY_ANALYSIS_DEADLINE);

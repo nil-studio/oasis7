@@ -44,6 +44,7 @@ ed25519-dalek = { version = "3", features = ["rand_core"] }
 getrandom = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_executable_image = { path = "../oasis7_executable_image", optional = true }
 oasis7_game_client = { path = "../oasis7_game_client" }
 zeroize = "1"
 libc = "0.2"
@@ -66,7 +67,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [features]
 default = ["wasmtime", "node-libp2p"]
-node-libp2p = ["oasis7_node/libp2p", "dep:oasis7_net", "oasis7_net/libp2p"]
+node-libp2p = ["dep:oasis7_executable_image", "oasis7_node/libp2p", "dep:oasis7_net", "oasis7_net/libp2p"]
 wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]

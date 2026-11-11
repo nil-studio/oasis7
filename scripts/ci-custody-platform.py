@@ -19,18 +19,45 @@ COMPONENTS = ('native', 'wasm-production', 'wasm-approval')
 SHARDS = [0, 1, 2, 3]
 ROLES = ('identity', 'owner', 'executor', 'recovery-fence', 'native-harness')
 SCHEMA = 'oasis7.custody-platform/v1'
-# Complete case durations from run 42739894923, job 129578641632. These
-# weights only place files; every discovered file still executes exactly once.
+# Complete Node file durations from run 42934311475, jobs
+# 130245943288/130245943018/130245943112/130245942945. Weights only
+# determine placement; every discovered file still executes exactly once.
 FILE_SECONDS = {
-    'test-session.integration.test.mjs': 223,
-    'test-session-alarm.integration.test.mjs': 111,
-    'test-session-activation.integration.test.mjs': 148,
-    'test-session-paid.integration.test.mjs': 282,
-    'test-session-tools.integration.test.mjs': 133,
-    'test-session-results.integration.test.mjs': 128,
+    'approval.test.mjs': 19.848,
+    'client-abuse.integration.test.mjs': 1.410,
+    'client-enrollment.integration.test.mjs': 1.410,
+    'context-body-crypto.integration.test.mjs': 7.415,
+    'context-body-signatures.integration.test.mjs': 2.011,
+    'context-body.integration.test.mjs': 5.616,
+    'contract.test.mjs': 1.209,
+    'host-control-https.integration.test.mjs': 0.809,
+    'live-context-read.integration.test.mjs': 1.609,
+    'management-metadata.integration.test.mjs': 2.210,
+    'native-continuation-reference.test.mjs': 31.037,
+    'native-identity.integration.test.mjs': 29.234,
+    'native-provision.integration.test.mjs': 75.466,
+    'native-runtime-manifest.integration.test.mjs': 4.412,
+    'owner-directory.test.mjs': 51.057,
+    'owner-setup.integration.test.mjs': 183.737,
+    'participant-provision.integration.test.mjs': 60.076,
+    'participant-role-capability.test.mjs': 4.813,
+    'platform.test.mjs': 2.210,
+    'recovery-activation.integration.test.mjs': 15.619,
+    'rejection-diagnostic.test.mjs': 0.208,
+    'role-runtime-negative.integration.test.mjs': 14.020,
+    'role-runtime-options.test.mjs': 0.612,
+    'setup-baseline-settlement.test.mjs': 0.208,
+    'storage.test.mjs': 2.212,
+    'test-session-activation.integration.test.mjs': 186.354,
+    'test-session-alarm.integration.test.mjs': 130.904,
+    'test-session-alarm.test.mjs': 0.209,
+    'test-session-paid.integration.test.mjs': 357.084,
+    'test-session-results.integration.test.mjs': 157.919,
+    'test-session-tools.integration.test.mjs': 170.361,
+    'test-session.integration.test.mjs': 265.218,
 }
 BUILD_CONTRACTS = {
-    'native': ['custody-core+worker:test', 'launcher:custody', 'world:commit-barrier', 'contract:check', 'context-body:export'],
+    'native': ['launcher:custody', 'world:commit-barrier', 'contract:check', 'context-body:export'],
     'wasm-production': [*ROLES],
     'wasm-approval': ['owner,approval-harness', 'approval-admission:export',
                       'role-feature-negative-checks', 'worker-wasm-six-profiles'],
@@ -321,7 +348,8 @@ def validate_jobs(plan, needs):
     split = enabled(plan)
     expected = {'workspace-support-legacy': selected and not split,
                 'workspace-support-other': split and 'other' in plan.get('workspace_support_partitions', []),
-                **{f'custody-{component}': split for component in COMPONENTS}, 'custody-node': split}
+                **{f'custody-{component}': split for component in COMPONENTS},
+                'custody-native-contracts': split, 'custody-node': split}
     if set(needs) != {'select', *expected}:
         raise ValueError('unknown or missing support dependencies')
     for job, required in expected.items():

@@ -238,6 +238,30 @@ class Capacity(unittest.TestCase):
         self.assertIn('a.asParameter().toString() = "original_digest"',texts['Image'])
         self.assertIn('b.asExpr().toString()="line == expected"',texts['Image'])
 
+    def test_image_v2_keeps_the_other_six_queries_and_rejects_every_wrong_value(self):
+        original=m.semantic_queries(ROOT)
+        current=m.semantic_queries(ROOT,image_version=m.IMAGE_V2)
+        self.assertEqual({n:t for n,t in original.items() if n!='Image'},
+                         {n:t for n,t in current.items() if n!='Image'})
+        positives=['format-original','format-replacement','original-flow','replacement-flow',
+                   'contains-line-callee','replacement-line-callee','same-line-comparison-v2',
+                   'whole-line-rhs-flow-v2','output-line-lhs-taint-v2']
+        negatives=['wrong-function-flow','wrong-expected-lhs-taint-v2','wrong-output-rhs-taint-v2',
+                   'output-bool-taint-v2','expected-bool-taint-v2']
+        rows=[[n,'1'] for n in positives]+[[n,'0'] for n in negatives]
+        self.assertEqual(m.validate('Image',rows,ROOT,{},image_version=m.IMAGE_V2),
+                         {n:int(v) for n,v in rows})
+        for index in range(len(rows)):
+            bad=[r[:] for r in rows];bad[index][1]=str(1-int(bad[index][1]))
+            with self.subTest(label=bad[index][0]):
+                with self.assertRaises(RuntimeError):m.validate('Image',bad,ROOT,{},image_version=m.IMAGE_V2)
+        for bad in (rows[:-1],rows+rows[:1],[[n,str(v)] for n,v in m.expected('Image').items()]):
+            with self.assertRaises(RuntimeError):m.validate('Image',bad,ROOT,{},image_version=m.IMAGE_V2)
+        with self.assertRaises(RuntimeError):m.validate('Image',rows,ROOT,{})
+        for version in ('v2','image-v3',None):
+            with self.assertRaises(ValueError):m.semantic_queries(ROOT,image_version=version)
+            with self.assertRaises(ValueError):m.expected('Image',image_version=version)
+
     def test_each_version_callee_requires_own_source_and_dependency(self):
         roots={'candidate':'/git/libp2p','legacy':'/registry/libp2p'}
         row=[str(ROOT/m.model.BASE/'candidate/src/adapter.rs'),'42','with_existing_identity','/git/libp2p/src/builder.rs']
@@ -425,6 +449,11 @@ class Capacity(unittest.TestCase):
                 self.assertIn('codeql/rust-all: '+rust_all+'\n',(work/'queries/qlpack.yml').read_text())
                 self.assertEqual(len(list((work/'queries').glob('*.ql'))),7)
                 self.assertEqual(any('compile' in argv for argv in commands),mode!='candidate-workload-research')
+                image_version=m.IMAGE_V2 if mode=='candidate-workload-research' else m.IMAGE_V1
+                self.assertEqual(json.loads((out/'semantic-query-contract.json').read_text()),
+                                 m.semantic_contract(source,image_version=image_version))
+                self.assertEqual((work/'queries/Image.ql').read_text(),
+                                 m.semantic_queries(source,image_version=image_version)['Image'])
                 if mode=='candidate-workload-research':
                     self.assertFalse(any('library-path' in argv for argv in commands))
                     budget=json.loads((out/'capacity-budget.json').read_text())

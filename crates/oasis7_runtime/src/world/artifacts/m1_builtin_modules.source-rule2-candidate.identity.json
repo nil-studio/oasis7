@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "171980d35a7383ccfeb313a366d4bba9f11b8fcbe379fbdbcb59a1e2e0d65976",
+      "producer_recipe_hash": "23c6cbcb8a522fff86d388fe997daad8ae14c11670f296e970397c474f3199e3",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -52,12 +52,12 @@
         {
           "kind": "source-file",
           "path": "Cargo.lock",
-          "sha256": "ab493affe3529f7e5f56eb8c1234c40ecd4d1bf5d278d6b1bdad8a9a949dc6d3"
+          "sha256": "d756ba0d0c2952d668f6adbe2981eccff356bc36acd58c5f142b922686a323a2"
         },
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -112,7 +112,7 @@
         {
           "kind": "source-file",
           "path": "scripts/build-wasm-module.sh",
-          "sha256": "6ac2b50141023e4d013be1feddea7a7b5b4ac27e6f1a8b7ef2d24c76130358a8"
+          "sha256": "339c583b564efa2335c9288af814e0a8b10d9cdf5646bd687a5fc64e8844e030"
         },
         {
           "kind": "source-file",
@@ -168,7 +168,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -196,9 +196,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "c4c5d9a9480f425ee051337964bf48ad25469b7cca393b0f7a4e08c8b51ddfb9",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "0a62fc1543fdaba2c30627667c7131b1f1d556c3f8e2fdb5b0371780a4a09465"
+      "source_hash": "2a0b9eb59226442617202e7fc4ac9d037fa7d7969338c3512654e70bf8d42988",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "1b756a1c2ed9c6e2df762c01ad2e06c6aefe9ce713b98a4fd097facf52c714d5"
     },
     {
       "module_id": "m1.memory.core",
@@ -210,7 +210,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -238,9 +238,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "d6dd48cfe0b57820c0ee6589e5e5d4b8ee3e84e894cff099c2f7256a74fdb792",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "a0caa0fb57cd29ecaa54ae89c7c910a1387d42ba64cb9ce2a0d71e0273cd55c7"
+      "source_hash": "330308ddf3aaa80b206a85acbe54f66996c1587fba60daf4a939adfb7a1193a3",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "1048aa0b1f903f4ec0434605b4df21ebedc7205183c2820377680e0e8d76f9f9"
     },
     {
       "module_id": "m1.mobility.basic",
@@ -252,7 +252,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -280,9 +280,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "48ce86b29f553b125cda81e33889d9c06b3be559b17f948e19e21c3098b23e0f",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "76bba24c5725be0b490ef7ad960dda4ddd7bc0e30f7a31a931dac1446a516ded"
+      "source_hash": "bc0673cd4cd00323874642dc9330f040c9ffb55a0832b2ba83621d1dc21b6f5c",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "391e62705a465b632a157a1513d83183d133c5a6b64fc607fffb84095c88bc1f"
     },
     {
       "module_id": "m1.power.radiation_harvest",
@@ -294,7 +294,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -322,9 +322,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "1cca1d01bb0c4d0ec8dbbd6dd9a1d22e36db93508aa2ff2f1dfea0fab0b26828",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "710d8c56cf111d21632a9b2c80a6567c0ff453ecbeca14f1e3ed7612ef2f7b25"
+      "source_hash": "1c562058167f0875d6c8a647a429cd5835f3a2e320760201f9ac5e3bd0ee9b6d",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "69ce697001a9c49badfb0c8cb9487c0458e3f3656cdc384f73f18cd18a4841ea"
     },
     {
       "module_id": "m1.power.storage",
@@ -336,7 +336,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -364,9 +364,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "c6677def34468d998ce4a752ceda9af87cc634ce5d04afc0869f4dad810b10c1",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "d1f998511deafda5cf353cbca3fad071ddc37dda4d1d218cffc54869c9906917"
+      "source_hash": "33cadbe62815f205c18cb3bfdf4eb2e93f1b98840e14f25159071b7c2bfb28b9",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "7c1bbf7f00bb1eb0de82736beee6933274f5eb6dc6c8dcb523f8c6c8b51ccc61"
     },
     {
       "module_id": "m1.rule.move",
@@ -378,7 +378,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -406,9 +406,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "94742ef6b7d1f19fcc88d228d0caa3bd1515867850fac686e0b11910c8c3b02b",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "b9f6ee4af93877a84e9957bc678bc44a230bf554dcea8bc26552169c510e0982"
+      "source_hash": "0b517bd41c0c43956782eafbb09b6ec0bc04e611757b36624a0fd34fa47e6713",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "8409741a91b61529ebaad9842d028203477e3a9d5899361f190ad99e33cedba8"
     },
     {
       "module_id": "m1.rule.transfer",
@@ -420,7 +420,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -448,9 +448,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "234ac063d34852f380a4ae726c23ceb71d77ee2c33c29a568e711c91e06b0f95",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "47e7ba0601d0d8470823ed9c749abdab7d44215af6fd2004fefbb6b86281a3e8"
+      "source_hash": "55cc490368bd094dd996682537a7ed0c4fe69aed6886fc04be0f380ce96f1bea",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "f9a934e9ee45f553e5e6acebd19dd7e35542158db125e397ab8b29c8d874993f"
     },
     {
       "module_id": "m1.rule.visibility",
@@ -462,7 +462,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -490,9 +490,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "968758327120a677492fc8d69195bc6f4749a4e6ac4268a8c201c97f8e8602ae",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "8bf5c86ef6a6a2525b9e40d8eee0c26b25c823d11e88d30bdc619baedf39affe"
+      "source_hash": "6930c6fceddb644f09994f40ef506f81d6a47246a5fb897970b4c4a36d7a81b0",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "f801e3ee468ba97b6fd9d8a90f0101f6a7518a5b242d66245fca8b3ee2373496"
     },
     {
       "module_id": "m1.sensor.basic",
@@ -504,7 +504,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -532,9 +532,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "21ff60f4748ed6d19d2648e4cc51c18093c7bd01b42ca8760cbd04b3eaa75d61",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "f66de44727bc9edb544c4d5eaa38d5a5fe3ec0bf84fcf660be4fb0c5c8adc66b"
+      "source_hash": "92b339da34063d46cd134ff91c85b51ef0aec709a56b2f3c21679751c0fb3475",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "73abc800e442a8fb0c22bf079a00a6e81c94f83f014c7883886658890698f24e"
     },
     {
       "module_id": "m1.storage.cargo",
@@ -546,7 +546,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
+          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
         },
         {
           "kind": "source-file",
@@ -574,9 +574,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "ee93716bbf526894548016023614c01f4f1c58a5de98c6924eafced1e18d5373",
-      "build_manifest_hash": "d38dca8d5415511d0ce8ce73adbb73c011cb5a0f6ea7135ed601022b720304b6",
-      "identity_hash": "b2ae6e0dc9a9f7b20ce9533cda26672d6898334009e7f47f9135b0e5bac661b7"
+      "source_hash": "77db7cde9f9f09f2f4228319a857ab98ee2c2739eefa74f44cdb87881f1019c4",
+      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
+      "identity_hash": "309b199a25e436efdcf7803fbead328f686f0913a0c65534135f9d2a1692aec6"
     }
   ]
 }

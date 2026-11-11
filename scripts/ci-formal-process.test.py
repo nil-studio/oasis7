@@ -868,6 +868,83 @@ class InlineExecutionSelection(unittest.TestCase):
         self.assertEqual(len(supplements), len(targets))
 
 
+class PrivateUnitTestSelection(unittest.TestCase):
+    def selection(self):
+        owner = 'oasis7_world_state'
+        target = FastTargetInventory().target(package=owner, target_kind='lib', target_name=owner)
+        selected = InlineExecutionSelection().selection()
+        return selected | {
+            'source_sha': 'a' * 40, 'tested_sha': 'b' * 40, 'policy_sha': 'c' * 40,
+            'architecture': dict(base='c' * 40, source='a' * 40, tested='b' * 40),
+            'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+            'ordinary_fast_targets': [target], 'oasis7_required_packages': [owner],
+            'oasis7_required_wasm_packages': [],
+            'ordinary_clippy_group': 'rust_baseline', 'formal_suites': [], 'fast_plan_exceptions': [],
+            'ordinary_unit_test_contract_version': 1,
+            'ordinary_unit_test_sources': {f'crates/{owner}/src/faults.rs': owner},
+            'ordinary_unit_test_proof_refs': ['a' * 40, 'b' * 40, 'c' * 40],
+            'ordinary_unit_test_excluded_groups': ['distfs', 'net', 'node'],
+            'ordinary_unit_test_excluded_targets': [dict(package='oasis7_runtime', target_kind='lib',
+                                                        target_name='oasis7_runtime')],
+        }
+
+    def test_complete_owner_build_and_clippy_keep_their_original_commands(self):
+        selected = self.selection()
+        args = ['-p', 'oasis7_world_state', '--lib', '--no-default-features', '--features', 'test_tier_required']
+        self.assertEqual(artifacts.required_native_commands(selected), [args])
+        self.assertEqual(artifacts.build_variants('ordinary', selected),
+                         [('required-fast-0', ['test', *args, '--no-run'], ['test_tier_required'])])
+        target = selected['ordinary_fast_targets'][0]
+        binary = FastTargetInventory().binary(target)
+        manifest = dict(scope='ordinary', execution_plan=selected, binaries={'world': binary})
+        artifacts.validate_ordinary_selection(manifest)
+        for names in ([], ['required::round_trip']):
+            changed = copy.deepcopy(manifest)
+            changed['binaries']['world']['tests'] = names
+            if names:
+                changed['binaries']['world']['ignored_tests'] = names
+            with self.subTest(tests=names), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(changed)
+
+    def test_partial_or_inconsistent_source_contract_cannot_erase_execution(self):
+        selected = self.selection()
+        mutations = [{key: None} for key in artifacts.UNIT_TEST_CONTRACT_FIELDS]
+        mutations += [
+            {'ordinary_unit_test_contract_version': True}, {'ordinary_unit_test_contract_version': 2},
+            {'ordinary_unit_test_sources': {}}, {'ordinary_unit_test_sources': {'../faults.rs': 'oasis7_world_state'}},
+            {'ordinary_unit_test_proof_refs': ['a' * 40]},
+            {'ordinary_unit_test_proof_refs': ['a' * 40, 'b' * 40]},
+            {'ordinary_unit_test_excluded_groups': ['rust_baseline']},
+            {'ordinary_unit_test_excluded_targets': [dict(package='oasis7_world_state', target_kind='lib',
+                                                         target_name='oasis7_world_state')]},
+            {'ordinary_fast_targets': []}, {'test_policy_changed': True},
+            {'groups': ['baseline', 'oasis7_required']}, {'oasis7_required_packages': []},
+            {'ordinary_clippy_group': 'oasis7_required'}, {'formal_suites': ['world-history']},
+            {'scope': 'full'}, {'execution_profile': 'periodic-full'},
+        ]
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                artifacts.required_native_commands(selected | mutation)
+        for key in artifacts.UNIT_TEST_CONTRACT_FIELDS | {'fast_plan_version'}:
+            partial = dict(selected)
+            del partial[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                artifacts.required_native_commands(partial)
+
+    def test_every_remaining_required_owner_still_blocks_on_failure_or_missing(self):
+        selected = self.selection()
+        checker = module('ci-required-result')
+        jobs = {group: group.replace('_', '-') for group in selected['groups']}
+        success = {name: {'result': 'success'} for name in ['select', *jobs.values()]}
+        self.assertTrue(checker.validate(selected, success, jobs))
+        for group, job in jobs.items():
+            for result in ('failure', 'cancelled', 'skipped', None):
+                with self.subTest(group=group, result=result), self.assertRaises(ValueError):
+                    checker.validate(selected, success | {job: {'result': result}}, jobs)
+            with self.subTest(group=group, result='missing'), self.assertRaises(ValueError):
+                checker.validate(selected, {name: value for name, value in success.items() if name != job}, jobs)
+
+
 class DistfsClippyHandoff(unittest.TestCase):
     def selection(self):
         selected = NativePackagePartitions().selection()
@@ -3522,7 +3599,7 @@ class BuildAndBundles(unittest.TestCase):
         required = next(args for name, args, _ in ordinary if name == 'required')
         required_packages = [required[index + 1] for index, value in enumerate(required) if value == '-p']
         self.assertCountEqual(required_packages, [
-            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
+            'oasis7', 'oasis7_simulator', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_world_projection', 'oasis7_world_service', 'scenario_test_runner', 'oasis7_chain_runtime', 'oasis7_executable_image', 'oasis7_client_cli', 'oasis7_protocol_tools', 'oasis7_launcher_backend',
             'oasis7_newapi_bridge_service', 'oasis7_ops_tools', 'oasis7_provider_local_bridge',
             'oasis7_provider_tools', 'oasis7_viewer_runtime', 'oasis7_viewer_codec', 'oasis7_observability',
             'oasis7_hosted_access', 'oasis7_letai_credit_adapter', 'oasis7_launcher_config',

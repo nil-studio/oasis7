@@ -690,10 +690,14 @@ import json, os, pathlib, subprocess, sys, time
 root = pathlib.Path(os.environ['VIEWER_FIXTURE_ROOT'])
 role = pathlib.Path(sys.argv[0]).name
 role = {{'npm': 'ui', 'build-viewer-software-safe.sh': 'build', 'node': 'smoke'}}[role]
+if role == 'smoke' and len(sys.argv) > 1 and sys.argv[1].endswith('browser-functional-regression.mjs'):
+    role = 'browser'
 with (root / 'events.jsonl').open('a') as stream:
     stream.write(json.dumps([role, sys.argv[1:]]) + '\\n')
-if role == 'smoke':
-    assert sys.argv[1:] == ['crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs']
+if role in ('smoke', 'browser'):
+    expected = ('crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs'
+                if role == 'smoke' else 'crates/oasis7_viewer/scripts/browser-functional-regression.mjs')
+    assert sys.argv[1:] == [expected]
     assert (root / 'ui.complete').is_file() and (root / 'build.complete').is_file()
     assert (root / 'dist/current').read_text() == 'current'
     raise SystemExit(0)
@@ -755,7 +759,7 @@ run() {
       if [[ "$*" == *test:ui ]]; then "$@"; fi ;;
     ./scripts/build-viewer-software-safe.sh) "$@" ;;
     node)
-      if [[ "$*" == *viewer-auth-browser-security-smoke.mjs ]]; then "$@"; fi ;;
+      if [[ "$*" == *viewer-auth-browser-security-smoke.mjs || "$*" == *browser-functional-regression.mjs ]]; then "$@"; fi ;;
     "$ci_python"|python3)
       if [[ "${2:-}" == - ]]; then "$@"; fi ;;
   esac
@@ -792,7 +796,7 @@ run_group viewer_js_required
         with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
             result, events = self.viewer_fixture(directory)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertCountEqual([role for role, _ in events], ['ui', 'build', 'smoke'])
+        self.assertCountEqual([role for role, _ in events], ['ui', 'build', 'browser', 'smoke'])
         self.assertEqual(events[-1][0], 'smoke')
 
     def test_viewer_ui_failure_cannot_be_overwritten_by_successful_build(self):

@@ -124,6 +124,91 @@ class ActionDeadline(unittest.TestCase):
 
     def receipt(self): return json.loads((self.out / 'action-deadline-terminal.json').read_text())
 
+    def direct_admission(self, mutation=None):
+        """Exercise the actual child preload with a deterministic file change at its size check."""
+        budget = self.out / 'capacity-budget.json'
+        self.env.update(OASIS7_CODEQL_ACTION_SUPERVISOR=str(os.getpid()),
+                        OASIS7_CODEQL_ACTION_BUDGET_SHA256=hashlib.sha256(budget.read_bytes()).hexdigest())
+        if mutation:
+            hook = self.root / 'budget-change.cjs'
+            hook.write_text(r'''
+const fs = require('node:fs');
+const budget = process.env.RUNNER_TEMP + '/rust-capacity-evidence/capacity-budget.json';
+const original = Object.fromEntries(['openSync', 'closeSync', 'statSync', 'fstatSync', 'readSync', 'readFileSync']
+  .map(key => [key, fs[key]]));
+const descriptors = new Set();
+const observed = {mutated: false, bytes: 0, pathnameReads: 0, closed: 0};
+let changing = false;
+function change() {
+  if (observed.mutated) return;
+  observed.mutated = true;
+  changing = true;
+  if (process.env.FIXTURE_BUDGET_CHANGE === 'replace') {
+    fs.renameSync(budget, budget + '.original');
+    fs.writeFileSync(budget, 'unrelated replacement');
+  } else {
+    fs.appendFileSync(budget, Buffer.alloc(256 * 1024 + 4096, 32));
+  }
+  changing = false;
+}
+fs.openSync = function (p, ...args) {
+  const fd = original.openSync(p, ...args);
+  if (p === budget && !changing) descriptors.add(fd);
+  return fd;
+};
+fs.statSync = function (p, ...args) {
+  const stat = original.statSync(p, ...args);
+  if (p === budget) change();
+  return stat;
+};
+fs.fstatSync = function (fd, ...args) {
+  const stat = original.fstatSync(fd, ...args);
+  if (descriptors.has(fd)) change();
+  return stat;
+};
+fs.readSync = function (fd, ...args) {
+  const size = original.readSync(fd, ...args);
+  if (descriptors.has(fd)) observed.bytes += size;
+  return size;
+};
+fs.readFileSync = function (p, ...args) {
+  const raw = original.readFileSync(p, ...args);
+  if (p === budget || descriptors.has(p)) {
+    observed.pathnameReads++;
+    observed.bytes = Math.max(observed.bytes, Buffer.byteLength(raw));
+  }
+  return raw;
+};
+fs.closeSync = function (fd) {
+  if (descriptors.delete(fd)) observed.closed++;
+  return original.closeSync(fd);
+};
+process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, JSON.stringify(observed)));
+''')
+            self.env.update(FIXTURE_BUDGET_CHANGE=mutation, FIXTURE_BUDGET_OBSERVED=str(self.root / 'budget-observed'))
+            self.env['NODE_OPTIONS'] = '--require=' + str(hook) + ' ' + self.env['NODE_OPTIONS']
+        return self.finish(self.start())
+
+    def test_budget_path_replacement_keeps_the_checked_open_file(self):
+        result, _, stderr = self.direct_admission('replace')
+        self.assertEqual(result, 0, stderr)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\n')
+        observed = json.loads((self.root / 'budget-observed').read_text())
+        self.assertTrue(observed['mutated'])
+        self.assertEqual(observed['pathnameReads'], 0)
+        self.assertEqual(observed['closed'], 1)
+
+    def test_budget_growth_is_rejected_after_at_most_limit_plus_one_bytes(self):
+        result, _, stderr = self.direct_admission('grow')
+        self.assertNotEqual(result, 0)
+        observed = json.loads((self.root / 'budget-observed').read_text())
+        self.assertTrue(observed['mutated'])
+        self.assertLessEqual(observed['bytes'], 256 * 1024 + 1)
+        self.assertEqual(observed['pathnameReads'], 0)
+        self.assertEqual(observed['closed'], 1)
+        self.assertIn('unsafe Action budget', stderr)
+        self.assertFalse((self.root / 'marker').exists())
+
     def test_normal_main_runs_once_and_preserves_runner_channels_inputs_and_node_flags(self):
         result, stdout, stderr = self.finish(self.start(options=['--no-warnings']))
         self.assertEqual(result, 0, stderr)

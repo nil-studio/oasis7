@@ -5286,6 +5286,437 @@ class ExpandedNativeContracts(unittest.TestCase):
             self.assertIn('oasis7_viewer_runtime', plan['oasis7_required_packages'])
 
 
+class LoadedExecutableComponent(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def fixture(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        image = 'oasis7_executable_image'
+        self.write(f'crates/{image}/Cargo.toml',
+                   '[package]\nname="oasis7_executable_image"\nversion="0.1.0"\nedition="2024"\n'
+                   '[dependencies]\nblake3="1"\n')
+        self.write('crates/oasis7_chain_runtime/Cargo.toml',
+                   '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2024"\n'
+                   '[dependencies]\noasis7_executable_image={path="../oasis7_executable_image"}\n')
+        self.write('crates/oasis7_chain_runtime/src/lib.rs',
+                   'pub use oasis7_executable_image::executable_digest;\n')
+        for path in ('crates/oasis7_executable_image/src/lib.rs',
+                     'crates/oasis7_executable_image/src/digest.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/mod.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/replacement_tests.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/replacement_tests/fixture.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/replacement_tests/expectations.rs'):
+            self.write(path, (HERE.parent / path).read_text())
+        return config, self.commit()
+
+    def test_digest_uses_leaf_target_but_facade_and_platform_keep_host_consumers(self):
+        config, base = self.fixture()
+        path = 'crates/oasis7_executable_image/src/digest.rs'
+        self.write(path, Path(path).read_text().replace('64 * 1024', '32 * 1024'))
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['executable-image-lib']])
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertIn('oasis7_chain_runtime', plan['affected_packages'])
+        for path in ('crates/oasis7_executable_image/src/lib.rs',
+                     'crates/oasis7_chain_runtime/src/host/executable_image/mod.rs'):
+            previous = self.git('rev-parse', 'HEAD')
+            self.write(path, Path(path).read_text() + '\n// interface or platform input\n')
+            expanded = selector.select(config, previous, self.commit(), profile='pr-fast')
+            self.assertNotIn('ordinary_fast_targets', expanded)
+            self.assertIn('oasis7_chain_runtime', expanded['oasis7_required_packages'])
+
+    def test_full_inventory_keeps_leaf_behavior_and_real_host(self):
+        config, base = self.fixture()
+        target = config['ordinary_fast_targets']['executable-image-lib']
+        self.assertEqual(len(target['cases']), 8)
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, base)
+            self.assertIn(target, plan['ordinary_full_fast_targets'])
+            self.assertIn('oasis7_executable_image', plan['oasis7_required_packages'])
+            self.assertIn('oasis7_chain_runtime', plan['oasis7_required_packages'])
+
+
+class PrivateUnitTestContracts(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    fast_config = Selection.fast_config
+    bounded_config = Selection.bounded_config
+    component_config = Selection.component_config
+
+    ROOT = 'crates/core/src/lib.rs'
+    PARENT = 'crates/core/src/config.rs'
+    LEAF = 'crates/core/src/faults.rs'
+    BODY = '#[test] fn existing() { assert_eq!(1, 1); }\n'
+
+    def fixture(self):
+        config = self.component_config()
+        config.update(ordinary_unit_test_contract_version=1, ordinary_unit_test_targets=['core-lib'],
+                      ordinary_partition_version=1)
+        config['groups'].append('node')
+        config['resources']['node'] = []
+        config['package_groups']['consumer'] = ['oasis7_required', 'node']
+        config['ordinary_fast_targets']['consumer-lib'] = dict(
+            config['ordinary_fast_targets']['core-lib'], package='consumer', target_name='consumer')
+        config['ordinary_fast_component_rules'][0]['targets'].append('consumer-lib')
+        # Match the real WorldState two-layer mount, not a filename convention.
+        self.write(self.ROOT, '#[cfg(not(target_arch="wasm32"))] mod config;\n')
+        self.write(self.PARENT, '#[cfg(test)] #[path="faults.rs"] mod fault_cases;\n')
+        self.write(self.LEAF, self.BODY)
+        return config, self.commit()
+
+    def change(self):
+        self.write(self.LEAF, self.BODY.replace('1, 1', '2, 2'))
+        return self.commit()
+
+    def selected(self, config, base, head=None, **kwargs):
+        return selector.select(config, base, head or self.change(), profile='pr-fast', **kwargs)
+
+    def assert_isolated(self, plan):
+        self.assertEqual(plan['ordinary_unit_test_contract_version'], 1)
+        self.assertEqual(plan['ordinary_unit_test_sources'], {self.LEAF: 'core'})
+        self.assertEqual(plan['groups'], ['baseline', 'oasis7_required', 'rust_baseline'])
+        self.assertEqual(plan['oasis7_required_packages'], ['core'])
+        self.assertEqual(plan['affected_packages'], ['consumer', 'core'])
+        self.assertEqual([target['package'] for target in plan['ordinary_fast_targets']], ['core'])
+        self.assertEqual(plan['ordinary_unit_test_excluded_groups'], ['node'])
+        self.assertEqual(plan['ordinary_unit_test_excluded_targets'], [
+            {'package': 'consumer', 'target_kind': 'lib', 'target_name': 'consumer'}])
+        self.assertEqual(plan['ordinary_partitions'], ['all'])
+        self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+        self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertFalse(plan['test_policy_changed'])
+
+    def assert_original(self, plan):
+        self.assertNotIn('ordinary_unit_test_contract_version', plan)
+        self.assertIn('node', plan['groups'])
+
+    def test_complete_owner_and_original_affected_evidence_for_pr_and_push(self):
+        config, base = self.fixture()
+        head = self.change()
+        for profile in ('pr-fast', 'main-fast'):
+            plan = selector.select(config, base, head, profile=profile)
+            self.assert_isolated(plan)
+            self.assertEqual(plan['ordinary_unit_test_proof_refs'], sorted([base, head]))
+            self.assertEqual(plan['ordinary_fast_targets'][0], config['ordinary_fast_targets']['core-lib'])
+
+    def test_no_test_filename_is_required_and_same_owner_multiple_files_are_complete(self):
+        config, _ = self.fixture()
+        helper = 'crates/core/src/material.rs'
+        self.write(self.PARENT, '#[cfg(test)] #[path="faults.rs"] mod fault_cases;\n'
+                   '#[cfg(test)] #[path="material.rs"] mod material;\n')
+        self.write(helper, 'pub fn material() -> u8 { 1 }\n')
+        base = self.commit()
+        self.write(helper, 'pub fn material() -> u8 { 2 }\n')
+        plan = self.selected(config, base)
+        self.assertEqual(plan['ordinary_unit_test_sources'], {self.LEAF: 'core', helper: 'core'})
+        self.assertEqual(plan['oasis7_required_packages'], ['core'])
+
+    def test_legacy_and_candidate_configuration_cannot_self_authorize(self):
+        config, base = self.fixture()
+        old = copy.deepcopy(config)
+        for field in ('ordinary_unit_test_contract_version', 'ordinary_unit_test_targets'):
+            del old[field]
+        head = self.change()
+        self.assert_original(self.selected(old, base, head))
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        self.assert_original(self.selected(old, base, self.commit()))
+        for profile in ('periodic-full', 'candidate-full'):
+            full = selector.full_plan(config, profile, head)
+            self.assertNotIn('ordinary_unit_test_contract_version', full)
+            self.assertEqual(full['groups'], sorted(config['groups']))
+            self.assertEqual(full['ordinary_full_fast_targets'],
+                             [config['ordinary_fast_targets'][key] for key in sorted(config['ordinary_fast_targets'])])
+
+    def test_capability_requires_complete_registered_library(self):
+        config, _ = self.fixture()
+        for changes in ({'ordinary_unit_test_contract_version': True},
+                        {'ordinary_unit_test_contract_version': 2},
+                        {'ordinary_unit_test_targets': []}, {'ordinary_unit_test_targets': ['unknown']},
+                        {'ordinary_unit_test_targets': ['core-lib', 'core-lib']},
+                        {'ordinary_unit_test_targets': 'core-lib'}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                selector.validate_config(config | changes)
+        for missing in ('ordinary_unit_test_targets', 'ordinary_unit_test_contract_version'):
+            invalid = copy.deepcopy(config)
+            del invalid[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                selector.validate_config(invalid)
+        config['ordinary_fast_targets']['core-lib']['target_kind'] = 'test'
+        with self.assertRaises(ValueError):
+            selector.validate_config(config)
+
+    def test_native_gate_or_a_second_production_mount_does_not_isolate(self):
+        config, original = self.fixture()
+        for declaration in (
+            '#[cfg(unix)] #[path="faults.rs"] mod fault_cases;\n',
+            '#[cfg(not(target_arch="wasm32"))] #[path="faults.rs"] mod fault_cases;\n',
+            '#[cfg(test)] #[path="faults.rs"] mod fault_cases;\n#[path="faults.rs"] mod production;\n',
+        ):
+            self.git('reset', '--hard', original)
+            self.write(self.PARENT, declaration)
+            with self.subTest(declaration=declaration):
+                self.assert_original(self.selected(config, self.commit()))
+
+    def test_all_cargo_roots_including_disabled_and_custom_targets_veto(self):
+        config, original = self.fixture()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        for kind in ('bin', 'test', 'example', 'bench'):
+            for extra in ('', 'harness=false\n', 'required-features=["test_tier_full"]\n'):
+                self.git('reset', '--hard', original)
+                self.write('crates/core/Cargo.toml', manifest
+                           + f'\n[[{kind}]]\nname="other"\npath="src/faults.rs"\n' + extra)
+                with self.subTest(kind=kind, extra=extra):
+                    self.assert_original(self.selected(config, self.commit()))
+        for folder in ('tests', 'examples', 'benches', 'src/bin'):
+            self.git('reset', '--hard', original)
+            self.write(f'crates/core/{folder}/consumer.rs',
+                       '#[path="' + ('../' if folder == 'src/bin' else '../src/')
+                       + 'faults.rs"] mod shared;\n')
+            with self.subTest(folder=folder):
+                self.assert_original(self.selected(config, self.commit()))
+
+    def test_other_package_root_or_mount_vetoes_even_when_test_only(self):
+        config, original = self.fixture()
+        for body in ('#[cfg(test)] #[path="../../core/src/faults.rs"] mod shared;\n',
+                     '#[cfg(test)] mod nested { include!("../../core/src/faults.rs"); }\n'):
+            self.git('reset', '--hard', original)
+            self.write('crates/consumer/src/lib.rs', body)
+            with self.subTest(body=body):
+                self.assert_original(self.selected(config, self.commit()))
+        self.git('reset', '--hard', original)
+        self.write('crates/consumer/Cargo.toml', Path('crates/consumer/Cargo.toml').read_text()
+                   + '\n[lib]\npath="../core/src/lib.rs"\n')
+        self.assert_original(self.selected(config, self.commit()))
+
+    def test_other_cargo_roots_resolve_implicit_children_from_their_actual_directory(self):
+        config, original = self.fixture()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        for kind, extra in (('example', ''), ('bench', ''), ('test', 'harness=false\n'),
+                            ('test', 'required-features=["test_tier_full"]\n')):
+            self.git('reset', '--hard', original)
+            self.write('crates/core/Cargo.toml', manifest
+                       + f'\n[[{kind}]]\nname="other"\npath="src/another.rs"\n' + extra)
+            self.write('crates/core/src/another.rs', 'mod faults; fn main() {}\n')
+            with self.subTest(kind=kind, extra=extra):
+                self.assert_original(self.selected(config, self.commit()))
+
+    def test_include_aliases_reexports_and_short_source_data_paths_veto(self):
+        config, original = self.fixture()
+        for body in (
+            'use std::include as mount; mount!("faults.rs");',
+            'pub use std::{include as mount}; mount!("faults.rs");',
+            'use std::include_str as bytes; pub const TEXT: &str = bytes!("faults.rs");',
+            'use std::{include_bytes as bytes}; pub const TEXT: &[u8] = bytes!("faults.rs");',
+            'use std::r#include as mount; mount!(concat!("fault", "s.rs"));',
+            'pub use std::{r#include as mount}; mount!(concat!("fault", "s.rs"));',
+            'use std::r#include_str as bytes; pub const TEXT: &str = bytes!(concat!("fault", "s.rs"));',
+            'fn data() { std::fs::read("faults.rs"); }',
+            'fn data() { std::fs::read(r#"faults.rs"#); }',
+        ):
+            self.git('reset', '--hard', original)
+            # The same filename is also a real #[path] mount in this file.
+            # Exempting its token must not exempt the independent byte reader.
+            self.write(self.PARENT, Path(self.PARENT).read_text() + '\n' + body + '\n')
+            with self.subTest(body=body):
+                self.assert_original(self.selected(config, self.commit()))
+
+    def test_literal_source_mounts_do_not_masquerade_as_data_readers(self):
+        config, _ = self.fixture()
+        self.write(self.ROOT, '#[cfg(not(target_arch="wasm32"))] include!("native.rs");\n')
+        self.write('crates/core/src/native.rs', '#[path="config/mod.rs"] mod config;\n')
+        self.git('rm', self.PARENT)
+        self.write('crates/core/src/config/mod.rs', '#[cfg(test)] #[path="../faults.rs"] mod faults;\n')
+        self.assert_isolated(self.selected(config, self.commit()))
+
+    def test_only_changed_file_bytes_not_unchanged_ancestor_bytes_are_inputs(self):
+        config, _ = self.fixture()
+        self.write(self.PARENT, Path(self.PARENT).read_text()
+                   + 'const ROOT_TEXT: &str = include_str!("lib.rs");\n')
+        self.assert_isolated(self.selected(config, self.commit()))
+        self.write(self.PARENT, Path(self.PARENT).read_text()
+                   + 'const CHANGED_TEXT: &str = include_str!("faults.rs");\n')
+        base = self.commit()
+        self.write(self.LEAF, self.BODY + '// another change\n')
+        self.assert_original(self.selected(config, base, self.commit()))
+
+    def test_tracked_file_and_directory_symlinks_cannot_hide_another_consumer(self):
+        config, original = self.fixture()
+        for alias, destination, mount in (('alias.rs', 'faults.rs', 'alias.rs'),
+                                          ('alias_dir', '.', 'alias_dir/faults.rs')):
+            self.git('reset', '--hard', original)
+            self.write(self.ROOT, Path(self.ROOT).read_text() + f'#[path="{mount}"] pub mod production;\n')
+            link = 'crates/core/src/' + alias
+            self.write(link, destination)
+            self.git('add', self.ROOT, link)
+            blob = self.git('rev-parse', ':' + link)
+            # Model Git's exact symlink mode without requiring OS symlink
+            # privileges; neither commit re-stages the placeholder as regular.
+            self.git('update-index', '--cacheinfo', '120000', blob, link)
+            self.git('commit', '-qm', 'existing source alias')
+            base = self.git('rev-parse', 'HEAD')
+            self.write(self.LEAF, self.BODY.replace('1, 1', '2, 2'))
+            self.git('add', self.LEAF)
+            self.git('commit', '-qm', 'change only private-looking leaf')
+            head = self.git('rev-parse', 'HEAD')
+            self.assertEqual(self.git('diff', '--name-only', base, head), self.LEAF)
+            with self.subTest(alias=alias):
+                self.assert_original(self.selected(config, base, head))
+
+    def test_non_normalized_identifiers_cannot_hide_an_inline_module_route(self):
+        config, _ = self.fixture()
+        self.LEAF = 'crates/core/src/café/faults.rs'
+        self.write(self.LEAF, self.BODY)
+        self.write(self.PARENT, '#[cfg(test)] #[path="café/faults.rs"] mod fault_cases;\n')
+        self.write(self.ROOT, Path(self.ROOT).read_text() + 'pub mod cafe\u0301 { pub mod faults; }\n')
+        self.assert_original(self.selected(config, self.commit()))
+
+    def test_extra_inventory_is_scoped_and_missing_scan_evidence_cannot_authorize(self):
+        config, base = self.fixture()
+        head = self.change()
+        with patch.object(selector, 'rust_source_inputs', wraps=selector.rust_source_inputs) as parse:
+            self.assert_isolated(self.selected(config, base, head))
+            self.assertTrue(any(call.kwargs.get('with_module_safety') is True for call in parse.call_args_list))
+        self.write('doc/readme.md', 'documentation does not need module isolation scans\n')
+        docs = self.commit()
+        with patch.object(selector, 'rust_source_inputs', wraps=selector.rust_source_inputs) as parse:
+            selector.select(config, head, docs, profile='pr-fast')
+            self.assertTrue(parse.call_args_list)
+            self.assertFalse(any(call.kwargs.get('with_module_safety') for call in parse.call_args_list))
+        graph = selector.cargo_graph
+        def unscanned(*args, **kwargs):
+            result = graph(*args, **kwargs)
+            result[2]['__private_test_input_inventory__'] = False
+            return result
+        with patch.object(selector, 'cargo_graph', side_effect=unscanned):
+            self.assert_original(self.selected(config, base, head))
+
+    def test_data_and_unknown_readers_in_any_package_veto(self):
+        config, original = self.fixture()
+        readers = [
+            ('crates/consumer/src/lib.rs', 'const D: &str = include_str!("../../core/src/faults.rs");'),
+            ('crates/consumer/src/lib.rs', '#[cfg(test)] const D: &[u8] = include_bytes!("../../core/src/faults.rs");'),
+            ('crates/consumer/src/lib.rs', 'fn data() { std::fs::read("crates/core/src/faults.rs"); }'),
+            ('crates/consumer/src/lib.rs', 'const D: &str = include_str!(env!("UNKNOWN"));'),
+            (self.ROOT, '#[cfg(test)] const D: &str = include_str!("faults.rs");'),
+        ]
+        for path, body in readers:
+            self.git('reset', '--hard', original)
+            self.write(path, Path(path).read_text() + '\n' + body + '\n')
+            with self.subTest(path=path, body=body):
+                self.assert_original(self.selected(config, self.commit()))
+
+    def test_macro_generated_mounts_do_not_hide_behind_a_static_test_mount(self):
+        config, original = self.fixture()
+        for body in (
+            'macro_rules! mount { ($name:ident) => { mod $name; }; } mount!(faults);',
+            'macro_rules! mount { () => { mod faults; }; } mount!();',
+            'forward!(mod faults;);',
+            'paste! { mod [<fault s>]; }',
+            'macro_rules! mount { () => { #[path="faults.rs"] mod extra; }; }',
+            'macro_rules! mount { ($mac:ident, $name:ident) => { $mac!(concat!(stringify!($name), ".rs")); }; } mount!(include, faults);',
+            'macro_rules! mount { ($mac:ident) => { $mac!("faults.rs"); }; }',
+        ):
+            self.git('reset', '--hard', original)
+            self.write(self.ROOT, Path(self.ROOT).read_text() + '\n' + body + '\n')
+            with self.subTest(body=body):
+                self.assert_original(self.selected(config, self.commit()))
+        self.git('reset', '--hard', original)
+        self.write(self.ROOT, Path(self.ROOT).read_text()
+                   + '\n// mod $name;\nconst EXAMPLE: &str = "macro_rules! mount { () => { mod faults; }; }";\n')
+        self.assert_isolated(self.selected(config, self.commit()))
+
+    def test_unregistered_host_sources_and_local_proc_macros_veto(self):
+        config, original = self.fixture()
+        for path, body in (
+            ('crates/other/build.rs', 'fn main() {}\n'),
+            ('crates/consumer/Cargo.toml', Path('crates/consumer/Cargo.toml').read_text() + '\n[lib]\nproc-macro=true\n'),
+            ('crates/other/Cargo.toml', Path('crates/other/Cargo.toml').read_text()
+             + '\n[build-dependencies]\ncore={path="../core"}\n'),
+        ):
+            self.git('reset', '--hard', original)
+            self.write(path, body)
+            with self.subTest(path=path):
+                self.assert_original(self.selected(config, self.commit()))
+
+    def test_trusted_self_contained_generator_requires_actual_unchanged_digest(self):
+        config, _ = self.fixture()
+        producer = 'crates/other/build.rs'
+        body = 'fn main() {}\n'
+        self.write(producer, body)
+        config['generated_inputs'] = [{'package': 'other', 'producer': producer,
+                                      'producer_sha256': hashlib.sha256(body.encode()).hexdigest(),
+                                      'outputs': ['metadata.txt']}]
+        self.assert_isolated(self.selected(config, self.commit()))
+        self.write(producer, 'fn main() { println!("changed generator"); }\n')
+        base = self.commit()
+        self.write(self.LEAF, self.BODY + '// new delta\n')
+        self.assert_original(self.selected(config, base, self.commit()))
+
+    def test_mixed_input_explicit_group_risk_or_test_retirement_keeps_original(self):
+        config, original = self.fixture()
+        for path, body in ((self.PARENT, Path(self.PARENT).read_text() + 'pub fn production() {}\n'),
+                           ('doc/readme.md', 'mixed documentation\n'),
+                           (self.LEAF, self.BODY.replace('existing', 'renamed')),
+                           (self.LEAF, '#[cfg(feature="test_tier_full")]\n' + self.BODY)):
+            self.git('reset', '--hard', original)
+            self.write(self.LEAF, self.BODY.replace('1, 1', '2, 2'))
+            self.write(path, body)
+            with self.subTest(path=path, body=body):
+                self.assert_original(self.selected(config, original, self.commit()))
+        self.git('reset', '--hard', original)
+        head = self.change()
+        self.assert_original(self.selected(config, original, head, additions=('node',)))
+        risk = copy.deepcopy(config)
+        risk['formal_risk_rules'].append({'match': [self.LEAF], 'suites': ['world-history'], 'reason': 'explicit risk'})
+        self.assert_original(self.selected(risk, original, head))
+        direct = copy.deepcopy(config)
+        direct['rules'].append({'match': [self.LEAF], 'groups': ['node'], 'reason': 'independent obligation'})
+        self.assert_original(self.selected(direct, original, head))
+
+    def test_merge_target_reader_and_before_tree_are_both_checked(self):
+        config, base = self.fixture()
+        source = self.change()
+        self.git('checkout', '-q', base)
+        self.write('crates/consumer/src/lib.rs', '#[cfg(test)] const D: &str = include_str!("../../core/src/faults.rs");\n')
+        self.commit()
+        self.git('merge', '--no-ff', '--no-commit', source)
+        tested = self.commit()
+        self.assert_original(self.selected(config, base, source, test_head=tested))
+        # A merge resolution removing a pre-existing reader does not erase its
+        # before-tree obligation, even when source and tested appear isolated.
+        self.write('crates/consumer/src/lib.rs', '// no reader after merge\n')
+        self.git('add', '.')
+        self.git('commit', '--amend', '--no-edit')
+        tested = self.git('rev-parse', 'HEAD')
+        self.assert_original(self.selected(config, base, source, test_head=tested))
+
+    def test_unchanged_disabled_feature_and_new_or_deleted_files_do_not_isolate(self):
+        config, original = self.fixture()
+        self.write(self.LEAF, '#[cfg(feature="test_tier_full")]\n' + self.BODY)
+        base = self.commit()
+        self.write(self.LEAF, '#[cfg(feature="test_tier_full")]\n' + self.BODY.replace('1, 1', '2, 2'))
+        self.assert_original(self.selected(config, base, self.commit()))
+        self.git('reset', '--hard', original)
+        self.git('rm', self.LEAF)
+        base = self.commit()
+        self.assert_original(self.selected(config, base))
+        self.git('reset', '--hard', original)
+        self.git('rm', self.LEAF)
+        self.assert_original(self.selected(config, original, self.commit()))
+
+
 class NativeRootModuleAdditions(unittest.TestCase):
     setUp = Selection.setUp
     tearDown = Selection.tearDown

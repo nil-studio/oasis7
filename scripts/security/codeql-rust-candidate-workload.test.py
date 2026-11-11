@@ -159,6 +159,9 @@ class Workload(unittest.TestCase):
         original = Path(self.closure['codeql/rust-all']['root'])
         (original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
         (original / m.comparison.TYPE_FILE).write_text('stock')
+        self.core_bytes=b'extensions:\n'+m.MODEL_MARKER+b'      # Existing fixed models\n'
+        (original / m.MODEL_FILE).parent.mkdir(parents=True)
+        (original / m.MODEL_FILE).write_bytes(self.core_bytes)
         (original / 'rust.dbscheme').write_text('schema')
         (self.db / 'codeql-database.yml').write_text('language: rust\nfinalised: true\n')
         self.deadline = time.time() + 5000
@@ -181,14 +184,18 @@ class Workload(unittest.TestCase):
         self.provenance = dict(candidate='/cargo/git/libp2p-0.57.0', legacy='/cargo/registry/libp2p-0.56.0')
         for name, value in [('capacity-budget', self.budget), ('default-suite', self.suite), ('library-closure', self.closure),
                             ('resources', self.resources), ('libp2p-provenance', self.provenance),
-                            ('capacity-prepare-terminal', dict(common, status='PREPARED')),
+                            ('capacity-prepare-terminal', dict(common, status='PREPARED', image_contract_version=m.IMAGE_CONTRACT)),
                             ('capacity-capture-terminal', self.capture), ('capacity-finish-terminal', self.finish),
-                            ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest() for n, t in m.capacity.semantic_queries(self.source).items()})]:
+                            ('semantic-query-contract', m.capacity.semantic_contract(self.source,image_version=m.IMAGE_CONTRACT)),
+                            ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest() for n, t in m.capacity.semantic_queries(self.source,image_version=m.IMAGE_CONTRACT).items()})]:
             self.write(self.checkpoint / (name + '.json'), value)
         self.write(self.checkpoint / 'hashes.json', {p.name: m.runtime.digest(p) for p in self.checkpoint.iterdir()})
         self.calls = []; self.failed_stage = self.mutate = self.oracle_failure = self.bad_decode = self.bad_header = None
         self.stack = contextlib.ExitStack(); self.addCleanup(self.stack.close)
         for target, key, value in ((m, 'DEFAULT_ENTRIES_SHA', self.entries_sha), (m, 'SUITE_SHA', self.suite_sha),
+                                   (m, 'MODEL_OFFICIAL_SHA', hashlib.sha256(self.core_bytes).hexdigest()),
+                                   (m, 'MODEL_CANDIDATE_SHA', hashlib.sha256(self.core_bytes.replace(m.MODEL_MARKER,m.MODEL_MARKER+m.MODEL_LINE)).hexdigest()),
+                                   (m.comparison, 'OFFICIAL_SHA', hashlib.sha256(b'stock').hexdigest()),
                                    (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
         self.stack.enter_context(patch.dict(os.environ, RUNNER_TEMP=str(self.runner), GITHUB_OUTPUT=str(self.output)))
@@ -208,7 +215,7 @@ class Workload(unittest.TestCase):
         return private
 
     def rows(self, name):
-        expected = m.capacity.expected(name)
+        expected = m.capacity.expected(name,image_version=m.IMAGE_CONTRACT)
         if expected is not None: return [[key, str(value)] for key, value in expected.items()]
         if name == 'Files':
             model = m.capacity.model
@@ -244,6 +251,7 @@ class Workload(unittest.TestCase):
                 if self.failed_stage == name: break
             output.write_text('batch output')
             if self.mutate == 'candidate': (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('mutated')
+            if self.mutate == 'model': (self.work / 'candidate-rust-all' / m.MODEL_FILE).write_text('mutated')
             if self.mutate == 'query': (self.work / 'default-queries/queries/Q00.ql').write_text('mutated')
             if self.mutate == 'database': (self.db / 'codeql-database.yml').write_text('mutated')
         elif name.startswith('info-'): self.write(output, {'result-sets': [{'name': '#select', 'rows': 1}]})
@@ -309,6 +317,12 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-v2')
+        self.assertEqual(terminal['image_contract_version'],'image-v2')
+        self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
+        model=m.read_json(self.out/'lines-model-identity.json')
+        self.assertEqual(model['changed_files'],sorted([m.MODEL_FILE,m.comparison.TYPE_FILE]))
+        self.assertEqual(set(model['official_files']),set(model['candidate_files']))
         self.assertEqual(terminal['production_capacity'], 'UNKNOWN'); self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
         self.assertEqual(terminal['final_hosted_job_margin'], 'NOT_OBSERVED')
         self.assertEqual(len(terminal['public_semantic_tables']), 7)
@@ -343,13 +357,13 @@ class Workload(unittest.TestCase):
     def test_recorded_image_flow_failure_remains_a_semantic_failure(self):
         self.prepare()
         original_rows = self.rows
-        missing_flows = {'original-flow', 'replacement-flow', 'whole-line-flow', 'output-line-flow'}
-
         def recorded_rows(name):
-            rows = original_rows(name)
             if name == 'Image':
-                return [[label, '0' if label in missing_flows else value] for label, value in rows]
-            return rows
+                # Exact historical v1 observations cannot be accepted as v2.
+                return [['format-original','1'],['format-replacement','1'],['original-flow','0'],
+                        ['replacement-flow','0'],['contains-line-callee','1'],['replacement-line-callee','1'],
+                        ['whole-line-flow','0'],['output-line-flow','0'],['wrong-function-flow','0']]
+            return original_rows(name)
 
         with patch.object(self, 'rows', side_effect=recorded_rows):
             self.assertEqual(self.invoke('run'), 1)
@@ -410,6 +424,69 @@ class Workload(unittest.TestCase):
         self.prepare(); (self.work / 'default-queries/queries/Q00.ql').write_text('changed')
         before = len(self.calls); self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
+
+    def test_v1_contract_is_rejected_before_candidate_preparation(self):
+        contract=m.capacity.semantic_contract(self.source)
+        self.write(self.checkpoint/'semantic-query-contract.json',contract)
+        self.write(self.checkpoint/'semantic-query-inputs.json',contract['query_sha256'])
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertFalse(self.work.exists())
+
+    def test_missing_contract_is_rejected_before_candidate_preparation(self):
+        (self.checkpoint/'semantic-query-contract.json').unlink()
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertFalse(self.work.exists())
+
+    def test_wrong_frozen_image_hash_is_rejected_before_candidate_preparation(self):
+        inputs=m.read_json(self.checkpoint/'semantic-query-inputs.json');inputs['Image']='0'*64
+        self.write(self.checkpoint/'semantic-query-inputs.json',inputs)
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+
+    def test_wrong_core_input_or_target_is_rejected(self):
+        original=Path(self.closure['codeql/rust-all']['root'])
+        (original/m.MODEL_FILE).write_bytes(self.core_bytes+b'changed\n')
+        self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertFalse((self.out/'lines-model-identity.json').exists())
+
+    def test_wrong_core_target_is_rejected_before_writing_the_candidate(self):
+        with patch.object(m,'MODEL_CANDIDATE_SHA','0'*64):
+            self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual((self.work/'candidate-rust-all'/m.MODEL_FILE).read_bytes(),self.core_bytes)
+        self.assertEqual(self.calls,[])
+
+    def test_third_candidate_change_is_not_admitted(self):
+        prepare=self.prepare_candidate
+        def with_extra(*args,**kwargs):
+            private=prepare(*args,**kwargs);(private/'rust.dbscheme').write_text('changed')
+            return private
+        with patch.object(m.comparison,'prepare_candidate',side_effect=with_extra):
+            self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+        self.assertIn('two-file model',m.read_json(self.out/'candidate-prepare-terminal.json')['primary_failure']['error'])
+
+    def test_missing_qualifier_change_is_not_admitted(self):
+        prepare=self.prepare_candidate
+        def without_qualifier(*args,**kwargs):
+            private=prepare(*args,**kwargs);(private/m.comparison.TYPE_FILE).write_text('stock')
+            return private
+        with patch.object(m.comparison,'prepare_candidate',side_effect=without_qualifier):
+            self.assertEqual(self.invoke('prepare'),1)
+        self.assertEqual(self.calls,[])
+
+    def test_core_model_mutation_before_batch_is_not_admitted(self):
+        self.prepare();(self.work/'candidate-rust-all'/m.MODEL_FILE).write_text('changed')
+        before=len(self.calls)
+        self.assertEqual(self.invoke('run'),1)
+        self.assertEqual(len(self.calls),before)
+
+    def test_core_model_mutation_during_batch_fails_after_identity(self):
+        self.prepare();self.mutate='model'
+        self.assertEqual(self.invoke('run'),1)
+        self.assertEqual(m.read_json(self.out/'candidate-run-terminal.json')['primary_failure']['stage'],'private_inputs-after')
 
     def test_missing_checkpoint_verification_or_wrong_bundle_is_rejected(self):
         m.admit_checkpoint(self.capture, self.finish, self.source, self.deadline)
