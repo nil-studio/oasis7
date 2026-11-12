@@ -3528,10 +3528,11 @@ class Selection(unittest.TestCase):
         self.assertNotIn('other_target_child', output)
 
     def test_selected_module_directory_must_match_its_actual_mount(self):
-        for name, literal in (('helper', True), ('lib', False), ('main', False)):
+        for name, literal in (('helper', True), ('lib', False), ('main', False), ('mod', False)):
             self.integration_target_fixture('\n[[test]]\nname="full"\nrequired-features=["test_tier_full"]\n')
             self.write('crates/core/tests/full.rs', '#[test] fn full_case() {}\n')
-            mount = '#[path="helper.rs"] mod helper;' if literal else 'mod ' + name + ';'
+            module_name = 'r#mod' if name == 'mod' else name
+            mount = '#[path="helper.rs"] mod helper;' if literal else 'mod ' + module_name + '; // tests'
             self.write('crates/core/tests/probe.rs', mount + '\n#[test] fn existing() {}\n')
             self.write('crates/core/tests/' + name + '.rs', 'mod checks;\n')
             sibling, nested = 'crates/core/tests/checks.rs', 'crates/core/tests/' + name + '/checks.rs'
@@ -3548,7 +3549,7 @@ class Selection(unittest.TestCase):
                 self.assertNotIn('ordinary_fast_targets', plan)
                 output = self.ordinary_route_cargo(
                     ['-p', 'core', '--test', 'probe', '--no-default-features', '--features', 'test_tier_required'])
-                self.assertIn(name + '::checks::actual_child ... ok', output)
+                self.assertIn(module_name + '::checks::actual_child ... ok', output)
                 self.assertNotIn('decoy', output)
 
     def test_integration_target_ambiguity_and_legacy_auto_settings_are_conservative(self):

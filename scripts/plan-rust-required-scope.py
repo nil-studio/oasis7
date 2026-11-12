@@ -2356,6 +2356,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         targets.extend(target for target in (prefix + '.rs', prefix + '/mod.rs') if target in sources)
                         resolved &= len(targets) == 1
                         known &= len(targets) == 1
+                        # `mod r#mod;` can load an ordinary file named mod.rs;
+                        # it is not the directory-style name/mod.rs branch.
+                        if selected_root is not None and name == 'mod' and path == prefix + '.rs':
+                            known = False
                         opaque |= len(targets) != 1 and not inherited_path
                     if inherited_path:
                         targets.append(path)
