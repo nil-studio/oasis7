@@ -433,7 +433,15 @@ run_game_client_cli_contracts() {
   fi
 }
 
+run_dev_test_worker_checks() {
+  if ! command -v worker-build >/dev/null || [[ "$(worker-build --version)" != "0.7.5" ]]; then
+    run_cargo install worker-build --version 0.7.5 --locked
+  fi
+  run bash crates/oasis7_dev_test_worker/scripts/verify.sh
+}
+
 run_oasis7_workspace_support_crate_tests() {
+  run_dev_test_worker_checks
   run_signed_read_protocol_contract_tests
   run_cargo test -p oasis7_custody_core --all-targets --locked
   run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
@@ -541,6 +549,7 @@ PY
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets; complete_targets=true ;;
       oasis7_agent_harness|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
+      oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;

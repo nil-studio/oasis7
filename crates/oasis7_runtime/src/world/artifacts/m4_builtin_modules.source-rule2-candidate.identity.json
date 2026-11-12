@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "34015bcae366b915d40c537b1b2b170c64b9574a869a9c8b52fb2adb685cae55",
+      "producer_recipe_hash": "e7aabb102775d81b3987d8add00c759ed93446e2385297a5fb2551b950230d4b",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -52,12 +52,12 @@
         {
           "kind": "source-file",
           "path": "Cargo.lock",
-          "sha256": "a4fbb8522209d1a520755a5d058960ee52b2379e3a48f82b61a2b1a6dad6a6c0"
+          "sha256": "ac7d1c69625041c5020dcdf4e4dad44543400f582a4858edf535946a8366a91b"
         },
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -168,7 +168,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -206,9 +206,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "6bc3f8c3ab5331c9f74936be35f8169e74261b9389e7269668efa482b40d0196",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "3326cf1617ff1b418d6262fccd2a666e18e4cd5ee3d80ddcdc583c2ebc40903a"
+      "source_hash": "11fafa5eadcd11cf84f164a91dcd8620cceb6eabbc11020807a6bd0da7935fe1",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "bfad46b60083949f881c29bf675cc2af8ff610ce990fec00d2aaad17dc854ee9"
     },
     {
       "module_id": "m4.factory.miner.mk1",
@@ -220,7 +220,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -258,9 +258,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "956709dc424942b56d24802a8ba7f1af9235de881a6b6aa6ba3fa269623203dd",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "a4c25275dd5093c34af88ab32995a748d5afbc8b0216a39a62864a1fbebdca09"
+      "source_hash": "2936ee6833f293684dec876f27b319152f7f542432a47f050c072aa9a2753760",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "e0dfc317fc24e592c2b3d6df6996071c7b4bfcd6d6e1a78c5836bc6f76ec333f"
     },
     {
       "module_id": "m4.factory.smelter.mk1",
@@ -272,7 +272,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -310,9 +310,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "092d11b0535b24dce891a16d28a973b4c630ff02a023fb965c9c2884b8d1db85",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "29061ba40065eed382644ff7736d21083710b81c1d2ae9881b93b44ff1c1003c"
+      "source_hash": "fcf1c4ad01667a9d89f2de340932e1f5e03fff07d18a4c6e447682b537396824",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "0e45702c63c16ac531f4826408843bf36ce10dbbbd2ed963051d4ea5ab6d4f52"
     },
     {
       "module_id": "m4.product.component.control_chip",
@@ -324,7 +324,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -362,9 +362,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "46ee16b4a5d84faabf9aae96416b9939fa18b10c44b52a9e208aa6ce9ed4438c",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "8caee9a814d18dc84dc2913ffc1aa6ad03194cb35c7a3aab31aa659ca3d14df9"
+      "source_hash": "c742ec8b31dcaf43b0e21f154fd67f95eaa4b43a30d10779a8c954302940dd22",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "b4cdfad5c97560839a55a7e62f1a297aea1d68e07034d1ab7f1b5e3b7f197378"
     },
     {
       "module_id": "m4.product.component.motor_mk1",
@@ -376,7 +376,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -414,9 +414,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "75f1f15c2e321c4b8d5b408ce84749c010b06f5a1f0151aa008342ffb5a51437",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "d110dac6a0e19a5efba0230781fcbf2259292be1c1b5c999898fb85bb27414bb"
+      "source_hash": "7907fc7291fb3218e315ff783dc8165135a2e0855ddb06bdd2eaa62df25a304b",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "1781fdc8f899016edf769aa2242e7c3703ee07b5c587ec3b75f4bf0ce8778929"
     },
     {
       "module_id": "m4.product.component.sensor_pack",
@@ -428,7 +428,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -466,9 +466,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "0db143032c52894f943ecdcb54a8d86c9575d3383efd19a9d7a0cef7b53b9187",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "9fc3f11e1702455f960550ed471ac9cdd134027e7be28dcf46ebe671c59606b3"
+      "source_hash": "f2b67578e57150318185f0007a9d538a5eaea74cb0fc76f705c783032e6264d5",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "2f86df103182311a93594b849ad02e81d52f419feec4285fed060cf8c96e85e0"
     },
     {
       "module_id": "m4.product.finished.logistics_drone",
@@ -480,7 +480,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -518,9 +518,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "5e56313482562b6db07df6c1776958e5e6b763ae41129f16a3add67bd0a786e8",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "3587d5e4985e879f3ad928f41faf1c38eb25d5bb547f7e58b390a7180acae09d"
+      "source_hash": "5ea98584428abba536140c4c7492a8a27a1413e81300e61396bead7a70ad9d28",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "a559c48c05f634335802c9d8180495c020a50637ffb2399d2d8ac3306a041c90"
     },
     {
       "module_id": "m4.product.finished.module_rack",
@@ -532,7 +532,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -570,9 +570,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "2d744aeef12ea741ac5e5c79923bbd9b0afcc8a9d7ca628be86a69759e1db517",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "b15903a488e4472802dbdebfb7906dfe377ce353ca59170f747cd3949138312f"
+      "source_hash": "ccaff8b093ccc60bfc802ac7ff2d6617eaa7e8f2b0ee633a9aa5dfaa1c89329f",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "7ab90a5523407c642639ac9e8044a9ddc8f425fa44f6e943b1fe354e94319d6b"
     },
     {
       "module_id": "m4.product.infrastructure.factory_core",
@@ -584,7 +584,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -622,9 +622,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "c77b2396f78f3f29862125bab775e0937e587d8a16081814e47db899c8ac3c3e",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "bf8ce02f0e352fbdf50b1f43181600a5e570d2d0612bfadc49df238f1f650698"
+      "source_hash": "79572d237bd5af7dc4d8dcb561c405f3df1e63a68f6da426e10431114fb99949",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "482b06503ffc6687b1aa6939715cca7dcaecc9a88c5bb2fb96aa3b5a21d546f4"
     },
     {
       "module_id": "m4.product.material.alloy_plate",
@@ -636,7 +636,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -674,9 +674,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "eae06b79e923c489cd99c30d1a027802b0fbcccd8741ded76818ac099644e6ba",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "079b81c6120c79800cff9d2590dc57ba369795f9250f4494586cbdbf1df4c8e1"
+      "source_hash": "0b45b2924d39e5a26fcb5251edb3cef45cb4efd2210ead4be7c2eb487020e9e6",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "4e0eb4f4108e9709f477070c8973ba9747fc6f53377244860e0c361a9a647d3a"
     },
     {
       "module_id": "m4.product.material.iron_ingot",
@@ -688,7 +688,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -726,9 +726,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "d52621056369f7129905b88063b731e08c08781cbfb62c1ea28f39fd7001c9a3",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "ae4d6a2e91db2a95584d2039c20699f2aa155c0d040cb5988e2d4fe7bf23d969"
+      "source_hash": "20910908f3e0128715b3ef0dc3eac89a65d4e8c1448eb03cf4a2bb9d44eb4dec",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "b075970c84a6db3791bfc9a848b2e22d024c0bbf94e13df071cf787aa51cf775"
     },
     {
       "module_id": "m4.recipe.assembler.control_chip",
@@ -740,7 +740,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -778,9 +778,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "9e7a014f8b609e1772506cc1f2df4f8e7805b40575da2597ac73a4f7976389f6",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "da13f408aac149e44d9e28295d2e8b45d2d461bfb3fa6d452c04c449fcff66b3"
+      "source_hash": "bd30872ce858b6cb8c236573a734b4f35f14d526b606a4ee265239959f7af343",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "03cb22c498412f067c477345d21de4f9470fa585f329a40d0c5556e5c1392312"
     },
     {
       "module_id": "m4.recipe.assembler.factory_core",
@@ -792,7 +792,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -830,9 +830,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "43a597c8418a122b78c45acf02baf65a4f2da9929b46a61372e02682f3e188c3",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "ad9909823d98c5c3eb33f44867290dc7195770707a31c8a5ac0e5b835bcc4c07"
+      "source_hash": "1992fa996911d7082f92551e2d7bdd81f9262fe22ef40fa8a69963fa6f4c9772",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "848c128e85f372f6e3de813771e566ca6d2523ce1389ce6074dc4c4c3600bed5"
     },
     {
       "module_id": "m4.recipe.assembler.gear",
@@ -844,7 +844,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -882,9 +882,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "af176ad9a506eee8a67b6ea4bca2519063f546b158c9b304bfd62b9bf4abc551",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "2a0009dfff7076bd163410bdefe0d837f21feda2ee1fa51ac26059d3000f986e"
+      "source_hash": "e1c5e7432e836b8bce24311fa76f3d5a6c254aa910f4388993b86d9cbf3f10e3",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "668cedfc1c07dee088f38b04dd446332a85afc38724d8055ceb4ff81c1e5ebfc"
     },
     {
       "module_id": "m4.recipe.assembler.logistics_drone",
@@ -896,7 +896,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -934,9 +934,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "f80a1e2bda1eb4ee047e4f9e203cac2ab48e823c4a0d9fcb93227028446e2d13",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "b18e9f2e2ffe2f3bfb16dd8fd4ad7a125ebc570b27e600741e3f0cb67da51a7f"
+      "source_hash": "2bcde1125153714a7c461b9b92424e569ca0e70af936abcc11b44a992eae1cdc",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "adf2021bd727542a34c4bfb3eac2d72fc15ab1dcf2754121ba8e1381e1f8bfab"
     },
     {
       "module_id": "m4.recipe.assembler.module_rack",
@@ -948,7 +948,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -986,9 +986,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "a4f9e6f2dcbfb1f0444cd56ae6b6679e799a83258b049cadd258976f5e0bc684",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "372c87cfa1e1f3a33d5b0da6f8ae0e1528c5f6503c92ddd0610c5bd1665c040e"
+      "source_hash": "e8fa5af2682109fd2f9d0dc8ca3d4540513de56983eb42674fa98b46dfda8872",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "fe45ea2a7db86b83400a656645c97e99f9e44aedccfb5943639adcd2f404451f"
     },
     {
       "module_id": "m4.recipe.assembler.motor_mk1",
@@ -1000,7 +1000,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -1038,9 +1038,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "5103b5ec4a5f6b221887d01b7010f48f2bf525590594b27ae28f848007cfc0ab",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "35010ba952ef07c33e7a03d20b18d187021bc8a7aef9da97e129e44025e165b8"
+      "source_hash": "fade0b44af15b4b29a83150a9becd367dee2b35c7ef8d32ab7e3b9212a80ea47",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "6b2a06db20b89b6ad24455985304e785c881a77a8cd72677338c221f638659f8"
     },
     {
       "module_id": "m4.recipe.assembler.sensor_pack",
@@ -1052,7 +1052,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -1090,9 +1090,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "f4252020371e8d819415b7499698db84fd7861472517f9c69bc9fafa0ccd1d9d",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "1d3e6f439c26f3ed616ea61d81d1b959fef4493d9fa56113629f87651b017f17"
+      "source_hash": "577aa2211e8150ce4b8574824caf4fda34f109b237c9d4743355523d9de9a1a5",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "061d01627863fc2fb8a63e991abf12815008a508844dac1dd03167bd5a2f3636"
     },
     {
       "module_id": "m4.recipe.smelter.alloy_plate",
@@ -1104,7 +1104,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -1142,9 +1142,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "059f28f41c380c96efb82a77e1f2f8e95decc18caa3be6ee48a87d43743a0472",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "084305e37f51a388a559ecb43199b83e719d46fa0f9df680c3dc87cee487e870"
+      "source_hash": "17a45d6de20e0be5d1c9ec3ebcacda9c2fe481ca6a1d52a7de0b0db55297e9ca",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "85fb9697ac040c422396f3fa3370c7da405646c27ff98d40f7791d4c93737495"
     },
     {
       "module_id": "m4.recipe.smelter.copper_wire",
@@ -1156,7 +1156,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -1194,9 +1194,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "9847d6b9c2129ea869064493448780971a76f1d7736b4e0071e82be9b5bd04ac",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "b52987769e6bf865cca2bbfffe5de19f5b059c201d77aada96bb495dcf58d658"
+      "source_hash": "6c602ec28a23f3a5267cbcc42806ea67cef6ac81cfbe36c8558699738c99fd7f",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "cf50380ba499926785324c5b265c1f2347d6a66a8e9616d96eff1b67ae64cdda"
     },
     {
       "module_id": "m4.recipe.smelter.iron_ingot",
@@ -1208,7 +1208,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -1246,9 +1246,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "0cb902d2153e270bf1f135bbc8de90142e11a660e20b8b40ecbb3360f32083b6",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "8aab39d3e34c6bd0a0e5d77f2dc1227853c601a61df7b44c998485b8cee81d24"
+      "source_hash": "ce336535ab791904c931aa4ba64508b71e5a5b60a3b8d1b0b44b7f2477193776",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "acc94a7bc8eb0c2dd5c0e81874e05b77d4d66463fdac11a295e115e9877a6cef"
     },
     {
       "module_id": "m4.recipe.smelter.polymer_resin",
@@ -1260,7 +1260,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "053b28cc8ad3c577c8b9f2585fbb687310f74288c0c6a37a7dc37f0e23c1ab2c"
+          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
         },
         {
           "kind": "source-file",
@@ -1298,9 +1298,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "f3f4e353d732f9c942f043011746c9fb60e97820d0a1089dd49c6ad310fb2190",
-      "build_manifest_hash": "2808cf186f2aca6695906c981b6c0e37758289d29ac91dc0231c64e907bf9b0b",
-      "identity_hash": "d7dcfb8b49fd531ea1ab551b41620aea8bd670b459b4483046ced43621f4e97d"
+      "source_hash": "878fa829ed472b340f8718dafb676470874af5556d6324dabc3cf97fb5d25b43",
+      "build_manifest_hash": "7a53bc6ffe4688064a687d402c0c1b2206d6c35b423d52ddd91750c7379d02c9",
+      "identity_hash": "cc25912181e8e5b0a487dc04550bdcee19e086b72d5c0431ffd974ec829fab98"
     }
   ]
 }

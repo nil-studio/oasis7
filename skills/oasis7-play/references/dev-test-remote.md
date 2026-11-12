@@ -15,3 +15,5 @@ Reserve calls for the common workflow's asynchronous Context lookup, a fresh sam
 Discovery/initialization authenticates the connector but does not read accounts or execute business tools. Only valid tool calls reach the common private service, which reauthenticates and performs cumulative admission. The remote adapter does not maintain a separate grant, session, operation or usage journal.
 
 A local trusted TLS proxy fixture is protocol evidence only. It does not certify a public deployment, actual Dot connector permissions, external model isolation or gameplay. Those remain separately blocked until an authorized real combination and its canonical world evidence exist; this Skill grants no model spending or deployment authority.
+
+Workers platform hibernation or instance replacement does not renew a session: a durably stored unclosed reference can continue only under its unchanged binding, original expiry and current authorization. A logical service restart or authorization rotation can invalidate it. Follow the same `session_unavailable` recovery rule when rejected; never infer renewed rights or a fresh budget from platform recovery.
