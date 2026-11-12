@@ -664,7 +664,9 @@ impl FeedbackStore {
         validate_ip(submit_ip)?;
         validate_token(actor_public_key_hex, "actor_public_key_hex")?;
         let counts = self.collect_recent_accepted_audit_counts(now_ms)?;
-        let ip_count = counts.ip_counts.get(submit_ip).copied().unwrap_or(0);
+        let ip_identity = rate_limit_ip_identity(submit_ip)?;
+        let public_key_identity = rate_limit_public_key_identity(actor_public_key_hex)?;
+        let ip_count = counts.ip_counts.get(&ip_identity).copied().unwrap_or(0);
         if ip_count >= self.config.max_actions_per_ip_window {
             return Err(WorldError::DistributedValidationFailed {
                 reason: format!(
@@ -675,7 +677,7 @@ impl FeedbackStore {
         }
         let pubkey_count = counts
             .pubkey_counts
-            .get(actor_public_key_hex)
+            .get(&public_key_identity)
             .copied()
             .unwrap_or(0);
         if pubkey_count >= self.config.max_actions_per_pubkey_window {
@@ -713,10 +715,13 @@ impl FeedbackStore {
             if record.timestamp_ms < min_timestamp {
                 continue;
             }
-            increment_counter(&mut counts.ip_counts, record.submit_ip.as_str());
+            let ip_identity = rate_limit_ip_identity(record.submit_ip.as_str())?;
+            let public_key_identity =
+                rate_limit_public_key_identity(record.actor_public_key_hex.as_str())?;
+            increment_counter(&mut counts.ip_counts, ip_identity.as_str());
             increment_counter(
                 &mut counts.pubkey_counts,
-                record.actor_public_key_hex.as_str(),
+                public_key_identity.as_str(),
             );
         }
         Ok(counts)
@@ -1098,6 +1103,20 @@ fn validate_token(value: &str, field: &str) -> Result<(), WorldError> {
         });
     }
     Ok(())
+}
+
+// Canonicalize only accounting identities, not signed payloads or stored records.
+// Apply the same mapping when reading historical audit entries and checking requests.
+fn rate_limit_ip_identity(value: &str) -> Result<String, WorldError> {
+    IpAddr::from_str(value.trim())
+        .map(|address| address.to_string())
+        .map_err(|error| WorldError::DistributedValidationFailed {
+            reason: format!("submit_ip is invalid ip address: {error}"),
+        })
+}
+
+fn rate_limit_public_key_identity(value: &str) -> Result<String, WorldError> {
+    decode_hex_array::<32>(value.trim(), "feedback public key").map(hex::encode)
 }
 
 fn validate_ip(value: &str) -> Result<(), WorldError> {
