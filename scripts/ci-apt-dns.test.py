@@ -15,6 +15,10 @@ spec = importlib.util.spec_from_file_location('ci_apt_dns', Path(__file__).with_
 dns = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dns)
 
+DEFAULT_SOURCE_CONFIG = ('Dir "/";\nDir::Etc "etc/apt";\n'
+                         'Dir::Etc::sourcelist "sources.list";\n'
+                         'Dir::Etc::sourceparts "sources.list.d";\n')
+
 class RecoveryTests(unittest.TestCase):
     def test_unknown_resolvectl_shape_is_diagnosed_without_disclosing_values(self):
         logs = []
@@ -60,6 +64,65 @@ class RecoveryTests(unittest.TestCase):
                      'Acquire::https::ProxyAutoDetect "/private/detect";\n',
                      'Binary::apt-get::Acquire::http::Proxy-Auto-Detect "auto";\n', '', 'malformed'):
             self.assertFalse(dns.effective_proxy_clear(dump))
+
+    def test_effective_source_paths_allow_only_complete_default_tree(self):
+        for dump in (DEFAULT_SOURCE_CONFIG, DEFAULT_SOURCE_CONFIG.lower(),
+                     DEFAULT_SOURCE_CONFIG + 'RootDir "";\n',
+                     DEFAULT_SOURCE_CONFIG.replace('"etc/apt"', '"/etc/apt/"')
+                     .replace('"sources.list"', '"/etc/apt/sources.list"')
+                     .replace('"sources.list.d"', '"/etc/apt/sources.list.d/"')):
+            self.assertTrue(dns.effective_source_paths_default(dump), dump)
+        for line in DEFAULT_SOURCE_CONFIG.splitlines(keepends=True):
+            for value in ('', '/private/source', '../sources.list', r'sources\.list'):
+                with self.subTest(line=line, value=value):
+                    key = line.split()[0]
+                    dump = DEFAULT_SOURCE_CONFIG.replace(line, key + ' "' + value + '";\n')
+                    self.assertFalse(dns.effective_source_paths_default(dump))
+            self.assertFalse(dns.effective_source_paths_default(DEFAULT_SOURCE_CONFIG.replace(line, '')))
+            self.assertFalse(dns.effective_source_paths_default(DEFAULT_SOURCE_CONFIG + line))
+        for extra in ('RootDir "/private/root";\n', 'RootDir "/";\n', 'malformed',
+                      'Dir::Etc "private \"quoted\" source";\n'):
+            self.assertFalse(dns.effective_source_paths_default(DEFAULT_SOURCE_CONFIG + extra))
+        for binary in ('apt-get', 'apt-config', 'apt'):
+            for name in ('Dir', 'Dir::Etc', 'Dir::Etc::sourcelist', 'Dir::Etc::sourceparts', 'RootDir'):
+                self.assertFalse(dns.effective_source_paths_default(
+                    DEFAULT_SOURCE_CONFIG + f'Binary::{binary}::{name} "/private/source";\n'))
+        self.assertFalse(dns.effective_source_paths_default(''))
+        self.assertFalse(dns.effective_source_paths_default('APT "";\n'))
+
+    @unittest.skipUnless(Path('/usr/bin/apt-config').is_file() and Path('/usr/bin/apt-get').is_file(),
+                         'real APT configuration tests require apt-config and apt-get')
+    def test_real_apt_effective_source_overrides_are_rejected_without_network(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            empty = root / 'empty'; empty.mkdir()
+            config = root / 'apt.conf'
+            # Read only this fixture's configuration, never the machine's apt.conf.d.
+            base = f'Dir::Etc::parts "{empty}";\nDir::Etc::main "{empty / "absent"}";\n'
+            env = dict(os.environ, APT_CONFIG=str(config), LC_ALL='C')
+            def run(command):
+                result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return result.stdout
+            config.write_text(base)
+            self.assertTrue(dns.effective_source_paths_default(run(['/usr/bin/apt-config', 'dump'])))
+            etc = root / 'etc/apt'; etc.mkdir(parents=True)
+            private = 'deb http://private.invalid/ubuntu noble main\n'
+            (etc / 'sources.list').write_text(private)
+            parts = etc / 'sources.list.d'; parts.mkdir()
+            (parts / 'private.list').write_text(private)
+            for override in (f'Dir::Etc::sourcelist "{etc / "sources.list"}";',
+                             f'Dir::Etc::sourceparts "{parts}";', f'Dir::Etc "{etc}";',
+                             f'Dir "{root}";',
+                             f'Binary::apt-get::Dir::Etc::sourcelist "{etc / "sources.list"}";'):
+                with self.subTest(override=override):
+                    config.write_text(base + override + '\n')
+                    dump = run(['/usr/bin/apt-config', 'dump'])
+                    self.assertTrue(dns.effective_proxy_clear(dump))
+                    self.assertFalse(dns.effective_source_paths_default(dump))
+                    # --print-uris enumerates the actual sources without downloads or DNS.
+                    self.assertIn('http://private.invalid/ubuntu/dists/noble/InRelease',
+                                  run(['/usr/bin/apt-get', '--print-uris', 'update']))
 
     def test_real_cli_shape_entry_and_file_read_boundaries_are_json(self):
         script = str(Path(dns.__file__).resolve())
@@ -261,9 +324,7 @@ with patch.object(Path, 'read_text', read):
                  patch.object(dns, 'default_mirror_allowed', return_value=True) as mirror:
                 installer = Mock()
                 installer.work_end = time.monotonic() + 5
-                installer.run_command.return_value = (0, 'Dir "/";\nDir::Etc "etc/apt";\n'
-                                                       'Dir::Etc::sourcelist "sources.list";\n'
-                                                       'Dir::Etc::sourceparts "sources.list.d";\n', True)
+                installer.run_command.return_value = (0, DEFAULT_SOURCE_CONFIG, True)
                 recovery = dns.Recovery(installer, True)
                 self.assertTrue(recovery.eligible(), recovery.reason)
                 mirror.assert_called_once()
@@ -274,6 +335,24 @@ with patch.object(Path, 'read_text', read):
                     self.assertEqual((Path(recovery.directory.name) / 'resolv.conf').read_text(), 'nameserver 1.1.1.1\nsearch .\n')
                     recovery.close()
                 mapping[dns.TARGET].write_text(files[dns.TARGET])
+                for key, value in (('Dir::Etc::sourcelist', '/private/sources.list'),
+                                   ('Dir::Etc::sourceparts', '/private/sources.list.d'),
+                                   ('Dir::Etc', '/private/apt'), ('Dir', '/private/root')):
+                    with self.subTest(key=key):
+                        original = next(line for line in DEFAULT_SOURCE_CONFIG.splitlines()
+                                        if line.startswith(key + ' '))
+                        dump = DEFAULT_SOURCE_CONFIG.replace(original, key + ' "' + value + '";')
+                        installer.run_command.return_value = (0, dump, True)
+                        installer.run_command.reset_mock()
+                        with patch.object(recovery, 'claim_lock') as claim:
+                            self.assertFalse(recovery.try_enable('E: Failed to fetch x Temporary failure resolving x'))
+                            claim.assert_not_called()
+                        self.assertEqual(recovery.reason, 'effective_apt_source_paths_custom_or_unknown')
+                        installer.run_command.assert_called_once_with(
+                            'apt-proxy-config', ['/usr/bin/apt-config', 'dump'], report_output=False)
+                        self.assertEqual(recovery.prefix, [])
+                        self.assertIsNone(recovery.directory)
+                installer.run_command.return_value = (0, DEFAULT_SOURCE_CONFIG, True)
                 for uri in ('mirror+file:/etc/apt/private-mirrors.txt', 'custom://internal.example/repo',
                             'custom:internal.example/repo', 'ssh:/internal.example/repo',
                             'https://archive.ubuntu.com/ubuntu#private', 'https://archive.ubuntu.com/ubuntu?token=x'):
