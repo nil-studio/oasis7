@@ -255,7 +255,9 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     selectPresented(ref) {
       if (disposed) return null;
-      cancelQuery();
+      // A pending inspection consumes this current query's later pages.
+      // Only an undispatched replacement is a different query intent.
+      if (explicitQuery && queryStatus()==='pending') cancelQuery();
       cancelOverview(null,true);
       const next = state(), view = next.view;
       if (!view) {

@@ -31,6 +31,12 @@ it('settles a queued intent at its acceptance deadline without starting parallel
  await vi.advanceTimersByTimeAsync(30000);expect(await pending).toBeNull();expect(f.controller.queryStatus()).toBe('unavailable');
  expect(f.core.requestWorldView).toHaveBeenCalledTimes(1);f.release();await old;
 });
+it('does not replay an expired undispatched predicate through a later dirty refresh',async()=>{
+ vi.useFakeTimers();const f=fixture(),old=f.controller.query({search:'old'}),pending=f.controller.query({search:'expired'});
+ await vi.advanceTimersByTimeAsync(30000);expect(await pending).toBeNull();
+ f.controller.refresh({time:2});f.release();await old;await vi.advanceTimersByTimeAsync(0);
+ expect(f.core.requestWorldView.mock.calls.map(([q])=>q.search)).toEqual(['old','old']);
+});
 it('coalesces background refresh without invalidating the current explicit result',async()=>{
  const f=fixture(),read=f.controller.query({search:'mine'});f.controller.refresh({time:2});
  f.release();const result=await read;expect(result).not.toBeNull();expect(f.core.requestWorldView.mock.calls.every(([q])=>q.search==='mine')).toBe(true);
