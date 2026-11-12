@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,mkdirSync,symlinkSync,unlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {startOwnedViewerFixtureServer,fingerprintViewerAssets,createOwnedViewerEvidence} from './viewer-owned-fixture-server.mjs';
-const setup=async()=>{const dir=mkdtempSync(join(tmpdir(),'viewer-product-server-'));const root=join(dir,'assets'),out=join(dir,'evidence');mkdirSync(root);mkdirSync(out);writeFileSync(join(root,'viewer.html'),'<head></head>');writeFileSync(join(root,'test.wasm'),Buffer.from([0,97,115,109,1,0,0,0]));return{root,server:await startOwnedViewerFixtureServer({artifactRoot:root,source:'test',out,expectedAssets:fingerprintViewerAssets(root)})};};
+import {startOwnedViewerFixtureServer,fingerprintViewerAssets,createOwnedViewerEvidence,isExpectedViewerMissingAsset} from './viewer-owned-fixture-server.mjs';
+const setup=async()=>{const dir=mkdtempSync(join(tmpdir(),'viewer-product-server-'));const root=join(dir,'assets'),out=join(dir,'evidence');mkdirSync(root);mkdirSync(out);writeFileSync(join(root,'viewer.html'),'<head></head>');writeFileSync(join(root,'test.wasm'),Buffer.from([0,97,115,109,1,0,0,0]));return{root,out,server:await startOwnedViewerFixtureServer({artifactRoot:root,source:'test',out,expectedAssets:fingerprintViewerAssets(root)})};};
 test('same owned origin serves real bytes/no-store and refuses mutation/path escape',async()=>{
  const {server}=await setup();const url=server.url.replace('density-qa.localhost','127.0.0.1');
  try{const response=await fetch(url);const html=await response.text();assert.match(html,/trusted_local_only/);assert.match(html,/density-qa.localhost/);const wasm=await fetch(new URL('/test.wasm',url));assert.equal(wasm.headers.get('cache-control'),'no-store');assert.equal((await wasm.arrayBuffer()).byteLength,8);assert.equal((await fetch(url,{method:'POST'})).status,405);assert.equal((await fetch(new URL('/%2e%2e%2foutside',url))).status,403);server.verifyAssets();server.assertHealthy();}finally{await server.close();}
@@ -24,3 +24,14 @@ test('first HTTP evidence append failure remains terminal even if a second appen
  assert.equal(calls,1);assert.equal(stops,1);
 });
 test('falsy collection failures also stay terminal and preserve their original value',()=>{for(const original of [null,undefined,0,'',false]){let calls=0;const evidence=createOwnedViewerEvidence({append:()=>{calls++;throw original;},persistFailure:()=>{},stopSource:()=>{}});assert.throws(()=>evidence.write({status:200}),e=>Object.is(e,original));assert.throws(()=>evidence.write({status:404}),e=>Object.is(e,original));assert.equal(calls,1);}});
+test('non-missing resource read failure is terminal rather than healthy404',{skip:process.platform==='win32'},async()=>{
+ const {server,root}=await setup(),path=join(root,'read-loop.js'),url=new URL('/read-loop.js',server.url.replace('density-qa.localhost','127.0.0.1'));
+ symlinkSync('read-loop.js',path);
+ try{assert.equal((await fetch(url)).status,500);assert.throws(()=>server.assertHealthy(),e=>e.code==='ELOOP');assert.equal((await fetch(new URL('/test.wasm',url))).status,503);assert.equal(server.statistics().readFailure.code,'ELOOP');}finally{unlinkSync(path);server.verifyAssets();await server.close();}
+});
+test('only actual missing path errors may become ordinary404',()=>{for(const code of ['ENOENT','ENOTDIR'])assert.equal(isExpectedViewerMissingAsset({code}),true);for(const code of ['EIO','EACCES','ELOOP','EMFILE',undefined])assert.equal(isExpectedViewerMissingAsset({code}),false);});
+test('resource read error survives a second evidence-write failure',{skip:process.platform==='win32'},async()=>{
+ const {server,root,out}=await setup(),path=join(root,'read-loop.js'),url=new URL('/read-loop.js',server.url.replace('density-qa.localhost','127.0.0.1'));
+ symlinkSync('read-loop.js',path);mkdirSync(join(out,'server.jsonl'));
+ try{assert.equal((await fetch(url)).status,500);assert.throws(()=>server.assertHealthy(),e=>e.code==='ELOOP');assert.equal(server.statistics().readFailure.code,'ELOOP');assert.match(server.statistics().readFailure.collectionError,/EISDIR/);}finally{unlinkSync(path);server.verifyAssets();await server.close();}
+});
