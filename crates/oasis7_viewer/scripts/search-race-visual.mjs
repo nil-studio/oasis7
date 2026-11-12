@@ -1,7 +1,7 @@
-/** Finite controlled WS/GPU query-overview cases; no signed authority, P5/P6 or long-window result.
+/** Finite controlled WS/GPU explicit search cases; no signed authority, P5/P6 or long-window result.
  * SEARCH_RACE_ARTIFACT_ROOT=<immutable canonical dist>
  * SEARCH_RACE_SOURCE_HEAD=<built commit> SEARCH_RACE_COMPOSED_MANIFEST=<manifest>
- * SEARCH_RACE_CASE=complete|cancel|terminal node scripts/search-race-visual.mjs
+ * SEARCH_RACE_CLEAR=1 or SEARCH_RACE_SCOPE=1 selects clear or query-error; default is search.
  * The manifest variable accepts canonical provenance; the summary preserves its actual kind.
  */
 import { createServer } from 'node:http';
@@ -30,9 +30,9 @@ const declaredFiles = Array.isArray(provenance.files) ? Object.fromEntries(prove
 assert(!Array.isArray(provenance.files) || Object.keys(declaredFiles).length===provenance.files.length, 'duplicate manifest paths');
 const source = execFileSync('git', ['rev-parse', process.env.SEARCH_RACE_SOURCE_HEAD + '^{commit}'], { cwd: repo, encoding: 'utf8' }).trim();
 assert(provenance.source === source && isDeepStrictEqual(declaredFiles, assets), 'artifact provenance mismatch');
-const viewportWidth=Number(process.env.SEARCH_RACE_WIDTH||1440);assert([390,1440].includes(viewportWidth),'unsupported viewport');const qaCase = process.env.SEARCH_RACE_CASE || 'complete'; assert(['complete','cancel','terminal'].includes(qaCase),'unknown case');
+const viewportWidth=Number(process.env.SEARCH_RACE_WIDTH||1440);assert([390,1440].includes(viewportWidth),'unsupported viewport');const qaCase=process.env.SEARCH_RACE_SCOPE==='1'?'query-error':process.env.SEARCH_RACE_CLEAR==='1'?'clear':'search';
 const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
-  scripts: Object.fromEntries(['search-race-visual.mjs', 'scope-pending-fixture.mjs', 'agent-browser-visual-runner-lifecycle.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
+  scripts: Object.fromEntries(['search-race-visual.mjs', 'scope-pending-fixture.mjs', 'agent-browser-visual-runner-lifecycle.mjs', 'viewer-owned-cdp-input.mjs', 'viewer-owned-cdp-session.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
   assets, provenance, case: qaCase, viewportWidth,
   scope: 'Finite controlled observer/debug query-overview transport; not real grant/revocation, P5, density, P6 or long-window proof.', phases: {} };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = 'query-overview-' + process.pid;
