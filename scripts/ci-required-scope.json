@@ -7,6 +7,35 @@
       "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_confirmation_proposal_timeout_recovers_after_original_governance_commit"
     ]
   },
+  "ordinary_scale_contract": {
+    "version": 1,
+    "targets": [
+      {
+        "package": "oasis7",
+        "target_kind": "test",
+        "target_name": "incremental_full_scales",
+        "default_features": true,
+        "features": [
+          "test_tier_full"
+        ],
+        "cases": [
+          "module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable",
+          "point_and_receiver_skip_unchanged_symbol_through_thirty_two_mib",
+          "scalar_receiver_cost_excludes_unchanged_site_text_and_allowlist",
+          "unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver",
+          "cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json"
+        ]
+      }
+    ],
+    "isolated_sources": {
+      "crates/oasis7_distfs/src/feedback.rs": "f8d35ceb9a3becf189acd6b908aa6f8c42c338d00353a34044a95e169d8d8d62",
+      "crates/oasis7_distfs/src/feedback/rate_limit.rs": "17f19f12060a6de2bca8af165c612385a79c2f8bff038a209c46d6d86bbb8243",
+      "crates/oasis7_distfs/src/feedback/tests.rs": "203c067a658b0f781bba1fb5172240ee42940cbdec0e5f9854f5ef771d84decf"
+    },
+    "anchors": {
+      "crates/oasis7_distfs/src/lib.rs": "77bca2db2f8c12de3ce8c1666d6dcac8d6505e0dc80987dd36887aa3092d6939"
+    }
+  },
   "fast_test_inventory_version": 1,
   "fast_execution_version": 1,
   "ordinary_unit_test_contract_version": 1,
