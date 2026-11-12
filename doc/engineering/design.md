@@ -50,7 +50,7 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 
 从父目标组织可用模块增量、逐步细化近期任务和判断拆分收益，统一按[项目拆解](workflow/source-of-truth.md#project-decomposition)执行；模块增量使用父项现有正文，不增加必建的 Issue 层级。[独立开发会话](workflow/source-of-truth.md#independent-development-sessions)、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)同样由 workflow 定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接近期派工、早期真实消费检查、组合验收与收尾。直接开发会话与可选 TPM 使用同一[领取与状态维护规则](workflow/source-of-truth.md#coding-agent-task-claim)，现有 Issue/PR 模板承载必要安排和真实结果。
 
-修改这些载体时，走读简单任务直接实施、后续范围未细化而当前批次就绪、同一业务的底层步骤留在原任务、共享接口早期检查、多个开发会话及可选 TPM、原会话修复与中断恢复；核对父子领取、写入隔离、共享预算、局部/整体验收和待集成成果优先收尾。专项试玩与 dot 时间表沿原规则执行，运行适用文档检查。静态验收只证明规则和入口一致；首次可用结果、接口返工和必要重构建次数的改善仍需实际任务数据，不新增固定效率报表或门禁。
+修改这些载体时，走读简单任务直接实施、后续范围未细化而当前批次就绪、同一业务的底层步骤留在原任务、共享接口早期检查、多个开发会话及可选 TPM、原会话修复与中断恢复；核对父子领取、写入隔离、共享预算、局部/整体验收和待集成成果优先收尾。共同准备结果分别检查仍有效、输入或环境变化及覆盖不足；等待信号从已有记录取得，缺时刻不补造。专项试玩与 dot 时间表沿原规则执行，运行适用文档检查。静态验收只证明规则和入口一致；首次可用结果、接口返工、评审/集成等待和必要重构建次数的改善仍需实际任务数据，不新增固定效率报表或门禁。治理复盘复用已有来源，专题明确的周期义务仍由其主责要求拥有。
 
 #### Viewer 试点与有限走读
 
