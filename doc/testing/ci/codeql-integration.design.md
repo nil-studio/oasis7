@@ -635,6 +635,10 @@ GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job 
 
 建议完整 main 覆盖 24 小时内有成功记录；超期标记不健康而不是继续显示旧绿灯。权限不足或 API 不可用标成 unknown，不认定没有告警。
 
+Rust default 的平台补采入口为 `codeql-platform-observation.yml`，只接受本仓 `main` 的手动 dispatch，输入已完成生产 run、最新 attempt 和完整 source SHA；ref/category 固定为 `refs/heads/main` / `oasis7/rust-repo/default`。从 dispatch 的可信 main SHA checkout，复用现有 upload association reader 验证 job/check/provider、官方 SARIF ID、artifact digest 与唯一 analysis；不得按同 SHA、时间或上传步骤成功推断平台接收。入口只有 contents/actions/checks/security-events read 权限，不执行提取、查询、上传 SARIF 或设置变更。
+
+补采 API 共用 240 秒绝对预算，job 上限 7 分钟；完整分页或身份校验失败保留 unknown，并尽可能上传失败报告。报告保留 analysis 的错误、警告、结果数与读取到的 open findings；alerts 的 most_recent_instance 仅表示当前观察，不能冒充本次扫描新发现，也不能证明完整历史或零告警。关联成功只补足 CQ-R05 的平台观察，不代签 manifest/宏/target 覆盖或持续启用验收。
+
 ## 10. 执行安全与供应链
 
 使用 ephemeral GitHub-hosted Ubuntu runner；不访问用户本机、链网、云账户或发布 environment。默认 `permissions: contents: read`；仅扫描上传相关 job 授予 `security-events: write`，必要时给予只读 Actions/PR 权限。plan/summary 不给写权限。

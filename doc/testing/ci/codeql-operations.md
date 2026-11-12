@@ -65,6 +65,14 @@ python3 scripts/security/codeql-health.py --fixture "$FIXTURE_PATH" \
 
 `--sha` 须为完整小写 Git OID，`--ref` 用完整 refs 名称。fixture 只证明报告逻辑，不能代替 hosted proof。健康 CLI 返回 JSON；退出码零只表示报告生成，须检查 `status`、`errors` 和每个单元字段。live jobs 当前只关联 branch ref 的精确 SHA；PR merge ref 的 execution 可能保持 unknown。
 
+### Rust default 平台只读补采
+
+本地身份无法读取 code-scanning API 时，可从可信 `main` 手动运行 `CodeQL Platform Observation`，填写已完成生产扫描的 `producer_run_id`、最新 `producer_run_attempt` 和完整 `producer_sha`。该入口固定读取本仓 main 的 Rust/default，checkout 采证 workflow 自身的 main SHA；只有 contents/actions/checks/security-events read 权限，不启动扫描、不上传 SARIF。producer 仍在运行、attempt 已变化、身份或分页不完整时失败并保留 unknown，不退回旧 attempt。
+
+采证 job 最多 7 分钟，其中 API 共用 240 秒。读取复用 `codeql_upload_association.py` 与 `codeql-health.py`，从可信 artifact 的官方 SARIF ID 精确查询 analyses，保留平台 `error` / `warning` / `results_count` 与 open alerts 观察；失败也尝试上传独立 `oasis7-codeql-platform-observation-<collector_run>-<collector_attempt>` artifact 中的 `platform-observation.json`。退出零仅表示目标上传有唯一、无错误的平台关联且所请求读取完成，仍须查看 warnings、findings 范围与覆盖证据。
+
+报告的 `analysis_results_count` 属于已关联 analysis；`observed_open_findings` 是读取时 most_recent_instance 恰好匹配目标 SHA/ref/category 的现存 open alerts，不能称为该 attempt 的新增告警。最多读取 10 页、每页 100 条；超限或 API 失败丢弃不完整 findings 并报告 unknown。即使未观察到匹配告警，也不声明零告警，因为此入口不枚举完整 alert instances。完整启用验收仍需单独审查生产覆盖与后续持续运行。
+
 ## 状态解释与排障
 
 | 观察 | 解释与下一步 |

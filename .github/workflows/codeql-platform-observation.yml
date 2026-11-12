@@ -1,0 +1,61 @@
+name: CodeQL Platform Observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      producer_run_id:
+        description: Completed main CodeQL production run ID
+        required: true
+        type: string
+      producer_run_attempt:
+        description: Exact latest completed attempt of that run
+        required: true
+        type: string
+      producer_sha:
+        description: Full lowercase source SHA of that run
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  observe:
+    name: CodeQL / platform observation
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      github.repository == 'nil-studio/oasis7'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      security-events: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4, official tag resolved 2026-10-01
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Read exact production upload and findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_PROMPT_DISABLED: '1'
+          PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
+          PRODUCER_RUN_ATTEMPT: ${{ inputs.producer_run_attempt }}
+          PRODUCER_SHA: ${{ inputs.producer_sha }}
+        shell: bash
+        run: |
+          python3 -I scripts/security/codeql-platform-observation.py \
+            --producer-run-id "$PRODUCER_RUN_ID" \
+            --producer-run-attempt "$PRODUCER_RUN_ATTEMPT" \
+            --producer-sha "$PRODUCER_SHA" \
+            --output "$RUNNER_TEMP/codeql-platform-observation/platform-observation.json"
+      - name: Preserve platform observation including failures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oasis7-codeql-platform-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/codeql-platform-observation/platform-observation.json
+          if-no-files-found: error
+          retention-days: 30
