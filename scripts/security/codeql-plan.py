@@ -199,6 +199,10 @@ def plan(args):
             add('rust-repo', path)
         elif suffix in ('.py', '.pyi') or name in ('pyproject.toml', 'requirements.txt', 'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'setup.cfg', 'setup.py'):
             add('python-repo', path)
+        elif path == 'crates/oasis7_viewer/viewer_terminal_shell.css':
+            # Exact Viewer HTML/build/test input; other CSS stays unregistered.
+            # Possible Rust consumers are still added below.
+            add('javascript-repo', path)
         elif suffix in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.html', '.htm', '.vue', '.svelte', '.hbs', '.ejs') or name in ('package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'tsconfig.json'):
             add('javascript-repo', path)
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):

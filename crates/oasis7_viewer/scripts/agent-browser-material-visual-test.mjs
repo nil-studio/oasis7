@@ -6,7 +6,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { materialRecoveryHook, runMaterialRecovery } from './pixel-world-material-recovery.mjs';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
-import { factoryPhaseProgram, terrainPhaseProgram, factoryFocusProgram, factorySelectedExpression } from './material-visual-phase-programs.mjs';
+import { factoryPhaseProgram, terrainPhaseProgram, factoryFocusProgram, factorySelectedExpression, runtimeBaselineProgram, runtimePhaseProgram, assertRuntimeInitialInput } from './material-visual-phase-programs.mjs';
 
 // Controlled material fixture evidence; no live authorization/world outcome claim.
 const scripts = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +55,7 @@ let runtimeInput;
 let recoveryPhase="known";
 // Local QA page uses the existing public mount/update ABI; no production hook,
 // action endpoint or authorization path is added. Input originates at the gated fixture.
-const runtimeHtml = `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}canvas{width:100%;height:100%}</style></head><body><canvas id="pixel-world-embedded-runtime-canvas"></canvas><script type="module">import{createPixelWorldBridge}from'/pixel-world-bridge/webgl2/pixel_world_bridge.js';window.events=[];window.fatal=null;window.s=await(await fetch('/material-runtime.json')).json();window.bridge=await createPixelWorldBridge({onEvent:e=>{events.push(e);if(e.type==='camera_state_changed')window.camera=e.camera},onFatal:e=>window.fatal=e});window.mountResult=bridge.mount(document.querySelector('canvas'),s);</script></body></html>`;
+const runtimeHtml = `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}canvas{width:100%;height:100%}</style></head><body><canvas id="pixel-world-embedded-runtime-canvas"></canvas><script type="module">import{createPixelWorldBridge}from'/pixel-world-bridge/webgl2/pixel_world_bridge.js';window.events=[];window.fatal=null;window.s=await(await fetch('/material-runtime.json')).json();${runtimeBaselineProgram}window.bridge=await createPixelWorldBridge({onEvent:e=>{events.push(e);if(e.type==='camera_state_changed')window.camera=e.camera},onFatal:e=>window.fatal=e});window.mountResult=bridge.mount(document.querySelector('canvas'),s);</script></body></html>`;
 const server = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   if(pathname === '/material-runtime.json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(runtimeInput));return;}
@@ -125,10 +125,12 @@ try {
    await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(runtimeUrl)}),50);true`); await run(['wait','500']); await waitFor(`window.mountResult?.status==='ready' && window.camera && !window.fatal`); await run(['wait','800']);
    const row={name,scope:'runtime-'+material,input:original,phases:{}};
    for(const phase of ['initial','absent','restored','deleted','recreated']) {
-    if(phase!=='initial') await evaluate(`(()=>{s=${JSON.stringify(original)};if(${JSON.stringify(phase)}==='absent'){if(${JSON.stringify(material)}==='ore')s.fragment_terrain[0].dominant_compound='unknown';else s.micro_depot_facilities=[];}if(${JSON.stringify(phase)}==='deleted'){s.fragment_terrain=[];s.micro_depot_facilities=[];}bridge.update(s);return true;})()`);
+    const phaseProgram=runtimePhaseProgram(material,phase);
+    if(phaseProgram!==null) await evaluate(phaseProgram);
     await run(['wait','700']);
     row.phases[phase]=JSON.parse(await evaluate(`JSON.stringify({input:s,camera,fatal,canvas:{width:document.querySelector('canvas').width,height:document.querySelector('canvas').height,cssWidth:document.querySelector('canvas').getBoundingClientRect().width,cssHeight:document.querySelector('canvas').getBoundingClientRect().height},viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio})`));
     assert(!row.phases[phase].fatal,'isolated runtime fatal');
+    if(phase==='initial') assertRuntimeInitialInput(row.phases.initial.input,original);
     await run(['screenshot','--full',resolve(out,`${name}-runtime-${material}-${phase}.png`)]);
    }
    const originalProof=structuredClone(row.phases.initial.input);

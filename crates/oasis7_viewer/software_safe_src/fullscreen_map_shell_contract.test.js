@@ -90,7 +90,7 @@ describe("fullscreen map shell contract", () => {
     const { viewerHtml, terminalShellCss } = await readViewerHtml();
     for (const html of [`${viewerHtml}\n${terminalShellCss}`]) {
       for (const overlayName of ["world-hud", "next-move", "receipt", "feed", "navigation"]) {
-        const rule = findRule(html, new RegExp(`\\[data-viewer-overlay=["']${overlayName}["']\\]`));
+        const rule = findRule(html, new RegExp(`(?:^|\\n)\\s*\\[data-viewer-overlay=["']${overlayName}["']\\]\\s*$`));
         expect(rule, `missing overlay rule for ${overlayName}`).not.toBeNull();
         expect(hasDeclaration(rule, "position", /absolute|fixed|sticky/), overlayName).toBe(true);
         expect(hasDeclaration(rule, "z-index", /[1-9]/), overlayName).toBe(true);

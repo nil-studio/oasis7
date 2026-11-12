@@ -217,6 +217,23 @@ Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb；承接 [REQ-DEV-TEST-A
 
 Rust 优先复用 `oasis7_client_storage`、`oasis7_game_client` 及既有协议类型。本地／普通服务进程可复用 native broker；其 Unix socket、文件与子进程不能直接搬入 Worker。若使用 Cloudflare，仅复用可在该平台运行的 custody DTO、密码与持久适配，不把整个 native 客户端链接进 Wasm。实施时选择一条可实际运行的部署路径即可，平台迁移不成为首版前置。
 
+<a id="dev-test-accounts-workers"></a>
+#### Workers 部署适配
+
+在 `dev-test-accounts-v1` 内增加 Workers 适配时，九方法 DTO、不可变会话、原件 Scope、累计用量及拒绝/恢复语义沿用本节，不恢复退役的四角色发布或 TestSession 建设。共享纯合同由 `oasis7_custody_core::dev_test` 声明，native 与 Worker 消费同一类型及状态转换；协议签名、canonical 编码、完整 task fence 和世界回执继续复用 `oasis7_client_api`。纯合同不包含当前身份认证、可信时钟或持久化成功证明，反序列化历史记录不产生新权限。
+
+| 适配职责 | Native | Workers |
+| --- | --- | --- |
+| 可信准入、扣额与原件关联 | 文件锁内原子持久化 | 同一 SQLite Durable Object 事务内持久化；按同一 grant/caller 汇总 A/B，不按连接或 session 清零 |
+| SDK 原件与私密材料 | 原加密 vault/state 及受限 UID | 可信 Worker 的私有配置、加密存储及平台适配；模型不获得 Cookie、密钥、KEK、配置路径或任意签名接口 |
+| 当前身份、权限与世界结果 | 正式 native 客户端 | 固定 HTTPS authority 的 fetch/crypto/store 适配，逐次核对身份及完整 fence；不得把本地代理响应冒充 Worker 执行 |
+| 会话与重启 | 启动 epoch 使旧 session 无效，账本保留 | 明确运行 epoch/配置代与 session 生命周期，重启/更新不能复活旧 session、权限或额度 |
+| 恢复 | 旧授权退休，历史 query-only，新明确有限授权 | 相同合同；平台回滚与 DO 历史恢复不能恢复写权、旧余额或自动重发未知原件 |
+
+Worker 本身不承载世界共识；Native 身份和世界 authority 的固定 HTTPS 地址、world/genesis/service key 以及合法测试身份是部署输入。Worker 业务执行链必须覆盖 Context 准备、签名原件先持久化、唯一首发与原件查询，不允许将模型 DTO 转换成任意 URL 或 raw sign。凭据、原件和预算必须在网络发送前满足持久化合同，跨异步等待后重验当前期限与授权；未知保持未知，不重签或更换原 ID。
+
+部署采用独立 staging 应用并固定 Free 套餐的真实包大小、CPU、存储与调用限制，不以账户请求额度替代运行时可行性验证。管理与模型工具分离，Secrets 及部署权限仅由可信运营者持有；是否采用多个 Worker/DO 由状态原子性及安全边界决定，不能为复用旧配置增加本工具无关义务。生产/云端状态只在实际构建、部署、身份与 A/B 业务及恢复验收后声明。实现与剩余义务由 #5775、#5776、#5777 承接，本段不代表平台适配或云端部署已完成。
+
 <a id="dev-test-accounts-sessions"></a>
 ### 12.2 账号目录、测试授权与会话
 
