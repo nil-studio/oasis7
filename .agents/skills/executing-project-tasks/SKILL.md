@@ -9,9 +9,9 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 明确问题、范围、验收和用户限制。未拆分的简单修改写入 PR；拆出的开发任务按[原生 sub-issue 规则](../../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)建立或复用父子 Issue，任务内部步骤和用例可用清单。同一授权范围内的实现取舍由负责人直接决定，必要时简要说明理由。
 
-具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[任务拆分与并行开发](../../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)和 [parallel-development](../parallel-development/SKILL.md)梳理剩余工作、依赖、写入负责人及整体验收。条件具备时由多个独立开发会话并行实施；强耦合部分按实际依赖串行。默认交付小而完整的 PR，公共前置具备条件后及时评审并在授权内合入，让依赖方尽早复用；任务数与 PR 数分别判断。派发前回读原生父子关系及具体子 Issue 的认领、状态和暂停；复用本项已有委派记录，父项认领不代替子项领取。
+具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[项目拆解](../../../doc/engineering/workflow/source-of-truth.md#project-decomposition)和 [parallel-development](../parallel-development/SKILL.md)组织可用模块增量及关键依赖，只把当前和近期批次细化为有实际拆分收益的执行任务；后续目标与整体验收继续可见。共享接口先由真实消费方定向检查，条件具备再并行填充实现；同一业务的过细步骤连续完成。默认交付小而完整的 PR，公共前置可独立消费时及时交付，任务数与 PR 数分别判断。派发前回读原生父子关系及子项认领、状态和暂停，复用已有记录。
 
-开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时先补齐可执行范围；缺少最小夹具或接线时先明确其建设与验证，环境或权限缺口保留具体解除条件。开发中出现独立新结果或前提变化时更新受影响拆分，不把剩余父目标持续吸收到当前任务。
+开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时补齐本轮可执行范围，后续未细化不阻塞当前就绪工作；缺少夹具、接线、环境或权限时明确建设与解除动作。新增结果或前提变化按收益调整受影响安排，不自动细拆，也不把剩余父目标持续吸收到当前任务。
 
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。追踪可直接引用 PR，不另领要求 ID；是否建立父子 Issue 按任务拆分规则执行。未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
