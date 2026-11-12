@@ -25,9 +25,11 @@ class PackageTests(unittest.TestCase):
         import http.client, http.server, ssl, threading, time
         spec = importlib.util.spec_from_file_location("reuse_fixture", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
         module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        observed_auth = []
         class Upstream(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                body = b"ok"; self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(body)
+                observed_auth.append(self.headers.get("Cookie"))
+                body = b"ok"; self.send_response(200 if self.headers.get("Cookie") == "session=authorized" else 403); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(body)
             def log_message(self, *_): pass
         upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
         threading.Thread(target=upstream.serve_forever, daemon=True).start()
@@ -41,8 +43,10 @@ class PackageTests(unittest.TestCase):
             server.get_request = accept
             client = http.client.HTTPSConnection("localhost", server.server_port, context=ssl.create_default_context(cafile=str(smoke.root/"root.crt")), timeout=3)
             try:
-                for _ in range(3):
-                    client.request("GET", "/capabilities"); reply=client.getresponse(); self.assertEqual(reply.read(), b"ok")
+                for cookie, status in [("session=authorized", 200), (None, 403), ("session=wrong", 403)]:
+                    client.request("GET", "/capabilities", headers={"Cookie": cookie} if cookie else {})
+                    reply=client.getresponse(); self.assertEqual(reply.status, status); self.assertEqual(reply.read(), b"ok")
+                self.assertEqual(observed_auth, ["session=authorized", None, "session=wrong"])
                 self.assertEqual(len(accepts), 1)
                 # Request framing errors close the connection before upstream forwarding.
                 for headers in ["Content-Length: 0\r\nContent-Length: 0", "Transfer-Encoding: chunked", "Content-Length: -1", "Content-Length: +1"]:
