@@ -1,5 +1,15 @@
-use super::*;
+use super::fixture::{Directory, logical};
+use super::incremental_main_token_policy_fixture::{ctx, physical, scan, source, state_error};
+use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
+use oasis7_formal_protocol::{
+    incremental_execution::*, incremental_state::*, incremental_value::*,
+};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
+use oasis7_runtime::{
+    WorldState, incremental_field_member::*, incremental_field_read::*,
+    incremental_main_token_policy_records::*,
+};
 use std::{cell::Cell, sync::Arc};
 fn seed_sized(
     store: &IncrementalPageStore,
@@ -96,21 +106,8 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
         self.source.read_node(id, max, memory, class)
     }
 }
-#[test]
-fn point_and_receiver_skip_unchanged_symbol_across_value_chunks() {
-    exercise_unchanged_symbol(&[
-        64,
-        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
-    ]);
-}
 
-#[cfg(feature = "test_tier_full")]
-#[test]
-fn point_and_receiver_skip_unchanged_symbol_through_thirty_two_mib() {
-    exercise_unchanged_symbol(&[64, 1 << 20, 32 << 20]);
-}
-
-fn exercise_unchanged_symbol(sizes: &[usize]) {
+pub(super) fn exercise_unchanged_symbol(sizes: &[usize]) {
     assert!(sizes.len() >= 2);
     let mut samples = Vec::new();
     for &text in sizes {

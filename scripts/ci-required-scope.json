@@ -13,61 +13,17 @@
       {
         "package": "oasis7",
         "target_kind": "test",
-        "target_name": "incremental_agent_event",
+        "target_name": "incremental_full_scales",
         "default_features": true,
         "features": [
           "test_tier_full"
         ],
         "cases": [
-          "module_state_step::module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable"
-        ]
-      },
-      {
-        "package": "oasis7",
-        "target_kind": "test",
-        "target_name": "incremental_main_token_policy_records",
-        "default_features": true,
-        "features": [
-          "test_tier_full"
-        ],
-        "cases": [
-          "scaling::point_and_receiver_skip_unchanged_symbol_through_thirty_two_mib"
-        ]
-      },
-      {
-        "package": "oasis7",
-        "target_kind": "test",
-        "target_name": "incremental_cognition_records",
-        "default_features": true,
-        "features": [
-          "test_tier_full"
-        ],
-        "cases": [
+          "module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable",
+          "point_and_receiver_skip_unchanged_symbol_through_thirty_two_mib",
+          "scalar_receiver_cost_excludes_unchanged_site_text_and_allowlist",
+          "unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver",
           "cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json"
-        ]
-      },
-      {
-        "package": "oasis7",
-        "target_kind": "test",
-        "target_name": "incremental_factory_authority_records",
-        "default_features": true,
-        "features": [
-          "test_tier_full"
-        ],
-        "cases": [
-          "scaling::scalar_receiver_cost_excludes_unchanged_site_text_and_allowlist"
-        ]
-      },
-      {
-        "package": "oasis7",
-        "target_kind": "test",
-        "target_name": "incremental_runtime_effect_records",
-        "default_features": true,
-        "features": [
-          "test_tier_full"
-        ],
-        "cases": [
-          "scaling::unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver"
         ]
       }
     ],

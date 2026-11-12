@@ -1,4 +1,5 @@
-use super::*;
+use super::support;
+use oasis7_distfs::incremental_page_store::IncrementalPageStore;
 use oasis7_distfs::incremental_page_store::{
     PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -10,7 +11,7 @@ use oasis7_formal_protocol::{
     incremental_state::{
         StateDeltaV1, StateNamespaceV1 as Ns, StatePageWriter, StateScanBudget, StateWriteV1,
     },
-    incremental_value::{VALUE_CHUNK_BYTES, ValueIoBudget, ValueNodeReader, ValueTreeError},
+    incremental_value::{ValueIoBudget, ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::incremental_module_fields::ModuleStateKeyV1;
@@ -254,18 +255,7 @@ impl Write for StateOracle {
     }
 }
 
-#[test]
-fn module_state_event_genesis_step_original_and_recovery_cross_value_chunks() {
-    exercise_module_state(2 * VALUE_CHUNK_BYTES + 17);
-}
-
-#[cfg(feature = "test_tier_full")]
-#[test]
-fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
-    exercise_module_state(32 << 20);
-}
-
-fn exercise_module_state(state_bytes: usize) {
+pub(super) fn exercise_module_state(state_bytes: usize) {
     // OriginalOracle intentionally uses the CBOR 32-bit array-length encoding.
     assert!(state_bytes > u16::MAX as usize);
     for compression in [PageCompression::Raw, PageCompression::Zstd] {

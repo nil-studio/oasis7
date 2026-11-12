@@ -1,5 +1,8 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
-use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
+#[path = "support/incremental_factory_authority_fixture.rs"]
+mod incremental_factory_authority_fixture;
+use incremental_factory_authority_fixture::{physical_scope, scan, source, state_error};
+use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
 use oasis7_formal_protocol::{
     incremental_execution::*, incremental_state::*, incremental_value::*,
 };
@@ -30,53 +33,7 @@ mod points;
 mod put;
 #[path = "support/incremental_factory_authority_scaling.rs"]
 mod scaling;
-fn state_error(error: oasis7_distfs::incremental_page_store::PageStoreError) -> ValueTreeError {
-    use oasis7_distfs::incremental_page_store::PageStoreError as E;
-    match error {
-        E::Memory(e) => ValueTreeError::Memory(e),
-        E::ResourceLimited(reason) => ValueTreeError::ResourceLimited(reason),
-        E::Cancelled => ValueTreeError::Cancelled,
-        E::Io(e) => ValueTreeError::Io(e),
-        E::Missing(_) => ValueTreeError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "factory authority physical page missing",
-        )),
-        E::Corrupt(reason) => ValueTreeError::Invalid(reason),
-        E::UnsupportedPlatform => ValueTreeError::Invalid("factory authority platform"),
-    }
-}
-fn physical_scope() -> PageIoBudget {
-    let mut io = physical();
-    // This one functional session includes four independent full child proofs
-    // and every literal column query. The initial 1M-operation session reached
-    // Raw/Ordinary/empty/AuthorityRevision and failed with the precise physical
-    // read allowance. Keep the byte bound; this is no performance threshold.
-    io.reads_remaining = 2_000_000;
-    io
-}
-fn scan() -> StateScanBudget {
-    StateScanBudget {
-        nodes_remaining: 100_000,
-        read_bytes_remaining: 64 << 20,
-        leaves_remaining: 1000,
-    }
-}
-fn source() -> WorldState {
-    let mut source = WorldState::default();
-    source.factory_site_authorities.insert(" outer-site\0界 ".into(),serde_json::from_value(serde_json::json!({
-        "site_id":" inner-site\0界 ","location_id":"","owner_agent_id":"owner","authorized_agent_ids":["z","","z"],
-        "chunk_ready":false,"active":true,"authority_revision":u64::MAX,"registered_at":17})).unwrap());
-    for (outer, module) in [
-        ("none", None),
-        ("empty", Some("")),
-        ("text", Some(" raw-module\0界 ")),
-    ] {
-        source.factory_construction_power_profiles.insert(outer.into(),serde_json::from_value(serde_json::json!({
-            "factory_id":"different-inner-id","factory_kind":"","source_module_id":module,"electricity_amount":i64::MIN,
-            "mode":"start_only_sink","authority_revision":u64::MAX,"active":false})).unwrap());
-    }
-    source
-}
+
 fn seed(source: &WorldState, store: &IncrementalPageStore, memory: &MemoryBudget) -> StateRootV1 {
     let mut values = store.value_session(physical_scope());
     let _row_admission = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
@@ -307,4 +264,15 @@ fn factory_authority_original_fields_cold_root_only_in_raw_and_zstd() {
             }
         }
     }
+}
+
+#[test]
+fn scalar_receiver_cost_excludes_unchanged_site_text_across_value_chunks() {
+    scaling::exercise_site_scaling(&[
+        (64, 3),
+        (
+            2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+            32,
+        ),
+    ]);
 }

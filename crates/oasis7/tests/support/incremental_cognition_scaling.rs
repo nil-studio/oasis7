@@ -1,11 +1,20 @@
 //! Fixed-delta measurement includes helper, generic replay and typed receiver.
 //! Logical node calls are separate from actual PageStore IO counters.
-use super::*;
+use super::fixture;
+use super::incremental_cognition_fixture::{source, state_error};
+use oasis7_distfs::incremental_page_store::*;
 use oasis7_formal_protocol::incremental_execution::*;
+use oasis7_formal_protocol::{incremental_state::*, incremental_value::*};
 use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use oasis7_runtime::{
     incremental_cognition_family::*, incremental_cognition_json_overlay::*,
     incremental_field_overlay::WorldFieldOverlayContextV1, incremental_json_records::*,
+};
+use oasis7_runtime::{
+    incremental_cognition_fields::*, incremental_cognition_genesis::*,
+    incremental_cognition_json::*, incremental_field_member::*,
+    incremental_field_read::WorldFieldReadContextV1,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -187,7 +196,7 @@ pub fn run(size: usize) -> Metrics {
     {
         // Caller-owned legacy borrowed DTO is explicit setup input, not an output
         // allocation or a claim that the caller's snapshot fits the engine pool.
-        let mut source = super::source(false);
+        let mut source = source(false);
         source["feedback_outbox"] = serde_json::json!({"small":false,"unchanged":"x".repeat(size)});
         let mut writer = store.value_session(setup_io());
         let state = store

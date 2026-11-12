@@ -1,6 +1,17 @@
-use super::*;
+use super::fixture::{Directory, logical};
+use super::incremental_runtime_effect_fixture::{limits, physical};
+use oasis7_distfs::incremental_page_store::*;
+use oasis7_formal_protocol::{
+    incremental_execution::*, incremental_state::*, incremental_value::*,
+};
 use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime::{
+    EffectIntent, EffectOrigin, incremental_field_member::*,
+    incremental_field_read::WorldFieldReadContextV1, incremental_runtime_effect_records::*,
+};
 use std::cell::Cell;
+use std::collections::{BTreeMap, VecDeque};
 struct Meter<'a, R> {
     source: &'a R,
     forbidden: [[u8; 32]; 2],
@@ -123,27 +134,10 @@ pub(super) fn seed(
         .unwrap() = delta.after.clone();
     roots
 }
-#[test]
-fn unchanged_params_across_value_chunks_do_not_enter_sender_or_receiver() {
-    exercise_unchanged_params(&[
-        64,
-        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
-    ]);
-}
 
-const RECEIVER_POOL_BYTES: usize = 24 << 20;
+pub(super) const RECEIVER_POOL_BYTES: usize = 24 << 20;
 
-#[cfg(feature = "test_tier_full")]
-#[test]
-fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
-    let sizes = [64, 32 << 20, 64 << 20];
-    for &size in &sizes[1..] {
-        assert!(RECEIVER_POOL_BYTES < size);
-    }
-    exercise_unchanged_params(&sizes);
-}
-
-fn exercise_unchanged_params(sizes: &[usize]) {
+pub(super) fn exercise_unchanged_params(sizes: &[usize]) {
     use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
     assert!(sizes.len() >= 2);
     let mut observations = Vec::new();

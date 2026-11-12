@@ -5447,9 +5447,10 @@ class Process(unittest.TestCase):
             manifest_path = root / 'codec/Cargo.toml'
             manifest_path.write_text(manifest_path.read_text() + 'test_tier_full=["test_tier_required"]\n')
             (root / 'codec/tests').mkdir()
+            (root / 'codec/tests/required.rs').write_text(
+                '#[test] fn required_chunk() { assert_eq!(2 * 65536 + 17, 131089); }\n')
             (root / 'codec/tests/scale.rs').write_text('''
-#[test] fn required_chunk() { assert_eq!(2 * 65536 + 17, 131089); }
-#[cfg(feature="test_tier_full")]
+#![cfg(feature="test_tier_full")]
 #[test] fn full_scale() {
     std::fs::write(std::env::var("SCALE_WITNESS").unwrap(), "full executed").unwrap();
     assert!(std::env::var_os("FAIL_SCALE").is_none(), "real full scale failure");
@@ -5459,7 +5460,7 @@ class Process(unittest.TestCase):
             subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                             'commit', '-qm', 'scale contract'], cwd=root, check=True, stdout=subprocess.PIPE)
             sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-            for risk, expanded, total in ((False, False, 2), (True, False, 4), (True, True, 3)):
+            for risk, expanded, total in ((False, False, 2), (True, False, 3), (True, True, 3)):
                 selected = RiskTargetInventory().selection() if risk else FastExecutionSelection().selection()
                 selected.update(source_sha=sha, tested_sha=sha, policy_sha=sha,
                                 architecture=dict(source=sha, tested=sha), test_policy_changed=expanded)
@@ -5482,6 +5483,12 @@ class Process(unittest.TestCase):
                     manifest = json.loads((bundle / 'manifest.json').read_text())
                     self.assertEqual(sum('full_scale' in binary.get('tests', [])
                                          for binary in manifest['binaries'].values()), int(risk))
+                    original = [binary for binary in manifest['binaries'].values()
+                                if binary.get('variant') == 'required' and binary.get('target') == 'scale']
+                    self.assertEqual(len(original), 1)
+                    self.assertEqual(original[0]['tests'], ['full_scale'] if expanded else [])
+                    self.assertEqual(sum('required_chunk' in binary.get('tests', [])
+                                         for binary in manifest['binaries'].values()), 1)
                     if risk and not expanded:
                         with patch.dict(os.environ, FAIL_SCALE='1'), self.assertRaises(RuntimeError):
                             artifacts.execute(consumer, 'ordinary', root / 'failed.jsonl', plan=selected)

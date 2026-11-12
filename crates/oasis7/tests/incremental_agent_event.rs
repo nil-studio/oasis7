@@ -160,3 +160,10 @@ mod originals;
 
 #[path = "support/incremental_module_state_step.rs"]
 mod module_state_step;
+
+#[test]
+fn module_state_event_genesis_step_original_and_recovery_cross_value_chunks() {
+    module_state_step::exercise_module_state(
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    );
+}
