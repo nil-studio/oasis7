@@ -412,6 +412,28 @@ class Workload(unittest.TestCase):
             if path.is_file(): self.assertNotIn(b'RAW_CANARY_UNKNOWN_SUMMARY',path.read_bytes())
         m.comparison.verify_seal(self.out,time.monotonic()+30)
 
+    def test_memory_limit_preserves_44_results_and_oracles_without_completing_research(self):
+        self.prepare()
+        real_capture = m.candidate_profile.Capture
+        with patch.object(m.candidate_profile, 'Capture', side_effect=lambda: real_capture(4)):
+            self.assertEqual(self.invoke('run'), 1)
+        terminal = m.read_json(self.out/'candidate-run-terminal.json')
+        self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_INCOMPLETE')
+        self.assertEqual(terminal['batch']['status'], 'COMPUTED')
+        self.assertEqual(terminal['raw_result_preservation'], 'COMPLETE')
+        self.assertEqual(len(list(self.out.glob('result-*.bqrs'))), 44)
+        self.assertEqual(terminal['default_result_verification'], 'PASS')
+        self.assertEqual(terminal['public_semantics'], 'PASS')
+        self.assertEqual(len(terminal['public_semantic_tables']), 7)
+        self.assertEqual(len(m.read_json(self.out/'default-query-results.json')), 37)
+        self.assertEqual(terminal['primary_failure']['stage'], 'performance-observation')
+        self.assertEqual(terminal['performance_observation']['capture_status'], 'INCOMPLETE')
+        self.assertEqual(terminal['performance_observation']['summary_status'], 'NOT_REACHED_MEMORY_LIMIT')
+        self.assertEqual(sum(c[0]=='candidate-workload-batch' for c in self.calls), 1)
+        self.assertFalse(any(c[0]=='official-summary' for c in self.calls))
+        self.assertLessEqual(m.runtime.output_bytes(self.out), m.PRIVATE_CAP)
+        m.comparison.verify_seal(self.out,time.monotonic()+30)
+
     def test_capture_close_failure_keeps_original_failure_and_still_seals(self):
         self.prepare(); self.failed_stage='candidate-workload-batch'; self.clean_batch_timeout=True
         real_close=m.candidate_profile.Capture.close

@@ -475,7 +475,9 @@ Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不�
 
 本候选模式的 `candidate-evaluator-v1` 观测只接入上述唯一批次，固定官方 2.27.4、`--evaluator-log-minify`、日志级别 3 和禁用 tuple counting；不额外运行查询或预热。固定 2.27.4 的 summary collector 会读取 stage-result usages；level 1/2 缺此字段，实测 level 1 summary 出现 NullPointerException，因此使用最低提供 usages 的 level 3，不开启 level 4 cache-miss 或 level 5 RA。原始 evaluator 事件经 owned FIFO 进入至多 48 MiB 的 Linux memfd，不写普通文件、artifact 或控制台。停止生产并清理 owned 进程组后，关闭父写端、有限 drain 到真实 EOF，再封住内存文件的写入/增长/截断；传输 EOF、日志 footer 与查询成功分别记录。官方摘要器需要可 seek 输入，只读取仍由父进程持有的 sealed memfd；不把实时 FIFO 当摘要输入，不回退原文文件。
 
-临时原始内存、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间保守预留完整 48 MiB；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。容量、写入、组身份或有限 drain 不可信时记观测不完整并停止后续子进程，不把超限解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再在原证据截止内尝试至多一次、最多 20 秒的官方 predicates 摘要；其清理也计时，剩余时间/空间不足记 `NOT_REACHED`。不重置分析截止或增加收尾预算。
+临时原始内存、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间保守预留完整 48 MiB；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。仅达到原始事件的 48 MiB 保留上限时，停止保留新原文，继续排空 FIFO 并累计实际读取的字节数和摘要；保留前缀的字节数、摘要及日志边界另行记录。该状态记 `MEMORY_LIMIT`、capture/观测 `INCOMPLETE`，不据此中止原唯一 batch；其计算、BQRS 校验和七表 oracle 仍受原截止、证据空间及失败规则约束。不得对不完整的保留前缀调用官方摘要器，不伪造丢弃部分的 footer、事件或 summary；即使计算及 oracle 通过，研究总体仍为 `CANDIDATE_RESEARCH_INCOMPLETE`。
+
+持久化证据空间不足、写入、组身份或有限 drain 不可信时，仍记观测不完整并停止后续子进程；原文保留上限耗尽不能解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再按完整 capture 的准入条件，在原证据截止内尝试至多一次、最多 20 秒的官方 predicates 摘要；其清理也计时，剩余时间/空间不足记 `NOT_REACHED`。不重置分析截止或增加收尾预算。
 
 官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
 

@@ -91,10 +91,12 @@ class Capture:
         self.observed += len(chunk)
         self.observed_hash.update(chunk)
         if self.error:
-            return  # bounded cleanup drain remains hashed, never persisted
+            return  # capped observation or failed-run cleanup: hash only, never persist
         if self.retained + len(chunk) > self.limit:
             self.error = 'MEMORY_LIMIT'
-            raise ObservationError(self.error)
+            # Exhausting observation storage must not kill the actual query.
+            # The caller keeps the same process deadline and owns the final drain.
+            return
         try:
             written = os.write(self.fd, chunk)
         except BaseException:
@@ -156,6 +158,7 @@ class Capture:
                         and not self.invalid and not getattr(self, 'pending_bytes', len(self.pending)))
         return dict(status='CAPTURED' if captured else 'INCOMPLETE',
                     observed_bytes=self.observed, retained_bytes=self.retained,
+                    discarded_bytes=self.observed-self.retained if self.retained_identity_valid else None,
                     observed_sha256=self.observed_hash.hexdigest(),
                     retained_sha256=self.retained_hash.hexdigest() if self.retained_identity_valid else None,
                     memory_limit_bytes=self.limit, sealed=self.sealed, transport_eof=self.eof,
@@ -164,7 +167,8 @@ class Capture:
                     header_count=self.headers, footer_count=self.footers, records=self.records,
                     header_version_valid=self.header_version,
                     invalid_envelopes=self.invalid, truncated_bytes=getattr(self, 'pending_bytes', len(self.pending)),
-                    limits='Transport, header/footer envelopes and query completion are independent; official summary validates events.')
+                    limits='Transport, retained header/footer envelopes and query completion are independent; '
+                           'discarded bytes are hashed and counted, not parsed; official summary validates captured events.')
 
     def close(self):
         if self.fd is not None:
@@ -587,8 +591,12 @@ class Observation:
         if self.summary_attempted:
             raise ObservationError('SUMMARY_ALREADY_ATTEMPTED')
         self.summary_attempted = True
-        if not admitted or not self.batch_safe or not self.capture or self.capture.summary()['status'] != 'CAPTURED':
+        if not admitted or not self.batch_safe or not self.capture:
             self.summary_result = dict(status='NOT_REACHED_UNSAFE_FAILURE')
+            return
+        if self.capture.summary()['status'] != 'CAPTURED':
+            self.summary_result = dict(status='NOT_REACHED_MEMORY_LIMIT' if self.capture.error == 'MEMORY_LIMIT'
+                                       else 'NOT_REACHED_UNSAFE_FAILURE')
             return
         if end - time.monotonic() < SUMMARY_SECONDS:
             self.summary_result = dict(status='NOT_REACHED_FIXED_DEADLINE')

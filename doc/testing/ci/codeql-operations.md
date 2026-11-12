@@ -231,6 +231,8 @@ Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format
 
 该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。原始事件只在 owned FIFO 和最多 48 MiB sealed memfd 中存活；不上传或另存原文。64 MiB 总限同时包含临时内存、持久化证据和终态预留，memfd 存活期间预留完整 48 MiB；所有观测投影、样本与收据合计最多 8 MiB。先核对 batch 原退出、已有结果和身份，再读官方 predicates 摘要的独立状态；摘要最多一次、20 秒且含清理，仍受原证据截止约束，余量不足不启动。
 
+原文保留达到 48 MiB 时，capture 保留 `MEMORY_LIMIT` 和 `INCOMPLETE`，继续排空、计数和哈希，不再保存新增原文。原 batch 及结果/oracle 校验可在原预算内收尾，官方 summary 跳过；总体研究仍不完整。分别读取 observed、retained、discarded 字节数及 transport EOF，不把保留前缀的 header/footer 或事件数当完整日志。写入、证据空间、进程身份和清理异常仍按原规则中止。
+
 进度时刻是 stdout/stderr 接收时刻，不能视为内部精确编译/求值阶段。summary 首写前严格验证版本/schema，任意名称、路径、RA、源码位置和异常只保留受限 hash/类别；缺 footer、未知形状、截断和容量耗尽必须保留不完整及实际字节覆盖。literal 毫秒、已知迭代小计与未知 `-1` 分列，不重复归因共享工作；部分记录不是整个批次完整排名，采样资源不是硬峰值或独占 CPU。采集完整、日志完整、查询完成和 oracle 通过各自判定，观测错误不覆盖原首失败；开启观测带来的额外成本也不能用于证明 Image 或 lines 是唯一根因。
 
 记录身份使用本次官方摘要 stdout 的 SHA256 与 header 后的原记录序号。`raHash` 可以复用，不是事件 ID；同 RA、同策略或不同名称的合法记录均保留各自计时，复用计数不改变完整性。不按 RA 去重、跨记录求和或向多个查询重复分配成本。
