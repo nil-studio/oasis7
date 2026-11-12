@@ -23,7 +23,9 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
-VARIANT = 'qualifier-lines-v2'
+VARIANT = 'qualifier-lines-v3'
+ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
+TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
 IMAGE_CONTRACT = capacity.IMAGE_V2
 MODEL_FILE = 'codeql/rust/frameworks/stdlib/core.model.yml'
 MODEL_OFFICIAL_SHA = '756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400'
@@ -75,13 +77,53 @@ def private_inputs(work, end):
             ('candidate-rust-all', 'default-queries', 'public-witnesses')}
 
 
+def arity_identity():
+    return dict(variant=VARIANT, patch_sha256=ARITY_PATCH_SHA,
+                base_patch_sha256=comparison.PATCH_SHA, base_type_sha256=comparison.CANDIDATE_SHA,
+                candidate_type_sha256=TYPE_CANDIDATE_SHA, changed_files=[comparison.TYPE_FILE])
+
+
+def prepare_candidate(closure, work, out, end, run, *, copy_end):
+    """Preserve the legacy qualifier patch, then bind the v3 arity and lines changes."""
+    private = comparison.prepare_candidate(closure, work, out, end, run, copy_end=copy_end)
+    patch_file = HERE / 'codeql-rust-qualifier-arity.patch'
+    type_file = private / comparison.TYPE_FILE
+    if runtime.digest(patch_file) != ARITY_PATCH_SHA or runtime.digest(type_file) != comparison.CANDIDATE_SHA:
+        raise RuntimeError('arity patch or base qualifier identity differs')
+    before = regular_snapshot(private, end)
+    original = Path(closure['codeql/rust-all']['root'])
+    official = regular_snapshot(original, end)
+    changed = sorted(p for p in set(official) | set(before) if official.get(p) != before.get(p))
+    if (set(official) != set(before) or changed != [comparison.TYPE_FILE]
+            or official[comparison.TYPE_FILE]['mode'] != before[comparison.TYPE_FILE]['mode']):
+        raise RuntimeError('candidate differs from the fixed two-file model before the arity patch')
+    lines_model_bytes(private / MODEL_FILE, end)
+    run(['patch', '--batch', '--fuzz=0', type_file, patch_file], 'apply-arity-patch', 20)
+    after = regular_snapshot(private, end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (set(before) != set(after) or changed != [comparison.TYPE_FILE]
+            or before[comparison.TYPE_FILE]['mode'] != after[comparison.TYPE_FILE]['mode']
+            or runtime.digest(type_file) != TYPE_CANDIDATE_SHA):
+        raise RuntimeError('candidate differs beyond the fixed arity patch')
+    runtime.save(out / 'arity-patch-identity.json', arity_identity(), out)
+    prepare_lines_model(original, private, out, end)
+    return private
+
+
+def verify_candidate_identity(original, private, out, end):
+    if read_json(out / 'arity-patch-identity.json') != arity_identity():
+        raise RuntimeError('candidate arity patch identity differs after preparation')
+    if lines_identity(original, private, end) != read_json(out / 'lines-model-identity.json'):
+        raise RuntimeError('candidate two-file model identity differs after preparation')
+
+
 def lines_identity(original, private, end):
     official_files, candidate_files = regular_snapshot(original, end), regular_snapshot(private, end)
     changed = sorted(p for p in set(official_files) | set(candidate_files)
                      if official_files.get(p) != candidate_files.get(p))
     if (set(official_files) != set(candidate_files) or changed != sorted((comparison.TYPE_FILE, MODEL_FILE))
             or runtime.digest(original / comparison.TYPE_FILE) != comparison.OFFICIAL_SHA
-            or runtime.digest(private / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA
+            or runtime.digest(private / comparison.TYPE_FILE) != TYPE_CANDIDATE_SHA
             or runtime.digest(original / MODEL_FILE) != MODEL_OFFICIAL_SHA
             or runtime.digest(private / MODEL_FILE) != MODEL_CANDIDATE_SHA
             or any(official_files[p]['mode'] != candidate_files[p]['mode'] for p in changed)):
@@ -91,8 +133,7 @@ def lines_identity(original, private, end):
                 official_files=official_files, candidate_files=candidate_files)
 
 
-def prepare_lines_model(original, private, out, end):
-    path = private / MODEL_FILE
+def lines_model_bytes(path, end):
     capacity.check_time(end)
     if path.resolve() != path or runtime.digest(path) != MODEL_OFFICIAL_SHA:
         raise RuntimeError('official core model identity differs')
@@ -102,7 +143,12 @@ def prepare_lines_model(original, private, out, end):
     candidate_bytes = original_bytes.replace(MODEL_MARKER, MODEL_MARKER + MODEL_LINE, 1)
     if hashlib.sha256(candidate_bytes).hexdigest() != MODEL_CANDIDATE_SHA:
         raise RuntimeError('lines summary target identity differs')
-    path.write_bytes(candidate_bytes)
+    return candidate_bytes
+
+
+def prepare_lines_model(original, private, out, end):
+    path = private / MODEL_FILE
+    path.write_bytes(lines_model_bytes(path, end))
     runtime.save(out / 'lines-model-identity.json', lines_identity(original, private, end), out)
 
 
@@ -424,9 +470,8 @@ def _main(cancellation, owned_resources):
             raise RuntimeError('official library closure differs')
         if args.phase == 'prepare':
             terminal['stage'] = 'prepare-candidate-library'
-            private = comparison.prepare_candidate(original_closure, work, out, analysis_end,
+            private = prepare_candidate(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
-            prepare_lines_model(Path(original_closure['codeql/rust-all']['root']), private, out, analysis_end)
             closure = comparison.candidate_closure(original_closure, private)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
             if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
@@ -449,11 +494,10 @@ def _main(cancellation, owned_resources):
             witness_closure = comparison.candidate_closure(original_closure, work / 'candidate-rust-all')
             if (records != expected or closures != dict(witness=witness_closure,
                     default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
-                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA):
+                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != TYPE_CANDIDATE_SHA):
                 raise RuntimeError('candidate workload binding differs from the frozen inputs')
-            if lines_identity(Path(original_closure['codeql/rust-all']['root']), work / 'candidate-rust-all',
-                              min(analysis_end, end - EVIDENCE_SECONDS)) != read_json(out / 'lines-model-identity.json'):
-                raise RuntimeError('candidate lines model identity differs after preparation')
+            verify_candidate_identity(Path(original_closure['codeql/rust-all']['root']),
+                                      work / 'candidate-rust-all', out, min(analysis_end, end - EVIDENCE_SECONDS))
             if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
                 raise RuntimeError('private input changed after preparation')
             official_seal = comparison.verify_seal(checkpoint, min(analysis_end, end - EVIDENCE_SECONDS))

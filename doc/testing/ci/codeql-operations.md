@@ -28,7 +28,7 @@ manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 
 
 Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。只增加 `rust-repo/default=baseline` 即可允许已授权的每日或手动验收，不能将全局 observe 改回 baseline 而停掉其他语言的 PR 扫描。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
 
-该场景使用固定 CodeQL 2.27.4 Rust bundle 和隔离的 qualifier-lines-v2 库修补，保持官方原始 37 项默认查询。官方 Action 负责初始化与提取，生产 helper 校验实际库闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
+该场景使用固定 CodeQL 2.27.4 Rust bundle 和隔离的 qualifier-lines-v3 库修补，保持官方原始 37 项默认查询。官方 Action 负责初始化与提取，生产 helper 校验实际库闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
 
 首次验收同时检查独立的 `oasis7-codeql-rust-production-*` artifact：工具和修补身份、当前 checkout 的 manifest/锁观察、实际 Cargo 解析、完整查询结果及覆盖诊断。`production-run.json` 的执行成功不代表覆盖通过；coverage 的 REVIEW/UNKNOWN、WASM 或源码归属缺口继续记录。该 artifact 与只包含 `evidence.json` 的上传关联 artifact 分开，后者仍用于唯一 SARIF/platform analysis 关联。只有覆盖及运营验收闭合后才将该批次声明为已验收日频基线。
 
@@ -231,7 +231,7 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 预算文件的大小检查、内容读取和摘要绑定必须一致：Node preload 以 nofollow/nonblock 打开 regular file，在同一文件描述符上最多读取 256 KiB + 1，并拒绝超限；supervisor 对同一有界读取的字节执行预算解析和摘要计算。路径替换不能改为读取另一对象，检查后的文件增长不能突破实际读取上限。这是 admission 的局部加固，不改变绝对截止、官方 post 或 Rust 启用状态。
 
-从独立候选 artifact 检查 `qualifier-lines-v2` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。先核对原 qualifier 单文件补丁通过，再核对 `lines-model-identity.json` 中唯一通用 `str::lines` summary 的原/新摘要及完整库差异恰为 TypeInference/core.model 两文件；第三项变化、错误版本或缺少身份不得准入。旧 qualifier 对照仍是原单文件候选。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+从独立候选 artifact 检查 `qualifier-lines-v3` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。依次核对原 qualifier 单文件补丁、`arity-patch-identity.json` 的基准/结果与补丁摘要，以及 `lines-model-identity.json` 的最终 TypeInference 摘要、原有唯一通用 `str::lines` summary 和完整库差异。最终仍恰为 TypeInference/core.model 两文件；第三项变化、错误版本或缺少身份不得准入。旧 qualifier 对照仍是原单文件候选；旧 v2 收据和结果保留原身份，不代签 v3。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 
 Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format、同一函数/循环/比较式的结构见证、expected→RHS localFlow、原 output→LHS Global taint，以及错函数、交叉操作数和 whole-bool 零负例。读取实际 QL、版本、标签和配对结果，不只看表的 PASS；派生 taint 不能称为字符串值相等。小 fixture、双 receiver 和同名非 stdlib 控制的通过范围另列，不能代替完整原仓库。历史 v1 的零值和 hosted failure 保留，不把本次修正后的判据追写为旧运行成功。
 

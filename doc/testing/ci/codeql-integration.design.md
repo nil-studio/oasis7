@@ -463,7 +463,11 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补�
 
 Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
 
-本模式使用明确版本 `qualifier-lines-v2`：仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；完整文件集合及前后摘要核验最终仅有这两项差异，不允许第三处修改。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。旧 capacity/qualifier 对照仍沿原单文件合同。
+本模式使用明确版本 `qualifier-lines-v3`：仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再应用独立固定摘要的 arity 补丁。它仅把原参数个数等式封装为 `bindingset[ce, target]`、`pragma[inline_late]` 检查，使调用及路径解析目标绑定后再展开比较；目标唯一性仍量化同一调用的全部 `ItemNode` 解析结果，原资格条件、类型路径及返回集合不变。最终 `TypeInference.qll` SHA256 为 `d502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb`。原 qualifier 与新增 arity 的前后摘要分别保存，旧 capacity/qualifier 对照仍使用原单文件补丁。
+
+随后向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加原有唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件仍为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；完整文件集合及前后摘要核验最终仅有 TypeInference/core.model 两项差异，不允许第三处修改。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。
+
+准备、恢复与结果记录均绑定新 variant 和最终库摘要；旧 `qualifier-lines-v2` 的收据及结果保留原身份和终态，不作为 v3 输入或重签为新结果。执行计划核对必须使用对应 CLI 和实际编译选项，检查真实目标连接是否先于仅按 arity 的宽连接，不能只以缓存或谓词名称消失判定优化成立；单查询编译通过不代签原预算下的 37+7 执行、语义或生产容量。
 
 默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
 
@@ -513,7 +517,7 @@ D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-
 
 本路径承接 CQ-R02/R03/R05/R06/R09，只用于 `codeql.yml` 中可信默认分支的 Rust default 维护扫描。生产输入是本次计划与实际 checkout 一致的提交，不沿用研究入口的冻结业务 SHA、manifest 数量或历史覆盖结论。现有批次变量仍控制是否执行；首次配置为 baseline 时按 §4.2.1 保持 pending acceptance，接线合入和候选研究通过均不代替运营验收。PR default、extended 和其他语言继续各自原有执行路径及预算。
 
-固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。官方库保持只读；任务私有目录复用 §7.2.4 的 qualifier-lines-v2 两文件修补，应用前后验证固定摘要及完整库差异。`str::lines` 使用通用 taint summary，调用目标修复保留在 `TypeInference.qll`，不添加业务专用流边。版本或补丁不匹配时失败，不回退到未经修复的库继续上传。
+固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。官方库保持只读；任务私有目录复用 §7.2.4 的 qualifier-lines-v3 两文件修补与同一准备函数，应用前后验证固定摘要及完整库差异。`str::lines` 使用通用 taint summary，调用目标修复保留在 `TypeInference.qll`，不添加业务专用流边。版本或补丁不匹配时失败，不回退到未经修复的库继续上传；旧 v2 准备与结果不能取得新身份。
 
 正式 helper 只封装工具准备和完整默认查询执行，不调用强绑定研究源码的容量主入口。复制官方 rust-queries 0.1.46 的查询与支持源码，保持原始 37 项默认查询的 ID、字节和集合指纹；移除发布包的预编译 QLX、嵌入库及旧依赖绑定，以独立源码 pack 包装。逐查询解析实际 14 项库闭包并确认私有修复库被消费，使用独立编译缓存和 `--no-use-precompiled`。源码包与整个修复库在执行前后保持一致；仅添加 search path 或设置文件存在不足以证明实际依赖正确。
 
