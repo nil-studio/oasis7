@@ -6323,6 +6323,7 @@ name = "oasis7_custody_core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "blake3",
  "ed25519-dalek",
  "oasis7_agent_api",
  "oasis7_client_api",
