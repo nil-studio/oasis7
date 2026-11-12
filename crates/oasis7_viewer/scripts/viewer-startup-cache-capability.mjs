@@ -34,12 +34,17 @@ const bounded = async (operation, label) => {
 const scripts = Object.fromEntries(['viewer-startup-cache-capability.mjs', 'viewer-startup-cache-policy.mjs', 'viewer-owned-startup-context.mjs'].map(name => [name, createHash('sha256').update(readFileSync(new URL(name, import.meta.url))).digest('hex')]));
 const result = { cases: [], scripts, source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), limitations: ['Not Viewer UI or first-frame timing.', 'No OS page-cache purge; no WASM compiled-code-cache claim.', 'Not authenticated player, A/B network or P6 acceptance.'], profiles: [profileA.path, profileB.path] };
 result.hardStopMs = 120000;
-const hardStop = setTimeout(() => { console.error('owned startup capability exceeded hard stop; cleanup unproven'); process.exit(1); }, result.hardStopMs);
+const hardStop = setTimeout(() => {
+  result.error = 'owned startup capability exceeded hard stop; cleanup unproven';
+  try { writeFileSync(join(out, 'summary.json'), JSON.stringify(result, null, 2)); } catch (error) { console.error(error); }
+  console.error(result.error); process.exit(1);
+}, result.hardStopMs);
 let originalError, failed = false;
 try {
   for (const [name, profile] of [['cold-first', profileA], ['warm-same-profile', profileA], ['cold-independent', profileB]]) {
     const context = await launchOwnedStartupContext(chromium, chrome, profile);
     const row = { name, profile: readOwnedStartupProfile(context), responses: [], networkRequests: 0, wasmCompiled: false, nativePid: null, processExited: false };
+    result.cases.push(row);
     let actionFailed = false;
     try {
       if (context.pages().length !== 1) throw Error('owned fresh profile did not contain exactly one page');
@@ -70,7 +75,6 @@ try {
         }
         if (!row.processExited) throw Error('owned browser PID still exists after close; stop remaining cases');
       } catch (error) { row.cleanupError = String(error); if (!actionFailed) throw error; }
-      result.cases.push(row);
     }
   }
   result.verdict = verifyStartupCacheCases(result.cases);
