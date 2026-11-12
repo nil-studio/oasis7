@@ -436,8 +436,8 @@ ADR-VIEW-4：保留renderer/Shell，按预算做局部索引/聚合/reconcile，
 待实施锁定：平台依赖/发行身份、API Context/fence真实接线、空间索引来源及实测质量。这些是交付缺口，不可跳过；独立跨域评审和运行证据在实际PR记录，不由本文自报完成。
 
 
-### Mounted WASM capacity observation (5771)
+### 已挂载 WASM 容量观测（5771）
 
-The test_api-only runtime observation may read byteLength from the Memory returned by the already successful wasm-bindgen initialization attempt. It must not initialize another instance or expose the Memory object. A local mount lease identifies the currently mounted bridge; failed mount, fatal and unmount invalidate the lease. Old bridge cleanup must not invalidate a newer mount. Client scope/source-cut pairing remains the existing pre/post observation stamp; capacity alone proves no authority or source continuity.
+仅 test_api 运行时观测可读取成功 wasm-bindgen 初始化所返回 Memory 的 byteLength；不得初始化第二个实例或暴露 Memory 对象。本地挂载标识绑定当前 bridge，挂载失败、fatal 和卸载使其失效，旧 bridge 清理不得清除新挂载标识。客户端 scope／source-cut 配对仍使用既有采样前后标记；容量本身不证明授权或来源连续性。
 
-Linear memory capacity is reserved addressable bytes, not allocator used heap, JS heap, GPU memory, process RSS or total cache. A controlled unit Memory.grow test may verify byteLength changes; real observation must not call grow or force GC. Current client view/changes/paging Maps and old inflight closures are distinct retention roots. Current-generation logical encoding counts do not include old closures or establish retained heap; HeapProfiler attribution requires separately bounded ownership and privacy review before use.
+线性内存容量是可寻址字节数，不是分配器已用堆、JS heap、GPU 内存、进程 RSS 或总缓存。受控单元测试可以用 Memory.grow 验证容量变化，真实观测不得调用 grow 或强制 GC。当前客户端 view／changes／分页 Map 与旧 inflight 闭包是不同保留 root；当前代际逻辑编码计数不覆盖旧闭包，也不证明保留堆大小。HeapProfiler 归因使用前须独立核对所有权与隐私边界。
