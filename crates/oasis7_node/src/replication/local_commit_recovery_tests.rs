@@ -17,6 +17,11 @@ fn decision(height: u64) -> PosDecision {
     }
 }
 fn fixture() -> (PathBuf, NodeReplicationConfig, GossipReplicationMessage) {
+    fixture_with_proposer("node-a")
+}
+fn fixture_with_proposer(
+    proposer: &str,
+) -> (PathBuf, NodeReplicationConfig, GossipReplicationMessage) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = temp_dir(&format!("local-commit-recovery-{unique}"));
@@ -26,11 +31,15 @@ fn fixture() -> (PathBuf, NodeReplicationConfig, GossipReplicationMessage) {
         .with_signing_keypair(private, public)
         .unwrap();
     let mut runtime = ReplicationRuntime::new(&config, "node-a").unwrap();
+    let mut first = decision(1);
+    first.proposer_id = proposer.into();
+    let mut second = decision(2);
+    second.proposer_id = proposer.into();
     runtime
-        .build_local_commit_message("node-a", "world-a", 1000, &decision(1), None, None)
+        .build_local_commit_message("node-a", "world-a", 1000, &first, None, None)
         .unwrap();
     let message = runtime
-        .build_local_commit_message("node-a", "world-a", 2000, &decision(2), None, None)
+        .build_local_commit_message("node-a", "world-a", 2000, &second, None, None)
         .unwrap()
         .unwrap();
     (dir, config, message)
@@ -228,6 +237,77 @@ fn first_signed_original_preserves_seeded_epoch_before_any_writer_file() {
     );
     assert_eq!(
         load_commit_message_from_root(&dir, "world-a", 1)
+            .unwrap()
+            .unwrap(),
+        expected
+    );
+    drop(restored);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn pending_original_checks_cas_even_when_signed_message_and_writer_state_exist() {
+    for missing in [false, true] {
+        let (dir, config, expected) = fixture();
+        let runtime = ReplicationRuntime::from_config(&config, "node-a").unwrap();
+        runtime
+            .stage_local_commit_original("node-a", &expected)
+            .unwrap();
+        if missing {
+            let path = config.store_root().join("files_index.json");
+            let mut index: serde_json::Value =
+                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            index["files"]
+                .as_object_mut()
+                .unwrap()
+                .remove(&expected.record.path);
+            fs::write(path, serde_json::to_vec(&index).unwrap()).unwrap();
+        } else {
+            runtime
+                .store
+                .write_file(&expected.record.path, b"conflicting CAS")
+                .unwrap();
+        }
+        drop(runtime);
+        assert!(ReplicationRuntime::new(&config, "node-a").is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn first_original_cannot_lower_an_explicit_zero_counter_epoch() {
+    let (dir, config, _) = fixture();
+    let expected = load_commit_message_from_root(&dir, "world-a", 1)
+        .unwrap()
+        .unwrap();
+    let mut runtime = ReplicationRuntime::from_config(&config, "node-a").unwrap();
+    runtime
+        .stage_local_commit_original("node-a", &expected)
+        .unwrap();
+    runtime.guard = SingleWriterReplicationGuard::default();
+    runtime.writer_state.writer_epoch = expected.record.writer_epoch + 1;
+    runtime.writer_state.last_sequence = 0;
+    runtime.writer_state.last_replicated_height = 0;
+    runtime.persist_state("node-a").unwrap();
+    let before = fs::read(config.writer_state_path("node-a")).unwrap();
+    drop(runtime);
+    // Remove the signed original so recovery cannot use the completed-message path.
+    fs::remove_file(config.commit_message_path(1)).unwrap();
+    assert!(ReplicationRuntime::new(&config, "node-a").is_err());
+    assert_eq!(
+        before,
+        fs::read(config.writer_state_path("node-a")).unwrap()
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn legacy_storage_writer_keeps_the_original_external_proposer() {
+    let (dir, config, expected) = fixture_with_proposer("other-proposer");
+    remove_signed_tail(&dir, &config);
+    let restored = ReplicationRuntime::new(&config, "node-a").unwrap();
+    assert_eq!(
+        load_commit_message_from_root(&dir, "world-a", 2)
             .unwrap()
             .unwrap(),
         expected

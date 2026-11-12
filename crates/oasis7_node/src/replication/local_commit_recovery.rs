@@ -59,18 +59,18 @@ impl ReplicationRuntime {
         }
         crate::validate_replicated_execution_input_actions(&p.actions, p.height)
             .map_err(|e| invalid(&e))?;
-        if let Some(c) = p.execution_checkpoint.as_ref() {
-            if c.height == 0
+        if let Some(c) = p.execution_checkpoint.as_ref()
+            && (c.height == 0
                 || c.height > p.height
                 || c.manifest_ref.is_empty()
                 || c.manifest_size_bytes == 0
                 || (c.height == p.height
-                    && (p.execution_block_hash.as_deref() != Some(c.execution_block_hash.as_str())
+                    && (p.execution_block_hash.as_deref()
+                        != Some(c.execution_block_hash.as_str())
                         || p.execution_state_root.as_deref()
-                            != Some(c.execution_state_root.as_str())))
-            {
-                return Err(invalid("checkpoint descriptor binding mismatch"));
-            }
+                            != Some(c.execution_state_root.as_str()))))
+        {
+            return Err(invalid("checkpoint descriptor binding mismatch"));
         }
         let writer = self
             .signer
@@ -120,10 +120,6 @@ impl ReplicationRuntime {
             if existing != *m {
                 return Err(invalid("signed height already has a different original"));
             }
-            // A completed retained original may precede newer checkpoint amendments.
-            if self.writer_state.last_replicated_height >= p.height {
-                return Ok(());
-            }
         }
         if self.writer_state.last_replicated_height > p.height
             || (self.writer_state.last_sequence != 0
@@ -132,6 +128,21 @@ impl ReplicationRuntime {
                 && self.writer_state.last_sequence > m.record.sequence)
         {
             return Err(invalid("original is behind durable writer state"));
+        }
+        // Validate an existing index before changing CAS or writer state.
+        let index = commit_retention::load_latest_commit_head_index_from_root(
+            &self.config.root_dir,
+            &p.world_id,
+        )?;
+        if let Some(index) = index.as_ref() {
+            if index.height > p.height {
+                return Err(invalid("latest index is ahead of pending original"));
+            }
+            if index.height == p.height
+                && *index != latest_head_index::latest_commit_head_index_for_message(p.height, m)?
+            {
+                return Err(invalid("latest index conflicts with original"));
+            }
         }
         let applied = self.guard.writer_id.as_deref() == Some(m.record.writer_id.as_str())
             && self.guard.writer_epoch == m.record.writer_epoch
@@ -142,7 +153,8 @@ impl ReplicationRuntime {
                 .stat_file(&m.record.path)
                 .map_err(distfs_error_to_node_error)?
                 .ok_or_else(|| invalid("advanced guard has no original CAS record"))?;
-            if metadata.content_hash != m.record.content_hash
+            if metadata.size_bytes != m.record.size_bytes
+                || metadata.content_hash != m.record.content_hash
                 || self
                     .store
                     .read_file(&m.record.path)
@@ -159,6 +171,8 @@ impl ReplicationRuntime {
                 && self.writer_state.last_sequence == 0
                 && self.writer_state.last_replicated_height == 0
                 && m.record.sequence == 1
+                && !self.config.guard_state_path().exists()
+                && !self.config.writer_state_path(node_id).exists()
             {
                 self.writer_state.writer_epoch = m.record.writer_epoch;
             }
@@ -169,16 +183,8 @@ impl ReplicationRuntime {
             apply_replication_record(&self.store, &mut self.guard, &m.record, &m.payload)
                 .map_err(distfs_error_to_node_error)?;
         }
-        // A dangling latest index is repairable only when it binds this exact original.
-        if let Some(index) = commit_retention::load_latest_commit_head_index_from_root(
-            &self.config.root_dir,
-            &p.world_id,
-        )? && index.height == p.height
-        {
-            let expected = latest_head_index::latest_commit_head_index_for_message(p.height, m)?;
-            if index != expected {
-                return Err(invalid("latest index conflicts with original"));
-            }
+        // A dangling exact index is repaired only after the original CAS is verified.
+        if index.as_ref().is_some_and(|index| index.height == p.height) {
             write_json_compact(self.config.commit_message_path(p.height).as_path(), m)?;
         }
         self.persist_commit_message(p.height, m)?;
@@ -233,6 +239,30 @@ impl ReplicationRuntime {
         if p.height != height || p.lineage_envelope.is_some() {
             return Err(invalid("ambiguous legacy amendment"));
         }
+        let mut signed_heights: BTreeSet<u64> =
+            commit_retention::hot_commit_message_heights_from_root(&self.config.root_dir)?
+                .into_iter()
+                .collect();
+        signed_heights.extend(
+            load_commit_message_cold_index_from_root(&self.config.root_dir)?
+                .by_height
+                .keys()
+                .copied(),
+        );
+        for h in signed_heights {
+            if h >= height
+                || self
+                    .store
+                    .stat_file(&format!("{COMMIT_FILE_PREFIX}/{h:020}.json"))
+                    .map_err(distfs_error_to_node_error)?
+                    .is_none()
+            {
+                return Err(invalid(
+                    "signed history is ahead of or absent from legacy CAS",
+                ));
+            }
+        }
+        let mut local_sequences = BTreeSet::new();
         let mut last_sequence = 0;
         for meta in self
             .store
@@ -278,11 +308,11 @@ impl ReplicationRuntime {
                 ));
             }
             if m.public_key_hex.as_deref() == Some(signer.public_key_hex.as_str()) {
-                if m.node_id != node_id
-                    || prior.proposer_id.as_deref() != Some(node_id)
-                    || m.record.writer_epoch != self.writer_state.writer_epoch
-                {
+                if m.node_id != node_id || m.record.writer_epoch != self.writer_state.writer_epoch {
                     return Err(invalid("legacy writer epoch is ambiguous"));
+                }
+                if !local_sequences.insert(m.record.sequence) {
+                    return Err(invalid("duplicate local sequence"));
                 }
                 last_sequence = last_sequence.max(m.record.sequence);
             }
