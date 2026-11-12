@@ -189,7 +189,11 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
-快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
+快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan-file <selection.json>`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
+
+完整 `selection.json` 保留可信 planner 生成的全部字段、逐路径原因和检查库存，通过本轮既有 selection artifact 传递。执行器、架构检查、preview 与最终门禁读取同一完整文件；文件路径贯穿 shell 和 Python，不再将整份计划装入环境变量或操作系统进程参数。旧 JSON 参数接口继续兼容，文件接口共用原有选组、版本、profile、partition、feature 和来源校验；缺失或无效计划必须失败。批量删除或长路径令诊断数据超过单个进程参数限制时，仍执行原定全部检查，不截断完整证据或缩减覆盖。
+
+workflow 的 plan 输出仅投影实际调度和身份消费者所需的字段，并完整保留对应值及必要扩测信息；新增表达式消费者须同步核对投影。各汇总和观察步骤仍取得真实 job result，完整执行与验证不得改用该投影。最终 required/full 门禁下载同轮完整 selection 与 authority artifact，先核对计划原字节摘要、投影字段一致性及已有身份与 select 独立输出的绑定，再运行事件可信 BASE 的验证实现；缺能力字段的旧计划保留原兼容语义。兼容旧 CLI 时在同一进程内传递已读取的完整 JSON，不要求旧 BASE 接受候选新增参数。完整结果回执保留完整计划，失败与来源约束照常传播。回归须跨真实 shell/Python 进程验证大于 128 KiB 的计划、多样引号和换行、旧 BASE 验证器兼容，以及缺组选项、错误 profile/partition 和来源身份仍被拒绝。
 
 PR/push 继续从事件可信 BASE 取得选择策略、配置及汇总规则；schedule/manual 没有 PR base 时，固定已核准的 main/workflow 策略版本，再解析待测 source，不能以候选自带的策略缩小要求。删除和重命名两端、真实嵌入/生成输入和必要反向消费者取并集。未登记路径明确失败；Git/依赖解析不确定采用保守必要集合并记录超过快速预算的原因。共享控制规则保留，后续更细分类只能按现有独立评审流程进入可信基线。
 
