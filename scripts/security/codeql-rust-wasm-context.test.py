@@ -102,7 +102,8 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
 
     def test_clock_binding_fails_closed_for_missing_date_wrong_source_and_old_budget(self):
-        api = types.SimpleNamespace(environment={'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1'}, tool_sha='1' * 40)
+        api = types.SimpleNamespace(environment={'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1'},
+                                    tool_sha='1' * 40, end=time.monotonic() + 20)
         api.get = lambda _kind: ({'jobs': []}, None)
         with self.assertRaises(b.Rejected): b.bind_clock(api)
         receipt = clock_receipt(); receipt['maximum_job_seconds'] = 1200
@@ -110,6 +111,144 @@ class BootstrapTests(unittest.TestCase):
         for key in ('deadline_wall', 'deadline_monotonic'):
             receipt = clock_receipt(); receipt[key] = float('nan')
             with self.assertRaises(d.Rejected): d.Clock(receipt)
+
+
+class ClockAdmissionTests(unittest.TestCase):
+    """Real bootstrap HTTP decoding with controlled external responses and time."""
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(); self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.wall = datetime.datetime(2026, 11, 12, 16, 0, tzinfo=datetime.timezone.utc).timestamp()
+        self.elapsed = 0.; self.requests = []; self.bodies = []
+        self.environment = {'RUNNER_TEMP': str(self.root), 'GITHUB_SHA': '1' * 40,
+            'GITHUB_REPOSITORY': b.REPOSITORY, 'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1',
+            'GH_TOKEN': 'TOKEN_MUST_NOT_BE_WRITTEN', 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+            'GITHUB_REF': 'refs/heads/main', 'WASM_EXECUTE': 'true', 'WASM_TRUSTED_REF': 'refs/heads/main'}
+        self.started = datetime.datetime.fromtimestamp(self.wall - 5, datetime.timezone.utc).isoformat()
+        self.job = {'name': b.JOB_NAME, 'status': 'in_progress', 'id': 7, 'run_id': 42,
+                    'run_attempt': 1, 'head_sha': '1' * 40, 'started_at': self.started}
+
+    def timeline(self):
+        stack = ExitStack()
+        stack.enter_context(patch.object(b.time, 'monotonic', side_effect=lambda: 100 + self.elapsed))
+        stack.enter_context(patch.object(b.time, 'time', side_effect=lambda: self.wall + self.elapsed))
+        stack.enter_context(patch.object(b.time, 'sleep', side_effect=self.advance))
+        return stack
+
+    def advance(self, seconds): self.elapsed += seconds
+
+    def opener(self, responses, *, latency=.25, date='automatic'):
+        owner = self
+        class HTTP:
+            def open(self, request, timeout):
+                index = len(owner.requests); owner.requests.append((request.full_url, timeout))
+                owner.advance(latency)
+                value = responses[min(index, len(responses) - 1)]
+                raw = json.dumps(value).encode(); owner.bodies.append(raw)
+                response = io.BytesIO(raw); response.status = 200
+                response.headers = {'Date': email.utils.formatdate(owner.wall + owner.elapsed, usegmt=True)
+                                    if date == 'automatic' else date}
+                return response
+        return HTTP()
+
+    def test_queued_and_unpublished_start_bind_only_the_original_job_budget(self):
+        queued = dict(self.job, status='queued', started_at=None)
+        starting = dict(self.job, started_at=None)
+        with self.timeline():
+            api = b.API(self.environment, self.opener([{'jobs': [queued]}, {'jobs': [starting]}, {'jobs': [self.job]}]))
+            clock = b.bind_clock(api)
+        self.assertEqual(len(self.requests), 3)
+        self.assertEqual(api.clock_admission['retry_count'], 2)
+        self.assertEqual([o['job_status'] for o in api.clock_admission['observations']],
+                         ['queued', 'in_progress', 'in_progress'])
+        self.assertEqual(clock['started_at'], self.started)
+        self.assertLessEqual(clock['deadline_wall'], self.wall - 5 + 1800)
+        self.assertLessEqual(clock['prepare_end_wall'], self.wall - 5 + 780)
+        self.assertEqual(clock['deadline_monotonic'] - clock['prepare_end_monotonic'], 1020)
+        self.assertEqual([r['sha256'] for r in api.receipts], [hashlib.sha256(raw).hexdigest() for raw in self.bodies])
+        self.assertTrue(all(r['http_status'] == 200 and r['body_observation'] == 'EOF_OBSERVED' for r in api.receipts))
+
+    def test_retry_and_slow_success_share_one_twenty_second_deadline(self):
+        queued = {'jobs': [dict(self.job, status='queued', started_at=None)]}
+        for responses, latency in (([queued], .25), ([{'jobs': [self.job]}], 20.1)):
+            with self.subTest(latency=latency):
+                self.elapsed = 0.; self.requests = []; self.bodies = []
+                with self.timeline():
+                    api = b.API(self.environment, self.opener(responses, latency=latency))
+                    with self.assertRaises(b.Rejected): b.bind_clock(api)
+                self.assertEqual(api.clock_admission['error_code'], 'CLOCK_DEADLINE')
+                self.assertLessEqual(self.elapsed, max(20., latency))
+                self.assertEqual(api.end, 120.)
+                self.assertLessEqual(len(self.requests), 20)
+                self.assertTrue(all(timeout <= 20 - (index * (1 + latency))
+                                    for index, (_, timeout) in enumerate(self.requests)))
+
+    def test_retry_cannot_switch_to_another_job_id(self):
+        responses = [{'jobs': [dict(self.job, status='queued', started_at=None)]},
+                     {'jobs': [dict(self.job, id=8)]}]
+        with self.timeline():
+            api = b.API(self.environment, self.opener(responses))
+            with self.assertRaises(b.Rejected): b.bind_clock(api)
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(api.clock_admission['error_code'], 'CLOCK_IDENTITY')
+
+    def test_invalid_identity_count_state_or_clock_never_retries(self):
+        cases = [({'jobs': []}, 'automatic'),
+                 ({'jobs': [dict(self.job, status='queued'), self.job]}, 'automatic')]
+        for key, value in (('run_id', 99), ('run_attempt', 2), ('head_sha', '2' * 40), ('id', True),
+                           ('name', 'another job'), ('status', 'completed'),
+                           ('started_at', 'private invalid date'),
+                           ('started_at', datetime.datetime.fromtimestamp(self.wall + 1, datetime.timezone.utc).isoformat()),
+                           ('started_at', datetime.datetime.fromtimestamp(self.wall - 120, datetime.timezone.utc).isoformat())):
+            cases.append(({'jobs': [dict(self.job, **{key: value})]}, 'automatic'))
+        missing = dict(self.job); del missing['started_at']
+        cases.extend([({'jobs': [missing]}, 'automatic'), ({'jobs': [self.job]}, None),
+                      ({'jobs': [self.job]}, 'invalid date'),
+                      ({'jobs': [self.job]}, 'Thu, 12 Nov 2026 16:00:00')])
+        for value, date in cases:
+            with self.subTest(value=value, date=date):
+                self.elapsed = 0.; self.requests = []
+                with self.timeline():
+                    api = b.API(self.environment, self.opener([value], date=date))
+                    with self.assertRaises(b.Rejected): b.bind_clock(api)
+                self.assertEqual(len(self.requests), 1)
+                self.assertEqual(api.clock_admission['retry_count'], 0)
+                self.assertEqual(api.clock_admission['status'], 'REJECTED')
+                self.assertNotEqual(api.clock_admission['error_code'], 'CLOCK_DEADLINE')
+
+    def test_rejected_clock_first_writes_only_whitelisted_fields(self):
+        secret = 'RAW_CLOCK_RESPONSE_MUST_NOT_BE_WRITTEN'
+        for index, field in enumerate(('name', 'status', 'started_at', 'head_sha')):
+            with self.subTest(field=field):
+                root = self.root / str(index); root.mkdir()
+                environment = dict(self.environment, RUNNER_TEMP=str(root))
+                value = {'jobs': [dict(self.job, **{field: secret}, untrusted_message=secret)], 'message': secret}
+                writes = []; original = b.save_bootstrap; stdout = io.StringIO()
+                def save(out, name, value):
+                    writes.append(json.dumps(value)); return original(out, name, value)
+                with self.timeline(), patch.object(b, 'save_bootstrap', side_effect=save), redirect_stdout(stdout):
+                    code = b.bootstrap(environment, opener=self.opener([value]), handoff=lambda *args: self.fail('unsafe handoff'))
+                self.assertEqual(code, 1)
+                for text in writes + [stdout.getvalue()]:
+                    self.assertNotIn(secret, text); self.assertNotIn(environment['GH_TOKEN'], text)
+                terminal = json.loads((root / 'rust-wasm-context/evidence/bootstrap-terminal.json').read_text())
+                self.assertTrue(terminal['error_code'].startswith('CLOCK_'))
+                self.assertEqual(terminal['clock_admission']['status'], 'REJECTED')
+                self.assertFalse((root / 'rust-wasm-context/evidence/job-clock.json').exists())
+
+    def test_clock_evidence_write_failure_never_hands_off_or_leaks_error_text(self):
+        original = Path.write_bytes; stdout = io.StringIO()
+        def write(path, data):
+            if path.name == 'job-clock.json': raise OSError('RAW_WRITE_ERROR_MUST_NOT_BE_WRITTEN')
+            return original(path, data)
+        with self.timeline(), patch.object(Path, 'write_bytes', new=write), redirect_stdout(stdout):
+            code = b.bootstrap(self.environment, opener=self.opener([{'jobs': [self.job]}]),
+                               handoff=lambda *args: self.fail('unrecorded clock handoff'))
+        self.assertEqual(code, 1)
+        terminal = json.loads((self.root / 'rust-wasm-context/evidence/bootstrap-terminal.json').read_text())
+        self.assertEqual(terminal['error_code'], 'BOOTSTRAP_EVIDENCE_WRITE')
+        self.assertNotIn('RAW_WRITE_ERROR', stdout.getvalue())
+        self.assertNotIn('RAW_WRITE_ERROR', json.dumps(terminal))
 
 
 class BudgetTests(unittest.TestCase):

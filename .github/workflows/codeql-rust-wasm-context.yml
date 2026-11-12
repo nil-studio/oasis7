@@ -50,6 +50,13 @@ jobs:
           class Rejected(Exception):
               pass
 
+          class ClockRejected(Rejected):
+              def __init__(self, code):
+                  self.code = code  # callers use only the fixed clock categories below
+
+          class EvidenceRejected(Rejected):
+              pass
+
           class Interrupted(BaseException):
               pass
 
@@ -69,16 +76,19 @@ jobs:
               return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
 
           def save_bootstrap(out, name, value):
-              if name not in ('job-clock.json', 'bootstrap-identity.json', 'bootstrap-http.json', 'bootstrap-terminal.json'):
-                  raise Rejected()
-              data = (json.dumps(value, indent=2, allow_nan=False) + '\n').encode()
-              files = list(out.iterdir())
-              if any(p.is_symlink() or not p.is_file() for p in files):
-                  raise Rejected()
-              old = (out / name).stat().st_size if (out / name).exists() else 0
-              if sum(p.stat().st_size for p in files) - old + len(data) > BOOTSTRAP_CAP:
-                  raise Rejected()
-              (out / name).write_bytes(data)
+              try:
+                  if name not in ('job-clock.json', 'bootstrap-identity.json', 'bootstrap-http.json', 'bootstrap-terminal.json'):
+                      raise Rejected()
+                  data = (json.dumps(value, indent=2, allow_nan=False) + '\n').encode()
+                  files = list(out.iterdir())
+                  if any(p.is_symlink() or not p.is_file() for p in files):
+                      raise Rejected()
+                  old = (out / name).stat().st_size if (out / name).exists() else 0
+                  if sum(p.stat().st_size for p in files) - old + len(data) > BOOTSTRAP_CAP:
+                      raise Rejected()
+                  (out / name).write_bytes(data)
+              except Exception:
+                  raise EvidenceRejected() from None
 
           class API:
               """Only fixed repository endpoints; redirects never inherit the GitHub token."""
@@ -99,6 +109,7 @@ jobs:
                   self.tree = None
                   self.blobs = set()
                   self.receipts = []
+                  self.clock_admission = None
 
               def remaining(self):
                   result = self.end - time.monotonic()
@@ -191,35 +202,114 @@ jobs:
                   return data
 
           def bind_clock(api):
-              request_start = time.monotonic()
-              value, server_date = api.get('clock')
-              request_seconds = time.monotonic() - request_start
-              if not server_date:
-                  raise Rejected()
-              server = email.utils.parsedate_to_datetime(server_date)
-              jobs = [j for j in value['jobs'] if j['name'] == JOB_NAME and j['status'] == 'in_progress']
-              if server.tzinfo is None or len(jobs) != 1:
-                  raise Rejected()
-              job = jobs[0]
-              if (job.get('run_id') != int(api.environment['GITHUB_RUN_ID'])
-                      or job.get('run_attempt') != int(api.environment['GITHUB_RUN_ATTEMPT'])
-                      or job.get('head_sha') != api.tool_sha):
-                  raise Rejected()
-              started = datetime.datetime.fromisoformat(job['started_at'].replace('Z', '+00:00'))
-              if started.tzinfo is None or not isinstance(job['id'], int) or isinstance(job['id'], bool):
-                  raise Rejected()
-              age = server.timestamp() - started.timestamp() + request_seconds + 1
-              if not math.isfinite(age) or not 0 <= age < 120:
-                  raise Rejected()
-              mono, wall = time.monotonic(), time.time()
-              result = {'schema': 1, 'job_id': job['id'], 'started_at': started.isoformat(),
-                        'github_date': server.isoformat(), 'job_age_upper_seconds': age,
-                        'run_id': api.environment['GITHUB_RUN_ID'], 'run_attempt': api.environment['GITHUB_RUN_ATTEMPT'],
-                        'tool_sha': api.tool_sha, 'maximum_job_seconds': 1800,
-                        'deadline_monotonic': mono + 1800 - age, 'deadline_wall': wall + 1800 - age,
-                        'prepare_end_monotonic': mono + 780 - age, 'prepare_end_wall': wall + 780 - age}
-              api.end, api.deadline_wall = result['prepare_end_monotonic'], result['prepare_end_wall']
-              return result
+              admission_end = api.end  # the initial twenty seconds, never reset by another read
+              admission = api.clock_admission = {'status': 'READING', 'error_code': None,
+                  'read_attempts': 0, 'retry_count': 0, 'observations': []}
+              observation = None
+              observed_job_id = None
+
+              def remaining():
+                  seconds = admission_end - time.monotonic()
+                  if not math.isfinite(seconds) or seconds <= 0:
+                      raise ClockRejected('CLOCK_DEADLINE')
+                  return seconds
+
+              def timestamp(value, header=False):
+                  code = 'CLOCK_DATE_INVALID' if header else 'CLOCK_START_INVALID'
+                  try:
+                      if not isinstance(value, str) or not 0 < len(value) <= 128:
+                          raise ValueError()
+                      parsed = (email.utils.parsedate_to_datetime(value) if header else
+                                datetime.datetime.fromisoformat(value.replace('Z', '+00:00')))
+                      if parsed.tzinfo is None or not math.isfinite(parsed.timestamp()):
+                          raise ValueError()
+                      return parsed.astimezone(datetime.timezone.utc)
+                  except (TypeError, ValueError, OverflowError):
+                      raise ClockRejected(code) from None
+
+              try:
+                  while True:
+                      remaining()
+                      admission['read_attempts'] += 1
+                      admission['retry_count'] = admission['read_attempts'] - 1
+                      observation = {'attempt': admission['read_attempts'], 'disposition': 'READING',
+                          'job_count': None, 'job_id': None, 'run_id': None, 'run_attempt': None,
+                          'head_sha': None, 'job_name_matches': None, 'job_status': None,
+                          'started_at': None, 'github_date': None, 'job_age_upper_seconds': None,
+                          'error_code': None}
+                      admission['observations'].append(observation)
+                      request_start = time.monotonic()
+                      value, server_date = api.get('clock')
+                      remaining()  # a response arriving after the original deadline cannot admit work
+                      if not isinstance(value, dict) or not isinstance(value.get('jobs'), list):
+                          raise ClockRejected('CLOCK_RESPONSE_INVALID')
+                      jobs = value['jobs']; observation['job_count'] = len(jobs)
+                      if len(jobs) != 1:
+                          raise ClockRejected('CLOCK_JOB_COUNT')
+                      job = jobs[0]
+                      if not isinstance(job, dict):
+                          raise ClockRejected('CLOCK_RESPONSE_INVALID')
+                      for source, target in (('id', 'job_id'), ('run_id', 'run_id'), ('run_attempt', 'run_attempt')):
+                          item = job.get(source)
+                          if type(item) is int and 0 < item < 10**20:
+                              observation[target] = item
+                      head = job.get('head_sha')
+                      if isinstance(head, str) and re.fullmatch('[0-9a-f]{40}', head):
+                          observation['head_sha'] = head
+                      observation['job_name_matches'] = job.get('name') == JOB_NAME
+                      status = job.get('status')
+                      if status in ('queued', 'in_progress', 'completed', 'waiting', 'pending', 'requested'):
+                          observation['job_status'] = status
+                      if (not observation['job_name_matches'] or observation['job_id'] is None
+                              or observation['run_id'] != int(api.environment['GITHUB_RUN_ID'])
+                              or observation['run_attempt'] != int(api.environment['GITHUB_RUN_ATTEMPT'])
+                              or observation['head_sha'] != api.tool_sha):
+                          raise ClockRejected('CLOCK_IDENTITY')
+                      if observed_job_id is not None and observation['job_id'] != observed_job_id:
+                          raise ClockRejected('CLOCK_IDENTITY')
+                      observed_job_id = observation['job_id']
+                      if status not in ('queued', 'in_progress'):
+                          raise ClockRejected('CLOCK_STATE')
+                      server = timestamp(server_date, header=True)
+                      observation['github_date'] = server.isoformat()
+                      if 'started_at' not in job:
+                          raise ClockRejected('CLOCK_START_INVALID')
+                      started = None if job['started_at'] is None else timestamp(job['started_at'])
+                      if started is not None:
+                          observation['started_at'] = started.isoformat()
+                          if started > server:
+                              raise ClockRejected('CLOCK_FUTURE_START')
+                          mono, wall = time.monotonic(), time.time()
+                          age = server.timestamp() - started.timestamp() + mono - request_start + 1
+                          if math.isfinite(age):
+                              observation['job_age_upper_seconds'] = age
+                          if not math.isfinite(age) or not 0 <= age < 120:
+                              raise ClockRejected('CLOCK_STALE_START')
+                          if status == 'in_progress':
+                              remaining()
+                              if not math.isfinite(wall):
+                                  raise ClockRejected('CLOCK_LOCAL_TIME')
+                              result = {'schema': 1, 'job_id': observation['job_id'], 'started_at': started.isoformat(),
+                                  'github_date': server.isoformat(), 'job_age_upper_seconds': age,
+                                  'run_id': api.environment['GITHUB_RUN_ID'], 'run_attempt': api.environment['GITHUB_RUN_ATTEMPT'],
+                                  'tool_sha': api.tool_sha, 'maximum_job_seconds': 1800,
+                                  'deadline_monotonic': mono + 1800 - age, 'deadline_wall': wall + 1800 - age,
+                                  'prepare_end_monotonic': mono + 780 - age, 'prepare_end_wall': wall + 780 - age}
+                              observation['disposition'] = admission['status'] = 'BOUND'
+                              api.end, api.deadline_wall = result['prepare_end_monotonic'], result['prepare_end_wall']
+                              return result
+                      observation['disposition'] = 'DEFERRED'
+                      time.sleep(min(1., remaining()))
+              except BaseException as exc:
+                  code = (exc.code if isinstance(exc, ClockRejected) else
+                          'CLOCK_INTERRUPTED' if isinstance(exc, Interrupted) else
+                          'CLOCK_DEADLINE' if time.monotonic() >= admission_end else
+                          'CLOCK_RESPONSE_INVALID' if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError)) else
+                          'CLOCK_READ_FAILED')
+                  admission.update(status='REJECTED', error_code=code)
+                  if observation is not None:
+                      observation.update(disposition='REJECTED', error_code=code)
+                  raise
 
           def freeze_helpers(api, directory):
               commit, _ = api.get('tool-commit')
@@ -255,7 +345,7 @@ jobs:
 
           def bootstrap(environment, opener=None, handoff=None):
               session = out = api = None
-              terminal = {'status': 'BOOTSTRAP_INCOMPLETE', 'error_class': None,
+              terminal = {'status': 'BOOTSTRAP_INCOMPLETE', 'error_class': None, 'error_code': None,
                           'full_rust_coverage': 'HOLD', 'production_capacity': 'UNKNOWN'}
               try:
                   if (environment['GITHUB_EVENT_NAME'] != 'workflow_dispatch'
@@ -269,6 +359,7 @@ jobs:
                   out = session / 'evidence'; out.mkdir(mode=0o700)
                   api = API(environment, opener)
                   clock = bind_clock(api)
+                  terminal['clock_admission'] = api.clock_admission
                   save_bootstrap(out, 'job-clock.json', clock)
                   if handoff is None:
                       signal.setitimer(signal.ITIMER_REAL, api.remaining())
@@ -288,13 +379,20 @@ jobs:
               except BaseException as exc:
                   terminal['status'] = 'BOOTSTRAP_INCOMPLETE'
                   terminal['error_class'] = type(exc).__name__
+                  terminal['error_code'] = ('BOOTSTRAP_EVIDENCE_WRITE' if isinstance(exc, EvidenceRejected) else
+                                            'BOOTSTRAP_INTERRUPTED' if isinstance(exc, Interrupted) else
+                                            'BOOTSTRAP_REJECTED' if isinstance(exc, Rejected) else 'BOOTSTRAP_ERROR')
+                  if api is not None and api.clock_admission is not None:
+                      terminal['clock_admission'] = api.clock_admission
+                      if api.clock_admission['status'] == 'REJECTED':
+                          terminal['error_code'] = api.clock_admission['error_code']
                   try:
                       if out is not None:
                           if api is not None:
                               save_bootstrap(out, 'bootstrap-http.json', api.receipts)
                           save_bootstrap(out, 'bootstrap-terminal.json', terminal)
                   except BaseException:
-                      pass
+                      terminal['evidence_write_failed'] = True
                   print(json.dumps(terminal, sort_keys=True))
                   return 1
               finally:
