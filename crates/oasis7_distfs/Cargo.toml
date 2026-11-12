@@ -37,6 +37,8 @@ oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test
 [features]
 # Fresh IWS-only fixture entry; never enables local production signing.
 test-support = []
+# Non-shipping Linux harness composes the actual Host/cache source files.
+iws-host-native-test-support = ["test-support", "dep:oasis7_wasm_executor", "oasis7_wasm_executor/wasmtime"]
 sync-builtin-wasm-identity = ["dep:oasis7_wasm_build"]
 
 [[bin]]
@@ -46,3 +48,11 @@ required-features = ["sync-builtin-wasm-identity"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+oasis7_wasm_executor = { path = "../oasis7_wasm_executor", optional = true }
+
+[[test]]
+name = "iws_host_linux"
+path = "tests/iws_host_linux.rs"
+required-features = ["iws-host-native-test-support"]

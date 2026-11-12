@@ -6373,6 +6373,7 @@ dependencies = [
  "oasis7_proto",
  "oasis7_wasm_abi",
  "oasis7_wasm_build",
+ "oasis7_wasm_executor",
  "oasis7_world_state",
  "polling",
  "serde",

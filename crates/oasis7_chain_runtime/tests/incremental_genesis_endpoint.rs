@@ -44,53 +44,9 @@ impl Drop for Directory {
         std::fs::remove_dir_all(&self.0).unwrap();
     }
 }
-fn physical() -> PageIoBudget {
-    PageIoBudget {
-        // Physical reads include frame/recipe verification and repeated
-        // Current qualification, not only the one-time page publication.
-        reads_remaining: 128_000_000,
-        read_bytes_remaining: 4 << 30,
-        writes_remaining: 1_000_000,
-        write_bytes_remaining: 512 << 20,
-    }
-}
-fn logical() -> ValueIoBudget {
-    ValueIoBudget {
-        nodes_remaining: 1_000_000,
-        read_bytes_remaining: 512 << 20,
-        write_bytes_remaining: 512 << 20,
-    }
-}
-fn core_budget() -> CoreBudget {
-    CoreBudget {
-        objects_remaining: 128,
-        original_bytes_remaining: 16 << 20,
-        new_pages_remaining: 4096,
-        merkle_reads_remaining: 100000,
-    }
-}
-fn facts() -> FactBudget {
-    FactBudget {
-        facts_remaining: 128,
-        original_bytes_remaining: 16 << 20,
-        max_fact_bytes: 4 << 20,
-    }
-}
-fn work() -> RuntimeHistoryIndexWorkV1 {
-    RuntimeHistoryIndexWorkV1 {
-        cells_remaining: 100000,
-        max_pending_node_bytes: 1 << 20,
-    }
-}
-fn canonical_work() -> CanonicalCborWorkV1 {
-    CanonicalCborWorkV1 {
-        visits_remaining: 100000,
-        bytes_remaining: 16 << 20,
-        max_depth: 64,
-        max_map_keys: 1024,
-        max_key_bytes: 1024,
-    }
-}
+#[path = "support/genesis_endpoint_work.rs"]
+mod endpoint_work;
+use endpoint_work::*;
 fn put(objects: &IncrementalObjectStore<'_>, bytes: &[u8], io: &mut ObjectIo<'_>) {
     objects
         .write_object(
@@ -479,4 +435,68 @@ fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
         },
     )
     .unwrap();
+}
+
+/// Manual byte producer, not an accepted GEN test. The Linux consumer must
+/// reverify the original signed authority and complete all real endpoint steps.
+#[test]
+#[ignore = "requires real Linux fingerprints and native archive"]
+fn export_real_genesis_linux_inputs() {
+    let root =
+        PathBuf::from(std::env::var_os("OASIS7_IWS_HOST_EXPORT").expect("fresh export path"));
+    let native =
+        PathBuf::from(std::env::var_os("OASIS7_IWS_NATIVE_ARCHIVE").expect("native archive path"));
+    let fingerprints: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            std::env::var_os("OASIS7_IWS_HOST_FINGERPRINT_FILE")
+                .expect("actual Linux fingerprints"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::create_dir(&root).expect("export must be a fresh directory");
+    let primary = root.join("primary");
+    let replica = root.join("replica");
+    std::fs::create_dir(&primary).unwrap();
+    std::fs::create_dir(&replica).unwrap();
+    let fixture = endpoint_material::prepare_with_native_archive(
+        &root,
+        &primary,
+        &replica,
+        fingerprints["resource"].as_str().unwrap(),
+        &native,
+        Some([
+            fingerprints["primary"].as_str().unwrap().into(),
+            fingerprints["replica"].as_str().unwrap().into(),
+        ]),
+    );
+    // Serialize only public originals. VerifiedAuthority/cache/leases never cross
+    // this file boundary, and no receipt or accepted owner exists on this path.
+    for (name, bytes) in [
+        (
+            "activation.cbor",
+            serde_cbor::to_vec(&fixture.activation).unwrap(),
+        ),
+        ("trust.cbor", serde_cbor::to_vec(&fixture.trust).unwrap()),
+        (
+            "candidate.cbor",
+            serde_cbor::to_vec(&fixture.candidate).unwrap(),
+        ),
+        (
+            "current_nodes.json",
+            serde_json::to_vec(&fixture.current_limits.current.nodes_remaining).unwrap(),
+        ),
+    ] {
+        std::fs::write(root.join(name), bytes).unwrap();
+    }
+    assert!(fixture.candidate.frozen.is_none());
+    assert!(
+        fixture
+            .candidate
+            .material
+            .native_environment()
+            .unwrap()
+            .is_some()
+    );
+    println!("real GEN original bundle exported: {}", root.display());
 }

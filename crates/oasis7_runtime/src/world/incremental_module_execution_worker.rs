@@ -8,36 +8,18 @@ use oasis7_formal_protocol::{
     incremental_state::MerkleNodeReader,
     incremental_value::ValueTreeError,
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_wasm_abi::{
-    CanonicalCborAllocator, CanonicalCborStreamError, ModuleCallFailure, ModuleCallRequest,
-    ModuleOutput, ModuleSandbox,
+    ModuleCallFailure, ModuleCallRequest, ModuleOutput, ModuleSandbox,
     module_raw_output::{ModuleRawOutputSinkV1, ModuleSandboxRawOutputV1},
 };
 use oasis7_wasm_executor::bounded_worker::{
     BoundedWorkerSandboxV1, WorkerExecutionErrorV1, WorkerHostFailureV1,
 };
 
-/// A concrete adapter; an arbitrary allocator implementation cannot stand in
-/// for the same process-wide ordinary pool on the production worker path.
-pub struct RootModuleWorkerAllocatorV1 {
-    memory: MemoryBudget,
-}
-impl RootModuleWorkerAllocatorV1 {
-    pub fn new(memory: &MemoryBudget) -> Self {
-        Self {
-            memory: memory.clone(),
-        }
-    }
-}
-impl CanonicalCborAllocator for RootModuleWorkerAllocatorV1 {
-    type Charge = MemoryReservation;
-    fn reserve(&self, bytes: usize) -> Result<Self::Charge, CanonicalCborStreamError> {
-        self.memory
-            .reserve(bytes, MemoryClass::Ordinary)
-            .map_err(|_| CanonicalCborStreamError::ResourceLimited("ordinary worker process pool"))
-    }
-}
+#[path = "incremental_module_worker_allocator.rs"]
+mod allocator;
+pub use allocator::RootModuleWorkerAllocatorV1;
 
 #[derive(Debug)]
 pub enum RootModuleWorkerErrorV1 {
