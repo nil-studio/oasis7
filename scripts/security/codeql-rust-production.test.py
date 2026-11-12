@@ -231,6 +231,31 @@ class Production(unittest.TestCase):
     def prepare_ok(self):
         self.assertEqual(self.invoke('prepare'), 0, self.terminal('prepare'))
 
+    def test_unset_action_temp_uses_official_runner_temp_default(self):
+        (self.action / 'config').rename(self.runner / 'config')
+        self.env.pop('CODEQL_ACTION_TEMP')
+        with patch.dict(os.environ):
+            os.environ.pop('CODEQL_ACTION_TEMP', None)
+            self.prepare_ok()
+        self.assertEqual(m.read_json(self.output / 'action-config.json')['sha256'],
+                         m.runtime.digest(self.runner / 'config'))
+
+    def test_empty_action_temp_uses_official_runner_temp_default(self):
+        (self.action / 'config').rename(self.runner / 'config')
+        self.env['CODEQL_ACTION_TEMP'] = ''
+        self.prepare_ok()
+        self.assertEqual(m.read_json(self.output / 'action-config.json')['sha256'],
+                         m.runtime.digest(self.runner / 'config'))
+
+    def test_missing_default_action_config_still_blocks_preparation(self):
+        self.env.pop('CODEQL_ACTION_TEMP')
+        with patch.dict(os.environ):
+            os.environ.pop('CODEQL_ACTION_TEMP', None)
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn(str(self.runner / 'config'),
+                      self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.github_env.read_text(), '')
+
     def test_source_pack_preserves_queries_and_support_without_stock_bindings(self):
         self.prepare_ok()
         root = self.work / 'default-queries'

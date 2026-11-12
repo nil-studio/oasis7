@@ -382,6 +382,7 @@ jobs:
         name: Combine extraction and query execution outcomes
         if: always()
         env:
+          RUST_PREPARATION: ${{ steps.rust_prepare.outcome }}
           EXTRACTION: ${{ steps.analyze.outcome }}
           RUST_QUERIES: ${{ steps.rust_production.outcome }}
           PATCHED_RUST: ${{ matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'true' || 'false' }}
@@ -389,8 +390,12 @@ jobs:
           python3 -I - <<'PY'
           import os
           status = os.environ['EXTRACTION']
-          if os.environ['PATCHED_RUST'] == 'true' and status == 'success':
-              status = os.environ['RUST_QUERIES']
+          if os.environ['PATCHED_RUST'] == 'true':
+              preparation = os.environ['RUST_PREPARATION']
+              if preparation in ('failure', 'cancelled'):
+                  status = preparation
+              elif status == 'success':
+                  status = os.environ['RUST_QUERIES'] if preparation == 'success' else preparation
           if status not in ('success', 'failure', 'cancelled', 'skipped'):
               raise SystemExit('unknown CodeQL execution outcome')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:

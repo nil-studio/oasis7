@@ -186,6 +186,19 @@ class LiveAssociationTests(unittest.TestCase):
                 self.assertEqual(row["upload_status"], "unknown")
                 self.assertIsNone(row["analysis_id"])
 
+    def test_failed_production_preparation_cannot_accept_a_success_archive(self):
+        platform = Platform()
+        platform.job['steps'][0]['conclusion'] = 'skipped'
+        platform.job['conclusion'] = 'failure'
+        platform.job['steps'].extend([
+            {'name': 'Verify the pinned Rust default production bundle', 'conclusion': 'success'},
+            {'name': 'Prepare the fixed Rust libraries and current source inventory', 'conclusion': 'failure'},
+            {'name': 'Run and verify all default Rust queries with the fixed libraries', 'conclusion': 'skipped'}])
+        row = self.observe(platform)
+        self.assertEqual(row['execution_status'], 'failure')
+        self.assertEqual(row['upload_status'], 'unknown')
+        self.assertIsNone(row['analysis_id'])
+
     def test_old_attempt_archive_never_borrows_current_analysis(self):
         platform = Platform()
         platform.record["run_attempt"] = 1
