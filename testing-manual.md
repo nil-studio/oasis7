@@ -215,7 +215,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --test pr_fast_increment
 
 验收包括旧 BASE/控制自改、未映射与混合风险、测试 gate 正文变化、声明删除替换、共享新增 case 的实际 target 可达性，以及真实 Cargo fixture 对未选重目标的编译失败注入。artifact 缺目标/最低 case/feature 变体、零执行和 Clippy 失败均须传播；完整模式仍保留旧 ordinary、五个 Formal suites 与平台集合。上述本地命令和 fixture 不代签 hosted 十分钟或跨平台 full 成功。
 
-仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 继续以 `--support-plan` 接收完整 JSON，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。
+仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 以 `--support-plan-file "$PLAN_PATH"` 读取完整计划，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。完整计划及逐路径原因保存在 selection artifact，workflow 输出仅用于调度；执行和最终门禁都读取完整文件，避免大批量改动触发环境变量或进程参数长度限制。
 
 `main-fast` 使用 push 的完整差异；`periodic-full`/`candidate-full` 无须 diff，直接从可信库存展开全部组。完整 hosted 图并行执行普通组、Formal、平台和 `./scripts/ci-tests.sh full-extended`，最后由 `explicit-full-gate` 核齐。`full-extended` 单独成功不代表完整回归，本地 `full`/`full-standard` 也不能代签其他 OS 的结果。
 
@@ -261,9 +261,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - `npm --prefix crates/oasis7_viewer run build:software-safe`
   - 变更 `oasis7_game_client` 时，`workspace_support` 运行独立包的全部 targets strict Clippy 和库测试，并沿 Cargo 依赖图保留主应用消费者。CLI 可用 `cargo run -p oasis7_game_client --bin oasis7_game_client -- --help` 单独验证。
-  - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
+  - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan-file` 读取 trusted selector 的完整 JSON 文件，旧 `--support-plan` JSON 参数继续兼容。文件路径一直传到解析器，不将完整 JSON 插入 shell 源码、环境或后续进程参数。
   - support profile 计划版本为 1；空、未知、重复 profile 或未知版本拒绝，保守 full scope 展开完整库存。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/影响不确定及非包规则保守扩大，已确认的未登记路径明确失败。每个 profile 的命令成功后才输出完成标记，失败仍由 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
-  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。快速 baseline 保留增量与必要全局不变量，完整 profile 另运行 `--full-corpus` 历史报告。
+  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。baseline 保留受影响文档、反向引用及必要全局不变量；`--full-corpus` 历史报告按需显式运行。规则、范围选择或解析器改变时运行全部适用治理回归，并核对完整适用文档集合。
   - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
@@ -297,7 +297,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - planner 先执行：`./scripts/plan-wasm-determinism-scope.sh --event-name <push|pull_request|workflow_dispatch> --base-ref <base> --head-ref <head>`
   - 仅命中的 module set 会实际执行：`./scripts/ci-m1-wasm-summary.sh --module-set <m1|m4|m5> --runner-label ... --out ...`
   - planner 校验后输出同源 `selected_module_sets_json`；collect/verify 在 job 层过滤 skip，并只展开选中模块。无关改动只运行 planner，单模块共三个 runner jobs，全部模块共七个。planner、collect 或 verify 失败均不能算通过。
-  - Wasm 与 document-corpus workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
+  - Wasm workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
   - verify job 会按命中的 `module_set` 下载 summaries，并执行：`./scripts/wasm-release-evidence-report.sh --module-sets <m1|m4|m5> --skip-collect --summary-import-dir <downloaded-summary-dir> --expected-runners linux-x86_64`
   - verify job 同时上传 `summary.md/json + logs + module_sets.tsv` 的 release evidence report artifact
   - collect 失败时另保留 `wasm-candidate-raw-<module_set>-<runner>-<run_id>-<attempt>` artifact，保存 7 天，只包含实际生成的 `.wasm`、`.metadata.json` 和 `.build-receipt.json`；构建早期失败时可能不完整，上传成功不改变原 gate 的失败结果。成功运行不重复上传这些诊断原件。

@@ -3,6 +3,8 @@
 更新时间: 2026-05-27
 
 ## Current Boundary
+- `repository_health_engineer` maintains this retired historical entry and compatibility for old references.
+- Reconsider this exception if daily devlogs are proposed again or execution-evidence authority changes. Retire the summary only when a more useful historical entry fully replaces it; it must never become current runtime truth.
 - `doc/devlog` is no longer a runtime source of truth.
 - The former daily files from 2026-02-03 through 2026-04-01 were summarized here and removed from the active repository surface.
 - Current task truth and execution-evidence authority are defined by the [engineering workflow source of truth](../engineering/workflow/source-of-truth.md); this archive does not restate that mutable contract.

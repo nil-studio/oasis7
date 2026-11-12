@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+from html.parser import HTMLParser
+import re
 
 try:
     from markdown_it import MarkdownIt
@@ -50,7 +52,7 @@ class MarkdownHtml:
 
 
 @lru_cache(maxsize=128)
-def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[MarkdownHtml, ...], tuple[MarkdownLink, ...]]:
+def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[MarkdownHtml, ...], tuple[MarkdownLink, ...], str]:
     """Parse an exact content snapshot once and retain only immutable records.
 
     Tokens are parser-owned mutable objects, so they are never cached or exposed.
@@ -60,17 +62,27 @@ def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[Markdow
     blocks: list[MarkdownBlock] = []
     nodes: list[MarkdownHtml] = []
     links: list[MarkdownLink] = []
+    references: list[str] = []
     source_lines = text.splitlines()
     for token in _MARKDOWN.parse(text):
         if token.type in {"fence", "code_block"} and token.map:
             start, end = token.map
             blocks.append(MarkdownBlock(token.type, start + 1, end))
+            references.append(token.content)
         if token.type == "html_block" and token.map:
             start, _end = token.map
             nodes.append(MarkdownHtml(line=start + 1, content=token.content))
             continue
         if token.type != "inline" or not token.children or not token.map:
             continue
+        depth = 0
+        for child in token.children:
+            if child.type == "link_open":
+                depth += 1
+            elif child.type == "link_close":
+                depth -= 1
+            elif not depth and child.type in {"text", "code_inline"}:
+                references.append(child.content)
         start, end = token.map
         search_line = start
         search_offset = 0
@@ -109,7 +121,7 @@ def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[Markdow
                     search_offset = position + len(target)
                     break
                 links.append(MarkdownLink(line=line, target=target))
-    return tuple(blocks), tuple(nodes), tuple(links)
+    return tuple(blocks), tuple(nodes), tuple(links), "\n".join(references)
 
 
 @lru_cache(maxsize=64)
@@ -128,3 +140,41 @@ def parse_markdown_html(text: str) -> tuple[MarkdownHtml, ...]:
 def parse_markdown_links(text: str) -> tuple[MarkdownLink, ...]:
     """Return clickable links and first source lines, excluding images/code."""
     return _parse_markdown(text)[2]
+
+
+def parse_markdown_reference_text(text: str) -> str:
+    """Text/code references outside links; their paths use repository notation."""
+    return _parse_markdown(text)[3]
+
+
+@lru_cache(maxsize=64)
+def markdown_anchor_ids(text: str) -> frozenset[str]:
+    """Return rendered heading and explicit HTML anchors, excluding code examples."""
+    anchors: set[str] = set()
+
+    class AnchorParser(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            for name, value in attrs:
+                if value and (name == "id" or (tag == "a" and name == "name")):
+                    anchors.add(value.casefold())
+
+    parser = AnchorParser()
+    for node in parse_markdown_html(text):
+        parser.feed(node.content)
+    headings: set[str] = set()
+    tokens = _MARKDOWN.parse(text)
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open":
+            continue
+        inline = tokens[index + 1]
+        visible = "".join(child.content for child in (inline.children or ())
+                          if child.type in {"text", "code_inline", "image"})
+        slug = "".join(char for char in visible.strip().casefold()
+                       if char.isalnum() or char in "_-" or char.isspace())
+        slug = re.sub(r"\s", "-", slug)
+        candidate, suffix = slug, 0
+        while candidate in headings:
+            suffix += 1
+            candidate = f"{slug}-{suffix}"
+        headings.add(candidate)
+    return frozenset(anchors | headings)

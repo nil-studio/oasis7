@@ -278,52 +278,9 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
             self.run_plan()
 
-    def test_frozen_document_fixture_metadata_keeps_its_python_consumer(self):
-        for index, filename in enumerate(('document-corpus-inventory.json',
-                'document-semantic-review-overrides.json', 'inventory.json', 'manifest.json')):
-            path = 'scripts/fixtures/document-corpus-v3/legacy/' + filename
-            with self.subTest(path=path):
-                for content in ('{}', '{"changed":true}'):
-                    self.base = self.git('rev-parse', 'HEAD')
-                    self.write(path, content); self.commit()
-                    result = self.run_plan()
-                    self.assertEqual(result['selected_units'], ['python-repo'])
-                    self.assertEqual(result['fallback_reasons'], [])
-                self.base = self.git('rev-parse', 'HEAD')
-                (self.root / path).rename(self.root / f'moved-{index}.js'); self.commit()
-                self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'javascript-repo'])
-                self.write(path, '{}'); self.base = self.commit()
-                (self.root / path).unlink(); self.commit()
-                self.assertEqual(self.run_plan()['selected_units'], ['python-repo'])
-
-    def test_frozen_fixture_registration_rejects_neighboring_json(self):
-        for path in ('scripts/fixtures/document-corpus-v3/legacy/extra.json',
-                     'scripts/fixtures/document-corpus-v3/inventory.json',
-                     'scripts/fixtures/document-corpus-v3/legacy/nested/inventory.json'):
-            with self.subTest(path=path):
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '{}'); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-                self.base = self.git('rev-parse', 'HEAD')
-                (self.root / path).unlink(); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-
-    def test_git_attributes_preserve_all_language_consumers(self):
-        for path in ('.gitattributes', 'scripts/.gitattributes'):
-            with self.subTest(path=path):
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '*.py text eol=lf\n'); self.commit()
-                result = self.run_plan(batch_modes=json.dumps({'python-repo/default': 'observe'}))
-                self.assertEqual(result['candidate_units'], [unit for unit, _ in planner.UNITS])
-                self.assertEqual(result['selected_units'], ['python-repo'])
-                for unit, _ in planner.UNITS:
-                    self.assertIn('Git checkout attributes: ' + path, result['reasons'][unit])
-
-    def test_document_corpus_inputs_select_python(self):
+    def retired_metadata_paths(self):
         key = '41' + '9' * 62
-        for path in (
+        return (
             'doc/.governance/document-corpus-inventory.json',
             'doc/testing/evidence/inventory.json',
             'doc/.governance/top-level-directory-registry.json',
@@ -332,47 +289,126 @@ class PlannerTests(unittest.TestCase):
             'doc/.governance/document-corpus/semantic/bundles/current-design.json',
             f'doc/.governance/document-corpus/evidence/entries/41/{key}.json',
             'doc/.governance/document-corpus/evidence/groups/current-evidence.json',
-        ):
+            'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json',
+            'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json',
+            'scripts/fixtures/document-corpus-v3/legacy/inventory.json',
+            'scripts/fixtures/document-corpus-v3/legacy/manifest.json',
+        )
+
+    def test_retired_metadata_deletion_has_no_live_python_consumer(self):
+        paths = self.retired_metadata_paths()
+        for path in paths:
+            self.write(path, '{}')
+        self.base = self.commit()
+        for path in paths:
+            (self.root / path).unlink()
+        self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], [])
+        self.assertEqual(result['fallback_reasons'], [])
+        self.assertEqual(result['completeness']['diff_paths'], sorted(paths))
+        full = self.run_plan(event='schedule', full=True)
+        self.assertEqual(len(full['selected_units']), 4)
+        self.assertEqual(full['fallback_reasons'], ['full maintenance scan'])
+
+    def test_retired_metadata_add_modify_and_reintroduction_remain_unregistered(self):
+        for path in self.retired_metadata_paths():
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{}'); self.commit()
-                result = self.run_plan()
-                self.assertEqual(result['selected_units'], ['python-repo'])
-                self.assertIn(path, result['reasons']['python-repo'])
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{"changed":true}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+                (self.root / path).unlink(); self.commit()
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
 
-    def test_document_corpus_mixed_pr_preserves_rust_hold(self):
+    def test_retired_metadata_deletion_requires_removing_former_readers(self):
+        path = 'doc/.governance/document-corpus-inventory.json'
+        for reader in ('scripts/document_corpus.py', 'scripts/document_evidence_policy.py',
+                       '.github/workflows/document-corpus-platform.yml'):
+            with self.subTest(reader=reader):
+                self.write(path, '{}')
+                self.write(reader, '# former reader remains\n')
+                self.base = self.commit()
+                (self.root / path).unlink(); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+                (self.root / reader).unlink(); self.commit()
+
+    def test_retired_metadata_deletion_requires_removing_shell_consumers(self):
+        path = 'doc/.governance/top-level-directory-registry.json'
+        for reader, reference in (
+            ('scripts/doc-governance-check.sh', 'doc/.governance/top-level-directory-registry.json'),
+            ('scripts/unified-world-code-terminology-scan.sh', 'scripts/fixtures/document-corpus-v3/legacy'),
+        ):
+            with self.subTest(reader=reader):
+                self.write(path, '{}')
+                self.write(reader, f'cat {reference}\n')
+                self.base = self.commit()
+                (self.root / path).unlink(); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+                self.write(reader, '# no retired metadata consumer\n'); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], [])
+                self.assertEqual(result['fallback_reasons'], [])
+
+    def test_retired_metadata_mixed_pr_preserves_rust_hold(self):
         path = ('doc/.governance/document-corpus/objects/41/'
                 '4194b076a574aeb5fa9511d1bbda2855a131189cb3500fb5c3d2a28a7740f87d.json')
         self.write(path, '{}')
-        self.write('web/viewer.js', 'export const view = 1;')
         self.write('build.rs', 'fn main() {}')
+        self.base = self.commit()
+        (self.root / path).unlink()
+        self.write('web/viewer.js', 'export const view = 1;')
         self.commit()
         batches = json.dumps({u + '/default': 'observe' for u in
                               ('actions-repo', 'python-repo', 'javascript-repo')})
         result = self.run_plan(batch_modes=batches)
-        self.assertEqual(result['selected_units'], ['python-repo', 'javascript-repo'])
+        self.assertEqual(result['selected_units'], ['javascript-repo'])
         self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
         self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
 
-    def test_document_corpus_rename_delete_and_embedded_consumers(self):
+    def test_retired_metadata_rename_delete_keeps_old_embedded_consumers(self):
         path = 'doc/.governance/document-corpus-inventory.json'
         self.write(path, '{}')
         self.write('src/lib.rs', 'const S: &str = include_str!("../' + path + '");')
         self.base = self.commit()
-        (self.root / path).rename(self.root / 'moved.js'); self.commit()
-        self.assertEqual(self.run_plan()['selected_units'],
-                         ['python-repo', 'javascript-repo', 'rust-repo'])
+        (self.root / path).rename(self.root / 'moved.js')
+        self.write('src/lib.rs', '')
+        self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['javascript-repo', 'rust-repo'])
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
         self.write(path, '{}'); self.base = self.commit()
         (self.root / path).unlink(); self.commit()
-        self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'rust-repo'])
+        self.assertEqual(self.run_plan()['selected_units'], [])
 
-    def test_document_corpus_does_not_register_unknown_json(self):
+    def test_retired_metadata_deletion_keeps_removed_build_consumers(self):
+        path = 'doc/testing/evidence/inventory.json'
+        self.write(path, '{}')
+        self.write('build.rs', 'fn main() {}')
+        self.base = self.commit()
+        (self.root / path).unlink()
+        (self.root / 'build.rs').unlink(); self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['rust-repo'])
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+
+    def test_retirement_does_not_register_unknown_json_additions_or_deletions(self):
         for path in (
             'doc/.governance/unknown.json',
             'doc/.governance/document-corpus/unknown.json',
             'doc/.governance/document-corpus/objects/41/not-a-shard.json',
             'doc/.governance/document-corpus/semantic/bundles/nested/record.json',
             'doc/testing/evidence/unregistered.json',
+            'scripts/fixtures/document-corpus-v3/legacy/extra.json',
             'web/data.json',
         ):
             with self.subTest(path=path):
@@ -380,6 +416,29 @@ class PlannerTests(unittest.TestCase):
                 self.write(path, '{}'); self.commit()
                 with self.assertRaisesRegex(ValueError, 'unregistered input'):
                     self.run_plan()
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink(); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_retired_metadata_symlink_deletion_remains_rejected(self):
+        path = self.root / 'doc/.governance/document-corpus-inventory.json'
+        path.parent.mkdir(parents=True)
+        path.symlink_to('../docs/guide.md')
+        self.base = self.commit()
+        path.unlink(); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
+    def test_git_attributes_preserve_all_language_consumers(self):
+        for path in ('.gitattributes', 'scripts/.gitattributes'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '*.py text eol=lf\n'); self.commit()
+                result = self.run_plan()
+                self.assertEqual(len(result['selected_units']), 4)
+                for unit, _ in planner.UNITS:
+                    self.assertIn('Git checkout attributes: ' + path, result['reasons'][unit])
 
     def test_CQ_T07_T08_all_manifest_inventory_and_delete(self):
         self.write('standalone/Cargo.toml', '[package]\nname="standalone"\nversion="0.1.0"\n')

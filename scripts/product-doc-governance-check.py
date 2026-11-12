@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from doc_content_warnings import report_findings
+from doc_content_warnings import report_findings, report_classified_findings
 from dataclasses import dataclass
 import html
 from pathlib import Path
@@ -251,6 +251,12 @@ def markdown_targets_outside_fenced_code(root: Path, source: Path, text: str) ->
     return markdown_targets(root, source, text)
 
 
+def declared_pair_targets(root: Path, source: Path, text: str, label: str) -> tuple[bool, set[str]]:
+    lines = [line for _number, line in visible_lines(text)
+             if re.match(rf"^\s*(?:[-+*]\s*)?{label}\s*[:：]", line)]
+    return bool(lines), markdown_targets(root, source, "\n".join(lines))
+
+
 def topic_targets_for_section(
     root: Path, module_path: Path, text: str, heading: str
 ) -> set[str]:
@@ -270,11 +276,26 @@ def topic_targets_for_section(
 
 
 def active_topic_targets(root: Path, module_path: Path, text: str) -> set[str]:
-    return topic_targets_for_section(root, module_path, text, "活跃产品专题")
+    active, _migration = classified_topic_targets(root, module_path, text)
+    return active
 
 
 def migration_topic_targets(root: Path, module_path: Path, text: str) -> set[str]:
-    return topic_targets_for_section(root, module_path, text, "非权威迁移索引")
+    _active, migration = classified_topic_targets(root, module_path, text)
+    return migration
+
+
+def classified_topic_targets(root: Path, module_path: Path, text: str) -> tuple[set[str], set[str]]:
+    """Keep explicit legacy declarations and accept equivalent navigation prose."""
+    active = topic_targets_for_section(root, module_path, text, "活跃产品专题")
+    migration = topic_targets_for_section(root, module_path, text, "非权威迁移索引")
+    linked_topics = {target for target in markdown_targets(root, module_path, text)
+                     if target.endswith(".prd.md") and (root / target).parent == module_path.parent}
+    for target in linked_topics - active - migration:
+        path = root / target
+        lifecycle = metadata(path.read_text(encoding="utf-8"), "生命周期") if path.is_file() else None
+        (migration if lifecycle in {"superseded", "retired"} else active).add(target)
+    return active, migration
 
 
 def check(root: Path) -> list[str]:
@@ -366,9 +387,9 @@ def check(root: Path) -> list[str]:
             if "xxx" in prd_id.lower() or not re.fullmatch(r"PRD-PRODUCT-\d{3}", prd_id):
                 fail(errors, "metadata-placeholder-id", f"{module.path}: {prd_id}")
         lifecycle = metadata(text, "生命周期")
-        if lifecycle not in LIFECYCLES:
+        if lifecycle is not None and lifecycle not in LIFECYCLES:
             fail(errors, "lifecycle-contract", f"{module.path}: {lifecycle!r}")
-        if lifecycle == "active" and metadata(text, "后继文档") != "无":
+        if lifecycle == "active" and metadata(text, "后继文档") not in {None, "无"}:
             fail(errors, "lifecycle-successor", f"{module.path}: active PRD must use successor `无`")
         if not metadata(text, "Last reviewed"):
             fail(errors, "metadata-last-reviewed", module.path)
@@ -398,7 +419,8 @@ def check(root: Path) -> list[str]:
             if not topic_path.is_file():
                 fail(errors, "topic-missing", f"{module.path}: declared active topic {topic} does not exist")
                 continue
-            if metadata(topic_path.read_text(encoding="utf-8"), "生命周期") != "active":
+            topic_lifecycle = metadata(topic_path.read_text(encoding="utf-8"), "生命周期")
+            if topic_lifecycle is not None and topic_lifecycle != "active":
                 fail(errors, "topic-lifecycle", f"active topic must declare active lifecycle: {topic}")
             declared_topics.add(topic)
 
@@ -411,14 +433,24 @@ def check(root: Path) -> list[str]:
                 fail(errors, "topic-missing", f"{module.path}: declared migration topic {topic} does not exist")
                 continue
             lifecycle = metadata(topic_path.read_text(encoding="utf-8"), "生命周期")
-            if lifecycle not in {"superseded", "retired"}:
+            if lifecycle is not None and lifecycle not in {"superseded", "retired"}:
                 fail(errors, "topic-lifecycle", f"migration topic must be superseded or retired: {topic}")
             declared_migration_topics.add(topic)
 
-        success_ids = re.findall(r"^- (SC-\d+)：", text, re.MULTILINE)
+        visible = "\n".join(line for _, line in visible_lines(text))
+        success_ids = re.findall(r"^\s*[-+*]\s+`?(SC-\d+)`?\s*[:：]", visible, re.MULTILINE)
+        # A criterion can be introduced by a heading instead of a list item.
+        # Repeated subrange headings/mentions are references to that criterion.
+        heading_ids = re.findall(r"^\s*#{1,6}\s+`?(SC-\d+)`?\s*[:：]", visible, re.MULTILINE)
+        listed_ids = set(success_ids)
+        success_ids.extend(identifier for identifier in heading_ids if identifier not in listed_ids)
         trace_rows = re.findall(r"^\|\s*(SC-\d+)\s*\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|$", text, re.MULTILINE)
         trace_ids = [row[0] for row in trace_rows]
-        if not success_ids or success_ids != trace_ids or len(trace_ids) != len(set(trace_ids)):
+        if len(success_ids) != len(set(success_ids)) or len(trace_ids) != len(set(trace_ids)):
+            fail(errors, "traceability-duplicate-id", f"{module.path}: success={success_ids!r}, trace={trace_ids!r}")
+        if success_ids and set(trace_ids) - set(success_ids):
+            fail(errors, "traceability-undeclared-id", f"{module.path}: undeclared success criteria {sorted(set(trace_ids) - set(success_ids))!r}")
+        if not success_ids or success_ids != trace_ids:
             fail(errors, "traceability-contract", f"{module.path}: success={success_ids!r}, trace={trace_ids!r}")
         for sc_id, owner, prd_ids, authority_docs, evidence, tier in trace_rows:
             prd_refs = re.findall(r"PRD-[A-Z][A-Z0-9_]*(?:-[A-Z0-9]+)+(?:/[A-Z0-9]+)*", prd_ids)
@@ -465,12 +497,13 @@ def check(root: Path) -> list[str]:
                 "topic-module-backlink",
                 f"{topic} must link its owning module PRD {module_root}",
             )
-        for suffix in (".design.md",):
-            paired_path = topic_path.with_name(topic_path.name.removesuffix(".prd.md") + suffix)
-            if paired_path.is_file():
-                paired_text = paired_path.read_text(encoding="utf-8")
-                if topic not in markdown_targets_outside_fenced_code(root, paired_path, paired_text):
-                    fail(errors, "topic-pair-backlink", f"{paired_path.relative_to(root)} must link {topic}")
+        _pair_declared, paired_targets = declared_pair_targets(root, topic_path, topic_text, r"配对产品设计")
+        for paired_target in paired_targets:
+            paired_path = root / paired_target
+            if not paired_target.endswith(".design.md") or not paired_path.is_file():
+                fail(errors, "topic-pair-target-missing", f"{topic}: declared product design is invalid: {paired_target}")
+            elif topic not in markdown_targets_outside_fenced_code(root, paired_path, paired_path.read_text(encoding="utf-8")):
+                fail(errors, "topic-pair-backlink", f"{paired_target} must link declared source {topic}")
         if metadata(topic_text, "产品层唯一 PRD") not in {None, module_root}:
             fail(errors, "topic-module-authority", f"{topic}: 产品层唯一 PRD must name its module root")
         for authority in TOPIC_PROFESSIONAL_AUTHORITIES.get(topic, ()):
@@ -486,12 +519,18 @@ def check(root: Path) -> list[str]:
         if path.is_file()
     ]
     for paired_path in paired_files:
-        topic_path = paired_path.with_name(
-            paired_path.name.removesuffix(".design.md") + ".prd.md"
-        )
-        topic = topic_path.relative_to(root).as_posix()
-        if topic not in declared_topics:
-            fail(errors, "topic-pair-orphan", f"{paired_path.relative_to(root)} has no declared {topic}")
+        paired_text = paired_path.read_text(encoding="utf-8")
+        pair_declared, topics = declared_pair_targets(root, paired_path, paired_text, r"配对(?:产品)?\s*PRD")
+        same_name = paired_path.with_name(paired_path.name.removesuffix(".design.md") + ".prd.md").relative_to(root).as_posix()
+        if not topics:
+            if same_name in markdown_targets(root, paired_path, paired_text):
+                topics.add(same_name)
+        if not topics:
+            code = "topic-pair-backlink" if pair_declared else "topic-pair-format"
+            fail(errors, code, f"{paired_path.relative_to(root)}: add a readable declared product PRD association when applicable")
+        for topic in topics:
+            if topic not in declared_topics | CANONICAL_MODULE_ROOT_PATHS:
+                fail(errors, "topic-pair-orphan", f"{paired_path.relative_to(root)} has no declared {topic}")
     if any((root / "doc/product").glob("**/archive")):
         fail(errors, "lifecycle-archive", "doc/product/**/archive is forbidden")
     validate_product_fragments(root, errors)
@@ -501,10 +540,17 @@ def check(root: Path) -> list[str]:
 # Explicit allowlist: new findings fail closed until classified. Do not suppress
 # read exceptions, missing files, root identity, or module topology contracts.
 CONTENT_FINDING_CODES = frozenset({
-    "metadata-content", "metadata-last-reviewed", "section-contract", "invalid-fragment",
-    "lifecycle-contract", "lifecycle-successor", "topic-lifecycle",
+    "metadata-content", "metadata-last-reviewed", "section-contract",
     "traceability-contract", "traceability-authority-format", "traceability-owner-prd", "traceability-evidence-tier",
+    "topic-pair-format",
+})
+# Existing global identity/topology checks remain global. Relation findings
+# formerly treated as content are strict only in their affected source/target
+# range, so an unrelated edit does not inherit historical content debt.
+SCOPED_INTEGRITY_CODES = frozenset({
+    "invalid-fragment", "lifecycle-contract", "lifecycle-successor", "topic-lifecycle",
     "traceability-prd-resolution", "authority-backlink", "topic-pair-backlink",
+    "topic-pair-target-missing",
 })
 
 
@@ -516,7 +562,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--warn-only", action="store_true", help="Warn for content conventions; identity/topology/integrity errors still fail")
-    parser.add_argument("--enforce-changed", action="store_true", help="Block content findings only for substantively changed product documents")
+    parser.add_argument("--enforce-changed", action="store_true", help="Validate affected relation facts; writing conventions remain advisory")
     parser.add_argument("--base")
     parser.add_argument("--head")
     parser.add_argument("--worktree", action="store_true")
@@ -540,7 +586,10 @@ def main() -> int:
             paths, worktree_paths = content.diff_paths(root, base, head, args.worktree, scope="doc")
             source_base = content.run_git(root, "merge-base", base, head).strip()
             for path, status in paths.items():
-                if status.startswith("D") or not path.endswith(".md"):
+                if not path.endswith(".md"):
+                    continue
+                if status.startswith("D"):
+                    changed.add(path)
                     continue
                 old = content.git_text(root, source_base, path)
                 new = content.current_text(root, head, path, path in worktree_paths)
@@ -553,28 +602,18 @@ def main() -> int:
             return 2
     errors = check(args.repo_root.resolve())
     if errors:
-        advisory = [error for error in errors if is_content_finding(error)]
-        hard = [error for error in errors if not is_content_finding(error)]
-        blocking = []
-        warnings = []
-        for error in advisory:
-            # Findings carry an exact repository path; never classify by PR date.
-            source = re.search(r"(?<![\w/.-])(doc/[^\s:]+\.md)(?=[:\s]|$)", error)
-            touched = bool(source and source.group(1) in changed)
-            if args.enforce_changed:
-                if source is None:
-                    hard.append(f"product-doc-governance: unable-to-classify-source: {error}")
-                else:
-                    (blocking if touched else warnings).append(error)
-            elif args.warn_only:
-                warnings.append(error)
-            else:
-                blocking.append(error)
-        if warnings:
-            report_findings(warnings, True)
-        if hard or blocking:
-            print("\n".join(hard + blocking))
-        return 1 if hard or blocking else 0
+        current, historical = [], []
+        for error in errors:
+            code = error.split(": ", 2)[1]
+            if args.enforce_changed and code in SCOPED_INTEGRITY_CODES:
+                references = set(re.findall(r"doc/[\w./-]+\.md", error))
+                if references and not references.intersection(changed):
+                    historical.append(error)
+                    continue
+            current.append(error)
+        if historical:
+            report_findings(historical, True)
+        return report_classified_findings(current, CONTENT_FINDING_CODES)
     print("product-doc-governance: OK")
     return 0
 
