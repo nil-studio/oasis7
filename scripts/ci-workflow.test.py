@@ -1738,7 +1738,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
                         if 'name: Install WASM C compiler' in step)
         self.assertIn("if: matrix.group == 'net'", compiler)
-        for command in ('sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- clang llvm',
+        for command in ('sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- clang llvm',
                         'clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
             self.assertIn(command, compiler)
             self.assertIn(command, JOBS['net'])
@@ -4082,9 +4082,13 @@ class AptWorkflow(unittest.TestCase):
                                                 text=True, capture_output=True)
                         self.assertEqual(result.returncode, code, result.stderr)
                         self.assertEqual('reached-tests' in result.stdout, code == 0)
-                        self.assertEqual(capture.read_text().splitlines(),
-                                         ['-n', '/usr/bin/python3', 'scripts/ci-apt-install.py',
-                                          '--budget-seconds', '600', '--', *expected[key]])
+                        arguments = ['-n']
+                        if key[0] == 'rust':
+                            arguments.append('--preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES')
+                        arguments += ['/usr/bin/python3', 'scripts/ci-apt-install.py', '--budget-seconds', '600']
+                        if key[0] == 'rust':
+                            arguments.append('--hosted-dns-recovery')
+                        self.assertEqual(capture.read_text().splitlines(), arguments + ['--', *expected[key]])
 
     def test_existing_lsof_does_not_invoke_package_manager(self):
         step = self.apt_steps()['rust', 'fleet-health', 'Ensure Linux process inspection dependency']
@@ -4105,6 +4109,10 @@ class AptWorkflow(unittest.TestCase):
             self.assertIn(test, CONFIG['python_control_contracts'][path]['tests'])
         self.assertIn('scripts/ci-workflow.test.py', CONFIG['python_control_contracts'][helper]['tests'])
         self.assertIn('scripts/ci-apt-install.test.py', CONFIG['workflow_governance_python_tests'])
+        for path in ('scripts/ci-apt-dns.py', 'scripts/ci-apt-dns.test.py'):
+            self.assertEqual(CONFIG['scoped_control_paths'][path], ['workflow_governance'])
+            self.assertIn('scripts/ci-apt-dns.test.py', CONFIG['python_control_contracts'][path]['tests'])
+        self.assertIn('scripts/ci-apt-dns.test.py', CONFIG['workflow_governance_python_tests'])
 
 
 # Append this class before unittest.main() in scripts/ci-workflow.test.py.
