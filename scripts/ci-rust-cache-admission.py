@@ -104,6 +104,12 @@ def archive_for_create(args, environment, directory):
     raise AdmissionError('unknown pinned Rust cache tar creation arguments; upload denied')
 
 
+def public_family_label(value):
+    # Reports also cover failures before writer validation. Return a registered
+    # public label, never the raw environment value (including on denial).
+    return next((family for family in FAMILIES if family == value), None)
+
+
 def trusted_writer(environment, api):
     family = environment.get('OASIS7_DEPENDENCY_CACHE_FAMILY')
     if family not in FAMILIES:
@@ -166,7 +172,7 @@ def trusted_writer(environment, api):
 
 def empty_report(environment):
     return dict(mode='dependency-cache-upload-admission', allowed=False,
-                family=environment.get('OASIS7_DEPENDENCY_CACHE_FAMILY'),
+                family=public_family_label(environment.get('OASIS7_DEPENDENCY_CACHE_FAMILY')),
                 action_revision=ACTION_REVISION, checked_at=datetime.now(timezone.utc).isoformat(),
                 archive_bytes=None, projected_repository_bytes=None,
                 saved_confirmed=None, reason='upload not authorized')
@@ -177,7 +183,7 @@ def check_archive(archive, environment, api):
     try:
         before = file_identity(regular_file(archive))
         report['archive_bytes'] = before[2]
-        report['family'] = trusted_writer(environment, api)
+        report['family'] = public_family_label(trusted_writer(environment, api))
         budget = policy.configured_budget(environment.get('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES'))
         if budget is None:
             raise AdmissionError('verified dependency cache repository budget is missing')

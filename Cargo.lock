@@ -6218,6 +6218,7 @@ dependencies = [
  "oasis7_wasm_abi",
  "serde",
  "serde_cbor_2",
+ "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
  "zeroize",
@@ -6351,6 +6352,26 @@ dependencies = [
  "oasis7_wasm_abi",
  "serde",
  "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "worker",
+ "zeroize",
+]
+
+[[package]]
+name = "oasis7_dev_test_worker"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "hex",
+ "js-sys",
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_custody_core",
+ "serde",
+ "serde_json",
+ "subtle",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

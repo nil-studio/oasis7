@@ -48,9 +48,9 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 
 已有 PR 的验证段即可承载结果，例如“静态核对 pass，Source 为某设计锚点，Evidence 为固定提交和检查输出”；未执行的浏览器或跨平台范围写 skipped 与原因。命令返回 0 但选中项为空不能直接写覆盖通过；源文件存在仅证明可定位，不证明其测试已运行。实际命令语义由[本地与 CI 验证入口](../../testing-manual.md)拥有，本条不另定义 quick/affected/formal。
 
-任务拆分、[独立开发会话](workflow/source-of-truth.md#independent-development-sessions)、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)由 workflow 统一定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接建单关联、按子项领取、自测与父项收尾方法。直接开发会话与可选 TPM 使用同一[领取与状态维护规则](workflow/source-of-truth.md#coding-agent-task-claim)，由实际领取者维护代码队列标签。现有代码 Issue/PR 模板承载本项范围、可复跑结果和剩余义务。
+从父目标组织可用模块增量、逐步细化近期任务和判断拆分收益，统一按[项目拆解](workflow/source-of-truth.md#project-decomposition)执行；模块增量使用父项现有正文，不增加必建的 Issue 层级。[独立开发会话](workflow/source-of-truth.md#independent-development-sessions)、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)同样由 workflow 定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接近期派工、早期真实消费检查、组合验收与收尾。直接开发会话与可选 TPM 使用同一[领取与状态维护规则](workflow/source-of-truth.md#coding-agent-task-claim)，现有 Issue/PR 模板承载必要安排和真实结果。
 
-修改这些载体时，走读简单任务直接实施、用户直开多个开发会话、可选 TPM 协调、原会话修复与中断恢复，核对父子领取、标签更新失败、写入隔离、共享预算及局部/整体验收；专项独立试玩与 dot 时间表沿原规则执行。运行适用文档检查。该静态验收只证明规则和入口一致；真实任务的周期、返工和收敛改善仍需实际执行数据。
+修改这些载体时，走读简单任务直接实施、后续范围未细化而当前批次就绪、同一业务的底层步骤留在原任务、共享接口早期检查、多个开发会话及可选 TPM、原会话修复与中断恢复；核对父子领取、写入隔离、共享预算、局部/整体验收和待集成成果优先收尾。专项试玩与 dot 时间表沿原规则执行，运行适用文档检查。静态验收只证明规则和入口一致；首次可用结果、接口返工和必要重构建次数的改善仍需实际任务数据，不新增固定效率报表或门禁。
 
 #### Viewer 试点与有限走读
 
@@ -58,7 +58,7 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 
 | 代表任务 | 应读来源与选择 | 走读要核对的结果 |
 | --- | --- | --- |
-| 仅修正文档路径 | 根入口、被引用文档、文档治理检查范围 | 运行适用文档/链接检查，按需同步 corpus；没有业务变化时不要求 Rust/浏览器全量。检查成功仅证明其结构范围 |
+| 仅修正文档路径 | 根入口、被引用文档、文档治理检查范围 | 运行受影响文档及反向引用检查，更新真实导航；没有业务变化时不要求 Rust/浏览器全量。检查成功仅证明其结构范围 |
 | 修改一个 Rust 包的内部函数 | 领域设计、实际调用方、Rust 工程合同、所属 target/feature 与现有回归 | 定向 canonical 测试及真实反向消费者，保留 CI planner 的必要范围；同包不同 tuple 不误去重，不从本地局部通过推断 required 全绿 |
 | 修改 Viewer 的跨边界交互 | Viewer 短导航、准确产品/控制面设计、真实前端与协议消费者、S6 | component/协议回归与适用真实浏览器分别选择；状态/权限/世界效果按领域承接，fixture 不代签真实世界 |
 
@@ -77,7 +77,7 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 
 SC-24D 由可选的 `scripts/pr-review-threads.py` 承接线程查询与显式 resolve。工具返回实际线程和本次操作结果；合入判断仍按 workflow 核对当前 PR 和 source HEAD，不为每轮线程操作另建固定状态报告。
 
-`scripts/doc-governance-check.sh` 保留文档结构、有效引用、目录登记和实际内容合同检查，目录登记的负责人仍须能定位有效角色文件。退役的 devlog 角色标题与 handoff 角色字段不再扫描。修改此边界时，用现有脚本回归核对旧格式不再误阻断，同时保持未知目录负责人、缺失入口、断链和实际内容错误失败；该检查不要求每项开发采用角色卡或交接模板。
+`scripts/doc-governance-check.sh` 核对真实目录入口、有效路径/锚点、ID、已声明关系与正向完成依据；输入和执行错误仍失败。标题、章节、列数和普遍状态卡只作写作提示。目录主责与例外在原 README 说明，不再维护 registry、完整路径 allowlist 或 corpus 分片。修改检查规则时运行适用完整回归并核对全量适用文档；普通变更只查受影响正文及反向引用，历史报告按需。
 
 ### 3.3 文档结构治理链路
 - 权威规则：`doc/engineering/doc-governance/doc-structure-standard.prd.md`

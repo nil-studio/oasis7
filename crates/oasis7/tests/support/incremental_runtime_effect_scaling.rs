@@ -1,6 +1,17 @@
-use super::*;
+use super::fixture::{Directory, logical};
+use super::incremental_runtime_effect_fixture::{limits, physical};
+use oasis7_distfs::incremental_page_store::*;
+use oasis7_formal_protocol::{
+    incremental_execution::*, incremental_state::*, incremental_value::*,
+};
 use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime::{
+    EffectIntent, EffectOrigin, incremental_field_member::*,
+    incremental_field_read::WorldFieldReadContextV1, incremental_runtime_effect_records::*,
+};
 use std::cell::Cell;
+use std::collections::{BTreeMap, VecDeque};
 struct Meter<'a, R> {
     source: &'a R,
     forbidden: [[u8; 32]; 2],
@@ -123,11 +134,14 @@ pub(super) fn seed(
         .unwrap() = delta.after.clone();
     roots
 }
-#[test]
-fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
+
+pub(super) const RECEIVER_POOL_BYTES: usize = 24 << 20;
+
+pub(super) fn exercise_unchanged_params(sizes: &[usize]) {
     use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
+    assert!(sizes.len() >= 2);
     let mut observations = Vec::new();
-    for size in [64usize, 32 << 20, 64 << 20] {
+    for &size in sizes {
         let directory = Directory::new();
         let path = directory.0.join("source");
         let roots = {
@@ -160,10 +174,7 @@ fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
                 size,
             )
         }; // Original DTO, source pool and warm producer are destroyed here.
-        let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
-        if size != 64 {
-            assert!((24usize << 20) < size);
-        }
+        let memory = MemoryBudget::new(RECEIVER_POOL_BYTES, 4 << 20).unwrap();
         let store = IncrementalPageStore::open(
             &path,
             memory.clone(),
@@ -429,6 +440,7 @@ fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
         );
         observations.push((sender, receiver_counts));
     }
-    assert_eq!(observations[0], observations[1]);
-    assert_eq!(observations[1], observations[2]);
+    for pair in observations.windows(2) {
+        assert_eq!(pair[0], pair[1]);
+    }
 }

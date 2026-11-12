@@ -324,7 +324,43 @@ def assert_access_mode_consolidated(root: Path) -> None:
     )
 
 
+def scenario_equivalent_navigation_and_nonmatching_pair_names() -> None:
+    root = make_fixture()
+    try:
+        module = root / 'doc/product/agents-world-simulation/prd.md'
+        text = module.read_text().replace('### 活跃产品专题', '### 相关产品主题').replace('### 非权威迁移索引', '### 历史参考')
+        module.write_text(text)
+        old = root / 'doc/product/agents-world-simulation/agent-conversation-and-prompt-control.design.md'
+        renamed = old.with_name('shared-conversation-experience.design.md')
+        old.rename(renamed)
+        for path in (root / 'doc/product').rglob('*.md'):
+            path.write_text(path.read_text().replace(old.name, renamed.name))
+        run(root)
+    finally:
+        shutil.rmtree(root)
+
+
+def scenario_missing_status_metadata_does_not_become_integrity_failure() -> None:
+    root = make_fixture()
+    try:
+        path = root / 'doc/product/world-infrastructure/prd.md'
+        original = path.read_text()
+        path.write_text(original.replace('- 生命周期：`active`\n', '').replace('- 后继文档：`无`\n', ''))
+        # Ordinary history navigation is not an undeclared product pairing.
+        (path.parent / 'concept.design.md').write_text('# Concept\n历史背景：[旧材料](fixture-retired-history.prd.md)\n')
+        result = subprocess.run(['python3', str(CHECKER), '--repo-root', str(root)], capture_output=True, text=True)
+        assert result.returncode == 0 and '::warning::' in result.stdout, result.stdout + result.stderr
+        path.write_text(original.replace('- 生命周期：`active`', '- 生命周期：`unknown`'))
+        run(root, 'lifecycle-contract')
+        path.write_text(original + '\n- SC-1：Duplicate actual criterion declaration.\n')
+        run(root, 'traceability-duplicate-id')
+    finally:
+        shutil.rmtree(root)
+
+
 def main() -> None:
+    scenario_equivalent_navigation_and_nonmatching_pair_names()
+    scenario_missing_status_metadata_does_not_become_integrity_failure()
     root = make_fixture()
     try:
         run(root)

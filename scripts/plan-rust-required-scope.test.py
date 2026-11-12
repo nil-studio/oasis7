@@ -1050,8 +1050,8 @@ class Selection(unittest.TestCase):
         head = self.commit()
         workflow = (HERE.parent / '.github/workflows/rust.yml').read_text()
         step = workflow.split('        name: Select using trusted baseline Git data', 1)[1]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1]
-                                .split('      - id: formal-select', 1)[0])
+        step = step.split('\n      - ', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         with tempfile.TemporaryDirectory() as temporary:
             runner = Path(temporary)
             (runner / 'bin').mkdir()
@@ -3925,6 +3925,163 @@ class Selection(unittest.TestCase):
 
 
 
+class ScaleRiskPlans(unittest.TestCase):
+    def test_body_boundary_keeps_topology_const_evaluation_and_macro_inputs(self):
+        source = 'struct Feedback; impl Feedback { fn value(&self) -> u8 { 1 } }\nfn leaf() -> u8 { 2 }\n'
+        expected = selector.scale_source_boundary(source)
+        self.assertEqual(expected, selector.scale_source_boundary(source.replace('{ 1 }', '{ 3 }')))
+        self.assertEqual(expected, selector.scale_source_boundary(source + '// impl Drop for Store {}\n'))
+        for changed in (source + 'fn added() {}', source.replace('impl Feedback', 'impl Other'),
+                        source.replace('{ 1 }', '{ impl Drop for Store { fn drop(&mut self) {} } 1 }'),
+                        source.replace('{ 1 }', '{ { impl Trait for Store {} } 1 }'),
+                        source.replace('{ 1 }', '{ unsafe { 1 } }'),
+                        source.replace('{ 1 }', '{ unknown_macro!(); 1 }'),
+                        source.replace('fn leaf', 'const fn leaf'),
+                        source.replace('fn leaf', '#[unknown_attribute] fn leaf'),
+                        source.replace('{ 1 }', '{ #[cfg(test)] let x = 1; x }')):
+            with self.subTest(changed=changed):
+                self.assertNotEqual(expected, selector.scale_source_boundary(changed))
+        macro = 'fn leaf() -> u8 { assert!(true); 2 }'
+        self.assertEqual(selector.scale_source_boundary(macro), selector.scale_source_boundary(macro.replace('; 2', '; 3')))
+        self.assertNotEqual(selector.scale_source_boundary(macro), selector.scale_source_boundary(macro.replace('true', 'false')))
+        constant = 'const fn leaf() -> u8 { 1 }'
+        self.assertNotEqual(selector.scale_source_boundary(constant), selector.scale_source_boundary(constant.replace('1', '2')))
+
+    def test_isolation_is_pinned_to_trusted_topology_and_both_differences(self):
+        path, anchor = 'crates/feedback/src/feedback.rs', 'crates/feedback/src/lib.rs'
+        source = b'fn leaf() -> u8 { 1 }'
+        root = b'mod feedback;'
+        contract = dict(isolated_sources={path: selector.scale_source_boundary(source.decode())},
+                        anchors={anchor: hashlib.sha256(root).hexdigest()})
+        inputs = {ref: dict(sources={path: source, anchor: root}, includes=set(), data_readers={},
+                           unresolved_data_readers=set(), unresolved_includes=set())
+                  for ref in ('base', 'head', 'target', 'merge')}
+        inputs['head']['sources'][path] = source.replace(b'1', b'2')
+        inputs['merge']['sources'][path] = source.replace(b'1', b'2')
+        comparisons = [('base', 'head'), ('target', 'merge')]
+        with patch.object(selector, 'resolve_commit', side_effect=lambda ref: ref):
+            self.assertTrue(selector.scale_isolation_proven(contract, [path], comparisons, inputs))
+            for extra_path, contents in ((path, b'fn leaf() -> u8 { bad!(); 2 }'),
+                    (anchor, b'mod feedback; mod another;'),
+                    ('crates/feedback/src/other.rs', b'macro_rules! assert { () => {} }'),
+                    ('crates/feedback/src/other.rs', b'use custom::format;')):
+                changed = copy.deepcopy(inputs)
+                changed['merge']['sources'][extra_path] = contents
+                with self.subTest(extra_path=extra_path, contents=contents):
+                    self.assertFalse(selector.scale_isolation_proven(contract, [path], comparisons, changed))
+            self.assertFalse(selector.scale_isolation_proven(contract, [path, 'new.rs'], comparisons, inputs))
+            for change in (dict(includes={path}), dict(data_readers={path: {'crates/core/tests/scale.rs'}}),
+                           dict(unresolved_data_readers={'crates/core/tests/scale.rs'}),
+                           dict(unresolved_includes={'core'})):
+                changed = copy.deepcopy(inputs)
+                changed['merge'].update(change)
+                with self.subTest(reader_change=change):
+                    self.assertFalse(selector.scale_isolation_proven(contract, [path], comparisons, changed))
+            changed = copy.deepcopy(inputs)
+            del changed['merge']['data_readers']
+            self.assertFalse(selector.scale_isolation_proven(contract, [path], comparisons, changed))
+
+    def test_generic_affected_packages_add_full_targets_without_changing_existing_fast_contracts(self):
+        target = dict(package='oasis7', target_kind='test', target_name='scale', default_features=True,
+                      features=['test_tier_full'], cases=['full_scale'])
+        config = dict(ordinary_scale_contract=dict(version=1, targets=[target], isolated_sources={}, anchors={}))
+        original = dict(groups=['baseline', 'oasis7_required'], scope='targeted', test_policy_changed=False,
+                        oasis7_required_packages=['oasis7'], reasons=[])
+        for change in ({}, {'scope': 'full'}, {'test_policy_changed': True}):
+            selected = copy.deepcopy(original) | change
+            selector.add_ordinary_scale_contract(config, selected, ['production.rs'],
+                {'production.rs': {'oasis7'}}, [('base', 'head')], {})
+            self.assertEqual(selected['ordinary_risk_targets'], [target])
+        for change in ({'oasis7_required_packages': ['oasis7_runtime']}, {'ordinary_fast_targets': [target]}):
+            selected = copy.deepcopy(original) | change
+            selector.add_ordinary_scale_contract(config, selected, [], {}, [], {})
+            self.assertNotIn('ordinary_risk_targets', selected)
+
+
+class ScaleRiskGitPlans(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    source = 'crates/core/src/feedback.rs'
+    anchor = 'crates/core/src/lib.rs'
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = Selection.fast_config(self)
+        self.body = 'pub fn feedback() -> u8 { 1 }\n'
+        self.root = 'mod feedback; pub fn core() -> u8 { 1 }\n'
+        self.target = dict(package='core', target_kind='test', target_name='scale', default_features=True,
+                           features=['test_tier_full'], cases=['full_scale'])
+        self.config['ordinary_scale_contract'] = dict(version=1, targets=[self.target],
+            isolated_sources={self.source: selector.scale_source_boundary(self.body)},
+            anchors={self.anchor: hashlib.sha256(self.root.encode()).hexdigest()})
+        self.write(self.source, self.body)
+        self.write(self.anchor, self.root)
+        self.write('crates/core/tests/scale.rs',
+                   '#[cfg(feature="test_tier_full")] #[test] fn full_scale() { assert!(true); }\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def select(self, source, tested=None, config=None):
+        return selector.select(self.config if config is None else config, self.base, source,
+                               tested, profile='pr-fast', policy_ref=self.base)
+
+    def test_actual_body_change_keeps_required_packages_and_defers_only_scale_matrix(self):
+        self.write(self.source, self.body.replace('1', '2'))
+        head = self.commit()
+        selected = self.select(head)
+        old = copy.deepcopy(self.config)
+        old.pop('ordinary_scale_contract')
+        legacy = self.select(head, config=old)
+        self.assertEqual(selected['scope'], 'targeted')
+        self.assertIs(selected['test_policy_changed'], False)
+        self.assertEqual(selected['oasis7_required_packages'], ['consumer', 'core'])
+        self.assertEqual(selected['oasis7_required_packages'], legacy['oasis7_required_packages'])
+        self.assertNotIn('ordinary_risk_targets', selected)
+        self.assertTrue(any('isolated function-body' in reason for reason in selected['reasons']))
+
+    def test_topology_tests_manifests_and_mixed_core_inputs_retain_full_cases(self):
+        for path, contents in (
+                (self.source, self.body + 'pub fn helper() {}\n'),
+                (self.anchor, self.root.replace('1', '2')),
+                ('crates/core/Cargo.toml', Path('crates/core/Cargo.toml').read_text() + '\n# changed\n'),
+                ('crates/core/tests/scale.rs',
+                 '#[cfg(feature="test_tier_full")] #[test] fn full_scale() { assert!(false); }\n')):
+            with self.subTest(path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(self.source, self.body.replace('1', '2'))
+                self.write(path, contents)
+                selected = self.select(self.commit())
+                self.assertEqual(selected['ordinary_risk_targets'], [self.target])
+                self.assertEqual(selected['risk_test_inventory_version'], 1)
+
+    def test_merge_difference_and_legacy_policy_cannot_borrow_candidate_exemption(self):
+        self.write(self.source, self.body.replace('1', '2'))
+        source = self.commit()
+        self.git('checkout', '-q', self.base)
+        self.write(self.anchor, self.root + 'pub fn new_core_input() {}\n')
+        self.commit()
+        self.git('merge', '--no-ff', '-qm', 'tested merge', source)
+        tested = self.git('rev-parse', 'HEAD')
+        self.assertEqual(self.select(source, tested)['ordinary_risk_targets'], [self.target])
+        old = copy.deepcopy(self.config)
+        old.pop('ordinary_scale_contract')
+        self.assertNotIn('ordinary_risk_targets', self.select(source, tested, old))
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                complete = selector.full_plan(self.config, profile, source, policy_ref=self.base)
+                self.assertNotIn('ordinary_risk_targets', complete)
+
+    def test_body_also_read_as_consumer_data_retains_full_scale_contract(self):
+        self.write('crates/consumer/src/lib.rs',
+                   'pub const INPUT: &str = include_str!("../../core/src/feedback.rs");\n')
+        self.base = self.commit()
+        self.write(self.source, self.body.replace('1', '2'))
+        selected = self.select(self.commit())
+        self.assertEqual(selected['ordinary_risk_targets'], [self.target])
+
+
 class TargetedRuntimePartitionPlans(unittest.TestCase):
     tearDown = Selection.tearDown
     git = Selection.git
@@ -3962,8 +4119,31 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertNotIn('ordinary_fast_targets', current)
                 self.assertNotIn('fast_execution_version', current)
                 self.assertEqual({key: value for key, value in current.items()
-                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions')},
+                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
+                                                 'ordinary_harness_costs')},
                                  legacy)
+
+    def test_cost_hints_require_trusted_configuration_and_only_targeted_v2_consumes_them(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        old = dict(self.config)
+        profile = old.pop('ordinary_harness_costs')
+        for execution in ('pr-fast', 'main-fast'):
+            current = selector.select(self.config, self.base, head, profile=execution)
+            legacy = selector.select(old, self.base, head, profile=execution)
+            self.assertEqual(current.pop('ordinary_harness_costs'), profile)
+            self.assertEqual(current, legacy)
+        for execution in ('periodic-full', 'candidate-full'):
+            self.assertNotIn('ordinary_harness_costs', selector.full_plan(self.config, execution, head))
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control\n')
+        head = self.commit()
+        self.assertNotIn('ordinary_harness_costs', selector.select(self.config, self.base, head, profile='pr-fast'))
+        row = profile['harnesses'][0]
+        for change in ({'version': True}, {'fallback_ms': 0}, {'harnesses': [row, row]},
+                       {'evidence': {}}, {'harnesses': [row | {'elapsed_ms': float('nan')}]},
+                       {'harnesses': [row | {'mode': 'skip'}]}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                selector.validate_config(self.config | {'ordinary_harness_costs': profile | change})
 
     def test_old_baseline_cannot_be_enrolled_by_candidate_configuration(self):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
@@ -3975,6 +4155,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             if version is None:
                 old.pop('ordinary_artifact_partition_version')
                 old.pop('ordinary_artifact_delivery_version', None)
+                old.pop('ordinary_harness_costs', None)
             else:
                 old['ordinary_artifact_partition_version'] = version
             with self.subTest(version=version):
@@ -4402,9 +4583,24 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(plan['oasis7_required_packages'], [])
         self.assertEqual(plan['formal_suites'], [])
 
+    def with_doc_control_contract(self):
+        config = self.trusted()
+        self.assertNotIn('scripts/document_corpus.py', config['scoped_control_paths'])
+        self.assertNotIn('scripts/document_corpus.py', config['python_control_contracts'])
+        path = 'scripts/ci-doc-control.py'
+        config['scoped_control_paths'][path] = ['doc_checker_contracts']
+        config['python_control_contracts'][path] = {
+            'group': 'doc_checker_contracts',
+            'tests': [
+                'scripts/document-corpus-inventory-check.test.py',
+                'scripts/product-doc-governance-check.test.py',
+            ],
+        }
+        return config
+
     def test_document_control_keeps_its_own_contract_and_trusted_runner(self):
-        path = 'scripts/document_corpus.py'
-        plan = selector.select(self.trusted(), self.base, self.change(path))
+        path = 'scripts/ci-doc-control.py'
+        plan = selector.select(self.with_doc_control_contract(), self.base, self.change(path))
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(set(plan['groups']),
                          {'baseline', 'doc_checker_contracts', 'workflow_governance'})
@@ -4412,8 +4608,8 @@ class PythonControlContracts(unittest.TestCase):
                       plan['python_control_tests']['doc_checker_contracts'])
 
     def test_minimum_document_test_only_removal_keeps_base_contracts(self):
-        config = self.trusted()
-        tests = config['python_control_contracts']['scripts/document_corpus.py']['tests']
+        config = self.with_doc_control_contract()
+        tests = config['python_control_contracts']['scripts/ci-doc-control.py']['tests']
         for path in tests:
             with self.subTest(path=path):
                 self.assertNotIn(path, config['python_control_contracts'])
@@ -4430,7 +4626,7 @@ class PythonControlContracts(unittest.TestCase):
                 self.base = head
 
     def test_minimum_test_changes_union_with_other_contracts_and_shared_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
         document_test = 'scripts/document-corpus-inventory-check.test.py'
         cache_source = 'scripts/ci-ecs-cache.py'
@@ -4450,9 +4646,9 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(full['python_control_tests'], plan['python_control_tests'])
 
     def test_only_exact_trusted_minimum_tests_register_reverse_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         path = 'scripts/registered-minimum.test.py'
-        config['python_control_contracts']['scripts/document_corpus.py']['tests'].append(path)
+        config['python_control_contracts']['scripts/ci-doc-control.py']['tests'].append(path)
         head = self.change(path)
         plan = selector.select(config, self.base, head)
         self.assertEqual(set(plan['groups']),
@@ -4547,9 +4743,9 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(plan['architecture']['packages'], ['core'])
 
     def test_control_contracts_union_with_rust_other_rules_and_shared_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
-        path = 'scripts/document_corpus.py'
+        path = 'scripts/ci-doc-control.py'
         config['rules'].append({'match': [path], 'groups': ['net'], 'reason': 'additional actual consumer'})
         self.write('crates/core/src/lib.rs', '// mixed native change\n')
         head = self.change(path)

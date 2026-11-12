@@ -24,11 +24,23 @@ class ContentTests(unittest.TestCase):
     def test_partial_card(self):
         text = '### REQ-DEMO-001\n- 系统设计状态：部分覆盖\n- 实现状态：部分实现\n'
         findings = module.check_status('a.prd.md', text)
-        self.assertTrue(any('missing-status-field' in x for x in findings))
+        self.assertTrue(any('missing-status-evidence' in x for x in findings))
         self.assertTrue(any('partial-missing-scope' in x for x in findings))
     def test_unknown_is_honest(self):
         text = '### REQ-DEMO-001\n' + '\n'.join('- '+k+'：'+v for k,v in [('系统设计状态','未核实'),('实现状态','未核实'),('系统设计依据','尚未核查'),('实现与验证依据','尚未核查'),('核对日期与基线','尚未核查'),('剩余范围','整个功能待核查')])
         self.assertEqual(module.check_status('a.prd.md', text), [])
+        for design, implementation in [('未核实', '未核实'), ('未设计', '未实现')]:
+            minimal = f'### REQ-DEMO-001\n- 系统设计状态：{design}\n- 实现状态：{implementation}\n'
+            self.assertEqual(module.check_status('a.prd.md', minimal), [])
+    def test_positive_claims_keep_their_evidence_and_boundaries(self):
+        for design in ('部分覆盖', '已覆盖'):
+            text = f'### REQ-DEMO-001\n- 系统设计状态：{design}\n'
+            self.assertTrue(any('missing-status-evidence' in error for error in module.check_status('a.prd.md', text)))
+        pending = '### REQ-DEMO-001\n- 实现状态：已实现待验证\n- 实现与验证依据：[交付](https://github.com/nil-studio/oasis7/pull/5770)\n'
+        self.assertTrue(any('partial-missing-scope' in error for error in module.check_status('a.prd.md', pending)))
+        self.assertEqual(module.check_status('a.prd.md', pending + '- 剩余范围：真实环境验收尚未执行\n'), [])
+        duplicate = '### REQ-DEMO-001\n- 实现状态：未实现\n- 实现状态：已验证\n'
+        self.assertTrue(any('duplicate-status-field' in error for error in module.check_status('a.prd.md', duplicate)))
     def test_illegal_enum(self):
         self.assertTrue(any('invalid-status' in x for x in module.check_status('a.prd.md', '### REQ-X-1\n- 实现状态：merged')))
     def test_verified_needs_evidence(self):
@@ -74,6 +86,15 @@ class FeatureRelationTests(unittest.TestCase):
     def test_real_bidirectional_design_and_implementation_gap(self):
         self.docs[self.DESIGN] = self.design()
         self.assertEqual(self.check(self.card()), [])
+
+    def test_positive_design_evidence_accepts_single_flexible_mapping(self):
+        self.docs[self.DESIGN] = ('# Design\n## Decision and verification\n'
+            '| 验证方法 | 上游要求 | 本设计条款 |\n| --- | --- | --- |\n'
+            '| Check normal and rejected input | [REQ-DEMO-001](../product/demo.prd.md#req-demo-001) | [design](#design-one) |\n'
+            '## Design-one\nImplementation boundary.\n')
+        self.assertEqual(self.check(self.card()), [])
+        self.docs[self.DESIGN] = self.docs[self.DESIGN].replace('#req-demo-001)', '#req-other-001)')
+        self.assertTrue(any('design-feature-relation-missing' in error for error in self.check(self.card() + '\n### REQ-OTHER-001\nAnother feature.\n')))
 
     def test_fake_external_product_missing_fragment_and_unrelated_design(self):
         self.docs[self.DESIGN] = self.design()
@@ -300,7 +321,7 @@ class FullCorpusTests(unittest.TestCase):
         self.assertEqual(result, 2, output)
         self.assertIn('unsafe corpus target', output)
 
-    def test_full_reports_untouched_professional_and_scoped_stays_strict(self):
+    def test_full_and_scoped_missing_structure_are_advisory(self):
         self.put('doc/system/legacy.design.md', '# Legacy')
         base = self.commit()
         for name in ('system-design-traceability-check', 'doc-core-content-check'):
@@ -314,7 +335,8 @@ class FullCorpusTests(unittest.TestCase):
         head = self.commit()
         for name in ('system-design-traceability-check', 'doc-core-content-check'):
             strict = self.run_checker(name, '--base', base, '--head', head)
-            self.assertEqual(strict.returncode, 1, strict.stdout + strict.stderr)
+            self.assertEqual(strict.returncode, 0, strict.stdout + strict.stderr)
+            self.assertIn('::warning::', strict.stdout)
 
     def test_unchanged_positive_card_newly_broken_design_is_strict(self):
         fixture = FeatureRelationTests()
@@ -434,7 +456,7 @@ class FullCorpusTests(unittest.TestCase):
         self.assertIn('topic-contracts=1 module-overviews=1', p.stdout)
         self.assertIn('module-overview: doc/system/design.md', p.stdout)
         self.assertNotIn('trace-upstream-missing: doc/system/design.md', p.stdout)
-        self.assertIn('trace-upstream-missing: doc/system/topic.design.md', p.stdout)
+        self.assertIn('trace-mapping-format: doc/system/topic.design.md', p.stdout)
         p = self.run_checker('doc-core-content-check', '--full-corpus')
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn('topic-contracts=1 module-overviews=1', p.stdout)
@@ -445,9 +467,9 @@ class FullCorpusTests(unittest.TestCase):
         new_head = self.commit()
         for name in ('system-design-traceability-check', 'doc-core-content-check'):
             p = self.run_checker(name, '--base', head, '--head', new_head)
-            self.assertEqual(p.returncode, 1 if name == 'doc-core-content-check' else 0, p.stdout + p.stderr)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
-    def test_renamed_root_cannot_downgrade_by_removing_contract_headings(self):
+    def test_renamed_root_retains_inventory_but_headings_are_advisory(self):
         old_path, new_path = 'doc/system/design.md', 'doc/runtime/design.md'
         overview = '\n'.join('## ' + heading + '\n' + ('保留模块架构正文与职责描述。' * 12)
             for heading in ('架构总览', '组件职责', '主链路', '数据流与状态流', '专题导航'))
@@ -458,7 +480,7 @@ class FullCorpusTests(unittest.TestCase):
         self.git('add', '.')
         self.assertRegex(self.git('diff', '--cached', '--name-status', '-M', base), r'R\d+\s+doc/system/design.md\s+doc/runtime/design.md')
         p = self.run_checker('doc-core-content-check', '--base', base, '--head', base, '--worktree')
-        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn('missing-core-section: ' + new_path, p.stdout)
         full = self.run_checker('doc-core-content-check', '--full-corpus')
         self.assertEqual(full.returncode, 0, full.stdout + full.stderr)
@@ -466,7 +488,7 @@ class FullCorpusTests(unittest.TestCase):
         self.assertIn('missing-core-section: ' + new_path, full.stdout)
         head = self.commit()
         p = self.run_checker('doc-core-content-check', '--base', base, '--head', head)
-        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn('missing-core-section: ' + new_path, p.stdout)
 
     def test_root_with_empty_mapping_heading_gets_complete_contract(self):
@@ -474,8 +496,8 @@ class FullCorpusTests(unittest.TestCase):
         p = self.run_checker('system-design-traceability-check', '--full-corpus')
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn('module-overviews=0 module-contracts=1', p.stdout)
-        self.assertIn('trace-upstream-missing: doc/system/design.md', p.stdout)
-        self.assertIn('trace-validation-missing: doc/system/design.md', p.stdout)
+        self.assertIn('trace-mapping-format: doc/system/design.md', p.stdout)
+        self.assertIn('trace-validation-format: doc/system/design.md', p.stdout)
         self.assertFalse(module.system.has_traceability_heading('```\n### 2.1 需求承接与分配表\n```'))
         self.assertFalse(module.system.has_traceability_heading('<!--\n### 11.1 验证映射表\n-->'))
         self.assertTrue(module.system.has_traceability_heading('### 11.1 验证映射表'))

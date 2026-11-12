@@ -141,6 +141,85 @@ def scenario_valid_new_design() -> None:
         shutil.rmtree(root)
 
 
+def scenario_single_mapping_accepts_equivalent_headers_and_order() -> None:
+    module = load_checker()
+    text = """# A compact design
+## Outcome and verification
+| 验证方法与证据 | 本设计条款 | 上游要求 | 未覆盖范围 |
+| --- | --- | --- | --- |
+| [test](../tests/sample.test.py) | [design](#des-sample-001) | [REQ-SAMPLE-001](../product/sample.prd.md#req-sample) | Production rollout |
+### DES-SAMPLE-001
+Observable behavior and rejection boundary.
+"""
+    root, base, _ = make_repo(design_text=None)
+    try:
+        (root / DESIGN).write_text(text)
+        assert_no_errors(module, root / DESIGN)
+        head = commit(root, "add one compact relation mapping")
+        result = relation_run(root, '--base', base, '--head', head)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert '::warning::' not in result.stdout, result.stdout
+        # One association can cite several methods and the actual evidence.
+        (root / 'doc/tests/result.json').write_text('{"passed": true}\n')
+        expanded = text.replace('[test](../tests/sample.test.py)', '[test](../tests/sample.test.py), [manual](../manual/sample.md), [result](../tests/result.json), [run](https://example.invalid/result)')
+        (root / DESIGN).write_text(expanded)
+        assert_no_errors(module, root / DESIGN)
+        # Every declared source remains independently checked.
+        (root / DESIGN).write_text(expanded.replace('../manual/sample.md', '../manual/missing.md'))
+        assert_code(module, root / DESIGN, 'trace-validation-missing')
+    finally:
+        shutil.rmtree(root)
+
+
+def scenario_declared_contradictions_cannot_hide_behind_optional_tables() -> None:
+    # All target files/fragments exist: the old dual tables disagree on which
+    # requirement is assigned to the same design. Formatting advice cannot
+    # downgrade an explicit relation contradiction, even with --warn-only.
+    root, base, _ = make_repo()
+    try:
+        (root / PRODUCT).write_text(PRODUCT_TEXT + '\n## REQ-OTHER-002\nAnother requirement.\n')
+        text = DESIGN_HEADER.replace(VALIDATION_ROW, VALIDATION_ROW.replace('REQ-SAMPLE-001', 'REQ-OTHER-002').replace('#req-sample)', '#req-other-002)'))
+        (root / DESIGN).write_text(text)
+        result = relation_run(root, '--base', base, '--head', base, '--worktree', '--warn-only')
+        assert result.returncode == 1 and 'no matching demand-allocation relation' in result.stdout, result.stdout + result.stderr
+        # No recognized table remains, but declared Markdown links and IDs
+        # are still checked. A prose presentation must not conceal breakage.
+        for text, code in (
+            ('# Design\n[upstream](../product/sample.prd.md#missing)\n', 'trace-ref-unresolved'),
+            ('# Design\nTrace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6\n', 'trace-id-unresolved'),
+            ('# Design\n[upstream](../product/missing.prd.md)\n', 'trace-declared-link-invalid'),
+        ):
+            (root / DESIGN).write_text(text)
+            result = relation_run(root, '--base', base, '--head', base, '--worktree', '--warn-only')
+            assert result.returncode == 1 and code in result.stdout, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(root)
+
+
+def scenario_formatting_advice_does_not_skip_other_relation_facts() -> None:
+    module = load_checker()
+    root, base, _ = make_repo()
+    try:
+        (root / 'doc/system/rules.prd.md').write_text('# Rules\n## Rule\nProfessional obligation.\n')
+        (root / 'doc/system/other.design.md').write_text('# Other\n## Foreign\nOther design clause.\n')
+        text = '# Design\n| 上游要求 | 本设计条款 |\n| --- | --- |\n| [rule](rules.prd.md#rule) | [local](other.design.md#foreign) |\n'
+        (root / DESIGN).write_text(text)
+        result = relation_run(root, '--base', base, '--head', base, '--worktree', '--warn-only')
+        assert result.returncode == 1 and 'trace-system-design-missing' in result.stdout, result.stdout + result.stderr
+        # Prose endpoints or valid file-level links get formatting advice;
+        # a missing file must still fail before any missing-fragment advice.
+        for upstream, expected in [('REQ-SAMPLE-001', 0), ('[requirement](../product/sample.prd.md)', 0), ('[requirement](../product/missing.prd.md)', 1)]:
+            (root / DESIGN).write_text('# Design\n| 上游要求 | 本设计条款 |\n| --- | --- |\n| ' + upstream + ' | [design](#local) |\n## Local\nBehavior.\n')
+            result = relation_run(root, '--base', base, '--head', base, '--worktree', '--warn-only')
+            assert result.returncode == expected, result.stdout + result.stderr
+        # An incomplete relation must not skip an independent test-source error.
+        (root / DESIGN).write_text('# Design\n| 上游要求 | 本设计条款 | 验证方法 |\n| --- | --- | --- |\n| REQ-SAMPLE-001 | [design](#local) | [test](../tests/missing.test.py) |\n## Local\nBehavior.\n')
+        result = relation_run(root, '--base', base, '--head', base, '--worktree', '--warn-only')
+        assert result.returncode == 1 and 'reference target is missing' in result.stdout, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(root)
+
+
 def scenario_committed_range_reads_trusted_head_content() -> None:
     root, base, _head = make_repo(design_text=None)
     try:
@@ -247,7 +326,7 @@ def scenario_missing_demand_allocation() -> None:
         start = DESIGN_HEADER.index("### 2.1")
         end = DESIGN_HEADER.index("### DES-SAMPLE-001")
         (root / DESIGN).write_text(DESIGN_HEADER[:start] + DESIGN_HEADER[end:], encoding="utf-8")
-        assert_code(module, root / DESIGN, "trace-upstream-missing")
+        assert_no_errors(module, root / DESIGN)
     finally:
         shutil.rmtree(root)
 
@@ -258,7 +337,7 @@ def scenario_missing_validation_mapping() -> None:
     try:
         marker = "## 11. 验证设计与可追溯性"
         (root / DESIGN).write_text(DESIGN_HEADER[: DESIGN_HEADER.index(marker)] + marker + "\n", encoding="utf-8")
-        assert_code(module, root / DESIGN, "trace-validation-missing")
+        assert_code(module, root / DESIGN, "trace-validation-format")
     finally:
         shutil.rmtree(root)
 
@@ -274,7 +353,7 @@ def scenario_unresolved_upstream_fragment() -> None:
         shutil.rmtree(root)
 
 
-def scenario_required_row_shape_and_cells() -> None:
+def scenario_optional_row_shape_and_cells() -> None:
     module = load_checker()
     cases = (
         (
@@ -294,10 +373,10 @@ def scenario_required_row_shape_and_cells() -> None:
             "trace-validation-row-invalid",
         ),
     )
-    for text, code in cases:
+    for text, _code in cases:
         root, _base, _head = make_repo(design_text=text)
         try:
-            assert_code(module, root / DESIGN, code)
+            assert_no_errors(module, root / DESIGN)
         finally:
             shutil.rmtree(root)
 
@@ -498,7 +577,7 @@ def scenario_na_rejects_unreadable_or_noncanonical_evidence_locator() -> None:
             )
         )
         try:
-            assert_code(module, root / DESIGN, "trace-na-incomplete")
+            assert_code(module, root / DESIGN, "trace-na-evidence-invalid")
         finally:
             shutil.rmtree(root)
 
@@ -509,7 +588,7 @@ def scenario_incomplete_na() -> None:
         design_text=na_design(disposition="N/A: reason=范围外。")
     )
     try:
-        assert_code(module, root / DESIGN, "trace-na-incomplete")
+        assert_code(module, root / DESIGN, "trace-na-format")
     finally:
         shutil.rmtree(root)
 
@@ -568,7 +647,7 @@ def scenario_staged_tracked_worktree_design_uses_index_content() -> None:
     module = load_checker()
     root, base, _head = make_repo()
     try:
-        staged_text = DESIGN_HEADER.replace(VALIDATION_ROW, "")
+        staged_text = DESIGN_HEADER.replace("../tests/sample.test.py", "../tests/missing.test.py")
         (root / DESIGN).write_text(staged_text, encoding="utf-8")
         run_git(root, "add", DESIGN)
         run_git(root, "restore", "--source=HEAD", "--worktree", "--", DESIGN)
@@ -592,7 +671,7 @@ def scenario_staged_tracked_worktree_design_uses_index_content() -> None:
         )
         output = result.stdout + result.stderr
         assert result.returncode == 1, output
-        assert "trace-validation-missing" in output, output
+        assert "reference target is missing" in output, output
     finally:
         shutil.rmtree(root)
 
@@ -654,7 +733,7 @@ def scenario_committed_validation_symlink_sources_fail_closed() -> None:
             )
             output = result.stdout + result.stderr
             assert result.returncode == 1, output
-            assert "trace-validation-source-invalid" in output, output
+            assert "trace-validation-missing" in output, output
         finally:
             shutil.rmtree(root)
             shutil.rmtree(outside)
@@ -879,7 +958,7 @@ def scenario_validation_na_rejects_placeholders() -> None:
     assert not module.na_is_complete('N/A: reason=无; scope=无; owner_role=无; evidence_ref=https://github.com/eng-cc/oasis7/issues/1#issuecomment-1; re-evaluate=无')
 
 
-def scenario_root_scoped_and_contract_downgrade_fail() -> None:
+def scenario_root_scope_survives_advisory_structure_changes() -> None:
     module = load_checker()
     root, base, _ = make_repo(design_text=None)
     try:
@@ -891,10 +970,10 @@ def scenario_root_scoped_and_contract_downgrade_fail() -> None:
         assert p.returncode == 0, p.stdout + p.stderr
         path.write_text('# Module overview\n## Architecture\nNavigation only now.\n')
         p = relation_run(root, '--full-corpus')
-        assert p.returncode == 0 and 'trace-upstream-missing' in p.stdout, p.stdout + p.stderr
+        assert p.returncode == 0 and 'trace-mapping-format' in p.stdout, p.stdout + p.stderr
         head = commit(root, 'remove root contract headings and tables')
         p = relation_run(root, '--base', contract, '--head', head)
-        assert p.returncode == 1 and 'trace-upstream-missing' in p.stdout, p.stdout + p.stderr
+        assert p.returncode == 0 and 'trace-mapping-format' in p.stdout, p.stdout + p.stderr
         assert module.design_requires_traceability('doc/system/design.md', DESIGN_HEADER.replace('### 2.1 需求承接与分配表', '### Allocation').replace('### 11.1 验证映射表', '### Verification'))
     finally:
         shutil.rmtree(root)
@@ -978,7 +1057,7 @@ def scenario_product_ac_and_professional_chain_preserve_unique_declaration() -> 
         shutil.rmtree(root)
 
 
-def scenario_root_rename_cannot_drop_previous_contract() -> None:
+def scenario_root_rename_keeps_previous_contract_in_inventory() -> None:
     module = load_checker()
     root, _, _ = make_repo(design_text=None)
     try:
@@ -996,7 +1075,7 @@ def scenario_root_rename_cannot_drop_previous_contract() -> None:
         head = commit(root, 'rename and remove mapping contract')
         assert 'R' in run_git(root, 'diff', '--name-status', '-M', base, head)
         p = relation_run(root, '--base', base, '--head', head)
-        assert p.returncode == 1 and 'trace-upstream-missing' in p.stdout, p.stdout + p.stderr
+        assert p.returncode == 0 and 'trace-mapping-format' in p.stdout, p.stdout + p.stderr
     finally:
         shutil.rmtree(root)
 
@@ -1197,8 +1276,9 @@ def scenario_plural_sources_preserve_reference_guards() -> None:
         source.unlink()
         assert_code(module, root / DESIGN, "trace-validation-missing")
         source.write_text("#[test]\nfn rejects_invalid_request() {}\n", encoding="utf-8")
+        (root / DESIGN).write_text(DESIGN_HEADER.replace(original, method + " " + original), encoding="utf-8")
+        assert_no_errors(module, root / DESIGN)
         for invalid_method, code in (
-            (method + " " + original, "trace-validation-source-invalid"),
             (method.replace(".rs)", ".rs#missing)"), "trace-ref-unresolved"),
             ("[escape](../../../outside_tests.rs)", "trace-validation-missing"),
         ):
@@ -1276,13 +1356,13 @@ def scenario_worktree_cached_view_is_fresh_for_each_invocation() -> None:
             assert module.main() == 0
         # The working file equals HEAD, but the index contains an invalid
         # staged-only candidate. A cache from the first call must not hide it.
-        (root / DESIGN).write_text(DESIGN_HEADER.replace(VALIDATION_ROW, ""), encoding="utf-8")
+        (root / DESIGN).write_text(DESIGN_HEADER.replace("../tests/sample.test.py", "../tests/missing.test.py"), encoding="utf-8")
         run_git(root, "add", DESIGN)
         run_git(root, "restore", "--source=HEAD", "--worktree", "--", DESIGN)
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             assert module.main() == 1
-        assert "trace-validation-missing" in output.getvalue(), output.getvalue()
+        assert "reference target is missing" in output.getvalue(), output.getvalue()
         run_git(root, "reset", "-q", "HEAD", "--", DESIGN)
         with contextlib.redirect_stdout(io.StringIO()):
             assert module.main() == 0
@@ -1290,7 +1370,7 @@ def scenario_worktree_cached_view_is_fresh_for_each_invocation() -> None:
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             assert module.main() == 1
-        assert "trace-ref-unresolved" in output.getvalue() or "trace-validation-missing" in output.getvalue(), output.getvalue()
+        assert "reference target is missing" in output.getvalue(), output.getvalue()
     finally:
         sys.argv = original_argv
         shutil.rmtree(root)
@@ -1298,6 +1378,9 @@ def scenario_worktree_cached_view_is_fresh_for_each_invocation() -> None:
 
 def main() -> None:
     scenarios = (
+        scenario_formatting_advice_does_not_skip_other_relation_facts,
+        scenario_single_mapping_accepts_equivalent_headers_and_order,
+        scenario_declared_contradictions_cannot_hide_behind_optional_tables,
         scenario_worktree_reference_reads_do_not_rescan_repository,
         scenario_worktree_cached_view_is_fresh_for_each_invocation,
         scenario_validation_source_filename_tokens,
@@ -1310,14 +1393,14 @@ def main() -> None:
         scenario_transitive_reverse_dependency_selection,
         scenario_formal_trace_table_and_multirefs_compatibility,
         scenario_product_ac_and_professional_chain_preserve_unique_declaration,
-        scenario_root_rename_cannot_drop_previous_contract,
+        scenario_root_rename_keeps_previous_contract_in_inventory,
         scenario_manual_only_change_rechecks_unchanged_design,
         scenario_product_fragment_must_identify_feature,
         scenario_trace_refs_require_addressed_declaration,
         scenario_engineering_only_needs_bounded_na,
         scenario_validation_na_rejects_placeholders,
         scenario_feature_boundaries_and_explicit_label_mismatch,
-        scenario_root_scoped_and_contract_downgrade_fail,
+        scenario_root_scope_survives_advisory_structure_changes,
         scenario_reverse_consumer_only_new_breakage_is_strict,
         scenario_tracking_metadata_does_not_hide_design_changes,
         scenario_valid_new_design,
@@ -1327,7 +1410,7 @@ def main() -> None:
         scenario_missing_demand_allocation,
         scenario_missing_validation_mapping,
         scenario_unresolved_upstream_fragment,
-        scenario_required_row_shape_and_cells,
+        scenario_optional_row_shape_and_cells,
         scenario_validation_source_must_be_test_or_manual,
         scenario_anchor_and_heading_fragment_collision_is_ambiguous,
         scenario_shared_markdown_adapters_cache_immutable_results_by_exact_text,

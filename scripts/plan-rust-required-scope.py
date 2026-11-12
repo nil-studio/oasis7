@@ -40,7 +40,7 @@ FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-re
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
     'oasis7_client_storage', 'oasis7_signer_protocol',
-    'oasis7_custody_core', 'oasis7_custody_worker',
+    'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
     'oasis7_local_signer', 'oasis7_launcher_ui', 'oasis7_proto',
     'oasis7_wasm_abi', 'oasis7_wasm_build', 'oasis7_wasm_router',
     'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
@@ -55,8 +55,7 @@ NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
-           'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py',
-           'scripts/ci_process_runner.py')
+           'scripts/plan-rust-required-scope*', 'scripts/ci_process_runner.py')
 
 
 class UnknownInputsError(ValueError):
@@ -1029,6 +1028,10 @@ def validate_config(config):
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary artifact partition capability')
+    if 'ordinary_harness_costs' in config:
+        if config.get('ordinary_artifact_partition_version') not in (1, 2):
+            raise ValueError('ordinary harness costs require artifact partitions')
+        validate_ordinary_harness_costs(config['ordinary_harness_costs'])
     if 'ordinary_artifact_delivery_version' in config:
         if (type(config['ordinary_artifact_delivery_version']) is not int
                 or config['ordinary_artifact_delivery_version'] != 1
@@ -1048,6 +1051,32 @@ def validate_config(config):
                 or config.get('architecture_build_policy_version') != ARCHITECTURE_BUILD_POLICY_VERSION):
             raise ValueError('invalid DistFS Clippy capability')
     validate_fast_test_inventory(config)
+    if 'ordinary_scale_contract' in config:
+        contract = config['ordinary_scale_contract']
+        if (not isinstance(contract, dict) or set(contract) != {'version', 'targets', 'isolated_sources', 'anchors'}
+                or type(contract['version']) is not int or contract['version'] != 1
+                or not isinstance(contract['targets'], list) or not contract['targets']):
+            raise ValueError('invalid ordinary scale contract')
+        # Reuse the existing exact target schema; this inventory only adds tests.
+        targets = {f'scale-{index}': target for index, target in enumerate(contract['targets'])}
+        validate_fast_test_inventory(dict(fast_scope_version=FAST_PLAN_VERSION,
+            fast_test_inventory_version=FAST_TEST_INVENTORY_VERSION,
+            oasis7_required_packages=config['oasis7_required_packages'], ordinary_fast_targets=targets,
+            ordinary_fast_rules=[dict(paths=['crates/oasis7/tests/scale.rs'], targets=list(targets), reason='scale')]))
+        if any(target['target_kind'] != 'test' or target['default_features'] is not True
+               or target['features'] != ['test_tier_full'] for target in targets.values()):
+            raise ValueError('scale contract requires complete default full integrations')
+        for field in ('isolated_sources', 'anchors'):
+            values = contract[field]
+            if (not isinstance(values, dict) or any(not isinstance(path, str)
+                    or not path.startswith('crates/') or not path.endswith('.rs')
+                    or posixpath.normpath(path) != path or '..' in path.split('/')
+                    or any(c in path for c in ('\\', '*', '?', '[', ']'))
+                    or not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest)
+                    for path, digest in values.items())):
+                raise ValueError('invalid scale isolation boundary')
+        if bool(contract['isolated_sources']) != bool(contract['anchors']):
+            raise ValueError('scale isolation requires audited module anchors')
     validate_fast_support_contracts(config)
     unit_fields = {'ordinary_unit_test_contract_version', 'ordinary_unit_test_targets'}
     if unit_fields.intersection(config):
@@ -1064,6 +1093,41 @@ def validate_config(config):
                 or len(targets) != len(set(targets))):
             raise ValueError('invalid private unit-test source contract')
     return config
+
+
+def validate_ordinary_harness_costs(profile):
+    """Validate hints, never execution authority; mirrored by the artifact consumer."""
+    if (not isinstance(profile, dict)
+            or set(profile) != {'version', 'fallback_ms', 'evidence', 'harnesses'}
+            or type(profile['version']) is not int or profile['version'] != 1
+            or type(profile['fallback_ms']) is not int or not 0 < profile['fallback_ms'] <= 3600000):
+        raise ValueError('invalid ordinary harness cost profile')
+    evidence = profile['evidence']
+    if (not isinstance(evidence, dict)
+            or set(evidence) != {'run_id', 'run_attempt', 'source_sha', 'tested_sha', 'policy_sha'}
+            or any(type(evidence[key]) is not int or evidence[key] < 1 for key in ('run_id', 'run_attempt'))
+            or any(not isinstance(evidence[key], str) or not re.fullmatch('[0-9a-f]{40}', evidence[key])
+                   for key in ('source_sha', 'tested_sha', 'policy_sha'))):
+        raise ValueError('invalid ordinary harness cost evidence')
+    rows, seen = profile['harnesses'], set()
+    if not isinstance(rows, list) or not rows or len(rows) > 4096:
+        raise ValueError('invalid ordinary harness cost inventory')
+    for row in rows:
+        if (not isinstance(row, dict)
+                or set(row) != {'package', 'target_kind', 'target_name', 'variant', 'mode', 'selector', 'elapsed_ms'}
+                or any(not isinstance(row[key], str) or not re.fullmatch('[A-Za-z0-9_-]+', row[key])
+                       for key in ('package', 'target_name', 'variant'))
+                or row['target_kind'] not in ('lib', 'bin', 'test')
+                or row['mode'] not in ('batch', 'filter', 'exact')
+                or not isinstance(row['selector'], str)
+                or (row['selector'] != '' if row['mode'] == 'batch' else
+                    not re.fullmatch(r'\w+(?:::\w+)*(?:::)?', row['selector']))
+                or type(row['elapsed_ms']) is not int or not 0 < row['elapsed_ms'] <= 3600000):
+            raise ValueError('invalid ordinary harness cost item')
+        identity = tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector'))
+        if identity in seen:
+            raise ValueError('duplicate ordinary harness cost identity')
+        seen.add(identity)
 
 
 def exact_python_script(path):
@@ -2838,6 +2902,141 @@ ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integr
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1', 'native-2', 'native-3']
 
 
+SCALE_EXPRESSION_MACROS = frozenset(('format', 'vec', 'assert', 'assert_eq', 'assert_ne', 'matches', 'panic'))
+
+
+def scale_source_boundary(source):
+    """Fingerprint audited topology, preserving macro inputs and opaque bodies.
+
+    Only ordinary named function bodies at file/impl scope may vary. Nested
+    items, attributes, unsafe/linkage and const evaluation remain byte-token
+    pinned. This is deliberately narrower than a general Rust source parser.
+    """
+    tokens, closing = rust_source_inputs(source, return_tokens=True)
+    values = [value.removeprefix('r#') if kind == 'identifier' else value for kind, value, _ in tokens]
+    forbidden = {'fn', 'impl', 'trait', 'mod', 'struct', 'enum', 'union', 'use', 'extern',
+                 'unsafe', 'static', 'const', 'macro_rules', 'macro', '#', '$'}
+    macros = []
+    for index, value in enumerate(values[:-1]):
+        if value == '!' and values[index + 1] in ('(', '[', '{'):
+            if not index or values[index - 1] not in SCALE_EXPRESSION_MACROS:
+                return None
+            start = index - 1
+            while start >= 3 and values[start - 2:start] == [':', ':']:
+                start -= 3
+            macros.append((start, closing[index + 1], values[start:closing[index + 1] + 1]))
+    erased = {}
+
+    def scan(start, end):
+        cursor, item_start = start, start
+        while cursor < end:
+            value = values[cursor]
+            if value == 'fn' and cursor + 1 < end and tokens[cursor + 1][0] == 'identifier':
+                body = cursor + 2
+                while body < end and values[body] not in ('{', ';'):
+                    body = closing[body] + 1 if values[body] in ('(', '[') else body + 1
+                if body < end and values[body] == '{':
+                    stop = closing[body]
+                    header = values[item_start:body]
+                    content = values[body + 1:stop]
+                    if (not {'const', 'unsafe', 'extern', 'where'}.intersection(header)
+                            and not forbidden.intersection(content)):
+                        erased[body] = (stop, ['body', [call for left, right, call in macros
+                                                      if body < left < right < stop]])
+                    cursor, item_start = stop + 1, stop + 1
+                    continue
+            if value == '{':
+                stop = closing[cursor]
+                if values[item_start:cursor] and values[item_start] == 'impl':
+                    scan(cursor + 1, stop)
+                cursor, item_start = stop + 1, stop + 1
+                continue
+            if value in ('(', '['):
+                cursor = closing[cursor] + 1
+                continue
+            if value == ';':
+                item_start = cursor + 1
+            cursor += 1
+
+    scan(0, len(tokens))
+    skeleton, cursor = [], 0
+    while cursor < len(values):
+        if cursor in erased:
+            stop, marker = erased[cursor]
+            skeleton.append(marker)
+            cursor = stop + 1
+        else:
+            skeleton.append(values[cursor])
+            cursor += 1
+    return hashlib.sha256(json.dumps(skeleton, separators=(',', ':')).encode()).hexdigest()
+
+
+def scale_isolation_proven(contract, paths, comparisons, source_inputs):
+    if not paths or not set(paths) <= set(contract['isolated_sources']):
+        return False
+    try:
+        for ref in {ref for pair in comparisons for ref in pair}:
+            inputs = source_inputs.get(resolve_commit(ref), {})
+            sources = inputs.get('sources', {})
+            if inputs.get('uncertain_modules') or not sources:
+                return False
+            reader_fields = {'includes', 'data_readers', 'unresolved_data_readers', 'unresolved_includes'}
+            isolated = set(contract['isolated_sources'])
+            if (not reader_fields.issubset(inputs) or isolated.intersection(inputs['includes'])
+                    or any(inputs['data_readers'].get(path) for path in isolated)
+                    or inputs['unresolved_data_readers'] or inputs['unresolved_includes']):
+                return False  # A source body can also be another target's input data.
+            if any(path not in sources or hashlib.sha256(sources[path]).hexdigest() != digest
+                   for path, digest in contract['anchors'].items()):
+                return False
+            if any(path not in sources or scale_source_boundary(sources[path].decode()) != digest
+                   for path, digest in contract['isolated_sources'].items()):
+                return False
+            # A same-crate shadow/import can turn an expression macro into an
+            # item generator. The audited module anchors pin parent imports;
+            # reject additional macro definitions/imports throughout that crate.
+            directories = {path.split('/src/')[0] + '/' for path in contract['isolated_sources']}
+            for path, source in sources.items():
+                if not any(path.startswith(directory) for directory in directories):
+                    continue
+                if not any(word in source for word in (b'macro_rules', b'macro_use', b'use')):
+                    continue
+                tokens, _ = rust_source_inputs(source.decode(), return_tokens=True)
+                values = [value.removeprefix('r#') if kind == 'identifier' else value for kind, value, _ in tokens]
+                in_use = False
+                for index, value in enumerate(values):
+                    if value == 'use':
+                        in_use = True
+                    elif value == ';':
+                        in_use = False
+                    if (value == 'macro_use' or in_use and value in SCALE_EXPRESSION_MACROS
+                            or values[index:index + 2] == ['macro_rules', '!']
+                            and index + 2 < len(values) and values[index + 2] in SCALE_EXPRESSION_MACROS):
+                        return False
+        return True
+    except (ValueError, UnicodeError, KeyError, TypeError):
+        return False
+
+
+def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons, source_inputs):
+    contract = config.get('ordinary_scale_contract')
+    if (contract is None or 'oasis7_required' not in plan['groups']
+            or 'ordinary_fast_targets' in plan):
+        return  # Existing exact fast targets did not run these integrations.
+    targets = [target for target in contract['targets'] if target['package'] in plan['oasis7_required_packages']]
+    if not targets:
+        return
+    owners = {target['package'] for target in targets}
+    relevant = [path for path in paths if owners.intersection(path_affected.get(path, ()))]
+    isolated = (plan['scope'] == 'targeted' and not plan['test_policy_changed']
+                and scale_isolation_proven(contract, relevant, comparisons, source_inputs))
+    if isolated:
+        plan['reasons'].append('audited isolated function-body changes retain required cross-chunk contracts; scale matrices stay in full')
+        return
+    plan.update(risk_test_inventory_version=1, ordinary_risk_targets=targets)
+    plan['reasons'].append('affected package-wide tests retain full scale contracts with exact targets and minimum cases')
+
+
 def complete_ordinary_partitions(config, plan):
     if (config.get('ordinary_artifact_partition_version') in (1, 2)
             and 'oasis7_required' in plan['groups']
@@ -2854,6 +3053,8 @@ def complete_ordinary_partitions(config, plan):
             # Only the complete runtime case inventory gets multiple owners.
             plan.update(ordinary_artifact_partition_version=2,
                         ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
+            if 'ordinary_harness_costs' in config:
+                plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
     if (config.get('ordinary_artifact_delivery_version') == 1
             and plan.get('ordinary_artifact_partition_version') == 1):
         plan['ordinary_artifact_delivery_version'] = 1
@@ -3216,6 +3417,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                     distfs_clippy_group='rust_baseline')
         plan['reasons'].append('complete DistFS/CAS/Formal strict Clippy stays required in rust_baseline; '
                                'all original DistFS group test targets remain serial')
+    add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons or [(base, source)], source_inputs or {})
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     complete_ordinary_partitions(config, plan)
     if config.get('formal_full_profiles_only_version') == 1:

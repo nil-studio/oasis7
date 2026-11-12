@@ -137,15 +137,21 @@ impl NativeTaskHost for SdkNativeTaskHost {
             .map(|observed| lifecycle_state(observed.disposition)))
     }
     fn prepare(&self, operation: &str) -> Result<NativeTaskContext, String> {
+        match self.prepare_observed(operation)? {
+            NativeTaskPreparation::Ready(context) => Ok(*context),
+            NativeTaskPreparation::Blocked(_) => {
+                Err("context prefix has not committed; retain original operation and lookup".into())
+            }
+        }
+    }
+    fn prepare_observed(&self, operation: &str) -> Result<NativeTaskPreparation, String> {
         if self.current_control()?.fence != self.initial_fence()? {
             return Err("task fence differs from immutable native run binding".into());
         }
         let prefix = self.client.prefix(operation)?;
         let result = self.client.submit_and_poll(&prefix)?;
         if state(&result) != NativeTaskRecovery::Settled {
-            return Err(
-                "context prefix has not committed; retain original operation and lookup".into(),
-            );
+            return Ok(NativeTaskPreparation::Blocked(state(&result)));
         }
         // Native object grants are absent from TaskPublicContextV1. Obtain
         // them only from a currently authorized, signed read at its exact
@@ -189,7 +195,7 @@ impl NativeTaskHost for SdkNativeTaskHost {
             })
             .collect();
         let prepared = &captured.prepared;
-        Ok(NativeTaskContext {
+        Ok(NativeTaskPreparation::Ready(Box::new(NativeTaskContext {
             operation: operation.into(),
             fence: prepared.identity.fence.clone(),
             valid_until_tick: prepared.valid_until_tick.0,
@@ -212,7 +218,7 @@ impl NativeTaskHost for SdkNativeTaskHost {
                 "capture_commit":captured.capture_commit,"current_read_commit":captured.current_public_context.read_commit,
                 "context_identity":prepared.identity,
             }),
-        })
+        })))
     }
     fn current_control(&self) -> Result<NativeTaskControl, String> {
         let view = self.client.public_view()?;

@@ -42,14 +42,14 @@ class RangeTests(unittest.TestCase):
         self.git('checkout', '-qb', 'feature')
         self.write('source.txt', 'source change\n')
         if pr_design:
-            self.write('doc/system/pr-change.design.md', '# Broken PR design\n')
+            self.write('doc/system/pr-change.design.md', '# PR design\n\n[Declared upstream](missing.prd.md#requirement)\n')
         self.source = self.commit('PR change')
         self.git('checkout', '-q', 'main')
-        self.write('doc/system/main-only.design.md', '# Broken main-only design\n')
+        self.write('doc/system/main-only.design.md', '# main-only design\n\n[Declared upstream](missing.prd.md#requirement)\n')
         self.target = self.commit('main advanced after event base')
         self.git('merge', '--no-ff', '--no-commit', 'feature')
         if merge_design:
-            self.write('doc/system/merge-only.design.md', '# Broken merge-result design\n')
+            self.write('doc/system/merge-only.design.md', '# merge-result design\n\n[Declared upstream](missing.prd.md#requirement)\n')
         self.merge = self.commit('tested synthetic merge')
         self.event = {'pull_request': {'base': {'sha': self.base}, 'head': {'sha': self.source}}}
 

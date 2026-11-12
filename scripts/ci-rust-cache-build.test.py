@@ -386,10 +386,14 @@ run() {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.behaviors.read_text(), 'mock-guard\n')
         calls = self.calls()
-        # Three fixture behaviors include two filters with the same provider
-        # compile context: 33 former full calls plus the eight legacy cache calls.
-        self.assertEqual(len(calls), 41)
-        self.assertEqual(len({compile_context(call) for call in calls}), 40)
+        # The frozen shell reads the current support-profile inventory, including
+        # the Worker root. Three fixture behaviors retain two provider filters
+        # with one compile context: 34 full calls plus eight legacy cache calls.
+        self.assertEqual(len(calls), 42)
+        contexts = {compile_context(call) for call in calls}
+        self.assertEqual(len(contexts), 41)
+        self.assertIn(('test', ('oasis7_dev_test_worker',), (('--all-targets', ''),),
+                       True, (), 'default', '1'), contexts)
         return calls
 
     def named_calls(self, result):
@@ -439,11 +443,19 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 52)
-                self.assertIn('cache_build_complete variants=52 verification=false', result.stdout)
+                self.assertEqual(len(named), 53)
+                self.assertIn('cache_build_complete variants=53 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
                 self.assert_fast_inventory(named, self.config)
+                self.assertEqual(compile_context(named['support-oasis7_dev_test_worker']),
+                                 ('test', ('oasis7_dev_test_worker',), (('--all-targets', ''),),
+                                  True, (), 'default', '1'))
+                # This existing all-targets root now also compiles the trusted
+                # dev_test_worker_material example; it is never executed here.
+                self.assertEqual(compile_context(named['support-oasis7_client_storage']),
+                                 ('test', ('oasis7_client_storage',), (('--all-targets', ''),),
+                                  True, (), 'default', '1'))
                 leaf = [compile_context(call) for name, call in named.items()
                         if name.startswith('fast-')
                         and compile_context(call)[1] == ('oasis7_executable_image',)]
@@ -503,7 +515,7 @@ cd "$repo_root"
                                       '-D', 'clippy::suspicious'])
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52, 53):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()

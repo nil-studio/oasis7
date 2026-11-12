@@ -98,11 +98,31 @@ Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5
 - 本地存储验收分阶段运行：先完成所需编译（可用 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --no-run --locked`），再运行 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --locked`；时限测试执行期间不要在其他 worktree 并行编译或施加资源压力。Cargo 的构建锁不保证测试运行期间独占主机资源。压力实验单独记录负载与实际截止结果，不通过延长测试 RPC 期限消除失败。依赖释放锁后立即重开的用例在独立测试进程运行，防止并行 libtest 的其他 spawn/fork 短暂继承锁描述符；子进程失败、超时和清理失败仍算失败。
 - 磁盘有限时保留少量固定路径开发 worktree，串行任务在确认干净、独占且已保留未推送工作的工作区用 `git switch -c codex/<task> <base>` 切换独立分支；仅并行任务新建 worktree。不要编辑 main 或主工作区。`new-task-worktree.sh --with-harness` 是完整预热的显式选项，普通后端或文档任务不需要它。
 - 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或外部创建的工作区也直接使用本地 target，无需准备链接。入口选择规则见开发规范。
-- 盘点工作区磁盘占用使用 `./scripts/worktree-gc-report.sh --footprint`，只报告 Git 与文件系统事实。target 默认随所属 worktree 管理；关闭 incremental 不会自动删除已有增量产物。回收前停止该工作区的构建和运行进程、核对路径及资料，再执行该工作区的 `env -u RUSTC_WRAPPER cargo clean`；显式外部 target 需单独核对归属。全局 Cargo 下载缓存与 sccache 不随单个工作区清空。
+- 盘点工作区磁盘占用使用 `./scripts/worktree-gc-report.sh --footprint`，只报告 Git 与文件系统事实。固定开发 worktree 的 target 可跨串行任务保留，由负责人按容量、闲置与后续用途显式回收；一次性任务专属产物按开发规范清理。关闭 incremental 不会自动删除已有产物。回收前停止相关构建和运行进程、核对路径及资料，再执行该工作区的 `env -u RUSTC_WRAPPER cargo clean`；显式外部 target 单独核对归属，全局 Cargo 下载缓存与 sccache 不随单个工作区清空。
 
 - 最小开发反馈示例：`./scripts/cargo-dev.sh check -p oasis7_proto`；`./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>`；需要完整交互时才运行 `./scripts/worktree-harness.sh up`。正式范围仍由本手册与 CI 决定。
 - `runtime-module-routing-perf-harness.sh --profile dev` 与 `build-game-launcher-bundle.sh --profile dev` 使用开发 wrapper；bundle 的读取目录与编译 target 保持一致，默认玩家 bundle 不编译 operator binaries。默认 release 性能测量、packaging 和 wasm 构建保留原入口。
 - deterministic wasm / release 链路继续保持 `CARGO_TARGET_DIR` 为空；涉及 `scripts/build-wasm-module.sh`、release evidence 或 hash/receipt 对账时，不改用开发 wrapper。Docker 使用工作区内的普通 target，不额外挂载外部缓存。
+
+<a id="local-rust-feedback"></a>
+### 本地 Rust 反馈与构建复用
+
+按当前问题选择反馈，不要求每次修改顺序跑完所有层次。沿用[验证与评审](doc/engineering/workflow/source-of-truth.md#3-验证与评审)的局部自测和正式交付责任。
+
+| 当前目的 | 选择的检查 | 证明范围 |
+| --- | --- | --- |
+| 接口、路径、泛型或生命周期修复 | `./scripts/cargo-dev.sh check -p <package>`；跨模块时包含真实消费方，测试接缝选择 `--tests` 或具名 `--test <target>` | 所选功能配置的类型检查；不执行行为断言 |
+| 局部行为变化或已定位缺陷 | 对应 package/target 下能检出问题的定向回归 | 实际非零执行的用例；可复现缺陷按原规则先观察失败 |
+| 模块路径已接通 | 整合负责人构建所需测试 target，再运行相关成功、拒绝与恢复用例 | 当前实际组合；各会话保留局部自测，避免重复构建同一重型组合 |
+| 正式交付 | 适用的 canonical 命令、CI 与真实环境验收 | 本次交付所需范围；开发配置不代签正式结果 |
+
+`cargo check` 跳过最终代码生成，不能覆盖所有 codegen 错误；测试名称过滤和 `--ignored` 主要改变执行范围，不保证减少所选大型测试程序的编译。`--no-run` 仅分离构建和执行。要减少构建成本，需核对 package/target/features 实际排除了哪些代码、夹具与依赖；`test_tier_required/full` 的名称不证明轻量，也不能通过关闭真实消费者需要的 feature 宣称该消费者已通过。参数语义见 [Cargo check](https://doc.rust-lang.org/cargo/commands/cargo-check.html) 与 [Cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html)。
+
+同一轮迭代固定适用的工具链、profile/features/flags 和 worktree target，优先重复同配置 Cargo 命令，由 Cargo 核对产物是否仍有效。一次必要构建后可运行多组相关用例；源码、依赖/lock、工具链、配置或 build-script 输入变化时重新核对构建，运行时 fixture 变化时重跑相应断言。使用 `--no-run` 后直接执行产物时，从 Cargo `compiler-artifact` JSON 获取实际 executable，保留对应 cwd、环境和动态库搜索条件；无法可靠保留时通过 Cargo 执行，不从目录猜选旧程序。复用产物不等于复用旧测试结论。
+
+跨工作区协调重型构建，时限或性能测试期间按上述存储验收规则隔离资源压力；等待 Cargo 锁时不换 target 强制冷构建。组合检查先消除接口错误，再在可执行行为形成时运行重型测试；必要回归不能因合批而延后到交付之后。
+
+异常构建在下一次必要运行中附带 `--timings` 和所需资源观察，区分构建总时间、执行时间、退出码及实际用例数量。Cargo JSON 可提供 target、features、profile、executable 和 `fresh`，语义见[工具输出](https://doc.rust-lang.org/cargo/reference/external-tools.html#artifact-messages)；timings 的稳定报告供人阅读，不保证精确拆出锁等待、下载、codegen 和链接的全部耗时，未知项如实保留。引用已有工具报告和日志一次即可，不为计时额外造一次冷构建或新增手工流水。当前 `cargo-dev.sh` 不自动生成这些分段报告，未采集时不宣称已有数据；是否调整编译边界依据实际瓶颈判断。
 
 ### 旧工作区的 target 链接迁移
 
@@ -215,7 +235,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --test pr_fast_increment
 
 验收包括旧 BASE/控制自改、未映射与混合风险、测试 gate 正文变化、声明删除替换、共享新增 case 的实际 target 可达性，以及真实 Cargo fixture 对未选重目标的编译失败注入。artifact 缺目标/最低 case/feature 变体、零执行和 Clippy 失败均须传播；完整模式仍保留旧 ordinary、五个 Formal suites 与平台集合。上述本地命令和 fixture 不代签 hosted 十分钟或跨平台 full 成功。
 
-仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 继续以 `--support-plan` 接收完整 JSON，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。
+仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 以 `--support-plan-file "$PLAN_PATH"` 读取完整计划，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。完整计划及逐路径原因保存在 selection artifact，workflow 输出仅用于调度；执行和最终门禁都读取完整文件，避免大批量改动触发环境变量或进程参数长度限制。
 
 `main-fast` 使用 push 的完整差异；`periodic-full`/`candidate-full` 无须 diff，直接从可信库存展开全部组。完整 hosted 图并行执行普通组、Formal、平台和 `./scripts/ci-tests.sh full-extended`，最后由 `explicit-full-gate` 核齐。`full-extended` 单独成功不代表完整回归，本地 `full`/`full-standard` 也不能代签其他 OS 的结果。
 
@@ -261,9 +281,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - `npm --prefix crates/oasis7_viewer run build:software-safe`
   - 变更 `oasis7_game_client` 时，`workspace_support` 运行独立包的全部 targets strict Clippy 和库测试，并沿 Cargo 依赖图保留主应用消费者。CLI 可用 `cargo run -p oasis7_game_client --bin oasis7_game_client -- --help` 单独验证。
-  - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
+  - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan-file` 读取 trusted selector 的完整 JSON 文件，旧 `--support-plan` JSON 参数继续兼容。文件路径一直传到解析器，不将完整 JSON 插入 shell 源码、环境或后续进程参数。
   - support profile 计划版本为 1；空、未知、重复 profile 或未知版本拒绝，保守 full scope 展开完整库存。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/影响不确定及非包规则保守扩大，已确认的未登记路径明确失败。每个 profile 的命令成功后才输出完成标记，失败仍由 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
-  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。快速 baseline 保留增量与必要全局不变量，完整 profile 另运行 `--full-corpus` 历史报告。
+  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。baseline 保留受影响文档、反向引用及必要全局不变量；`--full-corpus` 历史报告按需显式运行。规则、范围选择或解析器改变时运行全部适用治理回归，并核对完整适用文档集合。
   - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
@@ -297,7 +317,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - planner 先执行：`./scripts/plan-wasm-determinism-scope.sh --event-name <push|pull_request|workflow_dispatch> --base-ref <base> --head-ref <head>`
   - 仅命中的 module set 会实际执行：`./scripts/ci-m1-wasm-summary.sh --module-set <m1|m4|m5> --runner-label ... --out ...`
   - planner 校验后输出同源 `selected_module_sets_json`；collect/verify 在 job 层过滤 skip，并只展开选中模块。无关改动只运行 planner，单模块共三个 runner jobs，全部模块共七个。planner、collect 或 verify 失败均不能算通过。
-  - Wasm 与 document-corpus workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
+  - Wasm workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
   - verify job 会按命中的 `module_set` 下载 summaries，并执行：`./scripts/wasm-release-evidence-report.sh --module-sets <m1|m4|m5> --skip-collect --summary-import-dir <downloaded-summary-dir> --expected-runners linux-x86_64`
   - verify job 同时上传 `summary.md/json + logs + module_sets.tsv` 的 release evidence report artifact
   - collect 失败时另保留 `wasm-candidate-raw-<module_set>-<runner>-<run_id>-<attempt>` artifact，保存 7 天，只包含实际生成的 `.wasm`、`.metadata.json` 和 `.build-receipt.json`；构建早期失败时可能不完整，上传成功不改变原 gate 的失败结果。成功运行不重复上传这些诊断原件。

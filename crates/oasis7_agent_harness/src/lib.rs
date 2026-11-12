@@ -51,6 +51,7 @@ mod native_task;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_task::{
     NativeTaskContext, NativeTaskControl, NativeTaskHost, NativeTaskModelFailure,
-    NativeTaskRecovery, NativeTaskRunConfig, NativeTaskRunReport, NativeTaskRunner,
-    NativeTaskStopReason, NativeTaskTool, NativeTaskToolResult, SdkNativeTaskHost,
+    NativeTaskPreparation, NativeTaskRecovery, NativeTaskRunConfig, NativeTaskRunReport,
+    NativeTaskRunner, NativeTaskStopReason, NativeTaskTool, NativeTaskToolResult,
+    SdkNativeTaskHost,
 };

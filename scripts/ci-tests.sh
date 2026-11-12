@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan JSON|--support-profiles JSON] [--support-partition NAME]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -433,7 +433,15 @@ run_game_client_cli_contracts() {
   fi
 }
 
+run_dev_test_worker_checks() {
+  if ! command -v worker-build >/dev/null || [[ "$(worker-build --version)" != "0.7.5" ]]; then
+    run_cargo install worker-build --version 0.7.5 --locked
+  fi
+  run bash crates/oasis7_dev_test_worker/scripts/verify.sh
+}
+
 run_oasis7_workspace_support_crate_tests() {
+  run_dev_test_worker_checks
   run_signed_read_protocol_contract_tests
   run_cargo test -p oasis7_custody_core --all-targets --locked
   run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
@@ -484,8 +492,10 @@ spec = importlib.util.spec_from_file_location('scope', Path(sys.argv[2]) / 'plan
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 raw = sys.argv[1]
-if raw.startswith('plan:'):
-    plan = json.loads(raw[5:])
+plan_input = raw.startswith(('plan:', 'plan-file:'))
+if plan_input:
+    plan = (json.loads(Path(raw[len('plan-file:'):]).read_text(encoding='utf-8'))
+            if raw.startswith('plan-file:') else json.loads(raw[5:]))
     if not isinstance(plan, dict) or 'workspace_support' not in plan.get('groups', []):
         raise SystemExit('support job missing from plan')
     if 'workspace_support_profile_version' not in plan:
@@ -505,10 +515,10 @@ if (not isinstance(profiles, list) or not profiles or
 # A trusted base planner cannot name newly extracted packages. Full scope
 # always expands to the candidate inventory after validating its known input,
 # so an additive profile never narrows or breaks the full support job.
-if raw.startswith('plan:') and plan.get('scope') == 'full':
+if plan_input and plan.get('scope') == 'full':
     profiles = list(module.SUPPORT_PROFILES)
 partition = sys.argv[3]
-if raw.startswith('plan:') and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
+if plan_input and ('workspace_support_partition_version' in plan or 'workspace_support_partitions' in plan):
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
             or plan.get('workspace_support_partitions') != module.support_partitions(profiles)
@@ -519,7 +529,7 @@ if raw.startswith('plan:') and ('workspace_support_partition_version' in plan or
                     if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
-expanded = raw.startswith('plan:') and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True
+expanded = plan_input and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True
 if expanded:
     spec = importlib.util.spec_from_file_location('artifacts', Path(sys.argv[2]) / 'ci-test-artifacts.py')
     artifacts = importlib.util.module_from_spec(spec)
@@ -539,6 +549,7 @@ PY
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets; complete_targets=true ;;
       oasis7_agent_harness|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
+      oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
@@ -583,8 +594,8 @@ run_provider_remote_https_smoke() {
 
 run_doc_checker_contract_tests() {
   run python3 ./scripts/resolve-product-doc-ci-range.test.py
+  run python3 ./scripts/doc-governance-scope.test.py
   run python3 ./scripts/document-corpus-inventory-check.test.py
-  run python3 ./scripts/doc-evidence-inventory-check.test.py
   run python3 ./scripts/product-doc-governance-check.test.py
   run python3 ./scripts/product-doc-content-check.test.py
   run python3 ./scripts/doc-core-content-check.test.py
@@ -1169,7 +1180,11 @@ run_rust_baseline() {
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
   local architecture_args=()
-  if [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
+  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+    architecture_args=(--plan-file "$required_plan")
+  elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN_FILE:-}" ]]; then
+    architecture_args=(--plan-file "$OASIS7_CI_ARCHITECTURE_PLAN_FILE")
+  elif [[ "$tier" == required && -n "${OASIS7_CI_ARCHITECTURE_PLAN:-}" ]]; then
     architecture_args=(--plan "$OASIS7_CI_ARCHITECTURE_PLAN")
   fi
   run python3 ./scripts/cargo-dev-architecture.py "${architecture_args[@]}"
@@ -1284,6 +1299,11 @@ while [[ $# -gt 0 ]]; do
     --support-plan)
       [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
       support_profiles="plan:$2"
+      shift 2
+      ;;
+    --support-plan-file)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_profiles="plan-file:$2"
       shift 2
       ;;
     --plan)

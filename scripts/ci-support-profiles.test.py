@@ -154,6 +154,58 @@ after(()=>{assert.equal(completed,2);record('finish');});
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count('+ support profile: '), 2)
 
+    def test_large_plan_file_cli_keeps_profile_partition_and_failure_checks(self):
+        selected = dict(scope='targeted', groups=['workspace_support'],
+                        workspace_support_profile_version=1,
+                        workspace_support_profiles=['oasis7_context'],
+                        workspace_support_partition_version=1,
+                        workspace_support_partitions=['other'],
+                        reasons=["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scripts = root / 'scripts'
+            scripts.mkdir()
+            for name in ('plan-rust-required-scope.py', 'find-python-with-module.sh',
+                         'viewer-dependency-preflight.sh'):
+                shutil.copyfile(ROOT / 'scripts' / name, scripts / name)
+            # Keep the complete production CLI and dispatcher; record only the
+            # expensive Cargo boundary after parsing has selected the real path.
+            marker = '  run_group "$group"\n'
+            self.assertEqual(DRIVER.count(marker), 1)
+            driver = DRIVER.replace(marker, '''  run_cargo() { printf 'cargo %s\\n' "$*"; return "${FIXTURE_CARGO_EXIT:-0}"; }
+  run_cargo_clippy() { printf 'clippy %s\\n' "$*"; }
+''' + marker)
+            (scripts / 'ci-tests.sh').write_text(driver)
+            selection = root / 'selection \'"\n.json'
+            def invoke(plan, *, exit_code='0', partition='other'):
+                selection.write_text(json.dumps(plan), encoding='utf-8')
+                self.assertGreater(selection.stat().st_size, 128 * 1024)
+                return subprocess.run(['bash', str(scripts / 'ci-tests.sh'), 'required',
+                    '--group', 'workspace_support', '--repo-root', str(root),
+                    '--support-plan-file', str(selection), '--support-partition', partition],
+                    text=True, capture_output=True, cwd=root,
+                    env=dict(os.environ, FIXTURE_CARGO_EXIT=exit_code))
+            result = invoke(selected)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('+ support profile completed: oasis7_context', result.stdout)
+            self.assertFalse((root / 'transport-must-not-execute').exists())
+            self.assertEqual(invoke(selected, exit_code='17').returncode, 17)
+            for change in ({'groups': ['baseline']}, {'workspace_support_profile_version': 2},
+                           {'workspace_support_profiles': ['unknown']},
+                           {'workspace_support_partition_version': True},
+                           {'workspace_support_partitions': ['custody']}):
+                with self.subTest(change=change):
+                    result = invoke(selected | change)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn('+ support profile: ', result.stdout)
+            self.assertNotEqual(invoke(selected, partition='unknown').returncode, 0)
+            selection.unlink()
+            result = subprocess.run(['bash', str(scripts / 'ci-tests.sh'), 'required',
+                '--group', 'workspace_support', '--support-plan-file', str(selection)],
+                text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('+ support profile: ', result.stdout)
+
     def test_unpartitioned_support_plan_runs_all_profiles_and_keeps_validation(self):
         for profiles, partitions in ((['oasis7_context'], ['other']),
                                      (['oasis7_custody_worker', 'oasis7_context'], ['custody', 'other'])):
@@ -475,6 +527,14 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
             self.assertNotIn('support profile completed', failed.stdout)
             self.assertEqual(capture.read_text().splitlines(), expected[:1])
 
+    def test_dev_test_worker_runs_actual_platform_and_propagates_failure(self):
+        result = self.invoke(json.dumps(['oasis7_dev_test_worker']))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('contract bash crates/oasis7_dev_test_worker/scripts/verify.sh', result.stdout)
+        failed = self.invoke(json.dumps(['oasis7_dev_test_worker']), fail_protocol=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertNotIn('support profile completed', failed.stdout)
+
     def test_custody_core_retains_all_target_schema_tests(self):
         result = self.invoke(json.dumps(['oasis7_custody_core']))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -653,8 +713,9 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         # Independent old full entry is retained: profiles must cover every package
         # in it, not merely agree with their own inventory constant.
         self.assertEqual(set(module.SUPPORT_PROFILES),
-                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker'})
+                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker', 'oasis7_dev_test_worker'})
         self.assertIn('run bash crates/oasis7_custody_worker/scripts/verify.sh --platform', legacy)
+        self.assertIn('run_dev_test_worker_checks', legacy)
         plan = dict(groups=['workspace_support'], scope='full',
                     workspace_support_profile_version=1,
                     workspace_support_profiles=list(module.SUPPORT_PROFILES))

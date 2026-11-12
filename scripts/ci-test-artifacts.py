@@ -329,9 +329,17 @@ def fast_plan(plan):
                       'ordinary_support_deferred'}
     support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
     private_tests = isinstance(plan, dict) and bool(UNIT_TEST_CONTRACT_FIELDS.intersection(plan))
+    risk_fields = {'risk_test_inventory_version', 'ordinary_risk_targets'}
+    if isinstance(plan, dict) and risk_fields.intersection(plan):
+        if (not risk_fields.issubset(plan) or 'fast_plan_version' not in plan
+                or type(plan['risk_test_inventory_version']) is not int or plan['risk_test_inventory_version'] != 1
+                or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                or 'oasis7_required' not in plan.get('groups', ())
+                or 'ordinary_fast_targets' in plan or plan.get('ordinary_execution') == 'inline'):
+            raise ValueError('invalid ordinary risk target capability')
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
-         'ordinary_artifact_delivery_version'}.intersection(plan))
+         'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}.intersection(plan))
     distfs_clippy = isinstance(plan, dict) and bool(
         {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
     if distfs_clippy and 'fast_plan_version' not in plan:
@@ -489,6 +497,10 @@ def validate_distfs_clippy_handoff(plan):
 
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
+    if 'ordinary_harness_costs' in plan:
+        if plan.get('ordinary_artifact_partition_version') != 2:
+            raise ValueError('ordinary harness costs require targeted artifact v2')
+        validate_ordinary_harness_costs(plan['ordinary_harness_costs'])
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] != 1
@@ -530,6 +542,41 @@ def validate_ordinary_partitions(plan):
     expected = packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all']
     if plan.get('ordinary_partitions') != expected:
         raise ValueError('ordinary partitions must cover the complete parent target inventory exactly once')
+
+
+def validate_ordinary_harness_costs(profile):
+    """Validate hints, never execution authority; mirrored by the isolated planner."""
+    if (not isinstance(profile, dict)
+            or set(profile) != {'version', 'fallback_ms', 'evidence', 'harnesses'}
+            or type(profile['version']) is not int or profile['version'] != 1
+            or type(profile['fallback_ms']) is not int or not 0 < profile['fallback_ms'] <= 3600000):
+        raise ValueError('invalid ordinary harness cost profile')
+    evidence = profile['evidence']
+    if (not isinstance(evidence, dict)
+            or set(evidence) != {'run_id', 'run_attempt', 'source_sha', 'tested_sha', 'policy_sha'}
+            or any(type(evidence[key]) is not int or evidence[key] < 1 for key in ('run_id', 'run_attempt'))
+            or any(not isinstance(evidence[key], str) or not re.fullmatch('[0-9a-f]{40}', evidence[key])
+                   for key in ('source_sha', 'tested_sha', 'policy_sha'))):
+        raise ValueError('invalid ordinary harness cost evidence')
+    rows, seen = profile['harnesses'], set()
+    if not isinstance(rows, list) or not rows or len(rows) > 4096:
+        raise ValueError('invalid ordinary harness cost inventory')
+    for row in rows:
+        if (not isinstance(row, dict)
+                or set(row) != {'package', 'target_kind', 'target_name', 'variant', 'mode', 'selector', 'elapsed_ms'}
+                or any(not isinstance(row[key], str) or not re.fullmatch('[A-Za-z0-9_-]+', row[key])
+                       for key in ('package', 'target_name', 'variant'))
+                or row['target_kind'] not in ('lib', 'bin', 'test')
+                or row['mode'] not in ('batch', 'filter', 'exact')
+                or not isinstance(row['selector'], str)
+                or (row['selector'] != '' if row['mode'] == 'batch' else
+                    not re.fullmatch(r'\w+(?:::\w+)*(?:::)?', row['selector']))
+                or type(row['elapsed_ms']) is not int or not 0 < row['elapsed_ms'] <= 3600000):
+            raise ValueError('invalid ordinary harness cost item')
+        identity = tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector'))
+        if identity in seen:
+            raise ValueError('duplicate ordinary harness cost identity')
+        seen.add(identity)
 
 
 def ordinary_partitions(plan=None):
@@ -739,6 +786,25 @@ def target_native_arguments(target):
     return args
 
 
+def ordinary_risk_targets(plan=None):
+    """Preserve full scale contracts for affected package-wide ordinary runs."""
+    plan = fast_plan(plan)
+    if plan is None or 'risk_test_inventory_version' not in plan:
+        return []
+    targets = target_inventory(plan, 'risk_test_inventory_version', 'ordinary_risk_targets')
+    if any(target['target_kind'] != 'test' or target['default_features'] is not True
+           or target['features'] != ['test_tier_full'] for target in targets):
+        raise ValueError('risk targets require complete default-feature full integrations')
+    return targets
+
+
+def ordinary_risk_supplements(plan=None):
+    targets = ordinary_risk_targets(plan)
+    # Policy migration already requests both tiers on the generic producer.
+    # Its actual full feature and minimum cases are still verified below.
+    return [] if plan is not None and plan.get('test_policy_changed') else targets
+
+
 def required_native_commands(plan=None):
     targets = ordinary_fast_targets(plan)
     if targets is not None:
@@ -750,7 +816,7 @@ def required_native_commands(plan=None):
             commands.extend(list(command) for command in DISTFS_CLIPPY_COMMANDS)
         return commands
     return [required_arguments(plan)] + [target_native_arguments(target)
-                                       for target in ordinary_full_fast_targets(plan) or []]
+        for target in [*(ordinary_full_fast_targets(plan) or []), *ordinary_risk_supplements(plan)]]
 
 
 def target_build_key(target):
@@ -930,10 +996,30 @@ def validate_ordinary_selection(manifest):
         if partition not in (None, 'all'):
             raise ValueError('ordinary partition requires a compatible parent plan')
         return
+    risk = ordinary_risk_targets(plan)
+    if risk and manifest.get('scope') == 'all':
+        raise ValueError('ordinary risk contracts require an ordinary bundle')
     supplements = ordinary_full_fast_targets(plan)
     if manifest.get('scope') != 'ordinary' and not (manifest.get('scope') == 'all' and supplements is not None):
         return
     binaries = [entry for entry in manifest['binaries'].values() if entry.get('ordinary')]
+    if risk:
+        if plan.get('test_policy_changed'):
+            for target in risk:
+                matches = [binary for binary in binaries if binary.get('variant') == 'required'
+                           and (binary['package'], binary['target_kind'], binary['target']) ==
+                               (target['package'], [target['target_kind']], target['target_name'])]
+                if (len(matches) != 1 or not matches[0].get('test')
+                        or matches[0].get('default_features') is not True
+                        or 'test_tier_full' not in matches[0].get('features', ())
+                        or target['package'] + '/test_tier_full' not in matches[0].get('requested_features', ())
+                        or not set(target['cases']) <= (set(matches[0]['tests']) - set(matches[0]['ignored_tests']))):
+                    raise ValueError('expanded required artifact lacks full risk contract')
+        else:
+            validate_target_inventory(risk, [binary for binary in binaries
+                                      if binary.get('variant', '').startswith('required-risk-')])
+            # Full supplements cannot stand in for the original required build.
+            binaries = [binary for binary in binaries if not binary.get('variant', '').startswith('required-risk-')]
     targets = ordinary_partition_targets(plan, partition)
     if targets is not None:
         validate_target_inventory(targets, binaries)
@@ -1039,6 +1125,8 @@ FORMAL_COMPONENTS = ('formal-debug', 'formal-endpoint')
 def build_variants(scope, plan=None, ordinary_partition=None):
     if ordinary_partition is not None and scope != 'ordinary':
         raise ValueError('ordinary partition requires ordinary build scope')
+    if scope == 'all' and ordinary_risk_targets(plan):
+        raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
@@ -1071,7 +1159,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
                                                '--features', ','.join(viewer_features)], viewer_features))
             owners = {'snapshot-tests': 'oasis7', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
-            return selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
+            return (selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
+                    + target_build_variants(ordinary_risk_supplements(plan), 'required-risk-'))
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
         # Keep both core libraries and the exact Chain binary harness. Chain
@@ -1097,7 +1186,7 @@ def artifact_logical_name(variant, package, target, test):
     name, kinds = target['name'], tuple(target['kind'])
     if variant == 'storage-libs':
         return 'storage-lib-' + name
-    if variant.startswith('required-full-fast-'):
+    if variant.startswith(('required-full-fast-', 'required-risk-')):
         # Preserve both feature variants of a package/target in full bundles.
         return variant + '-' + artifact_logical_name('required', package, target, test)
     if variant.startswith('required-fast-'):
@@ -1291,7 +1380,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     target_specs = {}
     if scope in ('ordinary', 'all'):
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
-                                ('required-full-fast-', ordinary_full_fast_targets(plan))):
+                                ('required-full-fast-', ordinary_full_fast_targets(plan)),
+                                ('required-risk-', ordinary_risk_supplements(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
     for variant, args, features in variants:
         members = {variant: target_specs[variant]} if variant in target_specs else {}
@@ -1355,6 +1445,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 # Cargo uses the package directory as test cwd, and exposes its binaries.
                 binaries[logical] = dict(path=str(destination.relative_to(bundle)), sha256=digest(destination),
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
+                    default_features='--no-default-features' not in args,
                     test=test, package=package, target=name, target_kind=target['kind'],
                     original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
                     ordinary=(variant == 'required' or artifact_variant in target_specs) and test, variant=artifact_variant,
@@ -2948,11 +3039,18 @@ def targeted_ordinary_artifact_entries(manifest, partition):
             or sum(map(len, selected.values())) != len(cases)
             or any(not names for names in selected.values())):
         raise ValueError('incomplete or overlapping runtime case partitions')
-    buckets, loads = {}, {}
+    profile = manifest.get('execution_plan', {}).get('ordinary_harness_costs')
+    costs = {}
+    if profile is not None:
+        validate_ordinary_harness_costs(profile)
+        costs = {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
+                 row['elapsed_ms'] for row in profile['harnesses']}
+    buckets, loads, counts = {}, {}, {}
     for owner, names in selected.items():
         buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
                                count=len(names))]
-        loads[owner] = len(names)
+        loads[owner] = 0 if profile is not None else len(names)
+        counts[owner] = len(names)
 
     def behavior_count(entry):
         target = manifest['binaries'][entry['binary']]
@@ -2967,29 +3065,44 @@ def targeted_ordinary_artifact_entries(manifest, partition):
     identities = [(entry['binary'], entry.get('filter'), entry.get('name')) for entry in remaining]
     if len(identities) != len(set(identities)):
         raise ValueError('duplicate ordinary execution item')
-    # Complete integrations, other libraries, snapshots and exclusive singleton
-    # cases stay intact. Count is only a deterministic load estimate, not timing.
+    def cost_identity(entry):
+        target = manifest['binaries'][entry['binary']]
+        return (target['package'], '-'.join(target['target_kind']), target['target'], target['variant'],
+                'batch' if entry.get('batch') else 'filter' if 'filter' in entry else 'exact',
+                '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
+
+    def weight(entry):
+        return (costs.get(cost_identity(entry), profile['fallback_ms']) if profile is not None
+                else behavior_count(entry))
+
+    # Only ownership and ordering change. Unknown items still execute completely
+    # with a positive estimate; case counts and elapsed milliseconds never mix.
     for entry in sorted(remaining, key=lambda item: (
-            -behavior_count(item), item['binary'], item.get('filter', ''), item.get('name', ''))):
+            -weight(item), item['binary'], item.get('filter', ''), item.get('name', ''))):
         count = behavior_count(entry)
         if count < 1:
             raise ValueError('empty ordinary execution item')
         owner = min(owners, key=lambda name: (loads[name], name))
         buckets[owner].append(entry)
-        loads[owner] += count
+        loads[owner] += weight(entry)
+        counts[owner] += count
     if sum(len(items) - 1 for items in buckets.values()) != len(remaining):
         raise ValueError('incomplete ordinary harness partition inventory')
     if partition == 'controls':
         return []
     if partition not in buckets:
         raise ValueError('unknown targeted ordinary artifact partition')
+    estimate = {} if profile is None else dict(
+        harness_estimated_ms=loads[partition], cost_evidence=profile['evidence'],
+        cost_matched=sum(cost_identity(entry) in costs for entry in buckets[partition][1:]),
+        cost_fallback=sum(cost_identity(entry) not in costs for entry in buckets[partition][1:]))
     print('ordinary_partition_inventory=' + json.dumps(dict(
         partition=partition, runtime_binary=parent['binary'], runtime_count=len(selected[partition]),
         runtime_total=len(cases), runtime_inventory_sha256=hashlib.sha256(
             '\n'.join(sorted(cases)).encode()).hexdigest(),
         runtime_selected_sha256=hashlib.sha256('\n'.join(sorted(selected[partition])).encode()).hexdigest(),
         complete_harnesses=[entry['binary'] for entry in buckets[partition][1:]],
-        expected_count=loads[partition])), flush=True)
+        expected_count=counts[partition], **estimate)), flush=True)
     return buckets[partition]
 
 

@@ -47,6 +47,7 @@
   - SC-7: `doc/p2p/prd.md`、GitHub Issue / GitHub Project 与本专题三件套完成映射，后续实现任务可直接挂到统一真值。
   - SC-8: hosted account 中心化服务必须冻结至少 `dev/staging/production` 三层环境边界；登录投递、账户存储、强鉴权 signer、风控阈值、对外 claims 与验证命令不得跨层混用。
 
+<a id="hosted-custody-user-experience"></a>
 ## 2. User Experience & Functionality
 - User Personas:
   - `producer_system_designer`: 需要将“邮箱登录游戏”和“链上身份/签名”整合为不损害安全边界的正式产品方案。
@@ -241,7 +242,7 @@ Trace ID: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5
 
 工具复用正式 Game Client，不提供任意 URL、任意签名、秘密读取或绕过原生权限的入口。工具层限制期限、累计调用和并发，业务资源预算继续由世界协议执行；内部每个网络调用不另建一套授权计费规则。操作先绑定真实账号与稳定 ID，丢响应后查同一原件，同 ID 不同正文拒绝。
 
-关闭／停用只承诺拒绝新的工具执行；在途操作、结果未知、世界 Stop、delegation Revoke 和 Task Closed 分别报告。世界级控制与资源清理由测试编排调用既有授权入口。账号和操作记录可持久恢复；服务重启或恢复备份后旧工具会话失效，经当前授权建立新会话后核对旧操作，不自动重发未知写入或恢复旧写权。
+关闭／停用只承诺拒绝新的工具执行；在途操作、结果未知、世界 Stop、delegation Revoke 和 Task Closed 分别报告。世界级控制与资源清理由测试编排调用既有授权入口。账号和操作记录可持久恢复；Native 服务重启或恢复备份后旧工具会话失效，经当前授权建立新会话后核对旧操作，不自动重发未知写入或恢复旧写权。Workers 的普通平台休眠／同授权实例替换保持尚未关闭的不可变工具会话及原期限，每次调用仍核对当前身份、授权版本和完整作用域；逻辑服务重启或恢复备份必须轮换测试授权使旧会话失效，关闭记录不能复活。
 
 - 系统设计状态：已覆盖；依据：[执行、停用与恢复](hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-operations)。
 - 实现状态：未实现；现有原操作与游戏权限检查只证明可复用基础。
