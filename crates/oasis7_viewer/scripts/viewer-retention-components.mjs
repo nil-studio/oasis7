@@ -40,3 +40,9 @@ export function classifyRetentionPhase(before,after) {
 export function describeHomeCameraMismatch(expectedCamera,actualCamera,phase) {
   return JSON.stringify(expectedCamera)===JSON.stringify(actualCamera)?null:{phase,expectedCamera,actualCamera};
 }
+
+export function validateMountedMemoryLease(previous,current) {
+ if(!Number.isSafeInteger(current)||current<=0)throw Error('mounted WASM lease missing');
+ if(previous!==null&&previous!==current)throw Error('mounted WASM lease changed between observations');
+ return current;
+}

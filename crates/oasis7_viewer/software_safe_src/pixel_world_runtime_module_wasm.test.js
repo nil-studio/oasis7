@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeState = vi.hoisted(() => ({
   mountImpl: null,
+  memory: null,
   instances: [],
 }));
 
@@ -109,7 +110,7 @@ vi.mock("./pixel_world_bridge_bindgen.js", () => {
     default: vi.fn(async () => undefined),
     PixelWorldBridge: MockPixelWorldBridge,
     build_pixel_world_render_state_json: vi.fn(),
-    createPixelWorldModule: vi.fn(() => ({ default: vi.fn(async () => undefined), PixelWorldBridge: MockPixelWorldBridge, build_pixel_world_render_state_json: vi.fn(), display_metrics:vi.fn(()=>JSON.stringify({status:"observed",render_version:7,visible_nonempty_labels:200})) })),
+    createPixelWorldModule: vi.fn(() => ({ default: vi.fn(async () => ({memory:runtimeState.memory})), PixelWorldBridge: MockPixelWorldBridge, build_pixel_world_render_state_json: vi.fn(), display_metrics:vi.fn(()=>JSON.stringify({status:"observed",render_version:7,visible_nonempty_labels:200})) })),
   };
 });
 
@@ -117,6 +118,7 @@ describe("pixel world wasm runtime bridge", () => {
   beforeEach(() => { vi.spyOn(WebAssembly, "compile").mockResolvedValue({}); vi.stubGlobal("fetch", vi.fn(async () => ({ok:true, arrayBuffer:async () => new ArrayBuffer(0)}))); });
   afterEach(() => {
     runtimeState.mountImpl = null;
+    runtimeState.memory = null;
     runtimeState.instances.length = 0;
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
     globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
@@ -145,6 +147,22 @@ describe("pixel world wasm runtime bridge", () => {
       window.history.replaceState({},"","?test_api=0");
       expect(module.readPixelWorldDisplayMetrics()).toEqual({status:"disabled"});
     } finally { window.history.replaceState({},"",original); }
+  });
+
+  it("reads only mounted active memory capacity, tracks growth and invalidates failed/detached leases",async()=>{
+    vi.resetModules();animationHarness();const url=window.location.href;window.history.replaceState({},"","?test_api=1");runtimeState.memory=new WebAssembly.Memory({initial:1,maximum:3});
+    const module=await import("./pixel_world_runtime_module_wasm.js"),bindings=await import("./pixel_world_bridge_bindgen.js");bindings.createPixelWorldModule.mockClear();
+    try{expect(module.readPixelWorldLinearMemoryCapacity()).toEqual({status:"unmounted"});expect(bindings.createPixelWorldModule).not.toHaveBeenCalled();
+      const a=await module.createPixelWorldBridge({}),canvas=document.createElement('canvas');a.mount(canvas,{});const first=module.readPixelWorldLinearMemoryCapacity();expect(first.linearCapacityBytes).toBe(65536);runtimeState.memory.grow(1);expect(module.readPixelWorldLinearMemoryCapacity().linearCapacityBytes).toBe(131072);expect(bindings.createPixelWorldModule).toHaveBeenCalledTimes(1);
+      const b=await module.createPixelWorldBridge({});b.mount(canvas,{});const next=module.readPixelWorldLinearMemoryCapacity();expect(next.instanceSequence).not.toBe(first.instanceSequence);a.unmount();expect(module.readPixelWorldLinearMemoryCapacity().instanceSequence).toBe(next.instanceSequence);
+      runtimeState.mountImpl=()=>({status:'unavailable'});b.mount(canvas,{});expect(module.readPixelWorldLinearMemoryCapacity()).toEqual({status:'unmounted'});
+      runtimeState.mountImpl=null;b.mount(canvas,{});const recovered=module.readPixelWorldLinearMemoryCapacity();expect(recovered.instanceSequence).not.toBe(next.instanceSequence);b.unmount();b.mount(canvas,{});expect(module.readPixelWorldLinearMemoryCapacity().instanceSequence).not.toBe(recovered.instanceSequence);b.unmount();expect(module.readPixelWorldLinearMemoryCapacity()).toEqual({status:'unmounted'});window.history.replaceState({},"","?test_api=0");expect(module.readPixelWorldLinearMemoryCapacity()).toEqual({status:'disabled'});
+    }finally{window.history.replaceState({},"",url);}
+  });
+
+  it("does not invent bytes when memory is not exported and invalidates on fatal",async()=>{
+    vi.resetModules();animationHarness();const url=window.location.href;window.history.replaceState({},"","?test_api=1");
+    try{const module=await import("./pixel_world_runtime_module_wasm.js"),bridge=await module.createPixelWorldBridge({});bridge.mount(document.createElement('canvas'),{});expect(module.readPixelWorldLinearMemoryCapacity()).toEqual({status:'unavailable',reason:'active_memory_export_missing'});runtimeState.instances.at(-1).onFatal({code:'test'});expect(module.readPixelWorldLinearMemoryCapacity()).toEqual({status:'unmounted'});}finally{window.history.replaceState({},"",url);}
   });
 
   function pointerEvent(type, options = {}) {
@@ -706,15 +724,19 @@ describe("pixel world wasm runtime bridge", () => {
     const bindings = await import("./pixel_world_bridge_bindgen.js");
     let finishOld;
     const oldModule = {default:vi.fn(() => new Promise(resolve => {finishOld = resolve;})), PixelWorldBridge:bindings.PixelWorldBridge, build_pixel_world_render_state_json:vi.fn(() => "old")};
-    const currentModule = {default:vi.fn(async () => {}), PixelWorldBridge:bindings.PixelWorldBridge, build_pixel_world_render_state_json:vi.fn(() => "current")};
+    const currentMemory = new WebAssembly.Memory({initial:2});
+    const currentModule = {default:vi.fn(async () => ({memory:currentMemory})), PixelWorldBridge:bindings.PixelWorldBridge, build_pixel_world_render_state_json:vi.fn(() => "current")};
     bindings.createPixelWorldModule.mockReturnValueOnce(oldModule).mockReturnValueOnce(currentModule);
-    const {createPixelWorldBridge, derivePixelWorldRenderState} = await import("./pixel_world_runtime_module_wasm.js");
+    const {createPixelWorldBridge, derivePixelWorldRenderState,readPixelWorldLinearMemoryCapacity} = await import("./pixel_world_runtime_module_wasm.js");
     const failed = expect(createPixelWorldBridge()).rejects.toMatchObject({code:"pixel_world_prepare_timeout"});
     await vi.advanceTimersByTimeAsync(10000); await failed;
     const first = createPixelWorldBridge(), second = createPixelWorldBridge();
-    await Promise.all([first, second]);
+    const bridges=await Promise.all([first, second]);
+    animationHarness();const originalUrl=window.location.href;window.history.replaceState({},"","?test_api=1");bridges[0].mount(document.createElement("canvas"),{});
+    expect(readPixelWorldLinearMemoryCapacity().linearCapacityBytes).toBe(131072);
     expect(currentModule.default).toHaveBeenCalledTimes(1);
-    finishOld(); await Promise.resolve(); await Promise.resolve();
+    finishOld({memory:new WebAssembly.Memory({initial:1})}); await Promise.resolve(); await Promise.resolve();
+    expect(readPixelWorldLinearMemoryCapacity().linearCapacityBytes).toBe(131072);bridges[0].unmount();window.history.replaceState({},"",originalUrl);
     expect(derivePixelWorldRenderState({schema_version:1})).toBe("current");
     await createPixelWorldBridge();
     expect(currentModule.default).toHaveBeenCalledTimes(1);

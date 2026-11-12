@@ -33,8 +33,100 @@ PR4889_DOC_PATHS = (
     'doc/.governance/document-corpus/objects/fd/fd8aef2ec18a5cd959fe1a23c9ae1a1d6dd95c63b6de435b6eb1472a5717b1ec.json',
 )
 
+RETIREMENT_INPUT_CONTRACTS = {
+    '.gitattributes': None,
+    'scripts/unified-world-code-terminology-scan.sh': {'baseline'},
+    'scripts/unified-world-code-terminology-scan.test.sh': {'baseline'},
+    'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json':
+        {'baseline', 'doc_checker_contracts'},
+    'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json':
+        {'baseline', 'doc_checker_contracts'},
+    'scripts/fixtures/document-corpus-v3/legacy/inventory.json':
+        {'baseline', 'doc_checker_contracts'},
+    'scripts/fixtures/document-corpus-v3/legacy/manifest.json':
+        {'baseline', 'doc_checker_contracts'},
+}
+
 
 class Selection(unittest.TestCase):
+    def test_retirement_input_exact_ownership_covers_add_modify_delete_and_rename(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for index, (path, expected) in enumerate(RETIREMENT_INPUT_CONTRACTS.items()):
+                renamed = f'doc/retirement-input-{index}.md'
+                for operation in ('add', 'modify', 'rename-out', 'rename-back', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        elif operation == 'rename-out':
+                            self.git('mv', path, renamed)
+                        elif operation == 'rename-back':
+                            self.git('mv', renamed, path)
+                        else:
+                            self.write(path, '# synthetic ownership input ' + operation + '\n')
+                        head = self.commit()
+                        plan = selector.select(config, self.base, head)
+                        self.assertEqual(plan['scope'], 'full' if expected is None else 'targeted')
+                        self.assertEqual(set(plan['groups']),
+                                         set(config['groups']) if expected is None else expected)
+                        self.base = head
+
+    def test_retirement_input_neighbors_and_unknown_rename_endpoints_stay_rejected(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        neighbors = (
+            '.gitattributes.local',
+            'scripts/.gitattributes',
+            'scripts/unified-world-code-terminology-extra.sh',
+            'scripts/unified-world-code-terminology-scan-extra.test.sh',
+            'scripts/fixtures/document-corpus-v3/legacy/extra.json',
+            'scripts/fixtures/document-corpus-v3/legacy/nested/inventory.json',
+            'scripts/fixtures/document-corpus-v3/inventory.json',
+        )
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in neighbors:
+                for operation in ('add', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        else:
+                            self.write(path, '# unregistered neighbor\n')
+                        head = self.commit()
+                        with self.assertRaises(selector.UnknownInputsError) as caught:
+                            selector.select(config, self.base, head)
+                        self.assertIn(path, str(caught.exception))
+                        self.base = head
+            registered = 'scripts/fixtures/document-corpus-v3/legacy/inventory.json'
+            unknown = 'scripts/fixtures/document-corpus-v3/legacy/renamed.json'
+            self.write(registered, '{}\n')
+            self.base = self.commit()
+            for source, target in ((registered, unknown), (unknown, registered)):
+                with self.subTest(source=source, target=target):
+                    self.git('mv', source, target)
+                    head = self.commit()
+                    with self.assertRaises(selector.UnknownInputsError) as caught:
+                        selector.select(config, self.base, head)
+                    self.assertIn(unknown, str(caught.exception))
+                    self.base = head
+
+    def test_retirement_input_registration_requires_the_trusted_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        registration_reasons = {'git_checkout_attributes', 'unified_world_terminology',
+                                'document_corpus_fixture_contracts'}
+        old = dict(config, rules=[rule for rule in config['rules']
+                                  if rule['reason'] not in registration_reasons])
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        for path in RETIREMENT_INPUT_CONTRACTS:
+            self.write(path, '# candidate registration input\n')
+        head = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for additions in ((), ('doc_checker_contracts',)):
+                with self.subTest(additions=additions):
+                    with self.assertRaises(selector.UnknownInputsError) as caught:
+                        selector.select(old, self.base, head, additions=additions)
+                    for path in RETIREMENT_INPUT_CONTRACTS:
+                        self.assertIn(path, str(caught.exception))
+            self.assertEqual(selector.select(config, self.base, head)['scope'], 'full')
+
     def test_product_doc_ci_range_exact_ownership_uses_trusted_config(self):
         paths = ('scripts/resolve-product-doc-ci-range.py', 'scripts/resolve-product-doc-ci-range.test.py')
         trusted = json.loads((HERE / 'ci-required-scope.json').read_text())

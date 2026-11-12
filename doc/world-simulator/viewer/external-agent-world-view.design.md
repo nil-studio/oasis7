@@ -434,3 +434,16 @@ ADR-VIEW-3：几何、时效、请求代际、世界切点分开；partial不是
 ADR-VIEW-4：保留renderer/Shell，按预算做局部索引/聚合/reconcile，不先重写引擎/shader。
 
 待实施锁定：平台依赖/发行身份、API Context/fence真实接线、空间索引来源及实测质量。这些是交付缺口，不可跳过；独立跨域评审和运行证据在实际PR记录，不由本文自报完成。
+
+
+### 已挂载 WASM 容量观测（5771）
+
+仅 test_api 运行时观测可读取成功 wasm-bindgen 初始化所返回 Memory 的 byteLength；不得初始化第二个实例或暴露 Memory 对象。本地挂载标识绑定当前 bridge，挂载失败、fatal 和卸载使其失效，旧 bridge 清理不得清除新挂载标识。客户端 scope／source-cut 配对仍使用既有采样前后标记；容量本身不证明授权或来源连续性。
+
+线性内存容量是可寻址字节数，不是分配器已用堆、JS heap、GPU 内存、进程 RSS 或总缓存。受控单元测试可以用 Memory.grow 验证容量变化，真实观测不得调用 grow 或强制 GC。当前客户端 view／changes／分页 Map 与旧 inflight 闭包是不同保留 root；当前代际逻辑编码计数不覆盖旧闭包，也不证明保留堆大小。HeapProfiler 归因使用前须独立核对所有权与隐私边界。
+
+### 未完成读取的保留生命周期（5790）
+
+客户端只读统计可分别报告当前代际与已失效但尚未完成的 query 数、四类分页 Map 的条目数、cursor Set 大小及 first／last 页面引用槽数量。登记仅持有本地代际数字与计数，不额外保留页面、Map 或闭包；引用槽数不是去重对象数。invalidate、cancel 和 reset 不得将旧 await 闭包误报为已释放，须待原 async query 的 finally 删除标量登记。旧回复仍按原代际／scope 校验拒绝发布。
+
+transport 单独报告 pending entry 数，在成功、错误、clear、发送失败及超时删除后更新，不输出请求 key、scope 或连接标识，不触发读取或新请求。上述计数证明指定 root 的生命周期覆盖，不证明 GC 已回收、分配器字节、完整 retained heap 或应用总缓存 64MiB；不进行全堆扫描或强制 GC，不改变权限、请求预算与业务行为。

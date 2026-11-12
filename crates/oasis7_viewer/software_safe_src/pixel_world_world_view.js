@@ -9,6 +9,7 @@ const binding = view => JSON.stringify([view.world_id, view.scope_id, view.sourc
 let nextRetentionInstance = 0;
 export function createWorldViewClient({ request, onChange = () => {} }) {
   const retentionInstance = ++nextRetentionInstance;
+  const inflightRetention = new Map(); // Scalars only; never retain page objects or Map roots.
   let generation = 0, scopeSequence = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
   let state = { view: null, loading: false, stale: false, error: null, changes: [] };
   const publish = patch => { state = { ...state, ...patch }; onChange(state); };
@@ -20,10 +21,13 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       const published = measured ? measureRetainedJson([state.view, state.changes]) : unknown;
       const pagingRoots = measured && query ? [query.first(), query.last(), ...query.maps().flatMap(map => [...map.values()])] : [];
       const paging = measured ? measureRetainedJson(pagingRoots) : unknown;
-      return { measured, instanceSequence: retentionInstance, localGeneration: generation, scopeSequence, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
+      const inflight={currentQueries:0,retiredQueries:0,currentMapEntries:[0,0,0,0],retiredMapEntries:[0,0,0,0],currentCursors:0,retiredCursors:0,currentPageReferences:0,retiredPageReferences:0};
+      for(const [id,row] of inflightRetention){const current=id===generation;inflight[current?'currentQueries':'retiredQueries']++;for(let n=0;n<4;n++)inflight[current?'currentMapEntries':'retiredMapEntries'][n]+=row.maps[n];inflight[current?'currentCursors':'retiredCursors']+=row.cursors;inflight[current?'currentPageReferences':'retiredPageReferences']+=row.pageReferences;}
+
+      return { inflight, measured, instanceSequence: retentionInstance, localGeneration: generation, scopeSequence, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
         published: { ...published, entities: state.view?.entities?.length || 0, changes: state.changes.length, queryGenerationMatches: state.view?.request_generation === String(generation), sourceCutMatches: typeof expectedSourceCut === 'string' ? state.view?.source_cut === expectedSourceCut : null, completeness: ['complete','partial','unknown'].includes(state.view?.completeness) ? state.view.completeness : null },
         paging: { ...paging, active: Boolean(query), maps: query?.maps().map(map => map.size) || [0,0,0,0], cursors: query?.seen.size || 0 },
-        observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory' };
+        observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; inflight counts cover current/retired query-local maps until finally, without heap-byte attribution; other closure/transport roots separate; not heap/GPU/total memory' };
     },
     invalidate() { generation += 1; retainedQuery = null; },
     cancel() { generation += 1; retainedQuery = null; baselineQuery = null; publish({loading:false,stale:Boolean(state.view)}); },
@@ -39,12 +43,15 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       let resume = delta && baselineQuery === queryKey && !state.stale && !state.view?.source_frozen ? state.view?.resume_cursor : null;
       if (!resume && !preserveChanges) publish({changes:[]});
       let lastPublished = null, recoveries = 0, restart = false, first = null, cursor, entities = new Map(), relations = new Map(), aggregates = new Map(), events = new Map(), seen = new Set(), pages = 0;
+      const scalarRetention={maps:[0,0,0,0],cursors:0,pageReferences:0};inflightRetention.set(current,scalarRetention);
+      const updateScalarRetention=()=>{scalarRetention.maps=[entities.size,relations.size,aggregates.size,events.size];scalarRetention.cursors=seen.size;scalarRetention.pageReferences=Number(Boolean(first))+Number(Boolean(lastPublished));};
       retainedQuery = { generation: current, maps: () => [entities, relations, aggregates, events], seen, first: () => first, last: () => lastPublished };
       const deadline = Date.now() + 30000;
       try {
         do {
           restart = false;
           if (++pages > 20 || Date.now() > deadline) throw Error('World view request budget exceeded');
+          updateScalarRetention();
           const page = await request({ ...query, page_size: pageSize, request_generation: requestGeneration, ...(cursor ? { cursor } : {}), ...(resume ? {resume_cursor:resume} : {}) });
           if (!active()) return null;
           if (page?.delivery === 'reset') { if (++recoveries > 1) throw Error('World view baseline unavailable'); resume = null; cursor = null; restart = true; baselineQuery = null; publish({view:null,stale:false,changes:[]}); continue; }
@@ -98,6 +105,7 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
             publish({view:{...lastPublished,completeness:'partial',budget_limited:true,resume_cursor:undefined},loading:false});return state.view;
           }
           lastPublished = nextView;
+          updateScalarRetention();
           publish({ view:nextView, stale:false });
           if (cursor && entities.size + relations.size + aggregates.size + events.size + pageSize > 1000) {
             publish({view:{...state.view,completeness:'partial',budget_limited:true},loading:false});
@@ -109,7 +117,7 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       } catch (error) {
         if (active()) publish({ loading: false, stale: Boolean(state.view), error: String(error?.message || error) });
         return null;
-      } finally { if (retainedQuery?.generation === current) retainedQuery = null; }
+      } finally { inflightRetention.delete(current); if (retainedQuery?.generation === current) retainedQuery = null; }
     },
   };
 }
@@ -128,6 +136,7 @@ export function worldViewPosition(entity, view, stale = false, allowDerived = fa
 export function createWorldViewTransport({ send, timeoutMs = 10000, getScope = () => null, getConnection = () => null }) {
   const pending = new Map(); let sequence = 0;
   return {
+    statistics() { return {pendingRequests:pending.size,semantics:"transport pending entries, not retained heap bytes"}; },
     request(query) {
       const id = `${query.request_generation}:${++sequence}`;
       return new Promise((resolve, reject) => {
