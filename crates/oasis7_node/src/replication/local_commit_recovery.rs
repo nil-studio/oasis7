@@ -309,15 +309,18 @@ impl ReplicationRuntime {
                     "legacy CAS has an unfinished or conflicting amendment",
                 ));
             }
-            if m.public_key_hex.as_deref() == Some(signer.public_key_hex.as_str()) {
-                if m.node_id != node_id || m.record.writer_epoch != self.writer_state.writer_epoch {
-                    return Err(invalid("legacy writer epoch is ambiguous"));
-                }
-                if !local_sequences.insert(m.record.sequence) {
-                    return Err(invalid("duplicate local sequence"));
-                }
-                last_sequence = last_sequence.max(m.record.sequence);
+            // A foreign-writer attachment can consume a new local sequence without
+            // changing CAS payload bytes. Mixed history cannot prove this tail's sequence.
+            if m.public_key_hex.as_deref() != Some(signer.public_key_hex.as_str()) {
+                return Err(invalid("legacy history contains a foreign writer"));
             }
+            if m.node_id != node_id || m.record.writer_epoch != self.writer_state.writer_epoch {
+                return Err(invalid("legacy writer epoch is ambiguous"));
+            }
+            if !local_sequences.insert(m.record.sequence) {
+                return Err(invalid("duplicate local sequence"));
+            }
+            last_sequence = last_sequence.max(m.record.sequence);
         }
         if last_sequence == 0 {
             return Err(invalid("legacy gap has no signed world/writer anchor"));

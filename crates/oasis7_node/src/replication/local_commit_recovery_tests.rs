@@ -350,3 +350,31 @@ fn pending_original_never_overwrites_conflicting_cas_before_guard_publication() 
     );
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn legacy_gap_rejects_foreign_writer_history_even_with_identical_cas_payload() {
+    let (dir, config, _) = fixture();
+    remove_signed_tail(&dir, &config);
+    let mut foreign = load_commit_message_from_root(&dir, "world-a", 1)
+        .unwrap()
+        .unwrap();
+    let (private, public) = deterministic_keypair_hex(83);
+    let signer = ReplicationSigningKey {
+        signing_key: signing_key_from_hex(&private).unwrap(),
+        public_key_hex: public.clone(),
+    };
+    foreign.record.writer_id = public.clone();
+    foreign.public_key_hex = Some(public);
+    foreign.signature_hex = Some(sign_replication_message(&foreign, &signer).unwrap());
+    fs::write(
+        config.commit_message_path(1),
+        serde_json::to_vec(&foreign).unwrap(),
+    )
+    .unwrap();
+    let error = ReplicationRuntime::new(&config, "node-a")
+        .err()
+        .expect("foreign writer ambiguity must reject");
+    assert!(matches!(error,NodeError::Replication { reason } if reason.contains("foreign writer")));
+    assert!(!config.commit_message_path(2).exists());
+    fs::remove_dir_all(dir).unwrap();
+}
