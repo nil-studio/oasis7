@@ -300,6 +300,27 @@ with patch.object(Path, 'read_text', read):
                     path.write_text(text)
                     self.assertFalse(dns.default_mirror_allowed())
 
+    def test_prepared_mirror_remains_eligible_and_custom_variants_are_rejected(self):
+        spec = importlib.util.spec_from_file_location('apt_preparation', Path(__file__).with_name('ci-apt-install.py'))
+        apt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(apt)
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / 'mirrors'
+            path.write_bytes(apt.RUNNER_MIRRORS)
+            path.chmod(0o644)
+            self.assertEqual(apt.prepare_runner_mirrors(path), 'preferred_independent_https')
+            fstat = os.fstat
+            def root_owned(fd):
+                values = list(fstat(fd)); values[4] = 0
+                return os.stat_result(values)
+            with patch.object(dns, 'MIRROR_PATH', str(path)), patch.object(dns.os, 'fstat', side_effect=root_owned):
+                self.assertTrue(dns.default_mirror_allowed())
+                for content in (apt.PREFERRED_MIRRORS.replace(b'mirrors.edge.kernel.org', b'private.example'),
+                                apt.PREFERRED_MIRRORS.replace(b'https://mirrors', b'http://mirrors'),
+                                apt.PREFERRED_MIRRORS + b'https://private.example/ubuntu/ priority:5\n'):
+                    path.write_bytes(content)
+                    self.assertFalse(dns.default_mirror_allowed())
+
     def test_mock_default_hosted_source_is_eligible_comments_are_not_sources(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)

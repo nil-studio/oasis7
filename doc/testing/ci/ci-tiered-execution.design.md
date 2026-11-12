@@ -176,6 +176,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
 | `ordinary_artifact_partition_version=1/2`、`ordinary_partitions` | v1 保留 full 完整目标分区；v2 对有 chain-runtime 的 targeted 非 inline 普通库存执行 controls 与四个 native case 分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
+| `ordinary_artifact_delivery_version=1` | 仅为最终 artifact v1 计划启用共享辅助产物与四个完整 harness 包；完整父清单、构建与执行选择不变，旧计划继续完整包 |
 | `workspace_support_partition_version=1`、`workspace_support_partitions` | 选中 custody worker 时单列 custody，其余 profile 归 other；两路并集保留全部选中 profile，旧 BASE 使用 all |
 | `custody_execution_version=1`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与四个完整 Node 文件分片；缺能力或测试政策变化继续原完整 verifier，稳定 support 汇总核验全部实际结果 |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
@@ -753,6 +754,12 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 关闭 apt 内部重试并限制网络及锁等待。只有 update 中明确的瞬态网络错误可有限重试，最多三次尝试；未知、混合永久错误、权限、配置、签名或完整性失败直接失败。install 只执行一次，即使发生网络错误也不重跑，避免 dpkg 修改后状态不明时盲目恢复。
 
+临时 GitHub Ubuntu runner 的已知 `/etc/apt/apt-mirrors.txt` 使用 Azure HTTP、Ubuntu archive HTTPS、Ubuntu security HTTPS 三条带优先级的来源；这三个 Ubuntu 域可能同时发生解析失败，调换彼此顺序不足以恢复。依赖准备对精确识别的列表增加独立域的 `https://mirrors.edge.kernel.org/ubuntu/` 为首选，原三个来源作为后备。该端点由 [Linux Kernel Archives](https://mirrors.edge.kernel.org/) 提供，Kernel.org 在 [Ubuntu 官方 archive mirror 名单](https://launchpad.net/ubuntu/+archivemirrors) 中登记；镜像只提供传输，信任仍来自原 Ubuntu archive keyring、签名和文件摘要。保留 noble、updates、backports、security 套件及既有组件、架构与 By-Hash 行为，不新增密钥，不改 Signed-By、其他 APT 来源、DNS/IP 或验签要求，也不接受不安全/过期元数据来换取安装成功。
+
+只接受完整原 runner 列表或本 helper 既有的 Canonical HTTPS 优先列表；未知或自定义内容原样保留。缺失文件保留原安装路径，symlink、非普通文件及写入错误失败。原子替换保留文件权限和所有者，当前目标列表重复准备不再写入。准备计入当前调用预算，未完成或预算耗尽不得开始 update；配置完成不代表依赖安装成功。镜像可用性及包的真实验签/安装必须由 hosted 运行确认，不能用外部目录浏览或诊断探测代替。
+
+native 安装在同一 helper 内复用上述准备；Viewer 安全浏览器和 Deck 安全浏览器在原固定版本 `--with-deps` 命令之前调用同一 helper 的 `--prepare-sources-only` 入口。该入口只准备来源，不调用 apt/dpkg，也不宣称浏览器或其依赖就绪；准备失败阻断后续命令。浏览器原有依赖安装与退出码仍完整保留，Viewer 安装 step 设 11 分钟上限，Deck 保留既有 10 分钟上限；实际网络恢复须由新的 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
+
 helper 以具备清理权限的独立进程管理受控子进程，超时和取消先终止、必要时强制终止并等待回收。父进程先退出、忽略终止信号或脱离原进程组都不能被当作清理完成；不得删除锁文件、终止无关进程或恢复不明的 dpkg 状态。清理无法完成时明确失败，交由临时 runner 销毁，不报告安装成功。
 
 #### 托管 runner 的条件 DNS 恢复
@@ -975,6 +982,14 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 完整 ordinary 由可信计划的 `ordinary_artifact_partition_version=1` 启用物理执行分片，保留唯一 producer 的完整 Cargo 命令、feature resolution 和完整 archive。`controls` 单独执行原 Clippy/WASM 检查；`runtime`、`component-libs` 分别执行主 runtime harness、其余 library harness；其余 harness 及两个 default-feature snapshot 检查按完整 binary/filter 身份排序后交替归属 `integrations-0`、`integrations-1`。每个消费者先核验完整产物，再按实际 variant/package/target 身份分配完整执行项；并集必须等于全部原执行项且各有唯一归属，新增 target 进入对应剩余类别。消费者内部串行，不重复 Cargo 构建或减少测试。本地未指定 `--ordinary-partition` 时，保留一次构建完整 bundle 后执行全部 ordinary 项的入口，并执行原 Clippy/WASM 检查。旧 BASE 没有该能力时保留 `all`，版本或分片缺失、重复、未知均拒绝。矩阵保持 `fail-fast: false`，任何必选分片失败、取消或跳过都阻断汇总。
 
+可信 BASE 的 `ordinary_artifact_delivery_version=1` 在最终计划为 artifact v1 时，进一步将文件运输分为一个 common 包与四个 harness 包。producer 保留原完整构建、feature 组合及库存验证；父 `manifest.json` 与旧 ordinary 完整包同义，保留全部 binaries、完整 `included_binaries`、`selection={suite: ordinary}`、原计划及全部身份。从既有 `ordinary_artifact_entries` 重算四个分区的完整 harness 集合，要求各有唯一 owner、并集等于原全部执行项；剩余共同二进制、全部既有动态库及 provider/builtin 资源只打包一次。每个 native consumer 下载 common 和自己的 harness 包；controls 保留原 Clippy/WASM 检查与 required 依赖，但不下载无用 native 包。此版本不改变执行分桶、case filters、默认 snapshot、full 补充 feature、helper 的原 Cargo 路径恢复或资源校验，不细化 helper 归属。
+
+父清单只序列化一次；common 与各 harness receipt 绑定其原字节 SHA-256、分区及重算的精确二进制集合。摘要用于防止混包，不替代可信计划授权。受控解包仅接受父清单推导的角色与文件集合，拒绝重复路径、越界、symlink、未知文件及跨包 hardlink；分区包不得覆盖父清单、common receipt、helper 或资源。每个 archive 内独立进行相同字节的 hardlink 去重。消费时保留父清单原貌，另算本地共同文件与当前完整 harness 的闭包，沿用 source/tested/plan/run/toolchain/config、hash、profile、实际 tests/ignored inventory 和资源核验。缺失或损坏失败，不补编。相同 run 中 consumer 重跑可使用较早成功 producer；仅要求本次消费的 common 与 payload 具有相同父摘要，不要求所有历史已成功矩阵行重跑或 producer attempt 等于当前 attempt。
+
+新 delivery 字段只有可信配置授权且最终 plan 为非 inline 的 artifact v1 才输出。旧 BASE、旧 plan、artifact v2、inline 及本地完整 bundle 保留原路径；字段一旦存在，bool、未知版本或不兼容组合直接拒绝，不静默降级。实际当前完整父库存的分发完整性不等于另建了所有 Cargo target 的独立权威库存。矩阵成员、实际测试计数、退出/取消/清理和最终 required/full 汇总仍沿用原合同。
+
+能力尚未进入 BASE 的迁移 PR 可运行独立只读诊断 job：下载正式 producer 的旧完整包，验证原父身份和实际库存，再对相同二进制执行新打包、受控解包及四分区实际库存/资源核验。诊断不改父计划、不生成新的选择权限，receipt 明确标识 diagnostic-only，正式 run/load 拒绝该材料；它不属于 required/full gate。记录完整包与新包的压缩字节、各消费闭包、打包/解包/校验时间及父摘要，不将本地重复读取当作真实网络或端到端提速。可信 BASE 已启用后，正式 producer/consumer 自身提供新分发的真实运行证据，不再为该迁移重复启动诊断。十分钟 P95 和四小时完整回归仍分别按托管实际记录验收。Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29。
+
 可信配置支持 v2 后，只有 `pr-fast/main-fast`、`scope=targeted`、非 inline、明确 `test_policy_changed=false` 且选中 chain-runtime required 包时，才输出 `controls/native-0/native-1/native-2/native-3`。full/explicit-full 继续原 v1；其它 targeted、inline 和旧 BASE 保持原路。producer 的完整 targets、默认 wasmtime/node-libp2p 与 test_tier_required features 不变。每个消费者先校验同一完整 bundle 的 source/tested/policy、内容和实际 `--list` 库存，再以 `required/oasis7_chain_runtime/lib/oasis7_chain_runtime` 完整身份寻找唯一 runtime library。先展开原 exclusive singleton，剩余原 ordinary case 按完整名称 SHA-256 排序后轮转四片，以 exact skip 补集执行完整 case；原 ignored/deferred 语义保持。所有分片非空，并集与原普通库存相等、交集为空，其余完整 harness、snapshot 和 exclusive singleton 各有唯一 owner。未知版本/owner、错身份、空执行、缺失、重复、少测、异常、取消、超时或进程遗留都失败；原断言、超时与清理不变。数量估计仅用于确定性分配，不作为历史时长数据或十分钟收益证明。
 
 v2 中仅当包集合精确为 `[oasis7_chain_runtime]` 且 owner 为上述四个 native 分片时，consumer 省去 Rust toolchain 安装、Rust cache 稳定化和依赖 cache 恢复；产物执行及当前测试所调用脚本不需要编译器，真实小型 Cargo fixture 用失败哨兵验证制品消费没有补编。controls、含其它包的 v2、v1、inline 和旧路径保留原准备，避免省略 Game Client 等测试实际调用的 rustc；APT 原依赖仍完整安装。日志记录 runtime 总库存及当前分片摘要、预期执行数与附带完整 harness，真实产品四片耗时、producer 成本及端到端 P95 仍由托管运行验收。
@@ -1141,3 +1156,5 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、�
 ### Preview provider 测试附属产物
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用共享产物合同。本能力不登记新的 ignored 测试，也不改变可信 BASE 的选择权限。ordinary expanded／full producer 在实际 native 库存包含启用 `test_tier_full` 的 `oasis7_chain_runtime` 测试消费者时准备材料；不为仅含其他包的隔离编排夹具启动模块构建。准备仍使用官方 `scripts/build-wasm-module.sh --candidate-build`，按同 checkout 构建 `module.runtime.local-test-provider`；原 WASM、官方 metadata 与 native bundle 的 tested/source SHA、两个文件及官方 build receipt、同 candidate 只读 checker 的 hash 一并绑定。checker 复用既有 `sync_builtin_wasm_identity --verify-provider-artifact` 入口，使用官方 SourceRule2 完整闭包、builder recipe／execution 和 receipt 验证 API；不修改 producer recipe，不同步身份或生成发布材料。允许现 API 的 locked Cargo metadata 解析，不启动编译或模块执行。pack／load 验证完整材料、当前 source-input v2 和身份后，才向实际测试进程显式注入 `OASIS7_PREVIEW_TEST_PROVIDER_WASM` 与 `OASIS7_PREVIEW_TEST_PROVIDER_METADATA`。缺失、损坏、跨 source 或路径越界均失败，不回退 placeholder、其他 checkout 或本机缓存材料。`ci-tests.sh full-extended` 使用同一官方准备及验证入口；不新增 secret 或外部写权限。纯 Python 合同不代签真实 WASM 构建或 consumer 执行；后续实际 full-tier consumer 必须在材料缺失时失败而非 skip。
+
+Viewer performance 固定浏览器安装仍保留 `agent-browser@0.37.1 install --with-deps` 的完整依赖。该第三方入口自行执行 APT update，不能继承 helper 的命令预算；在临时 runner 中为 APT HTTP/HTTPS 传输设置 15 秒超时、禁止内层重试，并用 15 分钟步骤期限约束整个安装。来源、签名和摘要校验保持原约定，安装失败不得开始测试。

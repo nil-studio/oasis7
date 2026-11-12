@@ -919,14 +919,71 @@ jobs:
         name: Build ordinary test artifacts
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          ORDINARY_DELIVERY_VERSION: ${{ fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version || 0 }}
         run: |
+          set -euo pipefail
           python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json"
-          python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
+          if [[ "$ORDINARY_DELIVERY_VERSION" == 1 ]]; then
+            python3 scripts/ci-test-artifacts.py pack --split-ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/ordinary-archives"
+          else
+            python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
+          fi
       - &ordinary-actions-upload-artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1
         with:
           name: native-tests-${{ github.sha }}
           path: ${{ runner.temp }}/native-tests.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-common-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1
+        with:
+          name: native-tests-common-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/common.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-runtime-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1
+        with:
+          name: native-tests-runtime-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/runtime.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-component-libs-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1
+        with:
+          name: native-tests-component-libs-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/component-libs.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-integrations-0-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1
+        with:
+          name: native-tests-integrations-0-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/integrations-0.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-integrations-1-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1
+        with:
+          name: native-tests-integrations-1-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/integrations-1.tar.gz
           compression-level: 0
           overwrite: true
           if-no-files-found: error
@@ -1029,6 +1086,11 @@ jobs:
       - *ordinary-install-native-libraries
       - *ordinary-build-ordinary-test-artifacts
       - *ordinary-actions-upload-artifact
+      - *ordinary-upload-common-artifact
+      - *ordinary-upload-runtime-artifact
+      - *ordinary-upload-component-libs-artifact
+      - *ordinary-upload-integrations-0-artifact
+      - *ordinary-upload-integrations-1-artifact
       - *ordinary-measure-ordinary-workspace-cache-footprint
       - *ordinary-ordinary-cache-stage
       - *ordinary-ordinary-cache-save
@@ -1900,15 +1962,39 @@ jobs:
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline'
+        if: >-
+          fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 &&
+          (fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline')
         with:
           name: native-tests-${{ github.sha }}
           path: ${{ runner.temp }}
       - name: Unpack native executables preserving modes
-        if: fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline'
+        if: >-
+          fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 &&
+          (fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline')
         run: |
           mkdir -p "$RUNNER_TEMP/native-tests"
           tar -C "$RUNNER_TEMP/native-tests" -xzf "$RUNNER_TEMP/native-tests.tar.gz"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 && matrix.partition != 'controls'
+        with:
+          name: native-tests-common-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 && matrix.partition != 'controls'
+        with:
+          name: native-tests-${{ matrix.partition }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives
+      - name: Unpack exact ordinary consumption closure
+        if: fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 && matrix.partition != 'controls'
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          ORDINARY_PARTITION: ${{ matrix.partition }}
+        run: |
+          python3 scripts/ci-test-artifacts.py unpack-ordinary --plan "$RUNNER_TEMP/selection.json" \
+            --common-archive "$RUNNER_TEMP/ordinary-archives/common.tar.gz" \
+            --partition-archive "$RUNNER_TEMP/ordinary-archives/$ORDINARY_PARTITION.tar.gz" \
+            --ordinary-partition "$ORDINARY_PARTITION" --bundle "$RUNNER_TEMP/native-tests"
       - name: Execute selected group
         shell: bash
         env:
@@ -1919,6 +2005,54 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "oasis7_required" --plan "$RUNNER_TEMP/selection.json" --ordinary-partition "$ORDINARY_PARTITION" --repo-root "$GITHUB_WORKSPACE"
+
+  pr-ordinary-delivery-preview:
+    needs: [select, oasis7-test-build]
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      needs.select.result == 'success' && needs.oasis7-test-build.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 1 &&
+      fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-tests-${{ github.sha }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Measure diagnostic transport of the unchanged ordinary producer output
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+        run: |
+          python3 scripts/ci-test-artifacts.py measure-ordinary-delivery \
+            --plan "$RUNNER_TEMP/selection.json" --input-archive "$RUNNER_TEMP/native-tests.tar.gz" \
+            --bundle "$RUNNER_TEMP/ordinary-delivery-preview"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ordinary-delivery-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ordinary-delivery-preview/*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   formal-process-tests:
     needs: [select, formal-test-build, formal-test-build-trusted]
@@ -2217,7 +2351,9 @@ jobs:
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned security smoke browser
         shell: bash
+        timeout-minutes: 11
         run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
           npm install --prefix "$RUNNER_TEMP/viewer-security-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-security-browser/node_modules/.bin/agent-browser"
           if "$browser_bin" install --with-deps; then
@@ -2376,7 +2512,10 @@ jobs:
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install pinned performance browser
+        shell: bash
+        timeout-minutes: 15
         run: |
+          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "0";\n' | sudo -n tee /etc/apt/apt.conf.d/99oasis7-browser-network-timeout >/dev/null
           npm install --prefix "$RUNNER_TEMP/viewer-performance-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-performance-browser/node_modules/.bin/agent-browser"
           "$browser_bin" install --with-deps
@@ -3226,6 +3365,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
           node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Deck browser tests require Node >= 20"); console.log("Using runner Node", process.version);'
           npm --version
           npm install --prefix "$RUNNER_TEMP/site-security-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1

@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
 import itertools
+import io
 import json
 import os
 from pathlib import Path
@@ -1198,6 +1199,331 @@ class CompleteArtifactPartitions(unittest.TestCase):
         self.assertEqual(len({(entry.get('binary'), entry.get('name'), entry.get('script')) for entry in combined}), len(combined))
 
 
+class OrdinaryArtifactDelivery(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.bundle, self.archives = self.root / 'producer', self.root / 'archives'
+        self.bundle.mkdir()
+        self.config = self.root / 'suites.json'
+        self.config.write_text('{}')
+        self.plan = CompleteArtifactPartitions().selection() | dict(
+            ordinary_artifact_delivery_version=1,
+            oasis7_required_packages=['oasis7', 'oasis7_runtime', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
+        self.manifest = CompleteArtifactPartitions().manifest(self.plan)
+        self.manifest['binaries']['viewer-component'] = dict(
+            package='oasis7_viewer_runtime', target='oasis7_viewer_runtime', target_kind=['lib'],
+            variant='required', ordinary=True, tests=['viewer_behavior'], ignored_tests=[], cwd='.')
+        self.manifest['binaries']['viewer'] = dict(test=False, ordinary=False, tests=[], ignored_tests=[])
+        self.manifest['binaries']['required-executable-helper'] = dict(test=False, ordinary=False, tests=[], ignored_tests=[])
+        for name, entry in self.manifest['binaries'].items():
+            entry.update(test=entry.get('test', True), path='bin/' + name, libraries=[])
+            entry['original_executable'] = str(self.root / 'target/debug' / name)
+            text = ('#!' + sys.executable + '\nimport sys\n'
+                    'names = ' + repr(entry['tests']) + '\n'
+                    'if "--ignored" not in sys.argv:\n'
+                    '    for name in names: print(name + ": test")\n')
+            self.file(entry['path'], text.encode(), executable=True)
+            entry['sha256'] = artifacts.digest(self.bundle / entry['path'])
+        # The two helpers intentionally have identical bytes, exercising safe
+        # archive-local hardlinks without conflating their logical identities.
+        self.file('lib/runtime.so', b'fixture dynamic library')
+        self.manifest['binaries']['runtime-tests']['libraries'] = ['lib/runtime.so']
+        self.manifest.update(schema_version=2, suites={},
+            source_sha='source', tested_sha='tested', producer_run_id='local', producer_attempt='1',
+            checkout=str(self.root), config_sha256=artifacts.digest(self.config), formal_authority_sha256=None,
+            rust_toolchain='local', runner_image=sys.platform,
+            libraries={'lib/runtime.so': artifacts.digest(self.bundle / 'lib/runtime.so')})
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch.object(artifacts, 'ROOT', self.root))
+        stack.enter_context(patch.object(artifacts, 'CONFIG', self.config))
+        # Reduce only the package universe to this fixture; retain real parent,
+        # closure, partition, archive, file and actual executable inventory checks.
+        stack.enter_context(patch.object(artifacts, 'required_packages',
+                                         return_value=self.plan['oasis7_required_packages']))
+        stack.enter_context(patch.object(artifacts, 'output', return_value='tested'))
+        stack.enter_context(patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='local',
+                                       RUST_TOOLCHAIN='local', ImageOS=sys.platform, GITHUB_RUN_ATTEMPT='2'))
+        self.write_parent()
+
+    def file(self, name, data, executable=False):
+        path = self.bundle / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        path.chmod(0o755 if executable else 0o644)
+        return dict(path=name, sha256=artifacts.digest(path))
+
+    def write_parent(self):
+        (self.bundle / 'manifest.json').write_text(json.dumps(self.manifest))
+
+    def pack(self, diagnostic=False):
+        self.write_parent()
+        return artifacts.pack_ordinary_delivery(self.bundle, self.archives, self.plan, diagnostic=diagnostic)
+
+    def unpack(self, owner, common=None, payload=None, diagnostic=False):
+        destination = self.root / ('consume-' + owner)
+        return destination, artifacts.unpack_ordinary_delivery(
+            common or self.archives / 'common.tar.gz', payload or self.archives / (owner + '.tar.gz'),
+            destination, self.plan, owner, diagnostic=diagnostic)
+
+    def mutate_archive(self, source, mutate):
+        members = []
+        with tarfile.open(source) as archive:
+            for member in archive:
+                members.append((member, archive.extractfile(member).read() if member.isfile() else None))
+        mutate(members)
+        destination = self.root / 'damaged.tar.gz'
+        with tarfile.open(destination, 'w:gz') as archive:
+            for member, raw in members:
+                if raw is not None:
+                    member.size = len(raw)
+                archive.addfile(member, io.BytesIO(raw) if raw is not None else None)
+        return destination
+
+    def test_transport_preserves_parent_union_snapshots_helpers_libraries_and_prior_attempt(self):
+        report = self.pack()
+        ordinary = self.root / 'ordinary.tar.gz'
+        artifacts.pack(self.bundle, ordinary, suite='ordinary', plan=self.plan)
+        with tarfile.open(ordinary) as archive:
+            parent = archive.extractfile('manifest.json').read()
+        self.assertEqual(report['parent_manifest_sha256'], hashlib.sha256(parent).hexdigest())
+        total = []
+        for owner in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]:
+            destination, receipt = self.unpack(owner)
+            manifest, env = artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition=owner)
+            self.assertEqual((destination / 'manifest.json').read_bytes(), parent)
+            self.assertEqual(manifest['producer_attempt'], '1')
+            self.assertTrue((destination / 'lib/runtime.so').is_file())
+            self.assertIn('PRE2_VIEWER_BINARY', env)
+            self.assertTrue((self.root / 'target/debug/required-executable-helper').is_file())
+            selected = artifacts.ordinary_artifact_entries(manifest, self.plan, owner)
+            total.extend(selected)
+            expected = {manifest['binaries'][name]['path'] for name in receipt['included_binaries']}
+            self.assertEqual({p.relative_to(destination).as_posix() for p in (destination / 'bin').iterdir()}, expected)
+        self.assertCountEqual(total, artifacts.ordinary_entries(json.loads(parent)))
+        with tarfile.open(self.archives / 'common.tar.gz') as archive:
+            self.assertTrue(any(member.islnk() for member in archive))
+        self.assertNotIn('controls', report['archives'])
+
+    def test_wrong_capability_cannot_publish_or_consume_delivery(self):
+        for value in (True, False, 0, 2, '1', None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                artifacts.fast_plan(self.plan | {'ordinary_artifact_delivery_version': value})
+        for change in ({'ordinary_artifact_partition_version': 2}, {'ordinary_execution': 'inline'},
+                       {'ordinary_partitions': ['all']}, {'scope': 'targeted'}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                artifacts.fast_plan(self.plan | change)
+        for field in ('ordinary_artifact_partition_version', 'fast_plan_version'):
+            changed = dict(self.plan)
+            changed.pop(field)
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                artifacts.fast_plan(changed)
+        self.plan.pop('ordinary_artifact_delivery_version')
+        self.write_parent()
+        with self.assertRaises(ValueError):
+            self.pack()
+        # A legacy complete package still works; diagnostics cannot authorize run.
+        legacy = self.root / 'legacy.tar.gz'
+        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
+        self.pack(diagnostic=True)
+        destination, _ = self.unpack('runtime', diagnostic=True)
+        with self.assertRaises(ValueError):
+            artifacts.load(destination, 'ordinary', plan=self.plan)
+        with self.assertRaises(ValueError):
+            artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition='runtime')
+
+    def test_receipts_reject_missing_duplicate_wrong_owner_and_mixed_parent(self):
+        self.pack()
+        for change in ({'schema_version': True}, {'schema_version': 2}, {'diagnostic_only': True},
+                       {'partition': 'integrations-0'}, {'parent_manifest_sha256': '0' * 64},
+                       {'included_binaries': []}, {'included_binaries': ['runtime-tests'] * 2}):
+            def mutate(members):
+                member, raw = members[0]
+                members[0] = member, json.dumps(json.loads(raw) | change).encode()
+            damaged = self.mutate_archive(self.archives / 'runtime.tar.gz', mutate)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.unpack('runtime', payload=damaged)
+        payload = self.root / 'earlier-runtime.tar.gz'
+        shutil.copyfile(self.archives / 'runtime.tar.gz', payload)
+        self.manifest['producer_attempt'] = '2'
+        self.pack()
+        with self.assertRaises(ValueError):
+            self.unpack('runtime', payload=payload)
+
+    def test_archive_refuses_overwrites_missing_files_and_external_links(self):
+        self.pack()
+        source = self.archives / 'runtime.tar.gz'
+        for name in ('manifest.json', artifacts.ORDINARY_DELIVERY_RECEIPTS[0],
+                     'bin/viewer', 'lib/runtime.so', '../outside', '/absolute'):
+            def append(members):
+                member = tarfile.TarInfo(name)
+                member.mode = 0o644
+                members.append((member, b'foreign payload'))
+            damaged = self.mutate_archive(source, append)
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.unpack('runtime', payload=damaged)
+        for damage in ('duplicate', 'missing', 'symlink', 'cross-hardlink', 'corrupt'):
+            def mutate(members):
+                if damage == 'duplicate':
+                    members.append(copy.deepcopy(members[-1]))
+                elif damage == 'missing':
+                    members.pop()
+                elif damage == 'corrupt':
+                    members[-1] = members[-1][0], b'corrupt bytes'
+                else:
+                    member, _ = members[-1]
+                    member.type = tarfile.SYMTYPE if damage == 'symlink' else tarfile.LNKTYPE
+                    member.linkname, member.size = 'bin/viewer', 0
+                    members[-1] = member, None
+            damaged = self.mutate_archive(source, mutate)
+            with self.subTest(damage=damage), self.assertRaises(ValueError):
+                self.unpack('runtime', payload=damaged)
+        self.assertFalse((self.root / 'outside').exists())
+
+    def test_load_keeps_real_inventory_executable_source_and_complete_parent_checks(self):
+        self.pack()
+        for damage in ('mode', 'missing', 'inventory', 'parent', 'source', 'tested', 'plan'):
+            destination, _ = self.unpack('runtime')
+            manifest = json.loads((destination / 'manifest.json').read_bytes())
+            executable = destination / manifest['binaries']['runtime-tests']['path']
+            if damage == 'mode':
+                executable.chmod(0o644)
+            elif damage == 'missing':
+                executable.unlink()
+            else:
+                if damage == 'inventory':
+                    manifest['binaries']['runtime-tests']['tests'].append('invented_case')
+                elif damage == 'parent':
+                    del manifest['binaries']['component']
+                elif damage == 'plan':
+                    manifest['execution_plan']['policy_sha'] = 'changed'
+                else:
+                    manifest[damage + '_sha'] = 'different'
+                raw = json.dumps(manifest).encode()
+                (destination / 'manifest.json').write_bytes(raw)
+                for receipt_name in artifacts.ORDINARY_DELIVERY_RECEIPTS:
+                    path = destination / receipt_name
+                    receipt = json.loads(path.read_bytes())
+                    receipt['parent_manifest_sha256'] = hashlib.sha256(raw).hexdigest()
+                    path.write_text(json.dumps(receipt))
+            with self.subTest(damage=damage), self.assertRaises(ValueError):
+                artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition='runtime')
+            shutil.rmtree(destination)
+
+    def test_diagnostic_roundtrip_keeps_original_plan_and_restores_helpers_each_time(self):
+        self.plan.pop('ordinary_artifact_delivery_version')
+        self.write_parent()
+        legacy = self.root / 'legacy.tar.gz'
+        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
+        report = artifacts.measure_ordinary_delivery(legacy, self.root / 'diagnostic', self.plan)
+        self.assertTrue(report['complete'])
+        self.assertEqual(report['behavior_tests_executed'], 0)
+        self.assertTrue(all(row['helpers_restored'] == 2 and row['inventory_verified']
+                            for row in report['partitions'].values()))
+        self.assertNotIn('ordinary_artifact_delivery_version', self.plan)
+        self.assertFalse((self.root / 'target/debug/viewer').exists())
+        self.assertEqual([path.name for path in (self.root / 'diagnostic').iterdir()], ['report.json'])
+
+    def test_diagnostic_roundtrip_keeps_aliases_and_restores_each_cargo_path_once(self):
+        self.plan.pop('ordinary_artifact_delivery_version')
+        helper = self.manifest['binaries']['required-executable-helper']
+        viewer = self.manifest['binaries']['viewer']
+        helper['original_executable'] = viewer['original_executable']
+        original = Path(viewer['original_executable'])
+        for distinct in (False, True):
+            with self.subTest(distinct_bytes=distinct):
+                if distinct:
+                    self.file(helper['path'], (self.bundle / viewer['path']).read_bytes() + b'# another build variant\n', True)
+                    helper['sha256'] = artifacts.digest(self.bundle / helper['path'])
+                self.write_parent()
+                legacy = self.root / f'legacy-alias-{distinct}.tar.gz'
+                artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
+                report = artifacts.measure_ordinary_delivery(legacy, self.root / f'diagnostic-alias-{distinct}', self.plan)
+                self.assertTrue(report['complete'])
+                self.assertEqual(len(report['archives']['common']['binaries']), 2)
+                self.assertEqual(len({row['sha256'] for row in report['archives']['common']['binaries']}),
+                                 2 if distinct else 1)
+                self.assertTrue(all(row['helpers_restored'] == 1 and row['inventory_verified']
+                                    for row in report['partitions'].values()))
+                self.assertEqual(report['behavior_tests_executed'], 0)
+                self.assertFalse(original.exists())
+
+    def test_diagnostic_roundtrip_rejects_missing_or_corrupt_final_helper_alias(self):
+        self.plan.pop('ordinary_artifact_delivery_version')
+        helper = self.manifest['binaries']['required-executable-helper']
+        viewer = self.manifest['binaries']['viewer']
+        helper['original_executable'] = viewer['original_executable']
+        self.file(helper['path'], (self.bundle / viewer['path']).read_bytes() + b'# another build variant\n', True)
+        helper['sha256'] = artifacts.digest(self.bundle / helper['path'])
+        self.write_parent()
+        legacy = self.root / 'legacy-bad-alias.tar.gz'
+        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
+        original = Path(viewer['original_executable'])
+        real_load = artifacts.load
+        for damage in ('missing', 'earlier-variant'):
+            def damaged_load(*args, **kwargs):
+                loaded = real_load(*args, **kwargs)
+                if damage == 'missing':
+                    original.unlink()
+                else:
+                    original.write_bytes((self.bundle / helper['path']).read_bytes())
+                return loaded
+            with self.subTest(damage=damage), patch.object(artifacts, 'load', side_effect=damaged_load):
+                with self.assertRaisesRegex(ValueError, 'did not restore an original helper'):
+                    artifacts.measure_ordinary_delivery(legacy, self.root / f'diagnostic-bad-alias-{damage}', self.plan)
+            original.unlink(missing_ok=True)
+
+    def test_shared_provider_and_builtin_resources_keep_full_parent_requirements(self):
+        self.manifest['binaries']['runtime-tests']['features'] = ['test_tier_full']
+        self.manifest['binaries']['component']['features'] = ['wasmtime', 'test_tier_full']
+        identity = dict(source_sha='source', tested_sha='tested', checkout_tree_sha256='tree')
+        provider = artifacts.ProviderArtifact
+        provider_files = {kind: self.file(provider.DIRECTORY + '/' + provider.MODULE + suffix,
+                                          b'explicit synthetic verifier fixture')
+                          for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
+                                                ('receipt', '.build-receipt.json'))}
+        provider_files['checker'] = self.file(provider.DIRECTORY + '/sync_builtin_wasm_identity', b'checker', True)
+        self.manifest['preview_provider'] = dict(identity, files=provider_files, libraries=[])
+        builtin = artifacts.BuiltinTestArtifact
+        modules = {module: {kind: self.file(builtin.DIRECTORY + '/' + module + suffix, b'builtin fixture')
+                            for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
+                                                  ('receipt', '.build-receipt.json'))}
+                   for module in builtin.MODULES}
+        checker = self.file(builtin.DIRECTORY + '/sync_builtin_wasm_identity', b'checker', True)
+        self.manifest['builtin_test_resources'] = dict(identity, modules=modules,
+                                                       checker=dict(files={'checker': checker}, libraries=[]))
+        original_run = subprocess.run
+        verified = []
+        def official_verifier_fixture(command, *args, **kwargs):
+            # Only the canonical Rust verifier is mocked. File identities,
+            # requirements, environments and actual native --list stay real.
+            if any(flag in command for flag in ('--verify-provider-artifact', '--verify-builtin-test-artifact')):
+                verified.append(command)
+                return subprocess.CompletedProcess(command, 0)
+            return original_run(command, *args, **kwargs)
+        with patch.object(provider, 'tree_digest', return_value='tree'), \
+             patch.object(subprocess, 'run', side_effect=official_verifier_fixture):
+            self.pack()
+            for owner in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]:
+                destination, _ = self.unpack(owner)
+                parent, env = artifacts.load(destination, 'ordinary', plan=self.plan,
+                                              ordinary_artifact_partition=owner)
+                self.assertEqual(parent['selection'], {'suite': 'ordinary'})
+                self.assertTrue(builtin.required(parent))
+                self.assertTrue(provider.VARIABLES[0] in env and 'OASIS7_BUILTIN_WASM_FETCHER' in env)
+            self.assertEqual(len(verified), 25)  # Producer and all four consumers, all five resources.
+            for entry in (provider_files['wasm'], modules['m1.memory.core']['metadata']):
+                path = self.root / 'consume-runtime' / entry['path']
+                data = path.read_bytes()
+                path.write_bytes(b'corrupt shared resource')
+                with self.subTest(path=entry['path']), self.assertRaises(ValueError):
+                    artifacts.load(self.root / 'consume-runtime', 'ordinary', plan=self.plan,
+                                   ordinary_artifact_partition='runtime')
+                path.write_bytes(data)
+
+
 class OrdinaryExclusiveExecution(unittest.TestCase):
     def manifest(self, selected=None):
         selected = selected or CompleteArtifactPartitions().selection()
@@ -1657,6 +1983,57 @@ pub fn mark(name: &str) {
             self.assertEqual(sum(record['expected_count'] for record in records),
                              sum(record['expected_count'] for record in baseline_records))
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+
+    def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
+        selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
+            ordinary_artifact_delivery_version=1, ordinary_partitions=list(artifacts.ORDINARY_ARTIFACT_PARTITIONS))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline, records = root / 'baseline', root / 'records'
+            baseline.mkdir()
+            records.mkdir()
+            with self.context(baseline), patch.object(artifacts, 'required_packages',
+                                                      return_value=['oasis7_chain_runtime']):
+                bundle, archives = root / 'bundle', root / 'archives'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                artifacts.pack_ordinary_delivery(bundle, archives, selected)
+                artifacts.execute(bundle, 'ordinary', root / 'baseline.jsonl', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_bytes())
+                helpers = [Path(entry['original_executable']) for entry in manifest['binaries'].values()
+                           if not entry['test']]
+                tools = root / 'tools'
+                tools.mkdir()
+                compiler_called = root / 'unexpected-compiler'
+                for name in ('cargo', 'rustc', 'rustup'):
+                    executable = tools / name
+                    executable.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
+                        f'Path({str(compiler_called)!r}).touch()\nraise SystemExit(91)\n')
+                    executable.chmod(0o755)
+                with patch.dict(os.environ, FIXTURE_RECORDS=str(records), PATH=str(tools) + os.pathsep + os.environ['PATH']):
+                    for owner in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]:
+                        for helper in helpers:
+                            helper.unlink(missing_ok=True)
+                        destination = root / owner
+                        artifacts.unpack_ordinary_delivery(archives / 'common.tar.gz', archives / (owner + '.tar.gz'),
+                                                           destination, selected, owner)
+                        parent, _ = artifacts.load(destination, 'ordinary', plan=selected, ordinary_artifact_partition=owner)
+                        self.assertTrue(all(helper.is_file() for helper in helpers))
+                        if artifacts.ordinary_artifact_entries(parent, selected, owner):
+                            artifacts.execute(destination, 'ordinary', root / (owner + '.jsonl'),
+                                              plan=selected, ordinary_partition=owner)
+                    fault_records = root / 'fault'
+                    fault_records.mkdir()
+                    with patch.dict(os.environ, FIXTURE_MODE='panic', FIXTURE_RECORDS=str(fault_records)), self.assertRaises(RuntimeError):
+                        artifacts.execute(root / 'runtime', 'ordinary', root / 'failure.jsonl',
+                                          plan=selected, ordinary_partition='runtime')
+                self.assertFalse(compiler_called.exists())
+                self.assertEqual(sorted(path.name for path in baseline.iterdir()), sorted(path.name for path in records.iterdir()))
+                expected = [json.loads(line) for line in (root / 'baseline.jsonl').read_text().splitlines()]
+                actual = [json.loads(line) for owner in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]
+                          if (root / (owner + '.jsonl')).exists()
+                          for line in (root / (owner + '.jsonl')).read_text().splitlines()]
+                self.assertEqual(sum(row['expected_count'] for row in actual), sum(row['expected_count'] for row in expected))
+                self.assertTrue(all(row['passed'] and row['count_ok'] and row['cleanup_result'] == 'clean' for row in actual))
 
     def test_real_panic_partial_count_timeout_cancel_and_leaked_child_fail_the_owner(self):
         for mode in ('panic', 'count', 'timeout', 'cancel', 'leak'):

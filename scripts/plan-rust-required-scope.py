@@ -1029,6 +1029,12 @@ def validate_config(config):
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary artifact partition capability')
+    if 'ordinary_artifact_delivery_version' in config:
+        if (type(config['ordinary_artifact_delivery_version']) is not int
+                or config['ordinary_artifact_delivery_version'] != 1
+                or type(config.get('ordinary_artifact_partition_version')) is not int
+                or config['ordinary_artifact_partition_version'] not in (1, 2)):
+            raise ValueError('invalid ordinary artifact delivery capability')
     if 'ordinary_partition_version' in config:
         if (type(config['ordinary_partition_version']) is not int
                 or config['ordinary_partition_version'] != ORDINARY_PARTITION_VERSION
@@ -2848,6 +2854,9 @@ def complete_ordinary_partitions(config, plan):
             # Only the complete runtime case inventory gets multiple owners.
             plan.update(ordinary_artifact_partition_version=2,
                         ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
+    if (config.get('ordinary_artifact_delivery_version') == 1
+            and plan.get('ordinary_artifact_partition_version') == 1):
+        plan['ordinary_artifact_delivery_version'] = 1
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))

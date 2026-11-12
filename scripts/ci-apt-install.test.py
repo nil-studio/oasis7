@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 PATH = Path(__file__).with_name('ci-apt-install.py')
 spec = importlib.util.spec_from_file_location('ci_apt', PATH)
@@ -18,6 +19,19 @@ spec.loader.exec_module(apt)
 TRANSIENT = ('E: Failed to fetch http://mirror.example/index Temporary failure resolving '
              "'mirror.example'\nE: Some index files failed to download. "
              'They have been ignored, or old ones used instead.\n')
+RUNNER_MIRRORS = (
+    b'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
+    b'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+    b'https://security.ubuntu.com/ubuntu/\tpriority:3\n')
+CANONICAL_FIRST_MIRRORS = (
+    b'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+    b'https://security.ubuntu.com/ubuntu/\tpriority:2\n'
+    b'http://azure.archive.ubuntu.com/ubuntu/\tpriority:3\n')
+PREFERRED_MIRRORS = (
+    b'https://mirrors.edge.kernel.org/ubuntu/\tpriority:1\n'
+    b'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
+    b'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+    b'http://azure.archive.ubuntu.com/ubuntu/\tpriority:4\n')
 
 FAKE = r'''
 import json, os, signal, subprocess, sys, time
@@ -88,6 +102,144 @@ if os.environ['MODE'] == 'backpressure':
     for _ in range(1000): i.log('x' * 8192)
 sys.exit(i.install(['pkg-config', 'libudev-dev']))
 '''
+
+
+class MirrorPreparation(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix='ci-apt-mirrors-')
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.mirrors = self.root / 'apt-mirrors.txt'
+        self.mirrors.write_bytes(RUNNER_MIRRORS)
+
+    def test_known_runner_list_prefers_independent_https_without_changing_signed_sources(self):
+        self.assertEqual(len(RUNNER_MIRRORS), 144)
+        source = self.root / 'ubuntu.sources'
+        original_source = ('Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n'
+                           'Suites: noble noble-updates noble-backports noble-security\n'
+                           'Components: main restricted universe multiverse\n'
+                           'Architectures: amd64\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n')
+        source.write_text(original_source)
+        third_party = self.root / 'vendor.list'
+        third_party.write_text('deb [signed-by=/vendor/key.gpg] https://vendor.example/packages stable main\n')
+        original_vendor = third_party.read_bytes()
+        self.mirrors.chmod(0o640)
+        original_stat = self.mirrors.stat()
+        self.assertEqual(apt.prepare_runner_mirrors(self.mirrors), 'preferred_independent_https')
+        self.assertEqual(self.mirrors.read_bytes(), PREFERRED_MIRRORS)
+        current = self.mirrors.stat()
+        self.assertEqual((current.st_mode, current.st_uid, current.st_gid),
+                         (original_stat.st_mode, original_stat.st_uid, original_stat.st_gid))
+        self.assertEqual(source.read_text(), original_source)
+        self.assertEqual(third_party.read_bytes(), original_vendor)
+        self.assertEqual(apt.prepare_runner_mirrors(self.mirrors), 'already_preferred')
+        self.assertEqual(self.mirrors.stat().st_ino, current.st_ino, 'idempotent preparation rewrote the file')
+
+    def test_known_prior_preparation_upgrades_without_losing_any_runner_source(self):
+        self.mirrors.write_bytes(CANONICAL_FIRST_MIRRORS)
+        self.assertEqual(apt.prepare_runner_mirrors(self.mirrors), 'preferred_independent_https')
+        self.assertEqual(self.mirrors.read_bytes(), PREFERRED_MIRRORS)
+        original_hosts = {line.split()[0] for line in RUNNER_MIRRORS.splitlines()}
+        preferred_hosts = {line.split()[0] for line in self.mirrors.read_bytes().splitlines()}
+        self.assertEqual(preferred_hosts - original_hosts, {b'https://mirrors.edge.kernel.org/ubuntu/'})
+        self.assertTrue(original_hosts < preferred_hosts)
+
+    def test_missing_custom_mixed_and_lookalike_sources_remain_unchanged(self):
+        for content in (b'', RUNNER_MIRRORS[:-1], RUNNER_MIRRORS + b'https://custom.example/\n',
+                        RUNNER_MIRRORS.replace(b'archive.ubuntu.com/', b'archive.ubuntu.com.attacker.example/'),
+                        RUNNER_MIRRORS.replace(b'priority:1', b'priority:9'),
+                        PREFERRED_MIRRORS.replace(b'kernel.org/', b'kernel.org.attacker.example/'),
+                        PREFERRED_MIRRORS[:-1], CANONICAL_FIRST_MIRRORS + b'https://custom.example/\n',
+                        RUNNER_MIRRORS.replace(b'https://', b'http://'), b'x' * 8192):
+            with self.subTest(content=content[:80]):
+                self.mirrors.write_bytes(content)
+                original = self.mirrors.stat()
+                self.assertEqual(apt.prepare_runner_mirrors(self.mirrors), 'unchanged_unrecognized')
+                self.assertEqual(self.mirrors.read_bytes(), content)
+                self.assertEqual(self.mirrors.stat().st_ino, original.st_ino)
+        self.mirrors.unlink()
+        self.assertEqual(apt.prepare_runner_mirrors(self.mirrors), 'missing')
+        self.assertFalse(self.mirrors.exists())
+
+    def test_symlinks_and_non_regular_files_are_rejected_without_following_them(self):
+        link = self.root / 'link'
+        link.symlink_to(self.mirrors)
+        with self.assertRaises(OSError):
+            apt.prepare_runner_mirrors(link)
+        self.assertEqual(self.mirrors.read_bytes(), RUNNER_MIRRORS)
+        fifo = self.root / 'fifo'
+        os.mkfifo(fifo)
+        with self.assertRaisesRegex(RuntimeError, 'regular file'):
+            apt.prepare_runner_mirrors(fifo)
+
+    def test_replace_failure_preserves_the_original_and_removes_only_owned_temporary_file(self):
+        sentinel = self.root / '.ci-apt-mirrors-unrelated'
+        sentinel.write_text('keep')
+        with patch.object(apt.os, 'replace', side_effect=PermissionError('fixture')):
+            with self.assertRaises(PermissionError):
+                apt.prepare_runner_mirrors(self.mirrors)
+        self.assertEqual(self.mirrors.read_bytes(), RUNNER_MIRRORS)
+        self.assertEqual(list(self.root.glob('.ci-apt-mirrors-*')), [sentinel])
+        self.assertEqual(sentinel.read_text(), 'keep')
+
+    def test_preparation_cannot_start_apt_after_consuming_the_budget_or_cancellation(self):
+        with patch.object(apt.time, 'monotonic', return_value=10.0) as clock:
+            installer = apt.Installer(1, mirror_list=self.mirrors)
+            def prepare(path):
+                clock.return_value = 11.0
+                return 'already_preferred'
+            with patch.object(apt, 'prepare_runner_mirrors', side_effect=prepare), \
+                 patch.object(apt.subprocess, 'Popen', side_effect=AssertionError('apt must not start')):
+                self.assertFalse(installer.prepare_sources())
+                self.assertEqual(installer.run('update', ['update']), (None, '', False))
+            clock.return_value = 20.0
+            installer = apt.Installer(1, mirror_list=self.mirrors)
+            installer.cancelled = signal.SIGTERM
+            with patch.object(apt, 'prepare_runner_mirrors', side_effect=AssertionError('no source write')):
+                self.assertFalse(installer.prepare_sources())
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux pidfd/subreaper contract')
+    def test_native_and_prepare_only_cli_share_preparation_and_propagate_failure(self):
+        fake = self.root / 'fake.py'
+        fake.write_text('import os\nfrom pathlib import Path\n'
+                        'assert Path(os.environ["MIRROR_GUARD"]).read_text() == os.environ["EXPECTED_MIRRORS"]\n'
+                        + FAKE)
+        code = r'''
+import importlib.util, os, sys
+from pathlib import Path
+s = importlib.util.spec_from_file_location('ci_apt_cli_fixture', sys.argv[1])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+m.MIRROR_LIST = Path(sys.argv[2])
+m.os.geteuid = lambda: 0  # CLI precondition only; no privilege or real apt/dpkg
+fake = sys.argv[3]
+installer = m.Installer
+m.Installer = lambda budget, **kw: installer(budget, command=(sys.executable, fake), **kw)
+if os.environ['PREPARE_ERROR'] == '1':
+    m.prepare_runner_mirrors = lambda path: (_ for _ in ()).throw(PermissionError('fixture'))
+arguments = ['--prepare-sources-only'] if os.environ['PREPARE_ONLY'] == '1' else ['--', 'pkg-config']
+sys.argv = ['ci-apt', '--budget-seconds', '2', *arguments]
+sys.exit(m.main())
+'''
+        events = self.root / 'events'
+        for only in (False, True):
+            for failure in (False, True):
+                with self.subTest(prepare_only=only, failure=failure):
+                    self.mirrors.write_bytes(RUNNER_MIRRORS)
+                    events.unlink(missing_ok=True)
+                    result = subprocess.run([sys.executable, '-c', code, str(PATH), str(self.mirrors), str(fake)],
+                        env=dict(os.environ, FIXTURE=str(self.root), MODE='success', TRANSIENT=TRANSIENT,
+                                 MIRROR_GUARD=str(self.mirrors), EXPECTED_MIRRORS=PREFERRED_MIRRORS.decode(),
+                                 PREPARE_ONLY=str(int(only)), PREPARE_ERROR=str(int(failure))),
+                        text=True, capture_output=True, timeout=5)
+                    self.assertEqual(result.returncode, int(failure), result.stdout + result.stderr)
+                    self.assertNotIn('Traceback', result.stderr)
+                    self.assertEqual(self.mirrors.read_bytes(), RUNNER_MIRRORS if failure else PREFERRED_MIRRORS)
+                    self.assertEqual(events.exists(), not only and not failure)
+                    if events.exists():
+                        self.assertEqual([json.loads(line)['stage'] for line in events.read_text().splitlines()],
+                                         ['update', 'install'])
+                    if only:
+                        self.assertNotIn('dependencies_ready=true', result.stdout)
 
 
 class ErrorClassification(unittest.TestCase):
