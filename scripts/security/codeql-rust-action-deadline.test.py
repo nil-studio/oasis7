@@ -324,5 +324,64 @@ process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, J
         self.assertNotEqual(result, 0); self.assertIn('bootstrap identity', stderr)
         self.assertFalse((self.root / 'marker').exists())
 
+    def production(self, remaining=30):
+        value = self.budget(remaining)
+        destination = self.runner / 'codeql-rust-production-evidence'
+        self.out.rename(destination)
+        self.out = destination
+        (self.out / 'capacity-budget.json').unlink()
+        source_sha = 'b' * 40
+        value.update(mode='rust-default-production', source_sha=source_sha,
+                     helper_terminal_and_upload_reserve_seconds=90)
+        (self.out / 'production-budget.json').write_text(json.dumps(value))
+        (self.out / 'production-prepare.json').write_text(json.dumps(dict(
+            status='PREPARED', source_sha=source_sha, source=str(self.source),
+            analysis_deadline=value['analysis_deadline'])))
+        for key in ('CAPACITY_MODE', 'CAPACITY_SOURCE', 'CAPACITY_DEADLINE', 'CAPACITY_ANALYSIS_DEADLINE'):
+            self.env.pop(key)
+        self.env.update(OASIS7_CODEQL_PRODUCTION_MODE='rust-default-production',
+                        OASIS7_CODEQL_PRODUCTION_SOURCE=source_sha,
+                        RUST_ANALYSIS_DEADLINE=str(value['analysis_deadline']),
+                        GITHUB_SHA=source_sha, GITHUB_REF='refs/heads/main', GITHUB_EVENT_NAME='workflow_dispatch')
+        return value
+
+    def test_production_runs_same_supervisor_for_current_main_source(self):
+        value = self.production()
+        result, stdout, stderr = self.finish(self.start())
+        self.assertEqual(result, 0, stderr)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\n')
+        accepted = m.admit_production(self.out, self.source, 'b' * 40, value['analysis_deadline'])
+        self.assertEqual(accepted['status'], 'PASS')
+        self.assertEqual(self.receipt()['mode'], 'rust-default-production')
+        self.assertEqual(self.receipt()['source'], 'b' * 40)
+        self.assertIn('::notice::fixture stdout', stdout)
+        self.env['STATE_fixture'] = 'state-value'
+        self.assertEqual(self.finish(self.start(post=True))[0], 0)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\npost:state-value\n')
+
+    def test_production_delayed_start_cannot_restart_absolute_budget(self):
+        value = self.production(4.5)
+        delay = self.root / 'delay.cjs'
+        delay.write_text('Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);\n')
+        result, _, _ = self.finish(self.start(options=['--require', str(delay)]))
+        self.assertNotEqual(result, 0)
+        self.assertFalse((self.root / 'marker').exists())
+        self.assertLess(self.receipt()['finished_at'], value['analysis_deadline'])
+
+    def test_production_rejects_pr_or_wrong_source_before_main(self):
+        self.production()
+        self.env['GITHUB_EVENT_NAME'] = 'pull_request'
+        result, _, _ = self.finish(self.start())
+        self.assertNotEqual(result, 0)
+        self.assertFalse((self.root / 'marker').exists())
+
+    def test_production_wrong_budget_source_is_rejected(self):
+        value = self.production()
+        value['source_sha'] = 'c' * 40
+        (self.out / 'production-budget.json').write_text(json.dumps(value))
+        result, _, _ = self.finish(self.start())
+        self.assertNotEqual(result, 0)
+        self.assertFalse((self.root / 'marker').exists())
+
 
 if __name__ == '__main__': unittest.main()

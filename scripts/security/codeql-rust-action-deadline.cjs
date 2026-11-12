@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const child = require('node:child_process');
 const MODE = 'candidate-workload-research';
+const PRODUCTION_MODE = 'rust-default-production';
 const ACTION = '33d7b85da1a04171e211befe2c739303b9a4c066';
 const MAIN_BLOB = '8b8462e5a06f394cd0504d57868488cebc7030c9';
 const POST_BLOB = 'ea0e9ead88d0835b98aac612aa89b76fed74b7a5';
@@ -31,7 +32,10 @@ function readBudget(file) {
 }
 
 function main() {
-  if (process.env.CAPACITY_MODE !== MODE) return;
+  const production = process.env.OASIS7_CODEQL_PRODUCTION_MODE === PRODUCTION_MODE;
+  if (process.env.CAPACITY_MODE !== MODE && !production) return;
+  if (production && process.env.CAPACITY_MODE === MODE) throw new Error('mixed CodeQL deadline modes');
+  const mode = production ? PRODUCTION_MODE : MODE;
   const entry = process.argv[1];
   const base = path.basename(entry || '');
   if (!entry || fs.realpathSync(entry) !== entry || !['analyze-entry.js', 'analyze-post-entry.js'].includes(base)
@@ -46,16 +50,21 @@ function main() {
   if (base === 'analyze-post-entry.js') return;
   if (process.env.OASIS7_CODEQL_ACTION_SUPERVISOR !== undefined) {
     if (String(process.ppid) !== process.env.OASIS7_CODEQL_ACTION_SUPERVISOR) throw new Error('supervisor parent differs');
-    const out = path.join(process.env.RUNNER_TEMP, 'rust-capacity-evidence');
-    const budgetFile = path.join(out, 'capacity-budget.json');
+    const out = path.join(process.env.RUNNER_TEMP, production ? 'codeql-rust-production-evidence' : 'rust-capacity-evidence');
+    const budgetFile = path.join(out, production ? 'production-budget.json' : 'capacity-budget.json');
     if (fs.realpathSync(out) !== out || fs.realpathSync(budgetFile) !== budgetFile) throw new Error('unsafe Action budget path');
     const raw = readBudget(budgetFile);
     const budget = JSON.parse(raw.toString());
     const digest = crypto.createHash('sha256').update(raw).digest('hex');
-    const cutoff = Number(process.env.CAPACITY_ANALYSIS_DEADLINE);
-    if (!Number.isFinite(cutoff) || cutoff !== budget.analysis_deadline || budget.mode !== MODE
+    const cutoff = Number(production ? process.env.RUST_ANALYSIS_DEADLINE : process.env.CAPACITY_ANALYSIS_DEADLINE);
+    if (!Number.isFinite(cutoff) || cutoff !== budget.analysis_deadline || budget.mode !== mode
         || digest !== process.env.OASIS7_CODEQL_ACTION_BUDGET_SHA256
         || Date.now() / 1000 >= cutoff - 3) throw new Error('original analysis deadline expired before actual Action main');
+    if (production && (budget.source_sha !== process.env.OASIS7_CODEQL_PRODUCTION_SOURCE
+        || budget.source_sha !== process.env.GITHUB_SHA || process.env.GITHUB_REF !== 'refs/heads/main'
+        || !['schedule', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME))) {
+      throw new Error('production Action source or event differs');
+    }
     const receipt = {pid: process.pid, supervisor_pid: process.ppid, action_sha: ACTION,
       source_root: process.cwd(), analysis_deadline: cutoff, budget_sha256: digest,
       started_at: Date.now() / 1000, node: process.execPath, node_version: process.version,

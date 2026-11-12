@@ -28,6 +28,10 @@ manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 
 
 Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。只增加 `rust-repo/default=baseline` 即可允许已授权的每日或手动验收，不能将全局 observe 改回 baseline 而停掉其他语言的 PR 扫描。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
 
+该场景使用固定 CodeQL 2.27.4 Rust bundle 和隔离的 qualifier-lines-v2 库修补，保持官方原始 37 项默认查询。官方 Action 负责初始化与提取，生产 helper 校验实际库闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
+
+首次验收同时检查独立的 `oasis7-codeql-rust-production-*` artifact：工具和修补身份、当前 checkout 的 manifest/锁观察、实际 Cargo 解析、完整查询结果及覆盖诊断。`production-run.json` 的执行成功不代表覆盖通过；coverage 的 REVIEW/UNKNOWN、WASM 或源码归属缺口继续记录。该 artifact 与只包含 `evidence.json` 的上传关联 artifact 分开，后者仍用于唯一 SARIF/platform analysis 关联。只有覆盖及运营验收闭合后才将该批次声明为已验收日频基线。
+
 ## 可信计划与权限
 
 PR workflow 从事件 base commit 取 `scripts/security/codeql-plan.py` 与 `codeql-policy.json`，在临时目录用 isolated Python 执行，避免导入候选 planner。可信 base 缺少任一文件时，workflow 保守提出四语言 bootstrap 候选，再受可信批次配置限制；不能改用候选策略缩小范围。计划同时记录 source head 与实际 analysis checkout，二者不能混用；workflow 验证实际 checkout 等于事件分析 SHA，并按该 checkout 分析和上传。
