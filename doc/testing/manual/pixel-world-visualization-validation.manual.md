@@ -165,6 +165,18 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 - 持续交互：在F4里连续平移/缩放、选择、退出跟随和事件突发至少5分钟，记录可见帧间隔、输入反馈和query。静止的按需不渲染、后台节流和Runtime完成时间分别报告。
 - 长稳：同一已稳定负载执行30分钟区域往返/选择/过滤与恢复。比较预热后相同阶段的初/末窗口，记录JS、WASM、应用缓存及可获得的GPU/进程资源；无法测量的分量标unknown，不用JS heap代替全部内存。
 
+### 浏览器缓存隔离能力前置（5772）
+
+`VIEWER_STARTUP_OUTPUT=<不存在的绝对输出目录> npm --prefix crates/oasis7_viewer run test:startup:cache-capability` 只执行三组短能力检查，不采产品启动预算：新空 owned profile A／新 Chrome 进程、同 profile A／新 Chrome 进程、独立空 profile B／新 Chrome 进程。复用现有 Playwright 依赖，可用 `OASIS7_PLAYWRIGHT_NODE_MODULES` 和 `OASIS7_PLAYWRIGHT_CHROME_PATH` 显式指定现有依赖与浏览器；不自动下载。sandbox 必须启用，工具只启动自己的 profile，不清用户或 OS 缓存。缓存资源是固定8字节合法 WASM，仅验证 HTTP/profile 方法，不能代表产品 payload 编译成本。
+
+保存服务端实际资源请求数与 CDP `fromDiskCache`／service-worker 状态；冷样本要求真实网络请求，热样本要求同 origin/profile 的磁盘复用。只读本人启动的 browser 命令行核对精确 profile 后取得 native PID，关闭后必须确认 PID 已退出；失败、清理未知或120秒总硬停均非零，不进入下一 case。保留 owned profile、原始结果与脚本 SHA，不强杀不明进程。HTTP cache 不证明 WASM compiled-code cache；OS page cache 未隔离。该能力通过后，产品核心 UI／bridge ready／Atlas 已可见上界／实际命中端点仍须单独建立，之后才能按上文20冷／30热执行。M3/16GiB 本机结果不代签正式8GiB网络 A/B、P5或P6。
+
+### 自有浏览器 RSS 能力前置（5773）
+
+`VIEWER_RESOURCE_OUTPUT=<不存在的绝对输出目录> node crates/oasis7_viewer/scripts/viewer-owned-resource-capability.mjs` 复用上述唯一 owned-profile factory、现有 Playwright 和已安装 Chrome，启用 sandbox，最多三短组且总界120秒。先以精确 profile 参数及本 context 的 CDP native browser PID 建立归属，只读取 PID/PPID/birth 身份表以求后代，再对已证根与子 PID 读取 RSS；前后身份或后代集合变化、CDP 出现外部 PID、页面归属变化均拒绝。额外自有页面负控须在 RSS 读取前拒绝，关闭后 root PID 退出未知则不能启动后继探针。保留 private profile 和脚本 SHA，不读取用户进程内存、不修改系统权限。
+
+空页与受控两张1024×1024 RGBA8纹理场景仅报告各 owned 进程 RSS 和可能重复共享页的原始和；8MiB 是请求存储字节，不是实际 GPU 分配。GPU 进程 RSS 不等于显存；当前 CDP ProcessInfo 的 PID/type/CPU 时间不能提供总显存，GPU allocated bytes、完整应用缓存及物理呈现继续 unknown。该短能力结果不是产品稳定负载或64MiB/10%预算验收。
+
 ### 局部工具证据边界
 
 性能探查先检查 canonical `viewer_terminal_shell.css`：响应成功且 MIME 为 `text/css`、浏览器实际加载有规则的 stylesheet、非活动 renderer hit-only target 的背景图为 none、背景与边框透明、阴影为 none。该前置保存为 `canonical-style-prerequisite.json`；不满足时判入口无效并停止，不将缺样式造成的额外绘制耗时写作生产预算违约，也不让后续阈值通过覆盖无效入口。前置通过只证明测量入口正确，不能代签性能预算通过。
