@@ -18,19 +18,20 @@ export function fingerprintViewerAssets(root) {
   const walk=dir=>readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(dir,e.name)):[join(dir,e.name)]);
   return Object.fromEntries(walk(root).sort().map(p=>{const b=readRegularFile(p);return [relative(root,p),{bytes:b.length,sha256:sha(b)}];}));
 }
-export async function startOwnedViewerFixtureServer({artifactRoot,source,out,expectedAssets}) {
+export async function startOwnedViewerFixtureServer({artifactRoot,source,out,expectedAssets,retentionStreaming=false}) {
   const root=resolve(artifactRoot),assets=fingerprintViewerAssets(root),fixture=createDensityFixture();
   if(expectedAssets&&!isDeepStrictEqual(expectedAssets,assets))throw Error('immutable Viewer asset manifest mismatch');
-  let bytes=0,rows=0,inputBytes=0,closed=false,caseId=null,failed=false,fatalError,readFailure=null,latestView=null,requestCount=0;
+  let bytes=0,rows=0,inputBytes=0,closed=false,caseId=null,failed=false,fatalError,readFailure=null,latestView=null,requestCount=0,latestRequest=null;
   const http=[],wire=[];
   const markFailure=error=>{if(!failed){failed=true;fatalError=error;}};
   const stopSockets=()=>{for(const socket of wss.clients)socket.terminate();};
-  const evidence=createOwnedViewerEvidence({append:line=>appendFileSync(join(out,'server.jsonl'),line),persistFailure:row=>writeFileSync(join(out,'server-evidence-failure.json'),JSON.stringify(row)),stopSource:stopSockets});
+  const evidenceLimit=retentionStreaming?512*1024*1024:64*1024*1024;
+  const evidence=createOwnedViewerEvidence({limitBytes:evidenceLimit,append:line=>appendFileSync(join(out,'server.jsonl'),line),persistFailure:row=>writeFileSync(join(out,'server-evidence-failure.json'),JSON.stringify(row)),stopSource:stopSockets});
   const audit=(kind,row)=>{
     if(failed)throw fatalError;
     const item={caseId,wall:Date.now(),...row},line=JSON.stringify({kind,...item})+'\n';
-    bytes+=Buffer.byteLength(line);if(++rows>10000){markFailure(Error('owned Viewer server row limit exceeded'));stopSockets();throw fatalError;}
-    try{evidence.write({kind,...item});}catch(error){markFailure(error);throw error;}(kind==='http'?http:wire).push(item);
+    bytes+=Buffer.byteLength(line);if(++rows>(retentionStreaming?200000:10000)){markFailure(Error('owned Viewer server row limit exceeded'));stopSockets();throw fatalError;}
+    try{evidence.write({kind,...item});}catch(error){markFailure(error);throw error;}if(kind==='http'||!retentionStreaming)(kind==='http'?http:wire).push(item);
   };
   const server=createServer((req,res)=>{
     let pathname;
@@ -76,18 +77,19 @@ export async function startOwnedViewerFixtureServer({artifactRoot,source,out,exp
         if(failed)throw fatalError;
         inputBytes+=data.length;if(inputBytes>64*1024*1024){markFailure(Error('owned Viewer WS input capacity exceeded'));stopSockets();throw fatalError;}
         const message=JSON.parse(data.toString());
-        if(message.type==='request_world_view')requestCount++;
-        audit('wire',{direction:'in',connection,type:message.type,generation:message.query?.request_generation??message.request_generation??null});
+        if(message.type==='request_world_view'){requestCount++;const q=message.query;latestRequest={generation:String(q.request_generation),bounds:q.bounds?Object.fromEntries(['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].map(k=>[k,String(q.bounds[k])])):null,searchPresent:!!q.search,searchHash:sha(String(q.search??''))};}
+        audit('wire',{direction:'in',connection,type:message.type,generation:message.query?.request_generation??message.request_generation??null,...(retentionStreaming?{message}:{} )});
         const response=fixture.reply(message,connection);if(!response)return;
         const view=response.view;
         if(view)latestView={connection,generation:view.request_generation,world:view.world_id,scope:view.scope_id,cut:view.source_cut,completeness:view.completeness,delivery:view.delivery};
-        audit('wire',{direction:'out',connection,type:response.type,generation:view?.request_generation??null,world:view?.world_id??null,scope:view?.scope_id??null,cut:view?.source_cut??null,completeness:view?.completeness??null,entities:view?.entities?.length??null});
+        audit('wire',{direction:'out',connection,type:response.type,generation:view?.request_generation??null,world:view?.world_id??null,scope:view?.scope_id??null,cut:view?.source_cut??null,completeness:view?.completeness??null,entities:view?.entities?.length??null,...(retentionStreaming?{message:response}:{})});
         socket.send(JSON.stringify(response));
       }catch(error){markFailure(error);socket.close(1008,'controlled read-only fixture rejected request');}
     });
   });
   await new Promise((yes,no)=>{server.once('error',no);server.listen(0,'127.0.0.1',yes);});
   return {source,assets,fixture,url:`http://density-qa.localhost:${server.address().port}/viewer.html?test_api=1&connect=1&hosted_bootstrap=0&locale=en`,
+    readWireSummary(expected={}){if(!retentionStreaming)throw Error('streaming retention mode not declared');if(failed)throw fatalError;return {limitBytes:evidenceLimit,recordedBytes:bytes,recordedRows:rows,requestCount,latestBounds:latestRequest?.bounds??null,latestGeneration:latestRequest?.generation??null,latestSearchPresent:latestRequest?.searchPresent??false,latestSearchMatches:latestRequest?latestRequest.searchHash===sha(String(expected.search??'')):null};},
     beginCase(id){caseId=id;},assertHealthy(){if(failed)throw fatalError;},statistics(){return {http:structuredClone(http),wire:structuredClone(wire),bytes,inputBytes,rows,requestCount,latestView:structuredClone(latestView),readFailure:structuredClone(readFailure),error:failed?String(fatalError):null};},
     verifyAssets(){if(!isDeepStrictEqual(assets,fingerprintViewerAssets(root)))throw Error('Viewer artifacts changed during probe');},
     async close(){if(closed)return;closed=true;for(const socket of wss.clients)socket.terminate();await new Promise(yes=>wss.close(yes));await new Promise((yes,no)=>server.close(error=>error?no(error):yes()));},
