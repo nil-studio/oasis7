@@ -1,10 +1,10 @@
 // Fixed-load attribution only; these guards are not frame/GPU-completion fences.
 export function validateDensityResourceStamp(row,{url,world,cut}) {
  if(row.url!==url||row.world!==world||row.cut!==cut||row.profile!=='world_view_v1')throw Error('Viewer resource scope/source mismatch');
- if(!row.identityValid)throw Error('observer acquired identity');
- if(!Number.isFinite(row.origin)||row.origin<=0||row.status!=='observed'||row.markers!==1000||row.bodies!==1000||row.inViewBodies!==1000||row.labels!==200)throw Error('Viewer resource load is not actual observed1000/200');
+ if(row.identityValid!==true)throw Error('observer acquired identity');
+ if(!Number.isFinite(row.origin)||row.origin<=0||row.visibility!=='visible'||row.status!=='observed'||row.markers!==1000||row.bodies!==1000||row.inViewBodies!==1000||row.labels!==200)throw Error('Viewer resource load is not actual observed1000/200');
  const s=row.client;
- if(!s||s.loading||s.stale||s.hasError||s.published?.entities!==1000||s.published.completeness!=='complete'||s.published.sourceCutMatches!==true||s.published.queryGenerationMatches!==true)throw Error('Viewer resource client source is not current complete1000');
+ if(!s||s.scopeBound!==true||s.loading!==false||s.stale!==false||s.hasError!==false||s.published?.entities!==1000||s.published.completeness!=='complete'||s.published.sourceCutMatches!==true||s.published.queryGenerationMatches!==true)throw Error('Viewer resource client source is not current complete1000');
  for(const value of [s.scopeSequence,s.instanceSequence,s.localGeneration,row.renderVersion])if(!Number.isSafeInteger(value)||value<=0)throw Error('Viewer resource generation missing');
  if(!row.camera||!Number.isFinite(row.camera.zoom)||row.camera.zoom<=0||!Number.isFinite(row.camera.pan_x_px)||!Number.isFinite(row.camera.pan_y_px))throw Error('Viewer resource camera missing');
  return row;
@@ -27,5 +27,5 @@ export const densityResourceStampScript = expectedCut => `async () => {
  const api=await import('/pixel-world-bridge/pixel_world_bridge.js');
  const m=api.readPixelWorldDisplayMetrics(),wasm=api.readPixelWorldLinearMemoryCapacity?.()??null,s=window.__AW_TEST__?.getState();
  if(!s)throw Error('read-only test state unavailable');
- return {url:location.href,origin:performance.timeOrigin,world:s.worldId,camera:s.pixelWorldCamera,identityValid:s.authReady===false&&s.authPlayerId===null&&s.authPublicKey===null&&s.authBoundAgentId===null&&s.authRegistrationStatus==='guest',client:window.__OASIS7_WORLD_VIEW_RETENTION__?.(${JSON.stringify(expectedCut)},false)??null,status:m.status,profile:m.display_profile,cut:m.source_cut,renderVersion:m.render_version,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inViewBodies:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels,wasm};
+ return {url:location.href,origin:performance.timeOrigin,visibility:document.visibilityState,world:s.worldId,camera:s.pixelWorldCamera,identityValid:s.authReady===false&&s.authPlayerId===null&&s.authPublicKey===null&&s.authBoundAgentId===null&&s.authRegistrationStatus==='guest',client:window.__OASIS7_WORLD_VIEW_RETENTION__?.(${JSON.stringify(expectedCut)},false)??null,status:m.status,profile:m.display_profile,cut:m.source_cut,renderVersion:m.render_version,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inViewBodies:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels,wasm};
 }`;

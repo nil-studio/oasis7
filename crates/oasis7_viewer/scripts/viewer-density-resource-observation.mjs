@@ -23,7 +23,7 @@ export async function observeOwnedViewerResources({context,url,world,cut,report}
   report.phase=matchDensityResourceStamps(report.before,report.after,expected);
   report.gpuAllocatedBytes=null;
   report.applicationCacheBytes=null;
-  report.semantics='short owned-browser process RSS, page JS heap and mounted WASM capacity components; not used WASM heap, total GPU memory or P6';
+  report.semantics='short owned-browser process RSS, page JS heap and mounted WASM capacity components; overlapping components must not be summed; not used WASM heap, total GPU memory or P6';
  },()=>bounded(session.detach()),report);
  return report;
 }
