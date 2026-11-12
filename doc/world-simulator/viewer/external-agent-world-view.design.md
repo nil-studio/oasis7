@@ -110,7 +110,7 @@ SourceAuthority 私有保存各地点上述字段的摘要，摘要集合进入 
 <a id="view-explicit-search-intent"></a>
 **后台读取期间的显式搜索。** 正常挂载且仍具备当前scope的WorldView搜索表单不因后台query loading禁用。一次真实提交立即给出本地等待／读取反馈，接受只表示本地意图，不是网络结果。controller保持single-flight，至多保留一个最新显式查询意图（包括清空搜索）；新意图替换旧意图，旧调用明确结束为未完成结果，不累积then链或并行transport。已有读取立即invalidate其发布代，晚页／错误不得覆盖新意图；等原读取结束后只派发最新槽。槽以原30秒上限有界结束，不重发原输入。
 
-显式意图等待或读取时，后台snapshot/poll/相机/pin触发只合并dirty，不invalidate或抢占显式结果；结果结束后恢复原调度。新显式搜索、导航／选择、scope/world/connection/authority失效或卸载取消旧槽，所有调用promise均结束；旧finally不得清除新槽或发布成功。搜索仍沿既有授权查询、分页／字节／实体限额，不新增grant/pin能力，不冻poll或放宽生产权限。scope失效不能借旧输入恢复读取。完整／partial／错误仍按原读模型呈现，不因本地接受升级事实。此条不将搜索完成套用选择ACK预算，也不改变P5/P6或原性能测量口径。
+显式意图等待或读取时，后台snapshot/poll/相机/pin触发只合并dirty，不invalidate或抢占显式结果；结果结束后恢复原调度。总览当前查询不改变查询，保留当前显式查询并等待同绑定结果；其他新显式搜索、导航／选择、scope/world/connection/authority失效或卸载取消旧槽，所有调用promise均结束；旧finally不得清除新槽或发布成功。搜索仍沿既有授权查询、分页／字节／实体限额，不新增grant/pin能力，不冻poll或放宽生产权限。scope失效不能借旧输入恢复读取。完整／partial／错误仍按原读模型呈现，不因本地接受升级事实。此条不将搜索完成套用选择ACK预算，也不改变P5/P6或原性能测量口径。
 
 选择/跟随绑定world/entity/selection generation。显式跟随只消费当前可信位置；手动浏览退出跟随，失效暂停，恢复数据不自动抢回camera。重叠候选列表、聚合下钻、返回总览/主目标都只改读状态；目标无位置则返回合法文本，不用fallback坐标。
 

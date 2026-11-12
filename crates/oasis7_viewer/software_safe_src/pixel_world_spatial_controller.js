@@ -255,6 +255,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     selectPresented(ref) {
       if (disposed) return null;
+      cancelQuery();
       cancelOverview(null,true);
       const next = state(), view = next.view;
       if (!view) {
