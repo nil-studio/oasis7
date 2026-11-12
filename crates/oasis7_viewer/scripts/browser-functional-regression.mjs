@@ -708,20 +708,38 @@ export function resolveBrowserBinary(candidate) {
   throw new Error(`required browser automation binary is unavailable: ${candidate}`);
 }
 
-function waitForState(driver, readExpression, predicateSource, timeoutMs = 8000) {
+async function waitForObservation(readObservation, label, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
-  return (async () => {
-    let last = null;
-    while (Date.now() < deadline) {
-      last = await driver.evalJson(`(() => { const state = ${readExpression}; return JSON.stringify({ value: (${predicateSource})(state), state }); })()`);
-      if (last.value) return last.state;
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-    }
-    throw new Error(`condition not reached: ${predicateSource}\n${JSON.stringify(last?.state ?? null).slice(0, 1200)}`);
-  })();
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await readObservation();
+    if (last.value) return last.state;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+  }
+  throw new Error(`condition not reached: ${label}\n${JSON.stringify(last?.state ?? null).slice(0, 1200)}`);
 }
 
 const STATE_READER = "window.__AW_TEST__?.getState?.() || {}";
+
+// Compare serialized state in Node so request IDs and other observed data
+// remain closure values, never browser program text.
+export function waitForState(driver, predicate, label, timeoutMs = 8000) {
+  return waitForObservation(async () => {
+    const state = await driver.evalJson(`JSON.stringify(${STATE_READER})`);
+    return { value: predicate(state), state };
+  }, label, timeoutMs);
+}
+
+// Only repository-owned, static predicates that need DOM/window access or
+// pre-serialization checks belong here. Dynamic values must use waitForState
+// instead of source interpolation.
+export function waitForBrowserState(driver, predicateSource, label, timeoutMs = 8000) {
+  return waitForObservation(
+    () => driver.evalJson(`(() => { const state = ${STATE_READER}; return JSON.stringify({ value: (${predicateSource})(state), state }); })()`),
+    label,
+    timeoutMs,
+  );
+}
 
 function createScenarioTrace() {
   const entries = [];
@@ -884,7 +902,7 @@ async function beginRollbackRequest(driver, trace = null) {
   await driver.runJson(["click", '[data-prompt-action="rollback"]']);
   trace?.push("ui-click", { selector: "[data-prompt-action=rollback]" });
   const sent = await waitOutbound(driver, before.total, { type: "prompt_control", mode: "rollback" }, 8000, trace);
-  await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "sent" && state.lastPromptFeedback?.action === "prompt_rollback"`);
+  await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "sent" && state.lastPromptFeedback?.action === "prompt_rollback", "rollback request sent");
   return sent.entry.message.command.request;
 }
 
@@ -963,7 +981,7 @@ async function ensurePromptEditorVisible(driver, trace = null) {
   if (!open) {
     await driver.runJson(["click", summarySelector]);
     trace?.push("ui-click", { selector: summarySelector });
-    await waitForState(driver, STATE_READER, `() => document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true`, 8000);
+    await waitForBrowserState(driver, `() => document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true`, "advanced prompt details open", 8000);
   }
   const visible = await driver.evalJson(`Boolean(document.querySelector(".command-surface__prompt-panel"))`);
   if (!visible) {
@@ -971,31 +989,31 @@ async function ensurePromptEditorVisible(driver, trace = null) {
     await driver.runJson(["click", "[data-prompt-visibility-toggle=\"1\"]"]);
     trace?.push("ui-click", { selector: "[data-prompt-visibility-toggle]" });
   }
-  await waitForState(driver, STATE_READER, `() => Boolean(document.querySelector('.command-surface__prompt-panel')) && document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, 8000);
+  await waitForBrowserState(driver, `() => Boolean(document.querySelector('.command-surface__prompt-panel')) && document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, "prompt apply control enabled", 8000);
 }
 
 async function openAdvancedPromptDetails(driver, trace = null) {
   const summarySelector = "#viewer-details-panel details.command-surface__advanced-details > summary";
   await driver.runJson(["scrollintoview", summarySelector]);
-  await waitForState(
+  await waitForBrowserState(
     driver,
-    STATE_READER,
     `() => {
-      const entry = document.querySelector(${JSON.stringify(summarySelector)});
+      const entry = document.querySelector("#viewer-details-panel details.command-surface__advanced-details > summary");
       if (!entry) return false;
       const rect = entry.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     }`,
+    "advanced prompt summary visible",
     8000,
   );
   const initial = await driver.evalJson(`(() => JSON.stringify({ open: document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true }))()`);
   assert(initial.open === false, "advanced prompt settings were already open before the player clicked the entry", initial);
   await driver.runJson(["click", summarySelector]);
   trace?.push("ui-click", { selector: summarySelector });
-  await waitForState(
+  await waitForBrowserState(
     driver,
-    STATE_READER,
     `() => document.querySelector("#viewer-details-panel details.command-surface__advanced-details")?.open === true`,
+    "advanced prompt details open",
     8000,
   );
   trace?.push("ui-state", { selector: summarySelector, open: true });
@@ -1006,7 +1024,7 @@ async function openPromptEditor(driver, trace = null) {
   await driver.runJson(["scrollintoview", "[data-prompt-visibility-toggle=\"1\"]"]);
   await driver.runJson(["click", "[data-prompt-visibility-toggle=\"1\"]"]);
   trace?.push("ui-click", { selector: "[data-prompt-visibility-toggle]" });
-  await waitForState(driver, STATE_READER, `() => Boolean(document.querySelector(".command-surface__prompt-panel")) && document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, 8000);
+  await waitForBrowserState(driver, `() => Boolean(document.querySelector(".command-surface__prompt-panel")) && document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, "prompt apply control enabled", 8000);
   await driver.runJson(["scrollintoview", "[data-prompt-action=\"apply\"]"]);
 }
 
@@ -1087,10 +1105,10 @@ async function bootstrapPromptScenario(driver, phaseLog, trace = null) {
       binding_epoch: 9,
     },
   }, trace);
-  await waitForState(driver, STATE_READER, `(state) => state.authRegistrationStatus === "registered" && state.authBoundAgentId === "agent-0" && state.authBindingEpoch === 9 && state.authSessionEpoch === 12`);
+  await waitForState(driver, (state) => state.authRegistrationStatus === "registered" && state.authBoundAgentId === "agent-0" && state.authBindingEpoch === 9 && state.authSessionEpoch === 12, "initial fixture auth binding registered");
   phaseLog.push("player session and Agent binding registered through authoritative recovery ack");
   await deliver(driver, { type: "snapshot", snapshot: promptSnapshot() }, trace);
-  await waitForState(driver, STATE_READER, `(state) => state.selectedKind === "agent" && state.selectedId === "agent-0"`);
+  await waitForState(driver, (state) => state.selectedKind === "agent" && state.selectedId === "agent-0", "fixture agent selected");
   phaseLog.push("canonical snapshot adopted and agent-0 selected");
   return { reconnect, identity };
 }
@@ -1132,7 +1150,7 @@ const CASES = {
     await waitOutbound(driver, 0, { type: "hello_v2" });
     await deliver(driver, helloAck, trace);
     await deliver(driver, { type: "snapshot", snapshot: emptySnapshot }, trace);
-    const observed = await waitForState(driver, STATE_READER, `(state) => state.selectedId === null && (document.body.innerText.includes("No agents in current snapshot.") || document.body.innerText.includes("当前快照里没有行动体。"))`);
+    const observed = await waitForBrowserState(driver, `(state) => state.selectedId === null && (document.body.innerText.includes("No agents in current snapshot.") || document.body.innerText.includes("当前快照里没有行动体。"))`, "empty snapshot displayed without an agent selection");
     phaseLog.push("empty canonical snapshot rendered an explicit empty state");
     const dom = await driver.evalJson(`(() => JSON.stringify({
       agentsEmpty: document.body.innerText.includes("No agents in current snapshot."),
@@ -1177,12 +1195,14 @@ const CASES = {
     snapshot.model.agent_player_bindings = { "agent-0": identity.playerId };
     snapshot.model.agent_player_public_key_bindings = { "agent-0": identity.publicKey };
     await deliver(driver, { type: "snapshot", snapshot }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.selectedKind === "agent" && state.selectedId === "agent-0" && state.authBoundAgentId === "agent-0" && state.authSessionEpoch == null && state.authBindingEpoch == null`);
+    // Check before serialization: non-finite epochs must not become null and
+    // satisfy the missing-epoch condition through JSON's number conversion.
+    await waitForBrowserState(driver, `(state) => state.selectedKind === "agent" && state.selectedId === "agent-0" && state.authBoundAgentId === "agent-0" && state.authSessionEpoch == null && state.authBindingEpoch == null`, "fixture agent selected without auth epochs");
     phaseLog.push("canonical snapshot adopted while the player-session registration ACK is still pending");
     await openAdvancedPromptDetails(driver, trace);
     await driver.runJson(["scrollintoview", "[data-prompt-visibility-toggle=\"1\"]"]);
     await driver.runJson(["click", "[data-prompt-visibility-toggle=\"1\"]"]);
-    await waitForState(driver, STATE_READER, `() => Boolean(document.querySelector('.command-surface__prompt-panel'))`, 6000);
+    await waitForBrowserState(driver, `() => Boolean(document.querySelector('.command-surface__prompt-panel'))`, "prompt panel visible", 6000);
     const readiness = await driver.evalJson(`(() => JSON.stringify({
       readinessText: document.querySelector('[data-prompt-readiness="blocked"]')?.textContent?.trim() || null,
       applyFound: Boolean(document.querySelector('[data-prompt-action="apply"]')),
@@ -1239,7 +1259,7 @@ const CASES = {
     assert(request.system_prompt_override === DRAFT_TEXT, "apply request did not carry the typed draft", request.system_prompt_override);
     await artifacts.screenshot("pending");
     await deliver(driver, { type: "prompt_control_ack", request_auth_nonce: request.auth.nonce, ack: { request_id: request.request_id, agent_id: "agent-0", operation: "apply", status: "accepted" } }, trace);
-    const acceptedState = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "accepted"`);
+    const acceptedState = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "accepted", "prompt request accepted");
     const acceptedDom = await driver.evalJson(`(() => JSON.stringify({
       stageAttr: document.querySelector(".command-surface__prompt-panel .feedback-card")?.getAttribute("data-feedback-stage") || null,
       label: document.querySelector(".command-surface__prompt-panel .feedback-card .badge")?.textContent?.trim() || null,
@@ -1259,7 +1279,7 @@ const CASES = {
     const refresh = await waitOutbound(driver, before.total, { type: "request_snapshot" });
     phaseLog.push("applied receipt triggered an authoritative snapshot refresh request");
     await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 4, override: DRAFT_TEXT, time: 8 }) }, trace);
-    const appliedState = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied" && state.selectedPromptVersion === 4`);
+    const appliedState = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "applied" && state.selectedPromptVersion === 4, "prompt result applied at version 4");
     const appliedDom = await driver.evalJson(`(() => JSON.stringify({
       stageAttr: document.querySelector(".command-surface__prompt-panel .feedback-card")?.getAttribute("data-feedback-stage") || null,
       label: document.querySelector(".command-surface__prompt-panel .feedback-card .badge")?.textContent?.trim() || null,
@@ -1290,7 +1310,7 @@ const CASES = {
     evidence.observations.requestId = request.request_id;
     await artifacts.screenshot("pending");
     await deliver(driver, { type: "prompt_control_error", request_auth_nonce: request.auth.nonce, error: { request_id: request.request_id, agent_id: "agent-0", status: "rejected", reason_code: "request_rejected", message: "fixture rejected the request", next_step: "correct_request_and_retry" } }, trace);
-    const state = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "rejected"`);
+    const state = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "rejected", "prompt request rejected");
     const dom = await driver.evalJson(`(() => JSON.stringify({
       stageAttr: document.querySelector(".command-surface__prompt-panel .feedback-card")?.getAttribute("data-feedback-stage") || null,
       label: document.querySelector(".command-surface__prompt-panel .feedback-card .badge")?.textContent?.trim() || null,
@@ -1324,7 +1344,7 @@ const CASES = {
     const request = sent.entry.message.command.request;
     await artifacts.screenshot("pending");
     await deliver(driver, { type: "prompt_control_error", request_auth_nonce: request.auth.nonce, error: { request_id: request.request_id, agent_id: "agent-0", reason_code: "version_conflict", message: "fixture detected a stale prompt version" } }, trace);
-    const state = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "stale"`);
+    const state = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "stale", "prompt request stale");
     const dom = await driver.evalJson(`(() => JSON.stringify({
       stageAttr: document.querySelector(".command-surface__prompt-panel .feedback-card")?.getAttribute("data-feedback-stage") || null,
       label: document.querySelector(".command-surface__prompt-panel .feedback-card .badge")?.textContent?.trim() || null,
@@ -1371,7 +1391,7 @@ const CASES = {
         message: "Agent control was lost; re-authenticate and refresh the current binding before retrying.",
       },
     }, trace);
-    const state = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "blocked"`, 4000);
+    const state = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "blocked", "prompt request blocked", 4000);
     const dom = await driver.evalJson(`(() => {
       const feedback = window.__AW_TEST__.getState().lastPromptFeedback;
       const response = feedback?.response || {};
@@ -1442,7 +1462,7 @@ const CASES = {
         system_prompt_override: "runtime secret prompt value",
       },
     }, trace);
-    const state = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "blocked"`, 4000);
+    const state = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "blocked", "prompt request blocked", 4000);
     const dom = await driver.evalJson(`(() => {
       const value = window.__AW_TEST__.getState();
       const feedback = value.lastPromptFeedback;
@@ -1561,7 +1581,7 @@ const CASES = {
     assert(afterLate.stage === "sent", "a late result for A settled B after B was sent", afterLate);
     assert(afterLate.requestId === requestB.request_id && afterLate.requestAuthNonce === requestB.auth.nonce, "a late result for A rewrote the sent B identity", afterLate);
     await deliver(driver, promptControlApplied(requestB), trace);
-    const applied = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    const applied = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "applied", "prompt result applied");
     evidence.observations.applied = { stage: applied.lastPromptFeedback.stage, requestId: applied.lastPromptFeedback.requestId };
     assert(applied.lastPromptFeedback.requestId === requestB.request_id, "applied result was not correlated with B", applied.lastPromptFeedback.requestId);
     const totals = await countOutbound(driver, { type: "prompt_control" });
@@ -1593,12 +1613,12 @@ const CASES = {
       request_auth_nonce: requestB.auth.nonce,
       ack: { request_id: requestB.request_id, agent_id: "agent-0", operation: "apply", status: "accepted" },
     }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "accepted"`);
+    await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "accepted", "prompt request accepted");
     await deliver(driver, promptControlApplied(requestB), trace);
-    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "applied", "prompt result applied");
     await waitOutbound(driver, 0, { type: "request_snapshot" }, 8000, trace);
     await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 4, override: DRAFT_TEXT, time: 8 }) }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 4`);
+    await waitForState(driver, (state) => state.selectedPromptVersion === 4, "prompt version 4 adopted");
     phaseLog.push("B applied result and its authoritative version 4 snapshot were adopted");
     const beforeDuplicate = await requestSnapshotCount(driver);
     await deliver(driver, promptControlApplied(requestB), trace);
@@ -1630,10 +1650,10 @@ const CASES = {
     assert(timedOutState.stage === "error" && timedOutState.requestId === requestC.request_id, "C did not settle locally as timed out", timedOutState);
     const beforeLateAck = await requestSnapshotCount(driver);
     await deliver(driver, promptControlApplied(requestC, 5, LATE_TEXT), trace);
-    const lateSettled = await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied" && state.lastPromptFeedback?.requestId === ${JSON.stringify(requestC.request_id)}`);
+    const lateSettled = await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "applied" && state.lastPromptFeedback?.requestId === requestC.request_id, "late result applied to the timed-out request");
     await waitOutbound(driver, beforeLateAck.total, { type: "request_snapshot" }, 8000, trace);
     await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 5, override: LATE_TEXT, time: 9 }) }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 5`);
+    await waitForState(driver, (state) => state.selectedPromptVersion === 5, "prompt version 5 adopted");
     const lateResult = await promptResultState(driver);
     evidence.observations.lateAuthoritative = { settled: lateSettled.lastPromptFeedback, result: lateResult };
     assert(lateResult.lastPromptFeedback?.stage === "applied" && lateResult.lastPromptFeedback?.requestId === requestC.request_id, "the authoritative result did not settle the locally timed-out request", lateResult);
@@ -1705,9 +1725,9 @@ const CASES = {
       type: "authoritative_recovery_ack",
       ack: { status: "catch_up_ready", player_id: identity.playerId, session_pubkey: identity.publicKey, agent_id: "agent-0", session_epoch: 13, binding_epoch: 10 },
     }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.authRegistrationStatus === "registered" && state.authBindingEpoch === 10 && state.authSessionEpoch === 13`);
+    await waitForState(driver, (state) => state.authRegistrationStatus === "registered" && state.authBindingEpoch === 10 && state.authSessionEpoch === 13, "reconnected fixture auth binding registered");
     await deliver(driver, { type: "snapshot", snapshot: promptSnapshot() }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.selectedKind === "agent" && state.selectedId === "agent-0"`);
+    await waitForState(driver, (state) => state.selectedKind === "agent" && state.selectedId === "agent-0", "fixture agent selected");
     phaseLog.push("new connection restored hello, session/binding epochs and canonical snapshot");
     await deliverToSocket(driver, oldSocketId, { type: "snapshot", snapshot: promptSnapshot({ version: 9, override: "old-connection-secret", time: 99 }) }, trace);
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 300));
@@ -1718,7 +1738,7 @@ const CASES = {
     // The reconnect re-render recreates the advanced details element closed;
     // re-open it through the real summary control before submitting.
     await openAdvancedPromptDetails(driver, trace);
-    await waitForState(driver, STATE_READER, `() => document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, 8000);
+    await waitForBrowserState(driver, `() => document.querySelector('[data-prompt-action="apply"]')?.disabled === false`, "prompt apply control enabled", 8000);
     await typeDraft(driver, DRAFT_TEXT, trace);
     const beforeB = await countOutbound(driver, {});
     await clickApply(driver, trace);
@@ -1735,7 +1755,7 @@ const CASES = {
     evidence.observations.afterOldSocketError = afterOldError;
     assert(afterOldError.stage === "sent" && afterOldError.requestId === requestB.request_id, "an old-connection result consumed the new request wait", afterOldError);
     await deliver(driver, promptControlApplied(requestB), trace);
-    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "applied", "prompt result applied");
     phaseLog.push("old-connection late events were ignored and the new request settled only on its own result");
     await artifacts.screenshot("final");
   },
@@ -1758,13 +1778,13 @@ const CASES = {
     evidence.observations.disposed = disposed;
     assert(disposed.rootChildren === 0 && disposed.viewerShells === 0 && disposed.detailsPanel === false, "real disposer left a rendered viewer tree mounted", disposed);
     await deliver(driver, { type: "snapshot", snapshot: promptSnapshot({ version: 4, override: "post-dispose-prompt", time: 9 }) }, trace);
-    await waitForState(driver, STATE_READER, `(state) => state.selectedPromptVersion === 4`, 6000);
+    await waitForState(driver, (state) => state.selectedPromptVersion === 4, "prompt version 4 adopted", 6000);
     const disposedAfterUpdate = await remountState(driver);
     evidence.observations.disposedAfterUpdate = disposedAfterUpdate;
     assert(disposedAfterUpdate.viewerShells === 0 && disposedAfterUpdate.detailsPanel === false, "a disposed viewer updated DOM after a transport message", disposedAfterUpdate);
     const mountCount = await mountViewer(driver, trace);
     assert(mountCount === 2, "real remount did not run through the viewer mount entry", mountCount);
-    await waitForState(driver, STATE_READER, `() => Boolean(document.querySelector(".viewer-shell"))`, 8000);
+    await waitForBrowserState(driver, `() => Boolean(document.querySelector(".viewer-shell"))`, "viewer shell remounted", 8000);
     // The pixel-world focus UI session outlives the component lifecycle, so a
     // remount restores cinematic focus. Leave it through the visible control
     // before exercising the command surface.
@@ -1778,7 +1798,7 @@ const CASES = {
       return JSON.stringify({ hash: window.location.hash, route: document.getElementById("viewer-details-panel")?.getAttribute("data-route-open") ?? null });
     })()`);
     evidence.observations.routeAfterRemount = routeState;
-    await waitForState(driver, STATE_READER, `() => getComputedStyle(document.getElementById("viewer-details-panel")).display !== "none"`, 5000);
+    await waitForBrowserState(driver, `() => getComputedStyle(document.getElementById("viewer-details-panel")).display !== "none"`, "viewer details panel visible", 5000);
     await ensurePromptEditorVisible(driver, trace);
     await ensurePromptEditorVisible(driver, trace);
     await ensurePromptEditorVisible(driver, trace);
@@ -1802,7 +1822,7 @@ const CASES = {
     const totals = await countOutbound(driver, { type: "prompt_control" });
     assert(totals.count === 1, "one visible click after remount produced duplicate requests", totals);
     await deliver(driver, promptControlApplied(request), trace);
-    await waitForState(driver, STATE_READER, `(state) => state.lastPromptFeedback?.stage === "applied"`);
+    await waitForState(driver, (state) => state.lastPromptFeedback?.stage === "applied", "prompt result applied");
     phaseLog.push("single visible click after remount sent one request and settled on its correlated result");
     await artifacts.screenshot("final");
   },
@@ -1867,7 +1887,7 @@ async function runCase({ caseId, viewportName, options, port, summary }) {
     const hash = caseId.startsWith("p01") ? "#viewer-targets-panel" : "#viewer-details-panel";
     await driver.runJson(["open", caseUrl(port, { hash })]);
     trace.push("page-open", { url: caseUrl(port, { hash }) });
-    await waitForState(driver, STATE_READER, `(state) => state.connectionStatus === "connecting" || state.connectionStatus === "connected"`, 8000);
+    await waitForState(driver, (state) => state.connectionStatus === "connecting" || state.connectionStatus === "connected", "viewer connection started", 8000);
     const pageEnv = await driver.evalJson(`(() => JSON.stringify({
       userAgent: navigator.userAgent,
       testApi: typeof window.__AW_TEST__,
@@ -2029,7 +2049,7 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
     try {
       driver.prepare();
       await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-      await waitForState(driver, STATE_READER, `() => typeof window.__BFR__ === "object"`, 8000);
+      await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
       const result = await driver.evalJson(deliveryProbeSource({ type: "snapshot", snapshot: {} }, 300));
       assert(result.ok === false, "delivery without an open fixture socket was reported as delivered", result);
       assert(/no open fixture websocket/.test(result.error || ""), "delivery timeout did not surface the socket deadline", result);
@@ -2042,7 +2062,7 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
     try {
       driver.prepare();
       await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-      await waitForState(driver, STATE_READER, `() => typeof window.__BFR__ === "object"`, 8000);
+      await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
       const result = await driver.evalJson(`JSON.stringify(window.__BFR__.deliverToSocket(9999, { type: "snapshot", snapshot: {} }))`);
       assert(result.ok === false, "an unknown fixture socket was reported as delivered", result);
       assert(/unknown fixture socket/.test(result.reason || ""), "unknown socket delivery did not surface its reason", result);
@@ -2070,7 +2090,7 @@ async function runSelfChecks({ outDir, serverUrl, options }) {
     try {
       driver.prepare();
       await driver.runJson(["open", `http://127.0.0.1:${serverUrl.port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
-      await waitForState(driver, STATE_READER, `() => typeof window.__BFR__ === "object"`, 8000);
+      await waitForBrowserState(driver, `() => typeof window.__BFR__ === "object"`, "browser regression fixture ready", 8000);
       const probe = await driver.evalJson(`(() => {
         new WebSocket(window.__BFR__.endpoint);
         return ${deliveryProbeSource({ type: "bfr-self-check-delivery" }, 3000)}.then((raw) => {
