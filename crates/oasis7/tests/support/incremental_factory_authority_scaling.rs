@@ -45,13 +45,30 @@ impl<R: ValueNodeReader> ValueNodeReader for CountValue<'_, R> {
 
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 #[test]
+fn scalar_receiver_cost_excludes_unchanged_site_text_across_value_chunks() {
+    exercise_site_scaling(&[
+        (64, 3),
+        (
+            2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+            32,
+        ),
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
 fn scalar_receiver_cost_excludes_unchanged_site_text_and_allowlist() {
+    exercise_site_scaling(&[(64, 3), (1 << 20, 32), (32 << 20, 64)]);
+}
+
+fn exercise_site_scaling(samples: &[(usize, usize)]) {
+    assert!(samples.len() >= 2);
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let mut observed = Vec::new();
         // Fixed in advance: the complete generic+typed receiver may grow by
-        // at most64 calls and64KiB across all three unchanged-state sizes.
-        for (text_bytes, list_len) in [(64, 3), (1 << 20, 32), (32 << 20, 64)] {
+        // at most64 calls and64KiB across all unchanged-state sizes.
+        for &(text_bytes, list_len) in samples {
             let path = directory.0.join(format!("point-pages-{text_bytes}"));
             let before = {
                 let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();

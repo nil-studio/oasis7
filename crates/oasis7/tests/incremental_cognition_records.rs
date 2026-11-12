@@ -1121,6 +1121,16 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
 }
 
 #[test]
+fn cognition_fixed_delta_receiver_skips_unchanged_json_across_value_chunks() {
+    let small = cognition_scaling::run(64);
+    let chunked = cognition_scaling::run(
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    );
+    small.assert_fixed(&chunked);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
 fn cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json() {
     let small = cognition_scaling::run(64);
     let medium = cognition_scaling::run(1 << 20);

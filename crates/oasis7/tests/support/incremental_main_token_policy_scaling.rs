@@ -97,9 +97,23 @@ impl<R: ValueNodeReader> ValueNodeReader for Forbid<'_, R> {
     }
 }
 #[test]
+fn point_and_receiver_skip_unchanged_symbol_across_value_chunks() {
+    exercise_unchanged_symbol(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+#[cfg(feature = "test_tier_full")]
+#[test]
 fn point_and_receiver_skip_unchanged_symbol_through_thirty_two_mib() {
+    exercise_unchanged_symbol(&[64, 1 << 20, 32 << 20]);
+}
+
+fn exercise_unchanged_symbol(sizes: &[usize]) {
+    assert!(sizes.len() >= 2);
     let mut samples = Vec::new();
-    for text in [64usize, 1 << 20, 32 << 20] {
+    for &text in sizes {
         let directory = Directory::new();
         let path = directory.0.join("scale");
         let roots = {

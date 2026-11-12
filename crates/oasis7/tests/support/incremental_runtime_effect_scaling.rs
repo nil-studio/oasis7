@@ -124,10 +124,30 @@ pub(super) fn seed(
     roots
 }
 #[test]
+fn unchanged_params_across_value_chunks_do_not_enter_sender_or_receiver() {
+    exercise_unchanged_params(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
+}
+
+const RECEIVER_POOL_BYTES: usize = 24 << 20;
+
+#[cfg(feature = "test_tier_full")]
+#[test]
 fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
+    let sizes = [64, 32 << 20, 64 << 20];
+    for &size in &sizes[1..] {
+        assert!(RECEIVER_POOL_BYTES < size);
+    }
+    exercise_unchanged_params(&sizes);
+}
+
+fn exercise_unchanged_params(sizes: &[usize]) {
     use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
+    assert!(sizes.len() >= 2);
     let mut observations = Vec::new();
-    for size in [64usize, 32 << 20, 64 << 20] {
+    for &size in sizes {
         let directory = Directory::new();
         let path = directory.0.join("source");
         let roots = {
@@ -160,10 +180,7 @@ fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
                 size,
             )
         }; // Original DTO, source pool and warm producer are destroyed here.
-        let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
-        if size != 64 {
-            assert!((24usize << 20) < size);
-        }
+        let memory = MemoryBudget::new(RECEIVER_POOL_BYTES, 4 << 20).unwrap();
         let store = IncrementalPageStore::open(
             &path,
             memory.clone(),
@@ -429,6 +446,7 @@ fn unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver() {
         );
         observations.push((sender, receiver_counts));
     }
-    assert_eq!(observations[0], observations[1]);
-    assert_eq!(observations[1], observations[2]);
+    for pair in observations.windows(2) {
+        assert_eq!(pair[0], pair[1]);
+    }
 }

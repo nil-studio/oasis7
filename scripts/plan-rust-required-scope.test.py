@@ -3925,6 +3925,163 @@ class Selection(unittest.TestCase):
 
 
 
+class ScaleRiskPlans(unittest.TestCase):
+    def test_body_boundary_keeps_topology_const_evaluation_and_macro_inputs(self):
+        source = 'struct Feedback; impl Feedback { fn value(&self) -> u8 { 1 } }\nfn leaf() -> u8 { 2 }\n'
+        expected = selector.scale_source_boundary(source)
+        self.assertEqual(expected, selector.scale_source_boundary(source.replace('{ 1 }', '{ 3 }')))
+        self.assertEqual(expected, selector.scale_source_boundary(source + '// impl Drop for Store {}\n'))
+        for changed in (source + 'fn added() {}', source.replace('impl Feedback', 'impl Other'),
+                        source.replace('{ 1 }', '{ impl Drop for Store { fn drop(&mut self) {} } 1 }'),
+                        source.replace('{ 1 }', '{ { impl Trait for Store {} } 1 }'),
+                        source.replace('{ 1 }', '{ unsafe { 1 } }'),
+                        source.replace('{ 1 }', '{ unknown_macro!(); 1 }'),
+                        source.replace('fn leaf', 'const fn leaf'),
+                        source.replace('fn leaf', '#[unknown_attribute] fn leaf'),
+                        source.replace('{ 1 }', '{ #[cfg(test)] let x = 1; x }')):
+            with self.subTest(changed=changed):
+                self.assertNotEqual(expected, selector.scale_source_boundary(changed))
+        macro = 'fn leaf() -> u8 { assert!(true); 2 }'
+        self.assertEqual(selector.scale_source_boundary(macro), selector.scale_source_boundary(macro.replace('; 2', '; 3')))
+        self.assertNotEqual(selector.scale_source_boundary(macro), selector.scale_source_boundary(macro.replace('true', 'false')))
+        constant = 'const fn leaf() -> u8 { 1 }'
+        self.assertNotEqual(selector.scale_source_boundary(constant), selector.scale_source_boundary(constant.replace('1', '2')))
+
+    def test_isolation_is_pinned_to_trusted_topology_and_both_differences(self):
+        path, anchor = 'crates/feedback/src/feedback.rs', 'crates/feedback/src/lib.rs'
+        source = b'fn leaf() -> u8 { 1 }'
+        root = b'mod feedback;'
+        contract = dict(isolated_sources={path: selector.scale_source_boundary(source.decode())},
+                        anchors={anchor: hashlib.sha256(root).hexdigest()})
+        inputs = {ref: dict(sources={path: source, anchor: root}, includes=set(), data_readers={},
+                           unresolved_data_readers=set(), unresolved_includes=set())
+                  for ref in ('base', 'head', 'target', 'merge')}
+        inputs['head']['sources'][path] = source.replace(b'1', b'2')
+        inputs['merge']['sources'][path] = source.replace(b'1', b'2')
+        comparisons = [('base', 'head'), ('target', 'merge')]
+        with patch.object(selector, 'resolve_commit', side_effect=lambda ref: ref):
+            self.assertTrue(selector.scale_isolation_proven(contract, [path], comparisons, inputs))
+            for extra_path, contents in ((path, b'fn leaf() -> u8 { bad!(); 2 }'),
+                    (anchor, b'mod feedback; mod another;'),
+                    ('crates/feedback/src/other.rs', b'macro_rules! assert { () => {} }'),
+                    ('crates/feedback/src/other.rs', b'use custom::format;')):
+                changed = copy.deepcopy(inputs)
+                changed['merge']['sources'][extra_path] = contents
+                with self.subTest(extra_path=extra_path, contents=contents):
+                    self.assertFalse(selector.scale_isolation_proven(contract, [path], comparisons, changed))
+            self.assertFalse(selector.scale_isolation_proven(contract, [path, 'new.rs'], comparisons, inputs))
+            for change in (dict(includes={path}), dict(data_readers={path: {'crates/core/tests/scale.rs'}}),
+                           dict(unresolved_data_readers={'crates/core/tests/scale.rs'}),
+                           dict(unresolved_includes={'core'})):
+                changed = copy.deepcopy(inputs)
+                changed['merge'].update(change)
+                with self.subTest(reader_change=change):
+                    self.assertFalse(selector.scale_isolation_proven(contract, [path], comparisons, changed))
+            changed = copy.deepcopy(inputs)
+            del changed['merge']['data_readers']
+            self.assertFalse(selector.scale_isolation_proven(contract, [path], comparisons, changed))
+
+    def test_generic_affected_packages_add_full_targets_without_changing_existing_fast_contracts(self):
+        target = dict(package='oasis7', target_kind='test', target_name='scale', default_features=True,
+                      features=['test_tier_full'], cases=['full_scale'])
+        config = dict(ordinary_scale_contract=dict(version=1, targets=[target], isolated_sources={}, anchors={}))
+        original = dict(groups=['baseline', 'oasis7_required'], scope='targeted', test_policy_changed=False,
+                        oasis7_required_packages=['oasis7'], reasons=[])
+        for change in ({}, {'scope': 'full'}, {'test_policy_changed': True}):
+            selected = copy.deepcopy(original) | change
+            selector.add_ordinary_scale_contract(config, selected, ['production.rs'],
+                {'production.rs': {'oasis7'}}, [('base', 'head')], {})
+            self.assertEqual(selected['ordinary_risk_targets'], [target])
+        for change in ({'oasis7_required_packages': ['oasis7_runtime']}, {'ordinary_fast_targets': [target]}):
+            selected = copy.deepcopy(original) | change
+            selector.add_ordinary_scale_contract(config, selected, [], {}, [], {})
+            self.assertNotIn('ordinary_risk_targets', selected)
+
+
+class ScaleRiskGitPlans(unittest.TestCase):
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    source = 'crates/core/src/feedback.rs'
+    anchor = 'crates/core/src/lib.rs'
+
+    def setUp(self):
+        Selection.setUp(self)
+        self.config = Selection.fast_config(self)
+        self.body = 'pub fn feedback() -> u8 { 1 }\n'
+        self.root = 'mod feedback; pub fn core() -> u8 { 1 }\n'
+        self.target = dict(package='core', target_kind='test', target_name='scale', default_features=True,
+                           features=['test_tier_full'], cases=['full_scale'])
+        self.config['ordinary_scale_contract'] = dict(version=1, targets=[self.target],
+            isolated_sources={self.source: selector.scale_source_boundary(self.body)},
+            anchors={self.anchor: hashlib.sha256(self.root.encode()).hexdigest()})
+        self.write(self.source, self.body)
+        self.write(self.anchor, self.root)
+        self.write('crates/core/tests/scale.rs',
+                   '#[cfg(feature="test_tier_full")] #[test] fn full_scale() { assert!(true); }\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+
+    def select(self, source, tested=None, config=None):
+        return selector.select(self.config if config is None else config, self.base, source,
+                               tested, profile='pr-fast', policy_ref=self.base)
+
+    def test_actual_body_change_keeps_required_packages_and_defers_only_scale_matrix(self):
+        self.write(self.source, self.body.replace('1', '2'))
+        head = self.commit()
+        selected = self.select(head)
+        old = copy.deepcopy(self.config)
+        old.pop('ordinary_scale_contract')
+        legacy = self.select(head, config=old)
+        self.assertEqual(selected['scope'], 'targeted')
+        self.assertIs(selected['test_policy_changed'], False)
+        self.assertEqual(selected['oasis7_required_packages'], ['consumer', 'core'])
+        self.assertEqual(selected['oasis7_required_packages'], legacy['oasis7_required_packages'])
+        self.assertNotIn('ordinary_risk_targets', selected)
+        self.assertTrue(any('isolated function-body' in reason for reason in selected['reasons']))
+
+    def test_topology_tests_manifests_and_mixed_core_inputs_retain_full_cases(self):
+        for path, contents in (
+                (self.source, self.body + 'pub fn helper() {}\n'),
+                (self.anchor, self.root.replace('1', '2')),
+                ('crates/core/Cargo.toml', Path('crates/core/Cargo.toml').read_text() + '\n# changed\n'),
+                ('crates/core/tests/scale.rs',
+                 '#[cfg(feature="test_tier_full")] #[test] fn full_scale() { assert!(false); }\n')):
+            with self.subTest(path=path):
+                self.git('checkout', '-q', self.base)
+                self.write(self.source, self.body.replace('1', '2'))
+                self.write(path, contents)
+                selected = self.select(self.commit())
+                self.assertEqual(selected['ordinary_risk_targets'], [self.target])
+                self.assertEqual(selected['risk_test_inventory_version'], 1)
+
+    def test_merge_difference_and_legacy_policy_cannot_borrow_candidate_exemption(self):
+        self.write(self.source, self.body.replace('1', '2'))
+        source = self.commit()
+        self.git('checkout', '-q', self.base)
+        self.write(self.anchor, self.root + 'pub fn new_core_input() {}\n')
+        self.commit()
+        self.git('merge', '--no-ff', '-qm', 'tested merge', source)
+        tested = self.git('rev-parse', 'HEAD')
+        self.assertEqual(self.select(source, tested)['ordinary_risk_targets'], [self.target])
+        old = copy.deepcopy(self.config)
+        old.pop('ordinary_scale_contract')
+        self.assertNotIn('ordinary_risk_targets', self.select(source, tested, old))
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                complete = selector.full_plan(self.config, profile, source, policy_ref=self.base)
+                self.assertNotIn('ordinary_risk_targets', complete)
+
+    def test_body_also_read_as_consumer_data_retains_full_scale_contract(self):
+        self.write('crates/consumer/src/lib.rs',
+                   'pub const INPUT: &str = include_str!("../../core/src/feedback.rs");\n')
+        self.base = self.commit()
+        self.write(self.source, self.body.replace('1', '2'))
+        selected = self.select(self.commit())
+        self.assertEqual(selected['ordinary_risk_targets'], [self.target])
+
+
 class TargetedRuntimePartitionPlans(unittest.TestCase):
     tearDown = Selection.tearDown
     git = Selection.git

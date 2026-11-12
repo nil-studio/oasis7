@@ -542,6 +542,73 @@ class FastExecutionSelection(unittest.TestCase):
                 self.assertEqual(records[0]['suite'], 'ordinary')
 
 
+class RiskTargetInventory(unittest.TestCase):
+    def target(self):
+        return dict(package='oasis7_viewer_codec', target_kind='test', target_name='scale',
+                    default_features=True, features=['test_tier_full'], cases=['full_scale'])
+
+    def selection(self):
+        return FastExecutionSelection().selection(('oasis7_viewer_codec',)) | dict(
+            risk_test_inventory_version=1, ordinary_risk_targets=[self.target()])
+
+    def test_risk_targets_are_real_builds_and_clippy_without_expanding_every_package(self):
+        selected = self.selection()
+        variants = artifacts.build_variants('ordinary', selected)
+        self.assertEqual([(name, args) for name, args, _ in variants if name.startswith('required-risk-')],
+                         [('required-risk-0', ['test', '-p', 'oasis7_viewer_codec', '--test', 'scale',
+                                               '--features', 'test_tier_full', '--no-run'])])
+        original = next(args for name, args, _ in variants if name == 'required')
+        self.assertNotIn('oasis7_viewer_codec/test_tier_full', original[original.index('--features') + 1])
+        self.assertIn(['-p', 'oasis7_viewer_codec', '--test', 'scale', '--features', 'test_tier_full'],
+                      artifacts.required_native_commands(selected))
+        expanded = selected | {'test_policy_changed': True}
+        self.assertFalse(any(name.startswith('required-risk-') for name, _, _ in
+                             artifacts.build_variants('ordinary', expanded)))
+
+    def test_risk_case_and_full_feature_cannot_disappear_or_replace_required(self):
+        selected = self.selection()
+        full = FastTargetInventory().binary(self.target(), 'required-risk-0')
+        original = dict(full, target='ordinary', variant='required', features=['test_tier_required'],
+                        requested_features=['oasis7_viewer_codec/test_tier_required'], tests=['required_case'])
+        manifest = dict(scope='ordinary', execution_plan=selected, binaries={'ordinary': original, 'risk': full})
+        artifacts.validate_ordinary_selection(manifest)
+        for change in ('missing', 'ignored', 'feature', 'required'):
+            broken = copy.deepcopy(manifest)
+            if change == 'missing':
+                del broken['binaries']['risk']
+            elif change == 'required':
+                del broken['binaries']['ordinary']
+            elif change == 'ignored':
+                broken['binaries']['risk']['ignored_tests'] = ['full_scale']
+            else:
+                broken['binaries']['risk']['features'] = ['test_tier_required']
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(broken)
+        expanded = dict(manifest, execution_plan=selected | {'test_policy_changed': True},
+                        binaries={'full-required': dict(full, variant='required',
+                            requested_features=['oasis7_viewer_codec/test_tier_required',
+                                                'oasis7_viewer_codec/test_tier_full'])})
+        artifacts.validate_ordinary_selection(expanded)
+        expanded['binaries']['full-required']['tests'] = ['unrelated_case']
+        with self.assertRaises(ValueError):
+            artifacts.validate_ordinary_selection(expanded)
+
+    def test_all_scope_cannot_silently_drop_risk_contracts(self):
+        for expanded in (False, True):
+            selected = self.selection() | {'test_policy_changed': expanded}
+            with self.subTest(expanded=expanded):
+                with self.assertRaisesRegex(ValueError, 'ordinary risk contracts'):
+                    artifacts.build_variants('all', selected)
+                with self.assertRaisesRegex(ValueError, 'ordinary risk contracts'):
+                    artifacts.validate_ordinary_selection(dict(
+                        scope='all', execution_plan=selected, binaries={}))
+                # Formal components use the same parent plan but do not own the
+                # ordinary inventory; they must still build independently.
+                self.assertTrue(artifacts.build_variants('formal-debug', selected))
+                artifacts.validate_ordinary_selection(dict(
+                    scope='formal-debug', execution_plan=selected, binaries={}))
+
+
 class FastTargetInventory(unittest.TestCase):
     def target(self, **changes):
         return dict(package='oasis7_viewer_codec', target_kind='test', target_name='pr_fast',
@@ -5272,6 +5339,52 @@ class Process(unittest.TestCase):
             subprocess.run(command, cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
         return config, sha
+
+    def test_real_scale_risk_build_executes_full_once_and_propagates_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, _ = self.prepare_target_workspace(root, '#[test] fn required_lib() {}\n')
+            manifest_path = root / 'codec/Cargo.toml'
+            manifest_path.write_text(manifest_path.read_text() + 'test_tier_full=["test_tier_required"]\n')
+            (root / 'codec/tests').mkdir()
+            (root / 'codec/tests/scale.rs').write_text('''
+#[test] fn required_chunk() { assert_eq!(2 * 65536 + 17, 131089); }
+#[cfg(feature="test_tier_full")]
+#[test] fn full_scale() {
+    std::fs::write(std::env::var("SCALE_WITNESS").unwrap(), "full executed").unwrap();
+    assert!(std::env::var_os("FAIL_SCALE").is_none(), "real full scale failure");
+}
+''')
+            subprocess.run(['git', 'add', 'codec'], cwd=root, check=True)
+            subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                            'commit', '-qm', 'scale contract'], cwd=root, check=True, stdout=subprocess.PIPE)
+            sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+            for risk, expanded, total in ((False, False, 2), (True, False, 4), (True, True, 3)):
+                selected = RiskTargetInventory().selection() if risk else FastExecutionSelection().selection()
+                selected.update(source_sha=sha, tested_sha=sha, policy_sha=sha,
+                                architecture=dict(source=sha, tested=sha), test_policy_changed=expanded)
+                name = f'{risk}-{expanded}'
+                witness = root / ('witness-' + name)
+                with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                     patch.dict(os.environ, SOURCE_SHA=sha, SCALE_WITNESS=str(witness)):
+                    bundle, consumer = root / ('build-' + name), root / ('consumer-' + name)
+                    artifacts.build(bundle, 'ordinary', plan=selected)
+                    archive = root / (name + '.tar.gz')
+                    artifacts.pack(bundle, archive, suite='ordinary', plan=selected)
+                    with tarfile.open(archive) as compressed:
+                        compressed.extractall(consumer, filter='data')
+                    results = root / (name + '.jsonl')
+                    artifacts.execute(consumer, 'ordinary', results, plan=selected)
+                    receipts = [json.loads(line) for line in results.read_text().splitlines()]
+                    self.assertTrue(all(record['passed'] and record['count_ok'] for record in receipts))
+                    self.assertEqual(sum(record['expected_count'] for record in receipts), total)
+                    self.assertEqual(witness.exists(), risk)
+                    manifest = json.loads((bundle / 'manifest.json').read_text())
+                    self.assertEqual(sum('full_scale' in binary.get('tests', [])
+                                         for binary in manifest['binaries'].values()), int(risk))
+                    if risk and not expanded:
+                        with patch.dict(os.environ, FAIL_SCALE='1'), self.assertRaises(RuntimeError):
+                            artifacts.execute(consumer, 'ordinary', root / 'failed.jsonl', plan=selected)
 
     def test_real_target_build_excludes_heavy_harnesses_and_runs_new_nonignored_cases(self):
         with tempfile.TemporaryDirectory() as temporary:

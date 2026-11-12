@@ -240,6 +240,14 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 对照可信 BASE 与候选的标签、cfg 和实际清单。planner 按完整词法 module/函数归属比较选择属性，required 改 full 时标记 `test_policy_changed`，在有实际扩展 driver 且 manifest 声明 feature 的 package 上显式启用 required、full、wasmtime/viewer 等适用组合。条件表达式按实际执行组合求值；例如 `any(test, feature = "test-support")` 在测试 harness 中为真，不能只因另一个分支的 feature 未启用就拒绝。引用的 feature 仍须由真实 owner 声明，声明不等于已经启用；普通组合无法证明时才检查实际扩展 driver。无法证明的嵌套选择门控、未映射的新 ignore 和跨 binary 同名短函数均不能让用例消失。
 
+首批增量规模用例在原 integration target 内保留两个具名入口：required 使用 `2 * VALUE_CHUNK_BYTES + 17` 的跨叶边界输入，full 保留原名及 1/32/64 MiB、Raw/Zstd、成员数量和预算矩阵。Module State 的小输入保留现有 CBOR 32 位长度类别；Runtime Effect 的 full 场景继续证明未变数据大于 24 MiB 工作池也不被读取。复用同一执行 helper 和断言，其他身份、拒绝、取消、原子失败及冷恢复用例不迁走。full 同时运行小合同与原大规模合同，至少两个不同规模参与成本比较。此批主要减少执行成本，共享 helper 仍由 required 编译，不把它报告为编译库存裁剪。
+
+可信配置通过 `ordinary_scale_contract.version=1` 登记这五个完整 target 的 full 变体和原具名最低 case；计划以 `risk_test_inventory_version=1` 与 `ordinary_risk_targets` 下发。现有逐路径 Cargo 影响涉及 owner、且原来走整包测试时，普通 PR 在 required 上追加精确 full 目标；测试或 fixture 正文变化、混合 core 输入、控制/不确定范围及生产 cfg 变化均保守加测。已有精确快速 target 合同原本不执行这五个集成目标，继续原范围。风险选择不能借 `test_policy_changed` 代替长期加测。
+
+首版只豁免已审计的 DistFS `feedback.rs`、`feedback/rate_limit.rs` 和 `feedback/tests.rs` 中可证明隔离的普通函数体变化。这些输入属于独立 FeedbackStore，五个合同使用 IncrementalPageStore 与 typed records；可信配置固定三个文件的词法结构指纹及 `lib.rs` 原始内容摘要，分别核对 source 差异与实际 tested merge 差异两端。签名、导入、模块挂载、属性、const/unsafe、嵌套 item 与宏输入均保留在指纹中，未知宏或同 crate 的相关宏覆盖/导入不能取得豁免。现有依赖图若发现这些源码还被 include 或作为数据读取，或 reader 关系未解析完整，也回到 full 补测。新增 helper、测试或相邻文件以及结构漂移均回到 full 补测，不能仅凭路径放行；也不能将当前新增 helper 的历史 PR 直接当成豁免收益样本。豁免不移除原 required 包、下游消费者或反馈行为测试。
+
+构建、Clippy、实际库存和执行共同消费精确目标；最低 case 不能 ignored 或缺失，所选目标全部非 ignored 用例均执行。补测使用独立 `required-risk-*` 产物，不能顶替原 required 库存。迁移由旧策略显式展开 full feature 时复用原产物，仍核对真实默认/full features、请求 feature 和最低库存，避免重复构建执行。此能力仅由 ordinary bundle 承担；`scope=all` 构建或校验遇到风险合同明确拒绝，formal 子 bundle 保持自身职责。定期及候选完整回归继续原 `full-extended` 驱动，执行小合同及原 full 大规模入口。
+
 新增且可证明可达的 item 不等于已有测试门控迁移。普通新增测试及其辅助模块，必须能从实际 Cargo test target 沿静态 `mod`、`#[path]` 或已解析的 `include!` 链确认执行归属，并按该 target 的普通 native Linux Cargo 组合求值，包括实际启用的默认 features。所有引用路由均须闭合到同一真实 package，条件均可判定，且至少一条完整路由及 item 条件成立；同一文件的互斥 production/test 挂载可分别为假/真，不能把两路条件相与，也不能用一条好路遮盖未知或未登记 feature。显式 `--no-default-features` 的 target 仍按其真实组合判断。不能仅凭文件名、函数名或某一层 `cfg(test)` 放行。满足条件时沿用受影响 package、必要反向消费者和风险规则，不追加无关 full features。Windows-only 条件、未知宏、无法解析的外部模块链、禁用 harness/测试 target 或未满足的 required-features 均不能取得普通新增豁免。
 
 生产平台 cfg 的新增 item 只有在真实 ordinary driver 上可达、没有覆盖或替换既有门控时，才保留路径与依赖图确定的必要包及平台范围。既有 item 门控变化、测试删除/改名与新增混合、无法证明的条件或共享控制变化继续保守扩大覆盖；这些检查不把生产 cfg 当作测试退役，也不因新增项可达而减去同一变更中其他输入要求的验证。

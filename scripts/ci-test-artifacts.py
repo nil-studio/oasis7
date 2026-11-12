@@ -329,6 +329,14 @@ def fast_plan(plan):
                       'ordinary_support_deferred'}
     support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
     private_tests = isinstance(plan, dict) and bool(UNIT_TEST_CONTRACT_FIELDS.intersection(plan))
+    risk_fields = {'risk_test_inventory_version', 'ordinary_risk_targets'}
+    if isinstance(plan, dict) and risk_fields.intersection(plan):
+        if (not risk_fields.issubset(plan) or 'fast_plan_version' not in plan
+                or type(plan['risk_test_inventory_version']) is not int or plan['risk_test_inventory_version'] != 1
+                or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                or 'oasis7_required' not in plan.get('groups', ())
+                or 'ordinary_fast_targets' in plan or plan.get('ordinary_execution') == 'inline'):
+            raise ValueError('invalid ordinary risk target capability')
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
          'ordinary_artifact_delivery_version'}.intersection(plan))
@@ -739,6 +747,25 @@ def target_native_arguments(target):
     return args
 
 
+def ordinary_risk_targets(plan=None):
+    """Preserve full scale contracts for affected package-wide ordinary runs."""
+    plan = fast_plan(plan)
+    if plan is None or 'risk_test_inventory_version' not in plan:
+        return []
+    targets = target_inventory(plan, 'risk_test_inventory_version', 'ordinary_risk_targets')
+    if any(target['target_kind'] != 'test' or target['default_features'] is not True
+           or target['features'] != ['test_tier_full'] for target in targets):
+        raise ValueError('risk targets require complete default-feature full integrations')
+    return targets
+
+
+def ordinary_risk_supplements(plan=None):
+    targets = ordinary_risk_targets(plan)
+    # Policy migration already requests both tiers on the generic producer.
+    # Its actual full feature and minimum cases are still verified below.
+    return [] if plan is not None and plan.get('test_policy_changed') else targets
+
+
 def required_native_commands(plan=None):
     targets = ordinary_fast_targets(plan)
     if targets is not None:
@@ -750,7 +777,7 @@ def required_native_commands(plan=None):
             commands.extend(list(command) for command in DISTFS_CLIPPY_COMMANDS)
         return commands
     return [required_arguments(plan)] + [target_native_arguments(target)
-                                       for target in ordinary_full_fast_targets(plan) or []]
+        for target in [*(ordinary_full_fast_targets(plan) or []), *ordinary_risk_supplements(plan)]]
 
 
 def target_build_key(target):
@@ -930,10 +957,30 @@ def validate_ordinary_selection(manifest):
         if partition not in (None, 'all'):
             raise ValueError('ordinary partition requires a compatible parent plan')
         return
+    risk = ordinary_risk_targets(plan)
+    if risk and manifest.get('scope') == 'all':
+        raise ValueError('ordinary risk contracts require an ordinary bundle')
     supplements = ordinary_full_fast_targets(plan)
     if manifest.get('scope') != 'ordinary' and not (manifest.get('scope') == 'all' and supplements is not None):
         return
     binaries = [entry for entry in manifest['binaries'].values() if entry.get('ordinary')]
+    if risk:
+        if plan.get('test_policy_changed'):
+            for target in risk:
+                matches = [binary for binary in binaries if binary.get('variant') == 'required'
+                           and (binary['package'], binary['target_kind'], binary['target']) ==
+                               (target['package'], [target['target_kind']], target['target_name'])]
+                if (len(matches) != 1 or not matches[0].get('test')
+                        or matches[0].get('default_features') is not True
+                        or 'test_tier_full' not in matches[0].get('features', ())
+                        or target['package'] + '/test_tier_full' not in matches[0].get('requested_features', ())
+                        or not set(target['cases']) <= (set(matches[0]['tests']) - set(matches[0]['ignored_tests']))):
+                    raise ValueError('expanded required artifact lacks full risk contract')
+        else:
+            validate_target_inventory(risk, [binary for binary in binaries
+                                      if binary.get('variant', '').startswith('required-risk-')])
+            # Full supplements cannot stand in for the original required build.
+            binaries = [binary for binary in binaries if not binary.get('variant', '').startswith('required-risk-')]
     targets = ordinary_partition_targets(plan, partition)
     if targets is not None:
         validate_target_inventory(targets, binaries)
@@ -1039,6 +1086,8 @@ FORMAL_COMPONENTS = ('formal-debug', 'formal-endpoint')
 def build_variants(scope, plan=None, ordinary_partition=None):
     if ordinary_partition is not None and scope != 'ordinary':
         raise ValueError('ordinary partition requires ordinary build scope')
+    if scope == 'all' and ordinary_risk_targets(plan):
+        raise ValueError('ordinary risk contracts require ordinary build scope')
     required_features = ['test_tier_required']
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
@@ -1071,7 +1120,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
                                                '--features', ','.join(viewer_features)], viewer_features))
             owners = {'snapshot-tests': 'oasis7', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
-            return selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
+            return (selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
+                    + target_build_variants(ordinary_risk_supplements(plan), 'required-risk-'))
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
         # Keep both core libraries and the exact Chain binary harness. Chain
@@ -1097,7 +1147,7 @@ def artifact_logical_name(variant, package, target, test):
     name, kinds = target['name'], tuple(target['kind'])
     if variant == 'storage-libs':
         return 'storage-lib-' + name
-    if variant.startswith('required-full-fast-'):
+    if variant.startswith(('required-full-fast-', 'required-risk-')):
         # Preserve both feature variants of a package/target in full bundles.
         return variant + '-' + artifact_logical_name('required', package, target, test)
     if variant.startswith('required-fast-'):
@@ -1291,7 +1341,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     target_specs = {}
     if scope in ('ordinary', 'all'):
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
-                                ('required-full-fast-', ordinary_full_fast_targets(plan))):
+                                ('required-full-fast-', ordinary_full_fast_targets(plan)),
+                                ('required-risk-', ordinary_risk_supplements(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
     for variant, args, features in variants:
         members = {variant: target_specs[variant]} if variant in target_specs else {}
@@ -1355,6 +1406,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 # Cargo uses the package directory as test cwd, and exposes its binaries.
                 binaries[logical] = dict(path=str(destination.relative_to(bundle)), sha256=digest(destination),
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
+                    default_features='--no-default-features' not in args,
                     test=test, package=package, target=name, target_kind=target['kind'],
                     original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
                     ordinary=(variant == 'required' or artifact_variant in target_specs) and test, variant=artifact_variant,
