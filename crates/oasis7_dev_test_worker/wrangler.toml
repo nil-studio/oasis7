@@ -1,0 +1,16 @@
+name = "oasis7-dev-test-5076"
+main = "build/entry.mjs"
+compatibility_date = "2026-10-25"
+workers_dev = true
+preview_urls = false
+
+[[durable_objects.bindings]]
+name = "DEV_TEST_ACCOUNTS"
+class_name = "DevTestAccounts"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DevTestAccounts"]
+
+[observability]
+enabled = false

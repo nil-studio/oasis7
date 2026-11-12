@@ -475,6 +475,14 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
             self.assertNotIn('support profile completed', failed.stdout)
             self.assertEqual(capture.read_text().splitlines(), expected[:1])
 
+    def test_dev_test_worker_runs_actual_platform_and_propagates_failure(self):
+        result = self.invoke(json.dumps(['oasis7_dev_test_worker']))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('contract bash crates/oasis7_dev_test_worker/scripts/verify.sh', result.stdout)
+        failed = self.invoke(json.dumps(['oasis7_dev_test_worker']), fail_protocol=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertNotIn('support profile completed', failed.stdout)
+
     def test_custody_core_retains_all_target_schema_tests(self):
         result = self.invoke(json.dumps(['oasis7_custody_core']))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -653,8 +661,9 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         # Independent old full entry is retained: profiles must cover every package
         # in it, not merely agree with their own inventory constant.
         self.assertEqual(set(module.SUPPORT_PROFILES),
-                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker'})
+                         set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker', 'oasis7_dev_test_worker'})
         self.assertIn('run bash crates/oasis7_custody_worker/scripts/verify.sh --platform', legacy)
+        self.assertIn('run_dev_test_worker_checks', legacy)
         plan = dict(groups=['workspace_support'], scope='full',
                     workspace_support_profile_version=1,
                     workspace_support_profiles=list(module.SUPPORT_PROFILES))

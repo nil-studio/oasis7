@@ -1417,6 +1417,7 @@
   ],
   "package_groups": {
     "oasis7_custody_core": ["workspace_support"],
+    "oasis7_dev_test_worker": ["workspace_support"],
     "oasis7_custody_worker": ["workspace_support"],
     "scenario_test_runner": ["oasis7_required"],
     "oasis7_world_state": ["oasis7_required", "launcher_web"],
@@ -1589,6 +1590,12 @@
     ]
   },
   "workspace_support_profile_paths": {
+    "oasis7_dev_test_worker": [
+      "crates/oasis7_custody_core/src/dev_test/**",
+      "crates/oasis7_custody_core/src/dev_test.rs",
+      "crates/oasis7_client_api/src/world_service/executor_codec.rs",
+      "crates/oasis7_client_api/src/world_service/task_projection.rs"
+    ],
     "wasm_build_suite": [
       "crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**",
       "scripts/module-release-node-attestation-flow.sh",
