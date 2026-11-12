@@ -1,7 +1,15 @@
 // Read only the existing active module. These are observations, not GPU fences.
 import {enterKeyEvents} from './viewer-owned-cdp-input.mjs';
 import {readOwnedStartupProfile} from './viewer-owned-startup-context.mjs';
-export const STARTUP_AGENT_ID='qa-agent-0499';
+import {execFile} from 'node:child_process';
+import {promisify,isDeepStrictEqual} from 'node:util';
+import {existsSync} from 'node:fs';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const execute=promisify(execFile);
+// Predeclare the final edge-row subject, reducing crowd overlap without hiding
+// any other entity, changing labels, or choosing a subject after seeing pixels.
+export const STARTUP_AGENT_ID='qa-agent-0999';
 export async function readOwnedViewerScene(page,cut) {
   return page.evaluate(async({cut,id})=>{
     const ready=document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true';
@@ -30,6 +38,28 @@ export function assertViewerScene(row,{world,cut,requireLabels=false,requireGpu=
 // getContext before then could itself acquire the context during initialization.
 export async function readOwnedViewerGpuAfterAtlas(page) {
   return page.evaluate(()=>{const gl=document.querySelector('#pixel-world-embedded-runtime-canvas').getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null;});
+}
+export function viewerAtlasStamp(row) {
+  return {origin:row.origin,world:row.world,cut:row.metrics.source_cut,renderVersion:row.metrics.render_version,camera:row.camera,canvas:row.canvas,target:row.target,scope:row.stats.scopeSequence,instance:row.stats.instanceSequence,generation:row.stats.localGeneration};
+}
+export async function captureOwnedViewerAtlas({page,expected,out,atlasPath,prefix='atlas',deadline=performance.now()+30000}) {
+  const attempts=[];
+  for(let index=0;index<30&&performance.now()<deadline;index++){
+    const before=await waitOwnedViewerScene(page,expected,{deadline});
+    const path=join(out,`${prefix}-${String(index).padStart(3,'0')}.png`);
+    if(existsSync(path))throw Error('atlas evidence path already exists');
+    await page.screenshot({path,animations:'allow',timeout:10000});
+    const after=await readOwnedViewerScene(page,expected.cut),row={path,before,after,bracketMatched:false,oracle:null};attempts.push(row);
+    try{assertViewerScene(after,expected);row.bracketMatched=isDeepStrictEqual(viewerAtlasStamp(before),viewerAtlasStamp(after));}catch{}
+    if(!row.bracketMatched)row.reason='producer/page/scope/query/geometry changed across image; unknown';
+    else{
+      const result=await execute('python3',[fileURLToPath(new URL('./viewer-startup-atlas-oracle.py',import.meta.url)),path,atlasPath,JSON.stringify(before)],{timeout:10000,maxBuffer:1024*1024});
+      row.oracle=JSON.parse(result.stdout);
+      if(row.oracle.ratio>=.9)return {attempts,matched:row,observedPageUpperMs:after.now,semantics:'atlas_image_observed_upper_not_first_physical_or_passive_present'};
+    }
+    await new Promise(yes=>setTimeout(yes,100));
+  }
+  const error=Error('bounded atlas visibility observation did not obtain matched pixels');error.atlasAttempts=attempts;throw error;
 }
 export async function waitOwnedViewerScene(page,expected,{requireLabels=false,deadline=performance.now()+30000}={}) {
   let last;
