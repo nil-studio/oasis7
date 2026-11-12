@@ -241,7 +241,7 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 
 #### 自建浏览器的长期内存分量
 
-`viewer-owned-retention-window.mjs` 将既有 5617 的选择、往返 pan、滚轮、搜索／清空及同完整查询 overview 动作放到唯一 factory-owned Playwright 页面；不再同时启动 agent-browser。先声明 `RETENTION_OWNED_SOURCE_HEAD`、`RETENTION_OWNED_ARTIFACT_ROOT`、`RETENTION_OWNED_MANIFEST`、独立 `RETENTION_OWNED_OUTPUT` 和 `RETENTION_OWNED_MS`。短校准成功并独立审阅后才注册一次 `1800000` 毫秒窗口；方法时限至多为计量时长加 180 秒准备／清理预算。页面与原生根进程身份、同 mounted WASM lease、真实当前 1000 屏内主体／200 布局标签，以及读数前后同 query/cut/范围实例与 home 相机均须配对。
+`viewer-owned-retention-window.mjs` 将既有 5617 的选择、往返 pan、滚轮、搜索／清空及同完整查询 overview 动作放到唯一 factory-owned Playwright 页面；不再同时启动 agent-browser。先声明 `RETENTION_OWNED_SOURCE_HEAD`、`RETENTION_OWNED_ARTIFACT_ROOT`、`RETENTION_OWNED_MANIFEST`、独立 `RETENTION_OWNED_OUTPUT` 和 `RETENTION_OWNED_MS`。短校准成功并独立审阅后才注册一次 `1800000` 毫秒窗口；方法时限至多为计量时长加 180 秒准备／清理预算。页面与原生根进程身份、同 mounted WASM lease、真实当前 1000 屏内主体／200 布局标签，以及读数前后同 query/cut/范围实例与 home 相机均须配对。 初始化期间的 partial 可先产生较窄视口查询，不能在任何输入前死等全域密度。准备阶段只在当前完整同 scope 查询下，以实际相机偏移计算一次原生 canvas 拖动，记录可信 pointer 事件、前后相机与 viewport 查询，随后仍硬核真实 1000／200；不改 DTO、不要求产品 home 必须为零，也不把准备阶段较少实体签为合格负载。
 
 JS/DOM、WASM 线性容量与每个 owned 进程 RSS 分列；进程采集耗时和全部原始身份集合保留。`retention-owned-observations.jsonl` 保存每次读取（包括失败），`retention-owned-rss.jsonl` 关联原阶段与未知分类，初末原始六个 home 不筛选。初末进程集合改变则 RSS 聚合增长 unknown，共同进程身份仍可单列；容量不是 used heap，不与 RSS/JS 相加或直接对照完整缓存 64MiB。current/retired inflight 仅有计数覆盖，其余闭包、transport roots、renderer/GPU 字节与完整缓存仍 unknown。现有 10% 分量判据不变，失败先落 raw 后非零。
 
