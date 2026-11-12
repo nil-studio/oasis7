@@ -66,7 +66,10 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
     const canAttach = error !== null && (typeof error === 'object' || typeof error === 'function');
     try {
       if (!canAttach) throw Error('non-object original error; diagnostic cannot be attached');
-      error.nativeInputDiagnostic = await evaluate(`JSON.stringify((()=>{const r=window.__VIEWER_PERF_INPUT__,b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(b=>b.dataset.agentId===r?.expectedId);return{input:r,active:{tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.agentId??null},expectedTargetAttached:!!b,transport:${JSON.stringify(selectionSource)}==='renderer'?'owned_cdp':'cli'}})())`);
+      const diagnosticProgram = selectionSource === 'renderer'
+        ? `JSON.stringify((()=>{const r=window.__VIEWER_PERF_INPUT__,b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(b=>b.dataset.agentId===r?.expectedId);return{input:r,active:{tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.agentId??null},expectedTargetAttached:!!b,transport:"renderer"==='renderer'?'owned_cdp':'cli'}})())`
+        : `JSON.stringify((()=>{const r=window.__VIEWER_PERF_INPUT__,b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(b=>b.dataset.agentId===r?.expectedId);return{input:r,active:{tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.agentId??null},expectedTargetAttached:!!b,transport:"core"==='renderer'?'owned_cdp':'cli'}})())`;
+      error.nativeInputDiagnostic = await evaluate(diagnosticProgram);
       if (typeof error.nativeInputDiagnostic === 'string') error.nativeInputDiagnostic = JSON.parse(error.nativeInputDiagnostic);
     } catch (diagnosticError) { if (canAttach) error.nativeInputDiagnosticError = String(diagnosticError); }
     throw error;
