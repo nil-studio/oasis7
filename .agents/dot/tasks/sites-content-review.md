@@ -1,5 +1,7 @@
 # Sites 指挥中心内容 review
 
+执行者按采用模式确定：[本地受限模式](../LOCAL_TODO.md) 由 dot 单执行者处理；下文 subagent 与主 Agent 分工适用于原运行器模式。任务的授权、证据、暂停和未知结果边界不变。
+
 由时间表指定的 subagent 执行，主 Agent 只协调和汇总。目标是让现有 oasis7 Sites 指挥中心的公开项目状态与派生交付摘要跟上已核实来源：有新增或过期内容时更新，无变化不重复写。时间、补跑与并发只由 [SCHEDULE](../SCHEDULE.md) 和 [HEARTBEAT](../HEARTBEAT.md) 定义；本文件不是执行器实现或已启用证明。
 
 复用[独立交付摘要合同](../../../doc/engineering/command-center/command-center.design.md#cc-delivery-summary-job)及[来源与摘要要求](../../../doc/engineering/command-center/command-center.prd.md#REQ-CC-002)，不建立第二套产品模型、摘要调度器或任务账本。
