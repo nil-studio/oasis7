@@ -65,15 +65,32 @@ async function installFixture() {
   await evaluate(`(()=>{const s=__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('selected_blocker')(),auth=__AW_TEST__.getState(),a=s.model.agents['agent-0'];s.model.agents['agent-1']={...a,id:'agent-1',name:'Independent observer',pos:{...a.pos,x_cm:a.pos.x_cm+2000000}};for(const id of ['agent-0','agent-1']){s.model.agent_player_bindings[id]=auth.authPlayerId;s.model.agent_player_public_key_bindings[id]=auth.authPublicKey}s.time=13;window.__CJK_INPUT__=s;__AW_TEST__.injectSnapshot(s);return true})()`);
   await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
 }
-async function captureLabel(name, phase, key, text) {
-  await evaluate(`(()=>{const s=structuredClone(__CJK_INPUT__);s.model.agents['agent-0'].name=${JSON.stringify(text)};window.__CJK_INPUT__=s;__AW_TEST__.injectSnapshot(s);return true})()`);
-  await waitFor(`(${read}).dto?.agents?.find(a=>a.id==='agent-0')?.label===${JSON.stringify(text)}`);
+const labelCases = Object.freeze({
+  hanA: Object.freeze({
+    text: "中中中中AB123，。",
+    update: `(()=>{const s=structuredClone(__CJK_INPUT__);s.model.agents['agent-0'].name="中中中中AB123，。";window.__CJK_INPUT__=s;__AW_TEST__.injectSnapshot(s);return true})()`,
+    observed: `(${read}).dto?.agents?.find(a=>a.id==='agent-0')?.label==="中中中中AB123，。"`,
+  }),
+  hanB: Object.freeze({
+    text: "国国国国AB123，。",
+    update: `(()=>{const s=structuredClone(__CJK_INPUT__);s.model.agents['agent-0'].name="国国国国AB123，。";window.__CJK_INPUT__=s;__AW_TEST__.injectSnapshot(s);return true})()`,
+    observed: `(${read}).dto?.agents?.find(a=>a.id==='agent-0')?.label==="国国国国AB123，。"`,
+  }),
+  long: Object.freeze({
+    text: "独立观察目标一号长中文名称ABC123，。",
+    update: `(()=>{const s=structuredClone(__CJK_INPUT__);s.model.agents['agent-0'].name="独立观察目标一号长中文名称ABC123，。";window.__CJK_INPUT__=s;__AW_TEST__.injectSnapshot(s);return true})()`,
+    observed: `(${read}).dto?.agents?.find(a=>a.id==='agent-0')?.label==="独立观察目标一号长中文名称ABC123，。"`,
+  }),
+});
+async function captureLabel(name, phase, key, labelCase) {
+  await evaluate(labelCase.update);
+  await waitFor(labelCase.observed);
   // Allow the production low-power renderer and Text2d layout to consume the
   // snapshot before sampling; DTO publication alone is not a GPU draw fence.
   await run(['wait', '1200']);
   const shot = resolve(out, `${name}-${phase}-${key}.png`);
   await run(['screenshot', '--full', shot]);
-  return { text, shot, state: await state() };
+  return { text: labelCase.text, shot, state: await state() };
 }
 const glyphOracle = String.raw`import sys,json,math
 from PIL import Image,ImageChops
@@ -96,10 +113,10 @@ async function waitForDrawable(name, phase) {
 }
 async function glyphPair(name, phase) {
   const drawable = await waitForDrawable(name, phase);
-  const a = await captureLabel(name, phase, 'hanA', '中中中中AB123，。');
-  const same = await captureLabel(name, phase, 'hanA-repeat', '中中中中AB123，。');
-  const b = await captureLabel(name, phase, 'hanB', '国国国国AB123，。');
-  const long = await captureLabel(name, phase, 'long', '独立观察目标一号长中文名称ABC123，。');
+  const a = await captureLabel(name, phase, 'hanA', labelCases.hanA);
+  const same = await captureLabel(name, phase, 'hanA-repeat', labelCases.hanA);
+  const b = await captureLabel(name, phase, 'hanB', labelCases.hanB);
+  const long = await captureLabel(name, phase, 'long', labelCases.long);
   const diff = x => JSON.parse(execFileSync('python3', ['-c', glyphOracle, a.shot, x.shot, JSON.stringify(a.state)], { encoding: 'utf8' }));
   const negative = diff(same), positive = diff(b);
   assert(negative.changedPixels === 0, 'same-label native ROI changed; glyph oracle is not isolated');
@@ -148,9 +165,9 @@ try {
     assert(!row.recovery.http.some(r => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method)), 'reload sent a mutating HTTP request');
     await installFixture(); row.reloadedGlyphs = await glyphPair(name, 'reloaded');
     const target = id => `button[data-agent-id="${id}"][data-renderer-target]`;
-    await run(['click', target('agent-1')]); await waitFor(`document.querySelector(${JSON.stringify(target('agent-1'))})?.dataset.selected==='true'`);
-    await evaluate(`document.querySelector(${JSON.stringify(target('agent-0'))}).focus({preventScroll:true});true`); await run(['press', 'Enter']);
-    await waitFor(`document.querySelector(${JSON.stringify(target('agent-0'))})?.dataset.selected==='true'`);
+    await run(['click', target('agent-1')]); await waitFor(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]")?.dataset.selected==='true'`);
+    await evaluate(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]").focus({preventScroll:true});true`); await run(['press', 'Enter']);
+    await waitFor(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]")?.dataset.selected==='true'`);
     await run(['wait', '300']); await evaluate(`document.querySelector('#pixel-world-embedded-runtime-canvas').focus({preventScroll:true});true`);
     const shot = resolve(out, `${name}-atlas.png`); await run(['screenshot', '--full', shot]);
     row.atlas = JSON.parse(execFileSync('python3', ['-c', atlasOracle, shot, resolve(repo, 'doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'), JSON.stringify(await state())], { encoding: 'utf8' }));
