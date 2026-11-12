@@ -106,7 +106,9 @@ def save(args, name, value, *, terminal=False):
 
 
 def action_identity(args):
-    path = Path(os.environ['CODEQL_ACTION_TEMP']).resolve() / 'config'
+    # Match the pinned Action's getTemporaryDirectory(): unset and empty
+    # CODEQL_ACTION_TEMP both use RUNNER_TEMP for the parsed config.
+    path = Path(os.environ.get('CODEQL_ACTION_TEMP') or os.environ['RUNNER_TEMP']).resolve() / 'config'
     config = read_json(path)
     capacity.verify_action_config(config, args.source, args.database)
     if os.environ.get('CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS') != 'true':

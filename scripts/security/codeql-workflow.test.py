@@ -334,21 +334,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(section), 2, 'production query outcome must reach the upload evidence')
         body = section[1].split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
         body = '\n'.join(line[10:] for line in body.splitlines())
-        for extraction, queries, rust, expected in (
-                ('success', 'success', 'true', 'success'),
-                ('success', 'failure', 'true', 'failure'),
-                ('success', 'cancelled', 'true', 'cancelled'),
-                ('success', 'skipped', 'true', 'skipped'),
-                ('failure', 'success', 'true', 'failure'),
-                ('cancelled', 'failure', 'true', 'cancelled'),
-                ('success', 'skipped', 'false', 'success')):
-            with self.subTest(extraction=extraction, queries=queries, rust=rust), tempfile.TemporaryDirectory() as folder:
+        for preparation, extraction, queries, rust, expected in (
+                ('success', 'success', 'success', 'true', 'success'),
+                ('success', 'success', 'failure', 'true', 'failure'),
+                ('success', 'success', 'cancelled', 'true', 'cancelled'),
+                ('success', 'success', 'skipped', 'true', 'skipped'),
+                ('success', 'failure', 'success', 'true', 'failure'),
+                ('success', 'cancelled', 'failure', 'true', 'cancelled'),
+                ('failure', 'skipped', 'skipped', 'true', 'failure'),
+                ('cancelled', 'skipped', 'skipped', 'true', 'cancelled'),
+                ('skipped', 'success', 'skipped', 'false', 'success')):
+            with self.subTest(preparation=preparation, extraction=extraction, queries=queries, rust=rust), tempfile.TemporaryDirectory() as folder:
                 output = Path(folder) / 'output'
-                with patch.dict(os.environ, dict(EXTRACTION=extraction, RUST_QUERIES=queries,
+                with patch.dict(os.environ, dict(RUST_PREPARATION=preparation,
+                                                EXTRACTION=extraction, RUST_QUERIES=queries,
                                                 PATCHED_RUST=rust, GITHUB_OUTPUT=str(output))):
                     exec(compile(body, 'codeql.yml:execution', 'exec'), {})
                 self.assertEqual(output.read_text(), 'status=' + expected + '\n')
         self.assertEqual(WORKFLOW.count('EXECUTION: ${{ steps.execution.outputs.status }}'), 2)
+        self.assertIn('RUST_PREPARATION: ${{ steps.rust_prepare.outcome }}', WORKFLOW)
 
     def test_patched_rust_is_main_default_only_and_keeps_upload_identity(self):
         section = WORKFLOW.split('      - id: rust_tools\n', 1)

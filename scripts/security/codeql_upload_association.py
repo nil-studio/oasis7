@@ -127,7 +127,7 @@ def step(job, name):
 
 
 def execution_status(job):
-    """Read both actual production phases; old and skipped paths stay single-stage."""
+    """Preserve preparation, extraction and query failures on production paths."""
     steps = job.get("steps", [])
     require(isinstance(steps, list) and all(isinstance(s, dict) for s in steps),
             "malformed job steps metadata")
@@ -137,7 +137,15 @@ def execution_status(job):
         return (conclusion if conclusion in ("cancelled", "timed_out") else
                 state if state in ("queued", "in_progress", "waiting", "pending") else "unknown")
     result = extraction[0].get("conclusion") or "unknown"
-    if result != "success" or job.get("name") != "CodeQL / rust-repo / default":
+    if job.get("name") != "CodeQL / rust-repo / default":
+        return result
+    preparation = [s for s in steps if s.get("name") == "Prepare the fixed Rust libraries and current source inventory"]
+    if len(preparation) > 1:
+        return "unknown"
+    prepared = preparation[0].get("conclusion") if preparation else None
+    if prepared in ("failure", "cancelled", "timed_out"):
+        return prepared
+    if result != "success":
         return result
     tools = [s for s in steps if s.get("name") == "Verify the pinned Rust default production bundle"]
     queries = [s for s in steps if s.get("name") == "Run and verify all default Rust queries with the fixed libraries"]
@@ -152,6 +160,8 @@ def execution_status(job):
         return result if all(q.get("conclusion") == "skipped" for q in queries) else "unknown"
     if tool_status != "success":
         return tool_status or "unknown"
+    if preparation and prepared != "success":
+        return prepared or "unknown"
     if len(queries) != 1:
         return "unknown"
     return queries[0].get("conclusion") or "unknown"

@@ -123,6 +123,22 @@ class HealthTests(unittest.TestCase):
             {"name": "Run and verify all default Rust queries with the fixed libraries", "conclusion": "skipped"}])
         self.assertEqual(self.rust(data)["execution_status"], "failure")
 
+    def test_production_preparation_failure_is_not_hidden_by_skipped_extraction(self):
+        for preparation in ("failure", "cancelled", "timed_out"):
+            with self.subTest(preparation=preparation):
+                data = fixture()
+                add_analysis(data)
+                job = associated_job(data, conclusion=preparation)
+                for step in job['steps']:
+                    step['conclusion'] = 'skipped'
+                job['steps'].extend([
+                    {'name': 'Verify the pinned Rust default production bundle', 'conclusion': 'success'},
+                    {'name': 'Prepare the fixed Rust libraries and current source inventory', 'conclusion': preparation},
+                    {'name': 'Run and verify all default Rust queries with the fixed libraries', 'conclusion': 'skipped'}])
+                row = self.rust(data)
+                self.assertEqual(row['execution_status'], preparation)
+                self.assertNotEqual(row['upload_status'], 'accepted')
+
     def test_complete_fixture_zero_is_explicit(self):
         data = fixture()
         add_analysis(data)
