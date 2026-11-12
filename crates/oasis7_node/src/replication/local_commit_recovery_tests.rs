@@ -296,8 +296,7 @@ fn first_original_cannot_lower_an_explicit_zero_counter_epoch() {
     fs::remove_file(config.commit_message_path(2)).unwrap();
     fs::remove_dir_all(dir.join("replication_commit_heads")).unwrap();
     let error = ReplicationRuntime::new(&config, "node-a")
-        .err()
-        .expect("explicit epoch must reject");
+        .map_or_else(|e| e, |_| panic!("explicit epoch must reject"));
     assert!(
         matches!(error,NodeError::Replication { reason } if reason.contains("original is not the exact next writer record"))
     );
@@ -372,9 +371,170 @@ fn legacy_gap_rejects_foreign_writer_history_even_with_identical_cas_payload() {
     )
     .unwrap();
     let error = ReplicationRuntime::new(&config, "node-a")
-        .err()
-        .expect("foreign writer ambiguity must reject");
+        .map_or_else(|e| e, |_| panic!("foreign writer ambiguity must reject"));
     assert!(matches!(error,NodeError::Replication { reason } if reason.contains("foreign writer")));
     assert!(!config.commit_message_path(2).exists());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+struct ReplayHook {
+    restored: Vec<u64>,
+    replayed: Vec<u64>,
+}
+impl crate::NodeExecutionHook for ReplayHook {
+    fn on_commit(
+        &mut self,
+        c: crate::NodeExecutionCommitContext,
+    ) -> Result<crate::NodeExecutionCommitResult, String> {
+        assert_eq!(c.committed_at_unix_ms, 1000 * c.height as i64);
+        self.replayed.push(c.height);
+        Ok(crate::NodeExecutionCommitResult {
+            execution_height: c.height,
+            execution_block_hash: format!("exec-block-{}", c.height),
+            execution_state_root: format!("exec-state-{}", c.height),
+        })
+    }
+    fn restore_to_height(&mut self, _: &str, h: u64) -> Result<bool, String> {
+        self.restored.push(h);
+        Ok(true)
+    }
+    fn restore_to_verified_commit(
+        &mut self,
+        c: &crate::NodeExecutionCommitContext,
+        e: &crate::NodeExecutionCommitResult,
+    ) -> Result<bool, String> {
+        assert_eq!(c.node_block_hash, format!("block-{}", c.height));
+        assert_eq!(e.execution_state_root, format!("exec-state-{}", c.height));
+        self.restored.push(c.height);
+        Ok(true)
+    }
+}
+fn same_height_fixture(recovered: bool) -> (PathBuf, ReplicationRuntime, crate::PosNodeEngine) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = temp_dir(&format!(
+        "same-height-publication-replay-{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let (private, public) = deterministic_keypair_hex(84);
+    let rc = NodeReplicationConfig::new(&dir)
+        .unwrap()
+        .with_signing_keypair(private, public)
+        .unwrap();
+    let mut replication = ReplicationRuntime::new(&rc, "node-a").unwrap();
+    for h in 1..=2 {
+        replication
+            .build_local_commit_message(
+                "node-a",
+                "world-a",
+                1000 * h as i64,
+                &decision(h),
+                Some(&format!("exec-block-{h}")),
+                Some(&format!("exec-state-{h}")),
+            )
+            .unwrap();
+    }
+    drop(replication);
+    if recovered {
+        remove_signed_tail(&dir, &rc);
+    }
+    let replication = ReplicationRuntime::new(&rc, "node-a").unwrap();
+    let pos = crate::NodePosConfig::ethereum_like(vec![crate::PosValidator {
+        validator_id: "node-a".into(),
+        stake: 100,
+    }])
+    .with_validator_signer_public_keys(BTreeMap::from([(
+        "node-a".into(),
+        deterministic_keypair_hex(84).1,
+    )]))
+    .unwrap();
+    let cfg = crate::NodeConfig::new("node-a", "world-a", crate::NodeRole::Sequencer)
+        .unwrap()
+        .with_pos_config(pos)
+        .unwrap()
+        .with_replication(rc);
+    let mut engine = crate::PosNodeEngine::new(&cfg).unwrap();
+    engine.committed_height = 2;
+    engine.network_committed_height = 2;
+    engine.next_height = 3;
+    engine.last_committed_block_hash = Some("unreplicated-reexecution".into());
+    engine.last_execution_height = 2;
+    engine.last_execution_block_hash = Some("wrong-exec".into());
+    engine.last_execution_state_root = Some("wrong-root".into());
+    (dir, replication, engine)
+}
+#[test]
+fn recovered_publication_replays_same_height_conflict_from_verified_predecessor() {
+    for execution_only in [false, true] {
+        let (dir, replication, mut engine) = same_height_fixture(true);
+        if execution_only {
+            engine.last_committed_block_hash = Some("block-2".into());
+        }
+        let mut hook = ReplayHook {
+            restored: vec![],
+            replayed: vec![],
+        };
+        crate::replication_state_reconcile::reconcile_engine_with_persisted_replication(
+            &mut engine,
+            &replication,
+            "world-a",
+            Some(&mut hook),
+        )
+        .unwrap();
+        assert_eq!(engine.last_committed_block_hash.as_deref(), Some("block-2"));
+        assert_eq!(
+            engine.last_execution_state_root.as_deref(),
+            Some("exec-state-2")
+        );
+        assert_eq!(hook.restored, vec![1]);
+        assert_eq!(hook.replayed, vec![2]);
+        drop(replication);
+        fs::remove_dir_all(dir).unwrap();
+    }
+}
+#[test]
+fn same_height_conflict_without_local_recovery_proof_remains_rejected() {
+    let (dir, replication, mut engine) = same_height_fixture(false);
+    let mut hook = ReplayHook {
+        restored: vec![],
+        replayed: vec![],
+    };
+    let error = crate::replication_state_reconcile::reconcile_engine_with_persisted_replication(
+        &mut engine,
+        &replication,
+        "world-a",
+        Some(&mut hook),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error,NodeError::Replication{reason} if reason.contains("no exact local recovery proof"))
+    );
+    assert!(hook.restored.is_empty());
+    assert!(hook.replayed.is_empty());
+    drop(replication);
+    fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn recovered_publication_rejects_unverified_predecessor_without_restoring() {
+    let (dir, replication, mut engine) = same_height_fixture(true);
+    let path = replication.config.commit_message_path(1);
+    let mut message: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    message["signature_hex"] = "00".repeat(64).into();
+    fs::write(path, serde_json::to_vec(&message).unwrap()).unwrap();
+    let mut hook = ReplayHook {
+        restored: vec![],
+        replayed: vec![],
+    };
+    assert!(
+        crate::replication_state_reconcile::reconcile_engine_with_persisted_replication(
+            &mut engine,
+            &replication,
+            "world-a",
+            Some(&mut hook)
+        )
+        .is_err()
+    );
+    assert!(hook.restored.is_empty());
+    assert!(hook.replayed.is_empty());
+    drop(replication);
     fs::remove_dir_all(dir).unwrap();
 }

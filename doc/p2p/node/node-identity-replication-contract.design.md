@@ -120,6 +120,8 @@ single-writer/order/duplicate/stale持久guard；hash/write失败不污染。
 
 旧格式只有 CAS 和已推进高水位时，仅允许唯一可证的尾部缺口恢复：当前 signer、node、world、epoch/sequence 必须一致，保留历史必须闭合于同一当前 local writer/epoch，所有其他保留 CAS 提交须匹配其已验证签名消息，最新本地序号与缺口严格相邻；原 payload 的高度、action root 和执行绑定须合法。原 record 时间来自原 payload 的 committed_at_ms，不使用 CAS 文件重新写入时间。不能唯一证明原件、旧高度 amendment 未完成、错 signer、损坏或冲突时保留原材料并拒绝；不能降高水位、替换世界或放宽同步保护。此条只承接本地签名复制消息的恢复，不证明 Context 业务完成或完整 DCS 恢复链。
 
+若旧程序在缺失签名消息期间曾重新执行同一高度，补回原消息后还须核对共识 block hash 与 execution block hash/root 的完整绑定，不能只看高度相等。只有同原本地 publication 的实际恢复路径可留下跨重启的恢复标记，绑定完整签名原件、当前 signer/node/world、相同最新 writer 高度及序号；正常首次发布不产生此许可。该标记与现存 canonical 消息精确相等且非 guarded 执行时，才可从另行验签和绑定核验通过的 H-1 恢复，再严格按原 H 的 expected execution hash/root 重放一次。执行 hook 必须核对前一记录及恢复后的执行绑定；缺前驱、错快照、错 root、标记不符或历史不可用均拒绝，不自动选择任意同高 fork。标记随后续正常提交覆盖，不新增业务请求或权限。
+
 ### des-nir-recovery
 
 corrupt/unreadable PoS authoritative state blocks start；保留诊断纠根因。

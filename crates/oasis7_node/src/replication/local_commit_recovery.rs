@@ -10,6 +10,8 @@ fn invalid(reason: &str) -> NodeError {
 #[serde(deny_unknown_fields)]
 struct LocalOriginal {
     complete: bool,
+    #[serde(default)]
+    recovered: bool,
     message: GossipReplicationMessage,
 }
 impl ReplicationRuntime {
@@ -26,7 +28,7 @@ impl ReplicationRuntime {
             let original: LocalOriginal = serde_json::from_slice(&bytes)
                 .map_err(|e| invalid(&format!("decode original: {e}")))?;
             if !original.complete {
-                self.restore_local_commit_original(node_id, &original.message)?;
+                self.restore_local_commit_original(node_id, &original.message, true)?;
             }
         }
         self.recover_legacy_local_commit(node_id)
@@ -42,9 +44,42 @@ impl ReplicationRuntime {
             self.local_commit_original_path(node_id).as_path(),
             &LocalOriginal {
                 complete: false,
+                recovered: false,
                 message: message.clone(),
             },
         )
+    }
+
+    pub(crate) fn validate_local_recovery_commit(
+        &self,
+        node_id: &str,
+        message: &GossipReplicationMessage,
+    ) -> Result<(), NodeError> {
+        self.validate_local_original(node_id, message).map(|_| ())
+    }
+
+    pub(crate) fn recovered_publication_matches(
+        &self,
+        node_id: &str,
+        message: &GossipReplicationMessage,
+    ) -> Result<bool, NodeError> {
+        let path = self.local_commit_original_path(node_id);
+        if !path.exists() {
+            return Ok(false);
+        }
+        let original: LocalOriginal =
+            serde_json::from_slice(&fs::read(path).map_err(|e| invalid(&e.to_string()))?)
+                .map_err(|e| invalid(&e.to_string()))?;
+        if !original.complete || !original.recovered || original.message != *message {
+            return Ok(false);
+        }
+        let payload = self.validate_local_original(node_id, message)?;
+        Ok(self.writer_state.last_replicated_height == payload.height
+            && self.writer_state.writer_epoch == message.record.writer_epoch
+            && self.writer_state.last_sequence == message.record.sequence
+            && self.guard.writer_epoch == message.record.writer_epoch
+            && self.guard.last_sequence == message.record.sequence
+            && self.guard.writer_id.as_deref() == Some(message.record.writer_id.as_str()))
     }
 
     fn validate_local_original(
@@ -112,6 +147,7 @@ impl ReplicationRuntime {
         &mut self,
         node_id: &str,
         m: &GossipReplicationMessage,
+        recovered: bool,
     ) -> Result<(), NodeError> {
         let p = self.validate_local_original(node_id, m)?;
         if let Some(existing) =
@@ -198,6 +234,7 @@ impl ReplicationRuntime {
             self.local_commit_original_path(node_id).as_path(),
             &LocalOriginal {
                 complete: true,
+                recovered,
                 message: m.clone(),
             },
         )
@@ -350,6 +387,6 @@ impl ReplicationRuntime {
         message.signature_hex = Some(sign_replication_message(&message, signer)?);
         self.validate_local_original(node_id, &message)?;
         self.stage_local_commit_original(node_id, &message)?;
-        self.restore_local_commit_original(node_id, &message)
+        self.restore_local_commit_original(node_id, &message, true)
     }
 }

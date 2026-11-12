@@ -625,7 +625,7 @@ impl ReplicationRuntime {
         }
         // The signed original precedes every multi-file publication boundary.
         self.stage_local_commit_original(node_id, &message)?;
-        self.restore_local_commit_original(node_id, &message)?;
+        self.restore_local_commit_original(node_id, &message, false)?;
 
         Ok(Some(message))
     }
