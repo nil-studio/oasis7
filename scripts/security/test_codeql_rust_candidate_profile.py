@@ -47,16 +47,29 @@ class CaptureTests(unittest.TestCase):
     def test_memory_overflow_keeps_exact_prefix_and_observed_drain_hash(self):
         capture = self.capture(4)
         capture.feed(b'abcd')
-        with self.assertRaises(profile.ObservationError): capture.feed(b'ef')
+        capture.feed(b'ef')
         capture.feed(b'gh'); capture.finish(True, True)
         report = capture.summary()
         self.assertEqual(report['status'], 'INCOMPLETE')
         self.assertEqual(report['error'], 'MEMORY_LIMIT')
         self.assertEqual(report['retained_bytes'], 4)
         self.assertEqual(report['observed_bytes'], 8)
+        self.assertEqual(report['discarded_bytes'], 4)
         self.assertEqual(report['retained_sha256'], hashlib.sha256(b'abcd').hexdigest())
         self.assertEqual(report['observed_sha256'], hashlib.sha256(b'abcdefgh').hexdigest())
         self.assertEqual(Path(capture.path).read_bytes(), b'abcd')
+
+    def test_crossing_memory_limit_never_resumes_retention_for_smaller_chunks(self):
+        capture = self.capture(4)
+        capture.feed(b'abc'); capture.feed(b'de'); capture.feed(b'f')
+        capture.finish(True, True)
+        report = capture.summary()
+        self.assertEqual(report['error'], 'MEMORY_LIMIT')
+        self.assertEqual(report['retained_bytes'], 3)
+        self.assertEqual(report['discarded_bytes'], 3)
+        self.assertEqual(report['observed_sha256'], hashlib.sha256(b'abcdef').hexdigest())
+        self.assertEqual(Path(capture.path).read_bytes(), b'abc')
+        self.assertEqual(report['log_boundary_status'], 'PARTIAL')
 
     def test_positive_short_write_reports_the_actual_retained_identity(self):
         capture = self.capture()
@@ -124,6 +137,49 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertEqual(result['evaluator_capture']['log_boundary_status'], 'COMPLETE')
         self.assertEqual(result['output_observation']['events']['COMPILE_DONE'], 1)
         self.assertTrue(all(v['final'] for v in result['output_observation']['streams'].values()))
+        self.assert_private()
+
+    def test_memory_limit_drains_beyond_pipe_capacity_and_preserves_normal_exit(self):
+        self.cap.close(); self.cap = profile.Capture(4096); self.addCleanup(self.cap.close)
+        prefix = (json.dumps(HEADER)+'\n').encode()
+        event = (json.dumps(dict(type='PREDICATE_STARTED', predicateName=SYNTHETIC_CANARY,
+                                payload='x'*1024))+'\n').encode()
+        suffix = json.dumps(FOOTER).encode()
+        raw = prefix + event*256 + suffix
+        completed = self.root/'producer-completed'
+        body = ('import os,sys\nfrom pathlib import Path\nfd=os.open(sys.argv[1],os.O_WRONLY)\n'
+                f'os.write(fd,{prefix!r})\n'
+                f'for _ in range(256): os.write(fd,{event!r})\n'
+                f'os.write(fd,{suffix!r});os.close(fd)\n'
+                f'Path({str(completed)!r}).write_text("completed")\n')
+        result = self.execute(body)
+        self.assertEqual(result['exit'], 0)
+        self.assertIsNone(result['execution_failure_kind'])
+        self.assertFalse(result['cleanup_errors'])
+        self.assertEqual(completed.read_text(), 'completed')
+        report = result['evaluator_capture']
+        self.assertEqual(report['status'], 'INCOMPLETE')
+        self.assertEqual(report['error'], 'MEMORY_LIMIT')
+        self.assertTrue(report['transport_eof'])
+        self.assertTrue(report['cleanup_ok'])
+        self.assertEqual(report['observed_bytes'], len(raw))
+        self.assertEqual(report['observed_sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertLessEqual(report['retained_bytes'], 4096)
+        self.assertEqual(report['discarded_bytes'], len(raw)-report['retained_bytes'])
+        self.assertEqual(Path(self.cap.path).read_bytes(), raw[:report['retained_bytes']])
+        self.assert_private()
+
+    def test_memory_limit_does_not_replace_a_later_child_exit_failure(self):
+        self.cap.close(); self.cap = profile.Capture(4); self.addCleanup(self.cap.close)
+        body = ('import os,sys\nfd=os.open(sys.argv[1],os.O_WRONLY)\n'
+                f'os.write(fd,{RAW!r});os.close(fd)\nsys.exit(7)\n')
+        with self.assertRaises(runtime.PhaseError) as caught:
+            self.execute(body)
+        result = caught.exception.result
+        self.assertEqual(result['exit'], 7)
+        self.assertEqual(result['execution_failure_kind'], 'child_exit')
+        self.assertEqual(result['evaluator_capture']['error'], 'MEMORY_LIMIT')
+        self.assertFalse(result['cleanup_errors'])
         self.assert_private()
 
     def test_timeout_preserves_term_handler_footer_and_original_failure(self):
@@ -278,6 +334,20 @@ class BudgetTests(unittest.TestCase):
             observation.close()
             for path in observation.out.iterdir(): path.unlink()
             observation.out.rmdir()
+
+    def test_memory_limit_never_summarizes_the_retained_prefix(self):
+        real_capture = profile.Capture
+        with patch.object(profile, 'Capture', side_effect=lambda: real_capture(4)):
+            observation = self.observation()
+        observation.capture.feed(RAW); observation.capture.finish(True, True)
+        observation.batch_safe = True
+        with patch.object(runtime, 'run') as run:
+            observation.summarize('/cli', self.root, {}, time.monotonic()+100, admitted=True)
+            run.assert_not_called()
+        self.assertEqual(observation.summary_result['status'], 'NOT_REACHED_MEMORY_LIMIT')
+        self.assertEqual(observation.receipt()['status'], 'INCOMPLETE')
+        self.assertEqual(runtime.CAP, 16*1024**2)
+        observation.close(); self.assertEqual(runtime.CAP, 64*1024**2)
 
 
 class SummaryTests(unittest.TestCase):
