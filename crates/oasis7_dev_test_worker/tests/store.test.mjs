@@ -36,6 +36,9 @@ test('AES-GCM immutable originals preserve full u64 and wrong key never replaces
   const winner=(await call(mf,{op:'readPrivate',key})).value;
   assert.ok([original,'different'].includes(winner));
   assert.equal((await call(mf,{op:'private',key,next:winner})).status,200);
+  const wideKey='native:scope:action:wide';
+  await call(mf,{op:'private',key:wideKey,next:original});
+  assert.equal((await call(mf,{op:'readPrivate',key:wideKey})).value,original);
   const ciphertext=(await call(mf,{op:'load',key})).value;
   assert.ok(!ciphertext.includes('私有'));assert.ok(!ciphertext.includes('height'));
   await mf.dispose();mf=runtime(dir,'18'.repeat(32));
