@@ -1,4 +1,5 @@
 name = "oasis7-dev-test-5076"
+account_id = "0fe992a5f3aa19e550eb5a9895969310"
 main = "build/entry.mjs"
 compatibility_date = "2026-10-25"
 workers_dev = true
