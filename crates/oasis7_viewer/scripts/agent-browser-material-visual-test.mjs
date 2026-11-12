@@ -6,6 +6,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { materialRecoveryHook, runMaterialRecovery } from './pixel-world-material-recovery.mjs';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
+import { factoryPhaseProgram, terrainPhaseProgram, factoryFocusProgram, factorySelectedExpression } from './material-visual-phase-programs.mjs';
 
 // Controlled material fixture evidence; no live authorization/world outcome claim.
 const scripts = dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ for (const name of ['ore', 'smelter', 'depot']) {
   writeFileSync(resolve(out, `${name}-source.png`), bytes);
   sprites[name] = hash(bytes);
 }
-const summary = { source, checkoutHead: git(['rev-parse', 'HEAD']), runnerScriptSha256: hash(readFileSync(new URL(import.meta.url))), oracleSha256: hash(readFileSync(resolve(scripts, 'pixel-world-material-oracle.py'))), sprites, assets: Object.fromEntries(['viewer.js', 'pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path => [path, hash(readFileSync(resolve(root, path)))])), profile: 'visual-test', scope, requestedCase, fixture: 'material_shells', liveConnection: false, controlledOverrides: { factory: { y_cm: 3000000 }, terrain: { location: 'loc-0', pos: { x_cm: 3400000, y_cm: 3300000, z_cm: 0 }, modulesRemoved: true } }, limitations: ['受控输入不代签真实世界授权', '地形验证局部变化与恢复；原base组成色同时变化，独立ore纹理特征/受控启停尚未覆盖', '未覆盖 depot PNG oracle、全组合恢复、性能预算'], cases: [] };
+const summary = { source, checkoutHead: git(['rev-parse', 'HEAD']), runnerScriptSha256: hash(readFileSync(new URL(import.meta.url))), phaseProgramSha256: hash(readFileSync(new URL('./material-visual-phase-programs.mjs', import.meta.url))), oracleSha256: hash(readFileSync(resolve(scripts, 'pixel-world-material-oracle.py'))), sprites, assets: Object.fromEntries(['viewer.js', 'pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path => [path, hash(readFileSync(resolve(root, path)))])), profile: 'visual-test', scope, requestedCase, fixture: 'material_shells', liveConnection: false, controlledOverrides: { factory: { y_cm: 3000000 }, terrain: { location: 'loc-0', pos: { x_cm: 3400000, y_cm: 3300000, z_cm: 0 }, modulesRemoved: true } }, limitations: ['受控输入不代签真实世界授权', '地形验证局部变化与恢复；原base组成色同时变化，独立ore纹理特征/受控启停尚未覆盖', '未覆盖 depot PNG oracle、全组合恢复、性能预算'], cases: [] };
 const oracle = (kind, ...args) => JSON.parse(execFileSync('python3', [resolve(scripts, 'pixel-world-material-oracle.py'), kind, ...args], { encoding: 'utf8' }));
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
@@ -82,11 +83,11 @@ try {
   const row={name,scope:'factory',before,inspection:await evaluate(`JSON.stringify({dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__(),buttons:[...document.querySelectorAll('button[data-renderer-target]')].map(b=>({data:{...b.dataset},rect:b.getBoundingClientRect().toJSON()}))})`)};
   row.anchor=JSON.parse(await evaluate(`JSON.stringify((()=>{const r=document.querySelector('button[data-module-id="material-smelter"][data-renderer-target]').getBoundingClientRect();const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const cr=c.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:c.width,canvasHeight:c.height,cssWidth:cr.width,cssHeight:cr.height};})())`));
   for(const phase of ['unknown','restored','deleted','recreated']) {
-   await evaluate(`(()=>{const s=window.__MATERIAL_SNAPSHOT__;if(${JSON.stringify(phase)}==='deleted')delete s.model.module_visual_entities['material-smelter'];else if(${JSON.stringify(phase)}==='recreated'){s.model.module_visual_entities['material-smelter']=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('material_shells')().model.module_visual_entities['material-smelter'];s.model.module_visual_entities['material-smelter'].anchor.data.pos.y_cm=3000000;}else s.model.module_visual_entities['material-smelter'].factory_kind=${JSON.stringify(phase)}==='unknown'?'unsupported':'factory.smelter.mk1';s.time++;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
+   await evaluate(factoryPhaseProgram(phase));
    await waitFor(`(${read}).dto?.module_visual_entities?.some(e=>e.id==='material-smelter')===${phase!=='deleted'}`);await run(['wait','700']);await run(['screenshot','--full',resolve(out,name+'-material-'+phase+'.png')]);row[phase]=await state();
    if(phase==='unknown')assert(row[phase].dto.module_visual_entities.find(e=>e.id==='material-smelter').factory_kind==='unsupported','unknown update stale');
   }
-  const selector='button[data-module-id="material-smelter"][data-renderer-target]';await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus({preventScroll:true});true`);await run(['press','Enter']);await waitFor(`document.querySelector(${JSON.stringify(selector)}).dataset.selected==='true'`);row.keyboardSelection=await state();await run(['screenshot','--full',resolve(out,name+'-material-keyboard.png')]);
+  await evaluate(factoryFocusProgram);await run(['press','Enter']);await waitFor(factorySelectedExpression);row.keyboardSelection=await state();await run(['screenshot','--full',resolve(out,name+'-material-keyboard.png')]);
   row.pngOracle=oracle('factory', out, name, JSON.stringify(row.anchor));
   assert(row.pngOracle.passed, 'factory PNG/lifecycle oracle failed: '+JSON.stringify(row.pngOracle));
   summary.cases.push(row);
@@ -96,7 +97,7 @@ try {
   await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('material_shells')();const auth=window.__AW_TEST__.getState();s.model.agent_player_bindings['agent-0']=auth.authPlayerId;s.model.agent_player_public_key_bindings['agent-0']=auth.authPublicKey;s.model.locations['loc-0'].pos={x_cm:3400000,y_cm:3300000,z_cm:0};s.model.module_visual_entities={};s.time++;window.__TERRAIN_BASE__=structuredClone(s);window.__AW_TEST__.injectSnapshot(s);return true;})()`);await run(['wait','1500']);
   const row={name,scope:'terrain',initial:await state()};await run(['screenshot','--full',resolve(out,name+'-terrain-initial.png')]);
   for(const phase of ['unknown','restored','deleted','recreated']) {
-   await evaluate(`(()=>{const s=structuredClone(window.__TERRAIN_BASE__);if(${JSON.stringify(phase)}==='unknown')s.model.locations['loc-0'].fragment_profile.blocks.blocks.forEach(b=>b.compounds.ppm={});if(${JSON.stringify(phase)}==='deleted')delete s.model.locations['loc-0'].fragment_profile;s.time+=['unknown','restored','deleted','recreated'].indexOf(${JSON.stringify(phase)})+1;window.__AW_TEST__.injectSnapshot(s);return true;})()`);await run(['wait','900']);row[phase]=await state();await run(['screenshot','--full',resolve(out,name+'-terrain-'+phase+'.png')]);
+   await evaluate(terrainPhaseProgram(phase));await run(['wait','900']);row[phase]=await state();await run(['screenshot','--full',resolve(out,name+'-terrain-'+phase+'.png')]);
   }
   assert(row.initial.dto.fragment_terrain.some(b=>b.dominant_compound!=='unknown'),'known terrain absent');
   assert(row.unknown.dto.fragment_terrain.length>0 && row.unknown.dto.fragment_terrain.every(b=>b.dominant_compound==='unknown'),'unknown terrain stale');
