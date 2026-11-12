@@ -72,6 +72,57 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(self.rust(data)["execution_status"], "failure")
         self.assertEqual(self.rust(data)["upload_status"], "unknown")
 
+    def test_production_query_outcome_follows_successful_extraction(self):
+        for query, expected in (("success", "success"), ("failure", "failure"),
+                                ("cancelled", "cancelled"), ("timed_out", "timed_out"),
+                                ("skipped", "skipped"), (None, "unknown")):
+            with self.subTest(query=query):
+                data = fixture()
+                add_analysis(data)
+                job = associated_job(data)
+                job["steps"].extend([
+                    {"name": "Verify the pinned Rust default production bundle", "conclusion": "success"},
+                    {"name": "Run and verify all default Rust queries with the fixed libraries", "conclusion": query}])
+                self.assertEqual(self.rust(data)["execution_status"], expected)
+
+    def test_production_query_step_missing_or_duplicate_is_unknown(self):
+        for count in (0, 2):
+            with self.subTest(count=count):
+                data = fixture()
+                add_analysis(data)
+                job = associated_job(data)
+                job["steps"].append({"name": "Verify the pinned Rust default production bundle", "conclusion": "success"})
+                job["steps"].extend([
+                    {"name": "Run and verify all default Rust queries with the fixed libraries", "conclusion": "success"}
+                    for _ in range(count)])
+                self.assertEqual(self.rust(data)["execution_status"], "unknown")
+
+    def test_skipped_production_steps_preserve_other_scan_paths(self):
+        for unit, profile, ref in (("rust-repo", "default", "refs/pull/7/merge"),
+                                    ("rust-repo", "extended", "refs/heads/main"),
+                                    ("python-repo", "default", "refs/heads/main")):
+            with self.subTest(unit=unit, profile=profile, ref=ref):
+                data = fixture()
+                data["identity"]["ref"] = ref
+                add_analysis(data, unit, profile, ref=ref)
+                job = associated_job(data, name=f"CodeQL / {unit} / {profile}", ref=ref)
+                job["steps"].extend([
+                    {"name": "Verify the pinned Rust default production bundle", "conclusion": "skipped"},
+                    {"name": "Run and verify all default Rust queries with the fixed libraries", "conclusion": "skipped"}])
+                row = next(row for row in health.report(data, NOW)["units"]
+                           if row["unit"] == unit and row["profile"] == profile)
+                self.assertEqual(row["execution_status"], "success")
+
+    def test_production_extraction_failure_remains_primary(self):
+        data = fixture()
+        add_analysis(data)
+        job = associated_job(data)
+        job["steps"][0]["conclusion"] = "failure"
+        job["steps"].extend([
+            {"name": "Verify the pinned Rust default production bundle", "conclusion": "success"},
+            {"name": "Run and verify all default Rust queries with the fixed libraries", "conclusion": "skipped"}])
+        self.assertEqual(self.rust(data)["execution_status"], "failure")
+
     def test_complete_fixture_zero_is_explicit(self):
         data = fixture()
         add_analysis(data)

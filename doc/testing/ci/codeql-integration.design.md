@@ -326,7 +326,7 @@ Rust 求值日志的闭包行数不能直接代表独占耗时、实际物理存
 
 ### 7.1 两档查询
 
-PR 和定时默认基线使用内置默认查询：不额外指定自定义 pack、`security-and-quality`、`security-extended` 或实验开关。尽可能保留官方对 Python、JS/TS 的默认增量路径。[E3、E4]
+PR 和定时默认基线保留官方默认查询集合，不加入 `security-and-quality`、`security-extended` 或实验查询。Rust default 的可信默认分支维护使用 §7.2.6 的固定库修复和原始默认查询源码；其他场景继续使用 Action 内置默认选择。尽可能保留官方对 Python、JS/TS 的默认增量路径。[E3、E4]
 
 每日扩展档使用 `security-extended`。对当前查询包明确支持的语言，可以在扩展档验证 `local` threat model，以纳入 CLI 参数、环境和本地文件等来源；支持范围、额外告警和耗时必须单独确认，不能默认它覆盖所有项目 CLI 威胁。PR 默认档不因该扩展而改变。[E10]
 
@@ -506,6 +506,24 @@ D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-
 所有准备及执行路径从第一次写入起只保留允许的 manifest/cwd/toolchain/target/features、参数数量和摘要；异常、取消、临时输出和控制台同样适用，不能先落原文再删。合法有界 D1/D2 JSON 经批准图 schema 验证后保存完整依赖图；合法图的角色/成员不符另记 ROLE_CONTEXT_MISMATCH，保留实际 features 与固定失败项后使终态 INCOMPLETE，不把可诊断差异丢成只有摘要；未批准自由文本、非法或超限输出只留类别、字节与摘要，不回退原文。证据合计 64 MiB，含 guard audit/隐藏控制文件、元数据、前后身份、终态与清单；初始按普通 52 MiB、audit 8 MiB、配置/after/终态/hash 4 MiB 预留，启动前证明固定收尾结构够用，必要调整分账须保持总额。guard 原有 256 MiB 检查不代替本项合计上限。
 
 仅两命令、身份、图校验、清理和封存均成立时记 `ROOT_WORKSPACE_ROLE_METADATA_OBSERVED`；准备失败、范围不符、超时或证据不完整分别保留。开发回归覆盖真实启动交接、固定身份、首写投影、取消/TERM/KILL、残留进程、写入失败、预算和 metadata 独立 fixture。该观察不证明 WASM 编译、proc-macro、extractor 选择或 CodeQL 模型，始终保留 production_capacity=UNKNOWN、full_rust_coverage=HOLD；真实 hosted 结果另由父目标验收。
+
+#### 7.2.6 Rust default 生产库接入与首次验收
+
+本路径承接 CQ-R02/R03/R05/R06/R09，只用于 `codeql.yml` 中可信默认分支的 Rust default 维护扫描。生产输入是本次计划与实际 checkout 一致的提交，不沿用研究入口的冻结业务 SHA、manifest 数量或历史覆盖结论。现有批次变量仍控制是否执行；首次配置为 baseline 时按 §4.2.1 保持 pending acceptance，接线合入和候选研究通过均不代替运营验收。PR default、extended 和其他语言继续各自原有执行路径及预算。
+
+固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。官方库保持只读；任务私有目录复用 §7.2.4 的 qualifier-lines-v2 两文件修补，应用前后验证固定摘要及完整库差异。`str::lines` 使用通用 taint summary，调用目标修复保留在 `TypeInference.qll`，不添加业务专用流边。版本或补丁不匹配时失败，不回退到未经修复的库继续上传。
+
+正式 helper 只封装工具准备和完整默认查询执行，不调用强绑定研究源码的容量主入口。复制官方 rust-queries 0.1.46 的查询与支持源码，保持原始 37 项默认查询的 ID、字节和集合指纹；移除发布包的预编译 QLX、嵌入库及旧依赖绑定，以独立源码 pack 包装。逐查询解析实际 14 项库闭包并确认私有修复库被消费，使用独立编译缓存和 `--no-use-precompiled`。源码包与整个修复库在执行前后保持一致；仅添加 search path 或设置文件存在不足以证明实际依赖正确。
+
+init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 分钟，且不晚于 90 分钟总截止前 600 秒。私有库准备、官方 Action 提取、37 项查询与结果校验共用该截止；提取前重新计算剩余整分钟作为 Action 外层步骤上限，CLI 子进程只消费原截止的剩余时间。复用 §7.2.4 的 Action main 监督核心，以独立 production mode 绑定当前源码和预算，在真实进程启动及清理时执行绝对截止；官方 post 仍由 runner 执行，原研究模式保留固定源码约束。Action 使用公开的 `skip-queries: true` 完成数据库；helper 核验监督结果、finalized DB、实际源码、资源及库身份后运行默认查询，并生成待上传 SARIF。失败、超时或身份不符阻止上传，不重新开始分析预算。
+
+失败采证最多消费分析截止后的 90 秒，属于原 600 秒预留，仍为上传及 post 保留至少 510 秒；该阶段不启动查询或解码子进程。超时后不能完成 guard、身份或日志核对时保留失败和未知，不将采证成功改写为分析成功。
+
+覆盖采证动态枚举当前受维护 manifest 与独立 workspace 锁文件，复用有界源码/锁观察和 Cargo guard，在实际提取的 metadata/解析调用中保留 locked 约束。提取日志和 `coverage_report` 保留原始 COMPLETE/PARTIAL、REVIEW/UNKNOWN；发现清单、成员集合对账或查询完成均不代签实际提取与宏/feature/target 语义。WASM 仍需其真实 CodeQL 上下文验证；未接线源码的归属须明确收口。沿用既定支持范围及两条精确覆盖例外，不扩大忽略路径。
+
+执行状态由提取和正式 helper 联合决定，提取成功但查询失败不能记录为 execution success。通过原 `upload-sarif` 上传，保留 `oasis7/rust-repo/default` category、实际 SHA/ref 及唯一 `sarif_id` 关联；上传关联 evidence v1 结构保持。独立生产 evidence artifact 保存工具、查询库、源码、结果与覆盖收据及有界日志，不包含数据库或完整源码包。查询执行、平台上传、findings 和覆盖验收分别呈现。
+
+首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。PR observe 与 extended 的 45 分钟容量及适用行为单独验收。
 
 ### 7.3 其他语言
 

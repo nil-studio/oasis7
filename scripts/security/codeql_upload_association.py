@@ -126,6 +126,37 @@ def step(job, name):
     return matches[0].get("conclusion")
 
 
+def execution_status(job):
+    """Read both actual production phases; old and skipped paths stay single-stage."""
+    steps = job.get("steps", [])
+    require(isinstance(steps, list) and all(isinstance(s, dict) for s in steps),
+            "malformed job steps metadata")
+    extraction = [s for s in steps if s.get("name") == "CodeQL extraction and queries"]
+    if len(extraction) != 1:
+        state, conclusion = job.get("status"), job.get("conclusion")
+        return (conclusion if conclusion in ("cancelled", "timed_out") else
+                state if state in ("queued", "in_progress", "waiting", "pending") else "unknown")
+    result = extraction[0].get("conclusion") or "unknown"
+    if result != "success" or job.get("name") != "CodeQL / rust-repo / default":
+        return result
+    tools = [s for s in steps if s.get("name") == "Verify the pinned Rust default production bundle"]
+    queries = [s for s in steps if s.get("name") == "Run and verify all default Rust queries with the fixed libraries"]
+    if not tools and not queries:
+        return result  # The previous workflow executed queries inside analyze.
+    if len(tools) != 1:
+        return "unknown"
+    tool_status = tools[0].get("conclusion")
+    if tool_status == "skipped":
+        # PRs retain their stock analysis path. A skipped query step in the new
+        # workflow is not evidence that this job selected production libraries.
+        return result if all(q.get("conclusion") == "skipped" for q in queries) else "unknown"
+    if tool_status != "success":
+        return tool_status or "unknown"
+    if len(queries) != 1:
+        return "unknown"
+    return queries[0].get("conclusion") or "unknown"
+
+
 class Reader:
     def __init__(self, repo, ref, sha):
         self.repo, self.ref, self.sha = repo, ref, sha
@@ -196,7 +227,7 @@ class Reader:
                         and check.get("head_sha") == self.sha and app.get("id") == provider["id"]
                         and suite.get("id") == run["check_suite_id"]
                         and check.get("conclusion") == actual.get("conclusion"), "job check provenance mismatch")
-                execution, upload = step(actual, "CodeQL extraction and queries"), step(actual, "CodeQL SARIF upload")
+                execution, upload = execution_status(actual), step(actual, "CodeQL SARIF upload")
                 require(execution == "success" and upload == "success", "job execution/upload not successful")
                 unit, profile = match.groups()
                 name = f"oasis7-codeql-upload-{run['id']}-{run['run_attempt']}-{unit}-{profile}"
