@@ -12,6 +12,7 @@ export async function launchOwnedStartupContext(chromium, executablePath, lease)
   if (!leases.has(lease)) throw Error('startup profile was not created by owned factory');
   const context = await chromium.launchPersistentContext(lease.path, { executablePath, chromiumSandbox: true, headless: true, viewport: { width: 1440, height: 1000 }, timeout: 15000 });
   contexts.set(context, lease);
+  context.once('close', () => contexts.delete(context));
   return context;
 }
 export function readOwnedStartupProfile(context) {
