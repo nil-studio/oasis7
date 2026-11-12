@@ -116,6 +116,10 @@ single-writer/order/duplicate/stale持久guard；hash/write失败不污染。
 
 本条只规定 local/remote single-writer、顺序和持久 guard，保留 duplicate/stale 拒绝与 hash/write 失败不污染。DistFS 局部 guard 成功不替代 Node apply/persist crash atomicity。Product N/A；reason=局部 guard 算法不等于完整 checkpoint/snapshot/replay 恢复；scope=记录顺序、去重、持久失败与崩溃边界。
 
+本地提交消息的崩溃恢复沿用同一原件：在更新 CAS、writer guard 和复制高水位前，先原子持久保存完整的本地签名消息；中间失败／重启只续作该消息，不从新 decision 重算原 payload、序号或时间。消息、索引和高水位完成前不得把重复高度当作已恢复。固定一份最近原件即可，不增加无界日志。
+
+旧格式只有 CAS 和已推进高水位时，仅允许唯一可证的尾部缺口恢复：当前 signer、node、world、epoch/sequence 必须一致，所有其他保留 CAS 提交须匹配其已验证签名消息，最新本地序号与缺口严格相邻；原 payload 的高度、action root 和执行绑定须合法。原 record 时间来自原 payload 的 committed_at_ms，不使用 CAS 文件重新写入时间。不能唯一证明原件、旧高度 amendment 未完成、错 signer、损坏或冲突时保留原材料并拒绝；不能降高水位、替换世界或放宽同步保护。此条只承接本地签名复制消息的恢复，不证明 Context 业务完成或完整 DCS 恢复链。
+
 ### des-nir-recovery
 
 corrupt/unreadable PoS authoritative state blocks start；保留诊断纠根因。
