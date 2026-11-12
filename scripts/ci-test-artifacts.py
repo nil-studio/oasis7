@@ -331,7 +331,7 @@ def fast_plan(plan):
     private_tests = isinstance(plan, dict) and bool(UNIT_TEST_CONTRACT_FIELDS.intersection(plan))
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
-         'ordinary_artifact_delivery_version'}.intersection(plan))
+         'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}.intersection(plan))
     distfs_clippy = isinstance(plan, dict) and bool(
         {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
     if distfs_clippy and 'fast_plan_version' not in plan:
@@ -489,6 +489,10 @@ def validate_distfs_clippy_handoff(plan):
 
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
+    if 'ordinary_harness_costs' in plan:
+        if plan.get('ordinary_artifact_partition_version') != 2:
+            raise ValueError('ordinary harness costs require targeted artifact v2')
+        validate_ordinary_harness_costs(plan['ordinary_harness_costs'])
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] != 1
@@ -530,6 +534,41 @@ def validate_ordinary_partitions(plan):
     expected = packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all']
     if plan.get('ordinary_partitions') != expected:
         raise ValueError('ordinary partitions must cover the complete parent target inventory exactly once')
+
+
+def validate_ordinary_harness_costs(profile):
+    """Validate hints, never execution authority; mirrored by the isolated planner."""
+    if (not isinstance(profile, dict)
+            or set(profile) != {'version', 'fallback_ms', 'evidence', 'harnesses'}
+            or type(profile['version']) is not int or profile['version'] != 1
+            or type(profile['fallback_ms']) is not int or not 0 < profile['fallback_ms'] <= 3600000):
+        raise ValueError('invalid ordinary harness cost profile')
+    evidence = profile['evidence']
+    if (not isinstance(evidence, dict)
+            or set(evidence) != {'run_id', 'run_attempt', 'source_sha', 'tested_sha', 'policy_sha'}
+            or any(type(evidence[key]) is not int or evidence[key] < 1 for key in ('run_id', 'run_attempt'))
+            or any(not isinstance(evidence[key], str) or not re.fullmatch('[0-9a-f]{40}', evidence[key])
+                   for key in ('source_sha', 'tested_sha', 'policy_sha'))):
+        raise ValueError('invalid ordinary harness cost evidence')
+    rows, seen = profile['harnesses'], set()
+    if not isinstance(rows, list) or not rows or len(rows) > 4096:
+        raise ValueError('invalid ordinary harness cost inventory')
+    for row in rows:
+        if (not isinstance(row, dict)
+                or set(row) != {'package', 'target_kind', 'target_name', 'variant', 'mode', 'selector', 'elapsed_ms'}
+                or any(not isinstance(row[key], str) or not re.fullmatch('[A-Za-z0-9_-]+', row[key])
+                       for key in ('package', 'target_name', 'variant'))
+                or row['target_kind'] not in ('lib', 'bin', 'test')
+                or row['mode'] not in ('batch', 'filter', 'exact')
+                or not isinstance(row['selector'], str)
+                or (row['selector'] != '' if row['mode'] == 'batch' else
+                    not re.fullmatch(r'\w+(?:::\w+)*(?:::)?', row['selector']))
+                or type(row['elapsed_ms']) is not int or not 0 < row['elapsed_ms'] <= 3600000):
+            raise ValueError('invalid ordinary harness cost item')
+        identity = tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector'))
+        if identity in seen:
+            raise ValueError('duplicate ordinary harness cost identity')
+        seen.add(identity)
 
 
 def ordinary_partitions(plan=None):
@@ -2948,11 +2987,18 @@ def targeted_ordinary_artifact_entries(manifest, partition):
             or sum(map(len, selected.values())) != len(cases)
             or any(not names for names in selected.values())):
         raise ValueError('incomplete or overlapping runtime case partitions')
-    buckets, loads = {}, {}
+    profile = manifest.get('execution_plan', {}).get('ordinary_harness_costs')
+    costs = {}
+    if profile is not None:
+        validate_ordinary_harness_costs(profile)
+        costs = {tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector')):
+                 row['elapsed_ms'] for row in profile['harnesses']}
+    buckets, loads, counts = {}, {}, {}
     for owner, names in selected.items():
         buckets[owner] = [dict(parent, skip_exact=sorted(set(parent.get('skip_exact', ())) | (cases - names)),
                                count=len(names))]
-        loads[owner] = len(names)
+        loads[owner] = 0 if profile is not None else len(names)
+        counts[owner] = len(names)
 
     def behavior_count(entry):
         target = manifest['binaries'][entry['binary']]
@@ -2967,29 +3013,44 @@ def targeted_ordinary_artifact_entries(manifest, partition):
     identities = [(entry['binary'], entry.get('filter'), entry.get('name')) for entry in remaining]
     if len(identities) != len(set(identities)):
         raise ValueError('duplicate ordinary execution item')
-    # Complete integrations, other libraries, snapshots and exclusive singleton
-    # cases stay intact. Count is only a deterministic load estimate, not timing.
+    def cost_identity(entry):
+        target = manifest['binaries'][entry['binary']]
+        return (target['package'], '-'.join(target['target_kind']), target['target'], target['variant'],
+                'batch' if entry.get('batch') else 'filter' if 'filter' in entry else 'exact',
+                '' if entry.get('batch') else entry.get('filter', entry.get('name', '')))
+
+    def weight(entry):
+        return (costs.get(cost_identity(entry), profile['fallback_ms']) if profile is not None
+                else behavior_count(entry))
+
+    # Only ownership and ordering change. Unknown items still execute completely
+    # with a positive estimate; case counts and elapsed milliseconds never mix.
     for entry in sorted(remaining, key=lambda item: (
-            -behavior_count(item), item['binary'], item.get('filter', ''), item.get('name', ''))):
+            -weight(item), item['binary'], item.get('filter', ''), item.get('name', ''))):
         count = behavior_count(entry)
         if count < 1:
             raise ValueError('empty ordinary execution item')
         owner = min(owners, key=lambda name: (loads[name], name))
         buckets[owner].append(entry)
-        loads[owner] += count
+        loads[owner] += weight(entry)
+        counts[owner] += count
     if sum(len(items) - 1 for items in buckets.values()) != len(remaining):
         raise ValueError('incomplete ordinary harness partition inventory')
     if partition == 'controls':
         return []
     if partition not in buckets:
         raise ValueError('unknown targeted ordinary artifact partition')
+    estimate = {} if profile is None else dict(
+        harness_estimated_ms=loads[partition], cost_evidence=profile['evidence'],
+        cost_matched=sum(cost_identity(entry) in costs for entry in buckets[partition][1:]),
+        cost_fallback=sum(cost_identity(entry) not in costs for entry in buckets[partition][1:]))
     print('ordinary_partition_inventory=' + json.dumps(dict(
         partition=partition, runtime_binary=parent['binary'], runtime_count=len(selected[partition]),
         runtime_total=len(cases), runtime_inventory_sha256=hashlib.sha256(
             '\n'.join(sorted(cases)).encode()).hexdigest(),
         runtime_selected_sha256=hashlib.sha256('\n'.join(sorted(selected[partition])).encode()).hexdigest(),
         complete_harnesses=[entry['binary'] for entry in buckets[partition][1:]],
-        expected_count=loads[partition])), flush=True)
+        expected_count=counts[partition], **estimate)), flush=True)
     return buckets[partition]
 
 

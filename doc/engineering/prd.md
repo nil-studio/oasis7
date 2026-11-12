@@ -36,7 +36,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - SC-2: Markdown 长度只作编辑提示，不因超过 1000 行阻断验证或要求豁免；缺失引用、结构错误等真实检查继续生效，Rust 体量规则不变。
   - SC-3: `scripts/doc-governance-check.sh` 在 required gate 连续通过。
   - SC-4: 新增或实质修改的稳定工程要求按全局 Trace ID 关联原文、适用设计和任务；保留专业 PRD-ID，不为简单编辑新建要求或任务身份。
-  - SC-5: `doc/` 根目录与模块根目录平铺文档新增违规数为 0（allowlist 冻结机制）。
+  - SC-5: `doc/` 实际目录入口和导航可达，受影响的路径、锚点与已声明关系不存在新增错误；不维护平铺文件冻结清单。
   - SC-6: 重点模块的当前主责入口和活跃引用保持可达、语义一致；已停止的历史平铺专题迁移不作为当前开发或交付前置。
   - SC-8: 治理按当前明确缺口有界交付，不恢复固定人数、冻结迁移批次或每日燃尽台账；历史执行安排仅供追溯。
   - SC-9: 活跃文档 `doc/...*.md` 依赖路径断链数为 0。
@@ -98,7 +98,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| 文档治理检查 | allowlist、模块根目录规则、根目录规则 | 执行 `doc-governance-check.sh` | `pass/fail` | 按违规严重度输出 | 所有人可执行，治理维护者可更新基线 |
+| 文档治理检查 | 实际目录与 Markdown 导航、引用/ID/已声明关系和完成状态证据 | 执行 `doc-governance-check.sh` | 事实检查结果与写作提示 | 输入/执行错误和受影响事实错误失败；形式提示不阻断 | 所有人可执行，规则变更运行全部适用回归 |
 | 工程趋势统计 | 违规率、修复时长、回归率 | 周期性生成报表并复盘 | `collecting -> reported -> actioned` | 按模块与时间排序 | 评审者与维护者可读写 |
 | 有界并行治理 | 明确负责人、当前缺口、实际写入范围和验证结果 | 围绕当前有效缺口协作，不恢复已退役迁移排程 | 按 PR 和实际验证记录进展 | 写入范围避免重叠，必要上下文按需交接 | 负责人协调，适用评审复核 |
 | PRD 文件级索引 | 模块名、专题 PRD/design 路径、相关 PR 与验证记录 | 生成/更新模块索引并回写入口引用 | `missing -> indexed -> verified` | 活跃文档优先，按路径稳定排序 | 维护者可更新，所有贡献者可读 |
@@ -113,7 +113,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - AC-2: 拆出的开发任务通过 GitHub 原生父子 Issue 跟踪与领取，子项关联实际 PR、CI 和验收，父项保留整体剩余义务；未拆分的简单修改可直接用 PR，Project 按需使用，不创建 engineering project 台账或本地状态副本。
   - AC-3: 与 `doc/scripts/precommit/pre-commit.prd.md`、`testing-manual.md` 的口径一致。
   - AC-5: 新增工程治理专题若引入运行态治理层，必须明确与正式文档层的分工边界，并在当前 PR 或按需 Issue 记录本次范围；复杂协调按需使用 Issue/Project，不作为普通 PR 准入。
-  - AC-6: 文档治理脚本校验 `doc/.governance/*-allowlist.txt`，可拦截 `doc/*.md` 与 `doc/<module>/*.md` 的非预期新增。
+  - AC-6: 文档治理脚本从实际一级目录和根 README 的准确 Markdown 链接核对入口，检查路径/锚点/ID、已声明关系与正向完成证据；标题、固定章节/列数及普遍状态字段作写作提示，不用完整路径 allowlist 冻结文件。
   - AC-8: 每次迁移任务需附“原文关键约束点 -> 新文档章节”对照，确保内容不丢失。
   - AC-9: 并行治理按实际修改范围避免重叠并保留必要交接；旧迁移分工表、冻结批次和每日燃尽不作为当前交付条件。
   - AC-11: 专题需求、设计、当前导航与真实要求引用应可达且互相追溯；不要求独立 project 文档，不恢复 PRD/project 双向互链门禁。适用检查以现行文档治理入口为准，现有检查只证明其实际能力。
@@ -169,8 +169,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
 - Integration Points:
   - `scripts/doc-governance-check.sh`
   - `doc/scripts/precommit/pre-commit.prd.md`
-  - `doc/.governance/doc-root-md-allowlist.txt`
-  - `doc/.governance/module-root-md-allowlist.txt`
+  - `doc/README.md` 与各实际一级目录的 `README.md`
   - `doc/engineering/doc-governance/doc-structure-standard.design.md`
   - `doc/engineering/workflow/source-of-truth.md`
   - historical engineering full-PRD review triplet（后续已删除；历史审读证据见 Git history logs，当前追踪入口见 `doc/engineering/prd.index.md` 与模块入口）
@@ -188,7 +187,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
   - `.codex/config.toml`
   - `.github/workflows/*`
 - Edge Cases & Error Handling:
-  - allowlist 漂移：检测到未登记新增时直接失败并提示最小修复路径。
+  - 目录入口或导航失效：对照实际目录和准确 Markdown 链接修复，不增加第二份文件登记。职责与例外说明在原 README 人工维护。
   - repo-local Codex 配置被忽略：若根 `.gitignore` 使用通配 `config.toml` 规则，必须为 `.codex/config.toml` 增加最小 unignore，避免仓库默认执行配置无法进入版本管理。
   - 误报场景：规则误伤时保留失败证据并通过任务流程修订规则，不直接绕过。
   - 本地/CI 不一致：本地通过但 CI 失败时以 CI 结果为准并补环境对齐说明。
@@ -271,7 +270,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
 | --- | --- | --- | --- |
 | DEC-ENG-001 | 以脚本门禁落实规范 | 仅依赖人工评审 | 自动化一致性更高且可复现。 |
-| DEC-ENG-002 | 保留 allowlist 冻结机制 | 完全开放文档新增 | 可控制结构漂移和历史债扩散。 |
+| DEC-ENG-002 | 从实际目录与 Markdown 导航核对入口，退役完整路径 allowlist | 继续为每个文件维护冻结登记 | 避免重复登记和扩表维护；职责、例外和真实引用仍可检查，文件组织由现有规范与实际内容评审。 |
 | DEC-ENG-003 | required/full 分层验证 | 单层测试策略 | 兼顾效率与风险覆盖。 |
 | DEC-ENG-004 | 老格式文档按批次渐进迁移并采用逐篇人工重写 | 一次性全量改写或自动脚本改写 | 人工重写更利于保留语义细节并控制内容质量。 |
 | DEC-ENG-005 | 采用四人并行、目录前缀互斥分工推进大规模迁移 | 单人串行推进或随机切片 | 可兼顾迁移速度、冲突控制与审阅可追溯性。 |

@@ -11,7 +11,7 @@ professional review roles.
 from __future__ import annotations
 
 import argparse
-from doc_content_warnings import report_findings
+from doc_content_warnings import report_findings, report_classified_findings
 from collections import deque
 from collections.abc import Callable
 from functools import lru_cache
@@ -50,8 +50,8 @@ DESIGN_STANDARD_EXCLUSIONS = frozenset(
         "doc/engineering/doc-governance/system-design-writing-standard.design.md",
     }
 )
-DEMAND_HEADING = re.compile(r"^\s*###\s+2\.1\s+需求承接与分配表\s*$", re.IGNORECASE)
-VALIDATION_HEADING = re.compile(r"^\s*###\s+11\.1\s+验证映射表\s*$", re.IGNORECASE)
+DEMAND_HEADING = re.compile(r"^\s*#{1,6}\s+(?:\d+(?:\.\d+)*[.、]?\s+)?(?:需求承接(?:与分配)?(?:表)?|需求映射|Requirement allocation|Demand allocation)\s*$", re.IGNORECASE)
+VALIDATION_HEADING = re.compile(r"^\s*#{1,6}\s+(?:\d+(?:\.\d+)*[.、]?\s+)?(?:验证映射(?:表)?|需求.*设计.*验证.*|Validation mapping|Verification mapping)\s*$", re.IGNORECASE)
 HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s+")
 HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
 REQUIRED_NA_FIELDS = ("reason", "scope", "owner_role", "evidence_ref", "re-evaluate")
@@ -60,6 +60,10 @@ VALIDATION_ROW_CELLS = 6
 CANONICAL_GITHUB_EVIDENCE_RE = re.compile(
     r"^https://github\.com/eng-cc/oasis7/issues/(?P<issue>[1-9][0-9]*)#issuecomment-(?P<comment>[1-9][0-9]*)$"
 )
+ADVISORY_CODES = frozenset({
+    "trace-mapping-format", "trace-validation-format", "trace-demand-row-invalid",
+    "trace-validation-row-invalid", "trace-na-format", "trace-product-na-incomplete",
+})
 
 
 @dataclass(frozen=True)
@@ -450,12 +454,8 @@ def current_design_paths(root: Path, head: str, include_worktree: bool, checkout
 
 def is_traceability_consumer(text: str) -> bool:
     """Recognize a current structured consumer while excluding legacy prose."""
-    demand = table_after_heading(text, DEMAND_HEADING)
-    validation = table_after_heading(text, VALIDATION_HEADING)
-    return bool(
-        (demand is not None and demand.rows)
-        or (validation is not None and validation.rows)
-    )
+    demand, validation, _ = traceability_tables(text)
+    return bool(demand.rows or validation.rows)
 
 
 def references_authority(
@@ -579,6 +579,80 @@ def is_validation_table(table: Table) -> bool:
         and has_header(table, 0, "上游", "upstream", "requirement")
         and has_header(table, 1, "本设计", "local design", "design")
         and has_header(table, 3, "验证", "validation", "test", "manual")
+    )
+
+
+def semantic_table_columns(table: Table) -> dict[str, int]:
+    """Locate relation endpoints by meaning, independent of order/column count."""
+    columns: dict[str, int] = {}
+    for index, value in enumerate(table.headers):
+        header = normalized_header(value)
+        if any(marker in header for marker in ("上游", "产品要求", "需求", "upstream", "requirement")) and not any(marker in header for marker in ("验证", "本设计", "环境", "candidate")):
+            columns.setdefault("upstream", index)
+        if any(marker in header for marker in ("本设计", "设计条款", "local design", "design clause")) or header == "design":
+            columns.setdefault("design", index)
+        if any(marker in header for marker in ("验证", "validation", "test", "manual")) and not any(marker in header for marker in ("未验证", "未证明", "未覆盖")):
+            columns.setdefault("validation", index)
+    return columns
+
+
+def markdown_tables(text: str) -> tuple[Table, ...]:
+    lines = visible_lines(text)
+    tables = []
+    heading_line = 1
+    index = 0
+    while index < len(lines) - 1:
+        number, line = lines[index]
+        if HEADING_RE.match(line):
+            heading_line = number
+        headers = table_cells(line)
+        if not headers or not is_separator(lines[index + 1][1]):
+            index += 1
+            continue
+        rows = []
+        index += 2
+        while index < len(lines):
+            row_number, row_line = lines[index]
+            cells = table_cells(row_line)
+            if not cells:
+                break
+            rows.append((row_number, cells))
+            index += 1
+        tables.append(Table(heading_line, number, headers, tuple(rows)))
+    return tuple(tables)
+
+
+def traceability_tables(text: str) -> tuple[Table, Table, bool]:
+    """Adapt one combined mapping or legacy two-table mappings to one reader.
+
+    Only explicit semantic columns establish a relation. Free-form documents
+    remain valid inputs; their links and IDs are checked independently below.
+    Extra cells are retained as row context for Trace refs and applicability.
+    """
+    demands, validations = [], []
+    demand_line = validation_line = 1
+    for table in markdown_tables(text):
+        columns = semantic_table_columns(table)
+        if not {"upstream", "design"} <= columns.keys():
+            continue
+        combined = "validation" in columns
+        for number, cells in table.rows:
+            cell = lambda key: cells[columns[key]] if columns[key] < len(cells) else ""
+            context = " | ".join(value for index, value in enumerate(cells) if index not in columns.values())
+            if combined:
+                validation_line = table.header_line
+                validations.append((number, (cell("upstream"), cell("design"), context, cell("validation"), "", "", table.headers[columns["validation"]])))
+            else:
+                demand_line = table.header_line
+                demands.append((number, (cell("upstream"), context, cell("design"), "", "")))
+    legacy_dual = bool(demands and validations)
+    if not demands:
+        # A single mapping already declares both requirement/design endpoints.
+        demands = [(number, (cells[0], cells[2], cells[1], "", "")) for number, cells in validations]
+    return (
+        Table(demand_line, demand_line, ("upstream", "obligation", "design", "owner", "excluded"), tuple(demands)),
+        Table(validation_line, validation_line, ("upstream", "design", "obligation", "validation", "evidence", "excluded"), tuple(validations)),
+        legacy_dual,
     )
 
 
@@ -1073,7 +1147,7 @@ def first_valid_link(
 ) -> tuple[Path | None, str | None]:
     targets = link_nodes(cell)
     if not targets:
-        fail(errors, code, path, "add an exact repository-relative Markdown link with path#fragment")
+        fail(errors, "trace-mapping-format", path, "add an exact repository-relative Markdown link when a machine-readable relation is useful")
         return None, None
     valid: list[tuple[Path, str | None]] = []
     for target in targets:
@@ -1084,12 +1158,14 @@ def first_valid_link(
             path=path,
             code=code,
             errors=errors,
-            require_fragment=require_fragment,
+            require_fragment=False,
             markdown_target=markdown_target,
             follow_symlinks=follow_symlinks,
             read_target=read_target,
         )
         if resolved is not None:
+            if require_fragment and not fragment:
+                fail(errors, "trace-mapping-format", path, "add a precise fragment when the relation needs machine verification")
             valid.append((resolved, fragment))
     if len(valid) > 1:
         fail(errors, "trace-ref-ambiguous", path, "row has multiple valid references; repair it to one exact relation")
@@ -1107,12 +1183,12 @@ def relation_from_demand_row(
     read_target: TargetTextReader,
 ) -> Relation | None:
     row_path = f"{source.relative_to(root).as_posix()}:{row_number}"
-    if len(cells) != DEMAND_ROW_CELLS or any(not cell.strip() for cell in cells):
+    if len(cells) < 3:
         fail(
             errors,
             "trace-demand-row-invalid",
             row_path,
-            "demand-allocation row must contain exactly five non-empty cells; repair the row shape and every required column",
+            "add recognizable upstream and local design relation cells; column count is not an admission requirement",
         )
         return None
     upstream_path, upstream_fragment = first_valid_link(
@@ -1139,6 +1215,10 @@ def relation_from_demand_row(
         follow_symlinks=follow_symlinks,
         read_target=read_target,
     )
+    if upstream_path is not None and upstream_path.resolve() == source.resolve():
+        fail(errors, "trace-upstream-missing", row_path, "upstream relation must name another exact Markdown path#fragment; repair the first cell")
+    if local_path is not None and local_path.resolve() != source.resolve():
+        fail(errors, "trace-system-design-missing", row_path, "local design relation must point back to this file#fragment; repair the design cell")
     if upstream_path is None or upstream_fragment is None or local_path is None or local_fragment is None:
         return None
     upstream_relative = upstream_path.relative_to(root).as_posix()
@@ -1165,12 +1245,9 @@ def relation_from_demand_row(
         local_section = fragment_section(local_text, local_fragment) or ""
         if not engineering_only_disposition(" | ".join(cells) + "\n" + local_section):
             fail(errors, "trace-product-na-incomplete", row_path, "upstream without a resolvable product requirement chain requires explicit product N/A with reason and scope in the allocation row or local design clause")
-            return None
     if upstream_path.resolve() == source.resolve():
-        fail(errors, "trace-upstream-missing", row_path, "upstream relation must name another exact Markdown path#fragment; repair the first cell")
         return None
     if local_path.resolve() != source.resolve():
-        fail(errors, "trace-system-design-missing", row_path, "local design relation must point back to this file#fragment; repair the third cell")
         return None
     return Relation(
         upstream_path.relative_to(root).as_posix(),
@@ -1239,6 +1316,63 @@ def na_evidence_ref_is_readable(
     return False
 
 
+def check_validation_method(root: Path, source: Path, method: str, path: str,
+                            errors: list[str], follow_symlinks: bool,
+                            read_target: TargetTextReader, *, allow_evidence: bool = False) -> None:
+    """Check every declared source, independently of mapping completeness."""
+    if method.strip().casefold().startswith("n/a"):
+        if not na_is_complete(method):
+            fail(errors, "trace-na-format", path, "add the reason and scope for N/A; the legacy disposition field template is optional")
+        evidence_match = re.search(
+            r"(?:^|[:：;；,，])\s*evidence_ref\s*=\s*(?P<value>[^;；,，]+)",
+            method,
+            re.IGNORECASE,
+        )
+        if evidence_match is not None:
+            if not na_evidence_ref_is_readable(
+                root,
+                source,
+                evidence_match.group("value"),
+                follow_symlinks=follow_symlinks,
+                read_target=read_target,
+            ):
+                fail(errors, "trace-na-evidence-invalid", path, "declared evidence_ref must resolve to a readable repository path#fragment or canonical Issue/comment; repair its target")
+        return
+    source_links = link_nodes(method)
+    if not source_links:
+        fail(errors, "trace-validation-format", path, "add a test/manual source link when available; a prose validation plan is advisory, not proof of execution")
+        return
+    valid_sources = []
+    for target in source_links:
+        if allow_evidence and external_target(split_link_target(target)[0]):
+            # A combined methods/evidence column may cite external results.
+            # Their truth remains human-reviewed, as with other remote links.
+            continue
+        resolved, _fragment = validate_reference(
+            root,
+            source,
+            target,
+            path=path,
+            code="trace-validation-missing",
+            errors=errors,
+            require_fragment=False,
+            markdown_target=False,
+            follow_symlinks=follow_symlinks,
+            read_target=read_target,
+        )
+        if resolved is not None and is_test_or_manual_source(resolved, source):
+            valid_sources.append(resolved)
+        elif resolved is not None and not allow_evidence:
+            fail(
+                errors,
+                "trace-validation-source-invalid",
+                path,
+                "validation source must be a repository-owned test/manual file, not a design, product, or other document; repair the fourth cell",
+            )
+    if not valid_sources and allow_evidence:
+        fail(errors, "trace-validation-format", path, "add a readable validation method when applicable; evidence links alone do not prove execution")
+
+
 def check_design_content(
     root: Path,
     source: Path,
@@ -1249,19 +1383,22 @@ def check_design_content(
 ) -> list[str]:
     errors: list[str] = check_declared_trace_references(root, source, text, read_target, follow_symlinks)
     relative = source.relative_to(root).as_posix()
-    demand = table_after_heading(text, DEMAND_HEADING)
-    validation = table_after_heading(text, VALIDATION_HEADING)
-    if demand is None or not demand.rows or not is_demand_table(demand):
-        fail(errors, "trace-upstream-missing", relative, "add a 2.1 demand-allocation table with exact upstream path#fragment and local design path#fragment relations")
-    if validation is None or not validation.rows or not is_validation_table(validation):
-        fail(errors, "trace-validation-missing", relative, "add an 11.1 validation mapping table with an exact test/manual source or complete N/A disposition")
-    if (
-        demand is None
-        or validation is None
-        or not is_demand_table(demand)
-        or not is_validation_table(validation)
-    ):
-        return errors
+    # A missing/renamed table cannot conceal an explicit broken Markdown link.
+    # Binary/assets and non-document paths are covered by the repository link
+    # checker; this reader validates declared document/fragment relationships.
+    for link in parse_markdown_links(without_html_comments(text)):
+        target, fragment = split_link_target(link.target)
+        if external_target(target) or (not fragment and not target.endswith(".md")):
+            continue
+        validate_reference(root, source, link.target, path=f"{relative}:{link.line}",
+                           code="trace-declared-link-invalid", errors=errors,
+                           require_fragment=False, markdown_target=False,
+                           follow_symlinks=follow_symlinks, read_target=read_target)
+    demand, validation, legacy_dual = traceability_tables(text)
+    if not demand.rows:
+        fail(errors, "trace-mapping-format", relative, "add a readable requirement/design/validation association when useful; an exact table or heading is not required")
+    if not validation.rows:
+        fail(errors, "trace-validation-format", relative, "add readable validation methods and remaining scope; a second mapping table is not required")
 
     relations: list[Relation] = []
     for row_number, cells in demand.rows:
@@ -1287,14 +1424,17 @@ def check_design_content(
     validation_keys: set[tuple[str, str]] = set()
     for row_number, cells in validation.rows:
         row_path = f"{relative}:{row_number}"
-        if len(cells) != VALIDATION_ROW_CELLS or any(not cell.strip() for cell in cells):
+        if len(cells) < 4:
             fail(
                 errors,
                 "trace-validation-row-invalid",
                 row_path,
-                "validation mapping row must contain exactly six non-empty cells; repair the row shape and every required column",
+                "add recognizable upstream, local design and validation cells; column count is not an admission requirement",
             )
             continue
+        check_validation_method(root, source, cells[3], row_path, errors,
+                                follow_symlinks, read_target,
+                                allow_evidence=len(cells) > 6 and bool(re.search(r"证据|evidence", cells[6], re.I)))
         upstream_path, upstream_fragment = first_valid_link(
             root,
             source,
@@ -1319,6 +1459,8 @@ def check_design_content(
             follow_symlinks=follow_symlinks,
             read_target=read_target,
         )
+        if local_path is not None and local_path.resolve() != source.resolve():
+            fail(errors, "trace-validation-missing", row_path, "local design validation mapping must point to this file#fragment; repair the design cell")
         if upstream_path is None or upstream_fragment is None or local_path is None or local_fragment is None:
             continue
         upstream_text = read_target(upstream_path) or ""
@@ -1329,65 +1471,16 @@ def check_design_content(
             fail(errors, "trace-validation-identity-mismatch", row_path, "repair validation row label/Trace refs IDs to match its addressed upstream clause")
             continue
         if local_path.resolve() != source.resolve():
-            fail(errors, "trace-validation-missing", row_path, "local design validation mapping must point to this file#fragment; repair the second cell")
             continue
         relation_key = (upstream_path.relative_to(root).as_posix() + f"#{upstream_fragment}", local_fragment)
         if relation_key in validation_keys:
             fail(errors, "trace-slot-cardinality", row_path, "each validation relation must appear exactly once; repair duplicate rows")
-        if not any(
+        if legacy_dual and relations and not any(
             item.upstream_path + f"#{item.upstream_fragment}" == relation_key[0] and item.local_fragment == local_fragment
             for item in relations
         ):
             fail(errors, "trace-validation-missing", row_path, "validation row has no matching demand-allocation relation; repair upstream/local fragments")
         validation_keys.add(relation_key)
-        method = cells[3]
-        if method.strip().casefold().startswith("n/a"):
-            if not na_is_complete(method):
-                fail(errors, "trace-na-incomplete", row_path, "complete N/A with reason, scope, owner_role, evidence_ref, and re-evaluate fields; repair the fourth cell")
-            else:
-                evidence_match = re.search(
-                    r"(?:^|[:：;；,，])\s*evidence_ref\s*=\s*(?P<value>[^;；,，]+)",
-                    method,
-                    re.IGNORECASE,
-                )
-                if evidence_match is None or not na_evidence_ref_is_readable(
-                    root,
-                    source,
-                    evidence_match.group("value"),
-                    follow_symlinks=follow_symlinks,
-                    read_target=read_target,
-                ):
-                    fail(errors, "trace-na-incomplete", row_path, "evidence_ref must resolve to one readable repository path#fragment or canonical eng-cc/oasis7 Issue/comment; repair the fourth cell")
-            continue
-        source_links = link_nodes(method)
-        if not source_links:
-            fail(errors, "trace-validation-missing", row_path, "link an exact test/manual source or use a complete N/A disposition; repair the fourth cell")
-            continue
-        valid_sources = []
-        for target in source_links:
-            resolved, _fragment = validate_reference(
-                root,
-                source,
-                target,
-                path=row_path,
-                code="trace-validation-missing",
-                errors=errors,
-                require_fragment=False,
-                markdown_target=False,
-                follow_symlinks=follow_symlinks,
-                read_target=read_target,
-            )
-            if resolved is not None and is_test_or_manual_source(resolved, source):
-                valid_sources.append(resolved)
-            elif resolved is not None:
-                fail(
-                    errors,
-                    "trace-validation-source-invalid",
-                    row_path,
-                    "validation source must be a repository-owned test/manual file, not a design, product, or other document; repair the fourth cell",
-                )
-        if len(valid_sources) != 1:
-            fail(errors, "trace-validation-source-invalid", row_path, "validation source must resolve to exactly one repository-owned test/manual file; repair the fourth cell")
 
     # Keep the comparison explicit rather than relying on row order.
     expected_pairs = {
@@ -1396,9 +1489,9 @@ def check_design_content(
     }
     missing = expected_pairs - validation_keys
     extra = validation_keys - expected_pairs
-    if missing:
+    if missing and legacy_dual and validation_keys:
         fail(errors, "trace-validation-missing", relative, "add validation rows for every local design relation: " + ", ".join(f"{upstream}->{local}" for upstream, local in sorted(missing)) + "; repair the validation table")
-    if extra:
+    if extra and legacy_dual and relations:
         fail(errors, "trace-slot-cardinality", relative, "remove validation rows without a demand-allocation relation: " + ", ".join(f"{upstream}->{local}" for upstream, local in sorted(extra)) + "; repair the validation table")
     return errors
 
@@ -1440,7 +1533,10 @@ def has_traceability_heading(text: str) -> bool:
     silently hide broken contracts. Comment/code examples are not adoption.
     """
     return any(DEMAND_HEADING.match(line) or VALIDATION_HEADING.match(line)
-               for _, line in visible_lines(text))
+               for _, line in visible_lines(text)) or any(
+        {"upstream", "design"} <= semantic_table_columns(table).keys()
+        for table in markdown_tables(text)
+    )
 
 
 def design_requires_traceability(path: str, text: str, previous_text: str | None = None) -> bool:
@@ -1565,7 +1661,7 @@ def main() -> int:
     parser.add_argument("--head")
     parser.add_argument("--worktree", action="store_true")
     parser.add_argument("--full-corpus", action="store_true", help="Inventory current doc/ topic *.design.md and module-root design.md separately (all lifecycles); historical findings warn, execution errors fail; incompatible with base/head/worktree")
-    parser.add_argument("--warn-only", action="store_true", help="Report documentation findings without blocking; execution errors still fail")
+    parser.add_argument("--warn-only", action="store_true", help="Legacy advisory option; affected links, identities and declared relation errors remain blocking")
     args = parser.parse_args()
     root = args.repo_root.resolve()
     if args.full_corpus:
@@ -1650,7 +1746,7 @@ def main() -> int:
             findings = [finding for finding in findings if finding not in old_findings]
         errors.extend(findings)
     if errors:
-        return report_findings(errors, args.warn_only)
+        return report_classified_findings(errors, ADVISORY_CODES)
     print(f"system-design-traceability: OK (checked {len(selected)} changed/new system designs)")
     return 0
 

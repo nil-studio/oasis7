@@ -80,6 +80,40 @@ def workflow_contract_view(workflow):
 WORKFLOW = workflow_contract_view(RAW_WORKFLOW)
 JOBS = workflow_jobs(WORKFLOW)
 
+def workflow_step_script(job, name):
+    step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                if 'name: ' + name + '\n' in step)
+    if '        run: |\n' in step:
+        return textwrap.dedent(step.split('        run: |\n', 1)[1])
+    return step.split('        run: ', 1)[1].splitlines()[0] + '\n'
+
+
+def project_selection(directory, plan=None):
+    root = Path(directory)
+    selection = root / 'selection.json'
+    if plan is not None:
+        selection.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    output = root / 'projection-output'
+    output.unlink(missing_ok=True)
+    result = subprocess.run(['bash', '-euo', 'pipefail', '-c',
+        workflow_step_script(JOBS['select'], 'Publish workflow scheduling projection')],
+        env=dict(os.environ, RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output)), text=True, capture_output=True)
+    if result.returncode:
+        raise AssertionError(result.stdout + result.stderr)
+    return json.loads(dict(line.split('=', 1) for line in output.read_text().splitlines())['plan'])
+
+
+def large_transport_plan():
+    return dict(scope='targeted', execution_profile='pr-fast', fast_plan_version=1,
+        fast_execution_version=1, ordinary_execution='artifact', ordinary_artifact_delivery_version=1,
+        ordinary_artifact_partition_version=1, oasis7_required_packages=['oasis7_runtime'],
+        custody_execution_version=1, custody_node_shards=[0, 1, 2, 3], python_control_contract_version=1,
+        groups=['baseline', 'workspace_support'], source_sha='a' * 40, tested_sha='b' * 40,
+        policy_sha='c' * 40, check_inventory_version=1, fast_plan_exceptions=['preserve every exception'],
+        architecture=dict(version=1, mode='full', packages=[], base='c' * 40, source='a' * 40, tested='b' * 40),
+        reasons=["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000])
+
+
 TRUSTED_SOURCE_WRITERS = (
     'oasis7-test-build-trusted', 'formal-debug-build-trusted',
     'formal-endpoint-build-trusted', 'full-regression',
@@ -882,9 +916,11 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
 p=argparse.ArgumentParser()
 for key in ('base-ref','head-ref','test-ref','github-output','output'): p.add_argument('--'+key)
 a=p.parse_args()
-plan={'scope':'full','groups':json.loads(pathlib.Path(__file__).with_name('ci-required-scope.json').read_text())['groups']}
+plan={'scope':'full','groups':json.loads(pathlib.Path(__file__).with_name('ci-required-scope.json').read_text())['groups'],
+      'architecture':{'version':1,'mode':'full','packages':[],
+                      'base':a.base_ref,'source':a.head_ref,'tested':a.test_ref}}
 pathlib.Path(a.output).write_text(json.dumps(plan))
-with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(plan)+'\\n')
+with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(plan)+'\\nfuture_contract=preserved\\n')
 ''')
         git('add', '.')
         git('commit', '-qm', 'trusted policy')
@@ -902,9 +938,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             git('checkout', '-q', 'main')
             source = policy
         requested = source if source_ref == 'candidate' else source_ref
-        step = JOBS['select'].split('      - id: select\n', 1)[1].split('      - id: formal-select\n', 1)[0]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        script = workflow_step_script(JOBS['select'], 'Select using trusted baseline Git data')
         output = Path(directory) / 'github-output'
+        (Path(directory) / 'selection-outputs.txt').write_text('stale_output=must-not-survive\n')
         environment = dict(os.environ, EVENT_NAME=event, SOURCE_REF=requested,
             SOURCE_SHA=source if candidate else policy, BASE_SHA=policy, WORKFLOW_SHA=source if candidate else policy,
             GITHUB_SHA=source if candidate else policy,
@@ -915,8 +951,154 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         result = subprocess.run(['bash', '-c', script], cwd=repo, env=environment,
                                 text=True, capture_output=True)
         values = dict(line.split('=', 1) for line in output.read_text().splitlines()) if output.exists() else {}
-        plan = json.loads(values['plan']) if 'plan' in values else None
+        self.assertNotIn('plan', values, 'the trusted planner must not expose the complete plan as an Actions output')
+        self.assertNotIn('stale_output', values)
+        plan = None
+        if result.returncode == 0:
+            plan = json.loads((Path(directory) / 'selection.json').read_text())
+            values['plan'] = json.dumps(project_selection(directory), separators=(',', ':'))
         return result, values, plan, policy, source
+
+    def test_large_workflow_projection_preserves_fields_and_binds_complete_file_and_identity(self):
+        fields = {'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
+                  'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+                  'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards',
+                  'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
+                  'check_inventory_version', 'fast_plan_exceptions'}
+        consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
+        self.assertLessEqual(consumers, fields)
+        self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
+        guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
+        self.assertEqual(guard, workflow_step_script(JOBS['explicit-full-gate'], 'Validate complete selection handoff'))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = large_transport_plan()
+            projected = project_selection(root, plan)
+            raw = (root / 'selection.json').read_bytes()
+            self.assertGreater(len(raw), 128 * 1024)
+            self.assertLess(len(json.dumps(projected).encode()), 16 * 1024)
+            self.assertEqual(set(projected), fields | {'workflow_projection_version', 'selection_sha256'})
+            self.assertEqual({key: projected[key] for key in fields}, {key: plan[key] for key in fields})
+            self.assertEqual(project_selection(root), projected)
+            self.assertEqual((root / 'selection.json').read_bytes(), raw)
+            environment = dict(os.environ, RUNNER_TEMP=directory, SOURCE_SHA=plan['source_sha'],
+                               TESTED_SHA=plan['tested_sha'], POLICY_SHA=plan['policy_sha'])
+            def invoke(value):
+                return subprocess.run(['bash', '-euo', 'pipefail', '-c', guard], cwd=root,
+                    env=dict(environment, WORKFLOW_PLAN=json.dumps(value)), text=True, capture_output=True)
+            result = invoke(projected)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for key in fields:
+                for broken in ({k: v for k, v in projected.items() if k != key},
+                               projected | {key: {'changed': True}}):
+                    with self.subTest(field=key, missing=key not in broken):
+                        self.assertNotEqual(invoke(broken).returncode, 0)
+            for change in ({'workflow_projection_version': True}, {'selection_sha256': '0' * 64},
+                           {'unknown_projection_field': 1}, {'fast_plan_version': True}):
+                self.assertNotEqual(invoke(projected | change).returncode, 0)
+            (root / 'selection.json').write_bytes(raw + b' ')
+            self.assertNotEqual(invoke(projected).returncode, 0)
+            for key in ('source_sha', 'tested_sha', 'policy_sha'):
+                with self.subTest(identity=key):
+                    changed = project_selection(root, plan | {key: '0' * 40})
+                    self.assertNotEqual(invoke(changed).returncode, 0)
+            legacy = {key: plan[key] for key in ('scope', 'groups', 'architecture', 'reasons')}
+            old = project_selection(root, legacy)
+            result = invoke(old)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for change in ({'base': '0' * 40}, {'source': None}, {'tested': '0' * 40}):
+                changed = project_selection(root, legacy | {'architecture': legacy['architecture'] | change})
+                self.assertNotEqual(invoke(changed).returncode, 0)
+            changed = project_selection(root, {key: value for key, value in legacy.items() if key != 'architecture'})
+            self.assertNotEqual(invoke(changed).returncode, 0)
+            (root / 'selection.json').unlink()
+            self.assertNotEqual(invoke(projected).returncode, 0)
+            self.assertFalse((root / 'transport-must-not-execute').exists())
+
+    def test_required_gate_runs_real_json_cli_with_large_file_and_preserves_failure(self):
+        gate = JOBS['required-gate']
+        script = (workflow_step_script(gate, 'Validate complete selection handoff') + '\n'
+                  + workflow_step_script(gate, 'Validate all expected results'))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            authority = root / 'ci-authority'
+            authority.mkdir()
+            validator = authority / 'ci-required-result.py'
+            source = (ROOT / 'scripts/ci-required-result.py').read_text()
+            (authority / 'ci-required-scope.json').write_text(json.dumps(CONFIG))
+            (authority / 'adjacent_fixture.py').write_text('VALUE = "authority sibling"\n')
+            validator.write_text('from adjacent_fixture import VALUE\nassert VALUE == "authority sibling"\n' + source)
+            plan = large_transport_plan()
+            projected = project_selection(root, plan)
+            needs = {group.replace('_', '-'): {'result': 'success' if group in plan['groups'] else 'skipped'}
+                     for group in CONFIG['groups']}
+            needs['select'] = {'result': 'success', 'outputs': {'plan': json.dumps(projected)}}
+            environment = dict(os.environ, RUNNER_TEMP=directory, SOURCE_SHA=plan['source_sha'],
+                TESTED_SHA=plan['tested_sha'], POLICY_SHA=plan['policy_sha'], WORKFLOW_PLAN=json.dumps(projected),
+                NEEDS=json.dumps(needs))
+            def invoke(**changes):
+                return subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                    env=environment | changes, text=True, capture_output=True)
+            result = invoke()
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('All selected CI groups succeeded.', result.stdout)
+            self.assertLess(len(environment['NEEDS'].encode()), 16 * 1024)
+            for result_name in ('failure', 'skipped', 'cancelled'):
+                with self.subTest(result=result_name):
+                    broken = needs | {'workspace-support': {'result': result_name}}
+                    self.assertNotEqual(invoke(NEEDS=json.dumps(broken)).returncode, 0)
+            self.assertNotEqual(invoke(NEEDS=json.dumps(needs | {'extra-job': {'result': 'failure'}})).returncode, 0)
+            self.assertNotEqual(invoke(NEEDS='[]').returncode, 0)
+            missing = project_selection(root, plan | {'groups': ['workspace_support']})
+            self.assertNotEqual(invoke(WORKFLOW_PLAN=json.dumps(missing)).returncode, 0)
+            project_selection(root, plan)
+            for prefix, status in (('raise SystemExit(19)\n', 19), ('raise RuntimeError("authority failed")\n', 1)):
+                validator.write_text(prefix + source)
+                self.assertEqual(invoke().returncode, status)
+            self.assertFalse((root / 'transport-must-not-execute').exists())
+
+    def test_projection_keeps_all_needs_aggregates_below_process_argument_limits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            authority = root / 'ci-authority'
+            authority.mkdir()
+            (authority / 'ci-formal-plan.py').write_bytes((ROOT / 'scripts/ci-formal-plan.py').read_bytes())
+            plan = large_transport_plan()
+            plan['tested_sha'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+            del plan['custody_execution_version']
+            projected = project_selection(root, plan)
+            selection = {'result': 'success', 'outputs': {'plan': json.dumps(projected)}}
+            needs = dict(select=selection, **{name: {'result': 'skipped'} for name in (
+                'formal-test-build', 'formal-test-build-trusted', 'formal-process-tests')})
+            script = workflow_step_script(JOBS['formal-process'], 'Validate all formal process results')
+            environment = dict(os.environ, RUNNER_TEMP=directory, SELECTED='false', NEEDS=json.dumps(needs))
+            result = subprocess.run(['bash', '-euc', script], env=environment, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('not_selected', result.stdout)
+            needs['formal-process-tests']['result'] = 'failure'
+            result = subprocess.run(['bash', '-euc', script], env=environment | {'NEEDS': json.dumps(needs)},
+                                    text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            support = dict(select=selection, **{name: {'result': 'skipped'} for name in (
+                'workspace-support-other', 'custody-native', 'custody-wasm-production', 'custody-wasm-approval',
+                'custody-native-contracts', 'custody-node')})
+            support['workspace-support-legacy'] = {'result': 'success'}
+            script = workflow_step_script(JOBS['workspace-support'], 'Require all selected support stages and complete file inventory')
+            environment['SUPPORT_NEEDS'] = json.dumps(support)
+            result = subprocess.run(['bash', '-euc', script], cwd=ROOT, env=environment, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            support['unexpected'] = {'result': 'success'}
+            result = subprocess.run(['bash', '-euc', script], cwd=ROOT,
+                env=environment | {'SUPPORT_NEEDS': json.dumps(support)}, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            observation = workflow_step_script(JOBS['select'], 'Record engineering job observation')
+            result = subprocess.run(['bash', '-euc', observation], cwd=root,
+                env=dict(environment, TELEMETRY_NEEDS=json.dumps({'select': selection}), TELEMETRY_MATRIX='{}',
+                         GITHUB_WORKSPACE=directory, GITHUB_JOB='formal-process', GITHUB_REPOSITORY='fixture/oasis7',
+                         GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='1'), text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            row = json.loads(result.stdout.strip().split('=', 1)[1])
+            self.assertEqual(row['needs'], {'select': 'success'})
 
     def test_manual_and_scheduled_selection_expands_complete_fixed_inventory(self):
         for event in ('workflow_dispatch', 'schedule'):
@@ -946,6 +1128,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertNotIn('fast_plan_version', plan)
             self.assertEqual(set(plan['groups']), set(CONFIG['groups']))
             self.assertEqual(values['policy_sha'], policy)
+            self.assertEqual(values['future_contract'], 'preserved')
         with tempfile.TemporaryDirectory() as directory:
             result, values, plan, policy, source = self.run_selection(directory, legacy=True)
             self.assertNotEqual(result.returncode, 0)
@@ -1001,27 +1184,31 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             'candidate-full-regression', *(group.replace('_', '-') for group in CONFIG['groups'])})
         self.assertEqual(len(dependencies), len(set(dependencies)))
         self.assertIn('always()', gate)
-        self.assertIn('ci-required-result.py" --full', gate)
-        self.assertIn('ci-full-result.py" produce', gate)
+        self.assertIn("trusted_main('ci-required-result.py', ['--full'", gate)
+        self.assertIn("trusted_main('ci-full-result.py', ['produce'", gate)
         self.assertIn('name: ci-full-result-${{ github.run_id }}-${{ github.run_attempt }}', gate)
-        self.assertNotIn('if: always()', gate.split('ci-full-result.py" produce', 1)[1])
+        self.assertNotIn('if: always()', gate.split("trusted_main('ci-full-result.py'", 1)[1])
         self.assertIn('if-no-files-found: error', gate)
 
     def test_full_gate_produces_verifiable_policy_bound_receipt_from_real_authority(self):
         import runpy
         helper = runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))
         gate = JOBS['explicit-full-gate']
-        step = gate.split('      - name: Require complete full inventory and exact source\n', 1)[1]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1].split('      - uses:', 1)[0])
+        script = (workflow_step_script(gate, 'Validate complete selection handoff') + '\n'
+                  + workflow_step_script(gate, 'Require complete full inventory and exact source'))
         for event, requested in (('schedule', ''), ('workflow_dispatch', 'candidate')):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
                 result, outputs, plan, policy, source = self.run_selection(
                     directory, event=event, source_ref=requested, real_receipt=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                plan['reasons'] = ["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000]
+                projected = project_selection(directory, plan)
+                self.assertGreater((Path(directory) / 'selection.json').stat().st_size, 128 * 1024)
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
                 needs = {group.replace('_', '-'): {'result': 'success'} for group in CONFIG['groups']}
-                needs.update(select={'result': 'success'}, **{'oasis7-test-build': {'result': 'success'}})
+                needs.update(select={'result': 'success', 'outputs': {'plan': json.dumps(projected)}},
+                             **{'oasis7-test-build': {'result': 'success'}})
                 trusted = source == policy
                 needs['full-regression'] = {'result': 'success' if trusted else 'skipped'}
                 needs['candidate-full-regression'] = {'result': 'skipped' if trusted else 'success'}
@@ -1032,7 +1219,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     GITHUB_RUN_ID='123', GITHUB_RUN_ATTEMPT='2',
                     EVENT_NAME=event, REF='refs/heads/main', WORKFLOW_SHA=policy, SOURCE_SHA=source,
                     RUN_MODE='full' if event == 'workflow_dispatch' else '',
-                    PLAN=json.dumps(plan), NEEDS=json.dumps(needs))
+                    TESTED_SHA=source, POLICY_SHA=policy, WORKFLOW_PLAN=json.dumps(projected),
+                    NEEDS=json.dumps(needs))
                 result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
                     cwd=repo, env=environment, text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -1041,6 +1229,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertEqual(receipt['context']['run_attempt'], 2)
                 self.assertEqual(receipt['plan']['source_sha'], source)
                 self.assertEqual(receipt['plan']['policy_sha'], policy)
+                self.assertEqual(receipt['plan'], plan)
+                self.assertEqual(receipt['needs'], needs)
+                self.assertFalse((repo / 'transport-must-not-execute').exists())
                 digest = helper['definition_digest'](repo, policy)
                 self.assertEqual(receipt['definition_sha256'], digest)
                 run = dict(id=123, run_attempt=2, workflow_id=10, path='.github/workflows/rust.yml',
@@ -1058,6 +1249,15 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                         cwd=repo, env=dict(environment, NEEDS=json.dumps(failed)), text=True, capture_output=True)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(receipt_path.exists())
+                for change in ({'groups': plan['groups'][1:]}, {'execution_profile': 'pr-fast'},
+                               {'source_sha': '0' * 40}):
+                    with self.subTest(invalid_plan=change):
+                        changed_projection = project_selection(directory, plan | change)
+                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                            cwd=repo, env=dict(environment, WORKFLOW_PLAN=json.dumps(changed_projection)),
+                            text=True, capture_output=True)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse(receipt_path.exists())
 
     def test_command_center_is_reusable_and_required(self):
         workflow = (ROOT / '.github/workflows/command-center.yml').read_text()
@@ -1077,25 +1277,23 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertIn('command_center', CONFIG['package_groups'][package])
 
     def test_corpus_data_uses_baseline_and_implementation_uses_platforms(self):
-        workflow = (ROOT / '.github/workflows/document-corpus-platform.yml').read_text()
-        for path in ('doc/.governance/document-corpus-inventory.json',
-                     'doc/.governance/document-corpus/**', 'doc/testing/evidence/inventory.json'):
-            self.assertNotIn('      - ' + path + '\n', workflow)
-        for path in ('scripts/document_corpus.py', 'scripts/document_evidence_policy.py',
-                     'scripts/document-corpus-inventory*', 'scripts/doc-evidence-inventory-check*',
-                     'scripts/fixtures/document-corpus-v3/**', '.gitattributes', '.gitignore'):
-            self.assertEqual(workflow.count('      - ' + path + '\n'), 2)
-        for os in ('ubuntu-24.04', 'macos-latest', 'windows-latest'):
-            self.assertIn('- ' + os, workflow)
+        for path in (
+            '.github/workflows/document-corpus-platform.yml',
+            'doc/.governance/document-corpus-inventory.json',
+            'doc/.governance/document-corpus',
+            'doc/testing/evidence/inventory.json',
+            'scripts/document_corpus.py',
+            'scripts/document-corpus-inventory.py',
+            'scripts/document-corpus-inventory-check.py',
+            'scripts/doc-evidence-inventory-check.py',
+        ):
+            self.assertFalse((ROOT / path).exists(), path)
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         self.assertIn('baseline) run_required_gate_checks', driver)
         baseline = driver.split('run_required_gate_checks() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('run_product_doc_governance_check', baseline)
         governance = (ROOT / 'scripts/doc-governance-check.sh').read_text()
-        self.assertIn('scripts/document-corpus-inventory-check.py', governance)
-        checker = (ROOT / 'scripts/document-corpus-inventory-check.py').read_text()
-        self.assertIn('dc.validate_evidence(view, model)', checker)
-        self.assertIn('evidence_policy.validate_evidence_policy(view, model, baseline)', checker)
+        self.assertNotIn('scripts/document-corpus-inventory-check.py', governance)
 
     def test_baseline_document_range_binds_ordinary_event_and_fixed_full_source(self):
         baseline = JOBS['baseline']
@@ -1771,7 +1969,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
                 '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
-                + 'printf "%s" "$OASIS7_CI_ARCHITECTURE_PLAN" > "$PLAN_LOG"\nexit "$DRIVER_EXIT"\n')
+                + 'cat "$OASIS7_CI_ARCHITECTURE_PLAN_FILE" > "$PLAN_LOG"\nexit "$DRIVER_EXIT"\n')
             for sample, groups in (
                 ('runtime-world', ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node')),
                 ('game-client-private-unix', ('baseline', 'rust_baseline', 'oasis7_required')),
@@ -1779,7 +1977,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             ):
                 selection = root / 'previews' / sample / 'selection.json'
                 selection.parent.mkdir(parents=True)
-                selection.write_text(json.dumps({'sample': sample}))
+                data = {'sample': sample, 'reasons': ["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000]}
+                selection.write_text(json.dumps(data))
+                self.assertGreater(selection.stat().st_size, 128 * 1024)
                 for group in groups:
                     partitions = ('oasis7_runtime', 'oasis7_world_state') if (
                         sample == 'runtime-world' and group == 'oasis7_required') else ('all',)
@@ -1799,8 +1999,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             expected.extend(['--repo-root', str(root)])
                             with self.subTest(sample=sample, group=group, partition=partition, driver_exit=code):
                                 self.assertEqual(args, expected)
-                                self.assertEqual(json.loads((root / 'plan-log').read_text()), {'sample': sample})
+                                self.assertEqual(json.loads((root / 'plan-log').read_text()), data)
                                 self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                                self.assertFalse((root / 'transport-must-not-execute').exists())
 
     def test_distfs_workflow_binds_new_handoffs_and_preserves_old_source_ref_cli(self):
         job = JOBS['distfs']
@@ -2492,7 +2693,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ])
         self.assertIn("needs.collect-wasm-summaries.result == 'success'", jobs['verify-wasm-determinism'])
         self.assertNotIn('continue-on-error:', workflow)
-        for filename in ('wasm-determinism-gate.yml', 'document-corpus-platform.yml'):
+        for filename in ('wasm-determinism-gate.yml',):
             workflow = (ROOT / '.github/workflows' / filename).read_text()
             self.assertIn("group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}", workflow)
             self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)

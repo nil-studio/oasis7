@@ -19,6 +19,33 @@ spec.loader.exec_module(checker)
 
 
 class RepositoryUpstreams(unittest.TestCase):
+    def test_explicit_invalid_plan_file_and_json_fail_before_inspection(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-architecture-input-') as temp:
+            plan_path = Path(temp) / 'selection "quoted"\ninput.json'
+            for raw in ('null', '[]', 'false', '0', '""', '{'):
+                plan_path.write_text(raw, encoding='utf-8')
+                for option, value in (('--plan-file', str(plan_path)), ('--plan', raw)):
+                    with self.subTest(raw=raw, option=option):
+                        result = subprocess.run(
+                            ['bash', '-c', 'exec "$@"', 'architecture-input', sys.executable,
+                             str(HERE / 'cargo-dev-architecture.py'), option, value],
+                            capture_output=True, text=True, check=False)
+                        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                        report = json.loads(result.stdout)
+                        self.assertEqual(len(report['results']), 1, report)
+                        self.assertEqual(report['results'][0]['status'], 'inspection_error')
+                        reason = report['results'][0]['reason']
+                        if raw == '{':
+                            self.assertIn('Expecting property name', reason)
+                        else:
+                            self.assertEqual(reason, 'trusted selection plan must be an object')
+            plan_path.unlink()
+            missing = subprocess.run(
+                [sys.executable, str(HERE / 'cargo-dev-architecture.py'), '--plan-file', str(plan_path)],
+                capture_output=True, text=True, check=False)
+            self.assertEqual(missing.returncode, 1, missing.stdout + missing.stderr)
+            self.assertIn('No such file', json.loads(missing.stdout)['results'][0]['reason'])
+
     def test_markdown_rules_reference_defined_anchors(self):
         rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
         for rule in rules:
@@ -515,6 +542,30 @@ class OrdinaryTargetBuildPolicy(unittest.TestCase):
         return subprocess.run([sys.executable, str(HERE / 'cargo-dev-architecture.py'), '--repo-root', str(self.root),
             '--rules', str(self.root / 'rules.json'), '--plan', json.dumps(plan), *args], text=True, capture_output=True,
             env=dict(os.environ, SOURCE_SHA=self.sha) | environment)
+
+    def test_large_plan_file_crosses_shell_without_weakening_architecture_identity_or_coverage(self):
+        plan = self.plan()
+        plan['reasons'] = ["quoted ' \" \\\n$(touch transport-must-not-execute)\nPY\n" * 4000]
+        selection = self.root / 'selection \'"\n.json'
+        self.write('rules.json', json.dumps(self.config))
+        def invoke(selected, *extra):
+            selection.write_text(json.dumps(selected), encoding='utf-8')
+            self.assertGreater(selection.stat().st_size, 128 * 1024)
+            return subprocess.run(['bash', '-euc', 'exec "$@"', 'architecture-file-test',
+                sys.executable, str(HERE / 'cargo-dev-architecture.py'), '--repo-root', str(self.root),
+                '--rules', str(self.root / 'rules.json'), '--plan-file', str(selection), *extra],
+                text=True, capture_output=True, cwd=self.root, env=dict(os.environ, SOURCE_SHA=self.sha))
+        result = invoke(plan)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.root / 'transport-must-not-execute').exists())
+        for change in ({'source_sha': '0' * 40}, {'execution_profile': 'unknown'},
+                       {'groups': ['baseline', 'oasis7_required']},
+                       {'fast_plan_exceptions': ['coverage must not be deferred']}):
+            with self.subTest(change=change):
+                result = invoke(plan | change)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(json.loads(result.stdout)['results'][0]['status'], 'inspection_error')
+        self.assertNotEqual(invoke(plan, '--plan', '{}').returncode, 0)
 
     def test_real_fast_target_passes_while_full_only_and_upper_consumer_errors_are_deferred(self):
         for source in ('#[cfg(feature="full")] compile_error!("full compatibility sentinel");\n',

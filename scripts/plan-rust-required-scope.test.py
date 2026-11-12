@@ -33,8 +33,100 @@ PR4889_DOC_PATHS = (
     'doc/.governance/document-corpus/objects/fd/fd8aef2ec18a5cd959fe1a23c9ae1a1d6dd95c63b6de435b6eb1472a5717b1ec.json',
 )
 
+RETIREMENT_INPUT_CONTRACTS = {
+    '.gitattributes': None,
+    'scripts/unified-world-code-terminology-scan.sh': {'baseline'},
+    'scripts/unified-world-code-terminology-scan.test.sh': {'baseline'},
+    'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json':
+        {'baseline', 'doc_checker_contracts'},
+    'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json':
+        {'baseline', 'doc_checker_contracts'},
+    'scripts/fixtures/document-corpus-v3/legacy/inventory.json':
+        {'baseline', 'doc_checker_contracts'},
+    'scripts/fixtures/document-corpus-v3/legacy/manifest.json':
+        {'baseline', 'doc_checker_contracts'},
+}
+
 
 class Selection(unittest.TestCase):
+    def test_retirement_input_exact_ownership_covers_add_modify_delete_and_rename(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for index, (path, expected) in enumerate(RETIREMENT_INPUT_CONTRACTS.items()):
+                renamed = f'doc/retirement-input-{index}.md'
+                for operation in ('add', 'modify', 'rename-out', 'rename-back', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        elif operation == 'rename-out':
+                            self.git('mv', path, renamed)
+                        elif operation == 'rename-back':
+                            self.git('mv', renamed, path)
+                        else:
+                            self.write(path, '# synthetic ownership input ' + operation + '\n')
+                        head = self.commit()
+                        plan = selector.select(config, self.base, head)
+                        self.assertEqual(plan['scope'], 'full' if expected is None else 'targeted')
+                        self.assertEqual(set(plan['groups']),
+                                         set(config['groups']) if expected is None else expected)
+                        self.base = head
+
+    def test_retirement_input_neighbors_and_unknown_rename_endpoints_stay_rejected(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        neighbors = (
+            '.gitattributes.local',
+            'scripts/.gitattributes',
+            'scripts/unified-world-code-terminology-extra.sh',
+            'scripts/unified-world-code-terminology-scan-extra.test.sh',
+            'scripts/fixtures/document-corpus-v3/legacy/extra.json',
+            'scripts/fixtures/document-corpus-v3/legacy/nested/inventory.json',
+            'scripts/fixtures/document-corpus-v3/inventory.json',
+        )
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in neighbors:
+                for operation in ('add', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        else:
+                            self.write(path, '# unregistered neighbor\n')
+                        head = self.commit()
+                        with self.assertRaises(selector.UnknownInputsError) as caught:
+                            selector.select(config, self.base, head)
+                        self.assertIn(path, str(caught.exception))
+                        self.base = head
+            registered = 'scripts/fixtures/document-corpus-v3/legacy/inventory.json'
+            unknown = 'scripts/fixtures/document-corpus-v3/legacy/renamed.json'
+            self.write(registered, '{}\n')
+            self.base = self.commit()
+            for source, target in ((registered, unknown), (unknown, registered)):
+                with self.subTest(source=source, target=target):
+                    self.git('mv', source, target)
+                    head = self.commit()
+                    with self.assertRaises(selector.UnknownInputsError) as caught:
+                        selector.select(config, self.base, head)
+                    self.assertIn(unknown, str(caught.exception))
+                    self.base = head
+
+    def test_retirement_input_registration_requires_the_trusted_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        registration_reasons = {'git_checkout_attributes', 'unified_world_terminology',
+                                'document_corpus_fixture_contracts'}
+        old = dict(config, rules=[rule for rule in config['rules']
+                                  if rule['reason'] not in registration_reasons])
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        for path in RETIREMENT_INPUT_CONTRACTS:
+            self.write(path, '# candidate registration input\n')
+        head = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for additions in ((), ('doc_checker_contracts',)):
+                with self.subTest(additions=additions):
+                    with self.assertRaises(selector.UnknownInputsError) as caught:
+                        selector.select(old, self.base, head, additions=additions)
+                    for path in RETIREMENT_INPUT_CONTRACTS:
+                        self.assertIn(path, str(caught.exception))
+            self.assertEqual(selector.select(config, self.base, head)['scope'], 'full')
+
     def test_product_doc_ci_range_exact_ownership_uses_trusted_config(self):
         paths = ('scripts/resolve-product-doc-ci-range.py', 'scripts/resolve-product-doc-ci-range.test.py')
         trusted = json.loads((HERE / 'ci-required-scope.json').read_text())
@@ -958,8 +1050,8 @@ class Selection(unittest.TestCase):
         head = self.commit()
         workflow = (HERE.parent / '.github/workflows/rust.yml').read_text()
         step = workflow.split('        name: Select using trusted baseline Git data', 1)[1]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1]
-                                .split('      - id: formal-select', 1)[0])
+        step = step.split('\n      - ', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         with tempfile.TemporaryDirectory() as temporary:
             runner = Path(temporary)
             (runner / 'bin').mkdir()
@@ -3870,8 +3962,31 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertNotIn('ordinary_fast_targets', current)
                 self.assertNotIn('fast_execution_version', current)
                 self.assertEqual({key: value for key, value in current.items()
-                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions')},
+                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
+                                                 'ordinary_harness_costs')},
                                  legacy)
+
+    def test_cost_hints_require_trusted_configuration_and_only_targeted_v2_consumes_them(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        old = dict(self.config)
+        profile = old.pop('ordinary_harness_costs')
+        for execution in ('pr-fast', 'main-fast'):
+            current = selector.select(self.config, self.base, head, profile=execution)
+            legacy = selector.select(old, self.base, head, profile=execution)
+            self.assertEqual(current.pop('ordinary_harness_costs'), profile)
+            self.assertEqual(current, legacy)
+        for execution in ('periodic-full', 'candidate-full'):
+            self.assertNotIn('ordinary_harness_costs', selector.full_plan(self.config, execution, head))
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control\n')
+        head = self.commit()
+        self.assertNotIn('ordinary_harness_costs', selector.select(self.config, self.base, head, profile='pr-fast'))
+        row = profile['harnesses'][0]
+        for change in ({'version': True}, {'fallback_ms': 0}, {'harnesses': [row, row]},
+                       {'evidence': {}}, {'harnesses': [row | {'elapsed_ms': float('nan')}]},
+                       {'harnesses': [row | {'mode': 'skip'}]}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                selector.validate_config(self.config | {'ordinary_harness_costs': profile | change})
 
     def test_old_baseline_cannot_be_enrolled_by_candidate_configuration(self):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
@@ -3883,6 +3998,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             if version is None:
                 old.pop('ordinary_artifact_partition_version')
                 old.pop('ordinary_artifact_delivery_version', None)
+                old.pop('ordinary_harness_costs', None)
             else:
                 old['ordinary_artifact_partition_version'] = version
             with self.subTest(version=version):
@@ -4310,9 +4426,24 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(plan['oasis7_required_packages'], [])
         self.assertEqual(plan['formal_suites'], [])
 
+    def with_doc_control_contract(self):
+        config = self.trusted()
+        self.assertNotIn('scripts/document_corpus.py', config['scoped_control_paths'])
+        self.assertNotIn('scripts/document_corpus.py', config['python_control_contracts'])
+        path = 'scripts/ci-doc-control.py'
+        config['scoped_control_paths'][path] = ['doc_checker_contracts']
+        config['python_control_contracts'][path] = {
+            'group': 'doc_checker_contracts',
+            'tests': [
+                'scripts/document-corpus-inventory-check.test.py',
+                'scripts/product-doc-governance-check.test.py',
+            ],
+        }
+        return config
+
     def test_document_control_keeps_its_own_contract_and_trusted_runner(self):
-        path = 'scripts/document_corpus.py'
-        plan = selector.select(self.trusted(), self.base, self.change(path))
+        path = 'scripts/ci-doc-control.py'
+        plan = selector.select(self.with_doc_control_contract(), self.base, self.change(path))
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(set(plan['groups']),
                          {'baseline', 'doc_checker_contracts', 'workflow_governance'})
@@ -4320,8 +4451,8 @@ class PythonControlContracts(unittest.TestCase):
                       plan['python_control_tests']['doc_checker_contracts'])
 
     def test_minimum_document_test_only_removal_keeps_base_contracts(self):
-        config = self.trusted()
-        tests = config['python_control_contracts']['scripts/document_corpus.py']['tests']
+        config = self.with_doc_control_contract()
+        tests = config['python_control_contracts']['scripts/ci-doc-control.py']['tests']
         for path in tests:
             with self.subTest(path=path):
                 self.assertNotIn(path, config['python_control_contracts'])
@@ -4338,7 +4469,7 @@ class PythonControlContracts(unittest.TestCase):
                 self.base = head
 
     def test_minimum_test_changes_union_with_other_contracts_and_shared_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
         document_test = 'scripts/document-corpus-inventory-check.test.py'
         cache_source = 'scripts/ci-ecs-cache.py'
@@ -4358,9 +4489,9 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(full['python_control_tests'], plan['python_control_tests'])
 
     def test_only_exact_trusted_minimum_tests_register_reverse_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         path = 'scripts/registered-minimum.test.py'
-        config['python_control_contracts']['scripts/document_corpus.py']['tests'].append(path)
+        config['python_control_contracts']['scripts/ci-doc-control.py']['tests'].append(path)
         head = self.change(path)
         plan = selector.select(config, self.base, head)
         self.assertEqual(set(plan['groups']),
@@ -4455,9 +4586,9 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(plan['architecture']['packages'], ['core'])
 
     def test_control_contracts_union_with_rust_other_rules_and_shared_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
-        path = 'scripts/document_corpus.py'
+        path = 'scripts/ci-doc-control.py'
         config['rules'].append({'match': [path], 'groups': ['net'], 'reason': 'additional actual consumer'})
         self.write('crates/core/src/lib.rs', '// mixed native change\n')
         head = self.change(path)

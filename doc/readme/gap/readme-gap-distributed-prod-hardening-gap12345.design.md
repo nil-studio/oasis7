@@ -15,7 +15,7 @@
 设计正文、失败边界与验证责任已由 [历史保留边界与现行去向](readme-gap-distributed-prod-hardening-gap12345.prd.md#historical-retention-and-routing) 承接。读者直接进入该节。
 ### 保留决策与风险
 
-本文不要求重复实现或增加审批。旧 URL 暂留，核清全部引用、配对、动态/外部分发消费者与 corpus 后才可删除。
+本文不要求重复实现或增加审批。旧 URL 暂留，核清全部引用、配对、动态/外部分发消费者 后才可删除。
 [合并前原文](https://github.com/eng-cc/oasis7/blob/2adfc08706f1905c131adc0597a9ae5e99ceb2dd/doc/readme/gap/readme-gap-distributed-prod-hardening-gap12345.design.md)保留历史来源，不作为当前操作或验收依据。
 
 ### 2.1 需求承接与分配表

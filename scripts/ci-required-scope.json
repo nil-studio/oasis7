@@ -13,6 +13,105 @@
   "ordinary_unit_test_targets": ["runtime-lib", "world-state-lib"],
   "ordinary_partition_version": 1,
   "ordinary_artifact_partition_version": 2,
+  "ordinary_harness_costs": {
+    "version": 1,
+    "fallback_ms": 60000,
+    "evidence": {
+      "run_id": 43179733413,
+      "run_attempt": 1,
+      "source_sha": "718dee8464b5681082d7ab4ea7d267cd838ead8c",
+      "tested_sha": "40c170e7837b1bf0d30ab877a2a826b37555ba71",
+      "policy_sha": "e2dbafdaf507a1f228c09c1d2d49420f278117ae"
+    },
+    "harnesses": [
+      {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2812},
+      {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "host_api", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 210},
+      {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "incremental_cognition_history_original", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 54053},
+      {"package": "oasis7_client_cli", "target_kind": "bin", "target_name": "oasis7_pure_api_client", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 5221},
+      {"package": "oasis7_ops_tools", "target_kind": "bin", "target_name": "oasis7_governance_registry_audit", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_ops_tools", "target_kind": "bin", "target_name": "oasis7_governance_registry_import", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 210},
+      {"package": "oasis7_ops_tools", "target_kind": "bin", "target_name": "oasis7_liveops_grant_cli", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_ops_tools", "target_kind": "bin", "target_name": "oasis7_testnet_faucet", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_ops_tools", "target_kind": "bin", "target_name": "oasis7_world_repair_rebuild", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_protocol_tools", "target_kind": "bin", "target_name": "oasis7_chain_transfer_submit_client", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_protocol_tools", "target_kind": "bin", "target_name": "oasis7_rollback_strict_audit_evidence", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_provider_tools", "target_kind": "bin", "target_name": "oasis7_llm_agent_demo", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_provider_tools", "target_kind": "bin", "target_name": "oasis7_llm_provider_probe", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 409},
+      {"package": "oasis7_provider_tools", "target_kind": "bin", "target_name": "oasis7_provider_parity_bench", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_runtime", "target_kind": "lib", "target_name": "oasis7_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 169783},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "pr_fast_incremental", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 12620},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "pr_fast_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_viewer_codec", "target_kind": "lib", "target_name": "oasis7_viewer_codec", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_viewer_runtime", "target_kind": "bin", "target_name": "oasis7_viewer_live", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_viewer_runtime", "target_kind": "lib", "target_name": "oasis7_viewer_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 49850},
+      {"package": "oasis7_viewer_runtime", "target_kind": "test", "target_name": "viewer_offline_integration", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_world_service", "target_kind": "lib", "target_name": "oasis7_world_service", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4412},
+      {"package": "oasis7", "target_kind": "test", "target_name": "chain_pos_defaults_tests", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 76894},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_event", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 154525},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 809},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_subtree", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 65863},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 12816},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authorization_mapsets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 19422},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 134540},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2610},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 80698},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_due_module_batch", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8413},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 116331},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_record_closure", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 75464},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 115347},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_field_member", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4412},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_field_presence", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2610},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_fixed_economy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 34838},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_governance_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 128723},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_industry_jobs", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 132532},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_installed_module_targets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16419},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_change", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 12022},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 5213},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_read", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6217},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_json_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1409},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_ledger_value", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2210},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_logistics_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 48864},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_main_token_policy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 141354},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_material_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 57671},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_module_marketplace_physical", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 80461},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_reward_budget_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 70890},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_allocators", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7013},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_artifact_resources", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 143178},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_capability_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 85299},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_commit", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8213},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_effect_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 104096},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4214},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 38258},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_balances", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 24027},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_id_sets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7213},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_number_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 23222},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_authorizations", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3010},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_batches", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2610},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_effects", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17820},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_lineages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 30027},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 77656},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 138707},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_root_closure", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16224},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_shipments", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 31429},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_bad_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 54445},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_cold_point", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6413},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_creation", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1010},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_failures", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 9014},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17821},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 60042},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 24224},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17620},
+      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_u64", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 9414},
+      {"package": "oasis7", "target_kind": "test", "target_name": "module_input_cbor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7", "target_kind": "test", "target_name": "module_lifecycle", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 208},
+      {"package": "oasis7", "target_kind": "test", "target_name": "module_state", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7", "target_kind": "test", "target_name": "module_store", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 208},
+      {"package": "oasis7", "target_kind": "test", "target_name": "module_subscription_filters", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "snapshot-tests", "mode": "filter", "selector": "snapshot_player_gameplay_execution_state_backfills_from_legacy_fields", "elapsed_ms": 209},
+      {"package": "oasis7_viewer_runtime", "target_kind": "lib", "target_name": "oasis7_viewer_runtime", "variant": "viewer-snapshot-tests", "mode": "filter", "selector": "snapshot_progress::", "elapsed_ms": 2813}
+    ]
+  },
   "ordinary_artifact_delivery_version": 1,
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
@@ -1013,7 +1112,6 @@
     "scripts/ci-workspace-cache.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
     "scripts/ci_process_runner.py": ["workflow_governance"],
-    "scripts/document_corpus.py": ["doc_checker_contracts"],
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
   },
@@ -1366,14 +1464,6 @@
         "scripts/ci-support-profiles.test.py"
       ]
     },
-    "scripts/document_corpus.py": {
-      "group": "doc_checker_contracts",
-      "tests": [
-        "scripts/doc-evidence-inventory-check.test.py",
-        "scripts/document-corpus-inventory-check.test.py",
-        "scripts/product-doc-governance-check.test.py"
-      ]
-    },
     "scripts/plan-rust-required-scope.py": {
       "group": "workflow_governance",
       "tests": [
@@ -1661,6 +1751,36 @@
     ]
   },
   "rules": [
+    {
+      "match": [
+        ".gitattributes"
+      ],
+      "groups": [],
+      "full": true,
+      "reason": "git_checkout_attributes"
+    },
+    {
+      "match": [
+        "scripts/unified-world-code-terminology-scan.sh",
+        "scripts/unified-world-code-terminology-scan.test.sh"
+      ],
+      "groups": [
+        "baseline"
+      ],
+      "reason": "unified_world_terminology"
+    },
+    {
+      "match": [
+        "scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json",
+        "scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json",
+        "scripts/fixtures/document-corpus-v3/legacy/inventory.json",
+        "scripts/fixtures/document-corpus-v3/legacy/manifest.json"
+      ],
+      "groups": [
+        "doc_checker_contracts"
+      ],
+      "reason": "document_corpus_fixture_contracts"
+    },
     {
       "match": [
         "scripts/pr-review-threads.py",

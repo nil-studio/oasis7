@@ -1,7 +1,0 @@
-{
-  "entries_root": "doc/.governance/document-corpus/evidence/entries",
-  "groups_root": "doc/.governance/document-corpus/evidence/groups",
-  "legacy_baseline_id": "document-evidence-v1-at-v3-migration",
-  "scope": "doc/testing/evidence/** excluding inventory.json",
-  "version": 2
-}

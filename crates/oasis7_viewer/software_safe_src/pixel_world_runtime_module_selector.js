@@ -45,3 +45,7 @@ export function __resetPixelWorldRuntimeModuleForTest() {
   runtimeModulePromise = null;
   runtimeModule = null;
 }
+
+export function readPixelWorldLinearMemoryCapacity() {
+  return runtimeModule?.readPixelWorldLinearMemoryCapacity?.() || {status:"uninitialized"};
+}
