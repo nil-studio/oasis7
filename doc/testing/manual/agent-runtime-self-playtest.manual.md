@@ -302,6 +302,8 @@ SDK的新增until入口在阶段切换、重试间和每个认证／业务HTTP�
 
 Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验证身份前不能分配Move。Move及其Lookup继承同一目标与identity，恢复时核对原Prepare、Prefix、完整fence及Cognition的Action／上下文。缺原件或证明返回unknown；已知内容冲突拒绝，不回显无法重新证实的旧applied。原生MVCC的stale_base拒绝是该原件终态，不能更新base重签同RID；另起测试轮次须明确保留原拒绝与无效果证据并独立授权输入。
 
+本地操作者可显式设置 `OASIS7_COGNITION_AUTHORITY_DIAGNOSTIC=1`，在 stderr 观察同一 context 原承诺经域分离 `context_digest` 关联的 delivery、admission 与 execution 三个边界；后两段另以已验证 correlation 的完整 key 与 payload 承诺散列成 `action_digest` 区分同 context 内不同动作。记录仅含逻辑 tick；`base_hash_equal=null` 明确表示未测，不为诊断重算世界 hash，不输出目标、原承诺、原 RID 或任何权威 hash；默认关闭且不改变签名、准入、MVCC 或重试。启用后散列与固定容量异步队列仍有观测开销，不能用观测耗时反推无观测时序，不作延时补偿。native Unix 单独 writer 通过复制的 stderr fd 写入（不持全局 stderr 锁，非 Unix 丢弃诊断），业务仅 try_send、队列满即丢，不等待 sink，退出不 join writer；缺日志不代表对应阶段未发生。delivery/admission 使用各自持久 pin，execution 使用实际候选 World；此观测不能证明尚未发布的 driver 状态与 read pin 同步，也不把 commit height 当 tick。历史原件缺这些边界证据时不得据耗时推断 stale_base 的确切发生点。
+
 仅首次获准Move且无原Action缓存时，内部首发路径在持久原件后直接执行一次Submit，再查询同原结果；不会在新captured base和首次Submit之间先翻页恢复历史。已有Action缓存、journal重放及崩溃后恢复全部只查询原件；缺缓存保持unknown，不重新签名或发送。此内部状态不能由工具参数选择，旧公开SDK API保留原恢复顺序；优化不保证跨网络／排队的MVCC窗口必然成功。
 
 成功的context及其原件恢复结果包含 `active_goal.content` 的完整 `goal_text`／`soft_constraints`，不裁剪为移动目标列表或界面摘要。`active_goal.source` 绑定同一TaskFence、active_goal_reference、Owner公钥、读取及激活commit；先复用SDK快照的Owner证明、私有目标摘要与激活引用验证，再核对当前context fence。证明缺失／损坏或来源不一致时拒绝或unknown，不返回无证明的目标。目标正文仅进入授权工具结果，不写入用量journal或服务诊断日志；恢复时重新读取并验证原生快照。消费者缺完整目标时须停止业务行动。

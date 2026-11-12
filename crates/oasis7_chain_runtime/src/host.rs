@@ -204,6 +204,8 @@ mod wasm_status;
 #[cfg(unix)]
 #[path = "host/world_initialization.rs"]
 mod world_initialization;
+#[path = "host/cognition_authority_diagnostic.rs"]
+mod cognition_authority_diagnostic;
 #[path = "host/world_service_api.rs"]
 mod world_service_api;
 #[path = "host/world_writer_lock.rs"]

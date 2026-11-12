@@ -131,6 +131,15 @@ pub(super) fn submit(
     let existing = outcome(service, &pinned, &correlation)?;
     if matches!(existing, IntentOutcome::Unknown) {
         service.check_payload(&pinned, &request.signed_payload)?;
+        if let WorldServicePayloadV1::Cognition(signed) = &request.signed_payload {
+            crate::cognition_authority_diagnostic::observe(
+                "admission",
+                &signed.request.request.request_digest,
+                &signed.request.request.captured_base_binding,
+                &pinned.world,
+                Some(&correlation),
+            );
+        }
     } else {
         service.check_replay_payload(&pinned, &request.signed_payload)?;
     }
