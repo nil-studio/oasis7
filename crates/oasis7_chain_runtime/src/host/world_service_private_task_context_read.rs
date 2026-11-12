@@ -57,6 +57,7 @@ pub(super) fn fresh_output(
         &output.current_public_context.captured_base_binding,
         &fresh_task.pinned.world,
         None,
+        None,
     );
     Ok(output)
 }

@@ -14,6 +14,64 @@ impl Drop for RunningNode {
     }
 }
 
+struct ReleaseEmpty(Option<std::sync::mpsc::Sender<()>>);
+impl ReleaseEmpty {
+    fn release(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
+}
+impl Drop for ReleaseEmpty {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+struct InflightEmptyHook {
+    driver: Box<NodeRuntimeExecutionDriver>,
+    gate: Option<(
+        std::sync::mpsc::SyncSender<u64>,
+        std::sync::mpsc::Receiver<()>,
+    )>,
+}
+impl oasis7_node::NodeExecutionHook for InflightEmptyHook {
+    fn retained_local_commit_time(
+        &mut self,
+        context: &oasis7_node::NodeExecutionCommitContext,
+    ) -> Result<Option<i64>, String> {
+        self.driver.retained_local_commit_time(context)
+    }
+    fn on_commit(
+        &mut self,
+        context: oasis7_node::NodeExecutionCommitContext,
+    ) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
+        self.on_commit_with_expected(context, None, None)
+    }
+    fn on_commit_with_expected(
+        &mut self,
+        context: oasis7_node::NodeExecutionCommitContext,
+        expected_execution_block_hash: Option<&str>,
+        expected_execution_state_root: Option<&str>,
+    ) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
+        if context.committed_actions.is_empty()
+            && let Some((entered, release)) = self.gate.take()
+        {
+            entered
+                .send(self.driver.execution_world.state().time)
+                .map_err(|_| "empty gate receiver closed")?;
+            release
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .map_err(|_| "empty gate release missing")?;
+        }
+        self.driver.on_commit_with_expected(
+            context,
+            expected_execution_block_hash,
+            expected_execution_state_root,
+        )
+    }
+}
+
 fn copy_fixture(source: &Path, target: &Path) {
     std::fs::create_dir_all(target).unwrap();
     for entry in std::fs::read_dir(source).unwrap() {
@@ -40,7 +98,9 @@ pub(super) fn assert_queued_original_across_tick(
     let bytes = correlation::encode_consensus_intent(original).unwrap();
     let original_json = serde_json::to_vec(original).unwrap();
     let key = correlation::key_digest(&original.correlation.key).unwrap();
-    for delayed in [false, true] {
+    for mode in 0..3 {
+        let delayed = mode == 1;
+        let inflight = mode == 2;
         let dir = temp_dir(if delayed {
             "native-queue-delayed"
         } else {
@@ -61,12 +121,16 @@ pub(super) fn assert_queued_original_across_tick(
             .unwrap();
         let driver = super::stack::boxed_context_driver_restart(&dir, bootstrap.clone());
         let base_tick = driver.execution_world.state().time;
+        assert!(
+            !driver.formal_retention_enabled,
+            "legacy queue fixture must not begin formal ticks"
+        );
         let config = oasis7_node::NodeConfig::new("node-a", &world.world_id, NodeRole::Sequencer)
             .unwrap()
             .with_tick_interval(std::time::Duration::from_millis(20))
             .unwrap();
         let node = oasis7_node::NodeRuntime::new(config);
-        if !delayed {
+        if !delayed && !inflight {
             node.submit_consensus_action_payload(907, bytes.clone())
                 .unwrap();
         }
@@ -79,15 +143,48 @@ pub(super) fn assert_queued_original_across_tick(
                 &world.world_id,
             )
             .unwrap();
+        let (entered, observed) = std::sync::mpsc::sync_channel(1);
+        let (release, wait) = std::sync::mpsc::channel();
+        let hook = InflightEmptyHook {
+            driver,
+            gate: inflight.then_some((entered, wait)),
+        };
         let mut node = node
             .with_local_execution_bootstrap(boundary)
-            .with_execution_hook(*driver);
+            .with_execution_hook(hook);
         node.start().unwrap();
         let mut node = RunningNode(node);
+        // Declared after RunningNode: unblock the hook before stop/join on unwind.
+        let mut release = ReleaseEmpty(Some(release));
         let mut before_resources = None;
         let mut before_pending = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut batches = Vec::new();
+        if inflight {
+            let actual_tick = observed
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            let pin = super::super::super::super::world_service_read::pin(
+                &dir.join("records"),
+                &dir.join("store"),
+                world,
+                None,
+            )
+            .unwrap();
+            assert_eq!(actual_tick, base_tick);
+            assert_eq!(
+                pin.world.state().time,
+                base_tick,
+                "pin is fresh while empty batch is inflight"
+            );
+            before_resources = Some(serde_json::to_value(&pin.world.state().resources).unwrap());
+            before_pending =
+                Some(serde_json::to_value(pin.world.snapshot().pending_actions).unwrap());
+            node.0
+                .submit_consensus_action_payload(907, bytes.clone())
+                .unwrap();
+            release.release();
+        }
         if delayed {
             // The actual consensus worker advances an empty committed batch
             // before admission. This is not a post-enqueue scheduling claim.
@@ -161,7 +258,7 @@ pub(super) fn assert_queued_original_across_tick(
             serde_json::to_vec(&canonical.request).unwrap(),
             original_json
         );
-        if delayed {
+        if delayed || inflight {
             assert!(
                 canonical
                     .rejected
@@ -169,14 +266,17 @@ pub(super) fn assert_queued_original_across_tick(
                     .is_some_and(|r| r.contains("stale_base"))
             );
             assert!(canonical.receipt.is_null());
-            assert_eq!(
-                serde_json::to_value(&restored.execution_world.state().resources).unwrap(),
-                before_resources.unwrap()
-            );
-            assert_eq!(
-                serde_json::to_value(restored.execution_world.snapshot().pending_actions).unwrap(),
-                before_pending.unwrap()
-            );
+            if delayed {
+                assert_eq!(
+                    serde_json::to_value(&restored.execution_world.state().resources).unwrap(),
+                    before_resources.unwrap()
+                );
+                assert_eq!(
+                    serde_json::to_value(restored.execution_world.snapshot().pending_actions)
+                        .unwrap(),
+                    before_pending.unwrap()
+                );
+            }
             assert_eq!(
                 restored.execution_world.state().agents["agent-a"].state.pos,
                 before_position

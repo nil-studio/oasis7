@@ -2,25 +2,55 @@
 use oasis7::runtime::World;
 use oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1;
 
+pub(super) fn timestamp() -> Option<u64> {
+    if std::env::var("OASIS7_COGNITION_AUTHORITY_DIAGNOSTIC").as_deref() != Ok("1") {
+        return None;
+    }
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    Some(
+        START
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_micros()
+            .min(u64::MAX as u128) as u64,
+    )
+}
+
+pub(super) fn publication_success(current_tick: u64) {
+    let Some(elapsed_us) = timestamp() else {
+        return;
+    };
+    let value = serde_json::json!({"stage":"publication_success", "producer_pid":std::process::id(),
+        "elapsed_us":elapsed_us, "current_tick":current_tick});
+    if let Some(sender) = writer() {
+        let _ = enqueue(sender, format!("cognition_authority_diagnostic {value}"));
+    }
+}
+
 pub(super) fn observe(
     stage: &'static str,
     request_commitment: &str,
     captured: &RuntimeCognitionBaseBindingV1,
     world: &World,
     correlation: Option<&oasis7::world_service::RequestCorrelation>,
+    pin_bracket: Option<(u64, u64)>,
 ) {
-    if std::env::var("OASIS7_COGNITION_AUTHORITY_DIAGNOSTIC").as_deref() != Ok("1") {
+    let Some(elapsed_us) = timestamp() else {
         return;
-    }
+    };
     let current_tick = world.state().time;
     let action_bytes = correlation.and_then(|value| serde_json::to_vec(value).ok());
-    let value = evidence(
+    let mut value = evidence(
         stage,
         request_commitment,
         captured,
         current_tick,
         action_bytes.as_deref(),
     );
+    value["producer_pid"] = serde_json::json!(std::process::id());
+    value["elapsed_us"] = serde_json::json!(elapsed_us);
+    value["pin_begin_us"] = serde_json::json!(pin_bracket.map(|pair| pair.0));
+    value["pin_end_us"] = serde_json::json!(pin_bracket.map(|pair| pair.1));
     if let Some(sender) = writer() {
         let _ = enqueue(sender, format!("cognition_authority_diagnostic {value}"));
     }
