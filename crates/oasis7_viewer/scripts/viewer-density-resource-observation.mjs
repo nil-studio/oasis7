@@ -2,6 +2,7 @@ import {readOwnedStartupProfile} from './viewer-owned-startup-context.mjs';
 import {readOwnedProcessRss} from './viewer-owned-resource-os.mjs';
 import {readOwnedMemory} from './viewer-owned-cdp-memory.mjs';
 import {withObservationCleanup} from './world-view-frame-capability.mjs';
+import {performance} from 'node:perf_hooks';
 import {densityResourceStampScript,validateDensityResourceStamp,matchDensityResourceStamps} from './viewer-density-resource-stamp.mjs';
 async function bounded(operation){let timer;try{return await Promise.race([operation,new Promise((_,no)=>{timer=setTimeout(()=>no(Error('Viewer resource read exceeded 10s')),10000);})]);}finally{clearTimeout(timer);}}
 // Caller supplies only its factory-created context, not a PID or CDP endpoint.
@@ -15,10 +16,13 @@ export async function observeOwnedViewerResources({context,url,world,cut,report}
  const session=await bounded(context.newCDPSession(page));
  await withObservationCleanup(async()=>{
   const memoryMethods=new Set(['Runtime.getHeapUsage','Memory.getDOMCounters']);
+  const heapStarted=performance.now();
   const memory=await readOwnedMemory({page:method=>{owned();if(!memoryMethods.has(method))throw Error('resource observation method outside readonly contract');return bounded(session.send(method));}});
+  report.jsAndDomReadMs=performance.now()-heapStarted;
   report.jsAndDom=Object.fromEntries(['jsUsedHeapBytes','jsTotalHeapBytes','domNodes','documents','listeners'].map(key=>[key,memory[key]]));
   report.jsAndDom.capabilityReasons={heap:memory.capabilityReasons.heap??null,dom:memory.capabilityReasons.dom??null};
-  report.rss=await readOwnedProcessRss(context,url);
+  const rssStarted=performance.now();
+  report.rss=await readOwnedProcessRss(context,url);report.rssReadMs=performance.now()-rssStarted;
   report.after=await read();
   report.phase=matchDensityResourceStamps(report.before,report.after,expected);
   report.gpuAllocatedBytes=null;

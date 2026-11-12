@@ -22,6 +22,10 @@ export function matchDensityResourceStamps(before,after,expected) {
  }
  return {matched:true,wasmLinearCapacityBeforeBytes:null,wasmLinearCapacityAfterBytes:null,wasmLease:null};
 }
+export function validateDensityResourceWire(binding,row,{world,scope,cut}) {
+ if(!binding||typeof binding.connection!=='string'||!binding.connection||typeof binding.generation!=='string'||!/^\d+:[1-9]\d*$/.test(binding.generation)||!binding.generation.startsWith(String(row.client.localGeneration)+':')||binding.world!==world||binding.scope!==scope||binding.cut!==cut||binding.completeness!=='complete')throw Error('Viewer resource actual wire binding mismatch');
+ return binding;
+}
 export const densityResourceStampScript = expectedCut => `async () => {
  if(document.querySelector('.pixel-world-canvas')?.dataset.rendererReady!=='true')throw Error('mounted Viewer is not ready');
  const api=await import('/pixel-world-bridge/pixel_world_bridge.js');
