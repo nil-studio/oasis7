@@ -33,3 +33,9 @@ DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过�
 ## 有限验收
 
 先固定源码、构建、公开 origin、authority trust、账号 A/B、完整 fence、到期时间、有限 max_calls、允许坐标及每一步操作 ID。外部 Agent 仅接收受限 MCP 工具和正式游戏 Skill；connector 保管 Bearer。独立核对 canonical 原操作结果及实际世界效果，不以 HTTP 200、accepted 或 fixture 替代业务成功。对跨响应丢失／重启的同原件恢复、错误 scope、异正文、过期／停用／关闭及余额连续性分别保留证据。
+
+## 受信本地材料交接
+
+隔离账号已通过正式 SDK 完成登录与合法 Executor 绑定后，可用 `cargo run -p oasis7_client_storage --example dev_test_worker_material --locked -- --identity-config <私有配置> --login-operation <原登录ID> --executor-directory <原vault> --unlock-file <私有unlock> --expected-account <已核账号> --expected-executor <已核fence公钥> --output <新私有文件>` 生成一次性材料文件。该 operator 工具只读原 SDK vault／session，核对账号、Executor 与独立 identity key，不生成／替换 key，不发网络请求；结果仅写新建0600文件，拒绝覆盖、symlink、FIFO／设备、宽权限或错误 scope，不打印秘密。
+
+材料文件须由可信 operator 直接导入指定 Worker Secret，不能经过模型消息、普通配置或日志。导入后按运行终点保留或清理私有交接文件；Worker 仍须在线重验账号／权限与完整 fence，离线导出不代表当前可用。它不属于 Worker 的生产依赖或模型工具入口，也不提供备份恢复或权限重授权能力。

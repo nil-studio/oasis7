@@ -1591,6 +1591,7 @@
   },
   "workspace_support_profile_paths": {
     "oasis7_dev_test_worker": [
+      "crates/oasis7_client_storage/examples/dev_test_worker_material.rs",
       "crates/oasis7_custody_core/src/dev_test/**",
       "crates/oasis7_custody_core/src/dev_test.rs",
       "crates/oasis7_client_api/src/world_service/executor_codec.rs",

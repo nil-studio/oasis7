@@ -3,3 +3,6 @@ build/
 .wrangler/
 .dev.vars*
 .build-lock/
+
+# Local authority worlds, credentials and deployment receipts are never source.
+.private-scene/
