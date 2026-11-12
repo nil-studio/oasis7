@@ -723,6 +723,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-native-diagnostic.test.py
   run python3 ./scripts/security/viewer-browser-install-diagnostic.test.py
   run python3 ./scripts/security/codeql-rust-wasm-metadata.test.py
+  run python3 ./scripts/security/codeql-rust-wasm-context.test.py
   run python3 ./scripts/security/codeql-rust-qualifier-comparison.test.py
   run python3 ./scripts/security/codeql-rust-candidate-workload.test.py
   run python3 ./scripts/security/codeql-rust-production.test.py
