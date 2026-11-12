@@ -4119,8 +4119,31 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertNotIn('ordinary_fast_targets', current)
                 self.assertNotIn('fast_execution_version', current)
                 self.assertEqual({key: value for key, value in current.items()
-                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions')},
+                                  if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
+                                                 'ordinary_harness_costs')},
                                  legacy)
+
+    def test_cost_hints_require_trusted_configuration_and_only_targeted_v2_consumes_them(self):
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        head = self.commit()
+        old = dict(self.config)
+        profile = old.pop('ordinary_harness_costs')
+        for execution in ('pr-fast', 'main-fast'):
+            current = selector.select(self.config, self.base, head, profile=execution)
+            legacy = selector.select(old, self.base, head, profile=execution)
+            self.assertEqual(current.pop('ordinary_harness_costs'), profile)
+            self.assertEqual(current, legacy)
+        for execution in ('periodic-full', 'candidate-full'):
+            self.assertNotIn('ordinary_harness_costs', selector.full_plan(self.config, execution, head))
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control\n')
+        head = self.commit()
+        self.assertNotIn('ordinary_harness_costs', selector.select(self.config, self.base, head, profile='pr-fast'))
+        row = profile['harnesses'][0]
+        for change in ({'version': True}, {'fallback_ms': 0}, {'harnesses': [row, row]},
+                       {'evidence': {}}, {'harnesses': [row | {'elapsed_ms': float('nan')}]},
+                       {'harnesses': [row | {'mode': 'skip'}]}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                selector.validate_config(self.config | {'ordinary_harness_costs': profile | change})
 
     def test_old_baseline_cannot_be_enrolled_by_candidate_configuration(self):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
@@ -4132,6 +4155,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             if version is None:
                 old.pop('ordinary_artifact_partition_version')
                 old.pop('ordinary_artifact_delivery_version', None)
+                old.pop('ordinary_harness_costs', None)
             else:
                 old['ordinary_artifact_partition_version'] = version
             with self.subTest(version=version):

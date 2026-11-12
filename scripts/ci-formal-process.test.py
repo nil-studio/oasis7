@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Coverage, transition-gate and real libtest runner regressions."""
 import copy
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
@@ -607,6 +607,44 @@ class RiskTargetInventory(unittest.TestCase):
                 self.assertTrue(artifacts.build_variants('formal-debug', selected))
                 artifacts.validate_ordinary_selection(dict(
                     scope='formal-debug', execution_plan=selected, binaries={}))
+
+    def test_weighted_owners_keep_full_risk_variant_complete_with_its_own_cost_identity(self):
+        fixture = TargetedArtifactPartitions()
+        selected = fixture.selection() | dict(
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_viewer_codec'],
+            risk_test_inventory_version=1, ordinary_risk_targets=[self.target()])
+        selected['ordinary_harness_costs'] = fixture.costs([dict(
+            package='oasis7_viewer_codec', target_kind='test', target_name='scale',
+            variant='required', mode='batch', selector='', elapsed_ms=100000)])
+        manifest = fixture.manifest(selected)
+        full = FastTargetInventory().binary(self.target(), 'required-risk-0')
+        manifest['binaries']['full-scale'] = full | dict(path='full-scale', cwd='.')
+        manifest['binaries']['required-scale'] = full | dict(
+            path='required-scale', cwd='.', variant='required', tests=['required_chunk'],
+            features=['test_tier_required'], requested_features=['oasis7_viewer_codec/test_tier_required'])
+        artifacts.validate_ordinary_selection(manifest)
+        actual, receipts, full_owners = [], [], []
+        for owner in selected['ordinary_partitions'][1:]:
+            captured = io.StringIO()
+            with redirect_stdout(captured):
+                entries = artifacts.ordinary_artifact_entries(manifest, selected, owner)
+            receipt = json.loads(captured.getvalue().split('=', 1)[1])
+            covered = fixture.coverage(manifest, entries)
+            self.assertEqual(receipt['expected_count'], len(covered))
+            actual.extend(covered)
+            receipts.append(receipt)
+            full_owners.extend(owner for entry in entries if entry['binary'] == 'full-scale')
+        self.assertEqual(len(full_owners), 1)
+        self.assertIn(('full-scale', 'full_scale'), actual)
+        self.assertCountEqual(actual, fixture.coverage(manifest, artifacts.ordinary_entries(manifest)))
+        self.assertEqual(len(actual), len(set(actual)))
+        # The old required timing is not reused for the distinct full feature
+        # variant; an unknown full harness still executes with the fallback.
+        self.assertEqual(sum(item['cost_matched'] for item in receipts), 1)
+        fallback_count = sum(item['cost_fallback'] for item in receipts)
+        self.assertGreaterEqual(fallback_count, 1)
+        self.assertEqual(sum(item['harness_estimated_ms'] for item in receipts),
+                         100000 + fallback_count * selected['ordinary_harness_costs']['fallback_ms'])
 
 
 class FastTargetInventory(unittest.TestCase):
@@ -1772,6 +1810,64 @@ class TargetedArtifactPartitions(unittest.TestCase):
                 tests=['new_case'], ignored_tests=[]),
         })
 
+    @staticmethod
+    def costs(rows=()):
+        return dict(version=1, fallback_ms=1000, evidence=dict(
+            run_id=43179733413, run_attempt=1,
+            source_sha='718dee8464b5681082d7ab4ea7d267cd838ead8c',
+            tested_sha='40c170e7837b1bf0d30ab877a2a826b37555ba71',
+            policy_sha='e2dbafdaf507a1f228c09c1d2d49420f278117ae'), harnesses=list(rows))
+
+    def test_measured_costs_balance_whole_harnesses_without_changing_any_case(self):
+        selected = self.selection()
+        manifest = self.manifest(selected)
+        rows = []
+        for index, milliseconds in enumerate((100000, 90000, 80000, 70000, 1000)):
+            name = f'cost_{index}'
+            manifest['binaries'][name] = dict(package='oasis7_chain_runtime', target=name,
+                target_kind=['test'], variant='required', ordinary=True, test=True, path=name, cwd='.',
+                tests=[f'case_{i}' for i in range(1000 if index == 4 else 1)], ignored_tests=[])
+            rows.append(dict(package='oasis7_chain_runtime', target_kind='test', target_name=name,
+                             variant='required', mode='batch', selector='', elapsed_ms=milliseconds))
+        selected['ordinary_harness_costs'] = self.costs(rows)
+        groups = {owner: artifacts.ordinary_artifact_entries(manifest, selected, owner)
+                  for owner in selected['ordinary_partitions'][1:]}
+        ownership = {entry['binary']: owner for owner, entries in groups.items() for entry in entries
+                     if entry['binary'].startswith('cost_')}
+        self.assertEqual(ownership, dict(cost_0='native-0', cost_1='native-1', cost_2='native-2',
+                                         cost_3='native-3', cost_4='native-3'))
+        actual = [case for entries in groups.values() for case in self.coverage(manifest, entries)]
+        self.assertCountEqual(actual, self.coverage(manifest, artifacts.ordinary_entries(manifest)))
+        self.assertEqual(len(actual), len(set(actual)))
+        reordered = copy.deepcopy(manifest)
+        reordered['binaries'] = dict(reversed(list(reordered['binaries'].items())))
+        reordered['execution_plan']['ordinary_harness_costs']['harnesses'].reverse()
+        for owner, entries in groups.items():
+            self.assertEqual(artifacts.ordinary_artifact_entries(
+                reordered, reordered['execution_plan'], owner), entries)
+        legacy = {key: value for key, value in selected.items() if key != 'ordinary_harness_costs'}
+        self.assertEqual(artifacts.build_variants('ordinary', selected), artifacts.build_variants('ordinary', legacy))
+        self.assertEqual(artifacts.required_native_commands(selected), artifacts.required_native_commands(legacy))
+
+    def test_cost_profile_rejects_invalid_data_and_incompatible_plans(self):
+        row = dict(package='oasis7_chain_runtime', target_kind='test', target_name='real_http',
+                   variant='required', mode='batch', selector='', elapsed_ms=100)
+        good = self.costs([row])
+        invalid = [good | {'version': value} for value in (True, 0, 2, None, '1')]
+        invalid += [good | {'fallback_ms': value} for value in (True, 0, -1, 3600001, 1.5, float('nan'))]
+        invalid += [good | {'harnesses': [row, row]}, good | {'evidence': {}}]
+        for field, values in dict(elapsed_ms=[True, 0, -1, 3600001, 1.5, float('inf')],
+                                  mode=['unknown'], selector=['unexpected'], target_kind=['unknown'],
+                                  target_name=['../target'], variant=['']).items():
+            invalid.extend(good | {'harnesses': [row | {field: value}]} for value in values)
+        for profile in invalid:
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(self.selection() | {'ordinary_harness_costs': profile})
+        for base in (CompleteArtifactPartitions().selection(), {'ordinary_harness_costs': good},
+                     self.selection() | {'ordinary_execution': 'inline'}):
+            with self.subTest(base=base), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(base | {'ordinary_harness_costs': good})
+
     def coverage(self, manifest, entries):
         selected = []
         for entry in entries:
@@ -1993,7 +2089,10 @@ pub fn mark(name: &str) {
         cls.sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.root, text=True).strip()
         cls.selected = TargetedArtifactPartitions().selection() | dict(
             source_sha=cls.sha, tested_sha=cls.sha, policy_sha=cls.sha,
-            architecture=dict(source=cls.sha, tested=cls.sha))
+            architecture=dict(source=cls.sha, tested=cls.sha),
+            ordinary_harness_costs=TargetedArtifactPartitions.costs([
+                dict(package='oasis7_chain_runtime', target_kind='test', target_name='process',
+                     variant='required', mode='batch', selector='', elapsed_ms=5000)]))
         cls.bundle, cls.consumer = cls.root / 'bundle', cls.root / 'consumer'
         with patch.object(artifacts, 'ROOT', cls.root), patch.object(artifacts, 'CONFIG', cls.config), \
              patch.dict(os.environ, SOURCE_SHA=cls.sha):
@@ -2054,6 +2153,7 @@ pub fn mark(name: &str) {
     def test_real_v1_delivery_preserves_behavior_and_restores_cargo_binary_paths_without_compiling(self):
         selected = self.selected | dict(scope='full', ordinary_artifact_partition_version=1,
             ordinary_artifact_delivery_version=1, ordinary_partitions=list(artifacts.ORDINARY_ARTIFACT_PARTITIONS))
+        selected.pop('ordinary_harness_costs')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             baseline, records = root / 'baseline', root / 'records'
