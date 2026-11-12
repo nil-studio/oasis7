@@ -47,6 +47,7 @@
   - SC-7: `doc/p2p/prd.md`、GitHub Issue / GitHub Project 与本专题三件套完成映射，后续实现任务可直接挂到统一真值。
   - SC-8: hosted account 中心化服务必须冻结至少 `dev/staging/production` 三层环境边界；登录投递、账户存储、强鉴权 signer、风控阈值、对外 claims 与验证命令不得跨层混用。
 
+<a id="hosted-custody-user-experience"></a>
 ## 2. User Experience & Functionality
 - User Personas:
   - `producer_system_designer`: 需要将“邮箱登录游戏”和“链上身份/签名”整合为不损害安全边界的正式产品方案。
