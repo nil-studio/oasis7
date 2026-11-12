@@ -1,7 +1,3 @@
 scripts/public-testnet-validator-triad-inventory.v1.json text eol=lf
 doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-registry-2026-09-15.json text eol=lf
 doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-bootstrap-peers-2026-09-15.txt text eol=lf
-doc/.governance/document-corpus-inventory.json text eol=lf
-doc/.governance/document-corpus/** text eol=lf
-doc/testing/evidence/inventory.json text eol=lf
-scripts/fixtures/document-corpus-v3/legacy/** text eol=lf

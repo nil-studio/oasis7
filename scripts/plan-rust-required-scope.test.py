@@ -4319,7 +4319,6 @@ class PythonControlContracts(unittest.TestCase):
         config['python_control_contracts'][path] = {
             'group': 'doc_checker_contracts',
             'tests': [
-                'scripts/doc-evidence-inventory-check.test.py',
                 'scripts/document-corpus-inventory-check.test.py',
                 'scripts/product-doc-governance-check.test.py',
             ],

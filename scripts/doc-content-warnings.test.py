@@ -22,7 +22,7 @@ def load(name):
 
 fixture = load('product-doc-content-check.test.py')
 overlay = load('product-doc-governance-check.py')
-from doc_content_warnings import report_findings
+from doc_content_warnings import report_classified_findings, report_findings
 
 class WarningTests(unittest.TestCase):
     def setUp(self):
@@ -31,12 +31,14 @@ class WarningTests(unittest.TestCase):
         shutil.rmtree(self.root)
     def invoke(self, name, *args):
         return subprocess.run([sys.executable,str(HERE/name),'--repo-root',str(self.root),*args],capture_output=True,text=True)
-    def test_product_findings_warn_strict_fail(self):
+    def test_product_writing_findings_warn_in_both_full_modes(self):
         p = self.invoke('product-doc-content-check.py','--full-corpus','--warn-only')
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
         self.assertIn('::warning::product-doc-content:',p.stdout)
-        self.assertNotEqual(self.invoke('product-doc-content-check.py','--full-corpus').returncode,0)
-    def test_core_findings_warn_strict_fail(self):
+        default = self.invoke('product-doc-content-check.py','--full-corpus')
+        self.assertEqual(default.returncode,0,default.stdout+default.stderr)
+        self.assertIn('::warning::',default.stdout)
+    def test_core_structure_is_advisory_in_full_and_changed_scope(self):
         p = self.invoke('doc-core-content-check.py','--full-corpus','--warn-only')
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
         self.assertIn('missing-status-field',p.stdout)
@@ -45,11 +47,11 @@ class WarningTests(unittest.TestCase):
         self.assertEqual(default.returncode, 0, default.stdout + default.stderr)
         self.assertIn('::warning::', default.stdout)
         self.assertIn('missing-status-field', default.stdout)
-        # Historical mode is advisory by default; changed content is still strict.
+        # A missing writing template is advice in both inventory and changed scope.
         path = self.root / fixture.TOPIC
         path.write_text(path.read_text() + '\nNew product obligation.\n')
         strict = self.scoped('doc-core-content-check.py')
-        self.assertNotEqual(strict.returncode, 0, strict.stdout + strict.stderr)
+        self.assertEqual(strict.returncode, 0, strict.stdout + strict.stderr)
         self.assertIn('missing-status-field', strict.stdout)
         advisory = self.invoke('doc-core-content-check.py', '--base', self.base,
                                '--head', self.head, '--worktree', '--warn-only')
@@ -64,7 +66,7 @@ class WarningTests(unittest.TestCase):
         default = self.invoke('system-design-traceability-check.py', '--full-corpus')
         self.assertEqual(default.returncode, 0, default.stdout + default.stderr)
         self.assertIn('::warning::system-design-traceability:', default.stdout)
-        self.assertNotEqual(self.scoped('system-design-traceability-check.py').returncode, 0)
+        self.assertEqual(self.scoped('system-design-traceability-check.py').returncode, 0)
     def test_invalid_range_is_error(self):
         for name in ('product-doc-content-check.py','system-design-traceability-check.py','doc-core-content-check.py'):
             self.assertNotEqual(self.invoke(name,'--base','not-a-sha','--head',self.head,'--warn-only').returncode,0)
@@ -94,8 +96,14 @@ class WarningTests(unittest.TestCase):
             self.assertEqual(report_findings(['link escapes repository'],True),1)
             self.assertEqual(report_findings(['reference escapes the repository'],True),1)
         self.assertIn('%0A::error::injected%25',output.getvalue())
+    def test_explicit_advisory_allowlist_defaults_unknown_findings_to_error(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(report_classified_findings(['checker: missing-heading: doc/a.md'], frozenset({'missing-heading'})), 0)
+            self.assertEqual(report_classified_findings(['checker: future-code: doc/a.md'], frozenset({'missing-heading'})), 1)
+            self.assertEqual(report_classified_findings(['unclassified error'], frozenset({'missing-heading'})), 1)
+            self.assertEqual(report_classified_findings(['checker: missing-heading: reference escapes the repository'], frozenset({'missing-heading'})), 1)
     def test_overlay_content_and_integrity_partition(self):
-        for code, expected in [('section-contract',0),('traceability-contract',0),('metadata-content',0),('traceability-authority-format',0),('entry-contract',1),('metadata-contract',1),('topic-index-contract',1),('traceability-authority',1)]:
+        for code, expected in [('section-contract',0),('traceability-contract',0),('metadata-content',0),('traceability-authority-format',0),('entry-contract',1),('metadata-contract',1),('topic-index-contract',1),('traceability-authority',1),('invalid-fragment',1),('traceability-prd-resolution',1),('future-integrity-code',1)]:
             with patch.object(overlay,'check',return_value=[f'product-doc-governance: {code}: fixture']),patch.object(sys,'argv',['checker','--warn-only']),contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(overlay.main(),expected,code)
     def test_overlay_exception_not_suppressed(self):
@@ -103,13 +111,29 @@ class WarningTests(unittest.TestCase):
             with self.assertRaises(OSError): overlay.main()
     def scoped(self, name):
         return self.invoke(name, '--base', self.base, '--head', self.head, '--worktree')
-    def test_new_and_materially_changed_documents_block(self):
+    def test_new_and_materially_changed_writing_findings_are_advisory(self):
         path = self.root / fixture.TOPIC
         path.write_text(path.read_text() + "\nNew product obligation.\n")
-        self.assertNotEqual(self.scoped('doc-core-content-check.py').returncode, 0)
+        self.assertEqual(self.scoped('doc-core-content-check.py').returncode, 0)
         path = self.root / 'doc/product/world-rules-core-gameplay/new.prd.md'
         path.write_text('# Missing required structure\n')
-        self.assertNotEqual(self.scoped('product-doc-content-check.py').returncode, 0)
+        self.assertEqual(self.scoped('product-doc-content-check.py').returncode, 0)
+    def test_warn_only_cannot_hide_new_positive_claim_or_declared_broken_link(self):
+        path = self.root / fixture.TOPIC
+        path.write_text(path.read_text() + '\n### REQ-CLAIM-001\n- 实现状态：已验证\n')
+        p = self.invoke('doc-core-content-check.py', '--base', self.base, '--head', self.head, '--worktree', '--warn-only')
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn('missing-status-evidence', p.stdout)
+        path.write_text(fixture.TOPIC_TEXT.replace('../../game/prd.md#authority', '../../game/prd.md#missing', 1))
+        p = self.invoke('product-doc-content-check.py', '--base', self.base, '--head', self.head, '--worktree', '--warn-only')
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn('invalid-fragment', p.stdout)
+        professional = self.root / 'doc/system/compact.design.md'
+        professional.parent.mkdir()
+        professional.write_text('# Compact design\n[upstream](../product/missing.prd.md)\n')
+        p = self.invoke('system-design-traceability-check.py', '--base', self.base, '--head', self.head, '--worktree', '--warn-only')
+        self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn('trace-declared-link-invalid', p.stdout)
     def test_untouched_legacy_is_not_scoped_blocker(self):
         for name in ('product-doc-content-check.py', 'doc-core-content-check.py'):
             self.assertEqual(self.scoped(name).returncode, 0)
@@ -119,7 +143,7 @@ class WarningTests(unittest.TestCase):
         for name in ('product-doc-content-check.py', 'doc-core-content-check.py'):
             p = self.scoped(name)
             self.assertEqual(p.returncode, 0, p.stdout+p.stderr)
-    def test_tailoring_strict_cli_valid_and_invalid(self):
+    def test_tailoring_template_is_advisory(self):
         path = self.root/'doc/system/tailored.design.md'
         path.parent.mkdir()
         text = '# 小型接口设计\n- 结构裁剪：理由：只改展示；范围：只读接口；风险：不改变持久化；映射：[问题目标](#接口说明)、[上游约束](#接口说明)、[边界结构](#接口说明)、[验证](#接口说明)、[决策风险](#接口说明)\n## 接口说明\n输入输出及验证仍由既有合同覆盖。\n'
@@ -128,9 +152,9 @@ class WarningTests(unittest.TestCase):
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
         self.assertIn('::notice::',p.stdout)
         path.write_text(text.replace('映射：[问题目标](#接口说明)、[上游约束](#接口说明)、[边界结构](#接口说明)、[验证](#接口说明)、[决策风险](#接口说明)', '映射：[验证](#接口说明)'))
-        self.assertNotEqual(self.scoped('doc-core-content-check.py').returncode,0)
+        self.assertEqual(self.scoped('doc-core-content-check.py').returncode,0)
         path.write_text(text.replace('风险：不改变持久化；',''))
-        self.assertNotEqual(self.scoped('doc-core-content-check.py').returncode,0)
+        self.assertEqual(self.scoped('doc-core-content-check.py').returncode,0)
     def test_retired_topic_skips_active_status_rules(self):
         path = self.root/fixture.TOPIC
         path.write_text(path.read_text().replace('- 生命周期：`active`', '- 生命周期：`retired`'))
@@ -141,23 +165,25 @@ class WarningTests(unittest.TestCase):
         path = self.root/'doc/product/world-rules-core-gameplay/prd.md'
         path.write_text(path.read_text() + '\n### 功能：新增能力\n缺少状态摘要。\n')
         p = self.scoped('doc-core-content-check.py')
-        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.returncode, 0)
         self.assertIn('missing-status-field', p.stdout)
-    def test_overlay_enforces_source_not_linked_target(self):
+    def test_overlay_enforces_changed_source_and_reverse_target(self):
         path = self.root/fixture.TOPIC
         path.write_text(path.read_text()+'\nNew scope.\n')
         argv = ['checker', '--repo-root', str(self.root), '--enforce-changed', '--base', self.base, '--head', self.head, '--worktree']
-        for source, result in [(fixture.TOPIC,1),('doc/product/world-rules-core-gameplay/legacy.prd.md',0)]:
-            error = f'product-doc-governance: section-contract: {source}: linked {fixture.TOPIC}'
+        for source, target, result in [(fixture.TOPIC,fixture.TOPIC,1),('doc/product/world-rules-core-gameplay/legacy.prd.md',fixture.TOPIC,1),('doc/product/world-rules-core-gameplay/legacy.prd.md','doc/old.md',0)]:
+            error = f'product-doc-governance: invalid-fragment: {source}: linked {target}'
             with patch.object(overlay,'check',return_value=[error]), patch.object(sys,'argv',argv), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(overlay.main(), result)
 
-    def test_overlay_empty_new_file_and_unknown_source_fail_closed(self):
+    def test_overlay_empty_new_file_warns_but_unknown_code_fails_closed(self):
         path = 'doc/product/world-rules-core-gameplay/empty.prd.md'
         (self.root/path).write_text('<!-- only comment -->\n')
         argv = ['checker','--repo-root',str(self.root),'--enforce-changed','--base',self.base,'--head',self.head,'--worktree']
         for detail in (f'{path}: missing section', 'unclassifiable source'):
             with patch.object(overlay,'check',return_value=[f'product-doc-governance: section-contract: {detail}']),patch.object(sys,'argv',argv),contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(overlay.main(),0)
+            with patch.object(overlay,'check',return_value=[f'product-doc-governance: future-integrity-code: {detail}']),patch.object(sys,'argv',argv),contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(overlay.main(),1)
 
     def test_ci_callers_forward_flags(self):

@@ -263,7 +263,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - 变更 `oasis7_game_client` 时，`workspace_support` 运行独立包的全部 targets strict Clippy 和库测试，并沿 Cargo 依赖图保留主应用消费者。CLI 可用 `cargo run -p oasis7_game_client --bin oasis7_game_client -- --help` 单独验证。
   - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
   - support profile 计划版本为 1；空、未知、重复 profile 或未知版本拒绝，保守 full scope 展开完整库存。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/影响不确定及非包规则保守扩大，已确认的未登记路径明确失败。每个 profile 的命令成功后才输出完成标记，失败仍由 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
-  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。快速 baseline 保留增量与必要全局不变量，完整 profile 另运行 `--full-corpus` 历史报告。
+  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。baseline 保留受影响文档、反向引用及必要全局不变量；`--full-corpus` 历史报告按需显式运行。规则、范围选择或解析器改变时运行全部适用治理回归，并核对完整适用文档集合。
   - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：

@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Regression check confirming the delegated evidence corpus shard checker is retired."""
+"""Retain the trusted BASE entry point for the canonical corpus retirement test."""
 
+import importlib.util
 from pathlib import Path
 import unittest
 
 
-ROOT = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location(
+    "document_corpus_retirement",
+    Path(__file__).with_name("document-corpus-inventory-check.test.py"),
+)
+assert spec is not None and spec.loader is not None
+canonical = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(canonical)
 
 
 class DocEvidenceInventoryRetirementTest(unittest.TestCase):
     def test_doc_evidence_inventory_shards_are_retired(self) -> None:
-        for rel in (
-            "doc/testing/evidence/inventory.json",
-            "doc/.governance/document-corpus/evidence",
-            "scripts/doc-evidence-inventory-check.py",
-        ):
-            with self.subTest(path=rel):
-                self.assertFalse((ROOT / rel).exists(), f"retired evidence corpus path still exists: {rel}")
+        # Share this case's subTest outcome so delegated failures cannot pass.
+        canonical.DocumentCorpusRetirementTest.test_document_corpus_hash_system_is_retired(self)
 
 
 if __name__ == "__main__":

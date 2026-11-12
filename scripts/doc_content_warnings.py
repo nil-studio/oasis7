@@ -1,4 +1,23 @@
-"""Only explicitly classified document findings may use this advisory exit path."""
+"""Separate writing advice from factual/integrity failures.
+
+The historical inventory deliberately uses ``report_findings(..., True)``.
+Changed-document gates use an explicit code allowlist instead: an unknown code
+or a broken declared relation must never become advisory through a CLI flag.
+"""
+
+
+def finding_code(finding: str) -> str:
+    parts = finding.split(": ", 2)
+    return parts[1] if len(parts) == 3 else ""
+
+
+def report_classified_findings(findings: list[str], advisory_codes: frozenset[str]) -> int:
+    advisory = [finding for finding in findings if finding_code(finding) in advisory_codes]
+    hard = [finding for finding in findings if finding_code(finding) not in advisory_codes]
+    unsafe = report_findings(advisory, True) if advisory else 0
+    if hard:
+        report_findings(hard, False)
+    return 1 if hard or unsafe else 0
 
 def report_findings(findings: list[str], warn_only: bool) -> int:
     hard = False
