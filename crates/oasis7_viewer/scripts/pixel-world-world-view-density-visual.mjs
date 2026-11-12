@@ -312,6 +312,19 @@ try {
     for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs','viewer-retention-focus.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
     await withObservationCleanup(async()=>{summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)});},()=>memorySession.close(),summary);
   }
+  if(process.env.DENSITY_QA_WASM_LIFECYCLE==='1') {
+    const readCapacity=async()=>JSON.parse(await evaluate(`JSON.stringify({origin:performance.timeOrigin,capacity:window.__QA_READ_WASM_CAPACITY__?.()})`));
+    summary.wasmLifecycle={before:await readCapacity()};
+    assert(summary.wasmLifecycle.before.capacity?.status==='observed','lifecycle requires mounted capacity');
+    await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),gl=c.getContext('webgl2'),extension=gl?.getExtension('WEBGL_lose_context');if(!extension)throw Error('actual context-loss extension unavailable');extension.loseContext();return true})()`);
+    await waitFor(`window.__QA_READ_WASM_CAPACITY__?.().status==='unmounted'`);
+    summary.wasmLifecycle.lost=await readCapacity();assert(!('linearCapacityBytes' in summary.wasmLifecycle.lost.capacity),'lost lease reused old capacity');
+    await run(['click','.pixel-world-render-unavailable__retry']);
+    await waitFor(`window.__AW_TEST__&&document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true'`);
+    await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');window.__QA_READ_WASM_CAPACITY__=m.readPixelWorldLinearMemoryCapacity;window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;return true})()`);
+    await waitFor(`window.__QA_READ_WASM_CAPACITY__?.().status==='observed'`);
+    summary.wasmLifecycle.restored=await readCapacity();assert(summary.wasmLifecycle.restored.origin!==summary.wasmLifecycle.before.origin,'reload did not create new page instance');
+  }
   if (process.env.DENSITY_QA_FRAME_OBSERVATION_MS) summary.frameObservation = await probeWorldFrameCapabilities({run,evaluate,out,durationMs:Number(process.env.DENSITY_QA_FRAME_OBSERVATION_MS)});
   if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
   if (scope === 'all') {
