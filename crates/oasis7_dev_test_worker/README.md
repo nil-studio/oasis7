@@ -26,7 +26,7 @@ DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过�
 
 业务原件使用独立 KEK 加密，AAD 绑定完整 resource scope、kind 和原操作 ID；先持久化再发送。重放及查询只读取原 Context/Move，不重新签名或再次提交。响应丢失、缓存丢失、损坏、错误 KEK、缺 marker、scope 冲突均保留 unknown，不能当作未开始。
 
-普通 actor 重启使内存 session 失效，账本和原件保留。策略 generation 不可回退，同版本不能改变授权合同；删除再添加 grant 必须提升 authorization version。正式恢复必须发布更高 generation、全新 `service_grant_id` 和显式更高版本授权，原 grant 永久退休。需要查历史时显式配置 `history_grants`；只有已退休且同 caller、同完整 scope 的原件可供 query-only lookup，不能借历史 Context 新发 Move。不得回滚 native world/key/binding 或将旧 SQL 备份当作当前权限。
+平台休眠或同授权实例替换从 SQLite 恢复尚未关闭的不可变 session，仍按当前身份、完整 grant 绑定与期限重验；缺失／损坏不补建，关闭使用永久墓碑。逻辑服务重启或备份恢复必须轮换 service_grant_id，旧 session 失效；账本和原件保留。策略 generation 不可回退，同版本不能改变授权合同；删除再添加 grant 必须提升 authorization version。正式恢复必须发布更高 generation、全新 `service_grant_id` 和显式更高版本授权，原 grant 永久退休。需要查历史时显式配置 `history_grants`；只有已退休且同 caller、同完整 scope 的原件可供 query-only lookup，不能借历史 Context 新发 Move。不得回滚 native world/key/binding 或将旧 SQL 备份当作当前权限。
 
 目前没有向模型公开的管理、导出、清空或恢复路由。备份、恢复和 Secret 轮换必须由可信 operator 离线准备并独立核对；没有真实云端恢复结果前不能声称已验证完整恢复。
 

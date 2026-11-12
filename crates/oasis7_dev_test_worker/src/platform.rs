@@ -2,12 +2,12 @@
 use crate::{
     cache::Cache,
     config::{Config, Material},
-    native::{Client, nonce},
-    protocol, state,
+    native::Client,
+    protocol, sessions, state,
 };
-use oasis7_custody_core::dev_test::{Arguments, ModelRequest, Scope, Sessions};
+use oasis7_custody_core::dev_test::{Arguments, ModelRequest, Scope};
 use serde_json::{Value, json};
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use wasm_bindgen::prelude::*;
 use worker::*;
 #[wasm_bindgen(module = "/platform/store.mjs")]
@@ -37,7 +37,6 @@ pub struct DevTestAccounts {
     raw: JsValue,
     env: Env,
     busy: Cell<bool>,
-    sessions: RefCell<Option<Sessions>>,
 }
 struct Busy<'a>(&'a Cell<bool>);
 impl Drop for Busy<'_> {
@@ -54,7 +53,6 @@ impl DurableObject for DevTestAccounts {
             raw: state._inner().into(),
             env,
             busy: Cell::new(false),
-            sessions: RefCell::new(nonce().ok().and_then(|n| Sessions::with_epoch(n).ok())),
         }
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
@@ -78,6 +76,12 @@ impl DurableObject for DevTestAccounts {
     }
 }
 impl DevTestAccounts {
+    fn session_store<'a>(&'a self, config: &'a Config) -> sessions::Store<'a> {
+        sessions::Store {
+            raw: &self.raw,
+            service_grant_id: &config.service_grant_id,
+        }
+    }
     fn secret(&self, name: &str) -> Option<String> {
         self.env.secret(name).ok().map(|s| s.to_string())
     }
@@ -185,18 +189,14 @@ impl DevTestAccounts {
             {
                 return Err("invalid_arguments");
             }
-            self.sessions
-                .borrow_mut()
-                .as_mut()
-                .ok_or("entropy_unavailable")?
-                .close(
-                    request
-                        .session_ref
-                        .as_deref()
-                        .ok_or("session_unavailable")?,
-                    caller,
-                )
-                .map_err(|_| "session_unavailable")?;
+            self.session_store(config).close(
+                request
+                    .session_ref
+                    .as_deref()
+                    .ok_or("session_unavailable")?,
+                caller,
+                now(),
+            )?;
             return Ok(json!({"closed":true}));
         }
         let reference = if request.method == "open" {
@@ -206,19 +206,14 @@ impl DevTestAccounts {
                 .ok_or("grant_unavailable")?
                 .to_owned()
         } else {
-            self.sessions
-                .borrow()
-                .as_ref()
-                .ok_or("entropy_unavailable")?
-                .policy_reference(
-                    request
-                        .session_ref
-                        .as_deref()
-                        .ok_or("session_unavailable")?,
-                )
-                .map_err(|_| "session_unavailable")?
-                .0
-                .to_owned()
+            self.session_store(config).policy_reference(
+                request
+                    .session_ref
+                    .as_deref()
+                    .ok_or("session_unavailable")?,
+                caller,
+                now(),
+            )?
         };
         let grant = config
             .grants
@@ -274,10 +269,7 @@ impl DevTestAccounts {
             }
             state.reconcile()?;
             if request.method != "open" {
-                self.sessions
-                    .borrow()
-                    .as_ref()
-                    .ok_or("session_unavailable")?
+                self.session_store(config)
                     .authorize(
                         request
                             .session_ref
@@ -317,10 +309,7 @@ impl DevTestAccounts {
             client.current_account().await?;
             client.view().await?;
             let reference = self
-                .sessions
-                .borrow_mut()
-                .as_mut()
-                .ok_or("entropy_unavailable")?
+                .session_store(config)
                 .open(
                     caller,
                     grant,

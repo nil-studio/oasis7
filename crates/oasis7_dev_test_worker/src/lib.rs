@@ -3,6 +3,7 @@
 mod config;
 mod platform;
 mod protocol;
+mod sessions;
 mod state;
 mod store;
 
