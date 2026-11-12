@@ -14,6 +14,20 @@ impl Drop for RunningNode {
     }
 }
 
+struct ReleaseEmpty(Option<std::sync::mpsc::Sender<()>>);
+impl ReleaseEmpty {
+    fn release(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
+}
+impl Drop for ReleaseEmpty {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
 struct InflightEmptyHook {
     driver: Box<NodeRuntimeExecutionDriver>,
     gate: Option<(
@@ -32,6 +46,14 @@ impl oasis7_node::NodeExecutionHook for InflightEmptyHook {
         &mut self,
         context: oasis7_node::NodeExecutionCommitContext,
     ) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
+        self.on_commit_with_expected(context, None, None)
+    }
+    fn on_commit_with_expected(
+        &mut self,
+        context: oasis7_node::NodeExecutionCommitContext,
+        expected_execution_block_hash: Option<&str>,
+        expected_execution_state_root: Option<&str>,
+    ) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
         if context.committed_actions.is_empty()
             && let Some((entered, release)) = self.gate.take()
         {
@@ -42,7 +64,11 @@ impl oasis7_node::NodeExecutionHook for InflightEmptyHook {
                 .recv_timeout(std::time::Duration::from_secs(10))
                 .map_err(|_| "empty gate release missing")?;
         }
-        self.driver.on_commit(context)
+        self.driver.on_commit_with_expected(
+            context,
+            expected_execution_block_hash,
+            expected_execution_state_root,
+        )
     }
 }
 
@@ -128,6 +154,8 @@ pub(super) fn assert_queued_original_across_tick(
             .with_execution_hook(hook);
         node.start().unwrap();
         let mut node = RunningNode(node);
+        // Declared after RunningNode: unblock the hook before stop/join on unwind.
+        let mut release = ReleaseEmpty(Some(release));
         let mut before_resources = None;
         let mut before_pending = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -155,7 +183,7 @@ pub(super) fn assert_queued_original_across_tick(
             node.0
                 .submit_consensus_action_payload(907, bytes.clone())
                 .unwrap();
-            release.send(()).unwrap();
+            release.release();
         }
         if delayed {
             // The actual consensus worker advances an empty committed batch
