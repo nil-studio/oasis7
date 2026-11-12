@@ -44,6 +44,9 @@ pub(crate) struct Account {
 pub(crate) struct Resource {
     pub account_ref: String,
     pub endpoint: String,
+    /// Explicit trusted transport aliases may retain the original native audience.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_audience: Option<String>,
     pub service_public_key: String,
     pub material_secret: String,
     pub fence: GameTaskFenceV1,
@@ -167,6 +170,10 @@ impl Config {
                 || environment.1.is_empty()
                 || resource.account_ref != g.binding.account_ref
                 || !https_origin(&resource.endpoint)
+                || resource
+                    .identity_audience
+                    .as_ref()
+                    .is_some_and(|v| !https_origin(v))
                 || !key(&resource.service_public_key)
                 || !secret_name(&resource.material_secret)
                 || !key(&account.identity_public_key)

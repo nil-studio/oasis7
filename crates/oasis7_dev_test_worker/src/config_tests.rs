@@ -219,3 +219,32 @@ fn export_local_entry_fixture_when_requested() {
         std::fs::write(path, serde_json::to_vec_pretty(&policy).unwrap()).unwrap();
     }
 }
+
+#[test]
+fn operator_policy_pins_alias_and_rejects_changed_pins_or_raw_credentials() {
+    let mut value = fixture();
+    value["resources"]["resource"]["endpoint"] = json!("https://transport.example.test");
+    value["resources"]["resource"]["identity_audience"] = json!("https://original.example.test");
+    value["grants"][0]["binding"]["executor_config_digest"] = json!("");
+    let policy = crate::prepare_operator_policy(&value.to_string()).unwrap();
+    let config = Config::parse(&policy).unwrap();
+    assert_eq!(
+        config.resources["resource"].identity_audience.as_deref(),
+        Some("https://original.example.test")
+    );
+    assert_eq!(crate::prepare_operator_policy(&policy).unwrap(), policy);
+    let mut wrong: Value = serde_json::from_str(&policy).unwrap();
+    wrong["resources"]["resource"]["identity_audience"] = json!("https://changed.example.test");
+    assert!(crate::prepare_operator_policy(&wrong.to_string()).is_err());
+    for bad in [
+        "http://original.example.test",
+        "https://original.example.test/path",
+        "https://user@original.example.test",
+    ] {
+        let mut bad_value = value.clone();
+        bad_value["resources"]["resource"]["identity_audience"] = json!(bad);
+        assert!(crate::prepare_operator_policy(&bad_value.to_string()).is_err());
+    }
+    value["credentials"][0]["token"] = json!("must-not-be-output");
+    assert!(crate::prepare_operator_policy(&value.to_string()).is_err());
+}

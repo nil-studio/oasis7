@@ -1,10 +1,10 @@
 import {readBoundedText, loadRecord, commitRecord} from './store.mjs';
 const allowed = new Set(['/session','/capabilities','/entry-executor/control']);
-export async function nativeHttp(origin,path,method,cookie,csrf,json,deadline,limit) {
+export async function nativeHttp(origin,path,method,cookie,csrf,json,deadline,limit,audience=origin) {
   if (!allowed.has(path) || !((method==='GET' && path!=='/entry-executor/control') || (method==='POST' && path==='/entry-executor/control')) || Date.now() >= deadline) throw new Error('native_deadline_unknown');
   const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),Math.max(0,deadline-Date.now()));
   try {
-    const response=await fetch(origin+"/api/public/hosted-account/v2"+path,{method,headers:{'Content-Type':'application/json','Origin':origin,'Cookie':cookie,...(method==='POST'?{'X-Oasis7-Csrf':csrf}: {})},
+    const response=await fetch(origin+"/api/public/hosted-account/v2"+path,{method,headers:{'Content-Type':'application/json','Origin':audience,'Cookie':cookie,...(method==='POST'?{'X-Oasis7-Csrf':csrf}: {})},
       body:method==='POST'?json:undefined, redirect:'manual',signal:controller.signal});
     if (response.status!==200) { await response.body?.cancel(); throw new Error('native_response_unavailable'); }
     return await readBoundedText(response,limit,deadline);

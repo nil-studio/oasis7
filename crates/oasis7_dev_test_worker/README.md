@@ -39,3 +39,9 @@ DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过�
 隔离账号已通过正式 SDK 完成登录与合法 Executor 绑定后，可用 `cargo run -p oasis7_client_storage --example dev_test_worker_material --locked -- --identity-config <私有配置> --login-operation <原登录ID> --executor-directory <原vault> --unlock-file <私有unlock> --expected-account <已核账号> --expected-executor <已核fence公钥> --output <新私有文件>` 生成一次性材料文件。该 operator 工具只读原 SDK vault／session，核对账号、Executor 与独立 identity key，不生成／替换 key，不发网络请求；结果仅写新建0600文件，拒绝覆盖、symlink、FIFO／设备、宽权限或错误 scope，不打印秘密。
 
 材料文件须由可信 operator 直接导入指定 Worker Secret，不能经过模型消息、普通配置或日志。导入后按运行终点保留或清理私有交接文件；Worker 仍须在线重验账号／权限与完整 fence，离线导出不代表当前可用。它不属于 Worker 的生产依赖或模型工具入口，也不提供备份恢复或权限重授权能力。
+
+## 明确传输别名
+
+`Resource.endpoint` 固定实际 HTTPS 传输目的地；可选 `identity_audience` 仅指定既有身份 authority 的 Origin，省略时等于 endpoint。显式别名也纳入资源摘要与 grant pin，不能由工具参数指定；原 world、RP、身份 scope、服务公钥和完整 fence 不变。别名必须由可信 operator 验证，不能用它绕过 TLS 或重绑已有 SDK 配置。
+
+`cargo run -p oasis7_dev_test_worker --example operator_policy --locked -- <公共policy文件>` 只接受不超过60KiB的普通文件，完成闭合配置验证后补齐空的 resource pin；已有错误 pin 会被拒绝。该离线工具无网络或 Secret 导出能力，不属于 MCP 入口。

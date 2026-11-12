@@ -21,6 +21,7 @@ extern "C" {
         json: &str,
         deadline: f64,
         limit: usize,
+        audience: &str,
     ) -> Result<JsValue, JsValue>;
 }
 #[wasm_bindgen(module = "/platform/store.mjs")]
@@ -61,6 +62,10 @@ impl Client<'_> {
             body,
             self.deadline,
             2 * 1024 * 1024,
+            self.resource
+                .identity_audience
+                .as_deref()
+                .unwrap_or(&self.resource.endpoint),
         )
         .await
         .map_err(|_| "native_outcome_unknown")?;
