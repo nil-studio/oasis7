@@ -160,7 +160,7 @@ async function recoveredScopeState(count, selectedId = null) {
 }
 async function overview() {
   const disclosure = '.pixel-world-exploration-disclosure';
-  await evaluate(`(()=>{const d=document.querySelector(${JSON.stringify(disclosure)});if(!d)throw Error('negotiated exploration UI missing');return d.open})()`)
+  await evaluate(`(()=>{const d=document.querySelector(".pixel-world-exploration-disclosure");if(!d)throw Error('negotiated exploration UI missing');return d.open})()`)
     .then(async open => { if (!open) await run(['click', disclosure + ' > summary']); });
   await evaluate(`(()=>{const b=document.querySelector('[data-query-overview]');if(!b)throw Error('overview action missing');b.focus({preventScroll:true});return true})()`); await run(['press', 'Enter']);
   await run(['click', disclosure + ' > summary']);
@@ -177,7 +177,7 @@ async function zoomForLabels() {
 }
 async function searchEmpty() {
   const disclosure = '.pixel-world-exploration-disclosure';
-  const open = await evaluate(`document.querySelector(${JSON.stringify(disclosure)})?.open`);
+  const open = await evaluate(`document.querySelector(".pixel-world-exploration-disclosure")?.open`);
   if (!open) await run(['click', disclosure + ' > summary']);
   await run(['fill', '.pixel-world-exploration form input', '']);
   await evaluate(`document.querySelector('.pixel-world-exploration form input').focus({preventScroll:true});true`); await run(['press', 'Enter']);
