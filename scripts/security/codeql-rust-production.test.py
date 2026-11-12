@@ -136,6 +136,7 @@ class Production(unittest.TestCase):
                 (m.candidate, 'SUITE_SHA', self.suite_sha),
                 (m.comparison, 'OFFICIAL_SHA', sha(b'stock')),
                 (m.comparison, 'CANDIDATE_SHA', sha(b'patched')),
+                (m.candidate, 'TYPE_CANDIDATE_SHA', sha(b'arity-patched')),
                 (m.candidate, 'MODEL_OFFICIAL_SHA', sha(self.core)),
                 (m.candidate, 'MODEL_CANDIDATE_SHA', sha(self.core.replace(
                     m.candidate.MODEL_MARKER, m.candidate.MODEL_MARKER + m.candidate.MODEL_LINE, 1)))):
@@ -177,6 +178,8 @@ class Production(unittest.TestCase):
                     value = [str(fixture.published / record['relative']) for record in fixture.entries]
                 elif name == 'apply-behavior-patch':
                     (args.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('patched')
+                elif name == 'apply-arity-patch':
+                    (args.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('arity-patched')
                 elif name == 'production-default-suite':
                     value = [str(args.work / 'default-queries' / record['relative']) for record in fixture.entries]
                 elif name.startswith('resolve-'):
@@ -270,6 +273,9 @@ class Production(unittest.TestCase):
         self.assertEqual((self.original / m.candidate.MODEL_FILE).read_bytes(), self.core)
         self.assertEqual(self.guard_manifests, [self.source / 'Cargo.toml', self.source / 'independent/Cargo.toml'])
         self.assertEqual(self.terminal('prepare')['source_sha'], self.source_sha)
+        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-v3')
+        self.assertEqual(m.read_json(self.output / 'arity-patch-identity.json'), m.candidate.arity_identity())
+        self.assertEqual((self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).read_text(), 'arity-patched')
         self.assertNotEqual(self.source_sha, m.capacity.CAPACITY_SOURCE)
         self.assertIn('analysis_minutes=', self.github_output.read_text())
         self.assertIn('node_options=--require=', self.github_output.read_text())
@@ -331,6 +337,51 @@ class Production(unittest.TestCase):
         self.assertEqual(self.invoke('run', deadline=self.deadline + 1), 1)
         self.assertRegex(self.terminal('run')['primary_failure']['error'], 'deadline|budget')
         self.assertNotIn('default-query-batch', [name for name, _ in self.calls])
+
+    def test_v2_preparation_cannot_be_promoted_to_the_current_variant(self):
+        self.prepare_ok()
+        prepared = self.terminal('prepare')
+        prepared['variant'] = 'qualifier-lines-v2'
+        (self.output / 'production-prepare.json').write_text(json.dumps(prepared))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
+        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-v2')
+        self.assertFalse(self.sarif.exists())
+
+    def test_old_type_bytes_are_rejected_even_with_an_updated_input_snapshot(self):
+        self.prepare_ok()
+        private = self.work / 'candidate-rust-all'
+        (private / m.comparison.TYPE_FILE).write_text('patched')
+        inputs = m.read_json(self.output / 'input-identities.json')
+        inputs['repaired_library'] = m.candidate.regular_snapshot(private, time.monotonic() + 30)
+        (self.output / 'input-identities.json').write_text(json.dumps(inputs))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('two-file model', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_missing_arity_receipt_blocks_production_queries(self):
+        self.prepare_ok()
+        (self.output / 'arity-patch-identity.json').unlink()
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('arity-patch-identity.json', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_changed_arity_receipt_cannot_relabel_the_same_library(self):
+        self.prepare_ok()
+        path = self.output / 'arity-patch-identity.json'
+        receipt = m.read_json(path)
+        receipt['base_type_sha256'] = '0' * 64
+        path.write_text(json.dumps(receipt))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('arity patch identity differs', self.terminal('run')['primary_failure']['error'])
 
     def test_query_input_mutation_is_rejected_before_evaluation(self):
         self.prepare_ok()
@@ -415,8 +466,22 @@ class RealCodeQL(unittest.TestCase):
             suite = dict(query_root=str(published), suite_sha256=m.runtime.digest(suite_file),
                          queries=m.capacity.suite_entries(m.read_json(output / 'official-suite.log'), published))
             before = m.candidate.regular_snapshot(Path(original['codeql/rust-all']['root']), end)
-            private = m.comparison.prepare_candidate(original, work, output, end, run, copy_end=end)
-            m.candidate.prepare_lines_model(Path(original['codeql/rust-all']['root']), private, output, end)
+            private = m.candidate.prepare_candidate(original, work, output, end, run, copy_end=end)
+            m.candidate.verify_candidate_identity(Path(original['codeql/rust-all']['root']), private, output, end)
+            # Reverse only the reviewed equivalent arity encapsulation. The full
+            # remaining source must match the independently pinned legacy file.
+            current = (private / m.comparison.TYPE_FILE).read_text()
+            helper = ('/** Checks arity after both the call and its candidate target are bound. */\n'
+                      'bindingset[ce, target]\npragma[inline_late]\n'
+                      'private predicate omittedConcreteInherentQualifierArityMatches(CallExpr ce, Function target) {\n'
+                      '  ce.getNumberOfSyntacticArguments() = target.getNumberOfParamsInclSelf()\n}\n\n')
+            self.assertEqual(current.count(helper), 1)
+            restored = current.replace(helper, '', 1)
+            call = '    omittedConcreteInherentQualifierArityMatches(ce, target) and\n'
+            self.assertEqual(restored.count(call), 1)
+            restored = restored.replace(call,
+                '    ce.getNumberOfSyntacticArguments() = target.getNumberOfParamsInclSelf() and\n', 1)
+            self.assertEqual(sha(restored.encode()), m.comparison.CANDIDATE_SHA)
             records, _ = m.source_queries(official, work, suite, end)
             closure = m.comparison.candidate_closure(original, private)
             m.resolve_queries(args, records, closure, run)

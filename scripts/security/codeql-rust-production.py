@@ -266,8 +266,7 @@ def prepare(args, terminal, run):
                  queries=capacity.suite_entries(read_json(args.output / 'official-default-suite.log'), published))
     candidate.freeze_suite(suite)
     save(args, 'official-default-suite.json', suite)
-    private = comparison.prepare_candidate(original_closure, args.work, args.output, end, run, copy_end=end)
-    candidate.prepare_lines_model(Path(original_closure['codeql/rust-all']['root']), private, args.output, end)
+    private = candidate.prepare_candidate(original_closure, args.work, args.output, end, run, copy_end=end)
     closure = comparison.candidate_closure(original_closure, private)
     records, packaging = source_queries(official, args.work, suite, end)
     save(args, 'queries.json', records)
@@ -308,9 +307,8 @@ def check_prepared(args, end):
         raise RuntimeError('production repaired dependency selection differs')
     if input_snapshot(args, original_closure, end) != read_json(args.output / 'input-identities.json'):
         raise RuntimeError('production query or library bytes changed')
-    if candidate.lines_identity(Path(original_closure['codeql/rust-all']['root']),
-                                args.work / 'candidate-rust-all', end) != read_json(args.output / 'lines-model-identity.json'):
-        raise RuntimeError('production two-file repair identity differs')
+    candidate.verify_candidate_identity(Path(original_closure['codeql/rust-all']['root']),
+                                        args.work / 'candidate-rust-all', args.output, end)
     records = read_json(args.output / 'queries.json')
     validate_records(records, args.work)
     recorded = read_json(args.output / 'resources.json')

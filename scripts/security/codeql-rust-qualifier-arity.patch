@@ -1,0 +1,13 @@
+--- a/rust/ql/lib/codeql/rust/internal/typeinference/TypeInference.qll
++++ b/rust/ql/lib/codeql/rust/internal/typeinference/TypeInference.qll
+@@ -312,0 +313,7 @@
++/** Checks arity after both the call and its candidate target are bound. */
++bindingset[ce, target]
++pragma[inline_late]
++private predicate omittedConcreteInherentQualifierArityMatches(CallExpr ce, Function target) {
++  ce.getNumberOfSyntacticArguments() = target.getNumberOfParamsInclSelf()
++}
++
+@@ -335 +342 @@
+-    ce.getNumberOfSyntacticArguments() = target.getNumberOfParamsInclSelf() and
++    omittedConcreteInherentQualifierArityMatches(ce, target) and

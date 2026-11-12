@@ -27,6 +27,7 @@ FILES = (
     'codeql-rust-action-deadline.cjs',
     'codeql_rust_action_deadline.py',
     'codeql-rust-omitted-qualifier.patch',
+    'codeql-rust-qualifier-arity.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',
     'codeql-rust-refactored-source.py',

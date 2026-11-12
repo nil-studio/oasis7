@@ -120,6 +120,14 @@ class Budget(unittest.TestCase):
                 m.preserve_results({'02': link}, out, time.monotonic() + 60)
 
 
+class ArityPatch(unittest.TestCase):
+    def test_incremental_patch_has_its_own_identity_and_preserves_the_legacy_patch(self):
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-qualifier-arity.patch'), m.ARITY_PATCH_SHA)
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-omitted-qualifier.patch'), m.comparison.PATCH_SHA)
+        self.assertNotEqual(m.TYPE_CANDIDATE_SHA, m.comparison.CANDIDATE_SHA)
+        self.assertEqual(m.VARIANT, 'qualifier-lines-v3')
+
+
 class Workload(unittest.TestCase):
     """Real filesystem and oracles; only external CLI and hosted checkout observations are substituted."""
     def setUp(self):
@@ -198,7 +206,8 @@ class Workload(unittest.TestCase):
                                    (m, 'MODEL_OFFICIAL_SHA', hashlib.sha256(self.core_bytes).hexdigest()),
                                    (m, 'MODEL_CANDIDATE_SHA', hashlib.sha256(self.core_bytes.replace(m.MODEL_MARKER,m.MODEL_MARKER+m.MODEL_LINE)).hexdigest()),
                                    (m.comparison, 'OFFICIAL_SHA', hashlib.sha256(b'stock').hexdigest()),
-                                   (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest())):
+                                   (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest()),
+                                   (m, 'TYPE_CANDIDATE_SHA', hashlib.sha256(b'arity-candidate').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
         self.stack.enter_context(patch.dict(os.environ, RUNNER_TEMP=str(self.runner), GITHUB_OUTPUT=str(self.output)))
         self.stack.enter_context(patch.object(m.capacity, 'after_identity', return_value=self.protected))
@@ -233,7 +242,10 @@ class Workload(unittest.TestCase):
         self.assertIsNone(file_limit, 'full database must not inherit the small probe file limit')
         self.assertLessEqual(end - time.monotonic(), self.deadline - time.time() - 119)
         self.assertNotIn('GH_TOKEN', env); self.assertNotIn('GITHUB_TOKEN', env)
-        if name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
+        if name == 'apply-arity-patch':
+            (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('arity-candidate')
+            output.write_text('applied fixed arity fixture')
+        elif name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
         elif name.startswith('resolve-'):
             path = Path(next(a.split('=', 1)[1] for a in argv if a.startswith('--query=')))
             kind = 'default' if path.is_relative_to(self.work / 'default-queries') else 'witness'
@@ -351,10 +363,13 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
-        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-v2')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-v3')
         self.assertEqual(terminal['image_contract_version'],'image-v2')
         self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
         model=m.read_json(self.out/'lines-model-identity.json')
+        self.assertEqual(m.read_json(self.out/'arity-patch-identity.json'), m.arity_identity())
+        self.assertEqual(model['candidate_files'][m.comparison.TYPE_FILE]['sha256'],
+                         hashlib.sha256(b'arity-candidate').hexdigest())
         self.assertEqual(model['changed_files'],sorted([m.MODEL_FILE,m.comparison.TYPE_FILE]))
         self.assertEqual(set(model['official_files']),set(model['candidate_files']))
         self.assertEqual(terminal['production_capacity'], 'UNKNOWN'); self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
@@ -566,6 +581,52 @@ class Workload(unittest.TestCase):
         self.prepare(); (self.work / 'default-queries/queries/Q00.ql').write_text('changed')
         before = len(self.calls); self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
+
+    def test_v2_preparation_is_rejected_even_with_a_valid_evidence_seal(self):
+        self.prepare()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        prepared['candidate_variant'] = 'qualifier-lines-v2'
+        old_result = self.out / 'old-v2-result.bqrs'
+        old_result.write_bytes(b'unverified old v2 result')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation receipt differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+        self.assertEqual(old_result.read_bytes(), b'unverified old v2 result')
+        self.assertEqual(m.read_json(self.out / 'candidate-prepare-terminal.json')['candidate_variant'],
+                         'qualifier-lines-v2')
+
+    def test_old_qualifier_bytes_cannot_be_admitted_under_the_new_variant(self):
+        self.prepare()
+        (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('candidate')
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('workload binding differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_missing_arity_receipt_blocks_queries_even_after_evidence_resealing(self):
+        self.prepare()
+        (self.out / 'arity-patch-identity.json').unlink()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('arity-patch-identity.json',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_wrong_arity_patch_identity_stops_before_the_patch_process(self):
+        with patch.object(m, 'ARITY_PATCH_SHA', '0' * 64):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertEqual(self.calls, [])
+        self.assertFalse((self.out / 'arity-patch-identity.json').exists())
+        self.assertEqual((self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).read_text(), 'candidate')
 
     def test_v1_contract_is_rejected_before_candidate_preparation(self):
         contract=m.capacity.semantic_contract(self.source)
