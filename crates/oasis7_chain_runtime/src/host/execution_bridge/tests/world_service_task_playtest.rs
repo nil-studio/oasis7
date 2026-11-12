@@ -447,6 +447,36 @@ fn run_prepared_world_service_kind_with_cognition_503(
     cleanup_admission_delay: Duration,
     reject_first_cognition_submit_503: bool,
 ) -> std::path::PathBuf {
+    run_prepared_world_service_configured(
+        ready,
+        tick_interval,
+        immediate_cleanup,
+        cleanup_after_height,
+        drop_first_cleanup_submit,
+        cleanup_budget,
+        kind,
+        cleanup_admission_delay,
+        reject_first_cognition_submit_503,
+        None,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Explicit isolated fixture fault controls"
+)]
+fn run_prepared_world_service_configured(
+    ready: std::path::PathBuf,
+    tick_interval: Duration,
+    immediate_cleanup: bool,
+    cleanup_after_height: Option<u64>,
+    drop_first_cleanup_submit: bool,
+    cleanup_budget: Duration,
+    kind: PreparedWorldKind,
+    cleanup_admission_delay: Duration,
+    reject_first_cognition_submit_503: bool,
+    prefix_gate: Option<native_prefix_recovery::PrefixCommitGate>,
+) -> std::path::PathBuf {
     assert!(ready.is_absolute());
     assert!(!ready.exists());
     let logistics = matches!(kind, PreparedWorldKind::Logistics);
@@ -609,9 +639,14 @@ fn run_prepared_world_service_kind_with_cognition_503(
         .unwrap()
         .with_tick_interval(tick_interval)
         .unwrap();
-    let mut node = oasis7_node::NodeRuntime::new(config)
-        .with_execution_hook(driver)
-        .with_local_execution_bootstrap(bootstrap);
+    let prefix_submits = prefix_gate.as_ref().map(|gate| gate.submits.clone());
+    let node = oasis7_node::NodeRuntime::new(config).with_local_execution_bootstrap(bootstrap);
+    let mut node = match prefix_gate {
+        Some(gate) => {
+            node.with_execution_hook(native_prefix_recovery::GatedPrefixHook::new(driver, gate))
+        }
+        None => node.with_execution_hook(driver),
+    };
     node.start().unwrap();
     let node = Arc::new(Mutex::new(node));
     let _node_stop = NodeStopOnDrop(node.clone());
@@ -709,6 +744,12 @@ fn run_prepared_world_service_kind_with_cognition_503(
                         let mut body = vec![0; length];
                         if stream.read_exact(&mut body).is_err() {
                             continue;
+                        }
+                        if let Some(submits) = &prefix_submits
+                            && method == "POST" && path == SUBMIT_PATH
+                            && native_prefix_recovery::is_prefix_body(&body)
+                        {
+                            submits.fetch_add(1, Ordering::SeqCst);
                         }
                         let is_cognition_submit = method == "POST"
                             && path == SUBMIT_PATH
@@ -1056,6 +1097,9 @@ fn private_task_resource_permit() -> Arc<super::super::scenario_resource::Scenar
 }
 #[path = "world_service_task_native_runner_conformance.rs"]
 mod native_runner_conformance;
+
+#[path = "world_service_task_native_prefix_recovery.rs"]
+mod native_prefix_recovery;
 
 #[cfg(unix)]
 #[path = "world_service_task_agc02_conformance.rs"]
