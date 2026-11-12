@@ -239,6 +239,14 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 
 `DENSITY_QA_FRAME_OBSERVATION_MS=3000` 在既有冻结source/artifact、真实WS与1000/200字形前置后运行1–10秒能力探针；与performance、memory、pending模式互斥。工具session只有一个managed tab不证明整个Chrome独占：browser-wide只读枚举每次重新核对唯一owned page；额外newtab/其他页导致该项unavailable，不关闭未知页、不启动global trace。独立page-target screencast只接attached session的正常图像与原始swap metadata，保存page performance/timeOrigin/wall锚；600图/64 MiB上限，任何overflow、采集或清理错误保留且非零退出。稀疏图像不证明每帧覆盖或物理显示，缺world render-version→GPU完成→合成映射时帧预算仍unknown，未校准输入/字形可见性前不计ACK。图像/metadata保全不改变原selected oracle。
 
+#### 自建浏览器的长期内存分量
+
+`viewer-owned-retention-window.mjs` 将既有 5617 的选择、往返 pan、滚轮、搜索／清空及同完整查询 overview 动作放到唯一 factory-owned Playwright 页面；不再同时启动 agent-browser。先声明 `RETENTION_OWNED_SOURCE_HEAD`、`RETENTION_OWNED_ARTIFACT_ROOT`、`RETENTION_OWNED_MANIFEST`、独立 `RETENTION_OWNED_OUTPUT` 和 `RETENTION_OWNED_MS`。短校准成功并独立审阅后才注册一次 `1800000` 毫秒窗口；方法时限至多为计量时长加 180 秒准备／清理预算。页面与原生根进程身份、同 mounted WASM lease、真实当前 1000 屏内主体／200 布局标签，以及读数前后同 query/cut/范围实例与 home 相机均须配对。
+
+JS/DOM、WASM 线性容量与每个 owned 进程 RSS 分列；进程采集耗时和全部原始身份集合保留。`retention-owned-observations.jsonl` 保存每次读取（包括失败），`retention-owned-rss.jsonl` 关联原阶段与未知分类，初末原始六个 home 不筛选。初末进程集合改变则 RSS 聚合增长 unknown，共同进程身份仍可单列；容量不是 used heap，不与 RSS/JS 相加或直接对照完整缓存 64MiB。current/retired inflight 仅有计数覆盖，其余闭包、transport roots、renderer/GPU 字节与完整缓存仍 unknown。现有 10% 分量判据不变，失败先落 raw 后非零。
+
+本入口显式启用长期 streaming server：完整标准协议只流式落盘，不保留累积 wire 数组；512MiB 固定采集容量和 terminal 原错保全规则不变。短校准须用完整含 LF 文件大小重新外推长窗容量并核磁盘，不沿旧字节数担保新适配器。首次读数不足、替换页面／根进程／mounted lease、真实负载丢失、采集或清理错误均停止，不重发输入或取替代样本。原 JS 30 分钟及其他失败窗口保持原 source/runner 标识，不因新分量能力改标。
+
 ### 9.2 容量与过载反例
 
 测试100/1000/1001可见实体、200/201突出labels、200/201单页、2 MiB边界和超额事件；世界总量固定50000但不每帧传全量。授权后再聚合，记录实际绘制数量、关系端点和cache。关键选中/目标/blocker在裁剪后仍可达，partial不伪装对象不存在。

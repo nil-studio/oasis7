@@ -359,6 +359,8 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 <a id="view-retention-observation"></a>
 客户端保留观测只读当前实例/本地代际：分别统计已发布view与changes、仍活跃分页的entities/relations/aggregates/events Maps和cursor集合，不能假称已有LRU。统计只返回计数、逻辑JSON UTF-8字节和采集成本，不返回ID、文本、scope凭据或DTO副本；旧代际异步查询不计作当前scope数据；清除统计引用不代表已取消异步闭包或释放其Maps，transport完成前的旧inflight残余内存记unknown，不据active=false宣称实际缓存清空。逻辑编码字节不是实际堆分配，重复引用的逻辑编码与对象去重计数分列。JS heap、WASM线性内存、renderer/GPU和owned进程RSS各自采集或unknown，不求和冒充精确总量。长期工具流式写有界数字收据，不积累全DTO/大trace；预热后初末同负载同阶段比较，不在末端GC、清缓存或reload制造下降。30分钟/M3/16GiB结果仍不代签正式A/B或P5/P6。 可用本地实例/范围序号、当前query匹配和已知source_cut比对布尔校验观测阶段，序号不是权威epoch；便宜stamp不遍历DTO或触发新query。heap/DOM读取前后应括在相同阶段：同scope/cut正常轮询跨读则原值保留并标unknown，不重新抽样挑低值，初末窗口有该项不得只取已知子集求中位数；实例/范围/页面、身份或实际负载丢失则停止。逻辑编码/对象/保留容量只作趋势，已知内存分量超过既有10%须保存raw后非零，缺项不能签整体预算。
 
+进程分量的长期观测复用正式自建浏览器 factory，不从共享浏览器推断 PID 或启动第二个 Viewer 实例。每次 RSS 读取验证私有 profile、唯一页面及原生进程树前后 PID/父 PID/出生时间；整个窗口另锚定同一页面对象、根进程出生身份与 mounted WASM lease。子进程可自然更替，必须保存原始集合；初末窗口集合不同则聚合 RSS 增长未知，只能另报全窗口共同身份的进程分量。RSS 与 JS heap、WASM 容量重叠，不相加为总堆或缓存。采集进程、CDP 和逻辑统计的耗时全部计入并记录，不扣除观测成本。首末原始各六个 home 样本任一跨轮询未知时，相关分量保持未知，不筛选较低值。当前与 retired inflight 计数仅说明标量生命周期覆盖，不能据计数归零证明 GC 或完整缓存释放。
+
 实测失败先报告/修复或缩小支持范围；改预算须同fixture证据和owner决定，不临时放宽。方法见[专项性能验证](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-performance)。这些不是新通用CI gate，文档PR不需GPU/付费模型。
 
 <a id="view-local-feedback-measurement"></a>
