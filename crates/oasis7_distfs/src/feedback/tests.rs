@@ -485,8 +485,43 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         .ingest_replicated_event_record(append_record.clone())
         .expect("ingest append");
     target
-        .ingest_replicated_event_record(append_record)
+        .ingest_replicated_event_record(append_record.clone())
         .expect("ingest append idempotent");
+
+    // These metadata fields affect event_id, but not the author's signature.
+    // Changing either must not turn an exact retry into a second public append.
+    for change_ip in [false, true] {
+        let mut replay = append_record.clone();
+        if change_ip {
+            replay.submit_ip = "127.0.0.99".to_string();
+        } else {
+            replay.created_at_ms = replay.created_at_ms.saturating_add(1);
+        }
+        let payload = FeedbackEventHashPayload {
+            version: FEEDBACK_SIGNATURE_PAYLOAD_VERSION,
+            action: replay.action.as_str(),
+            feedback_id: replay.feedback_id.as_str(),
+            actor_public_key_hex: replay.actor_public_key_hex.as_str(),
+            submit_ip: replay.submit_ip.as_str(),
+            content: replay.content.as_deref(),
+            reason: replay.reason.as_deref(),
+            nonce: replay.nonce.as_str(),
+            timestamp_ms: replay.timestamp_ms,
+            expires_at_ms: replay.expires_at_ms,
+            signature_hex: replay.signature_hex.as_str(),
+            created_at_ms: replay.created_at_ms,
+        };
+        replay.event_id = blake3_hex(&to_canonical_cbor(&payload).expect("event hash"));
+        assert_ne!(replay.event_id, append_record.event_id);
+        assert_eq!(replay.signature_hex, append_record.signature_hex);
+        assert!(
+            target.ingest_replicated_event_record(replay).is_err(),
+            "unsigned metadata must not bypass consumed append nonce"
+        );
+    }
+    target
+        .ingest_replicated_event_record(append_record)
+        .expect("original exact retry remains idempotent after rejected replays");
 
     let view = target
         .read_feedback_public("fb-repl-1")
