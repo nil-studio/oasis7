@@ -17,6 +17,7 @@ use crate::world::{
 };
 pub(in crate::world) use effective_dispatch::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
 pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
+    Alliance(&'a mut crate::world::incremental_normal_action_diplomacy::AllianceWorkV1,&'a crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1<'a,'a>,&'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
     LogisticsRegistration(&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
         &'a ReservedValue<oasis7_world_state::incremental_logistics_records::LogisticsFamilyQualificationV1>,
         &'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
@@ -43,6 +44,7 @@ pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
     DispatchBank(&'a mut EffectiveActionWorkBankV1<'a>),
 }
 pub(in crate::world) enum CompletedNonmovementActionV1 {
+    Alliance(crate::world::incremental_normal_action_diplomacy::CompletedAllianceActionV1),
     LogisticsRegistration(
         crate::world::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1,
     ),
@@ -70,6 +72,7 @@ impl<'a> NonmovementSelectedWorkV1<'a> {
     fn family(&self) -> Option<EffectiveActionFamilyV1> {
         Some(match self {
             Self::Core => EffectiveActionFamilyV1::Core,
+            Self::Alliance(..) => EffectiveActionFamilyV1::Alliance,
             Self::LogisticsRegistration(..) => EffectiveActionFamilyV1::LogisticsRegistration,
             Self::NormalExtension(..) => EffectiveActionFamilyV1::NormalExtension,
             Self::Crisis(..) => EffectiveActionFamilyV1::Crisis,
@@ -246,6 +249,12 @@ where
                 NonmovementSelectedWorkV1::NormalExtension(mut work) => {
                     CompletedNonmovementActionV1::NormalExtension(self.execute_normal_extension_after_rules_v1(
                         selected,&admission,&outcome,materials,read,parent_read,&mut work,accepted_entries,audit_work,
+                        directory,enumeration,tail_work,live_owner,
+                    ).map_err(NonmovementSelectedErrorV1::Business)?)
+                }
+                NonmovementSelectedWorkV1::Alliance(work,sources,common)=>{
+                    CompletedNonmovementActionV1::Alliance(self.execute_alliance_after_rules_v1(
+                        selected,&admission,&outcome,materials,read,parent_read,work,sources,common,accepted_entries,audit_work,
                         directory,enumeration,tail_work,live_owner,
                     ).map_err(NonmovementSelectedErrorV1::Business)?)
                 }

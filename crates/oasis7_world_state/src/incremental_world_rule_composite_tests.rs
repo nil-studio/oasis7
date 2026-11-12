@@ -14,6 +14,44 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 type Emergency = crate::world_rules::EmergencySupplyStateV1;
+fn bind_current_emergency(
+    family: &ReservedValue<WorldRuleCompositeQualificationV1<Emergency>>,
+    roots: &RootSetV1,
+    pages: &Pages,
+    memory: &MemoryBudget,
+    transaction: &mut ExecutionTransaction<'_, Pages>,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<EmergencySupplyOverlayV1>, WorldFieldOverlayErrorV1> {
+    let mut read_io = io();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 32 << 20,
+    };
+    let guard = transaction.guard();
+    let mut overlay = WorldFieldOverlayContextV1 {
+        transaction,
+        values: ValueReadContext {
+            source: pages,
+            memory,
+            class: MemoryClass::Ordinary,
+            io: &mut read_io,
+        },
+        key_work: &mut keys,
+        semantic_bytes: 4096,
+        record_bytes: 3 << 20,
+        take_state_error: || None,
+        cancelled: || false,
+    };
+    crate::incremental_world_rule_composite_overlay::bind_current_world_rule_branch_v1(
+        family,
+        roots,
+        pages,
+        &mut overlay,
+        &mut scan(),
+        &mut read_work(),
+        &guard,
+        live,
+    )
+}
 fn apply(
     parent: &ReservedValue<WorldRuleCompositeQualificationV1<Emergency>>,
     roots: &RootSetV1,
@@ -141,6 +179,14 @@ fn composite_typed_batch_current_identity_and_independent_receiver() {
     transaction
         .read(StateNamespaceV1::Authorization, b"unrelated-read")
         .unwrap();
+    // The original mutation's token need not survive across owners. Rebind
+    // the actual Current pointer and changed closure, retaining the unreadable
+    // unchanged sibling above instead of hydrating the complete branch.
+    let actual_body = first.body().clone();
+    drop(first);
+    let first =
+        bind_current_emergency(&family, &roots, &pages, &memory, &mut transaction, &live).unwrap();
+    assert_eq!(first.body(), &actual_body);
     let next_expected = selected(first.body(), &profile, &decision, &mut cold);
     let (second, used) = apply(
         &family,

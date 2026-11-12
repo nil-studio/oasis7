@@ -17,6 +17,10 @@ use oasis7_world_state::incremental_event_fields::{
     EVENT_SEQUENCE_BYTES, EVENT_SEQUENCE_KEY_V1, EventSequenceV1,
 };
 
+#[path = "incremental_normal_factory_built_event.rs"]
+mod normal_factory_built;
+pub(in crate::world) use normal_factory_built::contribute_normal_factory_built_event_v1;
+
 pub struct ModuleOutputEventContextV1<'a, V, W, C, F> {
     pub values: &'a V,
     pub world_events: &'a super::incremental_world_event_counter::WorldEventCounterV1,
@@ -71,6 +75,7 @@ enum PersistedEventOwnerV1<'event> {
     LogisticsRegistration(
         &'event super::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1,
     ),
+    Alliance(&'event super::incremental_normal_action_diplomacy::CompletedAllianceActionV1),
     Observation(
         &'event super::incremental_normal_action_core_extension::CompletedObservationActionV1,
     ),
@@ -120,6 +125,13 @@ impl<'event> PersistedWorldEventV1<'event> {
     ) -> Self {
         Self {
             owner: PersistedEventOwnerV1::MetaProgress(owner),
+        }
+    }
+    pub(super) fn from_alliance(
+        owner: &'event super::incremental_normal_action_diplomacy::CompletedAllianceActionV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::Alliance(owner),
         }
     }
     pub(super) fn from_logistics_registration(
@@ -251,6 +263,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::Crisis(owner) => owner.event(),
             PersistedEventOwnerV1::BodyInterface(owner) => owner.event(),
             PersistedEventOwnerV1::LogisticsRegistration(owner) => owner.event(),
+            PersistedEventOwnerV1::Alliance(owner) => owner.event(),
             PersistedEventOwnerV1::Observation(owner) => owner.event(),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.event(),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.event(),
@@ -287,6 +300,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::Crisis(owner) => owner.validate(tx),
             PersistedEventOwnerV1::BodyInterface(owner) => owner.validate(tx),
             PersistedEventOwnerV1::LogisticsRegistration(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::Alliance(owner) => owner.validate(tx),
             PersistedEventOwnerV1::Observation(owner) => owner.validate(tx),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.validate(tx),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.validate(tx),

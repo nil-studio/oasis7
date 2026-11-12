@@ -60,6 +60,41 @@ impl UnboundActionAdmissionV1<'_> {
         Ok(())
     }
 }
+/// Fixed Core scope alternatives. A matching token can never become Unbound.
+pub(super) enum CoreActionAdmissionV1<'borrow, 'selected, 'source> {
+    Unbound(&'borrow UnboundActionAdmissionV1<'selected>),
+    Matched(
+        &'borrow super::incremental_safe_alternative_matching::PaidMatchingSafeAlternativeV1<
+            'selected,
+            'source,
+        >,
+    ),
+}
+impl CoreActionAdmissionV1<'_, '_, '_> {
+    pub(super) fn validate<M: MerkleNodeReader>(
+        &self,
+        selected: &SelectedPendingActionV1,
+        tx: &ExecutionTransaction<'_, M>,
+        memory: &MemoryBudget,
+        common:Option<&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>>,
+        live: &ExecutionFence,
+    ) -> Result<(), super::incremental_body::BodyMutationError> {
+        match self {
+            Self::Unbound(value) => value
+                .validate(selected, tx, memory, live)
+                .map_err(Into::into),
+            Self::Matched(value) => value.validate(
+                selected,
+                tx,
+                memory,
+                common.ok_or(super::incremental_body::BodyMutationError::Invalid(
+                    "matching SafeAlternative Common missing",
+                ))?,
+                live,
+            ),
+        }
+    }
+}
 pub(super) enum SelectedActionAdmissionV1<'selected> {
     Unbound(ReservedValue<UnboundActionAdmissionV1<'selected>>),
     RequiresSafeAlternativeScope(ReservedValue<CurrentSafeAlternativeRecordV1>),

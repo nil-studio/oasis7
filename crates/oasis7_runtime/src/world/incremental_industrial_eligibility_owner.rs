@@ -44,7 +44,7 @@ use std::{
 /// State owner fields consumed by the original production-order predicate.
 /// The primary ID and generation are retained internally because Runtime's
 /// identity algorithm uses them before the later production predicate.
-pub(super) struct OwnedCurrentIndustrialStateOwnerV1 {
+pub(in crate::world) struct OwnedCurrentIndustrialStateOwnerV1 {
     pub(super) primary_agent_id: String,
     pub(super) player_id: String,
     pub(super) source_id: String,
@@ -514,6 +514,50 @@ where
     ER: FnMut() -> Option<ValueTreeError>,
     CR: FnMut() -> bool,
 {
+    with_current_industrial_identity_v1(
+        sources,
+        agent,
+        state,
+        overlay,
+        parent_read,
+        work,
+        guard,
+        live,
+        |identity, memory, work| match identity {
+            Some((owner, _generation)) => retain_owner_binding(owner, memory, work),
+            None => retain_world_binding(None, memory),
+        },
+    )
+}
+
+// All identity predicates and Current reads stay in this one fixed flow.
+// The private callback only constructs a prepaid DATA output.
+#[allow(clippy::too_many_arguments)]
+fn with_current_industrial_identity_v1<M, R, E, C, P, V, ER, CR, OUT>(
+    sources: &IndustrialEligibilitySourcesV1<'_, '_>,
+    agent: &str,
+    state: &M,
+    overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    parent_read: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
+    work: &mut IndustrialEligibilityWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    output: impl FnOnce(
+        Option<(&str, u64)>,
+        &oasis7_proto::memory_budget::MemoryBudget,
+        &mut IndustrialEligibilityWorkV1,
+    ) -> Result<OUT, IndustrialEligibilityErrorV1>,
+) -> Result<OUT, IndustrialEligibilityErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    ER: FnMut() -> Option<ValueTreeError>,
+    CR: FnMut() -> bool,
+{
     let result = (|| {
         overlay.transaction.validate_guard(guard, live)?;
         sources.orders.validate_current(overlay, guard, live)?;
@@ -543,16 +587,16 @@ where
                 live,
             )?;
             let Some(identity) = revocation.identity() else {
-                return retain_world_binding(None, overlay.values.memory);
+                return output(None, overlay.values.memory, work);
             };
-            return retain_owner_binding(
-                identity.owner_binding.as_str(),
+            return output(
+                Some((identity.owner_binding.as_str(), identity.generation)),
                 overlay.values.memory,
                 work,
             );
         }
         let Some(order_id) = selection.runtime_identity else {
-            return retain_world_binding(None, overlay.values.memory);
+            return output(None, overlay.values.memory, work);
         };
         let guard = &overlay.transaction.guard();
         let order = read_current_agent_order_v1(
@@ -582,13 +626,12 @@ where
             live,
         )?;
         if order.value().quote.world_binding.as_deref() != binding.as_deref() {
-            return retain_world_binding(None, overlay.values.memory);
+            return output(None, overlay.values.memory, work);
         }
         let guard = &overlay.transaction.guard();
         let owner = resolve_current_industrial_state_owner_inner(
-            sources,
+            &CurrentStateOwnerSourcesV1::from_industrial(sources),
             agent,
-            state,
             overlay,
             parent_read,
             work,
@@ -596,7 +639,7 @@ where
             live,
         )?;
         let Some(owner) = owner.as_ref() else {
-            return retain_world_binding(None, overlay.values.memory);
+            return output(None, overlay.values.memory, work);
         };
         let guard = &overlay.transaction.guard();
         let root_identity = read_current_revocation_agent_identity_v1(
@@ -613,7 +656,7 @@ where
             .identity()
             .is_none_or(|identity| identity.owner_binding != owner.player_id)
         {
-            return retain_world_binding(None, overlay.values.memory);
+            return output(None, overlay.values.memory, work);
         }
         let guard = &overlay.transaction.guard();
         let target_identity = read_current_revocation_agent_identity_v1(
@@ -626,16 +669,18 @@ where
             guard,
             live,
         )?;
-        if resolve_manufactured_identity_generation_v1(
+        let Some(generation) = resolve_manufactured_identity_generation_v1(
             target_identity.identity(),
             target_identity.acquisition_sequence(),
             owner.generation,
+        ) else {
+            return output(None, overlay.values.memory, work);
+        };
+        output(
+            Some((&owner.player_id, generation)),
+            overlay.values.memory,
+            work,
         )
-        .is_none()
-        {
-            return retain_world_binding(None, overlay.values.memory);
-        }
-        retain_owner_binding(&owner.player_id, overlay.values.memory, work)
     })();
     poison_on_error(&mut overlay.transaction, result.is_err());
     result.map_err(Into::into)
@@ -697,9 +742,8 @@ where
     CR: FnMut() -> bool,
 {
     let result = resolve_current_industrial_state_owner_inner(
-        sources,
+        &CurrentStateOwnerSourcesV1::from_industrial(sources),
         agent,
-        state,
         overlay,
         parent_read,
         work,
@@ -712,9 +756,8 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn resolve_current_industrial_state_owner_inner<M, R, E, C, P, V, ER, CR>(
-    sources: &IndustrialEligibilitySourcesV1<'_, '_>,
+    sources: &CurrentStateOwnerSourcesV1<'_, '_>,
     agent: &str,
-    _state: &M,
     overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     parent_read: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
     work: &mut IndustrialEligibilityWorkV1,
@@ -1085,3 +1128,12 @@ fn poison_on_error<M: MerkleNodeReader>(
 #[cfg(test)]
 #[path = "incremental_industrial_eligibility_owner_tests.rs"]
 mod tests;
+
+#[path = "incremental_current_state_owner.rs"]
+mod current_state_owner;
+pub(in crate::world) use current_state_owner::{
+    CurrentStateOwnerSourcesV1, resolve_current_state_owner_v1,
+};
+
+#[path = "incremental_safe_alternative_identity.rs"]
+pub(in crate::world) mod safe_alternative_identity;

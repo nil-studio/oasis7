@@ -12,6 +12,7 @@ use oasis7_proto::memory_budget::ReservedValue;
 pub struct CurrentSafeAlternativeRecordV1 {
     lineage: String,
     record: RevocationRecoveredV1<serde_json::Value>,
+    member_root: oasis7_formal_protocol::incremental_state::StateRootV1,
     guard: PreparedGuard,
 }
 impl CurrentSafeAlternativeRecordV1 {
@@ -96,6 +97,8 @@ where
                 .len()
                 .checked_mul(2)
                 .and_then(|n| n.checked_add(2048))
+                .and_then(|n| n.checked_add(std::mem::size_of::<CurrentSafeAlternativeRecordV1>()))
+                .and_then(|n| n.checked_add(64))
                 .ok_or_else(invalid)?;
             let fee = overlay
                 .values
@@ -124,7 +127,7 @@ where
             if record.value()["authorization"]["action_id"].as_u64() != Some(action_id) {
                 return Err(invalid().into());
             }
-            Some((fee, lineage.to_owned(), record))
+            Some((fee, lineage.to_owned(), record, root.clone()))
         } else {
             None
         };
@@ -140,12 +143,17 @@ where
             return Err(error.into());
         }
         tx.validate_guard(&tx.guard(), live)?;
-        Ok(selected.map(|(fee, lineage, record)| {
+        Ok(selected.map(|(fee, lineage, record, member_root)| {
             fee.retain(CurrentSafeAlternativeRecordV1 {
                 lineage,
+                member_root,
                 record,
                 guard: tx.guard(),
             })
         }))
     })
 }
+
+#[path = "incremental_runtime_revocation_safe_alternative_cas.rs"]
+mod cas;
+pub use cas::replace_current_safe_alternative_record_v1;

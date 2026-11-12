@@ -1,4 +1,42 @@
 use super::*;
+
+/// Heap bound for the locked Rust 1.96 BTree implementation (B=6).
+///
+/// Even a one-entry map allocates room for eleven K/V slots. Its LeafNode has
+/// Rust layout, so this deliberately bounds every possible field padding
+/// rather than mirroring an unspecified field order. InternalNode additionally
+/// holds twelve child pointers. Five leaf fields and the enclosing two-field
+/// internal node contribute at most seven alignment paddings in total.
+///
+/// Insertions retain their newly allocated split/root nodes in the resulting
+/// tree. Each nonempty node owns at least one of the n entries, hence reserving
+/// one complete internal-node bound per entry also covers insertion peaks.
+/// This pays only node storage; each nested decoded value retains its own fee.
+pub(crate) fn btree_output_heap<K, V>(n: usize) -> Result<usize, ValueTreeError> {
+    use std::mem::{align_of, size_of};
+    use std::ptr::NonNull;
+    let alignment = align_of::<K>()
+        .max(align_of::<V>())
+        .max(align_of::<Option<NonNull<()>>>())
+        .max(align_of::<u16>());
+    let slots = size_of::<K>()
+        .checked_add(size_of::<V>())
+        .and_then(|bytes| bytes.checked_mul(11))
+        .ok_or_else(invalid)?;
+    let padding = alignment
+        .checked_sub(1)
+        .and_then(|a| a.checked_mul(7))
+        .ok_or_else(invalid)?;
+    let header_edges = size_of::<Option<NonNull<()>>>()
+        .checked_add(2 * size_of::<u16>())
+        .and_then(|bytes| bytes.checked_add(12 * size_of::<NonNull<()>>()))
+        .ok_or_else(invalid)?;
+    slots
+        .checked_add(header_edges)
+        .and_then(|bytes| bytes.checked_add(padding))
+        .and_then(|bytes| bytes.checked_mul(n))
+        .ok_or_else(invalid)
+}
 macro_rules! scalar {
     ($ty:ty,$variant:ident,$payload:ident) => {
         impl Codec for $ty {
@@ -290,16 +328,7 @@ impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {
         if c.cells_mut().len() != n {
             return Err(invalid());
         }
-        c.spend_output(
-            n.checked_mul(
-                std::mem::size_of::<T>()
-                    .checked_add(std::mem::size_of::<K>())
-                    .ok_or_else(invalid)?
-                    .checked_add(128)
-                    .ok_or_else(invalid)?,
-            )
-            .ok_or_else(invalid)?,
-        )?;
+        c.spend_output(btree_output_heap::<K, T>(n)?)?;
         let mut out = BTreeMap::new();
         while let Some((key, value)) = c.cells_mut().pop_first() {
             d.ctx.check()?;
@@ -380,14 +409,7 @@ impl<K: CollectionKey> Codec for BTreeSet<K> {
         if c.cells_mut().len() != n {
             return Err(invalid());
         }
-        c.spend_output(
-            n.checked_mul(
-                std::mem::size_of::<K>()
-                    .checked_add(128)
-                    .ok_or_else(invalid)?,
-            )
-            .ok_or_else(invalid)?,
-        )?;
+        c.spend_output(btree_output_heap::<K, ()>(n)?)?;
         let mut out = BTreeSet::new();
         while let Some((key, value)) = c.cells_mut().pop_first() {
             d.ctx.check()?;

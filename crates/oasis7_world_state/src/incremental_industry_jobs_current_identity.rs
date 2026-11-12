@@ -58,11 +58,21 @@ pub enum IndustryCurrentOuterChangeV1 {
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("industry Current recipe outer identity")
 }
+fn invalid_for(kind: IndustryRecordKindV1) -> ValueTreeError {
+    match kind {
+        IndustryRecordKindV1::Recipe => invalid(),
+        IndustryRecordKindV1::Transit => {
+            ValueTreeError::Invalid("industry Current transit outer identity")
+        }
+        _ => ValueTreeError::Invalid("industry Current outer identity kind"),
+    }
+}
 
 fn marker_key<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: IndustryRecordKindV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,
 ) -> Result<(WorldFieldKeyV1, u64, WorldFieldKeyV1), ValueTreeError> {
-    let field = IndustryRecordKindV1::Recipe.descriptor()?;
+    let field = kind.descriptor()?;
     let (marker, marker_bytes) = records.key(
         field,
         WorldFieldRecordKindV1::Entry,
@@ -73,7 +83,8 @@ fn marker_key<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok((marker, marker_bytes, metadata))
 }
 
-pub(super) fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
+fn decode_industry_root<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: IndustryRecordKindV1,
     value_root: &[u8; 32],
     key: &WorldFieldKeyV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,
@@ -87,7 +98,7 @@ pub(super) fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
         .reserve(8192, records.values.class)
         .map_err(ValueTreeError::Memory)?;
     let mut payload = [0; RECORD_ROOT_BYTES];
-    let mut decoder = OuterKeyDecoder::new(IndustryRecordKindV1::Recipe, &mut io::sink());
+    let mut decoder = OuterKeyDecoder::new(kind, &mut io::sink());
     let result = read_member_record_v1(
         value_root,
         key,
@@ -108,18 +119,19 @@ pub(super) fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
     if info.codec != MemberPayloadCodecV1::RecordRoot
         || info.payload_bytes != RECORD_ROOT_BYTES as u64
     {
-        return Err(invalid());
+        return Err(invalid_for(kind));
     }
     let id = decoder.finish()?;
-    let reference = RecordRootRefV1::from_canonical_bytes(&payload).map_err(|_| invalid())?;
+    let reference =
+        RecordRootRefV1::from_canonical_bytes(&payload).map_err(|_| invalid_for(kind))?;
     let binding = WorldFieldKeyV1::from_bytes(key.as_bytes()).map_err(ValueTreeError::Invalid)?;
     let record_root = reference
         .validate_binding(
-            &IndustryRecordKindV1::Recipe.schema(),
-            &binding.semantic_key.ok_or_else(invalid)?,
-            StateNamespaceV1::Scheduler,
+            &kind.schema(),
+            &binding.semantic_key.ok_or_else(|| invalid_for(kind))?,
+            kind.namespace(),
         )
-        .map_err(|_| invalid())?
+        .map_err(|_| invalid_for(kind))?
         .clone();
     if record_root.node_root.capacity() > 64 {
         return Err(ValueTreeError::ResourceLimited(
@@ -129,7 +141,16 @@ pub(super) fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok((id, record_root))
 }
 
-fn verify_recipe_marker<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn decode_recipe_root<R: ValueNodeReader, C: FnMut() -> bool>(
+    value_root: &[u8; 32],
+    key: &WorldFieldKeyV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<(u64, StateRootV1), ValueTreeError> {
+    decode_industry_root(IndustryRecordKindV1::Recipe, value_root, key, records)
+}
+
+fn verify_industry_marker<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: IndustryRecordKindV1,
     value_root: &[u8; 32],
     key: &WorldFieldKeyV1,
     semantic_bytes: u64,
@@ -149,20 +170,21 @@ fn verify_recipe_marker<R: ValueNodeReader, C: FnMut() -> bool>(
     {
         Ok(())
     } else {
-        Err(invalid())
+        Err(invalid_for(kind))
     }
 }
 
 /// Visit the complete `pending_recipe_jobs` parent directory from its actual
 /// Scheduler root. The family qualification binds the full industry RootSet;
 /// this scan proves membership and completeness for the selected root itself.
-pub fn visit_qualified_recipe_parent_identities_v1<
+fn visit_qualified_industry_parent_identities_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 >(
     roots: &RootSetV1,
+    kind: IndustryRecordKindV1,
     qualification: &ReservedValue<IndustryFamilyQualificationV1>,
     context: &mut IndustryFamilyReadContextV1<'_, M, R, E, C>,
     work: &mut IndustryWorkBudgetV1,
@@ -189,13 +211,18 @@ pub fn visit_qualified_recipe_parent_identities_v1<
     let _workspace = memory
         .reserve(24 << 10, class)
         .map_err(ValueTreeError::Memory)?;
-    roots.validate().map_err(|_| invalid())?;
-    qualification.validate_binding(&roots.digest().map_err(|_| invalid())?)?;
+    if !matches!(
+        kind,
+        IndustryRecordKindV1::Recipe | IndustryRecordKindV1::Transit
+    ) {
+        return Err(invalid_for(kind));
+    }
+    roots.validate().map_err(|_| invalid_for(kind))?;
+    qualification.validate_binding(&roots.digest().map_err(|_| invalid_for(kind))?)?;
     let root = roots.state_root(StateNamespaceV1::Scheduler);
     if root.namespace != StateNamespaceV1::Scheduler {
-        return Err(invalid());
+        return Err(invalid_for(kind));
     }
-    let kind = IndustryRecordKindV1::Recipe;
     let field = kind.descriptor()?;
     let cancellation = RefCell::new(&mut context.cancelled);
     let mut records_cancelled = || (cancellation.borrow_mut())();
@@ -206,7 +233,7 @@ pub fn visit_qualified_recipe_parent_identities_v1<
         record_bytes: context.record_bytes,
         cancelled: &mut records_cancelled,
     };
-    let (marker_key, marker_bytes, metadata_key) = marker_key(&mut records)?;
+    let (marker_key, marker_bytes, metadata_key) = marker_key(kind, &mut records)?;
     let mut metadata = false;
     let mut marker = false;
     let mut record_count = 0u64;
@@ -225,30 +252,30 @@ pub fn visit_qualified_recipe_parent_identities_v1<
             }
             let binding =
                 WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
-            if binding.name != "pending_recipe_jobs" {
+            if binding.name != kind.field_name() {
                 return Ok(());
             }
             let key = WorldFieldKeyV1::new(field, binding.kind, binding.semantic_key)
                 .map_err(ValueTreeError::Invalid)?;
             if entry.namespace != kind.namespace() || key.as_bytes() != entry.key {
-                return Err(invalid());
+                return Err(invalid_for(kind));
             }
             if binding.kind == WorldFieldRecordKindV1::Metadata {
                 if metadata || key != metadata_key {
-                    return Err(invalid());
+                    return Err(invalid_for(kind));
                 }
                 records.presence(&entry.value, &key, 0)?;
                 metadata = true;
                 return Ok(());
             }
             if binding.kind != WorldFieldRecordKindV1::Entry {
-                return Err(invalid());
+                return Err(invalid_for(kind));
             }
             if key == marker_key {
                 if marker {
-                    return Err(invalid());
+                    return Err(invalid_for(kind));
                 }
-                verify_recipe_marker(&entry.value, &key, marker_bytes, &mut records)?;
+                verify_industry_marker(kind, &entry.value, &key, marker_bytes, &mut records)?;
                 marker = true;
                 let charge = memory
                     .reserve(
@@ -262,11 +289,13 @@ pub fn visit_qualified_recipe_parent_identities_v1<
                     }),
                 );
             }
-            let (id, record_root) = decode_recipe_root(&entry.value, &key, &mut records)?;
-            record_count = record_count.checked_add(1).ok_or_else(invalid)?;
+            let (id, record_root) = decode_industry_root(kind, &entry.value, &key, &mut records)?;
+            record_count = record_count
+                .checked_add(1)
+                .ok_or_else(|| invalid_for(kind))?;
             let retained = std::mem::size_of::<IndustryQualifiedOuterIdentityV1>()
                 .checked_add(std::mem::size_of::<StateRootV1>() + 64)
-                .ok_or_else(invalid)?;
+                .ok_or_else(|| invalid_for(kind))?;
             let charge = memory
                 .reserve(retained, class)
                 .map_err(ValueTreeError::Memory)?;
@@ -285,9 +314,11 @@ pub fn visit_qualified_recipe_parent_identities_v1<
         Ok(_) => {}
         Err(StateScanError::Memory(error)) => return Err(ValueTreeError::Memory(error)),
         Err(StateScanError::ResourceLimited) => {
-            return Err(ValueTreeError::ResourceLimited(
-                "recipe parent identity scan",
-            ));
+            return Err(ValueTreeError::ResourceLimited(match kind {
+                IndustryRecordKindV1::Recipe => "recipe parent identity scan",
+                IndustryRecordKindV1::Transit => "transit parent identity scan",
+                _ => "industry parent identity scan",
+            }));
         }
         Err(StateScanError::Cancelled) => return Err(ValueTreeError::Cancelled),
         Err(StateScanError::Visitor(error)) => return Err(error),
@@ -298,9 +329,57 @@ pub fn visit_qualified_recipe_parent_identities_v1<
         || qualification.record_counts()[kind.index()] != record_count
         || (cancellation.borrow_mut())()
     {
-        return Err(invalid());
+        return Err(invalid_for(kind));
     }
     Ok(())
+}
+
+/// Visit the complete `pending_recipe_jobs` parent directory from its actual
+/// Scheduler root. The family qualification binds the full industry RootSet.
+pub fn visit_qualified_recipe_parent_identities_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    roots: &RootSetV1,
+    qualification: &ReservedValue<IndustryFamilyQualificationV1>,
+    context: &mut IndustryFamilyReadContextV1<'_, M, R, E, C>,
+    work: &mut IndustryWorkBudgetV1,
+    visit: impl FnMut(ReservedValue<IndustryQualifiedOuterIdentityV1>) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    visit_qualified_industry_parent_identities_v1(
+        roots,
+        IndustryRecordKindV1::Recipe,
+        qualification,
+        context,
+        work,
+        visit,
+    )
+}
+
+/// Visit the complete `pending_material_transits` parent directory from its
+/// actual Scheduler root using the same authenticated closed-map scanner.
+pub fn visit_qualified_transit_parent_identities_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    roots: &RootSetV1,
+    qualification: &ReservedValue<IndustryFamilyQualificationV1>,
+    context: &mut IndustryFamilyReadContextV1<'_, M, R, E, C>,
+    work: &mut IndustryWorkBudgetV1,
+    visit: impl FnMut(ReservedValue<IndustryQualifiedOuterIdentityV1>) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    visit_qualified_industry_parent_identities_v1(
+        roots,
+        IndustryRecordKindV1::Transit,
+        qualification,
+        context,
+        work,
+        visit,
+    )
 }
 
 /// Visit changed recipe-job outer entries from the transaction's actual final
@@ -352,7 +431,7 @@ pub fn visit_recipe_current_outer_changes_v1<
         record_bytes: context.record_bytes,
         cancelled: &mut records_cancelled,
     };
-    let (format_key, format_bytes, _) = marker_key(&mut records)?;
+    let (format_key, format_bytes, _) = marker_key(kind, &mut records)?;
     let mut remaining = usize::try_from(shared_work.borrow().cells_remaining)
         .map_err(|_| ValueTreeError::ResourceLimited("industry pending work"))?;
     let check = || -> Result<(), WorldFieldOverlayErrorV1> {
@@ -387,7 +466,7 @@ pub fn visit_recipe_current_outer_changes_v1<
                     return Err(invalid().into());
                 };
                 for root in [&before_root, &after_root] {
-                    verify_recipe_marker(root, &key, format_bytes, &mut records)?;
+                    verify_industry_marker(kind, root, &key, format_bytes, &mut records)?;
                 }
                 let charge = memory
                     .reserve(

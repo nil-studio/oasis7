@@ -1,6 +1,7 @@
 use super::*;
 #[path = "action_to_event_gameplay_alliances.rs"]
 mod action_to_event_gameplay_alliances;
+pub(in crate::world) use action_to_event_gameplay_alliances::fixed as alliance_fixed;
 #[path = "action_to_event_gameplay_claims.rs"]
 mod action_to_event_gameplay_claims;
 #[path = "action_to_event_gameplay_governance.rs"]

@@ -61,6 +61,11 @@ macro_rules! branches {
             pub fn allocation_class(&self) -> MemoryClass { self.class }
             pub fn rules_present(&self) -> bool { self.remainder.rules_present() }
             pub fn child_count(&self) -> usize { 13 }
+            /// Borrow the already-qualified accepted child; no re-scan or new authority.
+            pub fn continuity(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<crate::world_rules::OrganizationContinuityStateV1>> { &self.continuity }
+            pub fn organization(&self) -> &ReservedValue<OrganizationFamilyQualificationV1> { &self.organization }
+            pub fn orders(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<std::collections::BTreeMap<String,crate::world_rules::AgentIndustrialOrderV1>>> { &self.orders }
+
             pub fn validate_binding(&self, roots:&RootSetV1) -> Result<(),ValueTreeError> {
                 if self.roots != roots.digest().map_err(|_|invalid())? { return Err(invalid()); }
                 Ok(())

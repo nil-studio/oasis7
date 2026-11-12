@@ -116,4 +116,11 @@ pub use current_identity::{
 mod current_alternative;
 pub use current_alternative::{
     CurrentSafeAlternativeRecordV1, read_current_safe_alternative_for_action_v1,
+    replace_current_safe_alternative_record_v1,
+};
+
+#[path = "incremental_runtime_revocation_participant_current.rs"]
+mod participant_current;
+pub use participant_current::{
+    CurrentParticipantOwnerDataV1, read_current_participant_owner_data_v1,
 };

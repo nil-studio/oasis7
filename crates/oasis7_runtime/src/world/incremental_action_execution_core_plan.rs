@@ -92,10 +92,54 @@ where
     C: FnMut() -> bool,
     D: FnMut() -> bool,
 {
+    prepare_scoped_selected_core_action_v1(
+        step,
+        selected,
+        crate::world::incremental_action_admission::CoreActionAdmissionV1::Unbound(admission),
+        None,
+        outcome,
+        agents,
+        read,
+        policy_scan,
+        policy_work,
+        guard,
+        live,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn prepare_scoped_selected_core_action_v1<'rule, M, P, V, W, E, C, D>(
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    selected: &SelectedPendingActionV1,
+    admission: crate::world::incremental_action_admission::CoreActionAdmissionV1<'_, '_, '_>,
+    common: Option<&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>>,
+    outcome: &'rule ReservedValue<RootRulePhaseOutcomeV1>,
+    agents: &ReservedValue<AgentSubtreeStructureQualificationV1>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    policy_scan: &mut StateScanBudget,
+    policy_work: &mut TypedRecordReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<PreparedCoreActionV1<'rule>, BodyMutationError>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    D: FnMut() -> bool,
+{
     let result = (|| {
         step.transaction.validate_guard(guard, live)?;
         selected.validate(step.transaction)?;
-        admission.validate(selected, step.transaction, step.mutation.memory, live)?;
+        admission.validate(
+            selected,
+            step.transaction,
+            step.mutation.memory,
+            common,
+            live,
+        )?;
         step.journal_height()?;
         let memory = step.mutation.memory;
         if !step.transaction.uses_budget(memory)

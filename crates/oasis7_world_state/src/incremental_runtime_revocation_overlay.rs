@@ -305,12 +305,18 @@ fn change_runtime_revocation_inner_v1<
 /// Authenticated current body for one in-process shared transaction. Its fields
 /// cannot be fabricated from an arbitrary provisional root or another transaction.
 pub struct RuntimeRevocationCurrentV1 {
+    participant_bindings: ReservedValue<super::participant_current::ParticipantBindingIndexV1>,
     safe_alternative_actions: ReservedValue<super::action_index::SafeAlternativeActionIndexV1>,
     parent: [u8; 32],
     guard: PreparedGuard,
     body: ReservedValue<StateRootV1>,
 }
 impl RuntimeRevocationCurrentV1 {
+    pub(super) fn participant_bindings(
+        &self,
+    ) -> &ReservedValue<super::participant_current::ParticipantBindingIndexV1> {
+        &self.participant_bindings
+    }
     /// A bounded lookup observation, not an admission permit. Current member
     /// point reads must still authenticate this token against the actual body.
     pub fn safe_alternative_lineage_for_action(&self, action: u64) -> Option<&str> {
@@ -387,6 +393,11 @@ pub fn begin_runtime_revocation_current_v1<
                 return Err(ValueTreeError::Cancelled.into());
             }
             transaction.validate_guard(&transaction.guard(), live)?;
+            let participant_bindings = qualification.participant_bindings.readmit(
+                write.memory,
+                MemoryClass::Ordinary,
+                &mut write.cancelled,
+            )?;
             let safe_alternative_actions = qualification.safe_alternative_actions.readmit(
                 write.memory,
                 MemoryClass::Ordinary,
@@ -401,6 +412,7 @@ pub fn begin_runtime_revocation_current_v1<
             }
             transaction.validate_guard(&transaction.guard(), live)?;
             Ok(RuntimeRevocationCurrentV1 {
+                participant_bindings,
                 safe_alternative_actions,
                 parent,
                 guard: transaction.guard(),
@@ -506,6 +518,16 @@ pub fn patch_runtime_revocation_overlay_v1<
     // Derive the new lookup from exactly the changed authenticated members,
     // before publishing the outer root. Failure poisons the sole transaction;
     // the old token/index remains unchanged and cannot escape as a successor.
+    let participant_bindings = context.transaction.contribute(|_| {
+        super::participant_current::advance_participant_index(
+            Some(&current.participant_bindings),
+            &after,
+            read,
+            scan,
+            work,
+        )
+        .map_err(WorldFieldOverlayErrorV1::from)
+    })?;
     let safe_alternative_actions = context.transaction.contribute(|_| {
         super::action_index::advance(
             Some(&current.safe_alternative_actions),
@@ -531,5 +553,6 @@ pub fn patch_runtime_revocation_overlay_v1<
     )?;
     current.body = after;
     current.safe_alternative_actions = safe_alternative_actions;
+    current.participant_bindings = participant_bindings;
     Ok(changed)
 }

@@ -926,3 +926,6 @@ pub(in crate::world) use normal_extension_driver::{
 
 #[path = "incremental_module_execution_logistics_registration_driver.rs"]
 mod logistics_registration_driver;
+
+#[path = "incremental_module_execution_alliance_driver.rs"]
+mod alliance_driver;

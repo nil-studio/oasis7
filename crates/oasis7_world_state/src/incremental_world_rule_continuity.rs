@@ -123,3 +123,15 @@ pub use family::*;
 #[path = "incremental_world_rule_continuity_overlay.rs"]
 mod overlay;
 pub use overlay::*;
+
+#[path = "incremental_world_rule_continuity_current.rs"]
+mod current;
+pub use current::{CurrentOrganizationContinuityV1, read_current_organization_continuity_v1};
+
+#[path = "incremental_world_rule_continuity_membership.rs"]
+mod membership;
+pub use membership::{
+    ContinuityMembershipErrorV1, ContinuityMembershipKindV1, CurrentOrganizationMembershipV1,
+    PreparedContinuityMembershipV1, apply_prepared_continuity_membership_v1,
+    prepare_current_continuity_membership_v1, read_current_organization_membership_v1,
+};

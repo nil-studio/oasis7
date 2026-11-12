@@ -337,3 +337,10 @@ pub use pages::{
 };
 
 pub(crate) use receiver::accept_organization_verified_v1;
+
+#[path = "incremental_world_rule_organization_scope.rs"]
+mod scope;
+
+#[path = "incremental_world_rule_organization_current_scope.rs"]
+mod current_scope;
+pub use current_scope::{CurrentOrganizationRiskV1, observe_current_organization_risk_v1};

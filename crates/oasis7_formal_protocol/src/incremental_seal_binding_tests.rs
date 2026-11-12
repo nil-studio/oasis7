@@ -201,3 +201,75 @@ fn cancellation_after_final_results_root_digest_never_returns_a_binding() {
         SEAL_INNER_POST_PRODUCER_POLLS + 1
     );
 }
+
+#[test]
+fn independent_three_result_seal_binds_actual_after_roots_and_prechecks_capacity() {
+    let memory = MemoryBudget::new(32 << 20, 2 << 20).unwrap();
+    let source = Empty;
+    let mut tx =
+        ExecutionTransaction::begin(parent(), [11; 32], &source, &memory, limits()).unwrap();
+    let live = tx.parent_fence();
+    tx.write(
+        StateNamespaceV1::Business,
+        b"matching-action-result",
+        Some([17; 32]),
+    )
+    .unwrap();
+    let guard = tx.guard();
+    let observed = std::cell::Cell::new(None);
+    let sealed = tx
+        .seal_with_proof_ledger_results_and_binding(
+            &guard,
+            &live,
+            1,
+            || false,
+            |roots| {
+                observed.set(Some(roots.digest()?));
+                Ok::<_, ExecutionError>([1, 2, 3].map(|id| ExecutionFactRefV1 {
+                    kind: ExecutionFactKindV1::Result,
+                    id: [id; 32],
+                }))
+            },
+        )
+        .unwrap();
+    assert_eq!(observed.get(), Some(sealed.binding().after_roots_digest()));
+    sealed
+        .binding()
+        .validate_source_guard(&guard, &memory)
+        .unwrap();
+    sealed
+        .binding()
+        .validate_after_roots(&sealed.transition().record.after, &memory)
+        .unwrap();
+    assert_eq!(
+        sealed
+            .transition()
+            .record
+            .facts
+            .iter()
+            .filter(|fact| fact.kind == ExecutionFactKindV1::Result)
+            .count(),
+        3
+    );
+    drop(sealed);
+    let mut restricted = limits();
+    restricted.max_facts = 2;
+    let tx = ExecutionTransaction::begin(parent(), [12; 32], &source, &memory, restricted).unwrap();
+    let guard = tx.guard();
+    let called = std::cell::Cell::new(false);
+    let result = tx.seal_with_proof_ledger_results_and_binding(
+        &guard,
+        &live,
+        1,
+        || false,
+        |_| {
+            called.set(true);
+            Ok::<_, ExecutionError>([1, 2, 3].map(|id| ExecutionFactRefV1 {
+                kind: ExecutionFactKindV1::Result,
+                id: [id; 32],
+            }))
+        },
+    );
+    assert!(result.is_err());
+    assert!(!called.get());
+}

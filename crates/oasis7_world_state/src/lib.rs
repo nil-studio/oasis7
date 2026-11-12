@@ -410,7 +410,13 @@ pub mod incremental_cognition_absence;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_proof_ledger;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_collection_layout;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_main_token_policy_records;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_organization_scope_index;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_qualification_class;
 #[cfg(not(target_arch = "wasm32"))]

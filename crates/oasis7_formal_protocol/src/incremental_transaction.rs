@@ -432,6 +432,19 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce))
     }
 
+    /// Matching-enabled profile: Runtime, Cognition V3 and the independent
+    /// ProofLedger Result. The legacy two-Result profile remains unchanged.
+    pub fn seal_with_proof_ledger_results<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
+    ) -> Result<ReservedValue<PreparedTransition>, SealWithFinalFactError<E>> {
+        self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce))
+    }
+
     fn seal_inner<
         E,
         const N: usize,

@@ -486,6 +486,6 @@ impl CompletedCoreActionV1 {
 #[path = "incremental_action_execution_core_plan.rs"]
 mod plan;
 pub(super) use plan::{
-    CoreSettlementErrorV1, apply_settled_core_action_v1, prepare_selected_core_action_v1,
-    settle_prepared_core_action_v1,
+    CoreSettlementErrorV1, apply_settled_core_action_v1, prepare_scoped_selected_core_action_v1,
+    prepare_selected_core_action_v1, settle_prepared_core_action_v1,
 };

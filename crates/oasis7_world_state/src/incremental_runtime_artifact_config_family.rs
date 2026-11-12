@@ -21,9 +21,14 @@ use std::{cell::RefCell, io::Cursor};
 pub struct ArtifactConfigFamilyQualificationV1 {
     roots: [u8; 32],
     registry_records: u64,
+    registry_active: u64,
     class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl ArtifactConfigFamilyQualificationV1 {
+    /// Authenticated active-entry count, distinct from registered records.
+    pub fn registry_active_count(&self) -> u64 {
+        self.registry_active
+    }
     pub fn registry_records(&self) -> u64 {
         self.registry_records
     }
@@ -41,6 +46,7 @@ impl ArtifactConfigFamilyQualificationV1 {
 pub(super) fn mint(
     roots: [u8; 32],
     registry_records: u64,
+    registry_active: u64,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     class: oasis7_proto::memory_budget::MemoryClass,
 ) -> Result<ReservedValue<ArtifactConfigFamilyQualificationV1>, ValueTreeError> {
@@ -49,6 +55,7 @@ pub(super) fn mint(
         .retain(ArtifactConfigFamilyQualificationV1 {
             roots,
             registry_records,
+            registry_active,
             class,
         }))
 }
@@ -76,6 +83,7 @@ pub fn readmit_artifact_config_family_ordinary_v1(
     let output = mint(
         source.roots,
         source.registry_records,
+        source.registry_active,
         memory,
         MemoryClass::Ordinary,
     )?;
@@ -343,6 +351,7 @@ where
     Ok(retained.retain(ArtifactConfigFamilyQualificationV1 {
         roots: digest,
         registry_records: counts[1],
+        registry_active: counts[5],
         class: ctx.values.class,
     }))
 }

@@ -287,6 +287,7 @@ where
         .reserve(32 << 10, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
     let mut registry_records = parent.registry_records();
+    let mut registry_active = parent.registry_active_count();
     for write in &verified.record.writes {
         work.cell()?;
         let Some((field, key)) = family::field_key(write.namespace, &write.mutation.key)? else {
@@ -338,6 +339,14 @@ where
                 continue;
             }
         }
+        if field == ArtifactConfigFieldV1::RegistryActive {
+            registry_active = match (old.is_some(), new.is_some()) {
+                (false, true) => registry_active.checked_add(1),
+                (true, false) => registry_active.checked_sub(1),
+                _ => Some(registry_active),
+            }
+            .ok_or_else(read::invalid)?;
+        }
         if field == ArtifactConfigFieldV1::RegistryManifest {
             registry_records = match (old.is_some(), new.is_some()) {
                 (false, true) => registry_records.checked_add(1),
@@ -369,6 +378,7 @@ where
             .digest()
             .map_err(|_| read::invalid())?,
         registry_records,
+        registry_active,
         ctx.values.memory,
         ctx.values.class,
     )?;

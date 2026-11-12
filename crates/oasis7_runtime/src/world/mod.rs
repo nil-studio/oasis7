@@ -889,6 +889,11 @@ mod world_rule_lifecycle;
 mod industrial_control;
 pub use industrial_control::ResolvedAgentOwnerV1;
 
+mod incremental_safe_alternative_history;
+mod incremental_safe_alternative_outcome;
+mod incremental_safe_alternative_proof_ledger;
+mod incremental_safe_alternative_runtime_scope;
+mod incremental_safe_alternative_scope;
 mod industrial_completion;
 pub mod safe_alternative;
 
@@ -1044,3 +1049,14 @@ pub(in crate::world) mod incremental_normal_action_body_interface;
 
 #[path = "incremental_normal_action_logistics.rs"]
 pub(in crate::world) mod incremental_normal_action_logistics;
+
+#[path = "incremental_normal_tail.rs"]
+pub(in crate::world) mod incremental_normal_tail;
+
+pub(in crate::world) mod incremental_safe_alternative_allocation;
+
+pub(in crate::world) mod incremental_safe_alternative_record;
+
+pub(in crate::world) mod incremental_safe_alternative_matching;
+
+pub(in crate::world) mod incremental_normal_action_diplomacy;

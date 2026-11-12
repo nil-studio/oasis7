@@ -421,6 +421,7 @@ mod dto_macro;
 #[path = "incremental_typed_record_values.rs"]
 mod values;
 pub(crate) use dto_macro::dto;
+pub(crate) use values::btree_output_heap;
 #[path = "incremental_typed_record_enum.rs"]
 mod enums;
 pub(crate) use enums::tagged_codec;

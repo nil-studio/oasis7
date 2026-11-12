@@ -13,6 +13,8 @@ pub struct RuntimeRevocationQualificationV1 {
     body: StateRootV1,
     class: MemoryClass,
     safe_alternatives_len: usize,
+    pub(super) participant_bindings:
+        ReservedValue<super::participant_current::ParticipantBindingIndexV1>,
     pub(super) safe_alternative_actions:
         ReservedValue<super::action_index::SafeAlternativeActionIndexV1>,
 }
@@ -309,6 +311,8 @@ pub fn qualify_runtime_revocation_v1<
     };
     validate_body(None, &body, ctx, scan, work)?;
     let safe_alternatives_len = safe_alternatives_length(&body, ctx, scan, work)?;
+    let participant_bindings =
+        super::participant_current::advance_participant_index(None, &body, ctx, scan, work)?;
     let safe_alternative_actions = super::action_index::advance(None, &body, ctx, scan, work)?;
     ctx.check()?;
     Ok(retained.retain(RuntimeRevocationQualificationV1 {
@@ -316,6 +320,7 @@ pub fn qualify_runtime_revocation_v1<
         body,
         safe_alternatives_len,
         safe_alternative_actions,
+        participant_bindings,
         class: ctx.values.class,
     }))
 }
@@ -341,6 +346,11 @@ pub fn readmit_runtime_revocation_ordinary_v1(
         body: proof.body.clone(),
         safe_alternatives_len: proof.safe_alternatives_len,
         safe_alternative_actions: proof.safe_alternative_actions.readmit(
+            memory,
+            MemoryClass::Ordinary,
+            &mut cancelled,
+        )?,
+        participant_bindings: proof.participant_bindings.readmit(
             memory,
             MemoryClass::Ordinary,
             &mut cancelled,
@@ -469,6 +479,13 @@ pub(crate) fn accept_runtime_revocation_verified_v1<
             }
         }
     }
+    let participant_bindings = super::participant_current::advance_participant_index(
+        Some(&parent.participant_bindings),
+        &body,
+        ctx,
+        scan,
+        work,
+    )?;
     let safe_alternative_actions = super::action_index::advance(
         Some(&parent.safe_alternative_actions),
         &body,
@@ -482,6 +499,7 @@ pub(crate) fn accept_runtime_revocation_verified_v1<
         body,
         safe_alternatives_len,
         safe_alternative_actions,
+        participant_bindings,
         class: ctx.values.class,
     }))
 }

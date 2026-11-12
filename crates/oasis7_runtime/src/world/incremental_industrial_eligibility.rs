@@ -716,3 +716,8 @@ where
     }
     Ok(result)
 }
+
+pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternative_identity::read_current_safe_alternative_identity_v1;
+pub(in crate::world) use incremental_industrial_eligibility_owner::{
+    CurrentStateOwnerSourcesV1, OwnedCurrentIndustrialStateOwnerV1, resolve_current_state_owner_v1,
+};

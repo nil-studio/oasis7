@@ -138,6 +138,7 @@ impl World {
             Some(scope),
             None,
             None,
+            None,
         )
     }
 
@@ -167,6 +168,7 @@ impl World {
             None,
             Some(cap),
             None,
+            None,
         )
     }
 
@@ -193,6 +195,37 @@ impl World {
             materials,
             live,
             false,
+            None,
+            None,
+            Some(cap),
+            None,
+        )
+    }
+
+    pub(super) fn contribute_iws_alliance_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        cap: &super::incremental_normal_action_diplomacy::PreparedAllianceEventV1,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            cap.event(),
+            txn,
+            context,
+            materials,
+            live,
+            false,
+            None,
             None,
             None,
             Some(cap),
@@ -226,6 +259,7 @@ impl World {
             None,
             None,
             None,
+            None,
         )
     }
 
@@ -252,6 +286,7 @@ impl World {
         logistics_registration: Option<
             &super::incremental_normal_action_logistics::PreparedLogisticsRegistrationEventV1,
         >,
+        alliance: Option<&super::incremental_normal_action_diplomacy::PreparedAllianceEventV1>,
     ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
@@ -286,7 +321,25 @@ impl World {
                     ));
                 }
             }
+            if let Some(cap) = alliance {
+                cap.validate(txn, context.mutation.memory, now)?;
+                if !std::ptr::eq(cap.event(), event) {
+                    return Err(BodyMutationError::Invalid("Alliance event source"));
+                }
+            }
             let agent_id = match domain {
+                DomainEvent::AllianceFormed {
+                    proposer_agent_id, ..
+                } if alliance.is_some() => proposer_agent_id,
+                DomainEvent::AllianceJoined {
+                    operator_agent_id, ..
+                }
+                | DomainEvent::AllianceLeft {
+                    operator_agent_id, ..
+                }
+                | DomainEvent::AllianceDissolved {
+                    operator_agent_id, ..
+                } if alliance.is_some() => operator_agent_id,
                 DomainEvent::LogisticsRouteRegistered {
                     requester_agent_id, ..
                 } if logistics_registration.is_some() => requester_agent_id,
@@ -501,6 +554,11 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
+                DomainEvent::AllianceFormed { .. }
+                | DomainEvent::AllianceJoined { .. }
+                | DomainEvent::AllianceLeft { .. }
+                | DomainEvent::AllianceDissolved { .. }
+                    if alliance.is_some() => {}
                 DomainEvent::LogisticsRouteRegistered { .. }
                     if logistics_registration.is_some() => {}
                 DomainEvent::BodyInterfaceExpanded { .. }

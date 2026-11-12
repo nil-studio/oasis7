@@ -11,8 +11,8 @@ use oasis7_proto::memory_budget::MemoryBudget;
 #[path = "incremental_factory_lifecycle_native_write.rs"]
 mod publication;
 pub use publication::{
-    change_current_factory_industry_stage_v1, write_current_factory_construction_receipt_v1,
-    write_current_factory_recycle_receipt_v1,
+    change_current_factory_industry_stage_v1, increment_current_material_transit_progress_v1,
+    write_current_factory_construction_receipt_v1, write_current_factory_recycle_receipt_v1,
 };
 
 #[cfg(test)]

@@ -10,6 +10,9 @@ use oasis7_formal_protocol::incremental_execution::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::marker::PhantomData;
+#[path = "incremental_world_rule_continuity_scope.rs"]
+mod continuity_scope;
+use crate::incremental_organization_scope_index::OrganizationScopeIndexV1;
 pub(crate) trait CompositeBranchCodecV1: Codec {
     const BRANCH: WorldRuleCompositeBranchV1;
 }
@@ -42,6 +45,7 @@ pub struct WorldRuleCompositeQualificationV1<T> {
     present: bool,
     body: Option<ReservedValue<StateRootV1>>,
     class: MemoryClass,
+    pub(crate) continuity_scope: Option<OrganizationScopeIndexV1>,
     _type: PhantomData<fn() -> T>,
 }
 impl<T> WorldRuleCompositeQualificationV1<T> {
@@ -75,6 +79,9 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
                 .is_some_and(|r| !r.uses_budget(memory) || r.reserved_bytes() < 512)
         {
             return Err(invalid());
+        }
+        if let Some(index) = &self.continuity_scope {
+            index.check_budget(memory, class)?;
         }
         Ok(())
     }
@@ -183,12 +190,15 @@ pub(crate) fn qualify_world_rule_branch_v1<
         },
     )?;
     check(ctx)?;
+    let continuity_scope =
+        continuity_scope::update::<T, _, _, _, _>(None, None, body.as_deref(), ctx, scan, work)?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         memory: ctx.values.memory.clone(),
         present,
         body,
         class: ctx.values.class,
+        continuity_scope,
         _type: PhantomData,
     }))
 }
@@ -228,6 +238,11 @@ pub fn readmit_world_rule_branch_ordinary_v1<T>(
         present: source.present,
         body,
         class: MemoryClass::Ordinary,
+        continuity_scope: source
+            .continuity_scope
+            .as_ref()
+            .map(|index| index.readmit_ordinary(memory))
+            .transpose()?,
         _type: PhantomData,
     }))
 }
@@ -338,12 +353,21 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         },
     )?;
     check(ctx)?;
+    let continuity_scope = continuity_scope::update::<T, _, _, _, _>(
+        parent.continuity_scope.as_ref(),
+        parent.body(),
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: *witness.after_digest(),
         memory: ctx.values.memory.clone(),
         present,
         body,
         class: ctx.values.class,
+        continuity_scope,
         _type: PhantomData,
     }))
 }
@@ -363,3 +387,7 @@ pub use orders_current::{
     collect_parent_agent_order_ids_v1, read_current_agent_order_index_v1,
     read_current_agent_order_v1, validate_current_agent_orders_v1,
 };
+
+#[path = "incremental_world_rule_continuity_current_scope.rs"]
+mod current_scope;
+pub use current_scope::{CurrentContinuityRiskV1, observe_current_continuity_risk_v1};

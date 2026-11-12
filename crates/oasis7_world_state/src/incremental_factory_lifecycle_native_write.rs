@@ -294,6 +294,11 @@ fn replace_cell<
         work,
     )
 }
+enum ProgressUpdateV1 {
+    Stage,
+    TransitCompleted,
+}
+
 /// Changes only stage and stage_updated_at when the actual stage differs.
 /// Quotes, milestone and both counters retain their original authenticated roots.
 /// The stage decision belongs to the genuine lifecycle business consumer.
@@ -318,6 +323,81 @@ pub fn change_current_factory_industry_stage_v1<
     write_work: &mut TypedRecordWriteWorkV1,
     live: &ExecutionFence,
 ) -> Result<bool, WorldFieldOverlayErrorV1> {
+    change_current_factory_industry_progress_v1(
+        expected,
+        stage,
+        now,
+        tx,
+        ctx,
+        write,
+        scan,
+        read_work,
+        write_work,
+        live,
+        ProgressUpdateV1::Stage,
+    )
+}
+
+/// Increment the actual authenticated transit counter with the original saturating rule.
+/// Stage time changes only when the supplied business stage actually changes.
+#[allow(clippy::too_many_arguments)]
+pub fn increment_current_material_transit_progress_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CurrentFactoryNativeRecordV1<crate::IndustryProgressState>>,
+    stage: crate::events::IndustryStage,
+    now: crate::WorldTime,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    scan: &mut StateScanBudget,
+    read_work: &mut TypedRecordReadWorkV1,
+    write_work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+) -> Result<bool, WorldFieldOverlayErrorV1> {
+    change_current_factory_industry_progress_v1(
+        expected,
+        stage,
+        now,
+        tx,
+        ctx,
+        write,
+        scan,
+        read_work,
+        write_work,
+        live,
+        ProgressUpdateV1::TransitCompleted,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn change_current_factory_industry_progress_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CurrentFactoryNativeRecordV1<crate::IndustryProgressState>>,
+    stage: crate::events::IndustryStage,
+    now: crate::WorldTime,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    scan: &mut StateScanBudget,
+    read_work: &mut TypedRecordReadWorkV1,
+    write_work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+    update: ProgressUpdateV1,
+) -> Result<bool, WorldFieldOverlayErrorV1> {
     tx.contribute(|tx| {
         check_expected(expected, tx, ctx, live)?;
         if !tx.uses_budget(write.memory) {
@@ -331,7 +411,11 @@ pub fn change_current_factory_industry_stage_v1<
             return Err(ValueTreeError::Cancelled.into());
         }
         let old = expected.value().ok_or_else(invalid)?;
-        if old.stage == stage {
+        let transit_count = match update {
+            ProgressUpdateV1::Stage => old.completed_material_transits,
+            ProgressUpdateV1::TransitCompleted => old.completed_material_transits.saturating_add(1),
+        };
+        if old.stage == stage && old.completed_material_transits == transit_count {
             read::check(ctx)?;
             return Ok(false);
         }
@@ -339,26 +423,40 @@ pub fn change_current_factory_industry_stage_v1<
         let body = expected.body.as_ref().ok_or_else(invalid)?;
         let value = value_root(body, &profile, ctx, scan, read_work)?;
         let mut progress = TypedTreeBuilderV1::from_root(&value, write.memory)?;
-        let encoded = stage.encode(&profile, write, write_work)?;
-        replace_cell(
-            "stage",
-            encoded,
-            &profile,
-            &mut progress,
-            ctx,
-            write,
-            write_work,
-        )?;
-        let encoded = now.encode(&profile, write, write_work)?;
-        replace_cell(
-            "stage_updated_at",
-            encoded,
-            &profile,
-            &mut progress,
-            ctx,
-            write,
-            write_work,
-        )?;
+        if old.completed_material_transits != transit_count {
+            let encoded = transit_count.encode(&profile, write, write_work)?;
+            replace_cell(
+                "completed_material_transits",
+                encoded,
+                &profile,
+                &mut progress,
+                ctx,
+                write,
+                write_work,
+            )?;
+        }
+        if old.stage != stage {
+            let encoded = stage.encode(&profile, write, write_work)?;
+            replace_cell(
+                "stage",
+                encoded,
+                &profile,
+                &mut progress,
+                ctx,
+                write,
+                write_work,
+            )?;
+            let encoded = now.encode(&profile, write, write_work)?;
+            replace_cell(
+                "stage_updated_at",
+                encoded,
+                &profile,
+                &mut progress,
+                ctx,
+                write,
+                write_work,
+            )?;
+        }
         let mut wrapper = TypedTreeBuilderV1::from_root(body, write.memory)?;
         replace_cell(
             "value",

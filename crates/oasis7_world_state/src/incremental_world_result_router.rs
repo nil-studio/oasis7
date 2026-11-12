@@ -36,6 +36,7 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldResultProfileV1 {
     CognitionHistoryV3,
+    CognitionProofLedgerV1,
     RuntimeHistoryV1,
     SnapshotV1,
     TickV1,
@@ -58,6 +59,7 @@ pub struct CheckedWorldResultRoutingV1 {
     rows: ReservedValue<Vec<RoutedWorldResultV1>>,
     cognition: usize,
     runtime: usize,
+    proof_ledger: Option<usize>,
 }
 impl CheckedWorldResultRoutingV1 {
     pub fn rows(&self) -> &[RoutedWorldResultV1] {
@@ -65,6 +67,10 @@ impl CheckedWorldResultRoutingV1 {
     }
     pub fn cognition(&self) -> &RoutedWorldResultV1 {
         &self.rows[self.cognition]
+    }
+    /// Independent side-ledger Result, absent in the legacy two-Result profile.
+    pub fn proof_ledger(&self) -> Option<&RoutedWorldResultV1> {
+        self.proof_ledger.map(|index| &self.rows[index])
     }
     pub fn runtime_history(&self) -> &RoutedWorldResultV1 {
         &self.rows[self.runtime]
@@ -342,6 +348,14 @@ pub(super) fn classify_world_result_original_v1<C: FnMut() -> bool>(
             return Err(invalid());
         }
         WorldResultProfileV1::CognitionHistoryV3
+    } else if raw
+        .starts_with(crate::incremental_cognition_proof_ledger::COGNITION_PROOF_LEDGER_MAGIC_V1)
+    {
+        let decoded = crate::incremental_cognition_proof_ledger::CognitionProofLedgerManifestV1::from_canonical_bytes(raw)?;
+        if decoded.roots != roots {
+            return Err(invalid());
+        }
+        WorldResultProfileV1::CognitionProofLedgerV1
     } else if raw.starts_with(RUNTIME_HISTORY_MAGIC_V1) {
         let decoded = RuntimeHistoryManifestV1::from_canonical_bytes(raw)?;
         if decoded.roots != roots {
@@ -406,6 +420,7 @@ pub fn route_checked_world_results_v1<O: OriginalObjectStreamReader, C: FnMut() 
     let mut rows = Vec::with_capacity(count);
     let mut cognition = None;
     let mut runtime = None;
+    let mut proof_ledger = None;
     for (ordinal, fact) in facts.iter().enumerate() {
         if cancelled() {
             return Err(ValueTreeError::Cancelled.into());
@@ -455,6 +470,11 @@ pub fn route_checked_world_results_v1<O: OriginalObjectStreamReader, C: FnMut() 
             &mut cancelled,
         )?;
         match profile {
+            WorldResultProfileV1::CognitionProofLedgerV1
+                if proof_ledger.replace(rows.len()).is_some() =>
+            {
+                return Err(invalid().into());
+            }
             WorldResultProfileV1::CognitionHistoryV3 if cognition.replace(rows.len()).is_some() => {
                 return Err(invalid().into());
             }
@@ -483,6 +503,7 @@ pub fn route_checked_world_results_v1<O: OriginalObjectStreamReader, C: FnMut() 
         rows: rows_charge.retain(rows),
         cognition,
         runtime,
+        proof_ledger,
     }))
 }
 

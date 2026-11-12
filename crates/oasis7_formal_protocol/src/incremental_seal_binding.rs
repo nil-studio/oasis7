@@ -141,6 +141,45 @@ impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
             }),
         })
     }
+    /// Opaque same-transaction seal for the independent three-Result profile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_with_proof_ledger_results_and_binding<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        self.validate_guard(guard, live)?;
+        let memory = self.memory.clone();
+        let charge = memory
+            .reserve(
+                std::mem::size_of::<SealedExecutionBindingV1>()
+                    + std::mem::size_of::<SealedExecutionTransitionV1>()
+                    + 128,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ExecutionError::Memory)?;
+        let _phase = memory
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(ExecutionError::Memory)?;
+        let captured = self.guard();
+        let transition =
+            self.seal_with_proof_ledger_results(guard, live, next_tick, &mut cancelled, produce)?;
+        let after_roots = transition.record.after.digest()?;
+        if cancelled() {
+            return Err(SealWithFinalFactError::Cancelled);
+        }
+        Ok(SealedExecutionTransitionV1 {
+            transition,
+            binding: charge.retain(SealedExecutionBindingV1 {
+                guard: captured,
+                after_roots,
+                memory,
+            }),
+        })
+    }
 }
 #[cfg(test)]
 #[path = "incremental_seal_binding_tests.rs"]

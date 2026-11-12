@@ -147,7 +147,8 @@ pub use family::{
 mod current_identity;
 pub use current_identity::{
     IndustryCurrentOuterChangeV1, IndustryOuterRecordRootV1, IndustryQualifiedOuterIdentityV1,
-    visit_qualified_recipe_parent_identities_v1, visit_recipe_current_outer_changes_v1,
+    visit_qualified_recipe_parent_identities_v1, visit_qualified_transit_parent_identities_v1,
+    visit_recipe_current_outer_changes_v1,
 };
 
 #[path = "incremental_industry_jobs_container.rs"]

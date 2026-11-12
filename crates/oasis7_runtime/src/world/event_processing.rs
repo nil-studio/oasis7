@@ -59,6 +59,7 @@ const STARTER_OC_CLAIM_AMOUNT: u64 = 100_000_000;
 mod action_to_event_core;
 pub(super) mod action_to_event_economy;
 mod action_to_event_gameplay;
+pub(in crate::world) use action_to_event_gameplay::alliance_fixed;
 mod action_to_event_gameplay_meta;
 mod action_to_event_policy_contract;
 mod action_to_event_policy_contract_rejection;

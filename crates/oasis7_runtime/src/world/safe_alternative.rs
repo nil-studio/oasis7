@@ -28,10 +28,10 @@ pub fn lineage_key(c: &SafeAlternativeCommandV1) -> String {
         ]),
     )
 }
-fn digest(v: &Value) -> String {
+pub(super) fn digest(v: &Value) -> String {
     cognition_digest_v1("oasis7.safe-alternative.content.v1", v)
 }
-fn error(reason: &str) -> WorldError {
+pub(super) fn error(reason: &str) -> WorldError {
     WorldError::DistributedValidationFailed {
         reason: reason.into(),
     }
@@ -496,38 +496,29 @@ impl World {
         if !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty() {
             return Err("evaluation_unavailable".into());
         }
-        if identity.owner_binding != c.owner_binding
-            || identity.generation != c.owner_generation
-            || owner.player_id != c.owner_binding
-            || crate::service_admission::agent_authority::owner_public_key(self, &c.agent_id)
+        super::incremental_safe_alternative_scope::validate_scope_state_v1(
+            r,
+            candidate,
+            &c,
+            &super::incremental_safe_alternative_scope::SafeAlternativeScopeStateV1 {
+                identity: &identity,
+                runtime_world: &binding.world_id,
+                runtime_branch: &binding.branch_id,
+                runtime_reorg: binding.reorg_epoch,
+                owner_binding: &owner.player_id,
+                owner_public_key: crate::service_admission::agent_authority::owner_public_key(
+                    self,
+                    &c.agent_id,
+                )
                 .ok()
-                .as_deref()
-                != r["owner_public_key"].as_str()
-            || binding.world_id != c.world_id
-            || binding.branch_id != c.branch_id
-            || binding.reorg_epoch != c.reorg_epoch
-            || self
-                .state
-                .agents
-                .get(&c.agent_id)
-                .is_none_or(|a| json!(a.state.pos) != r["initial_position"])
-            || self
-                .state
-                .gameplay_policy
-                .forbidden_location_ids
-                .contains(&format!(
-                    "{}:{}:{}",
-                    candidate["to"]["x_cm"], candidate["to"]["y_cm"], candidate["to"]["z_cm"]
-                ))
-        {
-            return Err("authority_changed".into());
-        }
-        if now >= r["valid_until_tick"].as_u64().unwrap_or(0) || candidate["cost_upper_bound"] != 0
-        {
-            return Err("candidate_stale".into());
-        }
-        Ok(())
+                .as_deref(),
+                position: self.state.agents.get(&c.agent_id).map(|a| &a.state.pos),
+                forbidden: &self.state.gameplay_policy.forbidden_location_ids,
+            },
+            now,
+        )
     }
+
     pub(super) fn install_safe_alternative_queue(&mut self, previous: Option<&Value>, r: &Value) {
         if !r["outcome"].is_null() {
             if let Some(action_id) = r["authorization"]["action_id"].as_u64() {
@@ -573,27 +564,14 @@ impl World {
             if r["authorization"]["action_id"].as_u64() != Some(envelope.id) {
                 continue;
             }
-            if r["state"] != "execution_bound"
-                || r["authorization"]["state"] != "bound"
-                || self.state.time >= r["confirmation"]["valid_until_tick"].as_u64().unwrap_or(0)
-            {
-                return Err("authorization_expired_or_revoked".into());
-            }
-            let candidate = r["candidates"]
-                .as_array()
-                .and_then(|v| {
-                    v.iter()
-                        .find(|v| v["candidate_id"] == r["confirmation"]["candidate_id"])
-                })
-                .ok_or("outcome_unknown")?;
+            let candidate = super::incremental_safe_alternative_scope::matching_candidate_v1(
+                r,
+                self.state.time,
+            )?;
             self.validate_alternative_scope(r, candidate, self.state.time)?;
-            let expected = json!({"MoveAgent":{"agent_id":r["agent_id"],"to":candidate["to"]}});
-            // Match the typed action rather than trusting arbitrary queued parameters.
-            match &envelope.action {
-                Action::MoveAgent { agent_id, to }
-                    if json!(agent_id) == r["agent_id"] && json!(to) == candidate["to"] => {}
-                _ => return Err(format!("identity_conflict:{expected}")),
-            }
+            super::incremental_safe_alternative_scope::validate_matching_action_v1(
+                r, candidate, envelope,
+            )?;
         }
         Ok(())
     }
@@ -603,7 +581,7 @@ impl World {
         action_id: u64,
         event_id: u64,
     ) -> Result<Value, WorldError> {
-        let mut r = self
+        let r = self
             .capability_revocation_state
             .safe_alternatives
             .get(key)
@@ -621,179 +599,15 @@ impl World {
                     && matches!(e.caused_by,Some(CausedBy::Action(id)) if id==action_id)
             })
             .ok_or_else(|| error("outcome_unknown"))?;
-        let (status, reason) = match &event.body {
-            WorldEventBody::Domain(DomainEvent::AgentMoved { agent_id, from, to }) => {
-                let candidate = r["candidates"]
-                    .as_array()
-                    .and_then(|v| {
-                        v.iter()
-                            .find(|v| v["candidate_id"] == r["confirmation"]["candidate_id"])
-                    })
-                    .ok_or_else(|| error("outcome_unknown"))?;
-                if json!(agent_id) != r["agent_id"]
-                    || json!(from) != r["initial_position"]
-                    || json!(to) != candidate["to"]
-                {
-                    return Err(error("identity_conflict"));
-                }
-                ("applied", Value::Null)
-            }
-            WorldEventBody::Domain(DomainEvent::ActionRejected {
-                action_id: rejected_id,
-                reason,
-            }) if *rejected_id == action_id => ("rejected", json!(reason)),
-            _ => return Err(error("outcome_unknown")),
-        };
-        let outcome =
-            json!({"status":status,"action_id":action_id,"event_id":event_id,"reason":reason});
-        if !r["outcome"].is_null() && r["outcome"] != outcome {
-            return Err(error("identity_conflict"));
-        }
-        r["outcome"] = outcome;
-        r["state"] = json!(status);
-        r["authorization"]["state"] = json!(if status == "applied" {
-            "consumed"
-        } else {
-            "revoked"
-        });
-        Ok(r)
+        super::incremental_safe_alternative_outcome::project_outcome_record_v1(r, action_id, event)
     }
     pub(super) fn validate_safe_alternative_history(&self) -> Result<(), WorldError> {
         let mut action_ids = BTreeSet::new();
         for (key, r) in &self.capability_revocation_state.safe_alternatives {
-            let fail = || error("invalid_safe_alternative_history");
-            let signed: SignedReadRequest<SafeAlternativeCommandV1> =
-                serde_json::from_value(r["propose_signed"].clone()).map_err(|_| fail())?;
-            signed.request.validate().map_err(|_| fail())?;
-            crate::service_admission::verify_read_request(signed.request.signing_domain(), &signed)
-                .map_err(|_| fail())?;
-            let Op::Propose { original, .. } = &signed.request.operation else {
-                return Err(fail());
-            };
-            if lineage_key(&signed.request) != *key
-                || r["binding"] != json!(signed.request)
-                || r["owner_public_key"] != signed.subject_public_key
-                || r["original"] != json!(original)
-                || r["original_digest"] != digest(&json!(original))
-                || r["original_no_effect"] != true
-                || r["generation"].as_u64().is_none_or(|g| g == 0)
-                || r["agent_id"] != signed.request.agent_id
-            {
-                return Err(fail());
-            }
-            let candidates = r["candidates"].as_array().ok_or_else(fail)?;
-            if candidates.len() > 8 {
-                return Err(fail());
-            }
-            for candidate in candidates {
-                let mut contents = candidate.clone();
-                let claimed = contents
-                    .as_object_mut()
-                    .ok_or_else(fail)?
-                    .remove("candidate_digest")
-                    .ok_or_else(fail)?;
-                let to: oasis7_agent_api::world_action::GeoPos =
-                    serde_json::from_value(candidate["to"].clone()).map_err(|_| fail())?;
-                if claimed != digest(&contents)
-                    || !original.waypoints.contains(&to)
-                    || candidate["scope"]["agent_id"] != signed.request.agent_id
-                    || candidate["scope"]["from"] != r["initial_position"]
-                    || candidate["scope"]["to"] != candidate["to"]
-                    || candidate["scope"]["maximum_effects"] != 1
-                    || candidate["cost_upper_bound"] != 0
-                    || candidate["valid_until_tick"] != r["valid_until_tick"]
-                {
-                    return Err(fail());
-                }
-            }
-            if !r["confirmation"].is_null() {
-                let confirmation: SignedReadRequest<SafeAlternativeCommandV1> =
-                    serde_json::from_value(r["confirmation"]["signed"].clone())
-                        .map_err(|_| fail())?;
-                crate::service_admission::verify_read_request(
-                    confirmation.request.signing_domain(),
-                    &confirmation,
-                )
-                .map_err(|_| fail())?;
-                let Op::Confirm {
-                    generation,
-                    candidate_id,
-                    candidate_digest,
-                    confirmation_id,
-                    valid_until_tick,
-                    ..
-                } = &confirmation.request.operation
-                else {
-                    return Err(fail());
-                };
-                if lineage_key(&confirmation.request) != *key
-                    || confirmation.subject_public_key != signed.subject_public_key
-                    || Some(*generation) != r["generation"].as_u64()
-                    || r["confirmation"]["confirmation_id"] != *confirmation_id
-                    || r["confirmation"]["candidate_id"] != *candidate_id
-                    || r["confirmation"]["candidate_digest"] != *candidate_digest
-                    || r["confirmation"]["valid_until_tick"] != *valid_until_tick
-                    || !candidates.iter().any(|v| {
-                        v["candidate_id"] == *candidate_id
-                            && v["candidate_digest"] == *candidate_digest
-                    })
-                    || r["authorization"]["authorization_id"]
-                        != format!("alternative-auth-{}", digest(&r["confirmation"]))
-                {
-                    return Err(fail());
-                }
-            } else if !r["authorization"].is_null() {
-                return Err(fail());
-            }
-            if let Some(action_id) = r["authorization"]["action_id"].as_u64() {
-                if !action_ids.insert(action_id) {
-                    return Err(fail());
-                }
-                let execution: SignedReadRequest<SafeAlternativeCommandV1> =
-                    serde_json::from_value(r["execution_signed"].clone()).map_err(|_| fail())?;
-                crate::service_admission::verify_read_request(
-                    execution.request.signing_domain(),
-                    &execution,
-                )
-                .map_err(|_| fail())?;
-                let Op::Execute {
-                    authorization_id,
-                    execution_id,
-                    ..
-                } = &execution.request.operation
-                else {
-                    return Err(fail());
-                };
-                if lineage_key(&execution.request) != *key
-                    || execution.subject_public_key != signed.subject_public_key
-                    || r["authorization"]["execution_id"] != *execution_id
-                    || r["authorization"]["authorization_id"] != *authorization_id
-                {
-                    return Err(fail());
-                }
-                if r["outcome"].is_null() {
-                    let queued = self
-                        .pending_actions
-                        .iter()
-                        .find(|a| a.id == action_id)
-                        .ok_or_else(fail)?;
-                    let candidate = candidates
-                        .iter()
-                        .find(|v| v["candidate_id"] == r["confirmation"]["candidate_id"])
-                        .ok_or_else(fail)?;
-                    if !matches!(&queued.action,Action::MoveAgent{agent_id,to} if json!(agent_id)==r["agent_id"]&&json!(to)==candidate["to"])
-                    {
-                        return Err(fail());
-                    }
-                } else if self.pending_actions.iter().any(|a| a.id == action_id)
-                    || r["outcome"]["action_id"] != action_id
-                    || r["outcome"]["event_id"].as_u64().is_none()
-                {
-                    return Err(fail());
-                }
-            } else if !r["authorization"]["execution_id"].is_null() || !r["outcome"].is_null() {
-                return Err(fail());
-            }
+            let pending = r["authorization"]["action_id"]
+                .as_u64()
+                .and_then(|id| self.pending_actions.iter().find(|a| a.id == id));
+            super::incremental_safe_alternative_history::validate_safe_alternative_record_history_v1(key,r,pending,&mut action_ids)?;
         }
         Ok(())
     }

@@ -44,6 +44,7 @@ pub struct AcceptedWorldResultRoutingV1 {
     roots: [u8; 32],
     cognition: usize,
     runtime: usize,
+    proof_ledger: Option<usize>,
 }
 impl AcceptedWorldResultRoutingV1 {
     pub fn allocation_class(&self) -> MemoryClass {
@@ -54,6 +55,10 @@ impl AcceptedWorldResultRoutingV1 {
     }
     pub fn cognition(&self) -> &AcceptedRoutedWorldResultV1 {
         &self.rows[self.cognition]
+    }
+    /// Independent side-ledger Result, absent in the legacy two-Result profile.
+    pub fn proof_ledger(&self) -> Option<&AcceptedRoutedWorldResultV1> {
+        self.proof_ledger.map(|index| &self.rows[index])
     }
     pub fn runtime_history(&self) -> &AcceptedRoutedWorldResultV1 {
         &self.rows[self.runtime]
@@ -222,6 +227,7 @@ where
     let mut rows = Vec::with_capacity(count);
     let mut cognition = None;
     let mut runtime = None;
+    let mut proof_ledger = None;
     for (ordinal, fact) in facts.facts.iter().enumerate() {
         if cancelled() {
             return Err(ValueTreeError::Cancelled.into());
@@ -277,6 +283,11 @@ where
             &mut cancelled,
         )?;
         match profile {
+            WorldResultProfileV1::CognitionProofLedgerV1
+                if proof_ledger.replace(rows.len()).is_some() =>
+            {
+                return Err(invalid().into());
+            }
             WorldResultProfileV1::CognitionHistoryV3 if cognition.replace(rows.len()).is_some() => {
                 return Err(invalid().into());
             }
@@ -313,6 +324,7 @@ where
         roots,
         cognition,
         runtime,
+        proof_ledger,
     }))
 }
 
@@ -421,5 +433,6 @@ pub fn readmit_accepted_world_result_routing_ordinary_v1<C: FnMut() -> bool>(
         roots: source.roots,
         cognition: source.cognition,
         runtime: source.runtime,
+        proof_ledger: source.proof_ledger,
     }))
 }

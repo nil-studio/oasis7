@@ -659,3 +659,7 @@ pub(crate) use receiver::accept_artifact_config_verified_v1;
 #[path = "incremental_runtime_artifact_config_current_keys.rs"]
 mod current_keys;
 pub use current_keys::read_current_registry_active_id_v1;
+
+#[path = "incremental_runtime_artifact_config_current_active_count.rs"]
+mod current_active_count;
+pub use current_active_count::read_current_registry_active_count_v1;

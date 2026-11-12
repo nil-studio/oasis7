@@ -736,6 +736,9 @@ fn evaluate<'a>(
             }
         };
         match completed {
+            CompletedNonmovementActionV1::Alliance(_) => {
+                panic!("Alliance requires its dedicated genuine source fixture")
+            }
             CompletedNonmovementActionV1::LogisticsRegistration(value) => {
                 let Some(NonmovementFixtureWorkV1::LogisticsRegistration { result, .. }) =
                     body_work.as_mut()

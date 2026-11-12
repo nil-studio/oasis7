@@ -79,7 +79,7 @@ pub(crate) fn patch_world_rule_branch_v1<
         parent.validate_binding(roots)?;
         let digest = roots.digest().map_err(|_| invalid())?;
         if tx.parent_fence().parent_roots != digest
-            || !parent.parent_present()
+            || (!parent.parent_present() && current.is_none())
             || !parent.uses_budget(write.memory)
             || parent.reserved_bytes() < 512
             || !tx.uses_budget(write.memory)
@@ -112,23 +112,11 @@ pub(crate) fn patch_world_rule_branch_v1<
                 record_bytes: context.record_bytes,
                 cancelled: &mut combined,
             };
-            let (field, present) = crate::incremental_world_rule_parent::read_parent_overlay(
+            current::read_current_branch::<T, _, _, _, _>(
                 tx,
                 &mut records,
                 &mut context.take_state_error,
-            )?;
-            if !present {
-                return Err(invalid().into());
-            }
-            let (outer, semantic_bytes) = records.key(
-                field,
-                WorldFieldRecordKindV1::Entry,
-                &(T::BRANCH.name(), ()),
-            )?;
-            let id = lookup(tx, &outer, &mut records, &mut context.take_state_error)?
-                .ok_or_else(invalid)?;
-            let initial = read_body::<T, _, _>(&outer, semantic_bytes, &id, &mut records)?;
-            (outer, semantic_bytes, initial)
+            )?
         };
         let expected = current
             .map(|c| c.body())
@@ -253,3 +241,7 @@ pub(crate) fn patch_world_rule_branch_v1<
 #[path = "incremental_world_rule_composite_path.rs"]
 mod path;
 pub(crate) use path::prepare_semantic_path_key_v1;
+
+#[path = "incremental_world_rule_composite_current.rs"]
+mod current;
+pub(crate) use current::bind_current_world_rule_branch_v1;

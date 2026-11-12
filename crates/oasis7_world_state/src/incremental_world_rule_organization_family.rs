@@ -1,5 +1,8 @@
 //! Root-only bootstrap of both Organization owner families.
 use super::*;
+use crate::incremental_organization_scope_index::{
+    OrganizationScopeIndexBuilderV1, OrganizationScopeIndexV1,
+};
 use oasis7_formal_protocol::{
     incremental_execution::RootSetV1,
     incremental_state::{StateEntryV1, StateScanContext, StateScanError},
@@ -14,6 +17,7 @@ pub struct OrganizationFamilyQualificationV1 {
     records: [u64; 2],
     present: bool,
     class: MemoryClass,
+    pub(super) scope: OrganizationScopeIndexV1,
 }
 impl OrganizationFamilyQualificationV1 {
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
@@ -54,6 +58,7 @@ pub fn readmit_organization_family_ordinary_v1(
         records: source.records,
         present: source.present,
         class: MemoryClass::Ordinary,
+        scope: source.scope.readmit_ordinary(memory)?,
     }))
 }
 fn invalid() -> ValueTreeError {
@@ -70,6 +75,7 @@ fn outer<
     inner_scan: &mut StateScanBudget,
     cells: &mut u64,
     max_payload: u64,
+    scope: &mut OrganizationScopeIndexBuilderV1,
 ) -> Result<Option<usize>, ValueTreeError> {
     if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
         return Ok(None);
@@ -104,21 +110,7 @@ fn outer<
         },
         &mut context.cancelled,
     )?;
-    let root = context.values.load_root(&entry.value)?;
-    let mut sink = std::io::sink();
-    let mut probe = outer_key::OuterProbe::new(&mut sink);
-    let result = context.values.read_range(
-        &root,
-        (FIELD_MEMBER_HEADER_BYTES + key.as_bytes().len()) as u64,
-        info.semantic_bytes,
-        &mut probe,
-        &mut context.cancelled,
-    );
-    if let Some(reason) = probe.bad {
-        return Err(ValueTreeError::Invalid(reason));
-    }
-    result?;
-    let Some(owner) = probe.finish()? else {
+    let Some((owner, outer)) = scope::original_outer(&entry.value, &key, context)? else {
         return Ok(None);
     };
     if info.codec != MemberPayloadCodecV1::RecordRoot
@@ -176,6 +168,18 @@ fn outer<
         cells,
         max_payload,
     )?;
+    drop(inner);
+    scope::project(
+        owner,
+        &outer,
+        owner_digest,
+        child,
+        context,
+        inner_scan,
+        cells,
+        max_payload,
+        scope,
+    )?;
     Ok(Some(match owner {
         OrganizationRootKeyV1::Case(_) => 0,
         OrganizationRootKeyV1::Estate(_) => 1,
@@ -216,6 +220,7 @@ pub fn qualify_organization_family_v1<
     )?;
     let cancelled = RefCell::new(&mut context.cancelled);
     let mut records = [0u64; 2];
+    let mut scope = OrganizationScopeIndexBuilderV1::new(memory, class)?;
     for root in &roots.state {
         let mut local = WorldFieldReadContextV1 {
             root,
@@ -244,7 +249,14 @@ pub fn qualify_organization_family_v1<
                 *cells = cells
                     .checked_sub(1)
                     .ok_or(ValueTreeError::ResourceLimited("organization family cells"))?;
-                if let Some(index) = outer(entry, &mut local, inner_scan, cells, max_payload)? {
+                if let Some(index) = outer(
+                    entry,
+                    &mut local,
+                    inner_scan,
+                    cells,
+                    max_payload,
+                    &mut scope,
+                )? {
                     records[index] = records[index].checked_add(1).ok_or_else(invalid)?;
                 }
                 Ok(())
@@ -281,6 +293,7 @@ pub fn qualify_organization_family_v1<
         records,
         present,
         class,
+        scope: scope.finish()?,
     }))
 }
 
@@ -290,6 +303,7 @@ pub(super) fn advanced(
     present: bool,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     class: MemoryClass,
+    scope: OrganizationScopeIndexV1,
 ) -> Result<ReservedValue<OrganizationFamilyQualificationV1>, ValueTreeError> {
     let retained = memory.reserve(
         std::mem::size_of::<OrganizationFamilyQualificationV1>(),
@@ -300,5 +314,6 @@ pub(super) fn advanced(
         records,
         present,
         class,
+        scope,
     }))
 }

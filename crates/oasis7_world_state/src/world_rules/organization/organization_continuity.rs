@@ -28,6 +28,54 @@ mod helpers;
 use helpers::*;
 pub use helpers::{activity_catalog_root, economic_contract_terms_hash};
 
+/// A plain fixed semantic plan, never a source or execution capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MembershipEventPlanV1 {
+    Noop,
+    EnsureHistory,
+    Join,
+    Close,
+}
+/// Shared with the typed Current owner. The callback only charges work; every
+/// predicate and the original already-open rejection remain inside this kernel.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn plan_membership_event_with_work_v1<E: From<WorldError>>(
+    registered: bool,
+    history: Option<&[(u64, Option<u64>, String)]>,
+    member_id: &str,
+    world_tick: u64,
+    event_ref: &str,
+    joined: bool,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<MembershipEventPlanV1, E> {
+    work(member_id.len())?;
+    work(event_ref.len())?;
+    if !registered || member_id.is_empty() || event_ref.is_empty() || world_tick == 0 {
+        return Ok(MembershipEventPlanV1::Noop);
+    }
+    for (_, _, reference) in history.unwrap_or(&[]) {
+        work(reference.len())?;
+        work(event_ref.len())?;
+        if reference == event_ref {
+            return Ok(MembershipEventPlanV1::Noop);
+        }
+    }
+    let open = history
+        .and_then(|events| events.last())
+        .is_some_and(|(_, left, _)| left.is_none());
+    work(std::mem::size_of::<(u64, Option<u64>)>())?;
+    if joined {
+        if open {
+            return Err(invalid("organization_membership_already_open").into());
+        }
+        Ok(MembershipEventPlanV1::Join)
+    } else if open {
+        Ok(MembershipEventPlanV1::Close)
+    } else {
+        Ok(MembershipEventPlanV1::EnsureHistory)
+    }
+}
+
 fn accounted_through(
     continuity: &OrganizationContinuityStateV1,
     registration: &OrganizationRegistrationV1,
@@ -540,37 +588,44 @@ impl OrganizationContinuityStateV1 {
         {
             return Ok(());
         }
+        // Preserve the legacy observable entry creation point, including a
+        // leave with no open history and errors after this point.
         let events = self
             .membership_history
             .entry(organization_id.to_owned())
             .or_default()
             .entry(member_id.to_owned())
             .or_default();
-        if events
-            .iter()
-            .any(|(_, _, reference)| reference == event_ref)
-        {
-            return Ok(());
-        }
-        if joined {
-            if events.last().is_some_and(|(_, left, _)| left.is_none()) {
-                return Err(invalid("organization_membership_already_open"));
-            }
-            let binding = controller_binding_for(state, member_id)?;
-            events.push((world_tick, None, event_ref.to_owned()));
-            self.registrations
-                .get_mut(organization_id)
-                .expect("registration checked above")
-                .membership_controller_bindings
-                .insert(member_id.to_owned(), binding);
-        } else if let Some((_, left, _)) = events.last_mut()
-            && left.is_none()
-        {
-            *left = Some(world_tick);
-            if let Some(registration) = self.registrations.get_mut(organization_id) {
-                registration
+        let plan = plan_membership_event_with_work_v1(
+            true,
+            Some(events),
+            member_id,
+            world_tick,
+            event_ref,
+            joined,
+            &mut |_| Ok::<(), WorldError>(()),
+        )?;
+        match plan {
+            MembershipEventPlanV1::Noop | MembershipEventPlanV1::EnsureHistory => {}
+            MembershipEventPlanV1::Join => {
+                let binding = controller_binding_for(state, member_id)?;
+                events.push((world_tick, None, event_ref.to_owned()));
+                self.registrations
+                    .get_mut(organization_id)
+                    .expect("registration checked above")
                     .membership_controller_bindings
-                    .remove(member_id);
+                    .insert(member_id.to_owned(), binding);
+            }
+            MembershipEventPlanV1::Close => {
+                // The fixed plan observed this exact borrowed last row.
+                if let Some((_, left, _)) = events.last_mut() {
+                    *left = Some(world_tick);
+                }
+                if let Some(registration) = self.registrations.get_mut(organization_id) {
+                    registration
+                        .membership_controller_bindings
+                        .remove(member_id);
+                }
             }
         }
         Ok(())
