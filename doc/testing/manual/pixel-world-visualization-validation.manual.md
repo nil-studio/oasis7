@@ -171,6 +171,16 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 
 保存服务端实际资源请求数与 CDP `fromDiskCache`／service-worker 状态；冷样本要求真实网络请求，热样本要求同 origin/profile 的磁盘复用。只读本人启动的 browser 命令行核对精确 profile 后取得 native PID，关闭后必须确认 PID 已退出；失败、清理未知或120秒总硬停均非零，不进入下一 case。保留 owned profile、原始结果与脚本 SHA，不强杀不明进程。HTTP cache 不证明 WASM compiled-code cache；OS page cache 未隔离。该能力通过后，产品核心 UI／bridge ready／Atlas 已可见上界／实际命中端点仍须单独建立，之后才能按上文20冷／30热执行。M3/16GiB 本机结果不代签正式8GiB网络 A/B、P5或P6。
 
+### 真实 Viewer 共享夹具与启动端点（5772／5791）
+
+`viewer-owned-fixture-server.mjs` 供产品启动和密度 RSS caller 共用。它只提供已有1000对象 WorldView 受控只读协议，snapshot 保持空模型，observer/debug 的 `density-qa.localhost` 不走真实玩家登录；不创建身份、grant 或世界命令。产物按实际 source 和完整文件 size/SHA 核对，采集前后校验；所有 HTTP／WS 证据有界，采集 I/O 错误立即终止并保留原错，不能降成普通404继续。公开的 latestView 是实际送出回应的 connection／request generation／world／scope／cut／完整性，不以夹具常量替代实际回应绑定。
+
+`viewer-product-startup-endpoints.mjs` 在 DOM renderer-ready 前只读 DOM，不提前 import optional bridge 或取得 WebGL context；ready 后才读已挂载模块 getter。当前 scope／cut／完整 query／guest 身份与实际1000 body必须同时成立。Atlas 的独立 PNG 正控与空图负控见 `test:startup:atlas-oracle`（需要 Python/Pillow）；只按真实共享16px素材、最终投影脚点和实际 CSS/F/DPR 采样。实际采样使用截图前后同 page/timeOrigin／world／cut／render-version／几何的括定；未匹配保持 unknown。只有真实 opaque atlas 像素已证存在后才读 GPU identity，不能由探针主动获取 context 加速启动。
+
+截图后 pageNow 仅是该图像已可观察的保守上界，不是第一物理呈现时刻。原生 Enter 由共同 owned 输入参数发出，记录可信 keydown/click、typed ID、原 timeStamp／pageNow／timeOrigin及实际 selected DOM，单次输入无重试；此端点不是 GPU 选择高亮 fence、网络完成或真实玩家回执。`prepareOwnedViewerDensity` 仅用真实 overview／wheel 进入1000 body／200 label场景，供 RSS consumer 在计时外准备；不得把其相机操作偷偷塞入“自然首帧”预算。
+
+`viewer-owned-startup-lifecycle.mjs` 在导航前登记同 branded context 的 exact profile／sandbox／native PID，失败前仍可有界关闭并核对 native 退出。共享server与owned profile下的产品校准最多三组，先独立方法审；产品20冷／30热及正式8GiB A/B预算仍需各自前置，旧8B缓存能力检查不代签本节真实产品端点。
+
 ### 自有浏览器 RSS 能力前置（5773）
 
 `VIEWER_RESOURCE_OUTPUT=<不存在的绝对输出目录> node crates/oasis7_viewer/scripts/viewer-owned-resource-capability.mjs` 复用上述唯一 owned-profile factory、现有 Playwright 和已安装 Chrome，启用 sandbox，最多三短组且总界120秒。先以精确 profile 参数及本 context 的 CDP native browser PID 建立归属，只读取 PID/PPID/birth 身份表以求后代，再对已证根与子 PID 读取 RSS；前后身份或后代集合变化、CDP 出现外部 PID、页面归属变化均拒绝。额外自有页面负控须在 RSS 读取前拒绝，关闭后 root PID 退出未知则不能启动后继探针。保留 private profile 和脚本 SHA，不读取用户进程内存、不修改系统权限。
