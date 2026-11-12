@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Private 37+7 candidate workload, sharing the extraction's fixed analysis window."""
 import argparse
+from contextlib import ExitStack
 import csv
 import hashlib
 import importlib.util
@@ -13,6 +14,7 @@ import shutil
 import time
 
 from codeql_rust_action_deadline import shared_budget
+import codeql_rust_candidate_profile as candidate_profile
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('workload_comparison', HERE / 'codeql-rust-qualifier-comparison.py')
@@ -325,7 +327,7 @@ def seal(out, terminal, phase, deadline, end):
         runtime.save(out / 'hashes.json', hashes, out, terminal=True)
 
 
-def main():
+def _main(cancellation, owned_resources):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('prepare', 'run'))
     for name in ('codeql', 'source', 'database', 'official-evidence', 'output', 'work'):
@@ -354,17 +356,24 @@ def main():
                     analysis_deadline=args.analysis_deadline, production_capacity='UNKNOWN', full_rust_coverage='HOLD',
                     production_acceptance='UNCHANGED', security_upload=False, database_upload=False, sarif_upload=False,
                     default_result_verification='NOT_REACHED', public_semantics='NOT_REACHED',
+                    performance_observation={'status': 'NOT_REQUESTED' if args.phase == 'prepare' else 'NOT_REACHED'},
                     primary_failure=None, secondary_errors=[], stage='admission',
                     final_hosted_job_margin='NOT_OBSERVED', required_final_job_margin_seconds=REQUIRED_MARGIN,
                     margin_scope='pre-upload evidence readiness; final hosted completion including upload/post requires independent readback')
     before = protected = official_seal = db_sha = None
+    observation = batch_error = None
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     def save(name, value, control=False): runtime.save(out / name, value, out, terminal=control)
-    def run(argv, name, limit=None, *, analysis=False):
+    def run(argv, name, limit=None, *, analysis=False, observed=False):
         terminal['stage'] = name
+        if cancellation['cancelled']:
+            raise runtime.CancelledError('CANCELLED_BEFORE_SPAWN')
         child_end = min(end - EVIDENCE_SECONDS, analysis_end) if analysis else end - EVIDENCE_SECONDS
         remaining = child_end - time.monotonic()
         if remaining <= 0: raise TimeoutError('fixed candidate deadline exhausted before ' + name)
+        if observed:
+            return observation.run_batch(list(map(str, argv)), source, child_end,
+                                         min(remaining, limit or remaining), env)
         return runtime.run(list(map(str, argv)), source, out / (name + '.log'), child_end,
                            min(remaining, limit or remaining), out, env, file_limit=None)
     try:
@@ -460,13 +469,17 @@ def main():
             if (database / 'results').is_symlink() or any(p.is_symlink() or p.suffix == '.bqrs' for p in (database / 'results').rglob('*')):
                 raise RuntimeError('extraction checkpoint already has query results')
             for name in ('batch-compilation-cache', 'batch-common-cache'): (work / name).mkdir(exist_ok=False)
+            terminal['stage'] = 'performance-observation-admission'
+            observation = candidate_profile.Observation(out, work, records)
+            owned_resources.callback(observation.close)
+            observation.start()
             terminal['batch'] = dict(status='RUNNING', queries=44, default_queries=37, public_witnesses=7, invocations=1)
             save('candidate-run-terminal.json', terminal, True)
             batch_error = None
             try:
                 run([args.codeql, 'database', 'run-queries', *query_options(closures['default'], work, 'batch'),
                      '--no-use-precompiled', '--threads=' + str(resources['CODEQL_THREADS']), '--ram=' + str(resources['CODEQL_RAM']),
-                     '--', database, *[r['path'] for r in records]], 'candidate-workload-batch', analysis=True)
+                     '--', database, *[r['path'] for r in records]], 'candidate-workload-batch', analysis=True, observed=True)
                 terminal['batch']['status'] = 'COMPUTED'
             except Exception as error:
                 batch_error = error
@@ -475,7 +488,10 @@ def main():
                 save('candidate-run-terminal.json', terminal, True)
                 raise
             finally:
-                try: preserve_results(results, out, end - EVIDENCE_SECONDS)
+                terminal['raw_result_preservation'] = 'INCOMPLETE'
+                try:
+                    preserve_results(results, out, end - EVIDENCE_SECONDS)
+                    terminal['raw_result_preservation'] = 'COMPLETE'
                 except Exception as error:
                     if batch_error is None: raise
                     terminal['secondary_errors'].append(dict(stage='raw-results', error=repr(error)[:2048]))
@@ -488,7 +504,7 @@ def main():
         for key in ('default_result_verification', 'public_semantics'):
             if terminal[key] == 'RUNNING': terminal[key] = 'INCOMPLETE'
     finally:
-        # Preserve primary failure before optional after checks; no child is spawned here.
+        # Core closeout precedes the single optional summary. Interrupts cannot skip it.
         save('candidate-' + args.phase + '-terminal.json', terminal, True)
         for name, operation in (
             ('private_inputs', lambda: private_inputs(work, end - EVIDENCE_SECONDS) if before is not None else None),
@@ -507,16 +523,64 @@ def main():
                 failure = dict(stage=name + '-after', error=repr(error)[:2048])
                 if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
                 else: terminal['secondary_errors'].append(failure)
+        if observation is not None:
+            try:
+                original_failure_allows_summary = (terminal['primary_failure'] is None or
+                    isinstance(batch_error, runtime.PhaseError) and batch_error.clean_timeout
+                    and terminal['primary_failure']['stage'] == 'candidate-workload-batch')
+                unchanged = all(terminal.get(name + '_after') == 'UNCHANGED' for name in
+                                ('private_inputs', 'protected_inputs', 'official_evidence', 'database_metadata'))
+                observation.summarize(args.codeql, source, env, end - EVIDENCE_SECONDS,
+                    admitted=original_failure_allows_summary and unchanged and not terminal['secondary_errors']
+                             and terminal.get('raw_result_preservation') == 'COMPLETE' and not cancellation['cancelled'])
+                terminal['performance_observation'] = observation.finish()
+                if terminal['performance_observation']['status'] != 'COMPLETE':
+                    raise RuntimeError('PERFORMANCE_OBSERVATION_INCOMPLETE')
+            except Exception:
+                terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+                failure = dict(stage='performance-observation', error='PERFORMANCE_OBSERVATION_INCOMPLETE')
+                if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
+                else: terminal['secondary_errors'].append(failure)
+            finally:
+                try:
+                    observation.close()
+                except Exception:
+                    terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+                    failure = dict(stage='performance-observation-cleanup', error='CAPTURE_CLOSE_FAILED')
+                    if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
+                    else: terminal['secondary_errors'].append(failure)
+        if cancellation['cancelled']:
+            terminal['cancelled'] = True
+            terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+            if terminal['primary_failure'] is None:
+                terminal['primary_failure'] = dict(stage=terminal['stage'], error='CANCELLED')
         terminal['elapsed_seconds'] = time.monotonic() - started
+        sealed = False
         try:
             seal(out, terminal, args.phase, args.deadline, end - EVIDENCE_SECONDS)
+            sealed = True
         except Exception as error:
             terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
             failure = dict(stage='evidence-seal', error=repr(error)[:2048])
             if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
             else: terminal['secondary_errors'].append(failure)
             save('candidate-' + args.phase + '-terminal.json', terminal, True)
-    return 0 if terminal['status'] in ('CANDIDATE_RESEARCH_PREPARED', 'CANDIDATE_RESEARCH_COMPLETED') else 1
+        if cancellation['cancelled'] and not terminal.get('cancelled'):
+            terminal.update(status='CANDIDATE_RESEARCH_INCOMPLETE', cancelled=True)
+            if terminal['primary_failure'] is None:
+                terminal['primary_failure'] = dict(stage=terminal['stage'], error='CANCELLED')
+            filename = 'candidate-' + args.phase + '-terminal.json'
+            save(filename, terminal, True)
+            if sealed:
+                hashes = read_json(out / 'hashes.json')
+                hashes[filename] = runtime.digest(out / filename)
+                save('hashes.json', hashes, True)
+    return 0 if not cancellation['cancelled'] and terminal['status'] in ('CANDIDATE_RESEARCH_PREPARED', 'CANDIDATE_RESEARCH_COMPLETED') else 1
+
+
+def main():
+    with runtime.cancellation_guard() as cancellation, ExitStack() as owned_resources:
+        return _main(cancellation, owned_resources)
 
 
 if __name__ == '__main__':

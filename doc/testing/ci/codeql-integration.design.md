@@ -473,6 +473,18 @@ Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不�
 
 同一 finalized 数据库以一次 `run-queries` 执行44项。37项均须保存并核对 BQRS 身份、完整 info/decode；七表按上述版本的完整正反例、行数和来源 oracle 逐项验证，Image v2 不覆盖或追认 v1 的失败。仅对默认37项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
 
+本候选模式的 `candidate-evaluator-v1` 观测只接入上述唯一批次，固定官方 2.27.4、`--evaluator-log-minify`、日志级别 3 和禁用 tuple counting；不额外运行查询或预热。固定 2.27.4 的 summary collector 会读取 stage-result usages；level 1/2 缺此字段，实测 level 1 summary 出现 NullPointerException，因此使用最低提供 usages 的 level 3，不开启 level 4 cache-miss 或 level 5 RA。原始 evaluator 事件经 owned FIFO 进入至多 48 MiB 的 Linux memfd，不写普通文件、artifact 或控制台。停止生产并清理 owned 进程组后，关闭父写端、有限 drain 到真实 EOF，再封住内存文件的写入/增长/截断；传输 EOF、日志 footer 与查询成功分别记录。官方摘要器需要可 seek 输入，只读取仍由父进程持有的 sealed memfd；不把实时 FIFO 当摘要输入，不回退原文文件。
+
+临时原始内存、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间保守预留完整 48 MiB；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。容量、写入、组身份或有限 drain 不可信时记观测不完整并停止后续子进程，不把超限解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再在原证据截止内尝试至多一次、最多 20 秒的官方 predicates 摘要；其清理也计时，剩余时间/空间不足记 `NOT_REACHED`。不重置分析截止或增加收尾预算。
+
+官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
+
+每条观察由本次官方摘要流 SHA256 与 header 后的原记录序号共同标识。`raHash` 是内容身份，不能当执行事件 ID；官方允许其复用，名称也不唯一。所有合法记录按原序号保留各自 literal 计时并参与有界排名，复用仅计数和留受限示例，不据此拒绝、去重或合计成本，也不将同一记录复制归因到多个查询。
+
+batch stdout/stderr 的受限查询进度保留 wall/monotonic 接收时刻、流完整性和冻结查询身份。该时刻含缓冲和观察误差，不是 CLI 内部阶段边界，不能用每 query 标签相加推断整体编译 wall。终态分别记录计算、oracle、capture、summary 与研究完整性；摘要成功不会提升原 timeout 或 `NOT_REACHED`，原首失败不会被后续观测错误覆盖。观测明确标记 `instrumented=true`，资源采样仍是观察下界；部分摘要只描述已观察记录，不能称为全批次完整排名或最后活跃谓词。
+
+开发验收以新 600 秒 D0、独立小 fixture/DB/cache、2 threads/3072 MiB 验证真实 2.27.4 的 memfd/官方摘要链，再覆盖原 candidate 接线及成功、未知 schema、内存/证据边界、取消/超时、尾部 drain、异常隐私和 FD/组清理。它只验收观测适配，不代签完整37+7或性能根因；旧 2.27.3 profile 与其他 runtime 调用保持原行为。
+
 执行前后检查完整业务输入、官方 bundle、候选整个库、私有 query pack、DB metadata 和封存 checkpoint。缓存/结果与受保护源码隔离。失败仍在原截止内保存已有有界日志、BQRS/解码和退出收据；官方证据保持 256 MiB 上限，私有证据为 64 MiB 且保留终态空间，部分、超限、身份不明或封存失败不得报告完整研究。研究不追加查询、不自动重试、不改写旧结果。
 
 终态使用明确的 `CANDIDATE_RESEARCH_*`，分别记录计算、默认结果、公共语义、证据、资源、身份和余量；始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、`production_acceptance=UNCHANGED`。完整研究仅证明本次私有配置的实际结果，不等于官方容量、全 Rust 覆盖、上游发布或运营启用。旧 capacity、official-default-research、qualifier-research 的预算与行为保持不变。

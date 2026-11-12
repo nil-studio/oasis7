@@ -955,6 +955,81 @@ fn apply_captured_context_and_publish_replacement(
         world,
         WorldServicePayloadV1::Cognition(sign_read_request("cognition", action, delegate).unwrap()),
     );
+    // Fork the same legitimate captured and signed original before the real
+    // driver commit. These execution-seam checks do not simulate HTTP queues.
+    let original_bytes = serde_json::to_vec(&submit).unwrap();
+    let base_tick = match &submit.signed_payload {
+        WorldServicePayloadV1::Cognition(signed) => {
+            signed.request.request.captured_base_binding.base_tick
+        }
+        _ => unreachable!(),
+    };
+    for advance_tick in [false, true] {
+        let mut fork = driver.execution_world.clone();
+        assert_eq!(fork.state().time, base_tick);
+        if advance_tick {
+            fork.step().unwrap();
+            assert!(fork.state().time > base_tick);
+        }
+        let before_state = serde_json::to_value(fork.state()).unwrap();
+        let before_pending = serde_json::to_value(fork.snapshot().pending_actions).unwrap();
+        let context = NodeExecutionCommitContext {
+            world_id: world.world_id.clone(),
+            node_id: "node-a".into(),
+            proposer_id: "node-a".into(),
+            height: age + 9,
+            slot: age + 9,
+            epoch: 0,
+            node_block_hash: "execution-seam-original".into(),
+            action_root: "execution-seam-root".into(),
+            committed_actions: vec![],
+            committed_at_unix_ms: 9000,
+        };
+        let staged = super::super::super::super::world_service_execution::apply_intents(
+            &mut fork,
+            &context,
+            Some(world),
+            vec![(9, submit.clone())],
+        )
+        .unwrap();
+        super::super::super::super::world_service_execution::finalize_intents(&mut fork, staged)
+            .unwrap();
+        let key = correlation::key_digest(&submit.correlation.key).unwrap();
+        let canonical: CanonicalIntentResultV1 = serde_json::from_value(
+            fork.capability_revocation_state().world_service_results[&key].clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_vec(&canonical.request).unwrap(),
+            original_bytes
+        );
+        if advance_tick {
+            assert!(
+                canonical
+                    .rejected
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("stale_base"))
+            );
+            assert!(canonical.receipt.is_null());
+            assert_eq!(serde_json::to_value(fork.state()).unwrap(), before_state);
+            assert_eq!(
+                serde_json::to_value(fork.snapshot().pending_actions).unwrap(),
+                before_pending
+            );
+        } else {
+            assert!(
+                canonical.rejected.is_none(),
+                "fresh original: {:?}",
+                canonical.rejected
+            );
+            assert!(!canonical.receipt.is_null());
+            assert_eq!(
+                fork.state().agents["agent-a"].state.pos,
+                oasis7_agent_api::world_action::GeoPos::new(1, 0, 0)
+            );
+        }
+    }
+    super::queue::assert_queued_original_across_tick(dir, world, &submit);
     commit(driver, age + 9, submit.clone());
     assert!(
         game_task_tests::recorded(driver, &submit)
