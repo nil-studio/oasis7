@@ -284,7 +284,7 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
   finally { resourceStageListeners.delete(progress); }
 
   let mountedCanvas = null;
-  const memoryLease = {sequence:++memoryLeaseSequence};
+  let memoryLease = null;
   let animationFrameId = null;
   let removeCanvasListeners = () => {};
   let dragState = null;
@@ -508,6 +508,7 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
       mountedCanvas = canvas;
       const result = runtime.mount(canvas, renderState);
       if (result?.status === "ready") {
+        memoryLease = {sequence:++memoryLeaseSequence};
         mountedMemoryLease = memoryLease;
         attachCanvasListeners(canvas);
         attachLifecycleHooks(canvas);
