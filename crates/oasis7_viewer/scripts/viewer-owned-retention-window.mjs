@@ -13,7 +13,7 @@ import {captureOwnedViewerAtlas,readOwnedViewerGpuAfterAtlas,assertViewerScene} 
 import {readOwnedProcessRss} from './viewer-owned-resource-os.mjs';
 import {readOwnedMemory} from './viewer-owned-cdp-memory.mjs';
 import {measureWorldViewRetention} from './world-view-retention-memory.mjs';
-import {createRetentionOwnedInput} from './viewer-retention-owned-input.mjs';
+import {createRetentionOwnedInput,activateOwnedRetentionOverview} from './viewer-retention-owned-input.mjs';
 import {prepareOwnedRetentionCamera} from './viewer-retention-owned-prepare.mjs';
 import {createRetentionOwnedAnchor,summarizeOwnedRetention} from './viewer-retention-owned-components.mjs';
 import {withObservationCleanup} from './world-view-frame-capability.mjs';
@@ -56,7 +56,8 @@ await withObservationCleanup(async()=>{
    }catch(error){report.error=String(error);throw error;}
   },()=>{report.elapsedMs=performance.now()-start;appendFileSync(join(out,'retention-owned-observations.jsonl'),JSON.stringify(report)+'\n');},report);
  };
- summary.retention=await measureWorldViewRetention({...input,fixture:server.fixture,out,durationMs,overview:()=>input.run(['click','[data-query-overview]']),beginStreamingWire:()=>server.assertHealthy(),readWireSummary:expected=>server.readWireSummary(expected),readMemory,
+ let workloadNative;
+ summary.retention=await measureWorldViewRetention({...input,createNativeInput:async()=>{workloadNative=await input.createNativeInput();return workloadNative;},fixture:server.fixture,out,durationMs,overview:()=>activateOwnedRetentionOverview({...input,enter:()=>workloadNative.enter()}),beginStreamingWire:()=>server.assertHealthy(),readWireSummary:expected=>server.readWireSummary(expected),readMemory,
   onMemoryRecord(record,memory,{inflight}){const row={timeMs:record.timeMs,phase:record.phase,memoryPhaseMatched:record.memoryPhaseMatched,rss:memory.rss,rssReadMs:memory.rssReadMs,ownedObservationMs:memory.ownedObservationMs,observationIndex:memory.ownedObservationIndex,anchor:memory.ownedAnchor,inflight};appendFileSync(join(out,'retention-owned-rss.jsonl'),JSON.stringify(row)+'\n');if(row.phase==='home'){if(summary.first.length<6)summary.first.push(row);summary.last.push(row);if(summary.last.length>6)summary.last.shift();}},
  });
  summary.components=summarizeOwnedRetention(summary.first,summary.last,{eligible:summary.retention.longStabilityEligible});

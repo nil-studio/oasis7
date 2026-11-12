@@ -1,7 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createStartupProfile,launchOwnedStartupContext} from './viewer-owned-startup-context.mjs';
-import {createRetentionOwnedInput} from './viewer-retention-owned-input.mjs';
+import {createRetentionOwnedInput,activateOwnedRetentionOverview} from './viewer-retention-owned-input.mjs';
+import vm from 'node:vm';
+test('closed exploration is opened before one native overview input, then closed again',async()=>{
+ const d={open:false},button={disabled:false,getClientRects:()=>[{}],focus(){document.activeElement=this;}},document={activeElement:null,querySelector:s=>s==='[data-query-overview]'?button:d};const calls=[];
+ await activateOwnedRetentionOverview({evaluate:async code=>vm.runInNewContext(code,{document}),run:async args=>{calls.push(args);d.open=!d.open;},enter:async()=>{assert.equal(d.open,true);assert.equal(document.activeElement,button);calls.push(['native','Enter']);}});
+ assert.deepEqual(calls.map(x=>x[0]),['click','native','click']);assert.equal(d.open,false);
+});
+test('unavailable overview is refused before sending native input, never retried',async()=>{
+ let enters=0;const document={querySelector:s=>s==='[data-query-overview]'?{disabled:true,getClientRects:()=>[{}]}:{open:true}};
+ await assert.rejects(()=>activateOwnedRetentionOverview({evaluate:async code=>vm.runInNewContext(code,{document}),run:async()=>{throw Error('unexpected click');},enter:async()=>enters++}),/unavailable/);assert.equal(enters,0);
+});
 test('owned adapter sends one native Enter pair without native platform codes or another launch',async()=>{
  const sent=[];let launches=0,detaches=0,pages;
  const page={url:()=> 'owned',evaluate:async code=>code,mouse:{move:async(...p)=>sent.push(p)}};

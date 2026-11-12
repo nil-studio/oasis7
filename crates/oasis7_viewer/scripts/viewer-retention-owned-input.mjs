@@ -2,6 +2,16 @@ import {enterKeyEvents} from './viewer-owned-cdp-input.mjs';
 import {readOwnedStartupProfile} from './viewer-owned-startup-context.mjs';
 import {boundedStartupOperation} from './viewer-owned-startup-lifecycle.mjs';
 
+export async function activateOwnedRetentionOverview({evaluate,run,enter}) {
+ const disclosure='.pixel-world-exploration-disclosure';
+ const open=await evaluate(`document.querySelector(${JSON.stringify(disclosure)})?.open`);
+ if(typeof open!=='boolean')throw Error('retention overview disclosure missing');
+ if(!open)await run(['click',disclosure+' > summary']);
+ await evaluate(`(()=>{const b=document.querySelector('[data-query-overview]');if(!b||b.disabled||!b.getClientRects().length)throw Error('retention overview unavailable');b.focus({preventScroll:true});if(document.activeElement!==b)throw Error('retention overview focus failed');return true})()`);
+ await enter();
+ await run(['click',disclosure+' > summary']);
+}
+
 // One factory-owned context. No agent-browser process or second WASM instance.
 export function createRetentionOwnedInput(context,url) {
  const profile=readOwnedStartupProfile(context),page=context.pages()[0];
