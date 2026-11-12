@@ -416,16 +416,23 @@ fn same_height_fixture_with_binding(
     recovered: bool,
     original_binding: bool,
 ) -> (PathBuf, ReplicationRuntime, crate::PosNodeEngine) {
+    same_height_fixture_for_signer(recovered, original_binding, Some(84))
+}
+fn same_height_fixture_for_signer(
+    recovered: bool,
+    original_binding: bool,
+    seed: Option<u8>,
+) -> (PathBuf, ReplicationRuntime, crate::PosNodeEngine) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = temp_dir(&format!(
         "same-height-publication-replay-{}",
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
-    let (private, public) = deterministic_keypair_hex(84);
-    let rc = NodeReplicationConfig::new(&dir)
-        .unwrap()
-        .with_signing_keypair(private, public)
-        .unwrap();
+    let mut rc = NodeReplicationConfig::new(&dir).unwrap();
+    if let Some(seed) = seed {
+        let (private, public) = deterministic_keypair_hex(seed);
+        rc = rc.with_signing_keypair(private, public).unwrap();
+    }
     let mut replication = ReplicationRuntime::new(&rc, "node-a").unwrap();
     for h in 1..=2 {
         let block = format!("exec-block-{h}");
@@ -444,7 +451,16 @@ fn same_height_fixture_with_binding(
     }
     drop(replication);
     if recovered {
+        let original = load_commit_message_from_root(&dir, "world-a", 2)
+            .unwrap()
+            .unwrap();
         remove_signed_tail(&dir, &rc);
+        if seed.is_none() {
+            ReplicationRuntime::from_config(&rc, "node-a")
+                .unwrap()
+                .stage_local_commit_original("node-a", &original)
+                .unwrap();
+        }
     }
     let replication = ReplicationRuntime::new(&rc, "node-a").unwrap();
     let pos = crate::NodePosConfig::ethereum_like(vec![crate::PosValidator {
@@ -591,6 +607,42 @@ fn same_height_repair_requires_original_execution_binding_before_any_hook() {
     .unwrap_err();
     assert!(
         matches!(error,NodeError::Replication{reason} if reason.contains("original execution binding is incomplete"))
+    );
+    assert_eq!(engine.last_committed_block_hash, before);
+    assert!(hook.restored.is_empty());
+    assert!(hook.replayed.is_empty());
+    drop(replication);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn unsigned_pending_recovery_preserves_outbox_but_cannot_authorize_same_height_repair() {
+    let (dir, replication, mut engine) = same_height_fixture_for_signer(true, true, None);
+    // Ordinary unsigned pending publication did recover exactly, including its marker.
+    let restored = load_commit_message_from_root(&dir, "world-a", 2)
+        .unwrap()
+        .unwrap();
+    assert!(restored.signature_hex.is_none());
+    assert_eq!(replication.writer_state.last_replicated_height, 2);
+    let wrapper: serde_json::Value = serde_json::from_slice(
+        &fs::read(replication.local_commit_original_path("node-a")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(wrapper["recovered"], true);
+    let before = engine.last_committed_block_hash.clone();
+    let mut hook = ReplayHook {
+        restored: vec![],
+        replayed: vec![],
+    };
+    let error = crate::replication_state_reconcile::reconcile_engine_with_persisted_replication(
+        &mut engine,
+        &replication,
+        "world-a",
+        Some(&mut hook),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error,NodeError::Replication{reason} if reason.contains("no exact local recovery proof"))
     );
     assert_eq!(engine.last_committed_block_hash, before);
     assert!(hook.restored.is_empty());

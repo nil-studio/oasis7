@@ -55,6 +55,9 @@ impl ReplicationRuntime {
         node_id: &str,
         message: &GossipReplicationMessage,
     ) -> Result<(), NodeError> {
+        if self.signer.is_none() {
+            return Err(invalid("special recovery requires a local signer"));
+        }
         self.validate_local_original(node_id, message).map(|_| ())
     }
 
@@ -63,6 +66,9 @@ impl ReplicationRuntime {
         node_id: &str,
         message: &GossipReplicationMessage,
     ) -> Result<bool, NodeError> {
+        if self.signer.is_none() {
+            return Ok(false);
+        }
         let path = self.local_commit_original_path(node_id);
         if !path.exists() {
             return Ok(false);
