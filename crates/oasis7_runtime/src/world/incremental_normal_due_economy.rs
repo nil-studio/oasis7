@@ -363,16 +363,22 @@ fn optional_balance_map(
 /// A complete typed child observation with every retained allocation held.
 /// It is not a FactoryBuild completion permit; the system reducer must still
 /// verify its exact qualified-parent identity and all current business rules.
-pub(super) struct DecodedFactoryBuildJobV1 {
+pub(in crate::world) struct DecodedFactoryBuildJobV1 {
     pub(super) job: FactoryBuildJobState,
     _holds: Vec<MemoryReservation>,
+}
+
+impl DecodedFactoryBuildJobV1 {
+    pub(in crate::world) fn job(&self) -> &FactoryBuildJobState {
+        &self.job
+    }
 }
 
 /// Decode the original typed factory-build child without materializing any
 /// sibling state. Call only after the caller's Factory family and outer-key
 /// visitor authenticated this exact id; all cells come from the transaction's
 /// Current overlay and share the caller's key/value/IO/cancel work.
-pub(super) fn decode_current_factory_build_job_v1(
+pub(in crate::world) fn decode_current_factory_build_job_v1(
     outer_id: u64,
     max_scalar_bytes: usize,
     max_items: usize,

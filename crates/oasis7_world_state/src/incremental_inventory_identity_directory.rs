@@ -333,3 +333,7 @@ mod freeze;
 pub use freeze::{
     FrozenInventoryIdentityDirectoryV1, freeze_current_inventory_identity_directory_v1,
 };
+
+#[path = "incremental_inventory_identity_directory_total.rs"]
+mod total;
+pub use total::sum_current_inventory_material_v1;

@@ -545,3 +545,5 @@ pub(in crate::world) use target::{
 
 // Private result handoff for the fixed normal publisher and genuine fixtures.
 pub(in crate::world) use target::MatchingBeforePublicationV1;
+
+pub(in crate::world) use target::PaidDueProductVmFailureV1;

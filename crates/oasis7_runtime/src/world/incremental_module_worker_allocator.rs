@@ -8,6 +8,9 @@ pub struct RootModuleWorkerAllocatorV1 {
     pub(super) memory: MemoryBudget,
 }
 impl RootModuleWorkerAllocatorV1 {
+    pub(in crate::world) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        self.memory.same_pool(memory)
+    }
     pub fn new(memory: &MemoryBudget) -> Self {
         Self {
             memory: memory.clone(),

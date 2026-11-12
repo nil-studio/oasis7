@@ -22,7 +22,7 @@ use oasis7_agent_api::world_action::ResourceKind;
 
 const FACTORY_BUILD_DECISION_EMIT_KIND: &str = "economy.factory_build_decision";
 const RECIPE_EXECUTION_PLAN_EMIT_KIND: &str = "economy.recipe_execution_plan";
-const PRODUCT_VALIDATION_EMIT_KIND: &str = "economy.product_validation";
+pub(in crate::world) const PRODUCT_VALIDATION_EMIT_KIND: &str = "economy.product_validation";
 use super::incremental_factory_depreciation::{FACTORY_DEPRECIATION_REASON, depreciation_v1};
 const SURVIVAL_KEYWORDS: &[&str] = &[
     "survival",
@@ -73,12 +73,23 @@ pub(in crate::world) enum ProductionQueuePriority {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct ProductValidationModuleCallRequest {
-    product_id: String,
-    stack: MaterialStack,
+pub(in crate::world) struct ProductValidationModuleCallRequest<'a> {
+    product_id: &'a str,
+    stack: &'a MaterialStack,
     deterministic_seed: u64,
-    kind: String,
+    kind: &'a str,
     amount: i64,
+}
+impl<'a> ProductValidationModuleCallRequest<'a> {
+    pub(in crate::world) fn from_request(request: &'a ProductValidationRequest) -> Self {
+        Self {
+            product_id: &request.product_id,
+            stack: &request.stack,
+            deterministic_seed: request.deterministic_seed,
+            kind: &request.stack.kind,
+            amount: request.stack.amount,
+        }
+    }
 }
 
 #[expect(
@@ -805,47 +816,26 @@ impl World {
         &self,
         job: &super::super::FactoryBuildJobState,
     ) -> ProductionQueuePriority {
-        let mut tokens = vec![
-            job.spec.factory_id.to_ascii_lowercase(),
-            job.spec.display_name.to_ascii_lowercase(),
-        ];
-        tokens.extend(job.spec.tags.iter().map(|tag| tag.to_ascii_lowercase()));
-        production_priority_from_factory_tokens_v1(
-            &tokens,
-            self.is_electricity_critical(),
-            self.is_hardware_parts_critical(),
-        )
+        match due_priority::factory_priority_with_facts_v1(
+            &mut due_priority::LegacyDuePriorityFactsV1 { world: self },
+            job,
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
 
     fn production_priority_for_recipe_job(
         &self,
         job: &super::super::RecipeJobState,
     ) -> ProductionQueuePriority {
-        let mut tokens = vec![job.recipe_id.to_ascii_lowercase()];
-        tokens.extend(
-            job.produce
-                .iter()
-                .map(|stack| stack.kind.to_ascii_lowercase()),
-        );
-        tokens.extend(
-            job.byproducts
-                .iter()
-                .map(|stack| stack.kind.to_ascii_lowercase()),
-        );
-        let baseline = self
-            .production_priority_from_recipe_role_tags(job)
-            .unwrap_or_else(|| {
-                production_priority_from_tokens(
-                    &tokens,
-                    self.is_electricity_critical(),
-                    self.is_hardware_parts_critical(),
-                    ProductionQueuePriority::Scale,
-                )
-            });
-        if self.is_bottleneck_pressure_active(&job.bottleneck_tags) {
-            return bump_recipe_priority_under_bottleneck(baseline);
+        match due_priority::recipe_priority_with_facts_v1(
+            &mut due_priority::LegacyDuePriorityFactsV1 { world: self },
+            job,
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
         }
-        baseline
     }
 
     fn production_priority_from_recipe_role_tags(
@@ -896,13 +886,7 @@ impl World {
             |index| format!("action-{action_id}-{module_id}-product-{index}"),
         );
         // Keep backward compatibility for product modules that decode legacy stack-only payloads.
-        let wire_request = ProductValidationModuleCallRequest {
-            product_id: request.product_id.clone(),
-            stack: request.stack.clone(),
-            deterministic_seed: request.deterministic_seed,
-            kind: request.stack.kind.clone(),
-            amount: request.stack.amount,
-        };
+        let wire_request = ProductValidationModuleCallRequest::from_request(request);
         let output =
             self.execute_economy_module_call(module_id, &trace_id, &wire_request, sandbox)?;
         if !output.effects.is_empty() {
@@ -1162,4 +1146,13 @@ fn production_priority_from_role_tag(role_tag: &str) -> Option<ProductionQueuePr
         "explore" | "governance" => Some(ProductionQueuePriority::Expansion),
         _ => None,
     }
+}
+
+#[path = "incremental_normal_industry_due_priority.rs"]
+pub(in crate::world) mod due_priority;
+pub(in crate::world) fn critical_electricity_floor_for_due_v1() -> i64 {
+    CRITICAL_ELECTRICITY_FLOOR
+}
+pub(in crate::world) fn critical_hardware_floor_for_due_v1() -> i64 {
+    CRITICAL_HARDWARE_PART_FLOOR
 }

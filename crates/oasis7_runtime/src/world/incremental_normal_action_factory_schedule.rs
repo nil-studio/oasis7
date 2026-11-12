@@ -701,3 +701,20 @@ where
 #[path = "incremental_normal_action_factory_schedule_origin.rs"]
 mod origin;
 pub(in crate::world) use origin::attach_recipe_origin_with_work_v1;
+
+pub(in crate::world) use current::EvaluationErrorV1 as FactoryScheduleReadErrorV1;
+pub(in crate::world) use io::paid as with_factory_schedule_read_io_v1;
+
+#[path = "incremental_normal_industry_due_priority_current.rs"]
+mod due_priority_current;
+pub(in crate::world) use due_priority_current::{DuePriorityJobV1, current_due_priority_v1};
+
+pub(in crate::world) use commit::activity::{
+    set_blocked_v1 as set_blocked_recipe_activity_v1, set_idle_v1 as set_completed_recipe_idle_v1,
+};
+
+#[path = "incremental_normal_industry_due_facts.rs"]
+mod due_facts;
+pub(in crate::world) use due_facts::{
+    DueTerminalCurrentErrorV1, check_due_ledger_destination_v1, read_due_product_module_v1,
+};

@@ -889,6 +889,7 @@ mod world_rule_lifecycle;
 mod industrial_control;
 pub use industrial_control::ResolvedAgentOwnerV1;
 
+pub(in crate::world) mod incremental_normal_industry_due;
 mod incremental_safe_alternative_history;
 mod incremental_safe_alternative_outcome;
 mod incremental_safe_alternative_proof_ledger;

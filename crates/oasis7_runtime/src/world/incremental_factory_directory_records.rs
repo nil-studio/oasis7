@@ -12,7 +12,7 @@ use oasis7_formal_protocol::{
     incremental_state::MerkleNodeReader,
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_world_state::{
     incremental_factory_records::{
         FactoryCurrentOuterChangeV1, FactoryFamilyQualificationV1, FactoryFamilyReadContextV1,
@@ -28,6 +28,27 @@ use oasis7_world_state::{
     incremental_runtime_history_source::AcceptedRuntimeHistorySourceV1,
 };
 
+/// Complete output-capacity inputs for one pending recipe. This is a typed
+/// projection of the actual recipe record, not a fabricated RecipeJobState.
+/// The per-entry reservation retains the owned ledger/stack storage.
+struct RecipeOutputReservationV1 {
+    job_id: u64,
+    output_ledger: crate::MaterialLedgerId,
+    produce: Vec<crate::MaterialStack>,
+    byproducts: Vec<crate::MaterialStack>,
+    _allocation: MemoryReservation,
+}
+impl RecipeOutputReservationV1 {
+    fn as_ref(&self) -> oasis7_world_state::world_rules::IndustrialOutputReservationRefV1<'_> {
+        oasis7_world_state::world_rules::IndustrialOutputReservationRefV1 {
+            job_id: self.job_id,
+            output_ledger: &self.output_ledger,
+            produce: &self.produce,
+            byproducts: &self.byproducts,
+        }
+    }
+}
+
 pub struct FactoryRecipeDirectoryWorkV1 {
     pub max_factories: usize,
     pub max_recipe_jobs: usize,
@@ -41,6 +62,7 @@ pub struct AcceptedFactoryRecipeDirectoryV1 {
     roots: [u8; 32],
     factories: Vec<String>,
     recipes: Vec<u64>,
+    reservations: Vec<RecipeOutputReservationV1>,
 }
 struct FactoryDelta {
     id: Option<String>,
@@ -52,6 +74,7 @@ struct RecipeDelta {
     before: Option<[u8; 32]>,
     after: Option<[u8; 32]>,
 }
+
 impl FactoryDelta {
     fn matches(&self, value: &FactoryCurrentOuterChangeV1) -> bool {
         match value {
@@ -100,6 +123,7 @@ pub struct CurrentFactoryRecipeDirectoryV1<'q> {
     recipe_q: &'q ReservedValue<IndustryFamilyQualificationV1>,
     factories: Vec<String>,
     recipes: Vec<u64>,
+    reservations: Vec<RecipeOutputReservationV1>,
     factory_delta: Vec<FactoryDelta>,
     recipe_delta: Vec<RecipeDelta>,
 }
@@ -109,6 +133,15 @@ impl CurrentFactoryRecipeDirectoryV1<'_> {
     }
     pub fn iter_recipe_job_ids(&self) -> impl ExactSizeIterator<Item = u64> + '_ {
         self.recipes.iter().copied()
+    }
+    pub fn iter_recipe_reservations_v1(
+        &self,
+    ) -> impl ExactSizeIterator<
+        Item = oasis7_world_state::world_rules::IndustrialOutputReservationRefV1<'_>,
+    > + Clone {
+        self.reservations
+            .iter()
+            .map(RecipeOutputReservationV1::as_ref)
     }
     #[allow(clippy::too_many_arguments)]
     pub fn validate_current<M, R, C, V, D>(
@@ -144,6 +177,20 @@ impl CurrentFactoryRecipeDirectoryV1<'_> {
                 return Err(
                     ValueTreeError::Invalid("Current Factory/Recipe directory binding").into(),
                 );
+            }
+            if self.recipes.len() != self.reservations.len() {
+                return Err(ValueTreeError::Invalid("Current recipe reservation binding").into());
+            }
+            for (job_id, reservation) in self.recipes.iter().zip(&self.reservations) {
+                if (factory.cancelled)() || (recipe.cancelled)() {
+                    return Err(ValueTreeError::Cancelled.into());
+                }
+                spend(&mut work.comparisons_remaining, std::mem::size_of::<u64>())?;
+                if *job_id != reservation.job_id {
+                    return Err(
+                        ValueTreeError::Invalid("Current recipe reservation binding").into(),
+                    );
+                }
             }
             let mut index = 0;
             visit_factory_current_outer_changes_v1(
@@ -206,6 +253,7 @@ impl CurrentFactoryRecipeDirectoryV1<'_> {
                     ValueTreeError::Invalid("Recipe directory missing Current changes").into(),
                 );
             }
+            tx.validate_guard(guard, live)?;
             Ok(())
         })();
         if result.is_err() {
@@ -235,6 +283,12 @@ fn size(work: &FactoryRecipeDirectoryWorkV1, current: bool) -> Result<usize, Val
                 work.max_recipe_jobs
                     .checked_add(extra)?
                     .checked_mul(std::mem::size_of::<u64>())?,
+            )
+        })
+        .and_then(|n| {
+            n.checked_add(
+                work.max_recipe_jobs
+                    .checked_mul(std::mem::size_of::<RecipeOutputReservationV1>())?,
             )
         })
         .and_then(|n| {
@@ -406,15 +460,41 @@ where
         if factories.windows(2).any(|v| v[0] == v[1]) || recipes.windows(2).any(|v| v[0] == v[1]) {
             return Err(ValueTreeError::Invalid("directory duplicate parent IDs").into());
         }
+        let mut reservations = Vec::with_capacity(recipes.len());
+        if reservations.capacity() != recipes.len() || recipes.len() > work.max_recipe_jobs {
+            return Err(ValueTreeError::ResourceLimited("directory reservation capacity").into());
+        }
+        for job_id in &recipes {
+            if (factory.cancelled)() || (recipe.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            let reservation = read_parent_output_reservation_v1(
+                roots,
+                *job_id,
+                tx,
+                guard,
+                live,
+                recipe,
+                work,
+                recipe_work,
+                &mut || (factory.cancelled)(),
+            )?;
+            if reservation.job_id != *job_id || reservations.len() == reservations.capacity() {
+                return Err(ValueTreeError::Invalid("directory reservation identity").into());
+            }
+            reservations.push(reservation);
+        }
         if (factory.cancelled)() || (recipe.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
+        tx.validate_guard(guard, live)?;
         let fence = tx.parent_fence();
         Ok(fee.retain(AcceptedFactoryRecipeDirectoryV1 {
             commit: fence.parent_commit,
             roots: fence.parent_roots,
             factories,
             recipes,
+            reservations,
         }))
     })();
     if result.is_err() {
@@ -633,9 +713,62 @@ where
         if factories.len() > work.max_factories || recipes.len() > work.max_recipe_jobs {
             return Err(ValueTreeError::ResourceLimited("directory current ID count").into());
         }
+        let mut reservations = Vec::with_capacity(recipes.len());
+        if reservations.capacity() != recipes.len() {
+            return Err(ValueTreeError::ResourceLimited("directory reservation capacity").into());
+        }
+        for job_id in &recipes {
+            if (factory.cancelled)() || (recipe.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            let delta = recipe_delta.iter().find(|entry| entry.id == Some(*job_id));
+            let reservation = match delta {
+                Some(entry) if entry.after.is_some() => {
+                    let mut factory_cancelled = || (factory.cancelled)();
+                    read_current_output_reservation_v1(
+                        tx,
+                        *job_id,
+                        guard,
+                        live,
+                        recipe,
+                        work,
+                        recipe_work,
+                        &mut factory_cancelled,
+                    )?
+                }
+                Some(_) => {
+                    return Err(ValueTreeError::Invalid(
+                        "deleted recipe in current reservation directory",
+                    )
+                    .into());
+                }
+                None => {
+                    let index = parent
+                        .reservations
+                        .binary_search_by_key(job_id, |reservation| reservation.job_id)
+                        .map_err(|_| {
+                            Error::from(ValueTreeError::Invalid(
+                                "current recipe reservation parent missing",
+                            ))
+                        })?;
+                    let mut cancelled = || (factory.cancelled)() || (recipe.cancelled)();
+                    clone_output_reservation_v1(
+                        &parent.reservations[index],
+                        memory,
+                        work,
+                        &mut cancelled,
+                    )?
+                }
+            };
+            if reservation.job_id != *job_id || reservations.len() == reservations.capacity() {
+                return Err(ValueTreeError::Invalid("current reservation identity").into());
+            }
+            reservations.push(reservation);
+        }
         if (factory.cancelled)() || (recipe.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
+        tx.validate_guard(guard, live)?;
         Ok(fee.retain(CurrentFactoryRecipeDirectoryV1 {
             commit: fence.parent_commit,
             roots: fence.parent_roots,
@@ -645,6 +778,7 @@ where
             recipe_q,
             factories,
             recipes,
+            reservations,
             factory_delta,
             recipe_delta,
         }))
@@ -654,6 +788,13 @@ where
     }
     result
 }
+
+#[path = "incremental_factory_directory_reservations.rs"]
+mod reservations;
+pub(in crate::world) use reservations::{
+    clone_output_reservation_v1, read_current_output_reservation_v1,
+    read_parent_output_reservation_v1,
+};
 
 #[path = "incremental_factory_directory_records_freeze.rs"]
 mod freeze;

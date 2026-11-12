@@ -88,10 +88,22 @@ where
         _ => Err(invalid()),
     }
 }
-pub(super) fn set_recipe_v1<M, P, V, W, D, E, C>(
+enum ActivityWriteV1<'a> {
+    Recipe {
+        job_id: u64,
+        factory: &'a str,
+    },
+    Idle,
+    Blocked {
+        job_id: u64,
+        factory: &'a str,
+        kind: &'a str,
+        detail: &'a str,
+    },
+}
+fn set_activity_v1<M, P, V, W, D, E, C>(
     agent: &str,
-    job_id: u64,
-    factory: &str,
+    mode: ActivityWriteV1<'_>,
     agents: &ReservedValue<AgentSubtreeStructureQualificationV1>,
     step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
     read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
@@ -222,19 +234,47 @@ where
         None
     };
     let old = fee.retain(old);
+    let payload_bytes = match mode {
+        ActivityWriteV1::Recipe { factory, .. } => "recipe"
+            .len()
+            .checked_add(factory.len())
+            .ok_or_else(limited)?,
+        ActivityWriteV1::Blocked {
+            factory,
+            kind,
+            detail,
+            ..
+        } => "recipe"
+            .len()
+            .checked_add(factory.len())
+            .and_then(|n| n.checked_add(kind.len()))
+            .and_then(|n| n.checked_add(detail.len()))
+            .ok_or_else(limited)?,
+        ActivityWriteV1::Idle => 0,
+    };
     let after_fee = step
         .mutation
         .memory
         .reserve(
             size_of::<AgentActivityV1>()
-                .checked_add("recipe".len())
-                .and_then(|n| n.checked_add(factory.len()))
+                .checked_add(payload_bytes)
                 .ok_or_else(limited)?,
             MemoryClass::Ordinary,
         )
         .map_err(ValueTreeError::Memory)?;
-    spend(work, factory.len())?;
-    let after = after_fee.retain(AgentActivityV1::executing("recipe", job_id, factory, now));
+    spend(work, payload_bytes)?;
+    let after = after_fee.retain(match mode {
+        ActivityWriteV1::Recipe { job_id, factory } => {
+            AgentActivityV1::executing("recipe", job_id, factory, now)
+        }
+        ActivityWriteV1::Blocked {
+            job_id,
+            factory,
+            kind,
+            detail,
+        } => AgentActivityV1::blocked("recipe", job_id, factory, kind, detail, now),
+        ActivityWriteV1::Idle => AgentActivityV1::idle(now),
+    });
     let guard = ctx.transaction.guard();
     let mut output = ValueMutationContextV1 {
         sink: &mut *step.mutation.sink,
@@ -261,4 +301,91 @@ where
     )
     .map_err(overlay)?;
     Ok(())
+}
+
+pub(in crate::world) fn set_recipe_v1<M, P, V, W, D, E, C>(
+    agent: &str,
+    job_id: u64,
+    factory: &str,
+    agents: &ReservedValue<AgentSubtreeStructureQualificationV1>,
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    work: &mut FactoryScheduleWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    D: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    set_activity_v1(
+        agent,
+        ActivityWriteV1::Recipe { job_id, factory },
+        agents,
+        step,
+        read,
+        work,
+        live,
+    )
+}
+pub(in crate::world) fn set_idle_v1<M, P, V, W, D, E, C>(
+    agent: &str,
+
+    agents: &ReservedValue<AgentSubtreeStructureQualificationV1>,
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    work: &mut FactoryScheduleWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    D: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    set_activity_v1(agent, ActivityWriteV1::Idle, agents, step, read, work, live)
+}
+
+pub(in crate::world) fn set_blocked_v1<M, P, V, W, D, E, C>(
+    agent: &str,
+    job_id: u64,
+    factory: &str,
+    kind: &str,
+    detail: &str,
+    agents: &ReservedValue<AgentSubtreeStructureQualificationV1>,
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    work: &mut FactoryScheduleWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    D: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    set_activity_v1(
+        agent,
+        ActivityWriteV1::Blocked {
+            job_id,
+            factory,
+            kind,
+            detail,
+        },
+        agents,
+        step,
+        read,
+        work,
+        live,
+    )
 }

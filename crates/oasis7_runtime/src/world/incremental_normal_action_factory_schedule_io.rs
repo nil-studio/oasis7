@@ -4,7 +4,7 @@
 use super::*;
 use current::EvaluationErrorV1;
 #[allow(clippy::too_many_arguments)]
-pub(super) fn paid<M, R, E, C, P, V, PE, PC, T>(
+pub(in crate::world) fn paid<M, R, E, C, P, V, PE, PC, T>(
     roots: &RootSetV1,
     current: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     parent: &mut WorldFieldReadContextV1<'_, P, V, PE, PC>,

@@ -53,6 +53,9 @@ pub enum RootModuleExecutionErrorV1<OE> {
     Worker(RootModuleWorkerErrorV1),
     Body(BodyMutationError),
     EventTail(crate::world::incremental_world_event_tail::CurrentWorldEventTailErrorV1<OE>),
+    ProductDelivery(
+        crate::world::incremental_normal_industry_due::delivery::DeliverySourceErrorV1<OE>,
+    ),
     Manifest(RootWorldManifestHashErrorV1),
     Routing(
         ReservedValue<
@@ -812,3 +815,5 @@ pub(in crate::world) use entry::{
 
 // Private result handoff for the fixed normal publisher and genuine fixtures.
 pub(in crate::world) use entry::MatchingBeforePublicationV1;
+
+pub(in crate::world) use entry::PaidDueProductVmFailureV1;

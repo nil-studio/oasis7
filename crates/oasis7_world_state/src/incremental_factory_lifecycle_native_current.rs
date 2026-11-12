@@ -12,7 +12,9 @@ use oasis7_proto::memory_budget::MemoryBudget;
 mod publication;
 pub use publication::{
     change_current_factory_industry_stage_v1, increment_current_material_transit_progress_v1,
-    write_current_factory_construction_receipt_v1, write_current_factory_recycle_receipt_v1,
+    increment_current_recipe_progress_v1, write_current_factory_construction_receipt_v1,
+    write_current_factory_recycle_receipt_v1, write_current_latest_product_validation_v1,
+    write_current_product_validation_attempts_v1, write_current_product_validation_receipts_v1,
     write_current_recipe_market_quotes_v1,
 };
 
@@ -54,6 +56,8 @@ enum SelectedKey<'a> {
     Receipt(&'a str),
     ConstructionReceipt(&'a str),
     Progress,
+    Integer(u64),
+    LatestValidation,
 }
 #[allow(clippy::too_many_arguments)]
 fn selected<
@@ -123,6 +127,14 @@ fn selected<
                 ctx.key(field, WorldFieldRecordKindV1::Entry, &())?.0,
                 WorldNativeKeyRefV1::Unit,
             ),
+            SelectedKey::Integer(id) => (
+                ctx.key(field, WorldFieldRecordKindV1::Entry, &id)?.0,
+                WorldNativeKeyRefV1::Unsigned,
+            ),
+            SelectedKey::LatestValidation => (
+                ctx.key(field, WorldFieldRecordKindV1::Entry, &())?.0,
+                WorldNativeKeyRefV1::Unit,
+            ),
         };
         let value_root = tx.read(ns, key.as_bytes())?;
         read::check(ctx)?;
@@ -132,7 +144,10 @@ fn selected<
             F::validate_record_binding(source_key, &body, ctx, scan, work)?;
             (Some(body), Some(record))
         } else {
-            if matches!(selected, SelectedKey::Progress) {
+            if matches!(
+                selected,
+                SelectedKey::Progress | SelectedKey::LatestValidation
+            ) {
                 return Err(
                     ValueTreeError::Invalid("Current industry progress entry missing").into(),
                 );
@@ -263,6 +278,149 @@ pub fn recover_current_factory_industry_progress_v1<
         selected::<IndustryProgressFieldV1, _, _, _, _, _>(
             SelectedKey::Progress,
             &parent.industry_progress,
+            roots,
+            tx,
+            ctx,
+            scan,
+            work,
+            guard,
+            live,
+        )
+    })
+}
+
+/// Recover one actual job vector, retaining absence versus a present empty
+/// vector. No map-wide scan and no default record is constructed.
+#[allow(clippy::too_many_arguments)]
+pub fn recover_current_product_validation_attempts_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    id: u64,
+    parent: &ReservedValue<WorldNativeFieldsQualificationV1>,
+    roots: &RootSetV1,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut WorldNativeSelectedReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<
+    ReservedValue<CurrentFactoryNativeRecordV1<Vec<crate::ProductValidationAttemptV1>>>,
+    WorldFieldOverlayErrorV1,
+> {
+    tx.contribute(|tx| {
+        if !parent.uses_budget(ctx.values.memory) || parent.class != MemoryClass::Ordinary {
+            return Err(invalid().into());
+        }
+        selected::<
+            crate::incremental_world_native_industry::ProductValidationAttemptsFieldV1,
+            _,
+            _,
+            _,
+            _,
+            _,
+        >(
+            SelectedKey::Integer(id),
+            &parent.product_validation_attempts,
+            roots,
+            tx,
+            ctx,
+            scan,
+            work,
+            guard,
+            live,
+        )
+    })
+}
+
+/// Recover one actual job vector, retaining absence versus a present empty
+/// vector. No map-wide scan and no default record is constructed.
+#[allow(clippy::too_many_arguments)]
+pub fn recover_current_product_validation_receipts_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    id: u64,
+    parent: &ReservedValue<WorldNativeFieldsQualificationV1>,
+    roots: &RootSetV1,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut WorldNativeSelectedReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<
+    ReservedValue<CurrentFactoryNativeRecordV1<Vec<crate::ProductValidationReceiptV1>>>,
+    WorldFieldOverlayErrorV1,
+> {
+    tx.contribute(|tx| {
+        if !parent.uses_budget(ctx.values.memory) || parent.class != MemoryClass::Ordinary {
+            return Err(invalid().into());
+        }
+        selected::<
+            crate::incremental_world_native_industry::ProductValidationReceiptsFieldV1,
+            _,
+            _,
+            _,
+            _,
+            _,
+        >(
+            SelectedKey::Integer(id),
+            &parent.product_validation_receipts,
+            roots,
+            tx,
+            ctx,
+            scan,
+            work,
+            guard,
+            live,
+        )
+    })
+}
+
+/// Point observation of the original nullable scalar; missing physical entry
+/// is distinct from its legitimate encoded None value.
+#[allow(clippy::too_many_arguments)]
+pub fn recover_current_latest_product_validation_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<WorldNativeFieldsQualificationV1>,
+    roots: &RootSetV1,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut WorldNativeSelectedReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<
+    ReservedValue<CurrentFactoryNativeRecordV1<Option<crate::LastProductValidationState>>>,
+    WorldFieldOverlayErrorV1,
+> {
+    tx.contribute(|tx| {
+        if !parent.uses_budget(ctx.values.memory) || parent.class != MemoryClass::Ordinary {
+            return Err(invalid().into());
+        }
+        selected::<
+            crate::incremental_world_native_industry::LatestProductValidationFieldV1,
+            _,
+            _,
+            _,
+            _,
+            _,
+        >(
+            SelectedKey::LatestValidation,
+            &parent.latest_product_validation,
             roots,
             tx,
             ctx,

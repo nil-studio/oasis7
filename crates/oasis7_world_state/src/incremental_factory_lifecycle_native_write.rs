@@ -294,9 +294,11 @@ fn replace_cell<
         work,
     )
 }
-enum ProgressUpdateV1 {
+#[derive(Clone, Copy)]
+enum ProgressUpdateV1<'a> {
     Stage,
     TransitCompleted,
+    RecipeCompleted(Option<&'a crate::StarterIndustrialMilestoneV1>),
 }
 
 /// Changes only stage and stage_updated_at when the actual stage differs.
@@ -376,6 +378,45 @@ pub fn increment_current_material_transit_progress_v1<
     )
 }
 
+/// Publish only the original RecipeCompleted progress fields. The caller
+/// supplies its genuine business milestone; unrelated quote roots stay shared.
+#[allow(clippy::too_many_arguments)]
+pub fn increment_current_recipe_progress_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CurrentFactoryNativeRecordV1<crate::IndustryProgressState>>,
+    milestone: Option<&crate::StarterIndustrialMilestoneV1>,
+    stage: crate::events::IndustryStage,
+    now: crate::WorldTime,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    scan: &mut StateScanBudget,
+    read_work: &mut TypedRecordReadWorkV1,
+    write_work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+) -> Result<bool, WorldFieldOverlayErrorV1> {
+    change_current_factory_industry_progress_v1(
+        expected,
+        stage,
+        now,
+        tx,
+        ctx,
+        write,
+        scan,
+        read_work,
+        write_work,
+        live,
+        ProgressUpdateV1::RecipeCompleted(milestone),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn change_current_factory_industry_progress_v1<
     M: MerkleNodeReader,
@@ -396,7 +437,7 @@ fn change_current_factory_industry_progress_v1<
     read_work: &mut TypedRecordReadWorkV1,
     write_work: &mut TypedRecordWriteWorkV1,
     live: &ExecutionFence,
-    update: ProgressUpdateV1,
+    update: ProgressUpdateV1<'_>,
 ) -> Result<bool, WorldFieldOverlayErrorV1> {
     tx.contribute(|tx| {
         check_expected(expected, tx, ctx, live)?;
@@ -412,10 +453,29 @@ fn change_current_factory_industry_progress_v1<
         }
         let old = expected.value().ok_or_else(invalid)?;
         let transit_count = match update {
-            ProgressUpdateV1::Stage => old.completed_material_transits,
+            ProgressUpdateV1::Stage | ProgressUpdateV1::RecipeCompleted(_) => {
+                old.completed_material_transits
+            }
             ProgressUpdateV1::TransitCompleted => old.completed_material_transits.saturating_add(1),
         };
-        if old.stage == stage && old.completed_material_transits == transit_count {
+        let recipe_count = if matches!(update, ProgressUpdateV1::RecipeCompleted(_)) {
+            old.completed_recipe_jobs.saturating_add(1)
+        } else {
+            old.completed_recipe_jobs
+        };
+        let milestone = match update {
+            ProgressUpdateV1::RecipeCompleted(value)
+                if old.starter_industrial_milestone.is_none() =>
+            {
+                value
+            }
+            _ => None,
+        };
+        if old.stage == stage
+            && old.completed_material_transits == transit_count
+            && old.completed_recipe_jobs == recipe_count
+            && milestone.is_none()
+        {
             read::check(ctx)?;
             return Ok(false);
         }
@@ -427,6 +487,31 @@ fn change_current_factory_industry_progress_v1<
             let encoded = transit_count.encode(&profile, write, write_work)?;
             replace_cell(
                 "completed_material_transits",
+                encoded,
+                &profile,
+                &mut progress,
+                ctx,
+                write,
+                write_work,
+            )?;
+        }
+        if old.completed_recipe_jobs != recipe_count {
+            let encoded = recipe_count.encode(&profile, write, write_work)?;
+            replace_cell(
+                "completed_recipe_jobs",
+                encoded,
+                &profile,
+                &mut progress,
+                ctx,
+                write,
+                write_work,
+            )?;
+        }
+        if let Some(milestone) = milestone {
+            // The original Option codec encodes Some directly as its inner value.
+            let encoded = milestone.encode(&profile, write, write_work)?;
+            replace_cell(
+                "starter_industrial_milestone",
                 encoded,
                 &profile,
                 &mut progress,
@@ -507,3 +592,216 @@ fn change_current_factory_industry_progress_v1<
 #[path = "incremental_factory_schedule_native_write.rs"]
 mod recipe_quotes;
 pub use recipe_quotes::write_current_recipe_market_quotes_v1;
+
+/// Publish one actual job vector through its original native codec. The
+/// business consumer owns append/replay/conflict rules and allocation fees.
+#[allow(clippy::too_many_arguments)]
+pub fn write_current_product_validation_attempts_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CurrentFactoryNativeRecordV1<Vec<crate::ProductValidationAttemptV1>>>,
+    job: u64,
+    after: &Vec<crate::ProductValidationAttemptV1>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    records: &mut u64,
+    work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    use crate::incremental_world_native_industry::ProductValidationAttemptsFieldV1;
+    tx.contribute(|tx| {
+        check_expected(expected, tx, ctx, live)?;
+        if !tx.uses_budget(write.memory) {
+            return Err(invalid().into());
+        }
+        let _phase = write
+            .memory
+            .reserve(32 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let mut output = None;
+        prepare_world_native_record_v1::<ProductValidationAttemptsFieldV1>(
+            &job,
+            after,
+            write,
+            records,
+            work,
+            &mut |row| {
+                if output.is_some() {
+                    return Err(invalid());
+                }
+                output = Some(row);
+                Ok(())
+            },
+        )?;
+        let row = output.ok_or_else(invalid)?;
+        if row.mutation.key != expected.key.as_bytes()
+            || row.namespace != ProductValidationAttemptsFieldV1::profile()?.namespace()?
+            || row.mutation.after.is_none()
+        {
+            return Err(invalid().into());
+        }
+        read::check(ctx)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.write(row.namespace, expected.key.as_bytes(), row.mutation.after)?;
+        read::check(ctx)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.validate_guard(&tx.guard(), live)?;
+        Ok(())
+    })
+}
+
+/// Publish one actual job vector through its original native codec. The
+/// business consumer owns append/replay/conflict rules and allocation fees.
+#[allow(clippy::too_many_arguments)]
+pub fn write_current_product_validation_receipts_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CurrentFactoryNativeRecordV1<Vec<crate::ProductValidationReceiptV1>>>,
+    job: u64,
+    after: &Vec<crate::ProductValidationReceiptV1>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    records: &mut u64,
+    work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    use crate::incremental_world_native_industry::ProductValidationReceiptsFieldV1;
+    tx.contribute(|tx| {
+        check_expected(expected, tx, ctx, live)?;
+        if !tx.uses_budget(write.memory) {
+            return Err(invalid().into());
+        }
+        let _phase = write
+            .memory
+            .reserve(32 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let mut output = None;
+        prepare_world_native_record_v1::<ProductValidationReceiptsFieldV1>(
+            &job,
+            after,
+            write,
+            records,
+            work,
+            &mut |row| {
+                if output.is_some() {
+                    return Err(invalid());
+                }
+                output = Some(row);
+                Ok(())
+            },
+        )?;
+        let row = output.ok_or_else(invalid)?;
+        if row.mutation.key != expected.key.as_bytes()
+            || row.namespace != ProductValidationReceiptsFieldV1::profile()?.namespace()?
+            || row.mutation.after.is_none()
+        {
+            return Err(invalid().into());
+        }
+        read::check(ctx)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.write(row.namespace, expected.key.as_bytes(), row.mutation.after)?;
+        read::check(ctx)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.validate_guard(&tx.guard(), live)?;
+        Ok(())
+    })
+}
+
+/// business consumer owns append/replay/conflict rules and allocation fees.
+#[allow(clippy::too_many_arguments)]
+pub fn write_current_latest_product_validation_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<
+        CurrentFactoryNativeRecordV1<Option<crate::LastProductValidationState>>,
+    >,
+    after: &Option<crate::LastProductValidationState>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    records: &mut u64,
+    work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    use crate::incremental_world_native_industry::LatestProductValidationFieldV1;
+    tx.contribute(|tx| {
+        check_expected(expected, tx, ctx, live)?;
+        if !tx.uses_budget(write.memory) {
+            return Err(invalid().into());
+        }
+        let _phase = write
+            .memory
+            .reserve(32 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let mut output = None;
+        prepare_world_native_record_v1::<LatestProductValidationFieldV1>(
+            &(),
+            after,
+            write,
+            records,
+            work,
+            &mut |row| {
+                if output.is_some() {
+                    return Err(invalid());
+                }
+                output = Some(row);
+                Ok(())
+            },
+        )?;
+        let row = output.ok_or_else(invalid)?;
+        if row.mutation.key != expected.key.as_bytes()
+            || row.namespace != LatestProductValidationFieldV1::profile()?.namespace()?
+            || row.mutation.after.is_none()
+        {
+            return Err(invalid().into());
+        }
+        read::check(ctx)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.write(row.namespace, expected.key.as_bytes(), row.mutation.after)?;
+        read::check(ctx)?;
+        if (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.validate_guard(&tx.guard(), live)?;
+        Ok(())
+    })
+}

@@ -372,56 +372,6 @@ where
         self.finish_world_event(before)
     }
 
-    pub(super) fn append_prepared_normal_system_event_v1<F>(
-        &mut self,
-        cap: &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
-        materials: &mut super::incremental_body_event::materials::CorePolicyMaterialContextV1<
-            '_,
-            R,
-            impl FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
-        >,
-        live: &ExecutionFence,
-        max_event_bytes: usize,
-        persist_original: F,
-    ) -> Result<(), BodyMutationError>
-    where
-        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
-    {
-        let before = self.begin_world_event()?;
-        // Preserve the public stream context's owned work API without copying
-        // or resetting allowances between events, including failed attempts.
-        let placeholder = CanonicalCborWorkV1 {
-            visits_remaining: 0,
-            bytes_remaining: 0,
-            max_depth: self.original_work.max_depth,
-            max_map_keys: self.original_work.max_map_keys,
-            max_key_bytes: self.original_work.max_key_bytes,
-        };
-        let mut context = AgentEventContext {
-            values: self.values,
-            mutation: BodyMutationContext {
-                sink: &mut *self.mutation.sink,
-                memory: self.mutation.memory,
-                io: &mut *self.mutation.io,
-                cancelled: &mut self.mutation.cancelled,
-            },
-            persist_original,
-            max_event_bytes,
-            original_work: std::mem::replace(self.original_work, placeholder),
-        };
-        let result = World::contribute_iws_normal_system_event_at(
-            self.now,
-            cap,
-            self.transaction,
-            &mut context,
-            materials,
-            live,
-        );
-        *self.original_work = context.original_work;
-        result?;
-        self.finish_world_event(before)
-    }
-
     pub(super) fn dispatch_persisted_agent_event<'event, F>(
         &mut self,
         event: &'event WorldEvent,
@@ -632,3 +582,6 @@ where
 mod factory_schedule_publish;
 #[path = "incremental_normal_action_factory_schedule_write_io.rs"]
 pub(in crate::world) mod factory_schedule_write_io;
+
+#[path = "incremental_normal_system_event_publish.rs"]
+mod normal_system_event_publish;

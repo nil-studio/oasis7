@@ -212,3 +212,36 @@ pub(super) fn ledger(
     }
     Ok(())
 }
+
+/// In-order traversal preserves the original MaterialLedgerId/BTreeMap order.
+/// Only resident identity metadata is traversed; the callback point-reads the
+/// matching material from actual Current, never an entire ledger DTO.
+pub(super) fn material<E: From<ValueTreeError>>(
+    root: &Option<NodeRef>,
+    material: &str,
+    work: &mut InventoryIdentityDirectoryWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+    emit: &mut impl FnMut(&MaterialLedgerId, &str) -> Result<(), E>,
+) -> Result<(), E> {
+    let Some(node) = root else {
+        work.step(0, cancelled).map_err(E::from)?;
+        return Ok(());
+    };
+    work.step(
+        node.id
+            .material
+            .as_deref()
+            .unwrap_or("")
+            .len()
+            .min(material.len()),
+        cancelled,
+    )
+    .map_err(E::from)?;
+    self::material(&node.left, material, work, cancelled, emit)?;
+    if let (Some(ledger), Some(kind)) = (&node.id.ledger, &node.id.material) {
+        if kind == material {
+            emit(ledger, kind)?;
+        }
+    }
+    self::material(&node.right, material, work, cancelled, emit)
+}

@@ -23,7 +23,7 @@ use oasis7_world_state::{
     },
 };
 
-pub(super) enum EvaluationErrorV1 {
+pub(in crate::world) enum EvaluationErrorV1 {
     Body(BodyMutationError),
     World(crate::WorldError),
 }

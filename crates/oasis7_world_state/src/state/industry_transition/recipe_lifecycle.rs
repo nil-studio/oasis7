@@ -451,20 +451,8 @@ impl PreparedRecipeLifecycle {
             unreachable!()
         };
         let (mut materials, world) = normalized_materials(state);
-        let mut completion_receipt = RecipeCompletionReceiptV1 {
-            committed_recipe_origin: committed_recipe_origin.clone(),
-            job_id: *job_id,
-            requester_agent_id: requester_agent_id.clone(),
-            factory_id: factory_id.clone(),
-            recipe_id: recipe_id.clone(),
-            accepted_batches: *accepted_batches,
-            produce: produce.clone(),
-            byproducts: byproducts.clone(),
-            output_ledger: output_ledger.clone(),
-            bottleneck_tags: bottleneck_tags.clone(),
-            logistics_route_ids: logistics_route_ids.clone(),
-            logistics_path_ids: logistics_path_ids.clone(),
-        };
+        let mut completion_receipt = super::recipe_completion_receipt_from_event_v1(event)
+            .expect("RecipeCompleted matched above");
         if let Some(existing) = state.recipe_completion_receipts.get(job_id)
             && existing != &completion_receipt
         {
@@ -540,62 +528,18 @@ impl PreparedRecipeLifecycle {
         if output_ledger == &world_id {
             materials = ledgers[&world_id].clone();
         }
-        let snapshot = FactoryProductionSnapshot::from_recipe_job(&pending);
         let mut factory = state.factories.get(factory_id).cloned();
         if let Some(value) = factory.as_mut() {
-            value.production.active_jobs = value.production.active_jobs.saturating_sub(1);
-            if value.production.current_job_id == Some(*job_id) {
-                value.production.current_job_id = None;
-            }
-            value.production.current_recipe_id = None;
-            value.production.last_completed_at = Some(now);
-            value.production.completed_jobs = value.production.completed_jobs.saturating_add(1);
-            let same =
-                value.production.last_completed_canonical_snapshot.as_ref() == Some(&snapshot);
-            value.production.same_recipe_repeat_count = if same {
-                value.production.same_recipe_repeat_count.saturating_add(1)
-            } else {
-                1
-            };
-            value.production.last_completed_recipe_id = Some(recipe_id.clone());
-            value.production.last_completed_canonical_snapshot = Some(snapshot);
-            if value.production.active_jobs == 0 {
-                value.production.status = FactoryProductionStatus::Idle;
-            }
+            super::complete_recipe_factory_production_v1(value, &pending, now);
         }
         let mut progress = state.industry_progress.clone();
         progress.completed_recipe_jobs = progress.completed_recipe_jobs.saturating_add(1);
-        if progress.starter_industrial_milestone.is_none()
-            && *accepted_batches > 0
-            && factory_id == STARTER_SMELTER_FACTORY_ID
-            && recipe_id == STARTER_SMELTER_RECIPE_ID
-            && state
-                .factories
-                .get(factory_id)
-                .is_some_and(|factory| factory.output_ledger == *output_ledger)
-            && produce
-                .iter()
-                .any(|stack| stack.kind == "iron_ingot" && stack.amount > 0)
-        {
-            progress.starter_industrial_milestone = Some(StarterIndustrialMilestoneV1 {
-                settlement_summary: pending.committed_recipe_origin.as_ref().map(|_| {
-                    StarterIndustrialSettlementSummaryV1 {
-                        requester_agent_id: pending.requester_agent_id.clone(),
-                        accepted_batches: pending.accepted_batches,
-                        consume: pending.consume.clone(),
-                        power_required: pending.power_required,
-                        produce: pending.produce.clone(),
-                    }
-                }),
-                committed_recipe_origin: pending.committed_recipe_origin.clone(),
-                profile_id: STARTER_INDUSTRIAL_PROFILE_ID.to_string(),
-                profile_revision: STARTER_INDUSTRIAL_PROFILE_REVISION,
-                factory_id: factory_id.clone(),
-                recipe_id: recipe_id.clone(),
-                output_ledger: output_ledger.clone(),
-                settlement_job_id: *job_id,
-                settled_at: now,
-            });
+        if progress.starter_industrial_milestone.is_none() {
+            progress.starter_industrial_milestone = super::starter_recipe_completion_milestone_v1(
+                &pending,
+                state.factories.get(factory_id).map(|f| &f.output_ledger),
+                now,
+            );
         }
         let factory_update = factory.map(|value| (factory_id.clone(), value));
         refresh_progress(state, factory_update.as_ref(), &mut progress, now);
@@ -656,10 +600,7 @@ impl PreparedRecipeLifecycle {
         else {
             unreachable!()
         };
-        let terminal = matches!(
-            blocker_kind.as_str(),
-            "product_validation" | "industrial_termination"
-        );
+        let terminal = super::recipe_blocker_is_terminal_v1(blocker_kind);
         let pending = state.pending_recipe_jobs.get(action_id).cloned();
         if terminal
             && let Some(existing) = state.factory_production_failure_dispositions.get(action_id)
@@ -705,18 +646,13 @@ impl PreparedRecipeLifecycle {
         }
         let mut factory = state.factories.get(factory_id).cloned();
         if let Some(value) = factory.as_mut() {
-            if terminal && pending.is_some() {
-                value.production.active_jobs = value.production.active_jobs.saturating_sub(1);
-            }
-            value.production.status = FactoryProductionStatus::Blocked;
-            value.production.last_blocked_at = Some(now);
-            value.production.current_blocker_kind = Some(blocker_kind.clone());
-            value.production.current_blocker_detail = Some(blocker_detail.clone());
-            value.production.current_job_id = None;
-            value.production.current_recipe_id = None;
-            value.production.last_completed_recipe_id = None;
-            value.production.same_recipe_repeat_count = 0;
-            value.production.last_completed_canonical_snapshot = None;
+            super::block_recipe_factory_production_v1(
+                value,
+                pending.as_ref(),
+                blocker_kind,
+                blocker_detail,
+                now,
+            );
         }
         let factory = factory.map(|value| (factory_id.clone(), value));
         let mut progress = state.industry_progress.clone();
@@ -740,26 +676,12 @@ impl PreparedRecipeLifecycle {
             let pending = pending.as_ref().expect("terminal pending validated");
             (
                 *action_id,
-                FactoryProductionFailureDispositionV1 {
-                    action_id: *action_id,
-                    requester_agent_id: pending.requester_agent_id.clone(),
-                    factory_id: pending.factory_id.clone(),
-                    recipe_id: pending.recipe_id.clone(),
-                    blocker_kind: blocker_kind.clone(),
-                    blocker_detail: blocker_detail.clone(),
-                    disposition_kind: "consumed_lost".into(),
-                    consumed_inputs: pending.consume.clone(),
-                    lost_inputs: pending.consume.clone(),
-                    consumed_power: pending.power_required,
-                    lost_power: pending.power_required,
-                    next_action: if blocker_kind == "industrial_termination" {
-                        "inspect_industrial_termination"
-                    } else {
-                        "inspect_product_validation_and_reschedule"
-                    }
-                    .into(),
-                    next_recheck: None,
-                },
+                super::recipe_failure_disposition_v1(
+                    *action_id,
+                    pending,
+                    blocker_kind,
+                    blocker_detail,
+                ),
             )
         });
         let settlement_order = terminal.then(|| {

@@ -51,6 +51,56 @@ where
     CW: FnMut() -> bool,
     ME: FnMut() -> Option<ValueTreeError>,
 {
+    paid_with_tail(
+        step,
+        read,
+        parent,
+        write,
+        materials,
+        work,
+        common,
+        live,
+        |step, read, parent, write, materials, work, _tail| {
+            run(step, read, parent, write, materials, work)
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn paid_with_tail<M, P, V, W, D, E, C, PE, PC, CW, ME, T>(
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    parent: &mut WorldFieldReadContextV1<'_, P, V, PE, PC>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+    work: &mut FactoryScheduleWorkV1,
+    common: &mut FormalBoundedContextV1<'_>,
+    live: &ExecutionFence,
+    run: impl FnOnce(
+        &mut IwsStepContext<'_, '_, '_, '_, M, V, W, &mut dyn FnMut() -> bool>,
+        &mut WorldFieldReadContextV1<'_, P, V, &mut E, &mut dyn FnMut() -> bool>,
+        &mut WorldFieldReadContextV1<'_, P, V, &mut PE, &mut dyn FnMut() -> bool>,
+        &mut MemberRecordWriteContext<'_, W, &mut dyn FnMut() -> bool>,
+        &mut CorePolicyMaterialContextV1<'_, M, &mut ME>,
+        &mut FactoryScheduleWorkV1,
+        &mut crate::world::incremental_normal_tail::NormalTailWorkV1<'_, '_>,
+    ) -> Result<T, BodyMutationError>,
+) -> Result<T, BodyMutationError>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeReader
+        + ValueNodeWriter
+        + oasis7_formal_protocol::incremental_state::StatePageWriter,
+    D: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    PE: FnMut() -> Option<ValueTreeError>,
+    PC: FnMut() -> bool,
+    CW: FnMut() -> bool,
+    ME: FnMut() -> Option<ValueTreeError>,
+{
     let now = step.now;
     step.transaction.contribute(|tx| {
         tx.validate_guard(&tx.guard(),live)?;
@@ -213,7 +263,10 @@ where
                 normalization_max_union_entries:materials.normalization_max_union_entries,
                 normalization_cells_remaining:&mut *materials.normalization_cells_remaining,
                 normalization_comparison_bytes_remaining:&mut *materials.normalization_comparison_bytes_remaining};
-            run(&mut scoped_step,&mut scoped_read,&mut scoped_parent,&mut scoped_write,&mut scoped_materials,work)
+            let mut tail_stop=|| (stop.borrow_mut())();
+            let mut tail_work=crate::world::incremental_normal_tail::NormalTailWorkV1::from_existing_child(
+                step.mutation.memory, &child, &mut tail_stop);
+            run(&mut scoped_step,&mut scoped_read,&mut scoped_parent,&mut scoped_write,&mut scoped_materials,work,&mut tail_work)
         })();
         let after_steps=steps!(snapshot);let after_bytes=bytes!(snapshot);let after_entries=entries!(entry_snapshot);
         let debit=|before:&[u64],after:&[u64]|before.iter().zip(after).try_fold(0u64,|n,(b,a)|n.checked_add(b.checked_sub(*a)?));

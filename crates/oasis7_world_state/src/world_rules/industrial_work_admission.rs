@@ -79,29 +79,53 @@ pub fn industrial_ledger_access(
     ledger: &MaterialLedgerId,
     now: WorldTime,
 ) -> Result<(), WorldError> {
+    let factory = match ledger {
+        MaterialLedgerId::Factory(id) => state.factories.get(id),
+        _ => None,
+    };
+    let site_authority = match ledger {
+        MaterialLedgerId::Site(id) => state.factory_site_authorities.get(id),
+        MaterialLedgerId::Factory(_) => {
+            factory.and_then(|f| state.factory_site_authorities.get(&f.site_id))
+        }
+        _ => None,
+    };
+    let retired = match ledger {
+        MaterialLedgerId::Factory(id) => state.retired_factory_ids.contains(id),
+        _ => false,
+    };
+    industrial_ledger_access_from_records_v1(actor, ledger, now, factory, retired, site_authority)
+}
+/// Sole original ledger-access predicate over selected records. This is data
+/// validation; callers still bind every supplied record to actual Current.
+pub fn industrial_ledger_access_from_records_v1(
+    actor: &str,
+    ledger: &MaterialLedgerId,
+    now: WorldTime,
+    factory: Option<&crate::FactoryState>,
+    retired: bool,
+    site_authority: Option<&crate::FactorySiteAuthorityV1>,
+) -> Result<(), WorldError> {
     let allowed = match ledger {
         MaterialLedgerId::Agent(owner) => owner == actor,
-        MaterialLedgerId::Site(site) => state.factory_site_authorities.get(site).is_some_and(|a| {
+        MaterialLedgerId::Site(site) => site_authority.is_some_and(|a| {
             a.active
                 && a.chunk_ready
                 && a.registered_at <= now
                 && (a.owner_agent_id == actor
                     || a.authorized_agent_ids.iter().any(|id| id == actor))
         }),
-        MaterialLedgerId::Factory(id) => state.factories.get(id).is_some_and(|f| {
+        MaterialLedgerId::Factory(id) => factory.is_some_and(|f| {
             f.builder_agent_id == actor
-                && !state.retired_factory_ids.contains(id)
+                && !retired
                 && f.durability_ppm > 0
-                && state
-                    .factory_site_authorities
-                    .get(&f.site_id)
-                    .is_some_and(|a| {
-                        a.active
-                            && a.chunk_ready
-                            && a.registered_at <= now
-                            && (a.owner_agent_id == actor
-                                || a.authorized_agent_ids.iter().any(|id| id == actor))
-                    })
+                && site_authority.is_some_and(|a| {
+                    a.active
+                        && a.chunk_ready
+                        && a.registered_at <= now
+                        && (a.owner_agent_id == actor
+                            || a.authorized_agent_ids.iter().any(|id| id == actor))
+                })
         }),
         MaterialLedgerId::World => false,
     };

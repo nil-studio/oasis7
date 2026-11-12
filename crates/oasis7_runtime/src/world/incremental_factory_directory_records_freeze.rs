@@ -6,6 +6,7 @@ pub(in crate::world) struct FrozenFactoryRecipeDirectoryV1 {
     memory: MemoryBudget,
     factories: Vec<String>,
     recipes: Vec<u64>,
+    reservations: Vec<RecipeOutputReservationV1>,
 }
 impl FrozenFactoryRecipeDirectoryV1 {
     pub(in crate::world) fn validate_guard<M: MerkleNodeReader>(
@@ -38,6 +39,15 @@ impl FrozenFactoryRecipeDirectoryV1 {
     }
     pub(in crate::world) fn iter_recipe_job_ids(&self) -> impl ExactSizeIterator<Item = u64> + '_ {
         self.recipes.iter().copied()
+    }
+    pub(in crate::world) fn iter_recipe_reservations_v1(
+        &self,
+    ) -> impl ExactSizeIterator<
+        Item = oasis7_world_state::world_rules::IndustrialOutputReservationRefV1<'_>,
+    > + Clone {
+        self.reservations
+            .iter()
+            .map(RecipeOutputReservationV1::as_ref)
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -73,13 +83,25 @@ where
         if !source.uses_budget(factory.values.memory)
             || source.factories.len() > work.max_factories
             || source.recipes.len() > work.max_recipe_jobs
+            || source.reservations.len() != source.recipes.len()
+            || source
+                .recipes
+                .iter()
+                .zip(&source.reservations)
+                .any(|(job_id, reservation)| *job_id != reservation.job_id)
         {
             return Err(ValueTreeError::Invalid("freeze Factory/Recipe source").into());
         }
         let mut bytes = source
             .recipes
             .len()
-            .checked_mul(std::mem::size_of::<u64>())
+            .checked_mul(
+                std::mem::size_of::<u64>()
+                    .checked_add(std::mem::size_of::<RecipeOutputReservationV1>())
+                    .ok_or(ValueTreeError::ResourceLimited(
+                        "freeze Factory/Recipe heap",
+                    ))?,
+            )
             .and_then(|n| n.checked_add(4096))
             .ok_or(ValueTreeError::ResourceLimited(
                 "freeze Factory/Recipe heap",
@@ -114,8 +136,10 @@ where
             .map_err(ValueTreeError::Memory)?;
         let mut factories = Vec::with_capacity(source.factories.len());
         let mut recipes = Vec::with_capacity(source.recipes.len());
+        let mut reservations = Vec::with_capacity(source.reservations.len());
         if factories.capacity() > source.factories.len()
             || recipes.capacity() > source.recipes.len()
+            || reservations.capacity() > source.reservations.len()
         {
             return Err(
                 ValueTreeError::ResourceLimited("freeze Factory/Recipe actual capacity").into(),
@@ -140,11 +164,32 @@ where
             }
             recipes.push(*id);
         }
+        for reservation in &source.reservations {
+            let mut cancelled = || (factory.cancelled)() || (recipe.cancelled)();
+            let cloned = clone_output_reservation_v1(
+                reservation,
+                factory.values.memory,
+                work,
+                &mut cancelled,
+            )?;
+            if reservations.len() == reservations.capacity() {
+                return Err(ValueTreeError::ResourceLimited(
+                    "freeze Factory/Recipe reservation capacity",
+                )
+                .into());
+            }
+            reservations.push(cloned);
+        }
+        if (factory.cancelled)() || (recipe.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.validate_guard(guard, live)?;
         Ok(fee.retain(FrozenFactoryRecipeDirectoryV1 {
             guard: tx.guard(),
             memory: factory.values.memory.clone(),
             factories,
             recipes,
+            reservations,
         }))
     })();
     if result.is_err() {

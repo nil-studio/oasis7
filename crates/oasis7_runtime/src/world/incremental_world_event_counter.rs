@@ -18,7 +18,25 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
+struct CountedNote {
+    original: [u8; 32],
+    ordinal: usize,
+    previous: Option<Arc<CountedNote>>,
+    _charge: MemoryReservation,
+}
+impl Drop for CountedNote {
+    fn drop(&mut self) {
+        let mut previous = self.previous.take();
+        while let Some(note) = previous {
+            match Arc::try_unwrap(note) {
+                Ok(mut note) => previous = note.previous.take(),
+                Err(_) => break,
+            }
+        }
+    }
+}
 struct Counts {
+    latest_note: Option<Arc<CountedNote>>,
     appended: u64,
     last_world_fact_end: usize,
     last_original: Option<[u8; 32]>,
@@ -30,6 +48,7 @@ struct Inner {
     counts: Mutex<Counts>,
     failed: AtomicBool,
     factory_prologue_claimed: AtomicBool,
+    journal_retention: Mutex<Option<usize>>,
     _charge: MemoryReservation,
 }
 /// Clones share the SAME sealed counter; they never start another event count.
@@ -62,12 +81,14 @@ impl WorldEventCounterV1 {
                 guard,
                 base_hot: parent.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()].count,
                 counts: Mutex::new(Counts {
+                    latest_note: None,
                     appended: 0,
                     last_world_fact_end: 0,
                     last_original: None,
                 }),
                 failed: AtomicBool::new(false),
                 factory_prologue_claimed: AtomicBool::new(false),
+                journal_retention: Mutex::new(None),
                 _charge: charge,
             }),
         })
@@ -134,7 +155,7 @@ impl WorldEventCounterV1 {
             Ok(())
         })
     }
-    pub fn journal_height<M: MerkleNodeReader>(
+    pub(super) fn journal_append_height_v1<M: MerkleNodeReader>(
         &self,
         transaction: &ExecutionTransaction<'_, M>,
     ) -> Result<u64, BodyMutationError> {
@@ -144,6 +165,37 @@ impl WorldEventCounterV1 {
             .base_hot
             .checked_add(counts.appended)
             .ok_or(ExecutionError::ResourceLimited("WorldEvent journal height").into())
+    }
+    /// The worker sees the real retained hot-journal length, not the total
+    /// number of typed events appended before prefix eviction in this step.
+    pub fn journal_height<M: MerkleNodeReader>(
+        &self,
+        transaction: &ExecutionTransaction<'_, M>,
+    ) -> Result<u64, BodyMutationError> {
+        let height = self.journal_append_height_v1(transaction)?;
+        let retention = self.inner.journal_retention.lock().map_err(|_| invalid())?;
+        Ok(retention.map_or(height, |max| height.min(max as u64)))
+    }
+    pub(super) fn bind_journal_retention_v1<M: MerkleNodeReader>(
+        &self,
+        transaction: &ExecutionTransaction<'_, M>,
+        source: &ReservedValue<WorldJournalRetentionV1>,
+    ) -> Result<(), BodyMutationError> {
+        self.validate(transaction)?;
+        if !source.uses_budget(&self.inner.memory)
+            || source.allocation_class() != MemoryClass::Ordinary
+        {
+            return Err(invalid());
+        }
+        let mut bound = self.inner.journal_retention.lock().map_err(|_| invalid())?;
+        match *bound {
+            Some(max) if max != source.max_events() => Err(invalid()),
+            Some(_) => Ok(()),
+            None => {
+                *bound = Some(source.max_events());
+                Ok(())
+            }
+        }
     }
     /// Only typed WorldEvent success sites call this, after their canonical
     /// producer finish AND actual append_fact succeeded. The exact one-fact
@@ -178,6 +230,24 @@ impl WorldEventCounterV1 {
                 .base_hot
                 .checked_add(next)
                 .ok_or(ExecutionError::ResourceLimited("WorldEvent journal height"))?;
+            // Reserve the actual retained note and Arc header before allocating.
+            let charge = self
+                .inner
+                .memory
+                .reserve(
+                    (std::mem::size_of::<CountedNote>()
+                        + 2 * std::mem::size_of::<usize>()
+                        + std::mem::align_of::<CountedNote>()),
+                    MemoryClass::Ordinary,
+                )
+                .map_err(ExecutionError::Memory)?;
+            let note = Arc::new(CountedNote {
+                original: fact.id,
+                ordinal: before_fact_count,
+                previous: counts.latest_note.take(),
+                _charge: charge,
+            });
+            counts.latest_note = Some(note);
             counts.appended = next;
             counts.last_world_fact_end = after;
             counts.last_original = Some(fact.id);
@@ -187,6 +257,39 @@ impl WorldEventCounterV1 {
             self.inner.failed.store(true, Ordering::Release);
         }
         result
+    }
+
+    /// Visit only actual typed-success notes, newest first. Each callback must
+    /// debit its own decoding/processing work; returning an error stops traversal.
+    /// The lock is released before callbacks, so publication cannot deadlock it.
+    pub(super) fn visit_counted_sources_since<M: MerkleNodeReader>(
+        &self,
+        transaction: &ExecutionTransaction<'_, M>,
+        since_ordinal: usize,
+        mut visit: impl FnMut(CountedWorldEventSourceV1) -> Result<(), BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.validate(transaction)?;
+        let mut note = self
+            .inner
+            .counts
+            .lock()
+            .map_err(|_| invalid())?
+            .latest_note
+            .clone();
+        while let Some(current) = note {
+            if current.ordinal < since_ordinal {
+                break;
+            }
+            let source = CountedWorldEventSourceV1 {
+                original: current.original,
+                ordinal: current.ordinal,
+                identity: transaction.guard(),
+            };
+            source.validate(transaction)?;
+            visit(source)?;
+            note = current.previous.clone();
+        }
+        Ok(())
     }
 
     /// Only a typed WorldEvent success site can advance this source. Unrelated
@@ -227,6 +330,9 @@ pub(super) struct CountedWorldEventSourceV1 {
     identity: PreparedGuard,
 }
 impl CountedWorldEventSourceV1 {
+    pub(super) fn ordinal(&self) -> usize {
+        self.ordinal
+    }
     pub(super) fn original(&self) -> &[u8; 32] {
         &self.original
     }
@@ -240,5 +346,36 @@ impl CountedWorldEventSourceV1 {
             return Err(invalid());
         }
         Ok(())
+    }
+}
+
+/// Process journal-retention data copied from the actual World configuration.
+/// It grants no execution, accepted-state or worker authority.
+pub struct WorldJournalRetentionV1 {
+    max_events: usize,
+    class: MemoryClass,
+}
+impl WorldJournalRetentionV1 {
+    pub(super) fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
+    pub(super) fn max_events(&self) -> usize {
+        self.max_events
+    }
+}
+impl super::World {
+    pub fn normal_journal_retention_v1(
+        &self,
+        memory: &MemoryBudget,
+    ) -> Result<
+        ReservedValue<WorldJournalRetentionV1>,
+        oasis7_proto::memory_budget::MemoryLimitExceeded,
+    > {
+        let class = MemoryClass::Ordinary;
+        let fee = memory.reserve(std::mem::size_of::<WorldJournalRetentionV1>(), class)?;
+        Ok(fee.retain(WorldJournalRetentionV1 {
+            max_events: self.runtime_memory_limits.max_journal_events.max(1),
+            class,
+        }))
     }
 }

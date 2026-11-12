@@ -92,6 +92,13 @@ impl FactoryScheduleIndexV1 {
         }
         Ok(())
     }
+    /// Borrows the original authenticated parent bindings. These observations
+    /// grant no build/completion permission and never rebind Current roots.
+    pub fn iter_parent_build_bindings(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (u64, &[u8; 32], &StateRootV1)> + '_ {
+        self.rows.iter().map(|row| (row.id, &row.value, &row.child))
+    }
     pub fn records(&self) -> usize {
         self.rows.len()
     }

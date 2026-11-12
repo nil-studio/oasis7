@@ -423,6 +423,13 @@ impl World {
                     return Err(BodyMutationError::Invalid("industrial event source"));
                 }
             }
+            if let Some(cap) = system_event
+                && matches!(domain, DomainEvent::ActionRejected {..}) {
+                let guard = txn.guard();
+                materials.contribute(txn, context.values, &mut context.mutation, &guard, live)?;
+                return super::incremental_module_execution_event::contribute_due_rejection_original_v1(
+                    now, cap, txn, context, live);
+            }
             let agent_id = match domain {
                 DomainEvent::FactoryBuildStarted {
                     builder_agent_id, ..
@@ -436,6 +443,23 @@ impl World {
                 } if system_event.is_some() => builder_agent_id,
 
                 DomainEvent::MaterialTransitCompleted {
+                    requester_agent_id, ..
+                } if system_event.is_some() => requester_agent_id,
+                DomainEvent::RecipeCompleted {
+                    requester_agent_id, ..
+                } if system_event.is_some() => requester_agent_id,
+                DomainEvent::ProductValidationAttemptStarted { attempt }
+                    if system_event.is_some() =>
+                {
+                    &attempt.requester_agent_id
+                }
+                DomainEvent::ProductValidationRecorded { receipt } if system_event.is_some() => {
+                    &receipt.requester_agent_id
+                }
+                DomainEvent::ProductValidated {
+                    requester_agent_id, ..
+                }
+                | DomainEvent::FactoryProductionBlocked {
                     requester_agent_id, ..
                 } if system_event.is_some() => requester_agent_id,
                 DomainEvent::AllianceFormed {
@@ -677,6 +701,13 @@ impl World {
                 DomainEvent::FactoryBuildStarted { .. } | DomainEvent::RecipeStarted { .. }
                     if factory_schedule.is_some() => {}
                 DomainEvent::FactoryBuilt { .. } if system_event.is_some() => {}
+                DomainEvent::RecipeCompleted { .. } if system_event.is_some() => {}
+                DomainEvent::ProductValidationAttemptStarted { .. }
+                | DomainEvent::ProductValidationRecorded { .. }
+                | DomainEvent::ProductValidated { .. }
+                | DomainEvent::FactoryProductionBlocked { .. }
+                | DomainEvent::ActionRejected { .. }
+                    if system_event.is_some() => {}
                 DomainEvent::MaterialTransitCompleted { .. } if system_event.is_some() => {}
                 DomainEvent::AllianceFormed { .. }
                 | DomainEvent::AllianceJoined { .. }

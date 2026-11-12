@@ -15,63 +15,16 @@ pub fn validate_industrial_output_capacity(
     plan: &oasis7_wasm_abi::RecipeExecutionPlan,
     exclude_job: Option<u64>,
 ) -> Result<(), WorldError> {
-    let mut output = std::collections::BTreeMap::<String, u64>::new();
-    for stack in plan.produce.iter().chain(&plan.byproducts) {
-        let amount = u64::try_from(stack.amount)
-            .ok()
-            .filter(|q| *q > 0)
-            .ok_or_else(|| invalid("industrial_terminal_quantity_invalid"))?;
-        let entry = output.entry(stack.kind.clone()).or_default();
-        *entry = entry
-            .checked_add(amount)
-            .ok_or_else(|| invalid("industrial_terminal_quantity_overflow"))?;
-    }
-    if output.len() != root.terminal_capacities.len()
-        || output
-            .keys()
-            .any(|kind| !root.terminal_capacities.contains_key(kind))
-    {
-        return Err(invalid("industrial_terminal_capacity_scope_mismatch"));
-    }
-    for (kind, incoming) in output {
-        let capacity = root.terminal_capacities[&kind];
-        if capacity == 0 {
-            return Err(invalid("industrial_terminal_capacity_invalid"));
-        }
-        let balance = state
-            .material_ledgers
-            .get(&root.output_ledger)
-            .and_then(|ledger| ledger.get(&kind))
-            .copied()
-            .unwrap_or(0);
-        let mut committed =
-            u64::try_from(balance).map_err(|_| invalid("industrial_terminal_balance_invalid"))?;
-        for job in state.pending_recipe_jobs.values().filter(|job| {
-            job.output_ledger == root.output_ledger && Some(job.job_id) != exclude_job
-        }) {
-            for stack in job
-                .produce
-                .iter()
-                .chain(&job.byproducts)
-                .filter(|stack| stack.kind == kind)
-            {
-                let amount = u64::try_from(stack.amount)
-                    .ok()
-                    .filter(|q| *q > 0)
-                    .ok_or_else(|| invalid("industrial_terminal_quantity_invalid"))?;
-                committed = committed
-                    .checked_add(amount)
-                    .ok_or_else(|| invalid("industrial_terminal_quantity_overflow"))?;
-            }
-        }
-        if committed
-            .checked_add(incoming)
-            .is_none_or(|total| total > capacity)
-        {
-            return Err(invalid("industrial_terminal_capacity_unavailable"));
-        }
-    }
-    Ok(())
+    let result: Result<(), WorldError> =
+        validate_industrial_output_capacity_from_records_with_work_v1(
+            root,
+            plan,
+            exclude_job,
+            state.material_ledgers.get(&root.output_ledger),
+            state.pending_recipe_jobs.values(),
+            &mut |_| Ok(()),
+        );
+    result
 }
 
 impl PreparedWorldRule {
@@ -289,4 +242,145 @@ impl PreparedWorldRule {
         self.industry = Some(prepared);
         Ok(root_ref.id.clone())
     }
+}
+
+/// Original capacity predicates over selected ledger plus the complete actual
+/// pending-job iterator. This is only a data validation kernel; it does not
+/// authenticate either source or mint an industrial permission.
+/// Borrowed original output-reservation fields. This data view has no
+/// constructor-based authority; actual Current/cache owners bind its source.
+#[derive(Clone, Copy)]
+pub struct IndustrialOutputReservationRefV1<'a> {
+    pub job_id: u64,
+    pub output_ledger: &'a crate::MaterialLedgerId,
+    pub produce: &'a [crate::MaterialStack],
+    pub byproducts: &'a [crate::MaterialStack],
+}
+impl<'a> From<&'a crate::RecipeJobState> for IndustrialOutputReservationRefV1<'a> {
+    fn from(job: &'a crate::RecipeJobState) -> Self {
+        Self {
+            job_id: job.job_id,
+            output_ledger: &job.output_ledger,
+            produce: &job.produce,
+            byproducts: &job.byproducts,
+        }
+    }
+}
+/// Compatibility entry delegates the exact original fields, without copying a
+/// RecipeJob or manufacturing irrelevant fields for a metadata projection.
+pub fn validate_industrial_output_capacity_from_records_with_work_v1<'a, E, I>(
+    root: &RootOperationV1,
+    plan: &oasis7_wasm_abi::RecipeExecutionPlan,
+    exclude_job: Option<u64>,
+    ledger: Option<&std::collections::BTreeMap<String, i64>>,
+    pending: I,
+    before_allocation: &mut impl FnMut(&oasis7_wasm_abi::RecipeExecutionPlan) -> Result<(), E>,
+) -> Result<(), E>
+where
+    E: From<WorldError>,
+    I: Iterator<Item = &'a crate::RecipeJobState> + Clone,
+{
+    validate_industrial_output_capacity_from_reservations_with_work_v1(
+        root,
+        plan,
+        exclude_job,
+        ledger,
+        pending.map(IndustrialOutputReservationRefV1::from),
+        before_allocation,
+    )
+}
+pub fn validate_industrial_output_capacity_from_reservations_with_work_v1<'a, E, I>(
+    root: &RootOperationV1,
+    plan: &oasis7_wasm_abi::RecipeExecutionPlan,
+    exclude_job: Option<u64>,
+    ledger: Option<&std::collections::BTreeMap<String, i64>>,
+    pending: I,
+    before_allocation: &mut impl FnMut(&oasis7_wasm_abi::RecipeExecutionPlan) -> Result<(), E>,
+) -> Result<(), E>
+where
+    E: From<WorldError>,
+    I: Iterator<Item = IndustrialOutputReservationRefV1<'a>> + Clone,
+{
+    before_allocation(plan)?;
+    let mut output = std::collections::BTreeMap::<String, u64>::new();
+    for stack in plan.produce.iter().chain(&plan.byproducts) {
+        let amount = u64::try_from(stack.amount)
+            .ok()
+            .filter(|q| *q > 0)
+            .ok_or_else(|| invalid("industrial_terminal_quantity_invalid"))?;
+        let entry = output.entry(stack.kind.clone()).or_default();
+        *entry = entry
+            .checked_add(amount)
+            .ok_or_else(|| invalid("industrial_terminal_quantity_overflow"))?;
+    }
+    if output.len() != root.terminal_capacities.len()
+        || output
+            .keys()
+            .any(|kind| !root.terminal_capacities.contains_key(kind))
+    {
+        return Err(E::from(invalid(
+            "industrial_terminal_capacity_scope_mismatch",
+        )));
+    }
+    for (kind, incoming) in output {
+        let capacity = root.terminal_capacities[&kind];
+        if capacity == 0 {
+            return Err(E::from(invalid("industrial_terminal_capacity_invalid")));
+        }
+        let balance = ledger
+            .and_then(|ledger| ledger.get(&kind))
+            .copied()
+            .unwrap_or(0);
+        let mut committed =
+            u64::try_from(balance).map_err(|_| invalid("industrial_terminal_balance_invalid"))?;
+        for job in pending.clone().filter(|job| {
+            job.output_ledger == &root.output_ledger && Some(job.job_id) != exclude_job
+        }) {
+            for stack in job
+                .produce
+                .iter()
+                .chain(job.byproducts)
+                .filter(|stack| stack.kind == kind)
+            {
+                let amount = u64::try_from(stack.amount)
+                    .ok()
+                    .filter(|q| *q > 0)
+                    .ok_or_else(|| invalid("industrial_terminal_quantity_invalid"))?;
+                committed = committed
+                    .checked_add(amount)
+                    .ok_or_else(|| invalid("industrial_terminal_quantity_overflow"))?;
+            }
+        }
+        if committed
+            .checked_add(incoming)
+            .is_none_or(|total| total > capacity)
+        {
+            return Err(E::from(invalid("industrial_terminal_capacity_unavailable")));
+        }
+    }
+    Ok(())
+}
+
+/// Ordinary admission bound for the one concrete output-aggregation map. The
+/// legacy NOOP path need not execute any resource/layout arithmetic.
+pub fn industrial_completion_output_map_heap_v1(
+    plan: &oasis7_wasm_abi::RecipeExecutionPlan,
+) -> Result<usize, oasis7_formal_protocol::incremental_value::ValueTreeError> {
+    use oasis7_formal_protocol::incremental_value::ValueTreeError;
+    let limited = || ValueTreeError::ResourceLimited("industrial completion output map");
+    let entries = plan
+        .produce
+        .len()
+        .checked_add(plan.byproducts.len())
+        .ok_or_else(limited)?;
+    let mut layout = std::mem::size_of::<std::collections::BTreeMap<String, u64>>()
+        .checked_add(crate::incremental_typed_record_codec::btree_output_heap::<
+            String,
+            u64,
+        >(entries)?)
+        .ok_or_else(limited)?;
+    for stack in plan.produce.iter().chain(&plan.byproducts) {
+        layout = layout.checked_add(stack.kind.len()).ok_or_else(limited)?;
+    }
+    Ok(layout)
 }

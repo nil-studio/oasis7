@@ -46,6 +46,22 @@ pub(in crate::world) struct NormalTailWorkV1<'borrow, 'ctx> {
 }
 
 impl<'borrow, 'ctx> NormalTailWorkV1<'borrow, 'ctx> {
+    /// Reborrow an already active trusted adapter child. This never acquires
+    /// or finishes a lease, and derives identity from that exact meter.
+    pub(in crate::world) fn from_existing_child(
+        memory: &'borrow MemoryBudget,
+        lease: &'borrow oasis7_formal_protocol::controlled_authority::formal::bounded_context::ChildLeaseV1<'ctx>,
+        stop: &'borrow mut dyn FnMut() -> bool,
+    ) -> Self {
+        Self {
+            meter: NormalTailMeterV1::Child {
+                memory,
+                lease,
+                identity: lease.identity(),
+                stop,
+            },
+        }
+    }
     pub(in crate::world) fn new(common: &'borrow mut FormalBoundedContextV1<'ctx>) -> Self {
         Self {
             meter: NormalTailMeterV1::Common(common),
@@ -315,3 +331,7 @@ impl<'p, 'a> NormalTailSourcesV1<'p, 'a> {
 
 #[path = "incremental_normal_transits.rs"]
 pub(in crate::world) mod transits;
+
+pub(in crate::world) use due_economy::{
+    DecodedFactoryBuildJobV1, decode_current_factory_build_job_v1,
+};

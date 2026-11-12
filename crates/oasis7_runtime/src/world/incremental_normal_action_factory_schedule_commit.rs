@@ -414,7 +414,7 @@ where
 }
 
 #[path = "incremental_normal_action_factory_schedule_activity.rs"]
-mod activity;
+pub(in crate::world) mod activity;
 #[path = "incremental_normal_action_factory_schedule_recipe_commit.rs"]
 mod recipe;
 pub(super) use recipe::apply_recipe_v1;

@@ -155,26 +155,10 @@ impl PreparedIndustryHistoryEvent {
                     .get(&receipt.job_id)
                     .cloned()
                     .unwrap_or_default();
-                if let Some(existing) = receipts
-                    .iter()
-                    .find(|existing| existing.validation_index == receipt.validation_index)
-                {
-                    if existing != receipt {
-                        return Err(WorldError::ResourceBalanceInvalid {
-                            reason: format!(
-                                "product validation conflicts with persisted receipt: job_id={} index={:?}",
-                                receipt.job_id, receipt.validation_index
-                            ),
-                        });
-                    }
-                } else {
+                if product_validation_receipt_needs_append_v1(&receipts, receipt)? {
                     receipts.push(receipt.clone());
                 }
-                let latest = if receipt.decision.accepted
-                    && receipt.decision.product_id == receipt.stack.kind
-                    && receipt.stack.amount > 0
-                    && receipt.stack.amount <= receipt.decision.stack_limit as i64
-                {
+                let latest = if product_validation_receipt_sets_latest_v1(receipt) {
                     Some(LastProductValidationState {
                         product_id: receipt.stack.kind.clone(),
                         tradable: receipt.decision.tradable,
@@ -196,36 +180,18 @@ impl PreparedIndustryHistoryEvent {
                 })
             }
             DomainEvent::ProductValidationAttemptStarted { attempt } => {
-                if attempt.job_id == 0 || attempt.module_id.trim().is_empty() {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!(
-                            "product validation attempt identity is invalid: job_id={} module_id={}",
-                            attempt.job_id, attempt.module_id
-                        ),
-                    });
-                }
+                validate_product_validation_attempt_identity_v1(attempt)?;
                 let mut attempts = state
                     .product_validation_attempts
                     .get(&attempt.job_id)
                     .cloned()
                     .unwrap_or_default();
                 if !state.settled_recipe_job_ids.contains(&attempt.job_id) {
-                    if let Some(existing) = attempts
-                        .iter()
-                        .find(|existing| existing.validation_index == attempt.validation_index)
-                    {
-                        if existing != attempt {
-                            return Err(WorldError::ResourceBalanceInvalid {
-                                reason: format!(
-                                    "product validation attempt conflicts with persisted intent: job_id={} index={:?}",
-                                    attempt.job_id, attempt.validation_index
-                                ),
-                            });
-                        }
-                    } else {
+                    if product_validation_attempt_needs_append_v1(&attempts, attempt)? {
                         attempts.push(attempt.clone());
                     }
                 }
+
                 Ok(Self::ValidationAttempt(
                     event.clone(),
                     attempt.job_id,
@@ -428,5 +394,69 @@ impl PreparedIndustryHistoryEvent {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Original history-row first-index conflict predicates. These return DATA
+/// mutation plans only; actual Current source qualification is independent.
+pub fn product_validation_receipt_needs_append_v1(
+    rows: &[ProductValidationReceiptV1],
+    receipt: &ProductValidationReceiptV1,
+) -> Result<bool, WorldError> {
+    if let Some(existing) = rows
+        .iter()
+        .find(|existing| existing.validation_index == receipt.validation_index)
+    {
+        if existing != receipt {
+            return Err(WorldError::ResourceBalanceInvalid {
+                reason: format!(
+                    "product validation conflicts with persisted receipt: job_id={} index={:?}",
+                    receipt.job_id, receipt.validation_index
+                ),
+            });
+        }
+        Ok(false)
+    } else {
+        Ok(true)
+    }
+}
+pub fn product_validation_receipt_sets_latest_v1(receipt: &ProductValidationReceiptV1) -> bool {
+    receipt.decision.accepted
+        && receipt.decision.product_id == receipt.stack.kind
+        && receipt.stack.amount > 0
+        && receipt.stack.amount <= receipt.decision.stack_limit as i64
+}
+pub fn validate_product_validation_attempt_identity_v1(
+    attempt: &ProductValidationAttemptV1,
+) -> Result<(), WorldError> {
+    if attempt.job_id == 0 || attempt.module_id.trim().is_empty() {
+        return Err(WorldError::ResourceBalanceInvalid {
+            reason: format!(
+                "product validation attempt identity is invalid: job_id={} module_id={}",
+                attempt.job_id, attempt.module_id
+            ),
+        });
+    }
+    Ok(())
+}
+pub fn product_validation_attempt_needs_append_v1(
+    rows: &[ProductValidationAttemptV1],
+    attempt: &ProductValidationAttemptV1,
+) -> Result<bool, WorldError> {
+    if let Some(existing) = rows
+        .iter()
+        .find(|existing| existing.validation_index == attempt.validation_index)
+    {
+        if existing != attempt {
+            return Err(WorldError::ResourceBalanceInvalid {
+                reason: format!(
+                    "product validation attempt conflicts with persisted intent: job_id={} index={:?}",
+                    attempt.job_id, attempt.validation_index
+                ),
+            });
+        }
+        Ok(false)
+    } else {
+        Ok(true)
     }
 }

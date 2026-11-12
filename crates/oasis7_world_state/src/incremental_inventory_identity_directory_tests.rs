@@ -341,3 +341,6 @@ fn qualified_directory_keeps_every_ledger_and_material_and_folds_real_pending_ro
 
 #[path = "incremental_inventory_identity_directory_lifecycle_tests.rs"]
 mod lifecycle;
+
+#[path = "incremental_inventory_identity_directory_total_tests.rs"]
+mod total_balance;

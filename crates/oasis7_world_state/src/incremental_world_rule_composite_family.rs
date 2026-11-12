@@ -10,6 +10,12 @@ use oasis7_formal_protocol::incremental_execution::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::marker::PhantomData;
+#[path = "incremental_industrial_work_directory.rs"]
+mod industrial_directory;
+pub use industrial_directory::{
+    CurrentIndustrialWorkV1, IndustrialWorkDirectoryV1, bind_current_industrial_work_directory_v1,
+    current_industrial_disposition_present_v1, read_current_industrial_completion_root_v1,
+};
 #[path = "incremental_world_rule_continuity_contracts.rs"]
 mod continuity_contracts;
 #[path = "incremental_world_rule_continuity_contracts_current.rs"]
@@ -55,6 +61,7 @@ pub struct WorldRuleCompositeQualificationV1<T> {
     class: MemoryClass,
     pub(crate) continuity_scope: Option<OrganizationScopeIndexV1>,
     pub(crate) continuity_contracts: Option<continuity_contracts::index::ContinuityContractIndexV1>,
+    industrial_directory: Option<IndustrialWorkDirectoryV1>,
     _type: PhantomData<fn() -> T>,
 }
 impl<T> WorldRuleCompositeQualificationV1<T> {
@@ -73,6 +80,9 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
     }
     pub fn allocation_class(&self) -> MemoryClass {
         self.class
+    }
+    pub fn industrial_work_directory(&self) -> Option<&IndustrialWorkDirectoryV1> {
+        self.industrial_directory.as_ref()
     }
     pub(crate) fn check_budget(
         &self,
@@ -93,6 +103,9 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
             let _binding = index.share(memory, class)?;
         }
         if let Some(index) = &self.continuity_scope {
+            index.check_budget(memory, class)?;
+        }
+        if let Some(index) = &self.industrial_directory {
             index.check_budget(memory, class)?;
         }
         Ok(())
@@ -212,6 +225,14 @@ pub(crate) fn qualify_world_rule_branch_v1<
         scan,
         work,
     )?;
+    let industrial_directory = industrial_directory::update::<T, _, _, _, _>(
+        None,
+        None,
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         memory: ctx.values.memory.clone(),
@@ -220,10 +241,11 @@ pub(crate) fn qualify_world_rule_branch_v1<
         class: ctx.values.class,
         continuity_scope,
         continuity_contracts,
+        industrial_directory,
         _type: PhantomData,
     }))
 }
-pub fn readmit_world_rule_branch_ordinary_v1<T>(
+pub fn readmit_world_rule_branch_ordinary_v1<T: CompositeBranchCodecV1>(
     source: &ReservedValue<WorldRuleCompositeQualificationV1<T>>,
     roots: &RootSetV1,
     memory: &MemoryBudget,
@@ -233,6 +255,11 @@ pub fn readmit_world_rule_branch_ordinary_v1<T>(
         return Err(ValueTreeError::Cancelled);
     }
     source.check_budget(memory, MemoryClass::Recovery)?;
+    if (T::BRANCH == WorldRuleCompositeBranchV1::IndustrialWork)
+        != source.industrial_directory.is_some()
+    {
+        return Err(invalid());
+    }
     if !source.uses_budget(memory) || source.reserved_bytes() < 512 {
         return Err(invalid());
     }
@@ -279,6 +306,11 @@ pub fn readmit_world_rule_branch_ordinary_v1<T>(
             .continuity_scope
             .as_ref()
             .map(|index| index.readmit_ordinary(memory))
+            .transpose()?,
+        industrial_directory: source
+            .industrial_directory
+            .as_ref()
+            .map(|index| index.readmit_ordinary(memory, &mut cancelled))
             .transpose()?,
         _type: PhantomData,
     }))
@@ -367,6 +399,11 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
 > {
     check(ctx)?;
     witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if T::BRANCH == WorldRuleCompositeBranchV1::IndustrialWork
+        && parent.industrial_directory.is_none()
+    {
+        return Err(invalid().into());
+    }
     let record = witness.record();
     let _phase = branch_transition_preflight_v1(parent, record, ctx)?;
     let carrier = ctx
@@ -406,6 +443,14 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         scan,
         work,
     )?;
+    let industrial_directory = industrial_directory::update::<T, _, _, _, _>(
+        parent.industrial_directory.as_ref(),
+        parent.body(),
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: *witness.after_digest(),
         memory: ctx.values.memory.clone(),
@@ -414,6 +459,7 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         class: ctx.values.class,
         continuity_scope,
         continuity_contracts,
+        industrial_directory,
         _type: PhantomData,
     }))
 }

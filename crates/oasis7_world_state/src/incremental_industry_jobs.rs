@@ -159,7 +159,7 @@ mod overlay;
 pub use overlay::{
     IndustryCellChangeV1, IndustryRecordCreateV1, IndustryValueRefV1,
     change_industry_cell_overlay_v1, create_industry_record_overlay_v1,
-    read_industry_cell_overlay_v1,
+    read_industry_cell_overlay_v1, verify_industry_record_overlay_v1,
 };
 
 pub use overlay::{

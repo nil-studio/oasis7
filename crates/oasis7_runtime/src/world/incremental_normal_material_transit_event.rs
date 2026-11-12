@@ -55,7 +55,7 @@ where
         let mut step = crate::world::incremental_step::IwsStepContext::borrow_counted_at(
             transaction,now,&guard,live,events.values,&mut events.mutation,&mut events.original_work,events.world_events,
         )?;
-        step.append_prepared_normal_system_event_v1(&cap,materials,live,events.max_event_bytes,&mut events.persist_original)?;
+        step.append_prepared_normal_system_event_v1(&cap,materials,common,live,events.max_event_bytes,&mut events.persist_original)?;
         let persisted = PersistedWorldEventV1 { owner: PersistedEventOwnerV1::Module {event,identity:step.transaction.guard()} };
         // Cancellation after original publication still aborts the enclosing
         // transaction; no routed/completed receipt escapes an unknown result.

@@ -15,7 +15,11 @@ pub mod industrial_work;
 pub mod industrial_work_admission;
 pub mod industrial_work_start;
 mod industrial_work_terminate;
-pub use industrial_completion::validate_industrial_completion;
+pub use industrial_completion::{
+    validate_industrial_completion, validate_industrial_completion_destination_v1,
+    validate_industrial_completion_selected_fields_v1,
+};
+pub use industrial_work_admission::industrial_ledger_access_from_records_v1;
 pub mod recipe_substitution;
 pub mod substitution_read;
 use oasis7_agent_api::world_action::IndustrialWorkStateV1;
@@ -654,3 +658,8 @@ pub fn validate_manufactured_world_scope(
     }
     Ok(())
 }
+
+pub use industrial_work_start::{
+    IndustrialOutputReservationRefV1, industrial_completion_output_map_heap_v1,
+    validate_industrial_output_capacity_from_reservations_with_work_v1,
+};

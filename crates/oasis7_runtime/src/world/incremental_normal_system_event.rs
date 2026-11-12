@@ -18,7 +18,45 @@ pub(in crate::world) struct PreparedNormalSystemEventV1<'event> {
     memory: MemoryBudget,
     _outer: ReservedValue<()>,
 }
+// Each expansion accepts a concrete private post-write producer. There is no
+// trait implementation or raw-event constructor for an external caller to mint.
+macro_rules! due_event_source {
+    ($method:ident, $source:ident) => {
+        pub(in crate::world) fn $method<M: MerkleNodeReader>(
+            source: &'event super::incremental_normal_industry_due::$source,
+            tx: &ExecutionTransaction<'_, M>,
+            now: u64,
+            common: &mut FormalBoundedContextV1<'_>,
+            live: &ExecutionFence,
+        ) -> Result<Self, BodyMutationError> {
+            common
+                .consume_steps(1)
+                .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+            source.validate(tx, common.memory(), now, common.work().identity(), live)?;
+            let fee = common
+                .memory()
+                .reserve(std::mem::size_of::<Self>(), MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            Ok(Self {
+                event: source.event(),
+                identity: tx.guard(),
+                core: common.work().identity(),
+                memory: common.memory().clone(),
+                _outer: fee.retain(()),
+            })
+        }
+    };
+}
 impl<'event> PreparedNormalSystemEventV1<'event> {
+    due_event_source!(from_product_attempt, PreparedNormalProductAttemptV1);
+    due_event_source!(from_product_recorded, PreparedNormalProductRecordedV1);
+    due_event_source!(from_product_result, PreparedNormalProductResultV1);
+    due_event_source!(from_recipe_failure, PreparedNormalRecipeFailureV1);
+    due_event_source!(
+        from_product_module_failure,
+        PreparedNormalProductModuleFailureV1
+    );
+    due_event_source!(from_product_cursor, PreparedNormalProductCursorV1);
     pub(in crate::world) fn from_factory_built<M: MerkleNodeReader>(
         source: &'event PreparedNormalFactoryBuiltV1,
         tx: &ExecutionTransaction<'_, M>,
@@ -38,6 +76,39 @@ impl<'event> PreparedNormalSystemEventV1<'event> {
         {
             return Err(BodyMutationError::Invalid(
                 "normal FactoryBuilt event source",
+            ));
+        }
+        let fee = common
+            .memory()
+            .reserve(std::mem::size_of::<Self>(), MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        Ok(Self {
+            event: source.event(),
+            identity: tx.guard(),
+            core: common.work().identity(),
+            memory: common.memory().clone(),
+            _outer: fee.retain(()),
+        })
+    }
+    pub(in crate::world) fn from_recipe_completed<M: MerkleNodeReader>(
+        source: &'event super::incremental_normal_industry_due::PreparedNormalRecipeCompletedV1,
+        tx: &ExecutionTransaction<'_, M>,
+        now: u64,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+    ) -> Result<Self, BodyMutationError> {
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        source.validate(tx, common.memory(), now, common.work().identity(), live)?;
+        if source.event().caused_by.is_some()
+            || !matches!(
+                source.event().body,
+                crate::WorldEventBody::Domain(crate::DomainEvent::RecipeCompleted { .. })
+            )
+        {
+            return Err(BodyMutationError::Invalid(
+                "normal RecipeCompleted event source",
             ));
         }
         let fee = common

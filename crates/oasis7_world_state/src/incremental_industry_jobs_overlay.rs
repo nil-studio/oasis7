@@ -542,3 +542,63 @@ pub fn delete_industry_record_overlay_v1<
         Ok(true)
     })
 }
+
+/// Compare every original borrowed record cell against actual Current using
+/// the same resolver and payload predicates as the point CAS. No state write
+/// or qualification is produced by this data comparison.
+pub fn verify_industry_record_overlay_v1<M, R, E, C>(
+    key: IndustryRecordKeyV1,
+    expected: IndustryRecordRefV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut IndustryWorkBudgetV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    context.transaction.contribute(|transaction| {
+        transaction.validate_guard(guard, live)?;
+        if expected.kind() != key.kind
+            || context.values.class != MemoryClass::Ordinary
+            || !transaction.uses_budget(context.values.memory)
+        {
+            return Err(ValueTreeError::Invalid("industry comparison source").into());
+        }
+        visit_industry_record_v1::<WorldFieldOverlayErrorV1>(expected, |cell, payload| {
+            work.cell()?;
+            let value = IndustryValueRefV1::from_payload(payload)?;
+            let mut compare = Compare::new(value.text().as_bytes());
+            let mut records = InventoryValueReader {
+                values: &mut context.values,
+                key_work: &mut *context.key_work,
+                semantic_bytes: context.semantic_bytes,
+                record_bytes: context.record_bytes,
+                cancelled: &mut context.cancelled,
+            };
+            let actual = resolve(
+                key,
+                cell,
+                transaction,
+                &mut records,
+                &mut context.take_state_error,
+                value.text().len() as u64,
+                &mut compare,
+            )?;
+            if !matches!(actual.value, IndustryCellReadV1::Value(v) if value.matches(v))
+                || !compare.is_equal()
+            {
+                return Err(ValueTreeError::Invalid("industry expected record").into());
+            }
+            if (records.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            Ok(())
+        })?;
+        transaction.validate_guard(&transaction.guard(), live)?;
+        Ok(())
+    })
+}

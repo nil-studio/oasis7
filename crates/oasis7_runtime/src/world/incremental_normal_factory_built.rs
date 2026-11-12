@@ -119,6 +119,14 @@ impl PreparedNormalFactoryBuiltV1 {
 /// Apply the old FactoryBuilt state effects against authenticated Current.
 /// All supplied qualifications and DTOs are rechecked; the only output is a
 /// private counted-publication owner. This does not install a World cache.
+enum BuildSourceAuthV1<'a> {
+    LegacyScan,
+    ActualIndex(
+        &'a ReservedValue<
+            oasis7_world_state::incremental_factory_schedule_index::FactoryScheduleIndexV1,
+        >,
+    ),
+}
 #[allow(clippy::too_many_arguments)]
 pub(in crate::world) fn complete_current_factory_build_v1<
     M: MerkleNodeReader,
@@ -148,13 +156,113 @@ pub(in crate::world) fn complete_current_factory_build_v1<
     guard: &PreparedGuard,
     live: &ExecutionFence,
 ) -> Result<PreparedNormalFactoryBuiltV1, BodyMutationError> {
+    complete_current_factory_build_inner_v1(
+        step,
+        materials,
+        sources,
+        current_read,
+        Some(factory_parent_read),
+        agent_parent_read,
+        roots,
+        identity,
+        selected,
+        normal_work,
+        work,
+        guard,
+        live,
+        BuildSourceAuthV1::LegacyScan,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn complete_current_factory_build_from_index_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    AE: FnMut() -> Option<ValueTreeError>,
+    AC: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    ME: FnMut() -> Option<ValueTreeError>,
+    D: FnMut() -> bool,
+>(
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+    sources: &FactoryLifecycleSourcesV1<'_>,
+    current_read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    agent_parent_read: &mut WorldFieldReadContextV1<'_, P, V, AE, AC>,
+    roots: &RootSetV1,
+    index: &ReservedValue<
+        oasis7_world_state::incremental_factory_schedule_index::FactoryScheduleIndexV1,
+    >,
+    identity: &ReservedValue<FactoryBuildParentIdentityV1>,
+    selected: &ReservedValue<DecodedFactoryBuildJobV1>,
+    normal_work: &mut NormalTailWorkV1<'_, '_>,
+    work: &mut FactoryLifecycleWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<PreparedNormalFactoryBuiltV1, BodyMutationError> {
+    let unused: Option<
+        &mut FactoryFamilyReadContextV1<'_, P, V, fn() -> Option<ValueTreeError>, fn() -> bool>,
+    > = None;
+    complete_current_factory_build_inner_v1(
+        step,
+        materials,
+        sources,
+        current_read,
+        unused,
+        agent_parent_read,
+        roots,
+        identity,
+        selected,
+        normal_work,
+        work,
+        guard,
+        live,
+        BuildSourceAuthV1::ActualIndex(index),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn complete_current_factory_build_inner_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    PE: FnMut() -> Option<ValueTreeError>,
+    PC: FnMut() -> bool,
+    AE: FnMut() -> Option<ValueTreeError>,
+    AC: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    ME: FnMut() -> Option<ValueTreeError>,
+    D: FnMut() -> bool,
+>(
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+    sources: &FactoryLifecycleSourcesV1<'_>,
+    current_read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    mut factory_parent_read: Option<&mut FactoryFamilyReadContextV1<'_, P, V, PE, PC>>,
+    agent_parent_read: &mut WorldFieldReadContextV1<'_, P, V, AE, AC>,
+    roots: &RootSetV1,
+    identity: &ReservedValue<FactoryBuildParentIdentityV1>,
+    selected: &ReservedValue<DecodedFactoryBuildJobV1>,
+    normal_work: &mut NormalTailWorkV1<'_, '_>,
+    work: &mut FactoryLifecycleWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    authentication: BuildSourceAuthV1<'_>,
+) -> Result<PreparedNormalFactoryBuiltV1, BodyMutationError> {
     let result = (|| {
         let now = step.time();
         let transaction = &mut *step.transaction;
         transaction.validate_guard(guard, live)?;
         if !transaction.uses_budget(step.mutation.memory)
             || current_read.values.class != MemoryClass::Ordinary
-            || factory_parent_read.values.class != MemoryClass::Ordinary
+            || factory_parent_read
+                .as_ref()
+                .is_some_and(|read| read.values.class != MemoryClass::Ordinary)
             || agent_parent_read.values.class != MemoryClass::Ordinary
             || !materials.parent.uses_budget(step.mutation.memory)
             || !sources.factories.uses_budget(step.mutation.memory)
@@ -164,10 +272,9 @@ pub(in crate::world) fn complete_current_factory_build_v1<
             || !identity.uses_budget(step.mutation.memory)
             || !selected.uses_budget(step.mutation.memory)
             || !current_read.values.memory.same_pool(step.mutation.memory)
-            || !factory_parent_read
-                .values
-                .memory
-                .same_pool(step.mutation.memory)
+            || factory_parent_read
+                .as_ref()
+                .is_some_and(|read| !read.values.memory.same_pool(step.mutation.memory))
             || !agent_parent_read
                 .values
                 .memory
@@ -202,21 +309,61 @@ pub(in crate::world) fn complete_current_factory_build_v1<
         // Authenticate both roots of the parent-selected job identity.
         let mut parent_match = false;
         let mut parent_mismatch = false;
-        visit_qualified_build_parent_identities_v1(
-            roots,
-            sources.factories,
-            factory_parent_read,
-            &mut work.factory,
-            |candidate| {
-                if candidate.id == identity.id {
-                    parent_match = candidate.value_root == identity.value_root
-                        && candidate.record_root == identity.record_root;
-                    parent_mismatch = !parent_match;
+        match authentication {
+            BuildSourceAuthV1::LegacyScan => {
+                visit_qualified_build_parent_identities_v1(
+                    roots,
+                    sources.factories,
+                    factory_parent_read
+                        .as_deref_mut()
+                        .ok_or_else(|| invalid("FactoryBuilt legacy parent reader absent"))?,
+                    &mut work.factory,
+                    |candidate| {
+                        if candidate.id == identity.id {
+                            parent_match = candidate.value_root == identity.value_root
+                                && candidate.record_root == identity.record_root;
+                            parent_mismatch = !parent_match;
+                        }
+                        Ok(())
+                    },
+                )
+                .map_err(BodyMutationError::Value)?;
+            }
+            BuildSourceAuthV1::ActualIndex(index) => {
+                normal_work.charge(4096)?;
+                if !index.uses_budget(step.mutation.memory) {
+                    return Err(invalid("FactoryBuilt resident source pool"));
                 }
-                Ok(())
-            },
-        )
-        .map_err(BodyMutationError::Value)?;
+                index.validate_binding(
+                    sources.factories,
+                    roots,
+                    step.mutation.memory,
+                    MemoryClass::Ordinary,
+                )?;
+                for (id, value, record) in index.iter_parent_build_bindings() {
+                    normal_work.charge(32 + 64 + record.node_root.len())?;
+                    if id == identity.id {
+                        parent_match =
+                            *value == identity.value_root && *record == identity.record_root;
+                        parent_mismatch = !parent_match;
+                    }
+                }
+                if !parent_match && !parent_mismatch {
+                    // An actual same-tx insertion is a distinct authenticated
+                    // source, not an invented parent binding.
+                    let mut ctx=oasis7_world_state::incremental_factory_records::FactoryTransitionReadContextV1{values:oasis7_formal_protocol::incremental_value::ValueReadContext{source:current_read.values.source,memory:current_read.values.memory,class:current_read.values.class,io:&mut *current_read.values.io},key_work:&mut *current_read.key_work,semantic_bytes:current_read.semantic_bytes,record_bytes:current_read.record_bytes,max_payload_bytes:current_read.record_bytes,cancelled:&mut current_read.cancelled};
+                    let mut first = None;
+                    let visited=oasis7_world_state::incremental_factory_records::visit_build_current_outer_changes_v1(transaction,sources.factories,&mut ctx,&mut work.factory,|change|{
+                        if let oasis7_world_state::incremental_factory_records::FactoryBuildCurrentOuterChangeV1::Record{id,before:None,after:Some(after)}=&*change{if *id==identity.id{if let Err(error)=normal_work.charge(32+64+after.record_root.node_root.len()){first=Some(error);return Err(ValueTreeError::ResourceLimited("FactoryBuilt Current identity work").into());}parent_match=after.value_root==identity.value_root&&after.record_root==identity.record_root;}}
+                        Ok(())
+                    });
+                    if let Some(error) = first {
+                        return Err(error);
+                    }
+                    visited.map_err(overlay_error)?;
+                }
+            }
+        }
         if parent_mismatch {
             return Err(invalid("FactoryBuilt parent identity changed"));
         }

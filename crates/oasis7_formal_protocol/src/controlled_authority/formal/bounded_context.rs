@@ -116,6 +116,10 @@ pub struct ChildLeaseV1<'a> {
     finished: bool,
 }
 impl ChildLeaseV1<'_> {
+    /// Identity of the actual borrowed meter, without minting another balance.
+    pub fn identity(&self) -> WorkIdentityV1 {
+        self.work.identity()
+    }
     pub fn remaining_steps(&self) -> u64 {
         self.work.remaining_steps()
     }

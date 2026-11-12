@@ -43,6 +43,19 @@ impl serde::Serialize for PreActionEnvelopeV1<'_> {
         out.end()
     }
 }
+// Private invocation evidence and VM-only failure channel. A missing module
+// and a genuine VM failure cannot be confused with a successful empty output.
+struct DueProductInputV1<'a, 'job> {
+    call: &'a crate::world::incremental_normal_industry_due::PreparedDueProductCallV1<'job>,
+    failure: &'a RefCell<Option<ReservedValue<WorldError>>>,
+}
+impl<'job> std::ops::Deref for DueProductInputV1<'_, 'job> {
+    type Target = crate::world::incremental_normal_industry_due::PreparedDueProductCallV1<'job>;
+    fn deref(&self) -> &Self::Target {
+        self.call
+    }
+}
+
 pub struct RootModuleExecutionContextV1<
     'a,
     't,
@@ -287,6 +300,34 @@ where
         )
         .map_err(RootModuleExecutionErrorV1::Invocation)
     }
+    fn select_registry(
+        &mut self,
+        invocation_id: &str,
+        live: &ExecutionFence,
+    ) -> Result<Option<PreparedRootModuleInvocationV1>, RootModuleExecutionErrorV1<O::Error>> {
+        let guard = self.ctx.transaction.guard();
+        crate::world::incremental_module_invocation::prepare_root_module_registry_invocation_v1(
+            ModuleInvocationPreparationRequestV1 {
+                invocation_id,
+                parent_roots: self.families.roots,
+                instances: self.families.instances,
+                config: self.families.config,
+                content: self.families.content,
+                current_active: None,
+                current_record: None,
+                guard: &guard,
+                live,
+            },
+            self.state,
+            self.ctx,
+            &mut self.work.selection_scan,
+            &mut self.work.selection,
+            self.originals,
+            &mut self.work.original,
+            &mut self.work.selection_limits,
+        )
+        .map_err(RootModuleExecutionErrorV1::Invocation)
+    }
     fn execute_invocation_inner(
         &mut self,
         invocation_id: &str,
@@ -308,6 +349,21 @@ where
         )>,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
+        self.execute_input_invocation_inner(invocation_id, action, capture, route, None, live_owner)
+    }
+    fn execute_input_invocation_inner(
+        &mut self,
+        invocation_id: &str,
+        action: Option<PreActionEnvelopeV1<'_>>,
+        capture: Option<&RefCell<rule_capture::RuleOutputCaptureV1>>,
+        route: Option<(
+            oasis7_wasm_abi::ModuleSubscriptionStage,
+            Option<&crate::world::incremental_module_execution_event::PersistedWorldEventV1<'_>>,
+            Option<u64>,
+        )>,
+        product: Option<&DueProductInputV1<'_, '_>>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
         let live = live_owner();
         self.ctx
             .transaction
@@ -322,6 +378,51 @@ where
             &mut self.events.mutation,
         )
         .map_err(RootModuleExecutionErrorV1::Body)?;
+        // Economy calls resolve the actual active registry before their
+        // world-manifest input, preserving the original inactive-module error.
+        let product_first = if product.is_some() {
+            match self.select_registry(invocation_id, &live)? {
+                Some(selected) => Some(selected),
+                None => {
+                    let bytes = "module not active "
+                        .len()
+                        .checked_add(invocation_id.len())
+                        .ok_or(ValueTreeError::ResourceLimited(
+                            "product inactive module diagnostic",
+                        ))?;
+                    self.work.input.visits_remaining =
+                        self.work.input.visits_remaining.checked_sub(1).ok_or(
+                            ValueTreeError::ResourceLimited("product inactive module visits"),
+                        )?;
+                    self.work.input.bytes_remaining = self
+                        .work
+                        .input
+                        .bytes_remaining
+                        .checked_sub(bytes as u64)
+                        .ok_or(ValueTreeError::ResourceLimited(
+                            "product inactive module bytes",
+                        ))?;
+                    let fee = self
+                        .ctx
+                        .values
+                        .memory
+                        .reserve(
+                            bytes.checked_add(std::mem::size_of::<WorldError>()).ok_or(
+                                ValueTreeError::ResourceLimited("product inactive module layout"),
+                            )?,
+                            MemoryClass::Ordinary,
+                        )
+                        .map_err(ValueTreeError::Memory)?;
+                    return Err(RootModuleExecutionErrorV1::Business(fee.retain(
+                        WorldError::ModuleChangeInvalid {
+                            reason: format!("module not active {invocation_id}"),
+                        },
+                    )));
+                }
+            }
+        } else {
+            None
+        };
         let hash = prepare_current_world_manifest_hash_v1(
             self.families.parent,
             self.families.head,
@@ -334,13 +435,19 @@ where
             self.manifest_work,
         )
         .map_err(RootModuleExecutionErrorV1::Manifest)?;
-        let Some(first) = self.select(invocation_id, &live)? else {
+        let first = if product.is_some() {
+            product_first
+        } else {
+            self.select(invocation_id, &live)?
+        };
+        let Some(first) = first else {
             return Ok(None);
         };
         if let Some((_, Some(event), _)) = route {
             event.validate(self.ctx.transaction)?;
         }
         if action.is_none()
+            && product.is_none()
             && route.is_none()
             && !crate::world::module_tick_runtime::module_has_tick_subscription(first.manifest())
         {
@@ -350,6 +457,7 @@ where
         // A pre-action owns both the nested action bytes and the final input
         // at the same time. Reserve both Vec capacities before either encode.
         let input_copies = 1
+            + usize::from(product.is_some())
             + usize::from(action.is_some())
             + usize::from(route.is_some_and(|(_, event, _)| event.is_some()));
         let input_bytes = self.work.max_input_bytes.checked_mul(input_copies).ok_or(
@@ -373,33 +481,43 @@ where
         let _input_phase = memory
             .reserve(phase_bytes, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
-        let (origin_kind, origin_id, trace_id) = match first.install_target() {
-            oasis7_agent_api::world_action::ModuleInstallTarget::SelfAgent => (
-                "tick".to_owned(),
-                self.now.to_string(),
-                format!("tick-{}-{}", self.now, first.instance_id()),
-            ),
-            oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
-                location_id,
-            } => {
-                let location_id = location_id.trim();
-                if location_id.is_empty() {
-                    (
-                        "tick".to_owned(),
-                        self.now.to_string(),
-                        format!("tick-{}-{}", self.now, first.instance_id()),
-                    )
-                } else {
-                    (
-                        "infrastructure_tick".to_owned(),
-                        format!("{}:{}", location_id, self.now),
-                        format!(
-                            "infra-tick-{}-{}-{}",
-                            self.now,
-                            location_id,
-                            first.instance_id()
-                        ),
-                    )
+        let (origin_kind, origin_id, trace_id) = if let Some(product) = product {
+            let trace = format!(
+                "action-{}-{}-product-{}",
+                product.job().job_id,
+                first.module_id(),
+                product.output_index()
+            );
+            ("action".to_owned(), trace.clone(), trace)
+        } else {
+            match first.install_target() {
+                oasis7_agent_api::world_action::ModuleInstallTarget::SelfAgent => (
+                    "tick".to_owned(),
+                    self.now.to_string(),
+                    format!("tick-{}-{}", self.now, first.instance_id()),
+                ),
+                oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
+                    location_id,
+                } => {
+                    let location_id = location_id.trim();
+                    if location_id.is_empty() {
+                        (
+                            "tick".to_owned(),
+                            self.now.to_string(),
+                            format!("tick-{}-{}", self.now, first.instance_id()),
+                        )
+                    } else {
+                        (
+                            "infrastructure_tick".to_owned(),
+                            format!("{}:{}", location_id, self.now),
+                            format!(
+                                "infra-tick-{}-{}-{}",
+                                self.now,
+                                location_id,
+                                first.instance_id()
+                            ),
+                        )
+                    }
                 }
             }
         };
@@ -429,11 +547,22 @@ where
                     kind: origin_kind,
                     id: origin_id,
                 },
-                caller: ModuleCallCaller::System {
-                    system_id: "module_tick".to_owned(),
+                caller: if product.is_some() {
+                    ModuleCallCaller::LegacyUnspecified
+                } else {
+                    ModuleCallCaller::System {
+                        system_id: "module_tick".to_owned(),
+                    }
                 },
                 limits: first.manifest().limits.clone(),
-                stage: Some("tick".to_owned()),
+                stage: Some(
+                    if product.is_some() {
+                        "economy_action"
+                    } else {
+                        "tick"
+                    }
+                    .to_owned(),
+                ),
                 world_config_hash: Some(hash.hash().to_owned()),
                 manifest_hash: Some(hex::encode(first.manifest_sha256())),
                 journal_height: Some(
@@ -456,6 +585,18 @@ where
             action: None,
             state,
         };
+        if let Some(product) = product {
+            let request = crate::world::economy::ProductValidationModuleCallRequest::from_request(
+                product.request(),
+            );
+            input.action = Some(encode_input(
+                &request,
+                memory,
+                &mut self.work.input,
+                self.work.max_input_bytes,
+                &mut self.ctx.cancelled,
+            )?);
+        }
         if let Some(action) = action {
             oasis7_world_state::incremental_world_event_decode::verify_module_output_layout_inventory_v1(memory,MemoryClass::Ordinary)?;
             // The strict router owns its admitted arena through matching, never
@@ -563,11 +704,14 @@ where
         // Real second selection binds the strict post-input-read revision. No
         // caller boolean/guard replacement blesses the stale first selection.
         let live = live_owner();
-        let selected = self
-            .select(invocation_id, &live)?
-            .ok_or(ValueTreeError::Invalid(
-                "root module disappeared during input preparation",
-            ))?;
+        let selected = (if product.is_some() {
+            self.select_registry(invocation_id, &live)?
+        } else {
+            self.select(invocation_id, &live)?
+        })
+        .ok_or(ValueTreeError::Invalid(
+            "root module disappeared during input preparation",
+        ))?;
         if first.module_id() != selected.module_id()
             || first.instance_id() != selected.instance_id()
             || first.install_target() != selected.install_target()
@@ -625,14 +769,17 @@ where
                 let charge = memory
                     .reserve(bytes, MemoryClass::Ordinary)
                     .map_err(ValueTreeError::Memory)?;
-                return Err(RootModuleExecutionErrorV1::Business(charge.retain(
-                    WorldError::ModuleCallFailed {
-                        module_id: failure.module_id.clone(),
-                        trace_id: failure.trace_id.clone(),
-                        code: failure.code.clone(),
-                        detail: failure.detail.clone(),
-                    },
-                )));
+                let failure = charge.retain(WorldError::ModuleCallFailed {
+                    module_id: failure.module_id.clone(),
+                    trace_id: failure.trace_id.clone(),
+                    code: failure.code.clone(),
+                    detail: failure.detail.clone(),
+                });
+                if let Some(product) = product {
+                    *product.failure.borrow_mut() = Some(failure);
+                    return Ok(None);
+                }
+                return Err(RootModuleExecutionErrorV1::Business(failure));
             }
             Err(error) => return Err(RootModuleExecutionErrorV1::Worker(error)),
         };
@@ -944,3 +1091,8 @@ mod normal_transits_due;
 
 #[path = "incremental_module_execution_factory_schedule_driver.rs"]
 mod factory_schedule_driver;
+
+#[path = "incremental_module_execution_due_product.rs"]
+mod due_product;
+
+pub(in crate::world) use due_product::PaidDueProductVmFailureV1;

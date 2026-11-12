@@ -21,6 +21,10 @@ use oasis7_world_state::incremental_event_fields::{
 mod normal_factory_built;
 pub(in crate::world) use normal_factory_built::contribute_normal_factory_built_event_v1;
 
+#[path = "incremental_normal_recipe_completed_event.rs"]
+mod normal_recipe_completed;
+pub(in crate::world) use normal_recipe_completed::contribute_normal_recipe_completed_event_v1;
+
 pub struct ModuleOutputEventContextV1<'a, V, W, C, F> {
     pub values: &'a V,
     pub world_events: &'a super::incremental_world_event_counter::WorldEventCounterV1,
@@ -101,6 +105,38 @@ enum PersistedEventOwnerV1<'event> {
     ),
 }
 impl<'event> PersistedWorldEventV1<'event> {
+    pub(in crate::world) fn from_deferred_due<M: MerkleNodeReader>(
+        owner:&'event crate::world::incremental_normal_industry_due::deferred::PaidDeferredDueEventV1,
+        tx: &ExecutionTransaction<'_, M>,
+        common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+        now: u64,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<Self, BodyMutationError> {
+        owner.validate(tx, common, now, live)?;
+        Ok(Self {
+            owner: PersistedEventOwnerV1::Module {
+                event: owner.event(),
+                identity: tx.guard(),
+            },
+        })
+    }
+    /// Route the exact authenticated historical Product event without applying
+    /// its Domain mutation or appending a second Original/WorldEvent fact.
+    pub(in crate::world) fn from_exact_product_replay<M: MerkleNodeReader>(
+        owner: &'event crate::world::incremental_normal_industry_due::delivery::PreparedProductValidationReplayV1,
+        tx: &ExecutionTransaction<'_, M>,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<Self, crate::world::incremental_normal_industry_due::delivery::DeliveryDataErrorV1>
+    {
+        owner.validate(tx, common, live)?;
+        Ok(Self {
+            owner: PersistedEventOwnerV1::Module {
+                event: owner.event(),
+                identity: tx.guard(),
+            },
+        })
+    }
     pub(in crate::world) fn from_factory_schedule(
         owner:&'event super::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1,
     ) -> Self {
@@ -679,3 +715,49 @@ pub(in crate::world) use safe_alternative_outcome::{
     AuthorizationOutcomePublishErrorV1, PublishedAuthorizationOutcomeEventV1,
     publish_safe_alternative_outcome_event_v1,
 };
+
+#[path = "incremental_normal_due_product_event.rs"]
+mod due_product_event;
+pub(in crate::world) use due_product_event::{
+    contribute_due_product_attempt_event_v1, contribute_due_product_cursor_event_v1,
+    contribute_due_product_module_failure_event_v1, contribute_due_product_recorded_event_v1,
+    contribute_due_product_result_event_v1, contribute_due_recipe_failure_event_v1,
+};
+
+/// A due product rejection has no actor in its original DomainEvent. Require
+/// the completed private system source and preserve its global journal form.
+pub(super) fn contribute_due_rejection_original_v1<M, V, W, C, F>(
+    now: u64,
+    source: &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    context: &mut super::incremental_body_event::AgentEventContext<'_, V, W, C, F>,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    tx.contribute(|tx| {
+        source.validate(tx, context.mutation.memory, now)?;
+        tx.validate_guard(&tx.guard(), live)?;
+        if !matches!(
+            &source.event().body,
+            WorldEventBody::Domain(crate::DomainEvent::ActionRejected { .. })
+        ) {
+            return Err(BodyMutationError::Invalid("due product rejection source"));
+        }
+        persist_event_original_and_fact_v1(
+            now,
+            source.event(),
+            tx,
+            context.values,
+            &mut context.mutation,
+            &mut context.original_work,
+            context.max_event_bytes,
+            &mut context.persist_original,
+        )
+    })
+}
