@@ -719,10 +719,7 @@ impl FeedbackStore {
             let public_key_identity =
                 rate_limit_public_key_identity(record.actor_public_key_hex.as_str())?;
             increment_counter(&mut counts.ip_counts, ip_identity.as_str());
-            increment_counter(
-                &mut counts.pubkey_counts,
-                public_key_identity.as_str(),
-            );
+            increment_counter(&mut counts.pubkey_counts, public_key_identity.as_str());
         }
         Ok(counts)
     }

@@ -686,7 +686,10 @@ fn assert_feedback_rate_limit_identity_aliases(check_ip: bool) {
         root_before
     );
     for (path, bytes) in audit_before {
-        assert_eq!(reopened.store.read_file(&path).expect("unchanged audit"), bytes);
+        assert_eq!(
+            reopened.store.read_file(&path).expect("unchanged audit"),
+            bytes
+        );
     }
     let root = reopened
         .read_feedback_root("identity-first")
