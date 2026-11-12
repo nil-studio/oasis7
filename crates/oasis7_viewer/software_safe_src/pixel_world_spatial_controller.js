@@ -156,7 +156,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     if (disposed || !enabled() || pixelWorldScope(core.state) !== scope) return null;
     const pinned = pins(); lastPins = JSON.stringify(pinned);
     const intent=explicitQuery;
-    if (intent) setQueryStatus('reading');
+    if (intent) {setQueryStatus('reading');currentQuery={...intent.query};}
     const query = {...(intent?.query || currentQuery)};delete query.pinned_entities;delete query.resume_cursor;delete query.cursor;
     if (core.state.viewerProtocol?.capabilities?.includes('world_view_pins_v1')) query.pinned_entities = pinned;
     const caps = core.state.viewerProtocol?.capabilities || [];
@@ -185,7 +185,6 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     cancelPending();
     cancelOverview(null,true);queryToken += 1;
     command += 1; cancelScheduled();client.clearChanges();
-    currentQuery = {...query};
     let resolve;const result=new Promise(done=>resolve=done);
     const intent={query:{...query},resolve,timer:null};explicitQuery=intent;setQueryStatus('pending');
     intent.timer=setTimeout(()=>{if(explicitQuery===intent){client.invalidate();finishQuery(intent,null,'unavailable');}},30000);
