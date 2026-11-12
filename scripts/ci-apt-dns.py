@@ -102,7 +102,11 @@ def default_mirror_allowed():
     rows = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')]
     expected = [('http', 'azure.archive.ubuntu.com'), ('https', 'archive.ubuntu.com'),
                 ('https', 'security.ubuntu.com')]
-    if len(rows) != len(expected):
+    prepared = [('https', 'mirrors.edge.kernel.org'), ('https', 'archive.ubuntu.com'),
+                ('https', 'security.ubuntu.com'), ('http', 'azure.archive.ubuntu.com')]
+    if len(rows) == len(prepared):
+        expected = prepared
+    elif len(rows) != len(expected):
         return False
     for row, (scheme, host) in zip(rows, expected):
         url = urlsplit(row[0])
