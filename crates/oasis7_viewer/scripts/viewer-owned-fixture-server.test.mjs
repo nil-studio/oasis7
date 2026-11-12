@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,writeFileSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {startOwnedViewerFixtureServer,fingerprintViewerAssets} from './viewer-owned-fixture-server.mjs';
+import {startOwnedViewerFixtureServer,fingerprintViewerAssets,createOwnedViewerEvidence} from './viewer-owned-fixture-server.mjs';
 const setup=async()=>{const dir=mkdtempSync(join(tmpdir(),'viewer-product-server-'));const root=join(dir,'assets'),out=join(dir,'evidence');mkdirSync(root);mkdirSync(out);writeFileSync(join(root,'viewer.html'),'<head></head>');writeFileSync(join(root,'test.wasm'),Buffer.from([0,97,115,109,1,0,0,0]));return{root,server:await startOwnedViewerFixtureServer({artifactRoot:root,source:'test',out,expectedAssets:fingerprintViewerAssets(root)})};};
 test('same owned origin serves real bytes/no-store and refuses mutation/path escape',async()=>{
  const {server}=await setup();const url=server.url.replace('density-qa.localhost','127.0.0.1');
@@ -16,3 +16,11 @@ test('standard WS pages prove1000 same-cut records; snapshot stays empty and wri
  do{next=receive();socket.send(JSON.stringify({type:'request_world_view',query:{request_generation:'1:1',page_size:200,...(cursor?{cursor}:{})}}));const response=await next;assert.equal(response.view.source_cut,server.fixture.description().cut);count+=response.view.entities.length;cursor=response.view.next_cursor;}while(cursor);assert.equal(count,1000);server.assertHealthy();const closed=new Promise(yes=>socket.addEventListener('close',yes,{once:true}));socket.send(JSON.stringify({type:'Command'}));await closed;assert.throws(()=>server.assertHealthy(),/non-read/);}finally{socket.close();await server.close();}
 });
 test('asset mutation cannot inherit the original immutable proof',async()=>{const {server,root}=await setup();try{writeFileSync(join(root,'test.wasm'),'changed');assert.throws(()=>server.verifyAssets(),/changed/);}finally{await server.close();}});
+test('first HTTP evidence append failure remains terminal even if a second append could succeed',()=>{
+ const original=Error('first append failed');let calls=0,stops=0;
+ const evidence=createOwnedViewerEvidence({append:()=>{if(++calls===1)throw original;},persistFailure:()=>{},stopSource:()=>stops++});
+ assert.throws(()=>evidence.write({kind:'http',status:200}),e=>e===original);
+ assert.throws(()=>evidence.write({kind:'http',status:404}),e=>e===original);
+ assert.equal(calls,1);assert.equal(stops,1);
+});
+test('falsy collection failures also stay terminal and preserve their original value',()=>{for(const original of [null,undefined,0,'',false]){let calls=0;const evidence=createOwnedViewerEvidence({append:()=>{calls++;throw original;},persistFailure:()=>{},stopSource:()=>{}});assert.throws(()=>evidence.write({status:200}),e=>Object.is(e,original));assert.throws(()=>evidence.write({status:404}),e=>Object.is(e,original));assert.equal(calls,1);}});
