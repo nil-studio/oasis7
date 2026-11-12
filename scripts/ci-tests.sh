@@ -609,7 +609,12 @@ PY
 run_rustsec_advisory_check() {
   run ./scripts/check-rustsec-ignore-baseline.test.sh
   run ./scripts/check-rustsec-ignore-baseline.sh
-  run ./scripts/ensure-cargo-deny.sh
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    # Reuse the existing no-install guard and the version checked by preflight.
+    run env CI=true CARGO_DENY_VERSION=0.19.9 ./scripts/ensure-cargo-deny.sh
+  else
+    run ./scripts/ensure-cargo-deny.sh
+  fi
   run cargo deny --locked --all-features check advisories bans
 }
 

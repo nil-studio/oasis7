@@ -54,10 +54,6 @@ cli_version_matches() {
 }
 
 install_cli() {
-  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
-    echo "error: local checks require installed wasm-bindgen $WASM_BINDGEN_LOCK_VERSION; automatic installation is disabled" >&2
-    return 2
-  fi
   mkdir -p "$cache_root"
   local force_arg=""
   if [[ "$ENSURE_CACHE" == "1" ]]; then

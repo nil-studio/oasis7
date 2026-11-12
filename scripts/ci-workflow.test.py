@@ -4664,25 +4664,59 @@ class LocalCheckDriverContract(unittest.TestCase):
                 '--bin', 'oasis7_newapi_bridge_service', '--', '--nocapture'])
 
     def test_local_cargo_deny_requires_the_installed_exact_version_without_installing(self):
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            (directory / 'awk').symlink_to(shutil.which('awk'))
-            cargo = directory / 'cargo'
-            cargo.write_text('#!/bin/sh\nprintf attempted > "$INSTALL_LOG"\nexit 79\n')
-            cargo.chmod(0o755)
-            deny = directory / 'cargo-deny'
-            for version in (None, '0.0.0', '0.19.9'):
-                with self.subTest(version=version):
-                    if version is not None:
-                        deny.write_text('#!/bin/sh\nprintf "cargo-deny ' + version + '\\n"\n')
-                        deny.chmod(0o755)
-                    result = subprocess.run([shutil.which('bash'), str(ROOT / 'scripts/ensure-cargo-deny.sh')],
-                        text=True, capture_output=True, env=dict(os.environ, PATH=str(directory),
-                        OASIS7_LOCAL_CHECK='1', CARGO_DENY_VERSION='0.19.9', INSTALL_LOG=str(directory / 'installed')))
-                    self.assertEqual(result.returncode, 0 if version == '0.19.9' else 2, result.stderr)
-                    self.assertFalse((directory / 'installed').exists())
-                    if version != '0.19.9':
-                        self.assertIn('automatic installation is disabled', result.stderr)
+        cases = [('1', None), ('1', '0.0.0'), ('1', '0.19.9'), ('0', None), ('0', '0.0.0')]
+        for mode, version in cases:
+            with self.subTest(mode=mode, version=version), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                scripts, binaries, report = (directory / name for name in ('scripts', 'bin', 'report'))
+                for path in (scripts, binaries, report):
+                    path.mkdir()
+                for name in ('bash', 'env', 'awk', 'python3'):
+                    (binaries / name).symlink_to(shutil.which(name))
+                helper = scripts / 'ensure-cargo-deny.sh'
+                helper.write_bytes((ROOT / 'scripts/ensure-cargo-deny.sh').read_bytes())
+                helper.chmod(0o755)
+                # Only unrelated validators are fixture no-ops. The real driver,
+                # command receipt runner and unmodified provisioning helper run.
+                for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh'):
+                    path = scripts / name
+                    path.write_text('#!/bin/sh\nexit 0\n')
+                    path.chmod(0o755)
+                cargo = binaries / 'cargo'
+                cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CARGO_CALLS"\n'
+                                 'if [ "$1" = install ]; then printf attempted > "$INSTALL_LOG"; fi\n')
+                cargo.chmod(0o755)
+                if version is not None:
+                    deny = binaries / 'cargo-deny'
+                    deny.write_text('#!/bin/sh\nprintf "cargo-deny ' + version + '\\n"\n')
+                    deny.chmod(0o755)
+                result = self.shell('run_rustsec_advisory_check\nprintf "after-ci=%s\\n" "$CI"\n',
+                    cwd=directory, PATH=str(binaries), CI='false', CARGO_DENY_VERSION='0.0.0',
+                    OASIS7_LOCAL_CHECK=mode, OASIS7_LOCAL_CHECK_GROUP='rust_baseline',
+                    OASIS7_LOCAL_CHECK_COMMAND_RUNNER=str(ROOT / 'scripts/ci-local-check-command.py'),
+                    OASIS7_LOCAL_CHECK_RUN_DIR=str(report), INSTALL_LOG=str(directory / 'installed'),
+                    CARGO_CALLS=str(directory / 'cargo-calls'))
+                passed = mode == '0' or version == '0.19.9'
+                self.assertEqual(result.returncode, 0 if passed else 1, result.stdout + result.stderr)
+                self.assertEqual((directory / 'installed').exists(), mode == '0' and version is None)
+                if mode == '1':
+                    receipts = [json.loads(path.read_text()) for path in (report / 'commands').glob('*.json')]
+                    ensures = [row for row in receipts if any(arg.endswith('/ensure-cargo-deny.sh') for arg in row['argv'])]
+                    self.assertEqual(len(ensures), 1)
+                    self.assertEqual(ensures[0]['argv'], ['env', 'CI=true', 'CARGO_DENY_VERSION=0.19.9',
+                                                        './scripts/ensure-cargo-deny.sh'])
+                    self.assertEqual(ensures[0]['exit_code'], 0 if passed else 127)
+                    self.assertEqual(ensures[0]['status'], 'passed' if passed else 'failed')
+                    if not passed:
+                        self.assertIn('cargo-deny 0.19.9 is required in CI', result.stdout)
+                        self.assertFalse((directory / 'cargo-calls').exists())
+                else:
+                    self.assertFalse((report / 'commands').exists())
+                    if version is None:
+                        self.assertIn('install cargo-deny --version 0.0.0 --locked',
+                                      (directory / 'cargo-calls').read_text())
+                if passed:
+                    self.assertIn('after-ci=false', result.stdout)
 
     def test_local_standalone_lockfile_inspection_locks_root_metadata_too(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Provisioning fixtures use a fake Cargo and retain normal-mode coverage.
-export OASIS7_LOCAL_CHECK=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 fixture="$(mktemp -d)"
 trap 'rm -rf "$fixture"' EXIT
@@ -137,31 +135,4 @@ reset_case
 write_cli "$cache_bin" 0.2.999
 [[ -z "$(bash "$helper" --ensure-cache)" ]]
 [[ ! -s "$CARGO_TEST_LOG" ]]
-
-# Explicit local checks reuse exact tools and never enter the installer.
-for location in "$cache_bin" "$fixture/external/wasm-bindgen" "$fixture/tools/wasm-bindgen"; do
-  reset_case
-  write_cli "$location" 0.2.999
-  if [[ "$location" == "$fixture/external/wasm-bindgen" ]]; then export WASM_BINDGEN_BIN="$location"; fi
-  result="$(OASIS7_LOCAL_CHECK=1 bash "$helper" --print-bin)"
-  [[ "$result" == "$location" ]]
-  [[ ! -s "$CARGO_TEST_LOG" ]]
-done
-for condition in missing wrong-version; do
-  reset_case
-  if [[ "$condition" == wrong-version ]]; then write_cli "$cache_bin" 0.2.998; fi
-  if OASIS7_LOCAL_CHECK=1 bash "$helper" --ensure-cache --print-bin >"$fixture/stdout" 2>"$fixture/stderr"; then
-    echo 'expected local missing/version-mismatched tool to block' >&2
-    exit 1
-  else
-    status=$?
-  fi
-  [[ "$status" == 2 && ! -s "$fixture/stdout" && ! -s "$CARGO_TEST_LOG" ]]
-  [[ "$(cat "$fixture/stderr")" == *'automatic installation is disabled'* ]]
-  if [[ "$condition" == missing ]]; then
-    [[ ! -e "$XDG_CACHE_HOME" ]]
-  else
-    [[ "$("$cache_bin" --version)" == 'wasm-bindgen 0.2.998' ]]
-  fi
-done
 printf 'ensure-wasm-bindgen-cli tests passed\n'
