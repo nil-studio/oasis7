@@ -21,6 +21,33 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_tls_forwarder_clients_enforce_tls12_with_permissive_defaults(self):
+        import ssl
+
+        create_default_context = ssl.create_default_context
+        wrapped_contexts = []
+
+        def permissive_default(*args, **kwargs):
+            context = create_default_context(*args, **kwargs)
+            context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+            wrap_socket = context.wrap_socket
+
+            def verified_wrap(*args, **kwargs):
+                self.assertEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+                self.assertEqual(context.maximum_version, ssl.TLSVersion.MAXIMUM_SUPPORTED)
+                self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+                self.assertTrue(context.check_hostname)
+                wrapped_contexts.append(context)
+                return wrap_socket(*args, **kwargs)
+
+            context.wrap_socket = verified_wrap
+            return context
+
+        # Exercise real HTTPS and raw framing clients with older platform defaults.
+        with patch.object(ssl, "create_default_context", side_effect=permissive_default):
+            self.test_tls_forwarder_reuses_verified_connection()
+        self.assertEqual(len(wrapped_contexts), 5)
+
     def test_tls_forwarder_reuses_verified_connection(self):
         import http.client, http.server, ssl, threading, time
         spec = importlib.util.spec_from_file_location("reuse_fixture", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
@@ -41,7 +68,9 @@ class PackageTests(unittest.TestCase):
             def accept():
                 result = original(); accepts.append(1); return result
             server.get_request = accept
-            client = http.client.HTTPSConnection("localhost", server.server_port, context=ssl.create_default_context(cafile=str(smoke.root/"root.crt")), timeout=3)
+            client_context = ssl.create_default_context(cafile=str(smoke.root/"root.crt"))
+            client_context.minimum_version = ssl.TLSVersion.TLSv1_2
+            client = http.client.HTTPSConnection("localhost", server.server_port, context=client_context, timeout=3)
             try:
                 for cookie, status in [("session=authorized", 200), (None, 403), ("session=wrong", 403)]:
                     client.request("GET", "/capabilities", headers={"Cookie": cookie} if cookie else {})
@@ -50,7 +79,7 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(len(accepts), 1)
                 # Request framing errors close the connection before upstream forwarding.
                 for headers in ["Content-Length: 0\r\nContent-Length: 0", "Transfer-Encoding: chunked", "Content-Length: -1", "Content-Length: +1"]:
-                    raw = ssl.create_default_context(cafile=str(smoke.root/"root.crt")).wrap_socket(__import__('socket').create_connection(("localhost", server.server_port)), server_hostname="localhost")
+                    raw = client_context.wrap_socket(__import__('socket').create_connection(("localhost", server.server_port)), server_hostname="localhost")
                     raw.settimeout(2)
                     try:
                         raw.sendall(("POST /capabilities HTTP/1.1\r\nHost: localhost\r\n"+headers+"\r\n\r\nGET /capabilities HTTP/1.1\r\nHost: localhost\r\n\r\n").encode())
