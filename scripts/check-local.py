@@ -121,7 +121,11 @@ def invoke(argv, root, env, directory, name, timeout):
     return dict(outcome, argv=argv, cwd=str(root), log=str(log), journal=str(journal))
 
 
-def trusted_plan(root, base, snapshot, args, directory, result):
+def plan_from_baseline(root, base, snapshot, args, directory, result):
+    """Run baseline-pinned policy and return public group names and planner path.
+
+    The baseline establishes policy integrity; the selection is report evidence.
+    """
     policy = directory / 'policy'
     policy.mkdir()
     blobs = {}
@@ -402,7 +406,7 @@ def main(argv=None):
         else:
             first_plan = directory / 'planning-0'
             first_plan.mkdir()
-            groups, planner_path = trusted_plan(root, base, before, args, first_plan, result)
+            groups, planner_path = plan_from_baseline(root, base, before, args, first_plan, result)
             if set(groups) & RUST_GROUPS:
                 for attempt in range(1, 33):
                     found = inputs.referenced_inputs(root, before, planner_path)
@@ -423,7 +427,7 @@ def main(argv=None):
                         break
                     next_plan = directory / f'planning-{attempt}'
                     next_plan.mkdir()
-                    groups, planner_path = trusted_plan(root, base, before, args, next_plan, result)
+                    groups, planner_path = plan_from_baseline(root, base, before, args, next_plan, result)
                 else:
                     raise Blocked('referenced input closure did not converge')
             (directory / 'plan.json').write_text(json.dumps(result['plan'], ensure_ascii=True, sort_keys=True) + '\n')

@@ -4794,6 +4794,7 @@ class PythonControlContracts(unittest.TestCase):
                     self.assertEqual(plan['python_control_tests'], {'workflow_governance': [
                         'scripts/ci-custody-platform.test.py',
                         'scripts/ci-formal-process.test.py',
+                        'scripts/ci-local-check.test.py',
                         'scripts/ci-storage-acceptance.test.py',
                         'scripts/ci-support-profiles.test.py',
                         'scripts/ci-worker-build.test.py',

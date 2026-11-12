@@ -304,6 +304,31 @@ class Entry(GitFixture):
                 self.assertEqual(report['groups'][0]['name'], 'baseline')
                 self.assertEqual(self.state(), before)
 
+    def test_plan_reports_public_evidence_without_environment_values(self):
+        sentinel = 'local-check-environment-value-must-stay-out-of-reports'
+        env = dict(os.environ, LOCAL_ENTRY_FIXTURE_API_KEY=sentinel)
+        for output_format in ('json', 'text'):
+            with self.subTest(output_format=output_format):
+                process = subprocess.run(
+                    [sys.executable, str(HERE / 'check-local.py'), '--profile', 'affected',
+                     '--dry-run', '--format', output_format, '--output-dir', str(self.reports)],
+                    cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                payload = (process.stdout if output_format == 'json'
+                           else process.stdout.split('Full result:\n', 1)[1])
+                report = json.loads(payload)
+                self.assertEqual(report['status'], 'planned')
+                self.assertFalse(report['validated'])
+                self.assertEqual([group['name'] for group in report['groups']], ['baseline'])
+                self.assertEqual(report['plan']['groups'], ['baseline'])
+                self.assertEqual(report['selection_reasons'], ['fixture policy'])
+                self.assertEqual(report['policy_sha'], self.base)
+                self.assertEqual(json.loads(Path(report['logs']['report']).read_text()), report)
+                self.assertNotIn(sentinel, process.stdout + process.stderr)
+                for path in Path(report['logs']['directory']).rglob('*'):
+                    if path.is_file():
+                        self.assertNotIn(sentinel, path.read_text(), str(path))
+
     def test_arguments_and_formal_dirty_are_blocked(self):
         for args in ((), ('--profile', 'formal'), ('--profile', 'quick', '--tier', 'required'),
                      ('--profile', 'quick', '--timeout-seconds', 'nan'),
