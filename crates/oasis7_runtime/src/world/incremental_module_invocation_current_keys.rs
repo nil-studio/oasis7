@@ -7,9 +7,9 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
-pub(super) fn current_keys_v1<M: MerkleNodeReader>(
+pub(super) fn current_keys_v1<M: MerkleNodeReader, P: MerkleNodeReader>(
     tx: &mut ExecutionTransaction<'_, M>,
-    state: &M,
+    state: &P,
     parent_keys: Option<&[Vec<u8>]>,
     namespace: StateNamespaceV1,
     budget: CurrentKeyEnumerationBudgetV1<'_>,

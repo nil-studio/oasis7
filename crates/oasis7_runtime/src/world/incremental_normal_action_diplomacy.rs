@@ -220,3 +220,16 @@ fn membership_error(
         E::Work(e) => BodyMutationError::Original(Box::new(e)),
     }
 }
+
+#[path = "incremental_normal_action_war.rs"]
+mod war;
+pub(in crate::world) use war::{PreparedWarActionV1, commit_war_action_v1, prepare_war_action_v1};
+pub(in crate::world) enum PreparedDiplomacyActionV1<'s, 'r, 'source> {
+    Alliance(PreparedAllianceActionV1<'s, 'r, 'source>),
+    War(PreparedWarActionV1<'s, 'r, 'source>),
+}
+
+#[path = "incremental_normal_action_contract.rs"]
+pub(in crate::world) mod contracts;
+
+pub(in crate::world) use hash::fixed_json_digest_v1;

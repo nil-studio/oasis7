@@ -36,7 +36,7 @@ fn limited() -> ValueTreeError {
     ValueTreeError::ResourceLimited("organization membership layout")
 }
 #[derive(Clone, Copy)]
-enum Key<'a> {
+pub(super) enum Key<'a> {
     Field(&'static str),
     Entry(&'a str),
 }
@@ -52,7 +52,7 @@ fn key<R: ValueNodeReader, C: FnMut() -> bool>(
 }
 /// One original typed path, with the exact member value ID retained separately
 /// from any embedded organization/member identifier.
-fn point<R, E, C>(
+pub(super) fn point<R, E, C>(
     root: &StateRootV1,
     path: &[Key<'_>],
     values: &mut oasis7_formal_protocol::incremental_value::ValueReadContext<'_, R>,
@@ -993,3 +993,11 @@ where
     }
     result
 }
+
+#[path = "incremental_world_rule_continuity_settlement.rs"]
+mod settlement;
+pub use settlement::{
+    CurrentContinuitySettlementRowV1, PreparedContinuitySettlementEffectV1,
+    apply_prepared_continuity_settlement_v1, prepare_continuity_settlement_pause_v1,
+    prepare_continuity_settlement_receipt_v1, read_current_continuity_settlement_row_v1,
+};

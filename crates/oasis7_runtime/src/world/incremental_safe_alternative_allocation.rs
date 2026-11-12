@@ -74,10 +74,15 @@ fn node<K, V>() -> Option<usize> {
         )?
         .checked_add((a - 1) * 7)
 }
+pub(super) struct SafeAlternativeOwnedBoundV1 {
+    pub heap: usize,
+    pub visits: u64,
+    pub bytes: u64,
+}
 pub(super) fn safe_alternative_owned_bound_v1(
     value: &Value,
     common: &mut FormalBoundedContextV1<'_>,
-) -> Result<usize, BodyMutationError> {
+) -> Result<SafeAlternativeOwnedBoundV1, BodyMutationError> {
     let mut s = Shape::default();
     visit(value, 0, &mut s, common)?;
     // serde229's private Content is deliberately named: upgrading its layout
@@ -114,9 +119,39 @@ pub(super) fn safe_alternative_owned_bound_v1(
                 .and_then(|v| n.checked_add(v))
         })
         .ok_or_else(limited)?;
-    phase
-        .checked_mul(s.depth.checked_add(4).ok_or_else(limited)?)
+    let stages = s.depth.checked_add(4).ok_or_else(limited)?;
+    let heap = phase
+        .checked_mul(stages)
         .and_then(|n| n.checked_add(node::<u64, ()>()?))
         .and_then(|n| n.checked_add(8192))
-        .ok_or_else(limited)
+        .ok_or_else(limited)?;
+    // Work follows actual tokens and text, independently of BTree/Content ABI
+    // allocation. Sixteen passes cover the three signed command boundaries,
+    // their canonical JSON/hash comparisons, retained Content clones and the
+    // fixed lineage/candidate/outcome checks. Each scalar CBOR header is <=9
+    // bytes; JSON escaping is <=6 bytes per UTF8 byte at each of two buffers.
+    let tokens = s
+        .values
+        .checked_add(s.seq)
+        .and_then(|n| n.checked_add(s.map))
+        .and_then(|n| n.checked_add(1))
+        .ok_or_else(limited)?;
+    let visits = tokens
+        .checked_mul(stages)
+        .and_then(|n| n.checked_mul(16))
+        .and_then(|n| n.checked_add(1024))
+        .ok_or_else(limited)?;
+    let bytes = s
+        .strings
+        .checked_mul(14)
+        .and_then(|n| tokens.checked_mul(9).and_then(|t| n.checked_add(t)))
+        .and_then(|n| n.checked_mul(stages))
+        .and_then(|n| n.checked_mul(16))
+        .and_then(|n| n.checked_add(8192))
+        .ok_or_else(limited)?;
+    Ok(SafeAlternativeOwnedBoundV1 {
+        heap,
+        visits: u64::try_from(visits).map_err(|_| limited())?,
+        bytes: u64::try_from(bytes).map_err(|_| limited())?,
+    })
 }

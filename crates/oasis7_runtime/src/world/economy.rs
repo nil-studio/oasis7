@@ -931,7 +931,9 @@ impl World {
             .cloned()
     }
 
-    fn builtin_product_module_for_kind(product_kind: &str) -> Option<&'static str> {
+    pub(in crate::world) fn builtin_product_module_for_kind(
+        product_kind: &str,
+    ) -> Option<&'static str> {
         match product_kind {
             "iron_ingot" => Some(M4_PRODUCT_IRON_INGOT_MODULE_ID),
             "alloy_plate" => Some(M4_PRODUCT_ALLOY_PLATE_MODULE_ID),

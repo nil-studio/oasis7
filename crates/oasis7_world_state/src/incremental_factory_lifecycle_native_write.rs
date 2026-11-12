@@ -503,3 +503,7 @@ fn change_current_factory_industry_progress_v1<
         Ok(true)
     })
 }
+
+#[path = "incremental_factory_schedule_native_write.rs"]
+mod recipe_quotes;
+pub use recipe_quotes::write_current_recipe_market_quotes_v1;

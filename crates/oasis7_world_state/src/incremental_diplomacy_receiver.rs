@@ -293,6 +293,16 @@ pub(crate) fn accept_diplomacy_verified_v1<
     );
     *cells = index_work.cells_remaining;
     let relations = indexed?;
+    index_work.cells_remaining = *cells;
+    let indexed_contracts = family::relations::contracts::accepted_index(
+        &parent.contracts,
+        &verified.record.writes,
+        ctx,
+        &mut index_work,
+        max,
+    );
+    *cells = index_work.cells_remaining;
+    let contracts = indexed_contracts?;
     let proof = ctx
         .values
         .memory
@@ -306,6 +316,7 @@ pub(crate) fn accept_diplomacy_verified_v1<
             counts,
             class: ctx.values.class,
             relations,
+            contracts,
         });
     ctx.check()?;
     Ok(proof)

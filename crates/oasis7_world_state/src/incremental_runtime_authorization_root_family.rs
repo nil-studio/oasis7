@@ -29,7 +29,11 @@ impl RuntimeAuthorizationRootQualificationV1 {
         self.utf8_bytes
     }
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {
-        if roots.digest().map_err(|_| invalid())? != self.roots {
+        self.validate_digest(&roots.digest().map_err(|_| invalid())?)
+    }
+    /// Exact parent transaction binding; no new structural qualification.
+    pub fn validate_digest(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
+        if roots != &self.roots {
             return Err(invalid());
         }
         Ok(())

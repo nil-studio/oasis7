@@ -13,6 +13,7 @@ mod publication;
 pub use publication::{
     change_current_factory_industry_stage_v1, increment_current_material_transit_progress_v1,
     write_current_factory_construction_receipt_v1, write_current_factory_recycle_receipt_v1,
+    write_current_recipe_market_quotes_v1,
 };
 
 #[cfg(test)]

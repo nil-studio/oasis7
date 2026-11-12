@@ -581,25 +581,12 @@ impl World {
         action_id: u64,
         event_id: u64,
     ) -> Result<Value, WorldError> {
-        let r = self
-            .capability_revocation_state
-            .safe_alternatives
-            .get(key)
-            .cloned()
-            .ok_or_else(|| error("outcome_unknown"))?;
-        if r["authorization"]["action_id"].as_u64() != Some(action_id) {
-            return Err(error("identity_conflict"));
-        }
-        let event = self
-            .journal
-            .events
-            .iter()
-            .find(|e| {
-                e.id == event_id
-                    && matches!(e.caused_by,Some(CausedBy::Action(id)) if id==action_id)
-            })
-            .ok_or_else(|| error("outcome_unknown"))?;
-        super::incremental_safe_alternative_outcome::project_outcome_record_v1(r, action_id, event)
+        super::incremental_safe_alternative_originals::project_outcome_from_originals_v1(
+            self.capability_revocation_state.safe_alternatives.get(key),
+            action_id,
+            event_id,
+            &self.journal.events,
+        )
     }
     pub(super) fn validate_safe_alternative_history(&self) -> Result<(), WorldError> {
         let mut action_ids = BTreeSet::new();

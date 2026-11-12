@@ -29,6 +29,21 @@ impl PaidSafeAlternativeProofLedgerV1<'_> {
     pub(super) fn binding(&self) -> Option<&serde_json::Value> {
         self.binding.as_ref().map(|b| b.value())
     }
+    /// DATA remains tied to this continuously borrowed immutable Current owner.
+    /// It is not an execution permission or a revision-fresh record token.
+    pub(super) fn validate_current_read_view<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        tx.validate_transaction_identity(&self.guard)?;
+        if self.core != common.work().identity() || !self._outer.uses_budget(common.memory()) {
+            return Err(invalid());
+        }
+        self.source.validate_context(tx, common, live)?;
+        Ok(())
+    }
     pub(super) fn validate<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,

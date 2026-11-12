@@ -6,7 +6,15 @@ use crate::service_admission::participant::*;
 use crate::service_admission::participant_policy::*;
 use crate::service_admission::{AgentSignerDelegationChangeV1, SignedReadRequest};
 use oasis7_agent_api::game::*;
-dto!(CapabilityRevocationState,{participants,epoch,revoked_grant_ids,superseded_by,authority_records,authority_finality_proofs,finalized_receipt_id,agent_identities,manufactured_identity_acquisition_sequences,agent_signer_delegations,world_service_results,task_terminals_v2,safe_alternatives,system_identities});
+// One field list for the complete original codec and its fixed authority-only
+// reader. The authority reader omits only correlation payload traversal.
+macro_rules! revocation_fields {
+    ($emit:ident) => {
+        $emit!(CapabilityRevocationState,{participants,epoch,revoked_grant_ids,superseded_by,authority_records,authority_finality_proofs,finalized_receipt_id,agent_identities,manufactured_identity_acquisition_sequences,agent_signer_delegations,world_service_results,task_terminals_v2,safe_alternatives,system_identities});
+    };
+}
+pub(super) use revocation_fields;
+revocation_fields!(dto);
 dto!(CapabilityAuthorityRecord,{issuer_id,issuer_kind,key_id,public_key_hex,issuer_key_epoch,governance_epoch,finalized_receipt_id,authority_rotation_receipt_id,world_id,branch_id,finality_epoch,finality_block_hash,finality_status,revocation_epoch,revoked_grant_ids,superseded_by});
 dto!(CapabilityAuthorityFinalityProof,{proof_version,certificate,binding,signatures});
 dto!(CapabilityAuthorityFinalityBinding,{authority_record_hash,issuer_id,issuer_kind,key_id,issuer_public_key_hex,issuer_key_epoch,governance_epoch,finalized_receipt_id,authority_rotation_receipt_id,world_id,branch_id,finality_epoch,finality_block_hash,finality_status});

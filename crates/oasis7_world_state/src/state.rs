@@ -79,16 +79,19 @@ mod world_state_deserialize;
 pub use self::starter_industrial::{
     IndustryProgressState, STARTER_ASSEMBLER_FACTORY_ID, STARTER_INDUSTRIAL_COMPLETION_BOUNDARY,
     STARTER_INDUSTRIAL_PROFILE_ID, STARTER_INDUSTRIAL_PROFILE_REVISION, STARTER_SMELTER_FACTORY_ID,
-    STARTER_SMELTER_RECIPE_ID, StarterIndustrialFeasibilityResult,
+    STARTER_SMELTER_RECIPE_ID, StarterIndustrialFactsV1, StarterIndustrialFeasibilityResult,
     StarterIndustrialFeasibilityStatus, StarterIndustrialMilestoneV1,
-    StarterIndustrialSettlementSummaryV1,
+    StarterIndustrialReceiptFactsV1, StarterIndustrialSettlementSummaryV1,
+    starter_industrial_feasibility_from_facts_v1,
 };
 use self::support::*;
 pub use command_projection::{
     CommandAgentMapProjection, CommandModuleStateMapProjection, CommandResourceMapProjection,
     CommandStateOverlay,
 };
-pub use logistics_path_authority::LogisticsPathAuthorityV1;
+pub use logistics_path_authority::{
+    LogisticsPathAuthorityV1, allocate_recipe_path_amounts_from_records_v1,
+};
 pub use projection::{BodyOverlay, WorldStateProjection};
 
 pub use self::industry_state::{

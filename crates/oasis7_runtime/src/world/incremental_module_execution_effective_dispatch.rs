@@ -14,6 +14,8 @@ pub(in crate::world) enum EffectiveActionFamilyV1 {
     Alliance,
     Crisis,
     ContractAccept,
+    FactorySchedule,
+    ContractLifecycle,
     MetaProgress,
     FactoryLifecycle,
     RouteAvailability,
@@ -36,9 +38,15 @@ impl EffectiveActionFamilyV1 {
             crate::Action::FormAlliance { .. }
             | crate::Action::JoinAlliance { .. }
             | crate::Action::LeaveAlliance { .. }
-            | crate::Action::DissolveAlliance { .. } => Self::Alliance,
+            | crate::Action::DissolveAlliance { .. }
+            | crate::Action::DeclareWar { .. } => Self::Alliance,
             crate::Action::ResolveCrisis { .. } => Self::Crisis,
             crate::Action::AcceptEconomicContract { .. } => Self::ContractAccept,
+            crate::Action::BuildFactory { .. } | crate::Action::ScheduleRecipe { .. } => {
+                Self::FactorySchedule
+            }
+            crate::Action::OpenEconomicContract { .. }
+            | crate::Action::SettleEconomicContract { .. } => Self::ContractLifecycle,
             crate::Action::GrantMetaProgress { .. } => Self::MetaProgress,
             crate::Action::MaintainFactory { .. } | crate::Action::RecycleFactory { .. } => {
                 Self::FactoryLifecycle
@@ -65,6 +73,10 @@ impl EffectiveActionFamilyV1 {
 /// genuine Current qualifications. It is consumed by the selected Rule lane;
 /// it never acts as an admission or completion receipt.
 pub(in crate::world) struct EffectiveActionWorkBankV1<'a> {
+    factory_schedule:Option<&'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1>,
+    schedule_sources:Option<&'a crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>>,
+    contract_lifecycle:Option<&'a mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1>,
+    lifecycle_sources:Option<&'a crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'a,'a>>,
     alliance:Option<&'a mut crate::world::incremental_normal_action_diplomacy::AllianceWorkV1>,
     alliance_sources:Option<&'a crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1<'a,'a>>,
     logistics_registration:Option<&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1>,
@@ -122,6 +134,10 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         transfer_resource: &'a mut crate::world::incremental_action_data::transfer_resource::TransferResourceWorkV1,
     ) -> Self {
         Self {
+            factory_schedule: None,
+            schedule_sources: None,
+            contract_lifecycle: None,
+            lifecycle_sources: None,
             alliance: None,
             alliance_sources: None,
             normal_extension: None,
@@ -147,6 +163,26 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             starter_bindings,
             transfer_resource,
         }
+    }
+
+    pub(in crate::world) fn with_factory_schedule(
+        mut self,
+        work:&'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
+        sources:&'a crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>,
+    ) -> Self {
+        self.factory_schedule = Some(work);
+        self.schedule_sources = Some(sources);
+        self
+    }
+
+    pub(in crate::world) fn with_contract_lifecycle(
+        mut self,
+        work: &'a mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1,
+        sources:&'a crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'a,'a>,
+    ) -> Self {
+        self.contract_lifecycle = Some(work);
+        self.lifecycle_sources = Some(sources);
+        self
     }
 
     pub(in crate::world) fn with_alliance(
@@ -181,6 +217,16 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         use super::NonmovementSelectedWorkV1 as Work;
         Some(match EffectiveActionFamilyV1::for_action(action)? {
             EffectiveActionFamilyV1::Core => Work::Core,
+            EffectiveActionFamilyV1::FactorySchedule => Work::FactorySchedule(
+                self.factory_schedule.as_deref_mut()?,
+                self.schedule_sources?,
+                self.normal_extension.as_deref()?.common,
+            ),
+            EffectiveActionFamilyV1::ContractLifecycle => Work::ContractLifecycle(
+                self.contract_lifecycle.as_deref_mut()?,
+                self.lifecycle_sources?,
+                self.normal_extension.as_deref()?.common,
+            ),
             EffectiveActionFamilyV1::Alliance => Work::Alliance(
                 self.alliance.as_deref_mut()?,
                 self.alliance_sources?,
@@ -266,8 +312,84 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             None
         };
         match target {
+            EffectiveActionFamilyV1::FactorySchedule => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::Alliance) => {
+                        Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                Some((
+                    Work::FactorySchedule(
+                        self.factory_schedule.as_deref_mut()?,
+                        self.schedule_sources?,
+                        self.normal_extension.as_deref()?.common,
+                    ),
+                    accepted,
+                ))
+            }
+            EffectiveActionFamilyV1::ContractLifecycle => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::Alliance) => {
+                        Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                Some((
+                    Work::ContractLifecycle(
+                        self.contract_lifecycle.as_deref_mut()?,
+                        self.lifecycle_sources?,
+                        self.normal_extension.as_deref()?.common,
+                    ),
+                    accepted,
+                ))
+            }
             EffectiveActionFamilyV1::Alliance => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Crisis) => {
                         Some(&mut self.crisis.pending_entries_remaining)
                     }
@@ -291,6 +413,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
 
             EffectiveActionFamilyV1::LogisticsRegistration => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -317,6 +452,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
 
             EffectiveActionFamilyV1::NormalExtension => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -339,6 +487,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
 
             EffectiveActionFamilyV1::Core => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -357,6 +518,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::Crisis => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -379,6 +553,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::MetaProgress => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -401,6 +588,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::ContractAccept => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -423,6 +623,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::FactoryLifecycle => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -453,6 +666,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::RouteAvailability => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -474,6 +700,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::MaterialTransfer => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -495,6 +734,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::Body => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -513,6 +765,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::DataAccess => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -534,6 +799,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::CollectData => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -552,6 +830,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::AuthenticatedCollectData => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }
@@ -578,6 +869,19 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             }
             EffectiveActionFamilyV1::TransferResource => {
                 let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
                     Some(EffectiveActionFamilyV1::Alliance) => {
                         Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
                     }

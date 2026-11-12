@@ -135,3 +135,9 @@ pub use membership::{
     PreparedContinuityMembershipV1, apply_prepared_continuity_membership_v1,
     prepare_current_continuity_membership_v1, read_current_organization_membership_v1,
 };
+
+pub use membership::{
+    CurrentContinuitySettlementRowV1, PreparedContinuitySettlementEffectV1,
+    apply_prepared_continuity_settlement_v1, prepare_continuity_settlement_pause_v1,
+    prepare_continuity_settlement_receipt_v1, read_current_continuity_settlement_row_v1,
+};

@@ -585,3 +585,22 @@ pub mod incremental_runtime_proposal;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod incremental_typed_record_test_support;
+
+/// Fixed typed resource metadata and quantity operations for Current settlement.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory_resource_overlay;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_index;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_receipts;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_authority;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_factory;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_logistics;

@@ -361,3 +361,7 @@ mod pages;
 pub use pages::*;
 
 pub(crate) use receiver::accept_runtime_capability_verified_v1;
+
+#[path = "incremental_runtime_capability_records_match.rs"]
+mod matching;
+pub use matching::match_current_runtime_capability_record_v1;

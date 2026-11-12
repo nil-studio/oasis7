@@ -368,6 +368,22 @@ fn run_freeze(mode: usize) {
         &mut material_scope_work,
     )
     .unwrap();
+    let mut inventory_identity_work = InventoryIdentityDirectoryWorkV1 {
+        visits_remaining: 1000000,
+        comparison_bytes_remaining: 64 << 20,
+        pending_entries_remaining: 100000,
+        max_identity_bytes: 4096,
+        max_output_entries: 10000,
+    };
+    let inventory_directory = build_inventory_identity_directory_v1(
+        native.inventory(),
+        &fixture.roots,
+        &mut material_read,
+        &mut genesis::scan(),
+        &mut material_family,
+        &mut inventory_identity_work,
+    )
+    .unwrap();
     let reduce_work = FactoryDepreciationReduceWorkV1 {
         max_material_entries: 64,
         comparison_bytes_remaining: 64 << 20,
@@ -539,6 +555,9 @@ fn run_freeze(mode: usize) {
                 &mut fc,
                 &mut rc,
                 &mut phase_work,
+                &inventory_directory,
+                native.inventory(),
+                &mut inventory_identity_work,
                 &mut live_owner,
             )
             .unwrap();
@@ -644,9 +663,14 @@ fn run_freeze(mode: usize) {
         &transition.record.after,
         &memory,
         &mut phase_work.material_scope,
+        &mut inventory_identity_work,
         || false,
     )
     .unwrap();
+    rebound
+        .inventory_identity_parent()
+        .validate_binding(&transition.record.after)
+        .unwrap();
     rebound
         .validate_after_roots(&transition.record.after, &memory)
         .unwrap();

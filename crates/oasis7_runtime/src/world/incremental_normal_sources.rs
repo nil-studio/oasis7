@@ -124,12 +124,19 @@ impl BoundNormalTickParentV1<'_> {
         ctx: &mut FormalBoundedContextV1<'_>,
     ) -> Result<(), FormalError> {
         ctx.consume_steps(1)?;
-        if self.identity != ctx.work().identity()
-            || !self.refs.core.uses_budget(ctx.memory())
-            || !self.refs.storage.uses_budget(ctx.memory())
-            || !self.refs.runtime.uses_budget(ctx.memory())
-            || !self.refs.cognition.uses_budget(ctx.memory())
-            || !self.refs.roots.uses_budget(ctx.memory())
+        self.validate_work_binding(ctx.memory(), ctx.work().identity())
+    }
+    pub(in crate::world) fn validate_work_binding(
+        &self,
+        memory: &MemoryBudget,
+        identity: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+    ) -> Result<(), FormalError> {
+        if self.identity != identity
+            || !self.refs.core.uses_budget(memory)
+            || !self.refs.storage.uses_budget(memory)
+            || !self.refs.runtime.uses_budget(memory)
+            || !self.refs.cognition.uses_budget(memory)
+            || !self.refs.roots.uses_budget(memory)
         {
             return Err(invalid());
         }

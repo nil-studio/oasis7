@@ -8,7 +8,7 @@ use oasis7_world_state::incremental_world_native::{
     recover_gameplay_policy_overlay_v1, write_current_factory_recycle_receipt_v1,
 };
 #[path = "incremental_action_factory_lifecycle_settle_material.rs"]
-mod material;
+pub(in crate::world) mod material;
 #[allow(clippy::too_many_arguments)]
 fn receipt<
     M: MerkleNodeReader,

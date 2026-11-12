@@ -713,3 +713,9 @@ mod normal_extension;
 
 #[path = "incremental_normal_action_logistics_tests.rs"]
 mod logistics_registration;
+
+#[path = "incremental_normal_action_diplomacy_tests.rs"]
+mod alliance_actions;
+
+#[path = "incremental_normal_action_contract_tests.rs"]
+mod contract_lifecycle;

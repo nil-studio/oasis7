@@ -78,7 +78,6 @@ where
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 {
-    use oasis7_formal_protocol::incremental_record_root::RECORD_ROOT_BYTES;
     context.check()?;
     if context.root.namespace != StateNamespaceV1::Authorization {
         return Err(ValueTreeError::Invalid("authorization grant namespace"));
@@ -95,6 +94,31 @@ where
     let Some(value) = context.lookup(&key)? else {
         return Ok(None);
     };
+    qualify_authorization_grant_value_v1(&key, semantic_bytes, &value, context, work).map(Some)
+}
+
+/// Fixed decoder shared by parent selection and transaction Current selection.
+/// Only the original grant profile and schema are accepted.
+pub(crate) fn qualify_authorization_grant_value_v1<M, R, E, C>(
+    key: &WorldFieldKeyV1,
+    semantic_bytes: u64,
+    value: &[u8; 32],
+    context: &mut crate::incremental_field_read::WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut crate::incremental_json_records::JsonReadWorkV1,
+) -> Result<
+    oasis7_proto::memory_budget::ReservedValue<
+        crate::incremental_json_records::JsonSubtreeQualificationV1,
+    >,
+    ValueTreeError,
+>
+where
+    M: oasis7_formal_protocol::incremental_state::MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    use oasis7_formal_protocol::incremental_record_root::RECORD_ROOT_BYTES;
+    let profile = authorization_grant_profile_v1();
     let mut bytes = [0; RECORD_ROOT_BYTES];
     let info = read_member_record_v1(
         &value,
@@ -127,7 +151,7 @@ where
     let proof =
         crate::incremental_json_records::qualify_json_subtree_v1(profile, root, context, work)?;
     context.check()?;
-    Ok(Some(proof))
+    Ok(proof)
 }
 
 /// Borrowed complete map genesis. Every provisional write is handed to the

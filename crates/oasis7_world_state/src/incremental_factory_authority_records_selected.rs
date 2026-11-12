@@ -19,10 +19,10 @@ use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
     clippy::too_many_arguments,
     reason = "The genuine family, current overlay and continuous finite body-read budgets remain explicit."
 )]
-pub fn open_factory_authority_body_overlay_v1<M, R, E, C>(
+pub fn open_factory_authority_body_overlay_v1<M, P, R, E, C>(
     key: FactoryAuthorityRecordKeyV1<'_>,
     family: &ReservedValue<FactoryAuthorityFamilyQualificationV1>,
-    state: &M,
+    state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     scan: &mut StateScanBudget,
     cells: &mut u64,
@@ -32,6 +32,7 @@ pub fn open_factory_authority_body_overlay_v1<M, R, E, C>(
 ) -> Result<Option<ReservedValue<FactoryAuthorityQualificationV1>>, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
+    P: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,

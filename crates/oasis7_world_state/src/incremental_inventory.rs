@@ -131,6 +131,23 @@ fn row<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut InventoryFamilyWorkV1,
 ) -> Result<Row, ValueTreeError> {
+    row_with_semantic(key, value, ctx, work, |_, _| Ok(()))
+}
+fn row_with_semantic<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    key: &WorldFieldKeyV1,
+    value: &[u8; 32],
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut InventoryFamilyWorkV1,
+    visit: impl FnOnce(
+        crate::incremental_world_field_key::WorldFieldKeyRefV1<'_>,
+        SemanticKeyRefV1<'_>,
+    ) -> Result<(), ValueTreeError>,
+) -> Result<Row, ValueTreeError> {
     ctx.check()?;
     work.step(&mut ctx.cancelled)?;
     let parsed = WorldFieldKeyV1::from_bytes(key.as_bytes()).map_err(ValueTreeError::Invalid)?;
@@ -194,10 +211,18 @@ fn row<
     }
     let decoded = read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)?;
     let result = match (field, parsed.kind, decoded) {
-        (0, WorldFieldRecordKindV1::Entry, SemanticKeyRefV1::Resource(_)) => Row::Entry(0),
-        (1, WorldFieldRecordKindV1::Entry, SemanticKeyRefV1::Text(_)) => Row::Entry(1),
+        (0, WorldFieldRecordKindV1::Entry, SemanticKeyRefV1::Resource(_)) => {
+            visit(parsed, decoded)?;
+            Row::Entry(0)
+        }
+        (1, WorldFieldRecordKindV1::Entry, SemanticKeyRefV1::Text(_)) => {
+            visit(parsed, decoded)?;
+            Row::Entry(1)
+        }
         (2, WorldFieldRecordKindV1::Group, SemanticKeyRefV1::Ledger(_)) => {
-            Row::Group(parsed.semantic_key.ok_or_else(invalid)?)
+            let hash = parsed.semantic_key.ok_or_else(invalid)?;
+            visit(parsed, decoded)?;
+            Row::Group(hash)
         }
         (2, WorldFieldRecordKindV1::Entry, SemanticKeyRefV1::Pair { left, right }) => {
             if !matches!(
@@ -211,6 +236,7 @@ fn row<
             else {
                 return Err(invalid());
             };
+            visit(parsed, decoded)?;
             let end = semantic
                 .len()
                 .checked_sub(9 + material.len())
@@ -288,3 +314,7 @@ fn adjust(
 mod tests;
 
 pub(crate) use receiver::accept_inventory_verified_v1;
+
+#[path = "incremental_inventory_identity_directory.rs"]
+mod identity_directory;
+pub use identity_directory::*;

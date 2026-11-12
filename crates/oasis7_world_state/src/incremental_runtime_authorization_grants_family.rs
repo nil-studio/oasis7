@@ -364,3 +364,7 @@ pub use readmission::readmit_authorization_grants_ordinary_v1;
 #[path = "incremental_runtime_authorization_grants_overlay.rs"]
 mod overlay;
 pub use overlay::{AuthorizationGrantChangeV1, change_authorization_grant_overlay_v1};
+
+#[path = "incremental_runtime_authorization_grants_current.rs"]
+mod current;
+pub use current::recover_current_authorization_grant_v1;

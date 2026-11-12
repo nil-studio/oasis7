@@ -542,3 +542,6 @@ pub(in crate::world) use target::{EffectiveActionFamilyV1, EffectiveActionWorkBa
 pub(in crate::world) use target::{
     CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
 };
+
+// Private result handoff for the fixed normal publisher and genuine fixtures.
+pub(in crate::world) use target::MatchingBeforePublicationV1;

@@ -100,6 +100,7 @@ fn overlay_error(error: WorldFieldOverlayErrorV1) -> BodyMutationError {
 mod prepare;
 #[path = "incremental_action_factory_lifecycle_settle.rs"]
 mod settle;
+pub(in crate::world) use settle::material as material_plan;
 enum LifecycleDecisionV1<'a> {
     Rejected(crate::RejectReason),
     Effect(LifecycleIntentV1<'a>),

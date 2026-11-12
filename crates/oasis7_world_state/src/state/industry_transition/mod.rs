@@ -8,6 +8,20 @@ mod material_transfer;
 mod material_transit;
 mod recipe_lifecycle;
 
+/// The original first RecipeStarted replay check. Correlation metadata does
+/// not grant authority; restored pending originals must satisfy the same match.
+pub fn validate_recipe_started_origin_v1(
+    origin: Option<&crate::CommittedRecipeOrigin>,
+    requester: &str,
+    factory: &str,
+    recipe: &str,
+) -> Result<(), WorldError> {
+    if origin.is_some_and(|origin| !origin.matches_recipe(requester, factory, recipe)) {
+        return Err(invalid("recipe start committed origin mismatch"));
+    }
+    Ok(())
+}
+
 pub fn factory_has_canonical_stable_line(factory: &FactoryState) -> bool {
     factory_has_canonical_stable_line_parts_v1(
         u64::from(factory.production.same_recipe_repeat_count),

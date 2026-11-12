@@ -116,3 +116,10 @@ current_claim!(
     AgentClaimsFieldV1,
     crate::AgentClaimState
 );
+
+#[path = "incremental_factory_schedule_current.rs"]
+mod factory_schedule;
+pub use factory_schedule::{
+    recover_current_schedule_factory_profile_v1, recover_current_schedule_product_profile_v1,
+    recover_current_schedule_recipe_profile_v1,
+};

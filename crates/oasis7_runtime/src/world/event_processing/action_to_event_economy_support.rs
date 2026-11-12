@@ -248,39 +248,16 @@ pub(super) fn compute_local_scarcity_delay_ticks(
     consume: &[MaterialStack],
     bottleneck_tags: &[String],
 ) -> u32 {
-    if *preferred_consume_ledger == MaterialLedgerId::world()
-        || *consume_ledger != MaterialLedgerId::world()
-        || bottleneck_tags.is_empty()
-    {
-        return 0;
+    match scarcity_delay_from_facts_v1(
+        &mut LegacyFactoryMarketFactsV1 { world },
+        preferred_consume_ledger,
+        consume_ledger,
+        consume,
+        bottleneck_tags,
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
-
-    let bottleneck_set: BTreeSet<&str> = bottleneck_tags.iter().map(String::as_str).collect();
-    let mut requested_total: i128 = 0;
-    let mut deficit_total: i128 = 0;
-    for stack in consume {
-        if stack.amount <= 0 {
-            continue;
-        }
-        let normalized_kind = stack.kind.to_ascii_lowercase();
-        if !bottleneck_set.contains(normalized_kind.as_str()) {
-            continue;
-        }
-        let requested = stack.amount as i128;
-        let available = world
-            .ledger_material_balance(preferred_consume_ledger, stack.kind.as_str())
-            .max(0) as i128;
-        requested_total = requested_total.saturating_add(requested);
-        deficit_total = deficit_total.saturating_add(requested.saturating_sub(available).max(0));
-    }
-
-    if requested_total <= 0 || deficit_total <= 0 {
-        return 0;
-    }
-    let deficit_ratio_bps = deficit_total
-        .saturating_mul(10_000)
-        .saturating_div(requested_total);
-    if deficit_ratio_bps >= 7_000 { 2 } else { 1 }
 }
 
 fn governance_tax_bps_for_material_quotes(world: &World) -> u16 {
@@ -297,54 +274,14 @@ pub(crate) fn build_material_market_quotes(
     preferred_consume_ledger: &MaterialLedgerId,
     consume: &[MaterialStack],
 ) -> Vec<MaterialMarketQuote> {
-    let mut requested_by_kind: BTreeMap<String, i64> = BTreeMap::new();
-    for stack in consume {
-        if stack.amount <= 0 {
-            continue;
-        }
-        let entry = requested_by_kind.entry(stack.kind.clone()).or_insert(0);
-        *entry = entry.saturating_add(stack.amount);
+    match market_quotes_from_facts_v1(
+        &mut LegacyFactoryMarketFactsV1 { world },
+        preferred_consume_ledger,
+        consume,
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
-    if requested_by_kind.is_empty() {
-        return Vec::new();
-    }
-
-    let governance_tax_bps = governance_tax_bps_for_material_quotes(world);
-    let mut quotes = Vec::with_capacity(requested_by_kind.len());
-    for (kind, requested_amount) in requested_by_kind {
-        let transit_loss_bps = material_transit_loss_bps_for_kind(world, kind.as_str());
-        let local_available_amount = world
-            .ledger_material_balance(preferred_consume_ledger, kind.as_str())
-            .max(0);
-        let world_available_amount = world
-            .ledger_material_balance(&MaterialLedgerId::world(), kind.as_str())
-            .max(0);
-        let local_deficit_amount = requested_amount
-            .saturating_sub(local_available_amount)
-            .max(0);
-        let deficit_ratio_bps = if requested_amount > 0 {
-            ((local_deficit_amount as i128)
-                .saturating_mul(10_000)
-                .saturating_div(requested_amount as i128)) as i64
-        } else {
-            0
-        };
-        let effective_cost_index_ppm = 1_000_000_i64
-            .saturating_add(deficit_ratio_bps.saturating_mul(100))
-            .saturating_add(transit_loss_bps.saturating_mul(100))
-            .saturating_add(i64::from(governance_tax_bps).saturating_mul(100));
-        quotes.push(MaterialMarketQuote {
-            kind,
-            requested_amount,
-            local_available_amount,
-            world_available_amount,
-            local_deficit_amount,
-            transit_loss_bps,
-            governance_tax_bps,
-            effective_cost_index_ppm,
-        });
-    }
-    quotes
 }
 
 pub(crate) use oasis7_world_state::world::pure_helpers::recipe_stage_gate_allowed;
@@ -408,7 +345,7 @@ pub(super) fn factory_profile_matches_spec(
     Ok(())
 }
 
-pub(super) fn resolve_recipe_bottleneck_tags(
+pub(in crate::world) fn resolve_recipe_bottleneck_tags(
     recipe_profile: Option<&crate::RecipeProfileV1>,
     consume: &[MaterialStack],
 ) -> Vec<String> {
@@ -427,3 +364,7 @@ pub(super) fn resolve_recipe_bottleneck_tags(
     }
     infer_bottleneck_tags(consume)
 }
+
+#[path = "../incremental_normal_action_factory_schedule_quotes.rs"]
+pub(in crate::world) mod factory_schedule_quotes;
+pub(in crate::world) use factory_schedule_quotes::*;

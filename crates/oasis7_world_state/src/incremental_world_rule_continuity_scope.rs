@@ -119,6 +119,35 @@ pub(super) fn update<
                 return Err(invalid());
             };
             let p = d.profile;
+            // Full bootstrap includes the container's Metadata leaf. The
+            // original column-key reader accepts Entry only; authenticate the
+            // metadata with the original presence codec before visiting keys,
+            // as the original full typed-container visitor does.
+            let TypedCellRefV1::Entry(entry) = cell else {
+                return Err(invalid());
+            };
+            let parsed =
+                WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
+            if parsed.kind == WorldFieldRecordKindV1::Metadata {
+                let expected =
+                    WorldFieldKeyV1::new(p.field, WorldFieldRecordKindV1::Metadata, None)
+                        .map_err(ValueTreeError::Invalid)?;
+                for edge in [old, new].into_iter().flatten() {
+                    let TypedCellRefV1::Entry(entry) = edge else {
+                        return Err(invalid());
+                    };
+                    let binding =
+                        WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
+                    if binding.semantic_key.is_some()
+                        || entry.key != expected.as_bytes()
+                        || entry.namespace != p.namespace()?
+                    {
+                        return Err(invalid());
+                    }
+                    d.ctx.records().presence(&entry.value, &expected, 0)?;
+                }
+                return d.check();
+            }
             let name = key(&p, cell, d)?;
             let id = match &*name {
                 ColumnKeyV1::Text(s) if s == "_length" => return Ok(()),
@@ -161,4 +190,123 @@ pub(super) fn update<
         },
     )?;
     Ok(Some(builder.finish()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::incremental_semantic_key::SemanticKeyBudget;
+    use crate::incremental_typed_record_test_support::{continuity_data, io, source_admission};
+    use crate::incremental_world_rule_composite_family::test_support::{
+        context, read_work, scan, seed,
+    };
+    type Continuity = crate::world_rules::OrganizationContinuityStateV1;
+    #[test]
+    fn some_empty_continuity_cases_authenticate_metadata_before_column_keys() {
+        let _source = source_admission();
+        let (memory, pages, roots) = seed(&Continuity::default());
+        let mut io = io();
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 32 << 20,
+        };
+        let mut read = context(&pages, &roots, &memory, &mut io, &mut keys);
+        let qualification = qualify_world_rule_branch_v1::<Continuity, _, _, _, _>(
+            &roots,
+            &mut read,
+            &mut scan(),
+            &mut read_work(),
+        )
+        .unwrap();
+        assert!(qualification.parent_present());
+        let index = qualification
+            .continuity_scope
+            .as_ref()
+            .expect("Some branch owns complete empty resident metadata");
+        let mut budget = scan();
+        let flags = index
+            .observe(
+                OrganizationScopeKindV1::Continuity,
+                "not-an-organization",
+                &memory,
+                MemoryClass::Ordinary,
+                &mut |s, b| spend(&mut budget, &mut || false, s, b),
+            )
+            .unwrap();
+        assert!(!flags.active_case && !flags.risk_frozen && !flags.undisposed_estate);
+    }
+    #[test]
+    fn some_nonempty_continuity_cases_preserve_outer_keys_and_embedded_organization() {
+        let _source = source_admission();
+        let mut state = Continuity::default();
+        let mut active = continuity_data::fixture_OrganizationContinuityCaseV1();
+        active.organization_id = "shared-organization".into();
+        active.case_id = "different-embedded-case".into();
+        let mut resolved = active.clone();
+        resolved.phase = OrganizationContinuityPhaseV1::Resolved;
+        state.cases.insert("active-outer-key".into(), active);
+        state.cases.insert("resolved-outer-key".into(), resolved);
+        let (memory, pages, roots) = seed(&state);
+        let mut io = io();
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 32 << 20,
+        };
+        let mut read = context(&pages, &roots, &memory, &mut io, &mut keys);
+        let mut work = read_work();
+        work.max_tree_heap = 1 << 20;
+        let qualification = qualify_world_rule_branch_v1::<Continuity, _, _, _, _>(
+            &roots,
+            &mut read,
+            &mut scan(),
+            &mut work,
+        )
+        .unwrap();
+        let index = qualification.continuity_scope.as_ref().unwrap();
+        let mut budget = scan();
+        let flags = index
+            .observe(
+                OrganizationScopeKindV1::Continuity,
+                "shared-organization",
+                &memory,
+                MemoryClass::Ordinary,
+                &mut |s, b| spend(&mut budget, &mut || false, s, b),
+            )
+            .unwrap();
+        assert!(flags.active_case && flags.risk_frozen);
+        let absent = index
+            .observe(
+                OrganizationScopeKindV1::Continuity,
+                "active-outer-key",
+                &memory,
+                MemoryClass::Ordinary,
+                &mut |s, b| spend(&mut budget, &mut || false, s, b),
+            )
+            .unwrap();
+        assert!(!absent.active_case && !absent.risk_frozen);
+        let mut changed = index
+            .copy_for_changes(&memory, MemoryClass::Ordinary, &mut |s, b| {
+                spend(&mut budget, &mut || false, s, b)
+            })
+            .unwrap();
+        changed
+            .remove(
+                OrganizationScopeKindV1::Continuity,
+                "active-outer-key",
+                &mut |s, b| spend(&mut budget, &mut || false, s, b),
+            )
+            .unwrap();
+        let changed = changed.finish().unwrap();
+        let flags = changed
+            .observe(
+                OrganizationScopeKindV1::Continuity,
+                "shared-organization",
+                &memory,
+                MemoryClass::Ordinary,
+                &mut |s, b| spend(&mut budget, &mut || false, s, b),
+            )
+            .unwrap();
+        assert!(
+            !flags.active_case && !flags.risk_frozen,
+            "resolved duplicate embedded organization remains after the active OUTER row is removed"
+        );
+    }
 }

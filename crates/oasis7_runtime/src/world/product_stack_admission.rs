@@ -57,35 +57,18 @@ const KNOWN_PRODUCT_LIMITS: &[(&str, &str, &str, i64)] = &[
     ),
 ];
 
+#[path = "incremental_normal_action_factory_schedule_product_limit.rs"]
+mod fixed;
+pub(in crate::world) use fixed::*;
+
 impl World {
     pub(super) fn recipe_output_stack_limit_rejection(
         &self,
         plan: &RecipeExecutionPlan,
     ) -> Result<Option<RejectReason>, WorldError> {
-        for (label, stacks) in [("produce", &plan.produce), ("byproduct", &plan.byproducts)] {
-            for stack in stacks {
-                // Use the completion selector, including its builtin preference.
-                let Some(module_id) = self.resolve_product_module_for_stack(&stack.kind) else {
-                    continue;
-                };
-                let manifest = self.active_module_manifest(&module_id)?;
-                let Some((_, _, _, limit)) =
-                    KNOWN_PRODUCT_LIMITS.iter().find(|(kind, id, hash, _)| {
-                        *kind == stack.kind && *id == module_id && *hash == manifest.wasm_hash
-                    })
-                else {
-                    continue;
-                };
-                if stack.amount > *limit {
-                    return Ok(Some(RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "recipe {label} stack limit exceeded: kind={} amount={} limit={limit}; reduce batches and request a new quote",
-                            stack.kind, stack.amount,
-                        )],
-                    }));
-                }
-            }
-        }
-        Ok(None)
+        recipe_output_stack_limit_rejection_v1(
+            &mut LegacyProductStackLimitFactsV1 { world: self },
+            plan,
+        )
     }
 }

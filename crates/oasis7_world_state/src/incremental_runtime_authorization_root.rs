@@ -93,3 +93,7 @@ pub use family::{
 mod family_tests;
 
 pub(crate) use family::accept_runtime_authorization_root_verified_v1;
+
+#[path = "incremental_runtime_authorization_root_overlay.rs"]
+mod overlay;
+pub use overlay::replace_current_authorization_root_v1;

@@ -23,37 +23,54 @@ pub struct TaskTerminalIndexV2 {
     pub schema_revision: u32,
     pub records: BTreeMap<String, TaskTerminalRecordV2>,
 }
+/// The original index header gate, shared by whole-index and paid per-record
+/// consumers. This performs no signature or installation authorization.
+pub fn validate_task_terminal_index_header_v2(index: &TaskTerminalIndexV2) -> Result<(), String> {
+    if index.schema_revision != 2 || index.records.is_empty() {
+        return Err("invalid permanent task terminal index version or empty records".into());
+    }
+    Ok(())
+}
+
+/// The original fixed record predicates in their original order. Bounded
+/// consumers admit this record's actual shape before invoking this kernel.
+pub fn validate_task_terminal_record_v2(
+    task_id: &str,
+    record: &TaskTerminalRecordV2,
+) -> Result<(), String> {
+    let p = &record.original.request;
+    p.validate()?;
+    let c = &record.closed;
+    if record.schema_revision != 2
+        || record.committed_height == 0
+        || record.committed_at_unix_ms == 0
+        || c.schema_revision != 2
+        || record.committed_at_unix_ms > p.cleanup_until_ms.0
+        || p.api_revision != 2
+        || task_id != c.initial_fence.task_id
+        || c.initial_fence != p.permitted_branches.exact_initial_active
+        || c.close_operation_id != p.client_operation_id
+        || c.termination_plan_digest != p.termination_plan_digest
+        || c.revoked_signer_public_key != p.signer_public_key
+        || c.revoked_generation != p.revoke_generation
+        || c.permanent_nonce_high_water != p.revoke_nonce
+        || p.revoke_generation.0 <= p.signer_generation.0
+        || p.revoke_nonce.0 <= p.signer_nonce.0
+    {
+        return Err("invalid permanent task terminal record".into());
+    }
+    Ok(())
+}
 impl TaskTerminalIndexV2 {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_revision != 2 || self.records.is_empty() {
-            return Err("invalid permanent task terminal index version or empty records".into());
-        }
+        validate_task_terminal_index_header_v2(self)?;
         for (task_id, record) in &self.records {
-            let p = &record.original.request;
-            p.validate()?;
-            let c = &record.closed;
-            if record.schema_revision != 2
-                || record.committed_height == 0
-                || record.committed_at_unix_ms == 0
-                || c.schema_revision != 2
-                || record.committed_at_unix_ms > p.cleanup_until_ms.0
-                || p.api_revision != 2
-                || task_id != &c.initial_fence.task_id
-                || c.initial_fence != p.permitted_branches.exact_initial_active
-                || c.close_operation_id != p.client_operation_id
-                || c.termination_plan_digest != p.termination_plan_digest
-                || c.revoked_signer_public_key != p.signer_public_key
-                || c.revoked_generation != p.revoke_generation
-                || c.permanent_nonce_high_water != p.revoke_nonce
-                || p.revoke_generation.0 <= p.signer_generation.0
-                || p.revoke_nonce.0 <= p.signer_nonce.0
-            {
-                return Err("invalid permanent task terminal record".into());
-            }
+            validate_task_terminal_record_v2(task_id, record)?;
         }
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

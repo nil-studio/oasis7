@@ -76,6 +76,9 @@ enum PersistedEventOwnerV1<'event> {
         &'event super::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1,
     ),
     Alliance(&'event super::incremental_normal_action_diplomacy::CompletedAllianceActionV1),
+    FactorySchedule(
+        &'event super::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1,
+    ),
     Observation(
         &'event super::incremental_normal_action_core_extension::CompletedObservationActionV1,
     ),
@@ -98,6 +101,27 @@ enum PersistedEventOwnerV1<'event> {
     ),
 }
 impl<'event> PersistedWorldEventV1<'event> {
+    pub(in crate::world) fn from_factory_schedule(
+        owner:&'event super::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::FactorySchedule(owner),
+        }
+    }
+
+    pub(in crate::world) fn from_safe_alternative_rejection<M: MerkleNodeReader>(
+        owner: &'event crate::world::incremental_safe_alternative_matching::CompletedSafeAlternativeRejectionV1<'_, '_>,
+        tx: &ExecutionTransaction<'_, M>,
+    ) -> Result<Self, oasis7_formal_protocol::incremental_execution::ExecutionError> {
+        owner.validate(tx)?;
+        Ok(Self {
+            owner: PersistedEventOwnerV1::Module {
+                event: owner.event(),
+                identity: tx.guard(),
+            },
+        })
+    }
+
     pub(super) fn from_counted_tail(
         owner: &'event super::incremental_world_event_tail::RecoveredCountedWorldEventV1,
     ) -> Self {
@@ -264,6 +288,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::BodyInterface(owner) => owner.event(),
             PersistedEventOwnerV1::LogisticsRegistration(owner) => owner.event(),
             PersistedEventOwnerV1::Alliance(owner) => owner.event(),
+            PersistedEventOwnerV1::FactorySchedule(owner) => owner.event(),
             PersistedEventOwnerV1::Observation(owner) => owner.event(),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.event(),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.event(),
@@ -301,6 +326,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::BodyInterface(owner) => owner.validate(tx),
             PersistedEventOwnerV1::LogisticsRegistration(owner) => owner.validate(tx),
             PersistedEventOwnerV1::Alliance(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::FactorySchedule(owner) => owner.validate_transaction(tx),
             PersistedEventOwnerV1::Observation(owner) => owner.validate(tx),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.validate(tx),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.validate(tx),
@@ -642,3 +668,14 @@ pub(super) use crisis::contribute_crisis_event_v1;
 #[path = "incremental_module_execution_contract_accept_event.rs"]
 mod contract_accept;
 pub(super) use contract_accept::contribute_contract_accept_event_v1;
+
+#[path = "incremental_normal_material_transit_event.rs"]
+mod material_transit_event;
+pub(in crate::world) use material_transit_event::contribute_normal_material_transit_event_v1;
+
+#[path = "incremental_safe_alternative_outcome_event.rs"]
+mod safe_alternative_outcome;
+pub(in crate::world) use safe_alternative_outcome::{
+    AuthorizationOutcomePublishErrorV1, PublishedAuthorizationOutcomeEventV1,
+    publish_safe_alternative_outcome_event_v1,
+};

@@ -929,3 +929,18 @@ mod logistics_registration_driver;
 
 #[path = "incremental_module_execution_alliance_driver.rs"]
 mod alliance_driver;
+
+#[path = "incremental_safe_alternative_driver.rs"]
+mod matching_driver;
+
+// Private result handoff for the fixed normal publisher and genuine fixtures.
+pub(in crate::world) use matching_driver::MatchingBeforePublicationV1;
+
+#[path = "incremental_module_execution_contract_lifecycle_driver.rs"]
+mod contract_lifecycle_driver;
+
+#[path = "incremental_normal_transits_due.rs"]
+mod normal_transits_due;
+
+#[path = "incremental_module_execution_factory_schedule_driver.rs"]
+mod factory_schedule_driver;

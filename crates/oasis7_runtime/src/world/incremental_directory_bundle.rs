@@ -29,9 +29,11 @@ use oasis7_world_state::{
     incremental_field_overlay::WorldFieldOverlayErrorV1,
     incremental_industry_jobs::IndustryTransitionReadContextV1,
     incremental_inventory::{
-        FrozenInventoryMaterialScopeV1, InventoryMaterialScopeWorkV1,
-        ParentInventoryMaterialScopeV1, freeze_current_inventory_material_scope_v1,
-        open_current_inventory_material_scope_v1,
+        FrozenInventoryIdentityDirectoryV1, FrozenInventoryMaterialScopeV1,
+        InventoryFamilyQualificationV1, InventoryIdentityDirectoryV1,
+        InventoryIdentityDirectoryWorkV1, InventoryMaterialScopeWorkV1,
+        ParentInventoryMaterialScopeV1, freeze_current_inventory_identity_directory_v1,
+        freeze_current_inventory_material_scope_v1, open_current_inventory_material_scope_v1,
     },
     incremental_world_rule_composite_family::bind_current_agent_orders_v1,
 };
@@ -66,6 +68,7 @@ pub(in crate::world) struct FrozenRuntimeDirectoryBundleV1 {
     records: ReservedValue<FrozenFactoryRecipeDirectoryV1>,
     invocations: ReservedValue<FrozenInvocationDirectoryV1>,
     materials: ReservedValue<FrozenInventoryMaterialScopeV1>,
+    inventory_identities: ReservedValue<FrozenInventoryIdentityDirectoryV1>,
 }
 impl FrozenRuntimeDirectoryBundleV1 {
     pub(in crate::world) fn iter_factory_ids(&self) -> impl ExactSizeIterator<Item = &str> {
@@ -100,6 +103,7 @@ impl FrozenRuntimeDirectoryBundleV1 {
             self.records.validate_guard(tx, memory, live)?;
             self.invocations.validate_guard(tx, memory, live)?;
             self.materials.validate_guard(tx, memory, live)?;
+            self.inventory_identities.validate_guard(tx, memory, live)?;
             Ok(())
         })();
         if result.is_err() {
@@ -122,6 +126,8 @@ impl FrozenRuntimeDirectoryBundleV1 {
         self.records.validate_sealed(binding, roots, memory)?;
         self.invocations.validate_sealed(binding, roots, memory)?;
         self.materials.validate_sealed(binding, roots, memory)?;
+        self.inventory_identities
+            .validate_sealed(binding, roots, memory)?;
         Ok(())
     }
 }
@@ -132,6 +138,7 @@ pub(in crate::world) struct SealedRuntimeDirectoryBundleV1 {
     frozen: ReservedValue<FrozenRuntimeDirectoryBundleV1>,
     binding: ReservedValue<SealedExecutionBindingV1>,
     materials: ReservedValue<ParentInventoryMaterialScopeV1>,
+    inventory_identities: ReservedValue<InventoryIdentityDirectoryV1>,
 }
 impl SealedRuntimeDirectoryBundleV1 {
     pub(in crate::world) fn after_roots_digest(&self) -> [u8; 32] {
@@ -142,6 +149,11 @@ impl SealedRuntimeDirectoryBundleV1 {
         &self,
     ) -> &ReservedValue<ParentInventoryMaterialScopeV1> {
         &self.materials
+    }
+    pub(in crate::world) fn inventory_identity_parent(
+        &self,
+    ) -> &ReservedValue<InventoryIdentityDirectoryV1> {
+        &self.inventory_identities
     }
     pub(in crate::world) fn validate_after_roots(
         &self,
@@ -157,6 +169,7 @@ pub(in crate::world) fn bind_runtime_directories_to_actual_seal_v1(
     roots: &RootSetV1,
     memory: &MemoryBudget,
     work: &mut InventoryMaterialScopeWorkV1,
+    identity_work: &mut InventoryIdentityDirectoryWorkV1,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<SealedRuntimeDirectoryBundleV1>, RuntimeDirectoryFreezeErrorV1> {
     if !frozen.uses_budget(memory) || !binding.uses_budget(memory) {
@@ -176,6 +189,13 @@ pub(in crate::world) fn bind_runtime_directories_to_actual_seal_v1(
         frozen
             .materials
             .rebind_after_seal_v1(&binding, roots, memory, work, &mut cancelled)?;
+    let inventory_identities = frozen.inventory_identities.rebind_after_seal_v1(
+        &binding,
+        roots,
+        memory,
+        identity_work,
+        &mut cancelled,
+    )?;
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -183,6 +203,7 @@ pub(in crate::world) fn bind_runtime_directories_to_actual_seal_v1(
         frozen,
         binding,
         materials,
+        inventory_identities,
     }))
 }
 impl<'a, 't, 's, 'v, M, R, E, C, W, F, O>
@@ -204,6 +225,9 @@ where
         factory: &mut FactoryTransitionReadContextV1<'_, FR, FC>,
         recipe: &mut IndustryTransitionReadContextV1<'_, RR, RC>,
         work: &mut FactoryPhaseWorkV1,
+        inventory_directory: &ReservedValue<InventoryIdentityDirectoryV1>,
+        inventory_family: &ReservedValue<InventoryFamilyQualificationV1>,
+        inventory_identity_work: &mut InventoryIdentityDirectoryWorkV1,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<ReservedValue<FrozenRuntimeDirectoryBundleV1>, RuntimeDirectoryFreezeErrorV1>
     where
@@ -328,6 +352,18 @@ where
                 &guard,
                 &live,
             )?;
+            let guard = self.ctx.transaction.guard();
+            let inventory_identities = freeze_current_inventory_identity_directory_v1(
+                inventory_directory,
+                inventory_family,
+                self.families.roots,
+                self.state,
+                self.ctx,
+                &mut work.material_family,
+                inventory_identity_work,
+                &guard,
+                &live,
+            )?;
             if (self.ctx.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -338,6 +374,7 @@ where
                 records,
                 invocations,
                 materials,
+                inventory_identities,
             });
             let terminal_live = live_owner();
             value.validate_terminal_guard(

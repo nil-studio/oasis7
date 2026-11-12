@@ -69,7 +69,7 @@ struct Change<'a> {
     before: i64,
     after: i64,
 }
-pub(super) struct Plan<'a> {
+pub(in crate::world) struct Plan<'a> {
     changes: Vec<Change<'a>>,
     _fee: MemoryReservation,
 }
@@ -172,6 +172,45 @@ pub(super) fn prepare<
     work: &mut FactoryLifecycleWorkV1,
     live: &ExecutionFence,
 ) -> Result<Plan<'a>, BodyMutationError> {
+    prepare_with_prefixes_v1(
+        step,
+        materials,
+        ledger,
+        stacks,
+        remove,
+        read,
+        work,
+        live,
+        "factory recycle material preflight failed: ",
+        "factory maintenance consume failed: ",
+        "factory recycle material add failed: ",
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn prepare_with_prefixes_v1<
+    'a,
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    ME: FnMut() -> Option<ValueTreeError>,
+    D: FnMut() -> bool,
+>(
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+    ledger: &MaterialLedgerId,
+    stacks: &'a [MaterialStack],
+    remove: bool,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    work: &mut FactoryLifecycleWorkV1,
+    live: &ExecutionFence,
+    preflight_prefix: &str,
+    remove_prefix: &str,
+    add_prefix: &str,
+) -> Result<Plan<'a>, BodyMutationError> {
     let n = stacks.len();
     if n > work.max_material_entries {
         return Err(ValueTreeError::ResourceLimited("factory material plan count").into());
@@ -209,7 +248,7 @@ pub(super) fn prepare<
             &stack.kind,
             total,
             stack.amount,
-            "factory recycle material preflight failed: ",
+            preflight_prefix,
             checked_material_addition_total_v1,
         )?;
         if let Some(i) = position {
@@ -284,7 +323,7 @@ pub(super) fn prepare<
                     kind,
                     raw,
                     *total,
-                    "factory recycle material preflight failed: ",
+                    preflight_prefix,
                     checked_material_balance_add_v1,
                 )?;
             }
@@ -305,7 +344,7 @@ pub(super) fn prepare<
                     kind,
                     raw,
                     *total,
-                    "factory recycle material preflight failed: ",
+                    preflight_prefix,
                     checked_material_balance_add_v1,
                 )?;
             }
@@ -344,11 +383,7 @@ pub(super) fn prepare<
             &stack.kind,
             change.after,
             stack.amount,
-            if remove {
-                "factory maintenance consume failed: "
-            } else {
-                "factory recycle material add failed: "
-            },
+            if remove { remove_prefix } else { add_prefix },
             if remove {
                 checked_material_balance_remove_v1
             } else {
@@ -361,7 +396,7 @@ pub(super) fn prepare<
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn apply<
+pub(in crate::world) fn apply<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
     V: ValueNodeReader,

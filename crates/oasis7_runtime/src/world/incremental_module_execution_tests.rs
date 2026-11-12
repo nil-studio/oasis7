@@ -696,3 +696,6 @@ mod directory_bundle;
 use crate::world::incremental_body_event::materials::test_support as core_materials;
 #[path = "incremental_commit_directories_tests.rs"]
 mod commit_directories;
+
+#[path = "incremental_safe_alternative_signed_tests.rs"]
+mod signed_safe_alternative;

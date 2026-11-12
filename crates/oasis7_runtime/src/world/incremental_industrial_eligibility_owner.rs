@@ -319,17 +319,41 @@ where
     ER: FnMut() -> Option<ValueTreeError>,
     CR: FnMut() -> bool,
 {
+    read_current_world_binding_v1(sources.artifacts, overlay, parent_read, work, guard, live)
+}
+
+/// The same typed Current manifest reader and original binding digest used by
+/// industrial eligibility. A real artifact-family source is required; no
+/// caller-supplied world/chain/genesis strings or replacement hash is accepted.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn read_current_world_binding_v1<M, R, E, C, P, V, ER, CR>(
+    artifacts: &ReservedValue<oasis7_world_state::incremental_runtime_artifact_resources::RuntimeArtifactResourcesQualificationV1>,
+    overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    parent_read: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
+    work: &mut IndustrialEligibilityWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<Option<String>>, IndustrialEligibilityErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    ER: FnMut() -> Option<ValueTreeError>,
+    CR: FnMut() -> bool,
+{
     let result = (|| {
         overlay.transaction.validate_guard(guard, live)?;
         if overlay.values.class != MemoryClass::Ordinary
             || !overlay.transaction.uses_budget(overlay.values.memory)
             || !parent_read.values.memory.same_pool(overlay.values.memory)
-            || !sources.artifacts.uses_budget(overlay.values.memory)
+            || !artifacts.uses_budget(overlay.values.memory)
         {
             return Err(ValueTreeError::Invalid("industrial manifest pool/class").into());
         }
-        let child =
-            open_current_chain_resource_manifest_v1(sources.artifacts, overlay, guard, live)?;
+        let child = open_current_chain_resource_manifest_v1(artifacts, overlay, guard, live)?;
         let guard = &overlay.transaction.guard();
         let world_id = manifest_member(
             &child,
@@ -1137,3 +1161,9 @@ pub(in crate::world) use current_state_owner::{
 
 #[path = "incremental_safe_alternative_identity.rs"]
 pub(in crate::world) mod safe_alternative_identity;
+
+#[path = "incremental_safe_alternative_owner.rs"]
+pub(in crate::world) mod safe_alternative_owner;
+
+#[path = "incremental_safe_alternative_current.rs"]
+pub(in crate::world) mod safe_alternative_current;

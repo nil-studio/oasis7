@@ -18,7 +18,7 @@ use oasis7_formal_protocol::{
     },
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
 use std::{cell::RefCell, io};
 
 /// One outer value and its typed record root.
@@ -213,14 +213,16 @@ fn visit_qualified_industry_parent_identities_v1<
         .map_err(ValueTreeError::Memory)?;
     if !matches!(
         kind,
-        IndustryRecordKindV1::Recipe | IndustryRecordKindV1::Transit
+        IndustryRecordKindV1::Recipe
+            | IndustryRecordKindV1::Transit
+            | IndustryRecordKindV1::Completion
     ) {
         return Err(invalid_for(kind));
     }
     roots.validate().map_err(|_| invalid_for(kind))?;
     qualification.validate_binding(&roots.digest().map_err(|_| invalid_for(kind))?)?;
-    let root = roots.state_root(StateNamespaceV1::Scheduler);
-    if root.namespace != StateNamespaceV1::Scheduler {
+    let root = roots.state_root(kind.namespace());
+    if root.namespace != kind.namespace() {
         return Err(invalid_for(kind));
     }
     let field = kind.descriptor()?;
@@ -403,6 +405,56 @@ pub fn visit_recipe_current_outer_changes_v1<
         ReservedValue<IndustryCurrentOuterChangeV1>,
     ) -> Result<(), WorldFieldOverlayErrorV1>,
 ) -> Result<(), WorldFieldOverlayErrorV1> {
+    visit_industry_current_outer_changes_v1(
+        IndustryRecordKindV1::Recipe,
+        transaction,
+        qualification,
+        context,
+        work,
+        |change, fee| visit(fee.retain(change)),
+    )
+}
+
+/// Visit changed material-transit outer entries from the transaction's actual
+/// final pending Scheduler writes. The returned IDs are observations only; a
+/// consumer must reopen each selected transit through its normal Current
+/// reader before using it.
+pub fn visit_transit_current_outer_changes_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    transaction: &ExecutionTransaction<'_, M>,
+    qualification: &ReservedValue<IndustryFamilyQualificationV1>,
+    context: &mut IndustryTransitionReadContextV1<'_, R, C>,
+    work: &mut IndustryWorkBudgetV1,
+    mut visit: impl FnMut(IndustryCurrentOuterChangeV1) -> Result<(), WorldFieldOverlayErrorV1>,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    visit_industry_current_outer_changes_v1(
+        IndustryRecordKindV1::Transit,
+        transaction,
+        qualification,
+        context,
+        work,
+        |change, _fee| visit(change),
+    )
+}
+
+fn visit_industry_current_outer_changes_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    kind: IndustryRecordKindV1,
+    transaction: &ExecutionTransaction<'_, M>,
+    qualification: &ReservedValue<IndustryFamilyQualificationV1>,
+    context: &mut IndustryTransitionReadContextV1<'_, R, C>,
+    work: &mut IndustryWorkBudgetV1,
+    mut visit: impl FnMut(
+        IndustryCurrentOuterChangeV1,
+        MemoryReservation,
+    ) -> Result<(), WorldFieldOverlayErrorV1>,
+) -> Result<(), WorldFieldOverlayErrorV1> {
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -419,7 +471,6 @@ pub fn visit_recipe_current_outer_changes_v1<
     let _workspace = memory
         .reserve(24 << 10, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
-    let kind = IndustryRecordKindV1::Recipe;
     let field = kind.descriptor()?;
     let cancellation = RefCell::new(&mut context.cancelled);
     let shared_work = RefCell::new(work);
@@ -442,7 +493,7 @@ pub fn visit_recipe_current_outer_changes_v1<
         Ok(())
     };
     transaction.visit_pending_writes(
-        StateNamespaceV1::Scheduler,
+        kind.namespace(),
         &mut remaining,
         check,
         |raw_key, before, after| {
@@ -450,20 +501,20 @@ pub fn visit_recipe_current_outer_changes_v1<
                 return Ok(());
             }
             let binding = WorldFieldKeyV1::from_bytes(raw_key).map_err(ValueTreeError::Invalid)?;
-            if binding.name != "pending_recipe_jobs" {
+            if binding.name != kind.field_name() {
                 return Ok(());
             }
             let key = WorldFieldKeyV1::new(field, binding.kind, binding.semantic_key)
                 .map_err(ValueTreeError::Invalid)?;
             if key.as_bytes() != raw_key || binding.kind != WorldFieldRecordKindV1::Entry {
-                return Err(invalid().into());
+                return Err(invalid_for(kind).into());
             }
             if (cancellation.borrow_mut())() {
                 return Err(ValueTreeError::Cancelled.into());
             }
             if key == format_key {
                 let (Some(before_root), Some(after_root)) = (before, after) else {
-                    return Err(invalid().into());
+                    return Err(invalid_for(kind).into());
                 };
                 for root in [&before_root, &after_root] {
                     verify_industry_marker(kind, root, &key, format_bytes, &mut records)?;
@@ -474,21 +525,24 @@ pub fn visit_recipe_current_outer_changes_v1<
                         MemoryClass::Ordinary,
                     )
                     .map_err(ValueTreeError::Memory)?;
-                return visit(charge.retain(IndustryCurrentOuterChangeV1::FormatMarker {
-                    before_value_root: before_root,
-                    after_value_root: after_root,
-                }));
+                return visit(
+                    IndustryCurrentOuterChangeV1::FormatMarker {
+                        before_value_root: before_root,
+                        after_value_root: after_root,
+                    },
+                    charge,
+                );
             }
             if before.is_none() && after.is_none() {
-                return Err(invalid().into());
+                return Err(invalid_for(kind).into());
             }
             let retained = std::mem::size_of::<IndustryCurrentOuterChangeV1>()
                 .checked_add(
                     (usize::from(before.is_some()) + usize::from(after.is_some()))
                         .checked_mul(std::mem::size_of::<IndustryOuterRecordRootV1>() + 64)
-                        .ok_or_else(invalid)?,
+                        .ok_or_else(|| invalid_for(kind))?,
                 )
-                .ok_or_else(invalid)?;
+                .ok_or_else(|| invalid_for(kind))?;
             let charge = memory
                 .reserve(retained, MemoryClass::Ordinary)
                 .map_err(ValueTreeError::Memory)?;
@@ -497,9 +551,9 @@ pub fn visit_recipe_current_outer_changes_v1<
             let mut identity = None;
             for (slot, root) in [(0usize, before.as_ref()), (1usize, after.as_ref())] {
                 let Some(root) = root else { continue };
-                let (id, record_root) = decode_recipe_root(root, &key, &mut records)?;
+                let (id, record_root) = decode_industry_root(kind, root, &key, &mut records)?;
                 if identity.is_some_and(|existing| existing != id) {
-                    return Err(invalid().into());
+                    return Err(invalid_for(kind).into());
                 }
                 identity = Some(id);
                 let value = IndustryOuterRecordRootV1 {
@@ -517,12 +571,62 @@ pub fn visit_recipe_current_outer_changes_v1<
                     after_value = Some(value);
                 }
             }
-            visit(charge.retain(IndustryCurrentOuterChangeV1::Record {
-                id: identity.ok_or_else(invalid)?,
-                before: before_value,
-                after: after_value,
-            }))
+            visit(
+                IndustryCurrentOuterChangeV1::Record {
+                    id: identity.ok_or_else(|| invalid_for(kind))?,
+                    before: before_value,
+                    after: after_value,
+                },
+                charge,
+            )
         },
     )?;
     Ok(())
+}
+
+/// Visit the complete authenticated Authorization completion-receipt directory.
+pub fn visit_qualified_completion_parent_identities_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    roots: &RootSetV1,
+    qualification: &ReservedValue<IndustryFamilyQualificationV1>,
+    context: &mut IndustryFamilyReadContextV1<'_, M, R, E, C>,
+    work: &mut IndustryWorkBudgetV1,
+    visit: impl FnMut(ReservedValue<IndustryQualifiedOuterIdentityV1>) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    visit_qualified_industry_parent_identities_v1(
+        roots,
+        IndustryRecordKindV1::Completion,
+        qualification,
+        context,
+        work,
+        visit,
+    )
+}
+
+/// Visit actual same-transaction completion-receipt changes; emissions retain their fee.
+pub fn visit_completion_current_outer_changes_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    transaction: &ExecutionTransaction<'_, M>,
+    qualification: &ReservedValue<IndustryFamilyQualificationV1>,
+    context: &mut IndustryTransitionReadContextV1<'_, R, C>,
+    work: &mut IndustryWorkBudgetV1,
+    mut visit: impl FnMut(
+        ReservedValue<IndustryCurrentOuterChangeV1>,
+    ) -> Result<(), WorldFieldOverlayErrorV1>,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    visit_industry_current_outer_changes_v1(
+        IndustryRecordKindV1::Completion,
+        transaction,
+        qualification,
+        context,
+        work,
+        |change, fee| visit(fee.retain(change)),
+    )
 }

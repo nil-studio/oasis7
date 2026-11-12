@@ -10,6 +10,14 @@ use oasis7_formal_protocol::incremental_execution::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::marker::PhantomData;
+#[path = "incremental_world_rule_continuity_contracts.rs"]
+mod continuity_contracts;
+#[path = "incremental_world_rule_continuity_contracts_current.rs"]
+mod continuity_contracts_current;
+pub use continuity_contracts_current::{
+    CurrentContinuityContractSourcesV1, observe_current_continuity_contract_sources_v1,
+};
+
 #[path = "incremental_world_rule_continuity_scope.rs"]
 mod continuity_scope;
 use crate::incremental_organization_scope_index::OrganizationScopeIndexV1;
@@ -46,6 +54,7 @@ pub struct WorldRuleCompositeQualificationV1<T> {
     body: Option<ReservedValue<StateRootV1>>,
     class: MemoryClass,
     pub(crate) continuity_scope: Option<OrganizationScopeIndexV1>,
+    pub(crate) continuity_contracts: Option<continuity_contracts::index::ContinuityContractIndexV1>,
     _type: PhantomData<fn() -> T>,
 }
 impl<T> WorldRuleCompositeQualificationV1<T> {
@@ -79,6 +88,9 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
                 .is_some_and(|r| !r.uses_budget(memory) || r.reserved_bytes() < 512)
         {
             return Err(invalid());
+        }
+        if let Some(index) = &self.continuity_contracts {
+            let _binding = index.share(memory, class)?;
         }
         if let Some(index) = &self.continuity_scope {
             index.check_budget(memory, class)?;
@@ -192,6 +204,14 @@ pub(crate) fn qualify_world_rule_branch_v1<
     check(ctx)?;
     let continuity_scope =
         continuity_scope::update::<T, _, _, _, _>(None, None, body.as_deref(), ctx, scan, work)?;
+    let continuity_contracts = continuity_contracts::update::<T, _, _, _, _>(
+        None,
+        None,
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         memory: ctx.values.memory.clone(),
@@ -199,6 +219,7 @@ pub(crate) fn qualify_world_rule_branch_v1<
         body,
         class: ctx.values.class,
         continuity_scope,
+        continuity_contracts,
         _type: PhantomData,
     }))
 }
@@ -238,6 +259,22 @@ pub fn readmit_world_rule_branch_ordinary_v1<T>(
         present: source.present,
         body,
         class: MemoryClass::Ordinary,
+        // This legacy readmission entry has no scalar Work argument. Preserve
+        // its cancellable resident-copy semantics; Current execution supplies
+        // its continuing work through the index's explicit fee callback.
+        continuity_contracts: source
+            .continuity_contracts
+            .as_ref()
+            .map(|index| {
+                index.readmit_ordinary(memory, &mut |_, _| {
+                    if cancelled() {
+                        Err(ValueTreeError::Cancelled)
+                    } else {
+                        Ok(())
+                    }
+                })
+            })
+            .transpose()?,
         continuity_scope: source
             .continuity_scope
             .as_ref()
@@ -361,6 +398,14 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         scan,
         work,
     )?;
+    let continuity_contracts = continuity_contracts::update::<T, _, _, _, _>(
+        parent.continuity_contracts.as_ref(),
+        parent.body(),
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: *witness.after_digest(),
         memory: ctx.values.memory.clone(),
@@ -368,6 +413,7 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         body,
         class: ctx.values.class,
         continuity_scope,
+        continuity_contracts,
         _type: PhantomData,
     }))
 }

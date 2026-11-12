@@ -224,8 +224,30 @@ pub(super) fn prepare_outcome_data_v1<M: MerkleNodeReader>(
             .memory()
             .reserve(bytes, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
+        let record_work =
+            super::incremental_safe_alternative_allocation::safe_alternative_owned_bound_v1(
+                record, common,
+            )?;
+        // Work follows actual source tokens/text, separately from pinned JSON
+        // node heap. encode_paid above already paid the actual event encoding.
+        let event_tokens = u64::try_from(actual.len())
+            .map_err(|_| ValueTreeError::ResourceLimited("SafeAlternative event work"))?;
+        let visits = event_tokens
+            .checked_mul(16)
+            .and_then(|n| n.checked_add(1024))
+            .and_then(|n| n.checked_add(record_work.visits))
+            .ok_or(ValueTreeError::ResourceLimited(
+                "SafeAlternative outcome visits",
+            ))?;
+        let text = event_tokens
+            .checked_mul(14 * 16)
+            .and_then(|n| n.checked_add(4096))
+            .and_then(|n| n.checked_add(record_work.bytes))
+            .ok_or(ValueTreeError::ResourceLimited(
+                "SafeAlternative outcome bytes",
+            ))?;
         common
-            .charge(bytes as u64, bytes as u64)
+            .charge(visits, text)
             .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
         let result =
             project_outcome_record_v1(record.clone(), selected.envelope().id, event.event())

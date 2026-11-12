@@ -179,7 +179,7 @@ fn run_commit_directories(mode: usize) {
     // A single conditional reference would unify their invariant source
     // lifetimes and incorrectly require the captured fixture to be static.
     macro_rules! prepare_bundle {
-        ($transaction:expr) => {{
+        ($transaction:expr,$identity_work:expr) => {{
             let tx = $transaction;
         let counter =
             WorldEventCounterV1::begin(&fixture.runtime, &fixture.head, &tx, &memory).unwrap();
@@ -418,6 +418,9 @@ fn run_commit_directories(mode: usize) {
             &mut material_scope_work,
         )
         .unwrap();
+        let inventory_identity_work=&mut *$identity_work;
+        let inventory_directory=build_inventory_identity_directory_v1(native.inventory(),&fixture.roots,&mut material_read,
+            &mut genesis::scan(),&mut material_family,inventory_identity_work).unwrap();
         let reduce_work = FactoryDepreciationReduceWorkV1 {
             max_material_entries: 64,
             comparison_bytes_remaining: 64 << 20,
@@ -589,6 +592,7 @@ fn run_commit_directories(mode: usize) {
                     &mut fc,
                     &mut rc,
                     &mut phase_work,
+                    &inventory_directory,native.inventory(),inventory_identity_work,
                     &mut live_owner,
                 )
                 .unwrap();
@@ -628,7 +632,9 @@ fn run_commit_directories(mode: usize) {
         Ok(frozen)
         }};
     }
-    let apply = |actual_tx: &mut ExecutionTransaction<'_, _>| -> Result<
+    let apply = |actual_tx: &mut ExecutionTransaction<'_, _>,
+                 inventory_identity_work: &mut InventoryIdentityDirectoryWorkV1|
+     -> Result<
         ReservedValue<FrozenRuntimeDirectoryBundleV1>,
         DirectoryCommitTestError,
     > {
@@ -647,9 +653,9 @@ fn run_commit_directories(mode: usize) {
                 },
             )
             .unwrap();
-            prepare_bundle!(&mut foreign)
+            prepare_bundle!(&mut foreign, inventory_identity_work)
         } else {
-            prepare_bundle!(actual_tx)
+            prepare_bundle!(actual_tx, inventory_identity_work)
         }
     };
     let another_pool = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
@@ -660,6 +666,13 @@ fn run_commit_directories(mode: usize) {
         pending_entries_remaining: 100000,
         comparison_bytes_remaining: 64 << 20,
     };
+    let mut inventory_identity_work = InventoryIdentityDirectoryWorkV1 {
+        visits_remaining: 1000000,
+        comparison_bytes_remaining: 64 << 20,
+        pending_entries_remaining: 100000,
+        max_identity_bytes: 4096,
+        max_output_entries: 10000,
+    };
     let prepared = if mode == 4 {
         prepare_iws_runtime_commit_with_results_and_directories_v1(
             &request,
@@ -668,6 +681,7 @@ fn run_commit_directories(mode: usize) {
             || Ok::<_, DirectoryCommitTestError>(live),
             apply,
             &mut material_rebind,
+            &mut inventory_identity_work,
             || false,
             |after| {
                 assert_eq!(after.simulation_tick, now);
@@ -682,6 +696,7 @@ fn run_commit_directories(mode: usize) {
             || Ok::<_, DirectoryCommitTestError>(live),
             apply,
             &mut material_rebind,
+            &mut inventory_identity_work,
             || mode == 5,
         )
     };
@@ -690,6 +705,11 @@ fn run_commit_directories(mode: usize) {
             let prepared = prepared.unwrap();
             let bound = prepared.require_directories_v1().unwrap();
             bound.validate_candidate(&prepared, &memory).unwrap();
+            bound
+                .sealed_directories()
+                .inventory_identity_parent()
+                .validate_binding(&prepared.transition().record.after)
+                .unwrap();
             assert_eq!(
                 bound.candidate_commit(),
                 prepared.history().body.digest().unwrap()

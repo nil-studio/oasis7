@@ -180,6 +180,8 @@ pub use family::{
     readmit_diplomacy_family_ordinary_with_work_v1,
 };
 
+pub use family::{CurrentContractCreatorCountV1, observe_current_creator_contract_count_v1};
+
 #[path = "incremental_diplomacy_crisis_current.rs"]
 mod crisis_current;
 pub use crisis_current::open_current_diplomacy_crisis_record_v1;

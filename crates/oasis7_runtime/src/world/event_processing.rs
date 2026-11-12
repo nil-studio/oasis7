@@ -59,9 +59,10 @@ const STARTER_OC_CLAIM_AMOUNT: u64 = 100_000_000;
 mod action_to_event_core;
 pub(super) mod action_to_event_economy;
 mod action_to_event_gameplay;
-pub(in crate::world) use action_to_event_gameplay::alliance_fixed;
+pub(in crate::world) use action_to_event_gameplay::{alliance_fixed, war_fixed};
 mod action_to_event_gameplay_meta;
 mod action_to_event_policy_contract;
+pub(in crate::world) use action_to_event_policy_contract::fixed_contract as contract_fixed;
 mod action_to_event_policy_contract_rejection;
 mod core_policy_root;
 mod main_token;
@@ -72,7 +73,6 @@ use publication::PreparedEventStateDelta;
 
 impl World {
     // ---------------------------------------------------------------------
-    // Internal helpers
     // ---------------------------------------------------------------------
 
     fn agent_alliance_id(&self, agent_id: &str) -> Option<&str> {
@@ -701,12 +701,10 @@ impl World {
             | Action::GovernRecipeProfile { .. }
             | Action::GovernFactoryProfile { .. } => {
                 let mut body = self.action_to_event_economy(action_id, &envelope.action)?;
-                if let WorldEventBody::Domain(DomainEvent::RecipeStarted {
-                    committed_recipe_origin,
-                    ..
-                }) = &mut body
-                {
-                    *committed_recipe_origin = envelope.committed_recipe_origin.clone();
+                let result:Result<(),std::convert::Infallible>=crate::world::incremental_normal_action_factory_schedule::attach_recipe_origin_with_work_v1(&mut body,envelope.committed_recipe_origin.as_ref(),&mut |_|Ok(()));
+                match result {
+                    Ok(()) => {}
+                    Err(never) => match never {},
                 }
                 Ok(body)
             }
@@ -1195,3 +1193,8 @@ impl World {
         Ok(Some(receipt_event_id))
     }
 }
+
+pub(in crate::world) use super::product_stack_admission as factory_schedule_product_fixed;
+pub(in crate::world) use action_to_event_economy::{
+    factory_schedule_fixed, factory_schedule_market_fixed,
+};

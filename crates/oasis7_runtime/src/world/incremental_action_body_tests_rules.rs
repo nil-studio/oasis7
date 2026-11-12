@@ -46,6 +46,15 @@ pub(in crate::world) fn outcome<'a>(
     .0
 }
 pub(in crate::world) enum NonmovementFixtureWorkV1<'p> {
+    FactorySchedule{work:&'p mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,sources:&'p crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'p>,common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,result:&'p mut Option<crate::world::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1>},
+    ContractLifecycle{work:&'p mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1,sources:&'p crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'p,'p>,common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,result:&'p mut Option<crate::world::incremental_normal_action_diplomacy::CompletedAllianceActionV1>},
+    Alliance{
+        work:&'p mut crate::world::incremental_normal_action_diplomacy::AllianceWorkV1,
+        sources:&'p crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1<'p,'p>,
+        common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+        result:&'p mut Option<crate::world::incremental_normal_action_diplomacy::CompletedAllianceActionV1>,
+    },
+
     LogisticsRegistration{
         work:&'p mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
         common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
@@ -541,6 +550,24 @@ fn evaluate<'a>(
             CompletedNonmovementActionV1, NonmovementSelectedWorkV1,
         };
         let work = match body_work.as_mut().unwrap() {
+            NonmovementFixtureWorkV1::FactorySchedule {
+                work,
+                sources,
+                common,
+                ..
+            } => NonmovementSelectedWorkV1::FactorySchedule(&mut **work, sources, common),
+            NonmovementFixtureWorkV1::ContractLifecycle {
+                work,
+                sources,
+                common,
+                ..
+            } => NonmovementSelectedWorkV1::ContractLifecycle(&mut **work, sources, common),
+            NonmovementFixtureWorkV1::Alliance {
+                work,
+                sources,
+                common,
+                ..
+            } => NonmovementSelectedWorkV1::Alliance(&mut **work, sources, common),
             NonmovementFixtureWorkV1::LogisticsRegistration { work, common, .. } => {
                 NonmovementSelectedWorkV1::LogisticsRegistration(
                     &mut **work,
@@ -736,8 +763,42 @@ fn evaluate<'a>(
             }
         };
         match completed {
-            CompletedNonmovementActionV1::Alliance(_) => {
-                panic!("Alliance requires its dedicated genuine source fixture")
+            CompletedNonmovementActionV1::FactorySchedule(value) => {
+                // Selected work came from the variant above; preserve the real
+                // result in its dedicated output rather than a legacy slot.
+                match body_work.as_mut() {
+                    Some(NonmovementFixtureWorkV1::FactorySchedule { result, .. }) => {
+                        assert!(result.is_none());
+                        **result = Some(value);
+                    }
+                    _ => unreachable!("industrial work/result fixture binding"),
+                }
+                (
+                    outcome, None, None, None, None, None, None, None, None, None, None, None,
+                )
+            }
+            CompletedNonmovementActionV1::ContractLifecycle(value) => {
+                let Some(NonmovementFixtureWorkV1::ContractLifecycle { result, .. }) =
+                    body_work.as_mut()
+                else {
+                    panic!("Contract requires genuine Current lifecycle fixture");
+                };
+                assert!(result.is_none());
+                **result = Some(value);
+                (
+                    outcome, None, None, None, None, None, None, None, None, None, None, None,
+                )
+            }
+            CompletedNonmovementActionV1::Alliance(value) => {
+                let Some(NonmovementFixtureWorkV1::Alliance { result, .. }) = body_work.as_mut()
+                else {
+                    panic!("Alliance requires its dedicated genuine source fixture");
+                };
+                assert!(result.is_none());
+                **result = Some(value);
+                (
+                    outcome, None, None, None, None, None, None, None, None, None, None, None,
+                )
             }
             CompletedNonmovementActionV1::LogisticsRegistration(value) => {
                 let Some(NonmovementFixtureWorkV1::LogisticsRegistration { result, .. }) =
@@ -1051,6 +1112,58 @@ pub(in crate::world) fn evaluate_with_logistics_registration<'a>(
     assert!(matches!(
         &body.work,
         NonmovementFixtureWorkV1::LogisticsRegistration { .. }
+    ));
+    let result = evaluate(
+        fixture,
+        reader,
+        transaction,
+        FixtureInputV1::Pending(pending, pending_work),
+        directory,
+        counter,
+        originals,
+        memory,
+        now,
+        live,
+        None,
+        Some(body),
+    );
+    assert!(
+        result.1.is_none()
+            && result.2.is_none()
+            && result.3.is_none()
+            && result.4.is_none()
+            && result.5.is_none()
+            && result.6.is_none()
+            && result.7.is_none()
+            && result.8.is_none()
+            && result.9.is_none()
+            && result.10.is_none()
+            && result.11.is_none()
+    );
+    result.0.expect("actual selected Rule outcome")
+}
+
+pub(in crate::world) fn evaluate_with_alliance<'a>(
+    fixture: &genesis::Fixture<'a>,
+    reader: &Reader<'a>,
+    transaction: &mut ExecutionTransaction<'_, Reader<'a>>,
+    pending: &mut oasis7_proto::memory_budget::ReservedValue<
+        oasis7_world_state::incremental_pending_action_overlay::PendingActionCurrentV1,
+    >,
+    pending_work:&mut oasis7_world_state::incremental_pending_action_family::PendingActionFamilyWorkV1,
+    directory: &oasis7_proto::memory_budget::ReservedValue<AcceptedInvocationDirectoryV1>,
+    counter: &WorldEventCounterV1,
+    originals: &mut Originals<'a>,
+    memory: &'a MemoryBudget,
+    now: u64,
+    live: &ExecutionFence,
+    body: NonmovementExecutionFixtureV1<'_>,
+) -> oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1> {
+    assert!(matches!(
+        &body.work,
+        NonmovementFixtureWorkV1::Alliance { .. }
+            | NonmovementFixtureWorkV1::ContractLifecycle { .. }
+            | NonmovementFixtureWorkV1::FactorySchedule { .. }
     ));
     let result = evaluate(
         fixture,

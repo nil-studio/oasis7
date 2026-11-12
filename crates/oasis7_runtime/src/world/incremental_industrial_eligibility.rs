@@ -721,3 +721,10 @@ pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternat
 pub(in crate::world) use incremental_industrial_eligibility_owner::{
     CurrentStateOwnerSourcesV1, OwnedCurrentIndustrialStateOwnerV1, resolve_current_state_owner_v1,
 };
+
+pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternative_current::{
+    SafeAlternativeCurrentSourcesV1, check_current_safe_alternative_scope_v1,
+};
+
+// Fixed consumers reuse the original typed Current manifest binding algorithm.
+pub(in crate::world) use incremental_industrial_eligibility_owner::read_current_world_binding_v1;

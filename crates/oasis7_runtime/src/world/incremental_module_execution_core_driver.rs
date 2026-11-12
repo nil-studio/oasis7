@@ -5,8 +5,7 @@ use crate::world::{
     incremental_action_admission::UnboundActionAdmissionV1,
     incremental_action_execution::SelectedPendingActionV1,
     incremental_action_execution_core::{
-        CompletedCoreActionV1, apply_settled_core_action_v1, prepare_selected_core_action_v1,
-        settle_prepared_core_action_v1,
+        CompletedCoreActionV1, apply_settled_core_action_v1, settle_prepared_core_action_v1,
     },
     incremental_module_execution_event::PersistedWorldEventV1,
     incremental_module_invocation::RootRulePhaseOutcomeV1,
@@ -187,111 +186,34 @@ where
         PE: FnMut() -> Option<ValueTreeError>,
         PC: FnMut() -> bool,
     {
-        let result: Result<_, CoreDriverErrorV1<O::Error>> = (|| {
-            // The Core reducer reads the effective action from the same
-            // Selected-bound outcome; Selected itself remains the original.
-            let live = live_owner();
-            let guard = self.ctx.transaction.guard();
-            let prepared = {
-                let mut step = IwsStepContext::borrow_counted_at(
-                    self.ctx.transaction,
-                    self.now,
-                    &guard,
-                    &live,
-                    self.events.values,
-                    &mut self.events.mutation,
-                    &mut self.events.original_work,
-                    self.events.world_events,
-                )
-                .map_err(RootModuleExecutionErrorV1::Body)?;
-                prepare_selected_core_action_v1(
-                    &mut step,
-                    selected,
+        let result = (|| {
+            let completed = self.execute_scoped_core_before_post_v1::<P, ER, CR, PE, PC>(
+                selected,
+                crate::world::incremental_action_admission::CoreActionAdmissionV1::Unbound(
                     admission,
-                    outcome,
-                    self.families.agents,
-                    read,
-                    policy_scan,
-                    policy_work,
-                    &guard,
-                    &live,
-                )
-                .map_err(RootModuleExecutionErrorV1::Body)?
-            };
-            let settled = settle_prepared_core_action_v1(
-                prepared,
-                selected,
-                self.ctx,
-                self.members,
-                &live_owner(),
-            )
-            .map_err(CoreDriverErrorV1::Settlement)?;
-            if crate::world::World::should_emit_action_accepted(&selected.envelope().action) {
-                let parent_read = parent_read.ok_or_else(|| {
-                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                        "selected Core Accepted parent read missing",
-                    ))
-                })?;
-                let pending_entries = accepted_entries.ok_or_else(|| {
-                    RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                        "selected Core Accepted work missing",
-                    ))
-                })?;
-                self.append_selected_accepted_disposition_v1(
-                    selected,
-                    materials,
-                    self.families.agents,
-                    read,
-                    parent_read,
-                    pending_entries,
-                    audit_work,
-                    live_owner,
-                )?;
-            }
-            let live = live_owner();
-            let guard = self.ctx.transaction.guard();
-            let completed = {
-                let mut step = IwsStepContext::borrow_counted_at(
-                    self.ctx.transaction,
-                    self.now,
-                    &guard,
-                    &live,
-                    self.events.values,
-                    &mut self.events.mutation,
-                    &mut self.events.original_work,
-                    self.events.world_events,
-                )
-                .map_err(RootModuleExecutionErrorV1::Body)?;
-                apply_settled_core_action_v1(
-                    &mut step,
-                    materials,
-                    selected,
-                    settled,
-                    self.families.agents,
-                    read,
-                    audit_work,
-                    self.events.max_event_bytes,
-                    &guard,
-                    &live,
-                    &mut self.events.persist_original,
-                )
-                .map_err(RootModuleExecutionErrorV1::Body)?
-            };
-            let event = PersistedWorldEventV1::from_core_action(&completed);
-            // Only the actual resource settlement capability decides whether
-            // World::step's pre-PostAction Event branch was taken.
-            if completed.event_before_post_action() {
-                self.route_persisted_event_v1(&event, None, directory, enumeration, live_owner)?;
-            }
-            self.route_post_action_after_rules_v1(
-                selected,
+                ),
+                None,
                 outcome,
-                Some(&event),
+                materials,
+                read,
+                parent_read,
+                accepted_entries,
+                policy_scan,
+                policy_work,
+                audit_work,
                 directory,
                 enumeration,
                 live_owner,
             )?;
-            self.route_latest_world_event_v1(directory, enumeration, tail_work, live_owner)?;
+            self.finish_core_post_action_v1(
+                selected,
+                outcome,
+                &completed,
+                directory,
+                enumeration,
+                tail_work,
+                live_owner,
+            )?;
             Ok(completed)
         })();
         if result.is_err() {
@@ -303,3 +225,6 @@ where
         result
     }
 }
+
+#[path = "incremental_module_execution_core_before_post.rs"]
+mod before_post;

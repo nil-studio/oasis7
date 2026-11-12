@@ -412,3 +412,7 @@ mod tests;
 mod delta;
 #[path = "incremental_runtime_authorization_stream.rs"]
 mod stream;
+
+#[path = "incremental_runtime_authorization_current.rs"]
+mod current;
+pub use current::open_current_authorization_record_body_v1;

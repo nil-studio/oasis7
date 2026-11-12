@@ -72,6 +72,41 @@ where
 }
 
 impl World {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn contribute_iws_factory_schedule_event_at<R, V, W, C, F, ME>(
+        now: u64,
+        cap: &super::incremental_normal_action_factory_schedule::PreparedFactoryScheduleEventV1,
+        identity:oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), BodyMutationError>
+    where
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            cap.event(),
+            txn,
+            context,
+            materials,
+            live,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some((cap, identity)),
+        )
+    }
+
     /// Stage body-attribute or move state changes and the exact original fact.
     /// No hot journal scan/copy, tick consensus reconstruction or state hash.
     /// The caller supplies a borrowed original envelope and the common txn.
@@ -139,6 +174,8 @@ impl World {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
 
@@ -167,6 +204,8 @@ impl World {
             false,
             None,
             Some(cap),
+            None,
+            None,
             None,
             None,
         )
@@ -199,6 +238,8 @@ impl World {
             None,
             Some(cap),
             None,
+            None,
+            None,
         )
     }
 
@@ -229,6 +270,40 @@ impl World {
             None,
             None,
             Some(cap),
+            None,
+            None,
+        )
+    }
+
+    pub(super) fn contribute_iws_normal_system_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        cap: &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            cap.event(),
+            txn,
+            context,
+            materials,
+            live,
+            false,
+            None,
+            None,
+            None,
+            None,
+            Some(cap),
+            None,
         )
     }
 
@@ -260,6 +335,8 @@ impl World {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
 
@@ -287,6 +364,13 @@ impl World {
             &super::incremental_normal_action_logistics::PreparedLogisticsRegistrationEventV1,
         >,
         alliance: Option<&super::incremental_normal_action_diplomacy::PreparedAllianceEventV1>,
+        system_event: Option<
+            &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
+        >,
+        factory_schedule: Option<(
+            &super::incremental_normal_action_factory_schedule::PreparedFactoryScheduleEventV1,
+            oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+        )>,
     ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
@@ -327,10 +411,45 @@ impl World {
                     return Err(BodyMutationError::Invalid("Alliance event source"));
                 }
             }
+            if let Some(cap) = system_event {
+                cap.validate(txn, context.mutation.memory, now)?;
+                if !std::ptr::eq(cap.event(), event) {
+                    return Err(BodyMutationError::Invalid("normal system event source"));
+                }
+            }
+            if let Some((cap, core)) = &factory_schedule {
+                cap.validate(txn, context.mutation.memory, now, *core)?;
+                if !std::ptr::eq(cap.event(), event) {
+                    return Err(BodyMutationError::Invalid("industrial event source"));
+                }
+            }
             let agent_id = match domain {
+                DomainEvent::FactoryBuildStarted {
+                    builder_agent_id, ..
+                } if factory_schedule.is_some() => builder_agent_id,
+                DomainEvent::RecipeStarted {
+                    requester_agent_id, ..
+                } if factory_schedule.is_some() => requester_agent_id,
+
+                DomainEvent::FactoryBuilt {
+                    builder_agent_id, ..
+                } if system_event.is_some() => builder_agent_id,
+
+                DomainEvent::MaterialTransitCompleted {
+                    requester_agent_id, ..
+                } if system_event.is_some() => requester_agent_id,
                 DomainEvent::AllianceFormed {
                     proposer_agent_id, ..
                 } if alliance.is_some() => proposer_agent_id,
+                DomainEvent::WarDeclared {
+                    initiator_agent_id, ..
+                } if alliance.is_some() => initiator_agent_id,
+                DomainEvent::EconomicContractOpened {
+                    creator_agent_id, ..
+                } if alliance.is_some() => creator_agent_id,
+                DomainEvent::EconomicContractSettled {
+                    operator_agent_id, ..
+                } if alliance.is_some() => operator_agent_id,
                 DomainEvent::AllianceJoined {
                     operator_agent_id, ..
                 }
@@ -408,7 +527,8 @@ impl World {
             if matches!(
                 domain,
                 DomainEvent::ActionAccepted { .. } | DomainEvent::Observation { .. }
-            ) {
+            ) || system_event.is_some()
+            {
                 let body_key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
                 let body_exists = txn.read(Ns::Business, body_key.as_bytes())?.is_some();
                 if accepted_scope.is_some_and(|scope| body_exists != scope.existing()) {
@@ -554,10 +674,17 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
+                DomainEvent::FactoryBuildStarted { .. } | DomainEvent::RecipeStarted { .. }
+                    if factory_schedule.is_some() => {}
+                DomainEvent::FactoryBuilt { .. } if system_event.is_some() => {}
+                DomainEvent::MaterialTransitCompleted { .. } if system_event.is_some() => {}
                 DomainEvent::AllianceFormed { .. }
                 | DomainEvent::AllianceJoined { .. }
                 | DomainEvent::AllianceLeft { .. }
                 | DomainEvent::AllianceDissolved { .. }
+                | DomainEvent::WarDeclared { .. }
+                | DomainEvent::EconomicContractOpened { .. }
+                | DomainEvent::EconomicContractSettled { .. }
                     if alliance.is_some() => {}
                 DomainEvent::LogisticsRouteRegistered { .. }
                     if logistics_registration.is_some() => {}

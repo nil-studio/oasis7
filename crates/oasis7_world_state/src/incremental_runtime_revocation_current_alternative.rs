@@ -156,4 +156,7 @@ where
 
 #[path = "incremental_runtime_revocation_safe_alternative_cas.rs"]
 mod cas;
-pub use cas::replace_current_safe_alternative_record_v1;
+pub use cas::{
+    SafeAlternativeRecordWriteReceiptV1, replace_current_safe_alternative_record_v1,
+    replace_current_safe_alternative_record_with_receipt_v1,
+};

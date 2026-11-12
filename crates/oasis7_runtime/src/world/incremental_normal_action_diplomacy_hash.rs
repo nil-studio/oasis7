@@ -32,6 +32,15 @@ pub(super) fn membership_event_hash_v1(
     event: &crate::DomainEvent,
     common: &mut FormalBoundedContextV1<'_>,
 ) -> Result<ReservedValue<String>, BodyMutationError> {
+    fixed_json_digest_v1(event, common)
+}
+
+/// Borrow the original serde_json serializer for fixed tuples as well as
+/// DomainEvents; the existing writer retains every charge and first error.
+pub(in crate::world) fn fixed_json_digest_v1<T: serde::Serialize + ?Sized>(
+    value: &T,
+    common: &mut FormalBoundedContextV1<'_>,
+) -> Result<ReservedValue<String>, BodyMutationError> {
     let fee = common
         .memory()
         .reserve(
@@ -44,7 +53,7 @@ pub(super) fn membership_event_hash_v1(
         common,
         first: None,
     };
-    let result = serde_json::to_writer(&mut writer, event);
+    let result = serde_json::to_writer(&mut writer, value);
     if let Some(e) = writer.first {
         return Err(e);
     }

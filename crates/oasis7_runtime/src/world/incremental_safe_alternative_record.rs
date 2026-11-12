@@ -30,6 +30,28 @@ pub(super) struct PaidSignedSafeAlternativeRecordV1<'a, 'p> {
     _phase: ReservedValue<()>,
 }
 impl PaidSignedSafeAlternativeRecordV1<'_, '_> {
+    /// Only after a genuine persisted result; exact member CAS remains due.
+    /// The original strict pre-scope guard is intentionally unchanged.
+    pub(super) fn validate_after_result<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<(), BodyMutationError> {
+        self.selected.validate(tx)?;
+        tx.validate_transaction_identity(&self.guard)?;
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        if self.core != common.work().identity()
+            || !self.record.uses_budget(common.memory())
+            || !self._phase.uses_budget(common.memory())
+        {
+            return Err(BodyMutationError::Invalid(
+                "SafeAlternative result source identity",
+            ));
+        }
+        Ok(())
+    }
     pub(super) fn validate_before_scope<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,
@@ -37,7 +59,7 @@ impl PaidSignedSafeAlternativeRecordV1<'_, '_> {
         live: &ExecutionFence,
     ) -> Result<(), BodyMutationError> {
         self.selected.validate(tx)?;
-        self.ledger.validate(tx, common, live)?;
+        self.ledger.validate_current_read_view(tx, common, live)?;
         tx.validate_guard(&self.guard, live)?;
         if self.core != common.work().identity()
             || !self.record.uses_budget(common.memory())
@@ -60,7 +82,14 @@ pub(super) fn prepare_signed_safe_alternative_record_v1<'a, 'p, M: MerkleNodeRea
 ) -> Result<PaidSignedSafeAlternativeRecordV1<'a, 'p>, BodyMutationError> {
     let result = (|| {
         selected.validate(tx)?;
-        ledger.validate(tx, common, live)?;
+        if !super::governance_authorization::is_unprotected_governance_envelope(selected.envelope())
+            .map_err(|e| BodyMutationError::Original(Box::new(SafeAlternativeHistoryErrorV1(e))))?
+        {
+            return Err(BodyMutationError::Invalid(
+                "SafeAlternative qualified governance owner required",
+            ));
+        }
+        ledger.validate_current_read_view(tx, common, live)?;
         record.validate(tx, live).map_err(|e| match e {
             oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1::Execution(
                 e,
@@ -80,7 +109,9 @@ pub(super) fn prepare_signed_safe_alternative_record_v1<'a, 'p, M: MerkleNodeRea
                 "SafeAlternative Selected record",
             ));
         }
-        let bytes = safe_alternative_owned_bound_v1(record.record(), common)?
+        let bound = safe_alternative_owned_bound_v1(record.record(), common)?;
+        let bytes = bound
+            .heap
             .checked_add(std::mem::size_of::<PaidSignedSafeAlternativeRecordV1<'a, 'p>>())
             .ok_or(ValueTreeError::ResourceLimited(
                 "SafeAlternative signed record layout",
@@ -90,7 +121,7 @@ pub(super) fn prepare_signed_safe_alternative_record_v1<'a, 'p, M: MerkleNodeRea
             .reserve(bytes, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
         common
-            .charge(bytes as u64, bytes as u64)
+            .charge(bound.visits, bound.bytes)
             .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
         // The complete Current action index already rejected duplicate action IDs.
         // This set preserves the original per-record validation order; it is not a

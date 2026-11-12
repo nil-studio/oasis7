@@ -5,7 +5,9 @@ use crate::world::incremental_directory_bundle::{
     FrozenRuntimeDirectoryBundleV1, RuntimeDirectoryFreezeErrorV1, SealedRuntimeDirectoryBundleV1,
     bind_runtime_directories_to_actual_seal_v1,
 };
-use oasis7_world_state::incremental_inventory::InventoryMaterialScopeWorkV1;
+use oasis7_world_state::incremental_inventory::{
+    InventoryIdentityDirectoryWorkV1, InventoryMaterialScopeWorkV1,
+};
 pub(in crate::world) struct CandidateBoundRuntimeDirectoriesV1 {
     sealed: ReservedValue<SealedRuntimeDirectoryBundleV1>,
     commit: [u8; 32],
@@ -112,16 +114,19 @@ pub(in crate::world) fn prepare_iws_runtime_commit_with_directories_v1<
     live_fence: impl FnMut() -> Result<ExecutionFence, E>,
     apply: impl FnOnce(
         &mut ExecutionTransaction<'a, R>,
+        &mut InventoryIdentityDirectoryWorkV1,
     ) -> Result<ReservedValue<FrozenRuntimeDirectoryBundleV1>, E>,
     material_work: &mut InventoryMaterialScopeWorkV1,
+    identity_work: &mut InventoryIdentityDirectoryWorkV1,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
+    let identity_work = std::cell::RefCell::new(identity_work);
     let value = prepare_commit(
         request,
         source,
         memory,
         live_fence,
-        apply,
+        |tx| apply(tx, &mut **identity_work.borrow_mut()),
         |mut tx, guard, live, tick, frozen| {
             frozen
                 .validate_terminal_guard(&mut tx, memory, live)
@@ -139,6 +144,7 @@ pub(in crate::world) fn prepare_iws_runtime_commit_with_directories_v1<
                 &transition.record.after,
                 memory,
                 material_work,
+                &mut **identity_work.borrow_mut(),
                 &mut cancelled,
             )
             .map_err(E::from)?;
@@ -169,17 +175,20 @@ pub(in crate::world) fn prepare_iws_runtime_commit_with_results_and_directories_
     live_fence: impl FnMut() -> Result<ExecutionFence, E>,
     apply: impl FnOnce(
         &mut ExecutionTransaction<'a, R>,
+        &mut InventoryIdentityDirectoryWorkV1,
     ) -> Result<ReservedValue<FrozenRuntimeDirectoryBundleV1>, E>,
     material_work: &mut InventoryMaterialScopeWorkV1,
+    identity_work: &mut InventoryIdentityDirectoryWorkV1,
     mut cancelled: impl FnMut() -> bool,
     produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 2], E>,
 ) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
+    let identity_work = std::cell::RefCell::new(identity_work);
     let value = prepare_commit(
         request,
         source,
         memory,
         live_fence,
-        apply,
+        |tx| apply(tx, &mut **identity_work.borrow_mut()),
         |mut tx, guard, live, tick, frozen| {
             frozen
                 .validate_terminal_guard(&mut tx, memory, live)
@@ -200,6 +209,7 @@ pub(in crate::world) fn prepare_iws_runtime_commit_with_results_and_directories_
                 &transition.record.after,
                 memory,
                 material_work,
+                &mut **identity_work.borrow_mut(),
                 &mut cancelled,
             )
             .map_err(E::from)?;

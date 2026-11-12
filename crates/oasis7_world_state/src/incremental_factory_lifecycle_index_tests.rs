@@ -316,6 +316,8 @@ fn joint_index_genuine_genesis_counts_every_job_and_recomputes_without_factory()
             expected_total
         );
         assert_eq!(observation.stable_without_factory(), stable);
+        assert!(observation.has_stable_production_line());
+        assert_eq!(observation.stage_completed_jobs_total(), 6);
         assert_eq!(observation.factory_exists(), exists);
         observation.validate(&mut tx, &f.memory, &live).unwrap();
     }

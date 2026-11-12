@@ -31,17 +31,77 @@ pub(in crate::world) mod factory_built;
 
 /// Every reducer receives the same remaining allowance. Constructing this
 /// value requires the caller's explicit limits; no phase can reset it.
+enum NormalTailMeterV1<'borrow, 'ctx> {
+    Common(&'borrow mut FormalBoundedContextV1<'ctx>),
+    Child {
+        memory: &'borrow MemoryBudget,
+        lease: &'borrow oasis7_formal_protocol::controlled_authority::formal::bounded_context::ChildLeaseV1<'ctx>,
+        identity: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+        stop: &'borrow mut dyn FnMut() -> bool,
+    },
+}
+
 pub(in crate::world) struct NormalTailWorkV1<'borrow, 'ctx> {
-    common: &'borrow mut FormalBoundedContextV1<'ctx>,
+    meter: NormalTailMeterV1<'borrow, 'ctx>,
 }
 
 impl<'borrow, 'ctx> NormalTailWorkV1<'borrow, 'ctx> {
     pub(in crate::world) fn new(common: &'borrow mut FormalBoundedContextV1<'ctx>) -> Self {
-        Self { common }
+        Self {
+            meter: NormalTailMeterV1::Common(common),
+        }
+    }
+
+    /// Fixed publishers may reborrow the original context only after the
+    /// exclusive legacy reducer has reconciled and finished its child lease.
+    pub(in crate::world) fn common_mut(
+        &mut self,
+    ) -> Result<&mut FormalBoundedContextV1<'ctx>, BodyMutationError> {
+        match &mut self.meter {
+            NormalTailMeterV1::Common(common) => Ok(&mut **common),
+            NormalTailMeterV1::Child { .. } => {
+                Err(BodyMutationError::Invalid("normal tail child publisher"))
+            }
+        }
+    }
+
+    /// The adapter must clamp all legacy lanes and reconcile every attempted
+    /// delta inside `run`, including returned errors. Explicit reducer charges
+    /// debit this same lease immediately. Panic/abandonment retains the
+    /// underlying lease's zero-both-balances behavior.
+    pub(in crate::world) fn with_child<T>(
+        &mut self,
+        run: impl FnOnce(
+            &mut NormalTailWorkV1<'_, '_>,
+            &oasis7_formal_protocol::controlled_authority::formal::bounded_context::ChildLeaseV1<'_>,
+        ) -> Result<T, BodyMutationError>,
+    ) -> Result<T, BodyMutationError> {
+        let NormalTailMeterV1::Common(common) = &mut self.meter else {
+            return Err(BodyMutationError::Invalid("normal tail nested child"));
+        };
+        let (memory, work, stop) = common.parts();
+        let child = work
+            .begin_child()
+            .map_err(|error| BodyMutationError::Original(Box::new(error)))?;
+        let mut scoped = NormalTailWorkV1 {
+            meter: NormalTailMeterV1::Child {
+                memory,
+                lease: &child,
+                identity: work.identity(),
+                stop,
+            },
+        };
+        let result = run(&mut scoped, &child);
+        drop(scoped);
+        child.finish();
+        result
     }
 
     pub(in crate::world) fn memory(&self) -> &MemoryBudget {
-        self.common.memory()
+        match &self.meter {
+            NormalTailMeterV1::Common(common) => common.memory(),
+            NormalTailMeterV1::Child { memory, .. } => memory,
+        }
     }
 
     pub(in crate::world) fn reserve(
@@ -49,38 +109,56 @@ impl<'borrow, 'ctx> NormalTailWorkV1<'borrow, 'ctx> {
         bytes: usize,
         class: MemoryClass,
     ) -> Result<MemoryReservation, ValueTreeError> {
-        self.common
-            .memory()
+        self.memory()
             .reserve(bytes, class)
             .map_err(ValueTreeError::Memory)
+    }
+
+    fn debit(&mut self, steps: u64, bytes: u64) -> Result<(), BodyMutationError> {
+        match &mut self.meter {
+            NormalTailMeterV1::Common(common) => common
+                .charge(steps, bytes)
+                .map_err(|error| BodyMutationError::Original(Box::new(error))),
+            NormalTailMeterV1::Child { lease, stop, .. } => {
+                if stop() {
+                    return Err(BodyMutationError::Original(Box::new(
+                        oasis7_formal_protocol::controlled_authority::formal::FormalError::Invalid(
+                            "bounded archive read cancelled".into(),
+                        ),
+                    )));
+                }
+                lease
+                    .consume(steps, bytes)
+                    .map_err(|error| BodyMutationError::Original(Box::new(error)))
+            }
+        }
     }
 
     pub(in crate::world) fn charge(&mut self, bytes: usize) -> Result<(), BodyMutationError> {
         let bytes = u64::try_from(bytes)
             .map_err(|_| ValueTreeError::ResourceLimited("normal tick tail bytes"))?;
-        self.common
-            .charge(1, bytes)
-            .map_err(|error| BodyMutationError::Original(Box::new(error)))
+        self.debit(1, bytes)
     }
-
     pub(in crate::world) fn charge_record(&mut self) -> Result<(), BodyMutationError> {
-        self.common
-            .consume_steps(1)
-            .map_err(|error| BodyMutationError::Original(Box::new(error)))
+        self.debit(1, 0)
     }
 
     pub(in crate::world) fn identity(
         &self,
     ) -> oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1 {
-        self.common.work().identity()
+        match &self.meter {
+            NormalTailMeterV1::Common(common) => common.work().identity(),
+            NormalTailMeterV1::Child { identity, .. } => *identity,
+        }
     }
 
     pub(in crate::world) fn validate_parent(
         &mut self,
         parent: &BoundNormalTickParentV1<'_>,
     ) -> Result<(), BodyMutationError> {
+        self.charge_record()?;
         parent
-            .validate_context(self.common)
+            .validate_work_binding(self.memory(), self.identity())
             .map_err(|error| BodyMutationError::Original(Box::new(error)))
     }
 }
@@ -234,3 +312,6 @@ impl<'p, 'a> NormalTailSourcesV1<'p, 'a> {
         Ok(())
     }
 }
+
+#[path = "incremental_normal_transits.rs"]
+pub(in crate::world) mod transits;

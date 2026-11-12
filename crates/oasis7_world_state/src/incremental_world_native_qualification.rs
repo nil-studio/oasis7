@@ -231,7 +231,7 @@ pub use factory_lifecycle_current::{
     increment_current_material_transit_progress_v1,
     recover_current_factory_construction_receipt_v1, recover_current_factory_industry_progress_v1,
     recover_current_factory_recycle_receipt_v1, write_current_factory_construction_receipt_v1,
-    write_current_factory_recycle_receipt_v1,
+    write_current_factory_recycle_receipt_v1, write_current_recipe_market_quotes_v1,
 };
 
 #[path = "incremental_meta_progress_current.rs"]
@@ -240,4 +240,9 @@ pub use meta_progress_current::{
     CurrentMetaProgressRecordV1, MetaProgressMutationWorkV1, PreparedCurrentMetaProgressV1,
     prepare_current_meta_progress_delta_v1, recover_current_meta_progress_v1,
     write_prepared_current_meta_progress_v1,
+};
+
+pub use current_claims::{
+    recover_current_schedule_factory_profile_v1, recover_current_schedule_product_profile_v1,
+    recover_current_schedule_recipe_profile_v1,
 };

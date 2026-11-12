@@ -5,12 +5,17 @@ use oasis7_formal_protocol::incremental_state::StateEntryV1;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryReservation};
 use std::sync::Arc;
 
+#[path = "incremental_diplomacy_contract_index.rs"]
+pub(in crate::incremental_diplomacy) mod contracts;
+
 #[path = "incremental_diplomacy_index_current.rs"]
 mod current;
 pub use current::{
     DiplomacyRelationObservationV1, observe_current_active_wars_v1,
     observe_current_alliance_memberships_v1, open_current_diplomacy_relation_record_v1,
 };
+
+pub use contracts::{CurrentContractCreatorCountV1, observe_current_creator_contract_count_v1};
 
 pub struct DiplomacyIndexWorkV1 {
     pub cells_remaining: u64,

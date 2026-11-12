@@ -352,3 +352,5 @@ where
     }
     result
 }
+
+pub(in crate::world) use read::contract_with_work as read_current_contract_body_with_work_v1;

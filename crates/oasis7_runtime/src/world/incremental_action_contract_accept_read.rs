@@ -52,11 +52,12 @@ pub(super) fn agent<
 }
 
 /// Decode every fixed column from the authenticated child, preserving embedded ID.
-pub(super) fn contract<P, V, E, C>(
+pub(in crate::world) fn contract_with_work<P, V, E, C>(
     id: &str,
     proof: &ReservedValue<DiplomacyRecordQualificationV1>,
     read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
     work: &mut ContractAcceptWorkV1,
+    before_column: &mut impl FnMut(usize) -> Result<(), BodyMutationError>,
 ) -> Result<
     ReservedValue<oasis7_world_state::gameplay_state::EconomicContractState>,
     BodyMutationError,
@@ -100,6 +101,7 @@ where
         cancelled: &mut read.cancelled,
     };
     let mut get = |column| -> Result<(Option<RecordValueV1>, String), BodyMutationError> {
+        before_column(id.len())?;
         work.spend(id.len())?;
         let mut output = Vec::with_capacity(cap);
         let v = read_qualified_diplomacy_scalar_v1(
@@ -207,4 +209,19 @@ where
             settlement_notes,
         }),
     )
+}
+
+/// Legacy component wrapper preserves its original finite scalar work contract.
+pub(super) fn contract<
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    id: &str,
+    proof: &ReservedValue<DiplomacyRecordQualificationV1>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    work: &mut ContractAcceptWorkV1,
+) -> Result<ReservedValue<oasis7_world_state::EconomicContractState>, BodyMutationError> {
+    contract_with_work(id, proof, read, work, &mut |_| Ok(()))
 }

@@ -21,6 +21,8 @@ pub struct FactoryLifecycleObservationV1 {
     jobs: Vec<u64>,
     factory: Option<HeldFactory>,
     completed_without: u128,
+    completed_total: u128,
+    stable_total: bool,
     stable_without: bool,
     guard: PreparedGuard,
     memory: MemoryBudget,
@@ -45,6 +47,13 @@ impl FactoryLifecycleObservationV1 {
     /// Mathematical >= 6 stage threshold, independent of diagnostic u64 bounds.
     pub fn stage_completed_jobs_without_factory(&self) -> u64 {
         crate::state::industry_transition::stage_completed_jobs_threshold_v1(self.completed_without)
+    }
+    /// Original global stage inputs, before any selected-factory exclusion.
+    pub fn has_stable_production_line(&self) -> bool {
+        self.stable_total
+    }
+    pub fn stage_completed_jobs_total(&self) -> u64 {
+        crate::state::industry_transition::stage_completed_jobs_threshold_v1(self.completed_total)
     }
     pub fn stable_without_factory(&self) -> bool {
         self.stable_without
@@ -459,6 +468,8 @@ pub fn observe_current_factory_lifecycle_v1<
                 target = delta.after.clone();
             }
         }
+        let completed_total = completed;
+        let stable_total = stable > 0;
         if let Some(target) = &target {
             // The private cache supplies candidates, never a substitute for
             // actual Current selected data used in the removed-factory total.
@@ -533,6 +544,8 @@ pub fn observe_current_factory_lifecycle_v1<
             jobs: ids,
             factory: target,
             completed_without: completed,
+            completed_total,
+            stable_total,
             stable_without: stable > 0,
             guard: tail,
             memory: memory.clone(),

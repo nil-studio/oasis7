@@ -74,6 +74,7 @@ pub struct AcceptedInvocationDirectoryV1 {
 #[allow(clippy::too_many_arguments)]
 pub fn build_accepted_invocation_directory_v1<
     M: MerkleNodeReader,
+    P: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
@@ -84,7 +85,7 @@ pub fn build_accepted_invocation_directory_v1<
     head: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
     instances: &ReservedValue<ModuleInstanceFamilyQualificationV1>,
     config: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
-    state: &M,
+    state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     work: &mut CurrentInvocationEnumerationWorkV1,
     live: &ExecutionFence,
@@ -213,6 +214,7 @@ pub fn build_accepted_invocation_directory_v1<
 #[allow(clippy::too_many_arguments)]
 pub fn collect_current_module_invocation_ids_v1<
     M: MerkleNodeReader,
+    P: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
@@ -220,7 +222,7 @@ pub fn collect_current_module_invocation_ids_v1<
     directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
     instances: &ReservedValue<ModuleInstanceFamilyQualificationV1>,
     config: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
-    state: &M,
+    state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     work: &mut CurrentInvocationEnumerationWorkV1,
     guard: &PreparedGuard,

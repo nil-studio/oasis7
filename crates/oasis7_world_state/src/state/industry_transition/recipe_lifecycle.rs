@@ -136,12 +136,12 @@ impl PreparedRecipeLifecycle {
         else {
             unreachable!()
         };
-        if committed_recipe_origin
-            .as_ref()
-            .is_some_and(|origin| !origin.matches_recipe(requester_agent_id, factory_id, recipe_id))
-        {
-            return Err(invalid("recipe start committed origin mismatch"));
-        }
+        validate_recipe_started_origin_v1(
+            committed_recipe_origin.as_ref(),
+            requester_agent_id,
+            factory_id,
+            recipe_id,
+        )?;
         if state.pending_recipe_jobs.contains_key(job_id) {
             return Err(invalid(format!(
                 "recipe start job is already pending: job_id={job_id}"

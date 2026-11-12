@@ -7,8 +7,9 @@ use crate::world::{
     incremental_module_execution_event::PersistedWorldEventV1,
     incremental_module_invocation::RootRulePhaseOutcomeV1,
     incremental_normal_action_diplomacy::{
-        AllianceSourcesV1, AllianceWorkV1, CompletedAllianceActionV1,
-        commit_prepared_alliance_action_v1, prepare_alliance_action_v1,
+        AllianceSourcesV1, AllianceWorkV1, CompletedAllianceActionV1, PreparedDiplomacyActionV1,
+        commit_prepared_alliance_action_v1, commit_war_action_v1, prepare_alliance_action_v1,
+        prepare_war_action_v1,
     },
     incremental_step::IwsStepContext,
 };
@@ -91,6 +92,7 @@ where
                     | crate::Action::JoinAlliance { .. }
                     | crate::Action::LeaveAlliance { .. }
                     | crate::Action::DissolveAlliance { .. }
+                    | crate::Action::DeclareWar { .. }
             ) || !outcome.uses_budget(self.ctx.values.memory)
                 || !self
                     .events
@@ -160,20 +162,37 @@ where
                         take_state_error: &mut read.take_state_error,
                         cancelled: &mut read.cancelled,
                     };
-                Some(
-                    prepare_alliance_action_v1(
-                        selected,
-                        outcome,
-                        sources,
-                        &mut overlay,
-                        parent_read,
-                        work,
-                        &mut common,
-                        self.now,
-                        &live,
+                Some(if matches!(effective, crate::Action::DeclareWar { .. }) {
+                    PreparedDiplomacyActionV1::War(
+                        prepare_war_action_v1(
+                            selected,
+                            outcome,
+                            sources,
+                            &mut overlay,
+                            parent_read,
+                            work,
+                            &mut common,
+                            self.now,
+                            &live,
+                        )
+                        .map_err(RootModuleExecutionErrorV1::Body)?,
                     )
-                    .map_err(RootModuleExecutionErrorV1::Body)?,
-                )
+                } else {
+                    PreparedDiplomacyActionV1::Alliance(
+                        prepare_alliance_action_v1(
+                            selected,
+                            outcome,
+                            sources,
+                            &mut overlay,
+                            parent_read,
+                            work,
+                            &mut common,
+                            self.now,
+                            &live,
+                        )
+                        .map_err(RootModuleExecutionErrorV1::Body)?,
+                    )
+                })
             };
             let accepted = self.append_selected_accepted_disposition_v1(
                 selected,
@@ -226,26 +245,46 @@ where
                         _layout: rejected_layout,
                     }
                 } else {
-                    commit_prepared_alliance_action_v1(
-                        prepared.ok_or_else(|| {
-                            RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                                "Alliance private prepare",
-                            ))
-                        })?,
-                        accepted,
-                        &mut step,
-                        read,
-                        parent_read,
-                        self.members,
-                        work,
-                        &mut common,
-                        materials,
-                        self.events.max_event_bytes,
-                        audit_work,
-                        &live,
-                        &mut self.events.persist_original,
-                    )
-                    .map_err(RootModuleExecutionErrorV1::Body)?
+                    match prepared.ok_or_else(|| {
+                        RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
+                            "Diplomacy private prepare",
+                        ))
+                    })? {
+                        PreparedDiplomacyActionV1::War(prepared) => commit_war_action_v1(
+                            prepared,
+                            accepted,
+                            &mut step,
+                            read,
+                            parent_read,
+                            self.members,
+                            work,
+                            &mut common,
+                            materials,
+                            self.events.max_event_bytes,
+                            audit_work,
+                            &live,
+                            &mut self.events.persist_original,
+                        )
+                        .map_err(RootModuleExecutionErrorV1::Body)?,
+                        PreparedDiplomacyActionV1::Alliance(prepared) => {
+                            commit_prepared_alliance_action_v1(
+                                prepared,
+                                accepted,
+                                &mut step,
+                                read,
+                                parent_read,
+                                self.members,
+                                work,
+                                &mut common,
+                                materials,
+                                self.events.max_event_bytes,
+                                audit_work,
+                                &live,
+                                &mut self.events.persist_original,
+                            )
+                            .map_err(RootModuleExecutionErrorV1::Body)?
+                        }
+                    }
                 }
             };
             let event = PersistedWorldEventV1::from_alliance(&completed);

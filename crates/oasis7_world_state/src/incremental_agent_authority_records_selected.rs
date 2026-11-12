@@ -14,10 +14,10 @@ use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
 /// Authenticate the actual outer edge and qualify precisely its current body.
 /// The bounded body scan is over this selected record, never the family or H.
-pub fn open_agent_authority_body_overlay_v1<M, R, E, C>(
+pub fn open_agent_authority_body_overlay_v1<M, P, R, E, C>(
     key: AgentAuthorityRecordKeyV1<'_>,
     family: &ReservedValue<AgentAuthorityFamilyQualificationV1>,
-    state: &M,
+    state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     scan: &mut StateScanBudget,
     cells: &mut u64,
@@ -25,6 +25,7 @@ pub fn open_agent_authority_body_overlay_v1<M, R, E, C>(
 ) -> Result<Option<ReservedValue<AgentAuthorityRecordQualificationV1>>, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
+    P: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,

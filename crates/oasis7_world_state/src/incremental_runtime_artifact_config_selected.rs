@@ -21,15 +21,16 @@ pub struct ArtifactConfigSelectedBodyRequestV1<'a> {
 }
 /// Reads all original outer siblings, then fully qualifies the selected body.
 /// New or edited same-TX records are visible; no materialized registry is used.
-pub fn open_artifact_config_body_overlay_v1<M, R, E, C>(
+pub fn open_artifact_config_body_overlay_v1<M, P, R, E, C>(
     request: ArtifactConfigSelectedBodyRequestV1<'_>,
-    state: &M,
+    state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     scan: &mut StateScanBudget,
     work: &mut ArtifactConfigReadWorkV1,
 ) -> Result<Option<ReservedValue<ArtifactConfigBodyQualificationV1>>, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
+    P: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,

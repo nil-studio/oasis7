@@ -124,21 +124,62 @@ pub fn recipe_consume_with_maintenance(
     consume: &[crate::MaterialStack],
     produce: &[crate::MaterialStack],
 ) -> Vec<crate::MaterialStack> {
+    match recipe_consume_with_maintenance_from_profiles_v1(
+        consume,
+        produce,
+        &mut |kind| Ok::<_, std::convert::Infallible>(state.product_profiles.get(kind)),
+        &mut |_| Ok::<_, std::convert::Infallible>(()),
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
+}
+
+/// The original maintenance aggregation over actual selected profile DATA.
+/// This does not qualify a profile or authorize a recipe. The private Current
+/// owner supplies genuine retained profiles and retains work reservations.
+pub fn recipe_consume_with_maintenance_from_profiles_v1<P, E>(
+    consume: &[crate::MaterialStack],
+    produce: &[crate::MaterialStack],
+    profile: &mut impl FnMut(&str) -> Result<Option<P>, E>,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<Vec<crate::MaterialStack>, E>
+where
+    P: std::ops::Deref<Target = oasis7_wasm_abi::ProductProfileV1>,
+{
     let mut merged = std::collections::BTreeMap::<String, i64>::new();
+    // One full locked internal-node upper bound before every possible insertion
+    // covers splits without relying on LeafNode's repr(Rust) field order.
+    let alignment = std::mem::align_of::<String>()
+        .max(std::mem::align_of::<i64>())
+        .max(std::mem::align_of::<usize>());
+    let node = 11 * (std::mem::size_of::<String>() + std::mem::size_of::<i64>())
+        + 13 * std::mem::size_of::<usize>()
+        + 2 * std::mem::size_of::<u16>()
+        + 7 * (alignment - 1);
     for stack in consume {
+        work(node)?;
+        work(stack.kind.len())?;
         let entry = merged.entry(stack.kind.clone()).or_default();
         *entry = entry.saturating_add(stack.amount);
     }
     for stack in produce.iter().filter(|s| s.amount > 0) {
-        if let Some(profile) = state.product_profiles.get(&stack.kind) {
+        work(stack.kind.len())?;
+        if let Some(profile) = profile(&stack.kind)? {
             for sink in profile.maintenance_sink.iter().filter(|s| s.amount > 0) {
+                work(node)?;
+                work(sink.kind.len())?;
                 let entry = merged.entry(sink.kind.clone()).or_default();
                 *entry = entry.saturating_add(sink.amount.saturating_mul(stack.amount));
             }
         }
     }
-    merged
+    // Charge each output slot individually, avoiding an unchecked length product.
+    for _ in 0..merged.len() {
+        work(std::mem::size_of::<crate::MaterialStack>())?;
+    }
+    Ok(merged
         .into_iter()
         .map(|(kind, amount)| crate::MaterialStack::new(kind, amount))
-        .collect()
+        .collect())
 }

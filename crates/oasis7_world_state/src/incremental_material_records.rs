@@ -204,6 +204,7 @@ pub use overlay_read::read_qualified_material_cell_overlay_v1;
 mod current_profile;
 pub use current_profile::{
     MaterialProfileCurrentReadWorkV1, read_current_material_default_priority_overlay_v1,
+    read_current_material_transport_loss_overlay_v1,
 };
 
 #[cfg(test)]

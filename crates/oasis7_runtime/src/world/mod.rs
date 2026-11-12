@@ -175,7 +175,7 @@ pub use persistence::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use persistence::{ObserverLoadControl, ObserverLoadError, ObserverReadLimits};
 mod policy;
-mod product_stack_admission;
+pub(in crate::world) mod product_stack_admission;
 mod product_validation_quote;
 pub use product_validation_quote::ProductValidationQuote;
 mod release_manifest;
@@ -1060,3 +1060,15 @@ pub(in crate::world) mod incremental_safe_alternative_record;
 pub(in crate::world) mod incremental_safe_alternative_matching;
 
 pub(in crate::world) mod incremental_normal_action_diplomacy;
+
+pub(in crate::world) mod incremental_safe_alternative_originals;
+
+pub(in crate::world) mod incremental_authorization_root_projection;
+
+pub(in crate::world) mod incremental_normal_system_event;
+
+pub(in crate::world) mod incremental_safe_alternative_genesis;
+
+pub(in crate::world) mod incremental_authorization_root_current;
+
+mod incremental_normal_action_factory_schedule;

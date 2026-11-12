@@ -809,3 +809,6 @@ pub(in crate::world) use entry::{EffectiveActionFamilyV1, EffectiveActionWorkBan
 pub(in crate::world) use entry::{
     CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
 };
+
+// Private result handoff for the fixed normal publisher and genuine fixtures.
+pub(in crate::world) use entry::MatchingBeforePublicationV1;

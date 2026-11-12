@@ -115,12 +115,20 @@ pub use current_identity::{
 #[path = "incremental_runtime_revocation_current_alternative.rs"]
 mod current_alternative;
 pub use current_alternative::{
-    CurrentSafeAlternativeRecordV1, read_current_safe_alternative_for_action_v1,
-    replace_current_safe_alternative_record_v1,
+    CurrentSafeAlternativeRecordV1, SafeAlternativeRecordWriteReceiptV1,
+    read_current_safe_alternative_for_action_v1, replace_current_safe_alternative_record_v1,
+    replace_current_safe_alternative_record_with_receipt_v1,
 };
 
 #[path = "incremental_runtime_revocation_participant_current.rs"]
 mod participant_current;
 pub use participant_current::{
     CurrentParticipantOwnerDataV1, read_current_participant_owner_data_v1,
+};
+
+#[path = "incremental_runtime_revocation_authority.rs"]
+mod authority;
+pub use authority::{
+    AuthorityRevocationProjectionV1, recover_current_authority_revocation_v1,
+    recover_qualified_authority_revocation_v1,
 };

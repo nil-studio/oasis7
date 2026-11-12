@@ -1,4 +1,4 @@
-//! Exact Current optional MaterialProfile priority reads.
+//! Exact Current optional MaterialProfile cell reads.
 //!
 //! The family qualification is tied to the transaction's parent RootSet. The
 //! outer record pointer is then resolved through the actual transaction view,
@@ -17,7 +17,41 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
-use oasis7_wasm_abi::MaterialDefaultPriority;
+use oasis7_wasm_abi::{MaterialDefaultPriority, MaterialTransportLossClass};
+
+#[derive(Clone, Copy)]
+enum MaterialProfileCurrentFieldV1 {
+    DefaultPriority,
+    TransportLossClass,
+}
+
+impl MaterialProfileCurrentFieldV1 {
+    fn cell(self) -> MaterialCellV1 {
+        match self {
+            Self::DefaultPriority => MaterialCellV1::DefaultPriority,
+            Self::TransportLossClass => MaterialCellV1::TransportLossClass,
+        }
+    }
+
+    fn missing_error(self) -> &'static str {
+        match self {
+            Self::DefaultPriority => "Current material profile priority missing",
+            Self::TransportLossClass => "Current material profile transport loss class missing",
+        }
+    }
+
+    fn value_error(self) -> &'static str {
+        match self {
+            Self::DefaultPriority => "Current material profile priority value",
+            Self::TransportLossClass => "Current material profile transport loss class value",
+        }
+    }
+}
+
+enum MaterialProfileCurrentValueV1 {
+    DefaultPriority(MaterialDefaultPriority),
+    TransportLossClass(MaterialTransportLossClass),
+}
 
 /// Continuous work for one optional Current profile point read. Callers share
 /// these counters with other Current record reads in the same execution phase.
@@ -42,6 +76,82 @@ pub fn read_current_material_default_priority_overlay_v1<M, S, R, E, C>(
     guard: &PreparedGuard,
     live: &ExecutionFence,
 ) -> Result<Option<MaterialDefaultPriority>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    S: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    match read_current_material_profile_field_overlay_v1(
+        kind,
+        family,
+        state,
+        context,
+        work,
+        guard,
+        live,
+        MaterialProfileCurrentFieldV1::DefaultPriority,
+    )? {
+        None => Ok(None),
+        Some(MaterialProfileCurrentValueV1::DefaultPriority(value)) => Ok(Some(value)),
+        Some(MaterialProfileCurrentValueV1::TransportLossClass(_)) => {
+            Err(ValueTreeError::Invalid("Current material profile priority selector").into())
+        }
+    }
+}
+
+/// Read a profile's transport-loss class from the real Current overlay.
+///
+/// `state` must read the same bounded state-page store used by the transaction,
+/// including candidate pages written earlier in this transaction. A caller
+/// that cannot provide that reader cannot use this helper as authority.
+#[allow(clippy::too_many_arguments)]
+pub fn read_current_material_transport_loss_overlay_v1<M, S, R, E, C>(
+    kind: &str,
+    family: &ReservedValue<MaterialFamilyQualificationV1>,
+    state: &S,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut MaterialProfileCurrentReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<Option<MaterialTransportLossClass>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    S: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    match read_current_material_profile_field_overlay_v1(
+        kind,
+        family,
+        state,
+        context,
+        work,
+        guard,
+        live,
+        MaterialProfileCurrentFieldV1::TransportLossClass,
+    )? {
+        None => Ok(None),
+        Some(MaterialProfileCurrentValueV1::TransportLossClass(value)) => Ok(Some(value)),
+        Some(MaterialProfileCurrentValueV1::DefaultPriority(_)) => {
+            Err(ValueTreeError::Invalid("Current material profile transport loss selector").into())
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn read_current_material_profile_field_overlay_v1<M, S, R, E, C>(
+    kind: &str,
+    family: &ReservedValue<MaterialFamilyQualificationV1>,
+    state: &S,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut MaterialProfileCurrentReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    field: MaterialProfileCurrentFieldV1,
+) -> Result<Option<MaterialProfileCurrentValueV1>, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
     S: MerkleNodeReader,
@@ -170,7 +280,7 @@ where
         if (context.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        let priority = {
+        let selected = {
             let mut child_context = WorldFieldReadContextV1 {
                 root: &child,
                 state,
@@ -194,17 +304,11 @@ where
                     record_bytes: child_context.record_bytes,
                     cancelled: &mut child_context.cancelled,
                 };
-                read::cell_key(
-                    MaterialRecordKindV1::Profile,
-                    MaterialCellV1::DefaultPriority,
-                    &mut records,
-                )?
+                read::cell_key(MaterialRecordKindV1::Profile, field.cell(), &mut records)?
             };
             let root = child_context
                 .lookup(&address.0)?
-                .ok_or(ValueTreeError::Invalid(
-                    "Current material profile priority missing",
-                ))?;
+                .ok_or(ValueTreeError::Invalid(field.missing_error()))?;
             let mut records = InventoryValueReader {
                 values: &mut child_context.values,
                 key_work: &mut *child_context.key_work,
@@ -213,20 +317,45 @@ where
                 cancelled: &mut child_context.cancelled,
             };
             match read::value(
-                MaterialCellV1::DefaultPriority,
+                field.cell(),
                 &root,
                 &address,
                 &mut records,
                 work.max_payload_bytes,
                 &mut std::io::sink(),
             )? {
-                MaterialValueV1::Unsigned(0) => MaterialDefaultPriority::Urgent,
-                MaterialValueV1::Unsigned(1) => MaterialDefaultPriority::Standard,
-                _ => {
-                    return Err(
-                        ValueTreeError::Invalid("Current material profile priority value").into(),
-                    );
+                MaterialValueV1::Unsigned(0) => match field {
+                    MaterialProfileCurrentFieldV1::DefaultPriority => {
+                        MaterialProfileCurrentValueV1::DefaultPriority(
+                            MaterialDefaultPriority::Urgent,
+                        )
+                    }
+                    MaterialProfileCurrentFieldV1::TransportLossClass => {
+                        MaterialProfileCurrentValueV1::TransportLossClass(
+                            MaterialTransportLossClass::Low,
+                        )
+                    }
+                },
+                MaterialValueV1::Unsigned(1) => match field {
+                    MaterialProfileCurrentFieldV1::DefaultPriority => {
+                        MaterialProfileCurrentValueV1::DefaultPriority(
+                            MaterialDefaultPriority::Standard,
+                        )
+                    }
+                    MaterialProfileCurrentFieldV1::TransportLossClass => {
+                        MaterialProfileCurrentValueV1::TransportLossClass(
+                            MaterialTransportLossClass::Medium,
+                        )
+                    }
+                },
+                MaterialValueV1::Unsigned(2)
+                    if matches!(field, MaterialProfileCurrentFieldV1::TransportLossClass) =>
+                {
+                    MaterialProfileCurrentValueV1::TransportLossClass(
+                        MaterialTransportLossClass::High,
+                    )
                 }
+                _ => return Err(ValueTreeError::Invalid(field.value_error()).into()),
             }
         };
         if (context.cancelled)() {
@@ -239,7 +368,7 @@ where
         // final read-set revision after all Current point reads have finished.
         let tail_guard = transaction.guard();
         transaction.validate_guard(&tail_guard, live)?;
-        Ok(Some(priority))
+        Ok(Some(selected))
     })
 }
 

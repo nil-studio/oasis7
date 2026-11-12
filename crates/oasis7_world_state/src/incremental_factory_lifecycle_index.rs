@@ -166,7 +166,7 @@ impl FactoryLifecycleIndexV1 {
     pub fn recipe_records(&self) -> usize {
         self.jobs.len()
     }
-    pub(crate) fn validate_binding(
+    pub fn validate_binding(
         &self,
         factories: &ReservedValue<FactoryFamilyQualificationV1>,
         industry: &ReservedValue<IndustryFamilyQualificationV1>,
