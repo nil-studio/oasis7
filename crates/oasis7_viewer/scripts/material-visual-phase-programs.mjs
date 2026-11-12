@@ -73,3 +73,63 @@ export const terrainPhaseProgram = phase => selectProgram(terrainPrograms, phase
 
 export const factoryFocusProgram = `document.querySelector('button[data-module-id="material-smelter"][data-renderer-target]').focus({preventScroll:true});true`;
 export const factorySelectedExpression = `document.querySelector('button[data-module-id="material-smelter"][data-renderer-target]').dataset.selected==='true'`;
+
+// Capture only the decoded HTTP JSON before mount can mutate its input. The
+// fixture exposes fresh copies, never the private baseline itself.
+export const runtimeBaselineProgram = `window.__MATERIAL_RUNTIME_INPUT__ = (() => {
+  const baseline = structuredClone(window.s);
+  return () => structuredClone(baseline);
+})();`;
+
+const runtimeRestoreProgram = `(() => {
+  window.s = window.__MATERIAL_RUNTIME_INPUT__();
+  window.bridge.update(window.s);
+  return true;
+})()`;
+const runtimeDeletedProgram = `(() => {
+  window.s = window.__MATERIAL_RUNTIME_INPUT__();
+  window.s.fragment_terrain = [];
+  window.s.micro_depot_facilities = [];
+  window.bridge.update(window.s);
+  return true;
+})()`;
+const runtimePrograms = Object.freeze({
+  ore: Object.freeze({
+    absent: `(() => {
+      window.s = window.__MATERIAL_RUNTIME_INPUT__();
+      window.s.fragment_terrain[0].dominant_compound = 'unknown';
+      window.bridge.update(window.s);
+      return true;
+    })()`,
+    restored: runtimeRestoreProgram,
+    deleted: runtimeDeletedProgram,
+    recreated: runtimeRestoreProgram,
+  }),
+  depot: Object.freeze({
+    absent: `(() => {
+      window.s = window.__MATERIAL_RUNTIME_INPUT__();
+      window.s.micro_depot_facilities = [];
+      window.bridge.update(window.s);
+      return true;
+    })()`,
+    restored: runtimeRestoreProgram,
+    deleted: runtimeDeletedProgram,
+    recreated: runtimeRestoreProgram,
+  }),
+});
+
+export function runtimePhaseProgram(material, phase) {
+  if (typeof material !== 'string' || !Object.hasOwn(runtimePrograms, material)) {
+    throw new Error('unsupported material runtime fixture');
+  }
+  // Initial observes the actual mount input without replacing it or updating.
+  return phase === 'initial' ? null : selectProgram(runtimePrograms[material], phase);
+}
+
+export function assertRuntimeInitialInput(input, original) {
+  // Compare the HTTP JSON representation, not extra non-JSON Node properties.
+  // JSON data also retains an own __proto__ key, unlike the old JS literal.
+  if (JSON.stringify(input) !== JSON.stringify(original)) {
+    throw new Error('isolated runtime initial input differs from requested JSON');
+  }
+}

@@ -10,6 +10,7 @@ description = "Pure bounded test-account custody contracts and state transitions
 signature-metrics = ["oasis7_client_api/signature-metrics"]
 
 [dependencies]
+blake3 = "1"
 oasis7_client_api = { path = "../oasis7_client_api" }
 base64 = "0.22"
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }

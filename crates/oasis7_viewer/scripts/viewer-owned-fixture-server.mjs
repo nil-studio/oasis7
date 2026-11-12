@@ -9,6 +9,7 @@ import {createDensityFixture} from './world-view-density-fixture.mjs';
 import {readRegularFile} from './viewer-static-files.mjs';
 import {createBoundedWireAudit} from './viewer-bounded-wire-audit.mjs';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+export const isExpectedViewerMissingAsset=error=>error?.code==='ENOENT'||error?.code==='ENOTDIR';
 export function createOwnedViewerEvidence(handlers) {
   const writer=createBoundedWireAudit({limitBytes:64*1024*1024,...handlers});
   return {write(row){if(!writer.record(row))throw writer.failure();}};
@@ -20,7 +21,7 @@ export function fingerprintViewerAssets(root) {
 export async function startOwnedViewerFixtureServer({artifactRoot,source,out,expectedAssets}) {
   const root=resolve(artifactRoot),assets=fingerprintViewerAssets(root),fixture=createDensityFixture();
   if(expectedAssets&&!isDeepStrictEqual(expectedAssets,assets))throw Error('immutable Viewer asset manifest mismatch');
-  let bytes=0,rows=0,inputBytes=0,closed=false,caseId=null,failed=false,fatalError,latestView=null,requestCount=0;
+  let bytes=0,rows=0,inputBytes=0,closed=false,caseId=null,failed=false,fatalError,readFailure=null,latestView=null,requestCount=0;
   const http=[],wire=[];
   const markFailure=error=>{if(!failed){failed=true;fatalError=error;}};
   const stopSockets=()=>{for(const socket of wss.clients)socket.terminate();};
@@ -52,10 +53,22 @@ export async function startOwnedViewerFixtureServer({artifactRoot,source,out,exp
       const type={'.html':'text/html','.js':'text/javascript','.css':'text/css; charset=utf-8','.wasm':'application/wasm'}[extname(p)]||'application/octet-stream';
       audit('http',{method:req.method,path:pathname,status:200,bytes:body.length,sha256:sha(body),cacheControl:'no-store',contentType:type});
       res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store'});res.end(body);
-    }catch(error){try{audit('http',{method:req.method,path:pathname,status:404,error:String(error)});}catch(secondary){markFailure(secondary);}res.writeHead(failed?500:404);res.end();}
+    }catch(error){
+      if(isExpectedViewerMissingAsset(error)){
+        try{audit('http',{method:req.method,path:pathname,status:404,error:String(error)});}catch(secondary){markFailure(secondary);}
+      }else{
+        markFailure(error);stopSockets();
+        readFailure={method:req.method,path:pathname,status:500,error:String(error),code:error?.code??null};
+        // Final failure evidence may itself fail, but never replaces the first
+        // resource-read/collection error already latched above.
+        try{evidence.write({kind:'http',caseId,wall:Date.now(),...readFailure});}catch(secondary){readFailure.collectionError=String(secondary);}
+      }
+      res.writeHead(failed?500:404);res.end();
+    }
   });
   const wss=new WebSocketServer({server,path:'/qa-world-ws',maxPayload:512*1024});
   wss.on('connection',socket=>{
+    if(failed){socket.terminate();return;}
     const connection=randomUUID();
     socket.on('error',error=>{markFailure(error);stopSockets();});
     socket.on('message',data=>{
@@ -75,7 +88,7 @@ export async function startOwnedViewerFixtureServer({artifactRoot,source,out,exp
   });
   await new Promise((yes,no)=>{server.once('error',no);server.listen(0,'127.0.0.1',yes);});
   return {source,assets,fixture,url:`http://density-qa.localhost:${server.address().port}/viewer.html?test_api=1&connect=1&hosted_bootstrap=0&locale=en`,
-    beginCase(id){caseId=id;},assertHealthy(){if(failed)throw fatalError;},statistics(){return {http:structuredClone(http),wire:structuredClone(wire),bytes,inputBytes,rows,requestCount,latestView:structuredClone(latestView),error:failed?String(fatalError):null};},
+    beginCase(id){caseId=id;},assertHealthy(){if(failed)throw fatalError;},statistics(){return {http:structuredClone(http),wire:structuredClone(wire),bytes,inputBytes,rows,requestCount,latestView:structuredClone(latestView),readFailure:structuredClone(readFailure),error:failed?String(fatalError):null};},
     verifyAssets(){if(!isDeepStrictEqual(assets,fingerprintViewerAssets(root)))throw Error('Viewer artifacts changed during probe');},
     async close(){if(closed)return;closed=true;for(const socket of wss.clients)socket.terminate();await new Promise(yes=>wss.close(yes));await new Promise((yes,no)=>server.close(error=>error?no(error):yes()));},
   };
