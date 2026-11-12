@@ -116,10 +116,9 @@ impl ReplicationRuntime {
         let p = self.validate_local_original(node_id, m)?;
         if let Some(existing) =
             load_commit_message_record_from_root(&self.config.root_dir, p.height)?
+            && existing != *m
         {
-            if existing != *m {
-                return Err(invalid("signed height already has a different original"));
-            }
+            return Err(invalid("signed height already has a different original"));
         }
         if self.writer_state.last_replicated_height > p.height
             || (self.writer_state.last_sequence != 0
@@ -147,21 +146,24 @@ impl ReplicationRuntime {
         let applied = self.guard.writer_id.as_deref() == Some(m.record.writer_id.as_str())
             && self.guard.writer_epoch == m.record.writer_epoch
             && self.guard.last_sequence == m.record.sequence;
-        if applied {
-            let metadata = self
-                .store
-                .stat_file(&m.record.path)
-                .map_err(distfs_error_to_node_error)?
-                .ok_or_else(|| invalid("advanced guard has no original CAS record"))?;
-            if metadata.size_bytes != m.record.size_bytes
+        let metadata = self
+            .store
+            .stat_file(&m.record.path)
+            .map_err(distfs_error_to_node_error)?;
+        if let Some(metadata) = metadata.as_ref()
+            && (metadata.size_bytes != m.record.size_bytes
                 || metadata.content_hash != m.record.content_hash
                 || self
                     .store
                     .read_file(&m.record.path)
                     .map_err(distfs_error_to_node_error)?
-                    != m.payload
-            {
-                return Err(invalid("advanced guard/CAS conflict"));
+                    != m.payload)
+        {
+            return Err(invalid("original/CAS conflict"));
+        }
+        if applied {
+            if metadata.is_none() {
+                return Err(invalid("advanced guard has no original CAS record"));
             }
         } else {
             // The first signed original also preserves the seeded epoch if no

@@ -293,7 +293,14 @@ fn first_original_cannot_lower_an_explicit_zero_counter_epoch() {
     drop(runtime);
     // Remove the signed original so recovery cannot use the completed-message path.
     fs::remove_file(config.commit_message_path(1)).unwrap();
-    assert!(ReplicationRuntime::new(&config, "node-a").is_err());
+    fs::remove_file(config.commit_message_path(2)).unwrap();
+    fs::remove_dir_all(dir.join("replication_commit_heads")).unwrap();
+    let error = ReplicationRuntime::new(&config, "node-a")
+        .err()
+        .expect("explicit epoch must reject");
+    assert!(
+        matches!(error,NodeError::Replication { reason } if reason.contains("original is not the exact next writer record"))
+    );
     assert_eq!(
         before,
         fs::read(config.writer_state_path("node-a")).unwrap()
@@ -313,5 +320,33 @@ fn legacy_storage_writer_keeps_the_original_external_proposer() {
         expected
     );
     drop(restored);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn pending_original_never_overwrites_conflicting_cas_before_guard_publication() {
+    let (dir, config, expected) = fixture();
+    remove_signed_tail(&dir, &config);
+    let mut runtime = ReplicationRuntime::from_config(&config, "node-a").unwrap();
+    runtime
+        .stage_local_commit_original("node-a", &expected)
+        .unwrap();
+    runtime.guard.last_sequence = 1;
+    runtime.writer_state.last_sequence = 1;
+    runtime.writer_state.last_replicated_height = 1;
+    runtime.persist_state("node-a").unwrap();
+    runtime
+        .store
+        .write_file(&expected.record.path, b"conflicting before guard")
+        .unwrap();
+    let before = fs::read(config.guard_state_path()).unwrap();
+    drop(runtime);
+    assert!(ReplicationRuntime::new(&config, "node-a").is_err());
+    assert_eq!(before, fs::read(config.guard_state_path()).unwrap());
+    let store = LocalCasStore::new(config.store_root());
+    assert_eq!(
+        store.read_file(&expected.record.path).unwrap(),
+        b"conflicting before guard"
+    );
     fs::remove_dir_all(dir).unwrap();
 }
