@@ -434,3 +434,10 @@ ADR-VIEW-3：几何、时效、请求代际、世界切点分开；partial不是
 ADR-VIEW-4：保留renderer/Shell，按预算做局部索引/聚合/reconcile，不先重写引擎/shader。
 
 待实施锁定：平台依赖/发行身份、API Context/fence真实接线、空间索引来源及实测质量。这些是交付缺口，不可跳过；独立跨域评审和运行证据在实际PR记录，不由本文自报完成。
+
+
+### Mounted WASM capacity observation (5771)
+
+The test_api-only runtime observation may read byteLength from the Memory returned by the already successful wasm-bindgen initialization attempt. It must not initialize another instance or expose the Memory object. A local mount lease identifies the currently mounted bridge; failed mount, fatal and unmount invalidate the lease. Old bridge cleanup must not invalidate a newer mount. Client scope/source-cut pairing remains the existing pre/post observation stamp; capacity alone proves no authority or source continuity.
+
+Linear memory capacity is reserved addressable bytes, not allocator used heap, JS heap, GPU memory, process RSS or total cache. A controlled unit Memory.grow test may verify byteLength changes; real observation must not call grow or force GC. Current client view/changes/paging Maps and old inflight closures are distinct retention roots. Current-generation logical encoding counts do not include old closures or establish retained heap; HeapProfiler attribution requires separately bounded ownership and privacy review before use.
