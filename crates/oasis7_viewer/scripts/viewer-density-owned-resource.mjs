@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {performance} from 'node:perf_hooks';
+import {release,totalmem,cpus} from 'node:os';
 import {createStartupProfile,launchOwnedStartupContext} from './viewer-owned-startup-context.mjs';
 import {identifyOwnedStartupContext,closeOwnedStartupContext} from './viewer-owned-startup-lifecycle.mjs';
 import {startOwnedViewerFixtureServer} from './viewer-owned-fixture-server.mjs';
@@ -24,6 +25,7 @@ const root=resolve(process.env.VIEWER_DENSITY_RSS_ARTIFACT_ROOT||manifest.root),
 const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
 const {chromium}=createRequire(join(modules,'density-resource.cjs'))('playwright');
 const started=performance.now(),summary={builtSource:manifest.source,runnerHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),assets,scripts:{},resource:{},controlledTransport:true,realServiceAuthority:false,hardStopMs:120000,limits:['single short controlled observer/debug scene; not genuine hosted player/P5','RSS/JS/WASM capacity overlap and must not be summed','GPU total, complete cache, 30min/8GiB/A-B/P6 remain unaccepted']};
+summary.host={platform:process.platform,arch:process.arch,node:process.version,osRelease:release(),totalMemoryBytes:totalmem(),cpuModel:cpus()[0]?.model??null};
 for(const name of ['viewer-density-owned-resource.mjs','viewer-density-resource-observation.mjs','viewer-density-resource-stamp.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-owned-fixture-server.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-density-fixture.mjs','viewer-owned-cdp-memory.mjs','world-view-frame-capability.mjs','viewer-bounded-wire-audit.mjs','viewer-static-files.mjs','viewer-owned-cdp-input.mjs'])summary.scripts[name]=sha(readFileSync(join(here,name)));
 const timer=setTimeout(()=>{summary.error='120s whole-case deadline; cleanup unproven';summary.elapsedMs=performance.now()-started;try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}catch(error){console.error(error);}process.exit(1);},120000);
 let server,context;
@@ -32,6 +34,7 @@ await withObservationCleanup(async()=>{
   server=await startOwnedViewerFixtureServer({artifactRoot:root,source:manifest.source,out,expectedAssets:assets});server.beginCase('real-viewer-rss');
   const lease=createStartupProfile();summary.profile=lease.path;
   context=await launchOwnedStartupContext(chromium,process.env.OASIS7_PLAYWRIGHT_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',lease);
+  summary.browserVersion=context.browser().version();
   summary.nativeIdentity=await identifyOwnedStartupContext(context,summary);
   assert(context.pages().length===1,'fresh owned Viewer page count invalid');const page=context.pages()[0];
   await page.goto(server.url,{waitUntil:'load',timeout:15000});
