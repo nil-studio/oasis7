@@ -141,6 +141,15 @@ body {
   pointer-events: auto;
 }
 
+/* Retained receipts belong to the recovery card's content, not the world HUD.
+ * The global receipt overlay positioning would cover the reload button. */
+[data-viewer-overlay="renderer-unavailable"] > [data-viewer-overlay="receipt"] {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  margin-block: 8px;
+}
+
 [data-viewer-overlay="renderer-unavailable"] .pixel-world-render-unavailable__retry {
   margin-top: 8px;
 }

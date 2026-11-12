@@ -1655,6 +1655,36 @@
   "rules": [
     {
       "match": [
+        ".gitattributes"
+      ],
+      "groups": [],
+      "full": true,
+      "reason": "git_checkout_attributes"
+    },
+    {
+      "match": [
+        "scripts/unified-world-code-terminology-scan.sh",
+        "scripts/unified-world-code-terminology-scan.test.sh"
+      ],
+      "groups": [
+        "baseline"
+      ],
+      "reason": "unified_world_terminology"
+    },
+    {
+      "match": [
+        "scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json",
+        "scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json",
+        "scripts/fixtures/document-corpus-v3/legacy/inventory.json",
+        "scripts/fixtures/document-corpus-v3/legacy/manifest.json"
+      ],
+      "groups": [
+        "doc_checker_contracts"
+      ],
+      "reason": "document_corpus_fixture_contracts"
+    },
+    {
+      "match": [
         "scripts/pr-review-threads.py",
         "scripts/pr-review-threads.test.py"
       ],

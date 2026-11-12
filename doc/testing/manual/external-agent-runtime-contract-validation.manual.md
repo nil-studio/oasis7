@@ -38,6 +38,26 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 判定：原世界不重建，各阶段只确认本 authority 的结果，首局成果仍依玩法 receipt；恢复不重复建号、角色、task、grant、领取或世界副作用。查询缺权限/证据时 blocked/unknown，不泄露主体可枚举状态。两 Runtime 分别成案，不能拼接不同候选/主体或用普通客户端代签真实自主入场。
 - 证明边界：prepared-world、预建 task/grant、人工代做角色绑定只证明其后执行范围；现有 private loopback 或 import_only 不能作为公开冷入场成功。缺安全入口时报告 blocked/not_run，禁止临时暴露私有接口以通过。自有/受托共存另执行 [api-auth](#api-auth)。
 
+#### 准备固定公网 authority 的隔离夹具
+
+`scripts/package-ecs-cold-entry-fixture.py` 的 `fixture` 支持显式 `public_origin`、`rp_id`、`bootstrap_tls_port` 关键字参数。仅用于已经获准的全新隔离 authority 准备；不启动隧道、部署或复用旧 world。先取得并固定可验证的公网 HTTPS origin，再首次 setup；RP 必须精确等于 origin 的 DNS host，不接受路径、userinfo、query、fragment、IP host 或越界端口；默认 HTTPS 端口必须省略，显式 `:443` 与 native canonical origin 约定不符。
+
+```python
+# root 必须是新建的 0700 私有目录；bundle/probe 固定到获准候选。
+# local_tls_server 由正式 smoke.generate_tls / smoke.forwarder 创建，使用 root.crt。
+smoke.variables["origin"] = f"https://localhost:{local_tls_server.server_port}"
+setup = fixture.fixture(
+    smoke, bundle, probe_binary,
+    public_origin="https://authority.example.test",
+    rp_id="authority.example.test",
+    bootstrap_tls_port=local_tls_server.server_port,
+)
+```
+
+本地 bootstrap 固定连接 `localhost`，以 `root.crt` 校验证书和主机名，同时传递固定公网 Host；不跟随跳转。身份环境、RP 快照及客户端 endpoint/audience 使用同一公网 origin，公网客户端使用正常系统 TLS 信任，不借用测试 CA 或关闭验证。未传关键字时维持原 localhost 行为。
+
+首次 provision 前以独占创建方式固定 `fixture-authority.json`。已有绑定声明、world、node keys、身份数据库或授权文件时拒绝重新 setup；失败后保留原目录，不能删除声明、改 origin 或 rebind 后重试。后续恢复使用原 argv/env、密钥及 world pin。此处普通装配回归不代签真实公网连接、World 操作或真实 Runtime 冷入场。
+
 
 
 <a id="api-auth"></a>

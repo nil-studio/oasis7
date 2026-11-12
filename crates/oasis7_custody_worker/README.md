@@ -2,7 +2,7 @@
 
 本目录记录已合入的 Cloudflare 托管子组件、配置和实际启用限制。其历史设计见[固定版本](https://github.com/nil-studio/oasis7/blob/3bd96334c7ce3ad09111ed25d586afd1e20bab64/doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)；旧扩张建设要求已退役，本文不再安排其后续交付。
 
-[Issue #5076](https://github.com/nil-studio/oasis7/issues/5076) 当前实施范围是[外部 Agent 开发测试账号工具](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)。工具按需要复用已有组件，采用自己的账号／授权接口；本目录的多角色布局不成为工具的部署前置。下文仅说明这些既有组件本身的真实接口、权限、数据和运行边界，不能据此声称账号工具已可用。
+[Issue #5076](https://github.com/nil-studio/oasis7/issues/5076) 当前实施范围是[外部 Agent 开发测试账号工具](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)。工具按需要复用已有组件，采用自己的账号／授权接口；本目录的多角色布局不成为工具的部署前置。新版 Workers 适配承接于[设计部署边界](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-workers)及 #5775～#5777，当前共享纯合同不代表九方法 Worker 执行链已接通。下文仅说明这些既有组件本身的真实接口、权限、数据和运行边界，不能据此声称账号工具已可用。
 
 <a id="cargo-dependency-boundaries"></a>
 ## Packages and isolation
