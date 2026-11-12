@@ -6218,6 +6218,7 @@ dependencies = [
  "oasis7_wasm_abi",
  "serde",
  "serde_cbor_2",
+ "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
  "zeroize",
