@@ -47,7 +47,7 @@ Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌�
 清理采用独立 10 秒 watchdog，必须在 worker join、node stop 完成后显式取消；超时、提前退出或无法证明全部 HTTP worker 已停止时以非零状态终止测试进程，不能丢弃活线程后释放场景 permit。`cleanup_deadline::tests` 用独立子进程注入卡死 join、锁等待、未完成清理及满 stderr 下的退出，外层仍受既有 child 监督。清理诊断是 best-effort：100 毫秒后备退出不能等待日志，输出可能为空或截断；stage/reason/exit code 的完整格式由可控 writer 回归验证，不把日志存在误作有界终止的必要条件。stream Session 的 EOF drain 使用总计 2 秒截止，不以每次读取重新计时；保留 EOF 前排队的 1 MiB 响应回归，并用持续可读 peer 验证超时后仍完成 join。这些是失败收口边界，不替代业务通过条件；宿主调度或系统调用异常仍由外层进程监督兜底。
 
 <a id="local-check-entry"></a>
-## 显式本地检查：当前入口与目标分层
+## 显式本地检查：统一入口与验收范围
 
 普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。help 与本节均将其标为显式诊断。
 
@@ -58,18 +58,36 @@ Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌�
 | 显式本地诊断 | `./scripts/ci-tests.sh commit` | 当前 commit 清单；保留日志和未执行的 required/full 范围 |
 | 正式测试 | `./scripts/ci-tests.sh required` 或 `./scripts/ci-tests.sh full` | 当前手册定义的适用 tier、实际平台和执行结果；仍需按改动补 UI/真实环境验收 |
 
-准备性选测入口：`python3 scripts/ci-local-check-plan.py --profile affected --dry-run --format json`。它只接受干净提交，使用本地 `origin/main` 与 HEAD 的唯一 merge-base；`--base-ref` 可指定该信任锚的祖先，不自动 fetch。规划器及两个配置均从固定 base 加载，沿原 `pr-fast` 逻辑选测，候选改动不能自行缩减检查。输出始终 `validated=false`，检查数与测试数均为零，不代表 affected 已可执行。
+统一入口使用 Python 3.11+；当前真实执行要求 Linux `/proc`，以便超时或取消后核实跨嵌套 session 的自有子进程已清理。选择 profile 后直接运行，不要求依次跑全部层次：
 
-- `--output-dir` 指定报告父目录，必须在工作树外或 ignored 目录下；每次创建独有子目录，不覆盖既有报告。省略时保留在系统临时目录，结果包含实际日志和 `result.json` 路径。仅写这些自有输出及临时 policy 文件，不修改源码、index 或 ref。
-- `--timeout-seconds` 设置规划器时限，默认 120 秒。text/JSON 与持久报告同源，包含固定 SHA、原始计划、实际 argv/cwd、配置摘要、耗时、退出码和未执行组。
-- dirty/untracked、冲突、隐藏 index 标志、缺失或歧义基线及未开放参数为 blocked（2）。执行中输入变化为 stale_input（2），保留已有计划；规划器失败/超时、无效结果或报告写失败为 failed（1），空计划为 no_checks（3），中断为 cancelled（130）。只有显式 dry-run 成功才为 planned（0），没有 passed 状态。
-- 本片不运行 driver，不验证 ignored/外部运行输入、quick/formal、业务测试或其他平台。本地 `origin/main` 的可信性是前提；JSON 的零执行和限制字段必须与计划一起解读。
+```bash
+python3 scripts/check-local.py --profile quick
+python3 scripts/check-local.py --profile affected --dry-run --format json
+python3 scripts/check-local.py --profile affected
+python3 scripts/check-local.py --profile formal --tier required
+```
+
+| Profile | 当前执行能力 | 明确边界 |
+| --- | --- | --- |
+| quick | 复用 `ci-tests.sh required --group baseline`；检查 committed、staged、unstaged 和非 ignored untracked 的空白问题及 baseline 已支持的工作树内容 | 不运行 Rust fmt/编译、业务测试、浏览器或服务；planner/policy 为 `not_used`。工具自测 case 与业务 case 分列 |
+| affected | 从可信 base 加载同一 planner/config；将原计划交给 required driver，保留 case/target/features。支持干净提交，以及具有 snapshot 能力的可信 planner 所处理的 dirty/untracked 输入 | 已选组必须全部具备本地只读及执行证据合同，否则整次执行前 blocked，不删组后报通过 |
+| formal required | 要求干净源码，显式 required，沿同一可信计划执行 canonical required 组 | 同样受当前本地组能力限制；不代替 hosted 或其他平台结果 |
+| formal full | `--dry-run` 沿完整可信库存规划 | 真实执行 blocked：Viewer 会改写 tracked bundle，部分准备会安装工具；须先补只读输出/准备适配，不能用 required 代替 |
+
+当前已审计的组是 `baseline`、`codex_agent_config_validation`、`rust_baseline`、`consensus`、`distfs`、`node`、`net`、`pixel_world_bridge` 和条件成立的 `oasis7_required`。后者若扩张到需要 Docker 构建 provider/builtin 资源的计划，也在启动前阻断。其余组，包括 Windows/macOS/fleet 和尚未接入结果证据的脚本组，保持 selected-but-blocked；具体原因见报告。该表是执行能力边界，不是另一套选测规则。
+
+缺省基线只解析本地 `origin/main` 与 HEAD 的唯一 merge-base，不 fetch；`--base-ref` 必须为该信任锚的祖先。dirty 规划要求该 base 自身含 `LOCAL_INPUTS_VERSION=1`；旧 base 不支持时先 blocked，合入能力后更新本地 main 并 rebase，不能改用候选 planner。输入在私有对象目录中变成 tree，不创建 commit、操作用户 index/ref 或 checkout；base→HEAD、index、实际原始文件内容分别入图，保留抵消、删除、rename 两端和来源。显式 Cargo target/build/依赖、Rust 引用与 ignored 源码需要纳入读集或阻断。未启用 feature 可能引用尚未生成的夹具；入口记录其缺失身份，实际选中编译若需要它仍须失败，运行中出现该文件则 stale，不把缺失身份当成已验证字节。
+
+- `--output-dir` 指定工作树外或 ignored 的报告父目录，每次创建独有子目录；不能放进 baseline 会扫描的 doc/scripts/skills 目录。省略时使用系统临时目录。text/JSON 和 `result.json` 来自同一对象，逐命令保存 argv/cwd、checker 身份、原始日志、耗时、退出码和证据数量。
+- `--timeout-seconds` 是每个 driver 组的时限，默认 2400 秒；`--planner-timeout-seconds` 默认 120 秒。有效检查、工具自测及业务 case 分列；无法解析的必要测试数量为 unknown/incomplete，零匹配和必要 skip 不会报通过。
+- 不自动安装/升级工具，不格式化或暂存。Cargo 命令锁定依赖，保留当前 worktree target 和构建锁；外部/符号链接 target、编译器替换和未审计写入拒绝。允许 ignored 构建输出、自有临时/报告文件及锁定依赖与 advisory 缓存写入。`--offline` 禁止 Cargo 依赖联网；当前 RustSec 离线准备尚未适配，选中该组时在执行前阻断。
+- 冲突、隐藏 index 标志、symlink 读集、Git 内容 filter/encoding、不支持的控制字符文件名、缺失/歧义基线和缺工具为 blocked（2）。运行中 source/index/ref/实际读集或 Cargo 配置变化为 stale_input（2）；失败、必要证据 unknown 或报告写失败为 failed/incomplete（1）；空计划为 no_checks（3）；中断为 cancelled（130）。显式 dry-run 只为 planned（0）、`validated=false`；全部必要检查实际完成才为 passed（0）。
+
+旧 `ci-local-check-plan.py --profile affected --dry-run` 继续提供干净提交的兼容规划，始终不执行检查；其原有参数与证明范围不变。
 
 `./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
 
-目标 `scripts/check-local.py` **尚未实现**。日常按上表直接选择所需检查，不必把所有入口依次跑一遍。后续先提供固定 baseline 的 quick，再接可信 affected（先干净提交、后 dirty 精确选测）；formal 在自身前置具备后独立接入。三个 profile 的合同和边界见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。
-
-当前 planner 只支持 Git refs。检查未提交变更仍用已存在的文档/按包/显式 tier 命令，并记录真实输入、命令与局限；不要运行不存在的目标命令，或把 HEAD 规划当作 dirty 工作树检查通过。quick 未来也只证明固定 baseline，不提供完整影响分析结论。
+三个 profile 的完整合同见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。未适配的 full/组/平台仍沿 #5386 承接，当前分片不关闭整体任务。按包开发 wrapper 和原显式 tier 仍可按各自原合同使用，不能把绕开统一入口的运行记作它已完成的只读验收。
 
 <a id="local-check-entry-validation"></a>
 ### 本地入口核验（实施阶段）

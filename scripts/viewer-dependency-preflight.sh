@@ -22,6 +22,7 @@ viewer_dependency_preflight() {
   if ! command -v npm >/dev/null 2>&1; then
     echo "error: Viewer npm dependencies are missing or incomplete." >&2
     echo "hint: install npm, then run npm --prefix crates/oasis7_viewer ci" >&2
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then return 2; fi
     return 1
   fi
 
@@ -42,6 +43,11 @@ viewer_dependency_preflight() {
   fi
 
   if ((${#missing[@]} > 0)); then
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+      echo "error: local checks require prepared Viewer dependencies; automatic installation is disabled" >&2
+      printf 'detail: missing %s\n' "${missing[@]}" >&2
+      return 2
+    fi
     echo "info: Viewer npm dependencies are missing; running npm --prefix crates/oasis7_viewer ci" >&2
     if ! (
       cd "$repo_root"

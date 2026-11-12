@@ -7,6 +7,7 @@ cd "$repo_root"
 python3 - <<'PY'
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import PurePosixPath
@@ -79,6 +80,10 @@ def apply_name_status(paths: set[str], blob: bytes) -> None:
 paths = set(decode_paths(run_git("ls-files", "-z")))
 apply_name_status(paths, run_git("diff", "--cached", "--name-status", "-z"))
 apply_name_status(paths, run_git("diff", "--name-status", "-z"))
+local_check = os.environ.get("OASIS7_LOCAL_CHECK") == "1"
+if local_check:
+    paths.update(decode_paths(run_git("ls-files", "--others", "--exclude-standard", "-z")))
+scope = "tracked and nonignored untracked" if local_check else "tracked"
 
 violations = []
 for path in sorted(paths):
@@ -87,10 +92,10 @@ for path in sorted(paths):
         violations.append((path, reason))
 
 if violations:
-    print("error: tracked paths incompatible with Windows checkout detected:", file=sys.stderr)
+    print(f"error: {scope} paths incompatible with Windows checkout detected:", file=sys.stderr)
     for path, reason in violations:
         print(f"  - {path}: {reason}", file=sys.stderr)
     sys.exit(1)
 
-print(f"ok: checked {len(paths)} tracked paths for Windows checkout compatibility")
+print(f"ok: checked {len(paths)} {scope} paths for Windows checkout compatibility")
 PY

@@ -12,6 +12,11 @@ if command -v cargo-deny >/dev/null 2>&1; then
   fi
 fi
 
+if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+  echo "error: local checks require installed cargo-deny ${version}; automatic installation is disabled" >&2
+  exit 2
+fi
+
 if [[ "${CI:-}" == "true" ]]; then
   echo "error: cargo-deny ${version} is required in CI; install it in the workflow before invoking this script" >&2
   exit 127

@@ -197,7 +197,10 @@ def owned_processes(marker, group=None):
                     # ours merely because their environment cannot be inspected.
                     continue
                 if ('OASIS7_CI_PROCESS_OWNER=' + marker).encode() not in environment:
-                    continue
+                    ancestors = next((value.partition(b'=')[2].split(b':') for value in environment
+                                      if value.startswith(b'OASIS7_CI_PROCESS_ANCESTORS=')), ())
+                    if marker.encode() not in ancestors:
+                        continue
             if fields[0] != 'Z':
                 found[int(directory.name)] = fields[19]
         except (FileNotFoundError, ProcessLookupError):
@@ -268,7 +271,15 @@ def _run(command, cwd, env, suite, name, results, expected_count, timeout_second
     if cancellation_event is not None and cancellation_event.is_set():
         raise InterruptedError('cancelled before starting child')
     marker = uuid.uuid4().hex
-    env = dict(env, OASIS7_CI_PROCESS_OWNER=marker)
+    # Nested artifact runners start their own sessions. Preserve transitive
+    # ownership so an outer deadline can clean their leaves even if the inner
+    # supervisor is killed during its own cleanup. No unrelated process shares
+    # these per-invocation identities.
+    ancestors = [value for value in env.get('OASIS7_CI_PROCESS_ANCESTORS', '').split(':') if value]
+    parent = env.get('OASIS7_CI_PROCESS_OWNER')
+    if parent and parent not in ancestors:
+        ancestors.append(parent)
+    env = dict(env, OASIS7_CI_PROCESS_OWNER=marker, OASIS7_CI_PROCESS_ANCESTORS=':'.join(ancestors))
     capture = _Capture()
     live = live_output()
     stop_reader = threading.Event()

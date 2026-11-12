@@ -1121,6 +1121,10 @@
     "scripts/ci-full-result.test.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.py": ["workflow_governance"],
     "scripts/ci-local-check-plan.test.py": ["workflow_governance"],
+    "scripts/check-local.py": ["workflow_governance"],
+    "scripts/ci-local-input.py": ["workflow_governance"],
+    "scripts/ci-local-check-command.py": ["workflow_governance"],
+    "scripts/ci-local-check.test.py": ["workflow_governance"],
     "scripts/ci-local-signer-tests.py": ["workflow_governance", "packaging_contracts", "fleet_health"],
     "scripts/ci-local-signer-tests.test.py": ["workflow_governance"],
     "scripts/ci-required-result.py": ["workflow_governance"],
@@ -1147,6 +1151,7 @@
   "workflow_governance_python_tests": [
     "scripts/plan-rust-required-scope.test.py",
     "scripts/ci-local-check-plan.test.py",
+    "scripts/ci-local-check.test.py",
     "scripts/ci-python-control-contracts.test.py",
     "scripts/ci-formal-process.test.py",
     "scripts/ci-storage-acceptance.test.py",
@@ -1174,6 +1179,22 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/check-local.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-local-check.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-local-input.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-local-check.test.py", "scripts/plan-rust-required-scope.test.py"]
+    },
+    "scripts/ci-local-check-command.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-local-check.test.py"]
+    },
+    "scripts/ci-local-check.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-local-check.test.py"]
+    },
     "scripts/ci-apt-install.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-apt-dns.test.py", "scripts/ci-workflow.test.py"]
@@ -1486,6 +1507,7 @@
     "scripts/ci_process_runner.py": {
       "group": "workflow_governance",
       "tests": [
+        "scripts/ci-local-check.test.py",
         "scripts/ci-custody-platform.test.py",
         "scripts/ci-worker-build.test.py",
         "scripts/ci-formal-process.test.py",

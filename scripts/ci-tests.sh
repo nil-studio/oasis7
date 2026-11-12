@@ -28,7 +28,18 @@ run() {
     set -- "$ci_python" "$@"
   fi
   echo "+ $*"
-  "$@"
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    if [[ "${OASIS7_LOCAL_CHECK_COMMAND_RUNNER:-}" != /* \
+      || ! -f "${OASIS7_LOCAL_CHECK_COMMAND_RUNNER:-}" \
+      || "${OASIS7_LOCAL_CHECK_RUN_DIR:-}" != /* \
+      || ! -d "${OASIS7_LOCAL_CHECK_RUN_DIR:-}" ]]; then
+      echo 'local check requires an absolute command runner and report directory' >&2
+      return 2
+    fi
+    "$ci_python" "$OASIS7_LOCAL_CHECK_COMMAND_RUNNER" -- "$@"
+  else
+    "$@"
+  fi
 }
 
 # Observation only, enabled solely by the workspace-support job. Keep stdout
@@ -135,6 +146,18 @@ PY_CAPACITY
 }
 
 run_cargo() {
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    case "${1:-}" in
+      build|check|clippy|fetch|metadata|run|test|tree)
+        local argument locked=0
+        for argument in "${@:2}"; do
+          [[ "$argument" != -- ]] || break
+          if [[ "$argument" == --locked ]]; then locked=1; fi
+        done
+        if [[ "$locked" == 0 ]]; then set -- "$1" --locked "${@:2}"; fi
+        ;;
+    esac
+  fi
   if [[ "${CI_VERBOSE:-}" == "1" ]]; then
     run env -u RUSTC_WRAPPER cargo --verbose "$@"
   else
@@ -143,6 +166,14 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    local argument locked=0
+    for argument in "$@"; do
+      [[ "$argument" != -- ]] || break
+      if [[ "$argument" == --locked ]]; then locked=1; fi
+    done
+    if [[ "$locked" == 0 ]]; then set -- --locked "$@"; fi
+  fi
   local lint_flags=(
     -D warnings
     -D clippy::correctness
@@ -837,7 +868,11 @@ run_provider_bridge_live_gate() {
 }
 
 run_newapi_bridge_service_accounting_tests() {
-  run env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    run_cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
+  else
+    run env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service -- --nocapture
+  fi
 }
 
 run_oasis7_viewer_software_safe_feedback_contract_tests() {
@@ -1052,6 +1087,32 @@ run_required_gate_checks() {
     run git diff --check "$OASIS7_PRODUCT_DOC_BASE" "$OASIS7_PRODUCT_DOC_HEAD"
   else
     run git diff --check
+  fi
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    # Keep each origin: a staged edit can be cancelled by the worktree.
+    run git diff --check --no-ext-diff --no-textconv --cached
+    run git diff --check --no-ext-diff --no-textconv
+    run "$ci_python" - <<'PY_LOCAL_WHITESPACE'
+import os
+from pathlib import Path
+import subprocess
+
+paths = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'])
+for raw in paths.split(b'\0'):
+    if not raw:
+        continue
+    path = os.fsdecode(raw)
+    target = Path(path)
+    if target.is_symlink() or not target.is_file():
+        raise SystemExit(f'unsupported untracked whitespace input: {path!r}')
+    # --no-index returns 1 for an ordinary addition and 3 for whitespace errors.
+    # Binary detection and whitespace policy remain Git's, just as for tracked files.
+    result = subprocess.run(['git', 'diff', '--no-index', '--check', '--no-ext-diff',
+                             '--no-textconv', '--', os.devnull, path])
+    if result.returncode not in (0, 1):
+        raise SystemExit(result.returncode)
+print('ok: checked nonignored untracked files for whitespace errors')
+PY_LOCAL_WHITESPACE
   fi
   run python3 ./scripts/validate-codex-agent-config.py
 }
