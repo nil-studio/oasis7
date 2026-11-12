@@ -59,23 +59,58 @@ def stub_shape(text):
                 unknown_line_count=sum(row[0] not in keys for row in rows))
 
 
-def effective_proxy_clear(output):
-    """Parse apt-config's effective tree, never source comments or raw values in logs."""
+def apt_config_entries(output):
+    """Parse apt-config's effective tree without interpreting escaped values."""
     if not output.strip():
-        return False
+        return None
+    entries = []
     for line in output.splitlines():
         if not line.strip():
             continue
         entry = re.fullmatch(r'\s*(\S+)\s+"((?:\\.|[^"\\])*)";\s*', line)
         if entry is None:
-            return False
-        parts = entry[1].lower().split('::')
+            return None
+        entries.append((entry[1].lower(), entry[2]))
+    return entries
+
+
+def effective_proxy_clear(output):
+    entries = apt_config_entries(output)
+    if entries is None:
+        return False
+    for name, value in entries:
+        parts = name.split('::')
         for key in ('proxy', 'proxyautodetect', 'proxy-auto-detect'):
             if key in parts:
-                value = entry[2].strip()
+                value = value.strip()
                 if value and not (key == 'proxy' and value.lower() == 'direct'):
                     return False
     return True
+
+
+def effective_source_paths_default(output):
+    """Only inspect default sources when APT will use those same paths."""
+    allowed = {'dir': ('/',), 'dir::etc': ('etc/apt', 'etc/apt/', '/etc/apt', '/etc/apt/'),
+               'dir::etc::sourcelist': ('sources.list', '/etc/apt/sources.list'),
+               'dir::etc::sourceparts': ('sources.list.d', 'sources.list.d/',
+                                         '/etc/apt/sources.list.d', '/etc/apt/sources.list.d/')}
+    entries = apt_config_entries(output)
+    if entries is None:
+        return False
+    seen = set()
+    for name, value in entries:
+        parts = name.split('::')
+        # apt-config and apt-get can apply different Binary-scoped overrides.
+        # Reject those rather than infer apt-get's paths from apt-config's tree.
+        if len(parts) >= 3 and parts[0] == 'binary' and '::'.join(parts[2:]) in (*allowed, 'rootdir'):
+            return False
+        if name == 'rootdir' and value:
+            return False
+        if name in allowed:
+            if name in seen or value not in allowed[name]:
+                return False
+            seen.add(name)
+    return seen == allowed.keys()
 
 
 def direct_source_allowed(value, image):
@@ -196,6 +231,8 @@ class Recovery:
             return self.decline('effective_apt_proxy_query_failed')
         if not effective_proxy_clear(output):
             return self.decline('effective_apt_proxy_or_unknown_dump')
+        if not effective_source_paths_default(output):
+            return self.decline('effective_apt_source_paths_custom_or_unknown')
         sources = [Path('/etc/apt/sources.list'), *Path('/etc/apt/sources.list.d').glob('*')]
         if len(sources) > 128:
             return self.decline('too_many_apt_sources')
