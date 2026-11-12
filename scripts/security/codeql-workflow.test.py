@@ -141,21 +141,36 @@ class WorkflowTests(unittest.TestCase):
                 response.headers = {'Date': email.utils.format_datetime(started + datetime.timedelta(seconds=age))}
                 env = dict(GITHUB_REPOSITORY='example/repo', GITHUB_RUN_ID='23', GITHUB_RUN_ATTEMPT='2',
                            GH_TOKEN='fixture', GITHUB_OUTPUT=str(folder / 'output'),
-                           GITHUB_STEP_SUMMARY=str(folder / 'summary'))
+                           GITHUB_STEP_SUMMARY=str(folder / 'summary'), RUNNER_TEMP=directory,
+                           EXPECTED_CHECKOUT=SHA)
                 with patch.dict(os.environ, env), patch('urllib.request.urlopen', return_value=response) as request, \
-                        patch('time.monotonic', side_effect=[100, 101]):
+                        patch('time.monotonic', side_effect=[100, 101]), patch('time.time', return_value=20000):
                     if expected is None:
                         with self.assertRaises(SystemExit):
                             exec(compile(body, 'codeql.yml:rust-budget', 'exec'), {})
                         self.assertFalse((folder / 'output').exists())
                     else:
                         exec(compile(body, 'codeql.yml:rust-budget', 'exec'), {})
-                        self.assertEqual((folder / 'output').read_text(), f'analysis_minutes={expected}\n')
+                        output = dict(line.split('=', 1) for line in (folder / 'output').read_text().splitlines())
+                        self.assertEqual(int(output['analysis_minutes']), expected)
+                        self.assertEqual(float(output['analysis_deadline']), 20000 + expected * 60)
+                        receipt = json.loads((folder / 'codeql-rust-production-budget.json').read_text())
+                        self.assertEqual(receipt['source_sha'], SHA)
+                        self.assertEqual(receipt['mode'], 'rust-default-production')
+                        self.assertEqual(receipt['analysis_allocated_at'], 20000)
+                        self.assertEqual(receipt['fixed_job_deadline'], 20000 + 5400 - age - 2)
                         self.assertIn('600', (folder / 'summary').read_text())
                         self.assertLessEqual(expected * 60 + 600, 5400 - age - 2)
                 self.assertIn('/runs/23/attempts/2/jobs', request.call_args.args[0].full_url)
         analyze = WORKFLOW.split('      - id: analyze\n', 1)[1].split('      - id: upload\n', 1)[0]
-        self.assertIn('fromJSON(steps.rust_budget.outputs.analysis_minutes)', analyze)
+        self.assertIn('fromJSON(steps.rust_prepare.outputs.analysis_minutes)', analyze)
+        self.assertNotIn('time.time() +', analyze)
+        self.assertIn('NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}', analyze)
+        self.assertIn("OASIS7_CODEQL_PRODUCTION_MODE: ${{ steps.rust_tools.outcome == 'success' && 'rust-default-production' || '' }}", analyze)
+        for phase in ('rust_prepare', 'rust_production'):
+            step = WORKFLOW.split('      - id: ' + phase + '\n', 1)[1].split('      - id:', 1)[0]
+            self.assertIn('RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}', step)
+            self.assertIn('--analysis-deadline "$RUST_ANALYSIS_DEADLINE"', step)
 
     def test_illegal_configuration_fails(self):
         for kwargs in ({"mode": "invalid"}, {"slots": "3"}, {"profile": "injected", "kind": "workflow_dispatch"}, {"kind": "workflow_dispatch", "ref": "refs/heads/candidate"}):
@@ -230,7 +245,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotRegex(WORKFLOW, r"(?m)^  push:")
 
     def test_rust_native_preparation_scope_budget_and_artifact(self):
-        step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id: init\n', 1)[0]
+        step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]
         self.assertIn("if: matrix.language == 'rust'", step)
         self.assertIn('timeout-minutes: 5', step)
         self.assertNotIn('needs.plan.outputs.profile', step)
@@ -313,6 +328,47 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("path: ${{ runner.temp }}/codeql-upload-evidence/evidence.json", section[1])
         self.assertIn("if-no-files-found: error", section[1])
         self.assertGreaterEqual(section[1].count("if: always()"), 2)
+
+    def test_rust_extraction_success_requires_query_success_for_execution(self):
+        section = WORKFLOW.split('      - id: execution\n', 1)
+        self.assertEqual(len(section), 2, 'production query outcome must reach the upload evidence')
+        body = section[1].split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        body = '\n'.join(line[10:] for line in body.splitlines())
+        for extraction, queries, rust, expected in (
+                ('success', 'success', 'true', 'success'),
+                ('success', 'failure', 'true', 'failure'),
+                ('success', 'cancelled', 'true', 'cancelled'),
+                ('success', 'skipped', 'true', 'skipped'),
+                ('failure', 'success', 'true', 'failure'),
+                ('cancelled', 'failure', 'true', 'cancelled'),
+                ('success', 'skipped', 'false', 'success')):
+            with self.subTest(extraction=extraction, queries=queries, rust=rust), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / 'output'
+                with patch.dict(os.environ, dict(EXTRACTION=extraction, RUST_QUERIES=queries,
+                                                PATCHED_RUST=rust, GITHUB_OUTPUT=str(output))):
+                    exec(compile(body, 'codeql.yml:execution', 'exec'), {})
+                self.assertEqual(output.read_text(), 'status=' + expected + '\n')
+        self.assertEqual(WORKFLOW.count('EXECUTION: ${{ steps.execution.outputs.status }}'), 2)
+
+    def test_patched_rust_is_main_default_only_and_keeps_upload_identity(self):
+        section = WORKFLOW.split('      - id: rust_tools\n', 1)
+        self.assertEqual(len(section), 2, 'pinned production tool preparation is missing')
+        tools_step = section[1].split('      - id: init\n', 1)[0]
+        self.assertIn("if: matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request'", tools_step)
+        self.assertIn('codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst', tools_step)
+        self.assertIn('1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b', tools_step)
+        self.assertIn('sha256sum --check', tools_step)
+        analyze = WORKFLOW.split('      - id: analyze\n', 1)[1].split('      - id: rust_production\n', 1)[0]
+        self.assertIn("skip-queries: ${{ steps.rust_tools.outcome == 'success' }}", analyze)
+        self.assertIn("upload-database: ${{ steps.rust_tools.outcome == 'success' && 'false' || 'true' }}", analyze)
+        upload = WORKFLOW.split('      - id: upload\n', 1)[1].split('      - name:', 1)[0]
+        self.assertIn("if: success() && steps.execution.outputs.status == 'success'", upload)
+        self.assertIn('category: ${{ matrix.category }}', upload)
+        self.assertIn('sha: ${{ needs.plan.outputs.checkout }}', upload)
+        artifact = WORKFLOW.split('      - name: Persist Rust production evidence\n', 1)[1].split('\n  summary:', 1)[0]
+        self.assertIn('path: ${{ runner.temp }}/codeql-rust-production-evidence', artifact)
+        self.assertNotIn('codeql_databases', artifact)
+        self.assertNotIn('codeql-upload-evidence', artifact)
 
 
 if __name__ == "__main__":

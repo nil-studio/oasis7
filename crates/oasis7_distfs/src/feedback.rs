@@ -640,7 +640,30 @@ impl FeedbackStore {
         validate_token(public_key_hex, "public_key_hex")?;
         validate_token(nonce, "nonce")?;
         let nonce_path = feedback_nonce_path(public_key_hex, nonce);
-        if self.store.stat_file(nonce_path.as_str())?.is_some() {
+        let mut already_claimed = self.store.stat_file(nonce_path.as_str())?.is_some();
+        if !already_claimed {
+            // Historical records retain the signed key spelling. Compare decoded
+            // identities without rewriting paths, signatures, or replication retries.
+            let identity = decode_hex_array::<32>(public_key_hex.trim(), "feedback public key")?;
+            let prefix = format!("{FEEDBACK_NAMESPACE}/{FEEDBACK_NONCES_DIR}/");
+            let filename = format!("{nonce}.json");
+            for file in self.store.list_files()? {
+                let Some(relative) = file.path.strip_prefix(&prefix) else {
+                    continue;
+                };
+                let Some((stored_key, stored_filename)) = relative.split_once('/') else {
+                    continue;
+                };
+                if stored_filename == filename
+                    && decode_hex_array::<32>(stored_key.trim(), "feedback nonce public key")?
+                        == identity
+                {
+                    already_claimed = true;
+                    break;
+                }
+            }
+        }
+        if already_claimed {
             return Err(WorldError::DistributedValidationFailed {
                 reason: format!("replay nonce detected for pubkey={public_key_hex} nonce={nonce}"),
             });

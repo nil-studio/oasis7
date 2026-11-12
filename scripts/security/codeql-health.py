@@ -64,15 +64,12 @@ def report(data, now, max_age_hours=24):
             analysis = associated[0] if len(associated) == 1 else None
             execution = "unknown"
             if job:
-                state, conclusion = job.get("status"), job.get("conclusion")
                 raw_steps = job.get("steps", [])
-                if not isinstance(raw_steps, list) or not all(isinstance(s, dict) for s in raw_steps):
-                    errors.append("malformed job steps metadata")
+                try:
+                    execution = association.execution_status(job)
+                except RuntimeError as error:
+                    errors.append(str(error))
                     raw_steps = []
-                steps = [s for s in raw_steps if s.get("name") == "CodeQL extraction and queries"]
-                execution = (steps[0].get("conclusion") or "unknown") if len(steps) == 1 else (
-                    conclusion if conclusion in ("cancelled", "timed_out") else
-                    state if state in ("queued", "in_progress", "waiting", "pending") else "unknown")
             upload = "unknown"
             upload_step_status = "unknown"
             if job:

@@ -485,8 +485,53 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         .ingest_replicated_event_record(append_record.clone())
         .expect("ingest append");
     target
-        .ingest_replicated_event_record(append_record)
+        .ingest_replicated_event_record(append_record.clone())
         .expect("ingest append idempotent");
+
+    drop(target);
+    let target = FeedbackStore::new(
+        LocalCasStore::new(&target_dir),
+        FeedbackStoreConfig::default(),
+    );
+
+    // These metadata fields affect event_id, but not the author's signature.
+    // Changing either must not turn an exact retry into a second public append.
+    for change_ip in [false, true] {
+        let mut replay = append_record.clone();
+        if change_ip {
+            replay.submit_ip = "127.0.0.99".to_string();
+        } else {
+            replay.created_at_ms = replay.created_at_ms.saturating_add(1);
+        }
+        let payload = FeedbackEventHashPayload {
+            version: FEEDBACK_SIGNATURE_PAYLOAD_VERSION,
+            action: replay.action.as_str(),
+            feedback_id: replay.feedback_id.as_str(),
+            actor_public_key_hex: replay.actor_public_key_hex.as_str(),
+            submit_ip: replay.submit_ip.as_str(),
+            content: replay.content.as_deref(),
+            reason: replay.reason.as_deref(),
+            nonce: replay.nonce.as_str(),
+            timestamp_ms: replay.timestamp_ms,
+            expires_at_ms: replay.expires_at_ms,
+            signature_hex: replay.signature_hex.as_str(),
+            created_at_ms: replay.created_at_ms,
+        };
+        replay.event_id = blake3_hex(&to_canonical_cbor(&payload).expect("event hash"));
+        assert_ne!(replay.event_id, append_record.event_id);
+        assert_eq!(replay.signature_hex, append_record.signature_hex);
+        assert!(
+            matches!(
+                target.ingest_replicated_event_record(replay),
+                Err(WorldError::DistributedValidationFailed { reason })
+                    if reason.starts_with("replicated event nonce conflict")
+            ),
+            "unsigned metadata must not bypass consumed append nonce"
+        );
+    }
+    target
+        .ingest_replicated_event_record(append_record)
+        .expect("original exact retry remains idempotent after rejected replays");
 
     let view = target
         .read_feedback_public("fb-repl-1")
@@ -494,6 +539,38 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         .expect("target view");
     assert_eq!(view.append_events.len(), 1);
     assert_eq!(view.append_events[0].content, "append payload");
+
+    let mut fresh_request = FeedbackAppendRequest {
+        feedback_id: "fb-repl-1".to_string(),
+        actor_public_key_hex: public_key_hex(&author),
+        submit_ip: "127.0.0.8".to_string(),
+        content: "fresh append payload".to_string(),
+        nonce: "n-repl-fresh-append".to_string(),
+        timestamp_ms: now_plus(0),
+        expires_at_ms: now_plus(60_000),
+        signature_hex: String::new(),
+    };
+    fresh_request.signature_hex =
+        sign_feedback_append_request(&fresh_request, &hex::encode(author.to_bytes()))
+            .expect("sign fresh append");
+    let fresh_receipt = source.append_feedback(fresh_request).expect("fresh append");
+    let fresh_blob = source
+        .blob_ref_for_receipt(&fresh_receipt)
+        .expect("fresh blob ref")
+        .expect("fresh blob");
+    let fresh_bytes = source
+        .store
+        .read_file(&fresh_blob.path)
+        .expect("fresh bytes");
+    let fresh_record = serde_json::from_slice(&fresh_bytes).expect("fresh record");
+    target
+        .ingest_replicated_event_record(fresh_record)
+        .expect("different signed nonce remains accepted");
+    let fresh_view = target
+        .read_feedback_public("fb-repl-1")
+        .expect("read fresh target")
+        .expect("fresh target view");
+    assert_eq!(fresh_view.append_events.len(), 2);
 
     let _ = fs::remove_dir_all(source_dir);
     let _ = fs::remove_dir_all(target_dir);
@@ -717,3 +794,6 @@ fn feedback_rate_limit_keeps_distinct_identities_separate() {
         rate_limit::rate_limit_public_key_identity(&public_key_hex(&signing_key(24))).expect("key")
     );
 }
+
+#[path = "nonce_identity_tests.rs"]
+mod nonce_identity;

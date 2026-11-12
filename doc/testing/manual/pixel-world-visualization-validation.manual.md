@@ -156,7 +156,7 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616。
 Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616。
 对应[AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003)与[AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001)。
 
-数值预算以[系统设计view-quality](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)为唯一来源，本文定义测法，不维护第二份阈值。基准A/B、设备、浏览器、电源和网络限制必须实际记录，不用“普通电脑”作为可比较身份。
+数值预算以[系统设计view-quality](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)为唯一来源，本文定义测法，不维护第二份阈值。指定8GiB及网络A/B已由用户于2026-11-12取消，未执行且不再作为本轮门槛；当前本机设备、浏览器、电源和实际网络必须记录，不用“普通电脑”作为可比较身份。
 
 ### 9.1 测量窗口
 
@@ -179,7 +179,7 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 
 截图后 pageNow 仅是该图像已可观察的保守上界，不是第一物理呈现时刻。原生 Enter 由共同 owned 输入参数发出，记录可信 keydown/click、typed ID、原 timeStamp／pageNow／timeOrigin及实际 selected DOM，单次输入无重试；此端点不是 GPU 选择高亮 fence、网络完成或真实玩家回执。`prepareOwnedViewerDensity` 仅用真实 overview／wheel 进入1000 body／200 label场景，供 RSS consumer 在计时外准备；不得把其相机操作偷偷塞入“自然首帧”预算。
 
-`viewer-owned-startup-lifecycle.mjs` 在导航前登记同 branded context 的 exact profile／sandbox／native PID，失败前仍可有界关闭并核对 native 退出。共享server与owned profile下的产品校准最多三组，先独立方法审；产品20冷／30热及正式8GiB A/B预算仍需各自前置，旧8B缓存能力检查不代签本节真实产品端点。
+`viewer-owned-startup-lifecycle.mjs` 在导航前登记同 branded context 的 exact profile／sandbox／native PID，失败前仍可有界关闭并核对 native 退出。共享server与owned profile下的产品校准最多三组，先独立方法审；本机产品20冷／30热仍需固定方法及独立审查，指定8GiB和网络A/B已取消且不记通过，旧8B缓存能力检查不代签本节真实产品端点。
 
 ### 自有浏览器 RSS 能力前置（5773）
 
@@ -304,3 +304,9 @@ Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
 按[显式搜索合同](../../world-simulator/viewer/external-agent-world-view.design.md#view-explicit-search-intent)，设置 `SEARCH_RACE_ARTIFACT_ROOT`、`SEARCH_RACE_SOURCE_HEAD`、`SEARCH_RACE_COMPOSED_MANIFEST` 为冻结目录、实际构建源及逐文件size/SHA清单，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:search-race`。缺省搜索；`SEARCH_RACE_CLEAR=1` 清空搜索；`SEARCH_RACE_SCOPE=1` 为兼容名称，实际只测试同scope查询scope_unavailable错误，绝非真实授权撤销。`SEARCH_RACE_WIDTH=390` 覆盖窄屏。分别单次执行，失败非零保原raw，不重试输入。
 
 真实fill/focus后发送标准snapshot推进触后台query并挂响应，再仅一次sharedCDP可信Enter；验证submit及新search实际到wire、旧响应不能覆盖结果。查询错误允许保仍获准last-known模型，但必须明确失败、屏内主体0、旧targets不可交互，实际canvas点击不选中且旧晚包不复活。该路径不以DOM删除判定撤权，不伪造身份／grant或暂停renderer/poll。清单保实际source/runner身份与完整依赖SHA；三个实体的技术observer/debug夹具不签真实WorldService、P5/P6或任何性能／长窗结果。
+
+### 本机启动正式分布（5772）
+
+固定产物及runner后，以 `VIEWER_STARTUP_DISTRIBUTION=1` 和三case工具相同的四个 `VIEWER_STARTUP_*` 路径/source环境变量执行 `node crates/oasis7_viewer/scripts/viewer-product-startup-calibration.mjs`。一次20个全新私有profile/进程后，30次重开第一个profile的新进程；同服务器、origin、资源版本、1440×1000/DPR1，保持实际no-store交付，不强求热HTTP命中。不清OS缓存，不宣称已隔离WASM编译缓存。采样前落固定顺序/源/hash/设备/45分钟总界预注册；任何失败终止后继并保留全部已有样本，不补跑/挑样/改变端点。每次owned进程退出证明后才下一样本。
+
+分别报告bridge ready、完整query场景、Atlas正常截图后图像已观察上界、可信原生选择后DOM上界；截图/RPC/Python开销包含且不扣除，physicalFirstFrame和coreGoalUi仍unknown。全部50项成功且端点有限时按nearest-rank（ceil(n*p)）独立统计两cohort P50/P95/max并保留原顺序raw；不足/失败不签完整分布。旧三case不并入本批，原A/B取消非passed；本机受控observer不代签真实玩家授权、50k query或整体P6。

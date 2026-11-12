@@ -235,14 +235,29 @@ jobs:
               terminal['elapsed_seconds'] = time.monotonic() - started
               (out / 'native-terminal.json').write_text(json.dumps(terminal, sort_keys=True) + '\n')
           PY
+      - id: rust_tools
+        name: Verify the pinned Rust default production bundle
+        if: matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request'
+        timeout-minutes: 5
+        run: |
+          mkdir "$RUNNER_TEMP/codeql-rust-production-tools"
+          curl --fail --location --connect-timeout 20 --max-time 240 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst \
+            --output "$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst"
+          echo "1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b  $RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" | sha256sum --check
+          echo "tools_path=$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
       - id: init
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4, official tag resolved 2026-10-01
+        env:
+          CODEQL_OVERLAY_DATABASE_MODE: ${{ steps.rust_tools.outcome == 'success' && 'none' || '' }}
         with:
+          tools: ${{ steps.rust_tools.outputs.tools_path }}
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
           db-location: ${{ runner.temp }}/codeql_databases
           queries: ${{ matrix.language == 'actions' && format('./scripts/security/codeql-actions/{0}.qls', needs.plan.outputs.profile) || matrix.queries }}
           dependency-caching: false
+          trap-caching: ${{ steps.rust_tools.outcome == 'success' && 'false' || '' }}
           config: |
             disable-default-queries: ${{ matrix.language == 'actions' }}
             paths-ignore:
@@ -269,9 +284,10 @@ jobs:
         timeout-minutes: 1
         env:
           GH_TOKEN: ${{ github.token }}
+          EXPECTED_CHECKOUT: ${{ needs.plan.outputs.checkout }}
         run: |
           python3 -I - <<'PY'
-          import datetime, email.utils, json, os, time, urllib.request
+          import datetime, email.utils, json, os, pathlib, time, urllib.request
           url = ('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] +
                  '/actions/runs/' + os.environ['GITHUB_RUN_ID'] + '/attempts/' +
                  os.environ['GITHUB_RUN_ATTEMPT'] + '/jobs?per_page=100')
@@ -296,24 +312,93 @@ jobs:
           minutes = min(75, int((5400 - age - 600) // 60))
           if minutes < 1:
               raise SystemExit('no Rust analysis budget after upload reserve')
+          allocated = time.time()
+          deadline = allocated + minutes * 60
           receipt = dict(job_id=jobs[0]['id'], started_at=jobs[0]['started_at'], github_date=server_date,
                          job_age_upper_seconds=age, job_budget_seconds=5400,
-                         analysis_allocated_minutes=minutes, post_analysis_reserve_seconds=600)
+                         analysis_allocated_minutes=minutes, analysis_deadline=deadline,
+                         analysis_allocated_at=allocated, fixed_job_deadline=allocated + 5400 - age,
+                         mode='rust-default-production', source_sha=os.environ['EXPECTED_CHECKOUT'],
+                         post_analysis_reserve_seconds=600, helper_terminal_and_upload_reserve_seconds=90)
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-production-budget.json'
+          with path.open('x') as output:
+              json.dump(receipt, output, sort_keys=True)
+              output.write('\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
               output.write('Rust analysis budget\n```json\n' + json.dumps(receipt, indent=2) + '\n```\n')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('analysis_minutes=' + str(minutes) + '\n')
+              output.write('analysis_deadline=' + str(deadline) + '\n')
           PY
+      - id: rust_prepare
+        name: Prepare the fixed Rust libraries and current source inventory
+        if: steps.rust_budget.outcome == 'success'
+        timeout-minutes: ${{ steps.rust_budget.outputs.analysis_minutes && fromJSON(steps.rust_budget.outputs.analysis_minutes) || 1 }}
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+          EXPECTED_CHECKOUT: ${{ needs.plan.outputs.checkout }}
+          RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
+        run: |
+          python3 scripts/security/codeql-rust-production.py prepare \
+            --codeql "$CODEQL_BIN" --source "$GITHUB_WORKSPACE" --source-sha "$EXPECTED_CHECKOUT" \
+            --database "$RUNNER_TEMP/codeql_databases/rust" \
+            --work "$RUNNER_TEMP/codeql-rust-production-work" \
+            --output "$RUNNER_TEMP/codeql-rust-production-evidence" \
+            --sarif "$RUNNER_TEMP/codeql-results/rust.sarif" \
+            --analysis-deadline "$RUST_ANALYSIS_DEADLINE"
       - id: analyze
         name: CodeQL extraction and queries
-        timeout-minutes: ${{ steps.rust_budget.outputs.analysis_minutes && fromJSON(steps.rust_budget.outputs.analysis_minutes) || matrix.timeout_minutes }}
+        timeout-minutes: ${{ steps.rust_prepare.outputs.analysis_minutes && fromJSON(steps.rust_prepare.outputs.analysis_minutes) || matrix.timeout_minutes }}
+        env:
+          RUST_LOG: ${{ steps.rust_tools.outcome == 'success' && 'single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug' || '' }}
+          NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}
+          OASIS7_CODEQL_PRODUCTION_MODE: ${{ steps.rust_tools.outcome == 'success' && 'rust-default-production' || '' }}
+          OASIS7_CODEQL_PRODUCTION_SOURCE: ${{ needs.plan.outputs.checkout }}
+          RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: ${{ matrix.category }}
           output: ${{ runner.temp }}/codeql-results
           upload: never
+          skip-queries: ${{ steps.rust_tools.outcome == 'success' }}
+          upload-database: ${{ steps.rust_tools.outcome == 'success' && 'false' || 'true' }}
+      - id: rust_production
+        name: Run and verify all default Rust queries with the fixed libraries
+        if: always() && steps.rust_prepare.outcome == 'success'
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+          EXPECTED_CHECKOUT: ${{ needs.plan.outputs.checkout }}
+          RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
+          EXTRACTION_OUTCOME: ${{ steps.analyze.outcome }}
+        run: |
+          python3 scripts/security/codeql-rust-production.py run \
+            --codeql "$CODEQL_BIN" --source "$GITHUB_WORKSPACE" --source-sha "$EXPECTED_CHECKOUT" \
+            --database "$RUNNER_TEMP/codeql_databases/rust" \
+            --work "$RUNNER_TEMP/codeql-rust-production-work" \
+            --output "$RUNNER_TEMP/codeql-rust-production-evidence" \
+            --sarif "$RUNNER_TEMP/codeql-results/rust.sarif" \
+            --analysis-deadline "$RUST_ANALYSIS_DEADLINE" --extraction-outcome "$EXTRACTION_OUTCOME"
+      - id: execution
+        name: Combine extraction and query execution outcomes
+        if: always()
+        env:
+          EXTRACTION: ${{ steps.analyze.outcome }}
+          RUST_QUERIES: ${{ steps.rust_production.outcome }}
+          PATCHED_RUST: ${{ matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'true' || 'false' }}
+        run: |
+          python3 -I - <<'PY'
+          import os
+          status = os.environ['EXTRACTION']
+          if os.environ['PATCHED_RUST'] == 'true' and status == 'success':
+              status = os.environ['RUST_QUERIES']
+          if status not in ('success', 'failure', 'cancelled', 'skipped'):
+              raise SystemExit('unknown CodeQL execution outcome')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('status=' + status + '\n')
+          PY
       - id: upload
         name: CodeQL SARIF upload
+        if: success() && steps.execution.outputs.status == 'success'
         uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: ${{ runner.temp }}/codeql-results
@@ -327,7 +412,7 @@ jobs:
           UNIT: ${{ matrix.unit }}
           CATEGORY: ${{ matrix.category }}
           CHECKOUT: ${{ needs.plan.outputs.checkout }}
-          EXECUTION: ${{ steps.analyze.outcome }}
+          EXECUTION: ${{ steps.execution.outputs.status }}
           UPLOAD: ${{ steps.upload.outcome }}
           VERSION: ${{ steps.init.outputs.codeql-version }}
         run: |
@@ -347,7 +432,7 @@ jobs:
           PROFILE: ${{ needs.plan.outputs.profile }}
           CATEGORY: ${{ matrix.category }}
           CHECKOUT: ${{ needs.plan.outputs.checkout }}
-          EXECUTION: ${{ steps.analyze.outcome }}
+          EXECUTION: ${{ steps.execution.outputs.status }}
           UPLOAD: ${{ steps.upload.outcome }}
           SARIF_ID: ${{ steps.upload.outputs.sarif-id }}
         run: |
@@ -380,6 +465,16 @@ jobs:
         with:
           name: oasis7-codeql-upload-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.unit }}-${{ needs.plan.outputs.profile }}
           path: ${{ runner.temp }}/codeql-upload-evidence/evidence.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+      - name: Persist Rust production evidence
+        if: always() && matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && steps.rust_prepare.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oasis7-codeql-rust-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/codeql-rust-production-evidence
+          include-hidden-files: true
           if-no-files-found: error
           overwrite: false
           retention-days: 7

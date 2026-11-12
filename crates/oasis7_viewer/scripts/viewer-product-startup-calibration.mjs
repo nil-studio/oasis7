@@ -6,6 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import os from 'node:os';
+import {startupCasePlan,startupDistribution} from './viewer-startup-distribution-policy.mjs';
+const distribution=process.env.VIEWER_STARTUP_DISTRIBUTION==='1',casePlan=startupCasePlan(distribution);
 import {startOwnedViewerFixtureServer} from './viewer-owned-fixture-server.mjs';
 import {createStartupProfile,launchOwnedStartupContext} from './viewer-owned-startup-context.mjs';
 import {identifyOwnedStartupContext,closeOwnedStartupContext,boundedStartupOperation as bounded} from './viewer-owned-startup-lifecycle.mjs';
@@ -19,20 +21,22 @@ const assets=Array.isArray(input.files)?Object.fromEntries(input.files.map(r=>[r
 if(!assets||Object.keys(assets).length!==18||(Array.isArray(input.files)&&input.files.length!==18))throw Error('expected complete unique18 artifact manifest');
 const out=resolve(process.env.VIEWER_STARTUP_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
 const atlas=execFileSync('git',['show',source+':doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'],{cwd:repo});const atlasPath=join(out,'source-agent.png');writeFileSync(atlasPath,atlas);
-const scripts=Object.fromEntries(['viewer-product-startup-calibration.mjs','viewer-owned-fixture-server.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-density-fixture.mjs','viewer-static-files.mjs','viewer-bounded-wire-audit.mjs','viewer-owned-cdp-input.mjs','viewer-owned-cdp-session.mjs','world-view-frame-capability.mjs'].map(n=>[n,sha(readFileSync(join(here,n)))]));
+const scripts=Object.fromEntries(['viewer-product-startup-calibration.mjs','viewer-startup-distribution-policy.mjs','viewer-owned-fixture-server.mjs','viewer-owned-startup-context.mjs','viewer-owned-startup-lifecycle.mjs','viewer-product-startup-endpoints.mjs','viewer-startup-atlas-oracle.py','world-view-density-fixture.mjs','viewer-static-files.mjs','viewer-bounded-wire-audit.mjs','viewer-owned-cdp-input.mjs','viewer-owned-cdp-session.mjs','world-view-frame-capability.mjs'].map(n=>[n,sha(readFileSync(join(here,n)))]));
 const summary={source,runnerHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),assets,scripts,atlasSha256:sha(atlas),cases:[],hardware:{platform:process.platform,arch:process.arch,os:os.release(),cpu:os.cpus()[0]?.model,totalMemory:os.totalmem(),refreshRate:'unknown'},controlledTransport:true,realServiceAuthority:false,
- limitations:['M3/local loopback observer fixture, not authenticated player/A-B/50k/P6.','Delivery remains actual visual distribution no-store; warm does not promise HTTP or compiled-WASM cache reuse.','Atlas image is a captured observable upper endpoint; screenshot passivity/physical presentation unproven.','No20cold/30warm statistics; observer/RPC/PNG/Python costs included, never subtracted.'],status:'running'};
+ limitations:['M3/local loopback observer fixture, not authenticated player/A-B/50k/P6.','Delivery remains actual visual distribution no-store; warm does not promise HTTP or compiled-WASM cache reuse.','Atlas image is a captured observable upper endpoint; screenshot passivity/physical presentation unproven.','Observed upper endpoints only; observer/RPC/PNG/Python costs included, never subtracted.'],status:'running'};
+try{summary.hardware.power=execFileSync('pmset',['-g','batt'],{encoding:'utf8'}).trim();}catch{summary.hardware.power='unknown';}
+summary.preRegistration={mode:distribution?'local20cold30warm':'three_calibration',casePlan,hardStopMs:distribution?2700000:180000,p95:'nearest rank; no subset/retry; failure ends suite',coreGoalUi:null,physicalFirstFrame:null};
 summary.cacheIsolation={browserProfiles:'cold uses independent fresh private profile/process; warm reopens same profile/origin',httpDelivery:'actual visual distribution no-store',compiledCode:'unknown',osPageCache:'not isolated'};
-const timer=setTimeout(()=>{summary.status='failed';summary.error='180s hard stop; cleanup unproven';try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}finally{process.exit(1);}},180000);
+const timer=setTimeout(()=>{summary.status='failed';summary.error='registered hard stop; cleanup unproven';try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}finally{process.exit(1);}},distribution?2700000:180000);
 const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES||'/Users/scc/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules';
 const {chromium}=createRequire(join(modules,'startup-product.cjs'))('playwright');
 let server;
 await withObservationCleanup(async()=>{
  try{
   server=await startOwnedViewerFixtureServer({artifactRoot:process.env.VIEWER_STARTUP_ARTIFACT_ROOT,source,out,expectedAssets:assets});
-  const profileA=createStartupProfile(),profileB=createStartupProfile();summary.profiles=[profileA.path,profileB.path];summary.url=server.url;
-  for(const [name,profile] of [['cold-first',profileA],['warm-same-profile',profileA],['cold-independent',profileB]]){
-    const row={name,profile:profile.path,atlas:{},native:{},network:[],status:'running'};summary.cases.push(row);server.beginCase(name);
+  const profiles=Array.from({length:distribution?20:2},()=>createStartupProfile());summary.profiles=profiles.map(p=>p.path);summary.url=server.url;writeFileSync(join(out,'pre-registration.json'),JSON.stringify({source,runnerHead:summary.runnerHead,scripts,assets,hardware:summary.hardware,cacheIsolation:summary.cacheIsolation,...summary.preRegistration},null,2));
+  for(const planned of casePlan){const {name,cohort}=planned,profile=profiles[planned.profile];
+    const row={name,cohort,profile:profile.path,atlas:{},native:{},network:[],status:'running'};summary.cases.push(row);server.beginCase(name);
     const context=await launchOwnedStartupContext(chromium,process.env.OASIS7_PLAYWRIGHT_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',profile);
     await withObservationCleanup(async()=>{
       try{
@@ -54,9 +58,9 @@ await withObservationCleanup(async()=>{
       row.observedEndpoints={bridgeReadyUpperMs:row.bridgeReadyObserved.now,completeSceneUpperMs:row.completeScene.now,atlasImageUpperMs:row.atlas.observedPageUpperMs,nativeSelectedDomUpperMs:row.native.after.now,physicalFirstFrame:null,coreGoalUi:null};
       server.assertHealthy();server.verifyAssets();row.status='passed_calibration_only';
       }catch(error){row.status='failed';row.error=String(error);throw error;}
-    },async()=>{row.close=await closeOwnedStartupContext(context);},row);
+    },async()=>{row.close=await closeOwnedStartupContext(context);writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));},row);
   }
-  summary.status='passed_product_calibration_only';
+  if(distribution)summary.distribution=startupDistribution(summary.cases);summary.status=distribution?'completed_local_startup_distribution':'passed_product_calibration_only';
  }catch(error){summary.status='failed';summary.error=String(error);throw error;}
 },[
  ()=>{if(server)summary.server=server.statistics();},
