@@ -249,6 +249,18 @@ Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format
 
 核对 guard 版本投影 adapter 的首次绑定回执：counter/failed 初值为 0、原/新 wrapper 与 helper SHA 均齐全；原 guard 未修改，真实 Cargo 的当次输出先投影再进入 audit。NOT_RETURNED 表示原版本调用未交付可验证完整输出，bytes/hash 保持未知；不能用已缓存版本或事后删日志补成通过。
 
+### 合法 WASM 单角色 CodeQL 语义诊断
+
+在取得本次真实补证运行授权后，从默认分支手动选择 `CodeQL Rust WASM Context` 并显式设置 `execute=true`。源码固定为完整 7c2f99a，工具固定官方 Rust-only CodeQL 2.27.4 和 Rust 1.99.0（含 rust-src、wasm32-unknown-unknown 标准库）；没有任意源码、角色、查询或版本输入。它使用原共享 slot 1，不修改生产批次或 observe 配置。入口合同见[WASM CodeQL 语义诊断](codeql-integration.design.md#727-合法-wasm-单角色-codeql-语义诊断)。
+
+先核对实际 job 起点绑定的 1800 秒预算、前 780 秒准备及一次最多 900 秒提取/小查询窗口；其中最后 60 秒做采证封存，另留 120 秒用于 artifact/post。下载、依赖 fetch、版本与完整源身份都计时，未剩足 1020 秒不得新开观察窗口。失败只收已有证据，不重试、不换工具链、不借旧 D1/D2 的 PASS 代签本轮。
+
+`wasm-context-<run>-<attempt>-<tool-sha>` artifact 只包含 evidence 目录。依次核对 `terminal.json`、`job-clock.json`、`source-before/after.json`、`library-closure.json`、`query-library.json`、`metadata-graph.json`、`actual-index.json` 和 `guard-verdict.json`：工具根必须在业务根外，完整根 workspace 保留 53 成员，实际索引必须与六包下 `.rs` 集合精确相等，guard 必须有预检之后的根 metadata 和精确 recovery-fence WASM `cargo check --lib` 调用。请求配置文件只表示请求，不构成实际上下文通过。
+
+`witness-observation.json` 的九行计数分别观察四个真实宏展开、两个普通项负例、两组静态调用正反例及数据库内 custody crate 的 WASM/角色 cfg。任何正例缺失、错误目标或非法角色出现、缺行、重复、未知 schema 都保持 INCOMPLETE；单有文件、metadata、编译成功或零负例不能通过。查询结果仍需结合 source/query/BQRS 摘要、完整封存清单及实际平台终态核对。私有 DB、原生日志、TRAP、源码归档和缓存留在 runner 临时工作目录，绝不打包或上传。
+
+只有本轮 metadata、真实提取、cfg、宏/调用、guard、前后身份与封存全部成立，才记 `WASM_CONTEXT_SEMANTICS_OBSERVED`。该状态限于固定旧源码上的小见证，不代表当前 main、完整 WASM 支持范围、全数据流、生产容量或运营启用；`full_rust_coverage=HOLD` 和 `production_capacity=UNKNOWN` 保留。本地 `query compile --check-only` 只验收公开 QL API，真实提取/查询未执行时如实记 NOT_RUN。
+
 ### 短原生准备诊断
 
 安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
