@@ -187,6 +187,10 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 
 空页与受控两张1024×1024 RGBA8纹理场景仅报告各 owned 进程 RSS 和可能重复共享页的原始和；8MiB 是请求存储字节，不是实际 GPU 分配。GPU 进程 RSS 不等于显存；当前 CDP ProcessInfo 的 PID/type/CPU 时间不能提供总显存，GPU allocated bytes、完整应用缓存及物理呈现继续 unknown。该短能力结果不是产品稳定负载或64MiB/10%预算验收。
 
+真实 Viewer 分量短读（5791）用 `VIEWER_DENSITY_RSS_MANIFEST=<canonical18清单> VIEWER_DENSITY_RSS_OUTPUT=<不存在的绝对目录> npm --prefix crates/oasis7_viewer run test:resource:viewer`。清单绑定实际构建源；runner版本和全部观测依赖另记 SHA，不把旧产物改标为新源。复用同一 owned HTTP/WS fixture、原生 overview/wheel 准备端点及 source PNG Atlas oracle；仅受控 observer/debug，无真实玩家身份或signed服务授权。所有图片尝试与观察开销保留，不以截图代表自然世界新帧。
+
+唯一≤120秒短窗须在当前完整query下实际屏内1000 body／布局200 label；读前后对齐world/cut、scope和query代、同page origin、camera及render version，并与真实WS connection/request generation配对。JS heap／DOM用原只读CDP分量，WASM仅同active mount lease的线性容量，RSS复用OS根/后代身份守卫；跨代、未知或实际负载丢失原样失败，不挑样重采。组件重叠不能相加，GPU进程RSS、WASM容量均不冒总显存／used heap／完整缓存；不是30min/P6或目标机A/B验收。
+
 ### 局部工具证据边界
 
 性能探查先检查 canonical `viewer_terminal_shell.css`：响应成功且 MIME 为 `text/css`、浏览器实际加载有规则的 stylesheet、非活动 renderer hit-only target 的背景图为 none、背景与边框透明、阴影为 none。该前置保存为 `canonical-style-prerequisite.json`；不满足时判入口无效并停止，不将缺样式造成的额外绘制耗时写作生产预算违约，也不让后续阈值通过覆盖无效入口。前置通过只证明测量入口正确，不能代签性能预算通过。
