@@ -4,6 +4,7 @@ export function verifyStartupCacheCases(cases) {
   const [cold, warm, independent] = cases;
   if (cold.profile === independent.profile || cold.profile !== warm.profile) throw Error('profile isolation mismatch');
   for (const row of cases) {
+    if (row.processExited !== true) throw Error('owned browser cleanup unproven');
     if (!row.wasmCompiled || row.responses.length !== 1) throw Error('missing actual WASM response/compile');
     if (row.responses[0].status !== 200) throw Error('unexpected WASM response');
   }
