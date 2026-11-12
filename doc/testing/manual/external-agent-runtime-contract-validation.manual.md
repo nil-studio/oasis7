@@ -40,7 +40,7 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 
 #### 准备固定公网 authority 的隔离夹具
 
-`scripts/package-ecs-cold-entry-fixture.py` 的 `fixture` 支持显式 `public_origin`、`rp_id`、`bootstrap_tls_port` 关键字参数。仅用于已经获准的全新隔离 authority 准备；不启动隧道、部署或复用旧 world。先取得并固定可验证的公网 HTTPS origin，再首次 setup；RP 必须精确等于 origin 的 DNS host，不接受路径、userinfo、query、fragment、IP host 或越界端口。
+`scripts/package-ecs-cold-entry-fixture.py` 的 `fixture` 支持显式 `public_origin`、`rp_id`、`bootstrap_tls_port` 关键字参数。仅用于已经获准的全新隔离 authority 准备；不启动隧道、部署或复用旧 world。先取得并固定可验证的公网 HTTPS origin，再首次 setup；RP 必须精确等于 origin 的 DNS host，不接受路径、userinfo、query、fragment、IP host 或越界端口；默认 HTTPS 端口必须省略，显式 `:443` 与 native canonical origin 约定不符。
 
 ```python
 # root 必须是新建的 0700 私有目录；bundle/probe 固定到获准候选。

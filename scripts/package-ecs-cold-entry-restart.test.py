@@ -75,7 +75,7 @@ class FixtureAuthorityTests(unittest.TestCase):
     def test_malformed_authority_is_rejected_before_world_setup(self):
         with tempfile.TemporaryDirectory() as root:
             smoke=self.smoke(root)
-            for origin in ['http://authority.example.test','https://authority.example.test/','https://authority.example.test/path','https://user@authority.example.test','https://authority.example.test?x=1','https://authority.example.test#x','https://authority.example.test:0','https://authority.example.test:65536','https://127.0.0.1','https://AUTHORITY.example.test','https://authority.example.test\n']:
+            for origin in ['http://authority.example.test','https://authority.example.test/','https://authority.example.test/path','https://user@authority.example.test','https://authority.example.test?x=1','https://authority.example.test#x','https://authority.example.test:0','https://authority.example.test:443','https://authority.example.test:65536','https://127.0.0.1','https://AUTHORITY.example.test','https://authority.example.test\n']:
                 with self.subTest(origin=origin),self.assertRaises(ValueError):
                     f.authority_binding(smoke,public_origin=origin,rp_id='authority.example.test')
             for rp in ['example.test','other.example.test','authority.example.test:443','https://authority.example.test','']:
@@ -141,6 +141,10 @@ class FixtureAuthorityTests(unittest.TestCase):
                     if argv[1:3]==['devlocal-participant','inspect-head']:Path(argv[argv.index('--output')+1]).write_text('{}')
                     return 0,b''
                 smoke.command.side_effect=command
+                with self.assertRaises(ValueError):
+                    f.fixture(smoke,bundle,str(bundle/'bin/oasis7_game_client'),public_origin='https://authority.example.test:443')
+                smoke.command.assert_not_called()
+                self.assertFalse((root/'fixture-authority.json').exists())
                 options={'public_origin':'https://authority.example.test:8443','rp_id':'authority.example.test'} if public else {}
                 with patch.object(f,'wait_identity_bootstrap') as wait,patch.object(f.os,'killpg'):
                     result=f.fixture(smoke,bundle,str(bundle/'bin/oasis7_game_client'),**options)

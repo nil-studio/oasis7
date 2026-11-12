@@ -75,7 +75,7 @@ def _origin(value):
     host = parsed.hostname
     if (parsed.scheme != "https" or not host or parsed.path or parsed.query or parsed.fragment
             or parsed.username is not None or parsed.password is not None
-            or (port_number is not None and not 1 <= port_number <= 65535)
+            or (port_number is not None and (not 1 <= port_number <= 65535 or port_number == 443))
             or value != "https://" + parsed.netloc
             or ":" in host or host != host.lower() or len(host) > 253
             or all(c in "0123456789." for c in host)
