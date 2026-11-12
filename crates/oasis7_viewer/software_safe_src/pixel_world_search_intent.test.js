@@ -11,13 +11,20 @@ it('keeps only the latest explicit intent behind a held read and settles replace
  expect(await Promise.race([a,Promise.resolve('not settled')])).toBeNull();
  f.release();await Promise.all([old,b]);expect(f.core.requestWorldView.mock.calls.map(([q])=>q.search)).toEqual(['old','B']);
 });
-it.each(['scope','dispose','navigation'])('cancels queued callers on %s and ignores old late pages',async kind=>{
+it.each(['scope','dispose','navigation','feed','return'])('cancels queued callers on %s and ignores old late pages',async kind=>{
  const f=fixture(),old=f.controller.query({search:'old'});const pending=f.controller.query({search:'new'});
  if(kind==='scope'){f.core.state.auth.sessionEpoch++;f.controller.resetScope();}
  if(kind==='dispose')f.controller.dispose();
  if(kind==='navigation')f.controller.navigate('stop');
+ if(kind==='feed')f.controller.eventFeed({event_id:'missing'});
+ if(kind==='return')await f.controller.returnTarget();
  expect(await pending).toBeNull();f.release();await old;await Promise.resolve();
  expect(f.core.requestWorldView).toHaveBeenCalledTimes(1);expect(f.controller.state().view).toBeNull();
+});
+it.each(['feed','return'])('invalidates an active explicit read before %s early return',async kind=>{
+ const f=fixture(),read=f.controller.query({search:'old'});
+ if(kind==='feed')f.controller.eventFeed({event_id:'missing'});else await f.controller.returnTarget();
+ expect(await read).toBeNull();f.release();await Promise.resolve();await Promise.resolve();expect(f.controller.state().view).toBeNull();
 });
 it('settles a queued intent at its acceptance deadline without starting parallel transport',async()=>{
  vi.useFakeTimers();const f=fixture(),old=f.controller.query({search:'old'}),pending=f.controller.query({search:'new'});

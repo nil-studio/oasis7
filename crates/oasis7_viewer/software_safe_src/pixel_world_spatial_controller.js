@@ -284,6 +284,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     query,select,navigate,
     eventFeed(event) {
       if (pixelWorldScope(core.state) !== scope) return false;
+      cancelQuery();
       cancelPending();
       cancelOverview(null,true);
       const view=state().view, feed=core.state.worldFeed;
@@ -355,6 +356,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       void read();
     },
     async returnTarget() {
+      cancelQuery();
       cancelPending();
       cancelOverview(null,true);
       const id = mainTarget();if (!id) return;
