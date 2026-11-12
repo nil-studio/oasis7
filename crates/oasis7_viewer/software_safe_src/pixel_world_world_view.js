@@ -26,6 +26,7 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
         observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory' };
     },
     invalidate() { generation += 1; retainedQuery = null; },
+    cancel() { generation += 1; retainedQuery = null; baselineQuery = null; publish({loading:false,stale:Boolean(state.view)}); },
     clearChanges() { publish({changes:[]}); },
     reset(nextScope, worldId = null) { generation += 1; scopeSequence += 1; retainedQuery = null; scope = nextScope; expectedWorld = worldId; publish({ view: null, loading: false, stale: false, error: null, changes: [] }); },
     async query(query = {}, { delta = false, preserveChanges = false } = {}) {

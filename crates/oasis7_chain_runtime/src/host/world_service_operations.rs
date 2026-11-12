@@ -127,7 +127,9 @@ pub(super) fn submit(
     if correlation != request.correlation {
         return Err("submit signed correlation mismatch".into());
     }
+    let pin_begin = crate::cognition_authority_diagnostic::timestamp();
     let pinned = service.pin(None)?;
+    let pin_end = crate::cognition_authority_diagnostic::timestamp();
     let existing = outcome(service, &pinned, &correlation)?;
     if matches!(existing, IntentOutcome::Unknown) {
         service.check_payload(&pinned, &request.signed_payload)?;
@@ -138,6 +140,7 @@ pub(super) fn submit(
                 &signed.request.request.captured_base_binding,
                 &pinned.world,
                 Some(&correlation),
+                pin_begin.zip(pin_end),
             );
         }
     } else {

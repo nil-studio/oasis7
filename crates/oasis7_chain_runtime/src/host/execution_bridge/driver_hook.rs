@@ -766,6 +766,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         // Only a fully published canonical commit consumes the startup input.
         // A restart revalidates the configured original against retained history.
         self.devlocal_participant.startup = None;
+        crate::cognition_authority_diagnostic::publication_success(self.execution_world.state().time);
         Ok(result)
     }
 

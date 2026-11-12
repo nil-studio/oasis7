@@ -23,11 +23,22 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   const [selectionStatus,setSelectionStatus] = createSignal(null);
   const [selectionFeedback,setSelectionFeedback] = createSignal(null);
   const [overviewStatus,setOverviewStatus] = createSignal(null);
+  const [queryStatus,setQueryStatus] = createSignal(null);
+  let explicitQuery = null;
+  function finishQuery(intent, value = null, status = null) {
+    if (!intent) return;
+    clearTimeout(intent.timer);intent.resolve(value);
+    if (explicitQuery === intent) {explicitQuery=null;setQueryStatus(status);}
+  }
+  function cancelQuery() {
+    if (!explicitQuery) return;
+    client.cancel();finishQuery(explicitQuery);
+  }
   let feedbackScopeGeneration = 1, feedbackAuthority = null;
   const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);checkOverview(next);}});
   let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = '', currentQuery = {};
   let cameraBounds = null, cameraKey = '', timer = null, command = 0, disposed = false;
-  let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
+  let following = null, selectedCoreKey = null, inFlight = null, dirty = false, deferredCamera = false;
   let presented = null, pending = null, pendingTimer = null;
   let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartViews = new WeakSet();
   function cancelOverview(status = null, stop = false) {
@@ -132,7 +143,8 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     return result.slice(0,3);
   }
   function cancelScheduled() { if (timer != null) clearTimeout(timer); timer = null; }
-  function navigate(mode,target = null) {
+  function navigate(mode,target = null,preserveQuery = false) {
+    if (!preserveQuery) cancelQuery();
     cancelPending();
     cancelOverview();
     following = mode === 'follow' ? target : null;
@@ -143,7 +155,10 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     if (pendingOverview?.applying) {dirty=true;return null;}
     if (disposed || !enabled() || pixelWorldScope(core.state) !== scope) return null;
     const pinned = pins(); lastPins = JSON.stringify(pinned);
-    const query = {...currentQuery};delete query.pinned_entities;delete query.resume_cursor;delete query.cursor;
+    const intent=explicitQuery;
+    if (intent) {setQueryStatus('reading');currentQuery={...intent.query};if(deferredCamera)dirty=true;}
+    else if(deferredCamera){currentQuery={...currentQuery,bounds:cameraBounds};deferredCamera=false;}
+    const query = {...(intent?.query || currentQuery)};delete query.pinned_entities;delete query.resume_cursor;delete query.cursor;
     if (core.state.viewerProtocol?.capabilities?.includes('world_view_pins_v1')) query.pinned_entities = pinned;
     const caps = core.state.viewerProtocol?.capabilities || [];
     if (caps.includes('world_view_aggregate_v1')) query.detail_level ||= 'auto'; else delete query.detail_level;
@@ -151,25 +166,34 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     readingQueryToken = queryToken;readStartViews = new WeakSet();
     if (state().view) readStartViews.add(state().view);
     inFlight = client.query(query,{delta:caps.includes('world_view_delta_v1'),preserveChanges:true});
-    try { return await inFlight; } finally {
+    let result=null;
+    try { result=await inFlight;return result; } finally {
       inFlight = null;
-      if (dirty && !disposed) {dirty=false;void read();}
+      if (intent && explicitQuery===intent) finishQuery(intent,result,state().error?'unavailable':null);
+      if ((explicitQuery || dirty) && !disposed) {dirty=false;void read();}
     }
   }
   function schedule() {
+    if (explicitQuery) {dirty=true;return;}
     cancelPending();
     cancelScheduled(); client.invalidate();
     timer = setTimeout(() => {timer = null; void read();},debounceMs);
   }
   function query(query = {}) {
+    if (disposed) return Promise.resolve(null);
+    if (!enabled() || pixelWorldScope(core.state)!==scope) {cancelQuery();setQueryStatus('unavailable');return Promise.resolve(null);}
+    cancelQuery();
     cancelPending();
     cancelOverview(null,true);queryToken += 1;
-    command += 1; cancelScheduled();client.clearChanges();
-    currentQuery = {...query};
-    if (inFlight) {client.invalidate();dirty=false;return inFlight.then(()=>read());}
-    return read();
+    command += 1; cancelScheduled();client.clearChanges();deferredCamera=false;
+    let resolve;const result=new Promise(done=>resolve=done);
+    const intent={query:{...query},resolve,timer:null};explicitQuery=intent;setQueryStatus('pending');
+    intent.timer=setTimeout(()=>{if(explicitQuery===intent){client.cancel();finishQuery(intent,null,'unavailable');}},30000);
+    if (inFlight) {client.invalidate();dirty=false;} else void read();
+    return result;
   }
   function select(ref) {
+    cancelQuery();
     cancelPending();
     cancelOverview(null,true);
     if (pixelWorldScope(core.state) !== scope) return null;
@@ -206,7 +230,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (disposed || pixelWorldScope(core.state) !== scope) return null;
       return client.statistics?.(expectedSourceCut, measure) ?? null;
     },
-    state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,overviewStatus,scope:()=>scope,
+    state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,overviewStatus,queryStatus,scope:()=>scope,
     // Called by Host only after publishing this render DTO. Store identities,
     // never the previous scene's entity facts or coordinates.
     present(view, scene, presentedScope = scope) {
@@ -232,6 +256,9 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     selectPresented(ref) {
       if (disposed) return null;
+      // A pending inspection consumes this current query's later pages.
+      // Only an undispatched replacement is a different query intent.
+      if (explicitQuery && queryStatus()==='pending') cancelQuery();
       cancelOverview(null,true);
       const next = state(), view = next.view;
       if (!view) {
@@ -261,6 +288,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     query,select,navigate,
     eventFeed(event) {
       if (pixelWorldScope(core.state) !== scope) return false;
+      cancelQuery();
       cancelPending();
       cancelOverview(null,true);
       const view=state().view, feed=core.state.worldFeed;
@@ -286,7 +314,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     overview() {
       if (!enabled()) {navigate('overview');return;}
       client.clearChanges();
-      navigate('stop');
+      navigate('stop',null,true);
       pendingOverview = {scope,command,queryToken,coreKey:coreKey(),requestId:nextNavigationId(),binding:null};
       setOverviewStatus('pending');overviewTimer = setTimeout(()=>cancelOverview('unavailable',true),30000);
       checkOverview(state());
@@ -309,14 +337,17 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       // listener. A renderer viewport report is not a new user command.
       if (pendingOverview) return;
       currentQuery = {...currentQuery,bounds:cameraBounds};
+      if (explicitQuery) {deferredCamera=true;dirty=true;return;}
+      deferredCamera=false;
       queryToken += 1;
       schedule();
     },
     resetScope() {
+      cancelQuery();
       cancelPending();presented = null;
       cancelOverview();queryToken += 1;readStartViews = new WeakSet();
       scope = pixelWorldScope(core.state);feedbackScopeGeneration += 1;feedbackAuthority = null;cancelScheduled();command += 1;
-      dirty = false;lastSnapshot = null;lastPins = '';cameraBounds = null;cameraKey = '';currentQuery = {};following = null;selectedCoreKey = null;
+      dirty = false;deferredCamera=false;lastSnapshot = null;lastPins = '';cameraBounds = null;cameraKey = '';currentQuery = {};following = null;selectedCoreKey = null;
       setSpatialSelection(null);setNavigation(null);client.reset(scope,core.state.worldId);
     },
     refresh(snapshot) {
@@ -331,6 +362,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       void read();
     },
     async returnTarget() {
+      cancelQuery();
       cancelPending();
       cancelOverview(null,true);
       const id = mainTarget();if (!id) return;
@@ -342,7 +374,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (!target || !worldViewPosition(target,view,false,true)) {setState(previous=>({...previous,notice:'target_unavailable'}));return;}
       select({kind:'agent',id});currentQuery = {};cameraKey = '';navigate('locate',{kind:'agent',id});
     },
-    dispose() {disposed = true;cancelPending();cancelOverview();presented = null;cancelScheduled();client.reset(null);},
+    dispose() {disposed = true;cancelQuery();cancelPending();cancelOverview();presented = null;cancelScheduled();client.reset(null);},
   };
   const poll = setInterval(() => {
     if (core.state.viewerProtocol?.capabilities?.includes('world_view_delta_v1') && typeof document !== 'undefined' && document.visibilityState === 'visible' && state().view) void read();

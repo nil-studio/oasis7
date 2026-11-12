@@ -35,7 +35,7 @@ describe('viewport query controller',()=>{
  });
  it('invalidates an old result immediately when camera moves before the debounce',async()=>{
   vi.useFakeTimers();let finish;const {controller}=setup(q=>new Promise(resolve=>{finish=()=>resolve(page(q,{entities:[{kind:'agent',entity_id:'old'}]}));}));
-  const old=controller.query({});controller.cameraChanged({viewport_bounds:bounds(30)});finish();await old;
+  controller.refresh({});controller.cameraChanged({viewport_bounds:bounds(30)});finish();await Promise.resolve();await Promise.resolve();
   expect(controller.state().view).toBeNull();
  });
  it('cancels queued queries on scope change and disposal',async()=>{

@@ -204,6 +204,7 @@ pub(super) fn apply_intents(
                     &signed.request.request.captured_base_binding,
                     &candidate,
                     Some(&correlation),
+                    None,
                 );
                 match candidate.commit_authenticated_cognition_disposition_staged(
                     signed,
