@@ -90,7 +90,99 @@ describe("fullscreen map shell contract", () => {
     const { viewerHtml, terminalShellCss } = await readViewerHtml();
     for (const html of [`${viewerHtml}\n${terminalShellCss}`]) {
       for (const overlayName of ["world-hud", "next-move", "receipt", "feed", "navigation"]) {
-        const rule = findRule(html, new RegExp(`\\[data-viewer-overlay=["']${overlayName}["']\\]`));
+        const rule = findRule(html, new RegExp(`(?:^|\\n)\\s*\\[data-viewer-overlay=["']${overlayName}["']\\]\\s*import { readFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+
+function cssRules(source, selectorPattern) {
+  const rules = [];
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/g;
+  let match;
+  while ((match = rulePattern.exec(source)) !== null) {
+    if (selectorPattern.test(match[1])) {
+      rules.push({ selector: match[1].trim(), declarations: match[2] });
+    }
+  }
+  return rules;
+}
+
+function hasDeclaration(rule, property, valuePattern) {
+  const declarationPattern = new RegExp(`(?:^|[;\\s])${property}\\s*:\\s*([^;}]*)`, "i");
+  const match = rule?.declarations?.match(declarationPattern);
+  return Boolean(match && (!valuePattern || valuePattern.test(match[1])));
+}
+
+function numericDeclaration(rule, property) {
+  const declarationPattern = new RegExp(`(?:^|[;\\s])${property}\\s*:\\s*([0-9]+)`, "i");
+  return Number(rule?.declarations?.match(declarationPattern)?.[1]);
+}
+
+function findRule(source, selectorPattern) {
+  return cssRules(source, selectorPattern)[0] || null;
+}
+
+async function readViewerHtml() {
+  const [viewerHtml, terminalShellCss] = await Promise.all([
+    readFile("viewer.html", "utf8"),
+    readFile("viewer_terminal_shell.css", "utf8"),
+  ]);
+  return { viewerHtml, terminalShellCss };
+}
+
+describe("fullscreen map shell contract", () => {
+  it("makes the default and visual-fixture shell a viewport-sized map base", async () => {
+    const { viewerHtml, terminalShellCss } = await readViewerHtml();
+
+    for (const html of [`${viewerHtml}\n${terminalShellCss}`]) {
+      expect(html.includes('id="app" class="viewer-shell" data-viewer-shell="player-fullscreen"')).toBe(true);
+      expect(html.includes('#viewer-stage-panel[data-viewer-map-layer="base"]')).toBe(true);
+
+      const shell = findRule(html, /\.viewer-shell(?:\[|\s|,|$)/);
+      expect(shell).not.toBeNull();
+      expect(hasDeclaration(shell, "position", /relative|absolute|fixed/)).toBe(true);
+      expect(hasDeclaration(shell, "min-height", /100dvh|100vh/)).toBe(true);
+      expect(hasDeclaration(shell, "overflow-x", /hidden|clip/)).toBe(true);
+      expect(shell.declarations).not.toMatch(/display\s*:\s*grid/i);
+      expect(shell.declarations).not.toMatch(/grid-template-columns\s*:/i);
+
+      const stage = findRule(html, /#viewer-stage-panel\[data-viewer-map-layer=["']base["']\]/);
+      expect(stage).not.toBeNull();
+      expect(hasDeclaration(stage, "position", /absolute|fixed/)).toBe(true);
+      expect(hasDeclaration(stage, "inset", /0/)).toBe(true);
+      expect(hasDeclaration(stage, "min-height", /100dvh|100vh/)).toBe(true);
+      expect(hasDeclaration(stage, "height", /100dvh|100vh/)).toBe(true);
+    }
+  });
+
+  it("does not reintroduce a visual-fixture three-column shell exception", async () => {
+    const { viewerHtml, terminalShellCss } = await readViewerHtml();
+    for (const html of [`${viewerHtml}\n${terminalShellCss}`]) {
+      const fixtureShellGridRules = cssRules(
+        html,
+        /#app\[data-viewer-visual-fixture(?:=[^\]]+)?\][^{}]*\.(?:shell|viewer-shell)/,
+      ).filter((rule) => /grid-template-columns\s*:/.test(rule.declarations));
+      expect(fixtureShellGridRules).toEqual([]);
+      expect(html).not.toMatch(
+        /#app\[data-viewer-visual-fixture(?:=[^\]]+)?\]\s+\.(?:shell|viewer-shell)\s*\{[^}]*display\s*:\s*grid/i,
+      );
+    }
+  });
+
+  it("does not let visual fixtures override the responsive command-band layout", async () => {
+    const { viewerHtml } = await readViewerHtml();
+    for (const html of [viewerHtml]) {
+      const fixtureCommandRules = cssRules(
+        html,
+        /#app\[data-viewer-visual-fixture(?:=[^\]]+)?\][^{}]*\.pixel-world-command-strip/,
+      ).filter((rule) => /grid-template-columns\s*:/.test(rule.declarations));
+      expect(fixtureCommandRules).toEqual([]);
+    }
+  });
+
+  it("keeps map HUD, next move, receipt, feed, and navigation in overlay layers", async () => {
+    const { viewerHtml, terminalShellCss } = await readViewerHtml();
+    for (const html of [`${viewerHtml}\n${terminalShellCss}`]) {
+      for (const overlayName of ["world-hud", "next-move", "receipt", "feed", "navigation"]) {
+        const rule = findRule(html, ));
         expect(rule, `missing overlay rule for ${overlayName}`).not.toBeNull();
         expect(hasDeclaration(rule, "position", /absolute|fixed|sticky/), overlayName).toBe(true);
         expect(hasDeclaration(rule, "z-index", /[1-9]/), overlayName).toBe(true);
