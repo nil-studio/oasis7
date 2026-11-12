@@ -148,7 +148,7 @@ async function waitNegotiation(worldView) {
   await waitFor(`(${browserState}).core?.connectionStatus==='connected'&&(${browserState}).core?.viewerProtocol?.negotiated===true&&(${browserState}).core?.worldId===${JSON.stringify(fixture.description().world)}&&(${browserState}).core?.viewerProtocol?.capabilities?.includes('world_view')===${worldView}`);
 }
 async function attachMetrics() {
-  await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');if(typeof m.readPixelWorldDisplayMetrics!=='function')throw Error('candidate lacks active-instance readonly metrics');window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;return true})()`);
+  await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');if(typeof m.readPixelWorldDisplayMetrics!=='function')throw Error('candidate lacks active-instance readonly metrics');window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;window.__QA_READ_WASM_CAPACITY__=m.readPixelWorldLinearMemoryCapacity;return true})()`);
 }
 async function waitProjection(count, cut = fixture.description().cut) {
   await waitFor(`(${browserState}).ready&&(${browserState}).metrics.status==='observed'&&(${browserState}).metrics.display_profile==='world_view_v1'&&(${browserState}).metrics.source_cut===${JSON.stringify(cut)}&&(${browserState}).metrics.projected_marker_count===${count}&&(${browserState}).targets.length===${count}`);
