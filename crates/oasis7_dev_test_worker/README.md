@@ -6,6 +6,8 @@
 
 安装固定 `worker-build 0.7.5` 以及 `wasm32-unknown-unknown` target；使用仓库固定 Rust 工具链和 Node 22+。在本目录执行 `./scripts/verify.sh`，依次运行 host 合同、Wasm Clippy、固定 npm lock 安装、真实 Wasm 打包、workerd/SQLite 回归和 Wrangler dry-run。打包产物在忽略的 `build/` 中。`npm test` 需要先构建，不能用空入口代替实际 Wasm 测试。
 
+生产 Rust 模块同时接受 host 与 Wasm 类型检查；host 构建没有文件系统、native SDK 或 HTTP 服务 fallback。实际运行入口仍为 Worker/DO，host 单元测试只调用纯合同逻辑。
+
 本地组件证据不代表真实 authority、Cloudflare 发布或真实外部 Agent 验收。云端业务部署与验收由 #5777 继续记录。
 
 ## 部署配置与资源

@@ -1,11 +1,9 @@
 //! Ledger and initialization marker commit together before any native network send.
 use crate::config::Config;
-#[cfg(target_arch = "wasm32")]
 use crate::store;
 use oasis7_custody_core::dev_test::{Ledger, Original, usage_key};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -179,13 +177,11 @@ fn history_original(
     }
     Ok(found.map(|(_, original)| original))
 }
-#[cfg(target_arch = "wasm32")]
 pub(crate) struct State<'a> {
     pub raw: &'a JsValue,
     pub config: &'a Config,
     pub policy_digest: &'a str,
 }
-#[cfg(target_arch = "wasm32")]
 impl State<'_> {
     fn meta(&self) -> Result<(String, Meta), &'static str> {
         let raw = store::load(self.raw, "policy-meta").map_err(unavailable)?;

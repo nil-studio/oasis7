@@ -1,5 +1,4 @@
 //! Durable SQL adapter is provided only on Workers; no native filesystem fallback.
-#[cfg(target_arch = "wasm32")]
 mod sql {
     use wasm_bindgen::prelude::*;
     #[wasm_bindgen(module = "/platform/store.mjs")]
@@ -24,5 +23,4 @@ mod sql {
         ) -> Result<(), JsValue>;
     }
 }
-#[cfg(target_arch = "wasm32")]
 pub(crate) use sql::*;
