@@ -51,6 +51,13 @@ pub(super) fn fresh_output(
     if fresh_task.pinned.commit != task.pinned.commit {
         return Err(PrivateError::ContextReadDeliveryDrift(None));
     }
+    crate::host::cognition_authority_diagnostic::observe(
+        "delivery",
+        &output.prepared.identity.request_commitment,
+        &output.current_public_context.captured_base_binding,
+        &fresh_task.pinned.world,
+        None,
+    );
     Ok(output)
 }
 
