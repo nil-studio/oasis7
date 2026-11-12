@@ -9210,6 +9210,15 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 			generation += 1;
 			retainedQuery = null;
 		},
+		cancel() {
+			generation += 1;
+			retainedQuery = null;
+			baselineQuery = null;
+			publish({
+				loading: false,
+				stale: Boolean(state.view)
+			});
+		},
 		clearChanges() {
 			publish({ changes: [] });
 		},
@@ -13920,6 +13929,12 @@ var PROMPT_RESULT_STATUSES = /* @__PURE__ */ new Set([
 	"rejected",
 	"blocked"
 ]);
+var TERMINAL_PROMPT_STAGES = /* @__PURE__ */ new Set([
+	"applied",
+	"stale",
+	"rejected",
+	"blocked"
+]);
 function createViewerPromptControlModule({ applyPromptAckLocally, assertPromptFeedbackActive, buildAuthEnvelope, buildPromptControlSigningPayload, clearPendingPromptControlAckTimer, clearPendingSessionRegisterWaiter, clone, createSemanticFeedback, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, nextRequestId, nextAuthNonce, onControlLost, render, requestSnapshotSafe, selectedAgentId, selectedAgentPromptProfile, signAuthPayload, state }) {
 	let pendingAuthoritativeRefresh = null;
 	function resetForConnection() {
@@ -14071,9 +14086,13 @@ function createViewerPromptControlModule({ applyPromptAckLocally, assertPromptFe
 			};
 		}
 	}
+	function settledRequest(pending, requestId) {
+		return TERMINAL_PROMPT_STAGES.has(String(pending?.stage || "")) && requestId != null && requestId === pending?.requestId && pending?.response != null;
+	}
 	function handleAck(ack) {
 		const pending = state.lastPromptFeedback;
 		if (!pending || pending.requestAuthNonce != null && ack?.request_auth_nonce !== pending.requestAuthNonce || ack?.request_id != null && ack.request_id !== pending.requestId || ack?.agent_id !== pending.agentId) return;
+		if (settledRequest(pending, ack?.request_id)) return;
 		clearPendingPromptControlAckTimer();
 		const feedback = state.lastPromptFeedback || createSemanticFeedback("prompt", "prompt_ack", ack?.agent_id || null);
 		const operation = String(ack?.operation || (ack?.preview ? "preview" : "apply"));
@@ -14125,6 +14144,7 @@ function createViewerPromptControlModule({ applyPromptAckLocally, assertPromptFe
 	function handleError(error) {
 		const pending = state.lastPromptFeedback;
 		if (!pending || pending.requestAuthNonce != null && error?.request_auth_nonce !== pending.requestAuthNonce || error?.agent_id != null && error.agent_id !== pending.agentId || pending.requestId != null && error?.request_id !== pending.requestId) return;
+		if (settledRequest(pending, error?.request_id)) return;
 		clearPendingPromptControlAckTimer();
 		const controlLost = String(error?.code || error?.reason_code || "").trim().toLowerCase() === "agent_control_forbidden" || String(error?.code || error?.reason_code || "").trim().toLowerCase() === "control_lost";
 		const feedback = state.lastPromptFeedback || createSemanticFeedback("prompt", "prompt_error", error?.agent_id || selectedAgentId());
@@ -19861,12 +19881,12 @@ function sendPromptControl(mode, payload = null) {
 			reason: String(error)
 		};
 	}
-	const feedback = createSemanticFeedback("prompt", `prompt_${normalizedMode}`, agentId, {
+	state.lastPromptFeedback = createSemanticFeedback("prompt", `prompt_${normalizedMode}`, agentId, {
 		effect: "queued for signing and send",
 		toVersion: request.to_version ?? null,
 		requestId: request.request_id || null
 	});
-	state.lastPromptFeedback = feedback;
+	const feedback = state.lastPromptFeedback;
 	enqueueSemanticCommand({
 		kind: "prompt",
 		feedback,
@@ -21728,6 +21748,22 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	const [selectionStatus, setSelectionStatus] = createSignal(null);
 	const [selectionFeedback, setSelectionFeedback] = createSignal(null);
 	const [overviewStatus, setOverviewStatus] = createSignal(null);
+	const [queryStatus, setQueryStatus] = createSignal(null);
+	let explicitQuery = null;
+	function finishQuery(intent, value = null, status = null) {
+		if (!intent) return;
+		clearTimeout(intent.timer);
+		intent.resolve(value);
+		if (explicitQuery === intent) {
+			explicitQuery = null;
+			setQueryStatus(status);
+		}
+	}
+	function cancelQuery() {
+		if (!explicitQuery) return;
+		client.cancel();
+		finishQuery(explicitQuery);
+	}
 	let feedbackScopeGeneration = 1, feedbackAuthority = null;
 	const client = createWorldViewClient({
 		request: core.requestWorldView,
@@ -21921,7 +21957,8 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		if (timer != null) clearTimeout(timer);
 		timer = null;
 	}
-	function navigate(mode, target = null) {
+	function navigate(mode, target = null, preserveQuery = false) {
+		if (!preserveQuery) cancelQuery();
 		cancelPending();
 		cancelOverview();
 		following = mode === "follow" ? target : null;
@@ -21944,7 +21981,12 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		if (disposed || !enabled() || pixelWorldScope(core.state) !== scope) return null;
 		const pinned = pins();
 		lastPins = JSON.stringify(pinned);
-		const query = { ...currentQuery };
+		const intent = explicitQuery;
+		if (intent) {
+			setQueryStatus("reading");
+			currentQuery = { ...intent.query };
+		}
+		const query = { ...intent?.query || currentQuery };
 		delete query.pinned_entities;
 		delete query.resume_cursor;
 		delete query.cursor;
@@ -21961,17 +22003,24 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			delta: caps.includes("world_view_delta_v1"),
 			preserveChanges: true
 		});
+		let result = null;
 		try {
-			return await inFlight;
+			result = await inFlight;
+			return result;
 		} finally {
 			inFlight = null;
-			if (dirty && !disposed) {
+			if (intent && explicitQuery === intent) finishQuery(intent, result, state().error ? "unavailable" : null);
+			if ((explicitQuery || dirty) && !disposed) {
 				dirty = false;
 				read();
 			}
 		}
 	}
 	function schedule() {
+		if (explicitQuery) {
+			dirty = true;
+			return;
+		}
 		cancelPending();
 		cancelScheduled();
 		client.invalidate();
@@ -21981,21 +22030,42 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		}, debounceMs);
 	}
 	function query(query = {}) {
+		if (disposed) return Promise.resolve(null);
+		if (!enabled() || pixelWorldScope(core.state) !== scope) {
+			cancelQuery();
+			setQueryStatus("unavailable");
+			return Promise.resolve(null);
+		}
+		cancelQuery();
 		cancelPending();
 		cancelOverview(null, true);
 		queryToken += 1;
 		command += 1;
 		cancelScheduled();
 		client.clearChanges();
-		currentQuery = { ...query };
+		let resolve;
+		const result = new Promise((done) => resolve = done);
+		const intent = {
+			query: { ...query },
+			resolve,
+			timer: null
+		};
+		explicitQuery = intent;
+		setQueryStatus("pending");
+		intent.timer = setTimeout(() => {
+			if (explicitQuery === intent) {
+				client.cancel();
+				finishQuery(intent, null, "unavailable");
+			}
+		}, 3e4);
 		if (inFlight) {
 			client.invalidate();
 			dirty = false;
-			return inFlight.then(() => read());
-		}
-		return read();
+		} else read();
+		return result;
 	}
 	function select(ref) {
+		cancelQuery();
 		cancelPending();
 		cancelOverview(null, true);
 		if (pixelWorldScope(core.state) !== scope) return null;
@@ -22044,6 +22114,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		selectionStatus,
 		selectionFeedback,
 		overviewStatus,
+		queryStatus,
 		scope: () => scope,
 		present(view, scene, presentedScope = scope) {
 			presented = null;
@@ -22076,6 +22147,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		},
 		selectPresented(ref) {
 			if (disposed) return null;
+			if (explicitQuery && queryStatus() === "pending") cancelQuery();
 			cancelOverview(null, true);
 			const next = state(), view = next.view;
 			if (!view) {
@@ -22137,6 +22209,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		navigate,
 		eventFeed(event) {
 			if (pixelWorldScope(core.state) !== scope) return false;
+			cancelQuery();
 			cancelPending();
 			cancelOverview(null, true);
 			const view = state().view, feed = core.state.worldFeed;
@@ -22190,7 +22263,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 				return;
 			}
 			client.clearChanges();
-			navigate("stop");
+			navigate("stop", null, true);
 			pendingOverview = {
 				scope,
 				command,
@@ -22227,6 +22300,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			schedule();
 		},
 		resetScope() {
+			cancelQuery();
 			cancelPending();
 			presented = null;
 			cancelOverview();
@@ -22261,6 +22335,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			read();
 		},
 		async returnTarget() {
+			cancelQuery();
 			cancelPending();
 			cancelOverview(null, true);
 			const id = mainTarget();
@@ -22290,6 +22365,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		},
 		dispose() {
 			disposed = true;
+			cancelQuery();
 			cancelPending();
 			cancelOverview();
 			presented = null;
@@ -22657,8 +22733,8 @@ function PixelWorldWorldViewExplorer(props) {
 		};
 		insert(_el$8, () => text("返回主目标", "Return to target"));
 		insert(_el$9, (() => {
-			var _c$ = memo(() => !!props.state?.loading);
-			return () => _c$() ? text("正在读取授权范围…", "Reading authorized scope…") : memo(() => !!props.state?.stale)() ? text("最近已知；当前范围读取失败", "Last known; scope refresh failed") : memo(() => view()?.completeness === "complete")() ? text("当前查询范围完整", "Current query scope complete") : memo(() => view()?.completeness === "partial")() ? text("当前查询范围不完整", "Current query scope partial") : text("查询范围完整性未知", "Query scope completeness unknown");
+			var _c$ = memo(() => props.queryStatus === "pending");
+			return () => _c$() ? text("搜索已接收；等待当前读取结束…", "Search accepted; waiting for the current read…") : memo(() => props.queryStatus === "unavailable")() ? text("搜索不可用，请重新提交", "Search unavailable; submit again") : memo(() => !!props.state?.loading)() ? text("正在读取授权范围…", "Reading authorized scope…") : memo(() => !!props.state?.stale)() ? text("最近已知；当前范围读取失败", "Last known; scope refresh failed") : memo(() => view()?.completeness === "complete")() ? text("当前查询范围完整", "Current query scope complete") : memo(() => view()?.completeness === "partial")() ? text("当前查询范围不完整", "Current query scope partial") : text("查询范围完整性未知", "Query scope completeness unknown");
 		})(), null);
 		insert(_el$9, createComponent(Show, {
 			get when() {
@@ -22790,11 +22866,11 @@ function PixelWorldWorldViewExplorer(props) {
 					}
 				}), null);
 				createRenderEffect((_p$) => {
-					var _v$4 = !position(entity), _v$5 = !regionBounds(entity), _v$6 = !followPosition(entity), _v$7 = following() === `${entity.kind}:${entity.entity_id}`;
-					_v$4 !== _p$.e && (_el$24.disabled = _p$.e = _v$4);
-					_v$5 !== _p$.t && (_el$25.disabled = _p$.t = _v$5);
-					_v$6 !== _p$.a && (_el$26.disabled = _p$.a = _v$6);
-					_v$7 !== _p$.o && setAttribute(_el$26, "aria-pressed", _p$.o = _v$7);
+					var _v$3 = !position(entity), _v$4 = !regionBounds(entity), _v$5 = !followPosition(entity), _v$6 = following() === `${entity.kind}:${entity.entity_id}`;
+					_v$3 !== _p$.e && (_el$24.disabled = _p$.e = _v$3);
+					_v$4 !== _p$.t && (_el$25.disabled = _p$.t = _v$4);
+					_v$5 !== _p$.a && (_el$26.disabled = _p$.a = _v$5);
+					_v$6 !== _p$.o && setAttribute(_el$26, "aria-pressed", _p$.o = _v$6);
 					return _p$;
 				}, {
 					e: void 0,
@@ -22862,15 +22938,13 @@ function PixelWorldWorldViewExplorer(props) {
 			}
 		}), null);
 		createRenderEffect((_p$) => {
-			var _v$ = text("授权世界探索", "Authorized world exploration"), _v$2 = props.state?.loading, _v$3 = text("获准对象与重叠候选", "Authorized objects and overlapping candidates");
+			var _v$ = text("授权世界探索", "Authorized world exploration"), _v$2 = text("获准对象与重叠候选", "Authorized objects and overlapping candidates");
 			_v$ !== _p$.e && setAttribute(_el$, "aria-label", _p$.e = _v$);
-			_v$2 !== _p$.t && (_el$6.disabled = _p$.t = _v$2);
-			_v$3 !== _p$.a && setAttribute(_el$17, "aria-label", _p$.a = _v$3);
+			_v$2 !== _p$.t && setAttribute(_el$17, "aria-label", _p$.t = _v$2);
 			return _p$;
 		}, {
 			e: void 0,
-			t: void 0,
-			a: void 0
+			t: void 0
 		});
 		createRenderEffect(() => _el$5.value = search());
 		return _el$;
@@ -22917,6 +22991,9 @@ function PixelWorldSpatialExplorer(props) {
 			},
 			get overviewStatus() {
 				return props.controller.overviewStatus?.();
+			},
+			get queryStatus() {
+				return props.controller.queryStatus?.();
 			},
 			get onDrilldown() {
 				return props.controller.drilldown;
