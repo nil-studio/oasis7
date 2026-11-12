@@ -187,16 +187,135 @@ impl Client<'_> {
         let operation = if submit {
             EntryExecutorOperationV1::Submit(original.clone())
         } else {
-            EntryExecutorOperationV1::Lookup(lookup)
+            EntryExecutorOperationV1::Lookup(lookup.clone())
         };
         let value = self.call(operation).await?;
-        let response: IntentResponse<Value> =
-            serde_json::from_value(value).map_err(|_| "native_response_unknown")?;
-        if response.execution_evidence_scope.is_some()
-            || response.validate(&original.correlation).is_err()
-        {
-            return Err("native_correlation_invalid");
+        let bytes = serde_json::to_vec(&value).map_err(|_| "native_response_unknown")?;
+        if submit {
+            verified_intent(
+                SUBMIT_PATH,
+                original,
+                &bytes,
+                &original.correlation,
+                &self.resource.service_public_key,
+            )
+        } else {
+            verified_intent(
+                LOOKUP_PATH,
+                &lookup,
+                &bytes,
+                &original.correlation,
+                &self.resource.service_public_key,
+            )
         }
-        Ok(response)
+    }
+}
+
+/// Both submit and authenticated lookup return signed service envelopes.
+/// Correlation alone is not response authority.
+fn verified_intent<Q: Serialize>(
+    path: &str,
+    request: &Q,
+    bytes: &[u8],
+    expected: &RequestCorrelation,
+    key: &str,
+) -> Result<IntentResponse<Value>, &'static str> {
+    let response: IntentResponse<Value> =
+        codec::verify_world_reply(path, request, bytes, 2 * 1024 * 1024, key)
+            .map_err(|_| "native_signed_response_invalid")?
+            .payload;
+    if response.execution_evidence_scope.is_some() || response.validate(expected).is_err() {
+        return Err("native_correlation_invalid");
+    }
+    Ok(response)
+}
+#[cfg(test)]
+mod intent_tests {
+    use super::*;
+    #[test]
+    fn intent_envelopes_bind_domain_request_signature_and_original_correlation() {
+        let seed = "11".repeat(32);
+        let key = ws::sign_read_request("fixture", (), &seed)
+            .unwrap()
+            .subject_public_key;
+        let request = serde_json::json!({"original":"immutable"});
+        let correlation = RequestCorrelation {
+            key: RequestKey {
+                world: WorldIdentity {
+                    world_id: "world".into(),
+                    genesis_digest: "genesis".into(),
+                },
+                verified_subject: "executor".into(),
+                operation_domain: "cognition".into(),
+                nonce_scope: "task".into(),
+                request_id_or_nonce: "original".into(),
+            },
+            payload_digest: "digest".into(),
+        };
+        let payload = IntentResponse::<Value> {
+            terminal_recovery_authority: None,
+            formal_profile: None,
+            execution_evidence_scope: None,
+            contract_version: 1,
+            correlation: correlation.clone(),
+            outcome: IntentOutcome::Unknown,
+        };
+        for path in [SUBMIT_PATH, LOOKUP_PATH] {
+            let signed = ws::sign_service_response(
+                path,
+                ws::request_digest(path, &request).unwrap(),
+                payload.clone(),
+                &seed,
+            )
+            .unwrap();
+            let bytes = serde_json::to_vec(&signed).unwrap();
+            assert!(matches!(
+                verified_intent(path, &request, &bytes, &correlation, &key)
+                    .unwrap()
+                    .outcome,
+                IntentOutcome::Unknown
+            ));
+            assert!(
+                verified_intent(
+                    path,
+                    &request,
+                    &serde_json::to_vec(&payload).unwrap(),
+                    &correlation,
+                    &key
+                )
+                .is_err()
+            );
+            assert!(
+                verified_intent(
+                    path,
+                    &serde_json::json!({"original":"changed"}),
+                    &bytes,
+                    &correlation,
+                    &key
+                )
+                .is_err()
+            );
+            assert!(
+                verified_intent("/wrong-domain", &request, &bytes, &correlation, &key).is_err()
+            );
+            let mut tampered = signed.clone();
+            tampered.payload.outcome = IntentOutcome::Pending;
+            assert!(
+                verified_intent(
+                    path,
+                    &request,
+                    &serde_json::to_vec(&tampered).unwrap(),
+                    &correlation,
+                    &key
+                )
+                .is_err()
+            );
+            let mut other = correlation.clone();
+            other.payload_digest = "other".into();
+            assert_eq!(
+                verified_intent(path, &request, &bytes, &other, &key).unwrap_err(),
+                "native_correlation_invalid"
+            );
+        }
     }
 }
