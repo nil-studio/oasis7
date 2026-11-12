@@ -24,7 +24,53 @@ pub fn verify_formal_reservation(
     authority: &VerifiedAuthorityV1,
     parent: &VerifiedFormalCommitV1,
 ) -> Result<VerifiedFormalReservationV1, FormalError> {
+    verify_formal_reservation_with(reservation, authority, parent, &mut LegacyReservationOps)
+}
+
+pub(super) trait ReservationValidationOps {
+    type Preimage: AsRef<[u8]>;
+    fn before_validation(
+        &mut self,
+        _: &SignedFormalFrozenV1,
+        _: &VerifiedAuthorityV1,
+        _: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError>;
+    fn authority_id(&self) -> Option<&str> {
+        None
+    }
+    fn preimage(&mut self, body: &FormalFrozenBodyV1) -> Result<Self::Preimage, FormalError>;
+    fn crypto_work(&mut self, n: usize) -> Result<(), FormalError>;
+    fn before_clone(&mut self, _: &SignedFormalFrozenV1) -> Result<(), FormalError>;
+}
+struct LegacyReservationOps;
+impl ReservationValidationOps for LegacyReservationOps {
+    type Preimage = Vec<u8>;
+    fn before_validation(
+        &mut self,
+        _: &SignedFormalFrozenV1,
+        _: &VerifiedAuthorityV1,
+        _: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError> {
+        Ok(())
+    }
+    fn preimage(&mut self, body: &FormalFrozenBodyV1) -> Result<Vec<u8>, FormalError> {
+        bytes(RESERVATION, body)
+    }
+    fn crypto_work(&mut self, _: usize) -> Result<(), FormalError> {
+        Ok(())
+    }
+    fn before_clone(&mut self, _: &SignedFormalFrozenV1) -> Result<(), FormalError> {
+        Ok(())
+    }
+}
+pub(super) fn verify_formal_reservation_with<O: ReservationValidationOps>(
+    reservation: &SignedFormalFrozenV1,
+    authority: &VerifiedAuthorityV1,
+    parent: &VerifiedFormalCommitV1,
+    ops: &mut O,
+) -> Result<VerifiedFormalReservationV1, FormalError> {
     let body = &reservation.body;
+    ops.before_validation(reservation, authority, parent)?;
     body.validate()?;
     if (authority.definition().profile_version == 3) != (body.schema_version == 4) {
         return Err(invalid("frozen reservation authority format"));
@@ -34,7 +80,12 @@ pub fn verify_formal_reservation(
     {
         return Err(invalid("frozen reservation incremental parent format"));
     }
-    super::proof::verify_normal_parent_continuity(authority, parent, body.next_position)?;
+    super::proof::verify_normal_parent_continuity_with_id(
+        authority,
+        parent,
+        body.next_position,
+        ops.authority_id(),
+    )?;
     if parent
         .record()
         .artifact_roots
@@ -44,7 +95,12 @@ pub fn verify_formal_reservation(
         return Err(invalid("native parent requires native frozen schema"));
     }
     if body.world != authority.definition().world
-        || body.authority_id != authority.authority_id()?
+        || body.authority_id
+            != match ops.authority_id() {
+                Some(value) => std::borrow::Cow::Borrowed(value),
+                None => std::borrow::Cow::Owned(authority.authority_id()?),
+            }
+            .as_ref()
         || body.epoch != authority.definition().epoch
         || body.activation_ref != authority.activation_ref()
         || body.parent != parent.head()
@@ -56,12 +112,16 @@ pub fn verify_formal_reservation(
             "formal fresh frozen authority/committed parent/state binding",
         ));
     }
-    verify(
-        RESERVATION,
-        body,
-        &reservation.signature_hex,
-        &authority.definition().writer_public_key,
-    )?;
+    {
+        let ops = std::cell::RefCell::new(&mut *ops);
+        verify_with_preimage(
+            &reservation.signature_hex,
+            &authority.definition().writer_public_key,
+            || ops.borrow_mut().preimage(body),
+            |n| ops.borrow_mut().crypto_work(n),
+        )?;
+    }
+    ops.before_clone(reservation)?;
     Ok(VerifiedFormalReservationV1 {
         reservation: reservation.clone(),
     })
@@ -212,57 +272,138 @@ pub fn verify_frozen_material_retaining_snapshot(
     }
     Ok(None)
 }
+
+use super::fencing::EndpointInstanceBindingV1;
+
+pub(super) trait CertificateValidationOps {
+    type Digest: AsRef<str>;
+    type Preimage: AsRef<[u8]>;
+    fn before_validation(
+        &mut self,
+        certificate: &FormalFrozenCertificateV1,
+        authority: &AuthorityDefinitionV1,
+    ) -> Result<(), FormalError>;
+    fn authority_id(
+        &mut self,
+        authority: &AuthorityDefinitionV1,
+    ) -> Result<Self::Digest, FormalError>;
+    fn reservation_id(&mut self, body: &FormalFrozenBodyV1) -> Result<Self::Digest, FormalError>;
+    fn instance_id(
+        &mut self,
+        instance: &EndpointInstanceBindingV1,
+    ) -> Result<Self::Digest, FormalError>;
+    fn reservation_preimage(
+        &mut self,
+        body: &FormalFrozenBodyV1,
+    ) -> Result<Self::Preimage, FormalError>;
+    fn receipt_preimage(
+        &mut self,
+        body: &FormalFrozenReceiptBodyV1,
+    ) -> Result<Self::Preimage, FormalError>;
+    fn crypto_work(&mut self, bytes: usize) -> Result<(), FormalError>;
+}
+struct LegacyCertificateOps;
+impl CertificateValidationOps for LegacyCertificateOps {
+    type Digest = String;
+    type Preimage = Vec<u8>;
+    fn before_validation(
+        &mut self,
+        _: &FormalFrozenCertificateV1,
+        _: &AuthorityDefinitionV1,
+    ) -> Result<(), FormalError> {
+        Ok(())
+    }
+    fn authority_id(&mut self, authority: &AuthorityDefinitionV1) -> Result<String, FormalError> {
+        authority.authority_id()
+    }
+    fn reservation_id(&mut self, body: &FormalFrozenBodyV1) -> Result<String, FormalError> {
+        body.reservation_id()
+    }
+    fn instance_id(&mut self, instance: &EndpointInstanceBindingV1) -> Result<String, FormalError> {
+        instance.digest().map_err(|e| invalid(e.to_string()))
+    }
+    fn reservation_preimage(&mut self, body: &FormalFrozenBodyV1) -> Result<Vec<u8>, FormalError> {
+        bytes(RESERVATION, body)
+    }
+    fn receipt_preimage(
+        &mut self,
+        body: &FormalFrozenReceiptBodyV1,
+    ) -> Result<Vec<u8>, FormalError> {
+        bytes(RECEIPT, body)
+    }
+    fn crypto_work(&mut self, _: usize) -> Result<(), FormalError> {
+        Ok(())
+    }
+}
+pub(super) fn verify_frozen_certificate_with<O: CertificateValidationOps>(
+    certificate: &FormalFrozenCertificateV1,
+    authority: &AuthorityDefinitionV1,
+    activation_ref: &str,
+    ops: &mut O,
+) -> Result<O::Digest, FormalError> {
+    ops.before_validation(certificate, authority)?;
+    authority.validate()?;
+    let body = &certificate.reservation.body;
+    body.validate()?;
+    if (body.schema_version == 4) != (authority.profile_version == 3) {
+        return Err(invalid("frozen authority incremental format mismatch"));
+    }
+    let authority_id = ops.authority_id(authority)?;
+    let reservation_id = ops.reservation_id(body)?;
+    if body.world != authority.world
+        || body.authority_id != authority_id.as_ref()
+        || body.epoch != authority.epoch
+        || body.activation_ref != activation_ref
+        || body.next_position < authority.valid_from_position
+    {
+        return Err(invalid("formal frozen authority/activation binding"));
+    }
+    {
+        let ops = std::cell::RefCell::new(&mut *ops);
+        verify_with_preimage(
+            &certificate.reservation.signature_hex,
+            &authority.writer_public_key,
+            || ops.borrow_mut().reservation_preimage(body),
+            |n| ops.borrow_mut().crypto_work(n),
+        )?;
+    }
+    for (receipt, binding, role) in [
+        (
+            &certificate.primary,
+            &authority.primary,
+            EndpointRole::Primary,
+        ),
+        (
+            &certificate.replica,
+            &authority.replica,
+            EndpointRole::Replica,
+        ),
+    ] {
+        if receipt.body.authority_id != authority_id.as_ref()
+            || receipt.body.reservation_id != reservation_id.as_ref()
+            || receipt.body.role != role
+            || receipt.body.instance_digest != ops.instance_id(&binding.instance)?.as_ref()
+        {
+            return Err(invalid("formal frozen endpoint receipt binding"));
+        }
+        let ops = std::cell::RefCell::new(&mut *ops);
+        verify_with_preimage(
+            &receipt.signature_hex,
+            &binding.instance.endpoint_public_key,
+            || ops.borrow_mut().receipt_preimage(&receipt.body),
+            |n| ops.borrow_mut().crypto_work(n),
+        )?;
+    }
+    Ok(reservation_id)
+}
+
 impl FormalFrozenCertificateV1 {
     pub fn verify(
         &self,
         authority: &AuthorityDefinitionV1,
         activation_ref: &str,
     ) -> Result<String, FormalError> {
-        authority.validate()?;
-        let body = &self.reservation.body;
-        body.validate()?;
-        if (body.schema_version == 4) != (authority.profile_version == 3) {
-            return Err(invalid("frozen authority incremental format mismatch"));
-        }
-        let authority_id = authority.authority_id()?;
-        let reservation_id = body.reservation_id()?;
-        if body.world != authority.world
-            || body.authority_id != authority_id
-            || body.epoch != authority.epoch
-            || body.activation_ref != activation_ref
-            || body.next_position < authority.valid_from_position
-        {
-            return Err(invalid("formal frozen authority/activation binding"));
-        }
-        verify(
-            RESERVATION,
-            body,
-            &self.reservation.signature_hex,
-            &authority.writer_public_key,
-        )?;
-        for (receipt, binding, role) in [
-            (&self.primary, &authority.primary, EndpointRole::Primary),
-            (&self.replica, &authority.replica, EndpointRole::Replica),
-        ] {
-            if receipt.body.authority_id != authority_id
-                || receipt.body.reservation_id != reservation_id
-                || receipt.body.role != role
-                || receipt.body.instance_digest
-                    != binding
-                        .instance
-                        .digest()
-                        .map_err(|e| invalid(e.to_string()))?
-            {
-                return Err(invalid("formal frozen endpoint receipt binding"));
-            }
-            verify(
-                RECEIPT,
-                &receipt.body,
-                &receipt.signature_hex,
-                &binding.instance.endpoint_public_key,
-            )?;
-        }
-        Ok(reservation_id)
+        verify_frozen_certificate_with(self, authority, activation_ref, &mut LegacyCertificateOps)
     }
     pub fn matches_record(&self, record: &CanonicalRecordV1) -> Result<(), FormalError> {
         let body = &self.reservation.body;

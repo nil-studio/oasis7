@@ -46,6 +46,16 @@ pub(in crate::world) fn outcome<'a>(
     .0
 }
 pub(in crate::world) enum NonmovementFixtureWorkV1<'p> {
+    LogisticsRegistration{
+        work:&'p mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
+        common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+        result:&'p mut Option<crate::world::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1>,
+    },
+
+    NormalExtension {
+        work: crate::world::incremental_module_invocation::NormalCoreExtensionWorkViewV1<'p>,
+        result: &'p mut Option<crate::world::incremental_module_invocation::CompletedNormalExtensionV1>,
+    },
     Crisis(&'p mut crate::world::incremental_action_crisis::CrisisWorkV1),
     ContractAccept(&'p mut crate::world::incremental_action_contract_accept::ContractAcceptWorkV1),
     MetaProgress(&'p mut crate::world::incremental_action_meta_progress::MetaProgressWorkV1),
@@ -531,6 +541,16 @@ fn evaluate<'a>(
             CompletedNonmovementActionV1, NonmovementSelectedWorkV1,
         };
         let work = match body_work.as_mut().unwrap() {
+            NonmovementFixtureWorkV1::LogisticsRegistration { work, common, .. } => {
+                NonmovementSelectedWorkV1::LogisticsRegistration(
+                    &mut **work,
+                    fixture.current.native().logistics(),
+                    common,
+                )
+            }
+            NonmovementFixtureWorkV1::NormalExtension { work, .. } => {
+                NonmovementSelectedWorkV1::NormalExtension(work.reborrow())
+            }
             NonmovementFixtureWorkV1::Crisis(work) => NonmovementSelectedWorkV1::Crisis(
                 &mut **work,
                 crate::world::incremental_action_crisis::CrisisSourcesV1 {
@@ -716,6 +736,30 @@ fn evaluate<'a>(
             }
         };
         match completed {
+            CompletedNonmovementActionV1::LogisticsRegistration(value) => {
+                let Some(NonmovementFixtureWorkV1::LogisticsRegistration { result, .. }) =
+                    body_work.as_mut()
+                else {
+                    panic!("route registration requires its dedicated FIFO fixture");
+                };
+                assert!(result.is_none());
+                **result = Some(value);
+                (
+                    outcome, None, None, None, None, None, None, None, None, None, None, None,
+                )
+            }
+            CompletedNonmovementActionV1::NormalExtension(value) => {
+                let Some(NonmovementFixtureWorkV1::NormalExtension { result, .. }) =
+                    body_work.as_mut()
+                else {
+                    panic!("normal extension requires its dedicated FIFO fixture");
+                };
+                assert!(result.is_none(), "one genuine FIFO result per fixture call");
+                **result = Some(value);
+                (
+                    outcome, None, None, None, None, None, None, None, None, None, None, None,
+                )
+            }
             CompletedNonmovementActionV1::Core(value) => (
                 outcome,
                 Some(value),
@@ -932,3 +976,105 @@ pub(in crate::world) use crisis::*;
 #[path = "incremental_action_body_tests_rules_contract_accept.rs"]
 mod contract_accept;
 pub(in crate::world) use contract_accept::*;
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn evaluate_with_normal_extension<'a>(
+    fixture: &genesis::Fixture<'a>,
+    reader: &Reader<'a>,
+    transaction: &mut ExecutionTransaction<'_, Reader<'a>>,
+    pending: &mut oasis7_proto::memory_budget::ReservedValue<
+        oasis7_world_state::incremental_pending_action_overlay::PendingActionCurrentV1,
+    >,
+    pending_work:&mut oasis7_world_state::incremental_pending_action_family::PendingActionFamilyWorkV1,
+    directory: &oasis7_proto::memory_budget::ReservedValue<AcceptedInvocationDirectoryV1>,
+    counter: &WorldEventCounterV1,
+    originals: &mut Originals<'a>,
+    memory: &'a MemoryBudget,
+    now: u64,
+    live: &ExecutionFence,
+    body: NonmovementExecutionFixtureV1<'_>,
+) -> oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1> {
+    assert!(matches!(
+        &body.work,
+        NonmovementFixtureWorkV1::NormalExtension { .. }
+    ));
+    let result = evaluate(
+        fixture,
+        reader,
+        transaction,
+        FixtureInputV1::Pending(pending, pending_work),
+        directory,
+        counter,
+        originals,
+        memory,
+        now,
+        live,
+        None,
+        Some(body),
+    );
+    assert!(
+        result.1.is_none()
+            && result.2.is_none()
+            && result.3.is_none()
+            && result.4.is_none()
+            && result.5.is_none()
+            && result.6.is_none()
+            && result.7.is_none()
+            && result.8.is_none()
+            && result.9.is_none()
+            && result.10.is_none()
+            && result.11.is_none()
+    );
+    result.0.expect("actual selected Rule outcome")
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn evaluate_with_logistics_registration<'a>(
+    fixture: &genesis::Fixture<'a>,
+    reader: &Reader<'a>,
+    transaction: &mut ExecutionTransaction<'_, Reader<'a>>,
+    pending: &mut oasis7_proto::memory_budget::ReservedValue<
+        oasis7_world_state::incremental_pending_action_overlay::PendingActionCurrentV1,
+    >,
+    pending_work:&mut oasis7_world_state::incremental_pending_action_family::PendingActionFamilyWorkV1,
+    directory: &oasis7_proto::memory_budget::ReservedValue<AcceptedInvocationDirectoryV1>,
+    counter: &WorldEventCounterV1,
+    originals: &mut Originals<'a>,
+    memory: &'a MemoryBudget,
+    now: u64,
+    live: &ExecutionFence,
+    body: NonmovementExecutionFixtureV1<'_>,
+) -> oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1> {
+    assert!(matches!(
+        &body.work,
+        NonmovementFixtureWorkV1::LogisticsRegistration { .. }
+    ));
+    let result = evaluate(
+        fixture,
+        reader,
+        transaction,
+        FixtureInputV1::Pending(pending, pending_work),
+        directory,
+        counter,
+        originals,
+        memory,
+        now,
+        live,
+        None,
+        Some(body),
+    );
+    assert!(
+        result.1.is_none()
+            && result.2.is_none()
+            && result.3.is_none()
+            && result.4.is_none()
+            && result.5.is_none()
+            && result.6.is_none()
+            && result.7.is_none()
+            && result.8.is_none()
+            && result.9.is_none()
+            && result.10.is_none()
+            && result.11.is_none()
+    );
+    result.0.expect("actual selected Rule outcome")
+}

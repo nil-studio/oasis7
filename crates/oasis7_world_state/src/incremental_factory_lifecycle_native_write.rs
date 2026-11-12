@@ -108,6 +108,93 @@ pub fn write_current_factory_recycle_receipt_v1<
         Ok(())
     })
 }
+
+/// Replace the exact Current construction-receipt outer entry through its
+/// original native typed codec. The caller supplies the genuine point-read
+/// owner and remains responsible for the FactoryBuilt business decision.
+#[allow(clippy::too_many_arguments)]
+pub fn write_current_factory_construction_receipt_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + StatePageWriter,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<
+        CurrentFactoryNativeRecordV1<oasis7_agent_api::world_quote::FactoryBuildPowerObligationV1>,
+    >,
+    id: &str,
+    after: &oasis7_agent_api::world_quote::FactoryBuildPowerObligationV1,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    records: &mut u64,
+    work: &mut TypedRecordWriteWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    tx.contribute(|tx| {
+        check_expected(expected, tx, ctx, live)?;
+        if !tx.uses_budget(write.memory)
+            || !expected.memory.same_pool(write.memory)
+            || ctx.values.class != MemoryClass::Ordinary
+        {
+            return Err(invalid().into());
+        }
+        let _phase = write
+            .memory
+            .reserve(
+                id.len().checked_add(32 << 10).ok_or_else(invalid)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
+        if (ctx.cancelled)() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let field = FactoryConstructionReceiptsFieldV1::descriptor()?;
+        let (expected_key, _) = ctx.key(field, WorldFieldRecordKindV1::Entry, id)?;
+        if expected.key.as_bytes() != expected_key.as_bytes() {
+            return Err(invalid().into());
+        }
+        let key = id.to_owned();
+        let mut output = None;
+        prepare_world_native_record_v1::<FactoryConstructionReceiptsFieldV1>(
+            &key,
+            after,
+            write,
+            records,
+            work,
+            &mut |row| {
+                if output.is_some() {
+                    return Err(invalid());
+                }
+                output = Some(row);
+                Ok(())
+            },
+        )?;
+        let row = output.ok_or_else(invalid)?;
+        let profile = FactoryConstructionReceiptsFieldV1::profile()?;
+        if row.mutation.key != expected.key.as_bytes()
+            || row.namespace != profile.namespace()?
+            || row.mutation.after.is_none()
+        {
+            return Err(invalid().into());
+        }
+        read::check(ctx)?;
+        if (ctx.cancelled)() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        tx.write(row.namespace, expected.key.as_bytes(), row.mutation.after)?;
+        read::check(ctx)?;
+        if (ctx.cancelled)() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let tail = tx.guard();
+        tx.validate_guard(&tail, live)?;
+        Ok(())
+    })
+}
 fn value_root<
     M: MerkleNodeReader,
     R: ValueNodeReader,

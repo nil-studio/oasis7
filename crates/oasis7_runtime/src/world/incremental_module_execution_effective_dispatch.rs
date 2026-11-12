@@ -9,6 +9,8 @@ use super::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::world) enum EffectiveActionFamilyV1 {
     Core,
+    NormalExtension,
+    LogisticsRegistration,
     Crisis,
     ContractAccept,
     MetaProgress,
@@ -26,6 +28,10 @@ impl EffectiveActionFamilyV1 {
     pub(in crate::world) fn for_action(action: &crate::Action) -> Option<Self> {
         Some(match action {
             crate::Action::RegisterAgent { .. } | crate::Action::MoveAgent { .. } => Self::Core,
+            crate::Action::EmitObservation { .. } | crate::Action::ExpandBodyInterface { .. } => {
+                Self::NormalExtension
+            }
+            crate::Action::RegisterLogisticsRoute { .. } => Self::LogisticsRegistration,
             crate::Action::ResolveCrisis { .. } => Self::Crisis,
             crate::Action::AcceptEconomicContract { .. } => Self::ContractAccept,
             crate::Action::GrantMetaProgress { .. } => Self::MetaProgress,
@@ -54,6 +60,8 @@ impl EffectiveActionFamilyV1 {
 /// genuine Current qualifications. It is consumed by the selected Rule lane;
 /// it never acts as an admission or completion receipt.
 pub(in crate::world) struct EffectiveActionWorkBankV1<'a> {
+    logistics_registration:Option<&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1>,
+    normal_extension: Option<&'a mut super::normal_extension_driver::NormalCoreExtensionWorkV1<'a>>,
     pub(in crate::world) crisis: &'a mut crate::world::incremental_action_crisis::CrisisWorkV1,
     pub(in crate::world) crisis_sources: &'a crate::world::incremental_action_crisis::CrisisSourcesV1<'a>,
     pub(in crate::world) contract_accept: &'a mut crate::world::incremental_action_contract_accept::ContractAcceptWorkV1,
@@ -107,6 +115,8 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         transfer_resource: &'a mut crate::world::incremental_action_data::transfer_resource::TransferResourceWorkV1,
     ) -> Self {
         Self {
+            normal_extension: None,
+            logistics_registration: None,
             crisis,
             crisis_sources,
             contract_accept,
@@ -130,6 +140,21 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         }
     }
 
+    pub(in crate::world) fn with_normal_extension(
+        mut self,
+        work: &'a mut super::normal_extension_driver::NormalCoreExtensionWorkV1<'a>,
+    ) -> Self {
+        self.normal_extension = Some(work);
+        self
+    }
+
+    pub(in crate::world) fn with_logistics_registration(
+        mut self,
+        work:&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
+    ) -> Self {
+        self.logistics_registration = Some(work);
+        self
+    }
     pub(in crate::world) fn select(
         &mut self,
         action: &crate::Action,
@@ -137,6 +162,14 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         use super::NonmovementSelectedWorkV1 as Work;
         Some(match EffectiveActionFamilyV1::for_action(action)? {
             EffectiveActionFamilyV1::Core => Work::Core,
+            EffectiveActionFamilyV1::NormalExtension => {
+                Work::NormalExtension(self.normal_extension.as_deref_mut()?.view())
+            }
+            EffectiveActionFamilyV1::LogisticsRegistration => Work::LogisticsRegistration(
+                self.logistics_registration.as_deref_mut()?,
+                self.logistics,
+                self.normal_extension.as_deref()?.common,
+            ),
             EffectiveActionFamilyV1::Crisis => Work::Crisis(
                 &mut *self.crisis,
                 crate::world::incremental_action_crisis::CrisisSourcesV1 {
@@ -209,6 +242,48 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             None
         };
         match target {
+            EffectiveActionFamilyV1::LogisticsRegistration => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                Some((
+                    Work::LogisticsRegistration(
+                        self.logistics_registration.as_deref_mut()?,
+                        self.logistics,
+                        self.normal_extension.as_deref()?.common,
+                    ),
+                    accepted,
+                ))
+            }
+
+            EffectiveActionFamilyV1::NormalExtension => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                Some((
+                    Work::NormalExtension(self.normal_extension.as_deref_mut()?.view()),
+                    accepted,
+                ))
+            }
+
             EffectiveActionFamilyV1::Core => {
                 let accepted = match source {
                     Some(EffectiveActionFamilyV1::Crisis) => {

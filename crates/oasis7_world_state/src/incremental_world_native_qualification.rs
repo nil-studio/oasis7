@@ -228,7 +228,8 @@ pub use current_claims::{recover_current_agent_claim_v1, recover_current_starter
 mod factory_lifecycle_current;
 pub use factory_lifecycle_current::{
     CurrentFactoryNativeRecordV1, change_current_factory_industry_stage_v1,
-    recover_current_factory_industry_progress_v1, recover_current_factory_recycle_receipt_v1,
+    recover_current_factory_construction_receipt_v1, recover_current_factory_industry_progress_v1,
+    recover_current_factory_recycle_receipt_v1, write_current_factory_construction_receipt_v1,
     write_current_factory_recycle_receipt_v1,
 };
 

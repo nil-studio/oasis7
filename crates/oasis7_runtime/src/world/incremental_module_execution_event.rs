@@ -65,6 +65,15 @@ enum PersistedEventOwnerV1<'event> {
     ),
     MetaProgress(&'event super::incremental_action_meta_progress::CompletedMetaProgressV1),
     Crisis(&'event super::incremental_action_crisis::CompletedCrisisV1),
+    BodyInterface(
+        &'event super::incremental_normal_action_body_interface::CompletedBodyInterfaceV1,
+    ),
+    LogisticsRegistration(
+        &'event super::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1,
+    ),
+    Observation(
+        &'event super::incremental_normal_action_core_extension::CompletedObservationActionV1,
+    ),
     ContractAccept(&'event super::incremental_action_contract_accept::CompletedContractAcceptV1),
     FactoryLifecycle(
         &'event super::incremental_action_factory_lifecycle::CompletedFactoryLifecycleV1,
@@ -111,6 +120,27 @@ impl<'event> PersistedWorldEventV1<'event> {
     ) -> Self {
         Self {
             owner: PersistedEventOwnerV1::MetaProgress(owner),
+        }
+    }
+    pub(super) fn from_logistics_registration(
+        owner: &'event super::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::LogisticsRegistration(owner),
+        }
+    }
+    pub(super) fn from_body_interface(
+        owner: &'event super::incremental_normal_action_body_interface::CompletedBodyInterfaceV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::BodyInterface(owner),
+        }
+    }
+    pub(super) fn from_observation(
+        owner: &'event super::incremental_normal_action_core_extension::CompletedObservationActionV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::Observation(owner),
         }
     }
     pub(super) fn from_crisis(
@@ -219,6 +249,9 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::MaterialTransfer(owner) => owner.event(),
             PersistedEventOwnerV1::MetaProgress(owner) => owner.event(),
             PersistedEventOwnerV1::Crisis(owner) => owner.event(),
+            PersistedEventOwnerV1::BodyInterface(owner) => owner.event(),
+            PersistedEventOwnerV1::LogisticsRegistration(owner) => owner.event(),
+            PersistedEventOwnerV1::Observation(owner) => owner.event(),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.event(),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.event(),
             PersistedEventOwnerV1::FactoryDepreciation(owner) => owner.event(),
@@ -252,6 +285,9 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::MaterialTransfer(owner) => owner.validate(tx),
             PersistedEventOwnerV1::MetaProgress(owner) => owner.validate(tx),
             PersistedEventOwnerV1::Crisis(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::BodyInterface(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::LogisticsRegistration(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::Observation(owner) => owner.validate(tx),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.validate(tx),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.validate(tx),
             PersistedEventOwnerV1::FactoryDepreciation(owner) => owner.validate(tx),

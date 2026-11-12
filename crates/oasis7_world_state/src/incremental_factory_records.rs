@@ -30,6 +30,13 @@ pub use current_identity::{
     FactoryCurrentOuterChangeV1, FactoryOuterRecordRootV1, FactoryQualifiedOuterIdentityV1,
     visit_factory_current_outer_changes_v1, visit_qualified_factory_parent_identities_v1,
 };
+#[path = "incremental_factory_build_current_identity.rs"]
+mod build_current_identity;
+pub use build_current_identity::{
+    FactoryBuildCurrentOuterChangeV1, FactoryBuildCurrentOuterRecordV1,
+    FactoryBuildParentIdentityV1, visit_build_current_outer_changes_v1,
+    visit_qualified_build_parent_identities_v1,
+};
 #[path = "incremental_factory_key_read.rs"]
 mod key_read;
 #[path = "incremental_factory_visit.rs"]

@@ -1032,3 +1032,15 @@ pub(crate) mod iws_rule_core_test_support;
 mod incremental_action_contract_accept;
 #[path = "incremental_action_crisis.rs"]
 mod incremental_action_crisis;
+
+#[path = "incremental_normal_sources.rs"]
+pub mod incremental_normal_sources;
+
+#[path = "incremental_normal_action_core_extension.rs"]
+pub(in crate::world) mod incremental_normal_action_core_extension;
+
+#[path = "incremental_normal_action_body_interface.rs"]
+pub(in crate::world) mod incremental_normal_action_body_interface;
+
+#[path = "incremental_normal_action_logistics.rs"]
+pub(in crate::world) mod incremental_normal_action_logistics;

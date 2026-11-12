@@ -65,7 +65,7 @@ pub(super) fn invalid_recipe_plan_stack_note(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ProductionQueuePriority {
+pub(in crate::world) enum ProductionQueuePriority {
     Survival = 0,
     Energy = 1,
     Scale = 2,
@@ -810,11 +810,10 @@ impl World {
             job.spec.display_name.to_ascii_lowercase(),
         ];
         tokens.extend(job.spec.tags.iter().map(|tag| tag.to_ascii_lowercase()));
-        production_priority_from_tokens(
+        production_priority_from_factory_tokens_v1(
             &tokens,
             self.is_electricity_critical(),
             self.is_hardware_parts_critical(),
-            ProductionQueuePriority::Expansion,
         )
     }
 
@@ -1085,6 +1084,19 @@ impl World {
             })
             .collect()
     }
+}
+
+pub(in crate::world) fn production_priority_from_factory_tokens_v1(
+    tokens: &[String],
+    electricity_critical: bool,
+    hardware_critical: bool,
+) -> ProductionQueuePriority {
+    production_priority_from_tokens(
+        tokens,
+        electricity_critical,
+        hardware_critical,
+        ProductionQueuePriority::Expansion,
+    )
 }
 
 fn production_priority_from_tokens(

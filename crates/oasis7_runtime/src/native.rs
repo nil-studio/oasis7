@@ -605,3 +605,5 @@ pub use world::{
 
 #[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 pub use world::iws_rule_core_test_support::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};
+
+pub use world::incremental_normal_sources;

@@ -734,7 +734,6 @@ impl FileFormalEndpoint {
     ) -> Result<FormalPrepareReceiptV1, FormalError> {
         self.prepare_with_cancel(candidate, || false)
     }
-
     /// Prepare with an explicit local cancellation source. Existing callers
     /// keep the synchronous compatibility wrapper above; local coordinators
     /// that own a cancellation token must use this method for bounded IWS
@@ -877,7 +876,6 @@ impl FileFormalEndpoint {
     ) -> Result<FormalFinalReceiptV1, FormalError> {
         self.decide_with_cancel(request, primary, replica, || false)
     }
-
     /// Decide with an explicit local cancellation source. A cancellation
     /// before the decision write leaves the durable prepare available for
     /// query and retry under the same request identity.
@@ -1132,7 +1130,6 @@ impl FileFormalEndpoint {
         };
         #[cfg(target_arch = "wasm32")]
         let data_closure = None;
-
         self.write(
             FormalRequestStateV1::Qualified {
                 candidate,
@@ -1150,11 +1147,9 @@ impl FileFormalEndpoint {
         Ok(installed_head)
     }
 }
-
 #[path = "endpoint_business_parent.rs"]
 mod business_parent;
 pub use business_parent::VerifiedFormalBusinessParentV1;
-
 #[path = "endpoint_committed_material.rs"]
 mod committed_material;
 pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
@@ -1185,7 +1180,12 @@ impl FileFormalEndpoint {
 }
 pub use incremental::genesis::PaidGenesisAcceptanceV1;
 pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
-pub use incremental::host_source::PaidAcceptedGenesisHostSourceV1;
+pub(in crate::controlled_authority) use incremental::host_source::PaidNormalFrozenReceiptSourceV1;
+pub use incremental::host_source::{
+    HostAcceptedParentReadViewV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
+    PaidAcceptedGenesisHostSourceV1, PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1,
+    join_normal_frozen_endpoints_bounded,
+};
 pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
 pub(in crate::controlled_authority) use store::bounded_wire::{
     BoundedWireErrorV1, BoundedWireWorkV1, encode_bounded_wire_v1,

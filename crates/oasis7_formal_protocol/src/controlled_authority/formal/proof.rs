@@ -347,6 +347,14 @@ pub(crate) fn verify_normal_parent_continuity(
     parent: &VerifiedFormalCommitV1,
     next_position: u64,
 ) -> Result<(), FormalError> {
+    verify_normal_parent_continuity_with_id(authority, parent, next_position, None)
+}
+pub(crate) fn verify_normal_parent_continuity_with_id(
+    authority: &VerifiedAuthorityV1,
+    parent: &VerifiedFormalCommitV1,
+    next_position: u64,
+    paid_authority_id: Option<&str>,
+) -> Result<(), FormalError> {
     if parent.record().durable_set_transition_digest.is_some()
         && (authority.durable_set_activation_digest.is_none()
             || authority.recovery_cut.as_ref() != Some(&parent.head())
@@ -367,7 +375,15 @@ pub(crate) fn verify_normal_parent_continuity(
     {
         return Err(invalid("formal normal parent/profile/fresh-write boundary"));
     }
-    if parent.finalizing_authority_id() != authority.authority_id()?
+    let legacy_id;
+    let authority_id = match paid_authority_id {
+        Some(value) => value,
+        None => {
+            legacy_id = authority.authority_id()?;
+            &legacy_id
+        }
+    };
+    if parent.finalizing_authority_id() != authority_id
         && (authority.definition().predecessor_authority_id.as_deref()
             != Some(parent.finalizing_authority_id())
             || authority.first_normal_position != Some(next_position)

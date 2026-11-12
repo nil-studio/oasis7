@@ -176,20 +176,7 @@ pub fn bind_replicated_execution_input_action(
     Ok(true)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NodeExecutionCommitContext {
-    pub world_id: String,
-    pub node_id: String,
-    pub proposer_id: String,
-    pub height: u64,
-    pub slot: u64,
-    pub epoch: u64,
-    pub node_block_hash: String,
-    pub action_root: String,
-    #[serde(default)]
-    pub committed_actions: Vec<NodeConsensusAction>,
-    pub committed_at_unix_ms: i64,
-}
+pub use oasis7_consensus::normal_tick_input::NodeExecutionCommitContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeExecutionCommitResult {
@@ -275,24 +262,7 @@ pub enum NodeExecutionCommitOutcome {
 
 /// Exact local decision continuation captured by the Node before guarded
 /// execution. This is local recovery material, never a network finality proof.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NodeLocalExecutionContinuation {
-    pub schema_version: u32,
-    pub context: NodeExecutionCommitContext,
-    pub predecessor_committed_height: u64,
-    pub predecessor_node_block_hash: Option<String>,
-    pub predecessor_execution_height: u64,
-    pub predecessor_execution_block_hash: Option<String>,
-    pub predecessor_execution_state_root: Option<String>,
-    pub next_height: u64,
-    pub next_slot: u64,
-    pub reserved_action_bytes: usize,
-    pub approved_stake: u64,
-    pub rejected_stake: u64,
-    pub required_stake: u64,
-    pub total_stake: u64,
-}
+pub use oasis7_consensus::normal_tick_input::NodeLocalExecutionContinuation;
 
 /// A durable execution boundary established by an explicit local bootstrap.
 ///
@@ -466,11 +436,29 @@ pub trait NodeExecutionHook: Send {
         Ok(None)
     }
 
+    /// The fresh local decision branch supplies an engine-issued borrow.
+    /// Compatibility hooks retain their original persistence behavior.
+    fn prepare_verified_local_continuation(
+        &mut self,
+        continuation: &VerifiedNodeLocalContinuationV1<'_>,
+    ) -> Result<(), String> {
+        self.prepare_local_continuation(continuation.original())
+    }
+
     fn prepare_local_continuation(
         &mut self,
         _continuation: &NodeLocalExecutionContinuation,
     ) -> Result<(), String> {
         Err("guarded local execution continuation is unsupported".into())
+    }
+
+    /// Called after the actual Node engine revalidated the saved decision and
+    /// restored its schedule clock. The default preserves existing hooks.
+    fn restored_verified_local_continuation(
+        &mut self,
+        _continuation: &VerifiedNodeRestoredContinuationV1<'_>,
+    ) -> Result<(), String> {
+        Ok(())
     }
 
     fn pending_local_continuation(
@@ -767,5 +755,39 @@ pub trait NodeExecutionHook: Send {
         _actions: &[NodeConsensusAction],
     ) -> Result<(), String> {
         Err("wire-3 execution is unsupported by this hook".into())
+    }
+}
+
+/// A borrow issued only inside the actual Node local-decision branch.
+/// This is not network finality, a persisted resume proof or Formal acceptance.
+pub struct VerifiedNodeLocalContinuationV1<'a> {
+    original: &'a NodeLocalExecutionContinuation,
+}
+impl<'a> VerifiedNodeLocalContinuationV1<'a> {
+    pub(crate) fn from_engine(original: &'a NodeLocalExecutionContinuation) -> Self {
+        Self { original }
+    }
+    pub fn original(&self) -> &NodeLocalExecutionContinuation {
+        self.original
+    }
+    pub fn context(&self) -> &NodeExecutionCommitContext {
+        &self.original.context
+    }
+}
+
+/// Exact saved decision revalidated against the real restored Node state.
+/// It does not by itself prove a product-validation intent or Formal receipt.
+pub struct VerifiedNodeRestoredContinuationV1<'a> {
+    original: &'a NodeLocalExecutionContinuation,
+}
+impl<'a> VerifiedNodeRestoredContinuationV1<'a> {
+    pub(crate) fn from_restored_engine(original: &'a NodeLocalExecutionContinuation) -> Self {
+        Self { original }
+    }
+    pub fn original(&self) -> &NodeLocalExecutionContinuation {
+        self.original
+    }
+    pub fn context(&self) -> &NodeExecutionCommitContext {
+        &self.original.context
     }
 }

@@ -2,7 +2,7 @@
 //! Child of native qualification; neither the DTO nor this owner grants action authority.
 use super::*;
 use crate::incremental_world_native_industry::{
-    FactoryRecycleReceiptsFieldV1, IndustryProgressFieldV1,
+    FactoryConstructionReceiptsFieldV1, FactoryRecycleReceiptsFieldV1, IndustryProgressFieldV1,
 };
 use oasis7_formal_protocol::incremental_execution::{
     ExecutionFence, ExecutionTransaction, PreparedGuard,
@@ -11,7 +11,8 @@ use oasis7_proto::memory_budget::MemoryBudget;
 #[path = "incremental_factory_lifecycle_native_write.rs"]
 mod publication;
 pub use publication::{
-    change_current_factory_industry_stage_v1, write_current_factory_recycle_receipt_v1,
+    change_current_factory_industry_stage_v1, write_current_factory_construction_receipt_v1,
+    write_current_factory_recycle_receipt_v1,
 };
 
 #[cfg(test)]
@@ -50,6 +51,7 @@ impl<T> CurrentFactoryNativeRecordV1<T> {
 #[derive(Clone, Copy)]
 enum SelectedKey<'a> {
     Receipt(&'a str),
+    ConstructionReceipt(&'a str),
     Progress,
 }
 #[allow(clippy::too_many_arguments)]
@@ -109,6 +111,10 @@ fn selected<
         ctx.records().presence(&metadata_value, &metadata, 0)?;
         let (key, source_key) = match selected {
             SelectedKey::Receipt(id) => (
+                ctx.key(field, WorldFieldRecordKindV1::Entry, id)?.0,
+                WorldNativeKeyRefV1::Text(id),
+            ),
+            SelectedKey::ConstructionReceipt(id) => (
                 ctx.key(field, WorldFieldRecordKindV1::Entry, id)?.0,
                 WorldNativeKeyRefV1::Text(id),
             ),
@@ -174,6 +180,49 @@ pub fn recover_current_factory_recycle_receipt_v1<
         selected::<FactoryRecycleReceiptsFieldV1, _, _, _, _, _>(
             SelectedKey::Receipt(id),
             &parent.factory_recycle_receipts,
+            roots,
+            tx,
+            ctx,
+            scan,
+            work,
+            guard,
+            live,
+        )
+    })
+}
+/// Reads one actual Current construction-receipt outer key, preserving
+/// legitimate absence. The native field qualification and original codec
+/// remain mandatory; the returned record is only a data observation.
+#[allow(clippy::too_many_arguments)]
+pub fn recover_current_factory_construction_receipt_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    id: &str,
+    parent: &ReservedValue<WorldNativeFieldsQualificationV1>,
+    roots: &RootSetV1,
+    tx: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut WorldNativeSelectedReadWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<
+    ReservedValue<
+        CurrentFactoryNativeRecordV1<oasis7_agent_api::world_quote::FactoryBuildPowerObligationV1>,
+    >,
+    WorldFieldOverlayErrorV1,
+> {
+    tx.contribute(|tx| {
+        if !parent.uses_budget(ctx.values.memory) || parent.class != MemoryClass::Ordinary {
+            return Err(invalid().into());
+        }
+        selected::<FactoryConstructionReceiptsFieldV1, _, _, _, _, _>(
+            SelectedKey::ConstructionReceipt(id),
+            &parent.factory_construction_receipts,
             roots,
             tx,
             ctx,

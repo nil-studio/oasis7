@@ -144,6 +144,17 @@ fn admit_worker(
     work: &FormalArchiveReadWorkV1,
     cancelled: &AtomicBool,
 ) -> Result<(), IwsHostRuntimeErrorV1> {
+    with_admitted_worker(current, memory, work, cancelled, |_| Ok(()))
+}
+fn with_admitted_worker<T>(
+    current: &HostCurrentV1,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    cancelled: &AtomicBool,
+    run: impl FnOnce(
+        &mut BoundedWorkerSandboxV1<'_, RootModuleWorkerAllocatorV1>,
+    ) -> Result<T, IwsHostRuntimeErrorV1>,
+) -> Result<T, IwsHostRuntimeErrorV1> {
     {
         let mut stop = || cancelled.load(Ordering::Acquire);
         let mut ctx = work.bounded_context(memory, &mut stop);
@@ -219,10 +230,13 @@ fn admit_worker(
                 );
             }
             work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-            Ok(())
+            run(&mut worker)
         },
     )
 }
 #[cfg(test)]
 #[path = "iws_host_runtime_tests.rs"]
 mod tests;
+
+#[path = "iws_host_normal.rs"]
+mod normal;

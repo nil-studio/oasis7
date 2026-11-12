@@ -205,48 +205,111 @@ pub(super) fn evaluate_expand_body_interface(
     agent_id: &str,
     interface_module_item_id: &str,
 ) -> WorldEventBody {
-    let Some(cell) = world.state.agents.get(agent_id) else {
-        return WorldEventBody::Domain(DomainEvent::ActionRejected {
+    let body = world
+        .state
+        .agents
+        .get(agent_id)
+        .map(|cell| &cell.state.body_state);
+    match evaluate_expand_body_interface_state(
+        action_id,
+        agent_id,
+        interface_module_item_id,
+        body,
+        &mut |_| Ok::<(), std::convert::Infallible>(()),
+    ) {
+        Ok(event) => event,
+        Err(never) => match never {},
+    }
+}
+
+/// The original concrete body predicate shared by World and the Current owner.
+/// `work` can only charge/cancel; it cannot supply existence or override a rule.
+pub(super) fn evaluate_expand_body_interface_state<E>(
+    action_id: ActionId,
+    agent_id: &str,
+    interface_module_item_id: &str,
+    body: Option<&oasis7_world_state::agent_state::AgentBodyState>,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<WorldEventBody, E> {
+    work(agent_id.len())?;
+    let Some(body) = body else {
+        return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
             action_id,
             reason: RejectReason::AgentNotFound {
                 agent_id: agent_id.to_string(),
             },
-        });
+        }));
     };
-
+    work(interface_module_item_id.len())?;
     let item_id = interface_module_item_id.trim();
     if item_id.is_empty() {
-        return WorldEventBody::Domain(DomainEvent::BodyInterfaceExpandRejected {
-            agent_id: agent_id.to_string(),
-            consumed_item_id: interface_module_item_id.to_string(),
-            reason: "interface module item id is empty".to_string(),
-        });
+        return Ok(WorldEventBody::Domain(
+            DomainEvent::BodyInterfaceExpandRejected {
+                agent_id: agent_id.to_string(),
+                consumed_item_id: interface_module_item_id.to_string(),
+                reason: "interface module item id is empty".to_string(),
+            },
+        ));
     }
-
-    if cell.state.body_state.slot_capacity >= BODY_SLOT_CAPACITY_MAX {
-        return WorldEventBody::Domain(DomainEvent::BodyInterfaceExpandRejected {
-            agent_id: agent_id.to_string(),
-            consumed_item_id: item_id.to_string(),
-            reason: format!("body slot capacity reached max {}", BODY_SLOT_CAPACITY_MAX),
-        });
+    work(std::mem::size_of::<u16>())?;
+    if body.slot_capacity >= BODY_SLOT_CAPACITY_MAX {
+        return Ok(WorldEventBody::Domain(
+            DomainEvent::BodyInterfaceExpandRejected {
+                agent_id: agent_id.to_string(),
+                consumed_item_id: item_id.to_string(),
+                reason: format!("body slot capacity reached max {}", BODY_SLOT_CAPACITY_MAX),
+            },
+        ));
     }
-
-    if !cell.state.body_state.has_interface_module_item(item_id) {
-        return WorldEventBody::Domain(DomainEvent::BodyInterfaceExpandRejected {
-            agent_id: agent_id.to_string(),
-            consumed_item_id: item_id.to_string(),
-            reason: "interface module item unavailable or depleted".to_string(),
-        });
+    // Same ordered any() predicate as AgentBodyState::has_interface_module_item.
+    let mut available = false;
+    for entry in &body.cargo_entries {
+        work(entry.entity_id.len())?;
+        if entry.entity_id == item_id
+            && entry.entity_kind
+                == oasis7_world_state::agent_state::CargoEntityKind::InterfaceModuleItem
+            && entry.quantity > 0
+        {
+            available = true;
+            break;
+        }
     }
-
-    WorldEventBody::Domain(DomainEvent::BodyInterfaceExpanded {
+    if !available {
+        return Ok(WorldEventBody::Domain(
+            DomainEvent::BodyInterfaceExpandRejected {
+                agent_id: agent_id.to_string(),
+                consumed_item_id: item_id.to_string(),
+                reason: "interface module item unavailable or depleted".to_string(),
+            },
+        ));
+    }
+    // Preserve next_slot_id's len+1, candidate spelling, ordered membership
+    // tests and first missing ID. Charge each actual attempt/comparison.
+    let mut next = body.slots.len() + 1;
+    let new_slot_id = loop {
+        work(std::mem::size_of::<usize>())?;
+        let candidate = format!("slot-{next}");
+        let mut found = false;
+        for slot in &body.slots {
+            work(slot.slot_id.len())?;
+            if slot.slot_id == candidate {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            break candidate;
+        }
+        next += 1;
+    };
+    Ok(WorldEventBody::Domain(DomainEvent::BodyInterfaceExpanded {
         agent_id: agent_id.to_string(),
-        slot_capacity: cell.state.body_state.slot_capacity.saturating_add(1),
-        expansion_level: cell.state.body_state.expansion_level.saturating_add(1),
+        slot_capacity: body.slot_capacity.saturating_add(1),
+        expansion_level: body.expansion_level.saturating_add(1),
         consumed_item_id: item_id.to_string(),
-        new_slot_id: cell.state.body_state.next_slot_id(),
+        new_slot_id,
         slot_type: BodySlotType::Universal,
-    })
+    }))
 }
 
 pub(super) fn validate_body_kernel_view(

@@ -419,3 +419,7 @@ mod genesis_receipt;
 pub(in crate::controlled_authority) use genesis_receipt::{
     PaidGenesisReceiptSignatureV1, sign_genesis_receipt_bounded_v1,
 };
+
+#[path = "fencing_remote_bounded_normal_frozen.rs"]
+mod normal_frozen_receipt;
+pub(in crate::controlled_authority) use normal_frozen_receipt::sign_normal_frozen_receipt_bounded_v1;

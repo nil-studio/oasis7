@@ -707,3 +707,9 @@ mod crisis_actions;
 
 #[path = "incremental_action_contract_accept_tests.rs"]
 mod contract_accept_actions;
+
+#[path = "incremental_normal_action_core_extension_tests.rs"]
+mod normal_extension;
+
+#[path = "incremental_normal_action_logistics_tests.rs"]
+mod logistics_registration;

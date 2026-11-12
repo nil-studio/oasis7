@@ -805,3 +805,7 @@ pub(in crate::world) use entry::NonmovementSelectedErrorV1;
 pub(in crate::world) use entry::SelectedAcceptedDispositionV1;
 
 pub(in crate::world) use entry::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
+
+pub(in crate::world) use entry::{
+    CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
+};

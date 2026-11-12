@@ -1194,3 +1194,7 @@ include!("tests_modules.rs");
 mod node_bft_protected_test_provider;
 
 mod network_error_legacy;
+
+pub use execution_hook::VerifiedNodeLocalContinuationV1;
+
+pub use execution_hook::VerifiedNodeRestoredContinuationV1;

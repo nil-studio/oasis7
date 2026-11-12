@@ -316,6 +316,16 @@ impl<'a> PaidNativeCheckpointBeginV1<'a> {
         finish_lease_bounded(&mut self.lease, provider, ctx)?;
         Ok(self)
     }
+    /// Finish and return only the unique, updated transport owner. All draft
+    /// borrows and old signature/wire reservations end before Store cache swap.
+    pub(in crate::controlled_authority) fn finish_into_lease_bounded(
+        self,
+        provider: &RemoteMonotonicEndpointProvider,
+        ctx: &mut FormalBoundedContextV1<'_>,
+    ) -> ResultV<PaidRemoteLeaseV1> {
+        let finished = self.finish_bounded(provider, ctx)?;
+        Ok(finished.lease)
+    }
 }
 #[path = "fencing_remote_bounded_finish.rs"]
 mod bounded_finish;

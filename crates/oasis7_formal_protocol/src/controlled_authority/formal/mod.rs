@@ -42,3 +42,8 @@ pub use incremental_frozen_material::*;
 
 pub mod bounded_wire;
 pub mod context_wire;
+
+pub mod normal_frozen_bounded;
+pub use normal_frozen_bounded::{normal_frozen_hash_bounded, verify_formal_reservation_bounded};
+mod normal_frozen_certificate_bounded;
+pub use normal_frozen_certificate_bounded::verify_normal_frozen_certificate_bounded;

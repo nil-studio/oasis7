@@ -18,3 +18,8 @@ pub mod iws_genesis;
 
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 pub mod iws_host_runtime;
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+mod iws_normal_input;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+mod iws_normal_input_origin;

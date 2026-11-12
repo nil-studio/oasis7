@@ -16,6 +16,7 @@ pub(in crate::controlled_authority) use bounded_sign::{
     PaidGenesisReceiptSignatureV1, PaidNativeCheckpointBeginV1, PaidNativeCheckpointSignatureV1,
     begin_signed_native_checkpoint_bounded_v1, initialize_protected_registration_bounded_v1,
     sign_genesis_receipt_bounded_v1, sign_native_checkpoint_bounded_v1,
+    sign_normal_frozen_receipt_bounded_v1,
 };
 
 #[derive(Debug)]

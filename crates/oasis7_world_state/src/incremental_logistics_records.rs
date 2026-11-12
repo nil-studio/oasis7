@@ -135,3 +135,10 @@ pub use pages::{
 };
 
 pub(crate) use receiver::accept_logistics_verified_v1;
+
+#[path = "incremental_logistics_records_current_scan.rs"]
+mod current_scan;
+pub use current_scan::{
+    CurrentLogisticsRouteScanReservationV1, read_current_logistics_route_ids_v1,
+    read_current_logistics_route_ids_with_reservation_v1, reserve_current_logistics_route_scan_v1,
+};

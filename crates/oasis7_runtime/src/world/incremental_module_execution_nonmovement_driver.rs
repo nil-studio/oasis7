@@ -2,6 +2,7 @@
 #[path = "incremental_module_execution_effective_dispatch.rs"]
 mod effective_dispatch;
 use super::CoreDriverErrorV1;
+use super::normal_extension_driver;
 use super::*;
 use super::{ordinary_settlement::OrdinaryDriverErrorV1, selected_rule::SelectedRuleLaneErrorV1};
 use crate::world::{
@@ -16,6 +17,10 @@ use crate::world::{
 };
 pub(in crate::world) use effective_dispatch::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
 pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
+    LogisticsRegistration(&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
+        &'a ReservedValue<oasis7_world_state::incremental_logistics_records::LogisticsFamilyQualificationV1>,
+        &'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
+    NormalExtension(normal_extension_driver::NormalCoreExtensionWorkViewV1<'a>),
     Core,
     Crisis(&'a mut crate::world::incremental_action_crisis::CrisisWorkV1, crate::world::incremental_action_crisis::CrisisSourcesV1<'a>),
     ContractAccept(&'a mut crate::world::incremental_action_contract_accept::ContractAcceptWorkV1, crate::world::incremental_action_contract_accept::ContractAcceptSourcesV1<'a>),
@@ -38,6 +43,10 @@ pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
     DispatchBank(&'a mut EffectiveActionWorkBankV1<'a>),
 }
 pub(in crate::world) enum CompletedNonmovementActionV1 {
+    LogisticsRegistration(
+        crate::world::incremental_normal_action_logistics::CompletedLogisticsRegistrationV1,
+    ),
+    NormalExtension(normal_extension_driver::CompletedNormalExtensionV1),
     Core(crate::world::incremental_action_execution_core::CompletedCoreActionV1),
     Crisis(crate::world::incremental_action_crisis::CompletedCrisisV1),
     ContractAccept(crate::world::incremental_action_contract_accept::CompletedContractAcceptV1),
@@ -61,6 +70,8 @@ impl<'a> NonmovementSelectedWorkV1<'a> {
     fn family(&self) -> Option<EffectiveActionFamilyV1> {
         Some(match self {
             Self::Core => EffectiveActionFamilyV1::Core,
+            Self::LogisticsRegistration(..) => EffectiveActionFamilyV1::LogisticsRegistration,
+            Self::NormalExtension(..) => EffectiveActionFamilyV1::NormalExtension,
             Self::Crisis(..) => EffectiveActionFamilyV1::Crisis,
             Self::ContractAccept(..) => EffectiveActionFamilyV1::ContractAccept,
             Self::MetaProgress(..) => EffectiveActionFamilyV1::MetaProgress,
@@ -232,6 +243,18 @@ where
                     NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
                         RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid("unresolved effective action work bank"))
                     ))),
+                NonmovementSelectedWorkV1::NormalExtension(mut work) => {
+                    CompletedNonmovementActionV1::NormalExtension(self.execute_normal_extension_after_rules_v1(
+                        selected,&admission,&outcome,materials,read,parent_read,&mut work,accepted_entries,audit_work,
+                        directory,enumeration,tail_work,live_owner,
+                    ).map_err(NonmovementSelectedErrorV1::Business)?)
+                }
+                NonmovementSelectedWorkV1::LogisticsRegistration(work,logistics,common)=>{
+                    CompletedNonmovementActionV1::LogisticsRegistration(self.execute_logistics_registration_after_rules_v1(
+                        selected,&admission,&outcome,materials,read,parent_read,work,logistics,common,accepted_entries,audit_work,
+                        directory,enumeration,tail_work,live_owner,
+                    ).map_err(NonmovementSelectedErrorV1::Business)?)
+                }
                 NonmovementSelectedWorkV1::Core => {
                     CompletedNonmovementActionV1::Core(
                         self.execute_core_after_rules_v1(

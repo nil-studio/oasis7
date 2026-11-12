@@ -97,6 +97,9 @@ impl NodeRuntime {
                     &self.config.world_id,
                 )?;
                 engine.restore_guarded_local_schedule_clock(&saved)?;
+                hook.restored_verified_local_continuation(
+                    &crate::execution_hook::VerifiedNodeRestoredContinuationV1::from_restored_engine(&saved),
+                ).map_err(|reason| NodeError::Execution { reason })?;
             }
             return Ok(());
         }
@@ -136,6 +139,9 @@ impl NodeRuntime {
                         &self.config.world_id,
                     )?;
                     engine.restore_guarded_local_schedule_clock(&saved)?;
+                    hook.restored_verified_local_continuation(
+                    &crate::execution_hook::VerifiedNodeRestoredContinuationV1::from_restored_engine(&saved),
+                ).map_err(|reason| NodeError::Execution { reason })?;
                 }
             }
         }

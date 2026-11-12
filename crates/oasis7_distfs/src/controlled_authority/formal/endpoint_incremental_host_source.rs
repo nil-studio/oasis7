@@ -14,7 +14,8 @@ use std::mem::size_of;
 /// The original endpoint, locks, accepted carriers and both namespace leases
 /// move together. No constructor, Clone, mutable endpoint or detached parts.
 pub struct PaidAcceptedGenesisHostSourceV1 {
-    endpoint: ReservedValue<Box<FileFormalEndpoint>>,
+    endpoint: Box<FileFormalEndpoint>,
+    endpoint_fee: ReservedValue<()>,
     identity: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
     lease: PaidRemoteLeaseV1,
     fence: ExecutionFence,
@@ -50,12 +51,12 @@ impl PaidAcceptedGenesisHostSourceV1 {
         self.native_namespace
     }
     pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.endpoint.uses_budget(memory) && self.lease.uses_budget(memory)
+        self.endpoint_fee.uses_budget(memory) && self.lease.uses_budget(memory)
     }
     /// The extra owner/Box fee. Original resident source fees remain owned by
     /// the moved endpoint and are not counted as newly allocated copies.
     pub fn reserved_bytes(&self) -> usize {
-        self.endpoint.reserved_bytes() + self.lease.reserved_bytes()
+        self.endpoint_fee.reserved_bytes() + self.lease.reserved_bytes()
     }
     pub fn commit(&self) -> Result<&VerifiedFormalCommitV1, FormalError> {
         self.endpoint
@@ -343,7 +344,8 @@ impl FileFormalEndpoint {
         charge(work, 0, stop)?;
         drop(slot);
         Ok(PaidAcceptedGenesisHostSourceV1 {
-            endpoint: fee.retain(Box::new(self)),
+            endpoint: Box::new(self),
+            endpoint_fee: fee.retain(()),
             identity,
             lease,
             fence,
@@ -358,3 +360,15 @@ impl FileFormalEndpoint {
 #[cfg(test)]
 #[path = "endpoint_incremental_host_source_tests.rs"]
 mod tests;
+
+#[path = "endpoint_incremental_host_parent.rs"]
+mod parent_view;
+pub use parent_view::HostAcceptedParentReadViewV1;
+
+#[path = "endpoint_incremental_normal_frozen.rs"]
+mod normal_frozen;
+pub(in crate::controlled_authority) use normal_frozen::PaidNormalFrozenReceiptSourceV1;
+pub use normal_frozen::{
+    NormalFrozenFailureV1, NormalFrozenPairFailureV1, PaidNormalFrozenEndpointV1,
+    PaidNormalFrozenPairV1, join_normal_frozen_endpoints_bounded,
+};

@@ -3,8 +3,8 @@
 use super::super::FormalArchiveReadWorkV1;
 use super::*;
 use crate::controlled_authority::fencing::{
-    BoundedAcquireErrorV1, EndpointInstanceBindingV1, RemoteMonotonicEndpointProvider,
-    TrustedFencingPolicyV1, acquire_provider_lease_bounded_v1,
+    BoundedAcquireErrorV1, EndpointInstanceBindingV1, PaidRemoteLeaseV1,
+    RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1, acquire_provider_lease_bounded_v1,
     begin_signed_native_checkpoint_bounded_v1, sign_native_checkpoint_bounded_v1,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
@@ -244,6 +244,56 @@ impl Store {
         self._bounded_cache_fee = Some(body_fee);
         self._bounded_checkpoint_fee = Some(binding_fee);
         Ok(())
+    }
+    /// Used only by the private normal Frozen transaction. Unlike the legacy
+    /// standalone wrapper, it keeps the original parent transport across both
+    /// Hot publications and the intervening Frozen receipt signature.
+    pub(in crate::controlled_authority::formal::endpoint) fn publish_pending_update_with_lease_bounded(
+        &mut self,
+        update: PreparedPendingRequestUpdate,
+        lease: PaidRemoteLeaseV1,
+        provider: &RemoteMonotonicEndpointProvider,
+        instance: &EndpointInstanceBindingV1,
+        policy: &TrustedFencingPolicyV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> ResultV<PaidRemoteLeaseV1> {
+        let draft = self.prepare_pending_native_checkpoint_draft_from_disk_bounded(
+            update,
+            &instance.endpoint_public_key,
+            memory,
+            work,
+            stop,
+        )?;
+        let mut ctx = work.bounded_context(memory, stop);
+        let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
+        let checkpoint =
+            super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
+                signed, &mut ctx,
+            )?;
+        let begun = begin_signed_native_checkpoint_bounded_v1(provider, checkpoint, &mut ctx)?;
+        // Prepay and construct BOTH cache replacements before native publication.
+        let (body, body_fee) = begun.draft().paid_cache_copy(&mut ctx)?;
+        drop(ctx);
+        let (binding, binding_fee) = copy_checkpoint(begun.next_checkpoint(), memory, work, stop)?;
+        #[cfg(test)]
+        if self.fault == Some(1) {
+            return Err(FormalError::Io("injected after provider intent".into()).into());
+        }
+        self.atomic_hot_bounded(begun.native_bytes(), memory, work, stop)?;
+        #[cfg(test)]
+        if self.fault == Some(2) {
+            return Err(FormalError::Io("injected after native checkpoint".into()).into());
+        }
+        let mut ctx = work.bounded_context(memory, stop);
+        let lease = begun.finish_into_lease_bounded(provider, &mut ctx)?;
+        // The genuine Draft borrow ended; the same updated FD remains owned.
+        self.body = body;
+        self.checkpoint = binding;
+        self._bounded_cache_fee = Some(body_fee);
+        self._bounded_checkpoint_fee = Some(binding_fee);
+        Ok(lease)
     }
     /// Every attempt acquires a NEW real FD and reads actual disk Hot. It never
     /// reuses an owner whose Begin/Finish result was unknown.

@@ -866,6 +866,8 @@ mod core_driver;
 
 #[path = "incremental_module_execution_body_driver.rs"]
 mod body_driver;
+#[path = "incremental_module_execution_normal_extension_driver.rs"]
+mod normal_extension_driver;
 
 #[path = "incremental_module_execution_selected_accepted.rs"]
 mod selected_accepted;
@@ -917,3 +919,10 @@ mod contract_accept_driver;
 pub(in crate::world) use core_driver::CoreDriverErrorV1;
 
 pub(in crate::world) use nonmovement_driver::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
+
+pub(in crate::world) use normal_extension_driver::{
+    CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
+};
+
+#[path = "incremental_module_execution_logistics_registration_driver.rs"]
+mod logistics_registration_driver;

@@ -136,6 +136,66 @@ impl World {
             live,
             false,
             Some(scope),
+            None,
+            None,
+        )
+    }
+
+    pub(super) fn contribute_iws_body_interface_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        cap: &super::incremental_normal_action_body_interface::PreparedBodyInterfaceEventV1,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            cap.event(),
+            txn,
+            context,
+            materials,
+            live,
+            false,
+            None,
+            Some(cap),
+            None,
+        )
+    }
+
+    pub(super) fn contribute_iws_logistics_registration_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    >(
+        now: u64,
+        cap: &super::incremental_normal_action_logistics::PreparedLogisticsRegistrationEventV1,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            cap.event(),
+            txn,
+            context,
+            materials,
+            live,
+            false,
+            None,
+            None,
+            Some(cap),
         )
     }
 
@@ -164,6 +224,8 @@ impl World {
             live,
             registration_created,
             None,
+            None,
+            None,
         )
     }
 
@@ -184,6 +246,12 @@ impl World {
         live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
         registration_created: bool,
         accepted_scope: Option<&super::incremental_action_execution::AcceptedActorScopeV1<'_>>,
+        body_interface: Option<
+            &super::incremental_normal_action_body_interface::PreparedBodyInterfaceEventV1,
+        >,
+        logistics_registration: Option<
+            &super::incremental_normal_action_logistics::PreparedLogisticsRegistrationEventV1,
+        >,
     ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
@@ -204,7 +272,31 @@ impl World {
                     ))?
                     .validate(txn, actor_id)?;
             }
+            if let Some(cap) = body_interface {
+                cap.validate(txn, context.mutation.memory, now)?;
+                if !std::ptr::eq(cap.event(), event) {
+                    return Err(BodyMutationError::Invalid("body interface event source"));
+                }
+            }
+            if let Some(cap) = logistics_registration {
+                cap.validate(txn, context.mutation.memory, now)?;
+                if !std::ptr::eq(cap.event(), event) {
+                    return Err(BodyMutationError::Invalid(
+                        "logistics registration event source",
+                    ));
+                }
+            }
             let agent_id = match domain {
+                DomainEvent::LogisticsRouteRegistered {
+                    requester_agent_id, ..
+                } if logistics_registration.is_some() => requester_agent_id,
+                DomainEvent::BodyInterfaceExpanded { agent_id, .. }
+                | DomainEvent::BodyInterfaceExpandRejected { agent_id, .. }
+                    if body_interface.is_some() =>
+                {
+                    agent_id
+                }
+                DomainEvent::Observation { observation } => &observation.agent_id,
                 DomainEvent::ActionAccepted {
                     actor_id: agent_id, ..
                 }
@@ -260,14 +352,13 @@ impl World {
             }
             // Legacy ActionAccepted routes only to an existing actor. A missing
             // actor still produces the audit original and allocator successor.
-            if matches!(domain, DomainEvent::ActionAccepted { .. }) {
+            if matches!(
+                domain,
+                DomainEvent::ActionAccepted { .. } | DomainEvent::Observation { .. }
+            ) {
                 let body_key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
                 let body_exists = txn.read(Ns::Business, body_key.as_bytes())?.is_some();
-                if body_exists
-                    != accepted_scope
-                        .expect("Accepted scope checked above")
-                        .existing()
-                {
+                if accepted_scope.is_some_and(|scope| body_exists != scope.existing()) {
                     return Err(BodyMutationError::Invalid("accepted actor scope changed"));
                 }
                 if !body_exists {
@@ -410,7 +501,12 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
-                DomainEvent::ActionAccepted { .. } => {}
+                DomainEvent::LogisticsRouteRegistered { .. }
+                    if logistics_registration.is_some() => {}
+                DomainEvent::BodyInterfaceExpanded { .. }
+                | DomainEvent::BodyInterfaceExpandRejected { .. }
+                    if body_interface.is_some() => {}
+                DomainEvent::ActionAccepted { .. } | DomainEvent::Observation { .. } => {}
                 DomainEvent::AgentRegistered { .. } if registration_created => {}
                 _ => unreachable!("event kind was checked before any contribution"),
             }

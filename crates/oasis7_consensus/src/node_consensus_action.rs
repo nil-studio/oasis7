@@ -151,15 +151,7 @@ fn compute_consensus_action_root_v2(
     let mut last_action_id = 0_u64;
     let mut entries = Vec::with_capacity(actions.len());
     for action in actions {
-        action.validate()?;
-        if action.action_id <= last_action_id {
-            return Err(NodeConsensusError {
-                reason: format!(
-                    "consensus actions must be strictly ordered action_id={} last_action_id={}",
-                    action.action_id, last_action_id
-                ),
-            });
-        }
+        validate_action_order(action, last_action_id)?;
         last_action_id = action.action_id;
         entries.push(ActionRootEntry {
             action_id: action.action_id,
@@ -184,15 +176,7 @@ fn compute_consensus_action_root_v1_legacy(
     let mut last_action_id = 0_u64;
     let mut entries = Vec::with_capacity(actions.len());
     for action in actions {
-        action.validate()?;
-        if action.action_id <= last_action_id {
-            return Err(NodeConsensusError {
-                reason: format!(
-                    "consensus actions must be strictly ordered action_id={} last_action_id={}",
-                    action.action_id, last_action_id
-                ),
-            });
-        }
+        validate_action_order(action, last_action_id)?;
         last_action_id = action.action_id;
         entries.push(ActionRootLegacyEntry {
             action_id: action.action_id,
@@ -238,3 +222,26 @@ pub fn validate_consensus_action_root(
 fn blake3_hex(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
+
+fn validate_action_order(
+    action: &NodeConsensusAction,
+    last_action_id: u64,
+) -> Result<(), NodeConsensusError> {
+    action.validate()?;
+    if action.action_id <= last_action_id {
+        return Err(NodeConsensusError {
+            reason: format!(
+                "consensus actions must be strictly ordered action_id={} last_action_id={}",
+                action.action_id, last_action_id
+            ),
+        });
+    }
+    Ok(())
+}
+#[path = "node_consensus_action_bounded.rs"]
+mod bounded;
+pub use bounded::compute_consensus_action_root_bounded;
+
+#[cfg(test)]
+#[path = "node_consensus_action_bounded_tests.rs"]
+mod bounded_tests;
