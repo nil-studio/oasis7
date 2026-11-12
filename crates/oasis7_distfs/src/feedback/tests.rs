@@ -794,3 +794,6 @@ fn feedback_rate_limit_keeps_distinct_identities_separate() {
         rate_limit::rate_limit_public_key_identity(&public_key_hex(&signing_key(24))).expect("key")
     );
 }
+
+#[path = "nonce_identity_tests.rs"]
+mod nonce_identity;
