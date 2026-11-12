@@ -21,6 +21,44 @@ spec.loader.exec_module(ecs)
 
 
 class PackageTests(unittest.TestCase):
+    def test_tls_forwarder_reuses_verified_connection(self):
+        import http.client, http.server, ssl, threading, time
+        spec = importlib.util.spec_from_file_location("reuse_fixture", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        class Upstream(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"ok"; self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(body)
+            def log_message(self, *_): pass
+        upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
+        with tempfile.TemporaryDirectory() as directory:
+            smoke = module.Smoke({}, Path(directory), time.monotonic()+30)
+            module.generate_tls(smoke)
+            server = module.forwarder(smoke, upstream.server_address)
+            accepts = []; original = server.get_request
+            def accept():
+                result = original(); accepts.append(1); return result
+            server.get_request = accept
+            client = http.client.HTTPSConnection("localhost", server.server_port, context=ssl.create_default_context(cafile=str(smoke.root/"root.crt")), timeout=3)
+            try:
+                for _ in range(3):
+                    client.request("GET", "/capabilities"); reply=client.getresponse(); self.assertEqual(reply.read(), b"ok")
+                self.assertEqual(len(accepts), 1)
+                # Request framing errors close the connection before upstream forwarding.
+                for headers in ["Content-Length: 0\r\nContent-Length: 0", "Transfer-Encoding: chunked", "Content-Length: -1", "Content-Length: +1"]:
+                    raw = ssl.create_default_context(cafile=str(smoke.root/"root.crt")).wrap_socket(__import__('socket').create_connection(("localhost", server.server_port)), server_hostname="localhost")
+                    raw.settimeout(2)
+                    try:
+                        raw.sendall(("POST /capabilities HTTP/1.1\r\nHost: localhost\r\n"+headers+"\r\n\r\nGET /capabilities HTTP/1.1\r\nHost: localhost\r\n\r\n").encode())
+                        self.assertEqual(raw.recv(4096), b"")
+                    finally: raw.close()
+                for _ in range(29):
+                    client.request("GET", "/capabilities"); reply=client.getresponse(); reply.read()
+                self.assertEqual(reply.getheader("Connection"), "close")
+
+            finally:
+                client.close(); server.shutdown(); server.server_close(); upstream.shutdown(); upstream.server_close(); smoke.close()
+
     def test_canonical_probe_selects_longer_watchdog_without_retry(self):
         import time
         module_spec = importlib.util.spec_from_file_location(
