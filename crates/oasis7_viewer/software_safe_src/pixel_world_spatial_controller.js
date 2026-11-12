@@ -32,7 +32,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   }
   function cancelQuery() {
     if (!explicitQuery) return;
-    client.invalidate();finishQuery(explicitQuery);
+    client.cancel();finishQuery(explicitQuery);
   }
   let feedbackScopeGeneration = 1, feedbackAuthority = null;
   const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);checkOverview(next);}});
@@ -187,7 +187,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     command += 1; cancelScheduled();client.clearChanges();
     let resolve;const result=new Promise(done=>resolve=done);
     const intent={query:{...query},resolve,timer:null};explicitQuery=intent;setQueryStatus('pending');
-    intent.timer=setTimeout(()=>{if(explicitQuery===intent){client.invalidate();finishQuery(intent,null,'unavailable');}},30000);
+    intent.timer=setTimeout(()=>{if(explicitQuery===intent){client.cancel();finishQuery(intent,null,'unavailable');}},30000);
     if (inFlight) {client.invalidate();dirty=false;} else void read();
     return result;
   }

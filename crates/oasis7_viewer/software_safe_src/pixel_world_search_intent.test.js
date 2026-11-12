@@ -1,6 +1,7 @@
 import {createRoot} from 'solid-js';
 import {it,expect,vi,afterEach} from 'vitest';
 import {createPixelWorldSpatialController} from './pixel_world_spatial_controller.js';
+import {createWorldViewClient} from './pixel_world_world_view.js';
 let dispose;
 afterEach(()=>{dispose?.();vi.useRealTimers();});
 const page=q=>({world_id:'W',scope_id:'S',source_cut:'C',request_generation:q.request_generation,entities:[],relations:[],completeness:'complete'});
@@ -21,15 +22,22 @@ it.each(['scope','dispose','navigation','feed','return'])('cancels queued caller
  expect(await pending).toBeNull();f.release();await old;await Promise.resolve();
  expect(f.core.requestWorldView).toHaveBeenCalledTimes(1);expect(f.controller.state().view).toBeNull();
 });
-it.each(['feed','return'])('invalidates an active explicit read before %s early return',async kind=>{
+it.each(['feed','return','navigation'])('invalidates an active explicit read before %s early return',async kind=>{
  const f=fixture(),read=f.controller.query({search:'old'});
- if(kind==='feed')f.controller.eventFeed({event_id:'missing'});else await f.controller.returnTarget();
- expect(await read).toBeNull();f.release();await Promise.resolve();await Promise.resolve();expect(f.controller.state().view).toBeNull();
+ if(kind==='feed')f.controller.eventFeed({event_id:'missing'});else if(kind==='return')await f.controller.returnTarget();else f.controller.navigate('stop');
+ expect(await read).toBeNull();f.release();await Promise.resolve();await Promise.resolve();expect(f.controller.state().view).toBeNull();expect(f.controller.state().loading).toBe(false);
 });
 it('settles a queued intent at its acceptance deadline without starting parallel transport',async()=>{
  vi.useFakeTimers();const f=fixture(),old=f.controller.query({search:'old'}),pending=f.controller.query({search:'new'});
  await vi.advanceTimersByTimeAsync(30000);expect(await pending).toBeNull();expect(f.controller.queryStatus()).toBe('unavailable');
+ expect(f.controller.state().loading).toBe(false);expect(f.controller.readStatistics('C',false).loading).toBe(false);
  expect(f.core.requestWorldView).toHaveBeenCalledTimes(1);f.release();await old;
+});
+it('publishes canceled client reads as last-known without reviving their late page or resume baseline',async()=>{
+ let release,calls=0;const client=createWorldViewClient({request:q=>++calls===1?Promise.resolve(page(q)):new Promise(r=>release=()=>r(page(q)))});
+ client.reset('S','W');await client.query({});const prior=client.state().view,read=client.query({});client.cancel();
+ expect(client.state()).toMatchObject({loading:false,stale:true,view:prior});expect(client.statistics('C',false).published.queryGenerationMatches).toBe(false);
+ release();expect(await read).toBeNull();expect(client.state()).toMatchObject({loading:false,stale:true,view:prior});
 });
 it('does not replay an expired undispatched predicate through a later dirty refresh',async()=>{
  vi.useFakeTimers();const f=fixture(),old=f.controller.query({search:'old'}),pending=f.controller.query({search:'expired'});
