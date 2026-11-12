@@ -2512,7 +2512,10 @@ jobs:
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install pinned performance browser
+        shell: bash
+        timeout-minutes: 15
         run: |
+          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "0";\n' | sudo -n tee /etc/apt/apt.conf.d/99oasis7-browser-network-timeout >/dev/null
           npm install --prefix "$RUNNER_TEMP/viewer-performance-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-performance-browser/node_modules/.bin/agent-browser"
           "$browser_bin" install --with-deps

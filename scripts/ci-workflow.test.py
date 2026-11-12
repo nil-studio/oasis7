@@ -4090,6 +4090,17 @@ class AptWorkflow(unittest.TestCase):
                             arguments.append('--hosted-dns-recovery')
                         self.assertEqual(capture.read_text().splitlines(), arguments + ['--', *expected[key]])
 
+    def test_performance_browser_apt_transport_is_bounded_without_skipping_dependencies(self):
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['viewer-performance-report'], re.M | re.S)
+                    if 'name: Install pinned performance browser' in step)
+        self.assertIn('timeout-minutes: 15', step)
+        self.assertIn('Acquire::http::Timeout "15";', step)
+        self.assertIn('Acquire::https::Timeout "15";', step)
+        self.assertIn('Acquire::Retries "0";', step)
+        self.assertLess(step.index('sudo -n tee'), step.index('"$browser_bin" install --with-deps'))
+        self.assertIn('agent-browser@0.37.1', step)
+        self.assertNotIn('continue-on-error', step)
+
     def test_existing_lsof_does_not_invoke_package_manager(self):
         step = self.apt_steps()['rust', 'fleet-health', 'Ensure Linux process inspection dependency']
         self.assertIn("if: runner.os == 'Linux'", step)
