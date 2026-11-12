@@ -709,11 +709,11 @@ fn assert_feedback_rate_limit_identity_aliases(check_ip: bool) {
 #[test]
 fn feedback_rate_limit_keeps_distinct_identities_separate() {
     assert_ne!(
-        rate_limit_ip_identity("2001:db8::1").expect("ip"),
-        rate_limit_ip_identity("2001:db8::2").expect("ip")
+        rate_limit::rate_limit_ip_identity("2001:db8::1").expect("ip"),
+        rate_limit::rate_limit_ip_identity("2001:db8::2").expect("ip")
     );
     assert_ne!(
-        rate_limit_public_key_identity(&public_key_hex(&signing_key(23))).expect("key"),
-        rate_limit_public_key_identity(&public_key_hex(&signing_key(24))).expect("key")
+        rate_limit::rate_limit_public_key_identity(&public_key_hex(&signing_key(23))).expect("key"),
+        rate_limit::rate_limit_public_key_identity(&public_key_hex(&signing_key(24))).expect("key")
     );
 }
