@@ -35,11 +35,11 @@ export function PixelWorldWorldViewExplorer(props) {
   return <section class="pixel-world-exploration" aria-label={text('授权世界探索','Authorized world exploration')}>
     <form onSubmit={event => {event.preventDefault();setFollowing(null);props.onFollow?.(null);props.onQuery?.({search:search().trim()});}}>
       <label>{text('授权空间搜索','Search authorized space')} <input value={search()} maxlength="128" onInput={event=>setSearch(event.currentTarget.value)} /></label>
-      <button type="submit" disabled={props.state?.loading}>{text('搜索','Search')}</button>
+      <button type="submit">{text('搜索','Search')}</button>
       <button type="button" data-query-overview onClick={()=>{setFollowing(null);props.onOverview?.();}}>{text('总览当前查询结果','Overview query results')}</button>
       <button type="button" onClick={()=>{setSearch('');setFollowing(null);props.onFollow?.(null);props.onReturnTarget?.();}}>{text('返回主目标','Return to target')}</button>
     </form>
-    <p role="status">{props.state?.loading ? text('正在读取授权范围…','Reading authorized scope…') : props.state?.stale ? text('最近已知；当前范围读取失败','Last known; scope refresh failed') : view()?.completeness === 'complete' ? text('当前查询范围完整','Current query scope complete') : view()?.completeness === 'partial' ? text('当前查询范围不完整','Current query scope partial') : text('查询范围完整性未知','Query scope completeness unknown')}
+    <p role="status">{props.queryStatus==='pending' ? text('搜索已接收；等待当前读取结束…','Search accepted; waiting for the current read…') : props.queryStatus==='unavailable' ? text('搜索不可用，请重新提交','Search unavailable; submit again') : props.state?.loading ? text('正在读取授权范围…','Reading authorized scope…') : props.state?.stale ? text('最近已知；当前范围读取失败','Last known; scope refresh failed') : view()?.completeness === 'complete' ? text('当前查询范围完整','Current query scope complete') : view()?.completeness === 'partial' ? text('当前查询范围不完整','Current query scope partial') : text('查询范围完整性未知','Query scope completeness unknown')}
       <Show when={view()?.budget_limited}> · {text('当前范围对象过密，请缩小视口或搜索。','This area is dense. Narrow the viewport or search.')}</Show>
       <Show when={view()?.source_frozen}> · {text('同一来源切点的历史视图','Historical view at one source cut')}</Show>
       <Show when={props.state?.error}> · {text('读取不可用，请重试','Read unavailable; retry')}</Show>
