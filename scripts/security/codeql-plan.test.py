@@ -202,6 +202,49 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
             self.run_plan()
 
+    def test_frozen_document_fixture_metadata_keeps_its_python_consumer(self):
+        for index, filename in enumerate(('document-corpus-inventory.json',
+                'document-semantic-review-overrides.json', 'inventory.json', 'manifest.json')):
+            path = 'scripts/fixtures/document-corpus-v3/legacy/' + filename
+            with self.subTest(path=path):
+                for content in ('{}', '{"changed":true}'):
+                    self.base = self.git('rev-parse', 'HEAD')
+                    self.write(path, content); self.commit()
+                    result = self.run_plan()
+                    self.assertEqual(result['selected_units'], ['python-repo'])
+                    self.assertEqual(result['fallback_reasons'], [])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).rename(self.root / f'moved-{index}.js'); self.commit()
+                self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'javascript-repo'])
+                self.write(path, '{}'); self.base = self.commit()
+                (self.root / path).unlink(); self.commit()
+                self.assertEqual(self.run_plan()['selected_units'], ['python-repo'])
+
+    def test_frozen_fixture_registration_rejects_neighboring_json(self):
+        for path in ('scripts/fixtures/document-corpus-v3/legacy/extra.json',
+                     'scripts/fixtures/document-corpus-v3/inventory.json',
+                     'scripts/fixtures/document-corpus-v3/legacy/nested/inventory.json'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink(); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_git_attributes_preserve_all_language_consumers(self):
+        for path in ('.gitattributes', 'scripts/.gitattributes'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '*.py text eol=lf\n'); self.commit()
+                result = self.run_plan(batch_modes=json.dumps({'python-repo/default': 'observe'}))
+                self.assertEqual(result['candidate_units'], [unit for unit, _ in planner.UNITS])
+                self.assertEqual(result['selected_units'], ['python-repo'])
+                for unit, _ in planner.UNITS:
+                    self.assertIn('Git checkout attributes: ' + path, result['reasons'][unit])
+
     def test_document_corpus_inputs_select_python(self):
         key = '41' + '9' * 62
         for path in (
