@@ -27,8 +27,8 @@ assert(process.env.DENSITY_QA_ARTIFACT_ROOT && process.env.DENSITY_QA_SOURCE_HEA
 const root = resolve(process.env.DENSITY_QA_ARTIFACT_ROOT);
 const source = execFileSync('git', ['rev-parse', process.env.DENSITY_QA_SOURCE_HEAD + '^{commit}'], { cwd: repo, encoding: 'utf8' }).trim();
 const scope = process.env.DENSITY_QA_SCOPE || 'all', dpr = Number(process.env.DENSITY_QA_DPR || 1);
-assert([process.env.DENSITY_QA_FRAME_OBSERVATION_MS,process.env.DENSITY_QA_MEMORY_MS,process.env.DENSITY_QA_PERFORMANCE_MS,process.env.DENSITY_QA_PENDING==='1'].filter(Boolean).length<=1,'observation modes must be exclusive');
-assert(!process.env.DENSITY_QA_MEMORY_MS || scope==='baseline','retention observation requires baseline-only scope');
+assert([process.env.DENSITY_QA_FRAME_OBSERVATION_MS,process.env.DENSITY_QA_MEMORY_MS,process.env.DENSITY_QA_PERFORMANCE_MS,process.env.DENSITY_QA_PENDING==='1',process.env.DENSITY_QA_WASM_LIFECYCLE==='1'].filter(Boolean).length<=1,'observation modes must be exclusive');
+assert(!(process.env.DENSITY_QA_MEMORY_MS||process.env.DENSITY_QA_WASM_LIFECYCLE==='1') || scope==='baseline','retention observation requires baseline-only scope');
 assert(['baseline', 'all'].includes(scope) && [1, 2].includes(dpr), 'unsupported scope/DPR');
 const out = resolve(process.env.DENSITY_QA_OUTPUT || resolve(repo, 'output/playwright/world-view-density', new Date().toISOString().replace(/[:.]/g, '-')));
 mkdirSync(dirname(out), { recursive: true }); mkdirSync(out);
@@ -148,7 +148,7 @@ async function waitNegotiation(worldView) {
   await waitFor(`(${browserState}).core?.connectionStatus==='connected'&&(${browserState}).core?.viewerProtocol?.negotiated===true&&(${browserState}).core?.worldId===${JSON.stringify(fixture.description().world)}&&(${browserState}).core?.viewerProtocol?.capabilities?.includes('world_view')===${worldView}`);
 }
 async function attachMetrics() {
-  await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');if(typeof m.readPixelWorldDisplayMetrics!=='function')throw Error('candidate lacks active-instance readonly metrics');window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;return true})()`);
+  await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');if(typeof m.readPixelWorldDisplayMetrics!=='function')throw Error('candidate lacks active-instance readonly metrics');window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;window.__QA_READ_WASM_CAPACITY__=m.readPixelWorldLinearMemoryCapacity;return true})()`);
 }
 async function waitProjection(count, cut = fixture.description().cut) {
   await waitFor(`(${browserState}).ready&&(${browserState}).metrics.status==='observed'&&(${browserState}).metrics.display_profile==='world_view_v1'&&(${browserState}).metrics.source_cut===${JSON.stringify(cut)}&&(${browserState}).metrics.projected_marker_count===${count}&&(${browserState}).targets.length===${count}`);
@@ -160,7 +160,7 @@ async function recoveredScopeState(count, selectedId = null) {
 }
 async function overview() {
   const disclosure = '.pixel-world-exploration-disclosure';
-  await evaluate(`(()=>{const d=document.querySelector(${JSON.stringify(disclosure)});if(!d)throw Error('negotiated exploration UI missing');return d.open})()`)
+  await evaluate(`(()=>{const d=document.querySelector(".pixel-world-exploration-disclosure");if(!d)throw Error('negotiated exploration UI missing');return d.open})()`)
     .then(async open => { if (!open) await run(['click', disclosure + ' > summary']); });
   await evaluate(`(()=>{const b=document.querySelector('[data-query-overview]');if(!b)throw Error('overview action missing');b.focus({preventScroll:true});return true})()`); await run(['press', 'Enter']);
   await run(['click', disclosure + ' > summary']);
@@ -177,7 +177,7 @@ async function zoomForLabels() {
 }
 async function searchEmpty() {
   const disclosure = '.pixel-world-exploration-disclosure';
-  const open = await evaluate(`document.querySelector(${JSON.stringify(disclosure)})?.open`);
+  const open = await evaluate(`document.querySelector(".pixel-world-exploration-disclosure")?.open`);
   if (!open) await run(['click', disclosure + ' > summary']);
   await run(['fill', '.pixel-world-exploration form input', '']);
   await evaluate(`document.querySelector('.pixel-world-exploration form input').focus({preventScroll:true});true`); await run(['press', 'Enter']);
@@ -311,6 +311,19 @@ try {
     const memorySession=await createOwnedCdpSession(run,evaluate);
     for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs','viewer-retention-focus.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
     await withObservationCleanup(async()=>{summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)});},()=>memorySession.close(),summary);
+  }
+  if(process.env.DENSITY_QA_WASM_LIFECYCLE==='1') {
+    const readCapacity=async()=>JSON.parse(await evaluate(`JSON.stringify({origin:performance.timeOrigin,capacity:window.__QA_READ_WASM_CAPACITY__?.()})`));
+    summary.wasmLifecycle={before:await readCapacity()};
+    assert(summary.wasmLifecycle.before.capacity?.status==='observed','lifecycle requires mounted capacity');
+    await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),gl=c.getContext('webgl2'),extension=gl?.getExtension('WEBGL_lose_context');if(!extension)throw Error('actual context-loss extension unavailable');extension.loseContext();return true})()`);
+    await waitFor(`window.__QA_READ_WASM_CAPACITY__?.().status==='unmounted'`);
+    summary.wasmLifecycle.lost=await readCapacity();assert(!('linearCapacityBytes' in summary.wasmLifecycle.lost.capacity),'lost lease reused old capacity');
+    if(process.env.DENSITY_QA_WASM_KEYBOARD==='1'){await evaluate(`(()=>{const b=document.querySelector('.pixel-world-render-unavailable__retry');if(!b||b.disabled)throw Error('reload keyboard button unavailable');b.focus({preventScroll:true});if(document.activeElement!==b)throw Error('reload keyboard focus failed');return true})()`);summary.wasmLifecycle.recoveryInput='keyboard_focus_enter';await run(['press','Enter']);}else await run(['click','.pixel-world-render-unavailable__retry']);
+    await waitFor(`window.__AW_TEST__&&document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true'`);
+    await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');window.__QA_READ_WASM_CAPACITY__=m.readPixelWorldLinearMemoryCapacity;window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;return true})()`);
+    await waitFor(`window.__QA_READ_WASM_CAPACITY__?.().status==='observed'`);
+    summary.wasmLifecycle.restored=await readCapacity();assert(summary.wasmLifecycle.restored.origin!==summary.wasmLifecycle.before.origin,'reload did not create new page instance');
   }
   if (process.env.DENSITY_QA_FRAME_OBSERVATION_MS) summary.frameObservation = await probeWorldFrameCapabilities({run,evaluate,out,durationMs:Number(process.env.DENSITY_QA_FRAME_OBSERVATION_MS)});
   if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });

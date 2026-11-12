@@ -49,6 +49,82 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
+        path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
+        for value in ('body { color: red; }', 'body { color: blue; }'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, value); self.commit()
+            result = self.run_plan()
+            self.assertEqual(result['selected_units'], ['javascript-repo'])
+            self.assertIn(path, result['reasons']['javascript-repo'])
+            self.assertEqual(result['fallback_reasons'], [])
+        for source, destination in ((path, 'moved.js'), ('moved.js', path)):
+            self.base = self.git('rev-parse', 'HEAD')
+            (self.root / source).rename(self.root / destination); self.commit()
+            result = self.run_plan()
+            self.assertEqual(result['selected_units'], ['javascript-repo'])
+            self.assertEqual(result['completeness']['diff_paths'], sorted([source, destination]))
+        self.base = self.git('rev-parse', 'HEAD')
+        (self.root / path).unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo'])
+
+    def test_viewer_stylesheet_unknown_rename_endpoint_fails_closed(self):
+        known = 'crates/oasis7_viewer/viewer_terminal_shell.css'
+        unknown = 'crates/oasis7_viewer/unregistered.css'
+        self.write(known, 'unique stylesheet fixture'); self.base = self.commit()
+        for source, destination in ((known, unknown), (unknown, known)):
+            self.base = self.git('rev-parse', 'HEAD')
+            (self.root / source).rename(self.root / destination); self.commit()
+            self.assertEqual(planner.changes(self.root, self.base, self.git('rev-parse', 'HEAD')),
+                             sorted([known, unknown]))
+            for full in (False, True):
+                with self.subTest(source=source, full=full):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input: ' + unknown):
+                        self.run_plan(full=full)
+
+    def test_viewer_stylesheet_does_not_register_neighbors_even_for_full(self):
+        for path in ('crates/oasis7_viewer/other.css',
+                     'crates/oasis7_viewer/nested/viewer_terminal_shell.css',
+                     'other/viewer_terminal_shell.css',
+                     'crates/oasis7_viewer/viewer_terminal_shell.CSS',
+                     'crates/oasis7_viewer/viewer_terminal_shell.css.extra'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path); self.commit()
+            for full in (False, True):
+                with self.subTest(path=path, full=full):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
+
+    def test_viewer_stylesheet_preserves_deleted_rust_consumers_and_batch_hold(self):
+        path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
+        consumers = (
+            ('src/css.rs', 'const CSS: &str = include_str!("../' + path + '");'),
+            ('src/css.rs', 'const CSS: &[u8] = include_bytes!(concat!("../", "' + path + '"));'),
+            ('build.rs', 'fn main() {}'),
+        )
+        for consumer, content in consumers:
+            with self.subTest(consumer=consumer, content=content):
+                self.write(path, 'stylesheet fixture'); self.write(consumer, content)
+                self.base = self.commit()
+                (self.root / consumer).unlink(); (self.root / path).unlink(); self.commit()
+                result = self.run_plan(batch_modes=json.dumps({'javascript-repo/default': 'observe'}))
+                self.assertEqual(result['candidate_units'], ['javascript-repo', 'rust-repo'])
+                self.assertEqual(result['selected_units'], ['javascript-repo'])
+                self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+                self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+                self.assertEqual(result['fallback_reasons'], [])
+
+    def test_viewer_stylesheet_symlink_addition_and_deletion_require_review(self):
+        path = self.root / 'crates/oasis7_viewer/viewer_terminal_shell.css'
+        path.parent.mkdir(parents=True)
+        path.symlink_to('../../docs/guide.md'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+        self.base = self.git('rev-parse', 'HEAD')
+        path.unlink(); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
     def test_CQ_T01_non_consumed_docs(self):
         self.write('docs/guide.md', 'changed'); self.commit()
         self.assertEqual(self.run_plan()['status'], 'not_applicable')
@@ -201,6 +277,49 @@ class PlannerTests(unittest.TestCase):
         path.symlink_to('../docs/guide.md'); self.commit()
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
             self.run_plan()
+
+    def test_frozen_document_fixture_metadata_keeps_its_python_consumer(self):
+        for index, filename in enumerate(('document-corpus-inventory.json',
+                'document-semantic-review-overrides.json', 'inventory.json', 'manifest.json')):
+            path = 'scripts/fixtures/document-corpus-v3/legacy/' + filename
+            with self.subTest(path=path):
+                for content in ('{}', '{"changed":true}'):
+                    self.base = self.git('rev-parse', 'HEAD')
+                    self.write(path, content); self.commit()
+                    result = self.run_plan()
+                    self.assertEqual(result['selected_units'], ['python-repo'])
+                    self.assertEqual(result['fallback_reasons'], [])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).rename(self.root / f'moved-{index}.js'); self.commit()
+                self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'javascript-repo'])
+                self.write(path, '{}'); self.base = self.commit()
+                (self.root / path).unlink(); self.commit()
+                self.assertEqual(self.run_plan()['selected_units'], ['python-repo'])
+
+    def test_frozen_fixture_registration_rejects_neighboring_json(self):
+        for path in ('scripts/fixtures/document-corpus-v3/legacy/extra.json',
+                     'scripts/fixtures/document-corpus-v3/inventory.json',
+                     'scripts/fixtures/document-corpus-v3/legacy/nested/inventory.json'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink(); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
+    def test_git_attributes_preserve_all_language_consumers(self):
+        for path in ('.gitattributes', 'scripts/.gitattributes'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '*.py text eol=lf\n'); self.commit()
+                result = self.run_plan(batch_modes=json.dumps({'python-repo/default': 'observe'}))
+                self.assertEqual(result['candidate_units'], [unit for unit, _ in planner.UNITS])
+                self.assertEqual(result['selected_units'], ['python-repo'])
+                for unit, _ in planner.UNITS:
+                    self.assertIn('Git checkout attributes: ' + path, result['reasons'][unit])
 
     def test_document_corpus_inputs_select_python(self):
         key = '41' + '9' * 62

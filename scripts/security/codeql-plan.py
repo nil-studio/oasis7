@@ -32,6 +32,10 @@ def document_corpus_input(path):
         'doc/.governance/document-corpus-inventory.json',
         'doc/testing/evidence/inventory.json',
         'doc/.governance/top-level-directory-registry.json',
+        'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json',
+        'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json',
+        'scripts/fixtures/document-corpus-v3/legacy/inventory.json',
+        'scripts/fixtures/document-corpus-v3/legacy/manifest.json',
     } or re.fullmatch(
         r'doc/\.governance/document-corpus/(?:'
         r'(?:objects|semantic/entries|evidence/entries)/[0-9a-f]{2}/[0-9a-f]{64}'
@@ -163,10 +167,16 @@ def plan(args):
             continue
         if path.startswith('scripts/security/') or path == '.github/workflows/codeql.yml':
             all_units('scan configuration: ' + path)
+        elif name == '.gitattributes':
+            all_units('Git checkout attributes: ' + path)
         elif suffix == '.rs' or name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml') or path.startswith('.cargo/'):
             add('rust-repo', path)
         elif suffix in ('.py', '.pyi') or name in ('pyproject.toml', 'requirements.txt', 'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'setup.cfg', 'setup.py'):
             add('python-repo', path)
+        elif path == 'crates/oasis7_viewer/viewer_terminal_shell.css':
+            # Exact Viewer HTML/build/test input; other CSS stays unregistered.
+            # Possible Rust consumers are still added below.
+            add('javascript-repo', path)
         elif suffix in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.html', '.htm', '.vue', '.svelte', '.hbs', '.ejs') or name in ('package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'tsconfig.json'):
             add('javascript-repo', path)
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):

@@ -8,6 +8,7 @@ import signal
 import socket
 import ssl
 import time
+from urllib.parse import urlsplit
 
 
 def write(root, name, value):
@@ -63,7 +64,85 @@ def private_goal_storage_environment(root):
             "OASIS7_PRIVATE_GOAL_KEY_FILE": str(keyfile)}
 
 
-def fixture(smoke, bundle, probe_binary):
+def _origin(value):
+    if not isinstance(value, str) or not value or any(ord(c) <= 32 or ord(c) >= 127 for c in value):
+        raise ValueError("fixture origin must be an ASCII HTTPS origin")
+    try:
+        parsed = urlsplit(value)
+        port_number = parsed.port
+    except ValueError as error:
+        raise ValueError("fixture origin port invalid") from error
+    host = parsed.hostname
+    if (parsed.scheme != "https" or not host or parsed.path or parsed.query or parsed.fragment
+            or parsed.username is not None or parsed.password is not None
+            or (port_number is not None and (not 1 <= port_number <= 65535 or port_number == 443))
+            or value != "https://" + parsed.netloc
+            or ":" in host or host != host.lower() or len(host) > 253
+            or all(c in "0123456789." for c in host)
+            or any(not label or len(label) > 63 or label.startswith("-") or label.endswith("-")
+                   or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in label)
+                   for label in host.split("."))
+            or parsed.netloc != host + (":" + str(port_number) if port_number is not None else "")):
+        raise ValueError("fixture origin must contain only a canonical HTTPS DNS host and optional port")
+    return parsed
+
+
+def authority_binding(smoke, *, public_origin=None, rp_id=None, bootstrap_tls_port=None):
+    """Resolve immutable public authority separately from the loopback TLS socket."""
+    local = _origin(smoke.variables["origin"])
+    if local.hostname != "localhost":
+        raise ValueError("fixture bootstrap TLS certificate is for localhost")
+    origin = smoke.variables["origin"] if public_origin is None else public_origin
+    authority = _origin(origin)
+    expected_rp = authority.hostname
+    rp = expected_rp if rp_id is None else rp_id
+    if rp != expected_rp or (public_origin is None and rp != "localhost"):
+        raise ValueError("fixture RP must exactly match the authority origin host")
+    selected_port = (local.port or 443) if bootstrap_tls_port is None else bootstrap_tls_port
+    if type(selected_port) is not int or not 1 <= selected_port <= 65535:
+        raise ValueError("fixture bootstrap TLS port invalid")
+    return {"origin": origin, "rp_id": rp, "bootstrap_tls_host": "localhost",
+            "bootstrap_tls_port": selected_port}
+
+
+def claim_authority(root, binding):
+    """A fresh root has one setup attempt; never rebind an initialized authority."""
+    if any((root / name).exists() or (root / name).is_symlink()
+           for name in ("preview", "node-keys", "identity.sqlite", "authorization.json")):
+        raise RuntimeError("fixture setup requires a fresh authority root")
+    try:
+        descriptor = os.open(root / "fixture-authority.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError as error:
+        raise RuntimeError("fixture authority already claimed; preserve its binding") from error
+    with os.fdopen(descriptor, "w") as output:
+        json.dump(binding, output)
+        output.flush()
+        os.fsync(output.fileno())
+
+
+def wait_identity_bootstrap(smoke, binding):
+    """Probe the trusted local TLS leaf; preserve the public Host without redirects."""
+    context = ssl.create_default_context(cafile=str(smoke.root / "root.crt"))
+    for _ in range(60):
+        connection = None
+        try:
+            connection = http.client.HTTPSConnection(binding["bootstrap_tls_host"], binding["bootstrap_tls_port"],
+                context=context, timeout=2)
+            connection.request("GET", "/api/public/hosted-account/v2/capabilities",
+                               headers={"Host": urlsplit(binding["origin"]).netloc})
+            response = connection.getresponse()
+            if response.status == 200 and json.loads(response.read(65537))["ok"] is True:
+                return
+        except (OSError, ValueError, KeyError, http.client.HTTPException):
+            pass
+        finally:
+            if connection:
+                connection.close()
+        time.sleep(min(0.25, smoke.remaining()))
+    raise RuntimeError("actual identity database bootstrap did not become ready")
+
+
+def fixture(smoke, bundle, probe_binary, *, public_origin=None, rp_id=None, bootstrap_tls_port=None):
     root = smoke.root
     bundle = Path(bundle).resolve()
     chain = str(bundle / "bin/oasis7_chain_runtime")
@@ -72,8 +151,11 @@ def fixture(smoke, bundle, probe_binary):
     for binary in (chain, launcher, client, probe_binary, str(bundle / "bin/oasis7_viewer_live")):
         if not Path(binary).is_file():
             raise RuntimeError("built actual fixture binary unavailable")
+    binding = authority_binding(smoke, public_origin=public_origin, rp_id=rp_id,
+                                bootstrap_tls_port=bootstrap_tls_port)
+    claim_authority(root, binding)
     identity_http_port = smoke.fixture["identity_upstream"][1]
-    ports = {identity_http_port, int(smoke.variables["origin"].rsplit(":", 1)[1])}
+    ports = {identity_http_port, binding["bootstrap_tls_port"]}
     allocated = []
     while len(allocated) < 3:
         candidate = port()
@@ -101,12 +183,12 @@ def fixture(smoke, bundle, probe_binary):
     public = json.loads((world_root / "viewer.public.json").read_text())
     world, service = public["world"], public["service_public_key"]
     namespace = {"service_id": "cold-entry-smoke", "environment_id": "isolated-test", "instance_epoch": "1"}
-    origin = smoke.variables["origin"]
+    origin = binding["origin"]
     identity_db = root / "identity.sqlite"
     environment = {
         "OASIS7_HOSTED_IDENTITY_V2_ENABLED": "1", "OASIS7_HOSTED_ACCOUNT_REGISTRATION_ENABLED": "1",
         "OASIS7_HOSTED_MACHINE_REGISTRATION_ENABLED": "1", "OASIS7_HOSTED_ACCOUNT_STORE_BACKEND": "file",
-        "OASIS7_HOSTED_WEBAUTHN_RP_ID": "localhost", "OASIS7_HOSTED_WEBAUTHN_ORIGINS": origin,
+        "OASIS7_HOSTED_WEBAUTHN_RP_ID": binding["rp_id"], "OASIS7_HOSTED_WEBAUTHN_ORIGINS": origin,
         "OASIS7_HOSTED_IDENTITY_SQLITE_PATH": str(identity_db), "OASIS7_HOSTED_IDENTITY_SESSION_KEY": secrets.token_hex(32),
         "OASIS7_HOSTED_IDENTITY_SERVICE_ID": namespace["service_id"], "OASIS7_HOSTED_IDENTITY_ENVIRONMENT": namespace["environment_id"],
         "OASIS7_HOSTED_IDENTITY_INSTANCE_EPOCH": "1", "OASIS7_HOSTED_WORLD_IDENTITY_SCOPE": "cold-entry-fixture-scope",
@@ -115,6 +197,8 @@ def fixture(smoke, bundle, probe_binary):
     }
     environment.update(hosted_startup_isolation(root))
     smoke.env.update(environment)
+    if binding["rp_id"] != "localhost" and smoke.env.get("SSL_CERT_FILE") == str(root / "root.crt"):
+        smoke.env.pop("SSL_CERT_FILE")
     # Reuse genuine initializer-produced consumer credentials without printing.
     import shlex
     for line in (world_root / "private/viewer.env").read_text().splitlines():
@@ -140,22 +224,7 @@ def fixture(smoke, bundle, probe_binary):
     launcher_args += launcher_transport_args(identity_http_port, runtime_tcp_port, runtime_websocket_port)
     smoke.stage = "fixture_identity_database_bootstrap"
     original_servers = [smoke.command(chain_args, start=True), smoke.command(launcher_args, start=True)]
-    ready = False
-    for _ in range(60):
-        try:
-            connection = http.client.HTTPSConnection("localhost", int(origin.rsplit(":", 1)[1]),
-                context=ssl.create_default_context(cafile=str(root / "root.crt")), timeout=2)
-            connection.request("GET", "/api/public/hosted-account/v2/capabilities")
-            response = connection.getresponse()
-            ready = response.status == 200 and json.loads(response.read())["ok"] is True
-            connection.close()
-            if ready:
-                break
-        except (OSError, ValueError, KeyError, http.client.HTTPException):
-            pass
-        time.sleep(min(0.25, smoke.remaining()))
-    if not ready:
-        raise RuntimeError("actual identity database bootstrap did not become ready")
+    wait_identity_bootstrap(smoke, binding)
     for process in reversed(original_servers):
         try:
             os.killpg(process.pid, signal.SIGTERM)
@@ -183,7 +252,7 @@ def fixture(smoke, bundle, probe_binary):
     tool = write(root, "tool.json", config)
     command([chain, "devlocal-participant", "prepare", "--config", tool, "--output", str(root / "prepared.json")])
     export = write(root, "export-request.json", {"identity_namespace": {"identity_service_id": namespace["service_id"], "environment_id": namespace["environment_id"]},
-        "rp_config": {"rp_id": "localhost", "allowed_origins": [origin], "version": 1, "identity_instance_epoch": 1}})
+        "rp_config": {"rp_id": binding["rp_id"], "allowed_origins": [origin], "version": 1, "identity_instance_epoch": 1}})
     command([launcher, "--identity-snapshot-export", str(identity_db), export, str(root / "snapshot.json")])
     policy = write(root, "policy.json", {"api_rev": 1, "world_id": world["world_id"], "genesis_digest": world["genesis_digest"],
         "identity_namespace": namespace, "issuer_public_key": issuer, "generation": 1, "enabled": True,
@@ -205,6 +274,7 @@ def fixture(smoke, bundle, probe_binary):
         "OASIS7_HOSTED_PARTICIPANT_ISSUER_PRIVATE_KEY": (root / "issuer.key").read_bytes().hex()})
     identity = {"endpoint": origin, "identity_service_id": namespace["service_id"], "environment_id": namespace["environment_id"],
         "audience": origin, "state_directory": str(root / "login-vault")}
+    smoke.variables["origin"] = origin
     return {"client_binary": client, "setup_commands": [], "server_commands": [chain_args, launcher_args],
         "restart_committed_chain": True,
         "initial_prepared": str(root / "prepared.json"), "canonical_probe": [probe_binary, str(root / "orchestration"), str(root / "executor-config/executor.json")],
