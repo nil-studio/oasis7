@@ -1077,25 +1077,23 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertIn('command_center', CONFIG['package_groups'][package])
 
     def test_corpus_data_uses_baseline_and_implementation_uses_platforms(self):
-        workflow = (ROOT / '.github/workflows/document-corpus-platform.yml').read_text()
-        for path in ('doc/.governance/document-corpus-inventory.json',
-                     'doc/.governance/document-corpus/**', 'doc/testing/evidence/inventory.json'):
-            self.assertNotIn('      - ' + path + '\n', workflow)
-        for path in ('scripts/document_corpus.py', 'scripts/document_evidence_policy.py',
-                     'scripts/document-corpus-inventory*', 'scripts/doc-evidence-inventory-check*',
-                     'scripts/fixtures/document-corpus-v3/**', '.gitattributes', '.gitignore'):
-            self.assertEqual(workflow.count('      - ' + path + '\n'), 2)
-        for os in ('ubuntu-24.04', 'macos-latest', 'windows-latest'):
-            self.assertIn('- ' + os, workflow)
+        for path in (
+            '.github/workflows/document-corpus-platform.yml',
+            'doc/.governance/document-corpus-inventory.json',
+            'doc/.governance/document-corpus',
+            'doc/testing/evidence/inventory.json',
+            'scripts/document_corpus.py',
+            'scripts/document-corpus-inventory.py',
+            'scripts/document-corpus-inventory-check.py',
+            'scripts/doc-evidence-inventory-check.py',
+        ):
+            self.assertFalse((ROOT / path).exists(), path)
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         self.assertIn('baseline) run_required_gate_checks', driver)
         baseline = driver.split('run_required_gate_checks() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('run_product_doc_governance_check', baseline)
         governance = (ROOT / 'scripts/doc-governance-check.sh').read_text()
-        self.assertIn('scripts/document-corpus-inventory-check.py', governance)
-        checker = (ROOT / 'scripts/document-corpus-inventory-check.py').read_text()
-        self.assertIn('dc.validate_evidence(view, model)', checker)
-        self.assertIn('evidence_policy.validate_evidence_policy(view, model, baseline)', checker)
+        self.assertNotIn('scripts/document-corpus-inventory-check.py', governance)
 
     def test_baseline_document_range_binds_ordinary_event_and_fixed_full_source(self):
         baseline = JOBS['baseline']
@@ -2492,7 +2490,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ])
         self.assertIn("needs.collect-wasm-summaries.result == 'success'", jobs['verify-wasm-determinism'])
         self.assertNotIn('continue-on-error:', workflow)
-        for filename in ('wasm-determinism-gate.yml', 'document-corpus-platform.yml'):
+        for filename in ('wasm-determinism-gate.yml',):
             workflow = (ROOT / '.github/workflows' / filename).read_text()
             self.assertIn("group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}", workflow)
             self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)

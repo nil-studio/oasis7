@@ -24,7 +24,7 @@
 - [五节点清单](public-testnet-five-node-inventory-2026-06-23.md)是带历史来源的 operator inventory，须先按现行 runbook 重新捕获 deployment truth；[Token 创世模板](token-genesis-allocation-audit-template.md)是未填充模板。这两类都不能当作已执行验收。
 
 ## 逐对象语义清单与新鲜度边界
-- [`inventory.json`](inventory.json) 是 v3 的静态委托入口，声明本子域逐对象覆盖范围；每个证据源对应的机器快照和 semantic/evidence review 记录存于 `doc/.governance/document-corpus/` 分片。定位和维护方式见 [`Document Corpus Inventory v3`](../../engineering/doc-governance/document-corpus-inventory-v3.design.md)。
+- 本子域证据按各自关联的专业 authority、QA 与 domain owner 治理，不再维护 `inventory.json` 或 `doc/.governance/document-corpus/` 逐对象 hash 分片。
 - 清单快照为 2026-08-02。`WINDOW_OBSERVATION` 只保存一个有边界、内容寻址的观测窗口，不构成当前 endpoint availability、fleet health、release readiness、recovery completion 或领域正确性结论；当前行动必须回到 formal runbook，重新采集 deployment truth 与同窗健康证据，再由对应领域 owner、QA/LiveOps 裁决。
 - `HISTORICAL_PROVENANCE`、`ARCHIVED_PROVENANCE` 与 `SUPPORTING_ARTIFACT` 不得被重新表述为当前发布或运行态真值。`AMBIGUOUS_LIFECYCLE` 必须先由清单列出的领域 owner 裁决。
 

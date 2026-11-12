@@ -67,11 +67,6 @@ fail() {
   failures=$((failures + 1))
 }
 
-if ! "$PYTHON_BIN" "$repo_root/scripts/document-corpus-inventory-check.py" --repo-root "$repo_root"; then
-  fail "document corpus inventory contract"
-fi
-
-
 run_product_doc_content_check() {
   local base_oid="${OASIS7_PRODUCT_DOC_BASE:-}"
   local head_oid="${OASIS7_PRODUCT_DOC_HEAD:-}"

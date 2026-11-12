@@ -42,21 +42,6 @@ if [[ ! -x "$REAL_PYTHON" ]] || ! "$REAL_PYTHON" -c 'import ast; print("ready")'
 fi
 cp "$ROOT_DIR/scripts/doc-governance-check.sh" "$FIXTURE/scripts/doc-governance-check.sh"
 cp "$ROOT_DIR/scripts/find-python-with-module.sh" "$FIXTURE/scripts/find-python-with-module.sh"
-cat >"$FIXTURE/scripts/document-corpus-inventory-check.py" <<'PY'
-#!/usr/bin/env python3
-import os
-from pathlib import Path
-import sys
-
-log = os.environ.get("DOC_CORPUS_CHECK_LOG")
-if log:
-    with Path(log).open("a", encoding="utf-8") as stream:
-        stream.write("called\n")
-if os.environ.get("DOC_CORPUS_FAIL") == "1":
-    print("document-corpus-inventory: fixture injected failure", file=sys.stderr)
-    raise SystemExit(1)
-print("document-corpus-inventory: fixture OK")
-PY
 cat >"$FIXTURE/scripts/product-doc-governance-check.py" <<'PY'
 #!/usr/bin/env python3
 raise SystemExit(0)
@@ -381,8 +366,7 @@ cp "$TMPDIR/doc-readme-pinned-history.md" "$FIXTURE/doc/README.md"
 
 if ! (
   cd "$FIXTURE"
-  : >"$TMPDIR/corpus-check.log"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" CONTENT_CHECK_LOG="$TMPDIR/content-check.log" DOC_CORPUS_CHECK_LOG="$TMPDIR/corpus-check.log" PRODUCT_DOC_CONTENT_ARGS="$TMPDIR/product-doc-content.args" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
+  OASIS7_TEST_PYTHON="$REAL_PYTHON" CONTENT_CHECK_LOG="$TMPDIR/content-check.log" PRODUCT_DOC_CONTENT_ARGS="$TMPDIR/product-doc-content.args" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
 ) >"$TMPDIR/full-corpus.out" 2>"$TMPDIR/full-corpus.err"; then
   echo "doc-governance-check.test: --full-corpus caller integration unexpectedly failed" >&2
   cat "$TMPDIR/full-corpus.out" >&2
@@ -390,8 +374,6 @@ if ! (
   exit 1
 fi
 grep -Fxq -- '--full-corpus' "$TMPDIR/product-doc-content.args"
-[[ "$(wc -l <"$TMPDIR/corpus-check.log" | tr -d ' ')" == 1 ]]
-grep -Fxq 'document-corpus-inventory: fixture OK' "$TMPDIR/full-corpus.out"
 
 # Every strict scoped check runs before the separate historical warning pass.
 "$REAL_PYTHON" - "$TMPDIR/content-check.log" "$FIXTURE" <<'PY'
@@ -442,17 +424,6 @@ if (
   echo "doc-governance-check.test: full-corpus mode masked a changed-range product failure" >&2
   exit 1
 fi
-
-if (
-  cd "$FIXTURE"
-  : >"$TMPDIR/corpus-failure.log"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" DOC_CORPUS_CHECK_LOG="$TMPDIR/corpus-failure.log" DOC_CORPUS_FAIL=1 RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
-) >"$TMPDIR/corpus-failure.out" 2>"$TMPDIR/corpus-failure.err"; then
-  echo "doc-governance-check.test: corpus checker failure was not propagated" >&2
-  exit 1
-fi
-grep -Fq 'document corpus inventory contract' "$TMPDIR/corpus-failure.out"
-[[ "$(wc -l <"$TMPDIR/corpus-failure.log" | tr -d ' ')" == 1 ]]
 
 # Historical professional-design warnings must not mask the strict changed-scope
 # gate: retain the trusted range and reject a malformed changed design.

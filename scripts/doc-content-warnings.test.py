@@ -183,7 +183,7 @@ class WarningTests(unittest.TestCase):
         self.assertNotIn('|| true', historical)
         self.assertIn('scripts/product-doc-content-check.py \\', text)
         self.assertIn('scripts/doc-core-content-check.py \\', text)
-        self.assertIn('document-corpus-inventory-check.py" --repo-root',text)
+        self.assertNotIn('document-corpus-inventory-check.py', text)
         self.assertNotIn('continue-on-error',text)
 
 if __name__=='__main__': unittest.main()

@@ -21,7 +21,6 @@
 | 系统设计写作规范（standalone content standard） | `doc/engineering/doc-governance/system-design-writing-standard.design.md` | PR、实际 CI 与评审记录（Issue 按需） |
 | 项目管理记录规范（standalone content standard） | `doc/engineering/doc-governance/project-management-record-standard.design.md` | PR、实际 CI 与评审记录（Issue 按需） |
 | 跨层要求追踪规范（standalone content standard） | [cross-layer-requirements-traceability.design.md](doc-governance/cross-layer-requirements-traceability.design.md) | PR、实际 CI 与评审记录（Issue 按需） |
-| Document Corpus Inventory v3（standalone storage/admission design） | `doc/engineering/doc-governance/document-corpus-inventory-v3.design.md` | PR、实际 CI 与评审记录（Issue 按需） |
 | `doc/engineering/rust-governance/rust-1200-line-root-cause-governance-2026-03-29.prd.md` | 不另建 design：单一文件扫描与结构切片合同由该专业 PRD 完整承载 | 当前 PR、扫描与定向测试结果；旧批次见 Git history |
 | Historical document-governance triplets | Current organization and consumption rules: `doc/engineering/doc-governance/doc-structure-standard.design.md`; inventory and maintenance-cost routing: `doc/engineering/governance/README.md` | Historical decision/rollout evidence: Git history and GitHub task issue evidence comments |
 | Historical self-evolution / memory / borrowing / skill-surface triplets | Current task/evidence rules: `doc/engineering/workflow/source-of-truth.md`; current pending work: PR and optional Issue; professional scope: `doc/engineering/prd.md`; default-vs-library skill reachability: `.agents/skills/README.md` | Historical decision and rollout evidence: Git history and PR、实际 CI 与评审记录（Issue 按需） |
@@ -35,6 +34,7 @@
 - `engineering` 根目录默认只保留 `README.md / prd.md / design.md / prd.index.md` 四个模块文件入口；PR、实际 CI 与评审记录承载交付事实，Issue 按需；治理专题已分别下沉到 `doc-governance/`、`rust-governance/` 与 `governance/`。`doc-structure-standard` 负责组织、职责和消费层边界，`governance/README.md` 负责 inventory 和维护成本 follow-up 路由；workflow source of truth 与 `.agents/skills/README.md` 分别承接 self-evolution task/evidence boundary 与 skill reachability。已完成且规则已被这些 current authorities 承接的一次性专题不再作为 live 三件套暴露。`doc/devlog` 的当前入口是 `doc/devlog/README.md` compact archive summary，不再通过 active 专题三件套暴露。
 
 ## 历史审计留痕
+- 2026-11 `document-corpus-inventory-v3` 逐对象 hash 分片与静态委托入口已退役删除；一级物理目录登记与四模块边界继续由 `doc/.governance/top-level-directory-registry.json` 与 `scripts/doc-governance-check.sh` 承接，历史审读分片保留在 git history 中。
 - 2026-04 `p2p-node-path-governance` 一次性落位三件套已退役删除；当前 `p2p/node` 的首读分流、主题簇与维护触发器由 `doc/p2p/node/README.md` 承接，历史实施证据保留在 git history 与 GitHub task evidence 中。
 - 2026-04 `testing-evidence-path-governance` 一次性落位三件套已退役删除；当前 `testing/evidence` 的分流与维护边界由 `doc/testing/evidence/README.md` 承接，历史实施证据保留在 git history 与 GitHub task evidence 中。
 - 2026-04 `world-simulator-viewer-path-governance` 一次性落位三件套已退役删除；当前 `world-simulator/viewer` 的首读分流、主题簇与维护触发器由 `doc/world-simulator/viewer/README.md` 承接，历史实施证据保留在 git history 与 GitHub task evidence 中。

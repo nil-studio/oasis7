@@ -4310,9 +4310,25 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(plan['oasis7_required_packages'], [])
         self.assertEqual(plan['formal_suites'], [])
 
+    def with_doc_control_contract(self):
+        config = self.trusted()
+        self.assertNotIn('scripts/document_corpus.py', config['scoped_control_paths'])
+        self.assertNotIn('scripts/document_corpus.py', config['python_control_contracts'])
+        path = 'scripts/ci-doc-control.py'
+        config['scoped_control_paths'][path] = ['doc_checker_contracts']
+        config['python_control_contracts'][path] = {
+            'group': 'doc_checker_contracts',
+            'tests': [
+                'scripts/doc-evidence-inventory-check.test.py',
+                'scripts/document-corpus-inventory-check.test.py',
+                'scripts/product-doc-governance-check.test.py',
+            ],
+        }
+        return config
+
     def test_document_control_keeps_its_own_contract_and_trusted_runner(self):
-        path = 'scripts/document_corpus.py'
-        plan = selector.select(self.trusted(), self.base, self.change(path))
+        path = 'scripts/ci-doc-control.py'
+        plan = selector.select(self.with_doc_control_contract(), self.base, self.change(path))
         self.assertEqual(plan['scope'], 'targeted')
         self.assertEqual(set(plan['groups']),
                          {'baseline', 'doc_checker_contracts', 'workflow_governance'})
@@ -4320,8 +4336,8 @@ class PythonControlContracts(unittest.TestCase):
                       plan['python_control_tests']['doc_checker_contracts'])
 
     def test_minimum_document_test_only_removal_keeps_base_contracts(self):
-        config = self.trusted()
-        tests = config['python_control_contracts']['scripts/document_corpus.py']['tests']
+        config = self.with_doc_control_contract()
+        tests = config['python_control_contracts']['scripts/ci-doc-control.py']['tests']
         for path in tests:
             with self.subTest(path=path):
                 self.assertNotIn(path, config['python_control_contracts'])
@@ -4338,7 +4354,7 @@ class PythonControlContracts(unittest.TestCase):
                 self.base = head
 
     def test_minimum_test_changes_union_with_other_contracts_and_shared_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
         document_test = 'scripts/document-corpus-inventory-check.test.py'
         cache_source = 'scripts/ci-ecs-cache.py'
@@ -4358,9 +4374,9 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(full['python_control_tests'], plan['python_control_tests'])
 
     def test_only_exact_trusted_minimum_tests_register_reverse_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         path = 'scripts/registered-minimum.test.py'
-        config['python_control_contracts']['scripts/document_corpus.py']['tests'].append(path)
+        config['python_control_contracts']['scripts/ci-doc-control.py']['tests'].append(path)
         head = self.change(path)
         plan = selector.select(config, self.base, head)
         self.assertEqual(set(plan['groups']),
@@ -4455,9 +4471,9 @@ class PythonControlContracts(unittest.TestCase):
         self.assertEqual(plan['architecture']['packages'], ['core'])
 
     def test_control_contracts_union_with_rust_other_rules_and_shared_inputs(self):
-        config = self.trusted()
+        config = self.with_doc_control_contract()
         config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
-        path = 'scripts/document_corpus.py'
+        path = 'scripts/ci-doc-control.py'
         config['rules'].append({'match': [path], 'groups': ['net'], 'reason': 'additional actual consumer'})
         self.write('crates/core/src/lib.rs', '// mixed native change\n')
         head = self.change(path)
