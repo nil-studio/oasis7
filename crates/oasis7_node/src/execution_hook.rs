@@ -507,6 +507,16 @@ pub trait NodeExecutionHook: Send {
         Ok(false)
     }
 
+    /// Qualified restoration for an exact locally recovered publication.
+    /// Unsupported hooks must not equate a height-only restore with a verified binding.
+    fn restore_to_verified_commit(
+        &mut self,
+        _context: &NodeExecutionCommitContext,
+        _expected: &NodeExecutionCommitResult,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+
     fn export_checkpoint_bundle(
         &mut self,
         _height: u64,

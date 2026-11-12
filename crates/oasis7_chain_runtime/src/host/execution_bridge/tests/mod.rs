@@ -793,3 +793,5 @@ fn persist_test_external_effect(
 }
 
 mod controlled_history;
+
+mod driver_qualified_publication_recovery;

@@ -149,16 +149,21 @@ fn remote_apply_repairs_stale_same_writer_epoch_guard_for_midstream_record() {
     let config_b = NodeReplicationConfig::new(dir_b.clone()).expect("config b");
 
     fs::create_dir_all(&dir_a).expect("create dir a");
-    fs::write(
-        dir_a.join("replication_guard.json"),
-        br#"{"writer_id":"node-a","writer_epoch":2,"last_sequence":2}"#,
-    )
-    .expect("write local guard a");
-    fs::write(
-        dir_a.join("replication_writer_state_node-a.json"),
-        br#"{"writer_epoch":2,"last_sequence":2,"last_replicated_height":2}"#,
-    )
-    .expect("write writer state a");
+    // Seed real signed-message/CAS progress instead of an impossible watermark-only root.
+    fs::write(dir_a.join("replication_writer_state_node-a.json"),
+        br#"{"writer_epoch":2,"last_sequence":0,"last_replicated_height":0}"#).expect("seed epoch");
+    let mut seed = ReplicationRuntime::new(&config_a, "node-a").expect("seed runtime");
+    for height in 1..=2 {
+        let decision = PosDecision {
+            height, slot: height, epoch: 0, proposer_id: "node-a".into(),
+            status: PosConsensusStatus::Committed, block_hash: format!("seed-{height}"),
+            action_root: empty_action_root(), committed_actions: vec![], approved_stake: 100,
+            rejected_stake: 0, required_stake: 67, total_stake: 100,
+        };
+        seed.build_local_commit_message("node-a",world_id,1000+height as i64,&decision,None,None)
+            .expect("seed commit");
+    }
+    drop(seed);
     fs::create_dir_all(&dir_b).expect("create dir b");
     fs::write(
         dir_b.join("replication_remote_guards.json"),
