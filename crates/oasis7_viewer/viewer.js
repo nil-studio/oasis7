@@ -21775,7 +21775,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	});
 	let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = "", currentQuery = {};
 	let cameraBounds = null, cameraKey = "", timer = null, command = 0, disposed = false;
-	let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
+	let following = null, selectedCoreKey = null, inFlight = null, dirty = false, deferredCamera = false;
 	let presented = null, pending = null, pendingTimer = null;
 	let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartViews = /* @__PURE__ */ new WeakSet();
 	function cancelOverview(status = null, stop = false) {
@@ -21985,6 +21985,13 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		if (intent) {
 			setQueryStatus("reading");
 			currentQuery = { ...intent.query };
+			if (deferredCamera) dirty = true;
+		} else if (deferredCamera) {
+			currentQuery = {
+				...currentQuery,
+				bounds: cameraBounds
+			};
+			deferredCamera = false;
 		}
 		const query = { ...intent?.query || currentQuery };
 		delete query.pinned_entities;
@@ -22043,6 +22050,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		command += 1;
 		cancelScheduled();
 		client.clearChanges();
+		deferredCamera = false;
 		let resolve;
 		const result = new Promise((done) => resolve = done);
 		const intent = {
@@ -22296,6 +22304,12 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 				...currentQuery,
 				bounds: cameraBounds
 			};
+			if (explicitQuery) {
+				deferredCamera = true;
+				dirty = true;
+				return;
+			}
+			deferredCamera = false;
 			queryToken += 1;
 			schedule();
 		},
@@ -22312,6 +22326,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 			cancelScheduled();
 			command += 1;
 			dirty = false;
+			deferredCamera = false;
 			lastSnapshot = null;
 			lastPins = "";
 			cameraBounds = null;
