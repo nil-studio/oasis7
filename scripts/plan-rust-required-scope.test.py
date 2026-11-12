@@ -3417,6 +3417,220 @@ class Selection(unittest.TestCase):
         self.assertTrue(gated['test_policy_changed'])
         self.assertEqual(gated['test_policy_paths'], [path])
 
+    def integration_target_fixture(self, declarations='', *, edition='edition="2024"', features=None):
+        # A dependency-free real Cargo workspace also acts as the execution
+        # oracle; the selector still reads immutable Git revisions.
+        self.write('Cargo.toml', '[workspace]\nmembers=["crates/core"]\nresolver="2"\n'
+                   '[workspace.package]\nedition="2024"\n')
+        self.write('crates/core/Cargo.toml', '[package]\nname="core"\nversion="0.1.0"\n' + edition +
+                   '\n[features]\n' + (features if features is not None else
+                   'test_tier_required=[]\ntest_tier_full=["test_tier_required"]\n') + declarations)
+        self.write('crates/core/src/lib.rs', '')
+
+    def test_explicit_full_target_keeps_automatic_file_and_directory_siblings(self):
+        self.integration_target_fixture(
+            '\n[[test]]\nname="full"\nrequired-features=["test_tier_full"]\n',
+            edition='edition.workspace=true')
+        self.write('crates/core/tests/full.rs',
+                   '#[cfg(not(feature="test_tier_full"))] compile_error!("full target compiled");\n'
+                   '#[test] fn full_case() {}\n')
+        for name, relative in (('smoke', 'tests/smoke.rs'), ('nested', 'tests/nested/main.rs')):
+            path = 'crates/core/' + relative
+            self.write(path, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(path, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            head = self.commit()
+            with self.subTest(target=name):
+                legacy = selector.select(self.fast_config(), base, head, profile='pr-fast')
+                self.assertFalse(legacy['test_policy_changed'])
+                config = self.bounded_config((path,))
+                config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name=name)
+                selected = selector.select(config, base, head, profile='pr-fast')
+                self.assertFalse(selected['test_policy_changed'])
+                self.assertIn('ordinary_fast_targets', selected)
+                output = self.ordinary_route_cargo(
+                    ['-p', 'core', '--test', name, '--no-default-features', '--features', 'test_tier_required'])
+                self.assertIn('added ... ok', output)
+                self.assertIn('2 passed; 0 failed', output)
+
+    def test_explicit_test_roots_match_cargo_paths_and_overrides(self):
+        self.integration_target_fixture('\n[[test]]\nname="declared"\npath="custom/entry.rs"\n'
+                                        '\n[[test]]\nname="nested"\n',
+                                        edition='edition="2024"\nautotests=false')
+        for relative in ('custom/entry.rs', 'tests/nested/main.rs', 'tests/automatic.rs'):
+            self.write('crates/core/' + relative, '#[test] fn existing() {}\n')
+        sources = {str(path): path.read_bytes() for path in Path('crates/core').rglob('*.rs')}
+        manifest = selector.tomllib.loads(Path('crates/core/Cargo.toml').read_text())
+        expected = {'declared': 'crates/core/custom/entry.rs', 'nested': 'crates/core/tests/nested/main.rs'}
+        self.assertEqual({name: value[0] for name, value in
+                          selector.integration_test_targets(sources, 'crates/core', manifest).items()}, expected)
+        metadata = json.loads(subprocess.check_output(
+            ['cargo', 'metadata', '--no-deps', '--offline', '--format-version', '1'], text=True))
+        actual = {target['name']: str(Path(target['src_path']).relative_to(Path.cwd()))
+                  for target in metadata['packages'][0]['targets'] if target['kind'] == ['test']}
+        self.assertEqual(actual, expected)
+        # Both the declared name and its path override automatic discovery;
+        # neither dormant file can independently witness a selected target.
+        manifest['package']['autotests'] = True
+        manifest['test'][0].update(name='automatic', path='tests/nested/main.rs')
+        manifest['test'].pop()
+        self.assertEqual({name: value[0] for name, value in
+                          selector.integration_test_targets(sources, 'crates/core', manifest).items()},
+                         {'automatic': 'crates/core/tests/nested/main.rs'})
+
+    def test_overridden_automatic_path_keeps_its_actual_module_directory(self):
+        # With name=foo the automatic foo target is overridden; name=driver
+        # leaves foo as another real target. Neither gives foo crate semantics
+        # when it is imported as a module by the selected driver.
+        for name in ('foo', 'driver'):
+            self.integration_target_fixture('\n[[test]]\nname="' + name + '"\npath="tests/driver.rs"\n')
+            self.write('crates/core/tests/driver.rs', 'mod foo;\n#[test] fn existing() {}\n')
+            self.write('crates/core/tests/foo.rs', 'mod checks;\n')
+            self.write('crates/core/tests/foo/checks.rs', '#[test] fn actual_child() {}\n')
+            path = 'crates/core/tests/checks.rs'
+            self.write(path, '#[test] fn unselected() { assert_eq!(1, 1); }\n')
+            base = self.commit()
+            self.write(path, '#[test] fn unselected() { assert_eq!(2, 2); }\n')
+            config = self.bounded_config((path,))
+            config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name=name)
+            with self.subTest(target=name):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertNotIn('ordinary_fast_targets', plan)
+                output = self.ordinary_route_cargo(
+                    ['-p', 'core', '--test', name, '--no-default-features', '--features', 'test_tier_required'])
+                self.assertIn('foo::checks::actual_child ... ok', output)
+                self.assertNotIn('unselected', output)
+
+    def test_full_target_imported_as_module_uses_the_selected_root_context(self):
+        self.integration_target_fixture(
+            '\n[[test]]\nname="full"\npath="custom/foo.rs"\nrequired-features=["test_tier_full"]\n'
+            '\n[[test]]\nname="driver"\npath="custom/driver.rs"\n')
+        self.write('crates/core/custom/driver.rs', 'mod foo;\n#[test] fn existing() {}\n')
+        self.write('crates/core/custom/foo.rs', 'mod checks;\n')
+        actual, decoy = 'crates/core/custom/foo/checks.rs', 'crates/core/custom/checks.rs'
+        self.write(actual, '#[test] fn actual_child() { assert_eq!(1, 1); }\n')
+        self.write(decoy, '#[test] fn other_target_child() { assert_eq!(1, 1); }\n')
+        base = self.commit()
+        for path, expected in ((actual, True), (decoy, False)):
+            self.write(path, Path(path).read_text().replace('(1, 1)', '(2, 2)'))
+            config = self.bounded_config((path,))
+            config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name='driver')
+            head = self.commit()
+            with self.subTest(path=path):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertEqual('ordinary_fast_targets' in plan, expected)
+                self.assertEqual(plan['test_policy_changed'], not expected)
+            base = head
+        output = self.ordinary_route_cargo(
+            ['-p', 'core', '--test', 'driver', '--no-default-features', '--features', 'test_tier_required'])
+        self.assertIn('foo::checks::actual_child ... ok', output)
+        self.assertNotIn('other_target_child', output)
+
+    def test_selected_module_directory_must_match_its_actual_mount(self):
+        for name, literal in (('helper', True), ('lib', False), ('main', False)):
+            self.integration_target_fixture('\n[[test]]\nname="full"\nrequired-features=["test_tier_full"]\n')
+            self.write('crates/core/tests/full.rs', '#[test] fn full_case() {}\n')
+            mount = '#[path="helper.rs"] mod helper;' if literal else 'mod ' + name + ';'
+            self.write('crates/core/tests/probe.rs', mount + '\n#[test] fn existing() {}\n')
+            self.write('crates/core/tests/' + name + '.rs', 'mod checks;\n')
+            sibling, nested = 'crates/core/tests/checks.rs', 'crates/core/tests/' + name + '/checks.rs'
+            actual, decoy = (sibling, nested) if literal else (nested, sibling)
+            self.write(actual, '#[test] fn actual_child() {}\n')
+            self.write(decoy, '#[test] fn decoy() { assert_eq!(1, 1); }\n')
+            base = self.commit()
+            self.write(decoy, '#[test] fn decoy() { assert_eq!(2, 2); }\n')
+            config = self.bounded_config((decoy,))
+            config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name='probe')
+            with self.subTest(name=name, literal=literal):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertNotIn('ordinary_fast_targets', plan)
+                output = self.ordinary_route_cargo(
+                    ['-p', 'core', '--test', 'probe', '--no-default-features', '--features', 'test_tier_required'])
+                self.assertIn(name + '::checks::actual_child ... ok', output)
+                self.assertNotIn('decoy', output)
+
+    def test_integration_target_ambiguity_and_legacy_auto_settings_are_conservative(self):
+        sources = {'crates/core/tests/smoke.rs': b'', 'crates/core/tests/full.rs': b''}
+        manifest = {'package': {'name': 'core', 'edition': '2024'},
+                    'test': [{'name': 'full', 'required-features': ['test_tier_full']}]}
+        for change in ('duplicate', 'ambiguous', 'missing', 'unknown-edition', 'invalid-auto'):
+            candidate, files = copy.deepcopy(manifest), dict(sources)
+            if change == 'duplicate':
+                candidate['test'].append(dict(candidate['test'][0]))
+            elif change == 'ambiguous':
+                files['crates/core/tests/full/main.rs'] = b''
+            elif change == 'missing':
+                del files['crates/core/tests/full.rs']
+            elif change == 'unknown-edition':
+                candidate['package']['edition'] = '2099'
+            else:
+                candidate['package']['autotests'] = 'true'
+            with self.subTest(change=change):
+                self.assertEqual(selector.integration_test_targets(files, 'crates/core', candidate), {})
+        for edition in (None, '2015'):
+            manifest['package'].pop('edition', None)
+            if edition is not None:
+                manifest['package']['edition'] = edition
+            self.assertNotIn('smoke', selector.integration_test_targets(sources, 'crates/core', manifest))
+            manifest['package']['autotests'] = True
+            self.assertIn('smoke', selector.integration_test_targets(sources, 'crates/core', manifest))
+            manifest['package'].pop('autotests')
+
+    def test_selected_manifest_gate_uses_local_feature_closure_and_root_directory(self):
+        self.integration_target_fixture(
+            '\n[[test]]\nname="selected"\npath="custom/entry.rs"\nrequired-features=["hidden"]\n',
+            features='test_tier_required=["alias"]\nalias=["hidden"]\nhidden=[]\n'
+                     'test_tier_full=["test_tier_required"]\n')
+        self.write('crates/core/custom/entry.rs', 'mod checks;\n')
+        path = 'crates/core/custom/checks.rs'
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        config = self.bounded_config((path,))
+        config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name='selected')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertIn('ordinary_fast_targets', plan)
+        output = self.ordinary_route_cargo(
+            ['-p', 'core', '--test', 'selected', '--no-default-features', '--features', 'test_tier_required'])
+        self.assertIn('checks::added ... ok', output)
+
+    def test_selected_cfg_and_manifest_gate_share_actual_defaults_and_aliases(self):
+        for default_features, enabled in ((False, False), (True, True)):
+            self.integration_target_fixture(
+                '\n[[test]]\nname="selected"\nrequired-features=["hidden"]\n',
+                features='default=["alias"]\nalias=["hidden"]\nhidden=[]\n'
+                         'test_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
+            path = 'crates/core/tests/selected.rs'
+            self.write(path, '#![cfg(feature="hidden")]\n#[test] fn existing() { assert_eq!(1, 1); }\n')
+            base = self.commit()
+            self.write(path, '#![cfg(feature="hidden")]\n#[test] fn existing() { assert_eq!(2, 2); }\n')
+            config = self.bounded_config((path,))
+            config['ordinary_fast_targets']['core-lib'].update(
+                target_kind='test', target_name='selected', default_features=default_features)
+            with self.subTest(default_features=default_features):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual('ordinary_fast_targets' in plan, enabled)
+                self.assertEqual(plan['test_policy_changed'], not enabled)
+
+    def test_transitive_feature_cannot_prove_a_negated_selected_route(self):
+        self.integration_target_fixture(features='test_tier_required=["hidden"]\nhidden=[]\n'
+                                        'test_tier_full=["test_tier_required"]\n')
+        self.write('crates/core/src/lib.rs', '#[cfg(all(test, not(feature="hidden")))] mod checks;\n')
+        path = 'crates/core/src/checks.rs'
+        self.write(path, '#[test] fn existing() { assert_eq!(1, 1); }\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() { assert_eq!(2, 2); }\n')
+        plan = selector.select(self.bounded_config((path,)), base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+        output = self.ordinary_route_cargo(
+            ['-p', 'core', '--lib', '--no-default-features', '--features', 'test_tier_required'], list_only=True)
+        self.assertNotIn('checks::existing', output)
+        self.assertIn('0 tests', output)
+
     def test_fast_unproven_new_case_gates_or_macro_context_are_not_ordinary_additions(self):
         config = self.fast_config()
         path = 'crates/core/src/lib.rs'

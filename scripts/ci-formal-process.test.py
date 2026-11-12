@@ -5445,12 +5445,14 @@ class Process(unittest.TestCase):
             root = Path(temporary).resolve()
             config, _ = self.prepare_target_workspace(root, '#[test] fn required_lib() {}\n')
             manifest_path = root / 'codec/Cargo.toml'
-            manifest_path.write_text(manifest_path.read_text() + 'test_tier_full=["test_tier_required"]\n')
+            manifest_path.write_text(manifest_path.read_text() + 'test_tier_full=["test_tier_required"]\n'
+                '\n[[test]]\nname="scale"\npath="tests/scale.rs"\nrequired-features=["test_tier_full"]\n')
             (root / 'codec/tests').mkdir()
             (root / 'codec/tests/required.rs').write_text(
                 '#[test] fn required_chunk() { assert_eq!(2 * 65536 + 17, 131089); }\n')
             (root / 'codec/tests/scale.rs').write_text('''
-#![cfg(feature="test_tier_full")]
+#[cfg(not(feature="test_tier_full"))]
+compile_error!("full scale target must not be compiled by the required tuple");
 #[test] fn full_scale() {
     std::fs::write(std::env::var("SCALE_WITNESS").unwrap(), "full executed").unwrap();
     assert!(std::env::var_os("FAIL_SCALE").is_none(), "real full scale failure");
@@ -5485,8 +5487,9 @@ class Process(unittest.TestCase):
                                          for binary in manifest['binaries'].values()), int(risk))
                     original = [binary for binary in manifest['binaries'].values()
                                 if binary.get('variant') == 'required' and binary.get('target') == 'scale']
-                    self.assertEqual(len(original), 1)
-                    self.assertEqual(original[0]['tests'], ['full_scale'] if expanded else [])
+                    self.assertEqual(len(original), int(expanded))
+                    if expanded:
+                        self.assertEqual(original[0]['tests'], ['full_scale'])
                     self.assertEqual(sum('required_chunk' in binary.get('tests', [])
                                          for binary in manifest['binaries'].values()), 1)
                     if risk and not expanded:
