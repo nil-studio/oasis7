@@ -1050,8 +1050,8 @@ class Selection(unittest.TestCase):
         head = self.commit()
         workflow = (HERE.parent / '.github/workflows/rust.yml').read_text()
         step = workflow.split('        name: Select using trusted baseline Git data', 1)[1]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1]
-                                .split('      - id: formal-select', 1)[0])
+        step = step.split('\n      - ', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
         with tempfile.TemporaryDirectory() as temporary:
             runner = Path(temporary)
             (runner / 'bin').mkdir()
