@@ -14,7 +14,7 @@ const {chromium}=createRequire(join(modules,'resource-capability.cjs'))('playwri
 if(!process.env.VIEWER_RESOURCE_OUTPUT)throw Error('declare fresh VIEWER_RESOURCE_OUTPUT');
 const out=resolve(process.env.VIEWER_RESOURCE_OUTPUT);mkdirSync(dirname(out),{recursive:true});mkdirSync(out);
 const summary={source:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),groups:[],limitations:['Owned process RSS sum may count shared pages repeatedly.','No application cache, GPU total allocation, physical presentation or P6 verdict.'],scripts:{}};
-for(const file of ['viewer-owned-resource-capability.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-startup-context.mjs'])summary.scripts[file]=createHash('sha256').update(readFileSync(new URL(file,import.meta.url))).digest('hex');
+for(const file of ['viewer-owned-resource-capability.mjs','viewer-owned-resource-os.mjs','viewer-owned-resource-policy.mjs','viewer-owned-startup-context.mjs','world-view-frame-capability.mjs'])summary.scripts[file]=createHash('sha256').update(readFileSync(new URL(file,import.meta.url))).digest('hex');
 const timer=setTimeout(()=>{summary.error='120s hard stop; owned cleanup unproven';try{writeFileSync(join(out,'summary.json'),JSON.stringify(summary,null,2));}catch(error){console.error(error);}process.exit(1);},120000);
 let server,context;
 const boundedClose=async()=>{let timer;try{await Promise.race([context.close(),new Promise((_,no)=>{timer=setTimeout(()=>no(Error('owned browser close exceeded 10s')),10000);})]);}finally{clearTimeout(timer);}};
