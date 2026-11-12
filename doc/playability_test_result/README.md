@@ -38,7 +38,6 @@
 - 所有带日期的单次卡片与发布证据包只证明其记录窗口内的观察，不构成当前可玩性、发布或继续游玩门禁结论。
 - 当前保留的根目录 `card_*.md` 均因仍被正式 evidence 文档引用而作为 historical evidence-linked samples 保留；其旧版 `pass`、`通过`、`继续可玩`、`需观察` 或阻断标签不得聚合为当前结论。
 - 这些旧卡早于当前 player-leverage 必填字段，不能替代新鲜的 L4A/L4B 执行。当前主张边界以根级 `testing-manual.md` 和 `doc/product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md` 为准。
-- 经语义复核的逐文件处置记录存于 v3 corpus semantic 分片；使用 `python3 scripts/document-corpus-inventory.py locate --kind semantic --path <path>` 定位记录。该分类是耐久治理记录，不记录任务状态或当前测试结果。
 
 ## 维护约定
 - 可玩性模板、评分口径、专题卡组或发布引用格式变化时，需同步更新 `prd.md`、相关 evidence 文档与 GitHub task evidence。

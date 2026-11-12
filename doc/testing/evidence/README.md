@@ -23,17 +23,18 @@
 - 本目录的历史原件不因出现日期、SHA、执行经过或旧路径就必须迁出、删除或强套产品 PRD/系统设计章节；按[信息归属规范](../../engineering/workflow/source-of-truth.md#information-record-placement)保留审计事实。当前导航、误导性边界和敏感值可作必要更正，并说明编辑不等于新的运行证据。
 - [五节点清单](public-testnet-five-node-inventory-2026-06-23.md)是带历史来源的 operator inventory，须先按现行 runbook 重新捕获 deployment truth；[Token 创世模板](token-genesis-allocation-audit-template.md)是未填充模板。这两类都不能当作已执行验收。
 
-## 逐对象语义清单与新鲜度边界
-- [`inventory.json`](inventory.json) 是 v3 的静态委托入口，声明本子域逐对象覆盖范围；每个证据源对应的机器快照和 semantic/evidence review 记录存于 `doc/.governance/document-corpus/` 分片。定位和维护方式见 [`Document Corpus Inventory v3`](../../engineering/doc-governance/document-corpus-inventory-v3.design.md)。
-- 清单快照为 2026-08-02。`WINDOW_OBSERVATION` 只保存一个有边界、内容寻址的观测窗口，不构成当前 endpoint availability、fleet health、release readiness、recovery completion 或领域正确性结论；当前行动必须回到 formal runbook，重新采集 deployment truth 与同窗健康证据，再由对应领域 owner、QA/LiveOps 裁决。
-- `HISTORICAL_PROVENANCE`、`ARCHIVED_PROVENANCE` 与 `SUPPORTING_ARTIFACT` 不得被重新表述为当前发布或运行态真值。`AMBIGUOUS_LIFECYCLE` 必须先由清单列出的领域 owner 裁决。
+<a id="逐对象语义清单与新鲜度边界"></a>
+## 历史证据与新鲜度边界
+- 本子域证据按各自关联的专业 authority、QA 与 domain owner 治理，已退役的逐对象 hash 和语义/证据登记不再充当当前依据。原始证据的运行身份、内容寻址与专业保留边界继续有效。
+- 原 2026-08-02 分类使用的标签只描述当时复核范围。`WINDOW_OBSERVATION` 只保存一个有边界、内容寻址的观测窗口，不构成当前 endpoint availability、fleet health、release readiness、recovery completion 或领域正确性结论；当前行动必须回到 formal runbook，重新采集 deployment truth 与同窗健康证据，再由对应领域 owner、QA/LiveOps 裁决。
+- `HISTORICAL_PROVENANCE`、`ARCHIVED_PROVENANCE` 与 `SUPPORTING_ARTIFACT` 不得被重新表述为当前发布或运行态真值。生命周期仍有歧义时，按证据关联的当前专业 authority 找到领域 owner，与 QA 裁定后再使用；不依赖已删除清单中的角色字段。
 
 ## 密度快照
 - 治理前快照（2026-04-17）:
   - `doc/testing/evidence/`: 49 份 Markdown
   - `doc/testing/`: 178 份 Markdown
 - 当前子域属于 `testing` 模块最高密度热点路径；本页旨在缩短首读路径，不在本批直接减少文件数。
-- 本轮清单快照（2026-08-02）: 124 个 evidence 对象，其中 81 份 Markdown、28 个 JSON、9 张 PNG、4 个 TSV、2 个 TXT；Markdown 数量已达到并超过下述 lifecycle review trigger，故已发起逐对象分类复核。
+- 历史盘点（2026-08-02）记录 124 个 evidence 对象，其中 81 份 Markdown、28 个 JSON、9 张 PNG、4 个 TSV、2 个 TXT；该记录只说明当时触发了 lifecycle 分类复核，不代表当前数量或已完成当前有效性审查。
 
 ## 首读主题簇
 

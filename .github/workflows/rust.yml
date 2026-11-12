@@ -175,7 +175,7 @@ jobs:
        (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
     runs-on: ubuntu-24.04
     outputs:
-      plan: ${{ steps.select.outputs.plan }}
+      plan: ${{ steps.workflow-plan.outputs.plan }}
       selection_artifact: ${{ steps.selection-artifacts.outputs.selection_artifact }}
       authority_artifact: ${{ steps.selection-artifacts.outputs.authority_artifact }}
       source_sha: ${{ steps.select.outputs.source_sha }}
@@ -269,7 +269,8 @@ jobs:
           if git cat-file -e "${policy_sha}:scripts/ci-python-control-contracts.py" 2>/dev/null; then
             git show "${policy_sha}:scripts/ci-python-control-contracts.py" >"${authority}/ci-python-control-contracts.py"
           fi
-          args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$GITHUB_OUTPUT" --output "$RUNNER_TEMP/selection.json")
+          : > "$RUNNER_TEMP/selection-outputs.txt"
+          args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$RUNNER_TEMP/selection-outputs.txt" --output "$RUNNER_TEMP/selection.json")
           bootstrap_full=false
           if python3 "$authority/plan-rust-required-scope.py" --help | grep -q -- '--profile'; then
             args+=(--profile "$profile" --policy-ref "$policy_sha" --formal-config "$authority/ci-formal-process-suites.json")
@@ -288,7 +289,7 @@ jobs:
             git show "${policy_sha}:scripts/ci-full-result.py" >"${authority}/ci-full-result.py"
           fi
           if [[ "$bootstrap_full" == true ]]; then
-            python3 - "$authority/ci-required-scope.json" "$source_sha" "$policy_sha" "$RUNNER_TEMP/selection.json" "$GITHUB_OUTPUT" <<'PY'
+            python3 - "$authority/ci-required-scope.json" "$source_sha" "$policy_sha" "$RUNNER_TEMP/selection.json" "$RUNNER_TEMP/selection-outputs.txt" <<'PY'
           import json, pathlib, sys
           config, source, policy, output, github_output = sys.argv[1:]
           groups = json.loads(pathlib.Path(config).read_text())['groups']
@@ -303,6 +304,15 @@ jobs:
           else
             python3 "$authority/plan-rust-required-scope.py" "${args[@]}"
           fi
+          # Keep every trusted scheduling output, but carry the complete plan
+          # only in its file. A separate step publishes its scheduling view.
+          python3 - "$RUNNER_TEMP/selection-outputs.txt" "$GITHUB_OUTPUT" <<'PY'
+          from pathlib import Path
+          import sys
+          with Path(sys.argv[2]).open('a') as output:
+              output.writelines(line for line in Path(sys.argv[1]).read_text().splitlines(keepends=True)
+                                if not line.startswith('plan='))
+          PY
           trusted_source=false
           if [[ "$GITHUB_REF" == refs/heads/main && "$WORKFLOW_SHA" == "$GITHUB_SHA" && "$source_sha" == "$GITHUB_SHA" ]]; then
             trusted_source=true
@@ -310,6 +320,28 @@ jobs:
           printf 'source_sha=%s\ntested_sha=%s\npolicy_sha=%s\nrange_base=%s\ntrusted_source=%s\n' "$source_sha" "$tested_sha" "$policy_sha" "$range_base" "$trusted_source" >>"$GITHUB_OUTPUT"
           printf 'Policy: %s\nSource HEAD: %s\nTested commit: %s\n' "$policy_sha" "$source_sha" "$tested_sha" >>"$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/selection.json" >>"$GITHUB_STEP_SUMMARY"
+      - id: workflow-plan
+        name: Publish workflow scheduling projection
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          raw = (Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes()
+          plan = json.loads(raw)
+          if not isinstance(plan, dict):
+              raise ValueError('complete selection must be an object')
+          fields = (
+              'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
+              'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards',
+              'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
+              'check_inventory_version', 'fast_plan_exceptions',
+          )
+          projected = {key: plan[key] for key in fields if key in plan}
+          projected.update(workflow_projection_version=1, selection_sha256=hashlib.sha256(raw).hexdigest())
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write('plan=' + json.dumps(projected, separators=(',', ':')) + '\n')
+          PY
       - id: formal-select
         name: Resolve formal selection with conservative old-baseline fallback
         run: |
@@ -632,7 +664,7 @@ jobs:
         run: |
           set -euo pipefail
           selection="$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"
-          export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$selection")"
+          export OASIS7_CI_ARCHITECTURE_PLAN_FILE="$selection"
           plan_args=()
           if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required || "$PREVIEW_GROUP" == distfs ]]; then
             plan_args=(--plan "$selection")
@@ -776,7 +808,6 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
-          OASIS7_CI_ARCHITECTURE_PLAN: ${{ needs.select.outputs.plan }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
@@ -2671,6 +2702,10 @@ jobs:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
@@ -2716,12 +2751,11 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-          SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
           SUPPORT_PARTITION: ${{ matrix.partition }}
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-native-libraries
-          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN" --support-partition "$SUPPORT_PARTITION"
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"
       - name: Observe support capacity on job exit
         if: always()
         shell: bash
@@ -2750,6 +2784,10 @@ jobs:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
@@ -2795,12 +2833,11 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-          SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
           SUPPORT_PARTITION: other
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-native-libraries
-          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN" --support-partition "$SUPPORT_PARTITION"
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"
       - name: Observe support capacity on job exit
         if: always()
         shell: bash
@@ -3578,11 +3615,72 @@ jobs:
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - &validate-complete-selection
+        name: Validate complete selection handoff
+        env:
+          WORKFLOW_PLAN: ${{ needs.select.outputs.plan }}
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          raw = (Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes()
+          plan = json.loads(raw)
+          projected = json.loads(os.environ['WORKFLOW_PLAN'])
+          if not isinstance(plan, dict) or not isinstance(projected, dict):
+              raise ValueError('complete selection and scheduling projection must be objects')
+          if (type(projected.get('workflow_projection_version')) is not int
+                  or projected['workflow_projection_version'] != 1
+                  or projected.get('selection_sha256') != hashlib.sha256(raw).hexdigest()):
+              raise ValueError('complete selection does not match its scheduling digest')
+          fields = (
+              'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
+              'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards',
+              'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
+              'check_inventory_version', 'fast_plan_exceptions',
+          )
+          expected = {key: plan[key] for key in fields if key in plan}
+          actual = {key: value for key, value in projected.items()
+                    if key not in ('workflow_projection_version', 'selection_sha256')}
+          if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+              raise ValueError('complete selection disagrees with its scheduling projection')
+          identities = {key: os.environ[variable] for key, variable in (
+              ('source_sha', 'SOURCE_SHA'), ('tested_sha', 'TESTED_SHA'), ('policy_sha', 'POLICY_SHA'))}
+          if any(re.fullmatch('[0-9a-f]{40}', value) is None for value in identities.values()):
+              raise ValueError('invalid independently selected identity')
+          if any(key in plan for key in ('fast_plan_version', 'execution_profile', 'bootstrap_full')):
+              actual_identity = {key: plan.get(key) for key in identities}
+          else:
+              # Old planners bind the same selected commits in architecture.
+              architecture = plan.get('architecture')
+              if not isinstance(architecture, dict):
+                  raise ValueError('old complete selection is missing its architecture identity')
+              actual_identity = dict(source_sha=architecture.get('source'),
+                                     tested_sha=architecture.get('tested'), policy_sha=architecture.get('base'))
+          if actual_identity != identities:
+              raise ValueError('complete selection disagrees with independently selected identity')
+          PY
       - name: Validate all expected results
         env:
-          PLAN: ${{ needs.select.outputs.plan }}
           NEEDS: ${{ toJSON(needs) }}
-        run: python3 "$RUNNER_TEMP/ci-authority/ci-required-result.py" --plan "$PLAN" --needs "$NEEDS"
+        run: |
+          python3 - <<'PY'
+          import os, runpy, sys
+          from pathlib import Path
+          temp = Path(os.environ['RUNNER_TEMP'])
+          script = (temp / 'ci-authority/ci-required-result.py').resolve()
+          sys.path[0] = str(script.parent)
+          sys.argv = [str(script), '--plan', (temp / 'selection.json').read_text(encoding='utf-8'),
+                      '--needs', os.environ['NEEDS']]
+          runpy.run_path(str(script), run_name='__main__')
+          PY
       - *engineering-job-observation
 
   full-regression:
@@ -3908,6 +4006,11 @@ jobs:
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - *validate-complete-selection
       - name: Require complete full inventory and exact source
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -3915,14 +4018,30 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           RUN_MODE: ${{ inputs.run_mode }}
-          PLAN: ${{ needs.select.outputs.plan }}
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 "$RUNNER_TEMP/ci-authority/ci-required-result.py" --full \
-            --plan "$PLAN" --needs "$NEEDS" --event-name "$EVENT_NAME" --ref "$REF" \
-            --workflow-sha "$WORKFLOW_SHA" --source-sha "$SOURCE_SHA" --run-mode "$RUN_MODE"
-          python3 "$RUNNER_TEMP/ci-authority/ci-full-result.py" produce \
-            --plan "$PLAN" --needs "$NEEDS" --output "$RUNNER_TEMP/full-result.json"
+          python3 - <<'PY'
+          import os, runpy, sys
+          from pathlib import Path
+          temp = Path(os.environ['RUNNER_TEMP'])
+          authority = (temp / 'ci-authority').resolve()
+          sys.path[0] = str(authority)
+          shared = ['--plan', (temp / 'selection.json').read_text(encoding='utf-8'),
+                    '--needs', os.environ['NEEDS']]
+          def trusted_main(name, arguments):
+              script = authority / name
+              sys.argv = [str(script), *arguments]
+              try:
+                  runpy.run_path(str(script), run_name='__main__')
+              except SystemExit as error:
+                  if error.code not in (None, 0):
+                      raise
+          trusted_main('ci-required-result.py', ['--full', *shared,
+              '--event-name', os.environ['EVENT_NAME'], '--ref', os.environ['REF'],
+              '--workflow-sha', os.environ['WORKFLOW_SHA'], '--source-sha', os.environ['SOURCE_SHA'],
+              '--run-mode', os.environ['RUN_MODE']])
+          trusted_main('ci-full-result.py', ['produce', *shared, '--output', str(temp / 'full-result.json')])
+          PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-full-result-${{ github.run_id }}-${{ github.run_attempt }}

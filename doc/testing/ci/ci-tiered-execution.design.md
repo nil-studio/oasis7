@@ -55,7 +55,7 @@ Rust workflow 调用可复用的 `command-center.yml`，将 Core、生成类型�
 
 该平台组的本地验证使用专用 workflow 中的 canonical 命令，不由通用 shell driver 执行。
 
-文档 corpus 对象、索引及 evidence inventory 数据更新由始终执行的 baseline 文档治理检查校验一致性；三平台 corpus/evidence 工具回归只在检查器实现、fixture、Git 路径配置、scope 配置或平台 workflow 变化时触发，数据更新不单独触发三平台回归。
+baseline 文档检查直接核对实际目录入口、Markdown 导航及受影响的引用、ID、已声明关系和正向完成证据。document-corpus 的派生 hash、语义/证据登记、冻结组和专用三平台 workflow 已退役；规则、范围选择或解析器改变时运行全部适用治理回归，普通文档改动检查受影响正文与反向引用。
 
 <a id="ci-generated-inputs-design"></a>
 ### 生成文件与纯文档选择
@@ -66,9 +66,9 @@ Rust workflow 调用可复用的 `command-center.yml`，将 Core、生成类型�
 
 登记适用于已确认输入全部受既有共享构建/CI 控制规则覆盖的独立生成脚本。`oasis7_chain_runtime` 的三份 native 构建元数据分别来自构建环境、编译器版本和根目录 `Cargo.lock`，其 producer、manifest、锁文件、工具链及 CI 配置仍按原规则选择保守全量。
 
-producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档和 corpus 数据仅保留各自已登记检查。
+producer 内容或 build 入口变化、输出未登记、路径逃逸及其他动态表达式继续保留未解析回退；更新生成器时须重新核对实际输入再更新登记，不能沿用失效摘要。真正由 Rust 嵌入的文档仍按 reader 及反向消费者选择测试；无关说明文档仅保留其适用文档检查。
 
-回归覆盖纯说明文档、corpus 数据的逐路径及组合变化，并同时包含字符串/注释内的伪调用、真实字面量与动态调用、已登记生成输出、producer 在 base/source/tested revision 间漂移、真实文档消费者和共享控制输入。已登记独立 GitHub 路径分别验证单路径、混合修改、真实消费者、删除/重命名和旧基线行为，未知 workflow 与共享控制保留全量正例。还需用当前主仓依赖图重放文档变更，避免仅有微型仓库 fixture 或代码与 README 混合变更掩盖误选。
+回归覆盖纯说明文档的逐路径及组合变化，以及已退役治理输入的剩余真实消费者边界，并同时包含字符串/注释内的伪调用、真实字面量与动态调用、已登记生成输出、producer 在 base/source/tested revision 间漂移、真实文档消费者和共享控制输入。已登记独立 GitHub 路径分别验证单路径、混合修改、真实消费者、删除/重命名和旧基线行为，未知 workflow 与共享控制保留全量正例。还需用当前主仓依赖图重放文档变更，避免仅有微型仓库 fixture 或代码与 README 混合变更掩盖误选。
 
 <a id="ci-unknown-inputs-design"></a>
 ### 未登记路径的失败链路
@@ -189,7 +189,11 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `formal_deferred_ordinary_cases` | 同一可信计划中按 harness 与完整测试名登记、在普通批次中后移的重型 Formal case；完整 profile 为空，其他普通测试不受影响 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
-快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
+快速规划接受 `--base-ref`、`--head-ref`、`--test-ref` 和 `--policy-ref`；完整规划只需固定 source/tested/policy，从可信完整库存展开，不依赖 diff。`--formal-config` 读取同一可信策略的 Formal 清单。ordinary producer 与 `ci-tests.sh required --group oasis7_required --plan <selection.json>` 消费同一文件；support 使用 `--support-plan-file <selection.json>`，Formal 的 build/pack/run 同时使用 `--plan` 与可信 `--formal-config`。适用环境相同才允许复用，构建成功与测试成功分别记录。
+
+完整 `selection.json` 保留可信 planner 生成的全部字段、逐路径原因和检查库存，通过本轮既有 selection artifact 传递。执行器、架构检查、preview 与最终门禁读取同一完整文件；文件路径贯穿 shell 和 Python，不再将整份计划装入环境变量或操作系统进程参数。旧 JSON 参数接口继续兼容，文件接口共用原有选组、版本、profile、partition、feature 和来源校验；缺失或无效计划必须失败。批量删除或长路径令诊断数据超过单个进程参数限制时，仍执行原定全部检查，不截断完整证据或缩减覆盖。
+
+workflow 的 plan 输出仅投影实际调度和身份消费者所需的字段，并完整保留对应值及必要扩测信息；新增表达式消费者须同步核对投影。各汇总和观察步骤仍取得真实 job result，完整执行与验证不得改用该投影。最终 required/full 门禁下载同轮完整 selection 与 authority artifact，先核对计划原字节摘要、投影字段一致性及已有身份与 select 独立输出的绑定，再运行事件可信 BASE 的验证实现；缺能力字段的旧计划保留原兼容语义。兼容旧 CLI 时在同一进程内传递已读取的完整 JSON，不要求旧 BASE 接受候选新增参数。完整结果回执保留完整计划，失败与来源约束照常传播。回归须跨真实 shell/Python 进程验证大于 128 KiB 的计划、多样引号和换行、旧 BASE 验证器兼容，以及缺组选项、错误 profile/partition 和来源身份仍被拒绝。
 
 PR/push 继续从事件可信 BASE 取得选择策略、配置及汇总规则；schedule/manual 没有 PR base 时，固定已核准的 main/workflow 策略版本，再解析待测 source，不能以候选自带的策略缩小要求。删除和重命名两端、真实嵌入/生成输入和必要反向消费者取并集。未登记路径明确失败；Git/依赖解析不确定采用保守必要集合并记录超过快速预算的原因。共享控制规则保留，后续更细分类只能按现有独立评审流程进入可信基线。
 
@@ -365,7 +369,7 @@ Viewer 的 Vitest UI 测试保留单 worker、逐文件独立 fork 与 jsdom，�
 
 预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，不能把单个 job 的 runner_seconds 当成端到端或混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 
-baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。快速 baseline 不再附加 `--full-corpus` 历史内容报告，完整 profile 仍运行，原告警级别不变。
+baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。baseline 不自动附加 `--full-corpus` 历史内容报告；需要存量分析时显式运行，不能把其历史告警升级为当前无关改动的阻断。改变规则、范围选择或解析器时仍运行全部适用回归并核对完整适用文档集合。
 
 单次系统设计追踪检查可复用本轮 Git 工作树与暂存区的变更映射，避免每读取一个引用目标都重复扫描全仓状态。每次调用重新取得映射，仍按原规则区分 unstaged、staged-only、删除、重命名及未跟踪文件；工作树恢复为 HEAD 而暂存区仍有修改时，读取暂存内容。内容缓存限于本轮首次读取，不跨调用复用，也不把本地可变工作区宣称为原子不可变快照。
 
@@ -516,7 +520,7 @@ affected 的最终 dirty 适配保守合并 base→HEAD、暂存、未暂存和�
   [结果函数回归](../../../scripts/ci-required-result.test.py)不代替真实 case 执行。
 
 两专题共用以上实现与验证分配，不重构整个平台、不修改业务断言、不引入自动 case 学习。
-旧同名设计路径暂留兼容跳转；删除必须先核清动态/外部分发、索引、配对与 corpus 消费者。
+旧同名设计路径暂留兼容跳转；删除必须先核清动态/外部分发、索引、配对与其他实际消费者。
 
 ## 2. 上游与本设计
 
