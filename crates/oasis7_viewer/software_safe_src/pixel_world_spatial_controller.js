@@ -336,6 +336,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       // listener. A renderer viewport report is not a new user command.
       if (pendingOverview) return;
       currentQuery = {...currentQuery,bounds:cameraBounds};
+      if (explicitQuery) {dirty=true;return;}
       queryToken += 1;
       schedule();
     },
