@@ -558,7 +558,10 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         .blob_ref_for_receipt(&fresh_receipt)
         .expect("fresh blob ref")
         .expect("fresh blob");
-    let fresh_bytes = source.store.read_file(&fresh_blob.path).expect("fresh bytes");
+    let fresh_bytes = source
+        .store
+        .read_file(&fresh_blob.path)
+        .expect("fresh bytes");
     let fresh_record = serde_json::from_slice(&fresh_bytes).expect("fresh record");
     target
         .ingest_replicated_event_record(fresh_record)
