@@ -14,6 +14,17 @@ function fixture(request=async q=>page(q),enabled=true) {
   return {core,controller};
 }
 const applied=controller=>controller.navigationResult({request_id:controller.navigation().request_id,status:'applied',render_version:3});
+it('preserves the active explicit query binding across a deferred viewport report before overview',async()=>{
+ let release,calls=0;const {controller,core}=fixture(q=>++calls===1?new Promise(r=>release=()=>r(page(q))):Promise.resolve(page(q)));
+ const read=controller.query({search:'mine'});
+ controller.cameraChanged({viewport_bounds:{min_x_cm:'0',max_x_cm:'1000',min_y_cm:'0',max_y_cm:'1000'}});
+ controller.overview();release();await read;
+ expect(controller.state().view.completeness).toBe('complete');
+ expect(controller.navigation().mode).toBe('overview');expect(controller.overviewStatus()).toBe('applying');
+ expect(core.requestWorldView).toHaveBeenCalledTimes(1);applied(controller);
+ await vi.waitFor(()=>expect(core.requestWorldView).toHaveBeenCalledTimes(2));
+ expect(core.requestWorldView.mock.calls[1][0].bounds).toEqual({min_x_cm:'0',max_x_cm:'1000',min_y_cm:'0',max_y_cm:'1000'});
+});
 
 it('overviews a complete current query without clearing search or making another query',async()=>{
   const {core,controller}=fixture();await controller.query({search:'mine'});const calls=core.requestWorldView.mock.calls.length;

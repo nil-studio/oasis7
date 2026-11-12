@@ -264,3 +264,9 @@ Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
 按[当前查询总览合同](../../world-simulator/viewer/external-agent-world-view.design.md#overview-query-fit)，设置 `QUERY_OVERVIEW_ARTIFACT_ROOT=<冻结visual目录>`、`QUERY_OVERVIEW_SOURCE_HEAD=<实际构建源>`、`QUERY_OVERVIEW_COMPOSED_MANIFEST=<逐文件size/SHA清单>`，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:query-overview`。清单名兼容组合产物，summary保留其实际kind；canonical不得改标旧source。`QUERY_OVERVIEW_CASE=complete|cancel|terminal` 分别独立执行一次；`QUERY_OVERVIEW_WIDTH=390` 覆盖窄屏complete及状态文本边界，缺省1440。夹具仅用三个获准观察实体、每响应一条且请求上限仍200，在真实Host/WS/WASM中挂第三页。验证原生手动平移后，partial总览保持相机、不清搜索、不新增查询；同绑定complete实际应用一次，后台full不抢手动相机；取消及终止partial保持相机。每阶段最多12秒，无输入重试、无renderer/rAF冻结，失败保raw并非零退出。
 
 此回归只证明受控技术观察入口的分页导航与指定视口布局。`navigation_result`是主Update消费，不是GPU fence；旧缺schema兼容另由Rust确定性回归覆盖，不能冒称旧入口GPU已验。该工具不证明原内存长窗触发时刻的因果，不代签真实玩家授权、P5、五分钟/30分钟或P6。产物SHA前后核对，记录实际构建源和runner分别身份；不改标已保留失败或旧QA头的raw。
+
+### 后台读取与显式搜索竞态回归
+
+按[显式搜索合同](../../world-simulator/viewer/external-agent-world-view.design.md#view-explicit-search-intent)，设置 `SEARCH_RACE_ARTIFACT_ROOT`、`SEARCH_RACE_SOURCE_HEAD`、`SEARCH_RACE_COMPOSED_MANIFEST` 为冻结目录、实际构建源及逐文件size/SHA清单，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:search-race`。缺省搜索；`SEARCH_RACE_CLEAR=1` 清空搜索；`SEARCH_RACE_SCOPE=1` 为兼容名称，实际只测试同scope查询scope_unavailable错误，绝非真实授权撤销。`SEARCH_RACE_WIDTH=390` 覆盖窄屏。分别单次执行，失败非零保原raw，不重试输入。
+
+真实fill/focus后发送标准snapshot推进触后台query并挂响应，再仅一次sharedCDP可信Enter；验证submit及新search实际到wire、旧响应不能覆盖结果。查询错误允许保仍获准last-known模型，但必须明确失败、屏内主体0、旧targets不可交互，实际canvas点击不选中且旧晚包不复活。该路径不以DOM删除判定撤权，不伪造身份／grant或暂停renderer/poll。清单保实际source/runner身份与完整依赖SHA；三个实体的技术observer/debug夹具不签真实WorldService、P5/P6或任何性能／长窗结果。
