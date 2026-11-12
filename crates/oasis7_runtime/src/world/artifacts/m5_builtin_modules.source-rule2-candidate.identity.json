@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "23c6cbcb8a522fff86d388fe997daad8ae14c11670f296e970397c474f3199e3",
+      "producer_recipe_hash": "0bbe66cdc1c2909cb74f927d35e8b8a8d15ebddbd6019e1bdd3cc145a60c055b",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -52,7 +52,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.lock",
-          "sha256": "d756ba0d0c2952d668f6adbe2981eccff356bc36acd58c5f142b922686a323a2"
+          "sha256": "379e8083ce57f2833ea2a62c17352c7e1b404e0f2e40500c343490e21c2d22d7"
         },
         {
           "kind": "source-file",
@@ -197,8 +197,8 @@
         }
       ],
       "source_hash": "39aa915b0103f2b3abe3b8a61c0db85bc2cb1bae697181012ea68c0103dee77c",
-      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
-      "identity_hash": "26dc2787d99a40277c3ab37bd525995f169a60789df7defb8ae1ef4ad40e467d"
+      "build_manifest_hash": "cb8eced287f113c1a7f1c83110ae155ef44a911751561b04ed0f28d0c84294ff",
+      "identity_hash": "74a267c1586db2c6c745a231edd9c3972de84f7092f4e9df6303bcf1bfc57dab"
     },
     {
       "module_id": "m5.gameplay.economic.overlay",
@@ -239,8 +239,8 @@
         }
       ],
       "source_hash": "d14842bbd66565545914c2d9162317def32d4fa60cd767968446f7ca09292f38",
-      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
-      "identity_hash": "0e19a6658e4bad01dd297f8593ae377b09a4aaf7ccf2c4850c915199cd66404a"
+      "build_manifest_hash": "cb8eced287f113c1a7f1c83110ae155ef44a911751561b04ed0f28d0c84294ff",
+      "identity_hash": "d6b024c4d49a5f8d9db1130c9a3b7bd88ecc61fb9b305e6219215e52d49d5cc1"
     },
     {
       "module_id": "m5.gameplay.governance.council",
@@ -281,8 +281,8 @@
         }
       ],
       "source_hash": "79850ba021b7db595abee3558285aed651160f89e791c6244dd6005cc289c6ea",
-      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
-      "identity_hash": "28d2dfee424a527880885beddcb9ffd1147020779f3e285fa23ca35989caa71d"
+      "build_manifest_hash": "cb8eced287f113c1a7f1c83110ae155ef44a911751561b04ed0f28d0c84294ff",
+      "identity_hash": "b9e7e0c14f77d7d9e3ba98d927e67bd13531564a643c217a9c33478d41374c13"
     },
     {
       "module_id": "m5.gameplay.meta.progression",
@@ -323,8 +323,8 @@
         }
       ],
       "source_hash": "43daf8f4fc033b7aeeebadd069a27af04c1d0c9f85b22e330825585292db4674",
-      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
-      "identity_hash": "550fb8c82cc026e8257615977ebb57f588654d8878005d8b7029e6d238c3f712"
+      "build_manifest_hash": "cb8eced287f113c1a7f1c83110ae155ef44a911751561b04ed0f28d0c84294ff",
+      "identity_hash": "b43238c52388d404f6ebc9948f556872a4459c8c924ced3ef3ef723d2c458599"
     },
     {
       "module_id": "m5.gameplay.war.core",
@@ -365,8 +365,8 @@
         }
       ],
       "source_hash": "818db584cfb51246e1c878c9fb4e4bdf270c90b6105c08e4e448c0670a727f21",
-      "build_manifest_hash": "e137f31ac1991e91f78c0ff500436334ab039ed20cb315f85ffd88c422c3489c",
-      "identity_hash": "8a6978c1dda5fa58a12ad800f19ba19e9cee1e2ac5b71b7d22d0d858f498af65"
+      "build_manifest_hash": "cb8eced287f113c1a7f1c83110ae155ef44a911751561b04ed0f28d0c84294ff",
+      "identity_hash": "f80d4d68a878a74a82d5a9f9b8cad28e552ef5737000e39bca7db5bd12dccbc7"
     }
   ]
 }
