@@ -198,7 +198,7 @@ pub(super) fn apply_intents(
                 }
             }
             WorldServicePayloadV1::Cognition(signed) => {
-                crate::host::cognition_authority_diagnostic::observe(
+                crate::cognition_authority_diagnostic::observe(
                     "execution",
                     &signed.request.request.request_digest,
                     &signed.request.request.captured_base_binding,

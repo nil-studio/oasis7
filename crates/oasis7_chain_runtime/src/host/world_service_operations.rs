@@ -132,7 +132,7 @@ pub(super) fn submit(
     if matches!(existing, IntentOutcome::Unknown) {
         service.check_payload(&pinned, &request.signed_payload)?;
         if let WorldServicePayloadV1::Cognition(signed) = &request.signed_payload {
-            crate::host::cognition_authority_diagnostic::observe(
+            crate::cognition_authority_diagnostic::observe(
                 "admission",
                 &signed.request.request.request_digest,
                 &signed.request.request.captured_base_binding,
