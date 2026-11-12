@@ -49,3 +49,10 @@ it('coalesces background refresh without invalidating the current explicit resul
  const f=fixture(),read=f.controller.query({search:'mine'});f.controller.refresh({time:2});
  f.release();const result=await read;expect(result).not.toBeNull();expect(f.core.requestWorldView.mock.calls.every(([q])=>q.search==='mine')).toBe(true);
 });
+it('retains a viewport deferred while a search is queued behind the old background read',async()=>{
+ const f=fixture();f.controller.refresh({time:1});
+ const read=f.controller.query({search:'A'}),bounds={min_x_cm:'0',max_x_cm:'100',min_y_cm:'0',max_y_cm:'100'};
+ f.controller.cameraChanged({viewport_bounds:bounds});f.release();await read;
+ await vi.waitFor(()=>expect(f.core.requestWorldView).toHaveBeenCalledTimes(3));
+ expect(f.core.requestWorldView.mock.calls[1][0].search).toBe('A');expect(f.core.requestWorldView.mock.calls[2][0]).toMatchObject({search:'A',bounds});
+});
