@@ -126,7 +126,7 @@ impl Client<'_> {
     pub async fn signed<Q: Serialize, R: Serialize + DeserializeOwned>(
         &self,
         path: &str,
-        request: &Q,
+        request: &SignedReadRequest<Q>,
         operation: EntryExecutorOperationV1,
     ) -> Result<R, &'static str> {
         let value = self.call(operation).await?;
@@ -164,8 +164,8 @@ impl Client<'_> {
         let response: ReadWorldViewResponse<Value> = self
             .signed(
                 VIEW_JSON_PATH,
-                &request,
-                EntryExecutorOperationV1::ReadView(signed),
+                &signed,
+                EntryExecutorOperationV1::ReadView(signed.clone()),
             )
             .await?;
         if response.execution_evidence_scope.is_some() {
