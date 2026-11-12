@@ -24,6 +24,22 @@ pub(super) fn reconcile_recovered_publication(
     if !conflict {
         return Ok(false);
     }
+    if engine.last_execution_height != height {
+        return Err(error(
+            "same-height repair requires the same execution height",
+        ));
+    }
+    if payload
+        .execution_block_hash
+        .as_deref()
+        .is_none_or(str::is_empty)
+        || payload
+            .execution_state_root
+            .as_deref()
+            .is_none_or(str::is_empty)
+    {
+        return Err(error("original execution binding is incomplete"));
+    }
     let node = engine.local_validator_id.clone();
     if !replication.recovered_publication_matches(&node, &message)? {
         return Err(error(
@@ -43,10 +59,12 @@ pub(super) fn reconcile_recovered_publication(
         execution_block_hash: prior
             .execution_block_hash
             .clone()
+            .filter(|value| !value.is_empty())
             .ok_or_else(|| error("predecessor execution hash missing"))?,
         execution_state_root: prior
             .execution_state_root
             .clone()
+            .filter(|value| !value.is_empty())
             .ok_or_else(|| error("predecessor execution root missing"))?,
     };
     let context = NodeExecutionCommitContext {

@@ -410,6 +410,12 @@ impl crate::NodeExecutionHook for ReplayHook {
     }
 }
 fn same_height_fixture(recovered: bool) -> (PathBuf, ReplicationRuntime, crate::PosNodeEngine) {
+    same_height_fixture_with_binding(recovered, true)
+}
+fn same_height_fixture_with_binding(
+    recovered: bool,
+    original_binding: bool,
+) -> (PathBuf, ReplicationRuntime, crate::PosNodeEngine) {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = temp_dir(&format!(
         "same-height-publication-replay-{}",
@@ -422,14 +428,17 @@ fn same_height_fixture(recovered: bool) -> (PathBuf, ReplicationRuntime, crate::
         .unwrap();
     let mut replication = ReplicationRuntime::new(&rc, "node-a").unwrap();
     for h in 1..=2 {
+        let block = format!("exec-block-{h}");
+        let root = format!("exec-state-{h}");
+        let binding = h == 1 || original_binding;
         replication
             .build_local_commit_message(
                 "node-a",
                 "world-a",
                 1000 * h as i64,
                 &decision(h),
-                Some(&format!("exec-block-{h}")),
-                Some(&format!("exec-state-{h}")),
+                binding.then_some(block.as_str()),
+                binding.then_some(root.as_str()),
             )
             .unwrap();
     }
@@ -533,6 +542,57 @@ fn recovered_publication_rejects_unverified_predecessor_without_restoring() {
         )
         .is_err()
     );
+    assert!(hook.restored.is_empty());
+    assert!(hook.replayed.is_empty());
+    drop(replication);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn same_height_repair_rejects_ahead_execution_before_any_hook() {
+    let (dir, replication, mut engine) = same_height_fixture(true);
+    engine.last_execution_height = 3;
+    let before = engine.last_committed_block_hash.clone();
+    let mut hook = ReplayHook {
+        restored: vec![],
+        replayed: vec![],
+    };
+    let error = crate::replication_state_reconcile::reconcile_engine_with_persisted_replication(
+        &mut engine,
+        &replication,
+        "world-a",
+        Some(&mut hook),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error,NodeError::Replication{reason} if reason.contains("same execution height"))
+    );
+    assert_eq!(engine.last_committed_block_hash, before);
+    assert!(hook.restored.is_empty());
+    assert!(hook.replayed.is_empty());
+    drop(replication);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn same_height_repair_requires_original_execution_binding_before_any_hook() {
+    let (dir, replication, mut engine) = same_height_fixture_with_binding(true, false);
+    let before = engine.last_committed_block_hash.clone();
+    let mut hook = ReplayHook {
+        restored: vec![],
+        replayed: vec![],
+    };
+    let error = crate::replication_state_reconcile::reconcile_engine_with_persisted_replication(
+        &mut engine,
+        &replication,
+        "world-a",
+        Some(&mut hook),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error,NodeError::Replication{reason} if reason.contains("original execution binding is incomplete"))
+    );
+    assert_eq!(engine.last_committed_block_hash, before);
     assert!(hook.restored.is_empty());
     assert!(hook.replayed.is_empty());
     drop(replication);
