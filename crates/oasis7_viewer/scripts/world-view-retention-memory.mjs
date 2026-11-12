@@ -4,7 +4,7 @@ import { withObservationCleanup } from './world-view-frame-capability.mjs';
 import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { numericRetentionRecord, summarizeRetentionWindow, classifyRetentionPhase, describeHomeCameraMismatch } from './viewer-retention-components.mjs';
+import { numericRetentionRecord, summarizeRetentionWindow, validateMountedMemoryLease, classifyRetentionPhase, describeHomeCameraMismatch } from './viewer-retention-components.mjs';
 const assert = (value, reason) => { if (!value) throw Error(reason); };
 // No trace, DTO snapshots, GC or reload. Only bounded numeric receipts are retained.
 export async function measureWorldViewRetention({ evaluate, run, fixture, out, durationMs, overview,
@@ -20,7 +20,7 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
   };
   const disclosure='.pixel-world-exploration-disclosure';
   const setOpen = async wanted => { const open=await json(`document.querySelector(${JSON.stringify(disclosure)})?.open`); assert(typeof open==='boolean','exploration disclosure missing'); if(open!==wanted)await run(['click',disclosure+' > summary']); };
-  let nativeInput, inputIdentityAnchor=null;
+  let nativeInput, inputIdentityAnchor=null, wasmLeaseAnchor=null;
   const nativeCount = type => json(`window.__RETENTION_NATIVE_COUNTS__?.[${JSON.stringify(type)}]`);
   const select = async (id='qa-agent-0499') => { const nativeBefore=await nativeCount('selection'); const prepared=await json(retentionFocusScript('button[data-agent-id="'+id+'"][data-renderer-target]',fixture.description().cut));
     inputIdentityAnchor=validateRetentionFocusAnchor(inputIdentityAnchor,prepared,homeScopeSequence===null?null:{scope:homeScopeSequence,instance:homeInstanceSequence,origin:homeTimeOrigin});
@@ -52,11 +52,12 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     const row=await settle(expected,true), stats=row.stats, memoryStarted=performance.now(), mem=await readMemory(), memoryReadMs=performance.now()-memoryStarted;
     const after=await read(false);
     if(row.wasmCapacity?.status==='observed'){
+      wasmLeaseAnchor=validateMountedMemoryLease(wasmLeaseAnchor,row.wasmCapacity.instanceSequence);
       assert(after.wasmCapacity?.status==='observed'&&after.wasmCapacity.instanceSequence===row.wasmCapacity.instanceSequence,'mounted WASM lease changed across observation');
       mem.wasmLinearBytes=row.wasmCapacity.linearCapacityBytes;
       mem.capabilityReasons={...mem.capabilityReasons,wasmLinearBytes:'active mounted WASM linear capacity; not allocator used heap'};
       action({type:'wasm_capacity',phase,instanceSequence:row.wasmCapacity.instanceSequence,beforeBytes:row.wasmCapacity.linearCapacityBytes,afterBytes:after.wasmCapacity.linearCapacityBytes});
-    }
+    } else assert(wasmLeaseAnchor===null,'mounted WASM lease became unavailable');
 
     const stamp=value=>({identityValid:value.identity.ready===false&&value.identity.player===null&&value.identity.key===null&&value.identity.bound===null&&value.identity.registration==='guest',clientSourceMatches:value.stats?.published.sourceCutMatches===true,renderCutMatches:value.metrics.cut?value.metrics.cut===fixture.description().cut:null,instance:value.stats?.instanceSequence,scope:value.stats?.scopeSequence,generation:value.stats?.localGeneration,origin:value.origin,camera:value.camera,loading:value.stats?.loading,stale:value.stats?.stale,error:value.stats?.hasError,currentQuery:value.stats?.published.queryGenerationMatches,complete:value.stats?.published.completeness==='complete',observed:value.metrics.status==='observed',entities:value.stats?.published.entities,bodies:value.metrics.bodies,labels:value.metrics.labels});
     const phaseMatch=classifyRetentionPhase(stamp(row),stamp(after));
