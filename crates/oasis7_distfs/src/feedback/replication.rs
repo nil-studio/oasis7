@@ -241,6 +241,19 @@ impl FeedbackStore {
             ),
             event_record.signature_hex.as_str(),
         )?;
+        // Exact record retries returned above. Unsigned metadata can change the
+        // event ID without changing the signed request; that is not a new append.
+        if existing_events.iter().any(|existing| {
+            existing.actor_public_key_hex == event_record.actor_public_key_hex
+                && existing.nonce == event_record.nonce
+        }) {
+            return Err(WorldError::DistributedValidationFailed {
+                reason: format!(
+                    "replicated event nonce conflict feedback_id={} nonce={}",
+                    event_record.feedback_id, event_record.nonce
+                ),
+            });
+        }
         self.claim_nonce_idempotent(
             event_record.actor_public_key_hex.as_str(),
             event_record.nonce.as_str(),

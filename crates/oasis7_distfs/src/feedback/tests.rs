@@ -488,6 +488,12 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         .ingest_replicated_event_record(append_record.clone())
         .expect("ingest append idempotent");
 
+    drop(target);
+    let target = FeedbackStore::new(
+        LocalCasStore::new(&target_dir),
+        FeedbackStoreConfig::default(),
+    );
+
     // These metadata fields affect event_id, but not the author's signature.
     // Changing either must not turn an exact retry into a second public append.
     for change_ip in [false, true] {
@@ -515,7 +521,11 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         assert_ne!(replay.event_id, append_record.event_id);
         assert_eq!(replay.signature_hex, append_record.signature_hex);
         assert!(
-            target.ingest_replicated_event_record(replay).is_err(),
+            matches!(
+                target.ingest_replicated_event_record(replay),
+                Err(WorldError::DistributedValidationFailed { reason })
+                    if reason.starts_with("replicated event nonce conflict")
+            ),
             "unsigned metadata must not bypass consumed append nonce"
         );
     }
@@ -529,6 +539,35 @@ fn feedback_replicated_ingest_is_idempotent_for_root_and_event() {
         .expect("target view");
     assert_eq!(view.append_events.len(), 1);
     assert_eq!(view.append_events[0].content, "append payload");
+
+    let mut fresh_request = FeedbackAppendRequest {
+        feedback_id: "fb-repl-1".to_string(),
+        actor_public_key_hex: public_key_hex(&author),
+        submit_ip: "127.0.0.8".to_string(),
+        content: "fresh append payload".to_string(),
+        nonce: "n-repl-fresh-append".to_string(),
+        timestamp_ms: now_plus(0),
+        expires_at_ms: now_plus(60_000),
+        signature_hex: String::new(),
+    };
+    fresh_request.signature_hex =
+        sign_feedback_append_request(&fresh_request, &hex::encode(author.to_bytes()))
+            .expect("sign fresh append");
+    let fresh_receipt = source.append_feedback(fresh_request).expect("fresh append");
+    let fresh_blob = source
+        .blob_ref_for_receipt(&fresh_receipt)
+        .expect("fresh blob ref")
+        .expect("fresh blob");
+    let fresh_bytes = source.store.read_file(&fresh_blob.path).expect("fresh bytes");
+    let fresh_record = serde_json::from_slice(&fresh_bytes).expect("fresh record");
+    target
+        .ingest_replicated_event_record(fresh_record)
+        .expect("different signed nonce remains accepted");
+    let fresh_view = target
+        .read_feedback_public("fb-repl-1")
+        .expect("read fresh target")
+        .expect("fresh target view");
+    assert_eq!(fresh_view.append_events.len(), 2);
 
     let _ = fs::remove_dir_all(source_dir);
     let _ = fs::remove_dir_all(target_dir);
