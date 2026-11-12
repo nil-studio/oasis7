@@ -209,7 +209,66 @@ def independent_target_input(path, directory, manifest):
     return not library.startswith(roots)
 
 
-def known_test_target_root(path, directory, manifest):
+def integration_test_targets(sources, directory, manifest):
+    """Resolve executable identities, separately from possible Cargo consumers.
+
+    Explicit names/paths override only the matching automatic targets. Unknown
+    or ambiguous declarations cannot witness execution; all_cargo_target_roots
+    independently retains their possible consumers.
+    """
+    package, declarations = manifest.get('package', {}), manifest.get('test', [])
+    edition = package.get('edition', '2015')
+    if edition not in ('2015', '2018', '2021', '2024') or not isinstance(declarations, list):
+        return {}
+    automatic = package.get('autotests', edition != '2015' or not any(
+        kind in manifest for kind in ('lib', 'bin', 'test', 'example', 'bench')))
+    if type(automatic) is not bool:
+        return {}
+    inferred = {}
+    prefix = directory + '/' if directory else ''
+    for path in sources:
+        if not path.startswith(prefix):
+            continue
+        match = re.fullmatch(r'tests/([^/.][^/]*)(?:\.rs|/main\.rs)', path[len(prefix):])
+        if match:
+            inferred.setdefault(match[1], []).append(path)
+    resolved, explicit_paths = {}, set()
+    for declaration in declarations:
+        if not isinstance(declaration, dict):
+            return {}
+        name = declaration.get('name')
+        required = declaration.get('required-features', [])
+        if (not isinstance(name, str) or not name or name in resolved
+                or any(type(declaration.get(key, True)) is not bool for key in ('test', 'harness'))
+                or not isinstance(required, list) or any(not isinstance(value, str) for value in required)):
+            return {}
+        if 'path' in declaration:
+            path = declaration['path']
+            if not isinstance(path, str) or not path or posixpath.isabs(path) or '\\' in path:
+                return {}
+            root = posixpath.normpath(posixpath.join(directory, path))
+        else:
+            candidates = inferred.get(name, [])
+            if len(candidates) != 1:
+                return {}
+            root = candidates[0]
+        if root not in sources:
+            return {}
+        resolved[name] = root, declaration
+        explicit_paths.add(root)
+    if automatic:
+        for name, candidates in inferred.items():
+            if name in resolved:
+                continue
+            candidates = [path for path in candidates if path not in explicit_paths]
+            if len(candidates) > 1:
+                return {}
+            if candidates:
+                resolved[name] = candidates[0], {}
+    return resolved
+
+
+def known_test_target_root(path, directory, manifest, integration_targets):
     """Only standalone Cargo roots can prove that no external mod cfg applies."""
     relative = posixpath.relpath(path, directory or '.')
     package, library = manifest.get('package', {}), manifest.get('lib', {})
@@ -217,7 +276,10 @@ def known_test_target_root(path, directory, manifest):
             and library.get('harness', True)
             and relative == posixpath.normpath(library.get('path', 'src/lib.rs'))):
         return True
-    for kind in ('bin', 'test'):
+    if any(path == root and declaration.get('test', True) and declaration.get('harness', True)
+           and not declaration.get('required-features') for root, declaration in integration_targets.values()):
+        return True
+    for kind in ('bin',):
         targets = manifest.get(kind, [])
         if any(target.get('path') and relative == posixpath.normpath(target['path'])
                and target.get('test', True) and target.get('harness', True)
@@ -226,8 +288,7 @@ def known_test_target_root(path, directory, manifest):
         # Explicit declarations can override automatic target test settings.
         if targets or not package.get('auto' + kind + 's', True):
             continue
-        pattern = (r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))'
-                   if kind == 'bin' else r'tests/[^/.][^/]*(?:\.rs|/main\.rs)')
+        pattern = r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))'
         if re.fullmatch(pattern, relative):
             return True
     return False
@@ -674,6 +735,12 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None, repo=None):
         package = manifest.get('package')
         if not package:
             continue
+        if package.get('edition') == {'workspace': True}:
+            # Resolve against this Git tree, never the mutable checkout or a
+            # guessed modern edition. A missing inheritance value widens scope.
+            package['edition'] = workspace.get('package', {}).get('edition')
+            if package['edition'] not in ('2015', '2018', '2021', '2024'):
+                raise ValueError('unknown inherited package edition')
         name = package['name']
         if name in manifests:
             raise ValueError('duplicate package name')
@@ -1704,7 +1771,7 @@ WORKER_SIGNER_FEATURE = 'execution-signer-harness'
 WORKER_SIGNER_GUARD_MESSAGE = 'execution-signer-harness requires executor and is not a deployment profile'
 
 
-def worker_local_feature_closure(manifest, initial):
+def local_feature_closure(manifest, initial, *, include_dev=False):
     """Reuse the existing local fixed point, without injecting defaults.
 
     Dependency forwarding cannot be guessed into a local cfg proof. A known
@@ -1713,47 +1780,53 @@ def worker_local_feature_closure(manifest, initial):
     """
     features = manifest.get('features', {})
     if not isinstance(features, dict) or any(name not in features for name in initial):
-        raise TestPolicyError('Worker compile profile feature is not declared')
+        raise TestPolicyError('Cargo profile feature is not declared')
     try:
         enabled = default_feature_closure(manifest, initial=initial)
     except (ValueError, TypeError):
-        raise TestPolicyError('invalid Worker local feature closure') from None
+        raise TestPolicyError('invalid Cargo local feature closure') from None
     dependencies = {}
     tables = [manifest]
     targets = manifest.get('target', {})
     if not isinstance(targets, dict):
-        raise TestPolicyError('unknown Worker target dependency closure')
+        raise TestPolicyError('unknown Cargo target dependency closure')
     tables.extend(targets.values())
     for table in tables:
         if not isinstance(table, dict):
-            raise TestPolicyError('unknown Worker dependency closure')
-        # Build/dev edges do not supply production package feature references.
-        entries = table.get('dependencies', {})
-        if not isinstance(entries, dict):
-            raise TestPolicyError('unknown Worker dependency closure')
-        for name, declaration in entries.items():
-            if not isinstance(declaration, (str, dict)):
-                raise TestPolicyError('unknown Worker dependency declaration')
-            optional = isinstance(declaration, dict) and declaration.get('optional', False)
-            if type(optional) is not bool:
-                raise TestPolicyError('unknown Worker dependency optionality')
-            dependencies.setdefault(name, set()).add(optional)
+            raise TestPolicyError('unknown Cargo dependency closure')
+        # Build edges do not supply local cfg features. Test targets can also
+        # forward features to dev dependencies; production Worker profiles cannot.
+        for kind in (('dependencies', 'dev-dependencies') if include_dev else ('dependencies',)):
+            entries = table.get(kind, {})
+            if not isinstance(entries, dict):
+                raise TestPolicyError('unknown Cargo dependency closure')
+            for name, declaration in entries.items():
+                if not isinstance(declaration, (str, dict)):
+                    raise TestPolicyError('unknown Cargo dependency declaration')
+                optional = isinstance(declaration, dict) and declaration.get('optional', False)
+                if type(optional) is not bool:
+                    raise TestPolicyError('unknown Cargo dependency optionality')
+                dependencies.setdefault(name, set()).add(optional)
     for name in enabled:
         for edge in features[name]:
             if edge in features:
                 continue
             if edge.startswith('dep:'):
                 if dependencies.get(edge[4:]) != {True}:
-                    raise TestPolicyError('unmodeled Worker namespaced dependency feature')
+                    raise TestPolicyError('unmodeled Cargo namespaced dependency feature')
                 continue  # dep: enables the dependency, not a local feature.
             if '/' in edge:
                 dependency, foreign = edge.split('/', 1)
                 if (not foreign or '/' in foreign or dependency.endswith('?')
                         or dependencies.get(dependency) != {False}):
-                    raise TestPolicyError('unmodeled Worker optional dependency feature forwarding')
+                    raise TestPolicyError('unmodeled Cargo optional dependency feature forwarding')
                 continue  # Known non-optional foreign feature: no local cfg edge.
-            raise TestPolicyError('unmodeled Worker implicit local feature')
+            raise TestPolicyError('unmodeled Cargo implicit local feature')
     return enabled
+
+
+def worker_local_feature_closure(manifest, initial):
+    return local_feature_closure(manifest, initial)
 
 
 def worker_signer_profile_enabled(manifest):
@@ -2185,9 +2258,17 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     directories = source_inputs.get('directories', {})
     production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
     host_roots = build_script_roots(sources, directories, source_inputs.get('manifests', {}))
+    integration_targets = {package: integration_test_targets(sources, directories[package], manifest)
+                           for package, manifest in source_inputs.get('manifests', {}).items()}
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
     ordinary_structure_cache = {}
     unit_cargo_roots = {}
+
+    def selected_attribute(attribute, native, features):
+        # A selection predicate must be true under this one actual tuple. The
+        # ordinary attribute helper is only a classifier for other attributes.
+        return (enabled_gate(attribute, native, features) if attribute[0] in ('cfg', 'cfg_attr')
+                else ordinary_attribute(attribute, native))
 
     def source_owners(path):
         return {name for name, directory in directories.items()
@@ -2199,13 +2280,13 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             parsed_sources[key] = attributes(sources[path].decode('utf-8', 'replace'), native)
         return parsed_sources[key]
 
-    def parents(path, native, selected_features=None):
+    def parents(path, native, selected_features=None, selected_root=None):
         """Find every literal mod/include reference without expanding macros.
 
         Only same-package, unambiguous static references can prove ordinary
         execution. The file's own inner attributes are checked by its caller.
         """
-        key = path, native, selected_features
+        key = path, native, selected_features, selected_root
         if key in parent_cache:
             return parent_cache[key]
         owners = source_owners(path)
@@ -2221,9 +2302,14 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:12]
             directory = posixpath.dirname(parent)
-            module_directory = (directory if parent in ordinary_roots or parent in production_roots or parent in host_roots
-                                or parent in unit_cargo_roots
-                                or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
+            # A file can be a standalone Cargo root and also an imported mod.
+            # Only the root of this selected route gets crate-root semantics;
+            # another target's root must retain its ordinary module directory.
+            root_context = (parent == selected_root if selected_root is not None else
+                            parent in ordinary_roots or parent in production_roots or parent in host_roots
+                            or parent in unit_cargo_roots
+                            or posixpath.basename(parent) in ('lib.rs', 'main.rs'))
+            module_directory = (directory if root_context or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
                                 or parent in source_inputs.get('includes', ())
                                 else parent.removesuffix('.rs'))
             for index, owner in items.items():
@@ -2271,6 +2357,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         targets.extend(target for target in (prefix + '.rs', prefix + '/mod.rs') if target in sources)
                         resolved &= len(targets) == 1
                         known &= len(targets) == 1
+                        # `mod r#mod;` can load an ordinary file named mod.rs;
+                        # it is not the directory-style name/mod.rs branch.
+                        if selected_root is not None and name == 'mod' and path == prefix + '.rs':
+                            known = False
                         opaque |= len(targets) != 1 and not inherited_path
                     if inherited_path:
                         targets.append(path)
@@ -2295,8 +2385,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         opaque = True
                 if path in targets and not (parent == path and not known and not opaque):
                     references.append((parent, kind, known and all(
-                        ordinary_attribute(attribute, native)
-                        or (selected_features is not None and enabled_gate(attribute, native, selected_features))
+                        (selected_attribute(attribute, native, selected_features) if selected_features is not None
+                         else ordinary_attribute(attribute, native))
                         for attribute in attributes_here), attributes_here))
                     provenance.append((parent, known, opaque, resolved, tuple(
                         attribute for attribute in attributes_here if attribute[0] in ('cfg', 'cfg_attr'))))
@@ -2323,7 +2413,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         enabled = bool(path in ordinary_roots or references) and not mixed
         enabled &= all(known and resolved and not opaque
                        and ordinary_source_structure(parent, native, visiting | {path})
-                       for parent, known, opaque, resolved, _ in reference_cache[(path, native, None)])
+                       for parent, known, opaque, resolved, _ in reference_cache[(path, native, None, None)])
         ordinary_structure_cache[key] = enabled
         return enabled
 
@@ -2338,7 +2428,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if path not in sources:
             return result
         parents(path, native)  # Fill the same exact-reference provenance cache.
-        for parent, known, opaque, resolved, gates in reference_cache[(path, native, None)]:
+        for parent, known, opaque, resolved, gates in reference_cache[(path, native, None, None)]:
             if parent in visiting and not resolved:
                 continue
             for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}, roots):
@@ -2380,6 +2470,18 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             result.update(inherited_gates(parent, native, visiting | {path}))
         return result
 
+    def selected_target_features(target):
+        manifest = source_inputs.get('manifests', {}).get(target['package'])
+        if not isinstance(manifest, dict):
+            return None
+        initial = list(target['features'])
+        if target['default_features'] and 'default' in manifest.get('features', {}):
+            initial.append('default')
+        try:
+            return frozenset(local_feature_closure(manifest, initial, include_dev=True))
+        except TestPolicyError:
+            return None
+
     def selected_target_root(target):
         package = target['package']
         manifest = source_inputs.get('manifests', {}).get(package)
@@ -2389,50 +2491,65 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         name = target['target_name']
         if target['target_kind'] == 'lib':
             declaration = manifest.get('lib', {})
-            if declaration.get('name', package.replace('-', '_')) != name:
+            if (declaration.get('name', package.replace('-', '_')) != name
+                    or ('lib' not in manifest and not manifest.get('package', {}).get('autolib', True))):
                 return None
             path = declaration.get('path', 'src/lib.rs')
+            root = posixpath.normpath(posixpath.join(directory, path))
         else:
-            declarations = manifest.get('test', [])
-            matches = [item for item in declarations if item.get('name') == name]
-            if len(matches) > 1 or declarations and not matches:
+            match = integration_targets.get(package, {}).get(name)
+            if match is None:
                 return None
-            declaration = matches[0] if matches else {}
-            if not matches and not manifest.get('package', {}).get('autotests', True):
-                return None
-            path = declaration.get('path', 'tests/' + name + '.rs')
-        root = posixpath.normpath(posixpath.join(directory, path))
-        if (root not in sources or root not in ordinary_roots
+            root, declaration = match
+        features = selected_target_features(target)
+        if (root not in sources or features is None
                 or not declaration.get('test', True) or not declaration.get('harness', True)
-                or not set(declaration.get('required-features', ())).issubset(target['features'])):
+                or not set(declaration.get('required-features', ())).issubset(features)):
             return None
         return root
 
     selected_context_cache = {}
 
-    def selected_source_context(path, target, visiting=frozenset()):
+    def selected_source_context(path, target, visiting=frozenset(), *, directory_context=False):
         """One proven route to the selected target is sufficient for shared tests.
 
         This proof is used only after every affected input has matched trusted
         fast rules. It does not change the legacy all-parent ownership proof.
         """
         root = selected_target_root(target)
-        features = frozenset(target['features'])
-        key = path, root, features
+        features = selected_target_features(target)
+        key = path, root, features, directory_context
         if key in selected_context_cache:
             return selected_context_cache[key]
-        if (root is None or path in visiting or path not in sources
+        if (root is None or features is None or path in visiting or path not in sources
                 or source_inputs.get('uncertain_modules')
                 or source_owners(path) & set(source_inputs.get('unresolved_includes', ()))):
             return False
         annotations = parsed(path, True)[6]
         inner = [attribute for attribute, owner in annotations if owner == ('module', '', 0)]
-        if any(not (ordinary_attribute(attribute, True) or enabled_gate(attribute, True, features))
-               for attribute in inner):
+        if any(not selected_attribute(attribute, True, features) for attribute in inner):
             return False
-        result = path == root or any(
-            known and selected_source_context(parent, target, visiting | {path})
-            for parent, _, known, _ in parents(path, True, features))
+        if path == root:
+            selected_context_cache[key] = True
+            return True
+        result = False
+        sibling_directory = (posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
+                             or path in source_inputs.get('includes', ()))
+        for parent, kind, known, annotations in parents(path, True, features, root):
+            literal_path = any(attribute[:2] == ('path', '=') and len(attribute) == 3
+                               and rust_literal_path(attribute[2]) is not None for attribute in annotations)
+            # Proving this file's body needs no inference about its children.
+            # An implicit child also needs the directory assumption to agree
+            # with this mount: #[path]/include use siblings, plain .rs mods use
+            # their stem. Unknown/mixed contexts cannot borrow another route.
+            directory_matches = (not directory_context
+                or (kind == 'include' and sibling_directory)
+                or (kind == 'mod' and (posixpath.basename(path) == 'mod.rs'
+                                      or literal_path == sibling_directory)))
+            if (known and directory_matches and selected_source_context(
+                    parent, target, visiting | {path}, directory_context=kind == 'mod' and not literal_path)):
+                result = True
+                break
         selected_context_cache[key] = result
         return result
 
@@ -2460,7 +2577,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             return False
         expected = {(owner, 'lib', target['target_name'])}
         test_gate = ('cfg', '(', 'test', ')')
-        features = frozenset(target['features'])
+        features = selected_target_features(target)
 
         def routes(current, visiting=frozenset()):
             if (current in visiting or current not in sources
@@ -2479,7 +2596,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             if not references or len({kind for _, kind, _, _ in references}) != 1:
                 return None
             result = []
-            for parent, known, opaque, resolved, gates in reference_cache[(current, True, None)]:
+            for parent, known, opaque, resolved, gates in reference_cache[(current, True, None, None)]:
                 if not known or opaque or not resolved:
                     return None
                 previous = routes(parent, visiting | {current})
@@ -2692,7 +2809,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if not compile_route(ordinary_roots, True) or not compile_route(production_roots, False):
             return False
         parents(path, True)  # Populate literal provenance, independently of cfg truth.
-        provenance = reference_cache[(path, True, None)]
+        provenance = reference_cache[(path, True, None, None)]
         if any(not known or opaque or not resolved for _, known, opaque, resolved, _ in provenance):
             return False
         references = sorted({parent for parent, _, _, _, gates in provenance
@@ -2808,7 +2925,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if narrow_unavailable is not None and path in (narrow_features_by_path or {}):
             gates = {attribute for attribute, _ in after_attrs if attribute[0] in ('cfg', 'cfg_attr')}
             gates.update(inherited_gates(path, True))
-            if any(not enabled_gate(attribute, True, narrow_features_by_path[path]) for attribute in gates):
+            feature_sets = ([selected_target_features(target) for target in selected_targets
+                             if selected_source_context(path, target)] if selected_targets
+                            else [narrow_features_by_path[path]])
+            if not any(features is not None and all(enabled_gate(attribute, True, features) for attribute in gates)
+                       for features in feature_sets):
                 narrow_unavailable.add(path)
         if selected_targets and path in (narrow_features_by_path or {}):
             # A legacy root is not evidence that the chosen small target runs a
@@ -3507,9 +3628,11 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                     feature_manifests[resolve_commit(ref)] = {
                         package: manifest.get('features', {})
                         for package, (_, manifest) in graph[0].items()}
+                    integration_targets = {package: integration_test_targets(sources, directory, manifest)
+                                           for package, (directory, manifest) in graph[0].items()}
                     test_target_roots[resolve_commit(ref)] = {
                         path for path in sources for package, (directory, manifest) in graph[0].items()
-                        if known_test_target_root(path, directory, manifest)
+                        if known_test_target_root(path, directory, manifest, integration_targets[package])
                         and (package in config.get('oasis7_required_packages', ())
                              or (set(config['package_groups'].get(package, ()))
                                  & ({'consensus', 'distfs', 'node', 'net'}
