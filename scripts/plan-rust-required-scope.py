@@ -1028,6 +1028,10 @@ def validate_config(config):
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary artifact partition capability')
+    if 'ordinary_harness_costs' in config:
+        if config.get('ordinary_artifact_partition_version') not in (1, 2):
+            raise ValueError('ordinary harness costs require artifact partitions')
+        validate_ordinary_harness_costs(config['ordinary_harness_costs'])
     if 'ordinary_artifact_delivery_version' in config:
         if (type(config['ordinary_artifact_delivery_version']) is not int
                 or config['ordinary_artifact_delivery_version'] != 1
@@ -1063,6 +1067,41 @@ def validate_config(config):
                 or len(targets) != len(set(targets))):
             raise ValueError('invalid private unit-test source contract')
     return config
+
+
+def validate_ordinary_harness_costs(profile):
+    """Validate hints, never execution authority; mirrored by the artifact consumer."""
+    if (not isinstance(profile, dict)
+            or set(profile) != {'version', 'fallback_ms', 'evidence', 'harnesses'}
+            or type(profile['version']) is not int or profile['version'] != 1
+            or type(profile['fallback_ms']) is not int or not 0 < profile['fallback_ms'] <= 3600000):
+        raise ValueError('invalid ordinary harness cost profile')
+    evidence = profile['evidence']
+    if (not isinstance(evidence, dict)
+            or set(evidence) != {'run_id', 'run_attempt', 'source_sha', 'tested_sha', 'policy_sha'}
+            or any(type(evidence[key]) is not int or evidence[key] < 1 for key in ('run_id', 'run_attempt'))
+            or any(not isinstance(evidence[key], str) or not re.fullmatch('[0-9a-f]{40}', evidence[key])
+                   for key in ('source_sha', 'tested_sha', 'policy_sha'))):
+        raise ValueError('invalid ordinary harness cost evidence')
+    rows, seen = profile['harnesses'], set()
+    if not isinstance(rows, list) or not rows or len(rows) > 4096:
+        raise ValueError('invalid ordinary harness cost inventory')
+    for row in rows:
+        if (not isinstance(row, dict)
+                or set(row) != {'package', 'target_kind', 'target_name', 'variant', 'mode', 'selector', 'elapsed_ms'}
+                or any(not isinstance(row[key], str) or not re.fullmatch('[A-Za-z0-9_-]+', row[key])
+                       for key in ('package', 'target_name', 'variant'))
+                or row['target_kind'] not in ('lib', 'bin', 'test')
+                or row['mode'] not in ('batch', 'filter', 'exact')
+                or not isinstance(row['selector'], str)
+                or (row['selector'] != '' if row['mode'] == 'batch' else
+                    not re.fullmatch(r'\w+(?:::\w+)*(?:::)?', row['selector']))
+                or type(row['elapsed_ms']) is not int or not 0 < row['elapsed_ms'] <= 3600000):
+            raise ValueError('invalid ordinary harness cost item')
+        identity = tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector'))
+        if identity in seen:
+            raise ValueError('duplicate ordinary harness cost identity')
+        seen.add(identity)
 
 
 def exact_python_script(path):
@@ -2853,6 +2892,8 @@ def complete_ordinary_partitions(config, plan):
             # Only the complete runtime case inventory gets multiple owners.
             plan.update(ordinary_artifact_partition_version=2,
                         ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
+            if 'ordinary_harness_costs' in config:
+                plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
     if (config.get('ordinary_artifact_delivery_version') == 1
             and plan.get('ordinary_artifact_partition_version') == 1):
         plan['ordinary_artifact_delivery_version'] = 1
