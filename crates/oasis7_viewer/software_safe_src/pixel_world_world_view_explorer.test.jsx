@@ -3,6 +3,14 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { createSignal } from 'solid-js';
 import { PixelWorldWorldViewExplorer } from './pixel_world_world_view_explorer.jsx';
 afterEach(cleanup);
+it('keeps explicit search enabled when a background read starts after focus',()=>{
+ const onQuery=vi.fn(),[state,setState]=createSignal({loading:false,view:{entities:[]}});
+ render(()=> <PixelWorldWorldViewExplorer locale="en" state={state()} onQuery={onQuery}/>);
+ const button=screen.getByRole('button',{name:'Search',exact:true});button.focus();
+ setState({loading:true,view:{entities:[]}});
+ expect(button.disabled).toBe(false);
+ fireEvent.submit(button.closest('form'));expect(onQuery).toHaveBeenCalledTimes(1);
+});
 const entity=(id,freshness='current')=>({entity_id:id,kind:'agent',label:id,position:{x_cm:'10',y_cm:'20',z_cm:'0'},provenance:{geometry_source:'authoritative',freshness,valid_at_source_cut:'cut'}});
 describe('world exploration',()=>{
   it('offers separate overlapping candidates and does not enable unknown geometry',()=>{
