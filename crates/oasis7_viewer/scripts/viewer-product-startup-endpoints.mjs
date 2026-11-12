@@ -1,6 +1,8 @@
 // Read only the existing active module. These are observations, not GPU fences.
 import {enterKeyEvents} from './viewer-owned-cdp-input.mjs';
 import {readOwnedStartupProfile} from './viewer-owned-startup-context.mjs';
+import {withObservationCleanup} from './world-view-frame-capability.mjs';
+import {boundedStartupOperation} from './viewer-owned-startup-lifecycle.mjs';
 import {execFile} from 'node:child_process';
 import {promisify,isDeepStrictEqual} from 'node:util';
 import {existsSync} from 'node:fs';
@@ -42,24 +44,29 @@ export async function readOwnedViewerGpuAfterAtlas(page) {
 export function viewerAtlasStamp(row) {
   return {origin:row.origin,world:row.world,cut:row.metrics.source_cut,renderVersion:row.metrics.render_version,camera:row.camera,canvas:row.canvas,target:row.target,scope:row.stats.scopeSequence,instance:row.stats.instanceSequence,generation:row.stats.localGeneration};
 }
-export async function captureOwnedViewerAtlas({page,expected,out,atlasPath,prefix='atlas',deadline=performance.now()+30000}) {
-  const attempts=[];
+export async function captureOwnedViewerAtlas({page,expected,out,atlasPath,report,prefix='atlas',deadline=performance.now()+30000}) {
+  if(!report||typeof report!=='object')throw Error('declare caller-owned atlas report');
+  const attempts=report.attempts??=[];
   for(let index=0;index<30&&performance.now()<deadline;index++){
-    const before=await waitOwnedViewerScene(page,expected,{deadline});
     const path=join(out,`${prefix}-${String(index).padStart(3,'0')}.png`);
-    if(existsSync(path))throw Error('atlas evidence path already exists');
-    await page.screenshot({path,animations:'allow',timeout:10000});
-    const after=await readOwnedViewerScene(page,expected.cut),row={path,before,after,bracketMatched:false,oracle:null};attempts.push(row);
+    const row={path,phase:'awaiting_scene',bracketMatched:false,oracle:null};attempts.push(row);
+    try{
+    const before=await waitOwnedViewerScene(page,expected,{deadline});row.before=before;
+    if(existsSync(path))throw Error('atlas evidence path already exists');row.phase='capturing';
+    await page.screenshot({path,animations:'allow',timeout:10000});row.phase='reading_after';
+    const after=await readOwnedViewerScene(page,expected.cut);row.after=after;
     try{assertViewerScene(after,expected);row.bracketMatched=isDeepStrictEqual(viewerAtlasStamp(before),viewerAtlasStamp(after));}catch{}
     if(!row.bracketMatched)row.reason='producer/page/scope/query/geometry changed across image; unknown';
     else{
       const result=await execute('python3',[fileURLToPath(new URL('./viewer-startup-atlas-oracle.py',import.meta.url)),path,atlasPath,JSON.stringify(before)],{timeout:10000,maxBuffer:1024*1024});
       row.oracle=JSON.parse(result.stdout);
-      if(row.oracle.ratio>=.9)return {attempts,matched:row,observedPageUpperMs:after.now,semantics:'atlas_image_observed_upper_not_first_physical_or_passive_present'};
+      if(row.oracle.ratio>=.9){row.phase='matched';Object.assign(report,{matched:row,observedPageUpperMs:after.now,semantics:'atlas_image_observed_upper_not_first_physical_or_passive_present'});return report;}
     }
+    row.phase='not_yet_matched';
+    }catch(error){row.phase='failed';row.error=String(error);throw error;}
     await new Promise(yes=>setTimeout(yes,100));
   }
-  const error=Error('bounded atlas visibility observation did not obtain matched pixels');error.atlasAttempts=attempts;throw error;
+  throw Error('bounded atlas visibility observation did not obtain matched pixels');
 }
 export async function waitOwnedViewerScene(page,expected,{requireLabels=false,deadline=performance.now()+30000}={}) {
   let last;
@@ -71,10 +78,12 @@ export async function waitOwnedViewerScene(page,expected,{requireLabels=false,de
   }
   throw Error('owned Viewer scene deadline expired: '+JSON.stringify(last));
 }
-export async function nativeSelectOwnedViewer(context,page,expected) {
+export async function nativeSelectOwnedViewer(context,page,expected,report) {
+  if(!report||typeof report!=='object')throw Error('declare caller-owned native selection report');
   readOwnedStartupProfile(context);
   if(context.pages().length!==1||context.pages()[0]!==page)throw Error('native selection page ownership invalid');
   const before=await waitOwnedViewerScene(page,expected);
+  report.before=before;
   if(before.target.selected==='true')throw Error('startup target was already selected before input');
   await page.evaluate(id=>{
     const b=document.querySelector(`button[data-agent-id="${id}"][data-renderer-target]`);b.focus({preventScroll:true});if(document.activeElement!==b)throw Error('native startup target focus failed');
@@ -82,19 +91,23 @@ export async function nativeSelectOwnedViewer(context,page,expected) {
     for(const type of ['keydown','click'])document.addEventListener(type,e=>{if(e.target===b)window.__STARTUP_NATIVE_EVIDENCE__.push({type,trusted:e.isTrusted,id:b.dataset.agentId,timeStamp:e.timeStamp,now:performance.now(),origin:performance.timeOrigin});},{capture:true,once:true});
   },STARTUP_AGENT_ID);
   const cdp=await context.newCDPSession(page);
-  try{for(const params of enterKeyEvents())await cdp.send('Input.dispatchKeyEvent',params);}finally{await cdp.detach();}
+  return withObservationCleanup(async()=>{
+  for(const params of enterKeyEvents())await cdp.send('Input.dispatchKeyEvent',params);
   await page.waitForFunction(id=>document.querySelector(`button[data-agent-id="${id}"][data-renderer-target]`)?.dataset.selected==='true',STARTUP_AGENT_ID,{timeout:10000});
   const after=await waitOwnedViewerScene(page,expected),events=await page.evaluate(()=>window.__STARTUP_NATIVE_EVIDENCE__);
+  Object.assign(report,{after,events});
   if(after.origin!==before.origin||after.target.selected!=='true'||events.length!==2||events.some(e=>!e.trusted||e.id!==STARTUP_AGENT_ID||e.origin!==before.origin||!(e.timeStamp>0&&e.timeStamp<=e.now&&e.now-e.timeStamp<1000)))throw Error('native startup input/selection/clock pairing failed');
-  return {before,after,events,semantics:'trusted_native_Enter_to_selected_DOM_not_GPU_selection_fence'};
+  report.semantics='trusted_native_Enter_to_selected_DOM_not_GPU_selection_fence';return report;
+  },[async()=>{report.events=await page.evaluate(()=>window.__STARTUP_NATIVE_EVIDENCE__);},()=>boundedStartupOperation(cdp.detach(),'detach native selection')],report);
 }
-export async function prepareOwnedViewerDensity(context,page,expected) {
+export async function prepareOwnedViewerDensity(context,page,expected,report) {
+  if(!report||typeof report!=='object')throw Error('declare caller-owned density preparation report');
   await waitOwnedViewerScene(page,expected);
   const disclosure=page.locator('.pixel-world-exploration-disclosure');
   await disclosure.locator('summary').click();
   const overview=page.locator('[data-query-overview]');await overview.focus();
   const cdp=await context.newCDPSession(page);
-  try{for(const params of enterKeyEvents())await cdp.send('Input.dispatchKeyEvent',params);}finally{await cdp.detach();}
+  await withObservationCleanup(async()=>{for(const params of enterKeyEvents())await cdp.send('Input.dispatchKeyEvent',params);},()=>boundedStartupOperation(cdp.detach(),'detach density input'),report);
   await disclosure.locator('summary').click();
   const end=performance.now()+20000;
   while(performance.now()<end){
