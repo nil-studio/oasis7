@@ -261,7 +261,9 @@ with patch.object(Path, 'read_text', read):
                  patch.object(dns, 'default_mirror_allowed', return_value=True) as mirror:
                 installer = Mock()
                 installer.work_end = time.monotonic() + 5
-                installer.run_command.return_value = (0, 'APT "";\n', True)
+                installer.run_command.return_value = (0, 'Dir "/";\nDir::Etc "etc/apt";\n'
+                                                       'Dir::Etc::sourcelist "sources.list";\n'
+                                                       'Dir::Etc::sourceparts "sources.list.d";\n', True)
                 recovery = dns.Recovery(installer, True)
                 self.assertTrue(recovery.eligible(), recovery.reason)
                 mirror.assert_called_once()
