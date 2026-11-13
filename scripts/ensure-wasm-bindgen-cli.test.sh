@@ -136,3 +136,36 @@ write_cli "$cache_bin" 0.2.999
 [[ -z "$(bash "$helper" --ensure-cache)" ]]
 [[ ! -s "$CARGO_TEST_LOG" ]]
 printf 'ensure-wasm-bindgen-cli tests passed\n'
+
+# A check-only consumer never installs, even with stale or unavailable CLIs.
+for mode in missing wrong-version failed-version; do
+  reset_case
+  if [[ "$mode" != missing ]]; then
+    write_cli "$cache_bin" 0.2.998
+    if [[ "$mode" == failed-version ]]; then printf 'exit 9\n' >> "$cache_bin"; fi
+  fi
+  set +e
+  bash "$helper" --check --print-bin >"$fixture/stdout" 2>"$fixture/stderr"
+  status=$?
+  set -e
+  [[ "$status" == 2 && ! -s "$fixture/stdout" && ! -s "$CARGO_TEST_LOG" ]]
+done
+reset_case
+write_cli "$cache_bin" 0.2.999
+assert_bin --check
+[[ ! -s "$CARGO_TEST_LOG" ]]
+reset_case
+write_cli "$fixture/external/wasm-bindgen" 0.2.999
+export WASM_BINDGEN_BIN="$fixture/external/wasm-bindgen"
+[[ "$(bash "$helper" --check --print-bin)" == "$WASM_BINDGEN_BIN" ]]
+[[ ! -s "$CARGO_TEST_LOG" ]]
+reset_case
+write_cli "$fixture/tools/wasm-bindgen" 0.2.999
+[[ "$(bash "$helper" --check --print-bin)" == "$fixture/tools/wasm-bindgen" ]]
+[[ ! -s "$CARGO_TEST_LOG" ]]
+if bash "$helper" --check --ensure-cache >"$fixture/stdout" 2>"$fixture/stderr"; then
+  echo 'check-only must reject provisioning options' >&2
+  exit 1
+fi
+[[ ! -s "$CARGO_TEST_LOG" ]]
+printf 'ensure-wasm-bindgen-cli check-only tests passed\n'

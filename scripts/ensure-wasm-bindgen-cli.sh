@@ -5,12 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ensure-wasm-bindgen-cli.sh [--ensure-cache] [--print-bin]
+Usage: ./scripts/ensure-wasm-bindgen-cli.sh [--ensure-cache|--check] [--print-bin]
 
 Provision the pinned `wasm-bindgen` CLI version required by the viewer build.
 
 Options:
   --ensure-cache  Prepare the version directory, ignoring external executables.
+  --check       Resolve an existing locked CLI; never install or upgrade it.
   --print-bin   Print the resolved executable path.
   -h, --help    Show this help.
 USAGE
@@ -18,6 +19,7 @@ USAGE
 
 PRINT_BIN=0
 ENSURE_CACHE=0
+CHECK_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ensure-cache)
@@ -26,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --print-bin)
       PRINT_BIN=1
+      shift
+      ;;
+    --check)
+      CHECK_ONLY=1
       shift
       ;;
     -h|--help)
@@ -39,6 +45,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$CHECK_ONLY" == 1 && "$ENSURE_CACHE" == 1 ]]; then
+  echo 'error: --check cannot be combined with --ensure-cache' >&2
+  exit 2
+fi
 
 source "$SCRIPT_DIR/wasm-bindgen-cli-common.sh"
 
@@ -76,6 +87,10 @@ else
   if [[ "$ENSURE_CACHE" == "0" ]] && cli_version_matches "$system_cli"; then
     resolved_cli="$system_cli"
   else
+    if [[ "$CHECK_ONLY" == 1 ]]; then
+      echo "error: missing prepared wasm-bindgen $WASM_BINDGEN_LOCK_VERSION; local checks never install or upgrade it" >&2
+      exit 2
+    fi
     install_cli
     if ! cli_version_matches "$cached_cli"; then
       echo "error: failed to provision wasm-bindgen $WASM_BINDGEN_LOCK_VERSION under $cache_root" >&2

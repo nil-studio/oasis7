@@ -14,6 +14,34 @@ import time
 TOOL_GROUPS = frozenset(('baseline', 'codex_agent_config_validation',
                        'doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
 FIXTURE_GROUPS = frozenset(('doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
+VIEWER_FIXTURE_GROUPS = frozenset(('viewer_js_required', 'viewer_performance_report'))
+
+
+def viewer_fixture_command(command, group):
+    return group in VIEWER_FIXTURE_GROUPS and (
+        any(arg.endswith(('.test.sh', '.test.py', '.test.mjs', '-test.sh')) or '/test_' in arg
+            for arg in command)
+        or ('npm' in command and 'run' in command and 'test:frontend-structure' in command))
+
+
+def tap_flat_evidence(output):
+    """Validate Vitest's flat TAP inventory, including required skipped cases."""
+    lines = output.splitlines()
+    plans = [re.fullmatch(r'1\.\.(\d+)\s*', line) for line in lines if line.startswith('1..')]
+    if len(plans) != 1 or plans[0] is None:
+        return None, None, False
+    expected = int(plans[0][1])
+    rows = [re.fullmatch(r'(ok|not ok) (\d+)(?:\s+.*)?', line)
+            for line in lines if re.match(r'(?:ok|not ok)\b', line)]
+    if any(row is None for row in rows):
+        return expected, 0, False
+    numbers = [int(row[2]) for row in rows]
+    completed = [row for row in rows if row[1] == 'ok'
+                 and not re.search(r'\s#\s*(?:SKIP|TODO)\b', row[0], re.I)]
+    valid = (expected > 0 and lines.count('TAP version 13') == 1
+             and len(numbers) == expected and set(numbers) == set(range(1, expected + 1))
+             and len(completed) == expected and not any(line.startswith('Bail out!') for line in lines))
+    return expected, len(completed), valid
 
 
 def evidence(command, output, returncode, group):
@@ -44,7 +72,30 @@ def evidence(command, output, returncode, group):
     is_test |= '-m' in command and 'unittest' in command
     is_test |= any(arg.endswith('ci-test-artifacts.py') for arg in command) and 'run' in command
     is_test |= any(arg.endswith('ci-python-control-contracts.py') for arg in command) and 'local-contract' in command
-    if structured:
+    viewer_npm_test = ('run' in command and any(Path(arg).name == 'npm' for arg in command)
+                       and any(arg in ('test:ui', 'test:frontend-structure', 'test:feedback-contract')
+                               for arg in command))
+    is_test |= viewer_npm_test
+    browser_test = any(arg.endswith(('/browser-functional-regression.mjs', '/viewer-auth-browser-security-smoke.mjs'))
+                       for arg in command)
+    is_test |= browser_test
+    if viewer_npm_test and 'test:ui' in command and '--reporter=tap-flat' in command:
+        expected, executed, complete = tap_flat_evidence(output)
+        if not complete:
+            status, reason = 'incomplete', 'Vitest TAP inventory is missing, duplicated, failed or skipped'
+    elif viewer_npm_test and 'test:frontend-structure' in command:
+        if node:
+            expected = sum(map(int, node))
+            executed = sum(map(int, re.findall(r'^# pass (\d+)$', output, re.M)))
+            if expected != executed:
+                status, reason = 'incomplete', 'frontend Node test count mismatch or required skip'
+        else:
+            expected = executed = None
+            status, reason = 'incomplete', 'frontend command has no Node execution counts'
+    elif browser_test and not structured:
+        expected = executed = None
+        status, reason = 'incomplete', 'browser command has no structured execution counts'
+    elif structured:
         counts = [item.get('expected_count') for item in structured]
         if any(type(value) is not int or value <= 0 for value in counts):
             status, reason = 'incomplete', 'unknown or zero expected artifact case count'
@@ -83,7 +134,7 @@ def evidence(command, output, returncode, group):
             and any(arg.endswith('/cargo-dev-windows-toolchain.test.sh') for arg in command)):
         reason = 'Windows-only fallback is not applicable on this Linux host; no Windows cases executed'
     return dict(status=status, reason=reason, tests_expected=expected, tests_executed=executed,
-                business_tests_executed=0 if group in TOOL_GROUPS else executed)
+                business_tests_executed=0 if group in TOOL_GROUPS or viewer_fixture_command(command, group) else executed)
 
 
 def write_record(path, value):
@@ -104,7 +155,8 @@ def summaries(path):
                 while line and not line.endswith(b'\n'):
                     line = stream.readline(65537)
                 continue
-            if (b'test result:' in line or line.startswith((b'running ', b'Ran ', b'OK', b'# ', b'{'))):
+            if (b'test result:' in line or line.startswith((b'running ', b'Ran ', b'OK', b'# ', b'{',
+                                                           b'TAP version ', b'1..', b'ok ', b'not ok ', b'Bail out!'))):
                 selected.append(line.decode('utf-8', 'replace'))
     return ''.join(selected)
 
@@ -142,6 +194,15 @@ def main(argv=None):
                              'OASIS7_LOCAL_CHECK_RUN_DIR', 'OASIS7_LOCAL_CHECK_GROUP',
                              'OASIS7_PRODUCT_DOC_BASE', 'OASIS7_PRODUCT_DOC_HEAD'):
                     child_env.pop(name, None)
+            if viewer_fixture_command(command, group):
+                # Fixture subprocesses own their input histories and output
+                # namespaces. Tests explicitly enabling a local scenario still
+                # supply that scenario's environment themselves.
+                for name in list(child_env):
+                    if name.startswith(('OASIS7_LOCAL_CHECK', 'OASIS7_VIEWER_LOCAL_',
+                                        'AGENT_BROWSER_', 'AGENT_VISUAL_')) or name in (
+                            'OASIS7_PRODUCT_DOC_BASE', 'OASIS7_PRODUCT_DOC_HEAD', 'WASM_BINDGEN_BIN'):
+                        child_env.pop(name)
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=child_env)
             while True:
                 data = process.stdout.read1(65536)
