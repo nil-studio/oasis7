@@ -49,6 +49,27 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_workers_policy_fixture_owners_across_changes(self):
+        for name in ('policy.json', 'policy-large-input.json', 'policy-large-bindings.json'):
+            path = 'crates/oasis7_dev_test_worker/tests/fixtures/' + name
+            for value in ('{}', '{"changed": true}'):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, value); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['javascript-repo', 'rust-repo'])
+                for unit in result['selected_units']:
+                    self.assertIn(path, result['reasons'][unit])
+            self.base = self.git('rev-parse', 'HEAD')
+            (self.root / path).unlink(); self.commit()
+            self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo', 'rust-repo'])
+
+    def test_workers_policy_unknown_neighbor_stays_closed(self):
+        self.write('crates/oasis7_dev_test_worker/tests/fixtures/unregistered.json', '{}')
+        self.commit()
+        for full in (False, True):
+            with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                self.run_plan(full=full)
+
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
         path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
         for value in ('body { color: red; }', 'body { color: blue; }'):
