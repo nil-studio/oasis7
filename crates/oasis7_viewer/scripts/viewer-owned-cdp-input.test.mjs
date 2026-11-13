@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { createOwnedCdpInput, enterKeyEvents } from './viewer-owned-cdp-input.mjs';
 import { collectNativeSelectionSamples } from './viewer-performance-native-input.mjs';
 
@@ -99,4 +100,19 @@ test('failed or unconfirmed native-session preparation sends no key and never re
       assert.equal(messages.filter(m=>m.method==='Input.dispatchKeyEvent').length,0);
     },request=>request.method==='Runtime.evaluate'?response:undefined);
   }
+});
+
+test('the actual renderer preparation rejects a focus no-op before any key', async () => {
+  let expression;
+  await fakeBrowser([{type:'page',url:'http://owned/',targetId:'owned'}],async messages=>{
+    const evaluate=async code=>code.includes('location.href')?'http://owned/':code.includes('candidates[0]')?{id:'agent-A',x:100,y:100}:true;
+    await assert.rejects(collectNativeSelectionSamples({evaluate,run,count:1,selectionSource:'renderer'}),/preparation/);
+    assert.equal(messages.filter(m=>m.method==='Input.dispatchKeyEvent').length,0);
+  },request=>{if(request.method==='Runtime.evaluate'){expression=request.params.expression;return {result:{value:false}};}});
+  let time=0,focusCalls=0;
+  const button={getBoundingClientRect:()=>({x:90,y:90,width:20,height:20}),focus(){focusCalls++;}};
+  const document={activeElement:{tagName:'BODY'},querySelector:()=>button};
+  const metrics={status:'observed',display_profile:'world_view_v1',projected_marker_count:1000,agent_body_sprites:1000,in_view_agent_body_sprites:1000,laid_out_in_view_labels:200};
+  await assert.rejects(vm.runInNewContext(expression,{document,window:{__QA_READ_METRICS__:()=>metrics},innerWidth:1440,innerHeight:1000,performance:{now:()=>time+=1000},setTimeout:fn=>fn()}),/same native target did not become ready/);
+  assert(focusCalls>0);
 });
