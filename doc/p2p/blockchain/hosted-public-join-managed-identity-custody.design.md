@@ -235,6 +235,8 @@ Worker 本身不承载世界共识；Native 身份和世界 authority 的固定 
 
 部署采用独立 staging 应用并固定 Free 套餐的真实包大小、CPU、存储与调用限制，不以账户请求额度替代运行时可行性验证。管理与模型工具分离，Secrets 及部署权限仅由可信运营者持有；是否采用多个 Worker/DO 由状态原子性及安全边界决定，不能为复用旧配置增加本工具无关义务。生产/云端状态只在实际构建、部署、身份与 A/B 业务及恢复验收后声明。实现与剩余义务由 #5775、#5776、#5777 承接，本段不代表平台适配或云端部署已完成。
 
+Cloudflare 的[单变量上限为 5KB，Free 的变量总数为 64](https://developers.cloudflare.com/workers/platform/limits/#environment-variables)，不能把合法的多账号配置假定为一个可部署 Secret。配置保留单片 `DEV_TEST_POLICY` 兼容入口；较大配置由 `DEV_TEST_POLICY_MANIFEST` 指定版本、分片数量和完整文本的 BLAKE3，按序读取 `DEV_TEST_POLICY_PART_01` 至 `_16`。每片不超过 4096 UTF-8 字节，总文本仍不超过 60KiB；缺片、空片、超限、摘要不符、未知 manifest 字段或同时配置单片与 manifest 均在鉴权、扣额及网络调用前拒绝，不降级回旧配置。未被 manifest 引用的旧片不参与配置。可信离线工具生成可供一次 bulk 更新的绑定映射，显式清除另一表示及多余旧片；与材料、凭据和其他绑定合计仍须满足平台变量数量上限。分片只改变部署表示，拼接后的完整策略文本及其摘要仍是原有 generation、会话与累计账本的依据，不产生新授权或重置用量。
+
 Workers 的平台实例可能在请求间被替换，不能把易失内存当作会话存储。SQLite 保存无凭据的会话引用、不可变 grant/caller/绑定／动作范围、签发与到期时间及关闭墓碑；返回引用前必须提交成功。每次调用复用共享会话合同核对当前授权，session_ref 不提供认证。记录缺失、损坏或已关闭时拒绝，不补建；不从原操作推导新会话。逻辑服务重启／备份恢复须轮换 service_grant_id，旧会话因此失效；普通平台休眠不轮换授权、不延长期限或清零额度。Native 的启动 epoch 合同保持。
 
 <a id="dev-test-accounts-sessions"></a>

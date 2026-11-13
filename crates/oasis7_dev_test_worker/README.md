@@ -20,6 +20,8 @@
 
 未配置、错误或缺失的 Secret、HTTPS 校验失败、身份或完整 fence 不一致均拒绝业务；不自动登录、换 key、重建世界或扩大权限。
 
+Cloudflare 单个变量／Secret 上限为 5KB。双账号完整 fence 可能超出该值，不能只依据本地 60KiB 配置上限上传单个 Secret。可信 operator 使用 `operator_policy <公共policy文件> --bindings` 生成可合并到 `wrangler secret bulk` 输入的公共配置绑定映射：小配置仍使用 `DEV_TEST_POLICY`；较大配置使用 `DEV_TEST_POLICY_MANIFEST` 和最多16个 `DEV_TEST_POLICY_PART_01`～`_16`，每片最多4096 UTF-8字节，总计最多60KiB。manifest固定版本1、片数及完整文本BLAKE3，Worker完整重组、验摘要后才解析和使用配置。缺片、损坏、混合单片和manifest均拒绝，不回退。输出中的null用于在同一次bulk更新中删除旧表示／旧片；不要过滤这些null或单独覆盖某片。先部署支持分片的代码，再提交绑定更新；核对材料、凭据、历史残留与配置合计不超过Free的64个变量。原始配置输出与现有单片调用保持兼容；分片不轮换服务授权、不清零账本，也不改变会话合同。
+
 ## 持久化与恢复边界
 
 DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过同步 SQLite CAS 更新。业务准入和额度必须落账后才发 native 请求。metadata 不消耗业务额度，close 按合同不扣额；失败／未知请求不返还已经保留的额度。
