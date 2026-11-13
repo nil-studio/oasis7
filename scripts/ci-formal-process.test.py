@@ -3924,15 +3924,48 @@ class BuildAndBundles(unittest.TestCase):
             base = Path(temp)
             root = base / 'checkout'
             root.mkdir()
+            manifest = root / 'Cargo.toml'
+            manifest.write_text('[package]\nname="cache_local"\nversion="0.1.0"\n')
+            source = root / 'lib.rs'
+            source.write_text('pub fn value() {}\n')
             config = root / 'suites.json'
             config.write_text(json.dumps(dict(suites={}, legacy_ignored_filters={},
                                              environment_formal_batches={}, shell_tests={})))
+            variants = ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests', 'required-full-fast-0')
+            messages, fingerprints = [], []
+            for index, variant in enumerate(variants):
+                unit_hash = f'{index + 1:016x}'
+                library = root / 'target/debug/deps' / ('libcache_local-' + unit_hash + '.rlib')
+                library.parent.mkdir(parents=True, exist_ok=True)
+                library.write_text(variant)
+                fingerprint = 'debug/.fingerprint/cache_local-' + unit_hash
+                fingerprints.append(fingerprint)
+                directory = root / 'target' / fingerprint
+                directory.mkdir(parents=True)
+                (directory / 'lib-cache_local').write_text(variant)
+                messages.append(dict(reason='compiler-artifact', fresh=index == 1,
+                    manifest_path=str(manifest), package_id='cache_local', filenames=[str(library)],
+                    target=dict(name='cache_local', kind=['lib'], src_path=str(source)), profile=dict(test=False)))
+
+            class CargoOutput:
+                def __init__(self, entries):
+                    self.stdout = iter(json.dumps(entry) + '\n' for entry in entries)
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    pass
+                def wait(self):
+                    return 0
+
             for scope in ('ordinary', 'formal', 'storage', 'all'):
                 with self.subTest(scope=scope), \
                      patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
-                     patch.object(artifacts, 'build_variants', return_value=[]), \
+                     patch.object(artifacts, 'build_variants', return_value=[(name, ['test'], []) for name in variants]), \
+                     patch.object(artifacts.subprocess, 'Popen', side_effect=[CargoOutput([message])
+                         for message in messages[:-1]] + [CargoOutput([dict(messages[0], fresh=True), messages[-1]])]), \
                      patch.object(artifacts, 'output', return_value='host: fixture'), \
-                     patch.object(artifacts, 'cache_begin', wraps=artifacts.cache_begin) as begin:
+                     patch.object(artifacts, 'cache_begin', wraps=artifacts.cache_begin) as begin, \
+                     patch('builtins.print'):
                     state_path = base / (scope + '-state.json')
                     artifacts.build(base / scope, scope, state_path)
                     selection = 'libraries' if scope == 'ordinary' else 'all'
@@ -3940,6 +3973,11 @@ class BuildAndBundles(unittest.TestCase):
                     state = json.loads(state_path.read_text())
                     self.assertEqual(state['selection'], selection)
                     self.assertTrue(state['complete'])
+                    self.assertEqual(state['directories'], fingerprints)
+                    if scope == 'ordinary':
+                        self.assertEqual(state['ordinary_baseline_units'], fingerprints[:-1])
+                    else:
+                        self.assertNotIn('ordinary_baseline_units', state)
 
     def test_formal_builder_does_not_wait_for_ordinary_targets(self):
         formal = artifacts.build_variants('formal')

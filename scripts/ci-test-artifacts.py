@@ -1408,7 +1408,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                     print(artifact['message'].get('rendered', ''), end='', flush=True)
                 if cache_state is not None and not cache_state.get('error'):
                     try:
-                        cache_record(cache_state, artifact)
+                        cache_record(cache_state, artifact, ordinary_baseline=(scope == 'ordinary' and variant in
+                            ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')))
                     except (OSError, ValueError, KeyError, TypeError) as error:
                         cache_state['error'] = str(error)
                 if artifact.get('reason') == 'compiler-artifact':
@@ -2279,7 +2280,7 @@ def _cache_finish_unhashed_libraries(state):
     state['directories'].extend(directories)
 
 
-def cache_record(state, message):
+def cache_record(state, message, *, ordinary_baseline=False):
     """Select concrete Cargo units, including both build-script unit hashes."""
     reason = message.get('reason')
     target_root = Path(state['target'])
@@ -2348,7 +2349,10 @@ def cache_record(state, message):
         if not re.fullmatch(r'[0-9a-f]{16}', unit_hash):
             raise ValueError('unsupported Cargo unit hash')
         state['files'].extend(filenames)
-        state['directories'].append((profile / '.fingerprint' / (package + '-' + unit_hash)).as_posix())
+        fingerprint = (profile / '.fingerprint' / (package + '-' + unit_hash)).as_posix()
+        state['directories'].append(fingerprint)
+        if ordinary_baseline and state.get('selection') == 'libraries':
+            state.setdefault('ordinary_baseline_units', []).append(fingerprint)
     elif reason == 'build-script-executed' and message['package_id'] in state['packages']:
         directory = Path(_cache_relative(state, message['out_dir'])).parent
         package = state['packages'][message['package_id']]
@@ -2365,6 +2369,8 @@ def cache_finish(state):
     _cache_finish_unhashed_libraries(state)
     state['files'] = sorted(set(state['files']))
     state['directories'] = sorted(set(state['directories']))
+    if 'ordinary_baseline_units' in state:
+        state['ordinary_baseline_units'] = sorted(set(state['ordinary_baseline_units']))
     state['complete'] = True
 
 
