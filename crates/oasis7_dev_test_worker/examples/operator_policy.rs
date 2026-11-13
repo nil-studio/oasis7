@@ -2,8 +2,8 @@
 fn main() {
     let result = (|| {
         let args = std::env::args().skip(1).collect::<Vec<_>>();
-        if args.len() != 1 {
-            return Err("one policy file required");
+        if args.len() != 1 && !(args.len() == 2 && args[1] == "--bindings") {
+            return Err("policy file and optional --bindings required");
         }
         use std::io::Read;
         let metadata = std::fs::symlink_metadata(&args[0]).map_err(|_| "policy unavailable")?;
@@ -19,7 +19,12 @@ fn main() {
         if raw.len() > 60 * 1024 {
             return Err("policy unavailable");
         }
-        oasis7_dev_test_worker::prepare_operator_policy(&raw)
+        if args.len() == 2 {
+            let bindings = oasis7_dev_test_worker::prepare_operator_policy_bindings(&raw)?;
+            serde_json::to_string(&bindings).map_err(|_| "policy unavailable")
+        } else {
+            oasis7_dev_test_worker::prepare_operator_policy(&raw)
+        }
     })();
     match result {
         Ok(policy) => println!("{policy}"),

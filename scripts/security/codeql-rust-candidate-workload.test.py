@@ -127,6 +127,11 @@ class ArityPatch(unittest.TestCase):
         self.assertNotEqual(m.TYPE_CANDIDATE_SHA, m.comparison.CANDIDATE_SHA)
         self.assertEqual(m.VARIANT, 'qualifier-lines-v3')
 
+    def test_shared_patch_has_separate_research_and_component_identities(self):
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-shared-constraint.patch'), m.SHARED_PATCH_SHA)
+        self.assertEqual(m.WORKLOAD_VARIANT, 'qualifier-lines-shared-v4')
+        self.assertEqual(m.VARIANT, 'qualifier-lines-v3')
+
 
 class Workload(unittest.TestCase):
     """Real filesystem and oracles; only external CLI and hosted checkout observations are substituted."""
@@ -161,10 +166,15 @@ class Workload(unittest.TestCase):
         self.suite_helper.mkdir(parents=True)
         (self.suite_helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
         self.closure = {}
-        for name in ['rust-all', *['fixture-' + str(i) for i in range(12)]]:
-            root = self.official / 'qlpacks/codeql' / name / '0.2.25'; root.mkdir(parents=True)
-            (root / 'qlpack.yml').write_text('library: true\nname: codeql/' + name + '\nversion: 0.2.25\ndependencies: {}\n')
-            self.closure['codeql/' + name] = dict(name='codeql/' + name, version='0.2.25', dependencies={}, manifest_sha256=m.runtime.digest(root / 'qlpack.yml'), root=str(root))
+        for name in ['rust-all', 'typeinference', *['fixture-' + str(i) for i in range(11)]]:
+            version = '0.0.42' if name == 'typeinference' else '0.2.25'
+            root = self.official / 'qlpacks/codeql' / name / version; root.mkdir(parents=True)
+            (root / 'qlpack.yml').write_text('library: true\nname: codeql/' + name + '\nversion: ' + version + '\ndependencies: {}\n')
+            self.closure['codeql/' + name] = dict(name='codeql/' + name, version=version, dependencies={}, manifest_sha256=m.runtime.digest(root / 'qlpack.yml'), root=str(root))
+        shared = Path(self.closure['codeql/typeinference']['root'])
+        (shared / m.SHARED_FILE).parent.mkdir(parents=True)
+        (shared / m.SHARED_FILE).write_text('stock-shared')
+        (shared / 'Unchanged.qll').write_text('unchanged shared support')
         original = Path(self.closure['codeql/rust-all']['root'])
         (original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
         (original / m.comparison.TYPE_FILE).write_text('stock')
@@ -207,7 +217,9 @@ class Workload(unittest.TestCase):
                                    (m, 'MODEL_CANDIDATE_SHA', hashlib.sha256(self.core_bytes.replace(m.MODEL_MARKER,m.MODEL_MARKER+m.MODEL_LINE)).hexdigest()),
                                    (m.comparison, 'OFFICIAL_SHA', hashlib.sha256(b'stock').hexdigest()),
                                    (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest()),
-                                   (m, 'TYPE_CANDIDATE_SHA', hashlib.sha256(b'arity-candidate').hexdigest())):
+                                   (m, 'TYPE_CANDIDATE_SHA', hashlib.sha256(b'arity-candidate').hexdigest()),
+                                   (m, 'SHARED_OFFICIAL_SHA', hashlib.sha256(b'stock-shared').hexdigest()),
+                                   (m, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'helper-shared').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
         self.stack.enter_context(patch.dict(os.environ, RUNNER_TEMP=str(self.runner), GITHUB_OUTPUT=str(self.output)))
         self.stack.enter_context(patch.object(m.capacity, 'after_identity', return_value=self.protected))
@@ -245,6 +257,9 @@ class Workload(unittest.TestCase):
         if name == 'apply-arity-patch':
             (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('arity-candidate')
             output.write_text('applied fixed arity fixture')
+        elif name == 'apply-shared-helper-patch':
+            (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('helper-shared')
+            output.write_text('applied fixed shared helper fixture')
         elif name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
         elif name.startswith('resolve-'):
             path = Path(next(a.split('=', 1)[1] for a in argv if a.startswith('--query=')))
@@ -278,6 +293,7 @@ class Workload(unittest.TestCase):
             if self.mutate == 'model': (self.work / 'candidate-rust-all' / m.MODEL_FILE).write_text('mutated')
             if self.mutate == 'query': (self.work / 'default-queries/queries/Q00.ql').write_text('mutated')
             if self.mutate == 'database': (self.db / 'codeql-database.yml').write_text('mutated')
+            if self.mutate == 'shared': (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('mutated')
         elif name == 'official-summary':
             self.assertTrue(observation['restricted_output'])
             self.assertEqual(argv[1:3], ['generate','log-summary'])
@@ -363,7 +379,7 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
-        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-v3')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-shared-v4')
         self.assertEqual(terminal['image_contract_version'],'image-v2')
         self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
         model=m.read_json(self.out/'lines-model-identity.json')
@@ -372,6 +388,16 @@ class Workload(unittest.TestCase):
                          hashlib.sha256(b'arity-candidate').hexdigest())
         self.assertEqual(model['changed_files'],sorted([m.MODEL_FILE,m.comparison.TYPE_FILE]))
         self.assertEqual(set(model['official_files']),set(model['candidate_files']))
+        shared = m.read_json(self.out / 'shared-helper-identity.json')
+        self.assertEqual(shared['variant'], 'qualifier-lines-shared-v4')
+        self.assertEqual(shared['base_variant'], 'qualifier-lines-v3')
+        self.assertEqual(shared['changed_files'], [m.SHARED_FILE])
+        self.assertEqual(shared['candidate_files'][m.SHARED_FILE]['sha256'], hashlib.sha256(b'helper-shared').hexdigest())
+        self.assertEqual(set(shared['official_files']), set(shared['candidate_files']))
+        closures = m.read_json(self.out / 'selected-closures.json')
+        for closure in closures.values():
+            self.assertEqual(closure['codeql/typeinference']['root'], str(self.work / 'candidate-typeinference'))
+        self.assertEqual((Path(self.closure['codeql/typeinference']['root']) / m.SHARED_FILE).read_text(), 'stock-shared')
         self.assertEqual(terminal['production_capacity'], 'UNKNOWN'); self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
         self.assertEqual(terminal['final_hosted_job_margin'], 'NOT_OBSERVED')
         self.assertEqual(terminal['performance_observation']['status'], 'COMPLETE')
@@ -598,6 +624,20 @@ class Workload(unittest.TestCase):
         self.assertEqual(m.read_json(self.out / 'candidate-prepare-terminal.json')['candidate_variant'],
                          'qualifier-lines-v2')
 
+    def test_v3_preparation_cannot_be_resumed_as_the_shared_helper_workload(self):
+        self.prepare()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        prepared['candidate_variant'] = 'qualifier-lines-v3'
+        old_result = self.out / 'old-v3-result.bqrs'
+        old_result.write_bytes(b'unverified old v3 result')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation receipt differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+        self.assertEqual(old_result.read_bytes(), b'unverified old v3 result')
+
     def test_old_qualifier_bytes_cannot_be_admitted_under_the_new_variant(self):
         self.prepare()
         (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('candidate')
@@ -620,6 +660,68 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(self.calls), before)
         self.assertIn('arity-patch-identity.json',
                       m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_shared_original_bytes_cannot_be_admitted_after_resealing_inputs(self):
+        self.prepare()
+        (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('stock-shared')
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('fixed single-file helper patch',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_shared_extra_change_is_rejected_even_with_fresh_snapshots_and_seal(self):
+        self.prepare()
+        (self.work / 'candidate-typeinference/Unchanged.qll').write_text('unapproved change')
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('fixed single-file helper patch',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_shared_official_closure_fallback_is_rejected_before_queries(self):
+        self.prepare()
+        closures = m.read_json(self.out / 'selected-closures.json')
+        for closure in closures.values():
+            closure['codeql/typeinference'] = self.closure['codeql/typeinference']
+        self.write(self.out / 'selected-closures.json', closures)
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('workload binding differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_missing_shared_receipt_is_rejected_after_evidence_resealing(self):
+        self.prepare()
+        (self.out / 'shared-helper-identity.json').unlink()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('shared-helper-identity.json',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_wrong_shared_patch_identity_stops_before_its_patch_process(self):
+        with patch.object(m, 'SHARED_PATCH_SHA', '0' * 64):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertFalse(any(call[0] == 'apply-shared-helper-patch' for call in self.calls))
+        self.assertFalse((self.work / 'candidate-typeinference').exists())
+        self.assertFalse((self.out / 'shared-helper-identity.json').exists())
+
+    def test_shared_mutation_during_batch_fails_after_identity(self):
+        self.prepare(); self.mutate = 'shared'
+        self.assertEqual(self.invoke('run'), 1)
+        terminal = m.read_json(self.out / 'candidate-run-terminal.json')
+        self.assertEqual(terminal['primary_failure']['stage'], 'private_inputs-after')
 
     def test_wrong_arity_patch_identity_stops_before_the_patch_process(self):
         with patch.object(m, 'ARITY_PATCH_SHA', '0' * 64):
@@ -699,6 +801,47 @@ class Workload(unittest.TestCase):
             captured, finished = dict(self.capture), dict(self.finish)
             (captured if side == 'capture' else finished)[key] = value
             with self.assertRaises(RuntimeError): m.admit_checkpoint(captured, finished, self.source, self.deadline)
+
+
+@unittest.skipUnless(os.environ.get('OASIS7_CODEQL_CANDIDATE_CLI'), 'explicit pinned CodeQL integration input required')
+class RealCodeQL(unittest.TestCase):
+    def test_actual_patches_and_all_44_shared_library_bindings(self):
+        """Resolve the real source workload; do not create or query a database."""
+        codeql = Path(os.environ['OASIS7_CODEQL_CANDIDATE_CLI']).resolve()
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            work, out, source = (root / part for part in ('work', 'evidence', 'source'))
+            for folder in (work, out, source): folder.mkdir()
+            end = time.monotonic() + 600
+            env = {key: value for key, value in os.environ.items() if key not in ('GH_TOKEN', 'GITHUB_TOKEN')}
+            def run(argv, label, limit):
+                return m.runtime.run(list(map(str, argv)), source, out / (label + '.log'),
+                                     end, limit, out, env, file_limit=None)
+            run([codeql, 'version', '--format=json'], 'version', 20)
+            self.assertEqual(m.read_json(out / 'version.log')['version'], '2.27.4')
+            official = m.capacity.bundle.bundle_closure(codeql.parent, '2.27.4')
+            before = {key: m.regular_snapshot(Path(value['root']), end) for key, value in official.items()}
+            m.prepare_candidate(official, work, out, end, run, copy_end=end)
+            m.prepare_shared_helper(official, work, out, end, run, copy_end=end)
+            m.verify_workload_identity(official, work, out, end)
+            witness = m.workload_closure(official, work)
+            closures = dict(witness=witness, default=dict(witness, **{'codeql/suite-helpers': m.suite_helper(codeql.parent)}))
+            self.assertEqual(len(witness), 13); self.assertEqual(len(closures['default']), 14)
+            published = codeql.parent / 'qlpacks/codeql/rust-queries/0.1.46'
+            suite_file = published / 'codeql-suites/rust-code-scanning.qls'
+            run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
+            suite = dict(query_root=str(published), suite_sha256=m.runtime.digest(suite_file),
+                         queries=m.capacity.suite_entries(m.read_json(out / 'official-suite.log'), published))
+            frozen = m.capacity.semantic_contract(source, image_version=m.IMAGE_CONTRACT)['query_sha256']
+            records = m.source_layout(codeql.parent, work, out, source, suite, frozen, end)
+            m.resolve_layout(codeql, records, closures, work, out, run)
+            resolved = m.read_json(out / 'library-resolution.json')
+            self.assertEqual(len(records), 44); self.assertEqual(len(resolved), 44)
+            for result in resolved:
+                self.assertIn(str(work / 'candidate-typeinference'), result['actual']['libraryPath'])
+                self.assertNotIn(official['codeql/typeinference']['root'], result['actual']['libraryPath'])
+            self.assertEqual({key: m.regular_snapshot(Path(value['root']), end) for key, value in official.items()}, before)
+            self.assertEqual(m.read_json(out / 'shared-helper-identity.json')['changed_files'], [m.SHARED_FILE])
 
 
 class Workflow(unittest.TestCase):

@@ -231,11 +231,11 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 预算文件的大小检查、内容读取和摘要绑定必须一致：Node preload 以 nofollow/nonblock 打开 regular file，在同一文件描述符上最多读取 256 KiB + 1，并拒绝超限；supervisor 对同一有界读取的字节执行预算解析和摘要计算。路径替换不能改为读取另一对象，检查后的文件增长不能突破实际读取上限。这是 admission 的局部加固，不改变绝对截止、官方 post 或 Rust 启用状态。
 
-从独立候选 artifact 检查 `qualifier-lines-v3` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。依次核对原 qualifier 单文件补丁、`arity-patch-identity.json` 的基准/结果与补丁摘要，以及 `lines-model-identity.json` 的最终 TypeInference 摘要、原有唯一通用 `str::lines` summary 和完整库差异。最终仍恰为 TypeInference/core.model 两文件；第三项变化、错误版本或缺少身份不得准入。旧 qualifier 对照仍是原单文件候选；旧 v2 收据和结果保留原身份，不代签 v3。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+从独立候选 artifact 检查 `qualifier-lines-shared-v4` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。依次核对原 qualifier 单文件补丁、`arity-patch-identity.json` 和 `lines-model-identity.json` 的 v3 基础组件身份：`rust-all` 仍恰为 TypeInference/core.model 两文件变化。另核对 `shared-helper-identity.json` 的固定补丁/上游 commit、shared 0.0.42 的完整集合、唯一 TypeInference 差异及前后摘要；实际 closure 必须绑定本次私有 shared 包。两个私有包合计只允许这三处变化，缺身份、旧字节、其他差异或官方 shared 回退均拒绝。旧 qualifier 对照仍是原单文件候选，生产保持 v3；旧 v2/v3 收据和结果不代签 v4。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 
 Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format、同一函数/循环/比较式的结构见证、expected→RHS localFlow、原 output→LHS Global taint，以及错函数、交叉操作数和 whole-bool 零负例。读取实际 QL、版本、标签和配对结果，不只看表的 PASS；派生 taint 不能称为字符串值相等。小 fixture、双 receiver 和同名非 stdlib 控制的通过范围另列，不能代替完整原仓库。历史 v1 的零值和 hosted failure 保留，不把本次修正后的判据追写为旧运行成功。
 
-默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；新的两文件候选必须重新完整计算37+7，不能复用旧37结果。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；新的三文件研究候选必须重新完整计算37+7，不能复用旧37结果。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
 
 该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。原始事件只在 owned FIFO 和最多 48 MiB sealed memfd 中存活；不上传或另存原文。64 MiB 总限同时包含临时内存、持久化证据和终态预留，memfd 存活期间预留完整 48 MiB；所有观测投影、样本与收据合计最多 8 MiB。先核对 batch 原退出、已有结果和身份，再读官方 predicates 摘要的独立状态；摘要最多一次、20 秒且含清理，仍受原证据截止约束，余量不足不启动。
 
@@ -268,6 +268,10 @@ bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的
 `wasm-context-<run>-<attempt>-<tool-sha>` artifact 只包含 evidence 目录。依次核对 `terminal.json`、`job-clock.json`、`source-before/after.json`、`library-closure.json`、`query-library.json`、`metadata-graph.json`、`actual-index.json` 和 `guard-verdict.json`：工具根必须在业务根外，完整根 workspace 保留 53 成员，实际索引必须与六包下 `.rs` 集合精确相等，guard 必须有预检之后的根 metadata 和精确 recovery-fence WASM `cargo check --lib` 调用。请求配置文件只表示请求，不构成实际上下文通过。
 
 `witness-observation.json` 的九行计数分别观察四个真实宏展开、两个普通项负例、两组静态调用正反例及数据库内 custody crate 的 WASM/角色 cfg。任何正例缺失、错误目标或非法角色出现、缺行、重复、未知 schema 都保持 INCOMPLETE；单有文件、metadata、编译成功或零负例不能通过。查询结果仍需结合 source/query/BQRS 摘要、完整封存清单及实际平台终态核对。私有 DB、原生日志、TRAP、源码归档和缓存留在 runner 临时工作目录，绝不打包或上传。
+
+查询失败时先读 `witness-query.result.json` 的原退出码、`failure_kind`、清理和完整流摘要，再读 `query_progress` 的冻结查询身份、四类编译/求值事件计数及首末接收时间。未知行、非法编码和无换行尾部只保留计数与流身份；无事件不证明该阶段未发生，接收时间也不等于内部阶段耗时。投影错误不能覆盖原 timeout 或非零退出，亦不能用成功的进度事件替代九行结果验收。该投影随唯一原查询采集，预算、查询次数和上传边界保持原合同。
+
+进度通道使用 `--loglevel=ERROR --verbosity=progress`，仅 `witness-query` 移除 `--log-to-stderr`，避免详细日志路由吞掉普通进度。固定 CLI 的可选小回归为 `python3 scripts/security/codeql-rust-wasm-context.test.py RealProgressTests`：显式提供 `OASIS7_CODEQL_WASM_PROGRESS_CLI`（2.27.4 可执行文件）与 `OASIS7_CODEQL_WASM_PROGRESS_RUST_BIN`（1.99.0 的 cargo/rustc 目录）后，在一次 120 秒总界内建立单文件临时 Rust DB、执行一次玩具查询并验证四事件与一行 BQRS；默认跳过。仅 schema 收据可由 `OASIS7_CODEQL_WASM_PROGRESS_EVIDENCE` 指向独立目录保留，临时 DB/原生日志/缓存会清理。该回归只验证固定 CLI 输出合同，不代签真实 WASM 九项见证或原运行预算。
 
 只有本轮 metadata、真实提取、cfg、宏/调用、guard、前后身份与封存全部成立，才记 `WASM_CONTEXT_SEMANTICS_OBSERVED`。该状态限于固定旧源码上的小见证，不代表当前 main、完整 WASM 支持范围、全数据流、生产容量或运营启用；`full_rust_coverage=HOLD` 和 `production_capacity=UNKNOWN` 保留。本地 `query compile --check-only` 只验收公开 QL API，真实提取/查询未执行时如实记 NOT_RUN。
 

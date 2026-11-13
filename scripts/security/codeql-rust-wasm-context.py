@@ -16,6 +16,7 @@ import time
 import tomllib
 
 import codeql_rust_cargo_guard as guard
+import codeql_rust_candidate_profile as candidate_profile
 import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_wasm_witnesses as witnesses
 
@@ -35,6 +36,7 @@ VERSION = '2.27.4'
 BUNDLE_SHA = model.BUNDLES[VERSION]['sha256']
 BUNDLE_URL = 'https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst'
 HELPERS = ('codeql-rust-wasm-context.py', 'codeql_rust_wasm_witnesses.py',
+           'codeql_rust_candidate_profile.py',
            'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
            'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
            'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py', 'workflow.yml')
@@ -81,17 +83,42 @@ def run_owned(phase, argv, cwd, env, clock, end, evidence, semantic, *, capture=
     eof = {k: False for k in hashes}
     names = {}; last_sample = 0; oldmask = None
     signals = {signal.SIGINT, signal.SIGTERM, signal.SIGALRM}
+    progress = None; query_sha256 = None; progress_error = None; progress_timing = {}
+
+    def observe(kind, data, *, final=False):
+        nonlocal progress_error
+        if progress is None:
+            return
+        try:
+            for line in progress.feed(kind, data, final=final).splitlines():
+                event = parse_json(line)
+                if (set(event) != {'event', 'stream', 'index', 'query_sha256', 'received_wall', 'received_monotonic'}
+                        or event['event'] not in progress.counts or event['stream'] != kind
+                        or event['index'] != 0 or event['query_sha256'] != query_sha256
+                        or any(type(event[key]) not in (int, float) or not math.isfinite(event[key])
+                               or not 0 <= event[key] <= 10**12 for key in ('received_wall', 'received_monotonic'))
+                        or not start <= event['received_monotonic'] <= clock.end):
+                    raise Rejected()
+                first = {key: event[key] for key in ('received_wall', 'received_monotonic')}
+                times = progress_timing.setdefault(event['event'], {'first_' + k: v for k, v in first.items()})
+                times.update({'last_' + k: v for k, v in first.items()})
+        except Exception:
+            # Keep draining/hashing the real command; observation cannot replace its first failure.
+            progress_error = 'PROGRESS_REJECTED'
+            progress.fail_feed(progress_error)
 
     def consume(fd, *, retain):
         chunk = os.read(fd, 65536)
         kind = names[fd]
         if not chunk:
             eof[kind] = True
+            observe(kind, b'', final=True)
             if fd in selector.get_map(): selector.unregister(fd)
             return False
         sizes[kind] += len(chunk); hashes[kind].update(chunk)
+        observe(kind, chunk)
         if sizes[kind] > MAX_STREAM or (capture and kind == 'stdout' and sizes[kind] > MAX_STDOUT):
-            record['failure_kind'] = 'output_limit'
+            record['failure_kind'] = record['failure_kind'] or 'output_limit'
             raise Rejected()
         if retain and capture and kind == 'stdout': output.extend(chunk)
         return True
@@ -101,6 +128,12 @@ def run_owned(phase, argv, cwd, env, clock, end, evidence, semantic, *, capture=
         if len(json.dumps(argv).encode()) > 16 * 1024:
             raise Rejected()
         evidence.totals()
+        if phase == 'witness-query':
+            query = Path(argv[-1])
+            if not query.is_absolute() or query.name != witnesses.NAME + '.ql':
+                raise Rejected()
+            query_sha256 = metadata.file_hash(query, clock, stop - 4, maximum=1024**2)['sha256']
+            progress = candidate_profile.Progress([{'path': str(query), 'pack': witnesses.PACK, 'sha256': query_sha256}])
         oldmask = signal.pthread_sigmask(signal.SIG_BLOCK, signals)
         def child_limits():
             signal.pthread_sigmask(signal.SIG_SETMASK, oldmask)
@@ -153,13 +186,29 @@ def run_owned(phase, argv, cwd, env, clock, end, evidence, semantic, *, capture=
             record['streams'] = {k: {'bytes': sizes[k], 'sha256': hashes[k].hexdigest(),
                                     'observation': 'EOF_COMPLETE' if eof[k] else 'OBSERVED_PREFIX_ONLY',
                                     'persistence': 'APPROVED_JSON_AFTER_VALIDATION' if capture and k == 'stdout' else 'DIGEST_ONLY'} for k in sizes}
+            if phase == 'witness-query':
+                if progress is None:
+                    record['query_progress'] = {'status': 'NOT_RUN', 'query_sha256': query_sha256}
+                else:
+                    observed = progress.summary()
+                    if (progress.feed_failure or any(observed['streams'][k]['bytes'] != sizes[k]
+                            or observed['streams'][k]['sha256'] != hashes[k].hexdigest()
+                            or observed['streams'][k]['final'] != eof[k] for k in sizes)):
+                        progress_error = 'PROGRESS_REJECTED'
+                    record['query_progress'] = dict(observed, schema=1, codeql_version=VERSION,
+                        query_sha256=query_sha256, timing=progress_timing,
+                        status='INCOMPLETE' if progress_error else 'OBSERVED', error_code=progress_error)
+                    if progress_error and not record['failure_kind']:
+                        record['failure_kind'] = 'progress_observation'; record['error_class'] = 'Rejected'
             if sample is not None: record['resource_observation'] = sample.result()
             record['elapsed_seconds'] = time.monotonic() - start
             if len(encoded(record)) > MAX_PROCESS_RECEIPT:
                 record['resource_observation'] = {'status': 'UNAVAILABLE_RECEIPT_LIMIT'}
-                record['failure_kind'] = 'receipt_limit'; record['error_class'] = 'Rejected'
+                record['failure_kind'] = record['failure_kind'] or 'receipt_limit'
+                record['error_class'] = record['error_class'] or 'Rejected'
             if scope['pending']:
-                record['failure_kind'] = 'cancelled'; record['error_class'] = 'Stopped'
+                record['failure_kind'] = record['failure_kind'] or 'cancelled'
+                record['error_class'] = record['error_class'] or 'Stopped'
             evidence.save(phase + '.result.json', record)
         finally:
             try:
@@ -167,7 +216,8 @@ def run_owned(phase, argv, cwd, env, clock, end, evidence, semantic, *, capture=
             finally:
                 _signal_scope = previous_scope
     if scope['pending']:
-        record['failure_kind'] = 'cancelled'; record['error_class'] = 'Stopped'
+        record['failure_kind'] = record['failure_kind'] or 'cancelled'
+        record['error_class'] = record['error_class'] or 'Stopped'
     if record['failure_kind'] or record['cleanup_errors']:
         raise CommandFailed(record)
     return bytes(output), record
@@ -501,8 +551,9 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
         if verdict['status'] != 'PASS': raise Rejected()
         terminal['extraction'] = 'FINALIZED_CONTEXT_OBSERVED'
         terminal['witness_query'] = 'RUNNING'
+        # Detailed stderr logging suppresses the pinned CLI's console progress.
         command('witness-query', [codeql, 'database', 'run-queries', '--no-use-precompiled', '--threads=2', '--ram=3072',
-                *options, '--log-to-stderr', '--loglevel=ERROR', '--', database, query_path], source, command_end)
+                *options, '--loglevel=ERROR', '--verbosity=progress', '--', database, query_path], source, command_end)
         terminal['witness_query'] = 'COMPUTED_UNVERIFIED'
         result = database / 'results' / witnesses.PACK / (witnesses.NAME + '.bqrs')
         bqrs = metadata.file_hash(result, clock, command_end, maximum=1024**2)

@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 mod config;
 mod platform;
+mod policy_bindings;
 mod protocol;
 mod sessions;
 mod state;
@@ -57,4 +58,27 @@ pub fn prepare_operator_policy(raw: &str) -> Result<String, &'static str> {
     let normalized = serde_json::to_string(&value).map_err(|_| "configuration_unavailable")?;
     config::Config::parse(&normalized)?;
     Ok(normalized)
+}
+
+/// Public-policy-only bulk Secret map. Null values delete obsolete policy bindings.
+/// Credential/material values remain the trusted operator's separate input.
+pub fn prepare_operator_policy_bindings(
+    raw: &str,
+) -> Result<std::collections::BTreeMap<String, Option<String>>, &'static str> {
+    let policy = prepare_operator_policy(raw)?;
+    let config = config::Config::parse(&policy)?;
+    let bindings = policy_bindings::encode(&policy)?;
+    let mut names = std::collections::BTreeSet::from(["DEV_TEST_STATE_KEK".to_owned()]);
+    names.extend(config.credentials.iter().map(|c| c.token_secret.clone()));
+    names.extend(config.resources.values().map(|r| r.material_secret.clone()));
+    names.extend(
+        bindings
+            .iter()
+            .filter(|(_, v)| v.is_some())
+            .map(|(k, _)| k.clone()),
+    );
+    if names.len() > 64 {
+        return Err("configuration_unavailable");
+    }
+    Ok(bindings)
 }

@@ -40,6 +40,7 @@ jobs:
           SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
           SOURCE_TREE = 'a5fc43fa10637526fdc6b07ec52369c4aa57e588'
           HELPERS = ('codeql-rust-wasm-context.py', 'codeql_rust_wasm_witnesses.py',
+                     'codeql_rust_candidate_profile.py',
                      'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
                      'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
                      'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py')
