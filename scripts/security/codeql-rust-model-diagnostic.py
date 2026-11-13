@@ -90,7 +90,11 @@ def shared_helper_identity(original, private, *, snapshot):
     """Fixed shared helper only; each caller supplies its bounded regular-file inventory."""
     if any(root.resolve() != root or not root.is_dir() for root in (original, private)):
         raise RuntimeError('unsafe shared helper root')
-    official_files, candidate_files = snapshot(original), snapshot(private)
+    return shared_snapshot_identity(snapshot(original), snapshot(private))
+
+
+def shared_snapshot_identity(official_files, candidate_files):
+    """Validate the fixed helper against actual or saved intermediate snapshots."""
     changed = sorted(p for p in set(official_files) | set(candidate_files)
                      if official_files.get(p) != candidate_files.get(p))
     if (not 0 < len(official_files) <= 8192 or set(official_files) != set(candidate_files)
