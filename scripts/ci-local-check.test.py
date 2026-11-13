@@ -704,7 +704,24 @@ class SupportContracts(GitFixture):
         return directory
 
     def recorded_calls(self):
-        return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
+        # CI adds Cargo's global verbosity flag before the subcommand. Keep
+        # raw argv in the fixture journal; ignore only this prefix for identity.
+        return [args[1:] if args[:1] == ['--verbose'] else args for args in calls]
+
+    def test_verbose_cargo_keeps_real_argv_and_complete_support_receipts(self):
+        result = self.result(('oasis7_proto', 'oasis7_signer_protocol'))
+        self.execute(result, CI_VERBOSE='1')
+        raw = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        self.assertEqual(sum(args[:2] == ['--verbose', 'test'] for args in raw), 2)
+        self.assertIn(['clippy', '--verbose', '--locked', '-p', 'oasis7_signer_protocol',
+                       '--all-targets', '--', '-D', 'warnings', '-D', 'clippy::correctness',
+                       '-D', 'clippy::suspicious'], raw)
+        self.assertEqual([args[args.index('-p') + 1] for args in self.recorded_calls()
+                          if args[0] == 'test'], ['oasis7_proto', 'oasis7_signer_protocol'])
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['groups'][0]['tests_executed'], 2)
+        self.assertEqual(len(result['groups'][0]['commands']), 3)
 
     def test_native_profiles_keep_the_complete_canonical_command_chain(self):
         profiles = ('oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
