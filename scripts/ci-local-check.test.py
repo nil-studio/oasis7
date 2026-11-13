@@ -239,6 +239,24 @@ class InputCapture(GitFixture):
 
 
 class Evidence(unittest.TestCase):
+    def test_structured_completion_rejects_boolean_counts_and_truthy_flags(self):
+        argv = ['python3', 'scripts/ci-python-control-contracts.py', 'local-contract']
+        valid = dict(expected_count=2, passed=True, count_ok=True)
+        for field, value in [('expected_count', True), ('expected_count', 0),
+                             ('passed', 1), ('passed', 'true'), ('count_ok', 1), ('count_ok', 'yes')]:
+            with self.subTest(field=field, value=value):
+                report = command.evidence(argv, json.dumps(dict(valid, **{field: value})), 0,
+                                          'doc_checker_contracts')
+                self.assertEqual(report['status'], 'incomplete')
+        self.assertEqual(command.evidence(argv, json.dumps(valid), 7, 'doc_checker_contracts')['status'], 'failed')
+
+    def test_engineering_cases_are_tool_evidence_and_missing_summary_is_incomplete(self):
+        for group in entry.ENGINEERING_CHECKS:
+            report = command.evidence(['python3', 'scripts/checker.test.py'], 'Ran 2 tests in 0.1s\nOK\n', 0, group)
+            self.assertEqual((report['tests_executed'], report['business_tests_executed']), (2, 0))
+            self.assertEqual(command.evidence(['python3', 'scripts/checker.test.py'], 'OK', 0, group)['status'],
+                             'incomplete')
+
     def test_counts_require_real_completion_and_reject_zero_skip_unknown(self):
         scenarios = [
             ('running 2 tests\ntest result: ok. 2 passed; 0 failed; 0 ignored;', 'passed', 2),
@@ -356,6 +374,83 @@ class Entry(GitFixture):
             report = self.assert_result(self.invoke(*args), 'blocked', 2)
             self.assertEqual(report['checks_executed'], 0)
             self.assertEqual(report['groups'][1]['status'], 'blocked')
+
+    def test_engineering_rust_prerequisites_block_before_running_any_group(self):
+        available = shutil.which
+        for group in ('cargo_tooling_contracts', 'compile_metrics'):
+            result = dict(groups=[dict(name='baseline'), dict(name=group)], configuration={})
+            with mock.patch.object(entry.shutil, 'which', side_effect=lambda name, **kw:
+                                   None if name in ('cargo', 'rustc', 'rustup', 'zstdmt') else available(name, **kw)):
+                with self.assertRaisesRegex(entry.Blocked, 'missing tool: cargo'):
+                    entry.preflight(self.root, SimpleNamespace(tier='required', offline=True), result,
+                                    entry.execution_environment())
+            if group == 'compile_metrics':
+                self.assertIn('missing tool: zstdmt', result['preconditions'])
+        self.assertTrue(entry.RUST_GROUPS.isdisjoint(entry.ENGINEERING_CHECKS))
+
+    def test_document_interpreter_is_checked_before_any_contract_command(self):
+        python = self.write('not-ready-python', '#!/bin/sh\nexit 17\n', True)
+        self.write('scripts/find-python-with-module.sh',
+                   '#!/bin/sh\nprintf "%s\\n" "' + str(python) + '"\n', True)
+        self.install_policy(groups=('doc_checker_contracts',))
+        report = self.assert_result(self.invoke('--profile', 'affected'), 'blocked', 2)
+        self.assertEqual(report['checks_executed'], 0)
+        self.assertIn('one Python with tomllib and markdown_it', report['reason'])
+
+    def test_compile_metrics_fixture_worktrees_never_register_in_the_callers_git(self):
+        source = (HERE / 'ci-compile-metrics-contract.test.sh').read_text()
+        setup = source[source.index('fixture_git='):source.index('mutation_fake_bin=')]
+        add = next(line for line in source.splitlines() if 'worktree add --detach "$mutation_worktree"' in line)
+        remove = next(line for line in source.splitlines() if 'worktree remove --force "$mutation_worktree"' in line)
+        before = self.git('worktree', 'list', '--porcelain')
+        for interrupted in (False, True):
+            output = Path(self.temp.name) / ('interrupted' if interrupted else 'normal')
+            output.mkdir()
+            shell = ('set -euo pipefail\nrepo_root="$1"; tmp_dir="$2"; expected_commit_oid="$3"\n'
+                     'mutation_worktree="$tmp_dir/worktree"\n' + setup + '\n' + add + '\n'
+                     + ('exit 19\n' if interrupted else remove + '\n'))
+            process = subprocess.run(['bash', '-c', shell, 'metrics-fixture', str(self.root), str(output), self.base],
+                                     cwd=self.root, text=True, capture_output=True)
+            self.assertEqual(process.returncode, 19 if interrupted else 0, process.stderr)
+            self.assertEqual(self.git('worktree', 'list', '--porcelain'), before)
+            if interrupted:
+                self.assertTrue((output / 'worktree/.git').is_file())
+                self.assertIn(str(output / 'worktree-fixture.git'), (output / 'worktree/.git').read_text())
+
+    def test_document_contract_group_requires_every_command_and_real_counts(self):
+        document_python = subprocess.check_output(['bash', str(HERE / 'find-python-with-module.sh'),
+                                                   'markdown_it'], text=True).strip()
+        self.write('scripts/find-python-with-module.sh',
+                   '#!/bin/sh\nprintf "%s\\n" "' + document_python + '"\n', True)
+        self.write('scripts/ci-python-control-contracts.py', (HERE / 'ci-python-control-contracts.py').read_text())
+        for name in entry.ENGINEERING_CHECKS['doc_checker_contracts']:
+            if name in ('product-doc-governance-check.test.py', 'product-doc-content-check.test.py',
+                        'system-design-traceability-check.test.py'):
+                source = 'def main():\n    assert 2 + 2 == 4\n\nif __name__ == "__main__":\n    main()\n'
+            elif name.endswith('.py'):
+                source = ('import unittest\nclass Test(unittest.TestCase):\n'
+                          '    def test_contract(self):\n        self.assertEqual(2 + 2, 4)\n'
+                          'if __name__ == "__main__":\n    unittest.main()\n')
+            else:
+                source = ('#!/bin/sh\nset -eu\n'
+                          'test -z "${OASIS7_LOCAL_CHECK:-}"\n'
+                          'test -z "${OASIS7_LOCAL_CHECK_RUN_DIR:-}"\n'
+                          'test -z "${OASIS7_PRODUCT_DOC_BASE:-}"\n'
+                          'echo fixture contract passed\n')
+            self.write('scripts/' + name, source, executable=True)
+        self.install_policy(groups=('doc_checker_contracts',))
+        before = self.state()
+        report = self.assert_result(self.invoke('--profile', 'affected'), 'passed', 0)
+        self.assertEqual((report['checks_expected'], report['checks_executed'], report['tests_executed'],
+                          report['business_tests_executed']), (11, 11, 8, 0))
+        self.assertEqual(report['configuration']['document_python'], str(Path(document_python).resolve()))
+        self.assertEqual(self.state(), before)
+        # One missing stage cannot turn a partial driver into a successful group.
+        driver = self.root / 'scripts/ci-tests.sh'
+        driver.write_text(driver.read_text().replace('  run python3 ./scripts/doc-core-content-check.test.py\n', ''))
+        self.commit()
+        report = self.assert_result(self.invoke('--profile', 'affected'), 'incomplete', 1)
+        self.assertIn('inventory', report['reason'])
 
     def test_failure_stops_later_commands(self):
         self.write('scripts/doc-governance-check.sh', '#!/bin/sh\nexit 19\n', True)

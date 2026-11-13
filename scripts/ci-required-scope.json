@@ -2158,6 +2158,19 @@
     },
     {
       "match": [
+        "scripts/ensure-wasm-bindgen-cli.sh",
+        "scripts/ensure-wasm-bindgen-cli.test.sh"
+      ],
+      "groups": [
+        "workflow_governance",
+        "viewer_js_required",
+        "viewer_performance_report",
+        "operational_contracts"
+      ],
+      "reason": "wasm_bindgen_tool_consumers"
+    },
+    {
+      "match": [
         "scripts/engineering_telemetry.py",
         "scripts/engineering_telemetry_adapters.py",
         "scripts/tests/fixtures/engineering-telemetry/input.json",

@@ -632,14 +632,22 @@ run_doc_checker_contract_tests() {
   run python3 ./scripts/resolve-product-doc-ci-range.test.py
   run python3 ./scripts/doc-governance-scope.test.py
   run python3 ./scripts/document-corpus-inventory-check.test.py
-  run python3 ./scripts/product-doc-governance-check.test.py
-  run python3 ./scripts/product-doc-content-check.test.py
+  run_procedural_doc_contract scripts/product-doc-governance-check.test.py
+  run_procedural_doc_contract scripts/product-doc-content-check.test.py
   run python3 ./scripts/doc-core-content-check.test.py
   run python3 ./scripts/doc-content-warnings.test.py
   run_system_design_traceability_tests
   run bash ./scripts/product-doc-content-callers.test.sh
   run bash ./scripts/doc-governance-check.test.sh
   run bash ./scripts/find-python-with-module.test.sh
+}
+
+run_procedural_doc_contract() {
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    run python3 ./scripts/ci-python-control-contracts.py local-contract --repo-root "$repo_root" --path "$1"
+  else
+    run python3 "./$1"
+  fi
 }
 
 run_cargo_tooling_baseline_contract_tests() {
@@ -1000,7 +1008,7 @@ run_site_contract_tests() {
 }
 
 run_system_design_traceability_tests() {
-  run python3 ./scripts/system-design-traceability-check.test.py
+  run_procedural_doc_contract scripts/system-design-traceability-check.test.py
 }
 
 

@@ -207,6 +207,45 @@ class Selection(unittest.TestCase):
             with self.assertRaises(selector.UnknownInputsError):
                 selector.select(config, self.base, self.commit())
 
+    def test_wasm_bindgen_tool_consumers_require_exact_trusted_registration(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = ('scripts/ensure-wasm-bindgen-cli.sh',
+                 'scripts/ensure-wasm-bindgen-cli.test.sh')
+        expected = {'workflow_governance', 'viewer_js_required',
+                    'viewer_performance_report', 'operational_contracts'}
+        old = dict(config, rules=[rule for rule in config['rules']
+                                 if rule['reason'] != 'wasm_bindgen_tool_consumers'])
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in paths:
+                for operation in ('add', 'modify', 'delete'):
+                    with self.subTest(path=path, operation=operation):
+                        if operation == 'delete':
+                            self.git('rm', path)
+                        else:
+                            self.write(path, '# tool consumer input ' + operation)
+                        head = self.commit()
+                        plan = selector.select(config, self.base, head)
+                        self.assertEqual(plan['scope'], 'targeted')
+                        self.assertTrue(expected.issubset(plan['groups']))
+                        with self.assertRaises(selector.UnknownInputsError):
+                            selector.select(old, self.base, head)
+                        self.base = head
+            self.write('scripts/ci-required-scope.json', json.dumps(config))
+            self.write(paths[0], '# candidate cannot register itself')
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, head)
+            self.base = head
+            unknown = 'scripts/ensure-wasm-bindgen-cli-extra.sh'
+            self.git('mv', paths[0], unknown)
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, head)
+            self.base = head
+            self.git('mv', unknown, paths[0])
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_engineering_telemetry_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         paths = (
