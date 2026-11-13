@@ -229,9 +229,29 @@ def plan_from_baseline(root, base, snapshot, args, directory, result):
     return groups, planner
 
 
+def viewer_source_preflight(root, groups, result):
+    """Reject incomplete Viewer checkouts before Rust input-closure discovery."""
+    if not set(groups) & VIEWER_GROUPS:
+        return
+    missing = [name for name in ('Cargo.lock', 'crates/oasis7_viewer/package.json',
+                                'crates/oasis7_viewer/package-lock.json')
+               if not (root / name).is_file()]
+    if not missing:
+        return
+    reason = 'missing Viewer prerequisite source: ' + ', '.join(missing)
+    result['preconditions'] = [reason]
+    result['groups'] = [dict(name=name, status='blocked' if name in VIEWER_GROUPS else 'not_run',
+                             reason=reason if name in VIEWER_GROUPS else 'plan blocked before execution',
+                             tests_expected=None, tests_executed=0, business_tests_executed=0)
+                        for name in groups]
+    result['groups_expected'] = len(groups)
+    raise Blocked(reason)
+
+
 def preflight(root, args, result, env):
     reasons = []
     groups = [group['name'] for group in result['groups']]
+    viewer_source_preflight(root, groups, result)
     for group in result['groups']:
         if group['name'] not in SAFE_GROUPS:
             reason = UNSUPPORTED.get(group['name'], 'local write/evidence contract is not yet audited')
@@ -672,6 +692,7 @@ def main(argv=None):
             first_plan = directory / 'planning-0'
             first_plan.mkdir()
             groups, planner_path = plan_from_baseline(root, base, before, args, first_plan, result)
+            viewer_source_preflight(root, groups, result)
             if set(groups) & (CARGO_GROUPS | {'cargo_tooling_contracts'}):
                 for attempt in range(1, 33):
                     found = inputs.referenced_inputs(root, before, planner_path)

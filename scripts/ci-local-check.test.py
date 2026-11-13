@@ -421,6 +421,18 @@ class Entry(GitFixture):
         self.assertEqual(report['plan']['reasons'], ['fixture policy'])
         self.assertEqual(report['policy_sha'], self.base)
 
+    def test_incomplete_viewer_checkout_blocks_before_rust_input_discovery(self):
+        # This minimal trusted planner can select groups but cannot discover
+        # Rust references. Missing Viewer sources must block before that stage.
+        for group in ('viewer_js_required', 'viewer_performance_report'):
+            self.install_policy(groups=('baseline', group))
+            before = self.state()
+            report = self.assert_result(self.invoke('--profile', 'affected'), 'blocked', 2)
+            self.assertIn('missing Viewer prerequisite source', report['reason'])
+            self.assertEqual(report['checks_executed'], 0)
+            self.assertEqual(report['groups'][1]['status'], 'blocked')
+            self.assertEqual(self.state(), before)
+
     def test_selected_unsupported_group_and_full_block_before_any_driver(self):
         self.install_policy(groups=('baseline', 'command_center'))
         for args in (('--profile', 'affected'), ('--profile', 'formal', '--tier', 'full')):
