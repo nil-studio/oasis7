@@ -49,6 +49,26 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_worker_deployment_config_routes_both_consumers(self):
+        path = 'crates/oasis7_dev_test_worker/wrangler.toml'
+        for value in ('name="fixture"', 'name="changed"'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write(path, value); self.commit()
+            result = self.run_plan()
+            self.assertEqual(result['selected_units'], ['javascript-repo', 'rust-repo'])
+            for unit in result['selected_units']:
+                self.assertIn(path, result['reasons'][unit])
+        self.base = self.git('rev-parse', 'HEAD')
+        (self.root / path).unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['javascript-repo', 'rust-repo'])
+
+    def test_worker_deployment_neighbors_remain_unregistered(self):
+        self.write('crates/oasis7_dev_test_worker/other.toml')
+        self.commit()
+        for full in (False, True):
+            with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                self.run_plan(full=full)
+
     def test_workers_policy_fixture_owners_across_changes(self):
         for name in ('policy.json', 'policy-large-input.json', 'policy-large-bindings.json'):
             path = 'crates/oasis7_dev_test_worker/tests/fixtures/' + name
