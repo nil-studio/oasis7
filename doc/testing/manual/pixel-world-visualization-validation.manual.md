@@ -229,6 +229,8 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 
 权威端点和预算沿[WorldView本地反馈](../../world-simulator/viewer/external-agent-world-view.design.md#view-local-feedback-measurement)及[9.2质量预算](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)。以下是待实现/验证的方法，不声明当前helper已取得完整ACK证据；旧strict selected列、阈值和unknown继续保留，旧466样本不重新标记。通用发行profile与WorldView专项分别报告。
 
+既有 strict selected 采样在原生输入前，通过已持有的同一 owned CDP session 执行同目标、实际1000／200及焦点就绪检查，再发送标准 Enter；默认 core 消费者仍走原入口。此接线只移除 CLI 命令间的焦点准备间隔，不保证浏览器事件之间绝不换节点，也不重发未送达输入。准备失败不得发送按键；输入后 armed 未送达、target=null、partial／unknown和原错误继续落盘，原100ms／±4ms与selected oracle不变，不能改签可见ACK。
+
 1. **采样前注册。** 固定生产/runner/观测脚本及资产hash、设备/浏览器/电源/viewport/DPR、schema/profile、输入集合、端点、字形校准和失败判据。每个计划输入保留，明确区分本地接受状态、可见ACK、selected最终确认、网络/Runtime完成；不得事后挑较快的一列替换原结果。错误目标/无可信输入/无新反馈/代际不符/时间或可见性缺证据均有独立unknown原因，不填零。
 2. **真实关联。** 保存实际native输入的ref、timeStamp/timeOrigin及同world/scope的显式用户意图代。反馈所有者需提供同一次意图的只读关联，不能由QA写入或从邻近时间猜测。现有泛pending文本/role=status不足以绑定输入；连续旧pending不因不可见token更新就算新的可见响应。字段缺失时只报告状态观察，不开始完整ACK预算计分。新增观测不保存旧实体/权限事实、不发pin或命令，不暴露私有authority key。
 3. **可见性校准。** 在实际shell中先覆盖桌面/窄屏、声明DPR、Feed开闭及遮挡/裁切反例。固定相同候选/字体/文本的完整语义字形区域；A/A稳定正控、透明文本和遮挡负控须能区分有效字形与背景变化，再冻结覆盖与噪声门槛。此校准在计时外单独留证；计时内只观察真实反馈，不复制节点、改文本/样式、隐藏HUD/目标或降低密度。DOM rect、aria-live和非零像素差本身不证明可见ACK。

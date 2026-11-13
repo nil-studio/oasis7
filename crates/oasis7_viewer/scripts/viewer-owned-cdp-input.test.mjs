@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createOwnedCdpInput, enterKeyEvents } from './viewer-owned-cdp-input.mjs';
+import { collectNativeSelectionSamples } from './viewer-performance-native-input.mjs';
 
 test('Enter retains standard key identity and omits platform-native keycodes', () => {
   assert.deepEqual(enterKeyEvents(), [
@@ -14,14 +15,14 @@ test('remote endpoints reject before opening any CDP connection', async () => {
   await assert.rejects(createOwnedCdpInput(async () => JSON.stringify({ data: { cdpUrl: 'ws://example.com:9222/devtools/browser/x' } }), async () => 'unused'), /owned local browser/);
 });
 
-async function fakeBrowser(targets, action) {
+async function fakeBrowser(targets, action, respond = () => undefined) {
   const original = globalThis.WebSocket, messages = [], sockets = [];
   globalThis.WebSocket = class extends EventTarget {
     constructor() { super(); sockets.push(this); queueMicrotask(() => this.dispatchEvent(new Event('open'))); }
     send(raw) {
       const request = JSON.parse(raw); messages.push(request);
-      const result = request.method === 'Target.getTargets' ? { targetInfos: targets }
-        : request.method === 'Target.attachToTarget' ? { sessionId: 'owned-session' } : {};
+      const result = respond(request) ?? (request.method === 'Target.getTargets' ? { targetInfos: targets }
+        : request.method === 'Target.attachToTarget' ? { sessionId: 'owned-session' } : {});
       queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ id: request.id, result }) })));
     }
     close() { this.closed = true; }
@@ -60,5 +61,42 @@ test('JSON-decoding sampler adapters and raw visual adapters read the same owned
       assert.equal(messages.filter(m => m.method === 'Input.dispatchKeyEvent').length, 2);
       assert(sockets.every(socket => socket.closed));
     });
+  }
+});
+
+// The CLI adapter deliberately invalidates focus after its evaluate command.
+// This models removal/replacement of the focused renderer target before Enter;
+// the input must prepare through its already attached native CDP session.
+test('renderer prepares the same target on the native session without a CLI focus gap', async () => {
+  let focused=false, delivered=false, cliFocusCalls=0;
+  await fakeBrowser([{type:'page',url:'http://owned/',targetId:'owned'}],async(messages)=>{
+    const evaluate=async code=>{
+      if(code.includes('location.href'))return 'http://owned/';
+      if(code.includes('candidates[0]'))return {id:'agent-A',x:100,y:100};
+      if(code.includes('same native target did not')){cliFocusCalls++;focused=false;return true;}
+      if(code.includes('native selection feedback timed out')){
+        if(!delivered)throw Error('Enter did not reach the prepared target');
+        return {status:'complete',isTrusted:true,selectedKind:'agent',selectedId:'agent-A',durationMs:40,startTime:100,endTime:140,timeOrigin:1};
+      }
+      return true;
+    };
+    const rows=await collectNativeSelectionSamples({evaluate,run,count:1,selectionSource:'renderer'});
+    assert.equal(rows.length,1);assert.equal(cliFocusCalls,0);
+    const native=messages.filter(m=>['Runtime.evaluate','Input.dispatchKeyEvent'].includes(m.method));
+    assert.deepEqual(native.map(m=>m.method),['Runtime.evaluate','Input.dispatchKeyEvent','Input.dispatchKeyEvent']);
+    assert(native.every(m=>m.sessionId==='owned-session'));
+  },request=>{
+    if(request.method==='Runtime.evaluate'){focused=true;return {result:{type:'boolean',value:true}};}
+    if(request.method==='Input.dispatchKeyEvent'&&request.params.type==='keyDown')delivered=focused;
+  });
+});
+test('failed or unconfirmed native-session preparation sends no key and never retries', async () => {
+  for(const response of [{exceptionDetails:{text:'target disappeared'}},{result:{type:'boolean',value:false}}]){
+    await fakeBrowser([{type:'page',url:'http://owned/',targetId:'owned'}],async messages=>{
+      const input=await createOwnedCdpInput(run,async()=> 'http://owned/');
+      try{await assert.rejects(input.prepareAndEnter('true'),/preparation/);}finally{input.close();}
+      assert.equal(messages.filter(m=>m.method==='Runtime.evaluate').length,1);
+      assert.equal(messages.filter(m=>m.method==='Input.dispatchKeyEvent').length,0);
+    },request=>request.method==='Runtime.evaluate'?response:undefined);
   }
 });
