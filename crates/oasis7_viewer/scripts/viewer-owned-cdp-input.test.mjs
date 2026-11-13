@@ -110,9 +110,23 @@ test('the actual renderer preparation rejects a focus no-op before any key', asy
     assert.equal(messages.filter(m=>m.method==='Input.dispatchKeyEvent').length,0);
   },request=>{if(request.method==='Runtime.evaluate'){expression=request.params.expression;return {result:{value:false}};}});
   let time=0,focusCalls=0;
-  const button={getBoundingClientRect:()=>({x:90,y:90,width:20,height:20}),focus(){focusCalls++;}};
-  const document={activeElement:{tagName:'BODY'},querySelector:()=>button};
+  const button={dataset:{agentId:'agent-A'},getBoundingClientRect:()=>({x:90,y:90,width:20,height:20}),focus(){focusCalls++;}};
+  const document={activeElement:{tagName:'BODY'},querySelectorAll:()=>[button]};
   const metrics={status:'observed',display_profile:'world_view_v1',projected_marker_count:1000,agent_body_sprites:1000,in_view_agent_body_sprites:1000,laid_out_in_view_labels:200};
-  await assert.rejects(vm.runInNewContext(expression,{document,window:{__QA_READ_METRICS__:()=>metrics},innerWidth:1440,innerHeight:1000,performance:{now:()=>time+=1000},setTimeout:fn=>fn()}),/same native target did not become ready/);
+  await assert.rejects(vm.runInNewContext(expression,{document,window:{__VIEWER_PERF_INPUT__:{status:'armed',expectedId:'agent-A'},__QA_READ_METRICS__:()=>metrics},innerWidth:1440,innerHeight:1000,performance:{now:()=>time+=1000},setTimeout:fn=>fn()}),/same native target did not become ready/);
   assert(focusCalls>0);
+});
+
+test('preparation code stays constant and matches an unusual planned ID as data', async () => {
+  const id='agent-\");globalThis.__payloadExecuted=true;//';let expression;
+  await fakeBrowser([{type:'page',url:'http://owned/',targetId:'owned'}],async()=>{
+    const evaluate=async code=>code.includes('location.href')?'http://owned/':code.includes('candidates[0]')?{id,x:100,y:100}:true;
+    await assert.rejects(collectNativeSelectionSamples({evaluate,run,count:1,selectionSource:'renderer'}),/preparation/);
+  },request=>{if(request.method==='Runtime.evaluate'){expression=request.params.expression;return {result:{value:false}};}});
+  assert(!expression.includes('__payloadExecuted'));
+  const document={activeElement:null,querySelectorAll:()=>[button]},button={dataset:{agentId:id},getBoundingClientRect:()=>({x:90,y:90,width:20,height:20}),focus(){document.activeElement=this;}};
+  const intent={status:'armed',expectedId:id},metrics={status:'observed',display_profile:'world_view_v1',projected_marker_count:1000,agent_body_sprites:1000,in_view_agent_body_sprites:1000,laid_out_in_view_labels:200};
+  const context={document,window:{__VIEWER_PERF_INPUT__:intent,__QA_READ_METRICS__:()=>metrics},innerWidth:1440,innerHeight:1000,performance:{now:()=>0},__payloadExecuted:false};
+  assert.equal(await vm.runInNewContext(expression,context),true);assert.equal(context.__payloadExecuted,false);
+  intent.status='complete';await assert.rejects(vm.runInNewContext(expression,context),/intent missing/);
 });
