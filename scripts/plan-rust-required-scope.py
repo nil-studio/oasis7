@@ -2,6 +2,7 @@
 """Select ordinary CI groups from Git data. No network, task state or candidate code execution."""
 import argparse
 from bisect import bisect_right
+from contextvars import ContextVar
 import fnmatch
 import hashlib
 import json
@@ -19,6 +20,8 @@ from types import MappingProxyType
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
+LOCAL_INPUTS_VERSION = 1
+_LOCAL_INPUT_TREES = ContextVar('local_input_trees', default=frozenset())
 FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
 ORDINARY_PARTITION_VERSION = 1
@@ -1729,6 +1732,10 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
 
 
 def resolve_commit(ref):
+    # Only the validated, invocation-scoped local snapshot may use tree identity.
+    # Every normal caller and the policy/base still require real commits.
+    if ref in _LOCAL_INPUT_TREES.get():
+        return ref
     return git('rev-parse', '--verify', ref + '^{commit}').decode().strip()
 
 
@@ -3558,8 +3565,105 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     return plan
 
 
+def validate_local_inputs(base, source_head, test_head, local_inputs):
+    """Validate captured trees before selection's conservative error fallback.
+
+    The caller owns the temporary object store and captures file bytes. This
+    adapter reads those immutable objects without writing an index or commit.
+    Changes are provenance, never a caller-controlled replacement for Git diff.
+    """
+    fields = {'schema_version', 'source_sha', 'index_tree', 'worktree_tree', 'changes'}
+    if (not isinstance(local_inputs, dict) or set(local_inputs) != fields
+            or type(local_inputs['schema_version']) is not int
+            or local_inputs['schema_version'] != LOCAL_INPUTS_VERSION):
+        raise ValueError('invalid local input snapshot schema')
+    for field in ('source_sha', 'index_tree', 'worktree_tree'):
+        if (not isinstance(local_inputs[field], str)
+                or re.fullmatch(r'[0-9a-f]{40}', local_inputs[field]) is None):
+            raise ValueError('invalid local input snapshot identity: ' + field)
+    try:
+        source = resolve_commit(source_head)
+        if source != local_inputs['source_sha'] or source != resolve_commit('HEAD'):
+            raise ValueError('local input source must match the current real HEAD')
+        if test_head is not None and resolve_commit(test_head) != source:
+            raise ValueError('local input snapshots do not accept a tested merge')
+        # The base is always a commit, even if a caller reuses a tree's OID.
+        base = resolve_commit(base)
+        for field in ('index_tree', 'worktree_tree'):
+            if git('cat-file', '-t', local_inputs[field]).strip() != b'tree':
+                raise ValueError('local input snapshot is not a tree: ' + field)
+        comparisons = [(base, source), (source, local_inputs['index_tree']),
+                       (local_inputs['index_tree'], local_inputs['worktree_tree'])]
+        compared_paths = [changed_paths(before, after) for before, after in comparisons]
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('cannot read immutable local input snapshot') from error
+
+    def valid_path(path):
+        return (isinstance(path, str) and bool(path) and not posixpath.isabs(path)
+                and '\0' not in path and posixpath.normpath(path) == path
+                and not any(part in ('.', '..', '.git') for part in path.split('/')))
+
+    changes = local_inputs['changes']
+    origins = {'committed', 'staged', 'unstaged', 'untracked', 'referenced'}
+    by_origin = {origin: set() for origin in origins}
+    recorded_paths = []
+    if not isinstance(changes, list):
+        raise ValueError('local input changes must be an array')
+    for change in changes:
+        if (not isinstance(change, dict)
+                or not {'origin', 'status', 'path'} <= set(change)
+                or set(change) - {'origin', 'status', 'path', 'old_path'}
+                or not isinstance(change['origin'], str) or change['origin'] not in origins
+                or not isinstance(change['status'], str)
+                or re.fullmatch(r'[AMDT]|[RC](?:[0-9]{1,3})?|\?\??', change['status']) is None
+                or not valid_path(change['path'])
+                or ('old_path' in change and not valid_path(change['old_path']))
+                or (change['status'].startswith(('R', 'C')) and 'old_path' not in change)):
+            raise ValueError('invalid local input change record')
+        endpoints = [change['path'], *([change['old_path']] if 'old_path' in change else [])]
+        by_origin[change['origin']].update(endpoints)
+        recorded_paths.extend(endpoints)
+    for paths, allowed in zip(compared_paths, ({'committed'}, {'staged'},
+                                              {'unstaged', 'untracked', 'referenced'})):
+        missing = set(paths) - set().union(*(by_origin[origin] for origin in allowed))
+        if missing:
+            raise ValueError('local input provenance omits Git diff paths: ' + json.dumps(sorted(missing)))
+    return dict(local_inputs, comparisons=comparisons,
+                compared_paths=list(dict.fromkeys(path for paths in compared_paths for path in paths)),
+                paths=list(dict.fromkeys([*(path for paths in compared_paths for path in paths),
+                                         *recorded_paths])))
+
+
 def select(config, base, source_head, test_head=None, additions=(), profile=None,
-           formal_inventory=None, policy_ref=None):
+           formal_inventory=None, policy_ref=None, local_inputs=None):
+    if local_inputs is None:
+        return _select(config, base, source_head, test_head, additions, profile,
+                       formal_inventory, policy_ref)
+    snapshot = validate_local_inputs(base, source_head, test_head, local_inputs)
+    if policy_ref is not None:
+        try:
+            policy_ref = resolve_commit(policy_ref)
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise ValueError('local input policy must be a real commit') from error
+    token = _LOCAL_INPUT_TREES.set(frozenset((snapshot['index_tree'], snapshot['worktree_tree'])))
+    try:
+        plan = _select(config, snapshot['comparisons'][0][0], snapshot['worktree_tree'], None, additions, profile,
+                       formal_inventory, policy_ref, snapshot)
+    finally:
+        _LOCAL_INPUT_TREES.reset(token)
+    # The driver still executes the current worktree of this real source commit;
+    # tree identities are separate evidence, never fictitious source commits.
+    source = snapshot['source_sha']
+    plan['architecture'].update(source=source, tested=source)
+    if profile is not None:
+        plan.update(source_sha=source, tested_sha=source)
+    plan['local_inputs'] = {key: value for key, value in snapshot.items() if key != 'paths'}
+    plan['reasons'].append('immutable local input union: committed, staged, unstaged, untracked and referenced paths')
+    return plan
+
+
+def _select(config, base, source_head, test_head=None, additions=(), profile=None,
+            formal_inventory=None, policy_ref=None, snapshot=None):
     validate_config(config)
     python_inputs = python_control_inputs(config)
     groups = set(config['groups'])
@@ -3578,12 +3682,13 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
     feature_manifests = {}
     test_target_roots = {}
     source_inputs = {}
-    policy_comparisons = [(base, source_head)]
+    policy_comparisons = snapshot['comparisons'] if snapshot is not None else [(base, source_head)]
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
         # exclude target history already present in the actual first parent.
-        graph_refs = [base, source_head, test_head or source_head]
-        paths = changed_paths(base, source_head)
+        graph_refs = ([base, snapshot['source_sha'], snapshot['index_tree'], snapshot['worktree_tree']]
+                      if snapshot is not None else [base, source_head, test_head or source_head])
+        paths = snapshot['paths'] if snapshot is not None else changed_paths(base, source_head)
         try:
             if test_head and test_head != source_head:
                 source_oid = git('rev-parse', source_head + '^{commit}').decode().strip()
@@ -3817,6 +3922,7 @@ def main():
     parser.add_argument('--test-ref', help='actual tested merge/tree commit')
     parser.add_argument('--profile', choices=EXECUTION_PROFILES)
     parser.add_argument('--policy-ref', help='fixed trusted workflow/policy commit')
+    parser.add_argument('--local-inputs', help='versioned immutable local snapshot JSON; changed-files profiles only')
     parser.add_argument('--formal-config', default=str(Path(__file__).with_name('ci-formal-process-suites.json')))
     parser.add_argument('--config', default=str(Path(__file__).with_name('ci-required-scope.json')))
     parser.add_argument('--add-group', action='append', default=[])
@@ -3825,9 +3931,14 @@ def main():
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     try:
+        local_inputs = json.loads(Path(args.local_inputs).read_text()) if args.local_inputs else None
+        if args.local_inputs and local_inputs is None:
+            raise ValueError('invalid local input snapshot schema')
         formal_inventory = (json.loads(Path(args.formal_config).read_text())
                             if args.profile and Path(args.formal_config).is_file() else None)
         if args.profile in ('periodic-full', 'candidate-full'):
+            if local_inputs is not None:
+                raise ValueError('full inventory does not accept local input snapshots')
             if args.add_group:
                 raise ValueError('full inventory does not accept additional group requests')
             plan = full_plan(config, args.profile, args.head_ref, args.test_ref,
@@ -3836,8 +3947,8 @@ def main():
             if not args.base_ref:
                 raise ValueError('--base-ref is required for changed-files planning')
             plan = select(config, args.base_ref, args.head_ref, args.test_ref, args.add_group,
-                          args.profile, formal_inventory, args.policy_ref)
-    except (UnknownInputsError, TestPolicyError, ValueError) as error:
+                          args.profile, formal_inventory, args.policy_ref, local_inputs)
+    except (UnknownInputsError, TestPolicyError, ValueError, OSError) as error:
         parser.exit(2, f"CI scope planning failed: {error}\n")
     encoded = json.dumps(plan, ensure_ascii=True, separators=(',', ':'))
     if args.output:

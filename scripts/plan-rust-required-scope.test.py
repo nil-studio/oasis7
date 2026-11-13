@@ -5009,6 +5009,7 @@ class PythonControlContracts(unittest.TestCase):
                     self.assertEqual(plan['python_control_tests'], {'workflow_governance': [
                         'scripts/ci-custody-platform.test.py',
                         'scripts/ci-formal-process.test.py',
+                        'scripts/ci-local-check.test.py',
                         'scripts/ci-storage-acceptance.test.py',
                         'scripts/ci-support-profiles.test.py',
                         'scripts/ci-worker-build.test.py',
@@ -6813,6 +6814,276 @@ class WorkerApplicableCfgConjunction(unittest.TestCase):
         with self.assertRaises(selector.TestPolicyError):
             self.policy('#[cfg_attr(feature="owner",cfg(feature="identity"))] #[cfg(all(target_arch="wasm32",feature="owner"))] mod test_session { fn broken() { missing_function(); } }')
         self.policy('#[cfg_attr(feature="identity",allow(dead_code))] #[cfg(all(target_arch="wasm32",feature="owner"))] mod test_session { fn ok() {} }')
+
+class LocalInputPlans(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    fast_config = Selection.fast_config
+
+    def object_store(self):
+        if hasattr(self, 'objects'):
+            return
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.objects = Path(temporary.name) / 'objects'
+        self.objects.mkdir()
+        self.original_objects = Path(self.git('rev-parse', '--git-path', 'objects')).resolve()
+        environment = patch.dict(os.environ, {
+            'GIT_OBJECT_DIRECTORY': str(self.objects),
+            'GIT_ALTERNATE_OBJECT_DIRECTORIES': str(self.original_objects),
+            'GIT_OPTIONAL_LOCKS': '0',
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def tree(self, overrides, parent='HEAD'):
+        """Build immutable fixtures without commits or even a temporary index."""
+        self.object_store()
+        entries = {}
+        for record in selector.git('ls-tree', '-r', '-z', parent).split(b'\0'):
+            if record:
+                metadata, path = record.split(b'\t', 1)
+                mode, kind, oid = metadata.split()
+                entries[path.decode('utf-8', 'surrogateescape')] = (mode, kind, oid)
+        for path, contents in overrides.items():
+            if contents is None:
+                entries.pop(path, None)
+            else:
+                blob = contents.encode() if isinstance(contents, str) else contents
+                oid = subprocess.check_output(['git', 'hash-object', '-w', '--stdin'], input=blob).strip()
+                entries[path] = (b'100644', b'blob', oid)
+        root = {}
+        for path, entry in entries.items():
+            directory = root
+            parts = path.split('/')
+            for part in parts[:-1]:
+                directory = directory.setdefault(part, {})
+            directory[parts[-1]] = entry
+
+        def write_tree(directory):
+            records = []
+            for name, value in directory.items():
+                if isinstance(value, dict):
+                    value = (b'040000', b'tree', write_tree(value))
+                records.append(b' '.join(value) + b'\t' + name.encode('utf-8', 'surrogateescape') + b'\0')
+            return subprocess.check_output(['git', 'mktree', '-z'], input=b''.join(records)).strip()
+
+        return write_tree(root).decode()
+
+    def inputs(self, index_tree, worktree_tree, changes=()):
+        return dict(schema_version=1, source_sha=self.git('rev-parse', 'HEAD'),
+                    index_tree=index_tree, worktree_tree=worktree_tree, changes=list(changes))
+
+    def select(self, local_inputs, config=None):
+        return selector.select(config or self.fast_config(), self.base, self.git('rev-parse', 'HEAD'),
+                               profile='pr-fast', policy_ref=self.base, local_inputs=local_inputs)
+
+    def test_clean_api_and_snapshot_retain_the_same_selection_and_real_source(self):
+        self.write('doc/readme.md', 'committed documentation')
+        head = self.commit()
+        config = self.fast_config()
+        expected = selector.select(config, self.base, head, profile='pr-fast', policy_ref=self.base)
+        tree = self.tree({})
+        inputs = self.inputs(tree, tree, [dict(origin='committed', status='M', path='doc/readme.md')])
+        actual = self.select(inputs, config)
+        evidence = actual.pop('local_inputs')
+        actual['reasons'].pop()
+        self.assertEqual(actual, expected)
+        self.assertEqual(evidence['source_sha'], head)
+        self.assertEqual(evidence['worktree_tree'], tree)
+        self.assertEqual(evidence['compared_paths'], ['doc/readme.md'])
+        self.assertEqual(evidence['comparisons'], [(self.base, head), (head, tree), (tree, tree)])
+
+    def test_cancelled_staged_change_and_all_origins_remain_selected(self):
+        self.write('doc/readme.md', 'committed')
+        head = self.commit()
+        before_index = Path('.git/index').read_bytes()
+        before_refs = self.git('show-ref')
+        before_objects = sorted(str(path) for path in Path('.git/objects').rglob('*'))
+        source = 'crates/core/src/lib.rs'
+        special = 'doc/new space\tline\n雪.md'
+        index_tree = self.tree({source: 'pub fn staged() {}'})
+        worktree_tree = self.tree({special: 'untracked documentation'})
+        changes = [dict(origin='committed', status='M', path='doc/readme.md'),
+                   dict(origin='staged', status='M', path=source),
+                   dict(origin='unstaged', status='M', path=source),
+                   dict(origin='untracked', status='??', path=special)]
+        result = self.select(self.inputs(index_tree, worktree_tree, changes))
+        self.assertEqual(result['affected_packages'], ['consumer', 'core'])
+        self.assertIn('oasis7_required', result['groups'])
+        self.assertEqual(result['source_sha'], head)
+        self.assertEqual(result['tested_sha'], head)
+        self.assertEqual(result['architecture']['source'], head)
+        self.assertEqual(result['local_inputs']['changes'], changes)
+        self.assertIn(special, result['local_inputs']['compared_paths'])
+        self.assertEqual(Path('.git/index').read_bytes(), before_index)
+        self.assertEqual(self.git('show-ref'), before_refs)
+        self.assertEqual(sorted(str(path) for path in Path('.git/objects').rglob('*')), before_objects)
+        self.assertEqual(Path(source).read_text(), '')
+        self.assertFalse(Path(special).exists())
+
+    def test_manifest_graphs_include_index_dependencies_even_after_worktree_reverts(self):
+        manifest = 'crates/other/Cargo.toml'
+        index_tree = self.tree({manifest: Path(manifest).read_text() + '\n[dependencies]\ncore={path="../core"}\n'})
+        source = 'crates/core/src/lib.rs'
+        worktree_tree = self.tree({source: 'pub fn changed() {}'})
+        result = self.select(self.inputs(index_tree, worktree_tree, [
+            dict(origin='staged', status='M', path=manifest),
+            dict(origin='unstaged', status='M', path=manifest),
+            dict(origin='unstaged', status='M', path=source),
+        ]))
+        self.assertEqual(result['scope'], 'full')
+        self.assertEqual(result['affected_packages'], ['consumer', 'core', 'other'])
+        self.assertIn(manifest, result['local_inputs']['compared_paths'])
+
+    def test_deleted_and_renamed_paths_keep_both_endpoints_and_unknowns_block(self):
+        self.write('unowned.file', 'unique file that must retain its old owner requirement')
+        self.base = self.commit()
+        index_tree = self.tree({})
+        worktree_tree = self.tree({'unowned.file': None,
+                                  'doc/renamed.md': Path('unowned.file').read_text(),
+                                  'crates/core/src/lib.rs': None})
+        changes = [dict(origin='unstaged', status='R100', path='doc/renamed.md', old_path='unowned.file'),
+                   dict(origin='unstaged', status='D', path='crates/core/src/lib.rs')]
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unowned.file'):
+            self.select(self.inputs(index_tree, worktree_tree, changes))
+
+    def test_snapshot_provenance_cannot_omit_diff_or_hide_an_unknown_path_behind_full(self):
+        index_tree = self.tree({})
+        worktree_tree = self.tree({'Cargo.toml': Path('Cargo.toml').read_text() + '\n# changed\n',
+                                  'unknown.file': 'unknown'})
+        changes = [dict(origin='unstaged', status='M', path='Cargo.toml')]
+        with self.assertRaisesRegex(ValueError, 'provenance omits.*unknown.file'):
+            self.select(self.inputs(index_tree, worktree_tree, changes))
+        changes.append(dict(origin='untracked', status='??', path='unknown.file'))
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            self.select(self.inputs(index_tree, worktree_tree, changes))
+
+    def test_invalid_snapshots_are_rejected_before_conservative_selection(self):
+        tree = self.tree({})
+        valid = self.inputs(tree, tree)
+        invalid = [None, [], dict(valid, schema_version=True), dict(valid, schema_version=2),
+                   dict(valid, source_sha='0' * 40), dict(valid, source_sha='HEAD'),
+                   dict(valid, index_tree=valid['source_sha']), dict(valid, worktree_tree='0' * 40),
+                   dict(valid, extra=True), dict(valid, changes={}),
+                   dict(valid, changes=[dict(origin='unknown', status='M', path='doc/readme.md')]),
+                   dict(valid, changes=[dict(origin='staged', status='M', path='../outside')]),
+                   dict(valid, changes=[dict(origin='staged', status='M', path='doc/\0bad')]),
+                   dict(valid, changes=[dict(origin='staged', status='R100', path='doc/new')])]
+        for value in invalid:
+            with self.subTest(value=value), patch.object(selector, '_select') as inner:
+                with self.assertRaises(ValueError):
+                    # None means the unchanged API, so validate its malformed
+                    # payload directly rather than invoking the absent flag.
+                    if value is None:
+                        selector.validate_local_inputs(self.base, 'HEAD', None, value)
+                    else:
+                        self.select(value)
+                inner.assert_not_called()
+
+    def test_provenance_must_preserve_the_correct_stage(self):
+        path = 'doc/readme.md'
+        index_tree = self.tree({path: 'staged'})
+        worktree_tree = self.tree({})
+        inputs = self.inputs(index_tree, worktree_tree, [dict(origin='unstaged', status='M', path=path)])
+        with self.assertRaisesRegex(ValueError, 'provenance omits'):
+            self.select(inputs)
+
+    def test_declared_tree_resolution_is_scoped_and_policy_stays_a_commit(self):
+        tree = self.tree({'doc/readme.md': 'dirty'})
+        inputs = self.inputs(self.tree({}), tree, [dict(origin='unstaged', status='M', path='doc/readme.md')])
+        with self.assertRaises(subprocess.CalledProcessError):
+            selector.resolve_commit(tree)
+        self.select(inputs)
+        with self.assertRaises(subprocess.CalledProcessError):
+            selector.resolve_commit(tree)
+        with self.assertRaisesRegex(ValueError, 'policy must be a real commit'):
+            selector.select(self.fast_config(), self.base, 'HEAD', policy_ref=tree, local_inputs=inputs)
+        inputs['changes'].append(dict(origin='referenced', status='A', path='unowned-extra.file'))
+        with self.assertRaises(selector.UnknownInputsError):
+            self.select(inputs)
+        with self.assertRaises(subprocess.CalledProcessError):
+            selector.resolve_commit(tree)
+
+    def test_captured_ignored_reference_uses_the_actual_dependency_graph(self):
+        source = 'crates/core/src/lib.rs'
+        fixture = 'crates/core/src/ignored-fixture.txt'
+        self.write('.gitignore', '/' + fixture + '\n')
+        self.base = self.commit()
+        self.assertEqual(self.git('check-ignore', fixture), fixture)
+        index_tree = self.tree({})
+        worktree_tree = self.tree({source: 'pub const DATA: &str = include_str!("ignored-fixture.txt");',
+                                  fixture: 'captured dependency'})
+        changes = [dict(origin='unstaged', status='M', path=source),
+                   dict(origin='referenced', status='A', path=fixture)]
+        plan = self.select(self.inputs(index_tree, worktree_tree, changes))
+        self.assertEqual(plan['affected_packages'], ['consumer', 'core'])
+        self.assertIn(fixture, plan['local_inputs']['compared_paths'])
+
+    def test_external_cargo_dependency_retains_conservative_coverage(self):
+        manifest = 'crates/core/Cargo.toml'
+        index_tree = self.tree({})
+        worktree_tree = self.tree({manifest: Path(manifest).read_text()
+                                  + '\n[dependencies]\nexternal={path="../../../external"}\n'})
+        plan = self.select(self.inputs(index_tree, worktree_tree, [
+            dict(origin='unstaged', status='M', path=manifest)]))
+        self.assertEqual(plan['scope'], 'full')
+        self.assertTrue(any('path dependency outside resolved workspace' in reason for reason in plan['reasons']))
+
+    def test_local_entry_registration_is_exact_and_cannot_exempt_neighbor_paths(self):
+        index_tree = self.tree({})
+        worktree_tree = self.tree({'scripts/check-local.py': '# entry'})
+        changes = [dict(origin='untracked', status='??', path='scripts/check-local.py')]
+        plan = self.select(self.inputs(index_tree, worktree_tree, changes))
+        self.assertEqual(plan['scope'], 'full')
+        worktree_tree = self.tree({'scripts/check-local.py': '# entry', 'scripts/check-local-other.py': '# unknown'})
+        changes.append(dict(origin='untracked', status='??', path='scripts/check-local-other.py'))
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'check-local-other'):
+            self.select(self.inputs(index_tree, worktree_tree, changes))
+
+    def test_cancelled_staged_test_policy_change_is_not_exempted(self):
+        source = 'crates/core/src/lib.rs'
+        index_tree = self.tree({source: '#[test]\n#[ignore]\nfn hidden() {}'})
+        worktree_tree = self.tree({})
+        changes = [dict(origin='staged', status='M', path=source),
+                   dict(origin='unstaged', status='M', path=source)]
+        with self.assertRaisesRegex(selector.TestPolicyError, 'ignored test'):
+            self.select(self.inputs(index_tree, worktree_tree, changes))
+
+    def test_cli_reads_snapshot_and_never_emits_success_for_invalid_input(self):
+        tree = self.tree({'doc/readme.md': 'working documentation'})
+        inputs = self.inputs(self.tree({}), tree, [dict(origin='unstaged', status='M', path='doc/readme.md')])
+        directory = self.objects.parent
+        config_path, input_path = directory / 'config.json', directory / 'inputs.json'
+        config_path.write_text(json.dumps(self.fast_config()))
+        input_path.write_text(json.dumps(inputs))
+        command = [sys.executable, str(HERE / 'plan-rust-required-scope.py'),
+                   '--config', str(config_path), '--base-ref', self.base, '--head-ref', 'HEAD',
+                   '--profile', 'pr-fast', '--local-inputs', str(input_path)]
+        process = subprocess.run(command, text=True, capture_output=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        plan = json.loads(process.stdout)
+        self.assertEqual(plan['groups'], ['baseline'])
+        self.assertEqual(plan['local_inputs']['worktree_tree'], tree)
+        output = directory / 'plan.json'
+        for contents in ('{invalid', 'null', '[]'):
+            with self.subTest(contents=contents):
+                input_path.write_text(contents)
+                process = subprocess.run(command + ['--output', str(output)], text=True, capture_output=True)
+                self.assertEqual(process.returncode, 2, process.stderr)
+                self.assertEqual(process.stdout, '')
+                self.assertFalse(output.exists())
+        input_path.write_text(json.dumps(inputs))
+        full_command = list(command)
+        full_command[full_command.index('--profile') + 1] = 'candidate-full'
+        process = subprocess.run(full_command, text=True, capture_output=True)
+        self.assertEqual(process.returncode, 2, process.stderr)
+        self.assertIn('full inventory does not accept local input snapshots', process.stderr)
+        self.assertEqual(process.stdout, '')
+
 
 if __name__ == '__main__':
     unittest.main()

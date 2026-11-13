@@ -11,6 +11,7 @@ import textwrap
 from pathlib import Path
 import re
 import shlex
+import shutil
 import unittest
 from unittest.mock import patch
 
@@ -4569,6 +4570,264 @@ class WorkerToolCache(unittest.TestCase):
                         self.assertEqual(result.returncode, code, result.stderr)
                         self.assertIn('called:scripts/ci-worker-build.py ' + command, result.stdout)
                         self.assertEqual('reached-build' in result.stdout, code == 0)
+
+
+class LocalCheckDriverContract(unittest.TestCase):
+    """Exercise the real driver functions and Git inputs without a Rust build."""
+
+    def shell(self, command, *, cwd=ROOT, **environment):
+        script = ('set -euo pipefail\nci_python=' + shlex.quote(sys.executable)
+                  + '\nsource ' + shlex.quote(str(ROOT / 'scripts/ci-tests.sh'))
+                  + '\n' + command)
+        return subprocess.run(['bash', '-c', script], cwd=cwd, text=True,
+                              capture_output=True, env=dict(os.environ,
+                              **({'OASIS7_LOCAL_CHECK': '0', 'GIT_OPTIONAL_LOCKS': '0'} | environment)))
+
+    def runner(self, directory):
+        directory = Path(directory)
+        runner = directory / 'command runner.py'
+        runner.write_text(
+            'import json, os, pathlib, subprocess, sys\n'
+            'assert sys.argv[1] == "--"\n'
+            'path = pathlib.Path(os.environ["OASIS7_LOCAL_CHECK_RUN_DIR"]) / "command.json"\n'
+            'path.write_text(json.dumps(sys.argv[2:]))\n'
+            'raise SystemExit(subprocess.run(sys.argv[2:]).returncode)\n')
+        return dict(OASIS7_LOCAL_CHECK='1', OASIS7_LOCAL_CHECK_COMMAND_RUNNER=str(runner),
+                    OASIS7_LOCAL_CHECK_RUN_DIR=str(directory))
+
+    def test_command_runner_preserves_python_resolution_arguments_and_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = self.runner(directory)
+            argument = 'space $() "quote"\nnext line'
+            program = 'import json,sys; print(json.dumps(sys.argv[1:])); sys.exit(int(sys.argv[1]))'
+            for code in (0, 37):
+                with self.subTest(code=code):
+                    command = 'run python3 -c ' + shlex.quote(program)
+                    command += ' ' + str(code) + ' ' + shlex.quote(argument) + '\necho reached-next-command\n'
+                    result = self.shell(command, **environment)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    recorded = json.loads((Path(directory) / 'command.json').read_text())
+                    self.assertEqual(recorded, [sys.executable, '-c', program, str(code), argument])
+                    self.assertIn(json.dumps([str(code), argument]), result.stdout)
+                    self.assertEqual('reached-next-command' in result.stdout, code == 0)
+
+    def test_normal_driver_does_not_use_local_runner(self):
+        result = self.shell('run python3 -c "print(12345)"\n',
+                            OASIS7_LOCAL_CHECK_COMMAND_RUNNER='/missing/runner.py')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('12345', result.stdout)
+
+    def test_local_runner_requires_existing_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = self.runner(directory)
+            for invalid in ({'OASIS7_LOCAL_CHECK_COMMAND_RUNNER': 'relative.py'},
+                            {'OASIS7_LOCAL_CHECK_COMMAND_RUNNER': '/missing/runner.py'},
+                            {'OASIS7_LOCAL_CHECK_RUN_DIR': 'relative'},
+                            {'OASIS7_LOCAL_CHECK_RUN_DIR': '/missing/reports'}):
+                with self.subTest(invalid=invalid):
+                    result = self.shell('run python3 -c "print(12345)"\n', **(environment | invalid))
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse((Path(directory) / 'command.json').exists())
+
+    def test_local_cargo_locks_stay_before_test_and_clippy_arguments(self):
+        recorder = 'run() { "$ci_python" -c \'import json,sys; print(json.dumps(sys.argv[1:]))\' "$@"; }\n'
+        commands = ('run_cargo test -p fixture -- --ignored\n'
+                    'run_cargo test --locked -p fixture -- --locked\n'
+                    'run_cargo_clippy -p fixture\n'
+                    'run_cargo fmt --all -- --check\n')
+        for mode in ('0', '1'):
+            for verbose in ('0', '1'):
+                with self.subTest(mode=mode, verbose=verbose):
+                    result = self.shell(recorder + commands, OASIS7_LOCAL_CHECK=mode, CI_VERBOSE=verbose)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    rows = [json.loads(line) for line in result.stdout.splitlines()]
+                    cargo_prefix = ['env', '-u', 'RUSTC_WRAPPER', 'cargo']
+                    verbose_args = ['--verbose'] if verbose == '1' else []
+                    lock = ['--locked'] if mode == '1' else []
+                    self.assertEqual(rows[0], cargo_prefix + verbose_args +
+                                     ['test', *lock, '-p', 'fixture', '--', '--ignored'])
+                    self.assertEqual(rows[1], cargo_prefix + verbose_args +
+                                     ['test', '--locked', '-p', 'fixture', '--', '--locked'])
+                    self.assertEqual(rows[2], cargo_prefix + ['clippy', *verbose_args, *lock,
+                                     '-p', 'fixture', '--', '-D', 'warnings', '-D',
+                                     'clippy::correctness', '-D', 'clippy::suspicious'])
+                    self.assertEqual(rows[3], cargo_prefix + verbose_args + ['fmt', '--all', '--', '--check'])
+
+    def test_local_newapi_accounting_uses_the_locked_cargo_path(self):
+        recorder = 'run() { "$ci_python" -c \'import json,sys; print(json.dumps(sys.argv[1:]))\' "$@"; }\n'
+        for mode in ('0', '1'):
+            result = self.shell(recorder + 'run_newapi_bridge_service_accounting_tests\n',
+                                OASIS7_LOCAL_CHECK=mode, CI_VERBOSE='0')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), ['env', '-u', 'RUSTC_WRAPPER', 'cargo',
+                'test', *(['--locked'] if mode == '1' else []), '-p', 'oasis7_newapi_bridge_service',
+                '--bin', 'oasis7_newapi_bridge_service', '--', '--nocapture'])
+
+    def test_local_cargo_deny_requires_the_installed_exact_version_without_installing(self):
+        cases = [('1', None), ('1', '0.0.0'), ('1', '0.19.9'), ('0', None), ('0', '0.0.0')]
+        for mode, version in cases:
+            with self.subTest(mode=mode, version=version), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                scripts, binaries, report = (directory / name for name in ('scripts', 'bin', 'report'))
+                for path in (scripts, binaries, report):
+                    path.mkdir()
+                for name in ('bash', 'env', 'awk', 'python3'):
+                    (binaries / name).symlink_to(shutil.which(name))
+                helper = scripts / 'ensure-cargo-deny.sh'
+                helper.write_bytes((ROOT / 'scripts/ensure-cargo-deny.sh').read_bytes())
+                helper.chmod(0o755)
+                # Only unrelated validators are fixture no-ops. The real driver,
+                # command receipt runner and unmodified provisioning helper run.
+                for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh'):
+                    path = scripts / name
+                    path.write_text('#!/bin/sh\nexit 0\n')
+                    path.chmod(0o755)
+                cargo = binaries / 'cargo'
+                cargo.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CARGO_CALLS"\n'
+                                 'if [ "$1" = install ]; then printf attempted > "$INSTALL_LOG"; fi\n')
+                cargo.chmod(0o755)
+                if version is not None:
+                    deny = binaries / 'cargo-deny'
+                    deny.write_text('#!/bin/sh\nprintf "cargo-deny ' + version + '\\n"\n')
+                    deny.chmod(0o755)
+                result = self.shell('run_rustsec_advisory_check\nprintf "after-ci=%s\\n" "$CI"\n',
+                    cwd=directory, PATH=str(binaries), CI='false', CARGO_DENY_VERSION='0.0.0',
+                    OASIS7_LOCAL_CHECK=mode, OASIS7_LOCAL_CHECK_GROUP='rust_baseline',
+                    OASIS7_LOCAL_CHECK_COMMAND_RUNNER=str(ROOT / 'scripts/ci-local-check-command.py'),
+                    OASIS7_LOCAL_CHECK_RUN_DIR=str(report), INSTALL_LOG=str(directory / 'installed'),
+                    CARGO_CALLS=str(directory / 'cargo-calls'))
+                passed = mode == '0' or version == '0.19.9'
+                self.assertEqual(result.returncode, 0 if passed else 1, result.stdout + result.stderr)
+                self.assertEqual((directory / 'installed').exists(), mode == '0' and version is None)
+                if mode == '1':
+                    receipts = [json.loads(path.read_text()) for path in (report / 'commands').glob('*.json')]
+                    ensures = [row for row in receipts if any(arg.endswith('/ensure-cargo-deny.sh') for arg in row['argv'])]
+                    self.assertEqual(len(ensures), 1)
+                    self.assertEqual(ensures[0]['argv'], ['env', 'CI=true', 'CARGO_DENY_VERSION=0.19.9',
+                                                        './scripts/ensure-cargo-deny.sh'])
+                    self.assertEqual(ensures[0]['exit_code'], 0 if passed else 127)
+                    self.assertEqual(ensures[0]['status'], 'passed' if passed else 'failed')
+                    if not passed:
+                        self.assertIn('cargo-deny 0.19.9 is required in CI', result.stdout)
+                        self.assertFalse((directory / 'cargo-calls').exists())
+                else:
+                    self.assertFalse((report / 'commands').exists())
+                    if version is None:
+                        self.assertIn('install cargo-deny --version 0.0.0 --locked',
+                                      (directory / 'cargo-calls').read_text())
+                if passed:
+                    self.assertIn('after-ci=false', result.stdout)
+
+    def test_local_standalone_lockfile_inspection_locks_root_metadata_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            repo = self.repository(directory)
+            tool = repo / 'tools/demo'
+            tool.mkdir(parents=True)
+            (tool / 'Cargo.toml').write_text('[package]\nname="demo"\nversion="0.1.0"\n')
+            (tool / 'Cargo.lock').write_text('version = 4\n')
+            self.git(repo, 'add', 'tools')
+            binaries = directory / 'bin'
+            binaries.mkdir()
+            cargo = binaries / 'cargo'
+            cargo.write_text('#!' + sys.executable + '\nimport json,os,sys\n'
+                'with open(os.environ["CALLS"], "a") as log: log.write(json.dumps(sys.argv[1:])+"\\n")\n'
+                'if sys.argv[1] == "locate-project": print(os.environ["TOOL_MANIFEST"])\n'
+                'else: print(json.dumps({"packages":[], "workspace_members":[]}))\n')
+            cargo.chmod(0o755)
+            calls = directory / 'calls'
+            before = self.identity(repo)
+            for mode in ('0', '1'):
+                calls.unlink(missing_ok=True)
+                result = subprocess.run(['bash', str(ROOT / 'scripts/check-standalone-tool-lockfiles.sh')],
+                    text=True, capture_output=True, env=dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                    OASIS7_LOCAL_CHECK=mode, OASIS7_STANDALONE_TOOL_REPO_ROOT=str(repo),
+                    OASIS7_CI_RUN_RUST_BASELINE='true', GIT_OPTIONAL_LOCKS='0', CALLS=str(calls),
+                    TOOL_MANIFEST=str(tool / 'Cargo.toml')))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                metadata = [args for args in map(json.loads, calls.read_text().splitlines()) if args[0] == 'metadata']
+                self.assertEqual(len(metadata), 2)
+                self.assertEqual('--locked' in metadata[0], mode == '1')
+                self.assertIn('--locked', metadata[1])
+                self.assertEqual(self.identity(repo), before)
+
+    def repository(self, directory):
+        repo = Path(directory) / 'repo'
+        repo.mkdir()
+        self.git(repo, 'init', '-q')
+        self.git(repo, 'config', 'user.name', 'Local checks fixture')
+        self.git(repo, 'config', 'user.email', 'fixture@example.invalid')
+        (repo / 'tracked.txt').write_text('clean\n')
+        (repo / '.gitignore').write_text('ignored/\n')
+        self.git(repo, 'add', '.')
+        self.git(repo, 'commit', '-qm', 'Base fixture')
+        return repo
+
+    @staticmethod
+    def git(repo, *args):
+        return subprocess.check_output(['git', '-C', str(repo), *args], stderr=subprocess.PIPE,
+                                       env=dict(os.environ, GIT_OPTIONAL_LOCKS='0')).decode().strip()
+
+    def identity(self, repo):
+        return (self.git(repo, 'rev-parse', 'HEAD'), (repo / '.git/index').read_bytes(),
+                {str(path.relative_to(repo)): path.read_bytes() for path in repo.rglob('*')
+                 if path.is_file() and '.git' not in path.relative_to(repo).parts})
+
+    def test_local_baseline_checks_each_whitespace_origin_without_mutation(self):
+        # Isolate unrelated baseline checks; execute the actual Git/Python checks.
+        script = '''run() {
+  if [[ "$1" == git || ( "$1" == "$ci_python" && "${2:-}" == - ) ]]; then "$@"; fi
+}
+run_product_doc_governance_check() { :; }
+run_required_gate_checks
+'''
+        for case in ('committed', 'staged-cancelled', 'unstaged', 'untracked',
+                     'untracked-clean', 'untracked-binary', 'ignored'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                repo = self.repository(directory)
+                base = self.git(repo, 'rev-parse', 'HEAD')
+                if case in ('committed', 'staged-cancelled', 'unstaged'):
+                    (repo / 'tracked.txt').write_text('bad trailing whitespace  \n')
+                    if case != 'unstaged':
+                        self.git(repo, 'add', 'tracked.txt')
+                    if case == 'committed':
+                        self.git(repo, 'commit', '-qm', 'Changed fixture')
+                    elif case == 'staged-cancelled':
+                        (repo / 'tracked.txt').write_text('clean\n')
+                else:
+                    path = repo / ('ignored/file.txt' if case == 'ignored' else 'new file\nname.txt')
+                    path.parent.mkdir(exist_ok=True)
+                    path.write_bytes(b'clean\n' if case == 'untracked-clean' else
+                                     b'\0binary  \n' if case == 'untracked-binary' else b'bad  \n')
+                before = self.identity(repo)
+                result = self.shell(script, cwd=repo, OASIS7_LOCAL_CHECK='1',
+                                    OASIS7_PRODUCT_DOC_BASE=base,
+                                    OASIS7_PRODUCT_DOC_HEAD=self.git(repo, 'rev-parse', 'HEAD'))
+                passed = case in ('untracked-clean', 'untracked-binary', 'ignored')
+                self.assertEqual(result.returncode == 0, passed, result.stdout + result.stderr)
+                self.assertEqual(self.identity(repo), before)
+                if not passed:
+                    self.assertIn('trailing whitespace', result.stdout)
+
+    def test_windows_local_paths_include_untracked_and_preserve_nul_boundaries(self):
+        for name, valid in [('new:invalid.txt', False), ('line\nbreak.txt', False),
+                            ('tab\tname.txt', False), ('new file 中文.txt', True),
+                            ('ignored/NUL.txt', True)]:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                repo = self.repository(directory)
+                (repo / 'scripts').mkdir()
+                checker = repo / 'scripts/check-windows-paths.sh'
+                checker.write_bytes((ROOT / 'scripts/check-windows-paths.sh').read_bytes())
+                path = repo / name
+                path.parent.mkdir(exist_ok=True)
+                path.write_text('input\n')
+                before = self.identity(repo)
+                for mode, expected in [('0', True), ('1', valid)]:
+                    result = subprocess.run(['bash', str(checker)], cwd=repo, text=True,
+                        capture_output=True, env=dict(os.environ, OASIS7_LOCAL_CHECK=mode,
+                                                       GIT_OPTIONAL_LOCKS='0'))
+                    self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
+                self.assertEqual(self.identity(repo), before)
 
 
 if __name__ == '__main__':
