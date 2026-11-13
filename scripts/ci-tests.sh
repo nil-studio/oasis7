@@ -892,10 +892,16 @@ run_newapi_bridge_service_accounting_tests() {
 
 run_oasis7_viewer_software_safe_feedback_contract_tests() {
   run ./scripts/viewer-dependency-preflight.test.sh
+  run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
   viewer_dependency_preflight "$repo_root" test
   run npm --prefix crates/oasis7_viewer run test:frontend-structure
-  run npm --prefix crates/oasis7_viewer run test:feedback-contract
-  run node crates/oasis7_viewer/scripts/gameplay-attraction-scenario.test.mjs
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    run node --test --test-reporter=tap crates/oasis7_viewer/scripts/software-safe-feedback-contract.test.mjs
+    run node --test --test-reporter=tap crates/oasis7_viewer/scripts/gameplay-attraction-scenario.test.mjs
+  else
+    run npm --prefix crates/oasis7_viewer run test:feedback-contract
+    run node crates/oasis7_viewer/scripts/gameplay-attraction-scenario.test.mjs
+  fi
   run python3 scripts/tests/test_industrial_starter_evidence.py
   run ./scripts/copy-viewer-web-dist.test.sh
   run ./scripts/agent-browser-viewer-dist-freshness-test.sh
@@ -903,7 +909,11 @@ run_oasis7_viewer_software_safe_feedback_contract_tests() {
   run bash ./scripts/viewer-prompt-control-regression.test.sh
   run bash ./scripts/viewer-prompt-control-race.test.sh
   run bash ./scripts/viewer-prompt-control-race-identity.test.sh
-  run node --test crates/oasis7_viewer/scripts/agent-browser-visual-runner-lifecycle.test.mjs
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    run node --test --test-reporter=tap crates/oasis7_viewer/scripts/agent-browser-visual-runner-lifecycle.test.mjs
+  else
+    run node --test crates/oasis7_viewer/scripts/agent-browser-visual-runner-lifecycle.test.mjs
+  fi
   run ./scripts/bundle-freshness-lib.test.sh
   if [[ "${1:-}" != --source-only ]]; then
     run npm --prefix crates/oasis7_viewer run test:ui
@@ -922,7 +932,11 @@ run_oasis7_viewer_software_safe_build_with_ui() {
   # UI reads source/fixtures; the build alone writes the generated bundle/dist.
   # Supervise their shared process tree so failure, cancellation, or leftover
   # descendants cannot cross the browser-security build barrier.
-  run "$ci_python" - "$driver_dir" "$repo_root" <<'PY_VIEWER_PARALLEL'
+  local supervisor=(run "$ci_python")
+  # The inner run calls record the actual UI and build commands. Recording the
+  # orchestration process as a second test command would count the UI twice.
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then supervisor=("$ci_python"); fi
+  "${supervisor[@]}" - "$driver_dir" "$repo_root" <<'PY_VIEWER_PARALLEL'
 import os
 from pathlib import Path
 import sys
@@ -935,7 +949,9 @@ from ci_process_runner import run
 command = ['bash', '-c', '''set -euo pipefail
 driver_dir="$1"; repo_root="$2"; ci_python="$3"
 source "$driver_dir/ci-tests.sh"
-run npm --prefix crates/oasis7_viewer run test:ui &
+ui_args=()
+if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then ui_args=(-- --reporter=tap-flat); fi
+run npm --prefix crates/oasis7_viewer run test:ui "${ui_args[@]}" &
 ui_pid=$!
 run_oasis7_viewer_software_safe_build &
 build_pid=$!
@@ -959,12 +975,21 @@ run_pixel_world_bridge_wasm_check() {
 }
 
 run_oasis7_viewer_browser_functional_regression() {
-  AGENT_BROWSER_BIN="${AGENT_BROWSER_BIN:-agent-browser}" run node crates/oasis7_viewer/scripts/browser-functional-regression.mjs
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+    # The production bundle belongs to the completed real build above. Build
+    # only its test-mode counterpart and let every browser consumer reuse it.
+    run npm --prefix crates/oasis7_viewer run build:viewer:bundle -- --mode visual-test
+    run node crates/oasis7_viewer/scripts/browser-functional-regression.mjs --skip-build
+  else
+    AGENT_BROWSER_BIN="${AGENT_BROWSER_BIN:-agent-browser}" run node crates/oasis7_viewer/scripts/browser-functional-regression.mjs
+  fi
 }
 
 run_oasis7_viewer_visual_test_build() {
   local bindgen_bin
-  bindgen_bin="$(./scripts/ensure-wasm-bindgen-cli.sh --print-bin)"
+  local bindgen_args=(--print-bin)
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then bindgen_args+=(--check); fi
+  bindgen_bin="$(./scripts/ensure-wasm-bindgen-cli.sh "${bindgen_args[@]}")"
   run env WASM_BINDGEN_BIN="$bindgen_bin" npm --prefix crates/oasis7_viewer run build:viewer:visual-test
 }
 

@@ -4,8 +4,10 @@ import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
+import { viewerBuildPaths } from "./viewer-local-output.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const buildPaths = viewerBuildPaths("release");
 const session = `viewer-auth-security-${process.pid}`;
 const browser = process.env.AGENT_BROWSER_BIN || "agent-browser";
 const counters = { login: 0, refresh: 0, release: 0, register: 0 };
@@ -38,7 +40,11 @@ const server = createServer(async (req, res) => {
       const html = await readFile(resolve(root, "viewer.html"), "utf8");
       res.setHeader("Content-Type", "text/html"); return res.end(html.replace("</head>", `${config}</head>`));
     }
-    const file = url.pathname === "/viewer.js" ? resolve(root, ".software-safe-build/viewer.js") : resolve(root, `.${url.pathname}`);
+    if (url.pathname === "/viewer.js") {
+      res.setHeader("Content-Type", "text/javascript");
+      return res.end(await readFile(resolve(buildPaths.bundleDir, "viewer.js")));
+    }
+    const file = resolve(root, `.${url.pathname}`);
     if (!file.startsWith(root + "/")) { res.writeHead(403); return res.end(); }
     res.setHeader("Content-Type", extname(file) === ".js" ? "text/javascript" : "application/octet-stream");
     res.end(await readFile(file));
@@ -116,6 +122,10 @@ try {
   const release = await evaluate(`({testApi:typeof window.__AW_TEST__,viewerFixture:typeof window.__OASIS7_VIEWER_VISUAL_FIXTURES__,pixelFixture:typeof window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__,fixture:document.body.dataset.viewerVisualFixture||null})`);
   assert.deepEqual(release, { testApi: "undefined", viewerFixture: "undefined", pixelFixture: "undefined", fixture: null });
   console.log("viewer auth browser security smoke: passed (real Ed25519, issuer/WS registration, reload key recovery, malformed revoke and guest/identity conflict zero side effects, release query isolation)");
+  if (buildPaths.local) console.log(JSON.stringify({
+    expected_count: 1, count_ok: true, passed: true,
+    case_ids: ["viewer-auth-browser-security-smoke"],
+  }));
 } catch (error) {
   console.error(await evaluate(`({ready:window.ready,core:typeof window.securityCore,error:window.securityCore?.state.lastError,status:window.securityCore?.state.connectionStatus})`).catch(()=>null));
   console.error(await run(["errors"]).catch(()=>null));

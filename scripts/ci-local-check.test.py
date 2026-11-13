@@ -257,6 +257,59 @@ class Evidence(unittest.TestCase):
             self.assertEqual(command.evidence(['python3', 'scripts/checker.test.py'], 'OK', 0, group)['status'],
                              'incomplete')
 
+
+    def test_viewer_tap_flat_requires_the_complete_unique_plan_before_other_summaries(self):
+        argv = ['npm', '--prefix', 'crates/oasis7_viewer', 'run', 'test:ui', '--', '--reporter=tap-flat']
+        valid = 'TAP version 13\n1..2\nok 1 first\nok 2 second\n'
+        self.assertEqual(command.evidence(argv, valid, 0, 'viewer_js_required')['tests_executed'], 2)
+        invalid = ['', 'TAP version 13\n1..0\n', 'TAP version 13\n1..2\nok 1 first\n',
+                   valid.replace('ok 2', 'ok 1'), valid.replace('ok 2', 'ok 3'),
+                   valid + '1..2\n', valid + 'Bail out! broken runner\n',
+                   valid.replace('1..2', '1..2 # SKIP whole suite'),
+                   valid.replace('1..2', '1..2 # TODO pending'),
+                   valid.replace('second', 'second # SKIP unavailable'),
+                   valid.replace('second', 'second # TODO pending'), valid.replace('ok 2', 'not ok 2')]
+        for output in invalid:
+            with self.subTest(output=output):
+                for decoy in ['', '{"expected_count":2,"count_ok":true,"passed":true}\n# tests 2\n# pass 2\n']:
+                    self.assertEqual(command.evidence(argv, output + decoy, 0, 'viewer_js_required')['status'], 'incomplete')
+        self.assertEqual(command.evidence(argv, valid, 17, 'viewer_js_required')['status'], 'failed')
+        self.assertEqual(command.evidence(argv[:-2], '', 0, 'viewer_js_required')['status'], 'incomplete')
+
+    def test_viewer_frontend_and_browser_require_their_actual_execution_evidence(self):
+        frontend = ['npm', '--prefix', 'crates/oasis7_viewer', 'run', 'test:frontend-structure']
+        browser = ['node', 'crates/oasis7_viewer/scripts/browser-functional-regression.mjs', '--skip-build']
+        structured = '{"expected_count":26,"count_ok":true,"passed":true}\n'
+        node = '# tests 2\n# pass 2\n'
+        self.assertEqual(command.evidence(frontend, node, 0, 'viewer_js_required')['status'], 'passed')
+        self.assertEqual(command.evidence(frontend, structured, 0, 'viewer_js_required')['status'], 'incomplete')
+        self.assertEqual(command.evidence(frontend, '# tests 0\n# pass 0\n', 0, 'viewer_js_required')['status'], 'incomplete')
+        self.assertEqual(command.evidence(browser, node, 0, 'viewer_js_required')['status'], 'incomplete')
+        self.assertEqual(command.evidence(browser, structured, 0, 'viewer_js_required')['tests_executed'], 26)
+        for invalid in [structured.replace('26', 'true'), structured.replace('true', '"true"')]:
+            self.assertEqual(command.evidence(browser, invalid, 0, 'viewer_js_required')['status'], 'incomplete')
+
+    def test_command_summary_preserves_flat_tap_and_rejects_fixture_environment_leaks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            log = root / 'output.log'
+            log.write_text('unrelated output\nTAP version 13\n1..2\nok 1 yes\nnot ok 2 no # SKIP\nBail out!\n')
+            self.assertEqual(command.summaries(log), log.read_text().replace('unrelated output\n', ''))
+            fixture = root / 'environment.test.py'
+            fixture.write_text('import os,unittest\nclass Fixture(unittest.TestCase):\n'
+                               ' def test_environment(self):\n'
+                               '  self.assertFalse(any(k.startswith(("OASIS7_LOCAL_CHECK","AGENT_BROWSER_")) for k in os.environ))\n'
+                               '  os.environ["OASIS7_LOCAL_CHECK"]="1"\n'
+                               '  self.assertEqual(os.environ["OASIS7_LOCAL_CHECK"],"1")\n'
+                               'unittest.main()\n')
+            env = dict(os.environ, OASIS7_LOCAL_CHECK='1', OASIS7_LOCAL_CHECK_GROUP='viewer_js_required',
+                       OASIS7_LOCAL_CHECK_RUN_DIR=str(root), AGENT_BROWSER_SESSION='foreign-session')
+            completed = subprocess.run([sys.executable, str(HERE / 'ci-local-check-command.py'), '--',
+                                        sys.executable, str(fixture)], env=env, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            record, = [json.loads(path.read_text()) for path in (root / 'commands').glob('*.json')]
+            self.assertEqual((record['tests_executed'], record['business_tests_executed']), (1, 0))
+
     def test_counts_require_real_completion_and_reject_zero_skip_unknown(self):
         scenarios = [
             ('running 2 tests\ntest result: ok. 2 passed; 0 failed; 0 ignored;', 'passed', 2),
@@ -369,7 +422,7 @@ class Entry(GitFixture):
         self.assertEqual(report['policy_sha'], self.base)
 
     def test_selected_unsupported_group_and_full_block_before_any_driver(self):
-        self.install_policy(groups=('baseline', 'viewer_js_required'))
+        self.install_policy(groups=('baseline', 'command_center'))
         for args in (('--profile', 'affected'), ('--profile', 'formal', '--tier', 'full')):
             report = self.assert_result(self.invoke(*args), 'blocked', 2)
             self.assertEqual(report['checks_executed'], 0)
@@ -779,6 +832,167 @@ class SupportContracts(GitFixture):
             sanitized = entry.execution_environment()
         self.assertFalse(set(names) & sanitized.keys())
         self.assertEqual(sanitized['RUSTUP_AUTO_INSTALL'], '0')
+
+
+class ViewerEntry(GitFixture):
+    """Real entry/driver/receipts; build and browser executables are test doubles."""
+
+    def setUp(self):
+        super().setUp()
+        self.bins = Path(self.temp.name) / 'bin'
+        self.bins.mkdir()
+        self.tool_log = Path(self.temp.name) / 'tools.jsonl'
+        self.write('scripts/ci-tests.sh', (HERE / 'ci-tests.sh').read_text(), True)
+        for name in ('viewer-dependency-preflight.sh', 'ensure-wasm-bindgen-cli.sh', 'wasm-bindgen-cli-common.sh',
+                     'ci_process_runner.py'):
+            self.write('scripts/' + name, (HERE / name).read_text(), True)
+        self.write('scripts/find-python-with-module.sh', f'#!/bin/sh\nprintf "%s\\n" "{sys.executable}"\n', True)
+        self.write('Cargo.lock', '[[package]]\nname="wasm-bindgen"\nversion="0.2.999"\n'.replace('=', ' = '))
+        self.write('crates/oasis7_viewer/package.json', '{}\n')
+        self.write('crates/oasis7_viewer/package-lock.json', '{}\n')
+        self.write('crates/oasis7_viewer/node_modules/.package-lock.json', '{}\n')
+        for name in ('vite', 'vitest'):
+            self.write('crates/oasis7_viewer/node_modules/.bin/' + name, '#!/bin/sh\nexit 0\n', True)
+        fixture_tool = f'''#!{sys.executable}
+import json,os,pathlib,sys
+root=pathlib.Path(os.environ['LOCAL_VIEWER_FIXTURE_ROOT']); role=pathlib.Path(sys.argv[0]).name; args=sys.argv[1:]
+with open(os.environ['LOCAL_VIEWER_FIXTURE_LOG'],'a') as f:f.write(json.dumps([role,args])+"\\n")
+if args==['--version']:
+ print({{'agent-browser':'agent-browser 0.37.1','wasm-bindgen':'wasm-bindgen 0.2.999'}}.get(role,role+' fixture 1'));sys.exit(0)
+if role=='rustup' and args==['target','list','--installed']:
+ print('' if os.environ.get('LOCAL_VIEWER_FIXTURE_NO_WASM') else 'wasm32-unknown-unknown');sys.exit(0)
+if role=='cargo' and args==['metadata','--no-deps','--format-version','1','--locked','--offline']:
+ print(json.dumps({{'target_directory':str(root/'target')}}));sys.exit(0)
+def tap(n):print('TAP version 13\\n1..'+str(n)+'\\n'+'\\n'.join('ok '+str(i)+' fixture assertion' for i in range(1,n+1))+'\\n# tests '+str(n)+'\\n# pass '+str(n))
+if role=='npm' and 'test:frontend-structure' in args:
+ assert 'OASIS7_LOCAL_CHECK' not in os.environ;tap(2);sys.exit(0)
+if role=='npm' and 'test:ui' in args:
+ assert args[-2:]==['--','--reporter=tap-flat'];assert os.environ['OASIS7_LOCAL_CHECK']=='1'
+ (root/'target/ui.complete').write_text('complete');tap(2);sys.exit(0)
+if role=='npm' and 'build:viewer:bundle' in args:
+ assert (root/'target/ui.complete').exists() and (root/'target/build.complete').exists()
+ (root/'target/visual.complete').write_text('complete');sys.exit(0)
+if role=='npm' and 'build:viewer:visual-test' in args:
+ assert os.environ['WASM_BINDGEN_BIN'];sys.exit(0)
+if role=='node' and '--test' in args:
+ assert '--test-reporter=tap' in args;assert 'OASIS7_LOCAL_CHECK' not in os.environ;tap(1);sys.exit(0)
+if role=='node' and args and args[0].endswith('browser-functional-regression.mjs'):
+ assert (root/'target/visual.complete').exists();assert args[-1]=='--skip-build'
+ print(json.dumps({{'expected_count':26,'count_ok':True,'passed':True}}));sys.exit(0)
+if role=='node' and args and args[0].endswith('viewer-auth-browser-security-smoke.mjs'):
+ assert (root/'target/visual.complete').exists()
+ print(json.dumps({{'expected_count':1,'count_ok':True,'passed':True}}));sys.exit(0)
+raise SystemExit('unexpected build/install/command '+repr((role,args)))
+'''
+        for name in ('node', 'npm', 'cargo', 'rustc', 'rustup', 'agent-browser', 'chromium', 'wasm-bindgen'):
+            path = self.bins / name
+            path.write_text(fixture_tool)
+            path.chmod(0o755)
+        for name in ('viewer-dependency-preflight.test.sh', 'ensure-wasm-bindgen-cli.test.sh',
+                     'copy-viewer-web-dist.test.sh', 'agent-browser-viewer-dist-freshness-test.sh',
+                     'agent-browser-lifecycle-contract.test.sh', 'viewer-prompt-control-regression.test.sh',
+                     'viewer-prompt-control-race.test.sh', 'viewer-prompt-control-race-identity.test.sh',
+                     'bundle-freshness-lib.test.sh', 'viewer-performance-report-only-contract.test.sh'):
+            self.write('scripts/' + name, '#!/bin/sh\n[ -z "${OASIS7_LOCAL_CHECK:-}" ] || exit 71\necho fixture-contract-completed\n',
+                       os.access(HERE / name, os.X_OK))
+        self.write('scripts/tests/test_industrial_starter_evidence.py',
+                   'import unittest\nclass Fixture(unittest.TestCase):\n def test_assertion(self): self.assertEqual(2+2,4)\nunittest.main()\n')
+        self.write('scripts/build-viewer-software-safe.sh', '#!/bin/sh\n'
+                   '[ "${OASIS7_LOCAL_CHECK:-}" = 1 ] || exit 72\n'
+                   '[ -d "$OASIS7_VIEWER_LOCAL_OUTPUT_ROOT" ] || exit 73\n'
+                   '[ -d "$AGENT_BROWSER_SOCKET_DIR" ] || exit 74\n'
+                   'printf "%s\\n" "$AGENT_BROWSER_SOCKET_DIR" > target/socket-path\n'
+                   'test "${LOCAL_VIEWER_FIXTURE_BUILD_FAIL:-0}" = 0 || exit 19\n'
+                   'touch target/build.complete\n', True)
+        self.write('scripts/viewer-performance-report-only.sh', '#!/bin/sh\n'
+                   '[ "${OASIS7_LOCAL_CHECK:-}" = 1 ] || exit 75\necho fixture-collection-completed\n', True)
+        (self.root / 'target').mkdir()
+        self.env = dict(entry.execution_environment(), PATH=str(self.bins) + os.pathsep + os.environ['PATH'],
+                        CARGO_HOME=str(Path(self.temp.name) / 'cargo'), XDG_CACHE_HOME=str(Path(self.temp.name) / 'cache'),
+                        LOCAL_VIEWER_FIXTURE_ROOT=str(self.root), LOCAL_VIEWER_FIXTURE_LOG=str(self.tool_log))
+        self.args = SimpleNamespace(tier='required', offline=True, timeout_seconds=10)
+
+    def result(self, groups=('viewer_js_required',)):
+        return dict(groups=[dict(name=name, status='not_run') for name in groups], configuration={},
+                    checks_executed=0, base_sha=self.base, source_sha=self.base)
+
+    def test_preflight_checks_prepared_dependencies_without_building_or_installing(self):
+        result = self.result()
+        entry.preflight(self.root, self.args, result, self.env)
+        self.assertEqual(result['viewer_tools']['agent-browser'], str(self.bins / 'agent-browser'))
+        self.assertEqual(result['viewer_tools']['wasm_bindgen'], str(self.bins / 'wasm-bindgen'))
+        self.assertIn('--locked', result['cargo_preflight']['argv'])
+        self.assertIn('--offline', result['cargo_preflight']['argv'])
+        calls = [json.loads(line) for line in self.tool_log.read_text().splitlines()]
+        self.assertFalse(any('install' in args or 'build' in args for _, args in calls))
+
+    def test_missing_viewer_tools_target_or_npm_preparation_blocks_the_whole_plan(self):
+        original = entry.shutil.which
+        for missing in ('node', 'npm', 'cargo', 'rustc', 'rustup', 'agent-browser', 'chromium'):
+            def which(name, *args, **kwargs):
+                if name == missing or (missing == 'chromium' and name in ('chromium-browser', 'google-chrome', 'google-chrome-stable')):
+                    return None
+                return original(name, *args, **kwargs)
+            with self.subTest(missing=missing), mock.patch.object(entry.shutil, 'which', side_effect=which), mock.patch.object(entry, 'invoke') as invoke:
+                with self.assertRaises(entry.Blocked):
+                    entry.execute(self.root, self.args, self.result(('baseline', 'viewer_js_required')),
+                                  Path(self.temp.name), self.env)
+                invoke.assert_not_called()
+        for variation in ('target', 'npm', 'bindgen'):
+            env = dict(self.env)
+            if variation == 'target': env['LOCAL_VIEWER_FIXTURE_NO_WASM'] = '1'
+            path = (self.root / 'crates/oasis7_viewer/node_modules/.bin/vitest' if variation == 'npm'
+                    else self.bins / 'wasm-bindgen')
+            if variation != 'target': path.rename(path.with_suffix('.saved'))
+            try:
+                with self.subTest(variation=variation), mock.patch.object(entry, 'invoke') as invoke:
+                    with self.assertRaises(entry.Blocked):
+                        entry.execute(self.root, self.args, self.result(), Path(self.temp.name), env)
+                    invoke.assert_not_called()
+            finally:
+                if variation != 'target': path.with_suffix('.saved').rename(path)
+        self.assertFalse((self.root / 'target/build.complete').exists())
+
+    def test_real_driver_executes_complete_viewer_groups_and_isolates_owned_outputs(self):
+        result = self.result(('viewer_js_required', 'viewer_performance_report'))
+        directory = Path(self.temp.name) / 'run'
+        directory.mkdir()
+        with (directory / 'fixture-output.log').open('w') as log, contextlib.redirect_stderr(log):
+            entry.execute(self.root, self.args, result, directory, self.env)
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['checks_executed'], 23)
+        self.assertEqual([len(group['commands']) for group in result['groups']], [19, 4])
+        self.assertEqual(result['groups'][0]['business_tests_executed'], 29)
+        self.assertEqual(result['groups'][1]['business_tests_executed'], 0)
+        self.assertFalse(Path((self.root / 'target/socket-path').read_text().strip()).exists())
+        for group in result['groups']:
+            self.assertTrue(Path(group['viewer_output']).is_dir())
+        for group in result['groups']:
+            for index in range(len(group['commands'])):
+                with self.subTest(group=group['name'], missing=index):
+                    self.assertFalse(entry.viewer_complete(group['commands'][:index] + group['commands'][index+1:],
+                                                           group['name'], result['viewer_tools']['wasm_bindgen']))
+
+    def test_build_failure_does_not_start_browser_checks_and_cleans_socket_directory(self):
+        result = self.result()
+        directory = Path(self.temp.name) / 'run'
+        directory.mkdir()
+        with (directory / 'fixture-output.log').open('w') as log, contextlib.redirect_stderr(log):
+            with self.assertRaises(entry.Failed):
+                entry.execute(self.root, self.args, result, directory,
+                              dict(self.env, LOCAL_VIEWER_FIXTURE_BUILD_FAIL='1'))
+        calls = [json.loads(line) for line in self.tool_log.read_text().splitlines()]
+        self.assertFalse(any('browser-functional-regression.mjs' in ' '.join(args) for _, args in calls))
+        self.assertFalse(Path((self.root / 'target/socket-path').read_text().strip()).exists())
+
+    def test_inherited_browser_sessions_and_output_overrides_are_removed(self):
+        inherited = dict(AGENT_BROWSER_SESSION='foreign', AGENT_BROWSER_CDP='9222',
+                         AGENT_BROWSER_PROVIDER='remote', AGENT_BROWSER_EXECUTABLE_PATH='/foreign/chrome',
+                         AGENT_BROWSER_SOCKET_DIR='/foreign/sockets', AGENT_VISUAL_ARTIFACT_ROOT='/foreign/dist',
+                         WASM_BINDGEN_BIN='/foreign/bindgen', OASIS7_VIEWER_LOCAL_OUTPUT_ROOT='/foreign/output')
+        with mock.patch.dict(os.environ, inherited):
+            env = entry.execution_environment()
+        self.assertFalse(set(inherited) & set(env))
 
 
 if __name__ == '__main__':

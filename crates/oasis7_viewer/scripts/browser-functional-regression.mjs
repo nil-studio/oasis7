@@ -16,14 +16,17 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
 import { fileFingerprint as fingerprintRegularFile, readRegularFile } from "./viewer-static-files.mjs";
+import { localViewerPath, viewerBuildPaths } from "./viewer-local-output.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const viewerRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(viewerRoot, "../..");
 const runStamp = new Date().toISOString().replace(/[:.]/g, "-");
-const defaultOutDir = resolve(repoRoot, "output/playwright/browser-functional-regression", runStamp);
-const visualTestBundlePath = resolve(viewerRoot, ".software-safe-test-build/viewer.js");
-const releaseBundlePath = resolve(viewerRoot, ".software-safe-build/viewer.js");
+const releasePaths = viewerBuildPaths("release");
+const defaultOutDir = releasePaths.local ? localViewerPath("reports", "browser-functional")
+  : resolve(repoRoot, "output/playwright/browser-functional-regression", runStamp);
+const visualTestBundlePath = resolve(viewerBuildPaths("visual-test").bundleDir, "viewer.js");
+const releaseBundlePath = resolve(releasePaths.bundleDir, "viewer.js");
 const EXPECTED_VIEWPORTS = {
   desktop: { width: 1440, height: 1000 },
   narrow: { width: 390, height: 844 },
@@ -2125,7 +2128,9 @@ function buildBundles(outDir) {
     ["visual-test", ["vite", "build", "--mode", "visual-test", "--config", "vite.software-safe.config.mjs"]],
     ["release", ["vite", "build", "--config", "vite.software-safe.config.mjs"]],
   ]) {
-    const result = spawnSync("npx", args, { cwd: viewerRoot, encoding: "utf8", timeout: 300_000 });
+    const command = releasePaths.local ? resolve(viewerRoot, "node_modules/.bin/vite") : "npx";
+    const result = spawnSync(command, releasePaths.local ? args.slice(1) : args,
+      { cwd: viewerRoot, encoding: "utf8", timeout: 300_000 });
     logs.push({ name, status: result.status, stdout: result.stdout || "", stderr: result.stderr || "" });
     if (result.status !== 0) {
       writeFileSync(join(outDir, `build-${name}.log`), `${result.stdout || ""}${result.stderr || ""}`);
@@ -2253,8 +2258,8 @@ async function main() {
     assert(existsSync(visualTestBundlePath), `missing visual-test bundle at ${visualTestBundlePath}`);
     assert(existsSync(releaseBundlePath), `missing release bundle at ${releaseBundlePath}`);
     summary.environment.bundles = {
-      visualTest: fileFingerprint("crates/oasis7_viewer/.software-safe-test-build/viewer.js"),
-      release: fileFingerprint("crates/oasis7_viewer/.software-safe-build/viewer.js"),
+      visualTest: { path: visualTestBundlePath, ...fingerprintRegularFile(visualTestBundlePath) },
+      release: { path: releaseBundlePath, ...fingerprintRegularFile(releaseBundlePath) },
     };
     serverHandle = await createFixtureServer();
     releaseHandle = await createFixtureServer({ releaseOnly: true });
@@ -2309,6 +2314,12 @@ async function main() {
   const paths = writeSummary(options.outDir, summary);
   if (!options.json) console.log(`summary: ${paths.mdPath}`);
   else console.log(JSON.stringify(summary));
+  if (releasePaths.local) console.log(JSON.stringify({
+    expected_count: summary.executed.expected,
+    count_ok: !options.selfCheck && executed === expectedRuns && uniquePairs === expectedRuns,
+    passed: summary.status === "passed",
+    summary_path: paths.jsonPath,
+  }));
   process.exit(["passed", "self_check_passed"].includes(summary.status) ? 0 : 1);
 }
 

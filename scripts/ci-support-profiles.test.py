@@ -740,7 +740,7 @@ class ViewerChecks(unittest.TestCase):
     """Run the real Viewer dispatcher with two independent executable fixtures."""
 
     def viewer_fixture(self, directory, *, failing='', leak=False, timeout=False,
-                       cancel=False, source_failure=False):
+                       cancel=False, source_failure=False, local_entry=False):
         root = Path(directory)
         (root / 'bin').mkdir()
         (root / 'scripts').mkdir()
@@ -751,6 +751,8 @@ import json, os, pathlib, subprocess, sys, time
 root = pathlib.Path(os.environ['VIEWER_FIXTURE_ROOT'])
 role = pathlib.Path(sys.argv[0]).name
 role = {{'npm': 'ui', 'build-viewer-software-safe.sh': 'build', 'node': 'smoke'}}[role]
+if role == 'ui' and 'build:viewer:bundle' in sys.argv:
+    role = 'visual'
 if role == 'smoke' and len(sys.argv) > 1 and sys.argv[1].endswith('browser-functional-regression.mjs'):
     role = 'browser'
 with (root / 'events.jsonl').open('a') as stream:
@@ -758,11 +760,17 @@ with (root / 'events.jsonl').open('a') as stream:
 if role in ('smoke', 'browser'):
     expected = ('crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs'
                 if role == 'smoke' else 'crates/oasis7_viewer/scripts/browser-functional-regression.mjs')
-    assert sys.argv[1:] == [expected]
+    assert sys.argv[1:] == [expected] + (['--skip-build'] if role == 'browser' and {local_entry!r} else [])
     assert (root / 'ui.complete').is_file() and (root / 'build.complete').is_file()
+    if {local_entry!r}: assert (root / 'visual.complete').is_file()
     assert (root / 'dist/current').read_text() == 'current'
     raise SystemExit(0)
-assert sys.argv[1:] == (['--prefix', 'crates/oasis7_viewer', 'run', 'test:ui'] if role == 'ui' else [])
+if role == 'visual':
+    assert sys.argv[1:] == ['--prefix', 'crates/oasis7_viewer', 'run', 'build:viewer:bundle', '--', '--mode', 'visual-test']
+    assert (root / 'ui.complete').is_file() and (root / 'build.complete').is_file()
+    (root / 'visual.complete').write_text('complete')
+    raise SystemExit(0)
+assert sys.argv[1:] == (['--prefix', 'crates/oasis7_viewer', 'run', 'test:ui'] + (['--', '--reporter=tap-flat'] if {local_entry!r} else []) if role == 'ui' else [])
 (root / (role + '.started')).write_text('started')
 other = 'build' if role == 'ui' else 'ui'
 deadline = time.monotonic() + 3
@@ -781,6 +789,7 @@ if role == 'ui' and os.environ.get('VIEWER_LEAK') == '1':
 if role == 'build':
     (root / 'dist/current').write_text('current')
 (root / (role + '.complete')).write_text('complete')
+if role == 'ui': print('TAP version 13\\n1..1\\nok 1 UI fixture assertions\\n# tests 1\\n# pass 1')
 '''
         for path in (root / 'bin/npm', root / 'bin/node',
                      root / 'scripts/build-viewer-software-safe.sh'):
@@ -791,6 +800,11 @@ if role == 'build':
                            VIEWER_HOLD_SECONDS='.8' if timeout or cancel else '0',
                            VIEWER_SOURCE_FAIL='1' if source_failure else '0',
                            PATH=str(root / 'bin') + os.pathsep + os.environ['PATH'])
+        if local_entry:
+            environment.update(OASIS7_LOCAL_CHECK='1',
+                               OASIS7_LOCAL_CHECK_COMMAND_RUNNER=str(ROOT / 'scripts/ci-local-check-command.py'),
+                               OASIS7_LOCAL_CHECK_RUN_DIR=str(root),
+                               OASIS7_LOCAL_CHECK_GROUP='viewer_js_required')
         interpreter = root / 'bin/fixture-python'
         interpreter.write_text(f'''#!{sys.executable}
 import os, pathlib, sys
@@ -817,10 +831,10 @@ run() {
     ./scripts/viewer-dependency-preflight.test.sh)
       [[ "$VIEWER_SOURCE_FAIL" != 1 ]] || return 23 ;;
     npm)
-      if [[ "$*" == *test:ui ]]; then "$@"; fi ;;
+      if [[ "$*" == *test:ui* || "$*" == *build:viewer:bundle* ]]; then "$@"; fi ;;
     ./scripts/build-viewer-software-safe.sh) "$@" ;;
     node)
-      if [[ "$*" == *viewer-auth-browser-security-smoke.mjs || "$*" == *browser-functional-regression.mjs ]]; then "$@"; fi ;;
+      if [[ "$*" == *viewer-auth-browser-security-smoke.mjs* || "$*" == *browser-functional-regression.mjs* ]]; then "$@"; fi ;;
     "$ci_python"|python3)
       if [[ "${2:-}" == - ]]; then "$@"; fi ;;
   esac
@@ -899,6 +913,24 @@ run_group viewer_js_required
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('"leaked_processes": true', result.stdout)
         self.assertNotIn('smoke', [role for role, _ in events])
+
+    def test_local_viewer_reuses_the_finished_production_build_and_records_atomic_commands(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-local-') as directory:
+            result, events = self.viewer_fixture(directory, local_entry=True)
+            commands = [json.loads(path.read_text()) for path in (Path(directory) / 'commands').glob('*.json')]
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertCountEqual([role for role, _ in events], ['ui', 'build', 'visual', 'browser', 'smoke'])
+        self.assertEqual([role for role, _ in events][-3:], ['visual', 'browser', 'smoke'])
+        self.assertEqual(len(commands), 2, 'the outer supervisor must not duplicate nested UI/build records')
+        self.assertEqual(sum(command['tests_executed'] for command in commands), 1)
+        self.assertTrue(all(command['status'] == 'passed' for command in commands))
+
+    def test_local_viewer_build_failure_and_cancellation_stop_all_browser_consumers(self):
+        for options in [dict(failing='build'), dict(cancel=True), dict(timeout=True)]:
+            with self.subTest(options=options), tempfile.TemporaryDirectory(prefix='oasis7-viewer-local-') as directory:
+                result, events = self.viewer_fixture(directory, local_entry=True, **options)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(set(['visual', 'browser', 'smoke']) & {role for role, _ in events})
 
 
 if __name__ == '__main__':
