@@ -192,7 +192,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       if(suffix.startsWith('/participant/') || suffix==='/entry-owner/control') {
         try {const value=JSON.parse(body),payload=value.world_response?.payload,control=payload?.control?.view?.game_task_control,goal=control?.active_goal_reference,receipt=payload?.outcome?.receipt;
           worldResults.push({path:suffix,http:response.status,
-            outcome:suffix==='/entry-owner/control' ? payload?.outcome?.status??null : payload?.outcome??value.payload?.outcome??null,error:value.error??null,
+            outcome:suffix==='/entry-owner/control' ? payload?.outcome?.status??null : payload?.outcome??value.payload?.outcome??null,error:value.error??null,error_code:value.error_code??null,
             ...(control?{task:{revision:control.task_revision,status:control.task_status,executor_epoch:control.executor_epoch,latest_goal_revision:control.latest_goal_revision,active_goal_revision:control.active_goal_revision,goal_height:goal?.activation_committed_height,prepare:goal?.prepare_operation_id,publish:goal?.publish_operation_id}}:{}),
             ...(suffix==='/entry-owner/control'&&receipt?{receipt:{task_revision:receipt.task_revision,goal_height:receipt.goal_reference?.activation_committed_height,goal_revision:receipt.goal_reference?.goal_revision,prepare:receipt.goal_reference?.prepare_operation_id,publish:receipt.goal_reference?.publish_operation_id}}:{})});} catch {worldResults.push({path:suffix,http:response.status,error:'invalid_json'});}
       }
