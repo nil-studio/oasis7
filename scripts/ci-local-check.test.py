@@ -578,5 +578,208 @@ class Entry(GitFixture):
         self.assertEqual(path.read_bytes(), before)
 
 
+class SupportContracts(GitFixture):
+    """The real support dispatcher/receipt runner, with an explicit Cargo double.
+
+    These cases prove local wiring and failure semantics, not Rust execution.
+    """
+
+    def setUp(self):
+        super().setUp()
+        for name in ('ci-tests.sh', 'viewer-dependency-preflight.sh',
+                     'plan-rust-required-scope.py'):
+            self.write('scripts/' + name, (HERE / name).read_text(), True)
+        self.write('scripts/find-python-with-module.sh',
+                   f'#!/bin/sh\nprintf "%s\\n" "{sys.executable}"\n', True)
+        self.calls = Path(self.temp.name) / 'cargo-calls.jsonl'
+        binaries = Path(self.temp.name) / 'bin'
+        binaries.mkdir()
+        cargo = binaries / 'cargo'
+        cargo.write_text(
+            f'#!{sys.executable}\n'
+            'import json, os, pathlib, sys\n'
+            'args = sys.argv[1:]\n'
+            'with open(os.environ["LOCAL_SUPPORT_CALLS"], "a") as stream:\n'
+            '    stream.write(json.dumps(args) + "\\n")\n'
+            'if args[:1] == ["--verbose"]: args = args[1:]\n'
+            'if args[0] == "metadata":\n'
+            '    print(json.dumps({"target_directory": str(pathlib.Path.cwd() / "target")}))\n'
+            'elif args[0] == "test":\n'
+            '    mode = os.environ.get("LOCAL_SUPPORT_MODE", "passed")\n'
+            '    if mode == "failed": sys.exit(19)\n'
+            '    if mode == "unknown": print("finished without case evidence"); sys.exit(0)\n'
+            '    count = 0 if mode == "zero" else 1\n'
+            '    ignored = 1 if mode == "skipped" else 0\n'
+            '    print(f"running {count} tests")\n'
+            '    print(f"test result: ok. {count - ignored} passed; 0 failed; {ignored} ignored;")\n'
+            'elif args[0] != "clippy":\n'
+            '    raise SystemExit("unexpected Cargo operation: " + repr(args))\n')
+        cargo.chmod(0o755)
+        for name in ('rustc', 'rustup'):
+            binary = binaries / name
+            binary.write_text('#!/bin/sh\nexit 0\n')
+            binary.chmod(0o755)
+        self.env = dict(entry.execution_environment(), PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                        CARGO_HOME=str(Path(self.temp.name) / 'cargo-home'),
+                        LOCAL_SUPPORT_CALLS=str(self.calls))
+        self.base = self.commit()
+
+    def result(self, profiles=('oasis7_signer_protocol',), **changes):
+        plan = dict(scope='targeted', groups=['workspace_support'], test_policy_changed=False,
+                    workspace_support_profile_version=1, workspace_support_profiles=list(profiles))
+        plan.update(changes)
+        return dict(groups=[dict(name='workspace_support', status='not_run')], plan=plan,
+                    configuration={}, checks_executed=0, base_sha=self.base, source_sha=self.base)
+
+    def execute(self, result, **environment):
+        directory = Path(tempfile.mkdtemp(prefix='support-', dir=self.temp.name))
+        (directory / 'plan.json').write_text(json.dumps(result['plan']))
+        entry.execute(self.root, SimpleNamespace(tier='required', offline=False, timeout_seconds=15),
+                      result, directory, dict(self.env, **environment))
+        return directory
+
+    def recorded_calls(self):
+        return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
+
+    def test_native_profiles_keep_the_complete_canonical_command_chain(self):
+        profiles = ('oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
+                    'oasis7_model_provider', 'oasis7_client_storage', 'oasis7_signer_protocol',
+                    'oasis7_custody_core', 'oasis7_launcher_ui', 'oasis7_proto', 'oasis7_wasm_build',
+                    'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
+                    'oasis7_secure_envelope', 'oasis7_context', 'oasis7_client_launcher')
+        before = self.state()
+        result = self.result(profiles)
+        self.execute(result)
+        group = result['groups'][0]
+        self.assertEqual(result['status'], 'passed')
+        self.assertEqual(group['profiles'], list(profiles))
+        self.assertEqual(group['tests_executed'], 16)
+        self.assertEqual(len(group['commands']), 21)
+        self.assertIn('--support-plan-file', group['argv'])
+        self.assertNotIn('--plan', group['argv'])
+        calls = self.recorded_calls()
+        tests = [args for args in calls if args[0] == 'test']
+        self.assertEqual([args[args.index('-p') + 1] for args in tests], sorted(profiles))
+        clippy = [args for args in calls if args[0] == 'clippy']
+        self.assertEqual([args[args.index('-p') + 1] for args in clippy],
+                         ['oasis7_agent_harness', 'oasis7_browser_game_client',
+                          'oasis7_client_storage', 'oasis7_model_provider', 'oasis7_signer_protocol'])
+        for args in tests + clippy:
+            self.assertIn('--locked', args)
+        self.assertIn(['test', '--locked', '-p', 'oasis7_client_launcher',
+                       '--bin', 'oasis7_client_launcher'], tests)
+        for profile in ('oasis7_custody_core', 'oasis7_model_provider',
+                        'oasis7_secure_envelope', 'oasis7_context'):
+            selected = next(args for args in tests if args[args.index('-p') + 1] == profile)
+            self.assertIn('--all-targets', selected)
+        self.assertEqual(self.state(), before)
+
+    def test_unsupported_profile_blocks_the_whole_plan_before_any_test(self):
+        cases = ('oasis7_agent_api', 'oasis7_dev_test_worker', 'oasis7_custody_worker',
+                 'oasis7_game_client', 'wasm_build_suite', 'wasm_module_observe',
+                 'oasis7_local_signer', 'oasis7_wasm_abi', 'oasis7_wasm_router',
+                 'oasis7_wasm_executor', 'future_support_profile')
+        for profile in cases:
+            with self.subTest(profile=profile):
+                result = self.result(('oasis7_signer_protocol', profile))
+                with self.assertRaisesRegex(entry.Blocked, profile):
+                    self.execute(result)
+                self.assertEqual(result['checks_executed'], 0)
+                self.assertEqual(result['groups'][0]['status'], 'blocked')
+                self.assertEqual(result['groups'][0]['profiles'], ['oasis7_signer_protocol', profile])
+        self.assertTrue(all(args[0] == 'metadata' for args in self.recorded_calls()))
+
+    def test_partial_success_cannot_replace_the_selected_support_inventory(self):
+        actual_invoke = entry.invoke
+        for mode in ('missing_test', 'missing_clippy', 'duplicate_test', 'unselected_test'):
+            with self.subTest(mode=mode):
+                result = self.result(('oasis7_proto', 'oasis7_signer_protocol'))
+
+                def tamper(argv, root, env, directory, name, timeout):
+                    outcome = actual_invoke(argv, root, env, directory, name, timeout)
+                    self.assertTrue(outcome['passed'])
+                    records = [(path, json.loads(path.read_bytes()))
+                               for path in (directory / 'commands').glob('*.json')]
+                    self.assertEqual(len(records), 3)
+                    proto = next((path, record) for path, record in records
+                                 if 'oasis7_proto' in record['argv'])
+                    clippy = next((path, record) for path, record in records
+                                  if 'clippy' in record['argv'])
+                    if mode == 'missing_test':
+                        proto[0].unlink()
+                    elif mode == 'missing_clippy':
+                        clippy[0].unlink()
+                    elif mode == 'duplicate_test':
+                        signer = next(record for _, record in records
+                                      if 'test' in record['argv'] and 'oasis7_signer_protocol' in record['argv'])
+                        proto[0].write_text(json.dumps(signer))
+                    else:
+                        command = proto[1]['argv']
+                        command[command.index('-p') + 1] = 'oasis7_client_api'
+                        proto[0].write_text(json.dumps(proto[1]))
+                    return outcome
+
+                with mock.patch.object(entry, 'invoke', side_effect=tamper):
+                    with self.assertRaisesRegex(entry.Failed, 'support command inventory'):
+                        self.execute(result, CI_VERBOSE='1')
+                group = result['groups'][0]
+                self.assertEqual(group['status'], 'incomplete')
+                self.assertGreater(group['tests_executed'], 0)
+                self.assertTrue(all(command['status'] == 'passed' for command in group['commands']))
+                self.assertFalse(result.get('validated', False))
+
+    def test_invalid_and_expanded_support_plans_never_start_the_driver(self):
+        cases = (
+            {'workspace_support_profiles': []},
+            {'workspace_support_profiles': ['oasis7_signer_protocol'] * 2},
+            {'workspace_support_profiles': [{'profile': 'oasis7_signer_protocol'}]},
+            {'workspace_support_profiles': 'oasis7_signer_protocol'},
+            {'workspace_support_profile_version': None},
+            {'workspace_support_profile_version': True},
+            {'workspace_support_profile_version': 2},
+            {'scope': 'full'}, {'scope': 'explicit-full'}, {'scope': None},
+            {'test_policy_changed': True}, {'test_policy_changed': None},
+        )
+        for fields in cases:
+            with self.subTest(fields=fields):
+                result = self.result(**fields)
+                with self.assertRaisesRegex(entry.Blocked, 'workspace_support:'):
+                    self.execute(result)
+                self.assertEqual(result['checks_executed'], 0)
+                self.assertEqual(result['driver']['status'], 'not_started')
+        self.assertTrue(all(args[0] == 'metadata' for args in self.recorded_calls()))
+
+    def test_support_failure_unknown_zero_and_skipped_cases_stop_later_profiles(self):
+        for mode in ('failed', 'unknown', 'zero', 'skipped'):
+            with self.subTest(mode=mode):
+                self.calls.unlink(missing_ok=True)
+                result = self.result(('oasis7_proto', 'oasis7_signer_protocol'))
+                with self.assertRaises(entry.Failed):
+                    self.execute(result, LOCAL_SUPPORT_MODE=mode)
+                self.assertEqual(result['groups'][0]['status'], 'failed' if mode == 'failed' else 'incomplete')
+                tests = [args for args in self.recorded_calls() if args[0] == 'test']
+                self.assertEqual([args[args.index('-p') + 1] for args in tests], ['oasis7_proto'])
+
+    def test_missing_rust_prerequisites_block_before_support_execution(self):
+        result = self.result()
+        actual_which = entry.shutil.which
+        def which(name, *args, **kwargs):
+            return None if name in ('cargo', 'rustc', 'rustup') else actual_which(name, *args, **kwargs)
+        with mock.patch.object(entry.shutil, 'which', side_effect=which):
+            with self.assertRaisesRegex(entry.Blocked, 'missing tool: cargo'):
+                self.execute(result)
+        self.assertEqual(result['checks_executed'], 0)
+        self.assertEqual(self.recorded_calls(), [])
+
+    def test_existing_environment_sanitizer_disables_native_fixture_exports(self):
+        names = ('OASIS7_CUSTODY_SCHEMA_OUTPUT', 'OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT',
+                 'OASIS7_CONTEXT_BODY_FIXTURE_OUTPUT', 'PIXEL_WORLD_BEVY_RENDER_PROBE_OUT_DIR',
+                 'PIXEL_WORLD_BEVY_PIXEL_PROBE_OUT_DIR')
+        with mock.patch.dict(os.environ, {name: '/unowned/output' for name in names}):
+            sanitized = entry.execution_environment()
+        self.assertFalse(set(names) & sanitized.keys())
+        self.assertEqual(sanitized['RUSTUP_AUTO_INSTALL'], '0')
+
+
 if __name__ == '__main__':
     unittest.main()

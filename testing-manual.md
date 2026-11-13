@@ -74,7 +74,9 @@ python3 scripts/check-local.py --profile formal --tier required
 | formal required | 要求干净源码，显式 required，沿同一可信计划执行 canonical required 组 | 同样受当前本地组能力限制；不代替 hosted 或其他平台结果 |
 | formal full | `--dry-run` 沿完整可信库存规划 | 真实执行 blocked：Viewer 会改写 tracked bundle，部分准备会安装工具；须先补只读输出/准备适配，不能用 required 代替 |
 
-当前已审计的组是 `baseline`、`codex_agent_config_validation`、`rust_baseline`、`consensus`、`distfs`、`node`、`net`、`pixel_world_bridge`、条件成立的 `oasis7_required`，以及 `doc_checker_contracts`、`cargo_tooling_contracts`、`compile_metrics`。`oasis7_required` 若扩张到需要 Docker 构建 provider/builtin 资源的计划，也在启动前阻断。其余组，包括 Windows/macOS/fleet 和尚未接入结果证据的脚本组，保持 selected-but-blocked；具体原因见报告。该表是执行能力边界，不是另一套选测规则。
+当前已审计的组是 `baseline`、`codex_agent_config_validation`、`rust_baseline`、`consensus`、`distfs`、`node`、`net`、`pixel_world_bridge`、条件成立的 `oasis7_required` 和 `workspace_support`，以及 `doc_checker_contracts`、`cargo_tooling_contracts`、`compile_metrics`。`oasis7_required` 若扩张到需要 Docker 构建 provider/builtin 资源的计划，也在启动前阻断。其余组，包括 Windows/macOS/fleet 和尚未接入结果证据的脚本组，保持 selected-but-blocked；具体原因见报告。该表是执行能力边界，不是另一套选测规则。
+
+`workspace_support` 接受可信 version 1 的非空原生 profile 清单，仅执行未扩测的 targeted 计划；入口经 `--support-plan-file` 将完整原计划交回既有 driver，不重新选包或删除未适配项。当前 16 个可执行 profile 的写入限定于当前 worktree 的 ignored `target/` 或自有临时夹具，沿用 locked Cargo 与非零用例证据要求。工具和当前 Rust toolchain 必须预装，`oasis7_context` 另需 `/usr/bin/git` 和 `/usr/bin/python3`；不自动安装。包含 Worker/npm 准备、跨 UID 验收、尚未适配的真实 WASM target 或必要 ignored 用例的 profile，以及未知 profile、full 或扩大 features/targets 的计划，均在执行任何检查前整次 blocked，报告保留原 profile 清单和具体原因。
 
 工程契约组三条完整 driver 清单分别有 11、10、3 项命令检查；缺少任何一项都不能通过。文档组将具有 `tomllib` 和 `markdown_it` 的同一 Python 绑定到整组及嵌套调用；过程式测试复用已有 Python contract 见证，分别核对完整入口、scenario 和实际断言，退出 0 或单独的 `OK` 文本不是完成证据。工具用例与命令检查分列，这三组的业务用例数为零。Cargo 工具组需要已有 Cargo / rustc 及 locked metadata；编译指标组还需要 x86_64 Linux、`zstdmt` 和带 `yaml/json` 的 Ruby，缺前置在整次执行前 blocked，必要 Python skip 保持 incomplete。工程 fixture 使用自己的范围和报告；编译指标的临时 worktree 登记放在自有 Git metadata 中。Linux 下既有 Windows-only fallback 不适用，可选 sccache 真缓存证明未被默认调用；报告明确保留这些未覆盖范围，不自动安装工具或用跳过代签验收。
 

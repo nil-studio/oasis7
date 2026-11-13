@@ -34,10 +34,10 @@ Blocked = inputs.Blocked
 # evidence contracts are supported. Never turn an unknown group into a skip.
 SAFE_GROUPS = frozenset(('baseline', 'codex_agent_config_validation',
                          'rust_baseline', 'consensus', 'distfs', 'node', 'net',
-                         'pixel_world_bridge', 'oasis7_required',
+                         'pixel_world_bridge', 'oasis7_required', 'workspace_support',
                          'doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
 RUST_GROUPS = frozenset(('rust_baseline', 'consensus', 'distfs', 'node', 'net',
-                         'pixel_world_bridge', 'oasis7_required'))
+                         'pixel_world_bridge', 'oasis7_required', 'workspace_support'))
 ENGINEERING_CHECKS = {
     'doc_checker_contracts': ('resolve-product-doc-ci-range.test.py', 'doc-governance-scope.test.py',
         'document-corpus-inventory-check.test.py', 'product-doc-governance-check.test.py',
@@ -55,12 +55,39 @@ PLAN_GROUPS = frozenset(('oasis7_required', 'rust_baseline', 'distfs'))
 UNSUPPORTED = {
     'viewer_js_required': 'Viewer build rewrites a tracked bundle; isolated output is required',
     'viewer_performance_report': 'Viewer build rewrites a tracked bundle; isolated output is required',
-    'workspace_support': 'support preparation still includes tool/dependency installation',
     'formal_process': 'formal process environment and execution evidence need a local adapter',
     'windows_rollout': 'requires the separate Windows runner',
     'macos_package_contract': 'requires the separate macOS runner',
     'fleet_health': 'requires the separate fleet environment',
     'command_center': 'has no group implementation in the local required driver',
+}
+
+
+# Local capabilities only: the trusted planner still owns the selected profiles.
+# These canonical native commands write target/ or their own temporary fixtures.
+SUPPORT_PROFILES = frozenset((
+    'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api',
+    'oasis7_model_provider', 'oasis7_client_storage', 'oasis7_signer_protocol',
+    'oasis7_custody_core', 'oasis7_launcher_ui', 'oasis7_proto',
+    'oasis7_wasm_build', 'oasis7_wasm_sdk', 'oasis7_wasm_store',
+    'pixel_world_bridge', 'oasis7_secure_envelope', 'oasis7_context',
+    'oasis7_client_launcher',
+))
+SUPPORT_CLIPPY_PROFILES = frozenset((
+    'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_storage',
+    'oasis7_model_provider', 'oasis7_signer_protocol',
+))
+UNSUPPORTED_SUPPORT = {
+    'oasis7_agent_api': 'signed-read conformance still installs npm dependencies',
+    'oasis7_dev_test_worker': 'Worker verification still installs tools and npm dependencies',
+    'oasis7_custody_worker': 'Worker provisioning and generated outputs need a local adapter',
+    'oasis7_game_client': 'cross-UID fixture requires a separate hosted execution contract',
+    'wasm_build_suite': 'real WASM cases need a preflight for their installed target',
+    'wasm_module_observe': 'real WASM cases need a preflight for their installed target',
+    'oasis7_local_signer': 'installer fixture and ignored-case execution need a local adapter',
+    'oasis7_wasm_abi': 'canonical library tests include an ignored performance probe',
+    'oasis7_wasm_router': 'canonical library tests include an ignored performance probe',
+    'oasis7_wasm_executor': 'canonical wasmtime tests include an ignored performance probe',
 }
 
 
@@ -209,6 +236,34 @@ def preflight(root, args, result, env):
     if args.tier == 'full':
         reasons.append('formal full includes source-writing/provisioning commands without a read-only adapter')
     plan = result.get('plan', {})
+    if 'workspace_support' in groups:
+        support = next(group for group in result['groups'] if group['name'] == 'workspace_support')
+        problems = []
+        profiles = plan.get('workspace_support_profiles')
+        if (type(plan.get('workspace_support_profile_version')) is not int
+                or plan['workspace_support_profile_version'] != 1):
+            problems.append('trusted support profile version 1 is required')
+        if (not isinstance(profiles, list) or not profiles
+                or any(not isinstance(profile, str) for profile in profiles)
+                or len(set(profiles)) != len(profiles)):
+            problems.append('trusted support profiles must be a nonempty unique string list')
+        else:
+            support['profiles'] = profiles
+            for profile in profiles:
+                if profile not in SUPPORT_PROFILES:
+                    problems.append(profile + ': ' + UNSUPPORTED_SUPPORT.get(
+                        profile, 'local support write/evidence contract is not yet audited'))
+            if 'oasis7_context' in profiles:
+                for tool in ('/usr/bin/git', '/usr/bin/python3'):
+                    if not os.access(tool, os.X_OK):
+                        problems.append('context test prerequisite unavailable: ' + tool)
+        # The existing driver expands full scope to its complete current inventory,
+        # and policy changes add targets/features. Neither may narrow to this list.
+        if plan.get('scope') != 'targeted' or plan.get('test_policy_changed') is not False:
+            problems.append('expanded support targets/features and full scope need a local adapter')
+        if problems:
+            support.update(status='blocked', reason='; '.join(problems))
+            reasons.extend('workspace_support: ' + problem for problem in problems)
     full_feature = any('test_tier_full' in target.get('features', [])
                        for target in plan.get('ordinary_fast_targets', []))
     if 'oasis7_required' in groups and (plan.get('scope') in ('full', 'explicit-full')
@@ -339,6 +394,31 @@ def baseline_complete(commands, base, head):
             and any(len(command) == 2 and command[1] == '-' for command in actual))
 
 
+def support_complete(commands, profiles):
+    expected = [('test', profile) for profile in profiles]
+    expected.extend(('clippy', profile) for profile in profiles if profile in SUPPORT_CLIPPY_PROFILES)
+    actual = []
+    for item in commands:
+        command = item['argv']
+        # Match the canonical direct Cargo invocation, not a wrapper mentioning
+        # Cargo or an additional package/workspace selector hidden in its args.
+        if command[:4] != ['env', '-u', 'RUSTC_WRAPPER', 'cargo']:
+            return False
+        args = command[4:]
+        if args[:1] == ['--verbose']:
+            args = args[1:]
+        if '--' in args:
+            args = args[:args.index('--')]
+        if not args or args[0] not in ('test', 'clippy'):
+            return False
+        selectors = [arg for arg in args[1:] if arg in ('--workspace', '--all')
+                     or arg.startswith(('--package', '--exclude', '-p'))]
+        if selectors != ['-p'] or args.index('-p') + 1 == len(args):
+            return False
+        actual.append((args[0], args[args.index('-p') + 1]))
+    return sorted(actual) == sorted(expected)
+
+
 def execute(root, args, result, directory, env):
     driver = root / 'scripts/ci-tests.sh'
     command_runner = Path(__file__).with_name('ci-local-check-command.py').resolve()
@@ -355,6 +435,8 @@ def execute(root, args, result, directory, env):
         group_dir = directory / f'group-{index:02d}-{group["name"]}'
         group_dir.mkdir()
         argv = ['bash', str(driver), 'required', '--group', group['name']]
+        if group['name'] == 'workspace_support':
+            argv += ['--support-plan-file', str(directory / 'plan.json')]
         if group['name'] in PLAN_GROUPS:
             argv += ['--plan', str(directory / 'plan.json')]
         group_env = dict(env, OASIS7_LOCAL_CHECK='1', OASIS7_LOCAL_CHECK_COMMAND_RUNNER=str(command_runner),
@@ -399,6 +481,10 @@ def execute(root, args, result, directory, env):
         if group['name'] == 'baseline' and not baseline_complete(commands, result['base_sha'], result['source_sha']):
             group.update(status='incomplete', reason='baseline command inventory is incomplete')
             raise Failed('baseline did not execute its complete input/check inventory')
+        if group['name'] == 'workspace_support' and not support_complete(
+                commands, result['plan']['workspace_support_profiles']):
+            group.update(status='incomplete', reason='support command inventory is incomplete or unexpected')
+            raise Failed('workspace_support: support command inventory is incomplete or unexpected')
         expected_commands = ENGINEERING_CHECKS.get(group['name'])
         if expected_commands is not None and (len(commands) != len(expected_commands) or any(
                 sum(any(arg.endswith('/' + script) for arg in item['argv']) for item in commands) != 1
