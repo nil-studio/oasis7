@@ -7,6 +7,7 @@ are blocked before launch. --dry-run plans only and never reports validation.
 """
 import argparse
 import contextlib
+from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -35,7 +36,8 @@ Blocked = inputs.Blocked
 SAFE_GROUPS = frozenset(('baseline', 'codex_agent_config_validation',
                          'rust_baseline', 'consensus', 'distfs', 'node', 'net',
                          'pixel_world_bridge', 'oasis7_required', 'workspace_support',
-                         'doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
+                         'doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics',
+                         'viewer_js_required', 'viewer_performance_report'))
 RUST_GROUPS = frozenset(('rust_baseline', 'consensus', 'distfs', 'node', 'net',
                          'pixel_world_bridge', 'oasis7_required', 'workspace_support'))
 ENGINEERING_CHECKS = {
@@ -51,10 +53,10 @@ ENGINEERING_CHECKS = {
         'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'),
     'compile_metrics': ('ci-compile-metrics-contract.test.sh', 'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py'),
 }
+VIEWER_GROUPS = frozenset(('viewer_js_required', 'viewer_performance_report'))
+CARGO_GROUPS = RUST_GROUPS | VIEWER_GROUPS
 PLAN_GROUPS = frozenset(('oasis7_required', 'rust_baseline', 'distfs'))
 UNSUPPORTED = {
-    'viewer_js_required': 'Viewer build rewrites a tracked bundle; isolated output is required',
-    'viewer_performance_report': 'Viewer build rewrites a tracked bundle; isolated output is required',
     'formal_process': 'formal process environment and execution evidence need a local adapter',
     'windows_rollout': 'requires the separate Windows runner',
     'macos_package_contract': 'requires the separate macOS runner',
@@ -141,11 +143,13 @@ def execution_environment():
     for key in list(env):
         if key in ('OASIS7_CI_PROCESS_OWNER', 'OASIS7_CI_PROCESS_ANCESTORS'):
             continue
-        if key.startswith(('OASIS7_', 'GITHUB_', 'CARGO_TARGET_', 'CARGO_PROFILE_')) or key in (
+        if key.startswith(('OASIS7_', 'GITHUB_', 'CARGO_TARGET_', 'CARGO_PROFILE_',
+                           'AGENT_BROWSER_', 'AGENT_VISUAL_')) or key in (
                 'CI', 'SOURCE_SHA', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER',
                 'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTUP_TOOLCHAIN',
                 'CARGO_BUILD_TARGET_DIR', 'CARGO_BUILD_RUSTFLAGS',
-                'PIXEL_WORLD_BEVY_RENDER_PROBE_OUT_DIR', 'PIXEL_WORLD_BEVY_PIXEL_PROBE_OUT_DIR'):
+                'PIXEL_WORLD_BEVY_RENDER_PROBE_OUT_DIR', 'PIXEL_WORLD_BEVY_PIXEL_PROBE_OUT_DIR',
+                'WASM_BINDGEN_BIN'):
             env.pop(key)
     env.update(PYTHONDONTWRITEBYTECODE='1', RUSTUP_AUTO_INSTALL='0',
                GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.quotePath', GIT_CONFIG_VALUE_0='false')
@@ -306,8 +310,8 @@ def preflight(root, args, result, env):
                     result['configuration']['document_python'] = str(document_python.resolve())
         except (OSError, subprocess.SubprocessError) as error:
             reasons.append(f'document checker prerequisite unavailable: {error}')
-    if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts', 'compile_metrics'}):
-        for name in ('cargo', 'rustc', *(['rustup'] if set(groups) & RUST_GROUPS else [])):
+    if set(groups) & (CARGO_GROUPS | {'cargo_tooling_contracts', 'compile_metrics'}):
+        for name in ('cargo', 'rustc', *(['rustup'] if set(groups) & CARGO_GROUPS else [])):
             if shutil.which(name, path=env.get('PATH')) is None:
                 reasons.append(f'missing tool: {name}')
     if set(groups) & {'cargo_tooling_contracts', 'compile_metrics'}:
@@ -320,7 +324,7 @@ def preflight(root, args, result, env):
         result.setdefault('limitations', []).append(
             'cargo_tooling_contracts uses Linux applicability: the Windows-only fallback and optional '
             'sccache cache-hit proof are not local acceptance evidence.')
-    if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts', 'compile_metrics'}):
+    if set(groups) & (CARGO_GROUPS | {'cargo_tooling_contracts', 'compile_metrics'}):
         if 'rust_baseline' in groups:
             if args.offline:
                 reasons.append('offline RustSec advisory readiness is not yet supported; no network command started')
@@ -362,7 +366,7 @@ def preflight(root, args, result, env):
             build = config.get('build', {})
             if any(key in build for key in ('rustc-wrapper', 'rustc-workspace-wrapper', 'rustc')):
                 reasons.append(f'unreviewed Cargo compiler override: {name}')
-        if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts'}) and shutil.which('cargo', path=env.get('PATH')) is not None:
+        if set(groups) & (CARGO_GROUPS | {'cargo_tooling_contracts'}) and shutil.which('cargo', path=env.get('PATH')) is not None:
             argv = ['cargo', 'metadata', '--no-deps', '--format-version', '1', '--locked', '--offline']
             metadata = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=30)
             result['cargo_preflight'] = dict(argv=argv, cwd=str(root), exit_code=metadata.returncode)
@@ -373,9 +377,105 @@ def preflight(root, args, result, env):
                 result['configuration']['cargo_target'] = str(resolved)
                 if resolved != (root / 'target').resolve() or (root / 'target').is_symlink():
                     reasons.append('Cargo resolved an external/nonstandard target directory; no build started')
+    if set(groups) & VIEWER_GROUPS:
+        viewer_preflight(root, result, env, reasons)
     if reasons:
         result['preconditions'] = reasons
         raise Blocked('; '.join(reasons))
+
+
+def viewer_preflight(root, result, env, reasons):
+    """Inspect already prepared tools; this path never installs or builds."""
+    tools = {}
+    for name in ('node', 'npm', 'agent-browser'):
+        path = shutil.which(name, path=env.get('PATH'))
+        if path is None:
+            reasons.append(f'missing prepared Viewer tool: {name}; no automatic installation')
+        else:
+            tools[name] = str(Path(path).resolve())
+    chrome = next((shutil.which(name, path=env.get('PATH')) for name in
+                   ('chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable')
+                   if shutil.which(name, path=env.get('PATH'))), None)
+    if chrome is None:
+        reasons.append('missing prepared Chromium executable on PATH; no browser installation')
+    else:
+        tools['chromium'] = str(Path(chrome).resolve())
+    result['viewer_preflight'] = []
+
+    def inspect(argv):
+        try:
+            check = subprocess.run(argv, cwd=root, env=dict(env, OASIS7_LOCAL_CHECK='1'),
+                                   capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError) as error:
+            reasons.append(f'Viewer prerequisite could not be inspected: {argv[0]}: {error}')
+            check = subprocess.CompletedProcess(argv, None, '', str(error))
+        result['viewer_preflight'].append(dict(argv=argv, cwd=str(root), exit_code=check.returncode))
+        return check
+
+    for name, path in tools.items():
+        check = inspect([path, '--version'])
+        if check.returncode != 0 or not check.stdout.strip():
+            reasons.append(f'prepared Viewer tool is unusable: {name}')
+        elif name == 'agent-browser' and check.stdout.strip() != 'agent-browser 0.37.1':
+            reasons.append('prepared agent-browser 0.37.1 is required; no automatic upgrade')
+    if shutil.which('rustup', path=env.get('PATH')):
+        check = inspect(['rustup', 'target', 'list', '--installed'])
+        if check.returncode != 0 or 'wasm32-unknown-unknown' not in check.stdout.splitlines():
+            reasons.append('missing installed wasm32-unknown-unknown target; no rustup installation')
+    if 'node' in tools and 'npm' in tools:
+        check = inspect(['bash', str(root / 'scripts/viewer-dependency-preflight.sh'),
+                         '--root', str(root), '--purpose', 'all'])
+        if check.returncode != 0:
+            reasons.append('Viewer npm dependencies are not prepared: ' + check.stderr.strip()[-1500:])
+    helper = root / 'scripts/ensure-wasm-bindgen-cli.sh'
+    if not helper.is_file() or b'--check' not in helper.read_bytes():
+        reasons.append('Viewer wasm-bindgen helper lacks its read-only check capability')
+    else:
+        check = inspect(['bash', str(helper), '--check', '--print-bin'])
+        candidate = Path(check.stdout.strip())
+        if (check.returncode != 0 or not candidate.is_absolute() or not candidate.is_file()
+                or not os.access(candidate, os.X_OK)):
+            reasons.append('locked wasm-bindgen CLI is not prepared; no automatic installation')
+        else:
+            tools['wasm_bindgen'] = str(candidate)
+    result['viewer_tools'] = tools
+
+
+def viewer_commands(group, bindgen):
+    """The complete existing driver calls, independent of its result counts."""
+    build = ('./scripts/build-viewer-software-safe.sh',)
+    if group == 'viewer_performance_report':
+        return [('bash', './scripts/viewer-performance-report-only-contract.test.sh'), build,
+                ('env', 'WASM_BINDGEN_BIN=' + bindgen, 'npm', '--prefix', 'crates/oasis7_viewer',
+                 'run', 'build:viewer:visual-test'), ('./scripts/viewer-performance-report-only.sh',)]
+    return [('./scripts/viewer-dependency-preflight.test.sh',),
+            ('bash', './scripts/ensure-wasm-bindgen-cli.test.sh'),
+            ('npm', '--prefix', 'crates/oasis7_viewer', 'run', 'test:frontend-structure'),
+            ('node', '--test', '--test-reporter=tap', 'crates/oasis7_viewer/scripts/software-safe-feedback-contract.test.mjs'),
+            ('node', '--test', '--test-reporter=tap', 'crates/oasis7_viewer/scripts/gameplay-attraction-scenario.test.mjs'),
+            ('python', 'scripts/tests/test_industrial_starter_evidence.py'),
+            ('./scripts/copy-viewer-web-dist.test.sh',),
+            ('./scripts/agent-browser-viewer-dist-freshness-test.sh',),
+            ('bash', './scripts/agent-browser-lifecycle-contract.test.sh'),
+            ('bash', './scripts/viewer-prompt-control-regression.test.sh'),
+            ('bash', './scripts/viewer-prompt-control-race.test.sh'),
+            ('bash', './scripts/viewer-prompt-control-race-identity.test.sh'),
+            ('node', '--test', '--test-reporter=tap', 'crates/oasis7_viewer/scripts/agent-browser-visual-runner-lifecycle.test.mjs'),
+            ('./scripts/bundle-freshness-lib.test.sh',),
+            ('npm', '--prefix', 'crates/oasis7_viewer', 'run', 'test:ui', '--', '--reporter=tap-flat'), build,
+            ('npm', '--prefix', 'crates/oasis7_viewer', 'run', 'build:viewer:bundle', '--', '--mode', 'visual-test'),
+            ('node', 'crates/oasis7_viewer/scripts/browser-functional-regression.mjs', '--skip-build'),
+            ('node', 'crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs')]
+
+
+def viewer_complete(commands, group, bindgen):
+    actual = []
+    for item in commands:
+        argv = list(item['argv'])
+        if argv and Path(argv[0]).name.startswith('python'):
+            argv[0] = 'python'
+        actual.append(tuple(argv))
+    return Counter(actual) == Counter(viewer_commands(group, bindgen))
 
 
 def baseline_complete(commands, base, head):
@@ -451,7 +551,20 @@ def execute(root, args, result, directory, env):
             for name in ('python', 'python3'):
                 (binaries / name).symlink_to(result['configuration']['document_python'])
             group_env['PATH'] = str(binaries) + os.pathsep + group_env.get('PATH', '')
-        outcome = invoke(argv, root, group_env, group_dir, 'driver', args.timeout_seconds)
+        with contextlib.ExitStack() as owned:
+            if group['name'] in VIEWER_GROUPS:
+                viewer_output = group_dir / 'viewer'
+                viewer_output.mkdir(mode=0o700)
+                if viewer_output.resolve() != viewer_output or viewer_output.is_symlink():
+                    raise Blocked('Viewer output directory is not canonical')
+                sockets = owned.enter_context(tempfile.TemporaryDirectory(prefix='o7v-', dir='/tmp'))
+                group_env.update(OASIS7_VIEWER_LOCAL_OUTPUT_ROOT=str(viewer_output),
+                                 AGENT_BROWSER_BIN=result['viewer_tools']['agent-browser'],
+                                 AGENT_BROWSER_EXECUTABLE_PATH=result['viewer_tools']['chromium'],
+                                 AGENT_BROWSER_SOCKET_DIR=sockets,
+                                 WASM_BINDGEN_BIN=result['viewer_tools']['wasm_bindgen'])
+                group['viewer_output'] = str(viewer_output)
+            outcome = invoke(argv, root, group_env, group_dir, 'driver', args.timeout_seconds)
         group.update(outcome)
         commands = [json.loads(path.read_bytes()) for path in sorted((group_dir / 'commands').glob('*.json'))]
         commands.sort(key=lambda item: item['started_at'])
@@ -491,6 +604,9 @@ def execute(root, args, result, directory, env):
                 for script in expected_commands)):
             group.update(status='incomplete', reason='engineering contract command inventory is incomplete')
             raise Failed(f'{group["name"]}: incomplete command inventory')
+        if group['name'] in VIEWER_GROUPS and not viewer_complete(commands, group['name'], result['viewer_tools']['wasm_bindgen']):
+            group.update(status='incomplete', reason='Viewer command inventory is incomplete or duplicated')
+            raise Failed('Viewer did not execute its complete source/build/browser inventory')
         if group['name'] in (RUST_GROUPS - {'rust_baseline'}) | ENGINEERING_CHECKS.keys() and not group['tests_executed']:
             group.update(status='incomplete', reason='selected test group executed zero cases')
             raise Failed(f'{group["name"]}: zero selected cases executed')
@@ -556,7 +672,7 @@ def main(argv=None):
             first_plan = directory / 'planning-0'
             first_plan.mkdir()
             groups, planner_path = plan_from_baseline(root, base, before, args, first_plan, result)
-            if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts'}):
+            if set(groups) & (CARGO_GROUPS | {'cargo_tooling_contracts'}):
                 for attempt in range(1, 33):
                     found = inputs.referenced_inputs(root, before, planner_path)
                     if not found - extra:
@@ -582,7 +698,7 @@ def main(argv=None):
             (directory / 'plan.json').write_text(json.dumps(result['plan'], ensure_ascii=True, sort_keys=True) + '\n')
             result['selection_reasons'] = result['plan']['reasons']
         result['groups'] = [dict(name=group, status='not_run', reason='dry_run' if args.dry_run else 'pending',
-                                 tests_expected=None if group in RUST_GROUPS or group in ENGINEERING_CHECKS else 0,
+                                 tests_expected=None if group in CARGO_GROUPS or group in ENGINEERING_CHECKS else 0,
                                  tests_executed=0, business_tests_executed=0)
                             for group in groups]
         result['groups_expected'] = len(groups)

@@ -63,6 +63,7 @@ run_probe() {
   local probe
   probe=$(make_probe "$mode")
   PROBE_MODE="$mode" \
+  OASIS7_LOCAL_CHECK=0 \
   OASIS7_VIEWER_PERFORMANCE_PROBE_COMMAND="$probe" \
   OASIS7_VIEWER_PERFORMANCE_ARTIFACT_DIR="$out_dir" \
     "$helper" >"$tmp_root/$mode.log" 2>&1
