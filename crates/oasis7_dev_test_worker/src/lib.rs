@@ -84,5 +84,4 @@ pub fn prepare_operator_policy_bindings(
     Ok(bindings)
 }
 
-#[cfg(target_arch = "wasm32")]
 mod skill_page;
