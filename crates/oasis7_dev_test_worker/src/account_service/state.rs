@@ -191,7 +191,7 @@ impl State {
         next.encode()?;
         *self = next;
         Ok(
-            json!({"result":value,"usage":{"used":self.usage.get(&Self::usage_key(c,caller)).copied().unwrap_or(0),"limit":c.max_calls}}),
+            json!({"policy_generation":c.generation,"result":value,"usage":{"used":self.usage.get(&Self::usage_key(c,caller)).copied().unwrap_or(0),"limit":c.max_calls}}),
         )
     }
     fn apply(

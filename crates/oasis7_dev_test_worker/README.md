@@ -53,7 +53,7 @@ DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过�
 
 `POST /accounts/mcp` 使用标准 MCP 初始化、发现与 `account_service_call`。它与旧 `/mcp` 游戏工具采用不同 DO actor 名称；不需要任何 `DEV_TEST_*` 绑定、本机进程、游戏配置或外部身份后端。工具仅允许 `accounts`、`open`、`describe`、`close`，没有游戏动作、秘密读取或远程管理方法。
 
-可信管理员通过 `wrangler secret bulk` 发布 `ACCOUNT_SERVICE_POLICY`（完整 JSON 不超过5120 UTF-8字节）和引用的 Secrets。示例仅含公开引用：
+可信管理员通过版本化 Secrets 发布 `ACCOUNT_SERVICE_POLICY`（完整 JSON 不超过5120 UTF-8字节）和引用的 Secrets。示例仅含公开引用：
 
 ```json
 {"version":1,"generation":1,"service_id":"example-run","origin":"https://YOUR-WORKER.workers.dev","expires_at_unix":2000000000,"max_calls":100,"credentials":[{"caller_id":"consumer","token_secret":"ACCOUNT_SERVICE_CONSUMER_TOKEN","expires_at_unix":2000000000,"revoked":false}],"accounts":{"A":{"alias":"Development account","account_id":"account-A","provider":"example","environment":"test","credential_secret":"ACCOUNT_SERVICE_A_CREDENTIAL_V1","credential_version":1,"disabled":false}},"grants":[{"grant_ref":"consumer-A","caller_id":"consumer","account_ref":"A","authorization_version":1,"expires_at_unix":2000000000,"enabled":true}]}
@@ -74,3 +74,15 @@ DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过�
 边界：每份policy最多16个调用者、32个账号、64个grant；DO保留最多64个会话引用、128个grant高水位和128个累计用量条目、32个退休service ID，完整状态不超过64KiB。容量不足或持久记录缺失/损坏拒绝，不静默清零或淘汰安全记录。当前不提供管理后台、明文凭据导出、第三方登录自动续期或平台备份回滚API；这些不由目录/会话验收代签。可信管理员做备份恢复时先发布新的service_id和有限授权，旧授权退休。
 
 验证：`cargo test -p oasis7_dev_test_worker --lib --locked`；构建实际Wasm后 `node --test tests/account-service.test.mjs` 验证没有任何游戏绑定、outbound调用为0，以及账号切换、授权隔离、轮换、停用、额度与SQLite实例重建。实际Cloudflare部署和版本替换单独记录，不用Miniflare代签云端。
+
+
+### 策略发布与生效核对
+
+Cloudflare活跃DO默认可能延迟采用新版本300秒；实测普通 `secret bulk` 成功后的下一次请求仍读到旧别名。本应用把普通部署的DO更新策略设为immediate。策略/凭据更新使用以下两步（在包目录运行，Secret文件仅可信运营者可读）：
+
+```sh
+node node_modules/wrangler/bin/wrangler.js versions secret bulk /PRIVATE/PATH/bindings.json
+node node_modules/wrangler/bin/wrangler.js versions deploy CREATED_VERSION_ID@100% --yes --durable-objects-code-update-mode immediate
+```
+
+版本ID取第一步真实返回值，不能复用旧版本或输出秘密文件内容。普通 `wrangler secret bulk` 走独立API且不携带DO策略，不能作为停用/轮换已完成的证明。发布后回读业务响应中的 `value.policy_generation`、原session及累计用量，再判断新策略生效；保留旧版本传播期间的失败记录。立即更新可能中断在途请求，消费者按未知结果处理，不以重置存储或重发游戏动作恢复。

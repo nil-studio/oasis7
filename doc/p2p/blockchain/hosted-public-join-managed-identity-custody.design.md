@@ -247,6 +247,8 @@ Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb、O7-REQ-8b95aab7-037d-4
 
 一个 DO 事务原子保存策略版本、每 grant 的授权高水位、service/caller 的累计用量及全部不可变会话。相同授权版本的安全合同不能改变；移除后不能以旧版本重加。新授权版本使旧会话拒绝，但同一 service_id 的额度和截止时间不能扩张或清零。新 service_id 显式退休旧授权并使用新有限预算，退休 ID 不能恢复。普通实例替换保留原会话和期限；缺失初始化记录、损坏记录、配置 generation 回退、未知 schema 或容量不足均拒绝，不降级空状态。关闭不消耗调用额度，在额度耗尽后仍可执行；拒绝请求不扣额，accounts/open/describe 每次成功调用扣一次。
 
+Cloudflare 默认允许活跃 DO 延迟采用新版本最多300秒，旧实例期间仍可能读取旧的 Secrets，不能把 Secrets API 成功当作授权已生效。账号策略发布采用 `wrangler versions secret bulk` 创建固定版本，再以 `wrangler versions deploy VERSION@100% --yes --durable-objects-code-update-mode immediate` 发布；普通代码部署同样设置 immediate。Wrangler 的普通 secret bulk API 不携带 DO 更新策略，不能用它代替上述受控发布。有效业务响应提供公开 policy_generation 供部署回读；未确认新策略时不声明停用/轮换生效。立即更新可能中断在途请求，持久化状态和原件保留，调用方按现有未知/恢复合同处理；不自动重发。依据：[Cloudflare DO更新策略](https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/)。
+
 管理仍采用可信部署配置发布，不把模型 token 变成管理员凭据。初版会话及授权高水位有明确容量上限，满额拒绝而不默默淘汰可复活的历史引用。恢复备份属于可信运维操作：恢复后先显式更换 service_id、退休旧授权并授予新有限预算，再允许消费者访问；不把备份中的余额证明为当前余额。本轮验证普通持久化和实例替换，不以该证据代签平台备份回滚演练。
 
 

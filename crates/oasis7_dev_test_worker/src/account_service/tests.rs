@@ -87,6 +87,7 @@ fn independent_accounts_sessions_and_metadata_survive_restart_and_updates() {
     )
     .unwrap();
     assert_eq!(result["result"]["alias"], "Renamed");
+    assert_eq!(result["policy_generation"], 2);
     assert_eq!(result["usage"]["used"], 4);
     assert!(!result.to_string().contains("ACCOUNT_SERVICE_A"));
     assert_eq!(
