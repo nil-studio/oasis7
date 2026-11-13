@@ -1,9 +1,6 @@
 --- a/shared/typeinference/codeql/typeinference/internal/TypeInference.qll
 +++ b/shared/typeinference/codeql/typeinference/internal/TypeInference.qll
-@@ -962,6 +962,31 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
-         )
-       }
- 
+@@ -965,3 +965,28 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
 +      pragma[nomagic]
 +      private predicate conditionSatisfiesAmbigousConstraintTypeAt0(
 +        Term term, Constraint constraint, TypeAbstraction abs, TypeMention sub, TypePath path,
