@@ -218,8 +218,8 @@ class Workload(unittest.TestCase):
                                    (m.comparison, 'OFFICIAL_SHA', hashlib.sha256(b'stock').hexdigest()),
                                    (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest()),
                                    (m, 'TYPE_CANDIDATE_SHA', hashlib.sha256(b'arity-candidate').hexdigest()),
-                                   (m, 'SHARED_OFFICIAL_SHA', hashlib.sha256(b'stock-shared').hexdigest()),
-                                   (m, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'helper-shared').hexdigest())):
+                                   (m.capacity.bundle, 'SHARED_OFFICIAL_SHA', hashlib.sha256(b'stock-shared').hexdigest()),
+                                   (m.capacity.bundle, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'helper-shared').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
         self.stack.enter_context(patch.dict(os.environ, RUNNER_TEMP=str(self.runner), GITHUB_OUTPUT=str(self.output)))
         self.stack.enter_context(patch.object(m.capacity, 'after_identity', return_value=self.protected))
@@ -711,7 +711,7 @@ class Workload(unittest.TestCase):
                       m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
 
     def test_wrong_shared_patch_identity_stops_before_its_patch_process(self):
-        with patch.object(m, 'SHARED_PATCH_SHA', '0' * 64):
+        with patch.object(m.capacity.bundle, 'SHARED_PATCH_SHA', '0' * 64):
             self.assertEqual(self.invoke('prepare'), 1)
         self.assertFalse(any(call[0] == 'apply-shared-helper-patch' for call in self.calls))
         self.assertFalse((self.work / 'candidate-typeinference').exists())

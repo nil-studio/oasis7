@@ -265,7 +265,11 @@ Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format
 
 bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的唯一 job 仍为 `queued` 或 running 的 `started_at` 明确为 null 时才有界重读；不重跑工作流或重新分配预算。先读 `bootstrap-terminal.json` 的固定错误类别和白名单时钟投影，再对照 `bootstrap-http.json` 的逐次 HTTP 状态、字节数、摘要及读取次数。缺失/非法时间、未来或陈旧开始时间、身份错和重复 job 仍硬拒绝；缺 `job-clock.json` 时不得称预算已绑定或后续提取已执行。历史证据仅记录 `Rejected` 时，其具体拒绝子因保持未知，不能追认为 API 发布延迟。
 
-`wasm-context-<run>-<attempt>-<tool-sha>` artifact 只包含 evidence 目录。依次核对 `terminal.json`、`job-clock.json`、`source-before/after.json`、`library-closure.json`、`query-library.json`、`metadata-graph.json`、`actual-index.json` 和 `guard-verdict.json`：工具根必须在业务根外，完整根 workspace 保留 53 成员，实际索引必须与六包下 `.rs` 集合精确相等，guard 必须有预检之后的根 metadata 和精确 recovery-fence WASM `cargo check --lib` 调用。请求配置文件只表示请求，不构成实际上下文通过。
+`wasm-context-<run>-<attempt>-<tool-sha>` artifact 只包含 evidence 目录。依次核对 `terminal.json`、`job-clock.json`、`source-before/after.json`、`official-library-closure.json`、`library-closure.json`、`query-library.json`、`metadata-graph.json`、`actual-index.json` 和 `guard-verdict.json`：工具根必须在业务根外，完整根 workspace 保留 53 成员，实际索引必须与六包下 `.rs` 集合精确相等，guard 必须有预检之后的根 metadata 和精确 recovery-fence WASM `cargo check --lib` 调用。请求配置文件只表示请求，不构成实际上下文通过。
+
+本入口的 `library_variant` 固定为 `wasm-shared-helper-v1`。核对 `shared-helper-identity.json` 的固定补丁、上游提交及 shared 0.0.42 全部文件前后身份：只允许 §7.2.4 的 shared TypeInference 两个 helper hunk，stock rust-all 与其他官方库不变。实际 resolver 的 13 库集合必须只把 shared 根替换为本次私有副本；官方 shared 回退、额外修改、缺收据或未完成准备均拒绝。补丁与 helper 一同冻结，准备和应用使用原准备窗口；`helpers-after.json` 在成功或失败时重验官方 bundle、query pack 与私有 shared。该研究身份不代表已使用生产 v3 或完整候选 v4；旧官方库运行的超时或未知结果保持原终态。
+
+固定 CLI 的依赖接线回归为 `python3 scripts/security/codeql-rust-wasm-context.test.py RealSharedResolverTests`，显式设置 `OASIS7_CODEQL_WASM_SHARED_CLI` 为 2.27.4 可执行文件后，在一次 120 秒总界内实际应用固定补丁并解析私有及官方 shared 两种 closure，确认官方回退被拒绝、九项 QL 摘要及官方 bundle 前后不变。该回归使用独立缓存，不提取数据库、编译或求值；默认跳过，结果不代签 WASM 语义或性能。
 
 `witness-observation.json` 的九行计数分别观察四个真实宏展开、两个普通项负例、两组静态调用正反例及数据库内 custody crate 的 WASM/角色 cfg。任何正例缺失、错误目标或非法角色出现、缺行、重复、未知 schema 都保持 INCOMPLETE；单有文件、metadata、编译成功或零负例不能通过。查询结果仍需结合 source/query/BQRS 摘要、完整封存清单及实际平台终态核对。私有 DB、原生日志、TRAP、源码归档和缓存留在 runner 临时工作目录，绝不打包或上传。
 

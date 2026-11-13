@@ -62,6 +62,8 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn('path: ${{ runner.temp }}/rust-wasm-context/evidence', TEXT)
         self.assertEqual(set(b.HELPERS) | {'workflow.yml'}, set(d.HELPERS))
         self.assertIn('codeql_rust_candidate_profile.py', b.HELPERS)
+        self.assertIn('codeql-rust-shared-constraint.patch', b.HELPERS)
+        self.assertNotIn('codeql-rust-candidate-workload.py', b.HELPERS)
         self.assertNotIn('upload-sarif', TEXT)
         self.assertNotIn('security-events: write', TEXT)
         self.assertNotIn('database-upload', TEXT)
@@ -582,6 +584,59 @@ class WitnessProgressTests(unittest.TestCase):
             signal.signal(signal.SIGTERM, previous)
 
 
+@unittest.skipUnless(os.environ.get('OASIS7_CODEQL_WASM_SHARED_CLI'), 'explicit pinned CodeQL resolver input required')
+class RealSharedResolverTests(unittest.TestCase):
+    def test_fixed_shared_patch_and_actual_private_or_stock_library_resolution(self):
+        """Apply and resolve only: no database, compilation or query evaluation."""
+        codeql = Path(os.environ['OASIS7_CODEQL_WASM_SHARED_CLI']).resolve()
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve(); out = work / 'evidence'; out.mkdir()
+            evidence = d.metadata.Evidence(out)
+            clock = d.Clock(clock_receipt(seconds=1140))  # At most 120 seconds left for this fixture.
+            env = {key: value for key, value in os.environ.items() if key not in ('GH_TOKEN', 'GITHUB_TOKEN')}
+            calls = []
+            def command(phase, argv, cwd, end, *, capture=False, timeout=None):
+                calls.append(phase)
+                return d.run_owned(phase, list(map(str, argv)), cwd, env, clock, end, evidence,
+                                   {'cwd': str(cwd)}, capture=capture, timeout=timeout)[0]
+            bundle_before = d.tree_identity(codeql.parent, clock, clock.prepare)
+            base = ['--log-to-stderr', '--loglevel=ERROR', '--common-caches=' + str(work / 'common-cache')]
+            raw = command('codeql-version', [codeql, 'version', '--format=json', *base], work, clock.prepare,
+                          capture=True, timeout=20)
+            self.assertEqual(d.parse_json(raw)['version'], '2.27.4')
+            official = d.model.bundle_closure(codeql.parent, '2.27.4')
+            self.assertEqual(len(official), 13)
+            selected, identity = d.prepare_shared_helper(official, work, clock, evidence, command)
+            self.assertEqual([name for name in official if selected[name] != official[name]], ['codeql/typeinference'])
+            self.assertEqual(identity['changed_files'], [d.model.SHARED_FILE])
+            self.assertEqual(identity['official_files'][d.model.SHARED_FILE]['sha256'], d.model.SHARED_OFFICIAL_SHA)
+            self.assertEqual(identity['candidate_files'][d.model.SHARED_FILE]['sha256'], d.model.SHARED_CANDIDATE_SHA)
+            source = Path('/home/runner/work/_temp/rust-wasm-context/work/source')
+            query = d.prepare_query(source, work, selected)
+            query_path = query / (w.NAME + '.ql')
+            self.assertEqual(d.sha256(query_path.read_bytes()), '8de9207bb99817e37a8354f2330e1e94c958ae434275d63368a296d96e10c6af')
+            query_before = d.tree_identity(query, clock, clock.prepare)
+            for phase, closure in (('query-library', selected), ('query-library-after', official)):
+                raw = command(phase, [codeql, 'resolve', 'library-path', '--query=' + str(query_path), '--format=json',
+                              *d.query_options(work, closure), '--log-to-stderr', '--loglevel=ERROR'],
+                              work, clock.prepare, capture=True, timeout=20)
+                actual = d.parse_json(raw)
+                if closure is selected:
+                    d.model.verify_library_path(actual, query, w.NAME, selected, w.PACK)
+                    self.assertEqual(actual['compilationCache'], [str(work / 'compilation-cache')])
+                    self.assertIn(str(work / 'candidate-typeinference'), actual['libraryPath'])
+                    self.assertNotIn(official['codeql/typeinference']['root'], actual['libraryPath'])
+                else:
+                    self.assertIn(official['codeql/typeinference']['root'], actual['libraryPath'])
+                    with self.assertRaises(RuntimeError):
+                        d.model.verify_library_path(actual, query, w.NAME, selected, w.PACK)
+            self.assertEqual(d.shared_helper_identity(Path(official['codeql/typeinference']['root']),
+                work / 'candidate-typeinference', clock, clock.prepare), identity)
+            self.assertEqual(d.tree_identity(query, clock, clock.prepare), query_before)
+            self.assertEqual(d.tree_identity(codeql.parent, clock, clock.prepare), bundle_before)
+            self.assertEqual(calls, ['codeql-version', 'apply-shared-helper-patch', 'query-library', 'query-library-after'])
+
+
 @unittest.skipUnless(os.environ.get('OASIS7_CODEQL_WASM_PROGRESS_CLI') and os.environ.get('OASIS7_CODEQL_WASM_PROGRESS_RUST_BIN'),
                      'explicit pinned CodeQL/Rust integration inputs required')
 class RealProgressTests(unittest.TestCase):
@@ -666,10 +721,14 @@ class FullFlowTests(unittest.TestCase):
                 stream.addfile(info, io.BytesIO(raw))
         api = types.SimpleNamespace(get=lambda *args: ({}, None), archive=lambda: archive.getvalue(), receipts=[])
         clock = clock_receipt(); clock['tool_sha'] = identity['tool_sha']
-        closure = {'codeql/' + ('rust-all' if i == 0 else 'library' + str(i)):
-                   {'name': 'codeql/' + ('rust-all' if i == 0 else 'library' + str(i)),
-                    'version': '0.2.25' if i == 0 else '1.0.0', 'root': str(session / 'work/codeql/qlpacks' / str(i)),
-                    'dependencies': {}} for i in range(13)}
+        closure = {}
+        for i, name in enumerate(['rust-all', 'typeinference', *['library' + str(n) for n in range(11)]]):
+            version = '0.2.25' if name == 'rust-all' else '0.0.42' if name == 'typeinference' else '1.0.0'
+            closure['codeql/' + name] = {'name': 'codeql/' + name, 'version': version,
+                'root': str(session / 'work/codeql/qlpacks' / str(i)), 'dependencies': {}}
+        shared = Path(closure['codeql/typeinference']['root'])
+        shared_file = d.model.SHARED_FILE
+        stock_shared, private_shared = b'official shared fixture\n', b'private shared fixture\n'
         commit = d.metadata.CARGO_COMMIT
         versions = {'cargo': ('cargo 1.99.0 (' + commit[:9] + ' 2026-09-01)\nrelease: 1.99.0\ncommit-hash: ' + commit +
                              '\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\n').encode(),
@@ -694,9 +753,28 @@ class FullFlowTests(unittest.TestCase):
             if phase == 'bundle-download': (work / 'bundle.tar.zst').write_bytes(b'fixture bundle')
             elif phase == 'bundle-unpack':
                 (work / 'codeql').mkdir(); (work / 'codeql/codeql').write_bytes(b'fixture CLI')
+                for entry in closure.values():
+                    folder = Path(entry['root']); folder.mkdir(parents=True)
+                    manifest = folder / 'qlpack.yml'
+                    manifest.write_text('name: ' + entry['name'] + '\nversion: ' + entry['version'] + '\nlibrary: true\ndependencies: {}\n')
+                    entry['manifest_sha256'] = d.runtime.digest(manifest)
+                (shared / shared_file).parent.mkdir(parents=True)
+                (shared / shared_file).write_bytes(stock_shared)
             elif phase == 'codeql-version': raw = b'{"version":"2.27.4"}'
+            elif phase == 'apply-shared-helper-patch':
+                self.assertEqual(argv, ['patch', '--batch', '--fuzz=0', str(work / 'candidate-typeinference' / shared_file),
+                                       str(Path(d.__file__).with_name('codeql-rust-shared-constraint.patch'))])
+                self.assertEqual(end, active_clock.prepare); self.assertEqual(kwargs['timeout'], 20)
+                if fault == 'shared-unprepared':
+                    result.update(exit=1, failure_kind='exit')
+                    evidence.save(phase + '.result.json', result)
+                    raise d.CommandFailed(result)
+                (work / 'candidate-typeinference' / shared_file).write_bytes(private_shared)
             elif phase.startswith('query-library'):
-                raw = d.encoded({'libraryPath': [str(work / 'query')] + [p['root'] for p in closure.values()],
+                actual = dict(closure)
+                if fault != 'shared-fallback':
+                    actual['codeql/typeinference'] = dict(actual['codeql/typeinference'], root=str(work / 'candidate-typeinference'))
+                raw = d.encoded({'libraryPath': [str(work / 'query')] + [p['root'] for p in actual.values()],
                                  'dbscheme': closure['codeql/rust-all']['root'] + '/rust.dbscheme',
                                  'compilationCache': [str(work / 'compilation-cache')], 'qlPackName': w.PACK,
                                  'relativeName': w.PACK + '/' + w.NAME + '.ql'})
@@ -720,12 +798,18 @@ class FullFlowTests(unittest.TestCase):
             elif phase == 'database-finalize': (database / 'codeql-database.yml').write_text('name: fixture\nfinalised: true\n')
             elif phase == 'database-identity':
                 raw = d.encoded({'sourceLocationPrefix': str(source), 'languages': ['rust'], 'datasetFolder': str(database / 'db-rust')})
+                if fault == 'shared-before-query': (work / 'candidate-typeinference' / shared_file).write_bytes(stock_shared)
             elif phase == 'witness-query':
                 self.assertIn('--verbosity=progress', argv)
                 self.assertIn('--loglevel=ERROR', argv)
                 self.assertNotIn('--log-to-stderr', argv)
                 target = database / 'results' / w.PACK / (w.NAME + '.bqrs'); target.parent.mkdir(parents=True); target.write_bytes(b'BQRS fixture')
                 if fault == 'source-mutated': (source / 'Cargo.lock').write_bytes(b'changed lock')
+                if fault in ('query-timeout', 'shared-mutated-timeout'):
+                    if fault == 'shared-mutated-timeout': (work / 'candidate-typeinference' / shared_file).write_bytes(stock_shared)
+                    result.update(exit=143, failure_kind='timeout')
+                    evidence.save(phase + '.result.json', result)
+                    raise d.CommandFailed(result)
             elif phase == 'witness-decode':
                 value = success_rows()
                 if fault == 'missing-macro': value['#select']['tuples'][0][2] = 0
@@ -739,6 +823,8 @@ class FullFlowTests(unittest.TestCase):
                 stack.enter_context(patch.object(d.model, 'bundle_closure', return_value=closure))
                 stack.enter_context(patch.object(d.metadata, 'metadata_graph', return_value=({'packages': []}, {'status': 'ROLE_CONTEXT_OBSERVED'})))
                 stack.enter_context(patch.object(d, 'BUNDLE_SHA', d.sha256(b'fixture bundle')))
+                stack.enter_context(patch.object(d.model, 'SHARED_OFFICIAL_SHA', d.sha256(stock_shared)))
+                stack.enter_context(patch.object(d.model, 'SHARED_CANDIDATE_SHA', d.sha256(private_shared)))
                 stack.enter_context(patch.object(d, 'run_owned', side_effect=external))
                 if fault == 'seal-failure':
                     stack.enter_context(patch.object(d.metadata.Evidence, 'seal', side_effect=OSError('private exception sentinel')))
@@ -755,6 +841,16 @@ class FullFlowTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(terminal['status'], 'WASM_CONTEXT_SEMANTICS_OBSERVED')
         self.assertEqual(terminal['identity'], 'PASS'); self.assertEqual(terminal['guard'], 'PASS')
+        self.assertEqual(terminal['library_variant'], 'wasm-shared-helper-v1')
+        out = session / 'evidence'
+        official = json.loads((out / 'official-library-closure.json').read_text())
+        selected = json.loads((out / 'library-closure.json').read_text())
+        self.assertEqual([name for name in official if selected[name] != official[name]], ['codeql/typeinference'])
+        self.assertEqual(selected['codeql/rust-all'], official['codeql/rust-all'])
+        shared_identity = json.loads((out / 'shared-helper-identity.json').read_text())
+        self.assertEqual(shared_identity['variant'], terminal['library_variant'])
+        self.assertEqual(shared_identity['changed_files'], [d.model.SHARED_FILE])
+        self.assertEqual(json.loads((out / 'helpers-after.json').read_text())['shared']['variant'], terminal['library_variant'])
         analysis = [end for phase, end, _ in calls if phase in ('metadata', 'database-init', 'database-index',
                     'database-finalize', 'database-identity', 'witness-query', 'witness-decode', 'query-library-after')]
         self.assertEqual(len(set(analysis)), 1)
@@ -773,6 +869,33 @@ class FullFlowTests(unittest.TestCase):
         self.assertEqual(code, 1); self.assertEqual(terminal['guard'], 'INCOMPLETE')
         self.assertNotIn('witness-query', [phase for phase, _, _ in calls])
         self.assertEqual(terminal['witness_query'], 'NOT_RUN')
+
+    def test_shared_preparation_fallback_and_prequery_mutation_fail_closed(self):
+        for fault in ('shared-unprepared', 'shared-fallback', 'shared-before-query'):
+            with self.subTest(fault=fault):
+                code, terminal, calls, _ = self.flow(fault)
+                self.assertEqual(code, 1)
+                self.assertEqual(terminal['identity'], 'INCOMPLETE')
+                self.assertEqual(terminal['witness_query'], 'NOT_RUN')
+                self.assertNotIn('witness-query', [phase for phase, _, _ in calls])
+                if fault == 'shared-unprepared':
+                    self.assertEqual(terminal['command_failure']['phase'], 'apply-shared-helper-patch')
+
+    def test_shared_final_identity_cannot_replace_query_timeout(self):
+        for fault in ('query-timeout', 'shared-mutated-timeout'):
+            with self.subTest(fault=fault):
+                code, terminal, _, session = self.flow(fault)
+                self.assertEqual(code, 1)
+                self.assertEqual(terminal['status'], 'WASM_CONTEXT_INCOMPLETE')
+                self.assertEqual(terminal['witness_query'], 'INCOMPLETE')
+                self.assertEqual(terminal['command_failure'],
+                                 {'phase': 'witness-query', 'exit': 143, 'failure_kind': 'timeout', 'cleanup_errors': []})
+                if fault == 'query-timeout':
+                    self.assertEqual(terminal['identity'], 'PASS')
+                    self.assertIn('shared', json.loads((session / 'evidence/helpers-after.json').read_text()))
+                else:
+                    self.assertEqual(terminal['identity'], 'INCOMPLETE')
+                    self.assertIn('final_error_class', terminal)
 
     def test_oracle_or_after_identity_failure_retains_computed_fact(self):
         for fault in ('missing-macro', 'source-mutated'):
