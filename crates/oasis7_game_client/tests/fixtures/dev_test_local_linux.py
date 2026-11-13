@@ -60,14 +60,20 @@ def main():
     source = pathlib.Path(sys.argv[1]).resolve(strict=True)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    with tempfile.TemporaryDirectory(prefix='oasis7-local-', dir='/tmp') as temporary:
+    with (
+        tempfile.TemporaryDirectory(prefix='oasis7-local-', dir='/run') as temporary,
+        tempfile.TemporaryDirectory(prefix='oasis7-local-bin-', dir='/tmp') as executable,
+    ):
         root = pathlib.Path(temporary)
+        binary_root = pathlib.Path(executable)
         processes = []
         try:
             os.chmod(root, 0o755)
+            os.chmod(binary_root, 0o755)
             # Distinct callers must execute the exact tested binary without
             # needing traversal permission on the checkout's parent directories.
-            binary = root / 'oasis7_game_client'
+            # Keep strict socket ancestors in /run; it may be mounted noexec.
+            binary = binary_root / 'oasis7_game_client'
             expected_hash = binary_hash(source)
             shutil.copyfile(source, binary)
             os.chmod(binary, 0o755)
