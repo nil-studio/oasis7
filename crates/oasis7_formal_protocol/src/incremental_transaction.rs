@@ -485,38 +485,16 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
                 MemoryClass::Ordinary,
             )
             .map_err(ExecutionError::Memory)?;
-        let mut after = self.parent.roots.clone();
-        after.height = height;
-        after.simulation_tick = next_tick;
-        let mut writes = Vec::with_capacity(self.dirty);
-        let mut new_nodes = Vec::new();
-        for namespace in NAMESPACES {
-            if cancelled() {
-                return Err(SealWithFinalFactError::Cancelled);
-            }
-            let mutations = self.entries[namespace_index(namespace)]
-                .iter()
-                .filter(|(_, entry)| entry.before != entry.after)
-                .map(|(key, entry)| StateWriteV1 {
-                    key: key.clone(),
-                    before: entry.before,
-                    after: entry.after,
-                })
-                .collect();
-            let delta = StateDeltaV1::build(
-                self.parent.roots.state_root(namespace).clone(),
-                mutations,
-                self.source,
-                self.limits.max_pending_node_bytes,
-            )
-            .map_err(ExecutionError::Tree)?;
-            after.state[namespace_index(namespace)] = delta.after;
-            writes.extend(delta.writes.into_iter().map(|mutation| ExecutionWriteV1 {
-                namespace,
-                mutation,
-            }));
-            new_nodes.extend(delta.new_nodes);
-        }
+        let CurrentDeltaV1 {
+            after,
+            writes,
+            mut new_nodes,
+        } = self
+            .build_current_delta_v1(next_tick, height, cancelled, None)
+            .map_err(|error| match error {
+                DeltaBuildError::Execution(e) => SealWithFinalFactError::Execution(e),
+                DeltaBuildError::Cancelled => SealWithFinalFactError::Cancelled,
+            })?;
         let mut reads = Vec::with_capacity(self.reads);
         for (namespace, entries) in NAMESPACES.into_iter().zip(self.entries) {
             reads.extend(entries.into_iter().map(|(key, entry)| ExecutionReadV1 {
@@ -573,3 +551,86 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
 #[path = "incremental_seal_binding.rs"]
 mod seal_binding;
 pub use seal_binding::{SealedExecutionBindingV1, SealedExecutionTransitionV1};
+
+struct CurrentDeltaV1 {
+    after: RootSetV1,
+    writes: Vec<ExecutionWriteV1>,
+    new_nodes: Vec<StateNodeWriteV1>,
+}
+enum DeltaBuildError {
+    Execution(ExecutionError),
+    Cancelled,
+}
+impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
+    fn build_current_delta_v1(
+        &self,
+        next_tick: u64,
+        height: u64,
+        cancelled: &mut impl FnMut() -> bool,
+        meter: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<CurrentDeltaV1, DeltaBuildError> {
+        if let Some(meter) = meter {
+            meter(self.parent.roots.world_id.len() + 6 * 128)
+                .map_err(|e| DeltaBuildError::Execution(ExecutionError::Tree(e)))?;
+        }
+        let mut after = self.parent.roots.clone();
+        after.height = height;
+        after.simulation_tick = next_tick;
+        let mut writes = Vec::with_capacity(self.dirty);
+        let mut new_nodes = Vec::new();
+        for namespace in NAMESPACES {
+            if cancelled() {
+                return Err(DeltaBuildError::Cancelled);
+            }
+            if let Some(meter) = meter {
+                for (key, entry) in &self.entries[namespace_index(namespace)] {
+                    if entry.before != entry.after {
+                        meter(key.len() + std::mem::size_of::<StateWriteV1>())
+                            .map_err(|e| DeltaBuildError::Execution(ExecutionError::Tree(e)))?;
+                    }
+                }
+            }
+            let mutations = self.entries[namespace_index(namespace)]
+                .iter()
+                .filter(|(_, entry)| entry.before != entry.after)
+                .map(|(key, entry)| StateWriteV1 {
+                    key: key.clone(),
+                    before: entry.before,
+                    after: entry.after,
+                })
+                .collect();
+            let delta = StateDeltaV1::build_with_meter(
+                self.parent.roots.state_root(namespace).clone(),
+                mutations,
+                self.source,
+                self.limits.max_pending_node_bytes,
+                meter,
+            )
+            .map_err(|e| DeltaBuildError::Execution(ExecutionError::Tree(e)))?;
+            after.state[namespace_index(namespace)] = delta.after;
+            if let Some(meter) = meter {
+                for write in &delta.writes {
+                    meter(write.key.len() + std::mem::size_of::<ExecutionWriteV1>())
+                        .map_err(|e| DeltaBuildError::Execution(ExecutionError::Tree(e)))?;
+                }
+                for node in &delta.new_nodes {
+                    meter(node.digest.len() + std::mem::size_of::<StateNodeWriteV1>())
+                        .map_err(|e| DeltaBuildError::Execution(ExecutionError::Tree(e)))?;
+                }
+            }
+            writes.extend(delta.writes.into_iter().map(|mutation| ExecutionWriteV1 {
+                namespace,
+                mutation,
+            }));
+            new_nodes.extend(delta.new_nodes);
+        }
+        Ok(CurrentDeltaV1 {
+            after,
+            writes,
+            new_nodes,
+        })
+    }
+}
+#[path = "incremental_current_roots_preview.rs"]
+mod current_roots_preview;
+pub use current_roots_preview::{CurrentRootsPreviewErrorV1, CurrentRootsPreviewV1};

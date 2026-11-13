@@ -129,13 +129,22 @@ impl Codec for StateCodec {
 pub(super) fn empty_hashes() -> Result<&'static [String], String> {
     static EMPTY: OnceLock<Result<Vec<String>, String>> = OnceLock::new();
     EMPTY
-        .get_or_init(|| {
-            let mut marker = MAGIC.to_vec();
-            marker.extend_from_slice(&1u32.to_be_bytes());
-            marker.push(2);
-            crate::merkle::build_empty_hashes::<StateCodec>(&marker)
-        })
+        .get_or_init(|| empty_hashes_metered(None))
         .as_ref()
         .map(Vec::as_slice)
         .map_err(Clone::clone)
+}
+
+/// Same original marker and unique empty-tree constructor. Bounded transient
+/// construction never stores a caller cancellation/error in the global cache.
+pub(super) fn empty_hashes_metered(
+    meter: Option<&crate::merkle::WorkMeter<'_>>,
+) -> Result<Vec<String>, String> {
+    if let Some(meter) = meter {
+        meter(MAGIC.len() + 5)?;
+    }
+    let mut marker = MAGIC.to_vec();
+    marker.extend_from_slice(&1u32.to_be_bytes());
+    marker.push(2);
+    crate::merkle::build_empty_hashes_with_meter::<StateCodec>(&marker, meter)
 }

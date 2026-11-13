@@ -14,8 +14,9 @@ pub use root_set::RootSetV1;
 #[path = "incremental_transaction.rs"]
 mod transaction;
 pub use transaction::{
-    ExecutionTransaction, PreparedGuard, SealWithFinalFactError, SealedExecutionBindingV1,
-    SealedExecutionTransitionV1, TransactionLimits,
+    CurrentRootsPreviewErrorV1, CurrentRootsPreviewV1, ExecutionTransaction, PreparedGuard,
+    SealWithFinalFactError, SealedExecutionBindingV1, SealedExecutionTransitionV1,
+    TransactionLimits,
 };
 #[path = "incremental_transition.rs"]
 mod transition;

@@ -251,14 +251,43 @@ impl StateDeltaV1 {
         reader: &impl MerkleNodeReader,
         max_pending_bytes: usize,
     ) -> Result<Self, String> {
+        Self::build_with_meter(before, writes, reader, max_pending_bytes, None)
+    }
+    /// Private operation-only hook used by the transaction's bounded preview.
+    /// All roots, predicates and codecs remain those of the original builder.
+    pub(crate) fn build_with_meter(
+        before: StateRootV1,
+        writes: Vec<StateWriteV1>,
+        reader: &impl MerkleNodeReader,
+        max_pending_bytes: usize,
+        meter: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<Self, String> {
         before.validate()?;
+        if let Some(meter) = meter {
+            for write in &writes {
+                meter(write.key.len() + 128)?;
+            }
+        }
         validate_writes(&writes)?;
-        let empty = empty_hashes()?;
-        let mut builder =
-            Updater::<StateCodec, _>::new(reader, empty, max_pending_bytes).track_parent_nodes();
+        let owned_empty;
+        let empty = if meter.is_some() {
+            owned_empty = codec::empty_hashes_metered(meter)?;
+            owned_empty.as_slice()
+        } else {
+            empty_hashes()?
+        };
+        let mut builder = Updater::<StateCodec, _>::new(reader, empty, max_pending_bytes)
+            .track_parent_nodes()
+            .with_meter(meter);
+        if let Some(meter) = meter {
+            meter(before.node_root.len())?;
+        }
         let mut root = before.node_root.clone();
         let mut count = before.leaf_count;
         for write in &writes {
+            if let Some(meter) = meter {
+                meter(write.key.len() + 128)?;
+            }
             let key = key_digest(before.namespace, &write.key)?;
             let old = builder.lookup(&root, &key)?;
             if old.as_ref().map(|entry| entry.value) != write.before
@@ -290,8 +319,13 @@ impl StateDeltaV1 {
             leaf_count: count,
         };
         after.validate()?;
-        let new_nodes = builder
-            .final_writes(&after.node_root)?
+        let final_nodes = builder.final_writes(&after.node_root)?;
+        if let Some(meter) = meter {
+            for (digest, bytes) in &final_nodes {
+                meter(std::mem::size_of::<StateNodeWriteV1>() + digest.len() + bytes.len())?;
+            }
+        }
+        let new_nodes = final_nodes
             .into_iter()
             .map(|(digest, bytes)| StateNodeWriteV1 { digest, bytes })
             .collect();
