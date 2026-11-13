@@ -60,7 +60,7 @@ def main():
     source = pathlib.Path(sys.argv[1]).resolve(strict=True)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    with tempfile.TemporaryDirectory(prefix='oasis7-local-', dir='/run') as temporary:
+    with tempfile.TemporaryDirectory(prefix='oasis7-local-', dir='/tmp') as temporary:
         root = pathlib.Path(temporary)
         processes = []
         try:

@@ -98,6 +98,248 @@ class CaptureTests(unittest.TestCase):
             capture.close()
 
 
+def numeric_event(kind, event, **fields):
+    return dict(type=kind, eventId=event, nanoTime=event*100, time='2026-01-01T00:00:00Z', **fields)
+
+
+def numeric_events(aliases=None):
+    aliases = aliases if aliases is not None else {'TypeInference::inferType/2#fixture': [1]}
+    return [numeric_event('LOG_HEADER', 1, codeqlVersion='2.27.4', logVersion='0.5.0'),
+            numeric_event('PREDICATE_STARTED', 2, appearsAs=aliases, predicateType='RECURSIVE_INTENSIONAL', layerId=7),
+            numeric_event('PIPELINE_STARTED', 3, predicateStartEvent=2, generationNumber=4),
+            numeric_event('PIPELINE_COMPLETED', 4, startEvent=3, resultSize=0),
+            numeric_event('PIPELINE_STARTED', 5, predicateStartEvent=2, generationNumber=5),
+            numeric_event('PIPELINE_COMPLETED', 6, startEvent=5, resultSize=81),
+            numeric_event('PIPELINE_STARTED', 7, predicateStartEvent=2, generationNumber=1539),
+            numeric_event('PIPELINE_COMPLETED', 8, startEvent=7, resultSize=2),
+            numeric_event('PREDICATE_COMPLETED', 9, startEvent=2, resultSize=201596),
+            numeric_event('LOG_FOOTER', 10)]
+
+
+def numeric_bytes(events):
+    return b'\n'.join(json.dumps(event, separators=(',', ':')).encode() for event in events)
+
+
+class NumericProjectionTests(unittest.TestCase):
+    def observe(self, events=None, *, limit=profile.RAW_CAP, chunks=None):
+        projection = profile.NumericProjection()
+        capture = profile.Capture(limit, projection=projection)
+        self.addCleanup(capture.close)
+        data = numeric_bytes(events if events is not None else numeric_events())
+        for chunk in chunks if chunks is not None else (data,):
+            capture.feed(chunk)
+        capture.finish(True, True)
+        return capture, projection.report()
+
+    def test_actual_integer_nanos_links_sparse_generations_and_zero_then_positive(self):
+        capture, report = self.observe()
+        self.assertEqual(report['status'], 'OBSERVED')
+        self.assertEqual(report['predicate_starts'], 1)
+        self.assertEqual(report['pipeline_starts'], 3)
+        self.assertEqual([(row['generation'], row['pipeline_result_size']) for row in report['pipeline_tail']],
+                         [(4, 0), (5, 81), (1539, 2)])
+        self.assertTrue(all(row['elapsed_ns'] == 100 for row in report['pipeline_tail']))
+        self.assertEqual(report['predicate_tail'][0]['predicate_result_size'], 201596)
+        self.assertEqual(capture.summary()['status'], 'CAPTURED')
+        encoded = json.dumps(report)
+        for forbidden in ('TypeInference', 'fixture', 'queryCausingWork', 'predicateName', 'delta', 'cpu_rank'):
+            self.assertNotIn(forbidden, encoded)
+
+    def test_family_uses_namespace_and_exact_terminal_member_not_similar_or_nested_names(self):
+        positive = ('TypeInference::inferType/2#opaque',
+                    'Root::TypeInference::M3<Other::X>::inferType/2#opaque')
+        negative = ('TypeInferenceX::inferType/2#opaque', 'TypeInference::inferTypeCertain/2#opaque',
+                    'TypeInference::inferType/20#opaque', 'TypeInference::inferType/2::Extra',
+                    'Other<TypeInference::X>::inferType/2#opaque', 'Other::inferType/2#opaque')
+        for alias in (*positive, *negative):
+            with self.subTest(alias=alias):
+                _, report = self.observe(numeric_events({alias: [1]}))
+                self.assertEqual(report['status'], 'OBSERVED' if alias in positive else 'NOT_OBSERVED')
+                self.assertNotIn(alias, json.dumps(report))
+
+    def test_multiple_aliases_and_separate_predicate_events_are_not_summed_or_deduplicated(self):
+        events = numeric_events({'TypeInference::inferType/2#one': [1, 2],
+                                 'TypeInference::M3::inferType/2#two': [2, 3]})
+        _, report = self.observe(events)
+        self.assertEqual(report['predicate_starts'], 1)
+        self.assertEqual(report['pipeline_starts'], 3)
+        self.assertEqual(len(report['aliases']), 2)
+        self.assertEqual(len(report['predicate_tail']), 1)
+        extra = [numeric_event('PREDICATE_STARTED', 11, appearsAs=events[1]['appearsAs'], predicateType='STAGE_RESULT'),
+                 numeric_event('PREDICATE_COMPLETED', 12, startEvent=11, resultSize=201596)]
+        _, report = self.observe(events[:-1]+extra+[numeric_event('LOG_FOOTER', 13)])
+        self.assertEqual(report['predicate_starts'], 2)
+        self.assertEqual([row['predicate_event'] for row in report['predicate_tail']], [2, 11])
+
+    def test_cap_crossing_preserves_default_prefix_receipt_but_projects_full_tail(self):
+        data = numeric_bytes(numeric_events())
+        chunks = (data[:177], data[177:423], data[423:])
+        original = profile.Capture(200); self.addCleanup(original.close)
+        for chunk in chunks: original.feed(chunk)
+        original.finish(True, True)
+        capture, report = self.observe(limit=200, chunks=chunks)
+        self.assertEqual({key:value for key,value in capture.summary().items() if key != 'limits'},
+                         {key:value for key,value in original.summary().items() if key != 'limits'})
+        self.assertEqual(capture.summary()['error'], 'MEMORY_LIMIT')
+        self.assertEqual(capture.summary()['status'], 'INCOMPLETE')
+        self.assertEqual(report['status'], 'OBSERVED')
+        self.assertTrue(report['raw_memory_limit_seen'])
+        self.assertGreater(report['post_limit_records'], 0)
+        self.assertEqual(report['pipeline_tail'][-1]['generation'], 1539)
+
+    def test_split_utf8_and_last_object_without_lf_keep_optional_values_unknown(self):
+        events = numeric_events()
+        events[1]['predicateName'] = SYNTHETIC_CANARY+'é'
+        for event in events:
+            event.pop('generationNumber', None)
+            event.pop('resultSize', None)
+        data = numeric_bytes(events)
+        _, report = self.observe(events, chunks=[data[i:i+7] for i in range(0, len(data), 7)])
+        self.assertEqual(report['status'], 'OBSERVED')
+        self.assertTrue(all(row['generation'] is None and row['pipeline_result_size'] is None
+                            for row in report['pipeline_tail']))
+        self.assertIsNone(report['predicate_tail'][0]['predicate_result_size'])
+
+    def test_unknown_schema_bool_ids_and_string_nanos_are_partial_without_raw_fallback(self):
+        for changes in ({'eventId': True}, {'nanoTime': '300'}, {'unknown': SYNTHETIC_CANARY},
+                        {'completionType': 'NOT_AN_ENUM'}, {'resultSize': -1}):
+            events = numeric_events(); events[3].update(changes)
+            capture, report = self.observe(events)
+            self.assertEqual(report['status'], 'PARTIAL')
+            self.assertEqual(capture.summary()['status'], 'CAPTURED')
+            self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_oversized_numeric_line_after_raw_cap_is_bounded_and_recovers_at_lf(self):
+        events = numeric_events()
+        large = numeric_event('CACHE_LOOKUP', 20, predicateName=SYNTHETIC_CANARY+'x'*profile.NUMERIC_LINE_CAP)
+        data = numeric_bytes(events[:2]+[large]+events[2:])
+        capture, report = self.observe(limit=200, chunks=[data[i:i+4096] for i in range(0, len(data), 4096)])
+        self.assertEqual(capture.summary()['error'], 'MEMORY_LIMIT')
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['pipeline_tail'][-1]['generation'], 1539)
+        self.assertLessEqual(len(json.dumps(report, indent=2).encode())+1, runtime.MAX_CONTROL_RECEIPT)
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_projection_exceptions_do_not_escape_into_capture(self):
+        projection = profile.NumericProjection()
+        capture = profile.Capture(projection=projection); self.addCleanup(capture.close)
+        with patch.object(projection, 'accept', side_effect=ValueError(SYNTHETIC_CANARY)):
+            capture.feed(numeric_bytes(numeric_events()))
+        capture.finish(True, True)
+        self.assertEqual(capture.summary()['status'], 'CAPTURED')
+        self.assertEqual(projection.report()['status'], 'PARTIAL')
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(projection.report()))
+
+    def test_duplicate_active_identity_and_unclosed_target_are_partial(self):
+        events = numeric_events()
+        for bad in (events[:2]+[events[1]]+events[2:], events[:-2]+[events[-1]]):
+            _, report = self.observe(bad)
+            self.assertEqual(report['status'], 'PARTIAL')
+
+    def test_known_target_completion_is_not_a_valid_pipeline_parent(self):
+        events = numeric_events()
+        bad = [numeric_event('PIPELINE_STARTED', 11, predicateStartEvent=9, generationNumber=4),
+               numeric_event('PIPELINE_COMPLETED', 12, startEvent=11, resultSize=1)]
+        _, report = self.observe(events[:-1]+bad+[events[-1]])
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertGreater(report['errors']['LINK_ORDER'], 0)
+
+    def test_write_failure_or_short_write_marks_unframed_drain_partial(self):
+        for short in (False, True):
+            projection = profile.NumericProjection()
+            capture = profile.Capture(projection=projection); self.addCleanup(capture.close)
+            capture.feed(numeric_bytes(numeric_events())+b'\n')
+            real_write = os.write
+            failure = (lambda fd, data: real_write(fd, data[:3])) if short else OSError('synthetic write failure')
+            with patch.object(os, 'write', side_effect=failure):
+                with self.assertRaises(profile.ObservationError): capture.feed(b'{"unprocessed":true}\n')
+            capture.feed(b'{"drained":true}\n'); capture.finish(True, True)
+            report = projection.report()
+            self.assertEqual(report['status'], 'PARTIAL')
+            self.assertGreater(report['errors']['INPUT_GAP'], 0)
+            self.assertEqual(report['input_unframed_bytes'], len(b'{"unprocessed":true}\n{"drained":true}\n'))
+            self.assertEqual(capture.summary()['error'], 'SHORT_MEMORY_WRITE' if short else 'MEMORY_WRITE_FAILED')
+
+    def test_closed_target_ids_and_duplicate_completions_remain_known(self):
+        events = numeric_events()
+        duplicate_ends = (numeric_event('PIPELINE_COMPLETED', 11, startEvent=3, resultSize=0),
+                          numeric_event('PREDICATE_COMPLETED', 11, startEvent=2, resultSize=201596))
+        for repeated in (*duplicate_ends, events[1], events[3]):
+            _, report = self.observe(events[:-1]+[repeated, events[-1]])
+            self.assertEqual(report['status'], 'PARTIAL')
+            self.assertEqual(report['predicate_starts'], 1)
+            self.assertEqual(report['pipeline_completed'], 3)
+            self.assertEqual(report['predicate_completed'], 1)
+        # An unrelated completed relation was never selected by the fixed probe.
+        _, report = self.observe(events[:-1]+[numeric_event('PREDICATE_COMPLETED', 11, startEvent=999), events[-1]])
+        self.assertEqual(report['status'], 'OBSERVED')
+
+    def test_target_identity_history_is_bounded_and_saturation_stays_partial(self):
+        with patch.object(profile, 'NUMERIC_EVENT_CAP', 2):
+            _, report = self.observe()
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['remembered_target_events'], 2)
+        self.assertGreater(report['errors']['TABLE_LIMIT'], 0)
+
+    def test_failure_states_and_missing_sizes_are_not_silently_success_or_zero(self):
+        for completion in ('FAILURE', 'INCOMPLETE'):
+            events = numeric_events(); events[3].update(completionType=completion, exceptionName=SYNTHETIC_CANARY)
+            events[3].pop('resultSize')
+            _, report = self.observe(events)
+            row = report['pipeline_tail'][0]
+            self.assertEqual(report['status'], 'PARTIAL')
+            self.assertEqual(row['completion'], completion)
+            self.assertTrue(row['exception_present'])
+            self.assertIsNone(row['pipeline_result_size'])
+            self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_signed_unprojected_markers_are_not_reinterpreted_as_sizes_or_query_attribution(self):
+        events = numeric_events()
+        events[1]['queryCausingWork'] = -1
+        events[1]['appearsAs']['TypeInference::inferType/2#fixture'] = [-1, 1]
+        events.insert(-1, numeric_event('CACHE_LOOKUP', 11, relationSize=-1, cacheLookupResult='CACHACA_HIT'))
+        _, report = self.observe(events)
+        self.assertEqual(report['status'], 'OBSERVED')
+        self.assertNotIn('relationSize', json.dumps(report))
+        self.assertNotIn('queryCausingWork', json.dumps(report))
+
+    def test_post_cap_oversized_framing_recovers_without_changing_memory_failure(self):
+        events = numeric_events()
+        huge = numeric_event('CACHE_LOOKUP', 20, predicateName='x'*(profile.LINE_CAP+100))
+        data = numeric_bytes(events[:2]+[huge]+events[2:])
+        capture, report = self.observe(limit=200, chunks=[data[i:i+65536] for i in range(0, len(data), 65536)])
+        self.assertEqual(capture.summary()['error'], 'MEMORY_LIMIT')
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['pipeline_completed'], 3)
+        self.assertEqual(capture.pending, b'')
+
+    def test_state_caps_and_receipt_bound_are_fixed(self):
+        events = numeric_events()[:1]
+        for index in range(profile.NUMERIC_PREDICATE_CAP+1):
+            events.append(numeric_event('PREDICATE_STARTED', index+2,
+                appearsAs={'TypeInference::inferType/2#fixed': [1]}, predicateType='RECURSIVE_INTENSIONAL'))
+        events.append(numeric_event('LOG_FOOTER', 1000))
+        _, report = self.observe(events)
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['open_predicates'], profile.NUMERIC_PREDICATE_CAP)
+        self.assertLessEqual(len(json.dumps(report, indent=2).encode())+1, runtime.MAX_CONTROL_RECEIPT)
+
+    def test_observation_reserves_numeric_state_globally_and_restores_caps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); out = root/'evidence'; out.mkdir(); work = root/'work'; work.mkdir()
+            original = runtime.CAP, runtime.WRITE_CAP
+            observation = profile.Observation(out, work, [QUERY])
+            try:
+                observation.start()
+                self.assertEqual(runtime.CAP, original[0]-profile.RAW_CAP-profile.NUMERIC_RESERVE)
+                self.assertEqual(runtime.WRITE_CAP, original[1]-profile.RAW_CAP-profile.NUMERIC_RESERVE)
+                with observation.output_budget():
+                    self.assertEqual(runtime.CAP, profile.OUTPUT_CAP-profile.NUMERIC_RESERVE)
+            finally:
+                observation.close()
+            self.assertEqual((runtime.CAP, runtime.WRITE_CAP), original)
+
+
 class OwnedProcessTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -118,6 +360,40 @@ class OwnedProcessTests(unittest.TestCase):
                            timeout, self.out, os.environ.copy(), file_limit=None,
                            evaluator=self.root/'events.jsonl', evaluator_capture=self.cap,
                            observer=profile.Progress([QUERY]), restricted_output=True)
+
+    def test_numeric_parser_failure_preserves_real_child_exit(self):
+        self.cap.close()
+        projection = profile.NumericProjection()
+        self.cap = profile.Capture(projection=projection); self.addCleanup(self.cap.close)
+        data = numeric_bytes(numeric_events())
+        body = 'import os,sys\nf=os.open(sys.argv[1],os.O_WRONLY)\n'+f'os.write(f,{data!r})\nos.close(f)\nsys.exit(7)\n'
+        with patch.object(projection, 'accept', side_effect=ValueError(SYNTHETIC_CANARY)):
+            with self.assertRaises(runtime.PhaseError) as caught:
+                self.execute(body)
+        self.assertEqual(caught.exception.result['execution_failure_kind'], 'child_exit')
+        self.assertEqual(caught.exception.result['failure_kind'], 'child_exit')
+        self.assertEqual(caught.exception.result['exit'], 7)
+        self.assertEqual(projection.report()['status'], 'PARTIAL')
+        for path in self.out.iterdir():
+            if path.is_file(): self.assertNotIn(SYNTHETIC_CANARY.encode(), path.read_bytes())
+
+    def test_numeric_projection_keeps_term_tail_after_raw_cap_without_overwriting_timeout(self):
+        events = numeric_events(); prefix = numeric_bytes(events[:3])+b'\n'; tail = numeric_bytes(events[3:])
+        self.cap.close()
+        projection = profile.NumericProjection()
+        self.cap = profile.Capture(len(prefix), projection=projection); self.addCleanup(self.cap.close)
+        body = ('import os,sys,signal,time\nf=os.open(sys.argv[1],os.O_WRONLY)\n'
+                'def stopped(*_):\n'+f' os.write(f,{tail!r})\n os.close(f)\n sys.exit(143)\n'
+                'signal.signal(signal.SIGTERM,stopped)\n'+f'os.write(f,{prefix!r})\n'
+                'while True: time.sleep(.05)\n')
+        with self.assertRaises(runtime.PhaseError) as caught:
+            self.execute(body, timeout=4.2)
+        self.assertEqual(caught.exception.result['execution_failure_kind'], 'timeout')
+        self.assertEqual(caught.exception.result['failure_kind'], 'timeout')
+        self.assertEqual(self.cap.summary()['error'], 'MEMORY_LIMIT')
+        self.assertEqual(projection.report()['status'], 'OBSERVED')
+        self.assertEqual(projection.report()['pipeline_tail'][-1]['generation'], 1539)
+        self.assertTrue(self.cap.summary()['transport_eof'])
 
     def assert_private(self):
         self.assertFalse((self.root/'events.jsonl').exists())
@@ -306,12 +582,12 @@ class BudgetTests(unittest.TestCase):
 
     def test_raw_memory_output_and_terminal_reservations_share_original_cap(self):
         observation = self.observation()
-        self.assertEqual(runtime.CAP, 16*1024**2)
-        self.assertEqual(runtime.WRITE_CAP, 15*1024**2)
+        self.assertEqual(runtime.CAP, 12*1024**2)
+        self.assertEqual(runtime.WRITE_CAP, 11*1024**2)
         with observation.output_budget():
-            self.assertEqual(runtime.CAP, 8*1024**2)
-            self.assertEqual(runtime.WRITE_CAP, 7*1024**2)
-        self.assertEqual(runtime.CAP, 16*1024**2)
+            self.assertEqual(runtime.CAP, 4*1024**2)
+            self.assertEqual(runtime.WRITE_CAP, 3*1024**2)
+        self.assertEqual(runtime.CAP, 12*1024**2)
         observation.close(); self.assertEqual(runtime.CAP, 64*1024**2)
 
     def test_insufficient_shared_capacity_rejects_before_memfd_allocation(self):
@@ -337,7 +613,7 @@ class BudgetTests(unittest.TestCase):
 
     def test_memory_limit_never_summarizes_the_retained_prefix(self):
         real_capture = profile.Capture
-        with patch.object(profile, 'Capture', side_effect=lambda: real_capture(4)):
+        with patch.object(profile, 'Capture', side_effect=lambda **kwargs: real_capture(4, **kwargs)):
             observation = self.observation()
         observation.capture.feed(RAW); observation.capture.finish(True, True)
         observation.batch_safe = True
@@ -346,8 +622,24 @@ class BudgetTests(unittest.TestCase):
             run.assert_not_called()
         self.assertEqual(observation.summary_result['status'], 'NOT_REACHED_MEMORY_LIMIT')
         self.assertEqual(observation.receipt()['status'], 'INCOMPLETE')
-        self.assertEqual(runtime.CAP, 16*1024**2)
+        self.assertEqual(runtime.CAP, 12*1024**2)
         observation.close(); self.assertEqual(runtime.CAP, 64*1024**2)
+
+    def test_optional_numeric_status_does_not_add_a_research_completion_gate(self):
+        for expected, data in (('PARTIAL', RAW), ('NOT_OBSERVED', numeric_bytes(numeric_events({})))):
+            with self.subTest(numeric_status=expected):
+                observation = self.observation()
+                observation.capture.feed(data); observation.capture.finish(True, True)
+                observation.summary_result = dict(status='PROJECTED')
+                result = observation.finish()
+                self.assertEqual(result['status'], 'COMPLETE')
+                self.assertEqual(result['numeric_status'], expected)
+                numeric = observation.out/'numeric-projection.json'
+                self.assertLessEqual(numeric.stat().st_size, runtime.MAX_CONTROL_RECEIPT)
+                self.assertNotIn(SYNTHETIC_CANARY.encode(), numeric.read_bytes())
+                observation.close()
+                for path in observation.out.iterdir(): path.unlink()
+                observation.out.rmdir()
 
 
 class SummaryTests(unittest.TestCase):

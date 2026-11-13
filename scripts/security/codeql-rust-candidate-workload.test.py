@@ -276,7 +276,7 @@ class Workload(unittest.TestCase):
             self.assertTrue(observation['restricted_output'])
             self.assertIn('--evaluator-log-level=3', argv)
             self.assertIn('--no-tuple-counting', argv)
-            self.assertEqual(m.runtime.CAP, m.candidate_profile.OUTPUT_CAP +
+            self.assertEqual(m.runtime.CAP, m.candidate_profile.OUTPUT_CAP-m.candidate_profile.NUMERIC_RESERVE +
                              m.runtime.output_bytes(out)-m.runtime.output_bytes(output.parent))
             records = m.read_json(self.out / 'query-inputs.json')
             paths = m.result_paths(records, self.db)
@@ -285,8 +285,14 @@ class Workload(unittest.TestCase):
                 if self.failed_stage == name: break
             output.write_text('batch output')
             capture = observation['evaluator_capture']
-            capture.feed((json.dumps(dict(type='LOG_HEADER', logVersion='0.5.0', codeqlVersion='2.27.4'))+
-                          '\n'+json.dumps(dict(type='LOG_FOOTER'))).encode())
+            events = [dict(type='LOG_HEADER', logVersion='0.5.0', codeqlVersion='2.27.4'),
+                      dict(type='PREDICATE_STARTED', appearsAs={'TypeInference::inferType/2#fixture': [1]},
+                           predicateType='RECURSIVE_INTENSIONAL', layerId=0),
+                      dict(type='PIPELINE_STARTED', predicateStartEvent=1, generationNumber=1),
+                      dict(type='PIPELINE_COMPLETED', startEvent=2, resultSize=1),
+                      dict(type='PREDICATE_COMPLETED', startEvent=1, resultSize=1), dict(type='LOG_FOOTER')]
+            capture.feed(b'\n'.join(json.dumps(dict(event, eventId=index, nanoTime=index*100,
+                time='2026-01-01T00:00:00Z')).encode() for index, event in enumerate(events)))
             capture.finish(True, True)
             for stream in ('stdout','stderr'): observation['observer'].feed(stream, b'', final=True)
             if self.mutate == 'candidate': (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('mutated')
@@ -401,6 +407,10 @@ class Workload(unittest.TestCase):
         self.assertEqual(terminal['production_capacity'], 'UNKNOWN'); self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
         self.assertEqual(terminal['final_hosted_job_margin'], 'NOT_OBSERVED')
         self.assertEqual(terminal['performance_observation']['status'], 'COMPLETE')
+        self.assertEqual(terminal['performance_observation']['numeric_status'], 'OBSERVED')
+        numeric = self.out / 'candidate-observation/numeric-projection.json'
+        self.assertLessEqual(numeric.stat().st_size, m.runtime.MAX_CONTROL_RECEIPT)
+        self.assertEqual(m.read_json(numeric)['pipeline_tail'][0]['pipeline_result_size'], 1)
         self.assertEqual(sum(c[0]=='official-summary' for c in self.calls), 1)
         self.assertEqual(len(terminal['public_semantic_tables']), 7)
         self.assertEqual(len(m.read_json(self.out / 'default-query-results.json')), 37)
@@ -456,7 +466,7 @@ class Workload(unittest.TestCase):
     def test_memory_limit_preserves_44_results_and_oracles_without_completing_research(self):
         self.prepare()
         real_capture = m.candidate_profile.Capture
-        with patch.object(m.candidate_profile, 'Capture', side_effect=lambda: real_capture(4)):
+        with patch.object(m.candidate_profile, 'Capture', side_effect=lambda **kwargs: real_capture(4, **kwargs)):
             self.assertEqual(self.invoke('run'), 1)
         terminal = m.read_json(self.out/'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_INCOMPLETE')
@@ -470,6 +480,8 @@ class Workload(unittest.TestCase):
         self.assertEqual(terminal['primary_failure']['stage'], 'performance-observation')
         self.assertEqual(terminal['performance_observation']['capture_status'], 'INCOMPLETE')
         self.assertEqual(terminal['performance_observation']['summary_status'], 'NOT_REACHED_MEMORY_LIMIT')
+        self.assertEqual(terminal['performance_observation']['numeric_status'], 'OBSERVED')
+        self.assertTrue(m.read_json(self.out/'candidate-observation/numeric-projection.json')['raw_memory_limit_seen'])
         self.assertEqual(sum(c[0]=='candidate-workload-batch' for c in self.calls), 1)
         self.assertFalse(any(c[0]=='official-summary' for c in self.calls))
         self.assertLessEqual(m.runtime.output_bytes(self.out), m.PRIVATE_CAP)
