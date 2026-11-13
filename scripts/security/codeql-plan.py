@@ -232,6 +232,11 @@ def plan(args):
         elif path in WORKERS_POLICY_INPUTS:
             add('javascript-repo', path)
             add('rust-repo', path)
+        elif path == 'crates/oasis7_dev_test_worker/wrangler.toml':
+            # Exact deployment input for the JS ingress and Rust Wasm/DO class.
+            # Other TOML remains unregistered; this does not enable any batch.
+            add('javascript-repo', path)
+            add('rust-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)
         # build.rs can read arbitrary repository data or invoke generators. No
