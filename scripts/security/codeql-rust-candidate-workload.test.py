@@ -129,8 +129,9 @@ class ArityPatch(unittest.TestCase):
 
     def test_shared_patch_has_separate_research_and_component_identities(self):
         self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-shared-constraint.patch'), m.SHARED_PATCH_SHA)
-        self.assertEqual(m.WORKLOAD_VARIANT, 'qualifier-lines-shared-v4')
+        self.assertEqual(m.WORKLOAD_VARIANT, 'qualifier-lines-shared-trait-v5')
         self.assertEqual(m.VARIANT, 'qualifier-lines-v3')
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-trait-visibility.patch'), m.TRAIT_PATCH_SHA)
 
 
 class Workload(unittest.TestCase):
@@ -178,6 +179,7 @@ class Workload(unittest.TestCase):
         original = Path(self.closure['codeql/rust-all']['root'])
         (original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
         (original / m.comparison.TYPE_FILE).write_text('stock')
+        (original / m.TRAIT_PATH_FILE).write_text('stock-path')
         self.core_bytes=b'extensions:\n'+m.MODEL_MARKER+b'      # Existing fixed models\n'
         (original / m.MODEL_FILE).parent.mkdir(parents=True)
         (original / m.MODEL_FILE).write_bytes(self.core_bytes)
@@ -218,6 +220,9 @@ class Workload(unittest.TestCase):
                                    (m.comparison, 'OFFICIAL_SHA', hashlib.sha256(b'stock').hexdigest()),
                                    (m.comparison, 'CANDIDATE_SHA', hashlib.sha256(b'candidate').hexdigest()),
                                    (m, 'TYPE_CANDIDATE_SHA', hashlib.sha256(b'arity-candidate').hexdigest()),
+                                   (m, 'TRAIT_TYPE_SHA', hashlib.sha256(b'trait-candidate').hexdigest()),
+                                   (m, 'TRAIT_PATH_OFFICIAL_SHA', hashlib.sha256(b'stock-path').hexdigest()),
+                                   (m, 'TRAIT_PATH_SHA', hashlib.sha256(b'trait-path').hexdigest()),
                                    (m.capacity.bundle, 'SHARED_OFFICIAL_SHA', hashlib.sha256(b'stock-shared').hexdigest()),
                                    (m.capacity.bundle, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'helper-shared').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
@@ -260,6 +265,10 @@ class Workload(unittest.TestCase):
         elif name == 'apply-shared-helper-patch':
             (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('helper-shared')
             output.write_text('applied fixed shared helper fixture')
+        elif name == 'apply-trait-visibility-patch':
+            (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('trait-candidate')
+            (self.work / 'candidate-rust-all' / m.TRAIT_PATH_FILE).write_text('trait-path')
+            output.write_text('applied fixed trait visibility fixture')
         elif name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
         elif name.startswith('resolve-'):
             path = Path(next(a.split('=', 1)[1] for a in argv if a.startswith('--query=')))
@@ -300,6 +309,7 @@ class Workload(unittest.TestCase):
             if self.mutate == 'query': (self.work / 'default-queries/queries/Q00.ql').write_text('mutated')
             if self.mutate == 'database': (self.db / 'codeql-database.yml').write_text('mutated')
             if self.mutate == 'shared': (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('mutated')
+            if self.mutate == 'trait-path': (self.work / 'candidate-rust-all' / m.TRAIT_PATH_FILE).write_text('mutated')
         elif name == 'official-summary':
             self.assertTrue(observation['restricted_output'])
             self.assertEqual(argv[1:3], ['generate','log-summary'])
@@ -385,7 +395,7 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
-        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-shared-v4')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-shared-trait-v5')
         self.assertEqual(terminal['image_contract_version'],'image-v2')
         self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
         model=m.read_json(self.out/'lines-model-identity.json')
@@ -395,11 +405,20 @@ class Workload(unittest.TestCase):
         self.assertEqual(model['changed_files'],sorted([m.MODEL_FILE,m.comparison.TYPE_FILE]))
         self.assertEqual(set(model['official_files']),set(model['candidate_files']))
         shared = m.read_json(self.out / 'shared-helper-identity.json')
-        self.assertEqual(shared['variant'], 'qualifier-lines-shared-v4')
+        self.assertEqual(shared['variant'], 'qualifier-lines-shared-trait-v5')
         self.assertEqual(shared['base_variant'], 'qualifier-lines-v3')
         self.assertEqual(shared['changed_files'], [m.SHARED_FILE])
         self.assertEqual(shared['candidate_files'][m.SHARED_FILE]['sha256'], hashlib.sha256(b'helper-shared').hexdigest())
         self.assertEqual(set(shared['official_files']), set(shared['candidate_files']))
+        trait = m.read_json(self.out / 'trait-visibility-identity.json')
+        self.assertEqual(trait['variant'], m.WORKLOAD_VARIANT)
+        self.assertEqual(trait['base_variant'], 'qualifier-lines-v3')
+        self.assertEqual(trait['before_files'], model['candidate_files'])
+        self.assertEqual(trait['changed_files'], sorted((m.comparison.TYPE_FILE, m.TRAIT_PATH_FILE)))
+        self.assertEqual(trait['candidate_files'][m.comparison.TYPE_FILE]['sha256'], m.TRAIT_TYPE_SHA)
+        self.assertEqual(trait['candidate_files'][m.TRAIT_PATH_FILE]['sha256'], m.TRAIT_PATH_SHA)
+        self.assertEqual(trait['base_receipts_sha256'], {name: m.runtime.digest(self.out / name) for name in
+                         ('arity-patch-identity.json', 'lines-model-identity.json')})
         closures = m.read_json(self.out / 'selected-closures.json')
         for closure in closures.values():
             self.assertEqual(closure['codeql/typeinference']['root'], str(self.work / 'candidate-typeinference'))
@@ -673,6 +692,96 @@ class Workload(unittest.TestCase):
         self.assertIn('arity-patch-identity.json',
                       m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
 
+    def test_v4_preparation_cannot_be_resumed_as_the_trait_workload(self):
+        self.prepare()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        prepared['candidate_variant'] = 'qualifier-lines-shared-v4'
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation receipt differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_missing_trait_receipt_blocks_queries_after_resealing(self):
+        self.prepare()
+        (self.out / 'trait-visibility-identity.json').unlink()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('trait-visibility-identity.json',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_old_path_bytes_block_queries_even_with_fresh_inputs_and_seal(self):
+        self.prepare()
+        (self.work / 'candidate-rust-all' / m.TRAIT_PATH_FILE).write_text('stock-path')
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('fixed trait visibility annotation patch',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_forged_base_cannot_hide_an_extra_change_after_resealing(self):
+        self.prepare()
+        (self.work / 'candidate-rust-all/rust.dbscheme').write_text('changed')
+        model = m.read_json(self.out / 'lines-model-identity.json')
+        changed = m.regular_snapshot(self.work / 'candidate-rust-all', time.monotonic() + 30)['rust.dbscheme']
+        model['official_files']['rust.dbscheme'] = model['candidate_files']['rust.dbscheme'] = changed
+        self.write(self.out / 'lines-model-identity.json', model)
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('two-file model',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_trait_tree_changes_and_old_type_bytes_are_rejected(self):
+        self.prepare()
+        private = self.work / 'candidate-rust-all'
+        original = Path(self.closure['codeql/rust-all']['root'])
+        for relative, payload in ((m.comparison.TYPE_FILE, b'arity-candidate'),
+                                  ('rust.dbscheme', b'changed'), ('Extra.qll', b'extra')):
+            with self.subTest(relative=relative):
+                target = private / relative
+                before = target.read_bytes() if target.exists() else None
+                target.write_bytes(payload)
+                try:
+                    with self.assertRaises(RuntimeError):
+                        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+                finally:
+                    if before is None: target.unlink()
+                    else: target.write_bytes(before)
+        target = private / m.TRAIT_PATH_FILE
+        mode = target.stat().st_mode
+        target.chmod(mode ^ 0o100)
+        try:
+            with self.assertRaises(RuntimeError):
+                m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+        finally: target.chmod(mode)
+        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+        with self.assertRaisesRegex(RuntimeError, 'two-file model'):
+            m.verify_candidate_identity(original, private, self.out, time.monotonic() + 30)
+
+    def test_wrong_trait_patch_stops_before_its_process(self):
+        with patch.object(m, 'TRAIT_PATCH_SHA', '0' * 64):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertFalse(any(call[0] == 'apply-trait-visibility-patch' for call in self.calls))
+        self.assertFalse((self.out / 'trait-visibility-identity.json').exists())
+        self.assertEqual((self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).read_text(), 'arity-candidate')
+        self.assertEqual((self.work / 'candidate-rust-all' / m.TRAIT_PATH_FILE).read_text(), 'stock-path')
+
+    def test_path_mutation_during_batch_fails_after_identity(self):
+        self.prepare(); self.mutate = 'trait-path'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['stage'], 'private_inputs-after')
+
     def test_shared_original_bytes_cannot_be_admitted_after_resealing_inputs(self):
         self.prepare()
         (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('stock-shared')
@@ -835,6 +944,7 @@ class RealCodeQL(unittest.TestCase):
             before = {key: m.regular_snapshot(Path(value['root']), end) for key, value in official.items()}
             m.prepare_candidate(official, work, out, end, run, copy_end=end)
             m.prepare_shared_helper(official, work, out, end, run, copy_end=end)
+            m.prepare_trait_visibility(official, work, out, end, run)
             m.verify_workload_identity(official, work, out, end)
             witness = m.workload_closure(official, work)
             closures = dict(witness=witness, default=dict(witness, **{'codeql/suite-helpers': m.suite_helper(codeql.parent)}))
@@ -854,6 +964,11 @@ class RealCodeQL(unittest.TestCase):
                 self.assertNotIn(official['codeql/typeinference']['root'], result['actual']['libraryPath'])
             self.assertEqual({key: m.regular_snapshot(Path(value['root']), end) for key, value in official.items()}, before)
             self.assertEqual(m.read_json(out / 'shared-helper-identity.json')['changed_files'], [m.SHARED_FILE])
+            trait = m.read_json(out / 'trait-visibility-identity.json')
+            self.assertEqual(trait['candidate_files'][m.comparison.TYPE_FILE]['sha256'], m.TRAIT_TYPE_SHA)
+            self.assertEqual(trait['candidate_files'][m.TRAIT_PATH_FILE]['sha256'], m.TRAIT_PATH_SHA)
+            with self.assertRaisesRegex(RuntimeError, 'two-file model'):
+                m.verify_candidate_identity(Path(official['codeql/rust-all']['root']), work / 'candidate-rust-all', out, end)
 
 
 class Workflow(unittest.TestCase):

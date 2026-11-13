@@ -29,6 +29,7 @@ FILES = (
     'codeql-rust-omitted-qualifier.patch',
     'codeql-rust-qualifier-arity.patch',
     'codeql-rust-shared-constraint.patch',
+    'codeql-rust-trait-visibility.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',
     'codeql-rust-refactored-source.py',
