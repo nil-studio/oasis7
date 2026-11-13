@@ -269,6 +269,10 @@ bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的
 
 `witness-observation.json` 的九行计数分别观察四个真实宏展开、两个普通项负例、两组静态调用正反例及数据库内 custody crate 的 WASM/角色 cfg。任何正例缺失、错误目标或非法角色出现、缺行、重复、未知 schema 都保持 INCOMPLETE；单有文件、metadata、编译成功或零负例不能通过。查询结果仍需结合 source/query/BQRS 摘要、完整封存清单及实际平台终态核对。私有 DB、原生日志、TRAP、源码归档和缓存留在 runner 临时工作目录，绝不打包或上传。
 
+查询失败时先读 `witness-query.result.json` 的原退出码、`failure_kind`、清理和完整流摘要，再读 `query_progress` 的冻结查询身份、四类编译/求值事件计数及首末接收时间。未知行、非法编码和无换行尾部只保留计数与流身份；无事件不证明该阶段未发生，接收时间也不等于内部阶段耗时。投影错误不能覆盖原 timeout 或非零退出，亦不能用成功的进度事件替代九行结果验收。该投影随唯一原查询采集，预算、查询次数和上传边界保持原合同。
+
+进度通道使用 `--loglevel=ERROR --verbosity=progress`，仅 `witness-query` 移除 `--log-to-stderr`，避免详细日志路由吞掉普通进度。固定 CLI 的可选小回归为 `python3 scripts/security/codeql-rust-wasm-context.test.py RealProgressTests`：显式提供 `OASIS7_CODEQL_WASM_PROGRESS_CLI`（2.27.4 可执行文件）与 `OASIS7_CODEQL_WASM_PROGRESS_RUST_BIN`（1.99.0 的 cargo/rustc 目录）后，在一次 120 秒总界内建立单文件临时 Rust DB、执行一次玩具查询并验证四事件与一行 BQRS；默认跳过。仅 schema 收据可由 `OASIS7_CODEQL_WASM_PROGRESS_EVIDENCE` 指向独立目录保留，临时 DB/原生日志/缓存会清理。该回归只验证固定 CLI 输出合同，不代签真实 WASM 九项见证或原运行预算。
+
 只有本轮 metadata、真实提取、cfg、宏/调用、guard、前后身份与封存全部成立，才记 `WASM_CONTEXT_SEMANTICS_OBSERVED`。该状态限于固定旧源码上的小见证，不代表当前 main、完整 WASM 支持范围、全数据流、生产容量或运营启用；`full_rust_coverage=HOLD` 和 `production_capacity=UNKNOWN` 保留。本地 `query compile --check-only` 只验收公开 QL API，真实提取/查询未执行时如实记 NOT_RUN。
 
 ### 短原生准备诊断

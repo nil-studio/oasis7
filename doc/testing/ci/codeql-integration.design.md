@@ -533,7 +533,7 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 #### 7.2.7 合法 WASM 单角色 CodeQL 语义诊断
 
-本入口继续承接 CQ-R03/R04/R05/R06，在 §7.2.5 的同一冻结源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef` 上独立采集真实 CodeQL 上下文，不复用旧 metadata 的通过标签。新增默认关闭的 `CodeQL Rust WASM Context` workflow，仅可信默认分支精确 `execute=true` 的手动请求执行，权限、scan-slot-1 排队和不取消已有运行与 metadata 入口一致。该入口不改生产变量、SARIF 上传、数据库上传、既有研究或生产预算。
+本入口继续承接 CQ-R03/R04/R05/R06/R09，在 §7.2.5 的同一冻结源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef` 上独立采集真实 CodeQL 上下文，不复用旧 metadata 的通过标签。新增默认关闭的 `CodeQL Rust WASM Context` workflow，仅可信默认分支精确 `execute=true` 的手动请求执行，权限、scan-slot-1 排队和不取消已有运行与 metadata 入口一致。该入口不改生产变量、SARIF 上传、数据库上传、既有研究或生产预算。
 
 完整根 workspace、53 个不同根成员、全部源码与锁文件保持原样；固定 Rust 1.99.0、`wasm32-unknown-unknown` 和唯一 `oasis7_custody_worker/recovery-fence`，安装该工具链的 rust-src 与 WASM 标准库。重新执行受 guard 约束的根 metadata，对实际 resolve 图验证角色与六个本地包，拒绝其余角色及两种 harness。六包身份沿用 §7.2.5；完整根仍是实际项目，不称为独立 crate。工具 helper 在业务根之外，CLI 的 cwd、`--source-root` 和 index 起点均为完整业务根，`database index-files` 只选六包下 `.rs`，记录精确输入集合及摘要。
 
@@ -548,6 +548,10 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 见证限定于 `platform.rs`、`recovery_fence_control.rs`、`recovery_fence_store.rs`。AST 绑定原始文件、声明名称和冻结行号；被 attribute expansion 替换而隐藏 Name 的原 Item 使用冻结起始 span，名称可见时仍必须匹配。分别观察 `event(fetch)`、`durable_object`、`wasm_bindgen` attribute expansion 与 `Serialize` derive expansion，要求存在真实生成 AST 后代；普通函数与无 derive 的结构体作为零展开负例。不猜宏生成的符号名称。另对 activation 内的 `call` 和 platform 内的 `control_enabled` 调用，分别计数语法节点、正确静态目标及明确不同的错误目标；正例必须实际出现，错误目标必须为零。另通过公开 `Crate.getACfgOption()` 观察 custody crate 的所有实际上下文，要求 WASM arch/family/os、recovery-fence 阳性和其余角色/harness 阴性；不能仅按请求参数判定 cfg 已生效。返回缺行、重复标签、非整数、只有零值或未知 schema 时不通过；文件被 index、AST 存在、metadata 图合法各自都不等于宏或调用模型通过。该有限语义见证不证明全数据流、所有维护中的 WASM 上下文或生产容量。
 
 原 guard 的真实 Cargo 身份、locked 约束、版本首写 adapter 和审计保持；新验收按实际根 workspace 校验本轮新增提取调用及精确 build-script argv、cwd、工具链，而非要求容量入口的 47 roots 或旧 D1/D2 两条调用。源码、锁、helper、bundle/library 与工具链前后身份独立核对；命令失败、上下文不符、超时、遗留进程或证据不足均保留 INCOMPLETE。持久化 evidence 和控制台从首次写入即受原诊断隐私合同约束，允许 JSON 只有 schema 校验后的投影，原始进程输出只在有界内存中使用，不先写证据再清理。真实提取必需的数据库、其原生日志、TRAP 和源码归档是独立 RUNNER_TEMP 私有工作产物，位于业务采集根及 evidence 目录之外，不作为允许上传的日志或证据。证据合计 64 MiB 并复用分账、终态预留与哈希封存，不包含 DB、源码、原始编译日志或 SARIF。
+
+同一次 `witness-query` 显式使用 `--verbosity=progress` 的 console progress，保留 `--loglevel=ERROR`，该阶段不设置会改走详细日志 stderr 的 `--log-to-stderr`；原生详细日志仍限于私有 DB。直接复用固定 2.27.4 的 `candidate_profile.Progress` 白名单解析器，该依赖一并纳入 bootstrap 冻结闭包。`witness-query.result.json` 的 `query_progress` 只记录本次冻结查询摘要、`COMPILE_START`、`COMPILE_DONE`、`EVALUATE_START`、`EVALUATE_DONE` 的计数及每类首末接收时间，另保留有界流分帧状态。时间是接收时刻，不是 CLI 内部阶段边界；未知行、非法编码与未换行尾部不成为进度事件，缺事件保持未知，不能靠时长或资源采样指定瓶颈。原 stdout/stderr 的实际字节数、SHA-256 和 EOF/前缀状态继续完整记录，原文不持久化。
+
+进度投影覆盖正常读取、TERM/KILL 后有限尾部 drain 和退出收据路径，不增加独立编译、查询、预热或摘要进程，不延长原截止或扩大证据分账。投影错误单列 INCOMPLETE 并保留原命令首失败；原命令成功但进度采证失败时仍拒绝完成。事件计数与实际查询/BQRS/oracle 结果分别判断，不由进度标记提前报告语义通过。
 
 最终分列 metadata、提取、宏见证、静态目标、guard、身份与证据结果；仅本次全部成立可报告 `WASM_CONTEXT_SEMANTICS_OBSERVED`。始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、平台完成待独立读回。开发阶段可对固定 bundle 解析并编译小查询以核对 API；未实际提取和执行之前必须保持 NOT_RUN，不能把本地编译或历史 release build 当成真实 WASM CodeQL 通过。
 

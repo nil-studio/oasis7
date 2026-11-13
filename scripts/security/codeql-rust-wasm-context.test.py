@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WASM context trust, budget, first-write and semantic contracts. No extraction."""
+"""WASM context contracts; a real CLI fixture is explicitly opt-in."""
 import base64
 import copy
 from contextlib import ExitStack, redirect_stdout
@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -23,6 +24,8 @@ import unittest
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
+import codeql_rust_candidate_profile as candidate_profile
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / '.github/workflows/codeql-rust-wasm-context.yml'
 TEXT = WORKFLOW.read_text()
@@ -58,6 +61,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn('group: oasis7-codeql-scan-slot-1\n      queue: max\n      cancel-in-progress: false', TEXT)
         self.assertIn('path: ${{ runner.temp }}/rust-wasm-context/evidence', TEXT)
         self.assertEqual(set(b.HELPERS) | {'workflow.yml'}, set(d.HELPERS))
+        self.assertIn('codeql_rust_candidate_profile.py', b.HELPERS)
         self.assertNotIn('upload-sarif', TEXT)
         self.assertNotIn('security-events: write', TEXT)
         self.assertNotIn('database-upload', TEXT)
@@ -443,6 +447,192 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertEqual(d.metadata.CAP, 64 * 1024**2)
 
 
+class WitnessProgressTests(unittest.TestCase):
+    """Real pipe bytes and cleanup exercise the fixed-query first-write boundary."""
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name); out = self.root / 'evidence'; out.mkdir()
+        self.secret = 'UNAPPROVED_PROGRESS_RAW_CANARY'
+        query = self.root / self.secret / (w.NAME + '.ql'); query.parent.mkdir()
+        query.write_bytes(b'select "UNAPPROVED_QUERY_TEXT_CANARY"\n')
+        self.query = query; self.digest = hashlib.sha256(query.read_bytes()).hexdigest()
+        self.evidence = d.metadata.Evidence(out); self.clock = d.Clock(clock_receipt())
+        d.metadata.set_subreaper()
+        self.start = ('Compiling query plan for ' + str(query) + '.\n').encode()
+        self.compiled = ('[1/1 comp 0.01s] Compiled ' + w.PACK + '/' + w.NAME + '.ql.\n').encode()
+        self.evaluate = ('Starting evaluation of ' + w.PACK + '/' + w.NAME + '.ql.\n').encode()
+        self.done = ('[1/1 eval 0.02s] Evaluation done; writing results to ' + w.PACK + '/' + w.NAME + '.bqrs.\n').encode()
+
+    def run_query(self, program, *, end=None):
+        writes = []; original = Path.write_bytes; output = io.StringIO()
+        def save(path, data):
+            if path.is_relative_to(self.evidence.root): writes.append(data)
+            return original(path, data)
+        try:
+            with patch.object(Path, 'write_bytes', new=save), redirect_stdout(output):
+                return d.run_owned('witness-query', [sys.executable, '-c', 'import os,signal,sys,time\n' + program, str(self.query)],
+                    self.root, dict(os.environ), self.clock, end or time.monotonic() + 10,
+                    self.evidence, {'cwd': str(self.root)})[1]
+        finally:
+            first_writes = b''.join(writes) + output.getvalue().encode()
+            self.assertNotIn(self.secret.encode(), first_writes)
+            self.assertNotIn(b'UNAPPROVED_QUERY_TEXT_CANARY', first_writes)
+
+    def assert_streams(self, receipt, stdout, stderr):
+        for name, raw in (('stdout', stdout), ('stderr', stderr)):
+            actual = receipt['streams'][name]; progress = receipt['query_progress']['streams'][name]
+            self.assertEqual(actual['bytes'], len(raw)); self.assertEqual(actual['sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertEqual(actual['observation'], 'EOF_COMPLETE')
+            self.assertEqual(progress['bytes'], actual['bytes']); self.assertEqual(progress['sha256'], actual['sha256'])
+            self.assertTrue(progress['final'])
+
+    def test_chunked_streams_project_only_frozen_query_events_and_bounded_times(self):
+        stdout = self.start + self.secret.encode() + b'\nCompiling query plan for /untrusted/Other.ql.\n'
+        stderr = self.compiled + self.evaluate + self.done
+        original_read = os.read
+        with patch.object(d.os, 'read', side_effect=lambda fd, size: original_read(fd, min(size, 11))):
+            receipt = self.run_query(f'os.write(1, {stdout!r})\nos.write(2, {stderr!r})\n')
+        progress = receipt['query_progress']
+        self.assertEqual(progress['status'], 'OBSERVED'); self.assertEqual(progress['query_sha256'], self.digest)
+        self.assertEqual(progress['events'], {event: 1 for event in ('COMPILE_START', 'COMPILE_DONE', 'EVALUATE_START', 'EVALUATE_DONE')})
+        self.assertEqual(set(progress['timing']), set(progress['events']))
+        for timing in progress['timing'].values():
+            self.assertEqual(len(timing), 4); self.assertTrue(all(math.isfinite(value) for value in timing.values()))
+            self.assertGreaterEqual(timing['first_received_monotonic'], receipt['started_monotonic'])
+            self.assertGreaterEqual(timing['last_received_monotonic'], timing['first_received_monotonic'])
+        self.assertEqual(progress['streams']['stdout']['rejected'], 2)
+        self.assert_streams(receipt, stdout, stderr)
+
+    def test_unterminated_tail_is_hashed_but_never_promoted_to_an_event(self):
+        stdout = self.start + self.compiled.rstrip(b'\n')
+        receipt = self.run_query(f'os.write(1, {stdout!r})\n')
+        progress = receipt['query_progress']
+        self.assertEqual(progress['events']['COMPILE_START'], 1)
+        self.assertEqual(progress['events']['COMPILE_DONE'], 0)
+        self.assertNotIn('COMPILE_DONE', progress['timing'])
+        self.assertEqual(progress['streams']['stdout']['processed_prefix_bytes'], len(self.start))
+        self.assertEqual(progress['streams']['stdout']['rejected'], 1)
+        self.assert_streams(receipt, stdout, b'')
+
+    def test_timeout_preserves_original_failure_and_projects_term_handler_tail(self):
+        program = (f'def stop(*_):\n os.write(2, {self.evaluate!r})\n sys.exit(0)\n'
+                   f'signal.signal(signal.SIGTERM, stop)\nos.write(1, {self.start!r})\ntime.sleep(20)\n')
+        started = time.monotonic()
+        with self.assertRaises(d.CommandFailed) as failed:
+            self.run_query(program, end=started + 4.4)
+        receipt = failed.exception.receipt
+        self.assertEqual(receipt['failure_kind'], 'timeout'); self.assertEqual(receipt['cleanup_errors'], [])
+        self.assertEqual(receipt['query_progress']['events']['EVALUATE_START'], 1)
+        self.assertEqual(receipt['query_progress']['events']['EVALUATE_DONE'], 0)
+        self.assert_streams(receipt, self.start, self.evaluate)
+        self.assertLess(time.monotonic() - started, 5)
+        with self.assertRaises(ProcessLookupError): os.killpg(receipt['pgid'], 0)
+
+    def test_nonzero_exit_keeps_progress_and_original_failure(self):
+        stderr = (self.secret + '\n').encode()
+        with self.assertRaises(d.CommandFailed) as failed:
+            self.run_query(f'os.write(1, {self.start!r})\nos.write(2, {stderr!r})\nsys.exit(7)\n')
+        receipt = failed.exception.receipt
+        self.assertEqual(receipt['failure_kind'], 'child_exit'); self.assertEqual(receipt['exit'], 7)
+        self.assertEqual(receipt['query_progress']['events']['COMPILE_START'], 1)
+        self.assert_streams(receipt, self.start, stderr)
+
+    def test_projection_failure_is_separate_and_never_makes_a_command_successful(self):
+        for exit_code in (0, 7):
+            with self.subTest(exit_code=exit_code), patch.object(candidate_profile.Progress, 'line', side_effect=ValueError(self.secret)):
+                with self.assertRaises(d.CommandFailed) as failed:
+                    self.run_query(f'os.write(1, {self.start!r})\nsys.exit({exit_code})\n')
+                receipt = failed.exception.receipt
+                self.assertEqual(receipt['failure_kind'], 'child_exit' if exit_code else 'progress_observation')
+                self.assertEqual(receipt['exit'], exit_code)
+                self.assertEqual(receipt['query_progress']['status'], 'INCOMPLETE')
+                self.assertEqual(receipt['query_progress']['error_code'], 'PROGRESS_REJECTED')
+                self.assert_streams(receipt, self.start, b'')
+
+    def test_cleanup_output_and_receipt_limits_preserve_the_primary_failure(self):
+        tail = (self.secret.encode() * 100)[:1025]
+        program = (f'def stop(*_):\n os.write(2, {tail!r})\n sys.exit(0)\n'
+                   f'signal.signal(signal.SIGTERM, stop)\nos.write(1, {self.start!r})\ntime.sleep(20)\n')
+        with self.subTest(limit='cleanup-output'), patch.object(d, 'MAX_STREAM', 1024):
+            with self.assertRaises(d.CommandFailed) as failed:
+                self.run_query(program, end=time.monotonic() + 4.4)
+            self.assertEqual(failed.exception.receipt['failure_kind'], 'timeout')
+            self.assertEqual(failed.exception.receipt['streams']['stderr']['observation'], 'OBSERVED_PREFIX_ONLY')
+            self.assertFalse(failed.exception.receipt['query_progress']['streams']['stderr']['final'])
+        oversized = {'fixture': 'x' * d.MAX_PROCESS_RECEIPT}
+        with self.subTest(limit='receipt'), patch.object(d.runtime.GroupSamples, 'result', return_value=oversized):
+            with self.assertRaises(d.CommandFailed) as failed:
+                self.run_query(f'os.write(1, {self.start!r})\nsys.exit(7)\n')
+            self.assertEqual(failed.exception.receipt['failure_kind'], 'child_exit')
+            self.assertEqual(failed.exception.receipt['resource_observation']['status'], 'UNAVAILABLE_RECEIPT_LIMIT')
+
+    def test_cleanup_cancellation_keeps_the_existing_exit_in_memory_and_on_disk(self):
+        previous = signal.signal(signal.SIGTERM, d.interruption); cleanup = d.cleanup_group
+        def interrupt_after_cleanup(proc):
+            result = cleanup(proc); os.kill(os.getpid(), signal.SIGTERM); return result
+        try:
+            with patch.object(d, 'cleanup_group', side_effect=interrupt_after_cleanup):
+                with self.assertRaises(d.CommandFailed) as failed:
+                    self.run_query(f'os.write(1, {self.start!r})\nsys.exit(7)\n')
+            receipt = failed.exception.receipt
+            saved = json.loads((self.evidence.root / 'witness-query.result.json').read_text())
+            self.assertEqual(receipt['failure_kind'], 'child_exit'); self.assertEqual(receipt['exit'], 7)
+            self.assertEqual(saved['failure_kind'], receipt['failure_kind'])
+        finally:
+            signal.signal(signal.SIGTERM, previous)
+
+
+@unittest.skipUnless(os.environ.get('OASIS7_CODEQL_WASM_PROGRESS_CLI') and os.environ.get('OASIS7_CODEQL_WASM_PROGRESS_RUST_BIN'),
+                     'explicit pinned CodeQL/Rust integration inputs required')
+class RealProgressTests(unittest.TestCase):
+    def test_fixed_cli_flags_and_four_events_through_the_real_supervisor(self):
+        """A single-file Rust fixture proves CLI event format, not WASM semantics."""
+        codeql = Path(os.environ['OASIS7_CODEQL_WASM_PROGRESS_CLI']).resolve()
+        rust_bin = Path(os.environ['OASIS7_CODEQL_WASM_PROGRESS_RUST_BIN']).resolve()
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve(); source = work / 'source'; source.mkdir()
+            (source / 'lib.rs').write_text('pub fn fixture() {}\n')
+            (source / 'Cargo.toml').write_text('[package]\nname="progress_fixture"\nversion="0.0.0"\nedition="2021"\n[lib]\npath="lib.rs"\n')
+            output = Path(os.environ.get('OASIS7_CODEQL_WASM_PROGRESS_EVIDENCE', str(work / 'evidence'))).resolve()
+            output.mkdir(parents=True, exist_ok=True); evidence = d.metadata.Evidence(output)
+            clock = d.Clock(clock_receipt()); end = time.monotonic() + 120
+            env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER',
+                                                                 'RUSTC_WORKSPACE_WRAPPER', 'RUSTUP_TOOLCHAIN')}
+            env.update(PATH=str(rust_bin) + os.pathsep + env['PATH'], RUSTC=str(rust_bin / 'rustc'),
+                       CARGO_HOME=str(work / 'cargo-home'), CARGO_TARGET_DIR=str(work / 'target'), CARGO_NET_OFFLINE='true')
+            base = ['--log-to-stderr', '--loglevel=ERROR', '--common-caches=' + str(work / 'common-cache')]
+            def run(phase, argv, capture=False):
+                return d.run_owned(phase, [str(codeql), *map(str, argv)], source, env, clock, end,
+                                   evidence, {'cwd': str(source)}, capture=capture)
+            raw, _ = run('codeql-version', ['version', '--format=json', *base], capture=True)
+            self.assertEqual(json.loads(raw)['version'], d.VERSION)
+            for kind in ('cargo', 'rustc'):
+                raw, _ = d.run_owned(kind + '-version', [str(rust_bin / kind), '-Vv'], source, env, clock, end,
+                                     evidence, {'cwd': str(source)}, capture=True)
+                self.assertEqual(d.metadata.parse_version(raw, kind)['release'], '1.99.0')
+            database = work / 'database'
+            run('database-init', ['database', 'init', '--language=rust', '--build-mode=none',
+                                 '--source-root=' + str(source), *base, '--', database])
+            run('database-index', ['database', 'index-files', '--language=rust', '--threads=2', '--ram=3072',
+                '--working-dir=' + str(source), '--no-follow-symlinks', '--include=lib.rs', *base, '--', database])
+            run('database-finalize', ['database', 'finalize', '--threads=2', '--ram=3072', *base, '--', database])
+            closure = d.model.bundle_closure(codeql.parent, d.VERSION)
+            query = d.prepare_query(source, work, closure) / (w.NAME + '.ql')
+            query.write_text('select "progress-fixture"\n')
+            _, receipt = run('witness-query', ['database', 'run-queries', '--no-use-precompiled', '--threads=2', '--ram=3072',
+                *d.query_options(work, closure), '--loglevel=ERROR', '--verbosity=progress', '--', database, query])
+            progress = receipt['query_progress']
+            self.assertEqual(progress['status'], 'OBSERVED')
+            self.assertEqual(progress['events'], {event: 1 for event in ('COMPILE_START', 'COMPILE_DONE', 'EVALUATE_START', 'EVALUATE_DONE')})
+            result = database / 'results' / w.PACK / (w.NAME + '.bqrs')
+            raw, _ = run('witness-decode', ['bqrs', 'decode', result, '--format=json', *base], capture=True)
+            self.assertEqual(json.loads(raw)['#select']['tuples'], [['progress-fixture']])
+            evidence.save('smoke-summary.json', {'status': 'PASS', 'codeql_version': d.VERSION, 'query_invocations': 1,
+                'flags': ['--loglevel=ERROR', '--verbosity=progress'],
+                'events': progress['events'], 'query_sha256': progress['query_sha256'], 'decoded_rows': 1,
+                'scope': 'Actual CLI events on a single-file Rust fixture DB; not WASM semantics.'})
+
+
 class FullFlowTests(unittest.TestCase):
     """Small independent fake external tools; real budgets/guard/seal/final transitions."""
     def flow(self, fault=None):
@@ -531,6 +721,9 @@ class FullFlowTests(unittest.TestCase):
             elif phase == 'database-identity':
                 raw = d.encoded({'sourceLocationPrefix': str(source), 'languages': ['rust'], 'datasetFolder': str(database / 'db-rust')})
             elif phase == 'witness-query':
+                self.assertIn('--verbosity=progress', argv)
+                self.assertIn('--loglevel=ERROR', argv)
+                self.assertNotIn('--log-to-stderr', argv)
                 target = database / 'results' / w.PACK / (w.NAME + '.bqrs'); target.parent.mkdir(parents=True); target.write_bytes(b'BQRS fixture')
                 if fault == 'source-mutated': (source / 'Cargo.lock').write_bytes(b'changed lock')
             elif phase == 'witness-decode':
