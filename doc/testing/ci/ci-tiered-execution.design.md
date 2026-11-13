@@ -403,7 +403,11 @@ schedule 使用 `17,37,57 * * * *`（UTC）执行轻量观察。短串行 admiss
 
 PR 并发组按 PR 编号取消过期运行。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
 
-`ci-full-result.py health` 只读观察最近两天 main schedule 的实际 attempt，区分观察与实际 full，报告最近完整运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。为覆盖旧 run 最近重跑，metadata 按两天窗口回看三十七天，并单独查询全部活动轮；范围覆盖 GitHub 的[三十天重跑期限](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)及[三十五天 workflow 运行上限](https://docs.github.com/en/actions/reference/limits)加两天观察窗，不把创建时间当最新 attempt 时间。读取共享 120 秒、800 次请求上限，最多四个并发只读审计，预算不足保留 unknown。合法空跑必须有唯一、同 run/attempt/SHA/workflow 的 admission=false 产物，admission 实际成功，select 与 full gate 实际 skipped，且无矛盾的 selection/full receipt；缺失或冲突不能算健康。旧版本没有 admission job 的 schedule 保持原 full 语义。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
+`ci-full-result.py health` 只读观察最近两天 main schedule 的实际 attempt，区分观察与实际 full，报告最近完整运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。为覆盖旧 run 最近重跑，metadata 按两天窗口回看三十七天，并单独查询全部活动轮；范围覆盖 GitHub 的[三十天重跑期限](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)及[三十五天 workflow 运行上限](https://docs.github.com/en/actions/reference/limits)加两天观察窗，不把创建时间当最新 attempt 时间。
+
+读取共享 120 秒、800 次请求上限，最多四个并发只读审计，预算不足保留 unknown。GitHub API 的只读 GET 仅在打开响应时得到 HTTP 502/503/504 时重试，每个请求含首次最多三次，退避为 0.5 秒、1 秒；每次实际尝试计入同一带锁请求计数，等待及后续请求共用原截止时间，额度不足立即失败。4xx、重定向、其他传输错误、损坏响应、缺项及合同断言不重试；artifact 的 302 仍由独立无 token 的 storage 下载承接，storage 不进入该重试。全部分页和身份校验完成前不发布可用历史、准入输出或完整资格。
+
+合法空跑必须有唯一、同 run/attempt/SHA/workflow 的 admission=false 产物，admission 实际成功，select 与 full gate 实际 skipped，且无矛盾的 selection/full receipt；缺失或冲突不能算健康。旧版本没有 admission job 的 schedule 保持原 full 语义。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
 
 admission 成功且上述证据完整证明未执行 full，但 workflow 随后失败或取消时，记录为控制失败：健康和发布资格仍失败，不刷新 full 启动时间或占用活动名额，后续观察可按原四小时条件恢复准入。未知结论、未完成状态、缺失或矛盾证据仍拒绝分类，不能用恢复路径掩盖实际执行。
 
