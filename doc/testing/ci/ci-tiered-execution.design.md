@@ -35,7 +35,10 @@ Rust 变化覆盖自身及需要验证的反向消费者，删除和重命名覆
 | GitHub Issue 表单与入口配置 | `.github/ISSUE_TEMPLATE/code-development.yml`、`.github/ISSUE_TEMPLATE/config.yml`、`.github/ISSUE_TEMPLATE/decision.yml`、`.github/ISSUE_TEMPLATE/defect.yml`、`.github/ISSUE_TEMPLATE/document.yml`、`.github/ISSUE_TEMPLATE/test.yml` | baseline、workflow_governance |
 | GitHub PR 模板 | `.github/pull_request_template.md` | baseline、workflow_governance |
 | GitHub PR 评审说明 | `.github/instructions/pr-review.instructions.md` | baseline、workflow_governance |
-| 独立 CodeQL 扫描与诊断 workflow | `.github/workflows/codeql.yml`、`.github/workflows/codeql-rust-capacity.yml`、`.github/workflows/codeql-rust-cargo-check.yml`、`.github/workflows/codeql-rust-cfg-diagnostic.yml` | baseline、workflow_governance |
+| 独立 CodeQL 扫描与诊断 workflow | `.github/workflows/codeql.yml`、`.github/workflows/codeql-rust-capacity.yml`、`.github/workflows/codeql-rust-cargo-check.yml`、`.github/workflows/codeql-rust-native-diagnostic.yml`、`.github/workflows/codeql-rust-cfg-diagnostic.yml` | baseline、workflow_governance |
+| CodeQL WASM 诊断与平台观测 | `.github/workflows/codeql-rust-wasm-context.yml`、`.github/workflows/codeql-rust-wasm-metadata.yml`、`.github/workflows/codeql-platform-observation.yml` | baseline、workflow_governance |
+
+WASM Context、WASM Metadata 与 Platform Observation 的 YAML 准入、权限、固定输入、预算及失败/输出合同由 `workflow_governance` 中各自的 CodeQL 测试承接。对应脚本、测试与说明的独立修改保留这些检查；普通验证不启动诊断本体，也不改变其 main-only 手动入口或结果资格。
 
 精确分类只影响共享控制的全量判定，不提前结束该路径的分析，也不撤销 Cargo、嵌入输入、测试消费者或其他规则选择的组；混合修改取并集，删除与重命名两端分别判定。未列入表中的 `.github` 文件仍保守全量，包括新增或改名后的 workflow、共享 Actions 及 `rust.yml`。`scripts/security/**` 继续使用既有 workflow_governance 规则，CodeQL 的独立扫描、运营开关与 required/advisory 边界不变。
 
