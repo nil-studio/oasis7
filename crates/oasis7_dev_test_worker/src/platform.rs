@@ -13,7 +13,7 @@ use worker::*;
 #[wasm_bindgen(module = "/platform/store.mjs")]
 extern "C" {
     #[wasm_bindgen(catch, js_name = readBoundedText)]
-    async fn bounded(
+    pub(crate) async fn bounded(
         request: &web_sys::Request,
         limit: usize,
         deadline: f64,
@@ -22,12 +22,19 @@ extern "C" {
 #[event(fetch)]
 async fn main(request: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = request.url()?;
-    if url.path() != "/mcp" || url.query().is_some() || request.method() != Method::Post {
+    if !["/mcp", "/accounts/mcp"].contains(&url.path())
+        || url.query().is_some()
+        || request.method() != Method::Post
+    {
         return Response::error("not found", 404);
     }
     let namespace = env.durable_object("DEV_TEST_ACCOUNTS")?;
     namespace
-        .id_from_name("dev-test-accounts-v1")?
+        .id_from_name(if url.path() == "/accounts/mcp" {
+            "account-service-v1"
+        } else {
+            "dev-test-accounts-v1"
+        })?
         .get_stub()?
         .fetch_with_request(request)
         .await
@@ -86,6 +93,9 @@ impl DevTestAccounts {
         self.env.secret(name).ok().map(|s| s.to_string())
     }
     async fn handle(&self, request: Request) -> std::result::Result<Response, &'static str> {
+        if request.url().map_err(|_| "request_denied")?.path() == "/accounts/mcp" {
+            return crate::account_service::platform::handle(&self.raw, &self.env, request).await;
+        }
         let raw = crate::policy_bindings::load(|name| {
             // A malformed binding is present and must not select the other form.
             match js_sys::Reflect::get(&self.env, &JsValue::from_str(name)) {
