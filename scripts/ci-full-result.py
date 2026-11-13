@@ -30,6 +30,7 @@ MAX_BYTES = 2 * 1024 * 1024
 CADENCE_SECONDS = 4 * 3600
 API_BUDGET_SECONDS = 120
 MAX_API_REQUESTS = 800
+API_RETRY_DELAYS = (0.5, 1.0)
 ACTIVE_STATUSES = {"queued", "in_progress", "waiting", "pending", "requested"}
 POLICY_FILES = (
     WORKFLOW, ".github/workflows/command-center.yml",
@@ -189,7 +190,22 @@ class GitHub:
             "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "oasis7-ci-full-result",
         })
-        return self.opener.open(req, timeout=self.request_timeout())
+        for attempt in range(len(API_RETRY_DELAYS) + 1):
+            try:
+                return self.opener.open(req, timeout=self.request_timeout())
+            except urllib.error.HTTPError as exc:
+                if exc.code not in (502, 503, 504):
+                    raise
+                exc.close()
+                if attempt == len(API_RETRY_DELAYS):
+                    raise
+                delay = API_RETRY_DELAYS[attempt]
+                with self.budget_lock:
+                    if self.requests >= MAX_API_REQUESTS or self.deadline - time.monotonic() <= delay:
+                        raise ValueError("API verification budget exhausted; history is unknown") from exc
+                # Waiting never reserves more time or requests. Another reader
+                # may spend the remaining budget; the next attempt checks again.
+                time.sleep(delay)
 
     def get(self, path):
         with self.request(path) as response:

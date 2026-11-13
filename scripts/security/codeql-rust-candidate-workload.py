@@ -23,9 +23,9 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
-# The v3 component remains the production contract; v4 is research-only.
+# The v3 component remains the production contract; v5 is research-only.
 VARIANT = 'qualifier-lines-v3'
-WORKLOAD_VARIANT = 'qualifier-lines-shared-v4'
+WORKLOAD_VARIANT = 'qualifier-lines-shared-trait-v5'
 SHARED_FILE = capacity.bundle.SHARED_FILE
 SHARED_OFFICIAL_SHA = capacity.bundle.SHARED_OFFICIAL_SHA
 SHARED_CANDIDATE_SHA = capacity.bundle.SHARED_CANDIDATE_SHA
@@ -33,6 +33,11 @@ SHARED_PATCH_SHA = capacity.bundle.SHARED_PATCH_SHA
 SHARED_UPSTREAM = capacity.bundle.SHARED_UPSTREAM
 ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
 TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
+TRAIT_PATCH_SHA = '15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21'
+TRAIT_TYPE_SHA = 'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b'
+TRAIT_PATH_FILE = 'codeql/rust/internal/PathResolution.qll'
+TRAIT_PATH_OFFICIAL_SHA = 'c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d'
+TRAIT_PATH_SHA = '222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf'
 IMAGE_CONTRACT = capacity.IMAGE_V2
 MODEL_FILE = 'codeql/rust/frameworks/stdlib/core.model.yml'
 MODEL_OFFICIAL_SHA = '756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400'
@@ -107,7 +112,9 @@ def prepare_shared_helper(closure, work, out, end, run, *, copy_end):
 
 
 def verify_workload_identity(closure, work, out, end):
-    verify_candidate_identity(Path(closure['codeql/rust-all']['root']), work / 'candidate-rust-all', out, end)
+    if trait_visibility_identity(Path(closure['codeql/rust-all']['root']),
+                                 work / 'candidate-rust-all', out, end) != read_json(out / 'trait-visibility-identity.json'):
+        raise RuntimeError('trait visibility identity differs after preparation')
     if shared_helper_identity(Path(closure['codeql/typeinference']['root']),
                               work / 'candidate-typeinference', end) != read_json(out / 'shared-helper-identity.json'):
         raise RuntimeError('shared helper identity differs after preparation')
@@ -154,19 +161,60 @@ def verify_candidate_identity(original, private, out, end):
 
 
 def lines_identity(original, private, end):
-    official_files, candidate_files = regular_snapshot(original, end), regular_snapshot(private, end)
+    return lines_snapshot_identity(regular_snapshot(original, end), regular_snapshot(private, end))
+
+
+def lines_snapshot_identity(official_files, candidate_files):
+    """Validate either the current v3 tree or its frozen intermediate receipt."""
     changed = sorted(p for p in set(official_files) | set(candidate_files)
                      if official_files.get(p) != candidate_files.get(p))
     if (set(official_files) != set(candidate_files) or changed != sorted((comparison.TYPE_FILE, MODEL_FILE))
-            or runtime.digest(original / comparison.TYPE_FILE) != comparison.OFFICIAL_SHA
-            or runtime.digest(private / comparison.TYPE_FILE) != TYPE_CANDIDATE_SHA
-            or runtime.digest(original / MODEL_FILE) != MODEL_OFFICIAL_SHA
-            or runtime.digest(private / MODEL_FILE) != MODEL_CANDIDATE_SHA
+            or official_files[comparison.TYPE_FILE]['sha256'] != comparison.OFFICIAL_SHA
+            or candidate_files[comparison.TYPE_FILE]['sha256'] != TYPE_CANDIDATE_SHA
+            or official_files[MODEL_FILE]['sha256'] != MODEL_OFFICIAL_SHA
+            or candidate_files[MODEL_FILE]['sha256'] != MODEL_CANDIDATE_SHA
             or any(official_files[p]['mode'] != candidate_files[p]['mode'] for p in changed)):
         raise RuntimeError('candidate differs from the fixed qualifier/lines two-file model')
     return dict(variant=VARIANT, image_contract_version=IMAGE_CONTRACT,
                 summary=MODEL_LINE.decode().strip(), changed_files=changed,
                 official_files=official_files, candidate_files=candidate_files)
+
+
+def trait_visibility_identity(original, private, out, end):
+    """Bind the final research tree to the genuine, unchanged v3 intermediate."""
+    if read_json(out / 'arity-patch-identity.json') != arity_identity():
+        raise RuntimeError('candidate arity patch identity differs after preparation')
+    base = read_json(out / 'lines-model-identity.json')
+    before = base['candidate_files']
+    if lines_snapshot_identity(regular_snapshot(original, end), before) != base:
+        raise RuntimeError('candidate v3 intermediate identity differs after preparation')
+    after = regular_snapshot(private, end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (runtime.digest(HERE / 'codeql-rust-trait-visibility.patch') != TRAIT_PATCH_SHA
+            or set(before) != set(after) or changed != sorted((comparison.TYPE_FILE, TRAIT_PATH_FILE))
+            or before[TRAIT_PATH_FILE]['sha256'] != TRAIT_PATH_OFFICIAL_SHA
+            or after[comparison.TYPE_FILE]['sha256'] != TRAIT_TYPE_SHA
+            or after[TRAIT_PATH_FILE]['sha256'] != TRAIT_PATH_SHA
+            or any(before[p]['mode'] != after[p]['mode'] for p in changed)):
+        raise RuntimeError('candidate differs from the fixed trait visibility annotation patch')
+    return dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, patch_sha256=TRAIT_PATCH_SHA,
+                base_receipts_sha256={name: runtime.digest(out / name) for name in
+                    ('arity-patch-identity.json', 'lines-model-identity.json')},
+                changed_files=changed, before_files=before, candidate_files=after)
+
+
+def prepare_trait_visibility(closure, work, out, end, run):
+    """Research-only annotations; production continues to stop at prepare_candidate."""
+    original, private = Path(closure['codeql/rust-all']['root']), work / 'candidate-rust-all'
+    verify_candidate_identity(original, private, out, end)
+    patch_file = HERE / 'codeql-rust-trait-visibility.patch'
+    if (runtime.digest(patch_file) != TRAIT_PATCH_SHA
+            or runtime.digest(private / TRAIT_PATH_FILE) != TRAIT_PATH_OFFICIAL_SHA):
+        raise RuntimeError('trait visibility patch or base path identity differs')
+    run(['patch', '--batch', '--fuzz=0', '-p1', '-d', private, '-i', patch_file],
+        'apply-trait-visibility-patch', 20)
+    runtime.save(out / 'trait-visibility-identity.json',
+                 trait_visibility_identity(original, private, out, end), out)
 
 
 def lines_model_bytes(path, end):
@@ -511,6 +559,9 @@ def _main(cancellation, owned_resources):
             terminal['stage'] = 'prepare-shared-helper'
             prepare_shared_helper(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
+            terminal['stage'] = 'prepare-trait-visibility'
+            prepare_trait_visibility(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True))
             closure = workload_closure(original_closure, work)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
             if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
@@ -533,7 +584,7 @@ def _main(cancellation, owned_resources):
             witness_closure = workload_closure(original_closure, work)
             if (records != expected or closures != dict(witness=witness_closure,
                     default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
-                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != TYPE_CANDIDATE_SHA):
+                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != TRAIT_TYPE_SHA):
                 raise RuntimeError('candidate workload binding differs from the frozen inputs')
             verify_workload_identity(original_closure, work, out, min(analysis_end, end - EVIDENCE_SECONDS))
             if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
