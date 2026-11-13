@@ -14,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import sys
@@ -33,8 +34,23 @@ Blocked = inputs.Blocked
 # evidence contracts are supported. Never turn an unknown group into a skip.
 SAFE_GROUPS = frozenset(('baseline', 'codex_agent_config_validation',
                          'rust_baseline', 'consensus', 'distfs', 'node', 'net',
+                         'pixel_world_bridge', 'oasis7_required',
+                         'doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
+RUST_GROUPS = frozenset(('rust_baseline', 'consensus', 'distfs', 'node', 'net',
                          'pixel_world_bridge', 'oasis7_required'))
-RUST_GROUPS = SAFE_GROUPS - {'baseline', 'codex_agent_config_validation'}
+ENGINEERING_CHECKS = {
+    'doc_checker_contracts': ('resolve-product-doc-ci-range.test.py', 'doc-governance-scope.test.py',
+        'document-corpus-inventory-check.test.py', 'product-doc-governance-check.test.py',
+        'product-doc-content-check.test.py', 'doc-core-content-check.test.py', 'doc-content-warnings.test.py',
+        'system-design-traceability-check.test.py', 'product-doc-content-callers.test.sh',
+        'doc-governance-check.test.sh', 'find-python-with-module.test.sh'),
+    'cargo_tooling_contracts': ('ci-bin-ownership.test.py', 'cargo-dev-windows-toolchain.test.sh',
+        'cargo-dev-worktree-isolation.test.sh', 'new-task-worktree.test.sh',
+        'check-launcher-p2p-dependency-surface.test.sh', 'cargo-dev-architecture.test.py',
+        'runtime-module-routing-perf-harness.test.py', 'cargo-dev-lib.test.sh',
+        'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'),
+    'compile_metrics': ('ci-compile-metrics-contract.test.sh', 'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py'),
+}
 PLAN_GROUPS = frozenset(('oasis7_required', 'rust_baseline', 'distfs'))
 UNSUPPORTED = {
     'viewer_js_required': 'Viewer build rewrites a tracked bundle; isolated output is required',
@@ -203,22 +219,53 @@ def preflight(root, args, result, env):
     driver = root / 'scripts/ci-tests.sh'
     if not driver.is_file() or b'OASIS7_LOCAL_CHECK_COMMAND_RUNNER' not in driver.read_bytes():
         reasons.append('checked-out driver lacks the local command receipt capability')
-    for name in ('bash', 'git'):
+    required_tools = {'bash', 'git'}
+    if set(groups) & ENGINEERING_CHECKS.keys():
+        required_tools.update(('awk', 'grep', 'sed', 'mktemp'))
+    if 'compile_metrics' in groups:
+        required_tools.update(('zstdmt', 'tar', 'ruby'))
+        if platform.machine() != 'x86_64':
+            reasons.append('compile_metrics requires x86_64 Linux for its real Rust fixture')
+        if shutil.which('ruby', path=env.get('PATH')) is not None:
+            if subprocess.run(['ruby', '-ryaml', '-rjson', '-e', 'exit 0'], cwd=root, env=env,
+                              capture_output=True, timeout=15).returncode:
+                reasons.append('compile_metrics requires Ruby with yaml/json; no automatic installation')
+    for name in sorted(required_tools):
         if shutil.which(name, path=env.get('PATH')) is None:
             reasons.append(f'missing tool: {name}')
-    if 'baseline' in groups:
+    if set(groups) & {'baseline', 'doc_checker_contracts'}:
         finder = root / 'scripts/find-python-with-module.sh'
         try:
             check = subprocess.run(['bash', str(finder), 'markdown_it'], cwd=root, env=env,
                                    capture_output=True, timeout=15)
             if check.returncode:
                 reasons.append('missing tool: Python with markdown_it (no automatic installation)')
+            elif 'doc_checker_contracts' in groups:
+                document_python = Path(os.fsdecode(check.stdout).strip())
+                if not document_python.is_absolute() or not document_python.is_file():
+                    reasons.append('document contract Python discovery did not return an executable path')
+                elif subprocess.run([str(document_python), '-c', 'import tomllib, markdown_it'],
+                                    cwd=root, env=env, capture_output=True, timeout=15).returncode:
+                    reasons.append('document contracts require one Python with tomllib and markdown_it')
+                else:
+                    result['configuration']['document_python'] = str(document_python.resolve())
         except (OSError, subprocess.SubprocessError) as error:
             reasons.append(f'document checker prerequisite unavailable: {error}')
-    if set(groups) & RUST_GROUPS:
-        for name in ('cargo', 'rustc', 'rustup'):
+    if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts', 'compile_metrics'}):
+        for name in ('cargo', 'rustc', *(['rustup'] if set(groups) & RUST_GROUPS else [])):
             if shutil.which(name, path=env.get('PATH')) is None:
                 reasons.append(f'missing tool: {name}')
+    if set(groups) & {'cargo_tooling_contracts', 'compile_metrics'}:
+        for name in ('cargo', 'rustc'):
+            if shutil.which(name, path=env.get('PATH')) is not None:
+                check = subprocess.run([name, '--version'], cwd=root, env=env, capture_output=True, timeout=15)
+                if check.returncode:
+                    reasons.append(f'engineering contracts require an available {name} toolchain; no automatic installation')
+    if 'cargo_tooling_contracts' in groups:
+        result.setdefault('limitations', []).append(
+            'cargo_tooling_contracts uses Linux applicability: the Windows-only fallback and optional '
+            'sccache cache-hit proof are not local acceptance evidence.')
+    if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts', 'compile_metrics'}):
         if 'rust_baseline' in groups:
             if args.offline:
                 reasons.append('offline RustSec advisory readiness is not yet supported; no network command started')
@@ -260,7 +307,7 @@ def preflight(root, args, result, env):
             build = config.get('build', {})
             if any(key in build for key in ('rustc-wrapper', 'rustc-workspace-wrapper', 'rustc')):
                 reasons.append(f'unreviewed Cargo compiler override: {name}')
-        if shutil.which('cargo', path=env.get('PATH')) is not None:
+        if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts'}) and shutil.which('cargo', path=env.get('PATH')) is not None:
             argv = ['cargo', 'metadata', '--no-deps', '--format-version', '1', '--locked', '--offline']
             metadata = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True, timeout=30)
             result['cargo_preflight'] = dict(argv=argv, cwd=str(root), exit_code=metadata.returncode)
@@ -300,9 +347,10 @@ def execute(root, args, result, directory, env):
     preflight(root, args, result, env)
     result['driver']['status'] = 'running'
     result['groups_expected'] = len(result['groups'])
-    result['checks_expected'] = (sum(10 if group['name'] == 'baseline' else 1 for group in result['groups'])
-                                 if all(group['name'] in ('baseline', 'codex_agent_config_validation')
-                                        for group in result['groups']) else None)
+    check_counts = dict(baseline=10, codex_agent_config_validation=1,
+                        **{name: len(checks) for name, checks in ENGINEERING_CHECKS.items()})
+    result['checks_expected'] = (sum(check_counts[group['name']] for group in result['groups'])
+                                 if all(group['name'] in check_counts for group in result['groups']) else None)
     for index, group in enumerate(result['groups']):
         group_dir = directory / f'group-{index:02d}-{group["name"]}'
         group_dir.mkdir()
@@ -312,6 +360,15 @@ def execute(root, args, result, directory, env):
         group_env = dict(env, OASIS7_LOCAL_CHECK='1', OASIS7_LOCAL_CHECK_COMMAND_RUNNER=str(command_runner),
                          OASIS7_LOCAL_CHECK_RUN_DIR=str(group_dir), OASIS7_LOCAL_CHECK_GROUP=group['name'],
                          OASIS7_PRODUCT_DOC_BASE=result['base_sha'], OASIS7_PRODUCT_DOC_HEAD=result['source_sha'])
+        if group['name'] == 'doc_checker_contracts':
+            # Fixture CLIs also invoke literal python/python3. Bind the same
+            # discovered interpreter throughout the group, without installing
+            # dependencies or changing the caller's PATH outside this process.
+            binaries = group_dir / 'python-bin'
+            binaries.mkdir()
+            for name in ('python', 'python3'):
+                (binaries / name).symlink_to(result['configuration']['document_python'])
+            group_env['PATH'] = str(binaries) + os.pathsep + group_env.get('PATH', '')
         outcome = invoke(argv, root, group_env, group_dir, 'driver', args.timeout_seconds)
         group.update(outcome)
         commands = [json.loads(path.read_bytes()) for path in sorted((group_dir / 'commands').glob('*.json'))]
@@ -342,7 +399,13 @@ def execute(root, args, result, directory, env):
         if group['name'] == 'baseline' and not baseline_complete(commands, result['base_sha'], result['source_sha']):
             group.update(status='incomplete', reason='baseline command inventory is incomplete')
             raise Failed('baseline did not execute its complete input/check inventory')
-        if group['name'] in RUST_GROUPS - {'rust_baseline'} and not group['tests_executed']:
+        expected_commands = ENGINEERING_CHECKS.get(group['name'])
+        if expected_commands is not None and (len(commands) != len(expected_commands) or any(
+                sum(any(arg.endswith('/' + script) for arg in item['argv']) for item in commands) != 1
+                for script in expected_commands)):
+            group.update(status='incomplete', reason='engineering contract command inventory is incomplete')
+            raise Failed(f'{group["name"]}: incomplete command inventory')
+        if group['name'] in (RUST_GROUPS - {'rust_baseline'}) | ENGINEERING_CHECKS.keys() and not group['tests_executed']:
             group.update(status='incomplete', reason='selected test group executed zero cases')
             raise Failed(f'{group["name"]}: zero selected cases executed')
         group.update(status='passed', reason='all selected commands completed with execution evidence')
@@ -407,7 +470,7 @@ def main(argv=None):
             first_plan = directory / 'planning-0'
             first_plan.mkdir()
             groups, planner_path = plan_from_baseline(root, base, before, args, first_plan, result)
-            if set(groups) & RUST_GROUPS:
+            if set(groups) & (RUST_GROUPS | {'cargo_tooling_contracts'}):
                 for attempt in range(1, 33):
                     found = inputs.referenced_inputs(root, before, planner_path)
                     if not found - extra:
@@ -433,7 +496,7 @@ def main(argv=None):
             (directory / 'plan.json').write_text(json.dumps(result['plan'], ensure_ascii=True, sort_keys=True) + '\n')
             result['selection_reasons'] = result['plan']['reasons']
         result['groups'] = [dict(name=group, status='not_run', reason='dry_run' if args.dry_run else 'pending',
-                                 tests_expected=None if group in RUST_GROUPS else 0,
+                                 tests_expected=None if group in RUST_GROUPS or group in ENGINEERING_CHECKS else 0,
                                  tests_executed=0, business_tests_executed=0)
                             for group in groups]
         result['groups_expected'] = len(groups)

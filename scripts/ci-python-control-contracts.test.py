@@ -134,6 +134,50 @@ if __name__ == '__main__':
     def run_contract(self, **options):
         return controls.run_contract(self.root, self.snapshot, self.TEST, **options)
 
+    def test_repeated_named_scenarios_keep_each_call_and_nested_assertions(self):
+        source = '''def scenario(value):
+    assert value > 0
+def scenario_checked(value):
+    scenario(value)
+def main():
+    for value in (1, 2):
+        for other in (3, 4):
+            scenario_checked(value + other)
+    scenario_checked(5)
+'''
+        self.write(self.root, self.TEST, source)
+        self.write(self.snapshot, self.TEST, source)
+        self.assertEqual(len(controls.test_inventory(source)[1]), 6)
+        self.assertEqual(self.run_contract(), 6)
+        broken = source.replace('scenario(value)\n', 'try:\n        scenario(0)\n    except AssertionError:\n        pass\n')
+        self.write(self.snapshot, self.TEST, broken)
+        with self.assertRaisesRegex(ValueError, 'did not completely execute'):
+            self.run_contract()
+
+    def test_named_scenario_inventory_loop_and_local_action_reject_missing_completion(self):
+        for source in ('def main():\n    assert True\n    scenario()\n',
+                       'from external import scenario\ndef main():\n    assert True\n    scenario()\n'):
+            with self.assertRaisesRegex(ValueError, 'no local asserted implementation'):
+                controls.test_inventory(source)
+        source = '''def scenario_first():
+    assert 1 + 1 == 2
+def scenario_second():
+    assert 2 + 2 == 4
+def main():
+    scenarios = (scenario_first, scenario_second)
+    for scenario in scenarios:
+        scenario()
+'''
+        self.write(self.root, self.TEST, source)
+        self.write(self.snapshot, self.TEST, source)
+        self.assertEqual(self.run_contract(), 3)
+        path = 'scripts/product-doc-content-check.test.py'
+        self.write(self.root, path, 'def main():\n    raise SystemExit(0)\n    assert True\n')
+        with self.assertRaisesRegex(ValueError, 'did not completely execute'):
+            controls.local_contract(self.root, path)
+        with self.assertRaisesRegex(ValueError, 'audited procedural'):
+            controls.local_contract(self.root, self.TEST)
+
     def test_baseline_code_loads_candidate_with_correct_main_and_inherited_inventory(self):
         self.assertEqual(controls.test_inventory(self.SOURCE),
                          ('unittest', ['Child.test_value', 'Parent.test_value']))

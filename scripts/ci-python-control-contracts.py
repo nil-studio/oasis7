@@ -179,10 +179,29 @@ def procedural_cases(tree):
         return [], {}, {}
     named = sorted({node.id for node in ast.walk(main) if isinstance(node, ast.Name)
                     and node.id in functions and node.id.startswith(('test_', 'scenario_'))})
-    inline, occurrences = {}, {}
+    inline, occurrences, calls = {}, {}, []
+    # Some legacy CLIs iterate a literal tuple of named local scenarios. Only
+    # that proven local binding may use the name "scenario" without a matching
+    # function definition; an imported or unresolved helper remains rejected.
+    literals = {target.id: node.value for node in main.body if isinstance(node, ast.Assign)
+                for target in node.targets if isinstance(target, ast.Name)}
+    bound_scenarios = set()
+    for node in ast.walk(main):
+        if not isinstance(node, ast.For) or not isinstance(node.target, ast.Name) or node.target.id != 'scenario':
+            continue
+        values = literals.get(node.iter.id) if isinstance(node.iter, ast.Name) else node.iter
+        if (isinstance(values, (ast.Tuple, ast.List)) and values.elts
+                and all(isinstance(value, ast.Name) and value.id in named for value in values.elts)):
+            bound_scenarios.update(id(child) for statement in node.body for child in ast.walk(statement)
+                                   if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                                   and child.func.id == 'scenario')
 
     def is_scenario(node):
-        return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'scenario'
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'scenario'
+                and 'scenario' not in functions and id(node) not in bound_scenarios):
+            raise ValueError('procedural scenario has no local asserted implementation')
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id in functions and (node.func.id == 'scenario' or node.func.id in named))
 
     def visit(node, context=()):
         if isinstance(node, ast.For) and any(is_scenario(child) for child in ast.walk(node)):
@@ -196,17 +215,26 @@ def procedural_cases(tree):
                 visit(child, context)
             return
         if is_scenario(node):
-            if 'scenario' not in functions:
-                raise ValueError('procedural scenario has no local asserted implementation')
-            identity = ast.dump(node, include_attributes=False) + json.dumps(context)
-            digest = hashlib.sha256(identity.encode()).hexdigest()
-            index = occurrences.get(digest, 0)
-            occurrences[digest] = index + 1
-            inline[f'scenario:{digest}:{index}'] = (node.lineno, node.end_lineno)
+            calls.append((node, context))
         for child in ast.iter_child_nodes(node):
             visit(child, context)
 
     visit(main)
+    # A named scenario may be called at several sites or inside a finite
+    # parameter loop. Preserve the established single-call identity; witness
+    # each repeated invocation separately instead of accepting duplicates.
+    repeated = {name for name in named if sum(node.func.id == name for node, _ in calls) > 1}
+    for node, context in calls:
+        name = node.func.id
+        if name != 'scenario' and name not in repeated:
+            continue
+        identity = ast.dump(node, include_attributes=False) + json.dumps(context)
+        digest = hashlib.sha256(identity.encode()).hexdigest()
+        index = occurrences.get(digest, 0)
+        occurrences[digest] = index + 1
+        prefix = 'scenario' if name == 'scenario' else f'scenario-call:{name}'
+        inline[f'{prefix}:{digest}:{index}'] = (node.lineno, node.end_lineno, name)
+    named = [name for name in named if name not in repeated]
     return ['main', *named, *sorted(inline)], {name: name for name in named}, inline
 
 
@@ -358,11 +386,20 @@ def run_worker(request_path, witness_path):
 
         def wrap(function, fixed_case=None):
             def scenario(*args, **kwargs):
+                caller = sys._getframe(1)
+                if active and caller.f_code.co_name != 'main':
+                    # A scenario's helper assertions belong to the enclosing
+                    # case. Keep caught nested failures visible to the parent.
+                    try:
+                        return function(*args, **kwargs)
+                    except BaseException:
+                        failures.append(active[-1])
+                        raise
                 case = fixed_case
                 if case is None:
-                    caller = sys._getframe(1)
-                    matches = [key for key, (start, end) in inline.items()
-                               if caller.f_code.co_filename == filename and start <= caller.f_lineno <= end]
+                    matches = [key for key, (start, end, name) in inline.items()
+                               if name == function.__name__ and caller.f_code.co_filename == filename
+                               and start <= caller.f_lineno <= end]
                     position = (caller.f_code.co_filename, caller.f_lineno)
                     index = occurrences.get(position, 0)
                     if not matches or index >= len(matches):
@@ -389,11 +426,16 @@ def run_worker(request_path, witness_path):
 
         for name in named:
             module.__dict__[name] = wrap(module.__dict__[name], name)
-        if inline:
+        for name in {value[2] for value in inline.values()}:
+            module.__dict__[name] = wrap(module.__dict__[name])
+        if 'scenario' not in {value[2] for value in inline.values()} and callable(getattr(module, 'scenario', None)):
             module.scenario = wrap(module.scenario)
 
         def trace(frame, event, arg):
-            if event == 'line' and frame.f_lineno in assertion_lines.get(frame.f_code.co_filename, ()):
+            lines = assertion_lines.get(frame.f_code.co_filename)
+            if lines is None:
+                return None
+            if event == 'line' and frame.f_lineno in lines:
                 reached.add((frame.f_code.co_filename, frame.f_lineno))
                 for case in active:
                     counts[case] += 1
@@ -446,6 +488,18 @@ def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=Fal
     print(f'python_control_contract={path} {counts} source={origin} '
           f'elapsed_seconds={time.monotonic() - started:.3f}', flush=True)
     return len(selected)
+
+
+def local_contract(root, path):
+    """Witness every current-source case of an audited procedural CLI."""
+    allowed = {'scripts/product-doc-governance-check.test.py',
+               'scripts/product-doc-content-check.test.py',
+               'scripts/system-design-traceability-check.test.py'}
+    if path not in allowed or not (root / path).is_file() or (root / path).resolve() != root / path:
+        raise ValueError('local contract requires a regular audited procedural test path')
+    count = run_contract(root, root, path, origin='local-source')
+    print(json.dumps(dict(expected_count=count, count_ok=True, passed=True,
+                          execution_kind='tool-contract', source='local-source', path=path)), flush=True)
 
 
 def migration_paths(root, policy_sha, plan, config):
@@ -714,12 +768,13 @@ fn free_function() -> usize {
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('run', '_worker', 'fixture', 'local-governance'))
+    parser.add_argument('action', choices=('run', '_worker', 'fixture', 'local-governance', 'local-contract'))
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
     parser.add_argument('--policy-sha')
     parser.add_argument('--plan', type=Path)
     parser.add_argument('--request', type=Path)
     parser.add_argument('--witness', type=Path)
+    parser.add_argument('--path', help='audited procedural test path for local-contract')
     parser.add_argument('--governance', action='store_true',
                         help='Own complete candidate governance and remaining contracts in this invocation')
     args = parser.parse_args()
@@ -733,6 +788,8 @@ def main():
             local_governance(args.repo_root.resolve())
         except subprocess.CalledProcessError as error:
             raise SystemExit(error.returncode if error.returncode > 0 else 128 - error.returncode) from error
+    elif args.action == 'local-contract':
+        local_contract(args.repo_root.resolve(), args.path)
     else:
         if not args.policy_sha or not args.plan:
             parser.error('run requires --policy-sha and --plan')
