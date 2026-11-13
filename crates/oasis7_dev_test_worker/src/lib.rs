@@ -83,3 +83,5 @@ pub fn prepare_operator_policy_bindings(
     }
     Ok(bindings)
 }
+
+mod skill_page;

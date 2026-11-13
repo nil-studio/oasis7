@@ -86,3 +86,26 @@ node node_modules/wrangler/bin/wrangler.js versions deploy CREATED_VERSION_ID@10
 ```
 
 版本ID取第一步真实返回值，不能复用旧版本或输出秘密文件内容。普通 `wrangler secret bulk` 走独立API且不携带DO策略，不能作为停用/轮换已完成的证明。发布后回读业务响应中的 `value.policy_generation`、原session及累计用量，再判断新策略生效；保留旧版本传播期间的失败记录。立即更新可能中断在途请求，消费者按未知结果处理，不以重置存储或重发游戏动作恢复。
+
+## 测试与正式账号服务部署
+
+`--env test` 部署 `oasis7-accounts-test`，`--env production` 部署 `oasis7-accounts`。
+每个环境声明自己的 SQLite DO binding，不使用跨 Worker `script_name`，账号、会话与额度独立。
+默认无环境命令仍指向历史验收 Worker；不得用默认命令更新新环境。
+新环境不配置旧游戏 Secrets。分别通过 Secrets 发布各自的有限 `ACCOUNT_SERVICE_POLICY`
+和消费者、账号凭据，策略 `origin` 必须等于该环境 HTTPS Origin。
+
+两套环境提供公开 `GET /`、`GET /skill` 与 `GET /SKILL.md`；
+静态说明不访问 DO、不扣额度、不含凭据。业务入口均为 `POST /accounts/mcp`。
+Skill 页面仅标记环境，消费者 token 仍须管理员通过私密渠道提供。
+
+构建后部署：
+
+```sh
+node node_modules/wrangler/bin/wrangler.js deploy --env test --durable-objects-code-update-mode immediate
+node node_modules/wrangler/bin/wrangler.js deploy --env production --durable-objects-code-update-mode immediate
+```
+
+策略更新每条命令也必须指定对应 `--env`，先 `versions secret bulk`，再部署返回的精确版本，
+并显式指定 immediate 更新；随后核对业务返回的 `policy_generation`。
+生产环境初次验收使用有限的独立合成账号；不代表已接入真实第三方账号登录。

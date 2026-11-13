@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Oasis7 账号服务 Skill</title>
+<style>body{font:17px/1.7 system-ui,sans-serif;max-width:780px;margin:50px auto;padding:0 24px;color:#17302b;background:#f6faf8}a{color:#06705b}code{background:#e4efea;padding:3px 6px;border-radius:4px}section{background:white;padding:24px;border:1px solid #d4e3db;border-radius:12px;margin:20px 0}h1{line-height:1.3}</style>
+<h1>Oasis7 通用账号服务</h1><p>环境：<strong>{{ENVIRONMENT}}</strong> · 独立运行在 Cloudflare Workers</p>
+<section><h2>连接与 Skill</h2><p>MCP 接口：本站 <code>/accounts/mcp</code>，使用管理员提供的 Bearer token。</p><p><a href="/SKILL.md">阅读或下载完整 SKILL.md →</a></p><p>将 Skill 地址交给你的 Agent，并在连接器中私密配置认证。页面不收集或展示密钥。</p></section>
+<section><h2>四步使用</h2><ol><li><code>accounts</code> 查看授权账号。</li><li><code>open</code> 选择账号并建立有截止时间的会话。</li><li><code>describe</code> 查询会话对应的公开账号信息。</li><li><code>close</code> 关闭会话，额度耗尽时仍可关闭。</li></ol><p>工具名：<code>account_service_call</code>。详细参数、结果及错误处理见完整 Skill。</p></section>
+<section><h2>环境与权限</h2><p>测试与正式环境分别保存账号、凭据、会话和额度。请勿跨环境复制正式凭据。</p><p>服务不依赖本机或游戏世界，不返回原始账号凭据，不执行第三方登录。账号配置与轮换由管理员完成。</p></section></html>

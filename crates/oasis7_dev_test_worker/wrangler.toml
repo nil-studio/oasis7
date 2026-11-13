@@ -18,3 +18,33 @@ new_sqlite_classes = ["DevTestAccounts"]
 
 [observability]
 enabled = false
+
+[env.test]
+name = "oasis7-accounts-test"
+workers_dev = true
+preview_urls = false
+
+[env.test.vars]
+ACCOUNT_SERVICE_ENVIRONMENT = "test"
+
+[env.test.durable_objects.code_update_strategy]
+mode = "immediate"
+
+[[env.test.durable_objects.bindings]]
+name = "DEV_TEST_ACCOUNTS"
+class_name = "DevTestAccounts"
+
+[env.production]
+name = "oasis7-accounts"
+workers_dev = true
+preview_urls = false
+
+[env.production.vars]
+ACCOUNT_SERVICE_ENVIRONMENT = "production"
+
+[env.production.durable_objects.code_update_strategy]
+mode = "immediate"
+
+[[env.production.durable_objects.bindings]]
+name = "DEV_TEST_ACCOUNTS"
+class_name = "DevTestAccounts"

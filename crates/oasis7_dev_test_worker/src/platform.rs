@@ -22,6 +22,9 @@ extern "C" {
 #[event(fetch)]
 async fn main(request: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = request.url()?;
+    if let Some(response) = crate::skill_page::serve(&request, &env)? {
+        return Ok(response);
+    }
     if !["/mcp", "/accounts/mcp"].contains(&url.path())
         || url.query().is_some()
         || request.method() != Method::Post
