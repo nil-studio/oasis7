@@ -23,6 +23,10 @@ test('standalone account service has no game bindings or outbound network and pr
  const invoke=(method,params,auth=token)=>mf.dispatchFetch('https://worker.example.test/accounts/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+auth},body:JSON.stringify({jsonrpc:'2.0',id:1,method,...(params?{params}:{})})});
  const call=async(args,auth=token)=>{const r=await invoke('tools/call',{name:'account_service_call',arguments:args},auth);assert.equal(r.status,200);const text=await r.text();assert.ok(!text.includes(canary));assert.ok(!text.includes('ACCOUNT_SERVICE_A'));return JSON.parse(text).result.structuredContent;};
  try{
+  for (const path of ["/", "/skill", "/SKILL.md"]) {
+   const page=await mf.dispatchFetch("https://worker.example.test"+path);assert.equal(page.status,200);const text=await page.text();assert.ok(text.includes("account_service_call"));assert.ok(!text.includes(canary));assert.ok(page.headers.get("Content-Security-Policy").includes("default-src"));
+  }
+  assert.equal((await mf.dispatchFetch("https://worker.example.test/SKILL.md",{method:"HEAD"})).status,200);
   assert.equal((await invoke('ping')).status,200,'new independent ingress must exist');
   assert.equal((await invoke('ping',undefined,'bad')).status,401);
   const tools=await (await invoke('tools/list')).json();assert.equal(tools.result.tools[0].name,'account_service_call');assert.deepEqual(tools.result.tools[0].inputSchema.properties.method.enum,['accounts','open','describe','close']);
