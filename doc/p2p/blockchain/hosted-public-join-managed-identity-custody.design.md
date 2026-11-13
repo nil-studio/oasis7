@@ -237,6 +237,21 @@ Worker 本身不承载世界共识；Native 身份和世界 authority 的固定 
 
 Cloudflare 的[单变量上限为 5KB，Free 的变量总数为 64](https://developers.cloudflare.com/workers/platform/limits/#environment-variables)，不能把合法的多账号配置假定为一个可部署 Secret。配置保留单片 `DEV_TEST_POLICY` 兼容入口；较大配置由 `DEV_TEST_POLICY_MANIFEST` 指定版本、分片数量和完整文本的 BLAKE3，按序读取 `DEV_TEST_POLICY_PART_01` 至 `_16`。每片不超过 4096 UTF-8 字节，总文本仍不超过 60KiB；缺片、空片、超限、摘要不符、未知 manifest 字段或同时配置单片与 manifest 均在鉴权、扣额及网络调用前拒绝，不降级回旧配置。未被 manifest 引用的旧片不参与配置。可信离线工具生成可供一次 bulk 更新的绑定映射，显式清除另一表示及多余旧片；与材料、凭据和其他绑定合计仍须满足平台变量数量上限。分片只改变部署表示，拼接后的完整策略文本及其摘要仍是原有 generation、会话与累计账本的依据，不产生新授权或重置用量。
 
+##### 通用账号服务独立入口
+
+Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb、O7-REQ-8b95aab7-037d-45cc-8d02-e320d1ea4570、O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5；适用 [PRD §6.3](hosted-public-join-managed-identity-custody.prd.md#63-通用账号服务的独立交付边界)。
+
+`account-service-v1` 通过固定 `/accounts/mcp` 和 `account_service_call` 提供 accounts/open/describe/close，路由至与旧游戏 actor 不同名称的 SQLite DO。只读取 `ACCOUNT_SERVICE_POLICY` 及其引用的 Secrets，配置上限 5120 UTF-8 字节；不读取旧游戏 policy、Cookie、world/fence 或本机文件，不做外部 fetch。旧 `/mcp` 和 dev-test 原件不迁移、不重置。
+
+策略包含单调 generation、有期限的 service_id、同一 service/caller 的有限额度、调用者 token Secret 引用、账号公开元数据与 credential Secret 引用、按 caller/account 的 grant 及单调授权版本。凭据由平台 Secret 保管，输出只包含账号公开元数据和 credential_version，不输出 Secret 名称或值。可信管理员在轮换凭据引用、停用、改变 provider/environment 或调用者凭据时提高相关 grant 的授权版本；别名变化和新增其他账号不改变已有会话的主体。没有凭据 Secret 的账号不能打开新会话。
+
+一个 DO 事务原子保存策略版本、每 grant 的授权高水位、service/caller 的累计用量及全部不可变会话。相同授权版本的安全合同不能改变；移除后不能以旧版本重加。新授权版本使旧会话拒绝，但同一 service_id 的额度和截止时间不能扩张或清零。新 service_id 显式退休旧授权并使用新有限预算，退休 ID 不能恢复。普通实例替换保留原会话和期限；缺失初始化记录、损坏记录、配置 generation 回退、未知 schema 或容量不足均拒绝，不降级空状态。关闭不消耗调用额度，在额度耗尽后仍可执行；拒绝请求不扣额，accounts/open/describe 每次成功调用扣一次。
+
+Cloudflare 默认允许活跃 DO 延迟采用新版本最多300秒，旧实例期间仍可能读取旧的 Secrets，不能把 Secrets API 成功当作授权已生效。账号策略发布采用 `wrangler versions secret bulk` 创建固定版本，再以 `wrangler versions deploy VERSION@100% --yes --durable-objects-code-update-mode immediate` 发布；普通代码部署同样设置 immediate。Wrangler 的普通 secret bulk API 不携带 DO 更新策略，不能用它代替上述受控发布。有效业务响应提供公开 policy_generation 供部署回读；未确认新策略时不声明停用/轮换生效。立即更新可能中断在途请求，持久化状态和原件保留，调用方按现有未知/恢复合同处理；不自动重发。依据：[Cloudflare DO更新策略](https://developers.cloudflare.com/durable-objects/deployments/durable-objects-code-updates/)。
+
+管理仍采用可信部署配置发布，不把模型 token 变成管理员凭据。初版会话及授权高水位有明确容量上限，满额拒绝而不默默淘汰可复活的历史引用。恢复备份属于可信运维操作：恢复后先显式更换 service_id、退休旧授权并授予新有限预算，再允许消费者访问；不把备份中的余额证明为当前余额。本轮验证普通持久化和实例替换，不以该证据代签平台备份回滚演练。
+
+
 Workers 的平台实例可能在请求间被替换，不能把易失内存当作会话存储。SQLite 保存无凭据的会话引用、不可变 grant/caller/绑定／动作范围、签发与到期时间及关闭墓碑；返回引用前必须提交成功。每次调用复用共享会话合同核对当前授权，session_ref 不提供认证。记录缺失、损坏或已关闭时拒绝，不补建；不从原操作推导新会话。逻辑服务重启／备份恢复须轮换 service_grant_id，旧会话因此失效；普通平台休眠不轮换授权、不延长期限或清零额度。Native 的启动 epoch 合同保持。
 
 <a id="dev-test-accounts-sessions"></a>

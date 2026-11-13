@@ -1,5 +1,6 @@
 //! Workers implementation of dev-test-accounts-v1. World authority is remote.
 #![forbid(unsafe_code)]
+mod account_service;
 mod config;
 mod platform;
 mod policy_bindings;

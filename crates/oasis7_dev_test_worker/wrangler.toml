@@ -5,6 +5,9 @@ compatibility_date = "2026-10-25"
 workers_dev = true
 preview_urls = false
 
+[durable_objects.code_update_strategy]
+mode = "immediate"
+
 [[durable_objects.bindings]]
 name = "DEV_TEST_ACCOUNTS"
 class_name = "DevTestAccounts"

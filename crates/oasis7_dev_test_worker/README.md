@@ -47,3 +47,42 @@ DO 中的 policy tombstone、初始化锚和每个 grant/caller 的账本通过�
 `Resource.endpoint` 固定实际 HTTPS 传输目的地；可选 `identity_audience` 仅指定既有身份 authority 的 Origin，省略时等于 endpoint。显式别名也纳入资源摘要与 grant pin，不能由工具参数指定；原 world、RP、身份 scope、服务公钥和完整 fence 不变。别名必须由可信 operator 验证，不能用它绕过 TLS 或重绑已有 SDK 配置。
 
 `cargo run -p oasis7_dev_test_worker --example operator_policy --locked -- <公共policy文件>` 只接受不超过60KiB的普通文件，完成闭合配置验证后补齐空的 resource pin；已有错误 pin 会被拒绝。该离线工具无网络或 Secret 导出能力，不属于 MCP 入口。
+
+
+## 独立通用账号服务
+
+`POST /accounts/mcp` 使用标准 MCP 初始化、发现与 `account_service_call`。它与旧 `/mcp` 游戏工具采用不同 DO actor 名称；不需要任何 `DEV_TEST_*` 绑定、本机进程、游戏配置或外部身份后端。工具仅允许 `accounts`、`open`、`describe`、`close`，没有游戏动作、秘密读取或远程管理方法。
+
+可信管理员通过版本化 Secrets 发布 `ACCOUNT_SERVICE_POLICY`（完整 JSON 不超过5120 UTF-8字节）和引用的 Secrets。示例仅含公开引用：
+
+```json
+{"version":1,"generation":1,"service_id":"example-run","origin":"https://YOUR-WORKER.workers.dev","expires_at_unix":2000000000,"max_calls":100,"credentials":[{"caller_id":"consumer","token_secret":"ACCOUNT_SERVICE_CONSUMER_TOKEN","expires_at_unix":2000000000,"revoked":false}],"accounts":{"A":{"alias":"Development account","account_id":"account-A","provider":"example","environment":"test","credential_secret":"ACCOUNT_SERVICE_A_CREDENTIAL_V1","credential_version":1,"disabled":false}},"grants":[{"grant_ref":"consumer-A","caller_id":"consumer","account_ref":"A","authorization_version":1,"expires_at_unix":2000000000,"enabled":true}]}
+```
+
+示例时间仅用于展示结构，实际测试须提供短期有限期限。consumer token 是独立随机的64位小写十六进制 Secret；账号 credential 是独立的非空 Secret（不超过5120字节），不能把 policy 或消费者 token 当作账号 credential。服务核对 Secret 存在性并保管引用，不验证凭据能否登录第三方服务。公开账号字段不得放入密码、Cookie或私密目标。原始凭据、Secret名称和token不进入工具回复。
+
+工具调用示例：
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"account_service_call","arguments":{"method":"accounts"}}}
+```
+
+从目录选择 grant_ref 后，用 `open` 携带绝对 Unix 秒 `expires_at_unix`（不超过服务、调用者及 grant 的最早到期时间），保留 session_ref；`describe` 和 `close` 携带 session_ref。每个成功 accounts/open/describe 调用扣同 service/caller 的一次额度，结果 `value.usage` 返回累计用量和上限。拒绝不扣额；close不扣额，额度耗尽时仍能关闭。服务不设置全局“当前账号”，并行会话各自固定账号。
+
+别名变化、新增账号及普通 Worker 实例替换保留既有会话及累计用量。轮换账号 credential Secret 引用/版本、改变provider/environment、停用账号/授权或改变调用者凭据时，提高受影响 grant 的 authorization_version；旧会话随安全合同变化拒绝，不能用旧版本恢复移除的grant。每次配置更新提高generation，同 generation 不同正文及generation回退拒绝。同service_id不得提高max_calls或延长期限；新的显式有限授权使用新service_id，旧ID退休且不能重用，历史计数不删除。策略的可信高水位先持久化，即使所有消费者已被撤销，也不能通过之后回退配置复活旧授权。
+
+边界：每份policy最多16个调用者、32个账号、64个grant；DO保留最多64个会话引用、128个grant高水位和128个累计用量条目、32个退休service ID，完整状态不超过64KiB。容量不足或持久记录缺失/损坏拒绝，不静默清零或淘汰安全记录。当前不提供管理后台、明文凭据导出、第三方登录自动续期或平台备份回滚API；这些不由目录/会话验收代签。可信管理员做备份恢复时先发布新的service_id和有限授权，旧授权退休。
+
+验证：`cargo test -p oasis7_dev_test_worker --lib --locked`；构建实际Wasm后 `node --test tests/account-service.test.mjs` 验证没有任何游戏绑定、outbound调用为0，以及账号切换、授权隔离、轮换、停用、额度与SQLite实例重建。实际Cloudflare部署和版本替换单独记录，不用Miniflare代签云端。
+
+
+### 策略发布与生效核对
+
+Cloudflare活跃DO默认可能延迟采用新版本300秒；实测普通 `secret bulk` 成功后的下一次请求仍读到旧别名。本应用把普通部署的DO更新策略设为immediate。策略/凭据更新使用以下两步（在包目录运行，Secret文件仅可信运营者可读）：
+
+```sh
+node node_modules/wrangler/bin/wrangler.js versions secret bulk /PRIVATE/PATH/bindings.json
+node node_modules/wrangler/bin/wrangler.js versions deploy CREATED_VERSION_ID@100% --yes --durable-objects-code-update-mode immediate
+```
+
+版本ID取第一步真实返回值，不能复用旧版本或输出秘密文件内容。普通 `wrangler secret bulk` 走独立API且不携带DO策略，不能作为停用/轮换已完成的证明。发布后回读业务响应中的 `value.policy_generation`、原session及累计用量，再判断新策略生效；保留旧版本传播期间的失败记录。立即更新可能中断在途请求，消费者按未知结果处理，不以重置存储或重发游戏动作恢复。
