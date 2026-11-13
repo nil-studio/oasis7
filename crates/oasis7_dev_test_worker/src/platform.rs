@@ -86,11 +86,14 @@ impl DevTestAccounts {
         self.env.secret(name).ok().map(|s| s.to_string())
     }
     async fn handle(&self, request: Request) -> std::result::Result<Response, &'static str> {
-        let raw = self
-            .env
-            .var("DEV_TEST_POLICY")
-            .map_err(|_| "configuration_unavailable")?
-            .to_string();
+        let raw = crate::policy_bindings::load(|name| {
+            // A malformed binding is present and must not select the other form.
+            match js_sys::Reflect::get(&self.env, &JsValue::from_str(name)) {
+                Ok(value) if value.is_undefined() => None,
+                Ok(value) => Some(value.as_string().unwrap_or_default()),
+                Err(_) => Some(String::new()),
+            }
+        })?;
         let config = Config::parse(&raw)?;
         let url = request.url().map_err(|_| "request_denied")?;
         if url.origin().ascii_serialization() != config.origin
