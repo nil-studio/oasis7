@@ -74,7 +74,9 @@ python3 scripts/check-local.py --profile formal --tier required
 | formal required | 要求干净源码，显式 required，沿同一可信计划执行 canonical required 组 | 同样受当前本地组能力限制；不代替 hosted 或其他平台结果 |
 | formal full | `--dry-run` 沿完整可信库存规划 | 真实执行 blocked：Viewer 会改写 tracked bundle，部分准备会安装工具；须先补只读输出/准备适配，不能用 required 代替 |
 
-当前已审计的组是 `baseline`、`codex_agent_config_validation`、`rust_baseline`、`consensus`、`distfs`、`node`、`net`、`pixel_world_bridge` 和条件成立的 `oasis7_required`。后者若扩张到需要 Docker 构建 provider/builtin 资源的计划，也在启动前阻断。其余组，包括 Windows/macOS/fleet 和尚未接入结果证据的脚本组，保持 selected-but-blocked；具体原因见报告。该表是执行能力边界，不是另一套选测规则。
+当前已审计的组是 `baseline`、`codex_agent_config_validation`、`rust_baseline`、`consensus`、`distfs`、`node`、`net`、`pixel_world_bridge`、条件成立的 `oasis7_required`，以及 `doc_checker_contracts`、`cargo_tooling_contracts`、`compile_metrics`。`oasis7_required` 若扩张到需要 Docker 构建 provider/builtin 资源的计划，也在启动前阻断。其余组，包括 Windows/macOS/fleet 和尚未接入结果证据的脚本组，保持 selected-but-blocked；具体原因见报告。该表是执行能力边界，不是另一套选测规则。
+
+工程契约组三条完整 driver 清单分别有 11、10、3 项命令检查；缺少任何一项都不能通过。文档组将具有 `tomllib` 和 `markdown_it` 的同一 Python 绑定到整组及嵌套调用；过程式测试复用已有 Python contract 见证，分别核对完整入口、scenario 和实际断言，退出 0 或单独的 `OK` 文本不是完成证据。工具用例与命令检查分列，这三组的业务用例数为零。Cargo 工具组需要已有 Cargo / rustc 及 locked metadata；编译指标组还需要 x86_64 Linux、`zstdmt` 和带 `yaml/json` 的 Ruby，缺前置在整次执行前 blocked，必要 Python skip 保持 incomplete。工程 fixture 使用自己的范围和报告；编译指标的临时 worktree 登记放在自有 Git metadata 中。Linux 下既有 Windows-only fallback 不适用，可选 sccache 真缓存证明未被默认调用；报告明确保留这些未覆盖范围，不自动安装工具或用跳过代签验收。
 
 缺省基线只解析本地 `origin/main` 与 HEAD 的唯一 merge-base，不 fetch；`--base-ref` 必须为该信任锚的祖先。dirty 规划要求该 base 自身含 `LOCAL_INPUTS_VERSION=1`；旧 base 不支持时先 blocked，合入能力后更新本地 main 并 rebase，不能改用候选 planner。输入在私有对象目录中变成 tree，不创建 commit、操作用户 index/ref 或 checkout；base→HEAD、index、实际原始文件内容分别入图，保留抵消、删除、rename 两端和来源。显式 Cargo target/build/依赖、Rust 引用与 ignored 源码需要纳入读集或阻断。未启用 feature 可能引用尚未生成的夹具；入口记录其缺失身份，实际选中编译若需要它仍须失败，运行中出现该文件则 stale，不把缺失身份当成已验证字节。
 

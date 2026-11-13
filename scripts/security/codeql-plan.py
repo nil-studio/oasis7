@@ -25,6 +25,15 @@ WASM_CANDIDATE_INPUTS = {
 }
 
 
+# Exact policy fixtures consumed by Rust validation and actual workerd tests.
+# Neighboring JSON inputs remain unregistered and fail closed.
+WORKERS_POLICY_INPUTS = {
+    'crates/oasis7_dev_test_worker/tests/fixtures/policy.json',
+    'crates/oasis7_dev_test_worker/tests/fixtures/policy-large-input.json',
+    'crates/oasis7_dev_test_worker/tests/fixtures/policy-large-bindings.json',
+}
+
+
 def retired_document_metadata_path(path):
     # This is a bounded deletion migration, not a registration of live inputs.
     # The caller also proves the old path exists, the new path does not, and
@@ -219,6 +228,9 @@ def plan(args):
             pass
         elif path in WASM_CANDIDATE_INPUTS:
             add('python-repo', path)
+            add('rust-repo', path)
+        elif path in WORKERS_POLICY_INPUTS:
+            add('javascript-repo', path)
             add('rust-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)

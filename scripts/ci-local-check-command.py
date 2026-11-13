@@ -11,6 +11,10 @@ import sys
 import tempfile
 import time
 
+TOOL_GROUPS = frozenset(('baseline', 'codex_agent_config_validation',
+                       'doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
+FIXTURE_GROUPS = frozenset(('doc_checker_contracts', 'cargo_tooling_contracts', 'compile_metrics'))
+
 
 def evidence(command, output, returncode, group):
     """Require supported execution evidence for commands that claim test cases.
@@ -39,14 +43,16 @@ def evidence(command, output, returncode, group):
     is_test |= any(arg.endswith(('.test.py', '.test.mjs')) or '/test_' in arg for arg in command)
     is_test |= '-m' in command and 'unittest' in command
     is_test |= any(arg.endswith('ci-test-artifacts.py') for arg in command) and 'run' in command
+    is_test |= any(arg.endswith('ci-python-control-contracts.py') for arg in command) and 'local-contract' in command
     if structured:
         counts = [item.get('expected_count') for item in structured]
-        if any(not isinstance(value, int) or value <= 0 for value in counts):
+        if any(type(value) is not int or value <= 0 for value in counts):
             status, reason = 'incomplete', 'unknown or zero expected artifact case count'
             expected = executed = None
         else:
             expected = sum(counts)
-            executed = sum(item['expected_count'] for item in structured if item.get('passed') and item.get('count_ok'))
+            executed = sum(item['expected_count'] for item in structured
+                           if item.get('passed') is True and item.get('count_ok') is True)
             if executed != expected:
                 status, reason = 'incomplete', 'artifact execution did not prove every selected case'
     elif rust:
@@ -73,8 +79,11 @@ def evidence(command, output, returncode, group):
         status, reason = 'incomplete', 'selected test command executed zero cases'
     if returncode:
         status, reason = 'failed', f'command exited {returncode}'
+    if (group == 'cargo_tooling_contracts' and returncode == 0
+            and any(arg.endswith('/cargo-dev-windows-toolchain.test.sh') for arg in command)):
+        reason = 'Windows-only fallback is not applicable on this Linux host; no Windows cases executed'
     return dict(status=status, reason=reason, tests_expected=expected, tests_executed=executed,
-                business_tests_executed=0 if group == 'baseline' else executed)
+                business_tests_executed=0 if group in TOOL_GROUPS else executed)
 
 
 def write_record(path, value):
@@ -124,7 +133,16 @@ def main(argv=None):
         # Preserve stdin (including driver heredocs). Do not create a detached
         # session: the outer supervisor owns this command and its descendants.
         with os.fdopen(fd, 'wb') as stream:
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            child_env = os.environ.copy()
+            if group in FIXTURE_GROUPS and any(arg.endswith(('.test.py', '.test.sh')) for arg in command):
+                # Fixtures own their nested Git histories and deliberately run
+                # failing drivers. Their inner checks must not write into the
+                # actual group's receipts or inherit the real source range.
+                for name in ('OASIS7_LOCAL_CHECK', 'OASIS7_LOCAL_CHECK_COMMAND_RUNNER',
+                             'OASIS7_LOCAL_CHECK_RUN_DIR', 'OASIS7_LOCAL_CHECK_GROUP',
+                             'OASIS7_PRODUCT_DOC_BASE', 'OASIS7_PRODUCT_DOC_HEAD'):
+                    child_env.pop(name, None)
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=child_env)
             while True:
                 data = process.stdout.read1(65536)
                 if not data:

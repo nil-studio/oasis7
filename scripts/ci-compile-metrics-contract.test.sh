@@ -2066,13 +2066,18 @@ fi
 # Source-state mutations are tested only in disposable linked worktrees.  The
 # canonical task worktree must retain its pre-existing status byte-for-byte.
 canonical_status_before=$(git -C "$repo_root" status --porcelain=v1 -z | sha256sum | awk '{print $1}')
+# Keep fixture worktree registrations out of the caller's Git metadata even
+# when a failure or cancellation interrupts the explicit removals below.
+fixture_git="$tmp_dir/worktree-fixture.git"
+git clone --quiet --shared --bare "$repo_root" "$fixture_git"
+
 mutation_fake_bin="$tmp_dir/mutation-bin"
 mkdir -p "$mutation_fake_bin"
 cp "$v2_fake_bin/cargo" "$mutation_fake_bin/cargo"
 chmod +x "$mutation_fake_bin/cargo"
 for mutation_mode in content mode type symlink untracked ignored gitlink; do
   mutation_worktree="$tmp_dir/mutation-$mutation_mode"
-  git worktree add --detach "$mutation_worktree" "$expected_commit_oid" >/dev/null
+  git --git-dir="$fixture_git" worktree add --detach "$mutation_worktree" "$expected_commit_oid" >/dev/null
   cp "$repo_root/scripts/ci-compile-metrics.sh" "$mutation_worktree/scripts/ci-compile-metrics.sh"
   if [[ "$mutation_mode" == symlink ]]; then
     ln -s README.md "$mutation_worktree/.v2-tracked-symlink"
@@ -2098,12 +2103,12 @@ for mutation_mode in content mode type symlink untracked ignored gitlink; do
         --package fake_library --out-dir "$mutation_out" --check-only --measure-warm-check \
         2>"$mutation_error"; then
     echo "source mutation $mutation_mode unexpectedly produced a successful measurement" >&2
-    git worktree remove --force "$mutation_worktree" >/dev/null
+    git --git-dir="$fixture_git" worktree remove --force "$mutation_worktree" >/dev/null
     exit 1
   fi
   if [[ -e "$mutation_out/current.metrics.json" ]]; then
     echo "source mutation $mutation_mode emitted successful metrics JSON" >&2
-    git worktree remove --force "$mutation_worktree" >/dev/null
+    git --git-dir="$fixture_git" worktree remove --force "$mutation_worktree" >/dev/null
     exit 1
   fi
   expected_mutation_path="README.md"
@@ -2118,10 +2123,10 @@ for mutation_mode in content mode type symlink untracked ignored gitlink; do
   fi
   if ! grep -Fq "$expected_mutation_path" "$mutation_error"; then
     echo "source mutation $mutation_mode diagnostic did not identify $expected_mutation_path: $(cat "$mutation_error")" >&2
-    git worktree remove --force "$mutation_worktree" >/dev/null
+    git --git-dir="$fixture_git" worktree remove --force "$mutation_worktree" >/dev/null
     exit 1
   fi
-  git worktree remove --force "$mutation_worktree" >/dev/null
+  git --git-dir="$fixture_git" worktree remove --force "$mutation_worktree" >/dev/null
   canonical_status_after=$(git -C "$repo_root" status --porcelain=v1 -z | sha256sum | awk '{print $1}')
   if [[ "$canonical_status_after" != "$canonical_status_before" ]]; then
     echo "source mutation $mutation_mode changed the canonical task worktree" >&2
@@ -2133,7 +2138,7 @@ echo "source/worktree mutation fingerprint contract: OK"
 # Output paths that equal, descend from, or resolve through a symlink into a
 # tracked source path are invalid.  A sibling external path remains valid.
 safety_worktree="$tmp_dir/output-safety-worktree"
-git worktree add --detach "$safety_worktree" "$expected_commit_oid" >/dev/null
+git --git-dir="$fixture_git" worktree add --detach "$safety_worktree" "$expected_commit_oid" >/dev/null
 cp "$repo_root/scripts/ci-compile-metrics.sh" "$safety_worktree/scripts/ci-compile-metrics.sh"
 safety_external_out="$tmp_dir/output-safety-external"
 FAKE_CARGO_LOG="$tmp_dir/output-safety-external.log" \
@@ -2157,7 +2162,7 @@ for unsafe_out in \
       "$safety_worktree/scripts/ci-compile-metrics.sh" \
         --package fake_library --out-dir "$unsafe_out" --check-only; then
     echo "output path inside tracked source unexpectedly succeeded: $unsafe_out" >&2
-    git worktree remove --force "$safety_worktree" >/dev/null
+    git --git-dir="$fixture_git" worktree remove --force "$safety_worktree" >/dev/null
     exit 1
   fi
 done
@@ -2172,10 +2177,10 @@ if FAKE_CARGO_LOG="$tmp_dir/unsafe-link-log" \
     "$safety_worktree/scripts/ci-compile-metrics.sh" \
       --package fake_library --out-dir "$safety_link/v2-output" --check-only; then
   echo "symlinked output path into tracked source unexpectedly succeeded" >&2
-  git worktree remove --force "$safety_worktree" >/dev/null
+  git --git-dir="$fixture_git" worktree remove --force "$safety_worktree" >/dev/null
   exit 1
 fi
-git worktree remove --force "$safety_worktree" >/dev/null
+git --git-dir="$fixture_git" worktree remove --force "$safety_worktree" >/dev/null
 echo "output-path alias safety contract: OK"
 
 # Parse the workflow with Ruby's standard-library YAML parser and inspect the
