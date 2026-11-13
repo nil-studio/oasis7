@@ -23,7 +23,14 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
+# The v3 component remains the production contract; v4 is research-only.
 VARIANT = 'qualifier-lines-v3'
+WORKLOAD_VARIANT = 'qualifier-lines-shared-v4'
+SHARED_FILE = 'codeql/typeinference/internal/TypeInference.qll'
+SHARED_OFFICIAL_SHA = '2a6d0a6be96444593e6294cb848633256f228f0ff137d42357f1ee4b92724378'
+SHARED_CANDIDATE_SHA = '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b'
+SHARED_PATCH_SHA = 'aea4d6115e175acc28ab594f4bfb073624a30e842bc6754afb794587697de31d'
+SHARED_UPSTREAM = '34c3f5b74d3acee241d57c596044de3f1a0c8918'
 ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
 TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
 IMAGE_CONTRACT = capacity.IMAGE_V2
@@ -74,7 +81,51 @@ def regular_snapshot(root, end):
 
 def private_inputs(work, end):
     return {name: regular_snapshot(work / name, end) for name in
-            ('candidate-rust-all', 'default-queries', 'public-witnesses')}
+            ('candidate-rust-all', 'candidate-typeinference', 'default-queries', 'public-witnesses')}
+
+
+def workload_closure(official, work):
+    closure = comparison.candidate_closure(official, work / 'candidate-rust-all')
+    closure['codeql/typeinference']['root'] = str(work / 'candidate-typeinference')
+    return closure
+
+
+def shared_helper_identity(original, private, end):
+    official_files, candidate_files = regular_snapshot(original, end), regular_snapshot(private, end)
+    changed = sorted(p for p in set(official_files) | set(candidate_files)
+                     if official_files.get(p) != candidate_files.get(p))
+    if (set(official_files) != set(candidate_files) or changed != [SHARED_FILE]
+            or runtime.digest(original / SHARED_FILE) != SHARED_OFFICIAL_SHA
+            or runtime.digest(private / SHARED_FILE) != SHARED_CANDIDATE_SHA
+            or official_files[SHARED_FILE]['mode'] != candidate_files[SHARED_FILE]['mode']):
+        raise RuntimeError('shared candidate differs from the fixed single-file helper patch')
+    return dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, upstream_commit=SHARED_UPSTREAM,
+                patch_sha256=SHARED_PATCH_SHA, changed_files=changed,
+                official_files=official_files, candidate_files=candidate_files)
+
+
+def prepare_shared_helper(closure, work, out, end, run, *, copy_end):
+    original = Path(closure['codeql/typeinference']['root'])
+    private = work / 'candidate-typeinference'
+    patch_file = HERE / 'codeql-rust-shared-constraint.patch'
+    if (closure['codeql/typeinference']['version'] != '0.0.42'
+            or runtime.digest(patch_file) != SHARED_PATCH_SHA
+            or runtime.digest(original / SHARED_FILE) != SHARED_OFFICIAL_SHA):
+        raise RuntimeError('shared helper patch or official type-inference identity differs')
+    regular_snapshot(original, end)
+    def copy_file(source, target):
+        capacity.check_time(copy_end)
+        return shutil.copy2(source, target)
+    shutil.copytree(original, private, copy_function=copy_file)
+    run(['patch', '--batch', '--fuzz=0', private / SHARED_FILE, patch_file], 'apply-shared-helper-patch', 20)
+    runtime.save(out / 'shared-helper-identity.json', shared_helper_identity(original, private, end), out)
+
+
+def verify_workload_identity(closure, work, out, end):
+    verify_candidate_identity(Path(closure['codeql/rust-all']['root']), work / 'candidate-rust-all', out, end)
+    if shared_helper_identity(Path(closure['codeql/typeinference']['root']),
+                              work / 'candidate-typeinference', end) != read_json(out / 'shared-helper-identity.json'):
+        raise RuntimeError('shared helper identity differs after preparation')
 
 
 def arity_identity():
@@ -397,7 +448,7 @@ def _main(cancellation, owned_resources):
     started = time.monotonic()
     end = started + max(0, args.deadline - time.time()) if math.isfinite(args.deadline) else started
     terminal = dict(status='CANDIDATE_RESEARCH_INCOMPLETE', phase=args.phase, mode=MODE,
-                    candidate_variant=VARIANT, image_contract_version=IMAGE_CONTRACT,
+                    candidate_variant=WORKLOAD_VARIANT, image_contract_version=IMAGE_CONTRACT,
                     source=capacity.CAPACITY_SOURCE, source_root=str(source), fixed_job_deadline=args.deadline,
                     analysis_deadline=args.analysis_deadline, production_capacity='UNKNOWN', full_rust_coverage='HOLD',
                     production_acceptance='UNCHANGED', security_upload=False, database_upload=False, sarif_upload=False,
@@ -441,7 +492,7 @@ def _main(cancellation, owned_resources):
             comparison.verify_seal(out, end - EVIDENCE_SECONDS)
             prepared = read_json(out / 'candidate-prepare-terminal.json')
             if (prepared.get('status') != 'CANDIDATE_RESEARCH_PREPARED' or prepared.get('budget') != budget
-                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != VARIANT
+                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != WORKLOAD_VARIANT
                     or prepared.get('image_contract_version') != IMAGE_CONTRACT
                     or prepared.get('semantic_contract_sha256') != terminal['semantic_contract_sha256']):
                 raise RuntimeError('candidate preparation receipt differs')
@@ -470,9 +521,12 @@ def _main(cancellation, owned_resources):
             raise RuntimeError('official library closure differs')
         if args.phase == 'prepare':
             terminal['stage'] = 'prepare-candidate-library'
-            private = prepare_candidate(original_closure, work, out, analysis_end,
+            prepare_candidate(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
-            closure = comparison.candidate_closure(original_closure, private)
+            terminal['stage'] = 'prepare-shared-helper'
+            prepare_shared_helper(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
+            closure = workload_closure(original_closure, work)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
             if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
             closures = dict(default=defaults, witness=closure)
@@ -491,13 +545,12 @@ def _main(cancellation, owned_resources):
             records = read_json(out / 'query-inputs.json')
             expected = query_records(work, source, read_json(checkpoint / 'default-suite.json'),
                                      read_json(checkpoint / 'semantic-query-inputs.json'))
-            witness_closure = comparison.candidate_closure(original_closure, work / 'candidate-rust-all')
+            witness_closure = workload_closure(original_closure, work)
             if (records != expected or closures != dict(witness=witness_closure,
                     default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
                     or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != TYPE_CANDIDATE_SHA):
                 raise RuntimeError('candidate workload binding differs from the frozen inputs')
-            verify_candidate_identity(Path(original_closure['codeql/rust-all']['root']),
-                                      work / 'candidate-rust-all', out, min(analysis_end, end - EVIDENCE_SECONDS))
+            verify_workload_identity(original_closure, work, out, min(analysis_end, end - EVIDENCE_SECONDS))
             if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
                 raise RuntimeError('private input changed after preparation')
             official_seal = comparison.verify_seal(checkpoint, min(analysis_end, end - EVIDENCE_SECONDS))
