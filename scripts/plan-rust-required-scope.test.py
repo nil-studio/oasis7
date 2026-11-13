@@ -4374,10 +4374,34 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertNotIn('fast_execution_version', current)
                 self.assertEqual({key: value for key, value in current.items()
                                   if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
-                                                 'ordinary_harness_costs')},
+                                                 'ordinary_harness_costs', 'ordinary_artifact_delivery_version')},
                                  legacy)
 
-    def test_cost_hints_require_trusted_configuration_and_only_targeted_v2_consumes_them(self):
+    def test_full_fast_uses_case_partitions_without_changing_the_original_selected_checks(self):
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control input\n')
+        head = self.commit()
+        current_config = self.config | {'ordinary_artifact_delivery_version': 2}
+        old_config = self.config | {'ordinary_artifact_delivery_version': 1}
+        physical = {'ordinary_artifact_partition_version', 'ordinary_partitions',
+                    'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                current = selector.select(current_config, self.base, head, profile=profile)
+                legacy = selector.select(old_config, self.base, head, profile=profile)
+                self.assertEqual(current['scope'], 'full')
+                self.assertIs(current['test_policy_changed'], False)
+                self.assertEqual(current['ordinary_artifact_partition_version'], 2)
+                self.assertEqual(current['ordinary_artifact_delivery_version'], 2)
+                self.assertEqual(current['ordinary_partitions'],
+                                 ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                self.assertEqual((legacy['ordinary_artifact_partition_version'],
+                                  legacy['ordinary_artifact_delivery_version']), (1, 1))
+                self.assertEqual({key: value for key, value in current.items() if key not in physical},
+                                 {key: value for key, value in legacy.items() if key not in physical})
+                self.assertTrue(current['ordinary_risk_targets'])
+                self.assertEqual(sum(len(target['cases']) for target in current['ordinary_risk_targets']), 5)
+
+    def test_cost_hints_require_trusted_configuration_and_only_fast_v2_consumes_them(self):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
         head = self.commit()
         old = dict(self.config)
@@ -4391,7 +4415,9 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             self.assertNotIn('ordinary_harness_costs', selector.full_plan(self.config, execution, head))
         self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control\n')
         head = self.commit()
-        self.assertNotIn('ordinary_harness_costs', selector.select(self.config, self.base, head, profile='pr-fast'))
+        self.assertEqual(selector.select(self.config, self.base, head, profile='pr-fast')['ordinary_harness_costs'], profile)
+        self.assertNotIn('ordinary_harness_costs', selector.select(
+            self.config | {'ordinary_artifact_delivery_version': 1}, self.base, head, profile='pr-fast'))
         row = profile['harnesses'][0]
         for change in ({'version': True}, {'fallback_ms': 0}, {'harnesses': [row, row]},
                        {'evidence': {}}, {'harnesses': [row | {'elapsed_ms': float('nan')}]},
@@ -4425,14 +4451,16 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
         changed = selector.select(self.config, self.base, head, profile='pr-fast')
         self.assertIs(changed['test_policy_changed'], True)
         self.assertNotEqual(changed.get('ordinary_artifact_partition_version'), 2)
+        self.assertNotEqual(changed.get('ordinary_artifact_delivery_version'), 2)
         for profile in ('periodic-full', 'candidate-full'):
             with self.subTest(profile=profile):
                 complete = selector.full_plan(self.config, profile, head)
                 self.assertEqual(complete['ordinary_artifact_partition_version'], 1)
+                self.assertEqual(complete['ordinary_artifact_delivery_version'], 1)
                 self.assertEqual(complete['ordinary_partitions'],
                                  ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
 
-    def test_only_targeted_noninline_chain_runtime_with_explicit_unchanged_policy_is_partitioned(self):
+    def test_only_eligible_noninline_chain_runtime_with_explicit_unchanged_policy_is_partitioned(self):
         original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
                         test_policy_changed=False, oasis7_required_packages=['oasis7_chain_runtime'])
         for key, value in [
@@ -4451,7 +4479,7 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
         selector.validate_config(self.config)
 
 
-    def test_delivery_capability_changes_only_transport_of_complete_v1_plans(self):
+    def test_delivery_versions_preserve_old_authority_and_complete_profiles(self):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
         head = self.commit()
         old = dict(self.config)
@@ -4462,23 +4490,46 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             self.assertEqual(current.pop('ordinary_artifact_delivery_version'), 1)
             self.assertEqual(current, legacy)
         for profile in ('pr-fast', 'main-fast'):
-            targeted = selector.select(self.config, self.base, head, profile=profile)
-            self.assertEqual(targeted['ordinary_artifact_partition_version'], 2)
-            self.assertNotIn('ordinary_artifact_delivery_version', targeted)
-        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# full control input\n')
-        head = self.commit()
-        current = selector.select(self.config, self.base, head, profile='pr-fast')
-        legacy = selector.select(old, self.base, head, profile='pr-fast')
-        self.assertEqual(current.pop('ordinary_artifact_delivery_version'), 1)
-        self.assertEqual(current, legacy)
-        # Candidate configuration already contains delivery=1; the old authority
-        # still cannot authorize it, including a complete conservative fallback.
-        self.assertNotIn('ordinary_artifact_delivery_version', legacy)
-        for version in (True, False, None, 0, 2, '1'):
+            current = selector.select(self.config, self.base, head, profile=profile)
+            self.assertEqual(current.pop('ordinary_artifact_delivery_version'), 2)
+            for legacy_config in (old, self.config | {'ordinary_artifact_delivery_version': 1}):
+                legacy = selector.select(legacy_config, self.base, head, profile=profile)
+                self.assertEqual(legacy['ordinary_artifact_partition_version'], 2)
+                self.assertNotIn('ordinary_artifact_delivery_version', legacy)
+                self.assertEqual(current, legacy)
+        # A candidate with delivery=2 cannot enroll the old BASE in either the
+        # new full/fast partition or the new transport, even on a policy fallback.
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config) + '\n')
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
+                   '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
+        migration = self.commit()
+        for config in (old, self.config | {'ordinary_artifact_delivery_version': 1}, self.config):
+            current = selector.select(config, self.base, migration, profile='pr-fast')
+            self.assertIs(current['test_policy_changed'], True)
+            self.assertEqual(current['ordinary_artifact_partition_version'], 1)
+            self.assertEqual(current.get('ordinary_artifact_delivery_version'),
+                             None if config is old else 1)
+        for version in (True, False, None, 0, 3, '1'):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 selector.validate_config(self.config | {'ordinary_artifact_delivery_version': version})
         for partition_version in (1, 2):
-            selector.validate_config(self.config | {'ordinary_artifact_partition_version': partition_version})
+            for delivery_version in (1, 2):
+                selector.validate_config(self.config | {'ordinary_artifact_partition_version': partition_version,
+                                                       'ordinary_artifact_delivery_version': delivery_version})
+
+    def test_full_fast_keeps_v1_when_any_existing_case_partition_condition_is_missing(self):
+        original = dict(scope='full', groups=['oasis7_required'], execution_profile='pr-fast',
+                        test_policy_changed=False, oasis7_required_packages=['oasis7_chain_runtime'])
+        for key, value in [('scope', 'explicit-full'), ('execution_profile', 'periodic-full'),
+                           ('execution_profile', 'candidate-full'), ('test_policy_changed', True),
+                           ('test_policy_changed', None), ('ordinary_fast_targets', []),
+                           ('ordinary_full_fast_targets', []), ('oasis7_required_packages', ['oasis7_runtime'])]:
+            with self.subTest(key=key, value=value):
+                selected = original | {key: value}
+                selector.complete_ordinary_partitions(self.config, selected)
+                self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
+                self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
+                self.assertNotIn('ordinary_harness_costs', selected)
 
 
 class CustodyExecutionPlans(unittest.TestCase):
