@@ -129,9 +129,22 @@ class ArityPatch(unittest.TestCase):
 
     def test_shared_patch_has_separate_research_and_component_identities(self):
         self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-shared-constraint.patch'), m.SHARED_PATCH_SHA)
-        self.assertEqual(m.WORKLOAD_VARIANT, 'qualifier-lines-shared-trait-v5')
+        self.assertEqual(m.V5_VARIANT, 'qualifier-lines-shared-trait-v5')
+        self.assertEqual(m.WORKLOAD_VARIANT, 'qualifier-lines-constraint-matching-v6')
         self.assertEqual(m.VARIANT, 'qualifier-lines-v3')
         self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-trait-visibility.patch'), m.TRAIT_PATCH_SHA)
+
+    def test_constraint_patch_keeps_its_source_and_fixed_v5_base_separate(self):
+        self.assertEqual(m.CONSTRAINT_UPSTREAM, '1c4fea90af949111bc1c625f1e72de56a12c7712')
+        self.assertEqual(m.CONSTRAINT_API_PATCH_SHA, 'ba47e346672cd8281b3a6a3d94647b0d00d733a273311799b0533dc4b0fd37db')
+        self.assertEqual(m.CONSTRAINT_UPSTREAM_PATCH_SHA, '3880e57052c74d8af7f155a7abc8b721eef0725463897647809fd10b28d3a0ba')
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-constraint-matching.patch'),
+                         'e6563cf895df0f662444795cf5c8f2358804784d667ccce4b11fa336ffde7db8')
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-constraint-matching.patch'), m.CONSTRAINT_PATCH_SHA)
+        self.assertEqual(m.capacity.bundle.SHARED_CANDIDATE_SHA,
+                         '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
+        self.assertEqual(m.CONSTRAINT_CANDIDATE_SHA,
+                         '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33')
 
 
 class Workload(unittest.TestCase):
@@ -223,6 +236,7 @@ class Workload(unittest.TestCase):
                                    (m, 'TRAIT_TYPE_SHA', hashlib.sha256(b'trait-candidate').hexdigest()),
                                    (m, 'TRAIT_PATH_OFFICIAL_SHA', hashlib.sha256(b'stock-path').hexdigest()),
                                    (m, 'TRAIT_PATH_SHA', hashlib.sha256(b'trait-path').hexdigest()),
+                                   (m, 'CONSTRAINT_CANDIDATE_SHA', hashlib.sha256(b'constraint-matching-shared').hexdigest()),
                                    (m.capacity.bundle, 'SHARED_OFFICIAL_SHA', hashlib.sha256(b'stock-shared').hexdigest()),
                                    (m.capacity.bundle, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'helper-shared').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
@@ -269,6 +283,15 @@ class Workload(unittest.TestCase):
             (self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).write_text('trait-candidate')
             (self.work / 'candidate-rust-all' / m.TRAIT_PATH_FILE).write_text('trait-path')
             output.write_text('applied fixed trait visibility fixture')
+        elif name == 'apply-constraint-matching-patch':
+            self.assertEqual(argv, ['patch', '--batch', '--forward', '--no-backup-if-mismatch', '--fuzz=0',
+                                   '-p1', '-d', str(self.work / 'candidate-typeinference'),
+                                   '-i', str(HERE / 'codeql-rust-constraint-matching.patch')])
+            self.assertEqual((self.work / 'candidate-typeinference' / m.SHARED_FILE).read_text(), 'helper-shared')
+            self.assertEqual(m.read_json(self.out / 'shared-helper-identity.json')['variant'], 'qualifier-lines-shared-trait-v5')
+            self.assertEqual(m.read_json(self.out / 'trait-visibility-identity.json')['variant'], 'qualifier-lines-shared-trait-v5')
+            (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('constraint-matching-shared')
+            output.write_text('applied fixed ConstraintMatching fixture')
         elif name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
         elif name.startswith('resolve-'):
             path = Path(next(a.split('=', 1)[1] for a in argv if a.startswith('--query=')))
@@ -395,7 +418,7 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
-        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-shared-trait-v5')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-constraint-matching-v6')
         self.assertEqual(terminal['image_contract_version'],'image-v2')
         self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
         model=m.read_json(self.out/'lines-model-identity.json')
@@ -411,7 +434,7 @@ class Workload(unittest.TestCase):
         self.assertEqual(shared['candidate_files'][m.SHARED_FILE]['sha256'], hashlib.sha256(b'helper-shared').hexdigest())
         self.assertEqual(set(shared['official_files']), set(shared['candidate_files']))
         trait = m.read_json(self.out / 'trait-visibility-identity.json')
-        self.assertEqual(trait['variant'], m.WORKLOAD_VARIANT)
+        self.assertEqual(trait['variant'], 'qualifier-lines-shared-trait-v5')
         self.assertEqual(trait['base_variant'], 'qualifier-lines-v3')
         self.assertEqual(trait['before_files'], model['candidate_files'])
         self.assertEqual(trait['changed_files'], sorted((m.comparison.TYPE_FILE, m.TRAIT_PATH_FILE)))
@@ -419,6 +442,20 @@ class Workload(unittest.TestCase):
         self.assertEqual(trait['candidate_files'][m.TRAIT_PATH_FILE]['sha256'], m.TRAIT_PATH_SHA)
         self.assertEqual(trait['base_receipts_sha256'], {name: m.runtime.digest(self.out / name) for name in
                          ('arity-patch-identity.json', 'lines-model-identity.json')})
+        constraint = m.read_json(self.out / 'constraint-matching-identity.json')
+        self.assertEqual(constraint['variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(constraint['base_variant'], 'qualifier-lines-shared-trait-v5')
+        self.assertEqual(constraint['upstream_commit'], '1c4fea90af949111bc1c625f1e72de56a12c7712')
+        self.assertEqual(constraint['patch_sha256'], m.CONSTRAINT_PATCH_SHA)
+        self.assertEqual(constraint['before_files'], shared['candidate_files'])
+        self.assertEqual(constraint['changed_files'], [m.SHARED_FILE])
+        self.assertEqual(constraint['candidate_files'][m.SHARED_FILE]['sha256'],
+                         hashlib.sha256(b'constraint-matching-shared').hexdigest())
+        self.assertEqual(set(constraint['before_files']), set(constraint['candidate_files']))
+        self.assertEqual(constraint['base_receipts_sha256'], {name: m.runtime.digest(self.out / name) for name in
+                         ('shared-helper-identity.json', 'trait-visibility-identity.json')})
+        with self.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
+            m.verify_v5_identity(self.closure, self.work, self.out, time.monotonic() + 30)
         closures = m.read_json(self.out / 'selected-closures.json')
         for closure in closures.values():
             self.assertEqual(closure['codeql/typeinference']['root'], str(self.work / 'candidate-typeinference'))
@@ -703,6 +740,93 @@ class Workload(unittest.TestCase):
         self.assertIn('preparation receipt differs',
                       m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
 
+    def test_v5_preparation_cannot_be_resumed_as_the_constraint_workload(self):
+        self.prepare()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        prepared['candidate_variant'] = 'qualifier-lines-shared-trait-v5'
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation receipt differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_missing_constraint_receipt_blocks_queries_after_resealing(self):
+        self.prepare()
+        (self.out / 'constraint-matching-identity.json').unlink()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('constraint-matching-identity.json',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_v5_shared_bytes_cannot_be_admitted_after_resealing_inputs(self):
+        self.prepare()
+        (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('helper-shared')
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('fixed ConstraintMatching overlay',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_forged_v5_shared_base_cannot_hide_an_extra_change_after_resealing(self):
+        self.prepare()
+        (self.work / 'candidate-typeinference/Unchanged.qll').write_text('unapproved change')
+        actual = m.regular_snapshot(self.work / 'candidate-typeinference', time.monotonic() + 30)
+        shared = m.read_json(self.out / 'shared-helper-identity.json')
+        shared['official_files']['Unchanged.qll'] = shared['candidate_files']['Unchanged.qll'] = actual['Unchanged.qll']
+        self.write(self.out / 'shared-helper-identity.json', shared)
+        constraint = m.read_json(self.out / 'constraint-matching-identity.json')
+        constraint['before_files'] = shared['candidate_files']
+        constraint['candidate_files'] = actual
+        constraint['base_receipts_sha256']['shared-helper-identity.json'] = m.runtime.digest(self.out / 'shared-helper-identity.json')
+        self.write(self.out / 'constraint-matching-identity.json', constraint)
+        self.write(self.out / 'private-inputs-before.json', m.private_inputs(self.work, time.monotonic() + 30))
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('fixed single-file helper patch',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_constraint_overlay_rejects_file_set_and_mode_changes(self):
+        self.prepare()
+        private = self.work / 'candidate-typeinference'
+        for relative, payload in (('Extra.qll', b'extra'), ('Unchanged.qll', None)):
+            with self.subTest(relative=relative):
+                target = private / relative
+                before = target.read_bytes() if target.exists() else None
+                if payload is None: target.unlink()
+                else: target.write_bytes(payload)
+                try:
+                    with self.assertRaisesRegex(RuntimeError, 'fixed ConstraintMatching overlay'):
+                        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+                finally:
+                    if before is None: target.unlink()
+                    else: target.write_bytes(before)
+        target = private / m.SHARED_FILE
+        mode = target.stat().st_mode
+        target.chmod(mode ^ 0o100)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'fixed ConstraintMatching overlay'):
+                m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+        finally: target.chmod(mode)
+        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+
+    def test_wrong_constraint_patch_stops_before_its_process(self):
+        with patch.object(m, 'CONSTRAINT_PATCH_SHA', '0' * 64):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertFalse(any(call[0] == 'apply-constraint-matching-patch' for call in self.calls))
+        self.assertFalse((self.out / 'constraint-matching-identity.json').exists())
+        self.assertEqual((self.work / 'candidate-typeinference' / m.SHARED_FILE).read_text(), 'helper-shared')
+        m.verify_v5_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+
     def test_missing_trait_receipt_blocks_queries_after_resealing(self):
         self.prepare()
         (self.out / 'trait-visibility-identity.json').unlink()
@@ -791,7 +915,7 @@ class Workload(unittest.TestCase):
         before = len(self.calls)
         self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
-        self.assertIn('fixed single-file helper patch',
+        self.assertIn('fixed ConstraintMatching overlay',
                       m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
 
     def test_shared_extra_change_is_rejected_even_with_fresh_snapshots_and_seal(self):
@@ -803,7 +927,7 @@ class Workload(unittest.TestCase):
         before = len(self.calls)
         self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
-        self.assertIn('fixed single-file helper patch',
+        self.assertIn('fixed ConstraintMatching overlay',
                       m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
 
     def test_shared_official_closure_fallback_is_rejected_before_queries(self):
@@ -945,7 +1069,13 @@ class RealCodeQL(unittest.TestCase):
             m.prepare_candidate(official, work, out, end, run, copy_end=end)
             m.prepare_shared_helper(official, work, out, end, run, copy_end=end)
             m.prepare_trait_visibility(official, work, out, end, run)
+            m.verify_v5_identity(official, work, out, end)
+            self.assertEqual(m.runtime.digest(work / 'candidate-typeinference' / m.SHARED_FILE),
+                             '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
+            m.prepare_constraint_matching(official, work, out, end, run)
             m.verify_workload_identity(official, work, out, end)
+            self.assertEqual(m.runtime.digest(work / 'candidate-typeinference' / m.SHARED_FILE),
+                             '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33')
             witness = m.workload_closure(official, work)
             closures = dict(witness=witness, default=dict(witness, **{'codeql/suite-helpers': m.suite_helper(codeql.parent)}))
             self.assertEqual(len(witness), 13); self.assertEqual(len(closures['default']), 14)
@@ -967,6 +1097,11 @@ class RealCodeQL(unittest.TestCase):
             trait = m.read_json(out / 'trait-visibility-identity.json')
             self.assertEqual(trait['candidate_files'][m.comparison.TYPE_FILE]['sha256'], m.TRAIT_TYPE_SHA)
             self.assertEqual(trait['candidate_files'][m.TRAIT_PATH_FILE]['sha256'], m.TRAIT_PATH_SHA)
+            constraint = m.read_json(out / 'constraint-matching-identity.json')
+            self.assertEqual(constraint['before_files'], m.read_json(out / 'shared-helper-identity.json')['candidate_files'])
+            self.assertEqual(constraint['candidate_files'], m.regular_snapshot(work / 'candidate-typeinference', end))
+            with self.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
+                m.verify_v5_identity(official, work, out, end)
             with self.assertRaisesRegex(RuntimeError, 'two-file model'):
                 m.verify_candidate_identity(Path(official['codeql/rust-all']['root']), work / 'candidate-rust-all', out, end)
 

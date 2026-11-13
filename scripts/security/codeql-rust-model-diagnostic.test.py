@@ -220,6 +220,16 @@ class SharedHelper(unittest.TestCase):
         self.assertEqual(set(identity), {'upstream_commit', 'patch_sha256', 'changed_files', 'official_files', 'candidate_files'})
         self.assertEqual(len(self.calls), 1)
 
+    def test_saved_snapshot_validation_preserves_the_legacy_contract(self):
+        identity = self.prepare()
+        official = self.snapshot(self.original)
+        saved = json.loads(json.dumps(identity['candidate_files']))
+        self.assertEqual(m.shared_snapshot_identity(official, saved), identity)
+        saved['Support.qll']['sha256'] = hashlib.sha256(b'forged intermediate').hexdigest()
+        with self.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
+            m.shared_snapshot_identity(official, saved)
+        self.assertEqual(self.snapshot(self.original), official)
+
     def test_wrong_patch_base_or_manifest_never_spawns_patch(self):
         for fault in ('patch', 'base', 'version', 'manifest'):
             with self.subTest(fault=fault):

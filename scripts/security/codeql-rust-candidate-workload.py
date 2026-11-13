@@ -23,14 +23,20 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
-# The v3 component remains the production contract; v5 is research-only.
+# The v3 component remains production; v5 is the fixed intermediate for research v6.
 VARIANT = 'qualifier-lines-v3'
-WORKLOAD_VARIANT = 'qualifier-lines-shared-trait-v5'
+V5_VARIANT = 'qualifier-lines-shared-trait-v5'
+WORKLOAD_VARIANT = 'qualifier-lines-constraint-matching-v6'
 SHARED_FILE = capacity.bundle.SHARED_FILE
 SHARED_OFFICIAL_SHA = capacity.bundle.SHARED_OFFICIAL_SHA
 SHARED_CANDIDATE_SHA = capacity.bundle.SHARED_CANDIDATE_SHA
 SHARED_PATCH_SHA = capacity.bundle.SHARED_PATCH_SHA
 SHARED_UPSTREAM = capacity.bundle.SHARED_UPSTREAM
+CONSTRAINT_UPSTREAM = '1c4fea90af949111bc1c625f1e72de56a12c7712'
+CONSTRAINT_API_PATCH_SHA = 'ba47e346672cd8281b3a6a3d94647b0d00d733a273311799b0533dc4b0fd37db'
+CONSTRAINT_UPSTREAM_PATCH_SHA = '3880e57052c74d8af7f155a7abc8b721eef0725463897647809fd10b28d3a0ba'
+CONSTRAINT_PATCH_SHA = 'e6563cf895df0f662444795cf5c8f2358804784d667ccce4b11fa336ffde7db8'
+CONSTRAINT_CANDIDATE_SHA = '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33'
 ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
 TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
 TRAIT_PATCH_SHA = '15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21'
@@ -98,7 +104,7 @@ def workload_closure(official, work):
 def shared_helper_identity(original, private, end):
     identity = capacity.bundle.shared_helper_identity(original, private,
                                                       snapshot=lambda root: regular_snapshot(root, end))
-    return dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, **identity)
+    return dict(variant=V5_VARIANT, base_variant=VARIANT, **identity)
 
 
 def prepare_shared_helper(closure, work, out, end, run, *, copy_end):
@@ -108,16 +114,60 @@ def prepare_shared_helper(closure, work, out, end, run, *, copy_end):
     identity = capacity.bundle.prepare_shared_helper(closure['codeql/typeinference'], work / 'candidate-typeinference',
         HERE / 'codeql-rust-shared-constraint.patch', snapshot=lambda root: regular_snapshot(root, end),
         copy_file=copy_file, file_digest=lambda path: capacity.digest_until(path, end), run=run)
-    runtime.save(out / 'shared-helper-identity.json', dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, **identity), out)
+    runtime.save(out / 'shared-helper-identity.json', dict(variant=V5_VARIANT, base_variant=VARIANT, **identity), out)
 
 
-def verify_workload_identity(closure, work, out, end):
+def verify_v5_identity(closure, work, out, end):
+    """Validate the genuine v5 tree before applying the independent v6 overlay."""
     if trait_visibility_identity(Path(closure['codeql/rust-all']['root']),
                                  work / 'candidate-rust-all', out, end) != read_json(out / 'trait-visibility-identity.json'):
         raise RuntimeError('trait visibility identity differs after preparation')
     if shared_helper_identity(Path(closure['codeql/typeinference']['root']),
                               work / 'candidate-typeinference', end) != read_json(out / 'shared-helper-identity.json'):
         raise RuntimeError('shared helper identity differs after preparation')
+
+
+def constraint_matching_identity(closure, work, out, end):
+    """Revalidate the saved v5 shared base before checking the actual final tree."""
+    if trait_visibility_identity(Path(closure['codeql/rust-all']['root']),
+                                 work / 'candidate-rust-all', out, end) != read_json(out / 'trait-visibility-identity.json'):
+        raise RuntimeError('trait visibility identity differs after preparation')
+    base = read_json(out / 'shared-helper-identity.json')
+    before = base['candidate_files']
+    original = regular_snapshot(Path(closure['codeql/typeinference']['root']), end)
+    expected = dict(variant=V5_VARIANT, base_variant=VARIANT,
+                    **capacity.bundle.shared_snapshot_identity(original, before))
+    if expected != base:
+        raise RuntimeError('v5 shared intermediate identity differs after preparation')
+    after = regular_snapshot(work / 'candidate-typeinference', end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (runtime.digest(HERE / 'codeql-rust-constraint-matching.patch') != CONSTRAINT_PATCH_SHA
+            or set(before) != set(after) or changed != [SHARED_FILE]
+            or after[SHARED_FILE]['sha256'] != CONSTRAINT_CANDIDATE_SHA
+            or any(before[p]['mode'] != after[p]['mode'] for p in before)):
+        raise RuntimeError('candidate differs from the fixed ConstraintMatching overlay')
+    return dict(variant=WORKLOAD_VARIANT, base_variant=V5_VARIANT,
+                upstream_commit=CONSTRAINT_UPSTREAM, upstream_api_patch_sha256=CONSTRAINT_API_PATCH_SHA,
+                upstream_patch_sha256=CONSTRAINT_UPSTREAM_PATCH_SHA, patch_sha256=CONSTRAINT_PATCH_SHA,
+                base_receipts_sha256={name: runtime.digest(out / name) for name in
+                    ('shared-helper-identity.json', 'trait-visibility-identity.json')},
+                changed_files=changed, before_files=before, candidate_files=after)
+
+
+def verify_workload_identity(closure, work, out, end):
+    if constraint_matching_identity(closure, work, out, end) != read_json(out / 'constraint-matching-identity.json'):
+        raise RuntimeError('ConstraintMatching identity differs after preparation')
+
+
+def prepare_constraint_matching(closure, work, out, end, run):
+    verify_v5_identity(closure, work, out, end)
+    patch_file = HERE / 'codeql-rust-constraint-matching.patch'
+    if patch_file.resolve() != patch_file or runtime.digest(patch_file) != CONSTRAINT_PATCH_SHA:
+        raise RuntimeError('ConstraintMatching patch identity differs')
+    run(['patch', '--batch', '--forward', '--no-backup-if-mismatch', '--fuzz=0', '-p1',
+         '-d', work / 'candidate-typeinference', '-i', patch_file], 'apply-constraint-matching-patch', 20)
+    runtime.save(out / 'constraint-matching-identity.json',
+                 constraint_matching_identity(closure, work, out, end), out)
 
 
 def arity_identity():
@@ -197,7 +247,7 @@ def trait_visibility_identity(original, private, out, end):
             or after[TRAIT_PATH_FILE]['sha256'] != TRAIT_PATH_SHA
             or any(before[p]['mode'] != after[p]['mode'] for p in changed)):
         raise RuntimeError('candidate differs from the fixed trait visibility annotation patch')
-    return dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, patch_sha256=TRAIT_PATCH_SHA,
+    return dict(variant=V5_VARIANT, base_variant=VARIANT, patch_sha256=TRAIT_PATCH_SHA,
                 base_receipts_sha256={name: runtime.digest(out / name) for name in
                     ('arity-patch-identity.json', 'lines-model-identity.json')},
                 changed_files=changed, before_files=before, candidate_files=after)
@@ -561,6 +611,9 @@ def _main(cancellation, owned_resources):
                 lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
             terminal['stage'] = 'prepare-trait-visibility'
             prepare_trait_visibility(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True))
+            terminal['stage'] = 'prepare-constraint-matching'
+            prepare_constraint_matching(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True))
             closure = workload_closure(original_closure, work)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
