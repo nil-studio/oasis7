@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import time
 
 import codeql_rust_diagnostic_runtime as runtime
@@ -18,6 +19,11 @@ BUNDLES = {
 }
 # Shared closure metadata does not expand the historical model diagnostic CLI.
 MODEL_BUNDLE_VERSIONS = ('2.27.2', '2.27.3')
+SHARED_FILE = 'codeql/typeinference/internal/TypeInference.qll'
+SHARED_OFFICIAL_SHA = '2a6d0a6be96444593e6294cb848633256f228f0ff137d42357f1ee4b92724378'
+SHARED_CANDIDATE_SHA = '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b'
+SHARED_PATCH_SHA = '6b5a4cd3443caca8e994f05aa3c57e34b23c6fe3dfdc27851eb5f5c6ebf3c36c'
+SHARED_UPSTREAM = '34c3f5b74d3acee241d57c596044de3f1a0c8918'
 
 
 def pack_manifest(path):
@@ -78,6 +84,45 @@ def verify_library_path(value, query, name, closure, pack_name="oasis7/rust-mode
         raise RuntimeError('actual query identity differs')
     if not isinstance(value['compilationCache'], list) or not all(isinstance(p, str) for p in value['compilationCache']):
         raise RuntimeError('unknown actual compilation cache schema')
+
+
+def shared_helper_identity(original, private, *, snapshot):
+    """Fixed shared helper only; each caller supplies its bounded regular-file inventory."""
+    if any(root.resolve() != root or not root.is_dir() for root in (original, private)):
+        raise RuntimeError('unsafe shared helper root')
+    official_files, candidate_files = snapshot(original), snapshot(private)
+    changed = sorted(p for p in set(official_files) | set(candidate_files)
+                     if official_files.get(p) != candidate_files.get(p))
+    if (not 0 < len(official_files) <= 8192 or set(official_files) != set(candidate_files)
+            or changed != [SHARED_FILE]
+            or official_files.get(SHARED_FILE, {}).get('sha256') != SHARED_OFFICIAL_SHA
+            or candidate_files.get(SHARED_FILE, {}).get('sha256') != SHARED_CANDIDATE_SHA
+            or official_files[SHARED_FILE]['mode'] != candidate_files[SHARED_FILE]['mode']):
+        raise RuntimeError('shared candidate differs from the fixed single-file helper patch')
+    return dict(upstream_commit=SHARED_UPSTREAM, patch_sha256=SHARED_PATCH_SHA, changed_files=changed,
+                official_files=official_files, candidate_files=candidate_files)
+
+
+def prepare_shared_helper(entry, private, patch_file, *, snapshot, copy_file, file_digest, run):
+    """Reuse caller deadlines/supervision; never patch the official package or choose another patch."""
+    original = Path(entry['root'])
+    if (original.resolve() != original or not original.is_dir() or private.resolve() != private
+            or private.exists() or private.is_relative_to(original) or original.is_relative_to(private)
+            or patch_file.resolve() != patch_file or not patch_file.is_file()):
+        raise RuntimeError('unsafe shared helper preparation paths')
+    official_files = snapshot(original)
+    if (entry.get('name') != 'codeql/typeinference' or entry.get('version') != '0.0.42'
+            or pack_manifest(original / 'qlpack.yml') != {k: v for k, v in entry.items() if k != 'root'}
+            or not 0 < len(official_files) <= 8192
+            or file_digest(patch_file) != SHARED_PATCH_SHA
+            or official_files.get(SHARED_FILE, {}).get('sha256') != SHARED_OFFICIAL_SHA):
+        raise RuntimeError('shared helper patch or official type-inference identity differs')
+    shutil.copytree(original, private, copy_function=copy_file)
+    run(['patch', '--batch', '--fuzz=0', private / SHARED_FILE, patch_file], 'apply-shared-helper-patch', 20)
+    identity = shared_helper_identity(original, private, snapshot=snapshot)
+    if identity['official_files'] != official_files:
+        raise RuntimeError('official shared package changed during preparation')
+    return identity
 
 
 def main():

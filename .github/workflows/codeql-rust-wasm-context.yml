@@ -42,6 +42,7 @@ jobs:
           HELPERS = ('codeql-rust-wasm-context.py', 'codeql_rust_wasm_witnesses.py',
                      'codeql_rust_candidate_profile.py',
                      'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
+                     'codeql-rust-shared-constraint.patch',
                      'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
                      'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py')
           WORKFLOW = '.github/workflows/codeql-rust-wasm-context.yml'

@@ -26,11 +26,11 @@ MODE = 'candidate-workload-research'
 # The v3 component remains the production contract; v4 is research-only.
 VARIANT = 'qualifier-lines-v3'
 WORKLOAD_VARIANT = 'qualifier-lines-shared-v4'
-SHARED_FILE = 'codeql/typeinference/internal/TypeInference.qll'
-SHARED_OFFICIAL_SHA = '2a6d0a6be96444593e6294cb848633256f228f0ff137d42357f1ee4b92724378'
-SHARED_CANDIDATE_SHA = '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b'
-SHARED_PATCH_SHA = '6b5a4cd3443caca8e994f05aa3c57e34b23c6fe3dfdc27851eb5f5c6ebf3c36c'
-SHARED_UPSTREAM = '34c3f5b74d3acee241d57c596044de3f1a0c8918'
+SHARED_FILE = capacity.bundle.SHARED_FILE
+SHARED_OFFICIAL_SHA = capacity.bundle.SHARED_OFFICIAL_SHA
+SHARED_CANDIDATE_SHA = capacity.bundle.SHARED_CANDIDATE_SHA
+SHARED_PATCH_SHA = capacity.bundle.SHARED_PATCH_SHA
+SHARED_UPSTREAM = capacity.bundle.SHARED_UPSTREAM
 ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
 TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
 IMAGE_CONTRACT = capacity.IMAGE_V2
@@ -91,34 +91,19 @@ def workload_closure(official, work):
 
 
 def shared_helper_identity(original, private, end):
-    official_files, candidate_files = regular_snapshot(original, end), regular_snapshot(private, end)
-    changed = sorted(p for p in set(official_files) | set(candidate_files)
-                     if official_files.get(p) != candidate_files.get(p))
-    if (set(official_files) != set(candidate_files) or changed != [SHARED_FILE]
-            or runtime.digest(original / SHARED_FILE) != SHARED_OFFICIAL_SHA
-            or runtime.digest(private / SHARED_FILE) != SHARED_CANDIDATE_SHA
-            or official_files[SHARED_FILE]['mode'] != candidate_files[SHARED_FILE]['mode']):
-        raise RuntimeError('shared candidate differs from the fixed single-file helper patch')
-    return dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, upstream_commit=SHARED_UPSTREAM,
-                patch_sha256=SHARED_PATCH_SHA, changed_files=changed,
-                official_files=official_files, candidate_files=candidate_files)
+    identity = capacity.bundle.shared_helper_identity(original, private,
+                                                      snapshot=lambda root: regular_snapshot(root, end))
+    return dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, **identity)
 
 
 def prepare_shared_helper(closure, work, out, end, run, *, copy_end):
-    original = Path(closure['codeql/typeinference']['root'])
-    private = work / 'candidate-typeinference'
-    patch_file = HERE / 'codeql-rust-shared-constraint.patch'
-    if (closure['codeql/typeinference']['version'] != '0.0.42'
-            or runtime.digest(patch_file) != SHARED_PATCH_SHA
-            or runtime.digest(original / SHARED_FILE) != SHARED_OFFICIAL_SHA):
-        raise RuntimeError('shared helper patch or official type-inference identity differs')
-    regular_snapshot(original, end)
     def copy_file(source, target):
         capacity.check_time(copy_end)
         return shutil.copy2(source, target)
-    shutil.copytree(original, private, copy_function=copy_file)
-    run(['patch', '--batch', '--fuzz=0', private / SHARED_FILE, patch_file], 'apply-shared-helper-patch', 20)
-    runtime.save(out / 'shared-helper-identity.json', shared_helper_identity(original, private, end), out)
+    identity = capacity.bundle.prepare_shared_helper(closure['codeql/typeinference'], work / 'candidate-typeinference',
+        HERE / 'codeql-rust-shared-constraint.patch', snapshot=lambda root: regular_snapshot(root, end),
+        copy_file=copy_file, file_digest=lambda path: capacity.digest_until(path, end), run=run)
+    runtime.save(out / 'shared-helper-identity.json', dict(variant=WORKLOAD_VARIANT, base_variant=VARIANT, **identity), out)
 
 
 def verify_workload_identity(closure, work, out, end):

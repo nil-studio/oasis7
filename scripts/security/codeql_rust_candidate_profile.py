@@ -17,6 +17,14 @@ OUTPUT_CAP = 8 * 1024**2
 SUMMARY_SECONDS = 20
 LINE_CAP = 2 * 1024**2
 MAX_SUMMARY_RECORDS = 100000
+NUMERIC_RESERVE = 4 * 1024**2  # inside OUTPUT_CAP, throughout the capture lifetime
+NUMERIC_LINE_CAP = 64 * 1024
+NUMERIC_ALIAS_CAP = 64
+NUMERIC_PREDICATE_CAP = 128
+NUMERIC_PIPELINE_CAP = 256
+NUMERIC_EVENT_CAP = 16384
+NUMERIC_TAIL = 16
+NUMERIC_RECEIPT_CAP = 31 * 1024  # leave room for the observed-stream identity
 # Linux UAPI values; some Python builds omit these names despite memfd support.
 ADD_SEALS = getattr(fcntl, 'F_ADD_SEALS', 1033)
 GET_SEALS = getattr(fcntl, 'F_GET_SEALS', 1034)
@@ -52,9 +60,270 @@ def _hash(data):
     return hashlib.sha256(data).hexdigest()
 
 
+class NumericProjection:
+    """One fixed source family; event instances and literal sizes, never CPU/deltas."""
+    VERSION = 'candidate-numeric-v1'
+    BASE = {'time': str, 'type': str, 'eventId': int, 'nanoTime': int}
+    FIELDS = dict(BASE, codeqlVersion=str, logVersion=str, queryName=str, stages=list,
+                  startEvent=int, terminationType=str, raHash=str, predicateName=str,
+                  appearsAs=dict, layerId=int, isCached=bool, predicateType=str,
+                  position=str, ra=dict, dependencies=dict, queryCausingWork=int,
+                  resultSize=int, completionType=str, exceptionName=str,
+                  predicateStartEvent=int, raReference=str, generationNumber=int,
+                  counts=list, duplicationPercentages=list, cacheLookupResult=str,
+                  relationSize=int, sentinelRaHash=str)
+    PREDICATE = 'raHash predicateName appearsAs layerId isCached'
+    KINDS = {
+        'LOG_HEADER': 'codeqlVersion logVersion', 'LOG_FOOTER': '',
+        'QUERY_STARTED': 'queryName stages', 'QUERY_COMPLETED': 'startEvent terminationType',
+        'PREDICATE_STARTED': PREDICATE+' predicateType position ra dependencies queryCausingWork',
+        'PREDICATE_COMPLETED': 'startEvent resultSize completionType exceptionName',
+        'PIPELINE_STARTED': 'predicateStartEvent raReference generationNumber',
+        'PIPELINE_COMPLETED': 'startEvent counts duplicationPercentages resultSize completionType exceptionName',
+        'CACHE_LOOKUP': PREDICATE+' cacheLookupResult relationSize',
+        'SENTINEL_EMPTY': PREDICATE+' sentinelRaHash',
+    }
+    PREDICATE_TYPES = {'SIMPLE_INTENSIONAL', 'RECURSIVE_INTENSIONAL', 'EXTENSIONAL',
+                       'EXTERNAL_PREDICATE', 'STAGE_RESULT', 'EXTENSIBLE_PREDICATE', 'NAMED_LOCAL'}
+    ERRORS = ('INVALID_RECORD', 'FIELD_OR_TYPE', 'HEADER', 'RECORD_LIMIT', 'TABLE_LIMIT',
+              'DUPLICATE_START', 'LINK_ORDER', 'INTERVAL', 'NON_SUCCESS', 'PROCESSING_FAILED', 'RECEIPT_LIMIT', 'INPUT_GAP')
+
+    def __init__(self):
+        self.records = self.post_limit_records = self.headers = self.footers = 0
+        self.input_framed_bytes = 0
+        self.input_observed_bytes = None
+        self.header_valid = self.finished = self.eof = self.cleanup_ok = self.after_limit = False
+        self.first = self.last = None
+        self.errors = {key: 0 for key in self.ERRORS}
+        self.events = {key: 0 for key in self.KINDS}
+        self.aliases, self.predicates, self.pipelines = {}, {}, {}
+        self.target_events = {}
+        self.predicate_starts = self.pipeline_starts = self.predicate_completed = self.pipeline_completed = 0
+        self.maximum_generation = None
+        self.predicate_tail, self.pipeline_tail = [], []
+
+    def fail(self, code):
+        code = code if code in self.errors else 'PROCESSING_FAILED'
+        self.errors[code] = min(2**63-1, self.errors[code]+1)
+
+    @staticmethod
+    def _family(alias):
+        # Components inside generic arguments are not owning namespaces. The
+        # compiler suffix is opaque and is included in the full alias digest.
+        core = alias.partition('#')[0]
+        parts, depth, start, offset = [], 0, 0, 0
+        while offset < len(core):
+            char = core[offset]
+            if char == '<':
+                depth += 1
+                if depth > 32:
+                    return False
+            elif char == '>':
+                depth -= 1
+                if depth < 0:
+                    return False
+            elif not depth and core[offset:offset+2] == '::':
+                parts.append(core[start:offset]); offset += 1; start = offset+1
+            offset += 1
+        parts.append(core[start:])
+        return (not depth and all(parts) and parts[-1] == 'inferType/2'
+                and 'TypeInference' in parts[:-1])
+
+    def _aliases(self, value):
+        if type(value) is not dict or len(value) > NUMERIC_ALIAS_CAP:
+            raise ObservationError('APPEARANCE_LIMIT')
+        matched = set()
+        for alias, stages in value.items():
+            raw = text_value(alias, 2048)
+            if any(ord(char) < 32 for char in alias) or type(stages) is not list or len(stages) > 1024:
+                raise ObservationError('APPEARANCE_SHAPE')
+            for stage in stages:
+                integer(stage, -(2**31), 2**31-1)  # opaque raw stage markers, not query attribution
+            identity = _hash(raw)
+            if identity not in self.aliases and self._family(alias):
+                if len(self.aliases) >= NUMERIC_ALIAS_CAP:
+                    self.fail('TABLE_LIMIT')
+                    continue
+                self.aliases[identity] = len(self.aliases)
+            if identity in self.aliases:
+                matched.add(self.aliases[identity])
+        return sorted(matched)
+
+    def _elapsed(self, end, start):
+        elapsed = end-start
+        if not 0 <= elapsed <= 2**63-1:
+            self.fail('INTERVAL')
+            return None
+        return elapsed
+
+    def _remember(self, event, kind):
+        if len(self.target_events) >= NUMERIC_EVENT_CAP:
+            self.fail('TABLE_LIMIT')
+            return
+        self.target_events[event] = kind
+
+    def accept(self, value):
+        self.records += 1
+        self.post_limit_records += self.after_limit
+        try:
+            self._event(value)
+        except Exception:
+            self.fail('FIELD_OR_TYPE')  # no exception string or observed text
+
+    def _event(self, value):
+        if type(value) is not dict or value.get('type') not in self.KINDS:
+            raise ObservationError('EVENT_KIND')
+        kind = value['type']
+        allowed = set(self.BASE) | set(self.KINDS[kind].split())
+        if not self.BASE.keys() <= value.keys() or any(
+                key not in allowed or type(item) is not self.FIELDS[key] for key, item in value.items()):
+            raise ObservationError('EVENT_FIELDS')
+        for key, item in value.items():
+            if self.FIELDS[key] is int:
+                # Unprojected nullable Java counters may carry signed markers.
+                # Only event links and concrete layer identities require >= 0.
+                minimum = 0 if key in ('eventId', 'startEvent', 'predicateStartEvent', 'layerId') else -(2**63)
+                integer(item, -(2**31) if key == 'generationNumber' else minimum,
+                        2**31-1 if key == 'generationNumber' else 2**63-1)
+            elif self.FIELDS[key] is str:
+                text_value(item, NUMERIC_LINE_CAP)
+        self.events[kind] += 1
+        self.first = kind if self.first is None else self.first
+        self.last = kind
+        event, nano = value['eventId'], value['nanoTime']
+        if event in self.target_events:
+            self.fail('DUPLICATE_START')
+            return
+        if kind == 'LOG_HEADER':
+            self.headers += 1
+            self.header_valid = value.get('codeqlVersion') == '2.27.4' and value.get('logVersion') == '0.5.0'
+            if not self.header_valid or self.headers != 1 or self.records != 1:
+                self.fail('HEADER')
+            return
+        if not self.header_valid or self.footers:
+            self.fail('HEADER')
+        if kind == 'LOG_FOOTER':
+            self.footers += 1
+            return
+        completion = value.get('completionType', 'IMPLICIT_SUCCESS')
+        if completion not in ('IMPLICIT_SUCCESS', 'SUCCESS', 'FAILURE', 'INCOMPLETE'):
+            raise ObservationError('COMPLETION_ENUM')
+        if completion in ('FAILURE', 'INCOMPLETE') or 'exceptionName' in value:
+            self.fail('NON_SUCCESS')
+        if kind == 'QUERY_COMPLETED' and value.get('terminationType') != 'COMPLETED_SUCCESSFULLY':
+            self.fail('NON_SUCCESS')
+        if kind == 'PREDICATE_STARTED':
+            if value.get('predicateType') not in self.PREDICATE_TYPES:
+                raise ObservationError('PREDICATE_TYPE')
+            aliases = self._aliases(value.get('appearsAs'))
+            if not aliases:
+                return
+            self._remember(event, 'PREDICATE_STARTED')
+            if event in self.predicates or event in self.pipelines:
+                self.fail('DUPLICATE_START'); return
+            if len(self.predicates) >= NUMERIC_PREDICATE_CAP:
+                self.fail('TABLE_LIMIT'); return
+            self.predicates[event] = dict(aliases=aliases, nano=nano, layer=value.get('layerId'),
+                predicate_type=value['predicateType'], started_before_limit=not self.after_limit)
+            self.predicate_starts += 1
+        elif kind == 'PIPELINE_STARTED':
+            parent = value['predicateStartEvent']
+            if parent not in self.predicates:
+                if parent in self.target_events:
+                    self.fail('LINK_ORDER')
+                return
+            self._remember(event, 'PIPELINE_STARTED')
+            if event in self.pipelines or event in self.predicates:
+                self.fail('DUPLICATE_START'); return
+            if len(self.pipelines) >= NUMERIC_PIPELINE_CAP:
+                self.fail('TABLE_LIMIT'); return
+            generation = value.get('generationNumber')
+            if generation is not None and generation < 0:
+                self.fail('FIELD_OR_TYPE')
+            elif generation is not None:
+                self.maximum_generation = max(generation, self.maximum_generation or 0)
+            self.pipelines[event] = dict(predicate_event=parent, nano=nano, generation=generation,
+                layer=self.predicates[parent]['layer'], started_before_limit=not self.after_limit)
+            self.pipeline_starts += 1
+        elif kind == 'PIPELINE_COMPLETED':
+            if value['startEvent'] not in self.pipelines:
+                if value['startEvent'] in self.target_events:
+                    self.fail('LINK_ORDER')
+                return  # ordinary completions of unselected relations are not missing links
+            start = value['startEvent']; begin = self.pipelines.pop(start)
+            self._remember(event, 'PIPELINE_COMPLETED')
+            if value.get('resultSize', 0) < 0:
+                self.fail('FIELD_OR_TYPE')
+            self.pipeline_completed += 1
+            self.pipeline_tail.append(dict(probe_id=0, predicate_event=begin['predicate_event'],
+                pipeline_event=start, completion_event=event, layer=begin['layer'], generation=begin['generation'],
+                pipeline_result_size=value.get('resultSize'), elapsed_ns=self._elapsed(nano, begin['nano']),
+                completion=completion, exception_present='exceptionName' in value,
+                started_before_limit=begin['started_before_limit']))
+            del self.pipeline_tail[:-NUMERIC_TAIL]
+        elif kind == 'PREDICATE_COMPLETED':
+            if value['startEvent'] not in self.predicates:
+                if value['startEvent'] in self.target_events:
+                    self.fail('LINK_ORDER')
+                return
+            start = value['startEvent']; begin = self.predicates.pop(start)
+            self._remember(event, 'PREDICATE_COMPLETED')
+            if value.get('resultSize', 0) < 0:
+                self.fail('FIELD_OR_TYPE')
+            if any(item['predicate_event'] == start for item in self.pipelines.values()):
+                self.fail('LINK_ORDER')
+            self.predicate_completed += 1
+            self.predicate_tail.append(dict(probe_id=0, predicate_event=start, completion_event=event,
+                alias_ids=begin['aliases'], layer=begin['layer'], predicate_type=begin['predicate_type'],
+                predicate_result_size=value.get('resultSize'), elapsed_ns=self._elapsed(nano, begin['nano']),
+                completion=completion, exception_present='exceptionName' in value))
+            del self.predicate_tail[:-(NUMERIC_TAIL//2)]
+
+    def finish(self, eof, cleanup_ok):
+        self.finished, self.eof, self.cleanup_ok = True, eof, cleanup_ok
+
+    def report(self):
+        complete = (self.finished and self.eof and self.cleanup_ok and self.headers == self.footers == 1
+                    and self.header_valid and self.first == 'LOG_HEADER' and self.last == 'LOG_FOOTER'
+                    and self.input_framed_bytes == self.input_observed_bytes
+                    and not any(self.errors.values()) and not self.predicates and not self.pipelines)
+        report = dict(version=self.VERSION, probe_id=0, scope='FIXED_SOURCE_FAMILY_ONLY',
+            status=('OBSERVED' if self.predicate_starts else 'NOT_OBSERVED') if complete else 'PARTIAL',
+            records=self.records, event_counts=self.events, errors=dict(self.errors),
+            raw_memory_limit_seen=self.after_limit, post_limit_records=self.post_limit_records,
+            input_framed_bytes=self.input_framed_bytes,
+            input_unframed_bytes=None if self.input_observed_bytes is None else self.input_observed_bytes-self.input_framed_bytes,
+            header_count=self.headers, footer_count=self.footers, header_version_valid=self.header_valid,
+            transport_eof=self.eof, cleanup_ok=self.cleanup_ok,
+            predicate_starts=self.predicate_starts, pipeline_starts=self.pipeline_starts,
+            predicate_completed=self.predicate_completed, pipeline_completed=self.pipeline_completed,
+            maximum_generation=self.maximum_generation,
+            aliases=[dict(alias_id=index, sha256=identity) for identity, index in self.aliases.items()],
+            open_predicates=len(self.predicates), open_pipelines=len(self.pipelines),
+            remembered_target_events=len(self.target_events), target_event_limit=NUMERIC_EVENT_CAP,
+            unfinished_predicates=[dict(predicate_event=event, alias_ids=value['aliases'], layer=value['layer'],
+                                       predicate_type=value['predicate_type'])
+                                   for event, value in list(self.predicates.items())[:8]],
+            unfinished_pipelines=[dict(pipeline_event=event, predicate_event=value['predicate_event'],
+                                       layer=value['layer'], generation=value['generation'])
+                                  for event, value in list(self.pipelines.items())[:8]],
+            pipeline_tail=list(self.pipeline_tail), predicate_tail=list(self.predicate_tail),
+            receipt_omitted_samples=0)
+        samples = ('pipeline_tail', 'predicate_tail', 'unfinished_predicates', 'unfinished_pipelines')
+        while len((json.dumps(report, indent=2)+'\n').encode()) > NUMERIC_RECEIPT_CAP:
+            largest = max(samples, key=lambda key: len(report[key]))
+            if not report[largest]:
+                raise ObservationError('NUMERIC_RECEIPT_LIMIT')
+            report[largest].pop(0)
+            report['receipt_omitted_samples'] += 1
+            report['status'] = 'PARTIAL'
+            report['errors']['RECEIPT_LIMIT'] = 1
+        return report
+
+
 class Capture:
     """Caller owns the sealed memfd until the official summary has exited."""
-    def __init__(self, limit=RAW_CAP):
+    def __init__(self, limit=RAW_CAP, *, projection=None):
         if type(limit) is not int or not 0 < limit <= RAW_CAP:
             raise ObservationError('INVALID_MEMORY_LIMIT')
         self.limit = limit
@@ -68,22 +337,79 @@ class Capture:
         self.records = self.headers = self.footers = self.invalid = 0
         self.first = self.last = None
         self.header_version = False
+        self.projection = projection
+        self.prefix_finished = self.skip_projection_line = False
 
-    def _record(self, line):
-        self.records += 1
+    def _record(self, line, *, retained=True, project=True):
+        if retained:
+            self.records += 1
+        projected = project and self.projection is not None
+        if projected and len(line) > NUMERIC_LINE_CAP:
+            self.projection.fail('RECORD_LIMIT')
+            projected = False
+        if not retained and not projected:
+            return
         try:
             value = parse_json(line)
             if not isinstance(value, dict) or not isinstance(value.get('type'), str):
                 raise ObservationError('INVALID_EVENT_ENVELOPE')
-            kind = value['type']
-            self.first = kind if self.first is None else self.first
-            self.last = kind
-            self.headers += kind == 'LOG_HEADER'
-            self.footers += kind == 'LOG_FOOTER'
-            if kind == 'LOG_HEADER':
-                self.header_version = value.get('codeqlVersion') == '2.27.4' and value.get('logVersion') == '0.5.0'
+            if retained:
+                kind = value['type']
+                self.first = kind if self.first is None else self.first
+                self.last = kind
+                self.headers += kind == 'LOG_HEADER'
+                self.footers += kind == 'LOG_FOOTER'
+                if kind == 'LOG_HEADER':
+                    self.header_version = value.get('codeqlVersion') == '2.27.4' and value.get('logVersion') == '0.5.0'
         except ObservationError:
+            if retained:
+                self.invalid += 1
+            if projected:
+                self.projection.fail('INVALID_RECORD')
+            return
+        if projected:
+            try:
+                self.projection.accept(value)
+            except Exception:
+                self.projection.fail('PROCESSING_FAILED')
+
+    def _frame(self, chunk, *, retained):
+        if self.projection is not None:
+            self.projection.input_framed_bytes += len(chunk)
+        if self.skip_projection_line:
+            offset = chunk.find(b'\n')
+            if offset < 0:
+                return
+            chunk = chunk[offset+1:]
+            self.skip_projection_line = False
+        self.pending += chunk
+        while b'\n' in self.pending:
+            line, self.pending = self.pending.split(b'\n', 1)
+            if len(line) > LINE_CAP:
+                if retained:
+                    self.invalid += 1
+                if self.projection:
+                    self.projection.fail('RECORD_LIMIT')
+            elif line:
+                self._record(line, retained=retained)
+        if len(self.pending) > LINE_CAP:
+            if retained:
+                self.error = 'EVENT_RECORD_LIMIT'
+                raise ObservationError(self.error)
+            self.projection.fail('RECORD_LIMIT')
+            self.pending = b''
+            self.skip_projection_line = True
+
+    def _prefix_tail(self, *, project):
+        # Freeze exactly what the legacy retained-prefix finish would observe.
+        # The same pending bytes can then continue in the full-stream framer.
+        invalid_before = self.invalid
+        if len(self.pending) > LINE_CAP:
             self.invalid += 1
+        elif self.pending:
+            self._record(self.pending, project=project)
+        self.pending_bytes = len(self.pending) if self.invalid > invalid_before else 0
+        self.prefix_finished = True
 
     def feed(self, chunk):
         if self.sealed or self.fd is None:
@@ -91,11 +417,17 @@ class Capture:
         self.observed += len(chunk)
         self.observed_hash.update(chunk)
         if self.error:
-            return  # capped observation or failed-run cleanup: hash only, never persist
+            if self.projection is not None and self.error == 'MEMORY_LIMIT':
+                self._frame(chunk, retained=False)
+            return  # raw capture stays frozen; only explicit numeric observation continues
         if self.retained + len(chunk) > self.limit:
             self.error = 'MEMORY_LIMIT'
             # Exhausting observation storage must not kill the actual query.
             # The caller keeps the same process deadline and owns the final drain.
+            if self.projection is not None:
+                self._prefix_tail(project=False)
+                self.projection.after_limit = True
+                self._frame(chunk, retained=False)
             return
         try:
             written = os.write(self.fd, chunk)
@@ -108,16 +440,7 @@ class Capture:
         if written != len(chunk):
             self.error = 'SHORT_MEMORY_WRITE'
             raise ObservationError(self.error)
-        self.pending += chunk
-        while b'\n' in self.pending:
-            line, self.pending = self.pending.split(b'\n', 1)
-            if len(line) > LINE_CAP:
-                self.invalid += 1
-            elif line:
-                self._record(line)
-        if len(self.pending) > LINE_CAP:
-            self.error = 'EVENT_RECORD_LIMIT'
-            raise ObservationError(self.error)
+        self._frame(chunk, retained=True)
 
     def finish(self, eof, cleanup_ok):
         self.eof, self.cleanup_ok = eof, cleanup_ok
@@ -130,18 +453,24 @@ class Capture:
             raise ObservationError(self.error)
         # The official JSON generator separates roots, but may omit a final LF.
         # A complete last JSON object is valid; truncated JSON remains invalid.
-        invalid_before = self.invalid
-        if len(self.pending) > LINE_CAP:
-            self.invalid += 1
-        elif self.pending:
-            self._record(self.pending)
-        self.pending_bytes = len(self.pending) if self.invalid > invalid_before else 0
+        if not self.prefix_finished:
+            self._prefix_tail(project=True)
+        elif self.pending and not self.skip_projection_line:
+            self._record(self.pending, retained=False)
         self.pending = b''
         size = os.fstat(self.fd).st_size
         if size != self.retained:
             self.retained_identity_valid = False
             self.retained = size
             self.error = self.error or 'MEMORY_IDENTITY_MISMATCH'
+        if self.projection is not None:
+            try:
+                self.projection.input_observed_bytes = self.observed
+                if self.error and self.error != 'MEMORY_LIMIT':
+                    self.projection.fail('INPUT_GAP')
+                self.projection.finish(eof, cleanup_ok)
+            except Exception:
+                self.projection.fail('PROCESSING_FAILED')
 
     @property
     def path(self):
@@ -168,12 +497,19 @@ class Capture:
                     header_version_valid=self.header_version,
                     invalid_envelopes=self.invalid, truncated_bytes=getattr(self, 'pending_bytes', len(self.pending)),
                     limits='Transport, retained header/footer envelopes and query completion are independent; '
-                           'discarded bytes are hashed and counted, not parsed; official summary validates captured events.')
+                           + ('numeric projection is separate from the frozen retained prefix; ' if self.projection is not None else
+                              'discarded bytes are hashed and counted, not parsed; ')
+                           + 'official summary validates captured events.')
 
     def close(self):
-        if self.fd is not None:
-            fd, self.fd = self.fd, None
-            os.close(fd)
+        try:
+            if self.fd is not None:
+                fd, self.fd = self.fd, None
+                os.close(fd)
+        finally:
+            if self.projection is not None:
+                self.projection = None
+                self.pending = b''
 
 
 class Lines:
@@ -543,16 +879,17 @@ class Observation:
         self.batch_safe = False
         self.summary_result = dict(status='NOT_REACHED')
         self.summary_attempted = False
+        self.numeric_result = dict(status='NOT_REACHED')
 
     def start(self):
         if runtime.WRITE_CAP - runtime.output_bytes(self.root) < RAW_CAP + OUTPUT_CAP:
             raise ObservationError('INSUFFICIENT_SHARED_EVIDENCE_BUDGET')
         self.out.mkdir(exist_ok=False)
         self.original_caps = (runtime.CAP, runtime.WRITE_CAP)
-        runtime.CAP -= RAW_CAP
-        runtime.WRITE_CAP -= RAW_CAP
+        runtime.CAP -= RAW_CAP + NUMERIC_RESERVE
+        runtime.WRITE_CAP -= RAW_CAP + NUMERIC_RESERVE
         try:
-            self.capture = Capture()
+            self.capture = Capture(projection=NumericProjection())
             self.progress = Progress(self.records)
         except BaseException:
             self.close()
@@ -562,7 +899,7 @@ class Observation:
     def output_budget(self):
         before = (runtime.CAP, runtime.WRITE_CAP)
         other = runtime.output_bytes(self.root) - runtime.output_bytes(self.out)
-        runtime.CAP = min(runtime.CAP, other + OUTPUT_CAP)
+        runtime.CAP = min(runtime.CAP, other + OUTPUT_CAP - NUMERIC_RESERVE)
         runtime.WRITE_CAP = min(runtime.WRITE_CAP, runtime.CAP - 1024**2)
         try:
             yield
@@ -602,7 +939,7 @@ class Observation:
             self.summary_result = dict(status='NOT_REACHED_FIXED_DEADLINE')
             return
         needed = 2 * runtime.MAX_PROCESS_RECEIPT + runtime.MAX_CONTROL_RECEIPT
-        if (OUTPUT_CAP - runtime.output_bytes(self.out) < needed
+        if (OUTPUT_CAP - NUMERIC_RESERVE - runtime.output_bytes(self.out) < needed
                 or runtime.WRITE_CAP - runtime.output_bytes(self.root) < needed):
             self.summary_result = dict(status='NOT_REACHED_EVIDENCE_BUDGET')
             return
@@ -627,17 +964,34 @@ class Observation:
                     and self.summary_result['status'] == 'PROJECTED')
         return dict(version=VERSION, instrumented=True, status='COMPLETE' if complete else 'INCOMPLETE',
                     capture=capture, progress=self.progress.summary() if self.progress else None,
-                    summary=self.summary_result, raw_memory_reserve_bytes=RAW_CAP,
+                    summary=self.summary_result, numeric_projection=self.numeric_result,
+                    raw_memory_reserve_bytes=RAW_CAP, numeric_memory_reserve_bytes=NUMERIC_RESERVE,
                     observation_output_limit_bytes=OUTPUT_CAP, summary_limit_seconds=SUMMARY_SECONDS,
-                    budget_scope='Raw memory reservation plus persisted private evidence and terminal reserve share 64MiB.',
+                    persisted_observation_limit_bytes=OUTPUT_CAP-NUMERIC_RESERVE,
+                    budget_scope='Raw memory, numeric state, persisted evidence and terminal reserve share 64MiB; '
+                                 'numeric state and persisted observation together share 8MiB, not a Python/RSS hard limit.',
                     limits='Observation completeness never certifies batch computation or oracle success.')
 
     def finish(self):
-        receipt = self.receipt()
         with self.output_budget():
+            if self.capture and self.capture.projection is not None:
+                try:
+                    numeric = self.capture.projection.report()
+                except Exception:
+                    numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_FAILED')
+                numeric['observed_stream_sha256'] = self.capture.observed_hash.hexdigest()
+                numeric['observed_stream_bytes'] = self.capture.observed
+                if len((json.dumps(numeric, indent=2)+'\n').encode()) > runtime.MAX_CONTROL_RECEIPT:
+                    numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_LIMIT')
+                path = self.out / 'numeric-projection.json'
+                runtime.save(path, numeric, self.root, terminal=True)
+                self.numeric_result = dict(version=NumericProjection.VERSION, status=numeric['status'],
+                    receipt='candidate-observation/numeric-projection.json', receipt_sha256=runtime.digest(path))
+            receipt = self.receipt()
             runtime.save(self.out / 'observation-terminal.json', receipt, self.root, terminal=True)
         return dict(version=VERSION, status=receipt['status'], instrumented=True,
                     capture_status=receipt['capture']['status'], summary_status=self.summary_result['status'],
+                    numeric_status=self.numeric_result['status'],
                     receipt='candidate-observation/observation-terminal.json',
                     receipt_sha256=runtime.digest(self.out / 'observation-terminal.json'))
 

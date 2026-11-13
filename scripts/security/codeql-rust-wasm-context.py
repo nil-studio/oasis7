@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import resource
 import selectors
+import shutil
 import signal
 import stat
 import subprocess
@@ -33,14 +34,16 @@ SOURCE, SOURCE_TREE = metadata.SOURCE, metadata.SOURCE_TREE
 TARGET, TOOLCHAIN = metadata.TARGET, metadata.TOOLCHAIN
 LOCAL_PACKAGES = metadata.LOCAL_PACKAGES
 VERSION = '2.27.4'
+LIBRARY_VARIANT = 'wasm-shared-helper-v1'
 BUNDLE_SHA = model.BUNDLES[VERSION]['sha256']
 BUNDLE_URL = 'https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst'
 HELPERS = ('codeql-rust-wasm-context.py', 'codeql_rust_wasm_witnesses.py',
            'codeql_rust_candidate_profile.py',
            'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
+           'codeql-rust-shared-constraint.patch',
            'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
            'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py', 'workflow.yml')
-PHASES = ('bundle-download', 'bundle-unpack', 'codeql-version', 'toolchain-install',
+PHASES = ('bundle-download', 'bundle-unpack', 'codeql-version', 'apply-shared-helper-patch', 'toolchain-install',
           'cargo-version', 'rustc-version', 'dependency-fetch', 'query-library', 'metadata',
           'database-init', 'database-index', 'database-finalize', 'database-identity',
           'witness-query', 'witness-decode', 'query-library-after', 'cargo-version-after', 'rustc-version-after')
@@ -269,8 +272,11 @@ def check_helpers(directory, identity, clock, end):
             raise Rejected()
 
 
-def tree_identity(root, clock, end):
-    """Compact before/after identity of an entire task-owned immutable tree."""
+def tree_files(root, clock, end):
+    """Bounded regular-file inventory, also used for the fixed shared patch difference."""
+    clock.check(end)
+    if root.resolve() != root or not root.is_dir():
+        raise Rejected()
     rows = {}; total = 0
     for current, directories, files in os.walk(root, followlinks=False):
         clock.check(end)
@@ -285,7 +291,35 @@ def tree_identity(root, clock, end):
                 raise Rejected()
     if not rows:
         raise Rejected()
-    return {'files': len(rows), 'bytes': total, 'tree_sha256': sha256(encoded(rows))}
+    return rows
+
+
+def tree_identity(root, clock, end):
+    """Compact before/after identity of an entire task-owned immutable tree."""
+    rows = tree_files(root, clock, end)
+    return {'files': len(rows), 'bytes': sum(value['bytes'] for value in rows.values()), 'tree_sha256': sha256(encoded(rows))}
+
+
+def shared_helper_identity(official, private, clock, end):
+    identity = model.shared_helper_identity(official, private, snapshot=lambda root: tree_files(root, clock, end))
+    return dict(variant=LIBRARY_VARIANT, **identity)
+
+
+def prepare_shared_helper(official, work, clock, evidence, command):
+    def copy_file(source, target):
+        clock.check(clock.prepare)
+        return shutil.copy2(source, target)
+    private = work / 'candidate-typeinference'
+    identity = model.prepare_shared_helper(official['codeql/typeinference'], private,
+        Path(__file__).with_name('codeql-rust-shared-constraint.patch'),
+        snapshot=lambda root: tree_files(root, clock, clock.prepare), copy_file=copy_file,
+        file_digest=lambda path: metadata.file_hash(path, clock, clock.prepare, maximum=4 * 1024**2)['sha256'],
+        run=lambda argv, label, limit: command(label, argv, work, clock.prepare, timeout=limit))
+    identity = dict(variant=LIBRARY_VARIANT, **identity)
+    evidence.save('shared-helper-identity.json', identity)
+    selected = {name: dict(value) for name, value in official.items()}
+    selected['codeql/typeinference']['root'] = str(private)
+    return selected, identity
 
 
 def prepare_query(source, work, closure):
@@ -395,8 +429,10 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                 'evidence': 'INCOMPLETE', 'platform_completion': 'PENDING_EXTERNAL_READBACK',
                 'production_capacity': 'UNKNOWN', 'full_rust_coverage': 'HOLD',
                 'job_deadline_monotonic': clock.end, 'prepare_deadline_monotonic': clock.prepare,
-                'analysis_deadline_monotonic': None, 'source_sha': SOURCE, 'tool_sha': tools_identity['tool_sha']}
+                'analysis_deadline_monotonic': None, 'source_sha': SOURCE, 'tool_sha': tools_identity['tool_sha'],
+                'library_variant': LIBRARY_VARIANT}
     before = tree = proxy_before = binary_before = toolchain_before = bundle_before = query_before = None
+    shared_before = official_closure = None
     graph = manifests_before = guard_deadline = None
     guard_installed = False; preflight = {}; check_args = []; query = None
     try:
@@ -458,8 +494,11 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
         actual = parse_json(raw)
         if actual.get('version') != VERSION: raise Rejected()
         evidence.save('codeql-version.json', {'version': VERSION, 'bundle': bundle_before})
-        closure = model.bundle_closure(bundle, VERSION)
-        if len(closure) != 13: raise Rejected()
+        official_closure = model.bundle_closure(bundle, VERSION)
+        if len(official_closure) != 13: raise Rejected()
+        evidence.save('official-library-closure.json', official_closure)
+        terminal['phase'] = 'shared-preparation'
+        closure, shared_before = prepare_shared_helper(official_closure, work, clock, evidence, command)
         evidence.save('library-closure.json', closure)
         query = prepare_query(source, work, closure)
         options = query_options(work, closure)
@@ -550,6 +589,9 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
         evidence.save('guard-extraction.json', verdict); terminal['guard'] = verdict['status']
         if verdict['status'] != 'PASS': raise Rejected()
         terminal['extraction'] = 'FINALIZED_CONTEXT_OBSERVED'
+        if shared_helper_identity(Path(official_closure['codeql/typeinference']['root']),
+                                  work / 'candidate-typeinference', clock, command_end) != shared_before:
+            raise Rejected()
         terminal['witness_query'] = 'RUNNING'
         # Detailed stderr logging suppresses the pinned CLI's console progress.
         command('witness-query', [codeql, 'database', 'run-queries', '--no-use-precompiled', '--threads=2', '--ram=3072',
@@ -601,6 +643,13 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                     actual = tree_identity(path, clock, finish_end)
                     if actual != original: raise Rejected()
                     final_tools[label] = actual
+            if shared_before is not None:
+                actual = shared_helper_identity(Path(official_closure['codeql/typeinference']['root']),
+                                                work / 'candidate-typeinference', clock, finish_end)
+                if actual != shared_before: raise Rejected()
+                files = actual['candidate_files']
+                final_tools['shared'] = {'variant': LIBRARY_VARIANT, 'files': len(files),
+                    'bytes': sum(value['bytes'] for value in files.values()), 'tree_sha256': sha256(encoded(files))}
             evidence.save('helpers-after.json', final_tools, terminal=True)
             terminal['final_phase'] = 'toolchain'
             if binary_before is not None:
@@ -626,7 +675,7 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                 terminal['guard'] = verdict['status']
                 if verdict['status'] != 'PASS': terminal['status'] = 'WASM_CONTEXT_INCOMPLETE'
             terminal['identity'] = ('PASS' if all(value is not None for value in
-                                    (before, bundle_before, query_before, toolchain_before)) else 'INCOMPLETE')
+                                    (before, bundle_before, query_before, toolchain_before, shared_before)) else 'INCOMPLETE')
             evidence.save('http-observation.json', api.receipts)
             terminal['completed_monotonic'] = time.monotonic()
             terminal['remaining_job_seconds_before_upload'] = clock.remaining()
