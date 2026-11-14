@@ -26,9 +26,11 @@
 
 判定：模型可用、执行方状态、游戏权限和世界结果分别呈现；真实开始仍须满足 BYOK-04。UI fixture 只证明其实际显示范围。
 
-浏览器入场只读诊断：对 `/participant/owner-view` 分别注入上游超时、传输失败、非 200、响应读取失败/超限、JSON 解码、类型结构、往返结构、签名及上下文校验失败。
+浏览器入场只读诊断：对 `/participant/owner-view`，以及 executor 的普通 context read、live read 和 attested V2 read 分别注入上游超时、传输失败、非 200、响应读取失败/超限、JSON 解码、类型结构、往返结构、签名及上下文校验失败。
 
 页面保留 `participant_read_*` 固定白名单码、当前失败阶段与网关实际 HTTP 状态；未知或拼接任意文字的码不展示。固定分类仅说明本次读取在哪一层失败，不证明原世界操作失败、未生效或正在执行。`operation_pending` 仍用于原有结果未知路径，不因新增诊断重发提交或创建替代原件。
+
+context 读取的非 200 响应只返回固定读取失败阶段，不公开上游错误正文，也不把冲突推断为过期。prepare、attested prepare、move projection、提交和原件 lookup 不因本项改为读取失败；既有 delivery-drift 白名单响应保持不变。
 
 每类错误体/异常注入 canary，断言签名、目标、请求和原始异常不进入公开诊断，并核对 submit/lookup 的未知恢复语义保持不变。
 
