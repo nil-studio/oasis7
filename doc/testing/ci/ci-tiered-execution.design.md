@@ -1112,6 +1112,8 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用[容量要求](c
 
 只读与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；新 profile 仅可信 main 完整运行可保存，旧 BASE 回退保留原 main push 条件。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；ordinary 消费者和最终完整汇总依赖此结果，`full-extended` 不依赖普通 bundle、可独立并行。显式状态条件避免互斥入口的 skipped 祖先传播，取消后不启动消费者。
 
+普通 main-fast 写入使用可选的 `ordinary_main_fast_cache_writer_version=1` 合同，当前处于准备状态，可信配置、planner 与写入入口尚未启用。调度投影仅在完整计划含该字段时原样传递；投影和最终汇总都只接受整数 1，拒绝布尔、字符串和未知版本，最终汇总同时核对原计划摘要、字段值及独立来源身份。缺少字段的旧 BASE 保持原只读行为。后续启用只适用于可信计划选中的 `full/main-fast` ordinary 完整 artifact producer，并须保留当前 main push 的 ref、source、workflow 身份校验、互斥入口和原缓存准入。此能力不授予 PR、候选来源、inline 或窄目标写权限，也不扩大 Formal、工具缓存和共享依赖 writer。兼容合同先进入可信 BASE，再启用执行入口；不以候选测试替换不可变 BASE 的旧权限预期。
+
 保存前测量完整库选集；超过 6 GiB raw 上限时，按 profile/fingerprint 组织完整 Cargo 单元。依据实际 Cargo 消息标记 `viewer`、`required`、`snapshot-tests`、`viewer-snapshot-tests` 四个普通基线变体使用的单元，优先保留这些单元，再填入 full-fast 等补充变体；各组内按最近构建时间和稳定路径排序，跳过无法容纳的超大单元。旧 capture 缺少基线标记时沿用最近构建优先；标记必须指向本次 capture 已记录的完整 fingerprint，不能据此补造单元。必须保留 build-script 支持目录及其 fingerprint、已解析的混合无哈希库相关单元和跨组硬链接涉及的单元；缺失输出、未绑定路径、歧义或不安全状态拒绝保存。保留完整输入快照和包归属，未缓存单元由 Cargo 正常重建并传播失效，不修改 target 或编译、测试选择。该排序是有界打包启发式；基线本身超预算时仍只保留能容纳的完整单元，并报告基线保留与遗漏数量，不承诺全部基线命中或最优复用率。Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29。
 
 raw 大小不能代替压缩结果。ordinary 最多执行三次本地完整单元选集压缩试算，按实际 compact 归档和外包装保守上传上界缩小选集，不重试远端上传。最终重新读取完整远端库存，核对 1.25 GiB 单份上传、2.5 GiB 常驻目标、3.75 GiB 临时写入上限、依赖周转预留和全仓预算；仍不满足预算时跳过保存并完成原构建和测试。诊断分别记录完整选集、选中大小、单元裁剪和各次压缩上界；重选阶段的 omitted 数仅描述该阶段输入，不作为原始选集累计数。
