@@ -1060,7 +1060,7 @@ class DistfsClippyHandoff(unittest.TestCase):
     def test_original_lint_inventory_has_one_owner_and_keeps_both_required_groups(self):
         selected = self.selection()
         expected = [['-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
-                    ['-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
+                    ['-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint']]
         self.assertEqual(artifacts.required_native_commands(selected)[-2:], expected)
         self.assertEqual(artifacts.required_arguments(selected, 'distfs-clippy-group'), ['rust_baseline'])
         legacy = {key: value for key, value in selected.items()
@@ -1126,6 +1126,8 @@ with open(os.environ['CARGO_LOG'], 'a') as stream:
     stream.write(json.dumps(args) + '\\n')
 if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY_PACKAGE']:
     sys.exit(19)
+if args[0] == 'test' and '--tests' in args and os.environ.get('FAIL_DISTFS_TEST') == 'true':
+    sys.exit(23)
 ''')
             cargo.chmod(0o755)
             subprocess.run(['git', 'init', '-q', str(repo)], check=True)
@@ -1138,14 +1140,16 @@ if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY
             selection, log = root / 'selection.json', root / 'cargo.jsonl'
             original_lints = [
                 ['clippy', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
-                ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
+                ['clippy', '-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint']]
             original_lints = [args + ['--', '-D', 'warnings', '-D', 'clippy::correctness',
                                       '-D', 'clippy::suspicious'] for args in original_lints]
             original_tests = [
                 ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
-                ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
-            for mode, failed in (('handoff', ''), ('legacy', ''), ('handoff', 'oasis7_cas'),
-                                 ('handoff', 'oasis7_distfs'), ('manual', '')):
+                ['test', '-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
+            for mode, failed, test_failed in (
+                    ('handoff', '', False), ('legacy', '', False), ('manual', '', False),
+                    ('handoff', 'oasis7_cas', False), ('handoff', 'oasis7_distfs', False),
+                    ('handoff', '', True), ('legacy', '', True), ('manual', '', True)):
                 current = copy.deepcopy(selected)
                 if mode == 'legacy':
                     del current['distfs_clippy_contract_version'], current['distfs_clippy_group']
@@ -1158,11 +1162,14 @@ if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY
                         *plan_args, '--repo-root', str(repo)], text=True, capture_output=True,
                         env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'], SOURCE_SHA=sha,
                                  CI_VERBOSE='', CARGO_LOG=str(log), FAIL_CLIPPY_PACKAGE=failed,
+                                 FAIL_DISTFS_TEST=str(test_failed).lower(),
                                  OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false', OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
                     commands = [json.loads(line) for line in log.read_text().splitlines()]
                     observed[group] = [args for args in commands if args[0] == 'clippy' and args[2] in ('oasis7_cas', 'oasis7_distfs')]
-                    with self.subTest(mode=mode, failed=failed, group=group):
-                        self.assertEqual(result.returncode, 19 if group == 'rust_baseline' and failed else 0,
+                    with self.subTest(mode=mode, failed=failed, test_failed=test_failed, group=group):
+                        expected_status = (19 if group == 'rust_baseline' and failed
+                                           else 23 if group == 'distfs' and test_failed else 0)
+                        self.assertEqual(result.returncode, expected_status,
                                          result.stdout + result.stderr)
                         if group == 'distfs':
                             self.assertEqual([args for args in commands if args[0] == 'test'], original_tests)

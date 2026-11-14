@@ -50,7 +50,8 @@ SUPPORT_PROFILES = (
     'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
     'oasis7_client_launcher', 'wasm_build_suite', 'wasm_module_observe',
 )
-# The distfs group runs these lib harnesses with Cargo defaults on Ubuntu.
+# The distfs group runs these lib harnesses and DistFS integration tests
+# with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
 # Keep synchronized with run_oasis7_distfs_tests and rust.yml's distfs runner.
 NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
@@ -2713,7 +2714,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         owners = feature_owners.get(path, set())
         if path in ordinary_roots or owners and owners.issubset(feature_packages):
             return True
-        # A package-level default driver covers only its executed lib tree,
+        # A package-level default driver covers only its executed target trees,
         # not arbitrary bins/targets. Prove the literal module path to a known
         # root under native predicates before granting target knowledge.
         return bool(owners and owners.issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES)
@@ -3744,6 +3745,9 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                         path for path in sources for package, (directory, manifest) in graph[0].items()
                         if known_test_target_root(path, directory, manifest, integration_targets[package])
                         and (package in config.get('oasis7_required_packages', ())
+                             or (package == 'oasis7_distfs'
+                                 and 'distfs' in config['package_groups'].get(package, ()) and any(
+                                 path == root for root, _ in integration_targets[package].values()))
                              or (set(config['package_groups'].get(package, ()))
                                  & ({'consensus', 'distfs', 'node', 'net'}
                                     | ({'pixel_world_bridge'} if package == 'pixel_world_bridge' else set()))
@@ -3757,6 +3761,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                         'default_features': {package: default_feature_closure(manifest)
                                              for package, (_, manifest) in graph[0].items()
                                              if package in config.get('oasis7_required_packages', ())
+                                             or package in NATIVE_DEFAULT_TEST_PACKAGES
                                              or package == 'pixel_world_bridge'},
                         'includes': graph[2].get('__rust_include_targets__', ()),
                         'unresolved_includes': graph[2].get('__unresolved_rust_include_owners__', ()),

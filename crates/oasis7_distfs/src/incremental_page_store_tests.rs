@@ -107,25 +107,27 @@ fn value_tree_uses_real_durable_page_adapter_and_late_range_avoids_prefix_scan()
     let store =
         IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
             .unwrap();
-    let mut session = store.value_session(physical_io());
-    // Input is external caller-owned memory, explicitly admitted to the same
-    // pool. The representation contains multiple original logical chunks.
-    let bytes = charged(
-        &memory,
-        (0..(3 * 65536 + 17)).map(|n| (n % 251) as u8).collect(),
-    );
-    let mut input = bytes.as_slice();
-    let root = write_value(
-        &mut input,
-        bytes.len() as u64,
-        &mut session,
-        &memory,
-        &mut logical_io(),
-        || false,
-    )
-    .unwrap();
-    let root_id = root.digest().unwrap();
-    drop(session);
+    let (bytes, root, root_id) = {
+        let mut session = store.value_session(physical_io());
+        // Input is external caller-owned memory, explicitly admitted to the same
+        // pool. The representation contains multiple original logical chunks.
+        let bytes = charged(
+            &memory,
+            (0..(3 * 65536 + 17)).map(|n| (n % 251) as u8).collect(),
+        );
+        let mut input = bytes.as_slice();
+        let root = write_value(
+            &mut input,
+            bytes.len() as u64,
+            &mut session,
+            &memory,
+            &mut logical_io(),
+            || false,
+        )
+        .unwrap();
+        let root_id = root.digest().unwrap();
+        (bytes, root, root_id)
+    };
     drop(store);
     let reopened = IncrementalPageStore::open(
         &fixture.store(),
@@ -667,18 +669,20 @@ fn complete_value_closure_reopens_above_sixty_four_mib_under_small_pool() {
         IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
             .unwrap();
     let length = (64 << 20) + 17;
-    let mut sink = store.value_session(physical_io());
-    let root = write_value(
-        &mut std::io::repeat(0x4c).take(length),
-        length,
-        &mut sink,
-        &memory,
-        &mut logical_io(),
-        || false,
-    )
-    .unwrap();
-    let id = root.digest().unwrap();
-    drop(sink);
+    let (root, id) = {
+        let mut sink = store.value_session(physical_io());
+        let root = write_value(
+            &mut std::io::repeat(0x4c).take(length),
+            length,
+            &mut sink,
+            &memory,
+            &mut logical_io(),
+            || false,
+        )
+        .unwrap();
+        let id = root.digest().unwrap();
+        (root, id)
+    };
     drop(store);
     let store = IncrementalPageStore::open(
         &fixture.store(),

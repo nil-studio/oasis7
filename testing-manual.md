@@ -289,7 +289,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `./scripts/doc-governance-check.sh`
   - `./scripts/check-script-executable-bits.sh`
   - `cargo test -p oasis7_consensus --lib`
-  - `cargo test -p oasis7_distfs --lib`
+  - `cargo test -p oasis7_distfs --lib --tests --bin oasis7_durability_endpoint -- --test-threads=1`
   - `npm --prefix crates/oasis7_viewer run test:feedback-contract`
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - 用途：显式本地诊断 baseline，不由普通 `pre-commit` 自动执行；不包含 `cargo test -p oasis7 --tests --features test_tier_required`，但包含 repo-owned Viewer Web contract + Solid 组件锚点回归。
@@ -302,7 +302,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `cargo test -p oasis7 --tests --features test_tier_required`
     - 这是该 package 的必要 feature 入口；hosted ordinary 实际按计划选择 package，并保留全部适用非 ignored 测试。runtime builtin wasm 扩展用例保留在 full，命中必要风险或分级迁移时仍在 PR 加测；标签本身不证明轻量。
   - `cargo test -p oasis7_consensus --lib`
-  - `cargo test -p oasis7_distfs --lib`
+  - `cargo test -p oasis7_distfs --lib --tests --bin oasis7_durability_endpoint -- --test-threads=1`
+    - 默认 features 下的库、integration 与普通 binary harness 共用此入口和严格 Clippy；显式保留 endpoint，未开启的 `required-features` 仍跳过。Formal 独立产物继续只构建 DistFS library。新增 native integration 必须先由可信 BASE 的 planner 证明真实执行根与完整模块门控。
   - `npm --prefix crates/oasis7_viewer run test:feedback-contract`
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - `npm --prefix crates/oasis7_viewer run build:software-safe`

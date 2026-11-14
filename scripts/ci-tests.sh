@@ -364,7 +364,7 @@ run_oasis7_consensus_clippy() {
 run_oasis7_distfs_tests() {
   run_cargo test -p oasis7_cas -p oasis7_formal_protocol --lib -- --test-threads=1
   # Keep independent RPC deadline fixtures from contending with other storage fixtures.
-  run_cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1
+  run_cargo test -p oasis7_distfs --lib --tests --bin oasis7_durability_endpoint -- --test-threads=1
 }
 
 run_oasis7_distfs_clippy() {
@@ -379,7 +379,7 @@ run_oasis7_distfs_clippy() {
     esac
   fi
   run_cargo_clippy -p oasis7_cas -p oasis7_formal_protocol --lib
-  run_cargo_clippy -p oasis7_distfs --lib --bin oasis7_durability_endpoint
+  run_cargo_clippy -p oasis7_distfs --lib --tests --bin oasis7_durability_endpoint
 }
 
 run_oasis7_node_tests() {
