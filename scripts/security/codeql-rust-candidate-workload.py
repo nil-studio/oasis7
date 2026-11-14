@@ -23,7 +23,7 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
-# The v3 component remains production; v5 is the fixed intermediate for research v6.
+# Keep the v3 and v5 intermediate identities distinct from the final v6 library.
 VARIANT = 'qualifier-lines-v3'
 V5_VARIANT = 'qualifier-lines-shared-trait-v5'
 WORKLOAD_VARIANT = 'qualifier-lines-constraint-matching-v6'
@@ -231,7 +231,7 @@ def lines_snapshot_identity(official_files, candidate_files):
 
 
 def trait_visibility_identity(original, private, out, end):
-    """Bind the final research tree to the genuine, unchanged v3 intermediate."""
+    """Bind the annotated Rust tree to the genuine, unchanged v3 intermediate."""
     if read_json(out / 'arity-patch-identity.json') != arity_identity():
         raise RuntimeError('candidate arity patch identity differs after preparation')
     base = read_json(out / 'lines-model-identity.json')
@@ -254,7 +254,7 @@ def trait_visibility_identity(original, private, out, end):
 
 
 def prepare_trait_visibility(closure, work, out, end, run):
-    """Research-only annotations; production continues to stop at prepare_candidate."""
+    """Apply the fixed annotations after verifying the genuine v3 intermediate."""
     original, private = Path(closure['codeql/rust-all']['root']), work / 'candidate-rust-all'
     verify_candidate_identity(original, private, out, end)
     patch_file = HERE / 'codeql-rust-trait-visibility.patch'

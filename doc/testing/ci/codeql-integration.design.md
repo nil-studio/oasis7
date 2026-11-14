@@ -463,7 +463,7 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补�
 
 Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
 
-本模式使用独立研究版本 `qualifier-lines-constraint-matching-v6`，依次保留 v3 基础组件、完整 v5 中间层和新增的 ConstraintMatching 父重构身份。基础组件仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再应用独立固定摘要的 arity 补丁。它仅把原参数个数等式封装为 `bindingset[ce, target]`、`pragma[inline_late]` 检查，使调用及路径解析目标绑定后再展开比较；目标唯一性仍量化同一调用的全部 `ItemNode` 解析结果，原资格条件、类型路径及返回集合不变。该中间 v3 `TypeInference.qll` SHA256 仍为 `d502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb`。原 qualifier 与 arity 的前后摘要分别保存，旧 capacity/qualifier 对照仍使用原单文件补丁，§7.2.6 生产路径仍明确绑定 v3。
+本模式使用独立研究版本 `qualifier-lines-constraint-matching-v6`，依次保留 v3 基础组件、完整 v5 中间层和新增的 ConstraintMatching 父重构身份。基础组件仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再应用独立固定摘要的 arity 补丁。它仅把原参数个数等式封装为 `bindingset[ce, target]`、`pragma[inline_late]` 检查，使调用及路径解析目标绑定后再展开比较；目标唯一性仍量化同一调用的全部 `ItemNode` 解析结果，原资格条件、类型路径及返回集合不变。该中间 v3 `TypeInference.qll` SHA256 仍为 `d502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb`。原 qualifier 与 arity 的前后摘要分别保存，旧 capacity/qualifier 对照仍使用原单文件补丁；§7.2.6 生产路径复用同一 v3/v5/v6 组成并独立验收。
 
 随后向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加原有唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件仍为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；中间 v3 `rust-all` 的完整文件集合及前后摘要仍恰有 TypeInference/core.model 两项差异。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。
 
@@ -471,13 +471,13 @@ v5 中间层沿用 v4 的 shared helper：在采集树外复制固定 `codeql/ty
 
 该改写保持 `satisfiesConstraint0` 的量化域、歧义分支及原约束匹配条件；新增 helper 只先绑定本次 term/constraint 与同一抽象的候选集合。对原 `forall` 域内任一行，外层同一 constraintMention 已是新增存在条件的见证，因此右侧与原条件等价，空域及非歧义分支不变。计划验收须检查真实连接键及递归依赖，不能仅依据 helper 名称；原官方 type-inference fixture 与未改 expected 必须对官方及实际新组合做回归，代表计划与小 fixture 均不证明全仓收敛或性能改善。
 
-v5 只在上述完整基础上应用固定两文件注解补丁（SHA256 `15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21`）：关联函数的 `assocFunctionCallTraitCandidate` 从 `nomagic` 改为 `inline`，`PathResolution.qll` 的 `relevantTraitVisibleLift` 从 `nomagic` 改为 `bindingset[trait, element]` 与 `inline_late`。全部谓词体、名称与参数数关联、显式 trait 排除、端点域、图边及最终配对不变；不为前者添加双端 bindingset，因为端点域仍需投影存在性。最终 Rust TypeInference SHA256 为 `db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b`；PathResolution 原 SHA256 为 `c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d`，新 SHA256 为 `222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf`。注解仅由研究准备入口应用，生产 v3 准备与验证函数不选择它。
+v5 只在上述完整基础上应用固定两文件注解补丁（SHA256 `15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21`）：关联函数的 `assocFunctionCallTraitCandidate` 从 `nomagic` 改为 `inline`，`PathResolution.qll` 的 `relevantTraitVisibleLift` 从 `nomagic` 改为 `bindingset[trait, element]` 与 `inline_late`。全部谓词体、名称与参数数关联、显式 trait 排除、端点域、图边及最终配对不变；不为前者添加双端 bindingset，因为端点域仍需投影存在性。最终 Rust TypeInference SHA256 为 `db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b`；PathResolution 原 SHA256 为 `c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d`，新 SHA256 为 `222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf`。当前生产按 §7.2.6 复用包含该注解的 v6 准备链；v3 中间层准备与验证、旧 qualifier 对照及 WASM helper 保持各自固定合同。
 
 v6 在真实 v5 通过验证后，仅对同一私有 shared 文件叠加上游 [1c4fea90](https://github.com/github/codeql/commit/1c4fea90af949111bc1c625f1e72de56a12c7712) 的 ConstraintMatching 父重构，将共有约束匹配逻辑集中到同一模块。最终 shared SHA256 为 `8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33`，其余 Rust/shared 文件与 v5 完全一致。原 API patch SHA256 为 `ba47e346672cd8281b3a6a3d94647b0d00d733a273311799b0533dc4b0fd37db`；补充私有包路径头的原 8-hunk patch SHA256 为 `3880e57052c74d8af7f155a7abc8b721eef0725463897647809fd10b28d3a0ba`。仓库应用补丁 `codeql-rust-constraint-matching.patch` SHA256 为 `e6563cf895df0f662444795cf5c8f2358804784d667ccce4b11fa336ffde7db8`：只拆分不变上下文并按固定 v5 输入重算行号，保留原全部增删行的字节与顺序，相同输入产生逐字相同的最终文件。应用前验证补丁与 v5 基线，使用 `--forward --no-backup-if-mismatch --fuzz=0`；最终完整集合和 mode 校验不接受备份文件或其他变化。已有 RA/fixture 结论只能随相同最终库字节复用，实际新 helper 的补丁应用和原 44 条解析仍须验证消费路径。
 
 准备、恢复与结果记录绑定 v6 整体身份，`shared-helper-identity.json` 和 `trait-visibility-identity.json` 仍明确标识 `qualifier-lines-shared-trait-v5` 中间层。恢复先用当次官方 Rust 快照重验保存的 v3 两文件基线及实际 trait 注解树，再用当次官方 shared 快照和保存的 v5 shared 快照重建旧 helper 身份。旧 shared 路径验证器保持原签名、路径检查、固定摘要及返回结构；只将快照比较体抽为纯函数，不能把实际 v6 目录冒充 v5。新增 `constraint-matching-identity.json` 绑定这两份 v5 收据摘要、上游/补丁来源、shared 前后完整快照和唯一 `4a65… → 8b32…` 差异。最终相对官方仍恰为三个 Rust 文件和一个 shared 文件变化；44 条实际 closure 均须选择两份私有包。即使重新封存，旧 variant、伪造中间快照、官方 shared 回退、旧字节、额外差异或缺失收据也不得准入。
 
-旧 v5 完整研究运行已超时，默认结果与公共语义未完成，详见 [#4989](https://github.com/nil-studio/oasis7/issues/4989)。旧 v2/v3/v4/v5 收据和结果保留原身份与终态，不代签 v6；本研究不改变生产 v3 或现有 WASM shared helper 的固定契约。
+旧 v5 完整研究运行已超时，默认结果与公共语义未完成，详见 [#4989](https://github.com/nil-studio/oasis7/issues/4989)。旧 v2/v3/v4/v5 收据和结果保留原身份与终态，不代签 v6；本研究不直接启用生产批次，生产接入按 §7.2.6 验收，现有 WASM shared helper 的固定契约保持。
 
 执行计划核对必须使用对应 CLI 和实际编译选项，检查真实目标连接先于仅按 arity 的宽连接，并核对两处 TraitIsVisible 实例：完整 candidate/Lift 不再独立物化，最终由可达关系绑定端点后按原配对过滤，端点存在域与图边保持。TC 起点包装的消去或反向求解须分别证明等价，不能只以谓词名称消失判定优化成立。ConstraintMatching 重构另需核对实际约束位置、连接/投影和递归直接反馈；`inferType` 块未变不能被表述为热点已消除。原官方 type-inference/path-resolution fixture、未改 expected 与实际候选组合需覆盖相关正反例，分别记录结果多重集和原 CLI 结果，不将既有 RESULT 失败改写为通过。计划或小 fixture 均不证明全仓耗时、内存或收敛改善，单查询编译通过不代签原预算下的 37+7 执行、语义或生产容量。
 
@@ -543,11 +543,15 @@ D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-
 
 #### 7.2.6 Rust default 生产库接入与首次验收
 
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；复用候选库的固定组成与身份合同，生产执行及当前源码验收仍按本节独立核对。
+
 本路径承接 CQ-R02/R03/R05/R06/R09，只用于 `codeql.yml` 中可信默认分支的 Rust default 维护扫描。生产输入是本次计划与实际 checkout 一致的提交，不沿用研究入口的冻结业务 SHA、manifest 数量或历史覆盖结论。现有批次变量仍控制是否执行；首次配置为 baseline 时按 §4.2.1 保持 pending acceptance，接线合入和候选研究通过均不代替运营验收。PR default、extended 和其他语言继续各自原有执行路径及预算。
 
-固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。官方库保持只读；任务私有目录复用 §7.2.4 的 qualifier-lines-v3 两文件修补与同一准备函数，应用前后验证固定摘要及完整库差异。`str::lines` 使用通用 taint summary，调用目标修复保留在 `TypeInference.qll`，不添加业务专用流边。版本或补丁不匹配时失败，不回退到未经修复的库继续上传；旧 v2 准备与结果不能取得新身份。
+固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。生产库版本为 §7.2.4 的 `qualifier-lines-constraint-matching-v6`；官方库保持只读，在任务私有目录依次复用 v3 qualifier/arity/lines、shared helper、两处 trait 注解与 ConstraintMatching 的实际准备函数。保留真实 v3/v5 中间快照和各层收据，最终完整库集合相对官方恰为三个 Rust 文件与一个 shared 文件变化，固定字节和 mode 继续核验。`str::lines` 使用通用 taint summary，不添加业务专用流边。版本或补丁不匹配时失败，不回退到旧库继续上传。
 
-正式 helper 只封装工具准备和完整默认查询执行，不调用强绑定研究源码的容量主入口。复制官方 rust-queries 0.1.46 的查询与支持源码，保持原始 37 项默认查询的 ID、字节和集合指纹；移除发布包的预编译 QLX、嵌入库及旧依赖绑定，以独立源码 pack 包装。逐查询解析实际 14 项库闭包并确认私有修复库被消费，使用独立编译缓存和 `--no-use-precompiled`。源码包与整个修复库在执行前后保持一致；仅添加 search path 或设置文件存在不足以证明实际依赖正确。
+生产准备终态与恢复检查独立固定为 v6 最终身份，进入实际准备或恢复前核对共享 helper 的 workload 版本一致；研究版本后续变化不能自动改变生产选择。`arity-patch-identity.json`、`lines-model-identity.json` 保持 v3，`shared-helper-identity.json`、`trait-visibility-identity.json` 保持 v5，`constraint-matching-identity.json` 单独绑定 v6 及两份 v5 收据。恢复时从当次官方库重新验证各中间快照与最终差异，不能只比较曾保存的最终快照或将旧收据改标签；五份收据的摘要同时纳入执行前后输入检查。旧 v2/v3/v5 production preparation、缺失或伪造收据、额外文件或 mode 变化、任一私有库被替换均拒绝。
+
+正式 helper 只封装工具准备和完整默认查询执行，不调用强绑定研究源码的容量主入口，也不加入研究七项见证或性能观察器。复制官方 rust-queries 0.1.46 的查询与支持源码，保持原始 37 项默认查询的 ID、字节和集合指纹；移除发布包的预编译 QLX、嵌入库及旧依赖绑定，以独立源码 pack 包装。逐查询解析实际 14 项依赖，确认同时消费私有 `rust-all` 与 `typeinference`，并保留 `suite-helpers` 的 query 角色校验，使用独立编译缓存和 `--no-use-precompiled`。全部官方依赖、两份私有库及源码 query pack 在执行前后保持一致；仅添加 search path 或设置文件存在不足以证明实际依赖正确。开发阶段复用原 600 秒窗口的固定 CLI 37 项真实解析测试，不运行数据库、编译或求值；该测试只证明生产消费者接线，不能代签当前 main 的真实生产验收。
 
 init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 分钟，且不晚于 90 分钟总截止前 600 秒。私有库准备、官方 Action 提取、37 项查询与结果校验共用该截止；提取前重新计算剩余整分钟作为 Action 外层步骤上限，CLI 子进程只消费原截止的剩余时间。复用 §7.2.4 的 Action main 监督核心，以独立 production mode 绑定当前源码和预算，在真实进程启动及清理时执行绝对截止；官方 post 仍由 runner 执行，原研究模式保留固定源码约束。Action 使用公开的 `skip-queries: true` 完成数据库；helper 核验监督结果、finalized DB、实际源码、资源及库身份后运行默认查询，并生成待上传 SARIF。失败、超时或身份不符阻止上传，不重新开始分析预算。
 
