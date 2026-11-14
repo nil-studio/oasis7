@@ -219,3 +219,107 @@ fn verified_owner_read_remains_available() {
     task.join().unwrap();
     assert_eq!(result["world_response"], expected);
 }
+
+#[test]
+fn context_conflict_read_is_a_read_failure_not_a_pending_operation() {
+    use oasis7_client_api::world_service::task_context::{
+        TASK_CONTEXT_LIVE_READ_PATH, TASK_CONTEXT_READ_PATH,
+    };
+    use oasis7_client_api::world_service::task_context_projection::CONTEXT_READ_ATTESTED_PATH_V2;
+    for path in [
+        TASK_CONTEXT_READ_PATH,
+        TASK_CONTEXT_LIVE_READ_PATH,
+        CONTEXT_READ_ATTESTED_PATH_V2,
+    ] {
+        let (entry, task) = reply(
+            409,
+            br#"{"error":"private_goal_conflict","private":"must not leak"}"#.to_vec(),
+            0,
+            0,
+        );
+        let result = error(&entry, path, 4096);
+        task.join().unwrap();
+        let response = super::super::service::IdentityReply::error(result);
+        assert_eq!(response.status, 409, "{path}");
+        assert_eq!(response.body["error_code"], "participant_read_http_status");
+        assert!(!response.body.to_string().contains("must not leak"));
+        assert!(!response.body.to_string().contains("operation_pending"));
+    }
+}
+
+#[test]
+fn context_read_diagnostics_preserve_mutation_unknown_and_drift_contracts() {
+    use oasis7_client_api::world_service::{task_context::*, task_context_projection::*};
+    for path in [
+        TASK_CONTEXT_READ_PATH,
+        TASK_CONTEXT_LIVE_READ_PATH,
+        CONTEXT_READ_ATTESTED_PATH_V2,
+    ] {
+        for (status, body, maximum, expected) in [
+            (
+                403,
+                b"private upstream permission".to_vec(),
+                4096,
+                "participant_read_http_status",
+            ),
+            (
+                502,
+                b"private upstream failure".to_vec(),
+                4096,
+                "participant_read_http_status",
+            ),
+            (
+                200,
+                b"private invalid json".to_vec(),
+                4096,
+                "participant_read_response_decode",
+            ),
+            (
+                200,
+                b"private oversized response".to_vec(),
+                2,
+                "participant_read_response_limit",
+            ),
+        ] {
+            let (entry, task) = reply(status, body, 0, 0);
+            let result = error(&entry, path, maximum);
+            task.join().unwrap();
+            assert!(matches!(result, StoreError::Rejected(ref code) if code == expected));
+        }
+        let (entry, task) = reply(
+            409,
+            br#"{"error":"task_context_read_delivery_drift"}"#.to_vec(),
+            0,
+            0,
+        );
+        let result = entry
+            .forward_bounded(path, VIEW_JSON_PATH, &json!({}), &json!({}), 4096)
+            .unwrap();
+        task.join().unwrap();
+        assert_eq!(
+            result["upstream_read_error"]["code"],
+            "task_context_read_delivery_drift"
+        );
+        assert!(result.get("world_response").is_none());
+    }
+    for path in [
+        SUBMIT_PATH,
+        LOOKUP_PATH,
+        TASK_CONTEXT_PREPARE_PATH,
+        CONTEXT_PREPARE_ATTESTED_PATH_V2,
+        CONTEXT_MOVE_PROJECTION_PATH_V2,
+        "/unrecognized-read",
+    ] {
+        let (entry, task) = reply(
+            409,
+            br#"{"error":"private_goal_conflict","private":"hidden"}"#.to_vec(),
+            0,
+            0,
+        );
+        assert!(matches!(
+            error(&entry, path, 4096),
+            StoreError::OutcomeUnknown
+        ));
+        task.join().unwrap();
+    }
+}
