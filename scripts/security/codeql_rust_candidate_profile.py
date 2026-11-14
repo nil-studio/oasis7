@@ -60,6 +60,35 @@ def _hash(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def _clock_ns(name):
+    try:
+        value = getattr(time, name)()
+    except Exception:
+        return None  # unavailable clocks must not replace the original failure
+    return value if type(value) is int and 0 <= value <= 2**63-1 else None
+
+
+class ClockTotal:
+    """Fixed-size clock accounting; unknown intervals never become measured zero."""
+    def __init__(self):
+        self.intervals = self.unmeasured = self.nanoseconds = 0
+
+    def record(self, start, end):
+        self.intervals += 1
+        if (start is None or end is None or end < start
+                or self.nanoseconds + end - start > 2**63-1):
+            self.unmeasured += 1
+        else:
+            self.nanoseconds += end - start
+
+    def report(self):
+        measured = self.intervals - self.unmeasured
+        return dict(status='NOT_OBSERVED' if not self.intervals else 'PARTIAL' if self.unmeasured else 'MEASURED',
+                    intervals=self.intervals, unmeasured_intervals=self.unmeasured,
+                    measured_ns=self.nanoseconds if measured else None,
+                    total_ns=self.nanoseconds if self.intervals and not self.unmeasured else None)
+
+
 class NumericProjection:
     """One fixed source family; event instances and literal sizes, never CPU/deltas."""
     VERSION = 'candidate-numeric-v1'
@@ -339,6 +368,9 @@ class Capture:
         self.header_version = False
         self.projection = projection
         self.prefix_finished = self.skip_projection_line = False
+        self.feed_cost = ({key: dict(input_bytes=0, wall=ClockTotal(), thread_cpu=ClockTotal())
+                           for key in ('BEFORE_LIMIT', 'CAP_CROSSING', 'AFTER_LIMIT')}
+                          if projection is not None else None)
 
     def _record(self, line, *, retained=True, project=True):
         if retained:
@@ -414,6 +446,22 @@ class Capture:
     def feed(self, chunk):
         if self.sealed or self.fd is None:
             raise ObservationError('CAPTURE_ALREADY_CLOSED')
+        if self.feed_cost is None:
+            return self._feed(chunk)
+        phase = ('AFTER_LIMIT' if self.error == 'MEMORY_LIMIT' else
+                 'CAP_CROSSING' if not self.error and self.retained + len(chunk) > self.limit else
+                 'BEFORE_LIMIT')
+        cost = self.feed_cost[phase]
+        wall, cpu = _clock_ns('perf_counter_ns'), _clock_ns('thread_time_ns')
+        try:
+            return self._feed(chunk)
+        finally:
+            cpu_end, wall_end = _clock_ns('thread_time_ns'), _clock_ns('perf_counter_ns')
+            cost['input_bytes'] += len(chunk)
+            cost['wall'].record(wall, wall_end)
+            cost['thread_cpu'].record(cpu, cpu_end)
+
+    def _feed(self, chunk):
         self.observed += len(chunk)
         self.observed_hash.update(chunk)
         if self.error:
@@ -500,6 +548,17 @@ class Capture:
                            + ('numeric projection is separate from the frozen retained prefix; ' if self.projection is not None else
                               'discarded bytes are hashed and counted, not parsed; ')
                            + 'official summary validates captured events.')
+
+    def feed_cost_summary(self):
+        if self.feed_cost is None:
+            return None
+        return dict(version='capture-feed-cost-v1',
+            buckets={key: dict(calls=value['wall'].intervals, input_bytes=value['input_bytes'],
+                               wall=value['wall'].report(), thread_cpu=value['thread_cpu'].report())
+                     for key, value in self.feed_cost.items()},
+            scope='Whole feed processing body per entry-state bucket; wall includes waiting, '
+                  'thread CPU is the calling thread only. Clock reads and aggregation add overhead; '
+                  'not evaluator CPU or an uninstrumented comparison.')
 
     def close(self):
         try:
@@ -876,6 +935,7 @@ class Observation:
         self.capture = self.progress = None
         self.original_caps = None
         self.batch_result = None
+        self.batch_parent_cpu = ClockTotal()
         self.batch_safe = False
         self.summary_result = dict(status='NOT_REACHED')
         self.summary_attempted = False
@@ -913,6 +973,7 @@ class Observation:
         argv = [*argv[:separator], '--evaluator-log', '{EVALUATOR_FIFO}', '--evaluator-log-minify',
                 '--evaluator-log-level=3', '--no-tuple-counting', *argv[separator:]]
         with self.output_budget():
+            parent_cpu = _clock_ns('process_time_ns')
             try:
                 self.batch_result = runtime.run(argv, cwd, self.out / 'candidate-workload-batch.log',
                     end, timeout, self.root, env, file_limit=None, evaluator=self.work / 'candidate-events.jsonl',
@@ -923,6 +984,8 @@ class Observation:
                 self.batch_result = error.result
                 self.batch_safe = error.clean_timeout
                 raise
+            finally:
+                self.batch_parent_cpu.record(parent_cpu, _clock_ns('process_time_ns'))
 
     def summarize(self, cli, cwd, env, end, *, admitted):
         if self.summary_attempted:
@@ -960,10 +1023,17 @@ class Observation:
 
     def receipt(self):
         capture = self.capture.summary() if self.capture else dict(status='NOT_REACHED')
+        if self.capture and self.capture.feed_cost is not None:
+            capture['feed_cost'] = self.capture.feed_cost_summary()
         complete = (capture['status'] == 'CAPTURED' and capture['log_boundary_status'] == 'COMPLETE'
                     and self.summary_result['status'] == 'PROJECTED')
         return dict(version=VERSION, instrumented=True, status='COMPLETE' if complete else 'INCOMPLETE',
                     capture=capture, progress=self.progress.summary() if self.progress else None,
+                    batch_parent_cpu=dict(self.batch_parent_cpu.report(),
+                        scope='Parent process CPU across the single runtime.run call, including all parent '
+                              'threads, supervision, sampling, feed, drain, cleanup and process receipt writes; '
+                              'excludes child/PGID CPU and other job phases. Overlaps feed CPU; do not add '
+                              'or subtract these counters to attribute exclusive component costs.'),
                     summary=self.summary_result, numeric_projection=self.numeric_result,
                     raw_memory_reserve_bytes=RAW_CAP, numeric_memory_reserve_bytes=NUMERIC_RESERVE,
                     observation_output_limit_bytes=OUTPUT_CAP, summary_limit_seconds=SUMMARY_SECONDS,

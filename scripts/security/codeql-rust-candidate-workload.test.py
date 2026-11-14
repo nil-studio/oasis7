@@ -464,6 +464,14 @@ class Workload(unittest.TestCase):
         self.assertEqual(terminal['final_hosted_job_margin'], 'NOT_OBSERVED')
         self.assertEqual(terminal['performance_observation']['status'], 'COMPLETE')
         self.assertEqual(terminal['performance_observation']['numeric_status'], 'OBSERVED')
+        observation = m.read_json(self.out / 'candidate-observation/observation-terminal.json')
+        self.assertEqual(observation['batch_parent_cpu']['status'], 'MEASURED')
+        self.assertEqual(observation['batch_parent_cpu']['intervals'], 1)
+        feed_cost = observation['capture']['feed_cost']['buckets']
+        self.assertEqual(sum(bucket['input_bytes'] for bucket in feed_cost.values()), observation['capture']['observed_bytes'])
+        self.assertEqual(feed_cost['CAP_CROSSING']['wall']['status'], 'NOT_OBSERVED')
+        self.assertLessEqual((self.out / 'candidate-observation/observation-terminal.json').stat().st_size,
+                             m.runtime.MAX_CONTROL_RECEIPT)
         numeric = self.out / 'candidate-observation/numeric-projection.json'
         self.assertLessEqual(numeric.stat().st_size, m.runtime.MAX_CONTROL_RECEIPT)
         self.assertEqual(m.read_json(numeric)['pipeline_tail'][0]['pipeline_result_size'], 1)
