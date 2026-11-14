@@ -31,6 +31,7 @@ CADENCE_SECONDS = 4 * 3600
 API_BUDGET_SECONDS = 120
 MAX_API_REQUESTS = 800
 API_RETRY_DELAYS = (0.5, 1.0)
+COLLECTION_READ_ATTEMPTS = 3
 ACTIVE_STATUSES = {"queued", "in_progress", "waiting", "pending", "requested"}
 POLICY_FILES = (
     WORKFLOW, ".github/workflows/command-center.yml",
@@ -154,10 +155,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class CollectionCountError(ValueError):
+    """Valid collection fields did not establish a complete pagination count."""
+
+
 class GitHub:
     """Read-only API; never forward the API bearer token to artifact storage."""
 
-    def __init__(self, repository, token):
+    def __init__(self, repository, token, *, recover_collections=False):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise ValueError("invalid repository")
         if not token:
@@ -169,6 +174,7 @@ class GitHub:
         self.deadline = time.monotonic() + API_BUDGET_SECONDS
         self.requests = 0
         self.budget_lock = threading.Lock()
+        self.collection_attempts = COLLECTION_READ_ATTEMPTS if recover_collections else 1
 
     def request_timeout(self):
         with self.budget_lock:
@@ -216,40 +222,91 @@ class GitHub:
         return decode_json(raw)
 
     def pages(self, path, key):
+        endpoint = "unknown"
+        relative_path = path.removeprefix(self.root).split("?", 1)[0]
+        for pattern, category in (
+            (r"actions/workflows/[1-9][0-9]*/runs", "workflow_runs"),
+            (r"actions/runs/[1-9][0-9]*/attempts/[1-9][0-9]*/jobs", "attempt_jobs"),
+            (r"actions/runs/[1-9][0-9]*/artifacts", "run_artifacts"),
+        ):
+            if re.fullmatch(pattern, relative_path):
+                endpoint = category
+                break
+        for attempt in range(1, self.collection_attempts + 1):
+            facts = dict(endpoint=endpoint, collection=key if key in {"workflow_runs", "jobs", "artifacts"} else "unknown",
+                         page=0, attempt=attempt, expected_count=None, reported_count=None,
+                         actual_count=0, has_next=None, failure="unknown")
+            try:
+                return self._pages_once(path, key, facts)
+            except Exception as exc:
+                if isinstance(exc, ValueError) and str(exc) == "API verification budget exhausted; history is unknown":
+                    facts["failure"] = "budget_exhausted"
+                # Fixed categories and numeric counts are sufficient to locate
+                # the failed collection; URLs, query strings and bodies stay out.
+                print("ci-full-result: collection read failed: " + json.dumps(facts, sort_keys=True), file=sys.stderr)
+                if not isinstance(exc, CollectionCountError) or attempt == self.collection_attempts:
+                    raise
+                # Never join partial attempts. The same client still owns the
+                # original shared request counter and deadline on every reread.
+
+    def _pages_once(self, path, key, facts):
         next_url = path
         visited, identities, collected = set(), set(), []
         total = None
-        for _ in range(20):
-            if next_url in visited:
+        for page in range(1, 21):
+            facts.update(page=page, reported_count=None, has_next=None, failure="pagination_cycle")
+            canonical_url = next_url if next_url.startswith("https://") else self.root + next_url
+            if canonical_url in visited:
                 raise ValueError("API pagination cycle")
-            visited.add(next_url)
+            visited.add(canonical_url)
+            facts["failure"] = "request_error"
             with self.request(next_url) as response:
+                facts["failure"] = "response_error"
                 raw = response.read(MAX_BYTES + 1)
                 links = response.headers.get("Link", "")
             self.check_deadline()
+            facts["failure"] = "page_size"
             if len(raw) > MAX_BYTES:
                 raise ValueError("API page exceeds bounded verification budget")
+            facts["failure"] = "invalid_json"
             payload = decode_json(raw)
+            facts["failure"] = "invalid_collection"
             if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
                 raise ValueError(f"incomplete API collection: {key}")
             count = payload.get("total_count")
-            if type(count) is not int or count < 0 or (total is not None and count != total):
+            facts["failure"] = "invalid_count"
+            if type(count) is not int or count < 0:
                 raise ValueError("API total_count missing or changed during pagination")
-            total = count
+            next_links = re.findall(r'<([^>]+)>;\s*rel="next"', links)
+            facts.update(expected_count=count if total is None else total, reported_count=count,
+                         actual_count=len(collected) + len(payload[key]), has_next=bool(next_links),
+                         failure="invalid_identity")
             for item in payload[key]:
                 if not isinstance(item, dict) or type(item.get("id")) is not int or item["id"] in identities:
                     raise ValueError("invalid or duplicate API collection identity")
                 identities.add(item["id"])
                 collected.append(item)
-            next_links = re.findall(r'<([^>]+)>;\s*rel="next"', links)
+            # Bad identities, links and cycles are not evidence of a changing
+            # collection, even when the same response also changes its count.
+            if next_links:
+                facts["failure"] = "invalid_next"
+                if len(next_links) != 1 or not next_links[0].startswith(self.root):
+                    raise ValueError("invalid API next page")
+                facts["failure"] = "pagination_cycle"
+                if next_links[0] in visited:
+                    raise ValueError("API pagination cycle")
+            if total is not None and count != total:
+                facts["failure"] = "changed_count"
+                raise CollectionCountError("API total_count missing or changed during pagination")
+            total = count
             if not next_links:
                 if len(collected) != total:
-                    raise ValueError("API collection incomplete")
+                    facts["failure"] = "incomplete_count"
+                    raise CollectionCountError("API collection incomplete")
                 # Validate the whole collection before exposing any result.
                 return collected
-            if len(next_links) != 1 or not next_links[0].startswith(self.root):
-                raise ValueError("invalid API next page")
             next_url = next_links[0]
+        facts["failure"] = "page_limit"
         raise ValueError("API pagination incomplete: specify an exact --run-id")
 
     def artifact(self, artifact_id, filename="full-result.json"):
@@ -828,7 +885,8 @@ def main():
         args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
         print(f"Complete CI result recorded for {plan['source_sha']}.")
         return
-    api = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"))
+    api = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"),
+                 recover_collections=args.command in {"admit-periodic", "health"})
     if args.command == "admit-periodic":
         receipt = admit_periodic(api, admission_context(os.environ), datetime.now(timezone.utc))
         args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
