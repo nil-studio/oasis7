@@ -141,7 +141,7 @@
       {"package": "oasis7_viewer_runtime", "target_kind": "lib", "target_name": "oasis7_viewer_runtime", "variant": "viewer-snapshot-tests", "mode": "filter", "selector": "snapshot_progress::", "elapsed_ms": 2813}
     ]
   },
-  "ordinary_artifact_delivery_version": 1,
+  "ordinary_artifact_delivery_version": 2,
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
   "distfs_clippy_contract_version": 1,

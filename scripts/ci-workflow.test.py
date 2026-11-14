@@ -4434,9 +4434,11 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
         steps = [step for step in self.steps('oasis7-required')
                  if 'name: native-tests-' in step or 'name: Unpack ' in step]
         self.assertEqual(len(steps), 5)
-        for delivery, inline, owner in itertools.product((None, 1), (False, True),
-                ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1', 'all', 'native-0')):
-            if delivery == 1 and (inline or owner in ('all', 'native-0')):
+        for delivery, inline, owner in itertools.product((None, 1, 2), (False, True),
+                ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1', 'all', 'native-0', 'native-1', 'native-2', 'native-3')):
+            if delivery is not None and (inline or owner == 'all'
+                    or delivery == 1 and owner.startswith('native-')
+                    or delivery == 2 and owner not in ('controls', 'native-0', 'native-1', 'native-2', 'native-3')):
                 continue  # Independently rejected by the plan consumer.
             values = {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': delivery,
                       'fromJSON(needs.select.outputs.plan).fast_execution_version': 1 if inline else None,
@@ -4444,9 +4446,9 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                       'matrix.partition': owner}
             active = [step for step in steps if effective_job_condition(self.condition(step), values, [])]
             with self.subTest(delivery=delivery, inline=inline, owner=owner):
-                self.assertEqual(len(active), 0 if inline or delivery == 1 and owner == 'controls'
-                                 else 3 if delivery == 1 else 2)
-                if delivery == 1 and owner != 'controls':
+                self.assertEqual(len(active), 0 if inline or delivery is not None and owner == 'controls'
+                                 else 3 if delivery is not None else 2)
+                if delivery is not None and owner != 'controls':
                     self.assertIn('name: native-tests-common-${{ github.sha }}', ''.join(active))
                     self.assertIn('name: native-tests-${{ matrix.partition }}-${{ github.sha }}', ''.join(active))
                     self.assertIn('ci-test-artifacts.py unpack-ordinary --plan "$RUNNER_TEMP/selection.json"', ''.join(active))
@@ -4461,7 +4463,7 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
             root = Path(temporary)
             stub = ('python3() { printf "%s\\n" "$*" >> "$CALLS"; '
                     'if [[ "$2" == "$FAIL_ACTION" ]]; then return 17; fi; };\n')
-            for version, failed in itertools.product(('0', '1'), ('', 'build', 'pack')):
+            for version, failed in itertools.product(('0', '1', '2'), ('', 'build', 'pack')):
                 calls = root / 'calls'
                 calls.unlink(missing_ok=True)
                 result = subprocess.run(['bash', '-c', stub + script], text=True, capture_output=True,
@@ -4473,19 +4475,28 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                     self.assertEqual(len(lines), 1 if failed == 'build' else 2)
                     self.assertIn('build --scope ordinary --plan', lines[0])
                     if len(lines) == 2:
-                        self.assertEqual('--split-ordinary' in lines[1], version == '1')
+                        self.assertEqual('--split-ordinary' in lines[1], version in ('1', '2'))
         uploads = [step for step in steps if 'uses: actions/upload-artifact@' in step and 'name: native-tests-' in step]
         self.assertEqual(len(uploads), 6)
-        for version in (None, 1):
+        for version in (None, 1, 2):
             selected = [step for step in uploads if effective_job_condition(self.condition(step),
                         {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': version}, [])]
-            self.assertEqual(len(selected), 5 if version == 1 else 1)
+            self.assertEqual(len(selected), 5 if version is not None else 1)
             for step in selected:
                 for required in ('compression-level: 0', 'overwrite: true', 'if-no-files-found: error'):
                     self.assertIn(required, step)
-            if version == 1:
-                self.assertEqual({re.search(r'/ordinary-archives/(.*)\.tar\.gz', step)[1] for step in selected},
-                                 {'common', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'})
+            if version is not None:
+                owners = (['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
+                          if version == 1 else ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                resolved = '\n'.join(selected)
+                for index, owner in enumerate(owners[1:], 1):
+                    expression = '${{ fromJSON(needs.select.outputs.ordinary_partitions)[' + str(index) + '] }}'
+                    self.assertEqual(resolved.count(expression), 2)
+                    resolved = resolved.replace(expression, owner)
+                self.assertEqual(set(re.findall(r'/ordinary-archives/(.*)\.tar\.gz', resolved)),
+                                 {'common', *owners[1:]})
+                self.assertEqual(set(re.findall(r'name: native-tests-(.*)-\$\{\{ github.sha \}\}', resolved)),
+                                 {'common', *owners[1:]})
 
     def test_diagnostic_uses_actual_producer_identity_without_gate_or_execution_authority(self):
         job = JOBS['pr-ordinary-delivery-preview']

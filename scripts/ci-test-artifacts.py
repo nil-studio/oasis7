@@ -499,13 +499,13 @@ def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
     if 'ordinary_harness_costs' in plan:
         if plan.get('ordinary_artifact_partition_version') != 2:
-            raise ValueError('ordinary harness costs require targeted artifact v2')
+            raise ValueError('ordinary harness costs require artifact v2')
         validate_ordinary_harness_costs(plan['ordinary_harness_costs'])
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
-                or plan['ordinary_artifact_delivery_version'] != 1
+                or plan['ordinary_artifact_delivery_version'] not in (1, 2)
                 or type(plan.get('ordinary_artifact_partition_version')) is not int
-                or plan['ordinary_artifact_partition_version'] != 1):
+                or plan['ordinary_artifact_partition_version'] != plan['ordinary_artifact_delivery_version']):
             raise ValueError('invalid ordinary artifact delivery capability')
     if 'ordinary_artifact_partition_version' in plan:
         version = plan['ordinary_artifact_partition_version']
@@ -518,7 +518,8 @@ def validate_ordinary_partitions(plan):
                 or plan.get('ordinary_partitions') != list(expected)
                 or (version == 1 and plan.get('scope') not in ('full', 'explicit-full'))
                 or (version == 2 and (
-                    plan.get('scope') != 'targeted'
+                    (plan.get('scope') != 'targeted' and not (
+                        plan.get('scope') == 'full' and plan.get('ordinary_artifact_delivery_version') == 2))
                     or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
                     or plan.get('test_policy_changed') is not False
                     or 'ordinary_fast_targets' in plan or 'ordinary_full_fast_targets' in plan
@@ -1858,30 +1859,66 @@ ORDINARY_DELIVERY_RECEIPTS = ('ordinary-delivery-common.json', 'ordinary-deliver
 def ordinary_delivery_layout(manifest, plan, diagnostic=False):
     """Derive physical files from the unchanged complete ordinary parent."""
     fast_plan(plan)
-    if (not isinstance(plan, dict) or plan.get('ordinary_artifact_partition_version') != 1
-            or (not diagnostic and plan.get('ordinary_artifact_delivery_version') != 1)
+    version = plan.get('ordinary_artifact_partition_version') if isinstance(plan, dict) else None
+    if (version not in (1, 2) or (diagnostic and version != 1)
+            or (not diagnostic and plan.get('ordinary_artifact_delivery_version') != version)
             or manifest.get('scope') != 'ordinary'
             or manifest.get('execution_plan') != plan
             or manifest.get('ordinary_partition') is not None
             or manifest.get('selection') != {'suite': 'ordinary'}):
-        raise ValueError('ordinary delivery requires a complete authorized v1 parent')
+        raise ValueError('ordinary delivery requires a complete authorized parent')
     validate_ordinary_selection(manifest)
     included = dependency_closure(manifest, formal_configuration(), 'ordinary')
     if manifest.get('included_binaries') != sorted(included):
         raise ValueError('ordinary delivery requires the complete parent closure')
-    layout, harnesses, entries = {}, set(), []
-    for partition in ORDINARY_ARTIFACT_PARTITIONS[1:]:
+    owners = ordinary_partitions(plan)[1:]
+    layout, ownership, entries = {}, {}, []
+    for partition in owners:
         selected = ordinary_artifact_entries(manifest, plan, partition)
         owned = {entry['binary'] for entry in selected}
-        if harnesses & owned or not owned <= included:
-            raise ValueError('ordinary delivery has duplicate or missing harness owners')
-        layout[partition] = sorted(owned)
-        harnesses.update(owned)
+        if not owned <= included:
+            raise ValueError('ordinary delivery has missing harness owners')
+        layout[partition] = owned
+        for name in owned:
+            ownership.setdefault(name, set()).add(partition)
         entries.extend(selected)
-    key = lambda entry: json.dumps(entry, sort_keys=True)
-    if sorted(map(key, entries)) != sorted(map(key, ordinary_entries(manifest))):
-        raise ValueError('ordinary delivery does not cover the complete execution inventory')
-    layout = {'common': sorted(included - harnesses), **layout}
+    shared = {name for name, partitions in ownership.items() if len(partitions) > 1}
+    if version == 1:
+        if shared:
+            raise ValueError('ordinary delivery has duplicate harness owners')
+        key = lambda entry: json.dumps(entry, sort_keys=True)
+        if sorted(map(key, entries)) != sorted(map(key, ordinary_entries(manifest))):
+            raise ValueError('ordinary delivery does not cover the complete execution inventory')
+    else:
+        runtime = {name for name in included if (
+            manifest['binaries'][name].get('package'), manifest['binaries'][name].get('target'),
+            manifest['binaries'][name].get('target_kind'), manifest['binaries'][name].get('variant')) == (
+                'oasis7_chain_runtime', 'oasis7_chain_runtime', ['lib'], 'required')}
+        if len(runtime) != 1 or shared != runtime or any(ownership[name] != set(owners) for name in shared):
+            raise ValueError('ordinary delivery may share only the complete required runtime')
+
+        def coverage(items):
+            cases = []
+            for entry in items:
+                binary = manifest['binaries'][entry['binary']]
+                names = set(binary['tests']) - set(binary['ignored_tests'])
+                if entry.get('batch'):
+                    names -= set(entry.get('skip', ())) | set(entry.get('skip_exact', ()))
+                elif 'filter' in entry:
+                    names = {name for name in names if entry['filter'] in name}
+                else:
+                    names &= {entry['name']}
+                if not names or ('count' in entry and entry['count'] != len(names)):
+                    raise ValueError('ordinary delivery has empty or inconsistent case inventory')
+                cases.extend((entry['binary'], name) for name in names)
+            if len(cases) != len(set(cases)):
+                raise ValueError('ordinary delivery has duplicate case owners')
+            return set(cases)
+
+        if coverage(entries) != coverage(ordinary_entries(manifest)):
+            raise ValueError('ordinary delivery does not cover the complete case inventory')
+    layout = {'common': sorted((included - set(ownership)) | shared),
+              **{owner: sorted(names - shared) for owner, names in layout.items()}}
     files, paths = {owner: {} for owner in layout}, set()
     for owner, names in layout.items():
         for name in names:
@@ -1959,7 +1996,7 @@ def pack_ordinary_delivery(bundle, directory, plan, *, diagnostic=False):
                   execution_items=len(ordinary_entries(manifest)), archives=reports,
                   producer_compressed_bytes=sum(row['compressed_bytes'] for row in reports.values()),
                   consumer_compressed_bytes=sum(reports['common']['compressed_bytes'] + reports[owner]['compressed_bytes']
-                                                for owner in ORDINARY_ARTIFACT_PARTITIONS[1:]))
+                                                for owner in ordinary_partitions(plan)[1:]))
     (directory / 'delivery.json').write_text(json.dumps(report, indent=2) + '\n')
     print('ordinary_artifact_delivery=' + json.dumps(report), flush=True)
     return report
@@ -2018,7 +2055,7 @@ def unpack_ordinary_delivery(common, payload, bundle, plan, partition, *, diagno
             manifest = json.loads(raw)
             validate_artifact_manifest(manifest, 'ordinary', plan=plan)
             layout, files = ordinary_delivery_layout(manifest, plan, diagnostic)
-            if partition not in ORDINARY_ARTIFACT_PARTITIONS[1:]:
+            if partition not in ordinary_partitions(plan)[1:]:
                 raise ValueError('unknown ordinary delivery native partition')
             receipt = read_archive_metadata(archive, ORDINARY_DELIVERY_RECEIPTS[0])
             check_delivery_receipt(json.loads(receipt), raw, 'common', layout['common'], diagnostic)
@@ -3116,7 +3153,7 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
     if artifact_partition and (suite != 'ordinary' or shard
                                or ordinary_partition not in ordinary_partitions(plan)[1:]):
         raise ValueError('complete ordinary execution requires its native artifact partition')
-    if artifact_partition and plan.get('ordinary_artifact_delivery_version') == 1:
+    if artifact_partition and plan.get('ordinary_artifact_delivery_version') in (1, 2):
         manifest, env = load(bundle, suite, plan=plan, ordinary_artifact_partition=ordinary_partition)
     elif ordinary_partition is not None and not artifact_partition:
         manifest, env = load(bundle, suite if not shard else None, shard, plan, ordinary_partition=ordinary_partition)

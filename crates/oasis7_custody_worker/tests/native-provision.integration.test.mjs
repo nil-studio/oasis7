@@ -51,10 +51,17 @@ for (const limit of ['64','128']) {
     await withRoleRuntime('native-lost-login', async runtime => {
       const blocked=await runtime.drive('native-managed-budget-one');
       assert.equal(blocked.stage,'native_registered');
-      const approved=await runtime.approveManaged(blocked.pending_operations[0],limit);
+      // Install the result-loss fault before obtaining the fresh signed approval.
+      // A cold workerd restart after approval can consume its five-second source
+      // observation window before the login send, testing dispatch expiry instead
+      // of the retained-result recovery budget that this case is about.
       await runtime.restart('native-lost-account-result');
+      const approved=await runtime.approveManaged(blocked.pending_operations[0],limit);
       assert.equal((await runtime.continueManaged(approved.operation_id)).stage,'approved');
-      assert.equal(runtime.nativeRequests()['/native-key/complete'],2);
+      assert.equal(runtime.nativeRequests()['/native-key/complete'],2,JSON.stringify({
+        phase:'managed login must reach native before result recovery',limit,
+        requests:runtime.nativeRequests(),approvalFacts:runtime.approvalFacts(),
+      }));
       await delay(5200);
       await runtime.restart('native-chain');
       const after=await runtime.continueManaged(approved.operation_id);
