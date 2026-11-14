@@ -200,3 +200,20 @@ for (const name of ['overview', 'searchEmpty']) test(`${name} retains disclosure
     assert.equal(queries[0], '.pixel-world-exploration-disclosure');
   }
 });
+
+test('a prepared dense version never certifies a newer awaiting-frame input',()=>{
+ const prepared={expectedId:'A',timeOrigin:1,readStarted:90,readCompleted:91,focusedAt:92,display:{...display,version:7}};
+ const input={...sample,timeOrigin:1,densityPreparation:prepared,displayAtInput:{status:'awaiting_frame',version:8}};
+ const r=summarizeDensityFeedback([input],trace);
+ assert.equal(r.densityTransitions[0].status,'version_advanced_awaiting');assert.equal(r.densityTransitions[0].density,'unknown');
+ assert.equal(r.counts.pendingOrUnknown,1);assert.equal(r.allInputsConfirmedDensity,false);assert.equal(r.dense.samples,0);
+});
+test('diagnostics distinguish observed partial density and unpaired preparation without changing the gate',()=>{
+ const prepared={expectedId:'A',timeOrigin:1,readStarted:90,readCompleted:91,focusedAt:92,display:{...display,version:7}};
+ const partial=summarizeDensityFeedback([{...sample,timeOrigin:1,densityPreparation:prepared,displayAtInput:{...display,version:8,markers:800,bodies:800,inView:800}}],trace);
+ assert.equal(partial.densityTransitions[0].status,'observed_at_input');assert.equal(partial.densityTransitions[0].density,'observed_below_or_mismatched');assert.equal(partial.allInputsConfirmedDensity,false);
+ for(const change of [{timeOrigin:2},{expectedId:'other'},{focusedAt:101},{display:{...display,version:7,bodies:800}}]){
+  const r=summarizeDensityFeedback([{...sample,timeOrigin:1,densityPreparation:{...prepared,...change},displayAtInput:{status:'awaiting_frame',version:8}}],trace);
+  assert.equal(r.densityTransitions[0].status,'unpaired_preparation');assert.equal(r.allInputsConfirmedDensity,false);
+ }
+});

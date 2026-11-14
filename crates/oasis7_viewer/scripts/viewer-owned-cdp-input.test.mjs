@@ -130,3 +130,21 @@ test('preparation code stays constant and matches an unusual planned ID as data'
   assert.equal(await vm.runInNewContext(expression,context),true);assert.equal(context.__payloadExecuted,false);
   intent.status='complete';await assert.rejects(vm.runInNewContext(expression,context),/intent missing/);
 });
+
+test('actual preparation preserves an immutable observed-version snapshot before a later pending input', async () => {
+  let expression;
+  await fakeBrowser([{type:'page',url:'http://owned/',targetId:'owned'}],async()=>{
+    const evaluate=async code=>code.includes('location.href')?'http://owned/':code.includes('candidates[0]')?{id:'agent-A',x:100,y:100}:true;
+    await assert.rejects(collectNativeSelectionSamples({evaluate,run,count:1,selectionSource:'renderer'}),/preparation/);
+  },request=>{if(request.method==='Runtime.evaluate'){expression=request.params.expression;return {result:{value:false}};}});
+  let now=0;const document={activeElement:null,querySelectorAll:()=>[button]},button={dataset:{agentId:'agent-A'},getBoundingClientRect:()=>({x:90,y:90,width:20,height:20}),focus(){document.activeElement=this;}};
+  const metrics={status:'observed',render_version:7,source_cut:'C',display_profile:'world_view_v1',projected_marker_count:1000,agent_body_sprites:1000,in_view_agent_body_sprites:1000,laid_out_in_view_labels:200};
+  const window={__VIEWER_PERF_INPUT__:{status:'armed',expectedId:'agent-A'},__QA_READ_METRICS__:()=>metrics};
+  assert.equal(await vm.runInNewContext(expression,{document,window,innerWidth:1440,innerHeight:1000,performance:{now:()=>++now,timeOrigin:9}}),true);
+  const prepared=window.__VIEWER_PERF_DENSITY_PREPARATION__;
+  assert.equal(prepared.expectedId,'agent-A');assert.equal(prepared.timeOrigin,9);assert.equal(prepared.display.version,7);assert.equal(prepared.display.bodies,1000);
+  assert(prepared.readStarted<=prepared.readCompleted&&prepared.readCompleted<=prepared.focusedAt);
+  assert(Object.isFrozen(prepared)&&Object.isFrozen(prepared.display));
+  metrics.status='awaiting_frame';metrics.render_version=8;metrics.agent_body_sprites=800;
+  assert.equal(prepared.display.status,'observed');assert.equal(prepared.display.version,7);assert.equal(prepared.display.bodies,1000);
+});
