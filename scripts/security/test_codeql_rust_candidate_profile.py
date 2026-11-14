@@ -242,6 +242,161 @@ class NumericProjectionTests(unittest.TestCase):
         for forbidden in ('TypeInference', 'fixture', 'queryCausingWork', 'predicateName', 'delta', 'cpu_rank'):
             self.assertNotIn(forbidden, encoded)
 
+    def test_native_identity_and_open_span_use_signed_raw_clock_without_footer(self):
+        events = numeric_events()[:3]+[numeric_event('CACHE_LOOKUP', 4)]
+        identity = SYNTHETIC_CANARY+'é'
+        events[1]['raHash'] = identity
+        for event, nano in zip(events, (-100, -50, -25, 0)):
+            event['nanoTime'] = nano
+        capture, report = self.observe(events)
+        self.assertEqual(report['version'], 'candidate-numeric-v2')
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['footer_count'], 0)
+        self.assertEqual(report['last_observed_offset_ns'], 100)
+        row = report['unfinished_predicates'][0]
+        expected = hashlib.sha256(identity.encode()).hexdigest()
+        self.assertEqual(row['ra_identity_sha256'], expected)
+        self.assertEqual(row['predicate_start_offset_ns'], 50)
+        self.assertEqual(row['observed_open_span_ns'], 50)
+        self.assertEqual(report['unfinished_pipelines'][0]['ra_identity_sha256'], expected)
+        self.assertEqual(report['unfinished_pipelines'][0]['predicate_start_offset_ns'], 50)
+        self.assertEqual(capture.summary()['status'], 'CAPTURED')
+        self.assertEqual(capture.summary()['log_boundary_status'], 'PARTIAL')
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_same_alias_distinct_ra_and_reused_ra_keep_separate_completed_instances(self):
+        events = numeric_events()[:1]
+        for start, identity in ((2, 'physical-one'), (6, 'physical-two'), (10, 'physical-one')):
+            events.extend((numeric_event('PREDICATE_STARTED', start, raHash=identity,
+                appearsAs={'TypeInference::inferType/2#same': [1]}, predicateType='RECURSIVE_INTENSIONAL'),
+                numeric_event('PIPELINE_STARTED', start+1, predicateStartEvent=start, generationNumber=1),
+                numeric_event('PIPELINE_COMPLETED', start+2, startEvent=start+1, resultSize=1),
+                numeric_event('PREDICATE_COMPLETED', start+3, startEvent=start, resultSize=1)))
+        events.append(numeric_event('LOG_FOOTER', 14))
+        _, report = self.observe(events)
+        self.assertEqual(report['status'], 'OBSERVED')
+        self.assertEqual(report['predicate_completed'], 3)
+        self.assertEqual(len(report['aliases']), 1)
+        expected = [hashlib.sha256(value.encode()).hexdigest()
+                    for value in ('physical-one', 'physical-two', 'physical-one')]
+        for key in ('predicate_tail', 'pipeline_tail'):
+            self.assertEqual([row['predicate_event'] for row in report[key]], [2, 6, 10])
+            self.assertEqual([row['ra_identity_sha256'] for row in report[key]], expected)
+            self.assertEqual([row['predicate_start_offset_ns'] for row in report[key]], [100, 500, 900])
+        summary_fixture = SummaryTests()
+        summary = summary_fixture.project([summary_fixture.row(raHash='physical-one')])
+        self.assertEqual(summary['rankings']['official_millis'][0]['ra_identity_sha256'], expected[0])
+
+    def test_pipeline_identity_survives_predicate_tail_and_receipt_trimming(self):
+        events = numeric_events()[:4]
+        events[1]['raHash'] = SYNTHETIC_CANARY
+        events.append(numeric_event('PREDICATE_COMPLETED', 5, startEvent=2, resultSize=0))
+        for start in range(6, 26, 2):
+            events.extend((numeric_event('PREDICATE_STARTED', start, raHash='other',
+                appearsAs=events[1]['appearsAs'], predicateType='STAGE_RESULT'),
+                numeric_event('PREDICATE_COMPLETED', start+1, startEvent=start, resultSize=0)))
+        events.append(numeric_event('LOG_FOOTER', 26))
+        _, report = self.observe(events)
+        self.assertNotIn(2, [row['predicate_event'] for row in report['predicate_tail']])
+        expected = hashlib.sha256(SYNTHETIC_CANARY.encode()).hexdigest()
+        for row in report['pipeline_tail']:
+            self.assertEqual((row['predicate_event'], row['ra_identity_sha256'], row['predicate_start_offset_ns']),
+                             (2, expected, 100))
+        with patch.object(profile, 'NUMERIC_RECEIPT_CAP', 3000):
+            _, bounded = self.observe(events)
+        self.assertGreater(bounded['receipt_omitted_samples'], 0)
+        self.assertLessEqual(len((json.dumps(bounded, indent=2)+'\n').encode()), 3000)
+        self.assertEqual(bounded['status'], 'PARTIAL')
+        self.assertEqual(bounded['pipeline_tail'][0]['ra_identity_sha256'], expected)
+        self.assertEqual(bounded['pipeline_tail'][0]['predicate_start_offset_ns'], 100)
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(bounded))
+
+    def test_optional_ra_keeps_old_acceptance_and_numeric_string_limit(self):
+        for identity in (None, '', SYNTHETIC_CANARY*400):
+            with self.subTest(identity_bytes=0 if identity is None else len(identity)):
+                events = numeric_events()
+                if identity is not None: events[1]['raHash'] = identity
+                _, report = self.observe(events)
+                self.assertEqual(report['status'], 'OBSERVED')
+                self.assertFalse(any(report['errors'].values()))
+                expected = hashlib.sha256(identity.encode()).hexdigest() if identity else None
+                for key in ('predicate_tail', 'pipeline_tail'):
+                    self.assertTrue(all(row['ra_identity_sha256'] == expected for row in report[key]))
+                self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_missing_and_repeated_headers_do_not_invent_or_reset_native_origin(self):
+        events = numeric_events()[:2]
+        events[0]['nanoTime'], events[1]['nanoTime'] = -100, -50
+        _, missing = self.observe(events[1:])
+        self.assertIsNone(missing['last_observed_offset_ns'])
+        self.assertIsNone(missing['unfinished_predicates'][0]['predicate_start_offset_ns'])
+        self.assertIsNone(missing['unfinished_predicates'][0]['observed_open_span_ns'])
+        for version in ('2.27.4', 'wrong'):
+            repeated = dict(events[0], eventId=20, nanoTime=9000, codeqlVersion=version)
+            _, report = self.observe(events+[repeated])
+            self.assertEqual(report['last_observed_offset_ns'], 50)
+            self.assertEqual(report['unfinished_predicates'][0]['predicate_start_offset_ns'], 50)
+            self.assertEqual(report['unfinished_predicates'][0]['observed_open_span_ns'], 0)
+            self.assertGreater(report['errors']['HEADER'], 0)
+        _, report = self.observe(events+[dict(events[0], eventId=20, nanoTime=9000),
+            dict(numeric_event('CACHE_LOOKUP', 21), nanoTime=0)])
+        self.assertEqual(report['last_observed_offset_ns'], 100)
+        self.assertEqual(report['unfinished_predicates'][0]['observed_open_span_ns'], 50)
+
+    def test_rejected_event_never_advances_last_native_time_and_next_valid_event_can(self):
+        prefix = numeric_events()[:4]
+        for event, nano in zip(prefix, (-100, -50, -25, 0)):
+            event['nanoTime'] = nano
+        bad = [numeric_event('CACHE_LOOKUP', 11, unknown=SYNTHETIC_CANARY),
+               numeric_event('CACHE_LOOKUP', 11, raHash=None),
+               numeric_event('PREDICATE_STARTED', 11, appearsAs=prefix[1]['appearsAs'], predicateType='BAD'),
+               numeric_event('PREDICATE_COMPLETED', 11, startEvent=2, completionType='BAD'),
+               numeric_event('PREDICATE_COMPLETED', 11, startEvent=2, completionType='FAILURE'),
+               numeric_event('PREDICATE_COMPLETED', 11, startEvent=2, completionType='INCOMPLETE'),
+               numeric_event('PIPELINE_STARTED', 11, predicateStartEvent=4),
+               numeric_event('PIPELINE_STARTED', 11, predicateStartEvent=2, generationNumber=-1),
+               numeric_event('PREDICATE_COMPLETED', 11, startEvent=2, resultSize=-1),
+               dict(prefix[1])]
+        missing_nano = numeric_event('CACHE_LOOKUP', 11); missing_nano.pop('nanoTime')
+        bad.extend((missing_nano, dict(numeric_event('CACHE_LOOKUP', 11), nanoTime=2**63),
+                    dict(numeric_event('CACHE_LOOKUP', 11), nanoTime=-(2**63)-1)))
+        for rejected in bad:
+            with self.subTest(kind=rejected['type'], keys=sorted(rejected)):
+                _, report = self.observe(prefix+[rejected])
+                self.assertEqual(report['status'], 'PARTIAL')
+                self.assertEqual(report['last_observed_offset_ns'], 100)
+                self.assertTrue(any(report['errors'].values()))
+                _, recovered = self.observe(prefix+[rejected,
+                    dict(numeric_event('CACHE_LOOKUP', 12), nanoTime=50)])
+                self.assertEqual(recovered['last_observed_offset_ns'], 150)
+
+    def test_last_native_event_is_literal_not_maximum_and_each_interval_can_recover(self):
+        projection = profile.NumericProjection()
+        events = numeric_events()[:2]
+        events[0]['nanoTime'], events[1]['nanoTime'] = 0, 10
+        for event in events: projection.accept(event)
+        for index, (nano, offset, span) in enumerate(((50, 50, 40), (40, 40, 30), (5, 5, None),
+                                                     (20, 20, 10), (-5, None, None), (30, 30, 20)), 3):
+            projection.accept(dict(numeric_event('CACHE_LOOKUP', index), nanoTime=nano))
+            report = projection.report()
+            self.assertEqual(report['last_observed_offset_ns'], offset)
+            self.assertEqual(report['unfinished_predicates'][0]['observed_open_span_ns'], span)
+            self.assertEqual(report['unfinished_predicates'][0]['predicate_start_offset_ns'], 10)
+            self.assertFalse(any(report['errors'].values()))
+
+    def test_native_offsets_and_open_span_check_each_signed_int64_difference(self):
+        cases = ((-(2**63), -(2**63)+1, 2**63-1, 1, None, None),
+                 (0, -(2**63), 0, None, 0, None), (0, -1, 0, None, 0, 1),
+                 (2**63-1, 2**63-1, 2**63-1, 0, 0, 0))
+        for header, start, last, offset, last_offset, span in cases:
+            events = numeric_events()[:2]+[numeric_event('CACHE_LOOKUP', 3)]
+            for event, nano in zip(events, (header, start, last)): event['nanoTime'] = nano
+            _, report = self.observe(events)
+            self.assertEqual(report['last_observed_offset_ns'], last_offset)
+            self.assertEqual(report['unfinished_predicates'][0]['predicate_start_offset_ns'], offset)
+            self.assertEqual(report['unfinished_predicates'][0]['observed_open_span_ns'], span)
+            self.assertFalse(any(report['errors'].values()))
+
     def test_family_uses_namespace_and_exact_terminal_member_not_similar_or_nested_names(self):
         positive = ('TypeInference::inferType/2#opaque',
                     'Root::TypeInference::M3<Other::X>::inferType/2#opaque')
@@ -374,9 +529,11 @@ class NumericProjectionTests(unittest.TestCase):
     def test_target_identity_history_is_bounded_and_saturation_stays_partial(self):
         with patch.object(profile, 'NUMERIC_EVENT_CAP', 2):
             _, report = self.observe()
+            _, unfinished = self.observe(numeric_events()[:-1])
         self.assertEqual(report['status'], 'PARTIAL')
         self.assertEqual(report['remembered_target_events'], 2)
         self.assertGreater(report['errors']['TABLE_LIMIT'], 0)
+        self.assertEqual(unfinished['last_observed_offset_ns'], 200)
 
     def test_failure_states_and_missing_sizes_are_not_silently_success_or_zero(self):
         for completion in ('FAILURE', 'INCOMPLETE'):
@@ -501,6 +658,34 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertEqual(projection.report()['status'], 'OBSERVED')
         self.assertEqual(projection.report()['pipeline_tail'][-1]['generation'], 1539)
         self.assertTrue(self.cap.summary()['transport_eof'])
+
+    def test_timeout_without_footer_keeps_native_open_span_after_capacity_drain(self):
+        events = numeric_events()[:3]+[numeric_event('CACHE_LOOKUP', 4)]
+        events[1]['raHash'] = SYNTHETIC_CANARY
+        for event, nano in zip(events, (-100, -50, -25, 0)): event['nanoTime'] = nano
+        prefix, tail = numeric_bytes(events[:3])+b'\n', numeric_bytes(events[3:])
+        self.cap.close()
+        projection = profile.NumericProjection()
+        self.cap = profile.Capture(len(prefix), projection=projection); self.addCleanup(self.cap.close)
+        body = ('import os,sys,signal,time\nf=os.open(sys.argv[1],os.O_WRONLY)\n'
+                'def stopped(*_):\n'+f' os.write(f,{tail!r})\n os.close(f)\n sys.exit(143)\n'
+                'signal.signal(signal.SIGTERM,stopped)\n'+f'os.write(f,{prefix!r})\n'
+                'while True: time.sleep(.05)\n')
+        with self.assertRaises(runtime.PhaseError) as caught:
+            self.execute(body, timeout=4.2)
+        self.assertEqual(caught.exception.result['execution_failure_kind'], 'timeout')
+        self.assertEqual(caught.exception.result['exit'], 143)
+        report = projection.report()
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['footer_count'], 0)
+        self.assertEqual(report['last_observed_offset_ns'], 100)
+        self.assertEqual(report['unfinished_predicates'][0]['observed_open_span_ns'], 50)
+        self.assertEqual(report['unfinished_pipelines'][0]['ra_identity_sha256'],
+                         hashlib.sha256(SYNTHETIC_CANARY.encode()).hexdigest())
+        self.assertGreater(report['post_limit_records'], 0)
+        self.assertEqual(self.cap.summary()['error'], 'MEMORY_LIMIT')
+        self.assertTrue(self.cap.summary()['transport_eof'])
+        self.assert_private()
 
     def assert_private(self):
         self.assertFalse((self.root/'events.jsonl').exists())
