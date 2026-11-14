@@ -42,6 +42,7 @@
   "ordinary_unit_test_targets": ["runtime-lib", "world-state-lib"],
   "ordinary_partition_version": 1,
   "ordinary_artifact_partition_version": 2,
+  "ordinary_main_fast_cache_writer_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,

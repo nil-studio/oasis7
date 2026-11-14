@@ -396,7 +396,7 @@ Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证�
 
 兼容的同 run、同 tested commit、同编译输入产物可复用；消费者核对工具链、平台、profile/features、测试清单与摘要，执行被选中的真实用例。缺产物、输入不符、零匹配、错误 feature/target 和意外跳过均失败。长历史与恢复场景保持原断言和操作长度，在周期层或相应定向验证中执行。
 
-保持可信 main producer、只读 PR 和已有仓库缓存预算；新快速 profile 的 main push 同样只读，完整 main profile 保留 workspace 与工具缓存生产，共享原生依赖由独立 main schedule/manual-full 预热任务生产。旧 BASE 回退保留原权限分支，候选始终不能借 full 名称取得写权限。缓存缺失走同一正确冷构建。记录实际 Cargo fresh/rebuilt、恢复与准备成本，不把 cache hit 当作复用或十分钟达标；独立预热的覆盖与写入边界见[缓存设计](#ci-install-cache-design)。
+保持可信 main producer、只读 PR 和已有仓库缓存预算；快速 profile 默认只读，可信计划明确启用 ordinary main-fast 写入能力时，仅当前 main push 的完整 ordinary artifact producer 可保存 workspace library 缓存。完整 main profile 保留原 workspace 与工具缓存生产，共享原生依赖由独立 main schedule/manual-full 预热任务生产。旧 BASE 回退保留原权限分支，候选始终不能借 full 名称取得写权限。缓存缺失走同一正确冷构建。记录实际 Cargo fresh/rebuilt、恢复与准备成本，不把 cache hit 当作复用或十分钟达标；独立预热的覆盖与写入边界见[缓存设计](#ci-install-cache-design)。
 
 ### 完整集合与结果汇总
 
@@ -723,9 +723,9 @@ Release writer 另外核对 source plan、实际 checkout 与 event SHA 一致�
 
 报告区分实际压缩字节、观察总量、投影总量、实时/配置预算及拒绝原因，不把允许上传当成保存已确认。
 
-Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main 完整 profile 使用 `--recover --apply`；旧 BASE 回退保留原 main push 条件，新 `main-fast` 不启动写维护。该步骤无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。
+Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main 完整 profile 使用 `--recover --apply`；经 ordinary 写入能力准入的当前 main push 完整 artifact producer 同样先恢复原有周转空间，其他 `main-fast` 不启动写维护。旧 BASE 回退保留原 main push 条件。该步骤无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。
 
-Rust 结束维护直接等待普通、Formal debug 与 Formal endpoint 的可信 producer，只要一个成功即可进入，不再等待完整测试、合并分包或独立原生依赖预热，也不要求其保存确认；各族仅传入本轮成功且 API 确认的精确 current key。维护的完整库存和跨 workflow 活动保护仍适用，独立依赖 writer 在上传前检查最终归档与库存，其后续 post 保存不能被当成已预留空间。ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
+Rust 结束维护直接等待普通、Formal debug 与 Formal endpoint 的可信 producer：完整 profile 任一 producer 成功即可进入，启用 ordinary 写入能力的 `main-fast` 则要求普通可信 producer 成功。不等待完整测试、合并分包或独立原生依赖预热，也不要求保存确认；各族仅传入本轮成功且 API 确认的精确 current key。维护的完整库存和跨 workflow 活动保护仍适用，独立依赖 writer 在上传前检查最终归档与库存，其后续 post 保存不能被当成已预留空间。ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
 
 Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SHA 时增加启动与结束恢复；启动由 plan 后进入，writer 显式允许维护失败或跳过后继续原构建，结束等待 Web/native writer（含 post）完成并使用空 current keys。维护不成为发布成功门槛，tag 或非当前 source 没有新增删除权限。
 
@@ -1110,9 +1110,11 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用[容量要求](c
 
 普通构建使用 `ordinary-workspace-v1`，先恢复共享依赖 target，再按上述内容、完整路径集合和纳秒 mtime 校验叠加本地单位。旧完整范围保留四个 ordinary build variants；新快速计划按 package、Viewer 消费者和 snapshot owner 选择真实变体，并保留对应测试 artifact 语义。缓存只选择非测试 library（包括 proc-macro）及完整 custom-build 编译/执行单位，不把 test harness 或普通 binary 放进这份缓存。缓存记录的默认选集仍是完整单位，Formal 与 ECS 不受 library 过滤影响。每个 variant 分别记录本地与第三方 compiler-artifact 的总数、fresh 和 rebuilt；这些是单位观测数，不是唯一 crate 数。
 
-只读与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；新 profile 仅可信 main 完整运行可保存，旧 BASE 回退保留原 main push 条件。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；ordinary 消费者和最终完整汇总依赖此结果，`full-extended` 不依赖普通 bundle、可独立并行。显式状态条件避免互斥入口的 skipped 祖先传播，取消后不启动消费者。
+只读与可信 main producer 共用构建步骤，分别使用只读和可写 cache token；新 profile 由可信 main 完整运行或明确启用的完整 ordinary main-fast producer 保存，旧 BASE 回退保留原 main push 条件。`oasis7-test-build` 汇总两入口：选中时必须恰好一个成功且另一个 skipped，失败、取消或未知结果不能通过；ordinary 消费者和最终完整汇总依赖此结果，`full-extended` 不依赖普通 bundle、可独立并行。显式状态条件避免互斥入口的 skipped 祖先传播，取消后不启动消费者。
 
-普通 main-fast 写入使用可选的 `ordinary_main_fast_cache_writer_version=1` 合同，当前处于准备状态，可信配置、planner 与写入入口尚未启用。调度投影仅在完整计划含该字段时原样传递；投影和最终汇总都只接受整数 1，拒绝布尔、字符串和未知版本，最终汇总同时核对原计划摘要、字段值及独立来源身份。缺少字段的旧 BASE 保持原只读行为。后续启用只适用于可信计划选中的 `full/main-fast` ordinary 完整 artifact producer，并须保留当前 main push 的 ref、source、workflow 身份校验、互斥入口和原缓存准入。此能力不授予 PR、候选来源、inline 或窄目标写权限，也不扩大 Formal、工具缓存和共享依赖 writer。兼容合同先进入可信 BASE，再启用执行入口；不以候选测试替换不可变 BASE 的旧权限预期。
+普通 main-fast 写入由可信配置的 `ordinary_main_fast_cache_writer_version=1` 启用。planner 仅为 `full/main-fast` 的普通完整 artifact v1/v2 计划附加该字段；inline、窄目标、其他 profile 和缺少完整 artifact 能力的旧计划不附加。测试政策变化的扩展 features 与共享控制触发的完整库存仍可准入，由原完整 state、源码输入与容量校验决定实际保存，不另改变编译或选测。调度投影仅在完整计划含该字段时原样传递；planner、投影和最终汇总只接受整数 1，拒绝布尔、字符串和未知版本，最终汇总同时核对原计划摘要、字段值及独立来源身份。
+
+workflow 仅在能力、`full/main-fast`、push 和当前 main 的 ref/source/workflow 身份均匹配时，将 ordinary 构建互斥地路由到可信入口，并启用对应维护；缺少能力的快速计划继续只读。此能力不授予 PR、候选来源、inline 或窄目标写权限，也不扩大 Formal、工具缓存和共享依赖 writer。push 仍以 `github.event.before` 作为可信 policy；启用变更合并当次不能用候选配置自授权，后继 main push 才能消费已启用的 BASE。首次自然保存与 reader 复用分别按实际 source 与缓存确认验收，不能由路由或本地测试推定成功。
 
 保存前测量完整库选集；超过 6 GiB raw 上限时，按 profile/fingerprint 组织完整 Cargo 单元。依据实际 Cargo 消息标记 `viewer`、`required`、`snapshot-tests`、`viewer-snapshot-tests` 四个普通基线变体使用的单元，优先保留这些单元，再填入 full-fast 等补充变体；各组内按最近构建时间和稳定路径排序，跳过无法容纳的超大单元。旧 capture 缺少基线标记时沿用最近构建优先；标记必须指向本次 capture 已记录的完整 fingerprint，不能据此补造单元。必须保留 build-script 支持目录及其 fingerprint、已解析的混合无哈希库相关单元和跨组硬链接涉及的单元；缺失输出、未绑定路径、歧义或不安全状态拒绝保存。保留完整输入快照和包归属，未缓存单元由 Cargo 正常重建并传播失效，不修改 target 或编译、测试选择。该排序是有界打包启发式；基线本身超预算时仍只保留能容纳的完整单元，并报告基线保留与遗漏数量，不承诺全部基线命中或最优复用率。Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29。
 

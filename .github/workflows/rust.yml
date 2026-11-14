@@ -833,6 +833,11 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push' &&
+        !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline')) ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
       (github.event_name == 'push' || github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -869,6 +874,9 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push') ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
@@ -1098,6 +1106,9 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push') ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -1861,6 +1872,12 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push' &&
+        !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
+        needs.oasis7-test-build-trusted.result == 'success') ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))

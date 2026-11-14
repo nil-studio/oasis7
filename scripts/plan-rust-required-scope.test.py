@@ -4656,6 +4656,62 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertTrue(current['ordinary_risk_targets'])
                 self.assertEqual(sum(len(target['cases']) for target in current['ordinary_risk_targets']), 5)
 
+    def test_main_fast_cache_capability_preserves_complete_v1_v2_and_expanded_builds(self):
+        field = 'ordinary_main_fast_cache_writer_version'
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control input\n')
+        for expanded in (False, True):
+            if expanded:
+                self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
+                           '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
+            head = self.commit()
+            for delivery in (1, 2):
+                enabled = self.config | {field: 1, 'ordinary_artifact_delivery_version': delivery}
+                disabled = {key: value for key, value in enabled.items() if key != field}
+                with self.subTest(expanded=expanded, delivery=delivery):
+                    plan = selector.select(enabled, self.base, head, profile='main-fast')
+                    self.assertEqual(plan['scope'], 'full')
+                    self.assertIs(plan['test_policy_changed'], expanded)
+                    self.assertEqual(plan['ordinary_artifact_partition_version'],
+                                     1 if expanded or delivery == 1 else 2)
+                    self.assertEqual(plan['oasis7_required_packages'], sorted(enabled['oasis7_required_packages']))
+                    self.assertNotIn('fast_execution_version', plan)
+                    self.assertEqual(plan.pop(field), 1)
+                    self.assertEqual(plan, selector.select(disabled, self.base, head, profile='main-fast'))
+                    self.assertNotIn(field, selector.select(enabled, self.base, head, profile='pr-fast'))
+            for profile in ('periodic-full', 'candidate-full'):
+                self.assertNotIn(field, selector.full_plan(self.config | {field: 1}, profile, head))
+
+    def test_main_fast_cache_capability_cannot_self_enrol_or_cover_partial_plans(self):
+        field = 'ordinary_main_fast_cache_writer_version'
+        old = {key: value for key, value in self.config.items() if key != field}
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.base = self.commit()
+        enabled = old | {field: 1}
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
+        targeted = self.commit()
+        self.assertNotIn(field, selector.select(enabled, self.base, targeted, profile='main-fast'))
+        self.write('scripts/ci-required-scope.json', json.dumps(enabled))
+        candidate = self.commit()
+        legacy = selector.select(old, self.base, candidate, profile='main-fast')
+        self.assertEqual(legacy['scope'], 'full')
+        self.assertNotIn(field, legacy)
+        self.assertEqual(selector.select(enabled, self.base, candidate, profile='main-fast')[field], 1)
+        without_partitions = {key: value for key, value in enabled.items() if key not in (
+            'ordinary_artifact_partition_version', 'ordinary_artifact_delivery_version', 'ordinary_harness_costs')}
+        self.assertNotIn(field, selector.select(without_partitions, self.base, candidate, profile='main-fast'))
+        inline = dict(scope='full', groups=['oasis7_required'], execution_profile='main-fast',
+                      ordinary_execution='inline', fast_execution_version=1)
+        selector.complete_ordinary_partitions(enabled, inline)
+        self.assertNotIn(field, inline)
+
+    def test_main_fast_cache_capability_accepts_only_the_known_integer_version(self):
+        field = 'ordinary_main_fast_cache_writer_version'
+        selector.validate_config({key: value for key, value in self.config.items() if key != field})
+        selector.validate_config(self.config | {field: 1})
+        for invalid in (0, 2, True, False, 1.0, '1', None):
+            with self.subTest(version=invalid), self.assertRaisesRegex(ValueError, 'main-fast cache writer'):
+                selector.validate_config(self.config | {field: invalid})
+
     def test_cost_hints_require_trusted_configuration_and_only_fast_v2_consumes_them(self):
         self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n')
         head = self.commit()
