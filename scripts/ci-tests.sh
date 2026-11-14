@@ -361,13 +361,30 @@ run_oasis7_consensus_clippy() {
   run_cargo_clippy -p oasis7_consensus --lib
 }
 
+run_oasis7_distfs_industry() {
+  [[ -f "$repo_root/crates/oasis7_distfs/tests/incremental_industry_jobs.rs" ]] || return 0
+  local action="$1" selection=run plan="${required_plan:-${OASIS7_CI_DISTFS_PLAN_FILE:-}}"
+  if [[ "${tier:-}" == required && -n "$plan" ]]; then
+    selection=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$plan" --phase distfs-industry) || return
+  fi
+  case "$selection" in
+    skip) echo '+ industry integration is not selected by the exact fast inventory'; return 0 ;;
+    run) ;;
+    *) echo "Unknown industry selection: $selection" >&2; return 2 ;;
+  esac
+  case "$action" in
+    test) run_cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1 ;;
+    clippy) run_cargo_clippy -p oasis7_distfs --test incremental_industry_jobs ;;
+    *) echo "Unknown industry check: $action" >&2; return 2 ;;
+  esac
+}
+
 run_oasis7_distfs_tests() {
   run_cargo test -p oasis7_cas -p oasis7_formal_protocol --lib -- --test-threads=1
   # Keep independent RPC deadline fixtures from contending with other storage fixtures.
   run_cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1
-  if [[ -f "$repo_root/crates/oasis7_distfs/tests/incremental_industry_jobs.rs" ]]; then
-    run_cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1
-  fi
+  run_oasis7_distfs_industry test
 }
 
 run_oasis7_distfs_clippy() {
@@ -384,9 +401,7 @@ run_oasis7_distfs_clippy() {
       ;;
     *) echo "Unknown DistFS Clippy group: $owner" >&2; return 2 ;;
   esac
-  if [[ -f "$repo_root/crates/oasis7_distfs/tests/incremental_industry_jobs.rs" ]]; then
-    run_cargo_clippy -p oasis7_distfs --test incremental_industry_jobs
-  fi
+  run_oasis7_distfs_industry clippy
 }
 
 run_oasis7_node_tests() {

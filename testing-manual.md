@@ -303,7 +303,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
     - 这是该 package 的必要 feature 入口；hosted ordinary 实际按计划选择 package，并保留全部适用非 ignored 测试。runtime builtin wasm 扩展用例保留在 full，命中必要风险或分级迁移时仍在 PR 加测；标签本身不证明轻量。
   - `cargo test -p oasis7_consensus --lib`
   - `cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1`
-    - 具名 `tests/incremental_industry_jobs.rs` 迁入后，driver 追加默认 features 的 `cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1` 及该目标的严格 Clippy；原 library Clippy 转交 baseline 时，行业 Clippy 仍由 DistFS 执行。Formal 独立产物继续只构建 library。新目标必须先由可信 BASE 的 planner 证明真实执行根与完整模块门控。
+    - 具名 `tests/incremental_industry_jobs.rs` 迁入后，driver 追加默认 features 的 `cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1` 及该目标的严格 Clippy；同一可信计划的精确快速库存未选择行业目标时，两者都不追加，以保持既有快速路径覆盖。无精确库存、策略变化、full 或独立本地组仍执行；行业目标及 support 的直接或混合变化必须保留行业覆盖。行业选测不由 library Clippy 的转交 owner 决定，执行时仍归 DistFS，非法计划和 helper 失败必须传播。Formal 独立产物继续只构建 library。新目标必须先由可信 BASE 的 planner 证明真实执行根与完整模块门控。
   - `npm --prefix crates/oasis7_viewer run test:feedback-contract`
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - `npm --prefix crates/oasis7_viewer run build:software-safe`
