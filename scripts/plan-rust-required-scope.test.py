@@ -1288,7 +1288,11 @@ class Selection(unittest.TestCase):
             '.github/workflows/codeql.yml',
             '.github/workflows/codeql-rust-capacity.yml',
             '.github/workflows/codeql-rust-cargo-check.yml',
+            '.github/workflows/codeql-rust-native-diagnostic.yml',
             '.github/workflows/codeql-rust-cfg-diagnostic.yml',
+            '.github/workflows/codeql-rust-wasm-context.yml',
+            '.github/workflows/codeql-rust-wasm-metadata.yml',
+            '.github/workflows/codeql-platform-observation.yml',
         )
         for path in paths:
             self.write(path, '# original control\n')
@@ -1300,6 +1304,70 @@ class Selection(unittest.TestCase):
                 self.assertEqual(plan['scope'], 'targeted')
                 self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
                 self.base = self.git('rev-parse', 'HEAD')
+
+    def test_scoped_codeql_diagnostics_keep_contracts_and_require_trusted_registration(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        driver = (HERE / 'ci-tests.sh').read_text().split(
+            'run_workflow_governance_operational_contract_tests() {\n', 1)[1].split('\n}', 1)[0]
+        for name in ('codeql-rust-wasm-context', 'codeql-rust-wasm-metadata',
+                     'codeql-platform-observation'):
+            with self.subTest(diagnostic=name):
+                workflow = f'.github/workflows/{name}.yml'
+                contract = f'scripts/security/{name}.test.py'
+                paths = (workflow, f'scripts/security/{name}.py', contract,
+                         'doc/testing/ci/codeql-integration.design.md',
+                         'doc/testing/ci/codeql-operations.md')
+                for path in paths:
+                    self.write(path, '# original diagnostic input\n')
+                self.base = self.commit()
+                for path in paths:
+                    self.write(path, '# changed diagnostic input\n')
+                head = self.commit()
+                plan = selector.select(self.config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['groups'], ['baseline', 'workflow_governance'])
+                self.assertEqual(plan['affected_packages'], [])
+                self.assertEqual(plan['oasis7_required_packages'], [])
+                self.assertIn(f'  run python3 ./{contract}\n', driver + '\n')
+
+                old_policy = copy.deepcopy(self.config)
+                old_policy['scoped_control_paths'].pop(workflow, None)
+                self.assertEqual(selector.select(old_policy, self.base, head,
+                                                 profile='pr-fast')['scope'], 'full')
+                self.base = head
+
+    def test_wasm_context_scope_keeps_rust_consumers_shared_controls_and_rename_endpoints(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        workflow = '.github/workflows/codeql-rust-wasm-context.yml'
+        self.write(workflow, '# diagnostic\n')
+        self.base = self.commit()
+        self.write(workflow, '# diagnostic and product change\n')
+        self.write('crates/core/src/lib.rs', '// actual product change\n')
+        expected = {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required', 'node'}
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), expected)
+
+        self.write('crates/core/src/lib.rs',
+                   'const INPUT: &str = include_str!("../../../' + workflow + '");\n')
+        self.base = self.commit()
+        self.write(workflow, '# changed real embedded input\n')
+        self.assertEqual(set(self.plan()['groups']), expected)
+
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write('Cargo.lock', '# shared build input\n')
+        self.write(workflow, '# diagnostic plus shared control\n')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'full')
+        self.assertIn('shared build or CI control changed: Cargo.lock', plan['reasons'])
+
+        self.base = self.git('rev-parse', 'HEAD')
+        renamed = '.github/workflows/codeql-rust-wasm-context-copy.yml'
+        self.git('mv', workflow, renamed)
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'full')
+        self.assertIn('shared build or CI control changed: ' + renamed, plan['reasons'])
 
     def test_scoped_github_controls_do_not_exempt_unknown_or_shared_controls(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
