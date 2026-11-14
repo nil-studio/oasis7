@@ -21,6 +21,7 @@ RAW_CAP = 48 * 1024**2
 CODEC_RESERVE = 1024**2  # inside RAW_CAP, never a second memory allowance
 ENCODED_CAP = RAW_CAP - CODEC_RESERVE
 CODEC_CHUNK = 64 * 1024
+CANDIDATE_GZIP_LEVEL = 6
 REPLAY_CLOSE_SECONDS = .5  # inside the one SUMMARY_SECONDS deadline
 OUTPUT_CAP = 8 * 1024**2
 SUMMARY_SECONDS = 20
@@ -34,6 +35,7 @@ NUMERIC_PIPELINE_CAP = 256
 NUMERIC_EVENT_CAP = 16384
 NUMERIC_TAIL = 16
 NUMERIC_RECEIPT_CAP = 31 * 1024  # leave room for the observed-stream identity
+NON_SUCCESS_SCHEMA = 'non_success_global_v1'
 SUMMARY_RA_LIMIT = 49152
 SUMMARY_RA_SLOTS = 65536
 SUMMARY_RA_PROBES = 256
@@ -169,11 +171,42 @@ class NumericProjection:
         self.predicate_tail, self.pipeline_tail = [], []
         self.header_nano = self.last_observed_nano = None
         self._record_valid = False
+        self._non_success_counts = [0]*23
+        self._non_success_saturated = False
 
     def fail(self, code):
         self._record_valid = False
         code = code if code in self.errors else 'PROCESSING_FAILED'
         self.errors[code] = min(2**63-1, self.errors[code]+1)
+
+    def _count_non_success(self, value):
+        # Called only at the two existing increments, before any later link or
+        # family checks. This diagnostic must not affect record validity.
+        if self._non_success_counts is None:
+            return
+        try:
+            if value['type'] == 'QUERY_COMPLETED':
+                slot = 20 if 'terminationType' not in value else 22
+            else:
+                group = ('PREDICATE_COMPLETED', 'PIPELINE_COMPLETED').index(value['type'])
+                completion = (None, 'IMPLICIT_SUCCESS', 'SUCCESS', 'FAILURE', 'INCOMPLETE').index(
+                    value.get('completionType'))
+                slot = group*10 + completion*2 + ('exceptionName' in value)
+            self._non_success_counts[slot] = min(2**63-1, self._non_success_counts[slot]+1)
+            self._non_success_saturated |= (self.errors['NON_SUCCESS'] == 2**63-1
+                                           or self._non_success_counts[slot] == 2**63-1)
+        except Exception:
+            self._non_success_counts = None  # no added error, raw text or inferred zero
+
+    def non_success_report(self):
+        counts = self._non_success_counts
+        if (type(counts) is not list or len(counts) != 23
+                or any(type(n) is not int or not 0 <= n <= 2**63-1 for n in counts)
+                or type(self._non_success_saturated) is not bool
+                or min(2**63-1, sum(counts)) != self.errors['NON_SUCCESS']):
+            return dict(schema=NON_SUCCESS_SCHEMA, status='UNAVAILABLE', reason='COUNTER_UNAVAILABLE')
+        return dict(schema=NON_SUCCESS_SCHEMA, status='AVAILABLE', counts=list(counts),
+                    saturated=self._non_success_saturated)
 
     @staticmethod
     def _family(alias):
@@ -293,8 +326,10 @@ class NumericProjection:
             raise ObservationError('COMPLETION_ENUM')
         if completion in ('FAILURE', 'INCOMPLETE') or 'exceptionName' in value:
             self.fail('NON_SUCCESS')
+            self._count_non_success(value)
         if kind == 'QUERY_COMPLETED' and value.get('terminationType') != 'COMPLETED_SUCCESSFULLY':
             self.fail('NON_SUCCESS')
+            self._count_non_success(value)
         if kind == 'PREDICATE_STARTED':
             if value.get('predicateType') not in self.PREDICATE_TYPES:
                 raise ObservationError('PREDICATE_TYPE')
@@ -652,14 +687,14 @@ class CompressedCapture(Capture):
         self.encoding_input_bytes = 0
         self.encoding_input_hash = hashlib.sha256()
         try:
-            self.encoder = zlib.compressobj(level=1, wbits=31, memLevel=8)
+            self.encoder = zlib.compressobj(level=CANDIDATE_GZIP_LEVEL, wbits=31, memLevel=8)
         except BaseException:
             self.close()
             raise ObservationError('ENCODER_CREATE_FAILED') from None
 
     def _store(self, data, phase):
-        # Fixed codec parameters and <=64KiB input bound the pending deflate
-        # output as well as the finish buffer; neither is an entire raw stream.
+        # One <=64KiB input chunk at a time; inspect each returned feed/finish
+        # block before retention. This is not an allocator or RSS hard limit.
         if len(data) > 2 * CODEC_CHUNK:
             self.error = 'ENCODER_OUTPUT_LIMIT'
             raise ObservationError(self.error)
@@ -757,7 +792,7 @@ class CompressedCapture(Capture):
                     encoded_bytes=self.retained,
                     encoded_sha256=self.retained_hash.hexdigest() if self.retained_identity_valid else None,
                     encoded_limit_bytes=self.limit, codec_buffer_reserve_bytes=CODEC_RESERVE,
-                    memory_reserve_bytes=RAW_CAP, codec=dict(level=1, window_bits=31, memory_level=8),
+                    memory_reserve_bytes=RAW_CAP, codec=dict(level=CANDIDATE_GZIP_LEVEL, window_bits=31, memory_level=8),
                     encoding_finished=self.encoded_finished, capacity_failure_phase=self.capacity_failure_phase,
                     sealed=self.sealed, transport_eof=self.eof, cleanup_ok=self.cleanup_ok, error=self.error,
                     log_boundary_status='COMPLETE' if complete else 'PARTIAL',
@@ -1748,6 +1783,19 @@ class Observation:
             numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_LIMIT',
                            observed_stream_sha256=self.capture.observed_hash.hexdigest(),
                            observed_stream_bytes=self.capture.observed, capacity_basis='gzip-encoded-bytes')
+            encoded = (json.dumps(numeric, indent=2)+'\n').encode()
+        # The legacy 31KiB report and its status/sample choices are already
+        # final. Only this optional diagnostic uses the remaining control space.
+        try:
+            diagnostic = self.capture.projection.non_success_report()
+        except Exception:
+            diagnostic = dict(schema=NON_SUCCESS_SCHEMA, status='UNAVAILABLE', reason='COUNTER_UNAVAILABLE')
+        numeric[NON_SUCCESS_SCHEMA] = diagnostic
+        encoded = (json.dumps(numeric, indent=2)+'\n').encode()
+        if len(encoded) > runtime.MAX_CONTROL_RECEIPT:
+            # The fixed marker and the three identity fields fit in the 1KiB
+            # reserved above the old report cap; never trim another old sample.
+            numeric[NON_SUCCESS_SCHEMA] = dict(schema=NON_SUCCESS_SCHEMA, status='UNAVAILABLE', reason='RECEIPT_SPACE')
             encoded = (json.dumps(numeric, indent=2)+'\n').encode()
         path = self.out / 'numeric-projection.json'
         # A prior write may have completed before its hash read failed. Verify
