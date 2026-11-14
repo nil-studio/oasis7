@@ -978,6 +978,23 @@ class BudgetTests(unittest.TestCase):
                 for path in observation.out.iterdir(): path.unlink()
                 observation.out.rmdir()
 
+    def test_summary_admission_limit_keeps_numeric_and_original_batch_failure(self):
+        observation = self.observation()
+        observation.capture.feed(RAW); observation.capture.finish(True, True)
+        original = dict(exit=143, failure_kind='timeout', cleanup_errors=[], evidence_errors=[])
+        observation.batch_result = original; observation.batch_safe = True
+        with patch.object(profile, 'SUMMARY_WORK_CAP', 1), patch.object(runtime, 'run') as run:
+            observation.summarize('/cli', self.root, {}, time.monotonic()+100, admitted=True)
+            run.assert_not_called()
+        self.assertIs(observation.batch_result, original)
+        self.assertEqual(observation.summary_result['failure_kind'], 'SUMMARY_ADMISSION_ERROR')
+        self.assertIn(observation.summary_result['first_state_limit']['kind'], ('DECODE_PEAK', 'PARSE_PEAK'))
+        result = observation.finish()
+        self.assertEqual(result['status'], 'INCOMPLETE')
+        self.assertNotEqual(result['numeric_status'], 'NOT_REACHED')
+        for path in observation.out.iterdir():
+            self.assertNotIn(SYNTHETIC_CANARY.encode(), path.read_bytes())
+
 
 class SummaryTests(unittest.TestCase):
     def row(self, **changes):
@@ -1102,6 +1119,131 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(row['known_iteration_subtotal'], 12345*1232)
         self.assertEqual(report['unknown_delta_entries'], 2512)
 
+    def accounting_record(self, *, punctuation=False):
+        # Known public schema, with every key/value below the existing 8192B
+        # bound. This is not a reconstruction of a private rejected record.
+        content = (':,{[' if punctuation else 'abcd') * 1950
+        return self.row(dependencies={f'public-key-{index:02d}-'+content: 'public-identity'
+                                      for index in range(24)})
+
+    def accounting_stream(self, data, *, chunk_size=65536):
+        observer = profile.Summary([QUERY])
+        header = json.dumps(dict(summaryLogVersion='0.4.0', codeqlVersion='2.27.4', startTime='now')).encode()+b'\n'
+        observer.feed('stdout', header)
+        for offset in range(0, len(data), chunk_size):
+            observer.feed('stdout', data[offset:offset+chunk_size])
+        observer.feed('stdout', b'', final=True)
+        observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        self.assertEqual(report['streams']['stdout']['sha256'], hashlib.sha256(header+data).hexdigest())
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+        self.assertNotIn('public-key-', json.dumps(report))
+        return report
+
+    def test_large_ascii_and_punctuation_records_fit_the_original_state_budget(self):
+        for punctuation in (False, True):
+            with self.subTest(punctuation=punctuation):
+                data = json.dumps(self.accounting_record(punctuation=punctuation), separators=(',', ':')).encode()+b'\n'
+                self.assertGreater(len(data), 128*1024)
+                self.assertLess(len(data), 2*1024**2)
+                report = self.accounting_stream(data)
+                self.assertEqual(report['status'], 'PROJECTED')
+                self.assertEqual(report['accepted_records'], 1)
+                self.assertEqual(report['rankings']['official_millis'][0]['dependencies_count'], 24)
+                self.assertEqual(report['state_limits']['active_bytes'], 4*1024**2)
+                self.assertIsNone(report['first_state_limit'])
+
+    def test_literal_and_escaped_punctuation_keep_the_same_projection(self):
+        value = self.row(predicateName=':'*4000)
+        literal = json.dumps(value, separators=(',', ':')).encode()
+        escaped = literal.replace(b':'*4000, b'\\u003a'*4000)
+        self.assertEqual(json.loads(literal), json.loads(escaped))
+        left = self.accounting_stream(literal+b'\n')
+        right = self.accounting_stream(escaped+b'\n')
+        self.assertEqual(left['status'], 'PROJECTED')
+        self.assertEqual(right['status'], 'PROJECTED')
+        self.assertEqual(left['rankings'], right['rankings'])
+
+    def test_unicode_widths_and_surrogates_keep_validation_and_identity(self):
+        for character in ('é', '漢', '🙂', '"\\\b\n\t'):
+            with self.subTest(character=character):
+                value = self.row(predicateName=character*1000, position=character*500)
+                literal = self.accounting_stream(json.dumps(value, ensure_ascii=False).encode()+b'\n')
+                escaped = self.accounting_stream(json.dumps(value, ensure_ascii=True).encode()+b'\n')
+                self.assertEqual(literal['status'], 'PROJECTED')
+                self.assertEqual(escaped['status'], 'PROJECTED')
+                self.assertEqual(literal['rankings'], escaped['rankings'])
+        for invalid in ('\ud800', '\udc00', '\ud800x'):
+            report = self.accounting_stream(json.dumps(self.row(position=invalid)).encode()+b'\n')
+            self.assertEqual(report['status'], 'PARTIAL')
+            self.assertEqual(report['invalid_records'], 1)
+
+    def test_late_unicode_source_does_not_charge_whitespace_as_tree_nodes(self):
+        for character, padding in (('a', 300000), ('漢', 260000), ('🙂', 170000)):
+            with self.subTest(character=character):
+                data = b' '*padding+json.dumps(self.row(position=character), ensure_ascii=False).encode()+b'\n'
+                report = self.accounting_stream(data)
+                self.assertEqual(report['status'], 'PROJECTED')
+                self.assertEqual(report['accepted_records'], 1)
+
+    def test_large_admitted_record_does_not_hide_late_unknown_duplicate_or_truncation(self):
+        first = json.dumps(self.accounting_record()).encode()
+        unknown = json.dumps(self.row(isCached=True)).encode()
+        duplicate = json.dumps(self.row()).encode()[:-1]+b',"\\u006d\\u0069llis":7}'
+        data = b'\n'.join((first, unknown, duplicate, b'{"raHash":"truncated'))
+        report = self.accounting_stream(data)
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['accepted_records'], 1)
+        self.assertEqual(report['unknown_shapes'], 1)
+        self.assertEqual(report['invalid_records'], 2)
+
+    def test_late_wide_source_accounts_for_decoder_upgrade_before_json(self):
+        observer = profile.Summary([QUERY])
+        data = b' '*180000+json.dumps(self.row(position='🙂'), ensure_ascii=False).encode()+b'\n'
+        with patch.object(profile, 'parse_json') as parse:
+            with self.assertRaisesRegex(profile.ObservationError, '^SUMMARY_STATE_LIMIT$'):
+                for offset in range(0, len(data), 65536): observer.feed('stdout', data[offset:offset+65536])
+            parse.assert_not_called()
+        observer.feed('stdout', b'', final=True); observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        limit = report['first_state_limit']
+        self.assertEqual(limit['kind'], 'DECODE_PEAK')
+        self.assertEqual(limit['source_kind'], 4)
+        self.assertEqual(limit['decode_peak_bytes'], 9*(len(data)-1))
+        self.assertEqual(report['records'], 0)
+        self.assertEqual(report['status'], 'PARTIAL')
+
+    def test_first_state_limit_is_bounded_sticky_and_keeps_full_drain_identity(self):
+        observer = profile.Summary([QUERY])
+        data = b'{"values":['+b'0,'*24000+b'0]}\n'
+        with patch.object(profile, 'parse_json') as parse:
+            with self.assertRaisesRegex(profile.ObservationError, '^SUMMARY_STATE_LIMIT$'):
+                observer.feed('stdout', data)
+            parse.assert_not_called()
+        tail = SYNTHETIC_CANARY.encode()*3000
+        observer.feed('stdout', tail, final=True); observer.feed('stderr', b'', final=True)
+        report = observer.summary(); limit = report['first_state_limit']
+        self.assertEqual(limit['kind'], 'PARSE_PEAK')
+        self.assertEqual(limit['record_bytes'], len(data)-1)
+        self.assertEqual(limit['commas'], 24000)
+        self.assertGreater(limit['parse_peak_bytes'], limit['available_bytes'])
+        self.assertLessEqual(len(json.dumps(limit).encode()), 2048)
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+        self.assertEqual(report['streams']['stdout']['sha256'], hashlib.sha256(data+tail).hexdigest())
+        self.assertEqual(report['streams']['stdout']['processed_prefix_bytes'], 0)
+        self.assertEqual(report['status'], 'PARTIAL')
+
+    def test_limit_diagnostic_failure_cannot_replace_the_original_limit(self):
+        observer = profile.Summary([QUERY])
+        with patch.object(observer, '_remember_limit', side_effect=OSError('public-injected')):
+            with self.assertRaisesRegex(profile.ObservationError, '^SUMMARY_STATE_LIMIT$'):
+                observer.feed('stdout', b'x'*65537)
+        observer.feed('stdout', b'', final=True); observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        self.assertEqual(report['feed_failure'], 'SUMMARY_STATE_LIMIT')
+        self.assertIsNone(report['first_state_limit'])
+        self.assertEqual(report['status'], 'PARTIAL')
+
     def large_prefix(self):
         """Public small records: actual cumulative bytes, without patching RAW_CAP."""
         observer = profile.Summary([QUERY])
@@ -1167,6 +1309,9 @@ class SummaryTests(unittest.TestCase):
                 report = observer.summary(); stream = report['streams']['stdout']
                 self.assertEqual(report['status'],'PARTIAL')
                 self.assertIsNotNone(report['feed_failure'])
+                if mode == 'state':
+                    self.assertEqual(report['first_state_limit']['kind'], 'RA_CAPACITY')
+                    self.assertEqual(report['first_state_limit']['ra_count'], 1)
                 self.assertEqual(stream['bytes'],prefix_bytes+len(suffix)+len(tail))
                 self.assertEqual(stream['processed_prefix_bytes'],prefix_bytes)
                 self.assertEqual(stream['sha256'],expected_hash.hexdigest())
@@ -1214,6 +1359,8 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(report['status'],'PARTIAL')
         self.assertTrue(all(stream['pending_bytes']==0 for stream in report['streams'].values()))
         self.assertEqual(report['state_limits']['active_bytes'],4*1024**2)
+        self.assertEqual(report['first_state_limit']['kind'],'FRAMING')
+        self.assertEqual(report['first_state_limit']['available_bytes'],profile.SUMMARY_WORK_CAP)
 
     def test_late_stderr_footer_error_after_48mib_cannot_certify_full_summary(self):
         observer, _ = self.large_prefix()

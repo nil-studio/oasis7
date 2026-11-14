@@ -42,6 +42,12 @@ SUMMARY_FIXED_RESERVE = 512 * 1024
 SUMMARY_CHUNK_CAP = 64 * 1024
 SUMMARY_WORK_CAP = NUMERIC_RESERVE - SUMMARY_RA_BYTES - SUMMARY_FIXED_RESERVE - SUMMARY_CHUNK_CAP
 SUMMARY_ROW_CAP = 2048
+SUMMARY_LIMIT_KINDS = {'UNKNOWN', 'SCHEMA_STATE', 'QUERY_STATE', 'CHUNK', 'FRAMING',
+                       'DECODE_PEAK', 'PARSE_PEAK', 'PROJECTION_PEAK', 'RA_CAPACITY', 'RA_PROBE', 'RANK_ROW'}
+SUMMARY_LIMIT_COUNTERS = {'record_bytes', 'source_kind', 'strings', 'string_bytes', 'max_string_bytes',
+    'max_utf8_bytes', 'scalar_bytes', 'objects', 'arrays', 'colons', 'commas', 'tree_bytes',
+    'decode_peak_bytes', 'parse_peak_bytes', 'projection_peak_bytes', 'pending_bytes', 'available_bytes',
+    'chunk_bytes', 'framing_peak_bytes', 'ra_count', 'ra_probes', 'row_bytes', 'schema_bytes', 'query_bytes'}
 # Linux UAPI values; some Python builds omit these names despite memfd support.
 ADD_SEALS = getattr(fcntl, 'F_ADD_SEALS', 1033)
 GET_SEALS = getattr(fcntl, 'F_GET_SEALS', 1034)
@@ -52,10 +58,18 @@ class ObservationError(ValueError):
     """All messages are fixed codes, never text taken from an observed stream."""
 
 
+def _summary_counter(value):
+    return value if type(value) is int and 0 <= value <= 2**63-1 else None
+
+
 class SummaryStateLimit(ObservationError):
     """State saturation stops projection; it is not a skippable invalid row."""
-    def __init__(self):
+    def __init__(self, kind='UNKNOWN', **counters):
         super().__init__('SUMMARY_STATE_LIMIT')
+        self.kind = kind if kind in SUMMARY_LIMIT_KINDS else 'UNKNOWN'
+        self.counters = {key: _summary_counter(value)
+                         for key, value in counters.items() if key in SUMMARY_LIMIT_COUNTERS}
+        self.detail = None
 
 
 def _unique_object(pairs):
@@ -1150,6 +1164,102 @@ def validate_record(value):
                     integer(number)  # percentages can exceed 100 in official estimates
 
 
+_SUMMARY_WIDE2 = re.compile(rb'[\xc4-\xef]')
+_SUMMARY_WIDE4 = re.compile(rb'[\xf0-\xff]')
+_SUMMARY_HEX4 = re.compile(rb'[0-9a-fA-F]{4}')
+
+
+def _summary_kind(data, start, end):
+    # For valid UTF-8 these leading-byte classes bound the Unicode kind. Bad
+    # UTF-8 still goes through the original strict decoder, never a replacement.
+    if start == 0 and end == len(data) and data.isascii():
+        return 1
+    return 4 if _SUMMARY_WIDE4.search(data, start, end) else 2 if _SUMMARY_WIDE2.search(data, start, end) else 1
+
+
+def _summary_lexical(data):
+    """Fixed counters over bytes; no decoded string, token list or copied spans."""
+    length = len(data)
+    source_kind = _summary_kind(data, 0, length)
+    objects = arrays = colons = commas = scalar = strings = string_bytes = 0
+    maximum_string = maximum_utf8 = cursor = 0
+    while cursor < length:
+        quote = data.find(b'"', cursor)
+        end = length if quote < 0 else quote
+        if end-cursor <= 16:
+            # Most minified gaps are ':' or ','. A fixed small loop avoids ten
+            # search calls per gap; long numeric arrays/whitespace stay in C.
+            for index in range(cursor, end):
+                character = data[index]
+                if character == 123: objects += 1
+                elif character == 91: arrays += 1
+                elif character == 58: colons += 1
+                elif character == 44: commas += 1
+                elif character not in b' \t\r\n}]': scalar += 1
+        else:
+            opening_objects = data.count(b'{', cursor, end)
+            opening_arrays = data.count(b'[', cursor, end)
+            separators = data.count(b':', cursor, end)
+            element_separators = data.count(b',', cursor, end)
+            objects += opening_objects; arrays += opening_arrays
+            colons += separators; commas += element_separators
+            scalar += (end-cursor-opening_objects-opening_arrays-separators-element_separators
+                       -data.count(b'}', cursor, end)-data.count(b']', cursor, end)
+                       -data.count(b' ', cursor, end)-data.count(b'\t', cursor, end)
+                       -data.count(b'\r', cursor, end)-data.count(b'\n', cursor, end))
+        if quote < 0:
+            break
+        cursor = quote+1
+        units = utf8_bytes = 0
+        kind = 1
+        closing_quote = data.find(b'"', cursor)
+        while True:
+            if closing_quote < 0:
+                raise ObservationError('INVALID_JSON_RECORD')
+            escape_at = data.find(b'\\', cursor, closing_quote)
+            end = closing_quote if escape_at < 0 else escape_at
+            # Literal bytes upper-bound decoded units, including multibyte UTF-8.
+            units += end-cursor
+            utf8_bytes += end-cursor
+            if source_kind > 1:
+                kind = max(kind, _summary_kind(data, cursor, end))
+            if escape_at < 0:
+                cursor = end+1
+                break
+            if end+1 >= length:
+                raise ObservationError('INVALID_JSON_RECORD')
+            escape = data[end+1]
+            if escape == 117:  # uXXXX; a surrogate unit is conservatively wide
+                if end+6 > length or not _SUMMARY_HEX4.fullmatch(data, end+2, end+6):
+                    raise ObservationError('INVALID_JSON_RECORD')
+                value = int(data[end+2:end+6], 16)
+                kind = max(kind, 4 if 0xd800 <= value <= 0xdfff else 2 if value > 255 else 1)
+                utf8_bytes += 4 if 0xd800 <= value <= 0xdfff else 3 if value > 2047 else 2 if value > 127 else 1
+                cursor = end+6
+            elif escape in b'"\\/bfnrt':
+                utf8_bytes += 1
+                cursor = end+2
+            else:
+                raise ObservationError('INVALID_JSON_RECORD')
+            units += 1
+            if cursor > closing_quote:  # the apparent terminator was escaped
+                closing_quote = data.find(b'"', cursor)
+        strings += 1
+        string_bytes += kind*units
+        maximum_string = max(maximum_string, kind*units)
+        maximum_utf8 = max(maximum_utf8, utf8_bytes)
+    # The per-pair reserve includes pairs/tuples + dict/key memo while parsing,
+    # and dict + associations references during later validation/projection.
+    tree = (string_bytes + 128*strings + 4*scalar
+            + 512*(objects+colons) + 128*arrays + 64*commas)
+    return dict(record_bytes=length, source_kind=source_kind, strings=strings,
+        string_bytes=string_bytes, max_string_bytes=maximum_string, max_utf8_bytes=maximum_utf8,
+        scalar_bytes=scalar, objects=objects, arrays=arrays, colons=colons, commas=commas,
+        tree_bytes=tree, decode_peak_bytes=length+2*source_kind*length,
+        parse_peak_bytes=length+source_kind*length+tree+2*maximum_string,
+        projection_peak_bytes=length+tree+maximum_utf8)
+
+
 class SummaryRA:
     """Fixed full-digest index; ordinals persist until the entire stream closes."""
     def __init__(self):
@@ -1162,11 +1272,11 @@ class SummaryRA:
 
     def first(self, digest, ordinal):
         slot = int.from_bytes(digest[:4], 'little') % SUMMARY_RA_SLOTS
-        for _ in range(min(SUMMARY_RA_SLOTS, SUMMARY_RA_PROBES)):
+        for probe in range(min(SUMMARY_RA_SLOTS, SUMMARY_RA_PROBES)):
             index = struct.unpack_from('<I', self.slots, 4*slot)[0]
             if not index:
                 if self.count >= SUMMARY_RA_LIMIT:
-                    raise SummaryStateLimit()
+                    raise SummaryStateLimit('RA_CAPACITY', ra_count=self.count, ra_probes=probe+1)
                 struct.pack_into('<32sI', self.entries, 36*self.count, digest, ordinal)
                 self.count += 1
                 struct.pack_into('<I', self.slots, 4*slot, self.count)
@@ -1175,13 +1285,16 @@ class SummaryRA:
             if self.entries[offset:offset+32] == digest:
                 return struct.unpack_from('<I', self.entries, offset+32)[0], True
             slot = (slot+1) % SUMMARY_RA_SLOTS
-        raise SummaryStateLimit()
+        raise SummaryStateLimit('RA_PROBE', ra_count=self.count,
+                                ra_probes=min(SUMMARY_RA_SLOTS, SUMMARY_RA_PROBES))
 
 
 class Summary(Lines):
     """Strict 2.27.4 summary projection. Unknown combinations remain partial."""
     def __init__(self, records, *, replay=None):
         super().__init__()
+        self.first_state_limit = None
+        self.limit_stream = None
         for stream in self.streams.values():
             stream['pending'] = bytearray()
         self.replay = replay
@@ -1196,17 +1309,18 @@ class Summary(Lines):
         self.signatures = schema['signatures']
         if not 0 < len(self.signatures) <= 128:
             raise ObservationError('SCHEMA_SIGNATURE_LIMIT')
-        if len(json.dumps(self.signatures).encode()) > 64*1024:
-            raise SummaryStateLimit()
+        schema_bytes = len(json.dumps(self.signatures).encode())
+        if schema_bytes > 64*1024:
+            self._limit('SCHEMA_STATE', schema_bytes=schema_bytes)
         self.schema_sha256 = runtime.digest(schema_path)
         # 44 frozen queries, at most three aliases each. Check source strings
         # before constructing the derived map; Python/RSS is not this ledger.
         if not 0 < len(records) <= 44:
-            raise SummaryStateLimit()
+            self._limit('QUERY_STATE')
         query_bytes = sum(len(text_value(record[key])) for record in records
                           for key in ('path', 'pack', 'relative') if key in record)
         if 3*query_bytes + 128*3*len(records) > 128*1024:
-            raise SummaryStateLimit()
+            self._limit('QUERY_STATE', query_bytes=query_bytes)
         self.queries = Progress(records).queries
         self.header = None
         self.records = self.accepted = self.untimed = self.markers = self.incomplete = self.failed = 0
@@ -1219,13 +1333,38 @@ class Summary(Lines):
         self.tops = {'official_millis': [], 'known_iteration_subtotal': []}
         self.final_report = None
 
-    def _preflight(self, data):
-        # Conservative encoded-input/structure allowance, not a Python heap
-        # measurement. count() also charges punctuation inside strings.
-        charge = (12*len(data) + 512*(data.count(b'{')+data.count(b':'))
-                  + 128*data.count(b'[') + 64*data.count(b','))
-        if charge + sum(len(stream['pending']) for stream in self.streams.values()) > SUMMARY_WORK_CAP:
-            raise SummaryStateLimit()
+    def _remember_limit(self, error):
+        if self.first_state_limit is not None:
+            return
+        name = self.limit_stream
+        detail = dict(kind=error.kind, stream=name,
+            stream_line_ordinal=_summary_counter(self.streams[name]['lines']+1) if name else None,
+            accepted_records=_summary_counter(getattr(self, 'accepted', 0)), **error.counters)
+        self.first_state_limit = error.detail = detail
+
+    def _limit(self, kind, **counters):
+        error = SummaryStateLimit(kind, **counters)
+        try:
+            self._remember_limit(error)
+        except Exception:
+            pass  # diagnostic allocation must not replace the original limit
+        raise error
+
+    def _preflight(self, data, *, json_input=True):
+        pending = sum(len(stream['pending']) for stream in self.streams.values())
+        if json_input:
+            cost = _summary_lexical(data)
+            kind, peak = max((('DECODE_PEAK', cost['decode_peak_bytes']),
+                              ('PARSE_PEAK', cost['parse_peak_bytes']),
+                              ('PROJECTION_PEAK', cost['projection_peak_bytes'])), key=lambda item: item[1])
+        else:
+            # stderr has no JSON tree. decode/removeprefix may hold two strings.
+            kind = 'DECODE_PEAK'
+            width = _summary_kind(data, 0, len(data))
+            peak = len(data)+2*width*len(data)
+            cost = dict(record_bytes=len(data), source_kind=width, decode_peak_bytes=peak)
+        if peak+pending > SUMMARY_WORK_CAP:
+            self._limit(kind, pending_bytes=pending, available_bytes=SUMMARY_WORK_CAP, **cost)
 
     def poll(self, deadline):
         super().poll(deadline)
@@ -1250,8 +1389,8 @@ class Summary(Lines):
         return self.queries.get(name, dict(unmapped_query_sha256=_hash(text_value(name))))
 
     def line(self, name, data):
-        self._preflight(data)  # before decoding/JSON; saturation must stop feed
         if name == 'stderr':
+            self._preflight(data, json_input=False)
             try:
                 line = data.decode('utf-8').removeprefix('ERROR: ')
             except UnicodeError:
@@ -1260,9 +1399,18 @@ class Summary(Lines):
                 self.footer_missing = True
             self.streams[name]['rejected'] += 1
             return b''
+        lexical_error = False
+        try:
+            self._preflight(data)  # before decoding/JSON; saturation stops feed
+        except SummaryStateLimit:
+            raise
+        except ObservationError:
+            lexical_error = True
         if self.records >= MAX_SUMMARY_RECORDS:
             raise ObservationError('SUMMARY_RECORD_LIMIT')
         try:
+            if lexical_error:
+                raise ObservationError('INVALID_JSON_RECORD')
             value = parse_json(data)
             if type(value) is dict and 'summaryLogVersion' in value:
                 if (self.header is not None or self.records
@@ -1330,7 +1478,7 @@ class Summary(Lines):
                 row['first_requiring_query'] = self._query(value['queryCausingWork'])
             encoded_row = json.dumps(row, separators=(',', ':')).encode()
             if len(encoded_row) > SUMMARY_ROW_CAP:
-                raise SummaryStateLimit()
+                self._limit('RANK_ROW', row_bytes=len(encoded_row))
             for metric, score in (('official_millis', millis), ('known_iteration_subtotal', subtotal)):
                 if score is not None:
                     heapq.heappush(self.tops[metric], (score, self.records, encoded_row))
@@ -1355,9 +1503,10 @@ class Summary(Lines):
         if self.feed_failure:
             stream['final'] = final
             return b''
+        self.limit_stream = name
         try:
             if len(chunk) > SUMMARY_CHUNK_CAP:
-                raise SummaryStateLimit()
+                self._limit('CHUNK', chunk_bytes=len(chunk), available_bytes=SUMMARY_CHUNK_CAP)
             offset = 0
             while offset < len(chunk):
                 newline = chunk.find(b'\n', offset)
@@ -1366,7 +1515,8 @@ class Summary(Lines):
                     raise ObservationError('STREAM_RECORD_LIMIT')
                 pending = sum(len(item['pending']) for item in self.streams.values())
                 if 2*(pending + end-offset) > SUMMARY_WORK_CAP:
-                    raise SummaryStateLimit()
+                    self._limit('FRAMING', pending_bytes=pending, chunk_bytes=end-offset,
+                                framing_peak_bytes=2*(pending+end-offset), available_bytes=SUMMARY_WORK_CAP)
                 stream['pending'].extend(memoryview(chunk)[offset:end])
                 offset = end+1
                 if newline >= 0:
@@ -1385,6 +1535,11 @@ class Summary(Lines):
                     stream['processed_prefix_bytes'] += len(data)
                 stream['final'] = True
         except BaseException as error:
+            if isinstance(error, SummaryStateLimit):
+                try:
+                    self._remember_limit(error)
+                except Exception:
+                    pass
             self.fail_feed('SUMMARY_STATE_LIMIT' if isinstance(error, SummaryStateLimit)
                            else 'STREAM_PROCESSING_FAILED')
             raise
@@ -1422,6 +1577,7 @@ class Summary(Lines):
                     exception_records=self.exception_records,
                     input_footer_missing=self.footer_missing,
                     feed_failure=self.feed_failure,
+                    first_state_limit=self.first_state_limit,
                     rankings=rankings,
                     state_limits=dict(active_bytes=NUMERIC_RESERVE, ra_index_bytes=SUMMARY_RA_BYTES,
                         distinct_ra_hashes=SUMMARY_RA_LIMIT, metadata_bytes=SUMMARY_FIXED_RESERVE,
@@ -1537,6 +1693,9 @@ class Observation:
                 result = error.result
                 self.summary_result = dict(status='PARTIAL', exit=error.result['exit'],
                     failure_kind=error.result['failure_kind'], projection=error.result.get('output_observation'))
+            except SummaryStateLimit as error:
+                self.summary_result = dict(status='PARTIAL', failure_kind='SUMMARY_ADMISSION_ERROR',
+                                           first_state_limit=error.detail)
             except Exception:
                 self.summary_result = dict(status='PARTIAL', failure_kind='SUMMARY_ADMISSION_ERROR')
             finally:
