@@ -2,7 +2,7 @@
 //! enum, semantic encoder, ledger encoder or member writer under test.
 use super::*;
 use oasis7_formal_protocol::incremental_record_root::RecordRootRefV1;
-use oasis7_runtime::{
+use oasis7_world_state::{
     incremental_field_member::read_member_record_v1, incremental_field_presence::*,
 };
 use serde_json::Value;

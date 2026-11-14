@@ -4,13 +4,12 @@ use oasis7_formal_protocol::{
     incremental_execution::*, incremental_state::*, incremental_value::*,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     MaterialLedgerId, MaterialTransitPriority, WorldState, incremental_field_member::*,
     incremental_field_overlay::*, incremental_field_read::*, incremental_industry_jobs::*,
 };
 use serde_json::json;
-#[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "support/incremental_industry_fixture.rs"]
 mod fixture;
 use fixture::{Directory, physical};
 fn physical_scope() -> PageIoBudget {
@@ -27,9 +26,9 @@ fn logical() -> ValueIoBudget {
 }
 fn source() -> WorldState {
     let mut world = WorldState::default();
-    let mut recipe:oasis7_runtime::RecipeJobState=serde_json::from_value(json!({"job_id":17,"requester_agent_id":" agent/界 ","factory_id":"factory","recipe_id":"recipe","accepted_batches":u32::MAX,"consume":[{"kind":"ore","amount":i64::MIN}],"produce":[],"byproducts":[],"power_required":i64::MIN,"duration_ticks":u32::MAX,"consume_ledger":"world","output_ledger":"world","bottleneck_tags":["dup","dup"],"logistics_route_ids":[],"logistics_path_ids":[],"ready_at":u64::MAX})).unwrap();
+    let mut recipe:oasis7_world_state::RecipeJobState=serde_json::from_value(json!({"job_id":17,"requester_agent_id":" agent/界 ","factory_id":"factory","recipe_id":"recipe","accepted_batches":u32::MAX,"consume":[{"kind":"ore","amount":i64::MIN}],"produce":[],"byproducts":[],"power_required":i64::MIN,"duration_ticks":u32::MAX,"consume_ledger":"world","output_ledger":"world","bottleneck_tags":["dup","dup"],"logistics_route_ids":[],"logistics_path_ids":[],"ready_at":u64::MAX})).unwrap();
     recipe.output_ledger = MaterialLedgerId::Factory(" original/厂 ".into());
-    let mut transit:oasis7_runtime::MaterialTransitJobState=serde_json::from_value(json!({"job_id":19,"requester_agent_id":"transit","from_ledger":"world","to_ledger":"world","kind":"ore","amount":i64::MAX,"distance_km":i64::MIN,"loss_bps":0,"route_id":"原route","path_id":"path","route_ids":["route","route"],"tariff_electricity_total":-1,"reroute_count":u32::MAX,"ready_at":u64::MAX})).unwrap();
+    let mut transit:oasis7_world_state::MaterialTransitJobState=serde_json::from_value(json!({"job_id":19,"requester_agent_id":"transit","from_ledger":"world","to_ledger":"world","kind":"ore","amount":i64::MAX,"distance_km":i64::MIN,"loss_bps":0,"route_id":"原route","path_id":"path","route_ids":["route","route"],"tariff_electricity_total":-1,"reroute_count":u32::MAX,"ready_at":u64::MAX})).unwrap();
     transit.priority = MaterialTransitPriority::Urgent;
     let completion=serde_json::from_value(json!({"job_id":21,"requester_agent_id":"receipt","factory_id":"different factory","recipe_id":"recipe","accepted_batches":u32::MAX,"produce":[{"kind":"product","amount":i64::MAX}],"byproducts":[],"output_ledger":"world","bottleneck_tags":[],"logistics_route_ids":[],"logistics_path_ids":[]})).unwrap();
     let failure=serde_json::from_value(json!({"action_id":23,"requester_agent_id":"failure","factory_id":"factory","recipe_id":"recipe","blocker_kind":"产品","blocker_detail":" original ","disposition_kind":"lost","consumed_inputs":[{"kind":"ore","amount":i64::MIN}],"lost_inputs":[],"consumed_power":i64::MIN,"lost_power":i64::MAX,"next_action":"recheck","next_recheck":u64::MAX})).unwrap();
