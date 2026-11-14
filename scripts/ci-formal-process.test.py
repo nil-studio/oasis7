@@ -1181,6 +1181,213 @@ if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY
                 self.assertFalse(log.exists())
 
 
+class DistfsNamedIntegrationDriver(unittest.TestCase):
+    def selection(self, targets=None):
+        selected = FastTargetInventory().selection(targets)
+        selected['groups'].append('distfs')
+        selected['oasis7_required_packages'] = sorted({target['package']
+            for target in selected['ordinary_fast_targets']})
+        selected['oasis7_required_wasm_packages'] = [package for package in selected['oasis7_required_packages']
+            if package in artifacts.PORTABLE_REQUIRED_PACKAGES]
+        return selected
+
+    def test_industry_phase_requires_the_exact_selected_test_identity(self):
+        industry = FastTargetInventory().target(package='oasis7', target_name='incremental_industry_jobs')
+        cases = [([industry], 'run'),
+                 ([industry, FastTargetInventory().target()], 'run'),
+                 ([industry | {'package': 'oasis7_runtime'}], 'skip'),
+                 ([industry | {'target_kind': 'lib'}], 'skip'),
+                 ([industry | {'target_name': 'another_industry_test'}], 'skip')]
+        for profile in ('pr-fast', 'main-fast'):
+            for targets, expected in cases:
+                selected = self.selection(targets) | {'execution_profile': profile}
+                with self.subTest(profile=profile, targets=targets):
+                    self.assertEqual(artifacts.required_arguments(selected, 'distfs-industry'), [expected])
+        # The phase cannot turn a future, currently unselected package into an
+        # authorized ordinary consumer merely because its target name matches.
+        with self.assertRaises(ValueError):
+            artifacts.required_arguments(self.selection([industry | {'package': 'oasis7_distfs'}]),
+                                         'distfs-industry')
+
+    def test_industry_phase_keeps_complete_runs_when_fast_inventory_is_inactive(self):
+        selected = self.selection()
+        legacy = {key: value for key, value in selected.items() if key != 'fast_test_inventory_version'}
+        legacy['ordinary_fast_targets'] = 'stale capability data'
+        candidates = [None, {}, FastExecutionSelection().selection(), legacy]
+        for changes in ({'scope': 'full'}, {'scope': 'explicit-full'}, {'test_policy_changed': True},
+                        {'execution_profile': 'periodic-full'}, {'execution_profile': 'candidate-full'}):
+            candidates.append(selected | changes | {
+                'fast_test_inventory_version': True, 'ordinary_fast_targets': 'stale capability data'})
+        for candidate in candidates:
+            with self.subTest(plan=candidate):
+                self.assertEqual(artifacts.required_arguments(candidate, 'distfs-industry'), ['run'])
+
+    def test_industry_phase_rejects_missing_empty_and_invalid_active_inventory(self):
+        selected = self.selection()
+        candidates = [selected | {key: value} for key, value in (
+            ('fast_plan_version', True), ('fast_test_inventory_version', True),
+            ('fast_test_inventory_version', 2), ('ordinary_fast_targets', []),
+            ('ordinary_fast_targets', None), ('ordinary_fast_targets', 'invalid'),
+            ('ordinary_fast_targets', selected['ordinary_fast_targets'] * 2))]
+        candidates.append({key: value for key, value in selected.items() if key != 'ordinary_fast_targets'})
+        for changes in ({'package': 'unselected'}, {'target_kind': 'bin'}, {'cases': []},
+                        {'target_name': '../incremental_industry_jobs'}):
+            candidate = copy.deepcopy(selected)
+            candidate['ordinary_fast_targets'][0].update(changes)
+            candidates.append(candidate)
+        for candidate in candidates:
+            with self.subTest(plan=candidate), self.assertRaises(ValueError):
+                artifacts.required_arguments(candidate, 'distfs-industry')
+
+    def test_named_target_presence_handoff_and_failures_preserve_original_commands(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo, binary = root / 'repo', root / 'bin'
+            scripts = repo / 'scripts'
+            scripts.mkdir(parents=True)
+            binary.mkdir()
+            (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
+                         'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
+                path = scripts / name
+                path.write_text('#!/usr/bin/env bash\nexit 0\n')
+                path.chmod(0o755)
+            crate = repo / 'crates/oasis7_distfs'
+            (crate / 'tests').mkdir(parents=True)
+            (crate / 'Cargo.toml').write_text(
+                '[package]\nname="oasis7_distfs"\nversion="0.1.0"\nedition="2024"\n')
+            # A different integration file must not authorize the named driver.
+            (crate / 'tests/other.rs').write_text('#[test] fn unrelated() {}\n')
+            named = crate / 'tests/incremental_industry_jobs.rs'
+            cargo = binary / 'cargo'
+            cargo.write_text('''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['CARGO_LOG'], 'a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+if ('--test' in args and args[args.index('--test') + 1] == 'incremental_industry_jobs'
+        and args[0] == os.environ.get('FAIL_NAMED_COMMAND')):
+    sys.exit(23 if args[0] == 'test' else 29)
+''')
+            cargo.chmod(0o755)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            selection, env_selection, log = root / 'selection.json', root / 'env-selection.json', root / 'cargo.jsonl'
+            lint_flags = ['--', '-D', 'warnings', '-D', 'clippy::correctness', '-D', 'clippy::suspicious']
+            original_lints = [
+                ['clippy', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'] + lint_flags,
+                ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'] + lint_flags]
+            original_tests = [
+                ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
+                ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
+            target_args = ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs']
+            named_lint = ['clippy', *target_args, *lint_flags]
+            named_test = ['test', *target_args, '--', '--test-threads=1']
+            for present in (False, True):
+                if present:
+                    named.write_text('#[test] fn industry_contract() {}\n')
+                subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+                subprocess.run(['git', '-C', str(repo), '-c', 'user.name=CI fixture', '-c',
+                                'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+                sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+                selected = DistfsClippyHandoff().selection() | {'source_sha': sha, 'tested_sha': sha}
+                selected['architecture'].update(source=sha, tested=sha)
+                fast = {key: value for key, value in selected.items()
+                        if key not in ('distfs_clippy_contract_version', 'distfs_clippy_group')}
+                package = FastExecutionSelection().selection(('oasis7_runtime', 'oasis7_world_state'))
+                package['groups'].append('distfs')
+                package.update(source_sha=sha, tested_sha=sha)
+                package['architecture'].update(source=sha, tested=sha)
+                industry = self.selection([FastTargetInventory().target(
+                    package='oasis7', target_name='incremental_industry_jobs')])
+                industry.update(source_sha=sha, tested_sha=sha)
+                industry['architecture'].update(source=sha, tested=sha)
+                # Explicit --plan stays authoritative; the env-only handoff is
+                # consumed solely by the new industry check, not by old lint routing.
+                cases = [
+                    ('handoff', selected, None, False), ('fast', fast, None, False),
+                    ('package', package, None, True), ('full', package | {'scope': 'full'}, None, True),
+                    ('policy', industry | {'test_policy_changed': True}, None, True),
+                    ('industry', industry, None, True), ('legacy', {}, None, True), ('manual', None, None, True),
+                    ('env-fast', None, fast, False), ('env-package', None, package, True),
+                    ('env-full', None, package | {'scope': 'full'}, True),
+                    ('explicit-skip', fast, industry, False), ('explicit-run', industry, fast, True),
+                    ('explicit-invalid-env', industry, {'fast_plan_version': True}, True),
+                    ('full-tier', None, fast | {'source_sha': '0' * 40}, True),
+                ]
+                for mode, current, environment_plan, run_named in cases:
+                    selection.write_text(json.dumps(current))
+                    env_selection.write_text(json.dumps(environment_plan))
+                    for failed in (('', 'clippy', 'test') if present and run_named else ('',)):
+                        for group in (('rust_baseline', 'distfs') if mode in ('handoff', 'fast') else ('distfs',)):
+                            log.unlink(missing_ok=True)
+                            plan_args = [] if current is None else ['--plan', str(selection)]
+                            command = ['bash', str(HERE / 'ci-tests.sh'), 'required', '--group', group,
+                                       *plan_args, '--repo-root', str(repo)]
+                            if mode == 'full-tier':
+                                # Exercise the sourced full-tier entry without
+                                # invoking unrelated full-suite product groups.
+                                command = ['bash', '-c', '''set -euo pipefail
+source "$1/ci-tests.sh"
+driver_dir="$1"; repo_root="$2"; ci_python="$3"; tier=full; required_plan=""
+cd "$repo_root"
+run_oasis7_distfs_clippy
+run_oasis7_distfs_tests
+''', 'fixture', str(HERE), str(repo), sys.executable]
+                            result = subprocess.run(
+                                command, text=True, capture_output=True,
+                                env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                                         SOURCE_SHA=sha, CI_VERBOSE='', CARGO_LOG=str(log),
+                                         FAIL_NAMED_COMMAND=failed,
+                                         OASIS7_CI_DISTFS_PLAN_FILE=str(env_selection) if environment_plan is not None else '',
+                                         OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
+                                         OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                            commands = [json.loads(line) for line in log.read_text().splitlines()]
+                            observed_lints = [args for args in commands if args[0] == 'clippy'
+                                              and args[2] in ('oasis7_cas', 'oasis7_distfs')]
+                            owner = 'rust_baseline' if mode == 'handoff' else 'distfs'
+                            expected_lints = list(original_lints) if group == owner else []
+                            if present and run_named and group == 'distfs':
+                                expected_lints.append(named_lint)
+                            expected_tests = []
+                            if group == 'distfs' and failed != 'clippy':
+                                expected_tests = original_tests + ([named_test] if present and run_named else [])
+                            expected_status = (29 if failed == 'clippy' else 23 if failed == 'test' else 0)
+                            with self.subTest(present=present, mode=mode, failed=failed, group=group):
+                                self.assertEqual(result.returncode, expected_status if group == 'distfs' else 0,
+                                                 result.stdout + result.stderr)
+                                self.assertEqual(observed_lints, expected_lints)
+                                self.assertEqual([args for args in commands if args[0] == 'test'], expected_tests)
+                if not present:
+                    continue
+                invalid = [industry | {'ordinary_fast_targets': []},
+                           {key: value for key, value in industry.items() if key != 'ordinary_fast_targets'},
+                           industry | {'source_sha': '0' * 40}, industry | {'tested_sha': '0' * 40}]
+                malformed = copy.deepcopy(industry)
+                malformed['ordinary_fast_targets'][0]['cases'] = []
+                invalid.append(malformed)
+                for current in invalid:
+                    for via_env in (False, True):
+                        selection.write_text(json.dumps(current))
+                        log.unlink(missing_ok=True)
+                        result = subprocess.run(
+                            ['bash', str(HERE / 'ci-tests.sh'), 'required', '--group', 'distfs',
+                             *([] if via_env else ['--plan', str(selection)]), '--repo-root', str(repo)],
+                            text=True, capture_output=True,
+                            env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                                     SOURCE_SHA=sha, CI_VERBOSE='', CARGO_LOG=str(log), FAIL_NAMED_COMMAND='',
+                                     OASIS7_CI_DISTFS_PLAN_FILE=str(selection) if via_env else '',
+                                     OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
+                                     OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                        commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+                        with self.subTest(plan=current, via_env=via_env):
+                            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                            self.assertNotIn('industry integration is not selected', result.stdout)
+                            self.assertNotIn(named_lint, commands)
+                            self.assertEqual([args for args in commands if args[0] == 'test'], [])
+                            if current.get('source_sha') != sha or current.get('tested_sha') != sha:
+                                self.assertIn('execution plan identity mismatch', result.stderr)
+
+
 class CompleteArtifactPartitions(unittest.TestCase):
     def selection(self):
         return FastExecutionSelection().selection() | dict(

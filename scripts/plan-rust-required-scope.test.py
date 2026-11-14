@@ -3915,6 +3915,193 @@ class Selection(unittest.TestCase):
         with self.assertRaises(selector.TestPolicyError):
             selector.select(config, base, self.commit(), profile='pr-fast')
 
+    def native_default_integration_fixture(self, package_settings='', declarations=''):
+        config = self.fast_config()
+        config['groups'].append('distfs')
+        config['resources']['distfs'] = []
+        config['package_groups']['oasis7_distfs'] = ['distfs']
+        self.write('.gitignore', 'target/\nCargo.lock\n')
+        self.write('Cargo.toml', '[workspace]\nresolver="2"\n'
+                   'members=["crates/oasis7_distfs","crates/consumer"]\n')
+        self.write('crates/oasis7_distfs/Cargo.toml',
+                   '[package]\nname="oasis7_distfs"\nversion="0.1.0"\nedition="2024"\n'
+                   + package_settings + '\n[features]\ndefault=["transport"]\n'
+                   'transport=["native_driver"]\nnative_driver=[]\noptional_lane=[]\n'
+                   'test_tier_full=[]\n' + declarations)
+        self.write('crates/oasis7_distfs/src/lib.rs', 'pub fn value() -> u8 { 42 }\n')
+        self.write('crates/oasis7_distfs/src/bin/oasis7_durability_endpoint.rs', 'fn main() {}\n')
+        self.write('crates/consumer/Cargo.toml',
+                   '[package]\nname="consumer"\nversion="0.1.0"\nedition="2024"\n'
+                   '[dependencies]\noasis7_distfs={path="../oasis7_distfs"}\n')
+        self.write('crates/consumer/src/lib.rs', 'pub fn observed() -> u8 { oasis7_distfs::value() }\n')
+        root = 'crates/oasis7_distfs/tests/incremental_industry_jobs.rs'
+        support = 'crates/oasis7_distfs/tests/support/mod.rs'
+        self.write(root, '#![cfg(all(unix, not(target_arch="wasm32")))]\n'
+                   '#[cfg(feature="native_driver")] mod support;\n')
+        self.write(support, '#[test] fn original() { assert_eq!(oasis7_distfs::value(), 42); }\n')
+        return config, root, support
+
+    def test_native_default_integration_executes_unix_and_transitive_default_support(self):
+        for explicit in (False, True):
+            config, root, support = self.native_default_integration_fixture(
+                'autotests=false\n' if explicit else '',
+                '\n[[test]]\nname="incremental_industry_jobs"\npath="tests/incremental_industry_jobs.rs"\n' if explicit else '')
+            base = self.commit()
+            self.write(root, Path(root).read_text()
+                       + '#[test] fn native_added() { assert_eq!(oasis7_distfs::value(), 42); }\n')
+            self.write(support, Path(support).read_text()
+                       + '#[cfg(target_os="linux")] #[test] fn added() { '
+                       'assert_eq!(oasis7_distfs::value(), 42); }\n')
+            with self.subTest(explicit=explicit):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertFalse(plan['test_policy_changed'])
+                self.assertEqual(plan['test_policy_paths'], [])
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+                self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'distfs'})
+                self.assertEqual(plan['affected_packages'], ['oasis7_distfs'])
+                # The actual default-feature DistFS tuple must execute the new
+                # support case; a listed target or an empty harness is not proof.
+                output = self.ordinary_route_cargo(
+                    ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs'])
+                self.assertIn('native_added ... ok', output)
+                self.assertIn('support::added ... ok', output)
+                self.assertIn('3 passed; 0 failed', output)
+
+    def test_native_default_integration_rejects_disabled_and_feature_gated_targets(self):
+        for setting, declaration in (
+                ('autotests=false\n', ''),
+                ('', '\n[[test]]\nname="incremental_industry_jobs"\nharness=false\n'),
+                ('', '\n[[test]]\nname="incremental_industry_jobs"\ntest=false\n'),
+                ('', '\n[[test]]\nname="incremental_industry_jobs"\nrequired-features=["optional_lane"]\n')):
+            config, root, _ = self.native_default_integration_fixture(setting, declaration)
+            base = self.commit()
+            self.write(root, Path(root).read_text() + '#[test] fn unexecuted() {}\n')
+            with self.subTest(setting=setting, declaration=declaration):
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_default_integration_requires_canonical_name_path_and_group(self):
+        for mismatch in ('alias', 'custom-path', 'other-target', 'other-group'):
+            declarations = {
+                'alias': '\n[[test]]\nname="alias"\npath="tests/incremental_industry_jobs.rs"\n',
+                'custom-path': '\n[[test]]\nname="incremental_industry_jobs"\npath="custom/industry.rs"\n',
+            }.get(mismatch, '')
+            config, root, _ = self.native_default_integration_fixture(declarations=declarations)
+            if mismatch in ('custom-path', 'other-target'):
+                Path(root).unlink()
+                root = ('crates/oasis7_distfs/custom/industry.rs' if mismatch == 'custom-path'
+                        else 'crates/oasis7_distfs/tests/other.rs')
+            elif mismatch == 'other-group':
+                config['package_groups']['oasis7_distfs'] = ['core']
+            self.write(root, '#![cfg(unix)]\n#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(root, Path(root).read_text() + '#[test] fn unexecuted() {}\n')
+            with self.subTest(mismatch=mismatch):
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_default_integration_rejects_unknown_or_disabled_support_routes(self):
+        for condition in ('windows', 'feature="optional_lane"', 'feature="undeclared"',
+                          'unknown_target', 'not(feature="native_driver")'):
+            config, root, support = self.native_default_integration_fixture()
+            self.write(root, f'#[cfg({condition})] mod support;\n')
+            base = self.commit()
+            self.write(support, Path(support).read_text() + '#[cfg(unix)] #[test] fn unexecuted() {}\n')
+            with self.subTest(condition=condition):
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_default_integration_inputs_do_not_select_library_consumers(self):
+        config, root, support = self.native_default_integration_fixture()
+        base = self.commit()
+        for path in (root, support):
+            self.write(path, Path(path).read_text()
+                       + '#[test] fn later_case() { assert_eq!(oasis7_distfs::value(), 42); }\n')
+            head = self.commit()
+            with self.subTest(path=path):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertFalse(plan['test_policy_changed'])
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+                self.assertEqual(plan['affected_packages'], ['oasis7_distfs'])
+                self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'distfs'})
+                self.assertEqual(plan['oasis7_required_packages'], [])
+            base = head
+        # The same real reverse dependency is retained for production changes.
+        self.write('crates/oasis7_distfs/src/lib.rs', 'pub fn value() -> u8 { 43 }\n')
+        production = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertIn('consumer', production['affected_packages'])
+        self.assertIn('consumer', production['oasis7_required_packages'])
+
+    def test_industry_inputs_expand_real_fast_inventory_even_when_formal_is_deferred(self):
+        _, root, support = self.native_default_integration_fixture()
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.assertEqual(config['package_groups']['oasis7_distfs'], ['distfs', 'formal_process'])
+        self.assertEqual(config['formal_full_profiles_only_version'], 1)
+        config['package_groups']['consumer'] = list(config['package_groups']['oasis7_distfs'])
+        # Keep the registered Runtime/World State target identities and input
+        # rules; only their Rust bodies and minimum cases are miniature fixtures.
+        target_keys = ('runtime-lib', 'runtime-incremental', 'world-state-lib', 'world-reducers')
+        for key in target_keys:
+            config['ordinary_fast_targets'][key]['cases'] = ['existing']
+        self.write('Cargo.toml', '[workspace]\nresolver="2"\nmembers=["crates/*"]\n'
+                   '[workspace.dependencies]\ncore={path="crates/core"}\n')
+        for package in ('oasis7_runtime', 'oasis7_world_state'):
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\nedition="2024"\n'
+                       '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
+            self.write(f'crates/{package}/src/lib.rs', '#[test] fn existing() {}\n')
+        self.write('crates/oasis7_world_state/src/lib.rs',
+                   '#[cfg(not(target_arch="wasm32"))] pub mod incremental_industry_jobs;\n'
+                   '#[test] fn existing() {}\n')
+        for package, target in (('oasis7_runtime', 'pr_fast_incremental'),
+                                ('oasis7_world_state', 'pr_fast_reducers')):
+            self.write(f'crates/{package}/tests/{target}.rs', '#[test] fn existing() {}\n')
+        for package in ('oasis7_runtime', 'oasis7_distfs'):
+            manifest = f'crates/{package}/Cargo.toml'
+            self.write(manifest, Path(manifest).read_text()
+                       + '\n[dependencies]\noasis7_world_state={path="../oasis7_world_state"}\n')
+        fast_input = 'crates/oasis7_world_state/src/incremental_industry_jobs.rs'
+        self.write(fast_input, 'pub fn value() -> u8 { 1 }\n')
+        original = {path: Path(path).read_text() for path in (root, support, fast_input)}
+        base = self.commit()
+        self.write(fast_input, 'pub fn value() -> u8 { 2 }\n')
+        fast_head = self.commit()
+        expected_targets = {tuple(config['ordinary_fast_targets'][key][field]
+                                  for field in ('package', 'target_kind', 'target_name'))
+                            for key in target_keys}
+        for profile in ('pr-fast', 'main-fast'):
+            fast = selector.select(config, base, fast_head, profile=profile)
+            self.assertEqual({tuple(target[field] for field in ('package', 'target_kind', 'target_name'))
+                              for target in fast['ordinary_fast_targets']}, expected_targets)
+            self.assertEqual(fast['ordinary_execution'], 'inline')
+            self.assertIn('distfs', fast['groups'])
+        for path in (root, support):
+            for mixed in (False, True):
+                for restored, content in original.items():
+                    self.write(restored, content)
+                base = self.commit()
+                self.write(path, original[path] + '#[test] fn later_case() { '
+                           'assert_eq!(oasis7_distfs::value(), 42); }\n')
+                if mixed:
+                    self.write(fast_input, 'pub fn value() -> u8 { 2 }\n')
+                head = self.commit()
+                for profile in ('pr-fast', 'main-fast'):
+                    with self.subTest(path=path, mixed=mixed, profile=profile):
+                        plan = selector.select(config, base, head, profile=profile)
+                        self.assertFalse(plan['test_policy_changed'])
+                        self.assertIn('distfs', plan['groups'])
+                        self.assertNotIn('ordinary_fast_targets', plan)
+                        self.assertNotIn('ordinary_execution', plan)
+                        self.assertNotIn('distfs_clippy_group', plan)
+                        self.assertNotIn('formal_process', plan['groups'])
+                        self.assertEqual(plan['formal_suites'], [])
+                        if mixed:
+                            self.assertTrue({'oasis7_runtime', 'oasis7_world_state'}.issubset(
+                                plan['oasis7_required_packages']))
+                        else:
+                            self.assertEqual(plan['affected_packages'], ['oasis7_distfs'])
+                            self.assertEqual(plan['oasis7_required_packages'], [])
+
     def test_fast_inherited_default_feature_uses_owning_package_manifest(self):
         config = self.fast_config()
         manifest = Path('crates/core/Cargo.toml').read_text()

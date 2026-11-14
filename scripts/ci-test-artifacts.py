@@ -689,6 +689,14 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
+    if phase == 'distfs-industry':
+        targets = ordinary_fast_targets(plan)
+        selected = targets is None or any(
+            target['package'] in ('oasis7', 'oasis7_distfs')
+            and target['target_kind'] == 'test'
+            and target['target_name'] == 'incremental_industry_jobs'
+            for target in targets)
+        return ['run' if selected else 'skip']
     if phase == 'distfs-clippy-group':
         selected = fast_plan(plan)
         if selected is not None and selected.get('distfs_clippy_contract_version') == 1:
@@ -3286,7 +3294,7 @@ def main():
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'partition'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'

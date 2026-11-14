@@ -2046,6 +2046,30 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse((root / 'args').exists())
 
+    def test_distfs_workflow_transports_exact_inventory_without_extending_old_cli(self):
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['distfs'], re.M | re.S)
+                    if 'name: Execute selected group' in step)
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
+                'cat "$OASIS7_CI_DISTFS_PLAN_FILE" > "$PLAN_LOG"\nexit 19\n')
+            selection = dict(fast_plan_version=1, scope='targeted', execution_profile='pr-fast',
+                             fast_test_inventory_version=1, ordinary_fast_targets=[dict(
+                                 package='oasis7_runtime', target_kind='lib', target_name='oasis7_runtime',
+                                 default_features=False, features=['test_tier_required'], cases=['retained'])])
+            payload = json.dumps(selection, indent=2) + '\n'
+            (root / 'selection.json').write_text(payload)
+            result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                env=dict(os.environ, RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root),
+                         ARGV_LOG=str(root / 'args'), PLAN_LOG=str(root / 'observed-plan')))
+            self.assertEqual(result.returncode, 19, result.stdout + result.stderr)
+            self.assertEqual((root / 'observed-plan').read_text(), payload)
+            self.assertEqual((root / 'args').read_text().strip('\0').split('\0'),
+                             ['required', '--group', 'distfs', '--repo-root', str(root)])
+
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
