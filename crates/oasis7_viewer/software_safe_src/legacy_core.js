@@ -3409,7 +3409,7 @@ function handleAuthoritativeRecoveryError(error) {
 }
 
 const worldViewTransport = createWorldViewTransport({ send: sendJson, getScope: () => worldViewScopeKey(state), getConnection: () => socket });
-export const requestWorldView = query => worldViewTransport.request(query);
+export const {request: requestWorldView, statistics: readWorldViewTransportStatistics} = worldViewTransport;
 const scopeSnapshotTransport = createScopeSnapshotTransport({send:sendJson,getScope:()=>worldViewScopeKey(state),getConnection:()=>socket});
 export const requestScopeSnapshot = () => scopeSnapshotTransport.request();
 // Host authorizes the captured scope before this existing adopter triggers render.

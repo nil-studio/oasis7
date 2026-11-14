@@ -228,7 +228,13 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   const controller = {
     readStatistics(expectedSourceCut = null, measure = true) {
       if (disposed || pixelWorldScope(core.state) !== scope) return null;
-      return client.statistics?.(expectedSourceCut, measure) ?? null;
+      const statistics = client.statistics?.(expectedSourceCut, measure);
+      if (!statistics) return null;
+      const pending = core.readWorldViewTransportStatistics?.()?.pendingRequests;
+      return {...statistics, transport: {
+        pendingRequests: Number.isSafeInteger(pending) && pending >= 0 ? pending : null,
+        semantics: 'page world-view transport pending entries, including retired queries; not per-client facts or heap bytes',
+      }};
     },
     state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,overviewStatus,queryStatus,scope:()=>scope,
     // Called by Host only after publishing this render DTO. Store identities,
