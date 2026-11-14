@@ -495,6 +495,10 @@ v6 在真实 v5 通过验证后，仅对同一私有 shared 文件叠加上游 [
 
 数值投影只在上述候选批次的 `Observation.start()` 显式接入同一 `Capture`，从第一字节沿既有 FIFO/framer 观察，不另读数据库原生日志，也不增加查询、摘要进程或截止。默认 `Capture()` 与 WASM 的 `Progress` 保持原行为。固定 CLI 2.27.4/raw log 0.5.0 下只选择一个源码 family：`appearsAs` 的完整 alias 在有界编译器 suffix 之前须含精确 `TypeInference` namespace 分量，末成员须精确为 `inferType/2`；泛型参数内部的同名字样、相似 namespace/member、其他 arity 或成员之后额外 namespace 均不准入。suffix 只作为 opaque 身份，不解释为成本或关系语义；准入 alias 立即转为 SHA-256，构成本次运行的精确映射，不把小 fixture 的 alias SHA 当作完整 v4 批次已经观测的身份，也不使用 `predicateName` 后备匹配。
 
+同一显式数值观察路径在 `Capture.feed` 的既有处理体外计量 wall 与当前线程 CPU。按调用进入时的状态，将整次调用及输入字节归入固定三个桶：`BEFORE_LIMIT`、首次超限的 `CAP_CROSSING`、已经超限的 `AFTER_LIMIT`；恰好填满仍属前者，跨限 chunk 不拆分，也不改变原保留行为。仅保存各桶次数、字节数和时钟差值累计；时钟不可用、读值或差值无效时保留未测次数及已测小计，完整总量为未知，不写异常原文，不改变原 capture、查询失败或验收状态。无调用的桶记 `NOT_OBSERVED`。计量采用固定数量的计数器，并写入原 observation 控制收据，不新增逐调用明细、文件、解析或预算。
+
+`Observation.run_batch` 另在原唯一 `runtime.run` 调用外以父进程时钟计量，`finally` 覆盖成功、超时、异常及原清理。该 CPU 包含调用期间父进程全部线程的监督、采样、feed、drain 和进程收据写入，排除子进程/PGID CPU；不包含整个 job，也不能与 feed CPU 相加或相减当作其他组件独占成本。回调 wall 包含处理期间的等待与调度，时钟读取和累计本身也有观测开销；这些数据不能还原未插桩运行或证明旧运行的因果。计量完整性不成为新的研究或启用门禁，默认 raw-only `Capture`、WASM 和共享 runtime 保持原合同。
+
 原始记录的 `PREDICATE_STARTED.eventId`、`PIPELINE_STARTED.predicateStartEvent` 与完成记录的 `startEvent` 建立同一次流内关联；每个 predicate event 独立记录，多 alias 共享一个事件只投影一次。持久化白名单只有固定 probe 编号、alias 摘要、event/layer/generation 数字、配对的非负 `nanoTime` 差、分别命名的 predicate/pipeline `result_size`、固定完成/异常存在状态及有界计数和尾部样本；不保存 QName、路径、RA、异常文本或 `queryCausingWork`，不按 query 分摊整批共享关系。省略 `resultSize`、generation 或计时不能补零；成功时可省略的 `completionType` 与显式失败/不完整状态分开保留。单个 pipeline 的零结果之后，同一 predicate 更晚的 generation 仍可有正值，因此 `result_size` 不是通用 delta 或收敛判定；较大 generation 也不直接证明慢。pipeline 与 predicate 区间可能重叠，不相加当作 CPU、全批次耗时或完整排名。
 
 framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 KiB，并分别固定 alias、活动 predicate/pipeline、包括已关闭事件的目标身份、完成尾样本及拒绝计数的上限。超长记录有界跳过至下一换行，未知 schema、重复/不完整关联、表饱和、解析异常或缺少真实尾部均使数值观察 `PARTIAL`，只保留固定原因和已有允许字段，不抛异常遮盖原 batch 首失败，不回退原文。未命中记 `NOT_OBSERVED`，不能称该源码 family 未执行。数值状态独立单列，是否命中或投影完整不成为研究完成的新门禁；原 capture 与官方 summary 的准入不变，部分投影也不能提升它们或研究、生产验收。数值详情使用原私有 evidence 下单独至多 32 KiB 的控制收据，包含流摘要/字节字段的最终编码、原进程/控制收据及子限一并核验，序列化与清理仍受原截止约束。

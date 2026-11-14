@@ -120,6 +120,95 @@ def numeric_bytes(events):
     return b'\n'.join(json.dumps(event, separators=(',', ':')).encode() for event in events)
 
 
+class FeedCostTests(unittest.TestCase):
+    def capture(self, limit=4):
+        value = profile.Capture(limit, projection=profile.NumericProjection())
+        self.addCleanup(value.close)
+        return value
+
+    def test_whole_callback_buckets_keep_original_retention_and_hash(self):
+        for chunks, retained in (((b'abc', b'de', b'f'), b'abc'),
+                                 ((b'abcd', b'e', b'f'), b'abcd')):
+            with self.subTest(chunks=chunks):
+                capture = self.capture()
+                with patch.object(time, 'perf_counter_ns', side_effect=[10, 14, 20, 27, 30, 39]), \
+                     patch.object(time, 'thread_time_ns', side_effect=[100, 102, 200, 203, 300, 305]):
+                    for chunk in chunks:
+                        capture.feed(chunk)
+                capture.finish(True, True)
+                report = capture.summary()
+                buckets = capture.feed_cost_summary()['buckets']
+                for key, chunk, wall, cpu in zip(('BEFORE_LIMIT', 'CAP_CROSSING', 'AFTER_LIMIT'),
+                                                chunks, (4, 7, 9), (2, 3, 5)):
+                    self.assertEqual(buckets[key]['calls'], 1)
+                    self.assertEqual(buckets[key]['input_bytes'], len(chunk))
+                    self.assertEqual(buckets[key]['wall']['total_ns'], wall)
+                    self.assertEqual(buckets[key]['thread_cpu']['total_ns'], cpu)
+                self.assertEqual(report['error'], 'MEMORY_LIMIT')
+                self.assertEqual(report['retained_sha256'], hashlib.sha256(retained).hexdigest())
+                self.assertEqual(report['observed_sha256'], hashlib.sha256(b''.join(chunks)).hexdigest())
+                self.assertEqual(Path(capture.path).read_bytes(), retained)
+
+    def test_clock_failures_are_independent_unknown_and_do_not_change_capture(self):
+        capture = self.capture(1024)
+        with patch.object(time, 'perf_counter_ns', side_effect=[10, 17, 20, 30]), \
+             patch.object(time, 'thread_time_ns', side_effect=[NotImplementedError(SYNTHETIC_CANARY), 2, 9, 3]):
+            capture.feed(RAW[:23]); capture.feed(RAW[23:])
+        capture.finish(True, True)
+        report = capture.summary()
+        self.assertEqual(report['status'], 'CAPTURED')
+        self.assertEqual(report['log_boundary_status'], 'COMPLETE')
+        buckets = capture.feed_cost_summary()['buckets']
+        self.assertEqual(buckets['BEFORE_LIMIT']['wall']['total_ns'], 17)
+        self.assertIsNone(buckets['BEFORE_LIMIT']['thread_cpu']['total_ns'])
+        self.assertEqual(buckets['BEFORE_LIMIT']['thread_cpu']['unmeasured_intervals'], 2)
+        self.assertEqual(buckets['AFTER_LIMIT']['wall']['status'], 'NOT_OBSERVED')
+        self.assertIsNone(buckets['AFTER_LIMIT']['wall']['total_ns'])
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(capture.feed_cost_summary()))
+
+    def test_processing_failure_keeps_original_error_and_records_cost_in_finally(self):
+        capture = self.capture(1024)
+        with patch.object(time, 'perf_counter_ns', side_effect=[5, 8]), \
+             patch.object(time, 'thread_time_ns', side_effect=[10, OSError(SYNTHETIC_CANARY)]), \
+             patch.object(os, 'write', side_effect=OSError(SYNTHETIC_CANARY)):
+            with self.assertRaisesRegex(profile.ObservationError, '^MEMORY_WRITE_FAILED$'):
+                capture.feed(RAW)
+        report = capture.summary()
+        self.assertEqual(report['error'], 'MEMORY_WRITE_FAILED')
+        cost = capture.feed_cost_summary()['buckets']['BEFORE_LIMIT']
+        self.assertEqual(cost['calls'], 1)
+        self.assertEqual(cost['wall']['total_ns'], 3)
+        self.assertIsNone(cost['thread_cpu']['total_ns'])
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(capture.feed_cost_summary()))
+
+    def test_invalid_clock_values_keep_measured_subtotal_and_unknown_total(self):
+        for invalid in (None, -1, True, 1.5, float('inf'), 2**63):
+            with self.subTest(invalid=invalid):
+                capture = self.capture(1024)
+                with patch.object(time, 'perf_counter_ns', side_effect=[10, 14, invalid, 30]), \
+                     patch.object(time, 'thread_time_ns', side_effect=[1, 2, 3, 5]):
+                    capture.feed(RAW[:23]); capture.feed(RAW[23:])
+                cost = capture.feed_cost_summary()['buckets']['BEFORE_LIMIT']
+                self.assertEqual(cost['wall']['measured_ns'], 4)
+                self.assertEqual(cost['wall']['unmeasured_intervals'], 1)
+                self.assertIsNone(cost['wall']['total_ns'])
+                self.assertEqual(cost['thread_cpu']['total_ns'], 3)
+        capture = self.capture(1024)
+        with patch.object(time, 'thread_time_ns', None):
+            capture.feed(RAW)
+        self.assertIsNone(capture.feed_cost_summary()['buckets']['BEFORE_LIMIT']['thread_cpu']['total_ns'])
+
+    def test_raw_only_capture_does_not_read_measurement_clocks(self):
+        capture = profile.Capture(); self.addCleanup(capture.close)
+        with patch.object(time, 'perf_counter_ns', side_effect=AssertionError('unexpected wall clock')) as wall, \
+             patch.object(time, 'thread_time_ns', side_effect=AssertionError('unexpected CPU clock')) as cpu:
+            capture.feed(RAW)
+        wall.assert_not_called()
+        cpu.assert_not_called()
+        self.assertIsNone(capture.feed_cost_summary())
+        self.assertNotIn('feed_cost', capture.summary())
+
+
 class NumericProjectionTests(unittest.TestCase):
     def observe(self, events=None, *, limit=profile.RAW_CAP, chunks=None):
         projection = profile.NumericProjection()
@@ -367,13 +456,18 @@ class OwnedProcessTests(unittest.TestCase):
         self.cap = profile.Capture(projection=projection); self.addCleanup(self.cap.close)
         data = numeric_bytes(numeric_events())
         body = 'import os,sys\nf=os.open(sys.argv[1],os.O_WRONLY)\n'+f'os.write(f,{data!r})\nos.close(f)\nsys.exit(7)\n'
-        with patch.object(projection, 'accept', side_effect=ValueError(SYNTHETIC_CANARY)):
+        with patch.object(projection, 'accept', side_effect=ValueError(SYNTHETIC_CANARY)), \
+             patch.object(time, 'thread_time_ns', side_effect=NotImplementedError(SYNTHETIC_CANARY)):
             with self.assertRaises(runtime.PhaseError) as caught:
                 self.execute(body)
         self.assertEqual(caught.exception.result['execution_failure_kind'], 'child_exit')
         self.assertEqual(caught.exception.result['failure_kind'], 'child_exit')
         self.assertEqual(caught.exception.result['exit'], 7)
         self.assertEqual(projection.report()['status'], 'PARTIAL')
+        cost = self.cap.feed_cost_summary()['buckets']['BEFORE_LIMIT']
+        self.assertGreater(cost['calls'], 0)
+        self.assertIsNone(cost['thread_cpu']['total_ns'])
+        self.assertEqual(cost['wall']['status'], 'MEASURED')
         for path in self.out.iterdir():
             if path.is_file(): self.assertNotIn(SYNTHETIC_CANARY.encode(), path.read_bytes())
 
@@ -389,6 +483,11 @@ class OwnedProcessTests(unittest.TestCase):
         with self.assertRaises(runtime.PhaseError) as caught:
             self.execute(body, timeout=4.2)
         self.assertEqual(caught.exception.result['execution_failure_kind'], 'timeout')
+        buckets = self.cap.feed_cost_summary()['buckets']
+        self.assertEqual(sum(bucket['input_bytes'] for bucket in buckets.values()), len(prefix)+len(tail))
+        self.assertGreater(buckets['BEFORE_LIMIT']['calls'], 0)
+        self.assertEqual(buckets['CAP_CROSSING']['calls'], 1)
+        self.assertEqual(buckets['CAP_CROSSING']['thread_cpu']['status'], 'MEASURED')
         self.assertEqual(caught.exception.result['failure_kind'], 'timeout')
         self.assertEqual(self.cap.summary()['error'], 'MEMORY_LIMIT')
         self.assertEqual(projection.report()['status'], 'OBSERVED')
@@ -579,6 +678,51 @@ class BudgetTests(unittest.TestCase):
     def observation(self):
         value = profile.Observation(self.out, self.work, [QUERY]); self.addCleanup(value.close)
         value.start(); return value
+
+    def test_parent_cpu_spans_original_runtime_call_and_keeps_its_result(self):
+        observation = self.observation()
+        original = dict(exit=0, failure_kind=None, resources={'observed_group_own_cpu_seconds': 9999})
+        deadline = time.monotonic()+10
+        with patch.object(time, 'process_time_ns', side_effect=[100, 123]), \
+             patch.object(runtime, 'run', return_value=original) as run:
+            returned = observation.run_batch(['/cli', 'database', 'run-queries', '--', '/db', '/q'],
+                                            self.root, deadline, 10, {})
+        self.assertIs(returned, original)
+        self.assertIs(observation.batch_result, original)
+        self.assertEqual(run.call_args.args[3:5], (deadline, 10))
+        self.assertEqual(observation.receipt()['batch_parent_cpu']['total_ns'], 23)
+        self.assertEqual(observation.receipt()['batch_parent_cpu']['intervals'], 1)
+
+    def test_parent_clock_failure_preserves_original_phase_error_and_records_unknown(self):
+        observation = self.observation()
+        original = runtime.PhaseError(dict(exit=143, failure_kind='timeout', cleanup_errors=[], evidence_errors=[]))
+        with patch.object(time, 'process_time_ns', side_effect=[10, OSError(SYNTHETIC_CANARY)]), \
+             patch.object(runtime, 'run', side_effect=original):
+            with self.assertRaises(runtime.PhaseError) as caught:
+                observation.run_batch(['/cli', '--', '/db'], self.root, time.monotonic()+10, 10, {})
+        self.assertIs(caught.exception, original)
+        self.assertIs(observation.batch_result, original.result)
+        self.assertTrue(observation.batch_safe)
+        cost = observation.receipt()['batch_parent_cpu']
+        self.assertIsNone(cost['total_ns'])
+        self.assertEqual(cost['unmeasured_intervals'], 1)
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(observation.receipt()))
+
+    def test_unobserved_cost_and_clock_failure_do_not_change_completion_or_receipt_limit(self):
+        observation = self.observation()
+        with patch.object(time, 'perf_counter_ns', side_effect=NotImplementedError(SYNTHETIC_CANARY)):
+            observation.capture.feed(RAW)
+        observation.capture.finish(True, True)
+        observation.summary_result = dict(status='PROJECTED')
+        result = observation.finish()
+        self.assertEqual(result['status'], 'COMPLETE')
+        path = observation.out/'observation-terminal.json'
+        self.assertLessEqual(path.stat().st_size, runtime.MAX_CONTROL_RECEIPT)
+        receipt = json.loads(path.read_text())
+        self.assertEqual(receipt['batch_parent_cpu']['status'], 'NOT_OBSERVED')
+        self.assertIsNone(receipt['batch_parent_cpu']['total_ns'])
+        self.assertEqual(receipt['capture']['feed_cost']['buckets']['BEFORE_LIMIT']['wall']['status'], 'PARTIAL')
+        self.assertNotIn(SYNTHETIC_CANARY, path.read_text())
 
     def test_raw_memory_output_and_terminal_reservations_share_original_cap(self):
         observation = self.observation()
