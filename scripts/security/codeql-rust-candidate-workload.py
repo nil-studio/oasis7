@@ -15,6 +15,7 @@ import time
 
 from codeql_rust_action_deadline import shared_budget
 import codeql_rust_candidate_profile as candidate_profile
+import codeql_rust_resolver as resolver
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('workload_comparison', HERE / 'codeql-rust-qualifier-comparison.py')
@@ -376,7 +377,7 @@ def query_options(closure, work, prefix):
             '--common-caches=' + str(work / (prefix + '-common-cache'))]
 
 
-def resolve_layout(codeql, records, closures, work, out, run):
+def resolve_layout(codeql, records, closures, work, out, run, *, end, on_stage=None):
     options = query_options(closures['default'], work, 'resolve')
     run([codeql, 'resolve', 'queries', work / 'default-queries/codeql-suites/rust-code-scanning.qls',
          '--format=json', options[0], options[-1]], 'private-default-suite', 30)
@@ -384,17 +385,8 @@ def resolve_layout(codeql, records, closures, work, out, run):
     expected = [{key: r[key] for key in ('relative', 'id', 'sha256')} for r in records if r['kind'] == 'default']
     if actual != expected:
         raise RuntimeError('private source wrapper changed the default suite selection')
-    receipts = []
-    for index, record in enumerate(records):
-        name = 'resolve-' + str(index).zfill(2)
-        run([codeql, 'resolve', 'library-path', '--query=' + record['path'], '--format=json', *options], name, 20)
-        actual = read_json(out / (name + '.log'))
-        capacity.bundle.verify_library_path(actual, Path(record['root']), str(Path(record['relative']).with_suffix('')),
-                                           closures[record['kind']], record['pack'])
-        if actual['compilationCache'] != [str(work / 'resolve-compilation-cache')]:
-            raise RuntimeError('resolver selected an unbound compilation cache')
-        receipts.append(dict(query=record['path'], kind=record['kind'], actual=actual, status='PASS_CANDIDATE_CLOSURE'))
-        runtime.save(out / 'library-resolution.json', receipts, out)
+    resolver.resolve(codeql, records, closures, work, out, run, end=end,
+                     mode='candidate', on_stage=on_stage)
 
 
 def admit_checkpoint(captured, finished, source, deadline):
@@ -544,7 +536,8 @@ def _main(cancellation, owned_resources):
     observation = batch_error = None
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     def save(name, value, control=False): runtime.save(out / name, value, out, terminal=control)
-    def run(argv, name, limit=None, *, analysis=False, observed=False):
+    def run(argv, name, limit=None, *, analysis=False, observed=False, observer=None,
+            restricted_output=False, reap_orphans=False):
         terminal['stage'] = name
         if cancellation['cancelled']:
             raise runtime.CancelledError('CANCELLED_BEFORE_SPAWN')
@@ -555,7 +548,9 @@ def _main(cancellation, owned_resources):
             return observation.run_batch(list(map(str, argv)), source, child_end,
                                          min(remaining, limit or remaining), env)
         return runtime.run(list(map(str, argv)), source, out / (name + '.log'), child_end,
-                           min(remaining, limit or remaining), out, env, file_limit=None)
+                           min(remaining, limit or remaining), out, env, file_limit=None,
+                           observer=observer, restricted_output=restricted_output,
+                           reap_orphans=reap_orphans)
     try:
         budget = read_json(checkpoint / 'capacity-budget.json')
         analysis_end, end = shared_budget(budget, args.deadline, args.analysis_deadline, time.time(), time.monotonic())
@@ -626,7 +621,9 @@ def _main(cancellation, owned_resources):
             before = private_inputs(work, analysis_end)
             save('private-inputs-before.json', before)
             resolve_layout(args.codeql, records, closures, work, out,
-                           lambda argv, name, limit: run(argv, name, limit, analysis=True))
+                           lambda argv, name, limit=None, **options: run(argv, name, limit, analysis=True, **options),
+                           end=min(analysis_end, end - EVIDENCE_SECONDS),
+                           on_stage=lambda name: terminal.__setitem__('stage', name))
             terminal.update(status='CANDIDATE_RESEARCH_PREPARED', resolved_default_queries=37, resolved_public_witnesses=7)
         else:
             terminal['stage'] = 'candidate-input-admission'

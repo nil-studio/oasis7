@@ -94,7 +94,8 @@ class Runner:
         self.env = {key: value for key, value in os.environ.items()
                     if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
 
-    def __call__(self, argv, name, limit=None):
+    def __call__(self, argv, name, limit=None, *, observer=None,
+                 restricted_output=True, reap_orphans=False):
         self.terminal['stage'] = name
         remaining = self.end - time.monotonic()
         if remaining <= 0:
@@ -102,7 +103,8 @@ class Runner:
         return runtime.run(list(map(str, argv)), self.args.source,
                            self.args.output / (name + '.log'), self.end,
                            min(remaining, limit or remaining), self.args.output, self.env,
-                           file_limit=None, restricted_output=True)
+                           file_limit=None, observer=observer, restricted_output=restricted_output,
+                           reap_orphans=reap_orphans)
 
 
 def save(args, name, value, *, terminal=False):
@@ -205,17 +207,9 @@ def resolve_queries(args, records, closure, run):
     expected = [{key: record[key] for key in ('relative', 'id', 'sha256')} for record in records]
     if actual != expected:
         raise RuntimeError('production wrapper changed official default query selection')
-    receipts = []
-    for index, record in enumerate(records):
-        name = 'resolve-' + str(index).zfill(2)
-        run([args.codeql, 'resolve', 'library-path', '--query=' + record['path'], '--format=json',
-             *options], name, 20)
-        value = read_json(args.output / (name + '.log'))
-        capacity.bundle.verify_library_path(value, root, str(Path(record['relative']).with_suffix('')), closure, PACK)
-        if value['compilationCache'] != [str(args.work / 'resolve-compilation-cache')]:
-            raise RuntimeError('production resolver selected an unbound compilation cache')
-        receipts.append(dict(query=record['path'], actual=value, status='PASS_REPAIRED_CLOSURE'))
-        save(args, 'library-resolution.json', receipts)
+    candidate.resolver.resolve(args.codeql, records, dict(default=closure), args.work, args.output,
+                               run, end=run.end, mode='production',
+                               on_stage=lambda name: run.terminal.__setitem__('stage', name))
 
 
 def input_snapshot(args, official_closure, end):

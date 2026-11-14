@@ -14,6 +14,7 @@ import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from test_codeql_rust_resolver import fake_runtime_session
 
 
 HERE = Path(__file__).resolve().parent
@@ -180,7 +181,8 @@ class Production(unittest.TestCase):
         class FakeRunner:
             def __init__(self):
                 self.end = end
-            def __call__(self, argv, name, limit=None):
+                self.terminal = terminal
+            def __call__(self, argv, name, limit=None, **options):
                 terminal['stage'] = name
                 args_list = list(map(str, argv))
                 fixture.calls.append((name, args_list))
@@ -202,6 +204,23 @@ class Production(unittest.TestCase):
                     (args.work / 'candidate-typeinference' / m.candidate.SHARED_FILE).write_text('constraint-shared')
                 elif name == 'production-default-suite':
                     value = [str(args.work / 'default-queries' / record['relative']) for record in fixture.entries]
+                elif name == 'resolver-session':
+                    fixture.assertTrue(options['restricted_output'])
+                    fixture.assertTrue(options['reap_orphans'])
+                    def response(record):
+                        closure = m.read_json(args.output / 'selected-closure.json')
+                        paths = [p['root'] for p in closure.values()]
+                        if fixture.bad_closure:
+                            paths.remove(str(args.work / 'candidate-rust-all'))
+                            paths.append(str(fixture.original))
+                        if fixture.bad_shared_closure:
+                            paths.remove(str(args.work / 'candidate-typeinference'))
+                            paths.append(str(fixture.shared))
+                        return dict(libraryPath=paths + [record['root']],
+                                    dbscheme=str(args.work / 'candidate-rust-all/rust.dbscheme'),
+                                    compilationCache=[str(args.work / 'resolve-compilation-cache')],
+                                    relativeName=record['pack'] + '/' + record['relative'], qlPackName=record['pack'])
+                    return fake_runtime_session(options['observer'], args.output / (name + '.log'), response)
                 elif name.startswith('resolve-'):
                     closure = m.read_json(args.output / 'selected-closure.json')
                     query = Path(next(item.split('=', 1)[1] for item in args_list if item.startswith('--query=')))
@@ -286,6 +305,14 @@ class Production(unittest.TestCase):
                       self.terminal('prepare')['primary_failure']['error'])
         self.assertEqual(self.github_env.read_text(), '')
 
+    def test_37_actual_bindings_use_one_owned_resolver_session(self):
+        self.prepare_ok()
+        self.assertEqual(len(m.read_json(self.output / 'library-resolution.json')), 37)
+        sessions = [call for call in self.calls if call[0] == 'resolver-session']
+        independent = [call for call in self.calls if call[1][1:3] == ['resolve', 'library-path']]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(independent, [])
+
     def test_source_pack_preserves_queries_and_support_without_stock_bindings(self):
         self.prepare_ok()
         root = self.work / 'default-queries'
@@ -331,13 +358,13 @@ class Production(unittest.TestCase):
     def test_actual_resolver_stock_substitution_blocks_preparation(self):
         self.bad_closure = True
         self.assertEqual(self.invoke('prepare'), 1)
-        self.assertIn('dependency closure', self.terminal('prepare')['primary_failure']['error'])
+        self.assertIn('DEPENDENCY_CLOSURE', self.terminal('prepare')['primary_failure']['error'])
         self.assertEqual(self.github_env.read_text(), '')
 
     def test_actual_resolver_stock_shared_substitution_blocks_preparation(self):
         self.bad_shared_closure = True
         self.assertEqual(self.invoke('prepare'), 1)
-        self.assertIn('dependency closure', self.terminal('prepare')['primary_failure']['error'])
+        self.assertIn('DEPENDENCY_CLOSURE', self.terminal('prepare')['primary_failure']['error'])
         self.assertEqual(self.github_env.read_text(), '')
 
     def test_future_research_variant_cannot_enter_production_preparation(self):

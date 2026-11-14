@@ -620,6 +620,32 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 最终分列 metadata、提取、宏见证、静态目标、guard、身份与证据结果；仅本次全部成立可报告 `WASM_CONTEXT_SEMANTICS_OBSERVED`。始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、平台完成待独立读回。开发阶段可对固定 bundle 解析并编译小查询以核对 API；未实际提取和执行之前必须保持 NOT_RUN，不能把本地编译或历史 release build 当成真实 WASM CodeQL 通过。
 
+#### 7.2.8 候选与生产解析准备的 CLI server 生命周期
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；本节只改变 §7.2.4 与 §7.2.6 的解析进程复用方式，保留原查询、库身份、资源、时限和隐私合同。
+
+候选 `resolve_layout` 的 44 条与生产 `resolve_queries` 的 37 条 `resolve library-path` 使用同一个受限 adapter。各入口仍先独立验证实际默认 suite，保持原 30 秒上限；候选仍逐项解析原 37+7，生产仍逐项解析原 37。不得以 `resolve queries` 的文件列表、代表查询、历史响应或共享缓存推测其余实际 library path；查询准备、编译、求值、结果验证与上传的其他调用不迁入此 adapter。
+
+父执行器冻结本次记录顺序、每条 query 的路径/相对名/pack/SHA、按种类选择的完整 closure、独立 cache 和原绝对截止，保存有界请求身份。adapter 只接受该固定结构并构造 `resolve library-path` 参数，不提供任意 CLI 命令转发接口。复用可信 helper 同目录 `codeql-rust-model-diagnostic.py` 的五字段校验器，保持 `libraryPath`、`dbscheme`、`compilationCache`、`relativeName`、`qlPackName` 的完整检查；候选默认 14 项、见证 13 项依赖及生产 14 项依赖分别核对，两个私有库不得回退官方根。新增 helper 纳入 capacity layout 的复制、Git blob、mode、字节数与 SHA 冻结集合；不能从随后切换的业务 checkout 导入同名模块。
+
+一次既有 `runtime.run` 拥有一个 Python adapter 进程组，adapter 内只启动一次固定 2.27.4 `execute cli-server`，server 与其 launcher/Java 后代继承同一 PGID。进程不跨 `runtime.run` 保活，失败不重启、不切回逐条独立 CLI 补跑。命令是 UTF-8 JSON argv 数组加 NUL；同时最多一条未完成命令。每个实际响应收到 NUL 后，adapter 先核对完整 JSON、五字段、冻结 query 身份与指定 cache，再将该 index 的有界响应交给父执行器。NUL 是协议完成标记，不是 OS exit 0；收据分别保存命令完成标记、实际 server launcher 退出和 adapter 退出。
+
+父 wrapper 在 spawn 前读取、保存并启用自身的 Linux child-subreaper 状态，outer `runtime.run` 显式使用 `reap_orphans=True`，只 wait/reap 本次 owned PGID；该选项本身不启用孤儿收养。adapter 也启用 child-subreaper，并在 TERM 后停止发命令、按原截止收齐 launcher/Java 和输出；若 adapter 在途中被终止，父 wrapper 负责收养并回收该组后代。正常、异常、取消与 spawn 失败都执行有界收尾，并最终恢复父 wrapper 原有 subreaper 状态。状态设置或清理不可信时停止执行；成功退出小样本不能代替在途 TERM/KILL 与孤儿回收的负例。
+
+共享 runtime 的 owned-PGID waitpid 清理必须保留 `(pid, status)`；若回收当前 leader，使用 `os.waitstatus_to_exitcode(status)` 回填其唯一拥有的 `Popen.returncode`，group wait 及回填遵循 Popen 等待锁协议，防止后续 ECHILD 伪造 0。只修正真实退出收据，不改变首失败、deadline 或清理范围；以实际子进程和 WNOWAIT 同步固定 poll→group-wait 竞态，覆盖非零及 signal 状态。
+
+父进程是 evidence 的唯一持久写入者。父观察器再次校验当前 index、query 身份和实际响应，完成该条原始 resolver 响应及 `library-resolution.json` 的保存后，才允许 ACK 当前 index；adapter 收到恰好匹配的 ACK 才能发送下一条。保留已有逐条实际结果与候选/生产 closure 状态含义，不伪造 44 或 37 份独立进程退出收据。运行终态另外绑定唯一 adapter/server 生命周期、已完成前缀和首个失败 index。写失败、超限或任何校验失败均不发送 ACK，保留已保存前缀及当前失败项，尚未发送的项保持未执行。
+
+ACK 只使用一个本次 owned 非阻塞 pipe，承载有界 index 确认，不扩为通用 RPC。共享 runtime 的现有 `Popen` 调用不传入 `pass_fds`；父端保留 pipe 读端，以 `/proc/父pid/fd/readfd` 交给 adapter 显式打开并核对 pipe 身份，写端始终只归父进程。该传递方式沿用已有 proc-pipe 能力，不修改共享 runtime 的 stdin 或继承描述符规则。`observer.feed` 只处理和保存当前响应，不能发 ACK；现有 runtime 在 `feed` 返回后完成本轮输出写入，下一轮先检查取消与 payload 截止，再调用 `observer.poll`，ACK 在这个回调中发出。spawn/输出登记失败、有限尾部 drain 或 `summary()` 路径均不发 ACK。ACK 的 EOF、错序、重复、非法长度、写失败或超时均停止序列；父读端、写端及 adapter 打开的读端在成功、异常和取消时都须关闭。
+
+每条解析仍至多 20 秒，第一条计入 server 启动，响应读取、完整校验、父写入和等待 ACK 都消费该条与原共享绝对截止。一次 adapter 的执行、shutdown、EOF 和 owned-group 清理均在原截止内完成；沿用 runtime 的有界清理预留，不能给 shutdown、ACK 或重试另开窗口。候选仍消费准备/提取/查询共享的分析时间，生产仍消费其原分析时间；不改变 75 分钟分析、90 分钟 job、原收尾预留及资源选择。发下一条前确认取消、剩余时间和输出容量，不能仅按剩余 query 数推定还有预算。
+
+输入、命令和输出全部有界：记录数严格等于本入口冻结的 44 或 37；每条 argv 沿用 16 KiB 上限，请求文件及每条完整 JSON 响应沿用现有读取器的 16 MiB 上限。只保留当前原始响应、一个待确认 index、固定控制状态及受冻结条数和总空间限制的已验证结构化结果，不在内存累积历史原始 stdout/stderr；控制封装、分帧、序列化和双流尾部也要计入实际容量。父端所有请求、响应、会话 stderr、资源样本、控制收据和封口均通过现有 evidence 写入器，计入候选 64 MiB 或生产 256 MiB 总额及原终态预留，不另设可绕开总额的 adapter 目录。单条上限不保证剩余总空间足够，空间不足必须在继续命令前失败。
+
+stderr 只归属整个 server 会话，沿各入口原隐私和证据策略保存；无明确协议边界时不得将异步 stderr 冒认成某条 query 的独立输出。命令 stdout 按实际 NUL 边界保存，未知或多余响应、未归属尾部、截断和非法编码不得当作下一条成功结果。所有已发命令及 ACK 完成后发送一次 `shutdown`，不等待不存在的 shutdown 成功 NUL；实际 launcher 退出、stdout/stderr EOF、adapter wait/reap 和 owned-group 清理共同决定本次完成。stdin EOF 或提前 exit 0 不能代替缺失命令/ACK。超时或取消在同一截止内执行 TERM/KILL 和有限 drain，保留首失败，清理不确定不得报告准备完成。
+
+开发验证直接经过上述真实 44/37 消费入口及同一 adapter，使用固定 CLI、实际私有库补丁、独立 work/cache 和原查询身份；两个入口在受控解析 D0 中共用一次冻结的 600 秒总窗，准备、解析、核验和封存均计时，不为第二个入口重置时钟。保持 2 threads/3072 MiB 请求及预先固定的证据限额，不创建数据库、不编译、不求值。回归覆盖跨 chunk 的 NUL、错 closure/query/cache、父写失败不 ACK、ACK 错序/重复/EOF、命令与 ACK 超时、取消、spawn 失败、非零退出、提前 exit 0、输出饱和、TERM 尾部及 owned-group/FD 清理。真实小样本和解析 D0 只证明协议与消费者接线，不代签 44 项计算、七表 oracle、生产容量或启用验收。
+
 ### 7.3 其他语言
 
 Python 与 JS/TS 默认只建立静态分析所需环境，不执行项目安装脚本和构建脚本。确实依赖生成源码时，单独批准最小生成步骤，隔离凭据，并评估放到定时档而非所有 PR。

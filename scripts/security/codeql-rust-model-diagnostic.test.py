@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -67,6 +68,89 @@ class Runtime(unittest.TestCase):
             self.assertEqual(json.loads(lines[0]),{'type':'LOG_HEADER'})
             self.assertEqual(json.loads(lines[-1]),{'type':'CLEANUP_MARKER'})
             self.assertEqual(caught.exception.result['cleanup_errors'],[])
+
+    def test_owned_group_reap_preserves_leader_status_after_poll_race(self):
+        class StopBeforeRead:
+            def poll(self, end):
+                raise TimeoutError('force cleanup before the runtime polls the leader')
+
+            def feed(self, stream, chunk, final=False):
+                return chunk
+
+            def summary(self):
+                return {'status': 'TEST_FORCED_TIMEOUT'}
+
+        for mode, expected in (('exit', 23), ('signal', -signal.SIGKILL)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ready, release = root/'ready', root/'release'
+                program = '''import os, signal, sys, time
+from pathlib import Path
+ready, release = map(Path, sys.argv[1:3])
+def terminate(*_):
+    while not release.exists():
+        time.sleep(.001)
+    if sys.argv[3] == 'signal':
+        os.kill(os.getpid(), signal.SIGKILL)
+    os._exit(23)
+signal.signal(signal.SIGTERM, terminate)
+ready.touch()
+while True:
+    signal.pause()
+'''
+                actual_popen = r.subprocess.Popen
+                observed = []
+
+                def synchronized_popen(*args, **kwargs):
+                    process = actual_popen(*args, **kwargs)
+                    try:
+                        end = time.monotonic()+2
+                        while not ready.exists() and time.monotonic() < end:
+                            time.sleep(.001)
+                        self.assertTrue(ready.exists(), 'child must install its TERM gate')
+                        actual_poll = process.poll
+
+                        def poll_before_exit():
+                            value = actual_poll()
+                            if not observed:
+                                self.assertIsNone(value)
+                                release.touch()
+                                # Observe a real exit without reaping it. The immediately
+                                # following group wait must own this exact wait status.
+                                end = time.monotonic()+2
+                                exited = None
+                                while exited is None and time.monotonic() < end:
+                                    exited = os.waitid(os.P_PID, process.pid,
+                                        os.WEXITED | os.WNOWAIT | os.WNOHANG)
+                                    if exited is None:
+                                        time.sleep(.001)
+                                self.assertIsNotNone(exited, 'child must reach its real exit')
+                                observed.append(exited)
+                            return value
+
+                        process.poll = poll_before_exit
+                        return process
+                    except BaseException:
+                        process.kill(); process.wait()
+                        raise
+
+                with self.assertRaises(r.PhaseError) as caught, \
+                        patch.object(r.subprocess, 'Popen', side_effect=synchronized_popen):
+                    r.run([sys.executable, '-c', program, str(ready), str(release), mode],
+                        root, root/'run.log', time.monotonic()+8, 8, root, dict(os.environ),
+                        observer=StopBeforeRead(), restricted_output=True, reap_orphans=True)
+                receipt = caught.exception.result
+                self.assertEqual(len(observed), 1)
+                self.assertEqual(observed[0].si_pid, receipt['pid'])
+                self.assertEqual(observed[0].si_status, abs(expected))
+                self.assertEqual(receipt['failure_kind'], 'timeout', receipt)
+                self.assertEqual(receipt['error'], 'TIMEOUT')
+                self.assertEqual(receipt['exit'], expected)
+                self.assertEqual(receipt['cleanup_errors'], [])
+                self.assertEqual(receipt['evidence_errors'], [])
+                self.assertEqual(json.loads((root/'run.log.result.json').read_text())['exit'], expected)
+                with self.assertRaises(ProcessLookupError):
+                    os.killpg(receipt['pgid'], 0)
 
     def test_cap_is_checked_before_write_and_not_allowed_summary(self):
         with tempfile.TemporaryDirectory() as directory,patch.object(r,'WRITE_CAP',512):
