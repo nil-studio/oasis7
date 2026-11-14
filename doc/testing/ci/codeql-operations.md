@@ -233,7 +233,7 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 从独立候选 artifact 检查 `qualifier-lines-constraint-matching-v6` 与 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。依次核对原 qualifier 补丁、`arity-patch-identity.json` 和 `lines-model-identity.json`：真实 v3 中间 `rust-all` 恰有 TypeInference/core.model 两文件变化。`trait-visibility-identity.json` 和 `shared-helper-identity.json` 保留 v5 版本，分别按 §7.2.4 核验 Rust 两处注解及 shared 原 helper 的完整中间快照、固定摘要与来源。
 
-再核对 `constraint-matching-identity.json`：两份 v5 收据摘要必须匹配，shared 基线由当次官方快照重新验证，最终仅同一 TypeInference 文件从 `4a65…` 变为 `8b32…`。区分官方原 patch 与仓库规范应用 patch 的摘要；规范化只改变 diff 表示，实际应用结果必须符合设计中的固定完整文件摘要。最终两个私有包合计仍只允许三个 Rust 文件和一个 shared 文件变化，集合与 mode 不变，44条实际 closure 必须选择两份私有根。缺身份、伪造中间基线、旧字节、其他差异或官方 shared 回退均拒绝，即使重新封口也不放行。旧 v5 超时事实保留在 [#4989](https://github.com/nil-studio/oasis7/issues/4989)，旧收据不代签 v6；生产 v3、WASM helper 和旧 qualifier 对照保持原契约。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+再核对 `constraint-matching-identity.json`：两份 v5 收据摘要必须匹配，shared 基线由当次官方快照重新验证，最终仅同一 TypeInference 文件从 `4a65…` 变为 `8b32…`。区分官方原 patch 与仓库规范应用 patch 的摘要；规范化只改变 diff 表示，实际应用结果必须符合设计中的固定完整文件摘要。最终两个私有包合计仍只允许三个 Rust 文件和一个 shared 文件变化，集合与 mode 不变，44条实际 closure 必须选择两份私有根。缺身份、伪造中间基线、旧字节、其他差异或官方 shared 回退均拒绝，即使重新封口也不放行。旧 v5 超时事实保留在 [#4989](https://github.com/nil-studio/oasis7/issues/4989)，旧收据不代签 v6；当前生产按 §7.2.6 复用同一 v6 组成并独立验收，v3 中间层、旧 qualifier 对照与 WASM helper 保持各自固定合同。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 
 Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format、同一函数/循环/比较式的结构见证、expected→RHS localFlow、原 output→LHS Global taint，以及错函数、交叉操作数和 whole-bool 零负例。读取实际 QL、版本、标签和配对结果，不只看表的 PASS；派生 taint 不能称为字符串值相等。小 fixture、双 receiver 和同名非 stdlib 控制的通过范围另列，不能代替完整原仓库。历史 v1 的零值和 hosted failure 保留，不把本次修正后的判据追写为旧运行成功。
 
@@ -275,7 +275,7 @@ bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的
 
 `wasm-context-<run>-<attempt>-<tool-sha>` artifact 只包含 evidence 目录。依次核对 `terminal.json`、`job-clock.json`、`source-before/after.json`、`official-library-closure.json`、`library-closure.json`、`query-library.json`、`metadata-graph.json`、`actual-index.json` 和 `guard-verdict.json`：工具根必须在业务根外，完整根 workspace 保留 53 成员，实际索引必须与六包下 `.rs` 集合精确相等，guard 必须有预检之后的根 metadata 和精确 recovery-fence WASM `cargo check --lib` 调用。请求配置文件只表示请求，不构成实际上下文通过。
 
-本入口的 `library_variant` 固定为 `wasm-shared-helper-v1`。核对 `shared-helper-identity.json` 的固定补丁、上游提交及 shared 0.0.42 全部文件前后身份：只允许 §7.2.4 的 shared TypeInference 两个 helper hunk，stock rust-all 与其他官方库不变。实际 resolver 的 13 库集合必须只把 shared 根替换为本次私有副本；官方 shared 回退、额外修改、缺收据或未完成准备均拒绝。补丁与 helper 一同冻结，准备和应用使用原准备窗口；`helpers-after.json` 在成功或失败时重验官方 bundle、query pack 与私有 shared。该研究身份不代表已使用生产 v3，也不代签 §7.2.4 的完整候选合同；旧官方库运行的超时或未知结果保持原终态。
+本入口的 `library_variant` 固定为 `wasm-shared-helper-v1`。核对 `shared-helper-identity.json` 的固定补丁、上游提交及 shared 0.0.42 全部文件前后身份：只允许 §7.2.4 的 shared TypeInference 两个 helper hunk，stock rust-all 与其他官方库不变。实际 resolver 的 13 库集合必须只把 shared 根替换为本次私有副本；官方 shared 回退、额外修改、缺收据或未完成准备均拒绝。补丁与 helper 一同冻结，准备和应用使用原准备窗口；`helpers-after.json` 在成功或失败时重验官方 bundle、query pack 与私有 shared。该研究身份不代签 §7.2.6 的生产库接入与验收，也不代签 §7.2.4 的完整候选合同；旧官方库运行的超时或未知结果保持原终态。
 
 固定 CLI 的依赖接线回归为 `python3 scripts/security/codeql-rust-wasm-context.test.py RealSharedResolverTests`，显式设置 `OASIS7_CODEQL_WASM_SHARED_CLI` 为 2.27.4 可执行文件后，在一次 120 秒总界内实际应用固定补丁并解析私有及官方 shared 两种 closure，确认官方回退被拒绝、九项 QL 摘要及官方 bundle 前后不变。该回归使用独立缓存，不提取数据库、编译或求值；默认跳过，结果不代签 WASM 语义或性能。
 
