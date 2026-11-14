@@ -24,6 +24,7 @@ LOCAL_INPUTS_VERSION = 1
 _LOCAL_INPUT_TREES = ContextVar('local_input_trees', default=frozenset())
 FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
+ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION = 1
 ORDINARY_PARTITION_VERSION = 1
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
 DISTFS_CLIPPY_CONTRACT_VERSION = 1
@@ -1110,6 +1111,10 @@ def validate_config(config):
                 or type(config.get('ordinary_artifact_partition_version')) is not int
                 or config['ordinary_artifact_partition_version'] not in (1, 2)):
             raise ValueError('invalid ordinary artifact delivery capability')
+    if 'ordinary_main_fast_cache_writer_version' in config:
+        version = config['ordinary_main_fast_cache_writer_version']
+        if type(version) is not int or version != ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION:
+            raise ValueError('invalid ordinary main-fast cache writer capability')
     if 'ordinary_partition_version' in config:
         if (type(config['ordinary_partition_version']) is not int
                 or config['ordinary_partition_version'] != ORDINARY_PARTITION_VERSION
@@ -3193,6 +3198,15 @@ def complete_ordinary_partitions(config, plan):
     elif (config.get('ordinary_artifact_delivery_version') == 2
             and plan.get('ordinary_artifact_partition_version') == 2):
         plan['ordinary_artifact_delivery_version'] = 2
+    if (type(config.get('ordinary_main_fast_cache_writer_version')) is int
+            and config['ordinary_main_fast_cache_writer_version'] == ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION
+            and plan.get('execution_profile') == 'main-fast' and plan['scope'] == 'full'
+            and 'oasis7_required' in plan['groups']
+            and plan.get('ordinary_artifact_partition_version') in (1, 2)
+            and 'fast_execution_version' not in plan and plan.get('ordinary_execution') != 'inline'):
+        # This opts the complete producer into cache admission, never into a
+        # different build or test selection. Event/source trust stays in the DAG.
+        plan['ordinary_main_fast_cache_writer_version'] = ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))

@@ -881,7 +881,8 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
                     self.assertEqual(result.returncode, viewer_exit or trunk_exit, result.stdout + result.stderr)
                     self.assertEqual(trace.read_text().splitlines(), expected_calls)
 
-    def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='', real_receipt=False):
+    def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='',
+                      real_receipt=False, ref=None, policy_config=None):
         """Execute the real workflow shell against immutable local Git fixtures."""
         repo = Path(directory) / 'repo'
         repo.mkdir()
@@ -895,6 +896,8 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
                  'ci-formal-plan.py', 'ci-formal-process-suites.json')
         for name in files:
             (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if policy_config is not None:
+            (repo / 'scripts/ci-required-scope.json').write_text(json.dumps(policy_config))
         if not legacy:
             (repo / 'scripts/ci-python-control-contracts.py').write_bytes(
                 (ROOT / 'scripts/ci-python-control-contracts.py').read_bytes())
@@ -947,8 +950,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         environment = dict(os.environ, EVENT_NAME=event, SOURCE_REF=requested,
             SOURCE_SHA=source if candidate else policy, BASE_SHA=policy, WORKFLOW_SHA=source if candidate else policy,
             GITHUB_SHA=source if candidate else policy,
-            GITHUB_REF='refs/heads/candidate' if candidate and event != 'pull_request' else
-                       'refs/pull/1/merge' if event == 'pull_request' else 'refs/heads/main',
+            GITHUB_REF=ref or ('refs/heads/candidate' if candidate and event != 'pull_request' else
+                              'refs/pull/1/merge' if event == 'pull_request' else 'refs/heads/main'),
             RUNNER_TEMP=str(directory), GITHUB_OUTPUT=str(output),
             GITHUB_STEP_SUMMARY=str(Path(directory) / 'summary'))
         result = subprocess.run(['bash', '-c', script], cwd=repo, env=environment,
@@ -4119,6 +4122,100 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     condition = re.sub(r'!(?!=)', 'not ', condition.replace('&&', ' and ').replace('||', ' or '))
                     with self.subTest(job=name, profile=profile, trusted=trusted_source):
                         self.assertEqual(eval(' '.join(condition.split()), {'__builtins__': {}}, {}), expected)
+
+    def test_main_push_cache_capability_flows_from_trusted_selection_to_the_dag(self):
+        field = 'ordinary_main_fast_cache_writer_version'
+        jobs = ('oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+                'cache-bootstrap-maintenance', 'cache-maintenance')
+        conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
+                                      JOBS[name], re.M | re.S)[1] for name in jobs}
+        for enabled in (False, True):
+            config = {key: value for key, value in CONFIG.items() if key != field}
+            if enabled:
+                config[field] = 1
+            with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as directory:
+                result, outputs, plan, policy, source = self.run_selection(
+                    directory, event='push', candidate=True, ref='refs/heads/main', policy_config=config)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual((plan['scope'], plan['execution_profile']), ('full', 'main-fast'))
+                self.assertEqual((plan['policy_sha'], plan['source_sha'], plan['tested_sha']),
+                                 (policy, source, source))
+                self.assertNotEqual(policy, source)
+                self.assertEqual(plan.get(field), 1 if enabled else None)
+                self.assertEqual(outputs['trusted_source'], 'true')
+                projected = json.loads(outputs['plan'])
+                self.assertEqual(projected.get(field), plan.get(field))
+                values = {'needs.select.result': 'success', 'github.event_name': 'push',
+                          'github.ref': 'refs/heads/main', 'github.sha': source,
+                          'github.workflow_sha': source, 'inputs.run_mode': '',
+                          'needs.oasis7-test-build-trusted.result': 'success' if enabled else 'skipped',
+                          'needs.formal-debug-build-trusted.result': 'skipped',
+                          'needs.formal-endpoint-build-trusted.result': 'skipped'}
+                values.update({f'needs.select.outputs.{key}': value for key, value in outputs.items()})
+                for name in re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)',
+                                       '\n'.join(conditions.values())):
+                    values[f'fromJSON(needs.select.outputs.plan).{name}'] = projected.get(name)
+                for name, condition in conditions.items():
+                    self.assertEqual(effective_job_condition(condition, values, ['skipped', 'success']),
+                                     not enabled if name == 'oasis7-test-build-candidate' else enabled, name)
+                for maintenance in ('success', 'failure', 'skipped'):
+                    self.assertEqual(effective_job_condition(conditions['oasis7-test-build-trusted'], values,
+                                                            ['success', maintenance]), enabled)
+
+    def test_main_fast_cache_writer_preserves_identity_inline_and_recovery_boundaries(self):
+        prefix = 'fromJSON(needs.select.outputs.plan).'
+        ordinary = ('oasis7-test-build-candidate', 'oasis7-test-build-trusted')
+        formal = ('formal-debug-build-trusted', 'formal-endpoint-build-trusted')
+        names = (*ordinary, *formal, 'cache-bootstrap-maintenance', 'cache-maintenance')
+        conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
+                                      JOBS[name], re.M | re.S)[1] for name in names}
+        defaults = {
+            'needs.select.result': 'success', 'needs.select.outputs.run_oasis7_required': 'true',
+            'needs.select.outputs.run_formal_process': 'true', 'needs.select.outputs.trusted_source': 'true',
+            prefix + 'scope': 'full', prefix + 'execution_profile': 'main-fast',
+            prefix + 'fast_plan_version': 1, prefix + 'ordinary_main_fast_cache_writer_version': 1,
+            prefix + 'fast_execution_version': 0, prefix + 'ordinary_execution': '',
+            'github.event_name': 'push', 'github.ref': 'refs/heads/main',
+            'github.workflow_sha': 'a', 'github.sha': 'a', 'inputs.run_mode': 'full',
+        }
+        cases = (
+            ({}, True),
+            ({prefix + 'ordinary_main_fast_cache_writer_version': 0}, False),
+            ({prefix + 'ordinary_main_fast_cache_writer_version': 2}, False),
+            ({prefix + 'scope': 'targeted'}, False),
+            ({prefix + 'execution_profile': 'pr-fast'}, False),
+            ({'github.event_name': 'pull_request', 'github.ref': 'refs/pull/1/merge'}, False),
+            ({'github.event_name': 'schedule'}, False),
+            ({'github.event_name': 'workflow_dispatch'}, False),
+            ({'github.ref': 'refs/heads/candidate'}, False),
+            ({'github.workflow_sha': 'b'}, False),
+            ({'needs.select.outputs.trusted_source': 'false'}, False),
+            ({prefix + 'fast_execution_version': 1, prefix + 'ordinary_execution': 'inline'}, False),
+        )
+        for changes, admitted in cases:
+            for select, cancelled in itertools.product(('success', 'failure', 'skipped', 'cancelled'), (False, True)):
+                values = defaults | changes | {'needs.select.result': select}
+                inline = values[prefix + 'fast_execution_version'] == 1 and values[prefix + 'ordinary_execution'] == 'inline'
+                active = select == 'success' and not cancelled
+                writer = active and admitted
+                with self.subTest(changes=changes, select=select, cancelled=cancelled):
+                    for name, expected in ((ordinary[0], active and not inline and not admitted),
+                                           (ordinary[1], writer), ('cache-bootstrap-maintenance', writer),
+                                           *[(name, False) for name in formal]):
+                        self.assertEqual(effective_job_condition(conditions[name], values,
+                                                                ['skipped', select], cancelled=cancelled), expected, name)
+                    # In a fast profile, a Formal result must never admit
+                    # recovery in place of the selected ordinary writer.
+                    for ordinary_result, formal_result in itertools.product(
+                            ('success', 'failure', 'cancelled', 'skipped', '', 'unknown'), ('success', 'skipped')):
+                        completion = values | {
+                            'needs.oasis7-test-build-trusted.result': ordinary_result if active else 'skipped',
+                            'needs.formal-debug-build-trusted.result': formal_result,
+                            'needs.formal-endpoint-build-trusted.result': formal_result,
+                        }
+                        self.assertEqual(effective_job_condition(conditions['cache-maintenance'], completion,
+                            ['skipped', ordinary_result, formal_result], cancelled=cancelled),
+                            writer and ordinary_result == 'success')
 
     def test_selected_jobs_consume_fixed_source_and_same_plan(self):
         for name in ('baseline', 'oasis7-test-build-candidate', 'formal-test-build', 'formal-test-build-trusted',
