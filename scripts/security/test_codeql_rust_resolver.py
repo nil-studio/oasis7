@@ -213,7 +213,9 @@ class Resolver(unittest.TestCase):
                 self.invoke()
         self.assertEqual(len(self.sent()), 1)
         self.assertEqual(self.report()['acknowledged'], 0)
-        self.assertEqual(self.report()['error'], 'IO_ERROR')
+        self.assertEqual(self.report()['error'], 'RUNTIME_FAILURE')
+        self.assertEqual(self.report()['runtime']['execution_failure_kind'], 'unsafe')
+        self.assertEqual(self.report()['observer_error'], 'IO_ERROR')
         self.assert_closed()
 
     def test_parent_index_write_failure_keeps_raw_but_does_not_ack(self):
@@ -291,7 +293,8 @@ class Resolver(unittest.TestCase):
             self.invoke('term_tail', seconds=9)
         self.assertEqual(len(self.sent()), 1)
         self.assertIn(b'term-tail', (self.out/'resolver-session.log.stderr').read_bytes())
-        self.assertIn(self.report()['error'], ('DEADLINE', 'CANCELLED'))
+        self.assertIn(self.report()['runtime']['execution_failure_kind'], ('unsafe', 'timeout', 'child_exit'))
+        self.assertIn(self.report()['observer_error'], ('DEADLINE', 'CANCELLED'))
         self.assert_closed()
 
     def test_inflight_adapter_kill_is_reaped_by_parent_with_its_descendants(self):
@@ -375,6 +378,100 @@ class Resolver(unittest.TestCase):
         self.assertEqual(len(self.sent()), 1)
         self.assertEqual(self.report()['validated_responses'], 1)
         self.assertEqual(self.report()['acknowledged'], 0)
+        process = json.loads((self.out/'resolver-session.log.result.json').read_text())
+        self.assertEqual(process['execution_failure_kind'], 'unsafe')
+        self.assertEqual(process['error'], 'OBSERVATION_ERROR')
+        self.assertEqual(self.report()['error'], 'RUNTIME_FAILURE')
+        self.assertEqual(self.report()['runtime']['execution_failure_kind'], process['execution_failure_kind'])
+        self.assertEqual(self.report()['runtime']['error'], process['error'])
+        self.assertIn(self.report()['observer_error'], ('CANCELLED', 'CONTROL_EOF'))
+        self.assert_closed()
+
+    def test_terminal_poll_keeps_last_command_closing_deadline_without_ack(self):
+        # The terminal may arrive during the already-reserved cleanup interval.
+        original = m.Observation._event
+        checked = []
+        def event(observer, value):
+            result = original(observer, value)
+            if value.get('kind') == 'terminal':
+                end = observer.current['deadline']
+                with patch.object(m.time, 'monotonic', return_value=end-.01):
+                    observer.poll(observer.plan['end'])
+                with patch.object(m.time, 'monotonic', return_value=end+.01):
+                    with self.assertRaisesRegex(m.ResolverError, 'DEADLINE'):
+                        observer.poll(observer.plan['end'])
+                checked.append(True)
+            return result
+        with patch.object(m.Observation, '_event', event):
+            with self.assertRaises(m.ResolverError):
+                self.invoke()
+        self.assertEqual(checked, [True])
+        self.assertEqual(len(self.sent()), 38)
+        self.assert_closed()
+
+    def test_runtime_return_after_last_command_deadline_cannot_complete(self):
+        real_clock, real_run = time.monotonic, m.runtime.run
+        offset = [0.0]
+        def run(*args, **kwargs):
+            result = real_run(*args, **kwargs)
+            observer = kwargs['observer']
+            # The shared end remains in the future; only this command's
+            # original closing deadline has elapsed after runtime returns.
+            offset[0] = observer.current['deadline']+.01-real_clock()
+            self.assertLess(real_clock()+offset[0], observer.plan['end'])
+            return result
+        with patch.object(m.time, 'monotonic', side_effect=lambda: real_clock()+offset[0]), patch.object(m.runtime, 'run', run):
+            with self.assertRaisesRegex(m.ResolverError, 'DEADLINE'):
+                self.invoke()
+        self.assertEqual(self.report()['status'], 'INCOMPLETE')
+        self.assertEqual(self.report()['error'], 'DEADLINE')
+        self.assert_closed()
+
+    def test_final_receipt_crossing_either_cutoff_is_a_failure_receipt(self):
+        for cutoff in ('command', 'shared'):
+            with self.subTest(cutoff=cutoff):
+                fixture = Resolver('test_actual_child_one_server_all_37_responses_and_persisted_acks')
+                fixture.setUp()
+                real_clock, real_write = time.monotonic, m.runtime.evidence_write
+                offset, writes = [0.0], []
+                def write(path, data, root, terminal=False):
+                    result = real_write(path, data, root, terminal=terminal)
+                    if Path(path).name == 'resolver-session.json':
+                        report = json.loads(data)
+                        writes.append(report['status'])
+                        if len(writes) == 1:
+                            end = report['commands'][-1]['deadline'] if cutoff == 'command' else report['absolute_end']
+                            offset[0] = end+.01-real_clock()
+                    return result
+                try:
+                    with patch.object(m.time, 'monotonic', side_effect=lambda: real_clock()+offset[0]), patch.object(m.runtime, 'evidence_write', write):
+                        with self.assertRaisesRegex(m.ResolverError, 'DEADLINE'):
+                            fixture.invoke()
+                    self.assertEqual(writes, ['COMPLETE', 'INCOMPLETE'])
+                    self.assertEqual(fixture.report()['status'], 'INCOMPLETE')
+                    self.assertEqual(fixture.report()['error'], 'DEADLINE')
+                    fixture.assert_closed()
+                finally:
+                    fixture.doCleanups()
+
+    def test_late_failure_receipt_retains_the_existing_runtime_primary(self):
+        real_clock, real_write = time.monotonic, m.runtime.evidence_write
+        offset, writes = [0.0], []
+        def write(path, data, root, terminal=False):
+            result = real_write(path, data, root, terminal=terminal)
+            if Path(path).name == 'resolver-session.json':
+                report = json.loads(data)
+                writes.append((report['status'], report['error']))
+                if len(writes) == 1:
+                    offset[0] = report['commands'][-1]['deadline']+.01-real_clock()
+            return result
+        with patch.object(m.time, 'monotonic', side_effect=lambda: real_clock()+offset[0]), patch.object(m.runtime, 'evidence_write', write):
+            with self.assertRaisesRegex(m.ResolverError, 'ADAPTER_EXIT'):
+                self.invoke('bad_cache')
+        self.assertEqual(writes, [('INCOMPLETE', 'ADAPTER_EXIT'), ('INCOMPLETE', 'ADAPTER_EXIT')])
+        self.assertEqual(self.report()['runtime']['execution_failure_kind'], 'child_exit')
+        self.assertEqual(self.report()['observer_error'], 'COMPILATION_CACHE')
+        self.assertTrue(self.report()['receipt_deadline_exceeded'])
         self.assert_closed()
 
     def test_global_evidence_limit_never_admits_another_query(self):
@@ -399,7 +496,9 @@ class Resolver(unittest.TestCase):
             with self.assertRaises(m.ResolverError):
                 self.invoke(seconds=9)
         self.assertEqual(len(self.sent()), 1)
-        self.assertEqual(self.report()['error'], 'DEADLINE')
+        self.assertEqual(self.report()['error'], 'RUNTIME_FAILURE')
+        self.assertEqual(self.report()['runtime']['execution_failure_kind'], 'unsafe')
+        self.assertEqual(self.report()['observer_error'], 'DEADLINE')
         self.assertEqual(self.report()['acknowledged'], 0)
         self.assert_closed()
 
@@ -416,7 +515,8 @@ class Resolver(unittest.TestCase):
             with self.assertRaises(m.ResolverError):
                 self.invoke(seconds=9)
         self.assertEqual(len(self.sent()), 1)
-        self.assertEqual(self.report()['error'], 'DEADLINE')
+        self.assertIn(self.report()['runtime']['execution_failure_kind'], ('unsafe', 'child_exit'))
+        self.assertEqual(self.report()['observer_error'], 'DEADLINE')
         self.assertEqual(self.report()['validated_responses'], 1)
         self.assertEqual(self.report()['acknowledged'], 0)
         self.assert_closed()
@@ -430,7 +530,9 @@ class Resolver(unittest.TestCase):
             with self.assertRaises(m.ResolverError):
                 self.invoke()
         self.assertEqual(len(self.sent()), 1)
-        self.assertEqual(self.report()['error'], 'QUERY_IDENTITY')
+        self.assertEqual(self.report()['error'], 'RUNTIME_FAILURE')
+        self.assertEqual(self.report()['runtime']['execution_failure_kind'], 'unsafe')
+        self.assertEqual(self.report()['observer_error'], 'QUERY_IDENTITY')
         self.assertEqual(self.report()['acknowledged'], 0)
         self.assert_closed()
 

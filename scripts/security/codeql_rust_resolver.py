@@ -381,15 +381,22 @@ class Observation:
             raise
         return bytes(output)
 
+    def closing_deadline(self):
+        return min(self.plan['end'], self.current['deadline'] if self.current else
+                   self.plan['started'] + COMMAND_SECONDS)
+
     def poll(self, payload_end):
         self.payload_end = min(self.payload_end, payload_end)
-        if self.terminal is not None:
-            return
-        if self.error:
-            raise ResolverError(self.error)
-        end = min(self.payload_end,
-                  self.current['deadline'] - CLEANUP_SECONDS if self.current else self.first_work_end)
         try:
+            if self.terminal is not None:
+                # A control terminal is not actual adapter exit/EOF. Allow the
+                # existing cleanup reserve, but never start another clock.
+                _check(self.closing_deadline())
+                return
+            if self.error:
+                raise ResolverError(self.error)
+            end = min(self.payload_end,
+                      self.current['deadline'] - CLEANUP_SECONDS if self.current else self.first_work_end)
             _check(end)
             if self.pending_ack is not None:
                 if runtime.output_bytes(self.out) >= runtime.WRITE_CAP:
@@ -449,8 +456,9 @@ def error_code(exc):
     if isinstance(exc, ResolverError):
         return exc.code if valid_code(exc.code) else 'RESOLVER_ERROR'
     if isinstance(exc, runtime.PhaseError):
+        first = exc.result.get('execution_failure_kind') or exc.result.get('failure_kind')
         return {'cancelled': 'CANCELLED', 'timeout': 'DEADLINE',
-                'child_exit': 'ADAPTER_EXIT'}.get(exc.result.get('failure_kind'), 'RUNTIME_FAILURE')
+                'child_exit': 'ADAPTER_EXIT'}.get(first, 'RUNTIME_FAILURE')
     if isinstance(exc, RuntimeError) and str(exc) == 'combined evidence budget exceeded before write':
         return 'EVIDENCE_LIMIT'
     return ('DEADLINE' if isinstance(exc, TimeoutError) else
@@ -470,7 +478,7 @@ def resolve(codeql, records, closures, work, out, run, *, end, mode, on_stage=No
                 closures=closures, started=started, end=end, ack={},
                 output_limit=runtime.WRITE_CAP - runtime.output_bytes(out))
     observer = reaper = result = failure = None
-    report = dict(schema=SCHEMA, status='INCOMPLETE', error=None, commands=[],
+    report = dict(schema=SCHEMA, status='INCOMPLETE', error=None, error_source=None, observer_error=None, commands=[],
                   started_monotonic=started, absolute_end=end)
     if on_stage:
         on_stage('resolve-00')
@@ -495,13 +503,14 @@ def resolve(codeql, records, closures, work, out, run, *, end, mode, on_stage=No
         del request_bytes
         result = run(argv, 'resolver-session', None, observer=observer,
                      restricted_output=True, reap_orphans=True)
+        _check(observer.closing_deadline())
     except BaseException as exc:
         failure = exc
         result = getattr(exc, 'result', result)
-        first = result.get('execution_failure_kind') if result else None
-        report['error'] = ({'cancelled': 'CANCELLED', 'timeout': 'DEADLINE'}[first]
-                           if first in ('cancelled', 'timeout') else
-                           observer.error if observer and observer.error else error_code(exc))
+        # Runtime preserves its first execution error. A later observer error
+        # during cleanup cannot identify or replace that primary failure.
+        report['error'] = error_code(exc)
+        report['error_source'] = 'runtime' if isinstance(exc, runtime.PhaseError) else 'resolver'
     finally:
         if observer:
             safe = bool(result and result.get('pid') and not result.get('cleanup_errors'))
@@ -509,21 +518,29 @@ def resolve(codeql, records, closures, work, out, run, *, end, mode, on_stage=No
             original_error = report['error']
             report.update(observer.summary(), commands=observer.commands,
                           server=observer.server, terminal=observer.terminal,
-                          ack_pipe_eof=observer.pipe_eof)
+                          ack_pipe_eof=observer.pipe_eof, observer_error=observer.error)
             report['error'] = original_error or observer.error
+            if not original_error and observer.error:
+                report['error_source'] = 'observer'
         if reaper:
             try:
                 reaper.close()
                 report['parent_subreaper_restored'] = True
             except BaseException as exc:
                 report['parent_subreaper_restored'] = False
-                report['error'] = report['error'] or error_code(exc)
+                if not report['error']:
+                    report.update(error=error_code(exc), error_source='resolver')
                 failure = failure or exc
         else:
             report['parent_subreaper_restored'] = True
         report['runtime'] = {key: result.get(key) for key in
-                             ('pid', 'pgid', 'exit', 'failure_kind', 'cleanup_errors', 'evidence_errors', 'elapsed')} if result else None
+                             ('pid', 'pgid', 'exit', 'execution_failure_kind', 'failure_kind', 'error',
+                              'cleanup_errors', 'evidence_errors', 'elapsed')} if result else None
         report['elapsed_seconds'] = time.monotonic() - started
+        closing_end = observer.closing_deadline() if observer else min(end, started + COMMAND_SECONDS)
+        report['closing_deadline'] = closing_end
+        if time.monotonic() >= closing_end and not report['error']:
+            report.update(error='DEADLINE', error_source='closing_deadline')
         terminal = observer.terminal if observer else None
         server = terminal.get('server', {}) if terminal else {}
         complete = bool(
@@ -538,14 +555,25 @@ def resolve(codeql, records, closures, work, out, run, *, end, mode, on_stage=No
             and server.get('pid') == observer.server['pid'] and server.get('pgid') == result.get('pgid')
             and type(result.get('exit')) is int and result['exit'] == 0 and not result.get('failure_kind')
             and not result.get('cleanup_errors') and not result.get('evidence_errors')
-            and report['parent_subreaper_restored'] and time.monotonic() < end)
+            and report['parent_subreaper_restored'] and time.monotonic() < closing_end)
         report['status'] = 'COMPLETE' if complete else 'INCOMPLETE'
         if not complete:
-            report['error'] = report['error'] or 'SESSION_INCOMPLETE'
-        encoded = (json.dumps(report, indent=2) + '\n').encode()
-        if len(encoded) > runtime.MAX_CONTROL_RECEIPT:
-            raise ResolverError('SESSION_RECEIPT_LIMIT')
-        runtime.evidence_write(out / 'resolver-session.json', encoded, out, terminal=True)
+            if not report['error']:
+                report.update(error='SESSION_INCOMPLETE', error_source='resolver')
+        def save_report():
+            encoded = (json.dumps(report, indent=2) + '\n').encode()
+            if len(encoded) > runtime.MAX_CONTROL_RECEIPT:
+                raise ResolverError('SESSION_RECEIPT_LIMIT')
+            runtime.evidence_write(out / 'resolver-session.json', encoded, out, terminal=True)
+        save_report()
+        if time.monotonic() >= closing_end:
+            report.update(status='INCOMPLETE', receipt_deadline_exceeded=True,
+                          elapsed_seconds=time.monotonic() - started)
+            if not report['error']:
+                report.update(error='DEADLINE', error_source='receipt_deadline')
+            # As in runtime, this is only a late failure receipt, never a new
+            # execution or cleanup window and never a replacement first error.
+            save_report()
     if report['status'] != 'COMPLETE':
         index = (observer.current['index'] if observer and observer.current else 0)
         raise ResolverError(report['error'], index) from failure
