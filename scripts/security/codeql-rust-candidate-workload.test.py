@@ -14,6 +14,7 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+from test_codeql_rust_resolver import fake_runtime_session
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -293,6 +294,17 @@ class Workload(unittest.TestCase):
             (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('constraint-matching-shared')
             output.write_text('applied fixed ConstraintMatching fixture')
         elif name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
+        elif name == 'resolver-session':
+            self.assertTrue(observation['restricted_output'])
+            self.assertTrue(observation['reap_orphans'])
+            def response(record):
+                closure = m.read_json(self.out / 'selected-closures.json')[record['kind']]
+                return dict(libraryPath=[record['root'], *[v['root'] for v in closure.values()]],
+                            dbscheme=str(self.work / 'candidate-rust-all/rust.dbscheme'),
+                            compilationCache=[str(self.work / 'resolve-compilation-cache')],
+                            relativeName=record['pack'] + '/' + record['relative'], qlPackName=record['pack'])
+            fail = int(self.failed_stage[8:]) if self.failed_stage and self.failed_stage.startswith('resolve-') else None
+            return fake_runtime_session(observation['observer'], output, response, fail_index=fail)
         elif name.startswith('resolve-'):
             path = Path(next(a.split('=', 1)[1] for a in argv if a.startswith('--query=')))
             kind = 'default' if path.is_relative_to(self.work / 'default-queries') else 'witness'
@@ -402,6 +414,14 @@ class Workload(unittest.TestCase):
     def prepare(self):
         self.assertEqual(self.invoke('prepare'), 0)
         m.comparison.verify_seal(self.out, time.monotonic() + 30)
+
+    def test_44_actual_bindings_use_one_owned_resolver_session(self):
+        self.prepare()
+        self.assertEqual(len(m.read_json(self.out / 'library-resolution.json')), 44)
+        sessions = [call for call in self.calls if call[0] == 'resolver-session']
+        independent = [call for call in self.calls if call[1][1:3] == ['resolve', 'library-path']]
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(independent, [])
 
     def test_original_source_copy_preserves_support_and_discards_published_bindings(self):
         self.prepare()
@@ -1083,9 +1103,10 @@ class RealCodeQL(unittest.TestCase):
             for folder in (work, out, source): folder.mkdir()
             end = time.monotonic() + 600
             env = {key: value for key, value in os.environ.items() if key not in ('GH_TOKEN', 'GITHUB_TOKEN')}
-            def run(argv, label, limit):
+            def run(argv, label, limit=None, **options):
                 return m.runtime.run(list(map(str, argv)), source, out / (label + '.log'),
-                                     end, limit, out, env, file_limit=None)
+                                     end, min(end-time.monotonic(), limit or end-time.monotonic()),
+                                     out, env, file_limit=None, **options)
             run([codeql, 'version', '--format=json'], 'version', 20)
             self.assertEqual(m.read_json(out / 'version.log')['version'], '2.27.4')
             official = m.capacity.bundle.bundle_closure(codeql.parent, '2.27.4')
@@ -1110,7 +1131,7 @@ class RealCodeQL(unittest.TestCase):
                          queries=m.capacity.suite_entries(m.read_json(out / 'official-suite.log'), published))
             frozen = m.capacity.semantic_contract(source, image_version=m.IMAGE_CONTRACT)['query_sha256']
             records = m.source_layout(codeql.parent, work, out, source, suite, frozen, end)
-            m.resolve_layout(codeql, records, closures, work, out, run)
+            m.resolve_layout(codeql, records, closures, work, out, run, end=end)
             resolved = m.read_json(out / 'library-resolution.json')
             self.assertEqual(len(records), 44); self.assertEqual(len(resolved), 44)
             for result in resolved:

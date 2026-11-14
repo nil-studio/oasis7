@@ -517,7 +517,13 @@ framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 Ki
 
 官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
 
-摘要累计 stdout/stderr 字节数与 SHA256 覆盖整个实际观察流，不受 48 MiB capture 存储上限限制。消费者逐记录处理并丢弃原文，保持 2 MiB 单条、100000 条记录及原 20 秒共同截止；累计流超过 48 MiB 后仍逐项执行完整 schema、失败状态和尾部验证，不能只校验前缀。两流 pending 共用活跃额度，framer 在解析前移交并清空当前 pending，不保留整段 split 副本。每次 runtime 读块最多 64 KiB；解析前按 `12 × 当前记录字节数 + 512 × ({ 与 : 的数量) + 128 × [ 的数量 + 64 × 逗号数量` 及另一流 pending 作保守计账。字典及键值暂存、数组容器与标量槽分别计费，均直接按原字节计数，字符串内命中也计入；不逐字节重写 JSON parser。该预检只约束解析暂存，不替代 JSON 或 schema 校验；额度不足可以在单条硬上限之前明确拒绝。3744 项迭代（1232 个非负值、2512 个负标记）及相应 delta 数组的公开 fixture 须继续准入，不能把已观察的大数组误算为同等数量的字典。
+摘要累计 stdout/stderr 字节数与 SHA256 覆盖整个实际观察流，不受 48 MiB capture 存储上限限制。消费者逐记录处理并丢弃原文，保持 2 MiB 单条、100000 条记录及原 20 秒共同截止；累计流超过 48 MiB 后仍逐项执行完整 schema、失败状态和尾部验证，不能只校验前缀。两流 pending 共用活跃额度，framer 在解析前移交并清空当前 pending，不保留整段 split 副本；当前行转换为 bytes 时的 pending/bytes 同时存活计入 framing 峰值。每次 runtime 读块最多 64 KiB。
+
+JSON 准入先在原 bytes 上识别字符串边界、转义和真实结构，不先整行 decode，不建 token 列表，也不使用为长字符串保留逐字符回溯状态的正则。长字面片段由固定字符类 search、find/count 跳过；字符串内的冒号、逗号和括号不作为容器收费。词法检查仅决定保守表示上界，后续仍由原 JSON/schema 校验拒绝重复键、未知字段、非法 UTF-8/转义、非有限数、类型/范围和截断，不能以预检通过替代字段验证。
+
+设当前源字节数为 N，整行解码表示宽度上界为 K（1、2、4），各字符串按字面片段字节数与反转义单位数上界、自己的宽度及 UTF-8 编码长度上界分别计量。ASCII 源中的 Unicode 转义和代理对可产生较宽的值，不能沿用源的 K；一处字面宽字符也可能扩宽整行 decode。解析 tree 分账为每个字符串的内容表示加 128 字节、非字符串标量 token 每个源字节 4 字节，再加 `512 × (对象数 + 实际键值分隔数) + 128 × 数组数 + 64 × 实际元素分隔数`；空白和结构符不重复算作标量。对象/键值费用包含 object_pairs_hook 的 pairs list/tuple 与最终 dict 同时存活，以及解析器键缓存；后续校验阶段的 associations set 可包含44项之外的唯一 query，仍计入同一结构峰，不能按44个已知 query 免计。
+
+按所有权分三阶段取最大值，再加另一流 pending：decode 峰为 `N + 2 × K × N`，为旧/新解码 writer 同时存活留额；parse 峰为 `N + K × N + tree + 2 × 最大单字符串内容表示`，包含反转义 writer/chunks 的暂存；校验/投影峰为 `N + tree + 最大单字符串反转义后 UTF-8 编码长度上界`。整行 decode 在 parse 返回后不再与后续编码机械累加，text_value 临时编码却不能漏算。固定映射的排序、行对象及其 JSON/UTF-8 编码同时存活继续计入下表控制分账。该模型是有界输入/保留表示的保守分账，不声明 Python allocator/RSS 硬上限；没有以未知私有失败行反推新系数。公开合法大 ASCII、标点字符串、转义等价、BMP/nonBMP、dense 容器与 late-wide 空白样例须验证不同表示和阶段峰；原3744项迭代及对应 delta、累计超过48MiB后的完整尾部验证继续保留。2MiB仍为外层记录硬上限，并不保证任意较小对象都能在状态额度内准入。
 
 摘要接手同一 4 MiB 活跃额度，固定分账如下；不增加第二份活跃状态预留。
 
@@ -529,6 +535,8 @@ framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 Ki
 | 两流 framing、逐记录源字节及解析暂存 | 1572864 |
 
 schema 编码至多 64 KiB、query 映射至多 128 KiB，排名每行至多 2 KiB，临时第 51 项也计入分账；启动 Summary 前释放已经结束的 batch `Progress.queries`，其原 streams/counts 收据继续保留。RA 索引用完整摘要判等，每条最多探测 256 个槽；达到 distinct 上限后仍能查到旧 RA，新 RA 或探测饱和须以 `SUMMARY_STATE_LIMIT` 拒绝，不消耗额外截止。不得清表、截断摘要或静默省略后宣称 `PROJECTED`。状态或输入边界失败须保持 sticky `PARTIAL`，继续现有 runtime 的有限排空与全观察字节/摘要计量，不能恢复完整状态或覆盖原批次首失败。
+
+状态限只增加一个至多2KiB的 sticky first-limit 对象，计入原控制分账及收据上限。固定枚举区分 schema/query、chunk/framing、decode/parse/projection、RA容量/探测与排名行分支；有界整数仅记录流行号、已接纳数量、原字节/另一流pending、真实结构/字符串计数、阶段峰及适用额度，或该分支的RA/probe/行编码大小。没有完整记录时不补长度，不保存原文、名称、路径或异常自由文本；预检拒绝不能标记schema已验证。诊断失败不得覆盖最早状态限或原查询首错，不新增验收门禁，也不回填旧运行的失败记录。
 
 `Summary.summary()` 只承接 runtime 已结束进程与有限 drain 后的幂等终态快照；先保留实际 EOF、未完成 pending 长度及原错误，再释放 RA 表、framing 和不再使用的映射/编码状态后构造受限摘要。没有真实 EOF 的路径仍为 `PARTIAL`，不补 EOF；终态快照后禁止继续 feed，只允许重复读取同一结果。此交接覆盖取消、超时和 drain 未闭合路径，不能只对正常 EOF 释放状态。
 
@@ -623,6 +631,8 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；本节只改变 §7.2.
 一次既有 `runtime.run` 拥有一个 Python adapter 进程组，adapter 内只启动一次固定 2.27.4 `execute cli-server`，server 与其 launcher/Java 后代继承同一 PGID。进程不跨 `runtime.run` 保活，失败不重启、不切回逐条独立 CLI 补跑。命令是 UTF-8 JSON argv 数组加 NUL；同时最多一条未完成命令。每个实际响应收到 NUL 后，adapter 先核对完整 JSON、五字段、冻结 query 身份与指定 cache，再将该 index 的有界响应交给父执行器。NUL 是协议完成标记，不是 OS exit 0；收据分别保存命令完成标记、实际 server launcher 退出和 adapter 退出。
 
 父 wrapper 在 spawn 前读取、保存并启用自身的 Linux child-subreaper 状态，outer `runtime.run` 显式使用 `reap_orphans=True`，只 wait/reap 本次 owned PGID；该选项本身不启用孤儿收养。adapter 也启用 child-subreaper，并在 TERM 后停止发命令、按原截止收齐 launcher/Java 和输出；若 adapter 在途中被终止，父 wrapper 负责收养并回收该组后代。正常、异常、取消与 spawn 失败都执行有界收尾，并最终恢复父 wrapper 原有 subreaper 状态。状态设置或清理不可信时停止执行；成功退出小样本不能代替在途 TERM/KILL 与孤儿回收的负例。
+
+共享 runtime 的 owned-PGID waitpid 清理必须保留 `(pid, status)`；若回收当前 leader，使用 `os.waitstatus_to_exitcode(status)` 回填其唯一拥有的 `Popen.returncode`，group wait 及回填遵循 Popen 等待锁协议，防止后续 ECHILD 伪造 0。只修正真实退出收据，不改变首失败、deadline 或清理范围；以实际子进程和 WNOWAIT 同步固定 poll→group-wait 竞态，覆盖非零及 signal 状态。
 
 父进程是 evidence 的唯一持久写入者。父观察器再次校验当前 index、query 身份和实际响应，完成该条原始 resolver 响应及 `library-resolution.json` 的保存后，才允许 ACK 当前 index；adapter 收到恰好匹配的 ACK 才能发送下一条。保留已有逐条实际结果与候选/生产 closure 状态含义，不伪造 44 或 37 份独立进程退出收据。运行终态另外绑定唯一 adapter/server 生命周期、已完成前缀和首个失败 index。写失败、超限或任何校验失败均不发送 ACK，保留已保存前缀及当前失败项，尚未发送的项保持未执行。
 

@@ -333,8 +333,15 @@ def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=N
                             proc.poll()
                             if reap_orphans:
                                 try:
-                                    while os.waitpid(-proc.pid, os.WNOHANG)[0] > 0:
-                                        pass
+                                    with proc._waitpid_lock:
+                                        while True:
+                                            waited_pid, status = os.waitpid(-proc.pid, os.WNOHANG)
+                                            if waited_pid <= 0:
+                                                break
+                                            if waited_pid == proc.pid:
+                                                # A leader may exit after poll(). Preserve its
+                                                # real status before a later poll sees ECHILD.
+                                                proc.returncode = os.waitstatus_to_exitcode(status)
                                 except ChildProcessError:
                                     pass
                             try:
