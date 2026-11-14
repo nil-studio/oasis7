@@ -9137,6 +9137,7 @@ var binding = (view) => JSON.stringify([
 var nextRetentionInstance = 0;
 function createWorldViewClient({ request, onChange = () => {} }) {
 	const retentionInstance = ++nextRetentionInstance;
+	const inflightRetention = /* @__PURE__ */ new Map();
 	let generation = 0, scopeSequence = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
 	let state = {
 		view: null,
@@ -9170,7 +9171,35 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 				...query.maps().flatMap((map) => [...map.values()])
 			] : [];
 			const paging = measured ? measureRetainedJson(pagingRoots) : unknown;
+			const inflight = {
+				currentQueries: 0,
+				retiredQueries: 0,
+				currentMapEntries: [
+					0,
+					0,
+					0,
+					0
+				],
+				retiredMapEntries: [
+					0,
+					0,
+					0,
+					0
+				],
+				currentCursors: 0,
+				retiredCursors: 0,
+				currentPageReferences: 0,
+				retiredPageReferences: 0
+			};
+			for (const [id, row] of inflightRetention) {
+				const current = id === generation;
+				inflight[current ? "currentQueries" : "retiredQueries"]++;
+				for (let n = 0; n < 4; n++) inflight[current ? "currentMapEntries" : "retiredMapEntries"][n] += row.maps[n];
+				inflight[current ? "currentCursors" : "retiredCursors"] += row.cursors;
+				inflight[current ? "currentPageReferences" : "retiredPageReferences"] += row.pageReferences;
+			}
 			return {
+				inflight,
 				measured,
 				instanceSequence: retentionInstance,
 				localGeneration: generation,
@@ -9203,7 +9232,7 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 					cursors: query?.seen.size || 0
 				},
 				observationMs: performance.now() - started,
-				semantics: "current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory"
+				semantics: "current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; inflight counts cover current/retired query-local maps until finally, without heap-byte attribution; other closure/transport roots separate; not heap/GPU/total memory"
 			};
 		},
 		invalidate() {
@@ -9249,6 +9278,27 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 			let resume = delta && baselineQuery === queryKey && !state.stale && !state.view?.source_frozen ? state.view?.resume_cursor : null;
 			if (!resume && !preserveChanges) publish({ changes: [] });
 			let lastPublished = null, recoveries = 0, restart = false, first = null, cursor, entities = /* @__PURE__ */ new Map(), relations = /* @__PURE__ */ new Map(), aggregates = /* @__PURE__ */ new Map(), events = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set(), pages = 0;
+			const scalarRetention = {
+				maps: [
+					0,
+					0,
+					0,
+					0
+				],
+				cursors: 0,
+				pageReferences: 0
+			};
+			inflightRetention.set(current, scalarRetention);
+			const updateScalarRetention = () => {
+				scalarRetention.maps = [
+					entities.size,
+					relations.size,
+					aggregates.size,
+					events.size
+				];
+				scalarRetention.cursors = seen.size;
+				scalarRetention.pageReferences = Number(Boolean(first)) + Number(Boolean(lastPublished));
+			};
 			retainedQuery = {
 				generation: current,
 				maps: () => [
@@ -9266,6 +9316,7 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 				do {
 					restart = false;
 					if (++pages > 20 || Date.now() > deadline) throw Error("World view request budget exceeded");
+					updateScalarRetention();
 					const page = await request({
 						...query,
 						page_size: pageSize,
@@ -9404,6 +9455,7 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 						return state.view;
 					}
 					lastPublished = nextView;
+					updateScalarRetention();
 					publish({
 						view: nextView,
 						stale: false
@@ -9434,6 +9486,7 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 				});
 				return null;
 			} finally {
+				inflightRetention.delete(current);
 				if (retainedQuery?.generation === current) retainedQuery = null;
 			}
 		}
@@ -9460,6 +9513,12 @@ function createWorldViewTransport({ send, timeoutMs = 1e4, getScope = () => null
 	const pending = /* @__PURE__ */ new Map();
 	let sequence = 0;
 	return {
+		statistics() {
+			return {
+				pendingRequests: pending.size,
+				semantics: "transport pending entries, not retained heap bytes"
+			};
+		},
 		request(query) {
 			const id = `${query.request_generation}:${++sequence}`;
 			return new Promise((resolve, reject) => {
@@ -17372,6 +17431,7 @@ var legacy_core_exports = /* @__PURE__ */ __exportAll({
 	modelLists: () => modelLists,
 	needsEmptyEntitySnapshotRefreshForTest: () => needsEmptyEntitySnapshotRefreshForTest,
 	pushChatHistory: () => pushChatHistory,
+	readWorldViewTransportStatistics: () => readWorldViewTransportStatistics,
 	refreshHostedAdmissionState: () => refreshHostedAdmissionState,
 	refreshPromptControlBinding: () => refreshPromptControlBinding,
 	registerPlayerSessionForTest: () => registerPlayerSessionForTest,
@@ -20504,6 +20564,7 @@ var worldViewTransport = createWorldViewTransport({
 	getConnection: () => socket
 });
 var requestWorldView = (query) => worldViewTransport.request(query);
+var readWorldViewTransportStatistics = () => worldViewTransport.statistics();
 var scopeSnapshotTransport = createScopeSnapshotTransport({
 	send: sendJson,
 	getScope: () => worldViewScopeKey(state),
@@ -22113,7 +22174,16 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	const controller = {
 		readStatistics(expectedSourceCut = null, measure = true) {
 			if (disposed || pixelWorldScope(core.state) !== scope) return null;
-			return client.statistics?.(expectedSourceCut, measure) ?? null;
+			const statistics = client.statistics?.(expectedSourceCut, measure);
+			if (!statistics) return null;
+			const pending = core.readWorldViewTransportStatistics?.()?.pendingRequests;
+			return {
+				...statistics,
+				transport: {
+					pendingRequests: Number.isSafeInteger(pending) && pending >= 0 ? pending : null,
+					semantics: "page world-view transport pending entries, including retired queries; not per-client facts or heap bytes"
+				}
+			};
 		},
 		state,
 		navigation,
