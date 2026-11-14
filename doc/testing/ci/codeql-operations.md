@@ -239,11 +239,15 @@ Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format
 
 默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；v6 研究候选必须重新完整计算37+7，不能复用旧37结果。两处可见性计划的结构改进和官方小 fixture 结果不证明全仓耗时、内存或递归收敛改善。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
 
-该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。原始事件只在 owned FIFO 和最多 48 MiB sealed memfd 中存活；不上传或另存原文。64 MiB 总限同时包含临时内存、持久化证据和终态预留，memfd 存活期间预留完整 48 MiB；所有观测投影、样本与收据合计最多 8 MiB。先核对 batch 原退出、已有结果和身份，再读官方 predicates 摘要的独立状态；摘要最多一次、20 秒且含清理，仍受原证据截止约束，余量不足不启动。
+该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。候选专用 capture 将 owned FIFO 的原流无损保存为 gzip sealed memfd，固定 zlib level 1、windowBits 31、memLevel 8；encoded payload 最多 47 MiB，codec/传输有界缓冲保守预留 1 MiB，仍合计占原 48 MiB 临时预留。64 MiB 总限同时包含临时内存、持久化证据和终态预留；观测的 8 MiB 子限继续分为 4 MiB 数值 framing/解析/关联状态和最多 4 MiB 持久化观测证据。原流、编码内容及解压副本均不上传或另存普通文件。默认 raw Capture、WASM 与共享 runtime 保持原行为。
 
-原文保留达到 48 MiB 时，capture 保留 `MEMORY_LIMIT` 和 `INCOMPLETE`，继续排空、计数和哈希，不再保存新增原文。原 batch 及结果/oracle 校验可在原预算内收尾，官方 summary 跳过；总体研究仍不完整。分别读取 observed、retained、discarded 字节数及 transport EOF，不把保留前缀的 header/footer 或事件数当完整日志。写入、证据空间、进程身份和清理异常仍按原规则中止。
+分别读取原流观察长度/SHA256、header/footer、transport EOF，以及 encoded 存储长度/SHA256、gzip finish 和 seals；两种字节数不可混用，封存成功不能代替原流完整。编码写入或 finish 将超 47 MiB 时，capture 保留 `MEMORY_LIMIT` 和 `INCOMPLETE`，停止新增存储，继续排空原流、计数、哈希和白名单数值投影。原 batch 及结果/oracle 可在原预算内收尾，官方 summary 跳过；总体研究仍不完整。不能把不完整编码推成可重放的完整前缀或补造 gzip 尾部。写入、codec、证据空间、进程身份和清理异常仍按原规则中止，旧 raw 容量失败保留原终态。
 
-在同一 `candidate-observation/observation-terminal.json` 中，`capture.feed_cost` 按 `BEFORE_LIMIT`、`CAP_CROSSING`、`AFTER_LIMIT` 列出回调次数、输入字节和 wall/thread CPU；跨限整次调用只计入一个桶，恰好填满仍计入前者。`batch_parent_cpu` 单列原 `runtime.run` 区间的父进程全部线程 CPU，不含查询子进程。各时钟独立记录已测小计、未测次数和完整总量；未观察或测量不完整时总量为 `null`，不能读成零成本。父进程与回调计量范围重叠，不能相加或相减归因；计量包含观测扰动，不能据此改判旧运行、原查询失败或研究验收。
+新 capture 以 `version=gzip-capture-v1` 标识：`observed_bytes` 是完整观察的原流长度，`encoding_input_bytes` 是成功交给编码存储路径的原输入前缀长度，`encoded_bytes` 是实际 memfd 长度；不再将 raw `retained_bytes` 用于编码长度。数值收据的 `capacity_basis=gzip-encoded-bytes` 明确既有 `raw_memory_limit_seen` 和 post-limit 计数对应编码容量。重放收据 `gzip-replay-v1` 分别记录 encoded、decoded、written 的身份与最终消费 EOF；中间官方输出投影 `PROJECTED` 尚不能证明整个 observation 完整。
+
+先核对 batch 原退出、已有结果和身份，再检查完整 gzip 的有界解压、proc-pipe 重放及官方 predicates 摘要的独立状态。原流重放的长度/SHA256 必须匹配 capture，gzip 必须完整结束且无额外编码内容。writer 仅在现有 runtime 的 `Popen` 返回后由 `Summary.poll` 首次启动；官方进程组关闭且 writer 退出后，父 readfd 必须真实 EOF 且无残余，CLI 提前 exit 0 或 writer 写完均不能替代此检查。唯一摘要共用至多 20 秒的绝对截止，含解压、pipe、worker 和进程组清理，并受原证据截止约束；余量不足不启动。固定 CLI 的小日志已证明此输入路径兼容，尚不证明 311 MB 完整流能在原空间和 20 秒内闭合，完整候选必须实际验证。
+
+在同一 `candidate-observation/observation-terminal.json` 中，`capture.feed_cost` 按 `BEFORE_LIMIT`、`CAP_CROSSING`、`AFTER_LIMIT` 列出回调次数、输入字节和 wall/thread CPU。gzip 路径根据本次调用前后实际 encoded 越界状态分桶，不按原流长度推测；首次造成越界的整次调用计 `CAP_CROSSING`，后续计 `AFTER_LIMIT`，恰好填满仍计 `BEFORE_LIMIT`。仅在 finish 发生的越界读独立编码完成状态，不虚构 feed 或调整旧桶。`batch_parent_cpu` 单列原 `runtime.run` 区间的父进程全部线程 CPU，不含查询子进程。各时钟独立记录已测小计、未测次数和完整总量；未观察或测量不完整时总量为 `null`，不能读成零成本。父进程与回调计量范围重叠，不能相加或相减归因；计量包含观测扰动，不能据此改判旧运行、原查询失败或研究验收。
 
 进度时刻是 stdout/stderr 接收时刻，不能视为内部精确编译/求值阶段。summary 首写前严格验证版本/schema，任意名称、路径、RA、源码位置和异常只保留受限 hash/类别；缺 footer、未知形状、截断和容量耗尽必须保留不完整及实际字节覆盖。literal 毫秒、已知迭代小计与未知 `-1` 分列，不重复归因共享工作；部分记录不是整个批次完整排名，采样资源不是硬峰值或独占 CPU。采集完整、日志完整、查询完成和 oracle 通过各自判定，观测错误不覆盖原首失败；开启观测带来的额外成本也不能用于证明 Image 或 lines 是唯一根因。
 

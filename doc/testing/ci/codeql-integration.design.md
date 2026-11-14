@@ -489,13 +489,17 @@ v6 在真实 v5 通过验证后，仅对同一私有 shared 文件叠加上游 [
 
 同一 finalized 数据库以一次 `run-queries` 执行44项。37项均须保存并核对 BQRS 身份、完整 info/decode；七表按上述版本的完整正反例、行数和来源 oracle 逐项验证，Image v2 不覆盖或追认 v1 的失败。仅对默认37项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
 
-本候选模式的 `candidate-evaluator-v1` 观测只接入上述唯一批次，固定官方 2.27.4、`--evaluator-log-minify`、日志级别 3 和禁用 tuple counting；不额外运行查询或预热。固定 2.27.4 的 summary collector 会读取 stage-result usages；level 1/2 缺此字段，实测 level 1 summary 出现 NullPointerException，因此使用最低提供 usages 的 level 3，不开启 level 4 cache-miss 或 level 5 RA。原始 evaluator 事件经 owned FIFO 进入至多 48 MiB 的 Linux memfd，不写普通文件、artifact 或控制台。停止生产并清理 owned 进程组后，关闭父写端、有限 drain 到真实 EOF，再封住内存文件的写入/增长/截断；传输 EOF、日志 footer 与查询成功分别记录。官方摘要器需要可 seek 输入，只读取仍由父进程持有的 sealed memfd；不把实时 FIFO 当摘要输入，不回退原文文件。
+本候选模式的 `candidate-evaluator-v1` 观测只接入上述唯一批次，固定官方 2.27.4、`--evaluator-log-minify`、日志级别 3 和禁用 tuple counting；不额外运行查询或预热。固定 2.27.4 的 summary collector 会读取 stage-result usages；level 1/2 缺此字段，实测 level 1 summary 出现 NullPointerException，因此使用最低提供 usages 的 level 3，不开启 level 4 cache-miss 或 level 5 RA。候选专用 capture 将 owned FIFO 的原始 evaluator 字节流无损编码为 gzip，固定 zlib level 1、windowBits 31、memLevel 8；Linux memfd 中的 encoded payload 至多 47 MiB，codec 和传输有界缓冲合计保守预留 1 MiB。原流和编码内容均不写普通文件、artifact 或控制台。默认 raw-only `Capture()`、WASM 与共享 runtime 保持原行为。
 
-临时原始内存、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间保守预留完整 48 MiB；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。候选模式从此子限中预留 4 MiB 给数值投影的共享 framing、受限解析和固定关联状态，其余持久化观测证据仍不超过 4 MiB；这是有界输入和保留状态的保守分账，不是 Python 分配器或进程 RSS 的硬上限。仅达到原始事件的 48 MiB 保留上限时，停止保留新原文，继续排空 FIFO 并累计实际读取的字节数和摘要，并可继续下述白名单数值投影；保留前缀的字节数、摘要及日志边界另行冻结。该状态记 `MEMORY_LIMIT`、capture/观测 `INCOMPLETE`，不据此中止原唯一 batch；其计算、BQRS 校验和七表 oracle 仍受原截止、证据空间及失败规则约束。不得对不完整的保留前缀调用官方摘要器，不伪造丢弃部分的 footer、事件或 summary；即使计算及 oracle 通过，研究总体仍为 `CANDIDATE_RESEARCH_INCOMPLETE`。
+`gzip-capture-v1` 将原流的实际观察字节数、SHA256、header/footer 和传输 EOF，与编码存储的字节数、SHA256、gzip finish 及 memfd seals 分别记录。`encoding_input_bytes` 及其摘要只表示成功交给编码存储路径的原输入前缀，编码未完成时不证明该前缀可解码；`encoded_bytes` 才是 memfd 的实际长度，不沿用 raw `retained_bytes` 的含义。停止生产并清理 owned 进程组后，关闭父写端、有限 drain 到真实 EOF，再完成 gzip 编码并封住 memfd 的写入/增长/截断。gzip finish 的输出也受 47 MiB 上限约束；编码长度不是原流长度，编码结束或 seals 成功也不能代替原流完整与查询成功。
+
+固定 2.27.4 的真实 query/STAGE_RESULT 小日志已验证：非 seekable proc-pipe 输入以及 gzip 解压重放与 regular/sealed memfd 输入的官方摘要逐字相同，修正原“摘要器必须 seek”的静态假设，依据见 [#4989 的续接记录](https://github.com/nil-studio/oasis7/issues/4989#issuecomment-6874145775)。候选仅从已 finish、完整封存的 gzip memfd 有界解压，通过 `/proc/父pid/fd/readfd` 向官方摘要器重放原字节；不将 evaluator 的实时 FIFO 接给摘要器，不落地解压副本。解压须核对 gzip 完整结束、没有额外编码内容，并将重放的原流字节数和 SHA256 与 capture 相等绑定。小样本只证明该输入路径兼容，不代签所有 44 项的日志形状、311 MB 完整流的压缩比或 20 秒全量摘要容量。
+
+临时原始流存储及处理、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间仍保守预留完整 48 MiB，其中 47 MiB 给编码 payload、1 MiB 给 codec/传输；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。候选模式从此子限中预留 4 MiB 给数值投影的共享 framing、受限解析和固定关联状态，其余持久化观测证据仍不超过 4 MiB；这是有界输入和保留状态的保守分账，不是 Python 分配器或进程 RSS 的硬上限。只有编码容量将超 47 MiB 时，停止存储新增编码内容，继续排空 FIFO、累计原流实际字节数和摘要，并继续下述白名单数值投影；已有编码存储的字节数、摘要和完成状态另行冻结。该状态记 `MEMORY_LIMIT`、capture/观测 `INCOMPLETE`，不据此中止原唯一 batch；其计算、BQRS 校验和七表 oracle 仍受原截止、证据空间及失败规则约束。不得对不完整编码调用官方摘要器，不伪造丢弃部分的 footer、事件、gzip 尾部或 summary；即使计算及 oracle 通过，研究总体仍为 `CANDIDATE_RESEARCH_INCOMPLETE`。写入、codec 异常、身份、证据空间及清理不可信等其他失败仍按原规则处理，不能套用仅容量不足时的继续排空例外。
 
 数值投影只在上述候选批次的 `Observation.start()` 显式接入同一 `Capture`，从第一字节沿既有 FIFO/framer 观察，不另读数据库原生日志，也不增加查询、摘要进程或截止。默认 `Capture()` 与 WASM 的 `Progress` 保持原行为。固定 CLI 2.27.4/raw log 0.5.0 下只选择一个源码 family：`appearsAs` 的完整 alias 在有界编译器 suffix 之前须含精确 `TypeInference` namespace 分量，末成员须精确为 `inferType/2`；泛型参数内部的同名字样、相似 namespace/member、其他 arity 或成员之后额外 namespace 均不准入。suffix 只作为 opaque 身份，不解释为成本或关系语义；准入 alias 立即转为 SHA-256，构成本次运行的精确映射，不把小 fixture 的 alias SHA 当作完整 v4 批次已经观测的身份，也不使用 `predicateName` 后备匹配。
 
-同一显式数值观察路径在 `Capture.feed` 的既有处理体外计量 wall 与当前线程 CPU。按调用进入时的状态，将整次调用及输入字节归入固定三个桶：`BEFORE_LIMIT`、首次超限的 `CAP_CROSSING`、已经超限的 `AFTER_LIMIT`；恰好填满仍属前者，跨限 chunk 不拆分，也不改变原保留行为。仅保存各桶次数、字节数和时钟差值累计；时钟不可用、读值或差值无效时保留未测次数及已测小计，完整总量为未知，不写异常原文，不改变原 capture、查询失败或验收状态。无调用的桶记 `NOT_OBSERVED`。计量采用固定数量的计数器，并写入原 observation 控制收据，不新增逐调用明细、文件、解析或预算。
+同一显式数值观察路径在 `Capture.feed` 的既有处理体外计量 wall 与当前线程 CPU，将整次调用及输入字节归入固定三个桶。候选 gzip 路径按实际 encoded 存储是否越界归类：进入调用前已越界为 `AFTER_LIMIT`，本次编码写入首次越界为 `CAP_CROSSING`，其余为 `BEFORE_LIMIT`；恰好填满仍属 `BEFORE_LIMIT`，跨限调用不拆分。不按原流字节数推测编码容量，也不因 gzip 缓冲延迟输出而提前计入越界桶。仅在 gzip finish 时越界须在独立的编码完成状态中记录，不虚构一次 feed 或回改此前桶。默认 raw 路径的原有分桶行为保留。仅保存各桶次数、字节数和时钟差值累计；时钟不可用、读值或差值无效时保留未测次数及已测小计，完整总量为未知，不写异常原文，不改变原 capture、查询失败或验收状态。无调用的桶记 `NOT_OBSERVED`。计量采用固定数量的计数器，并写入原 observation 控制收据，不新增逐调用明细、文件、解析或预算。
 
 `Observation.run_batch` 另在原唯一 `runtime.run` 调用外以父进程时钟计量，`finally` 覆盖成功、超时、异常及原清理。该 CPU 包含调用期间父进程全部线程的监督、采样、feed、drain 和进程收据写入，排除子进程/PGID CPU；不包含整个 job，也不能与 feed CPU 相加或相减当作其他组件独占成本。回调 wall 包含处理期间的等待与调度，时钟读取和累计本身也有观测开销；这些数据不能还原未插桩运行或证明旧运行的因果。计量完整性不成为新的研究或启用门禁，默认 raw-only `Capture`、WASM 和共享 runtime 保持原合同。
 
@@ -503,7 +507,9 @@ v6 在真实 v5 通过验证后，仅对同一私有 shared 文件叠加上游 [
 
 framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 KiB，并分别固定 alias、活动 predicate/pipeline、包括已关闭事件的目标身份、完成尾样本及拒绝计数的上限。超长记录有界跳过至下一换行，未知 schema、重复/不完整关联、表饱和、解析异常或缺少真实尾部均使数值观察 `PARTIAL`，只保留固定原因和已有允许字段，不抛异常遮盖原 batch 首失败，不回退原文。未命中记 `NOT_OBSERVED`，不能称该源码 family 未执行。数值状态独立单列，是否命中或投影完整不成为研究完成的新门禁；原 capture 与官方 summary 的准入不变，部分投影也不能提升它们或研究、生产验收。数值详情使用原私有 evidence 下单独至多 32 KiB 的控制收据，包含流摘要/字节字段的最终编码、原进程/控制收据及子限一并核验，序列化与清理仍受原截止约束。
 
-持久化证据空间不足、写入、组身份或有限 drain 不可信时，仍记观测不完整并停止后续子进程；原文保留上限耗尽不能解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再按完整 capture 的准入条件，在原证据截止内尝试至多一次、最多 20 秒的官方 predicates 摘要；其清理也计时，剩余时间/空间不足记 `NOT_REACHED`。不重置分析截止或增加收尾预算。
+持久化证据空间不足、写入、组身份或有限 drain 不可信时，仍记观测不完整并停止后续子进程；编码存储上限耗尽不能解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再按完整 capture 的准入条件，在原证据截止内尝试至多一次官方 `generate log-summary --format=predicates --minify-output --utc`。整个摘要路径共用一个至多 20 秒的绝对截止，包含有界解压、pipe 写入、官方进程及 worker/pipe/进程组清理；剩余时间/空间不足记 `NOT_REACHED`，不重置分析截止或增加收尾预算。
+
+摘要启动前只准备 owned pipe 和 sealed 输入；重放 writer 必须在现有 runtime 的 `Popen` 已返回后，由 `Summary.poll` 首次启动，避免活跃 writer 线程跨越 fork/preexec，不修改共享 runtime。正常完成、错误、超时和取消均须在同一截止内停止并收齐官方进程组与 writer，关闭其写端，再对父进程保留的 readfd 做有界读回检查：必须真实 EOF 且无残余字节。writer 完整写入、重放摘要匹配或 CLI 提前 exit 0 都不能单独证明完整消费；残余、未到 EOF、断管、writer 未退出或组清理不可信均不得记摘要完整。官方摘要原有版本/schema、输出边界及成功条件继续同时满足。
 
 官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
 
@@ -511,7 +517,7 @@ framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 Ki
 
 batch stdout/stderr 的受限查询进度保留 wall/monotonic 接收时刻、流完整性和冻结查询身份。该时刻含缓冲和观察误差，不是 CLI 内部阶段边界，不能用每 query 标签相加推断整体编译 wall。终态分别记录计算、oracle、capture、summary 与研究完整性；摘要成功不会提升原 timeout 或 `NOT_REACHED`，原首失败不会被后续观测错误覆盖。观测明确标记 `instrumented=true`，资源采样仍是观察下界；部分摘要只描述已观察记录，不能称为全批次完整排名或最后活跃谓词。
 
-开发验收以新 600 秒 D0、独立小 fixture/DB/cache、2 threads/3072 MiB 验证真实 2.27.4 的 memfd/官方摘要链，再覆盖原 candidate 接线及成功、未知 schema、内存/证据边界、取消/超时、尾部 drain、异常隐私和 FD/组清理。它只验收观测适配，不代签完整37+7或性能根因；旧 2.27.3 profile 与其他 runtime 调用保持原行为。
+开发验收以新 600 秒 D0、独立小 fixture/DB/cache、2 threads/3072 MiB 验证真实 2.27.4 的 gzip memfd/有界解压/proc-pipe/官方摘要链，再覆盖原 candidate 接线及成功、未知 schema、encoded cap 与 finish 越界、重放长度/摘要不匹配、提前 exit 0 未消费、内存/证据边界、取消/超时、尾部 drain、异常隐私和 writer/FD/组清理。它只验收观测适配，不代签完整37+7、全量压缩容量、20 秒摘要完成或性能根因；旧 raw `MEMORY_LIMIT`/`INCOMPLETE` 不以新表示追认为成功，旧 2.27.3 profile 与其他 runtime 调用保持原行为。
 
 执行前后检查完整业务输入、官方 bundle、候选整个库、私有 query pack、DB metadata 和封存 checkpoint。缓存/结果与受保护源码隔离。失败仍在原截止内保存已有有界日志、BQRS/解码和退出收据；官方证据保持 256 MiB 上限，私有证据为 64 MiB 且保留终态空间，部分、超限、身份不明或封存失败不得报告完整研究。研究不追加查询、不自动重试、不改写旧结果。
 
