@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import re
 import select
+import stat
+import struct
 import threading
 import time
 import zlib
@@ -24,7 +26,7 @@ OUTPUT_CAP = 8 * 1024**2
 SUMMARY_SECONDS = 20
 LINE_CAP = 2 * 1024**2
 MAX_SUMMARY_RECORDS = 100000
-NUMERIC_RESERVE = 4 * 1024**2  # inside OUTPUT_CAP, throughout the capture lifetime
+NUMERIC_RESERVE = 4 * 1024**2  # inside OUTPUT_CAP, handed from numeric to summary
 NUMERIC_LINE_CAP = 64 * 1024
 NUMERIC_ALIAS_CAP = 64
 NUMERIC_PREDICATE_CAP = 128
@@ -32,6 +34,14 @@ NUMERIC_PIPELINE_CAP = 256
 NUMERIC_EVENT_CAP = 16384
 NUMERIC_TAIL = 16
 NUMERIC_RECEIPT_CAP = 31 * 1024  # leave room for the observed-stream identity
+SUMMARY_RA_LIMIT = 49152
+SUMMARY_RA_SLOTS = 65536
+SUMMARY_RA_PROBES = 256
+SUMMARY_RA_BYTES = 4 * SUMMARY_RA_SLOTS + 36 * SUMMARY_RA_LIMIT
+SUMMARY_FIXED_RESERVE = 512 * 1024
+SUMMARY_CHUNK_CAP = 64 * 1024
+SUMMARY_WORK_CAP = NUMERIC_RESERVE - SUMMARY_RA_BYTES - SUMMARY_FIXED_RESERVE - SUMMARY_CHUNK_CAP
+SUMMARY_ROW_CAP = 2048
 # Linux UAPI values; some Python builds omit these names despite memfd support.
 ADD_SEALS = getattr(fcntl, 'F_ADD_SEALS', 1033)
 GET_SEALS = getattr(fcntl, 'F_GET_SEALS', 1034)
@@ -40,6 +50,12 @@ SEALS = 0x0008 | 0x0004 | 0x0002 | 0x0001
 
 class ObservationError(ValueError):
     """All messages are fixed codes, never text taken from an observed stream."""
+
+
+class SummaryStateLimit(ObservationError):
+    """State saturation stops projection; it is not a skippable invalid row."""
+    def __init__(self):
+        super().__init__('SUMMARY_STATE_LIMIT')
 
 
 def _unique_object(pairs):
@@ -1134,31 +1150,82 @@ def validate_record(value):
                     integer(number)  # percentages can exceed 100 in official estimates
 
 
+class SummaryRA:
+    """Fixed full-digest index; ordinals persist until the entire stream closes."""
+    def __init__(self):
+        self.slots = bytearray(4 * SUMMARY_RA_SLOTS)
+        self.entries = bytearray(36 * SUMMARY_RA_LIMIT)
+        self.count = 0
+
+    def __len__(self):
+        return self.count
+
+    def first(self, digest, ordinal):
+        slot = int.from_bytes(digest[:4], 'little') % SUMMARY_RA_SLOTS
+        for _ in range(min(SUMMARY_RA_SLOTS, SUMMARY_RA_PROBES)):
+            index = struct.unpack_from('<I', self.slots, 4*slot)[0]
+            if not index:
+                if self.count >= SUMMARY_RA_LIMIT:
+                    raise SummaryStateLimit()
+                struct.pack_into('<32sI', self.entries, 36*self.count, digest, ordinal)
+                self.count += 1
+                struct.pack_into('<I', self.slots, 4*slot, self.count)
+                return ordinal, False
+            offset = 36*(index-1)
+            if self.entries[offset:offset+32] == digest:
+                return struct.unpack_from('<I', self.entries, offset+32)[0], True
+            slot = (slot+1) % SUMMARY_RA_SLOTS
+        raise SummaryStateLimit()
+
+
 class Summary(Lines):
     """Strict 2.27.4 summary projection. Unknown combinations remain partial."""
     def __init__(self, records, *, replay=None):
         super().__init__()
+        for stream in self.streams.values():
+            stream['pending'] = bytearray()
         self.replay = replay
         schema_path = Path(__file__).with_name('codeql_summary_schema_2_27_4.json')
         if schema_path.stat().st_size > 256 * 1024:
             raise ObservationError('SCHEMA_LIMIT')
-        schema = parse_json(schema_path.read_bytes())
+        schema_data = schema_path.read_bytes()
+        self._preflight(schema_data)
+        schema = parse_json(schema_data)
         if schema.get('codeqlVersion') != '2.27.4' or schema.get('summaryLogVersion') != '0.4.0':
             raise ObservationError('SCHEMA_VERSION')
         self.signatures = schema['signatures']
         if not 0 < len(self.signatures) <= 128:
             raise ObservationError('SCHEMA_SIGNATURE_LIMIT')
+        if len(json.dumps(self.signatures).encode()) > 64*1024:
+            raise SummaryStateLimit()
         self.schema_sha256 = runtime.digest(schema_path)
+        # 44 frozen queries, at most three aliases each. Check source strings
+        # before constructing the derived map; Python/RSS is not this ledger.
+        if not 0 < len(records) <= 44:
+            raise SummaryStateLimit()
+        query_bytes = sum(len(text_value(record[key])) for record in records
+                          for key in ('path', 'pack', 'relative') if key in record)
+        if 3*query_bytes + 128*3*len(records) > 128*1024:
+            raise SummaryStateLimit()
         self.queries = Progress(records).queries
         self.header = None
         self.records = self.accepted = self.untimed = self.markers = self.incomplete = self.failed = 0
         self.unknown = self.invalid = self.ra_reuse = self.delta_unknown = 0
         self.null_deltas = self.pipeline_non_success = self.exception_records = 0
         self.footer_missing = False
-        self.seen = {}
+        self.seen = SummaryRA()
         self.reuse_examples = []
         self.rejected_hashes = []
         self.tops = {'official_millis': [], 'known_iteration_subtotal': []}
+        self.final_report = None
+
+    def _preflight(self, data):
+        # Conservative encoded-input/structure allowance, not a Python heap
+        # measurement. count() also charges punctuation inside strings.
+        charge = (12*len(data) + 512*(data.count(b'{')+data.count(b':'))
+                  + 128*data.count(b'[') + 64*data.count(b','))
+        if charge + sum(len(stream['pending']) for stream in self.streams.values()) > SUMMARY_WORK_CAP:
+            raise SummaryStateLimit()
 
     def poll(self, deadline):
         super().poll(deadline)
@@ -1183,6 +1250,7 @@ class Summary(Lines):
         return self.queries.get(name, dict(unmapped_query_sha256=_hash(text_value(name))))
 
     def line(self, name, data):
+        self._preflight(data)  # before decoding/JSON; saturation must stop feed
         if name == 'stderr':
             try:
                 line = data.decode('utf-8').removeprefix('ERROR: ')
@@ -1218,22 +1286,22 @@ class Summary(Lines):
             if not self._known_shape(value):
                 self._reject('unknown', data)
                 return b''
-            ra_id, name_id = _hash(text_value(value['raHash'])), _hash(text_value(value['predicateName']))
+            ra_digest = hashlib.sha256(text_value(value['raHash'])).digest()
+            ra_id, name_id = ra_digest.hex(), _hash(text_value(value['predicateName']))
             strategy = value['evaluationStrategy']
-            if ra_id in self.seen:
+            first_record, reused = self.seen.first(ra_digest, self.records)
+            if reused:
                 # Summary rows are event instances. Equal RA content hashes can
                 # describe aliases, metadata or separate evaluations, not one ID.
                 self.ra_reuse += 1
                 if len(self.reuse_examples) < 16:
                     self.reuse_examples.append(dict(ra_identity_sha256=ra_id,
-                        first_record=self.seen[ra_id], record=self.records, strategy=strategy))
-            else:
-                self.seen[ra_id] = self.records
+                        first_record=first_record, record=self.records, strategy=strategy))
             self.accepted += 1
             millis = value.get('millis')
             iterations = value.get('predicateIterationMillis', [])
-            known = [number for number in iterations if number >= 0]
-            subtotal = sum(known) if known else None
+            known_count = sum(number >= 0 for number in iterations)
+            subtotal = sum(number for number in iterations if number >= 0) if known_count else None
             if subtotal is not None:
                 integer(subtotal, 0)
             missing = iterations.count(-1)
@@ -1245,13 +1313,13 @@ class Summary(Lines):
             associations = {query for queries in value['appearsAs'].values() for query in queries}
             mapped = sorted({self.queries[query]['index'] for query in associations if query in self.queries})
             row = dict(record=self.records, ra_identity_sha256=ra_id, predicate_name_sha256=name_id,
-                       first_record_with_ra_hash=self.seen[ra_id],
+                       first_record_with_ra_hash=first_record,
                        evaluation_strategy=strategy, completion=completion,
                        category='recursive_layer' if strategy == 'COMPUTE_RECURSIVE' else
                                 'layer_member' if strategy in ('IN_LAYER', 'NAMED_LOCAL') else 'nonrecursive',
                        has_completion_time='completionTime' in value,
                        cached_annotation=value.get('isCached'), reported_millis=millis,
-                       known_iteration_subtotal=subtotal, known_iteration_entries=len(known),
+                       known_iteration_subtotal=subtotal, known_iteration_entries=known_count,
                        negative_iteration_markers=missing, appears_in_query_indexes=mapped,
                        unmapped_query_count=sum(query not in self.queries for query in associations),
                        dependencies_count=len(value.get('dependencies', {})))
@@ -1260,47 +1328,93 @@ class Summary(Lines):
                     row[key + '_sha256'] = _hash(text_value(value[key]))
             if 'queryCausingWork' in value:
                 row['first_requiring_query'] = self._query(value['queryCausingWork'])
+            encoded_row = json.dumps(row, separators=(',', ':')).encode()
+            if len(encoded_row) > SUMMARY_ROW_CAP:
+                raise SummaryStateLimit()
             for metric, score in (('official_millis', millis), ('known_iteration_subtotal', subtotal)):
                 if score is not None:
-                    heapq.heappush(self.tops[metric], (score, self.records, row))
+                    heapq.heappush(self.tops[metric], (score, self.records, encoded_row))
                     if len(self.tops[metric]) > 50:
                         heapq.heappop(self.tops[metric])
+        except SummaryStateLimit:
+            raise
         except ObservationError:
             self._reject('invalid', data)
         return b''
 
     def feed(self, name, chunk, final=False):
-        if not self.feed_failure and sum(stream['bytes'] for stream in self.streams.values()) + len(chunk) > RAW_CAP:
-            self.fail_feed('SUMMARY_INPUT_LIMIT')
-            super().feed(name, chunk, final=final)  # include the rejected chunk in observed bytes/hash
-            raise ObservationError('SUMMARY_INPUT_LIMIT')
-        output = super().feed(name, chunk, final=False)
+        if self.final_report is not None:
+            raise ObservationError('SUMMARY_AFTER_FINALIZATION')
         stream = self.streams[name]
-        if final and not stream['final']:
-            try:
-                if stream['pending'] and not self.feed_failure:
-                    # Root separators need no trailing LF. Validate the last object.
-                    self.line(name, stream['pending'])
+        if stream['final']:
+            if chunk:
+                raise ObservationError('STREAM_AFTER_EOF')
+            return b''
+        stream['bytes'] += len(chunk)
+        stream['sha'].update(chunk)
+        if self.feed_failure:
+            stream['final'] = final
+            return b''
+        try:
+            if len(chunk) > SUMMARY_CHUNK_CAP:
+                raise SummaryStateLimit()
+            offset = 0
+            while offset < len(chunk):
+                newline = chunk.find(b'\n', offset)
+                end = len(chunk) if newline < 0 else newline
+                if len(stream['pending']) + end-offset > LINE_CAP:
+                    raise ObservationError('STREAM_RECORD_LIMIT')
+                pending = sum(len(item['pending']) for item in self.streams.values())
+                if 2*(pending + end-offset) > SUMMARY_WORK_CAP:
+                    raise SummaryStateLimit()
+                stream['pending'].extend(memoryview(chunk)[offset:end])
+                offset = end+1
+                if newline >= 0:
+                    data = bytes(stream['pending'])
+                    stream['pending'].clear()  # no old pending/split suffix during parse
+                    self.line(name, data)
                     stream['lines'] += 1
-                    stream['processed_prefix_bytes'] += len(stream['pending'])
-                    stream['pending'] = b''
-            except BaseException:
-                self.fail_feed('SUMMARY_FINAL_RECORD_FAILED')
-                raise
-            stream['final'] = True
-        return output
+                    stream['processed_prefix_bytes'] += len(data)+1
+                    del data
+            if final:
+                if stream['pending']:
+                    # Official root separators need no trailing LF.
+                    data = bytes(stream['pending']); stream['pending'].clear()
+                    self.line(name, data)
+                    stream['lines'] += 1
+                    stream['processed_prefix_bytes'] += len(data)
+                stream['final'] = True
+        except BaseException as error:
+            self.fail_feed('SUMMARY_STATE_LIMIT' if isinstance(error, SummaryStateLimit)
+                           else 'STREAM_PROCESSING_FAILED')
+            raise
+        return b''
 
     def summary(self):
+        if self.final_report is not None:
+            return self.final_report
         streams = super().summary()
         complete = (self.header is not None and self.accepted and any(self.tops.values())
                     and not self.feed_failure
                     and not any((self.unknown, self.invalid, self.incomplete, self.failed))
                     and not any((self.null_deltas, self.pipeline_non_success, self.exception_records))
                     and all(value['final'] for value in streams.values()) and not streams['stderr']['bytes'])
-        return dict(status='PROJECTED' if complete else 'PARTIAL', header=self.header,
+        distinct = len(self.seen)
+        rows = {key: [item[2] for item in sorted(items, reverse=True)] for key, items in self.tops.items()}
+        # runtime calls summary only after process/drain cleanup. An incomplete
+        # transport still gets a terminal snapshot: preserve its actual flags
+        # above, then release state before constructing the receipt. Never EOF it.
+        self.seen = None
+        self.tops = {key: [] for key in self.tops}
+        self.queries = {}
+        self.signatures = []
+        for stream in self.streams.values():
+            stream['pending'] = b''
+        rankings = {key: [parse_json(row) for row in values] for key, values in rows.items()}
+        report = dict(status='PROJECTED' if complete else 'PARTIAL', header=self.header,
                     schema_sha256=self.schema_sha256, streams=streams, records=self.records,
                     accepted_records=self.accepted, unknown_shapes=self.unknown, invalid_records=self.invalid,
-                    reused_ra_hash_records=self.ra_reuse, distinct_ra_hashes=len(self.seen),
+                    reused_ra_hash_records=self.ra_reuse, distinct_ra_hashes=distinct,
                     ra_reuse_examples=self.reuse_examples, rejected_record_sha256=self.rejected_hashes,
                     untimed_records=self.untimed, incomplete_predicates=self.incomplete, failed_predicates=self.failed,
                     negative_iteration_markers=self.markers, unknown_delta_entries=self.delta_unknown,
@@ -1308,11 +1422,18 @@ class Summary(Lines):
                     exception_records=self.exception_records,
                     input_footer_missing=self.footer_missing,
                     feed_failure=self.feed_failure,
-                    rankings={key: [item[2] for item in sorted(items, reverse=True)] for key, items in self.tops.items()},
+                    rankings=rankings,
+                    state_limits=dict(active_bytes=NUMERIC_RESERVE, ra_index_bytes=SUMMARY_RA_BYTES,
+                        distinct_ra_hashes=SUMMARY_RA_LIMIT, metadata_bytes=SUMMARY_FIXED_RESERVE,
+                        maximum_ra_probe_steps=SUMMARY_RA_PROBES,
+                        chunk_bytes=SUMMARY_CHUNK_CAP, framing_and_parse_bytes=SUMMARY_WORK_CAP,
+                        scope='Conservative bounded input/retained-state accounting; not a Python/RSS hard limit.'),
                     limits='Only admitted observed records are ranked. Millis and known iteration subtotals are separate, '
                            'not additive CPU. Layer/member work overlaps. Cache annotation is not a cache hit. '
                            'Official record ordinals identify observations; reused RA hashes are not event IDs and do not '
                            'justify deduplication or summation. First requiring query is not exclusive cost attribution; no cross-run joins.')
+        self.final_report = report
+        return report
 
 
 class Observation:
@@ -1328,6 +1449,7 @@ class Observation:
         self.summary_result = dict(status='NOT_REACHED')
         self.summary_attempted = False
         self.numeric_result = dict(status='NOT_REACHED')
+        self.numeric_frozen = False
         self.replay = None
 
     def start(self):
@@ -1399,6 +1521,9 @@ class Observation:
             summary_end = min(end, time.monotonic() + SUMMARY_SECONDS)
             result = None
             try:
+                self._freeze_numeric()
+                if self.progress is not None:
+                    self.progress.queries = {}  # batch EOF; retain only its stream/count receipt
                 self.replay = GzipReplay(self.capture, summary_end)
                 observer = Summary(self.records, replay=self.replay)
                 result = runtime.run([str(cli), 'generate', 'log-summary', '--format=predicates',
@@ -1443,27 +1568,72 @@ class Observation:
                     raw_memory_reserve_bytes=RAW_CAP, numeric_memory_reserve_bytes=NUMERIC_RESERVE,
                     observation_output_limit_bytes=OUTPUT_CAP, summary_limit_seconds=SUMMARY_SECONDS,
                     persisted_observation_limit_bytes=OUTPUT_CAP-NUMERIC_RESERVE,
-                    budget_scope='Encoded storage and codec/transport reserve, numeric state, persisted evidence '
+                    budget_scope='Encoded storage and codec/transport reserve, numeric/summary state, persisted evidence '
                                  'and terminal reserve share 64MiB; '
-                                 'numeric state and persisted observation together share 8MiB, not a Python/RSS hard limit.',
+                                 'numeric then summary state and persisted observation together share 8MiB, '
+                                 'not a Python/RSS hard limit.',
                     limits='Observation completeness never certifies batch computation or oracle success.')
+
+    def _freeze_numeric(self):
+        if self.numeric_frozen or not self.capture or self.capture.projection is None:
+            return
+        try:
+            numeric = self.capture.projection.report()
+        except Exception:
+            numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_FAILED')
+        numeric['observed_stream_sha256'] = self.capture.observed_hash.hexdigest()
+        numeric['observed_stream_bytes'] = self.capture.observed
+        numeric['capacity_basis'] = 'gzip-encoded-bytes'
+        encoded = (json.dumps(numeric, indent=2)+'\n').encode()
+        if len(encoded) > runtime.MAX_CONTROL_RECEIPT:
+            numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_LIMIT',
+                           observed_stream_sha256=self.capture.observed_hash.hexdigest(),
+                           observed_stream_bytes=self.capture.observed, capacity_basis='gzip-encoded-bytes')
+            encoded = (json.dumps(numeric, indent=2)+'\n').encode()
+        path = self.out / 'numeric-projection.json'
+        # A prior write may have completed before its hash read failed. Verify
+        # that same file on finish; never overwrite it to conceal a failed seal.
+        try:
+            before = path.lstat()
+        except FileNotFoundError:
+            before = None
+        except OSError:
+            raise ObservationError('NUMERIC_RECEIPT_IDENTITY') from None
+        if before is not None and (not stat.S_ISREG(before.st_mode) or before.st_size != len(encoded)):
+            raise ObservationError('NUMERIC_RECEIPT_IDENTITY')
+        if before is None:
+            runtime.save(path, numeric, self.root, terminal=True)
+        def file_identity(value):
+            return (value.st_dev,value.st_ino,value.st_mode,value.st_size,value.st_mtime_ns,value.st_ctime_ns)
+        try:
+            before = path.lstat()
+            if not stat.S_ISREG(before.st_mode) or before.st_size != len(encoded):
+                raise ObservationError('NUMERIC_RECEIPT_IDENTITY')
+            fd = os.open(path,os.O_RDONLY|os.O_CLOEXEC|os.O_NOFOLLOW|os.O_NONBLOCK)
+            try:
+                opened = os.fstat(fd)
+                if file_identity(opened) != file_identity(before):
+                    raise ObservationError('NUMERIC_RECEIPT_IDENTITY')
+                data = os.read(fd,len(encoded)+1)  # <=32KiB+1, regular exact-size file only
+                after = os.fstat(fd)
+                if (file_identity(after) != file_identity(before)
+                        or file_identity(path.lstat()) != file_identity(before)
+                        or data != encoded):
+                    raise ObservationError('NUMERIC_RECEIPT_IDENTITY')
+            finally:
+                os.close(fd)
+        except OSError:
+            raise ObservationError('NUMERIC_RECEIPT_IDENTITY') from None
+        identity = _hash(data)
+        self.numeric_result = dict(version=NumericProjection.VERSION, status=numeric['status'],
+            receipt='candidate-observation/numeric-projection.json', receipt_sha256=identity)
+        # Only a successfully persisted and hashed receipt releases ownership.
+        self.numeric_frozen = True
+        self.capture.projection = None
 
     def finish(self):
         with self.output_budget():
-            if self.capture and self.capture.projection is not None:
-                try:
-                    numeric = self.capture.projection.report()
-                except Exception:
-                    numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_FAILED')
-                numeric['observed_stream_sha256'] = self.capture.observed_hash.hexdigest()
-                numeric['observed_stream_bytes'] = self.capture.observed
-                numeric['capacity_basis'] = 'gzip-encoded-bytes'
-                if len((json.dumps(numeric, indent=2)+'\n').encode()) > runtime.MAX_CONTROL_RECEIPT:
-                    numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_LIMIT')
-                path = self.out / 'numeric-projection.json'
-                runtime.save(path, numeric, self.root, terminal=True)
-                self.numeric_result = dict(version=NumericProjection.VERSION, status=numeric['status'],
-                    receipt='candidate-observation/numeric-projection.json', receipt_sha256=runtime.digest(path))
+            self._freeze_numeric()
             receipt = self.receipt()
             runtime.save(self.out / 'observation-terminal.json', receipt, self.root, terminal=True)
         return dict(version=VERSION, status=receipt['status'], instrumented=True,

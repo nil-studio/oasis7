@@ -495,7 +495,7 @@ v6 在真实 v5 通过验证后，仅对同一私有 shared 文件叠加上游 [
 
 固定 2.27.4 的真实 query/STAGE_RESULT 小日志已验证：非 seekable proc-pipe 输入以及 gzip 解压重放与 regular/sealed memfd 输入的官方摘要逐字相同，修正原“摘要器必须 seek”的静态假设，依据见 [#4989 的续接记录](https://github.com/nil-studio/oasis7/issues/4989#issuecomment-6874145775)。候选仅从已 finish、完整封存的 gzip memfd 有界解压，通过 `/proc/父pid/fd/readfd` 向官方摘要器重放原字节；不将 evaluator 的实时 FIFO 接给摘要器，不落地解压副本。解压须核对 gzip 完整结束、没有额外编码内容，并将重放的原流字节数和 SHA256 与 capture 相等绑定。小样本只证明该输入路径兼容，不代签所有 44 项的日志形状、311 MB 完整流的压缩比或 20 秒全量摘要容量。
 
-临时原始流存储及处理、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间仍保守预留完整 48 MiB，其中 47 MiB 给编码 payload、1 MiB 给 codec/传输；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。候选模式从此子限中预留 4 MiB 给数值投影的共享 framing、受限解析和固定关联状态，其余持久化观测证据仍不超过 4 MiB；这是有界输入和保留状态的保守分账，不是 Python 分配器或进程 RSS 的硬上限。只有编码容量将超 47 MiB 时，停止存储新增编码内容，继续排空 FIFO、累计原流实际字节数和摘要，并继续下述白名单数值投影；已有编码存储的字节数、摘要和完成状态另行冻结。该状态记 `MEMORY_LIMIT`、capture/观测 `INCOMPLETE`，不据此中止原唯一 batch；其计算、BQRS 校验和七表 oracle 仍受原截止、证据空间及失败规则约束。不得对不完整编码调用官方摘要器，不伪造丢弃部分的 footer、事件、gzip 尾部或 summary；即使计算及 oracle 通过，研究总体仍为 `CANDIDATE_RESEARCH_INCOMPLETE`。写入、codec 异常、身份、证据空间及清理不可信等其他失败仍按原规则处理，不能套用仅容量不足时的继续排空例外。
+临时原始流存储及处理、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间仍保守预留完整 48 MiB，其中 47 MiB 给编码 payload、1 MiB 给 codec/传输；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。候选模式从此子限中预留 4 MiB 给数值投影及随后官方摘要消费的 framing、受限解析和固定关联状态，两者须交接所有权；其余持久化观测证据仍不超过 4 MiB。这是有界输入和保留状态的保守分账，不是 Python 分配器或进程 RSS 的硬上限。只有编码容量将超 47 MiB 时，停止存储新增编码内容，继续排空 FIFO、累计原流实际字节数和摘要，并继续下述白名单数值投影；已有编码存储的字节数、摘要和完成状态另行冻结。该状态记 `MEMORY_LIMIT`、capture/观测 `INCOMPLETE`，不据此中止原唯一 batch；其计算、BQRS 校验和七表 oracle 仍受原截止、证据空间及失败规则约束。不得对不完整编码调用官方摘要器，不伪造丢弃部分的 footer、事件、gzip 尾部或 summary；即使计算及 oracle 通过，研究总体仍为 `CANDIDATE_RESEARCH_INCOMPLETE`。写入、codec 异常、身份、证据空间及清理不可信等其他失败仍按原规则处理，不能套用仅容量不足时的继续排空例外。
 
 数值投影只在上述候选批次的 `Observation.start()` 显式接入同一 `Capture`，从第一字节沿既有 FIFO/framer 观察，不另读数据库原生日志，也不增加查询、摘要进程或截止。默认 `Capture()` 与 WASM 的 `Progress` 保持原行为。固定 CLI 2.27.4/raw log 0.5.0 下只选择一个源码 family：`appearsAs` 的完整 alias 在有界编译器 suffix 之前须含精确 `TypeInference` namespace 分量，末成员须精确为 `inferType/2`；泛型参数内部的同名字样、相似 namespace/member、其他 arity 或成员之后额外 namespace 均不准入。suffix 只作为 opaque 身份，不解释为成本或关系语义；准入 alias 立即转为 SHA-256，构成本次运行的精确映射，不把小 fixture 的 alias SHA 当作完整 v4 批次已经观测的身份，也不使用 `predicateName` 后备匹配。
 
@@ -516,6 +516,23 @@ framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 Ki
 摘要启动前只准备 owned pipe 和 sealed 输入；重放 writer 必须在现有 runtime 的 `Popen` 已返回后，由 `Summary.poll` 首次启动，避免活跃 writer 线程跨越 fork/preexec，不修改共享 runtime。正常完成、错误、超时和取消均须在同一截止内停止并收齐官方进程组与 writer，关闭其写端，再对父进程保留的 readfd 做有界读回检查：必须真实 EOF 且无残余字节。writer 完整写入、重放摘要匹配或 CLI 提前 exit 0 都不能单独证明完整消费；残余、未到 EOF、断管、writer 未退出或组清理不可信均不得记摘要完整。官方摘要原有版本/schema、输出边界及成功条件继续同时满足。
 
 官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
+
+摘要累计 stdout/stderr 字节数与 SHA256 覆盖整个实际观察流，不受 48 MiB capture 存储上限限制。消费者逐记录处理并丢弃原文，保持 2 MiB 单条、100000 条记录及原 20 秒共同截止；累计流超过 48 MiB 后仍逐项执行完整 schema、失败状态和尾部验证，不能只校验前缀。两流 pending 共用活跃额度，framer 在解析前移交并清空当前 pending，不保留整段 split 副本。每次 runtime 读块最多 64 KiB；解析前按 `12 × 当前记录字节数 + 512 × ({ 与 : 的数量) + 128 × [ 的数量 + 64 × 逗号数量` 及另一流 pending 作保守计账。字典及键值暂存、数组容器与标量槽分别计费，均直接按原字节计数，字符串内命中也计入；不逐字节重写 JSON parser。该预检只约束解析暂存，不替代 JSON 或 schema 校验；额度不足可以在单条硬上限之前明确拒绝。3744 项迭代（1232 个非负值、2512 个负标记）及相应 delta 数组的公开 fixture 须继续准入，不能把已观察的大数组误算为同等数量的字典。
+
+摘要接手同一 4 MiB 活跃额度，固定分账如下；不增加第二份活跃状态预留。
+
+| 保留内容 | 字节上限 |
+| --- | ---: |
+| 65536 个四字节索引槽，至多 49152 个完整 32 字节 RA 摘要及四字节首次序号 | 2031616 |
+| 冻结 schema/query 映射、两榜各 50 条受限编码行、至多 16 条复用/拒绝样本及控制状态 | 524288 |
+| 当前 runtime 输入块 | 65536 |
+| 两流 framing、逐记录源字节及解析暂存 | 1572864 |
+
+schema 编码至多 64 KiB、query 映射至多 128 KiB，排名每行至多 2 KiB，临时第 51 项也计入分账；启动 Summary 前释放已经结束的 batch `Progress.queries`，其原 streams/counts 收据继续保留。RA 索引用完整摘要判等，每条最多探测 256 个槽；达到 distinct 上限后仍能查到旧 RA，新 RA 或探测饱和须以 `SUMMARY_STATE_LIMIT` 拒绝，不消耗额外截止。不得清表、截断摘要或静默省略后宣称 `PROJECTED`。状态或输入边界失败须保持 sticky `PARTIAL`，继续现有 runtime 的有限排空与全观察字节/摘要计量，不能恢复完整状态或覆盖原批次首失败。
+
+`Summary.summary()` 只承接 runtime 已结束进程与有限 drain 后的幂等终态快照；先保留实际 EOF、未完成 pending 长度及原错误，再释放 RA 表、framing 和不再使用的映射/编码状态后构造受限摘要。没有真实 EOF 的路径仍为 `PARTIAL`，不补 EOF；终态快照后禁止继续 feed，只允许重复读取同一结果。此交接覆盖取消、超时和 drain 未闭合路径，不能只对正常 EOF 释放状态。
+
+任一 `Summary` 构造或摘要子进程启动前，先将已结束数值投影按原至多 32 KiB 收据写入并核摘要，绑定其原流字节数/SHA256，然后释放 `capture.projection` 的关联表与尾样本；保存失败时保留原对象并停止摘要准入。若写入成功但首次核验失败，`finish()` 仅核验已有同一内容，不覆盖重写：使用不跟随符号链接、非阻塞方式读取长度精确匹配的普通文件，至多读取 32 KiB 加一字节，核对读前后文件及路径身份和完整字节摘要；特殊文件、替换、长度或内容不同均拒绝。已冻结引用不重新写入或降为 `NOT_REACHED`。原数值投影的 `PARTIAL`、`NOT_OBSERVED` 仍单列，不新增完成门槛；默认 raw Capture、Progress/WASM 与共享 runtime 保持原合同。
 
 每条观察由本次官方摘要流 SHA256 与 header 后的原记录序号共同标识。`raHash` 是内容身份，不能当执行事件 ID；官方允许其复用，名称也不唯一。所有合法记录按原序号保留各自 literal 计时并参与有界排名，复用仅计数和留受限示例，不据此拒绝、去重或合计成本，也不将同一记录复制归因到多个查询。
 

@@ -1091,10 +1091,166 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(report['pipeline_non_success'],1)
         self.assertEqual(report['exception_records'],1)
 
+    def test_observed_3744_iteration_shape_keeps_all_literals_and_markers(self):
+        value = self.member(predicateIterationMillis=[12345]*1232+[-1]*2512,
+                            deltaSizes=[67890]*1232+[-1]*2512)
+        report = self.project([self.row(), value])
+        self.assertEqual(report['status'], 'PROJECTED')
+        row = report['rankings']['known_iteration_subtotal'][0]
+        self.assertEqual(row['known_iteration_entries'], 1232)
+        self.assertEqual(row['negative_iteration_markers'], 2512)
+        self.assertEqual(row['known_iteration_subtotal'], 12345*1232)
+        self.assertEqual(report['unknown_delta_entries'], 2512)
+
+    def large_prefix(self):
+        """Public small records: actual cumulative bytes, without patching RAW_CAP."""
+        observer = profile.Summary([QUERY])
+        header = json.dumps(dict(summaryLogVersion='0.4.0',codeqlVersion='2.27.4',startTime='now')).encode()+b'\n'
+        observer.feed('stdout', header)
+        expected = hashlib.sha256(header)
+        row = (json.dumps(self.row(predicateName='public-fixture-'+'x'*7000))+'\n').encode()
+        count = profile.RAW_CAP//len(row)+1
+        for _ in range(count):
+            observer.feed('stdout', row); expected.update(row)
+        self.assertGreater(observer.streams['stdout']['bytes'], 48*1024**2)
+        self.assertEqual(observer.accepted, count)
+        self.assertEqual(observer.streams['stdout']['sha'].hexdigest(),expected.hexdigest())
+        return observer, count
+
+    def test_cumulative_stream_over_48mib_keeps_full_identity_and_first_ra_ordinal(self):
+        observer, count = self.large_prefix()
+        last = (json.dumps(self.row(millis=999, raHash='physical-relation-1'))+'\n').encode()
+        observer.feed('stdout', last)
+        observer.feed('stdout', b'', final=True); observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        self.assertEqual(report['status'], 'PROJECTED')
+        self.assertEqual(report['accepted_records'], count+1)
+        self.assertEqual(report['reused_ra_hash_records'], count)
+        self.assertEqual(report['distinct_ra_hashes'], 1)
+        self.assertEqual(report['rankings']['official_millis'][0]['record'], count+1)
+        self.assertEqual(report['rankings']['official_millis'][0]['first_record_with_ra_hash'], 1)
+        self.assertEqual(len(report['rankings']['official_millis']), 50)
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_late_unknown_failure_invalid_and_truncated_records_after_48mib_are_checked(self):
+        observer, count = self.large_prefix()
+        unknown = self.row(isCached=True)
+        invalid = self.row(millis=True)
+        failure = self.row(completionType='FAILURE', exceptionName=SYNTHETIC_CANARY)
+        suffix = b'\n'.join(json.dumps(row).encode() for row in (unknown,invalid,failure))
+        suffix += b'\n{"raHash":"'+SYNTHETIC_CANARY.encode()
+        observer.feed('stdout', suffix, final=True); observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertGreaterEqual(report['records'], count+3)
+        self.assertGreater(report['unknown_shapes'], 0)
+        self.assertGreaterEqual(report['invalid_records'], 2)
+        self.assertEqual(report['failed_predicates'], 1)
+        self.assertEqual(report['exception_records'], 1)
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_post_48mib_record_line_and_state_limits_stay_partial_during_drain(self):
+        for mode in ('records', 'line', 'state'):
+            with self.subTest(mode=mode):
+                observer, count = self.large_prefix()
+                prefix_bytes = observer.streams['stdout']['bytes']
+                expected_hash = observer.streams['stdout']['sha'].copy()
+                suffix = (json.dumps(self.row(raHash='new-ra'))+'\n').encode()
+                key, limit = {'records':('MAX_SUMMARY_RECORDS',count),
+                              'line':('LINE_CAP',len(suffix)-2),
+                              'state':('SUMMARY_RA_LIMIT',1)}[mode]
+                with patch.object(profile,key,limit), self.assertRaises(profile.ObservationError):
+                    observer.feed('stdout',suffix)
+                tail = b'not parsed after fail-closed\n'
+                observer.feed('stdout',tail,final=True); observer.feed('stderr',b'',final=True)
+                expected_hash.update(suffix+tail)
+                report = observer.summary(); stream = report['streams']['stdout']
+                self.assertEqual(report['status'],'PARTIAL')
+                self.assertIsNotNone(report['feed_failure'])
+                self.assertEqual(stream['bytes'],prefix_bytes+len(suffix)+len(tail))
+                self.assertEqual(stream['processed_prefix_bytes'],prefix_bytes)
+                self.assertEqual(stream['sha256'],expected_hash.hexdigest())
+                self.assertEqual(stream['pending_bytes'],0)
+
+    def test_summary_ra_full_digest_collision_probe_and_saturation_keep_first_ordinal(self):
+        # Equal slot prefix is not equality. Saturation still permits old keys.
+        with patch.object(profile,'SUMMARY_RA_LIMIT',3), patch.object(profile,'SUMMARY_RA_SLOTS',4):
+            index = profile.SummaryRA()
+            digests = [b'\0'*4+bytes([value])*28 for value in range(4)]
+            for ordinal, identity in enumerate(digests[:3],1):
+                self.assertEqual(index.first(identity,ordinal),(ordinal,False))
+            self.assertEqual(index.first(digests[0],99),(1,True))
+            with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
+                index.first(digests[3],100)
+            self.assertEqual(len(index),3)
+        with patch.object(profile,'SUMMARY_RA_LIMIT',4), patch.object(profile,'SUMMARY_RA_SLOTS',2):
+            index = profile.SummaryRA()
+            index.first(digests[0],1); index.first(digests[1],2)
+            with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
+                index.first(digests[2],3)  # full probe cycle is bounded, never hangs
+        with patch.object(profile,'SUMMARY_RA_PROBES',2):
+            index = profile.SummaryRA()
+            index.first(digests[0],1); index.first(digests[1],2)
+            with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
+                index.first(digests[2],3)  # free capacity cannot extend the per-row probe bound
+
+    def test_parse_state_preflight_and_both_stream_pendings_share_the_same_budget(self):
+        observer = profile.Summary([QUERY])
+        data = b'{"values":['+b'0,'*24000+b'0]}\n'
+        with patch.object(profile,'parse_json') as parse:
+            with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
+                observer.feed('stdout',data)
+            parse.assert_not_called()
+        observer.feed('stdout',b'',final=True); observer.feed('stderr',b'',final=True)
+        self.assertEqual(observer.summary()['status'],'PARTIAL')
+        observer = profile.Summary([QUERY])
+        chunk = b'x'*(64*1024)
+        for _ in range(8): observer.feed('stdout',chunk)
+        for _ in range(4): observer.feed('stderr',chunk)
+        with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
+            observer.feed('stderr',b'x')
+        observer.feed('stdout',b'',final=True); observer.feed('stderr',b'',final=True)
+        report = observer.summary()
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertTrue(all(stream['pending_bytes']==0 for stream in report['streams'].values()))
+        self.assertEqual(report['state_limits']['active_bytes'],4*1024**2)
+
+    def test_late_stderr_footer_error_after_48mib_cannot_certify_full_summary(self):
+        observer, _ = self.large_prefix()
+        observer.feed('stdout',b'',final=True)
+        observer.feed('stderr',b'ERROR: Reached end of log file before footer was found.\n',final=True)
+        report = observer.summary()
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertTrue(report['input_footer_missing'])
+        self.assertIs(report,observer.summary())
+        self.assertIsNone(observer.seen)
+        self.assertFalse(any(observer.tops.values()))
+
+    def test_non_eof_terminal_snapshot_releases_state_without_faking_transport_completion(self):
+        observer = profile.Summary([QUERY])
+        header = dict(summaryLogVersion='0.4.0',codeqlVersion='2.27.4',startTime='now')
+        observer.feed('stdout',(json.dumps(header)+'\n'+json.dumps(self.row())+'\n').encode())
+        observer.feed('stdout',b'{"truncated":')
+        observer.feed('stderr',b'not drained')
+        seen = observer.seen
+        report = observer.summary()
+        self.assertEqual(report['status'],'PARTIAL')
+        self.assertEqual(report['streams']['stdout']['pending_bytes'],len(b'{"truncated":'))
+        self.assertEqual(report['streams']['stderr']['pending_bytes'],len(b'not drained'))
+        self.assertFalse(any(stream['final'] for stream in report['streams'].values()))
+        self.assertEqual(report['distinct_ra_hashes'],len(seen))
+        self.assertIsNone(observer.seen)
+        self.assertFalse(any(observer.tops.values()))
+        self.assertFalse(any(stream['pending'] for stream in observer.streams.values()))
+        self.assertIs(observer.summary(),report)
+        with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_AFTER_FINALIZATION$'):
+            observer.feed('stdout',b'late data',final=True)
+        self.assertIs(observer.summary(),report)
+
     def test_real_pipe_limit_failures_keep_observed_bytes_and_sticky_partial_after_eof(self):
         prefix = (json.dumps(dict(summaryLogVersion='0.4.0',codeqlVersion='2.27.4',startTime='now'))+
                   '\n'+json.dumps(self.row())+'\n').encode()
-        for mode in ('bytes','line','records'):
+        for mode in ('state','line','records'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
                 root=Path(folder);out=root/'out';out.mkdir();ready=root/'parsed'
                 extra=(SYNTHETIC_CANARY+'x'*2048+'\n').encode() if mode=='line' else (json.dumps(self.row(raHash='new-ra'))+'\n').encode()
@@ -1108,7 +1264,7 @@ class SummaryTests(unittest.TestCase):
                         if observer.accepted: ready.touch()
                         return result
                 observer=Marked([QUERY])
-                key,limit={'bytes':('RAW_CAP',len(prefix)+1),'line':('LINE_CAP',len(prefix)+1),
+                key,limit={'state':('SUMMARY_RA_LIMIT',1),'line':('LINE_CAP',len(prefix)+1),
                            'records':('MAX_SUMMARY_RECORDS',1)}[mode]
                 with patch.object(profile,key,limit):
                     with self.assertRaises(runtime.PhaseError) as caught:
@@ -1392,6 +1548,9 @@ class CompressedProcessTests(unittest.TestCase):
         def popen(*args, **kwargs):
             self.assertIsNone(observation.replay.thread)
             self.assertFalse(observation.replay.start_attempted)
+            self.assertIsNone(observation.capture.projection)
+            numeric = observation.out/'numeric-projection.json'
+            self.assertEqual(observation.numeric_result['receipt_sha256'], runtime.digest(numeric))
             seen.append(True); return real_popen(*args, **kwargs)
         with patch.object(runtime.subprocess,'Popen',side_effect=popen):
             observation.summarize(cli,self.root,os.environ.copy(),time.monotonic()+30,admitted=True)
@@ -1402,6 +1561,98 @@ class CompressedProcessTests(unittest.TestCase):
         self.assert_closed(observation)
         with self.assertRaises(profile.ObservationError):
             observation.summarize(cli,self.root,{},time.monotonic()+30,admitted=True)
+
+    def test_numeric_is_frozen_before_summary_and_finish_reuses_the_same_receipt(self):
+        observation = self.observation(raw=numeric_bytes(numeric_events()))
+        cli = self.cli(); real_summary = profile.Summary; real_save = runtime.save
+        saves = []; identity = {}
+        def save(path, value, *args, **kwargs):
+            if path.name == 'numeric-projection.json': saves.append(path)
+            return real_save(path, value, *args, **kwargs)
+        def summary(*args, **kwargs):
+            self.assertIsNone(observation.capture.projection)
+            path = observation.out/'numeric-projection.json'
+            numeric = json.loads(path.read_bytes())
+            self.assertEqual(numeric['status'], 'OBSERVED')
+            self.assertEqual(numeric['pipeline_completed'], 3)
+            self.assertEqual(numeric['observed_stream_sha256'], observation.capture.observed_hash.hexdigest())
+            self.assertEqual(numeric['observed_stream_bytes'], observation.capture.observed)
+            identity['sha'] = runtime.digest(path)
+            self.assertEqual(observation.numeric_result['receipt_sha256'], identity['sha'])
+            return real_summary(*args, **kwargs)
+        with patch.object(runtime,'save',side_effect=save), patch.object(profile,'Summary',side_effect=summary):
+            observation.summarize(cli,self.root,os.environ.copy(),time.monotonic()+30,admitted=True)
+            self.assertEqual(observation.finish()['numeric_status'], 'OBSERVED')
+        self.assertEqual(len(saves), 1)
+        self.assertEqual(runtime.digest(saves[0]), identity['sha'])
+        self.assert_closed(observation)
+
+    def test_numeric_freeze_failure_keeps_state_and_cannot_construct_summary_or_spawn(self):
+        observation = self.observation(raw=numeric_bytes(numeric_events()))
+        projection = observation.capture.projection
+        with patch.object(runtime,'save',side_effect=OSError(SYNTHETIC_CANARY)), \
+             patch.object(profile,'Summary') as summary, patch.object(runtime,'run') as run:
+            observation.summarize('/cli',self.root,{},time.monotonic()+30,admitted=True)
+            summary.assert_not_called(); run.assert_not_called()
+        self.assertIs(observation.capture.projection, projection)
+        self.assertEqual(observation.summary_result['status'], 'PARTIAL')
+        self.assertEqual(observation.finish()['numeric_status'], 'OBSERVED')
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(observation.receipt()))
+
+    def test_numeric_hash_failure_reuses_existing_bytes_and_corruption_cannot_be_overwritten(self):
+        observation = self.observation(raw=numeric_bytes(numeric_events()))
+        with patch.object(os,'read',side_effect=OSError(SYNTHETIC_CANARY)), patch.object(profile,'Summary') as summary:
+            observation.summarize('/cli',self.root,{},time.monotonic()+30,admitted=True)
+            summary.assert_not_called()
+        path = observation.out/'numeric-projection.json'; saved = path.read_bytes()
+        self.assertIsNotNone(observation.capture.projection)
+        with patch.object(runtime,'save',wraps=runtime.save) as save:
+            self.assertEqual(observation.finish()['numeric_status'],'OBSERVED')
+        self.assertEqual(path.read_bytes(),saved)
+        self.assertTrue(all(call.args[0].name!='numeric-projection.json' for call in save.call_args_list))
+        observation.close()
+        observation = self.observation('corrupt',raw=numeric_bytes(numeric_events()))
+        path = observation.out/'numeric-projection.json'; path.write_bytes(b'{}\n')
+        with patch.object(profile,'Summary') as summary, patch.object(runtime,'run') as run:
+            observation.summarize('/cli',self.root,{},time.monotonic()+30,admitted=True)
+            summary.assert_not_called(); run.assert_not_called()
+        with self.assertRaisesRegex(profile.ObservationError,'^NUMERIC_RECEIPT_IDENTITY$'):
+            observation.finish()
+        self.assertEqual(path.read_bytes(),b'{}\n')
+        self.assertIsNotNone(observation.capture.projection)
+
+    def test_numeric_existing_special_oversize_or_changed_files_never_block_or_get_overwritten(self):
+        for mode in ('symlink','dangling','fifo','oversize','same-length-wrong','changed'):
+            with self.subTest(mode=mode):
+                observation = self.observation(mode,raw=numeric_bytes(numeric_events()))
+                path = observation.out/'numeric-projection.json'; target = self.root/(mode+'-target')
+                if mode == 'symlink': target.write_bytes(b'untouched')
+                if mode in ('symlink','dangling'): path.symlink_to(target)
+                elif mode == 'fifo': os.mkfifo(path)
+                elif mode == 'oversize': path.write_bytes(b'x'*(runtime.MAX_CONTROL_RECEIPT+1))
+                else:
+                    with patch.object(os,'read',side_effect=OSError('first verification unavailable')):
+                        with self.assertRaises(profile.ObservationError): observation._freeze_numeric()
+                    if mode == 'same-length-wrong':
+                        data = path.read_bytes(); path.write_bytes(b'x'+data[1:])
+                real_read = os.read
+                def read(fd, size):
+                    self.assertLessEqual(size,runtime.MAX_CONTROL_RECEIPT+1)
+                    data = real_read(fd,size)
+                    if mode == 'changed':
+                        data_path = path.read_bytes(); path.unlink(); path.write_bytes(data_path)
+                    return data
+                before = path.lstat()
+                with patch.object(os,'read',side_effect=read), patch.object(profile,'Summary') as summary, \
+                     patch.object(runtime,'run') as run, patch.object(runtime,'save') as save:
+                    observation.summarize('/cli',self.root,{},time.monotonic()+30,admitted=True)
+                    summary.assert_not_called(); run.assert_not_called(); save.assert_not_called()
+                self.assertEqual(observation.summary_result['status'],'PARTIAL')
+                self.assertIsNotNone(observation.capture.projection)
+                if mode != 'changed': self.assertEqual(path.lstat().st_ino,before.st_ino)
+                if mode == 'symlink': self.assertEqual(target.read_bytes(),b'untouched')
+                if mode == 'dangling': self.assertFalse(target.exists())
+                observation.close()
 
     def test_exit_zero_without_consuming_all_input_rejects_even_fully_written_stream(self):
         for mode in ('none','prefix'):
@@ -1560,6 +1811,13 @@ class RealCodeQLProfile(unittest.TestCase):
                 self.assertTrue(all(row['appears_in_query_indexes']==[0] and not row['unmapped_query_count'] for row in rows))
                 self.assertTrue(all(row['first_requiring_query']['query_sha256']==query_hash for row in rows))
                 self.assertTrue(any(row['evaluation_strategy']=='COMPUTED_EXTENSIONAL' for row in rows))
+                numeric_path = observation.out/'numeric-projection.json'
+                numeric = json.loads(numeric_path.read_bytes())
+                self.assertEqual(numeric['status'],'NOT_OBSERVED')
+                self.assertEqual(numeric['observed_stream_sha256'],capture['observed_sha256'])
+                self.assertEqual(numeric['observed_stream_bytes'],capture['observed_bytes'])
+                self.assertEqual(receipt['numeric_projection']['receipt_sha256'],runtime.digest(numeric_path))
+                self.assertIsNone(observation.capture.projection)
                 observation.close()
                 self.assertIsNone(observation.capture.fd)
                 self.assertFalse(observation.replay.alive())
