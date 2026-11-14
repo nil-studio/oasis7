@@ -50,8 +50,8 @@ SUPPORT_PROFILES = (
     'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
     'oasis7_client_launcher', 'wasm_build_suite', 'wasm_module_observe',
 )
-# The distfs group runs these lib harnesses and DistFS integration tests
-# with Cargo defaults on Ubuntu.
+# The distfs group runs these lib harnesses and the registered industry
+# integration target with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
 # Keep synchronized with run_oasis7_distfs_tests and rust.yml's distfs runner.
 NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
@@ -3747,7 +3747,11 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                         and (package in config.get('oasis7_required_packages', ())
                              or (package == 'oasis7_distfs'
                                  and 'distfs' in config['package_groups'].get(package, ()) and any(
-                                 path == root for root, _ in integration_targets[package].values()))
+                                 name == 'incremental_industry_jobs' and path == root
+                                 and posixpath.relpath(path, directory or '.') == 'tests/incremental_industry_jobs.rs'
+                                 and declaration.get('test', True) and declaration.get('harness', True)
+                                 and not declaration.get('required-features')
+                                 for name, (root, declaration) in integration_targets[package].items()))
                              or (set(config['package_groups'].get(package, ()))
                                  & ({'consensus', 'distfs', 'node', 'net'}
                                     | ({'pixel_world_bridge'} if package == 'pixel_world_bridge' else set()))

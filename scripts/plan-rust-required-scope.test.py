@@ -3934,7 +3934,7 @@ class Selection(unittest.TestCase):
                    '[package]\nname="consumer"\nversion="0.1.0"\nedition="2024"\n'
                    '[dependencies]\noasis7_distfs={path="../oasis7_distfs"}\n')
         self.write('crates/consumer/src/lib.rs', 'pub fn observed() -> u8 { oasis7_distfs::value() }\n')
-        root = 'crates/oasis7_distfs/tests/native.rs'
+        root = 'crates/oasis7_distfs/tests/incremental_industry_jobs.rs'
         support = 'crates/oasis7_distfs/tests/support/mod.rs'
         self.write(root, '#![cfg(all(unix, not(target_arch="wasm32")))]\n'
                    '#[cfg(feature="native_driver")] mod support;\n')
@@ -3945,7 +3945,7 @@ class Selection(unittest.TestCase):
         for explicit in (False, True):
             config, root, support = self.native_default_integration_fixture(
                 'autotests=false\n' if explicit else '',
-                '\n[[test]]\nname="native"\npath="tests/native.rs"\n' if explicit else '')
+                '\n[[test]]\nname="incremental_industry_jobs"\npath="tests/incremental_industry_jobs.rs"\n' if explicit else '')
             base = self.commit()
             self.write(root, Path(root).read_text()
                        + '#[test] fn native_added() { assert_eq!(oasis7_distfs::value(), 42); }\n')
@@ -3962,7 +3962,7 @@ class Selection(unittest.TestCase):
                 # The actual default-feature DistFS tuple must execute the new
                 # support case; a listed target or an empty harness is not proof.
                 output = self.ordinary_route_cargo(
-                    ['-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint'])
+                    ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs'])
                 self.assertIn('native_added ... ok', output)
                 self.assertIn('support::added ... ok', output)
                 self.assertIn('3 passed; 0 failed', output)
@@ -3970,13 +3970,33 @@ class Selection(unittest.TestCase):
     def test_native_default_integration_rejects_disabled_and_feature_gated_targets(self):
         for setting, declaration in (
                 ('autotests=false\n', ''),
-                ('', '\n[[test]]\nname="native"\nharness=false\n'),
-                ('', '\n[[test]]\nname="native"\ntest=false\n'),
-                ('', '\n[[test]]\nname="native"\nrequired-features=["optional_lane"]\n')):
+                ('', '\n[[test]]\nname="incremental_industry_jobs"\nharness=false\n'),
+                ('', '\n[[test]]\nname="incremental_industry_jobs"\ntest=false\n'),
+                ('', '\n[[test]]\nname="incremental_industry_jobs"\nrequired-features=["optional_lane"]\n')):
             config, root, _ = self.native_default_integration_fixture(setting, declaration)
             base = self.commit()
             self.write(root, Path(root).read_text() + '#[test] fn unexecuted() {}\n')
             with self.subTest(setting=setting, declaration=declaration):
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_default_integration_requires_canonical_name_path_and_group(self):
+        for mismatch in ('alias', 'custom-path', 'other-target', 'other-group'):
+            declarations = {
+                'alias': '\n[[test]]\nname="alias"\npath="tests/incremental_industry_jobs.rs"\n',
+                'custom-path': '\n[[test]]\nname="incremental_industry_jobs"\npath="custom/industry.rs"\n',
+            }.get(mismatch, '')
+            config, root, _ = self.native_default_integration_fixture(declarations=declarations)
+            if mismatch in ('custom-path', 'other-target'):
+                Path(root).unlink()
+                root = ('crates/oasis7_distfs/custom/industry.rs' if mismatch == 'custom-path'
+                        else 'crates/oasis7_distfs/tests/other.rs')
+            elif mismatch == 'other-group':
+                config['package_groups']['oasis7_distfs'] = ['core']
+            self.write(root, '#![cfg(unix)]\n#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(root, Path(root).read_text() + '#[test] fn unexecuted() {}\n')
+            with self.subTest(mismatch=mismatch):
                 with self.assertRaises(selector.TestPolicyError):
                     selector.select(config, base, self.commit(), profile='pr-fast')
 

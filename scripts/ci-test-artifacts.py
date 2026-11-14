@@ -303,7 +303,7 @@ DISTFS_CLIPPY_TARGETS = frozenset((
 ))
 DISTFS_CLIPPY_COMMANDS = (
     ('-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'),
-    ('-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint'),
+    ('-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'),
 )
 UNIT_TEST_CONTRACT_FIELDS = frozenset((
     'ordinary_unit_test_contract_version', 'ordinary_unit_test_sources',

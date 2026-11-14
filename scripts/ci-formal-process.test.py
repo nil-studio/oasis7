@@ -1060,7 +1060,7 @@ class DistfsClippyHandoff(unittest.TestCase):
     def test_original_lint_inventory_has_one_owner_and_keeps_both_required_groups(self):
         selected = self.selection()
         expected = [['-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
-                    ['-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint']]
+                    ['-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
         self.assertEqual(artifacts.required_native_commands(selected)[-2:], expected)
         self.assertEqual(artifacts.required_arguments(selected, 'distfs-clippy-group'), ['rust_baseline'])
         legacy = {key: value for key, value in selected.items()
@@ -1126,8 +1126,6 @@ with open(os.environ['CARGO_LOG'], 'a') as stream:
     stream.write(json.dumps(args) + '\\n')
 if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY_PACKAGE']:
     sys.exit(19)
-if args[0] == 'test' and '--tests' in args and os.environ.get('FAIL_DISTFS_TEST') == 'true':
-    sys.exit(23)
 ''')
             cargo.chmod(0o755)
             subprocess.run(['git', 'init', '-q', str(repo)], check=True)
@@ -1140,16 +1138,14 @@ if args[0] == 'test' and '--tests' in args and os.environ.get('FAIL_DISTFS_TEST'
             selection, log = root / 'selection.json', root / 'cargo.jsonl'
             original_lints = [
                 ['clippy', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
-                ['clippy', '-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint']]
+                ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
             original_lints = [args + ['--', '-D', 'warnings', '-D', 'clippy::correctness',
                                       '-D', 'clippy::suspicious'] for args in original_lints]
             original_tests = [
                 ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
-                ['test', '-p', 'oasis7_distfs', '--lib', '--tests', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
-            for mode, failed, test_failed in (
-                    ('handoff', '', False), ('legacy', '', False), ('manual', '', False),
-                    ('handoff', 'oasis7_cas', False), ('handoff', 'oasis7_distfs', False),
-                    ('handoff', '', True), ('legacy', '', True), ('manual', '', True)):
+                ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
+            for mode, failed in (('handoff', ''), ('legacy', ''), ('handoff', 'oasis7_cas'),
+                                 ('handoff', 'oasis7_distfs'), ('manual', '')):
                 current = copy.deepcopy(selected)
                 if mode == 'legacy':
                     del current['distfs_clippy_contract_version'], current['distfs_clippy_group']
@@ -1162,14 +1158,11 @@ if args[0] == 'test' and '--tests' in args and os.environ.get('FAIL_DISTFS_TEST'
                         *plan_args, '--repo-root', str(repo)], text=True, capture_output=True,
                         env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'], SOURCE_SHA=sha,
                                  CI_VERBOSE='', CARGO_LOG=str(log), FAIL_CLIPPY_PACKAGE=failed,
-                                 FAIL_DISTFS_TEST=str(test_failed).lower(),
                                  OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false', OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
                     commands = [json.loads(line) for line in log.read_text().splitlines()]
                     observed[group] = [args for args in commands if args[0] == 'clippy' and args[2] in ('oasis7_cas', 'oasis7_distfs')]
-                    with self.subTest(mode=mode, failed=failed, test_failed=test_failed, group=group):
-                        expected_status = (19 if group == 'rust_baseline' and failed
-                                           else 23 if group == 'distfs' and test_failed else 0)
-                        self.assertEqual(result.returncode, expected_status,
+                    with self.subTest(mode=mode, failed=failed, group=group):
+                        self.assertEqual(result.returncode, 19 if group == 'rust_baseline' and failed else 0,
                                          result.stdout + result.stderr)
                         if group == 'distfs':
                             self.assertEqual([args for args in commands if args[0] == 'test'], original_tests)
@@ -1186,6 +1179,94 @@ if args[0] == 'test' and '--tests' in args and os.environ.get('FAIL_DISTFS_TEST'
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('execution plan identity mismatch', result.stderr)
                 self.assertFalse(log.exists())
+
+
+class DistfsNamedIntegrationDriver(unittest.TestCase):
+    def test_named_target_presence_handoff_and_failures_preserve_original_commands(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo, binary = root / 'repo', root / 'bin'
+            scripts = repo / 'scripts'
+            scripts.mkdir(parents=True)
+            binary.mkdir()
+            (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
+                         'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
+                path = scripts / name
+                path.write_text('#!/usr/bin/env bash\nexit 0\n')
+                path.chmod(0o755)
+            crate = repo / 'crates/oasis7_distfs'
+            (crate / 'tests').mkdir(parents=True)
+            (crate / 'Cargo.toml').write_text(
+                '[package]\nname="oasis7_distfs"\nversion="0.1.0"\nedition="2024"\n')
+            # A different integration file must not authorize the named driver.
+            (crate / 'tests/other.rs').write_text('#[test] fn unrelated() {}\n')
+            named = crate / 'tests/incremental_industry_jobs.rs'
+            cargo = binary / 'cargo'
+            cargo.write_text('''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['CARGO_LOG'], 'a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+if ('--test' in args and args[args.index('--test') + 1] == 'incremental_industry_jobs'
+        and args[0] == os.environ.get('FAIL_NAMED_COMMAND')):
+    sys.exit(23 if args[0] == 'test' else 29)
+''')
+            cargo.chmod(0o755)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            selection, log = root / 'selection.json', root / 'cargo.jsonl'
+            lint_flags = ['--', '-D', 'warnings', '-D', 'clippy::correctness', '-D', 'clippy::suspicious']
+            original_lints = [
+                ['clippy', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'] + lint_flags,
+                ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'] + lint_flags]
+            original_tests = [
+                ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
+                ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
+            target_args = ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs']
+            named_lint = ['clippy', *target_args, *lint_flags]
+            named_test = ['test', *target_args, '--', '--test-threads=1']
+            for present in (False, True):
+                if present:
+                    named.write_text('#[test] fn industry_contract() {}\n')
+                subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+                subprocess.run(['git', '-C', str(repo), '-c', 'user.name=CI fixture', '-c',
+                                'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+                sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+                selected = DistfsClippyHandoff().selection() | {'source_sha': sha, 'tested_sha': sha}
+                selected['architecture'].update(source=sha, tested=sha)
+                for mode in ('handoff', 'legacy', 'manual'):
+                    current = copy.deepcopy(selected)
+                    if mode == 'legacy':
+                        del current['distfs_clippy_contract_version'], current['distfs_clippy_group']
+                    selection.write_text(json.dumps(current))
+                    for failed in (('', 'clippy', 'test') if present else ('',)):
+                        for group in (('distfs',) if mode == 'manual' else ('rust_baseline', 'distfs')):
+                            log.unlink(missing_ok=True)
+                            plan_args = [] if mode == 'manual' else ['--plan', str(selection)]
+                            result = subprocess.run(
+                                ['bash', str(HERE / 'ci-tests.sh'), 'required', '--group', group,
+                                 *plan_args, '--repo-root', str(repo)], text=True, capture_output=True,
+                                env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                                         SOURCE_SHA=sha, CI_VERBOSE='', CARGO_LOG=str(log),
+                                         FAIL_NAMED_COMMAND=failed,
+                                         OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
+                                         OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                            commands = [json.loads(line) for line in log.read_text().splitlines()]
+                            observed_lints = [args for args in commands if args[0] == 'clippy'
+                                              and args[2] in ('oasis7_cas', 'oasis7_distfs')]
+                            owner = 'rust_baseline' if mode == 'handoff' else 'distfs'
+                            expected_lints = list(original_lints) if group == owner else []
+                            if present and group == 'distfs':
+                                expected_lints.append(named_lint)
+                            expected_tests = []
+                            if group == 'distfs' and failed != 'clippy':
+                                expected_tests = original_tests + ([named_test] if present else [])
+                            expected_status = (29 if failed == 'clippy' else 23 if failed == 'test' else 0)
+                            with self.subTest(present=present, mode=mode, failed=failed, group=group):
+                                self.assertEqual(result.returncode, expected_status if group == 'distfs' else 0,
+                                                 result.stdout + result.stderr)
+                                self.assertEqual(observed_lints, expected_lints)
+                                self.assertEqual([args for args in commands if args[0] == 'test'], expected_tests)
 
 
 class CompleteArtifactPartitions(unittest.TestCase):

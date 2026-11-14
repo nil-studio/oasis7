@@ -364,22 +364,29 @@ run_oasis7_consensus_clippy() {
 run_oasis7_distfs_tests() {
   run_cargo test -p oasis7_cas -p oasis7_formal_protocol --lib -- --test-threads=1
   # Keep independent RPC deadline fixtures from contending with other storage fixtures.
-  run_cargo test -p oasis7_distfs --lib --tests --bin oasis7_durability_endpoint -- --test-threads=1
+  run_cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1
+  if [[ -f "$repo_root/crates/oasis7_distfs/tests/incremental_industry_jobs.rs" ]]; then
+    run_cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1
+  fi
 }
 
 run_oasis7_distfs_clippy() {
+  local owner=distfs
   if [[ "${tier:-}" == required && -n "${required_plan:-}" ]]; then
-    local owner
     owner=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
       --plan "$required_plan" --phase distfs-clippy-group) || return
-    case "$owner" in
-      rust_baseline) return 0 ;;
-      distfs) ;;
-      *) echo "Unknown DistFS Clippy group: $owner" >&2; return 2 ;;
-    esac
   fi
-  run_cargo_clippy -p oasis7_cas -p oasis7_formal_protocol --lib
-  run_cargo_clippy -p oasis7_distfs --lib --tests --bin oasis7_durability_endpoint
+  case "$owner" in
+    rust_baseline) ;;
+    distfs)
+      run_cargo_clippy -p oasis7_cas -p oasis7_formal_protocol --lib
+      run_cargo_clippy -p oasis7_distfs --lib --bin oasis7_durability_endpoint
+      ;;
+    *) echo "Unknown DistFS Clippy group: $owner" >&2; return 2 ;;
+  esac
+  if [[ -f "$repo_root/crates/oasis7_distfs/tests/incremental_industry_jobs.rs" ]]; then
+    run_cargo_clippy -p oasis7_distfs --test incremental_industry_jobs
+  fi
 }
 
 run_oasis7_node_tests() {

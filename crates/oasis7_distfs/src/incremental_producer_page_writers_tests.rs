@@ -45,11 +45,10 @@ fn producer_state_and_schedule_pages_reopen_with_original_roots() {
         let (state, schedule) = deltas(&store, &memory);
         let expected_state = state.after.clone();
         let expected_schedule = schedule.after.clone();
-        {
-            let mut writer = store.value_session(physical_io());
-            writer.put_state_pages(&state, &memory).unwrap();
-            writer.put_schedule_pages(&schedule, &memory).unwrap();
-        }
+        let mut writer = store.value_session(physical_io());
+        writer.put_state_pages(&state, &memory).unwrap();
+        writer.put_schedule_pages(&schedule, &memory).unwrap();
+        drop(writer);
         drop(state);
         drop(schedule);
         drop(store);
