@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regress the final DAG and execution boundaries, without Actions credentials."""
 import ast
+import hashlib
 import json
 import itertools
 import os
@@ -502,6 +503,7 @@ class Workflow(unittest.TestCase):
                     'fromJSON(needs.select.outputs.plan).scope': 'full',
                     'fromJSON(needs.select.outputs.plan).execution_profile': 'periodic-full',
                     'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                    'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                     'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
                     'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                     'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
@@ -967,7 +969,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
-        self.assertLessEqual(consumers, fields)
+        self.assertLessEqual(consumers, fields | {'ordinary_main_fast_cache_writer_version'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
         guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
         self.assertEqual(guard, workflow_step_script(JOBS['explicit-full-gate'], 'Validate complete selection handoff'))
@@ -1057,6 +1059,43 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 validator.write_text(prefix + source)
                 self.assertEqual(invoke().returncode, status)
             self.assertFalse((root / 'transport-must-not-execute').exists())
+
+    def test_optional_ordinary_cache_capability_is_bound_to_the_complete_plan(self):
+        field = 'ordinary_main_fast_cache_writer_version'
+        guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
+        self.assertEqual(guard, workflow_step_script(JOBS['explicit-full-gate'], 'Validate complete selection handoff'))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = large_transport_plan()
+            environment = dict(os.environ, RUNNER_TEMP=directory, SOURCE_SHA=plan['source_sha'],
+                               TESTED_SHA=plan['tested_sha'], POLICY_SHA=plan['policy_sha'])
+
+            def invoke(value):
+                return subprocess.run(['bash', '-euo', 'pipefail', '-c', guard], cwd=root,
+                    env=dict(environment, WORKFLOW_PLAN=json.dumps(value)), text=True, capture_output=True)
+
+            legacy = project_selection(root, plan)
+            self.assertNotIn(field, legacy)
+            self.assertEqual(invoke(legacy).returncode, 0)
+            self.assertNotEqual(invoke(legacy | {field: 1}).returncode, 0)
+            current = project_selection(root, plan | {field: 1})
+            self.assertEqual(current[field], 1)
+            self.assertEqual(invoke(current).returncode, 0)
+            self.assertNotEqual(invoke({key: value for key, value in current.items() if key != field}).returncode, 0)
+            for changed in (0, 2, True, '1', None):
+                with self.subTest(value=changed):
+                    self.assertNotEqual(invoke(current | {field: changed}).returncode, 0)
+            (root / 'selection.json').write_text(json.dumps(plan | {field: 2}))
+            self.assertNotEqual(invoke(current).returncode, 0)
+            for invalid in (0, 2, True, False, 1.0, '1', None):
+                with self.subTest(invalid_plan_capability=invalid):
+                    with self.assertRaises(AssertionError):
+                        project_selection(root, plan | {field: invalid})
+                    raw = (root / 'selection.json').read_bytes()
+                    # Matching file and projection must still reject values
+                    # that Actions would coerce to the supported integer.
+                    forged = current | {field: invalid, 'selection_sha256': hashlib.sha256(raw).hexdigest()}
+                    self.assertNotEqual(invoke(forged).returncode, 0)
 
     def test_projection_keeps_all_needs_aggregates_below_process_argument_limits(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1419,6 +1458,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 'needs.select.outputs.trusted_source': str(trusted).lower(),
                 'fromJSON(needs.select.outputs.plan).execution_profile': 'periodic-full' if trusted else 'pr-fast',
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'github.event_name': 'schedule' if trusted else 'pull_request',
                 'github.ref': 'refs/heads/main' if trusted else 'refs/pull/1/merge',
                 'github.workflow_sha': 'a', 'github.sha': 'a', 'inputs.run_mode': '',
@@ -1700,6 +1740,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             'needs.select.outputs.trusted_source': str(source).lower(),
                             'fromJSON(needs.select.outputs.plan).execution_profile': profile,
                             'fromJSON(needs.select.outputs.plan).fast_plan_version': 1 if profile else 0,
+                            'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                             'github.job': name, 'github.event_name': event, 'github.ref': ref,
                             'github.workflow_sha': 'a' if matching else 'b', 'github.sha': 'a',
                             'inputs.run_mode': mode, 'steps.dependency-cache-tools.outcome': installation,
@@ -1858,6 +1899,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
                             'fromJSON(needs.select.outputs.plan).execution_profile': '',
                             'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                            'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                             'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
                             'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                             'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
@@ -1885,6 +1927,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                         'fromJSON(needs.select.outputs.plan).scope': 'targeted',
                         'fromJSON(needs.select.outputs.plan).execution_profile': 'pr-fast',
                         'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                        'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                         'fromJSON(needs.select.outputs.plan).fast_execution_version': version,
                         'fromJSON(needs.select.outputs.plan).ordinary_execution': mode,
                         'github.event_name': 'pull_request', 'github.ref': 'refs/pull/1/merge',
@@ -2174,6 +2217,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                     'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
                                     'fromJSON(needs.select.outputs.plan).execution_profile': '',
                                     'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                                    'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                                     'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
                                     'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                                     'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
@@ -2202,6 +2246,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 'needs.select.outputs.trusted_source': 'true',
                 'fromJSON(needs.select.outputs.plan).execution_profile': 'periodic-full',
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'github.event_name': 'schedule', 'github.ref': 'refs/heads/main',
                 'inputs.run_mode': '', 'github.workflow_sha': 'a', 'github.sha': 'a',
             }
@@ -2256,6 +2301,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
                             'fromJSON(needs.select.outputs.plan).execution_profile': '',
                             'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                            'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                             'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
                             'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                                 'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
@@ -3843,6 +3889,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.workspace_support_partitions)': ['custody', 'other'] if selected else [],
                 'fromJSON(needs.select.outputs.plan).scope': scope,
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
                 'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs else 0,
@@ -4056,6 +4103,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.plan).scope': 'full',
                 'fromJSON(needs.select.outputs.plan).execution_profile': profile,
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': version,
+                'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                 'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': 'full',

@@ -330,9 +330,13 @@ jobs:
           plan = json.loads(raw)
           if not isinstance(plan, dict):
               raise ValueError('complete selection must be an object')
+          capability = 'ordinary_main_fast_cache_writer_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
+              raise ValueError('invalid ordinary main-fast cache writer capability')
           fields = (
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+              'ordinary_main_fast_cache_writer_version',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
@@ -3636,6 +3640,9 @@ jobs:
           projected = json.loads(os.environ['WORKFLOW_PLAN'])
           if not isinstance(plan, dict) or not isinstance(projected, dict):
               raise ValueError('complete selection and scheduling projection must be objects')
+          capability = 'ordinary_main_fast_cache_writer_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
+              raise ValueError('invalid ordinary main-fast cache writer capability')
           if (type(projected.get('workflow_projection_version')) is not int
                   or projected['workflow_projection_version'] != 1
                   or projected.get('selection_sha256') != hashlib.sha256(raw).hexdigest()):
@@ -3643,6 +3650,7 @@ jobs:
           fields = (
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+              'ordinary_main_fast_cache_writer_version',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
