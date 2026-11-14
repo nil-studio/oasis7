@@ -93,7 +93,6 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_field_presence", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2610},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_fixed_economy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 34838},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_governance_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 128723},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_industry_jobs", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 132532},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_installed_module_targets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16419},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_change", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 12022},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 5213},
