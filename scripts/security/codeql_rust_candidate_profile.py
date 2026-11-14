@@ -98,7 +98,7 @@ class ClockTotal:
 
 class NumericProjection:
     """One fixed source family; event instances and literal sizes, never CPU/deltas."""
-    VERSION = 'candidate-numeric-v1'
+    VERSION = 'candidate-numeric-v2'
     BASE = {'time': str, 'type': str, 'eventId': int, 'nanoTime': int}
     FIELDS = dict(BASE, codeqlVersion=str, logVersion=str, queryName=str, stages=list,
                   startEvent=int, terminationType=str, raHash=str, predicateName=str,
@@ -137,8 +137,11 @@ class NumericProjection:
         self.predicate_starts = self.pipeline_starts = self.predicate_completed = self.pipeline_completed = 0
         self.maximum_generation = None
         self.predicate_tail, self.pipeline_tail = [], []
+        self.header_nano = self.last_observed_nano = None
+        self._record_valid = False
 
     def fail(self, code):
+        self._record_valid = False
         code = code if code in self.errors else 'PROCESSING_FAILED'
         self.errors[code] = min(2**63-1, self.errors[code]+1)
 
@@ -192,6 +195,15 @@ class NumericProjection:
             return None
         return elapsed
 
+    @staticmethod
+    def _native_difference(end, start):
+        # Optional evidence only: do not change existing validation or use a
+        # parent clock, clamp, maximum timestamp or permanent ordering latch.
+        if end is None or start is None:
+            return None
+        elapsed = end-start
+        return elapsed if 0 <= elapsed <= 2**63-1 else None
+
     def _remember(self, event, kind):
         if len(self.target_events) >= NUMERIC_EVENT_CAP:
             self.fail('TABLE_LIMIT')
@@ -201,10 +213,13 @@ class NumericProjection:
     def accept(self, value):
         self.records += 1
         self.post_limit_records += self.after_limit
+        self._record_valid = True
         try:
             self._event(value)
         except Exception:
             self.fail('FIELD_OR_TYPE')  # no exception string or observed text
+        if self._record_valid:
+            self.last_observed_nano = value['nanoTime']
 
     def _event(self, value):
         if type(value) is not dict or value.get('type') not in self.KINDS:
@@ -235,6 +250,8 @@ class NumericProjection:
             self.header_valid = value.get('codeqlVersion') == '2.27.4' and value.get('logVersion') == '0.5.0'
             if not self.header_valid or self.headers != 1 or self.records != 1:
                 self.fail('HEADER')
+            elif self.header_nano is None:
+                self.header_nano = nano
             return
         if not self.header_valid or self.footers:
             self.fail('HEADER')
@@ -260,6 +277,9 @@ class NumericProjection:
             if len(self.predicates) >= NUMERIC_PREDICATE_CAP:
                 self.fail('TABLE_LIMIT'); return
             self.predicates[event] = dict(aliases=aliases, nano=nano, layer=value.get('layerId'),
+                observed_start_nano=nano if self._record_valid else None,
+                ra_identity_sha256=_hash(value['raHash'].encode('utf-8')) if value.get('raHash') else None,
+                predicate_start_offset_ns=self._native_difference(nano, self.header_nano) if self._record_valid else None,
                 predicate_type=value['predicateType'], started_before_limit=not self.after_limit)
             self.predicate_starts += 1
         elif kind == 'PIPELINE_STARTED':
@@ -279,6 +299,8 @@ class NumericProjection:
             elif generation is not None:
                 self.maximum_generation = max(generation, self.maximum_generation or 0)
             self.pipelines[event] = dict(predicate_event=parent, nano=nano, generation=generation,
+                ra_identity_sha256=self.predicates[parent]['ra_identity_sha256'],
+                predicate_start_offset_ns=self.predicates[parent]['predicate_start_offset_ns'],
                 layer=self.predicates[parent]['layer'], started_before_limit=not self.after_limit)
             self.pipeline_starts += 1
         elif kind == 'PIPELINE_COMPLETED':
@@ -292,6 +314,8 @@ class NumericProjection:
                 self.fail('FIELD_OR_TYPE')
             self.pipeline_completed += 1
             self.pipeline_tail.append(dict(probe_id=0, predicate_event=begin['predicate_event'],
+                ra_identity_sha256=begin['ra_identity_sha256'],
+                predicate_start_offset_ns=begin['predicate_start_offset_ns'],
                 pipeline_event=start, completion_event=event, layer=begin['layer'], generation=begin['generation'],
                 pipeline_result_size=value.get('resultSize'), elapsed_ns=self._elapsed(nano, begin['nano']),
                 completion=completion, exception_present='exceptionName' in value,
@@ -310,6 +334,8 @@ class NumericProjection:
                 self.fail('LINK_ORDER')
             self.predicate_completed += 1
             self.predicate_tail.append(dict(probe_id=0, predicate_event=start, completion_event=event,
+                ra_identity_sha256=begin['ra_identity_sha256'],
+                predicate_start_offset_ns=begin['predicate_start_offset_ns'],
                 alias_ids=begin['aliases'], layer=begin['layer'], predicate_type=begin['predicate_type'],
                 predicate_result_size=value.get('resultSize'), elapsed_ns=self._elapsed(nano, begin['nano']),
                 completion=completion, exception_present='exceptionName' in value))
@@ -330,6 +356,7 @@ class NumericProjection:
             input_framed_bytes=self.input_framed_bytes,
             input_unframed_bytes=None if self.input_observed_bytes is None else self.input_observed_bytes-self.input_framed_bytes,
             header_count=self.headers, footer_count=self.footers, header_version_valid=self.header_valid,
+            last_observed_offset_ns=self._native_difference(self.last_observed_nano, self.header_nano),
             transport_eof=self.eof, cleanup_ok=self.cleanup_ok,
             predicate_starts=self.predicate_starts, pipeline_starts=self.pipeline_starts,
             predicate_completed=self.predicate_completed, pipeline_completed=self.pipeline_completed,
@@ -338,9 +365,14 @@ class NumericProjection:
             open_predicates=len(self.predicates), open_pipelines=len(self.pipelines),
             remembered_target_events=len(self.target_events), target_event_limit=NUMERIC_EVENT_CAP,
             unfinished_predicates=[dict(predicate_event=event, alias_ids=value['aliases'], layer=value['layer'],
+                                       ra_identity_sha256=value['ra_identity_sha256'],
+                                       predicate_start_offset_ns=value['predicate_start_offset_ns'],
+                                       observed_open_span_ns=self._native_difference(self.last_observed_nano, value['observed_start_nano']),
                                        predicate_type=value['predicate_type'])
                                    for event, value in list(self.predicates.items())[:8]],
             unfinished_pipelines=[dict(pipeline_event=event, predicate_event=value['predicate_event'],
+                                       ra_identity_sha256=value['ra_identity_sha256'],
+                                       predicate_start_offset_ns=value['predicate_start_offset_ns'],
                                        layer=value['layer'], generation=value['generation'])
                                   for event, value in list(self.pipelines.items())[:8]],
             pipeline_tail=list(self.pipeline_tail), predicate_tail=list(self.predicate_tail),
