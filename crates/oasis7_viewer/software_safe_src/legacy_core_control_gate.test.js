@@ -7,6 +7,12 @@ describe("legacy core live control gates", () => {
     document.body.innerHTML = "";
   });
 
+  it("reads only existing world-view transport counters without initialization or a request",async()=>{
+    const core=await import('./legacy_core.js');
+    expect(core.readWorldViewTransportStatistics()).toMatchObject({pendingRequests:0});
+    expect(Object.keys(core.readWorldViewTransportStatistics()).sort()).toEqual(['pendingRequests','semantics']);
+  });
+
   it("blocks top-level live controls from camelCase gameplay actions", async () => {
     const core = await import("./legacy_core.js");
     await core.initializeSoftwareSafeCore();

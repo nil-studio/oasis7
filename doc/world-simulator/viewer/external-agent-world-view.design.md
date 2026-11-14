@@ -449,3 +449,5 @@ ADR-VIEW-4：保留renderer/Shell，按预算做局部索引/聚合/reconcile，
 客户端只读统计可分别报告当前代际与已失效但尚未完成的 query 数、四类分页 Map 的条目数、cursor Set 大小及 first／last 页面引用槽数量。登记仅持有本地代际数字与计数，不额外保留页面、Map 或闭包；引用槽数不是去重对象数。invalidate、cancel 和 reset 不得将旧 await 闭包误报为已释放，须待原 async query 的 finally 删除标量登记。旧回复仍按原代际／scope 校验拒绝发布。
 
 transport 单独报告 pending entry 数，在成功、错误、clear、发送失败及超时删除后更新，不输出请求 key、scope 或连接标识，不触发读取或新请求。上述计数证明指定 root 的生命周期覆盖，不证明 GC 已回收、分配器字节、完整 retained heap 或应用总缓存 64MiB；不进行全堆扫描或强制 GC，不改变权限、请求预算与业务行为。
+
+现有 test_api 统计入口可通过 core／controller 读取页面 worldView transport 的纯数字 pending 总数；它可能包含 retired query，不是某个客户端、当前 cut 或当前授权事实的数量。缺失或非法计数保留 `null`，不能补成零。controller 已 dispose 或本地 scope 不匹配时仍返回 `null`，不读取 transport；Host 仅沿原 test_api gate 和本实例清理规则暴露同一统计函数。不返回 transport 对象、请求标识、连接、scope 或 Promise 闭包，读数也不新建请求。该接线仅补齐已知 root 的数值覆盖，不改变前述缓存归因边界。

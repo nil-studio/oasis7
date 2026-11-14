@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createPixelWorldSpatialController } from './pixel_world_spatial_controller.js';
+import { createWorldViewTransport } from './pixel_world_world_view.js';
 const bounds = n => ({min_x_cm:String(n),max_x_cm:String(n+100),min_y_cm:'0',max_y_cm:'100'});
 const page = (query, extra={}) => ({world_id:'W',scope_id:'S',source_cut:'cut',request_generation:query.request_generation,entities:[],relations:[],completeness:'complete',...extra});
 let dispose;
@@ -130,4 +131,44 @@ it('retention reads never request data and reject scope mismatch or disposed ins
  core.state.auth.playerId='other';expect(controller.readStatistics()).toBeNull();
  controller.resetScope();expect(controller.readStatistics()).not.toBeNull();
  controller.dispose();expect(controller.readStatistics()).toBeNull();
+});
+
+it('distinguishes missing transport accounting from a measured zero without exposing provider fields',()=>{
+ const {core,controller}=setup();
+ expect(controller.readStatistics(null,false).transport.pendingRequests).toBeNull();
+ core.readWorldViewTransportStatistics=vi.fn(()=>({pendingRequests:0,requestKey:'private-key',scope:'private-scope'}));
+ const observed=controller.readStatistics(null,false);
+ expect(observed.transport.pendingRequests).toBe(0);
+ expect(Object.keys(observed.transport).sort()).toEqual(['pendingRequests','semantics']);
+ expect(JSON.stringify(observed)).not.toContain('private');
+ expect(core.requestWorldView).not.toHaveBeenCalled();
+ for(const pendingRequests of [-1,1.5,NaN,Infinity,'1',Number.MAX_SAFE_INTEGER+1]){
+  core.readWorldViewTransportStatistics=()=>({pendingRequests});
+  expect(controller.readStatistics(null,false).transport.pendingRequests).toBeNull();
+ }
+});
+
+it('does not inspect the transport after scope mismatch or disposal',()=>{
+ const {core,controller}=setup();core.readWorldViewTransportStatistics=vi.fn(()=>({pendingRequests:2}));
+ expect(controller.readStatistics(null,false).transport.pendingRequests).toBe(2);
+ core.state.auth.playerId='new';expect(controller.readStatistics(null,false)).toBeNull();
+ expect(core.readWorldViewTransportStatistics).toHaveBeenCalledOnce();
+ controller.resetScope();expect(controller.readStatistics(null,false).transport.pendingRequests).toBe(2);
+ controller.dispose();expect(controller.readStatistics(null,false)).toBeNull();
+ expect(core.readWorldViewTransportStatistics).toHaveBeenCalledTimes(2);
+});
+
+it('observes a held transport request across invalidation and its late completion without issuing reads',async()=>{
+ const sent=[];const transport=createWorldViewTransport({send:message=>sent.push(message),getScope:()=> 'private',getConnection:()=>1});
+ const {core,controller}=setup(query=>transport.request(query));core.readWorldViewTransportStatistics=()=>transport.statistics();
+ const task=controller.query({});await Promise.resolve();
+ try{
+ expect(controller.readStatistics(null,false).transport.pendingRequests).toBe(1);
+ const before=sent.length;controller.resetScope();
+ expect(controller.readStatistics(null,false).transport.pendingRequests).toBe(1);
+ expect(sent).toHaveLength(before);
+ transport.handle({type:'world_view',view:page(sent[0].query)});await task;
+ expect(controller.readStatistics(null,false).transport.pendingRequests).toBe(0);
+ expect(controller.state().view).toBeNull();
+ }finally{transport.clear();await task;}
 });
