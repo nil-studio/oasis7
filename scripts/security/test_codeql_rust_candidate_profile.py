@@ -594,6 +594,117 @@ class NumericProjectionTests(unittest.TestCase):
             self.assertEqual((runtime.CAP, runtime.WRITE_CAP), original)
 
 
+class NonSuccessProjectionTests(unittest.TestCase):
+    def projection(self):
+        value = profile.NumericProjection()
+        value.accept(numeric_events()[0])
+        return value
+
+    def test_fixed_joint_slots_match_only_the_existing_global_increments(self):
+        value = self.projection()
+        event = 2
+        for kind in ('PREDICATE_COMPLETED', 'PIPELINE_COMPLETED'):
+            for completion in (None, 'IMPLICIT_SUCCESS', 'SUCCESS', 'FAILURE', 'INCOMPLETE'):
+                for exception in (False, True):
+                    fields = dict(startEvent=0)
+                    if completion is not None: fields['completionType'] = completion
+                    if exception: fields['exceptionName'] = '' if completion is None else SYNTHETIC_CANARY
+                    value.accept(numeric_event(kind, event, **fields)); event += 1
+        for termination in (None, 'COMPLETED_SUCCESSFULLY', SYNTHETIC_CANARY):
+            fields = dict(startEvent=0)
+            if termination is not None: fields['terminationType'] = termination
+            value.accept(numeric_event('QUERY_COMPLETED', event, **fields)); event += 1
+        value.accept(numeric_event('LOG_FOOTER', event))
+        value.finish(True, True)
+        report = value.non_success_report()
+        self.assertEqual(report, dict(schema='non_success_global_v1', status='AVAILABLE',
+            counts=[0,1,0,1,0,1,1,1,1,1, 0,1,0,1,0,1,1,1,1,1, 1,0,1], saturated=False))
+        self.assertEqual(value.errors['NON_SUCCESS'], 16)
+        self.assertEqual(sum(report['counts']), value.errors['NON_SUCCESS'])
+        self.assertFalse(value.predicate_starts or value.pipeline_starts)
+        self.assertEqual(value.report()['status'], 'PARTIAL')
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+
+    def test_old_validation_order_and_native_clock_are_not_reinterpreted(self):
+        value = self.projection()
+        value.accept(numeric_event('CACHE_LOOKUP', 2))
+        invalid = [dict(type='PREDICATE_COMPLETED', startEvent=0, completionType='UNKNOWN'),
+                   dict(type='PREDICATE_COMPLETED', startEvent=0, completionType=True),
+                   dict(type='PIPELINE_COMPLETED', startEvent=0, exceptionName=None),
+                   dict(type='QUERY_COMPLETED', startEvent=0, terminationType=1),
+                   dict(type='QUERY_COMPLETED', startEvent=0, completionType='FAILURE'),
+                   dict(type='PREDICATE_COMPLETED', startEvent=0, completionType='FAILURE', other=0)]
+        for event, fields in enumerate(invalid, 3):
+            value.accept(numeric_event(fields['type'], event, **{k:v for k,v in fields.items() if k != 'type'}))
+        self.assertEqual(value.errors['FIELD_OR_TYPE'], 6)
+        self.assertEqual(value.errors['NON_SUCCESS'], 0)
+        self.assertEqual(value.last_observed_nano, 200)
+        self.assertEqual(value.non_success_report()['counts'], [0]*23)
+        # The old increment precedes this missing-link-field error: count it
+        # even though later processing makes the same record invalid.
+        value.accept(numeric_event('PREDICATE_COMPLETED', 10, completionType='FAILURE'))
+        self.assertEqual((value.errors['NON_SUCCESS'], value.errors['FIELD_OR_TYPE']), (1, 7))
+        self.assertEqual(value.last_observed_nano, 200)
+        value.accept(numeric_event('PREDICATE_STARTED', 11, predicateType='STAGE_RESULT',
+                                   appearsAs={'TypeInference::inferType/2#public': [1]}))
+        value.accept(numeric_event('PREDICATE_COMPLETED', 11, startEvent=11, completionType='FAILURE'))
+        self.assertEqual(value.errors['DUPLICATE_START'], 1)
+        self.assertEqual(value.errors['NON_SUCCESS'], 1)  # rejected before the original increment
+        value.accept(numeric_event('LOG_FOOTER', 12))
+        value.accept(numeric_event('PIPELINE_COMPLETED', 13, startEvent=0, completionType='FAILURE'))
+        expected = [0]*23; expected[6] = expected[16] = 1
+        self.assertEqual(value.non_success_report()['counts'], expected)
+        self.assertEqual(value.errors['HEADER'], 1)
+        self.assertEqual(value.errors['NON_SUCCESS'], 2)
+        self.assertEqual(value.last_observed_nano, 1200)
+
+    def test_global_counts_continue_after_encoded_cap_without_advancing_failure_clock(self):
+        value = profile.NumericProjection()
+        capture = profile.CompressedCapture(10, projection=value); self.addCleanup(capture.close)
+        parts = [numeric_bytes(numeric_events()[:1])+b'\n',
+                 numeric_bytes([numeric_event('CACHE_LOOKUP', 2,
+                     raHash=random.Random(7).randbytes(24000).hex())])+b'\n',
+                 numeric_bytes([numeric_event('PIPELINE_COMPLETED', 3, startEvent=0,
+                     completionType='FAILURE', exceptionName='')])+b'\n',
+                 numeric_bytes([numeric_event('QUERY_COMPLETED', 4, startEvent=0)])+b'\n',
+                 numeric_bytes([numeric_event('LOG_FOOTER', 5)])]
+        capture.feed(parts[0]); capture.feed(parts[1])
+        self.assertEqual((capture.error, capture.capacity_failure_phase), ('MEMORY_LIMIT', 'FEED'))
+        for part in parts[2:4]: capture.feed(part)
+        self.assertEqual(value.last_observed_nano, 200)
+        capture.feed(parts[4]); capture.finish(True, True)
+        expected = [0]*23; expected[17] = expected[20] = 1
+        self.assertEqual(value.non_success_report()['counts'], expected)
+        self.assertEqual(value.errors['NON_SUCCESS'], 2)
+        self.assertEqual(value.post_limit_records, 4)
+        self.assertEqual(value.report()['status'], 'PARTIAL')
+        self.assertEqual(value.last_observed_nano, 500)
+        self.assertEqual(capture.summary()['observed_sha256'], hashlib.sha256(b''.join(parts)).hexdigest())
+        self.assertEqual(capture.summary()['error'], 'MEMORY_LIMIT')
+        self.assertFalse(capture.summary()['encoding_finished'])
+
+    def test_saturation_and_unavailable_counters_preserve_the_original_error(self):
+        value = self.projection(); maximum = 2**63-1
+        value.errors['NON_SUCCESS'] = maximum-1
+        value._non_success_counts = [0]*23; value._non_success_counts[6] = maximum-1
+        for event, kind, fields in ((2, 'PREDICATE_COMPLETED', dict(completionType='FAILURE')),
+                                    (3, 'PREDICATE_COMPLETED', dict(completionType='FAILURE')),
+                                    (4, 'QUERY_COMPLETED', dict(terminationType='OTHER'))):
+            value.accept(numeric_event(kind, event, startEvent=0, **fields))
+        report = value.non_success_report()
+        self.assertEqual(report['status'], 'AVAILABLE')
+        self.assertTrue(report['saturated'])
+        self.assertTrue(all(type(n) is int and 0 <= n <= maximum for n in report['counts']))
+        self.assertEqual(report['counts'][6], maximum)
+        self.assertEqual(min(maximum, sum(report['counts'])), value.errors['NON_SUCCESS'])
+        value._non_success_counts = None
+        before = dict(value.errors)
+        value.accept(numeric_event('PREDICATE_COMPLETED', 5, startEvent=0, completionType='FAILURE'))
+        self.assertEqual(value.errors, before)
+        self.assertEqual(value.non_success_report(), dict(schema='non_success_global_v1',
+            status='UNAVAILABLE', reason='COUNTER_UNAVAILABLE'))
+
+
 class OwnedProcessTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
@@ -1435,6 +1546,58 @@ class CompressedCaptureTests(unittest.TestCase):
         self.addCleanup(value.close)
         return value
 
+    def test_fixed_public_corpus_completes_with_the_frozen_encoded_capacity(self):
+        # Frozen public codec fixture from #5873. Generic JSON is deliberately
+        # not an evaluator log; this proves capture capacity and byte identity.
+        capture = self.capture(429190)
+        pending = bytearray(); raw = hashlib.sha256(); chunks = hashlib.sha256()
+        size = chunk_count = 0
+        def feed(part):
+            nonlocal size, chunk_count
+            raw.update(part); size += len(part); chunk_count += 1
+            chunks.update(len(part).to_bytes(4, 'big')); chunks.update(hashlib.sha256(part).digest())
+            capture.feed(part)
+        for index in range(4980):
+            row = dict(schema='public-codec-corpus/v1', kind='structured-counters', ordinal=index,
+                partition=index % 31, generation=index // 31,
+                operation=('scan', 'join', 'filter', 'project')[index % 4],
+                symbol='public::Module'+str(index % 97)+'::relation/'+str(index % 5),
+                counts=[(index * (j+3)+j*j) % 4096 for j in range(32)],
+                note='A public deterministic row repeats its schema while numeric observations vary.')
+            pending.extend((json.dumps(row, ensure_ascii=True, separators=(',', ':'), sort_keys=True)+'\n').encode())
+            while len(pending) >= 65536:
+                feed(bytes(pending[:65536])); del pending[:65536]
+        if pending: feed(bytes(pending))
+        self.assertEqual((size, chunk_count), (2097096, 32))
+        self.assertEqual(raw.hexdigest(), '6815c6a7c409e73a159fb7093539923cdfc00adc26b5dd9cf6369f6b13706189')
+        self.assertEqual(chunks.hexdigest(), 'c8a59d1eebb082e7febb41fb6051801456caa60908ea4323af8e13014d0135de')
+        capture.finish(True, True)
+        report = capture.summary()
+        self.assertEqual(report['status'], 'CAPTURED', {key: report[key] for key in
+            ('status', 'error', 'capacity_failure_phase', 'encoding_finished', 'encoded_bytes')})
+        self.assertTrue(report['encoding_finished'] and report['sealed'])
+        self.assertEqual(report['codec'], dict(level=6, window_bits=31, memory_level=8))
+        self.assertEqual(report['log_boundary_status'], 'PARTIAL')
+        self.assertEqual(report['invalid_envelopes'], 4980)
+        self.assertEqual(report['encoding_input_bytes'], size)
+        self.assertEqual(report['encoding_input_sha256'], raw.hexdigest())
+        self.assertLessEqual(report['encoded_bytes'], 429190)
+        decoder = zlib.decompressobj(wbits=31)
+        decoded = hashlib.sha256(); encoded = hashlib.sha256(); decoded_size = offset = 0
+        while offset < report['encoded_bytes']:
+            part = os.pread(capture.fd, min(65536, report['encoded_bytes']-offset), offset)
+            self.assertTrue(part); offset += len(part); encoded.update(part)
+            while part:
+                plain = decoder.decompress(part, 65536)
+                part = decoder.unconsumed_tail
+                decoded.update(plain); decoded_size += len(plain)
+                self.assertFalse(decoder.unused_data)
+        self.assertTrue(decoder.eof)
+        self.assertFalse(decoder.unused_data or decoder.unconsumed_tail)
+        self.assertEqual((decoded_size, decoded.hexdigest()), (size, raw.hexdigest()))
+        self.assertEqual(encoded.hexdigest(), report['encoded_sha256'])
+        self.assertEqual(fcntl.fcntl(capture.fd, profile.GET_SEALS), profile.SEALS)
+
     def test_lossless_stream_larger_than_raw_reserve_stays_bounded_and_sealed(self):
         capture = self.capture()
         expected = hashlib.sha256(); observed = 0
@@ -1457,7 +1620,7 @@ class CompressedCaptureTests(unittest.TestCase):
         self.assertEqual(report['encoding_input_sha256'], expected.hexdigest())
         self.assertEqual(report['encoded_limit_bytes']+report['codec_buffer_reserve_bytes'], profile.RAW_CAP)
         self.assertEqual(report['memory_reserve_bytes'], 48*1024**2)
-        self.assertEqual(report['codec'], dict(level=1, window_bits=31, memory_level=8))
+        self.assertEqual(report['codec'], dict(level=6, window_bits=31, memory_level=8))
         self.assertLess(report['encoded_bytes'], profile.ENCODED_CAP)
         encoded = os.pread(capture.fd, report['encoded_bytes'], 0)
         self.assertEqual(report['encoded_sha256'], hashlib.sha256(encoded).hexdigest())
@@ -1734,6 +1897,57 @@ class CompressedProcessTests(unittest.TestCase):
         self.assertEqual(runtime.digest(saves[0]), identity['sha'])
         self.assert_closed(observation)
 
+    def test_non_success_receipt_keeps_legacy_samples_status_and_stream_identity(self):
+        events = numeric_events(); events[3].update(completionType='FAILURE', exceptionName=SYNTHETIC_CANARY)
+        observation = self.observation(raw=numeric_bytes(events))
+        projection = observation.capture.projection
+        expected = projection.report()
+        expected.update(observed_stream_sha256=observation.capture.observed_hash.hexdigest(),
+                        observed_stream_bytes=observation.capture.observed, capacity_basis='gzip-encoded-bytes')
+        observation._freeze_numeric()
+        path = observation.out/'numeric-projection.json'; encoded = path.read_bytes()
+        result = json.loads(encoded)
+        diagnostic = result.pop('non_success_global_v1')
+        self.assertEqual(result, expected)
+        self.assertEqual(diagnostic['status'], 'AVAILABLE')
+        counts = [0]*23; counts[17] = 1
+        self.assertEqual(diagnostic['counts'], counts)
+        self.assertLessEqual(len(encoded), 32768)
+        self.assertEqual(observation.numeric_result['receipt_sha256'], hashlib.sha256(encoded).hexdigest())
+        self.assertIsNone(observation.capture.projection)
+        self.assertNotIn(SYNTHETIC_CANARY.encode(), encoded)
+
+    def test_non_success_space_or_counter_failure_cannot_replace_legacy_report(self):
+        for mode, reason in (('space', 'RECEIPT_SPACE'), ('unavailable', 'COUNTER_UNAVAILABLE')):
+            with self.subTest(mode=mode):
+                observation = self.observation(mode, raw=numeric_bytes(numeric_events()))
+                try:
+                    projection = observation.capture.projection
+                    expected = projection.report()
+                    expected.update(observed_stream_sha256=observation.capture.observed_hash.hexdigest(),
+                                    observed_stream_bytes=observation.capture.observed, capacity_basis='gzip-encoded-bytes')
+                    unavailable = dict(schema='non_success_global_v1', status='UNAVAILABLE', reason=reason)
+                    # Force the exact remaining-control-space boundary without
+                    # shrinking the old report or changing its sample selection.
+                    bounded = dict(expected, non_success_global_v1=unavailable)
+                    limit = len((json.dumps(bounded, indent=2)+'\n').encode())
+                    with patch.object(runtime, 'MAX_CONTROL_RECEIPT', limit if mode == 'space' else 32768):
+                        if mode == 'space':
+                            observation._freeze_numeric()
+                        else:
+                            with patch.object(projection, 'non_success_report', create=True,
+                                              side_effect=ValueError(SYNTHETIC_CANARY)):
+                                observation._freeze_numeric()
+                    encoded = (observation.out/'numeric-projection.json').read_bytes()
+                    result = json.loads(encoded)
+                    self.assertEqual(result.pop('non_success_global_v1'), unavailable)
+                    self.assertEqual(result, expected)
+                    self.assertLessEqual(len(encoded), limit if mode == 'space' else 32768)
+                    self.assertEqual(result['status'], 'OBSERVED')
+                    self.assertNotIn(SYNTHETIC_CANARY.encode(), encoded)
+                finally:
+                    observation.close()
+
     def test_numeric_freeze_failure_keeps_state_and_cannot_construct_summary_or_spawn(self):
         observation = self.observation(raw=numeric_bytes(numeric_events()))
         projection = observation.capture.projection
@@ -1942,6 +2156,7 @@ class RealCodeQLProfile(unittest.TestCase):
                 capture = receipt['capture']; summary = receipt['summary']; replay = summary['replay']
                 projection = summary['projection']
                 self.assertEqual(capture['version'],'gzip-capture-v1')
+                self.assertEqual(capture['codec'],dict(level=6,window_bits=31,memory_level=8))
                 self.assertTrue(capture['encoding_finished'] and capture['sealed'])
                 self.assertEqual(capture['observed_bytes'],replay['decoded_bytes'])
                 self.assertEqual(capture['observed_sha256'],replay['decoded_sha256'])
@@ -1987,7 +2202,7 @@ class RealCodeQLProfile(unittest.TestCase):
                 report = dict(status='INTEGRATION_PASSED',codeql_version='2.27.4',started_utc=started_utc,
                     finished_utc=datetime.now(timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-started,
                     budget_seconds=600,threads=2,ram_mib=3072,query_sha256=query_hash,bqrs_rows=len(tuples),
-                    capture={key:capture[key] for key in ('status','observed_bytes','observed_sha256','encoded_bytes','encoded_sha256','encoding_finished')},
+                    capture={key:capture[key] for key in ('status','codec','observed_bytes','observed_sha256','encoded_bytes','encoded_sha256','encoding_finished')},
                     replay={key:replay[key] for key in ('status','decoded_bytes','decoded_sha256','written_bytes','written_sha256','gzip_eof','consumer_eof','cleanup_ok','worker_alive')},
                     official_summary=dict(accepted=projection['accepted_records'],unknown=projection['unknown_shapes'],invalid=projection['invalid_records'],
                                           sha256=projection['streams']['stdout']['sha256']),owned_groups_closed=True)
