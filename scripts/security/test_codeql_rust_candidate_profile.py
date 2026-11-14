@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Candidate observation contracts with real pipes, seals and owned children."""
+import errno
+import fcntl
+import gzip
 import hashlib
+import io
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
+import random
+import select
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import zlib
 from unittest.mock import patch
 
 import codeql_rust_candidate_profile as profile
@@ -713,7 +721,7 @@ class BudgetTests(unittest.TestCase):
         with patch.object(time, 'perf_counter_ns', side_effect=NotImplementedError(SYNTHETIC_CANARY)):
             observation.capture.feed(RAW)
         observation.capture.finish(True, True)
-        observation.summary_result = dict(status='PROJECTED')
+        observation.summary_result = dict(status='PROJECTED', replay=dict(status='COMPLETE'))
         result = observation.finish()
         self.assertEqual(result['status'], 'COMPLETE')
         path = observation.out/'observation-terminal.json'
@@ -736,7 +744,7 @@ class BudgetTests(unittest.TestCase):
 
     def test_insufficient_shared_capacity_rejects_before_memfd_allocation(self):
         with (self.out/'core').open('wb') as stream: stream.truncate(24*1024**2)
-        with patch.object(profile, 'Capture') as capture:
+        with patch.object(profile, 'CompressedCapture') as capture:
             with self.assertRaises(profile.ObservationError): self.observation()
             capture.assert_not_called()
         self.assertEqual(runtime.CAP, 64*1024**2)
@@ -756,8 +764,8 @@ class BudgetTests(unittest.TestCase):
             observation.out.rmdir()
 
     def test_memory_limit_never_summarizes_the_retained_prefix(self):
-        real_capture = profile.Capture
-        with patch.object(profile, 'Capture', side_effect=lambda **kwargs: real_capture(4, **kwargs)):
+        real_capture = profile.CompressedCapture
+        with patch.object(profile, 'CompressedCapture', side_effect=lambda **kwargs: real_capture(4, **kwargs)):
             observation = self.observation()
         observation.capture.feed(RAW); observation.capture.finish(True, True)
         observation.batch_safe = True
@@ -774,7 +782,7 @@ class BudgetTests(unittest.TestCase):
             with self.subTest(numeric_status=expected):
                 observation = self.observation()
                 observation.capture.feed(data); observation.capture.finish(True, True)
-                observation.summary_result = dict(status='PROJECTED')
+                observation.summary_result = dict(status='PROJECTED', replay=dict(status='COMPLETE'))
                 result = observation.finish()
                 self.assertEqual(result['status'], 'COMPLETE')
                 self.assertEqual(result['numeric_status'], expected)
@@ -931,6 +939,475 @@ class SummaryTests(unittest.TestCase):
                 self.assertEqual(stream['processed_prefix_bytes'],len(prefix))
                 for path in out.rglob('*'):
                     if path.is_file():self.assertNotIn(SYNTHETIC_CANARY.encode(),path.read_bytes())
+
+
+class CompressedCaptureTests(unittest.TestCase):
+    def capture(self, *args, **kwargs):
+        value = profile.CompressedCapture(*args, **kwargs)
+        self.addCleanup(value.close)
+        return value
+
+    def test_lossless_stream_larger_than_raw_reserve_stays_bounded_and_sealed(self):
+        capture = self.capture()
+        expected = hashlib.sha256(); observed = 0
+        line = json.dumps(dict(type='PUBLIC_FIXTURE', payload=SYNTHETIC_CANARY+'x'*60000)).encode()+b'\n'
+        def feed(data):
+            nonlocal observed
+            capture.feed(data); expected.update(data); observed += len(data)
+        feed(json.dumps(HEADER).encode()+b'\n')
+        for _ in range(profile.RAW_CAP//len(line)+2): feed(line)
+        feed(json.dumps(FOOTER).encode())
+        self.assertFalse(capture.summary()['encoding_finished'])
+        capture.finish(True, True)
+        report = capture.summary()
+        self.assertGreater(observed, profile.RAW_CAP)
+        self.assertEqual(report['status'], 'CAPTURED')
+        self.assertEqual(report['log_boundary_status'], 'COMPLETE')
+        self.assertEqual(report['observed_bytes'], observed)
+        self.assertEqual(report['encoding_input_bytes'], observed)
+        self.assertEqual(report['observed_sha256'], expected.hexdigest())
+        self.assertEqual(report['encoding_input_sha256'], expected.hexdigest())
+        self.assertEqual(report['encoded_limit_bytes']+report['codec_buffer_reserve_bytes'], profile.RAW_CAP)
+        self.assertEqual(report['memory_reserve_bytes'], 48*1024**2)
+        self.assertEqual(report['codec'], dict(level=1, window_bits=31, memory_level=8))
+        self.assertLess(report['encoded_bytes'], profile.ENCODED_CAP)
+        encoded = os.pread(capture.fd, report['encoded_bytes'], 0)
+        self.assertEqual(report['encoded_sha256'], hashlib.sha256(encoded).hexdigest())
+        decoded = hashlib.sha256(); size = 0
+        with gzip.GzipFile(fileobj=io.BytesIO(encoded)) as source:
+            for chunk in iter(lambda: source.read(65536), b''):
+                decoded.update(chunk); size += len(chunk)
+        self.assertEqual((size, decoded.hexdigest()), (observed, expected.hexdigest()))
+        self.assertEqual(fcntl.fcntl(capture.fd, profile.GET_SEALS), profile.SEALS)
+        with self.assertRaises(OSError): os.write(capture.fd, b'x')
+        with self.assertRaises(profile.ObservationError): _ = capture.path
+
+    def test_encoded_feed_limit_is_sticky_and_numeric_drain_keeps_complete_identity(self):
+        numeric = profile.NumericProjection()
+        capture = self.capture(512, projection=numeric)
+        events = numeric_events()
+        header = numeric_bytes(events[:1])+b'\n'
+        noise = numeric_bytes([numeric_event('CACHE_LOOKUP',11,raHash=random.Random(7).randbytes(24000).hex())])+b'\n'
+        tail = numeric_bytes(events[1:])
+        capture.feed(header); capture.feed(noise)
+        kept = capture.retained; kept_hash = capture.retained_hash.hexdigest()
+        self.assertEqual(capture.error, 'MEMORY_LIMIT')
+        capture.feed(tail); capture.feed(b' '); capture.finish(True, True)
+        report = capture.summary(); raw = header+noise+tail+b' '
+        self.assertEqual(report['capacity_failure_phase'], 'FEED')
+        self.assertEqual(report['status'], 'INCOMPLETE')
+        self.assertFalse(report['encoding_finished'])
+        self.assertEqual((report['encoded_bytes'], report['encoded_sha256']), (kept, kept_hash))
+        self.assertEqual((report['observed_bytes'], report['observed_sha256']),
+                         (len(raw), hashlib.sha256(raw).hexdigest()))
+        self.assertEqual(numeric.report()['status'], 'OBSERVED')
+        cost = capture.feed_cost_summary()
+        self.assertEqual(cost['version'], 'compressed-capture-feed-cost-v1')
+        self.assertEqual([cost['buckets'][key]['calls'] for key in ('BEFORE_LIMIT','CAP_CROSSING','AFTER_LIMIT')], [1,1,2])
+        self.assertEqual(sum(value['input_bytes'] for value in cost['buckets'].values()), len(raw))
+        with self.assertRaises(profile.ObservationError): profile.GzipReplay(capture, time.monotonic()+2)
+
+    def test_final_flush_limit_does_not_turn_an_unfinished_encoding_into_capture(self):
+        capture = self.capture(10, projection=profile.NumericProjection())
+        capture.feed(RAW)
+        self.assertIsNone(capture.error)
+        self.assertEqual(capture.summary()['encoding_input_bytes'], len(RAW))
+        capture.finish(True, True)
+        report = capture.summary()
+        self.assertEqual((report['error'], report['capacity_failure_phase']), ('MEMORY_LIMIT','FINISH'))
+        self.assertFalse(report['encoding_finished'])
+        self.assertEqual(report['status'], 'INCOMPLETE')
+        self.assertEqual(report['observed_sha256'], hashlib.sha256(RAW).hexdigest())
+        self.assertEqual(report['encoded_bytes'], 10)
+        costs = capture.feed_cost_summary()['buckets']
+        self.assertEqual(costs['BEFORE_LIMIT']['calls'], 1)
+        self.assertEqual(costs['CAP_CROSSING']['calls'], 0)
+        with self.assertRaises(profile.ObservationError): profile.GzipReplay(capture, time.monotonic()+2)
+
+    def test_encoded_short_write_and_write_error_never_claim_complete_identity(self):
+        real_write = os.write
+        for mode in ('short', 'error'):
+            with self.subTest(mode=mode):
+                capture = self.capture()
+                def failed_write(fd, data):
+                    if fd != capture.fd: return real_write(fd, data)
+                    if mode == 'error': raise OSError(SYNTHETIC_CANARY)
+                    return real_write(fd, data[:5])
+                with patch.object(os, 'write', side_effect=failed_write):
+                    with self.assertRaises(profile.ObservationError): capture.feed(RAW)
+                capture.finish(True, True)
+                report = capture.summary()
+                self.assertEqual(report['status'], 'INCOMPLETE')
+                self.assertEqual(report['observed_sha256'], hashlib.sha256(RAW).hexdigest())
+                self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+                if mode == 'short':
+                    self.assertEqual(report['error'], 'SHORT_MEMORY_WRITE')
+                    self.assertEqual(report['encoded_bytes'], 5)
+                    self.assertEqual(report['encoded_sha256'], hashlib.sha256(os.pread(capture.fd,5,0)).hexdigest())
+                else:
+                    self.assertEqual(report['error'], 'MEMORY_WRITE_FAILED')
+                    self.assertIsNone(report['encoded_sha256'])
+
+
+class GzipReplayTests(unittest.TestCase):
+    def capture(self, raw=RAW):
+        capture = profile.CompressedCapture(); self.addCleanup(capture.close)
+        capture.feed(raw); capture.finish(True, True)
+        return capture
+
+    def replay(self, capture):
+        replay = profile.GzipReplay(capture, time.monotonic()+4)
+        self.addCleanup(replay.close)
+        return replay
+
+    def consume(self, replay):
+        digest = hashlib.sha256(); size = 0
+        replay.start(time.monotonic()+2)
+        until = time.monotonic()+3
+        while time.monotonic() < until:
+            try: chunk = os.read(replay.read_fd, 8192)
+            except BlockingIOError:
+                select.select([replay.read_fd], [], [], .02); continue
+            if not chunk: break
+            digest.update(chunk); size += len(chunk)
+        else: self.fail('replay did not close its writer within the fixed test deadline')
+        report = replay.finish(group_safe=True)
+        return size, digest.hexdigest(), report
+
+    def replace_encoded(self, capture, encoded):
+        os.close(capture.fd)
+        capture.fd = os.memfd_create('public-malformed-gzip', os.MFD_CLOEXEC|os.MFD_ALLOW_SEALING)
+        self.assertEqual(os.write(capture.fd, encoded), len(encoded))
+        fcntl.fcntl(capture.fd, profile.ADD_SEALS, profile.SEALS)
+        capture.retained = len(encoded); capture.retained_hash = hashlib.sha256(encoded)
+
+    def test_pipe_is_nonseekable_and_starts_once_with_exact_identities_and_cleanup(self):
+        capture = self.capture(); replay = self.replay(capture)
+        fds = [replay.input_fd, replay.read_fd, replay.write_fd]
+        self.assertIsNone(replay.thread)
+        self.assertFalse(replay.start_attempted)
+        self.assertEqual(replay.path, f'/proc/{os.getpid()}/fd/{replay.read_fd}')
+        with self.assertRaises(OSError) as caught: os.lseek(replay.read_fd, 0, os.SEEK_CUR)
+        self.assertEqual(caught.exception.errno, errno.ESPIPE)
+        replay.start(time.monotonic()+2); thread = replay.thread
+        size, digest, report = self.consume(replay)
+        self.assertIs(replay.thread, thread)
+        self.assertEqual((size,digest), (len(RAW),hashlib.sha256(RAW).hexdigest()))
+        self.assertEqual(report['status'], 'COMPLETE')
+        self.assertTrue(report['gzip_eof'] and report['consumer_eof'] and report['identity_verified'])
+        self.assertEqual(report['encoded_sha256'], capture.summary()['encoded_sha256'])
+        replay.close(); replay.close()
+        self.assertFalse(thread.is_alive())
+        for fd in fds:
+            with self.assertRaises(OSError): os.fstat(fd)
+
+    def test_crc_truncation_trailing_members_and_identity_mismatch_are_incomplete(self):
+        for mode in ('crc','truncated','trailing','second-member','encoded-identity','raw-identity'):
+            with self.subTest(mode=mode):
+                capture = self.capture(); encoded = os.pread(capture.fd, capture.retained, 0)
+                if mode == 'crc':
+                    encoded = encoded[:-8]+bytes([encoded[-8]^1])+encoded[-7:]
+                elif mode == 'truncated': encoded = encoded[:-4]
+                elif mode == 'trailing': encoded += b'PUBLIC_TRAILING_DATA'
+                elif mode == 'second-member': encoded += gzip.compress(b'PUBLIC_SECOND_MEMBER', mtime=0)
+                self.replace_encoded(capture, encoded)
+                if mode == 'encoded-identity': capture.retained_hash = hashlib.sha256(b'wrong')
+                if mode == 'raw-identity': capture.observed_hash = hashlib.sha256(b'wrong')
+                replay = self.replay(capture)
+                _, _, report = self.consume(replay)
+                self.assertEqual(report['status'], 'INCOMPLETE')
+                self.assertIsNotNone(report['error'])
+                self.assertFalse(report['identity_verified'])
+                self.assertTrue(report['cleanup_ok'])
+                self.assertFalse(replay.alive())
+                self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+                replay.close(); capture.close()
+
+    def test_short_reads_short_writes_and_eagain_keep_bounded_exact_replay(self):
+        line = json.dumps(dict(type='PUBLIC_FIXTURE', payload=SYNTHETIC_CANARY+'x'*60000)).encode()+b'\n'
+        raw = json.dumps(HEADER).encode()+b'\n'+line*3+json.dumps(FOOTER).encode()
+        capture = self.capture(raw); replay = self.replay(capture)
+        real_write, real_pread, real_decoder = os.write, os.pread, zlib.decompressobj
+        write_fd, input_fd = replay.write_fd, replay.input_fd
+        writes = []; reads = []; decoded_limits = []
+        def write(fd, data):
+            if fd != write_fd: return real_write(fd, data)
+            writes.append(len(data))
+            if len(writes) == 1: raise BlockingIOError(errno.EAGAIN, 'public backpressure fixture')
+            if len(writes) == 2: raise InterruptedError()
+            return real_write(fd, data[:4093])
+        def pread(fd, size, offset):
+            if fd == input_fd:
+                reads.append(size); self.assertLessEqual(size, 65536)
+                return real_pread(fd, min(size,17), offset)
+            return real_pread(fd, size, offset)
+        class Decoder:
+            def __init__(self, *args, **kwargs): self.value = real_decoder(*args, **kwargs)
+            def __getattr__(self, key): return getattr(self.value, key)
+            def decompress(self, data, limit):
+                decoded_limits.append(limit)
+                if not 0 < limit <= 65536: raise AssertionError('unbounded decoder request')
+                return self.value.decompress(data, limit)
+        with patch.object(os,'write',side_effect=write), patch.object(os,'pread',side_effect=pread), \
+             patch.object(zlib,'decompressobj',Decoder):
+            size, digest, report = self.consume(replay)
+        self.assertGreater(len(writes), 3); self.assertGreater(len(reads), 1)
+        self.assertTrue(decoded_limits)
+        self.assertEqual((size,digest), (len(raw),hashlib.sha256(raw).hexdigest()))
+        self.assertEqual(report['status'], 'COMPLETE')
+
+
+class CompressedProcessTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.caps = runtime.CAP, runtime.WRITE_CAP
+        runtime.CAP, runtime.WRITE_CAP = 64*1024**2, 63*1024**2
+        self.addCleanup(self.restore)
+
+    def restore(self): runtime.CAP, runtime.WRITE_CAP = self.caps
+
+    def observation(self, name='case', raw=RAW):
+        out, work = self.root/name, self.root/(name+'-work'); out.mkdir(); work.mkdir()
+        value = profile.Observation(out, work, [QUERY]); self.addCleanup(value.close)
+        value.start(); value.capture.feed(raw); value.capture.finish(True, True); value.batch_safe = True
+        return value
+
+    def cli(self, name='reader', mode='all', ready=None):
+        path = self.root/(name+'.py')
+        header = dict(summaryLogVersion='0.4.0',codeqlVersion='2.27.4',startTime='2026-01-01T00:00:00Z')
+        summary = b'\n'.join(json.dumps(row).encode() for row in (header,SummaryTests().row()))
+        body = f'#!{sys.executable}\nimport os,sys,time\nfrom pathlib import Path\n'
+        if mode == 'all':
+            body += 'fd=os.open(sys.argv[-1],os.O_RDONLY)\nwhile os.read(fd,65536):pass\nos.close(fd)\n'
+        elif mode == 'prefix':
+            body += 'fd=os.open(sys.argv[-1],os.O_RDONLY)\nos.read(fd,3)\nos.close(fd)\n'
+        if mode == 'sleep': body += 'time.sleep(60)\n'
+        if ready:
+            body += f'ready=Path({str(ready)!r});end=time.monotonic()+3\n'
+            body += 'while not ready.exists() and time.monotonic()<end:time.sleep(.01)\n'
+        body += f'os.write(1,{summary!r})\n'
+        path.write_text(body); path.chmod(0o700)
+        return path
+
+    def assert_closed(self, observation):
+        replay = observation.replay
+        self.assertFalse(replay.alive())
+        self.assertIsNone(replay.input_fd); self.assertIsNone(replay.write_fd); self.assertIsNone(replay.read_fd)
+        result = json.loads((observation.out/'official-summary.log.result.json').read_text())
+        if result['pid']:
+            with self.assertRaises(ProcessLookupError): os.killpg(result['pid'],0)
+        for path in observation.out.rglob('*'):
+            if path.is_file(): self.assertNotIn(SYNTHETIC_CANARY.encode(), path.read_bytes(), str(path))
+        return result
+
+    def test_writer_starts_after_real_popen_and_complete_consumer_is_projected(self):
+        observation = self.observation(); cli = self.cli()
+        real_popen = subprocess.Popen; seen = []
+        def popen(*args, **kwargs):
+            self.assertIsNone(observation.replay.thread)
+            self.assertFalse(observation.replay.start_attempted)
+            seen.append(True); return real_popen(*args, **kwargs)
+        with patch.object(runtime.subprocess,'Popen',side_effect=popen):
+            observation.summarize(cli,self.root,os.environ.copy(),time.monotonic()+30,admitted=True)
+        self.assertEqual(len(seen),1)
+        self.assertEqual(observation.summary_result['status'],'PROJECTED')
+        self.assertEqual(observation.summary_result['replay']['status'],'COMPLETE')
+        self.assertEqual(observation.finish()['status'],'COMPLETE')
+        self.assert_closed(observation)
+        with self.assertRaises(profile.ObservationError):
+            observation.summarize(cli,self.root,{},time.monotonic()+30,admitted=True)
+
+    def test_exit_zero_without_consuming_all_input_rejects_even_fully_written_stream(self):
+        for mode in ('none','prefix'):
+            with self.subTest(mode=mode):
+                observation = self.observation(mode); ready = self.root/(mode+'-writer-closed')
+                cli = self.cli(mode,mode,ready); real_poll = profile.Summary.poll
+                def poll(observer, deadline):
+                    real_poll(observer,deadline)
+                    if observer.replay.write_closed: ready.touch()
+                with patch.object(profile.Summary,'poll',poll):
+                    observation.summarize(cli,self.root,os.environ.copy(),time.monotonic()+30,admitted=True)
+                report = observation.summary_result
+                self.assertEqual(report['exit'],0)
+                self.assertEqual(report['projection']['status'],'PROJECTED')
+                self.assertEqual(report['status'],'PARTIAL')
+                self.assertEqual(report['replay']['error'],'REPLAY_UNCONSUMED_DATA')
+                self.assertTrue(report['replay']['identity_verified'])
+                self.assertEqual(report['replay']['written_bytes'],len(RAW))
+                self.assertEqual(observation.finish()['status'],'INCOMPLETE')
+                self.assert_closed(observation); observation.close()
+
+    def test_spawn_or_registration_failure_never_starts_the_writer(self):
+        real_open = Path.open
+        for mode in ('spawn','registration'):
+            with self.subTest(mode=mode):
+                observation = self.observation(mode); cli = self.cli(mode)
+                def failed_open(path,*args,**kwargs):
+                    if path.name == 'official-summary.log': raise OSError(SYNTHETIC_CANARY)
+                    return real_open(path,*args,**kwargs)
+                target = patch.object(runtime.subprocess,'Popen',side_effect=OSError(SYNTHETIC_CANARY)) if mode == 'spawn' else patch.object(Path,'open',failed_open)
+                with target:
+                    observation.summarize(cli,self.root,os.environ.copy(),time.monotonic()+30,admitted=True)
+                self.assertEqual(observation.summary_result['status'],'PARTIAL')
+                self.assertFalse(observation.replay.start_attempted)
+                self.assertIsNone(observation.replay.thread)
+                self.assert_closed(observation); observation.close()
+
+    def test_backpressure_timeout_stops_writer_and_group_within_the_shared_deadline(self):
+        line = json.dumps(dict(type='PUBLIC_FIXTURE',payload='x'*60000)).encode()+b'\n'
+        raw = json.dumps(HEADER).encode()+b'\n'+line*3+json.dumps(FOOTER).encode()
+        observation = self.observation(raw=raw); cli = self.cli(mode='sleep'); started = time.monotonic()
+        with patch.object(profile,'SUMMARY_SECONDS',5):
+            observation.summarize(cli,self.root,os.environ.copy(),started+30,admitted=True)
+        self.assertLess(time.monotonic()-started,5.5)
+        self.assertEqual(observation.summary_result['status'],'PARTIAL')
+        self.assertEqual(observation.summary_result['failure_kind'],'timeout')
+        self.assertEqual(observation.summary_result['replay']['status'],'INCOMPLETE')
+        self.assert_closed(observation)
+
+    def test_cancel_during_backpressure_keeps_cancelled_and_closes_all_owners(self):
+        line = json.dumps(dict(type='PUBLIC_FIXTURE',payload='x'*60000)).encode()+b'\n'
+        raw = json.dumps(HEADER).encode()+b'\n'+line*3+json.dumps(FOOTER).encode()
+        observation = self.observation(raw=raw); cli = self.cli(mode='sleep')
+        real_poll = profile.Summary.poll; sent = []
+        def cancel(observer,deadline):
+            real_poll(observer,deadline)
+            if observer.replay.written_bytes >= observer.replay.pipe_capacity and not sent:
+                sent.append(True); os.kill(os.getpid(),signal.SIGTERM)
+        with patch.object(profile.Summary,'poll',cancel):
+            observation.summarize(cli,self.root,os.environ.copy(),time.monotonic()+30,admitted=True)
+        self.assertEqual(sent,[True])
+        self.assertEqual(observation.summary_result['failure_kind'],'cancelled')
+        self.assertEqual(observation.summary_result['status'],'PARTIAL')
+        self.assertTrue(self.assert_closed(observation)['cancelled'])
+
+    def test_unjoined_writer_retains_descriptors_and_shared_reservation(self):
+        observation = self.observation()
+        replay = profile.GzipReplay(observation.capture,time.monotonic()+2)
+        observation.replay = replay
+        class PendingWriter:
+            running = True
+            def join(self, timeout): pass
+            def is_alive(self): return self.running
+        replay.thread = PendingWriter(); replay.worker_started = replay.start_attempted = True
+        fds = [replay.input_fd,replay.write_fd,replay.read_fd]
+        try:
+            report = replay.finish(group_safe=True)
+            self.assertEqual(report['error'],'REPLAY_WORKER_NOT_CLOSED')
+            self.assertFalse(report['cleanup_ok'])
+            with self.assertRaises(profile.ObservationError): observation.close()
+            self.assertEqual(runtime.CAP,12*1024**2)
+            self.assertIsNotNone(observation.capture.fd)
+            for fd in fds: os.fstat(fd)
+        finally:
+            # Simulate the worker's eventual exit without closing live-owned fds
+            # from another thread. No real worker is created by this test.
+            replay.thread.running = False
+            replay._close_fd('input'); replay._close_fd('write')
+            observation.close()
+        self.assertEqual(runtime.CAP,64*1024**2)
+        for fd in fds:
+            with self.assertRaises(OSError): os.fstat(fd)
+
+
+@unittest.skipUnless(os.environ.get('OASIS7_CODEQL_PROFILE_CLI'), 'explicit pinned CodeQL profile input required')
+class RealCodeQLProfile(unittest.TestCase):
+    def test_fixed_cli_runs_actual_compressed_capture_replay_and_projection(self):
+        """One fresh 600-second window; a public pure-QL fixture, never oasis7 extraction."""
+        cli = Path(os.environ['OASIS7_CODEQL_PROFILE_CLI']).resolve()
+        started = time.monotonic(); end = started+600
+        started_utc = datetime.now(timezone.utc).isoformat()
+        caps = runtime.CAP,runtime.WRITE_CAP
+        runtime.CAP,runtime.WRITE_CAP = 64*1024**2,63*1024**2
+        observation = None
+        try:
+            with tempfile.TemporaryDirectory(prefix='oasis7-profile-cli-') as folder:
+                root = Path(folder).resolve(); work = root/'work'; out = root/'evidence'
+                work.mkdir(); out.mkdir()
+                runtime.save(out/'d0.json',dict(started_utc=started_utc,started_monotonic=started,
+                    deadline_monotonic=end,budget_seconds=600,threads=2,ram_mib=3072),out)
+                cache, traps, pack = work/'cache',work/'empty-traps',work/'pack'
+                traps.mkdir(); pack.mkdir()
+                env = {key:value for key,value in os.environ.items() if key not in ('GH_TOKEN','GITHUB_TOKEN')}
+                def run(args,label,limit=20):
+                    return runtime.run([str(cli),*map(str,args),'--common-caches='+str(cache)],work,
+                                       out/(label+'.log'),end,limit,out,env,file_limit=None)
+                cli_hash = runtime.digest(cli)
+                run(['version','--format=json'],'version')
+                self.assertEqual(json.loads((out/'version.log').read_text())['version'],'2.27.4')
+                scheme = cli.parent/'rust/rust.dbscheme'; scheme_hash = runtime.digest(scheme)
+                run(['dataset','import','--dbscheme='+str(scheme),'--threads=2','-J=-Xmx3072m',
+                     work/'dataset',traps],'import',30)
+                (pack/'qlpack.yml').write_text('name: synthetic/profile\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: 0.2.25\n')
+                query = pack/'ProfileProbe.ql'
+                predicate = 'fixture_'+SYNTHETIC_CANARY
+                query.write_text(f'cached predicate {predicate}(int x) {{ x in [1 .. 3] }}\n'
+                                 f'from int x where {predicate}(x) select x, "fixture"\n')
+                query_hash = runtime.digest(query)
+                record = dict(path=str(query),relative=query.name,pack='synthetic/profile',sha256=query_hash)
+                observation = profile.Observation(out,work,[record]); observation.start()
+                batch = observation.run_batch([str(cli),'query','run','--dataset='+str(work/'dataset'),
+                    '--threads=2','--ram=3072','--output='+str(work/'result.bqrs'),
+                    '--no-default-compilation-cache','--compilation-cache='+str(work/'compile-cache'),
+                    '--common-caches='+str(cache),'--',str(query)],work,end,60,env)
+                self.assertEqual(batch['exit'],0)
+                self.assertFalse(batch['cleanup_errors'] or batch['evidence_errors'])
+                observation.summarize(cli,work,env,end,admitted=True)
+                terminal = observation.finish(); receipt = observation.receipt()
+                self.assertEqual(terminal['status'],'COMPLETE')
+                capture = receipt['capture']; summary = receipt['summary']; replay = summary['replay']
+                projection = summary['projection']
+                self.assertEqual(capture['version'],'gzip-capture-v1')
+                self.assertTrue(capture['encoding_finished'] and capture['sealed'])
+                self.assertEqual(capture['observed_bytes'],replay['decoded_bytes'])
+                self.assertEqual(capture['observed_sha256'],replay['decoded_sha256'])
+                self.assertEqual(capture['encoded_bytes'],replay['encoded_bytes'])
+                self.assertEqual(capture['encoded_sha256'],replay['encoded_sha256'])
+                self.assertEqual(replay['written_bytes'],replay['decoded_bytes'])
+                self.assertEqual(replay['written_sha256'],replay['decoded_sha256'])
+                self.assertEqual(replay['status'],'COMPLETE')
+                self.assertTrue(replay['cleanup_ok'] and replay['consumer_eof'] and replay['gzip_eof'])
+                self.assertGreaterEqual(projection['accepted_records'],3)
+                self.assertEqual((projection['unknown_shapes'],projection['invalid_records']),(0,0))
+                rows = projection['rankings']['official_millis']
+                self.assertTrue(rows)
+                self.assertTrue(all(row['appears_in_query_indexes']==[0] and not row['unmapped_query_count'] for row in rows))
+                self.assertTrue(all(row['first_requiring_query']['query_sha256']==query_hash for row in rows))
+                self.assertTrue(any(row['evaluation_strategy']=='COMPUTED_EXTENSIONAL' for row in rows))
+                observation.close()
+                self.assertIsNone(observation.capture.fd)
+                self.assertFalse(observation.replay.alive())
+                self.assertEqual((runtime.CAP,runtime.WRITE_CAP),(64*1024**2,63*1024**2))
+                run(['bqrs','decode','--format=json',work/'result.bqrs'],'bqrs')
+                tuples = json.loads((out/'bqrs.log').read_text())['#select']['tuples']
+                self.assertEqual(sorted(tuples),[[1,'fixture'],[2,'fixture'],[3,'fixture']])
+                self.assertEqual(runtime.digest(cli),cli_hash)
+                self.assertEqual(runtime.digest(scheme),scheme_hash)
+                self.assertEqual(runtime.digest(query),query_hash)
+                self.assertFalse((work/'candidate-events.jsonl').exists())
+                self.assertFalse((work/'candidate-events.fifo').exists())
+                for result_path in out.rglob('*.result.json'):
+                    result = json.loads(result_path.read_text())
+                    self.assertEqual(result['exit'],0)
+                    self.assertFalse(result['cleanup_errors'] or result['evidence_errors'])
+                    with self.assertRaises(ProcessLookupError): os.killpg(result['pid'],0)
+                for path in out.rglob('*'):
+                    if path.is_file(): self.assertNotIn(SYNTHETIC_CANARY.encode(),path.read_bytes(),str(path))
+                report = dict(status='INTEGRATION_PASSED',codeql_version='2.27.4',started_utc=started_utc,
+                    finished_utc=datetime.now(timezone.utc).isoformat(),elapsed_seconds=time.monotonic()-started,
+                    budget_seconds=600,threads=2,ram_mib=3072,query_sha256=query_hash,bqrs_rows=len(tuples),
+                    capture={key:capture[key] for key in ('status','observed_bytes','observed_sha256','encoded_bytes','encoded_sha256','encoding_finished')},
+                    replay={key:replay[key] for key in ('status','decoded_bytes','decoded_sha256','written_bytes','written_sha256','gzip_eof','consumer_eof','cleanup_ok','worker_alive')},
+                    official_summary=dict(accepted=projection['accepted_records'],unknown=projection['unknown_shapes'],invalid=projection['invalid_records'],
+                                          sha256=projection['streams']['stdout']['sha256']),owned_groups_closed=True)
+                self.assertLess(time.monotonic(),end)
+                runtime.save(out/'integration.json',report,out,terminal=True)
+                self.assertLess((out/'integration.json').stat().st_size,runtime.MAX_CONTROL_RECEIPT)
+                print(json.dumps(report,sort_keys=True),flush=True)
+        finally:
+            if observation is not None: observation.close()
+            runtime.CAP,runtime.WRITE_CAP = caps
 
 
 if __name__ == '__main__':

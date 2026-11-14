@@ -7,12 +7,19 @@ import json
 import os
 from pathlib import Path
 import re
+import select
+import threading
 import time
+import zlib
 
 import codeql_rust_diagnostic_runtime as runtime
 
 VERSION = 'candidate-evaluator-v1'
 RAW_CAP = 48 * 1024**2
+CODEC_RESERVE = 1024**2  # inside RAW_CAP, never a second memory allowance
+ENCODED_CAP = RAW_CAP - CODEC_RESERVE
+CODEC_CHUNK = 64 * 1024
+REPLAY_CLOSE_SECONDS = .5  # inside the one SUMMARY_SECONDS deadline
 OUTPUT_CAP = 8 * 1024**2
 SUMMARY_SECONDS = 20
 LINE_CAP = 2 * 1024**2
@@ -571,6 +578,345 @@ class Capture:
                 self.pending = b''
 
 
+class CompressedCapture(Capture):
+    """Candidate-only lossless storage; inherited retained counters are encoded bytes."""
+    def __init__(self, limit=ENCODED_CAP, *, projection=None):
+        if type(limit) is not int or not 0 < limit <= ENCODED_CAP:
+            raise ObservationError('INVALID_ENCODED_LIMIT')
+        super().__init__(limit, projection=projection)
+        self.encoder = None
+        self.encoded_finished = False
+        self.capacity_failure_phase = None
+        self.encoding_input_bytes = 0
+        self.encoding_input_hash = hashlib.sha256()
+        try:
+            self.encoder = zlib.compressobj(level=1, wbits=31, memLevel=8)
+        except BaseException:
+            self.close()
+            raise ObservationError('ENCODER_CREATE_FAILED') from None
+
+    def _store(self, data, phase):
+        # Fixed codec parameters and <=64KiB input bound the pending deflate
+        # output as well as the finish buffer; neither is an entire raw stream.
+        if len(data) > 2 * CODEC_CHUNK:
+            self.error = 'ENCODER_OUTPUT_LIMIT'
+            raise ObservationError(self.error)
+        if self.retained + len(data) > self.limit:
+            self.error = 'MEMORY_LIMIT'
+            self.capacity_failure_phase = phase
+            self.encoder = None
+            if self.projection is not None:
+                self._prefix_tail(project=False)
+                self.projection.after_limit = True
+            return False
+        try:
+            written = os.write(self.fd, data) if data else 0
+        except BaseException:
+            self.error = 'MEMORY_WRITE_FAILED'
+            self.retained_identity_valid = False
+            raise ObservationError(self.error) from None
+        self.retained += written
+        self.retained_hash.update(data[:written])
+        if written != len(data):
+            self.error = 'SHORT_MEMORY_WRITE'
+            raise ObservationError(self.error)
+        return True
+
+    def _feed(self, chunk):
+        self.observed += len(chunk)
+        self.observed_hash.update(chunk)
+        for offset in range(0, len(chunk), CODEC_CHUNK):
+            part = chunk[offset:offset + CODEC_CHUNK]
+            if self.error:
+                if self.error == 'MEMORY_LIMIT' and self.projection is not None:
+                    self._frame(part, retained=False)
+                continue
+            try:
+                data = self.encoder.compress(part)
+            except BaseException:
+                self.error = 'ENCODING_FAILED'
+                raise ObservationError(self.error) from None
+            if self._store(data, 'FEED'):
+                self.encoding_input_bytes += len(part)
+                self.encoding_input_hash.update(part)
+                self._frame(part, retained=True)
+            elif self.projection is not None:
+                self._frame(part, retained=False)
+
+    def feed(self, chunk):
+        if self.sealed or self.fd is None:
+            raise ObservationError('CAPTURE_ALREADY_CLOSED')
+        if self.feed_cost is None:
+            return self._feed(chunk)
+        already_limited = self.error == 'MEMORY_LIMIT'
+        wall, cpu = _clock_ns('perf_counter_ns'), _clock_ns('thread_time_ns')
+        try:
+            return self._feed(chunk)
+        finally:
+            cpu_end, wall_end = _clock_ns('thread_time_ns'), _clock_ns('perf_counter_ns')
+            phase = ('AFTER_LIMIT' if already_limited else
+                     'CAP_CROSSING' if self.error == 'MEMORY_LIMIT' else 'BEFORE_LIMIT')
+            cost = self.feed_cost[phase]
+            cost['input_bytes'] += len(chunk)
+            cost['wall'].record(wall, wall_end)
+            cost['thread_cpu'].record(cpu, cpu_end)
+
+    def finish(self, eof, cleanup_ok):
+        if self.sealed or self.fd is None:
+            raise ObservationError('CAPTURE_ALREADY_CLOSED')
+        if not self.error:
+            try:
+                data = self.encoder.flush(zlib.Z_FINISH)
+            except BaseException:
+                self.error = 'ENCODING_FINISH_FAILED'
+                raise ObservationError(self.error) from None
+            finally:
+                self.encoder = None  # release deflate state before any replay
+            self.encoded_finished = self._store(data, 'FINISH')
+        self.encoder = None
+        super().finish(eof, cleanup_ok)
+
+    @property
+    def path(self):
+        raise ObservationError('COMPRESSED_INPUT_REQUIRES_REPLAY')
+
+    def summary(self):
+        captured = (self.eof and self.cleanup_ok and self.sealed and not self.error
+                    and self.encoded_finished and self.retained_identity_valid
+                    and self.encoding_input_bytes == self.observed)
+        complete = (captured and self.first == 'LOG_HEADER' and self.last == 'LOG_FOOTER'
+                    and self.headers == self.footers == 1 and self.header_version
+                    and not self.invalid and not getattr(self, 'pending_bytes', len(self.pending)))
+        return dict(version='gzip-capture-v1', encoding='gzip',
+                    status='CAPTURED' if captured else 'INCOMPLETE',
+                    observed_bytes=self.observed, observed_sha256=self.observed_hash.hexdigest(),
+                    encoding_input_bytes=self.encoding_input_bytes,
+                    encoding_input_sha256=self.encoding_input_hash.hexdigest(),
+                    encoded_bytes=self.retained,
+                    encoded_sha256=self.retained_hash.hexdigest() if self.retained_identity_valid else None,
+                    encoded_limit_bytes=self.limit, codec_buffer_reserve_bytes=CODEC_RESERVE,
+                    memory_reserve_bytes=RAW_CAP, codec=dict(level=1, window_bits=31, memory_level=8),
+                    encoding_finished=self.encoded_finished, capacity_failure_phase=self.capacity_failure_phase,
+                    sealed=self.sealed, transport_eof=self.eof, cleanup_ok=self.cleanup_ok, error=self.error,
+                    log_boundary_status='COMPLETE' if complete else 'PARTIAL',
+                    header_count=self.headers, footer_count=self.footers, records=self.records,
+                    header_version_valid=self.header_version, invalid_envelopes=self.invalid,
+                    truncated_bytes=getattr(self, 'pending_bytes', len(self.pending)),
+                    limits='Observed input, bytes admitted to encoding and stored encoded bytes are distinct. '
+                           'An unfinished encoding is not a replayable retained prefix. Complete replay and '
+                           'official summary are independently required; the reserve is not a Python/RSS limit.')
+
+    def feed_cost_summary(self):
+        report = super().feed_cost_summary()
+        if report is not None:
+            report['version'] = 'compressed-capture-feed-cost-v1'
+            report['scope'] = ('Whole feed body including compression, framing and hashing. Buckets use actual '
+                'encoded-cap transitions; finish-only capacity failures are separate and are not feed calls. '
+                'Wall includes waiting; thread CPU excludes other threads and child processes. '
+                'Clock reads and aggregation add overhead; not an uninstrumented comparison.')
+        return report
+
+    def close(self):
+        self.encoder = None
+        super().close()
+
+
+class GzipReplay:
+    """One bounded writer, started only after the existing runtime has spawned."""
+    ERRORS = {'REPLAY_STOPPED', 'REPLAY_DEADLINE', 'REPLAY_WRITE_FAILED',
+              'REPLAY_ENCODED_TRUNCATED', 'REPLAY_TRAILING_DATA', 'REPLAY_RAW_LENGTH',
+              'REPLAY_GZIP_TRUNCATED', 'REPLAY_IDENTITY_MISMATCH'}
+    def __init__(self, capture, deadline):
+        if capture.summary()['status'] != 'CAPTURED' or capture.fd is None:
+            raise ObservationError('INCOMPLETE_REPLAY_INPUT')
+        self.capture, self.deadline = capture, deadline
+        self.input_fd = self.read_fd = self.write_fd = None
+        self.thread = None
+        self.start_attempted = self.worker_started = False
+        self.stop = threading.Event()
+        self.error = None
+        self.encoded_bytes = self.decoded_bytes = self.written_bytes = 0
+        self.encoded_hash, self.decoded_hash = hashlib.sha256(), hashlib.sha256()
+        self.written_hash = hashlib.sha256()
+        self.gzip_eof = self.identity_verified = self.consumer_eof = False
+        self.input_closed = self.write_closed = self.read_closed = False
+        self.group_safe = self.finished = self.cleanup_ok = False
+        try:
+            if (os.fstat(capture.fd).st_size != capture.retained
+                    or fcntl.fcntl(capture.fd, GET_SEALS) != SEALS):
+                raise ObservationError('REPLAY_STORAGE_IDENTITY')
+            self.input_fd = os.dup(capture.fd)
+            self.read_fd, self.write_fd = os.pipe2(os.O_CLOEXEC | os.O_NONBLOCK)
+            self.pipe_capacity = fcntl.fcntl(self.write_fd, fcntl.F_GETPIPE_SZ)
+            if not 0 < self.pipe_capacity <= CODEC_CHUNK:
+                raise ObservationError('REPLAY_PIPE_LIMIT')
+        except BaseException:
+            for name in ('input', 'write', 'read'):
+                self._close_fd(name)
+            raise ObservationError('REPLAY_ADMISSION_FAILED') from None
+
+    def _fail(self, code):
+        self.error = self.error or code
+
+    def _close_fd(self, name):
+        fd = getattr(self, name + '_fd')
+        if fd is not None:
+            setattr(self, name + '_fd', None)
+            try:
+                os.close(fd)
+                setattr(self, name + '_closed', True)
+            except BaseException:
+                self._fail('REPLAY_CLOSE_FAILED')
+
+    @property
+    def path(self):
+        if self.read_fd is None:
+            raise ObservationError('REPLAY_PIPE_CLOSED')
+        return f'/proc/{os.getpid()}/fd/{self.read_fd}'
+
+    def start(self, payload_end):
+        if self.start_attempted:
+            return
+        self.start_attempted = True
+        self.payload_end = min(self.deadline, payload_end)
+        self.thread = threading.Thread(target=self._write, name='codeql-gzip-replay', daemon=False)
+        try:
+            self.thread.start()
+            self.worker_started = True
+        except BaseException:
+            self._fail('REPLAY_START_FAILED')
+            raise ObservationError(self.error) from None
+
+    def _check(self):
+        if self.stop.is_set():
+            raise ObservationError('REPLAY_STOPPED')
+        if time.monotonic() >= self.payload_end:
+            raise ObservationError('REPLAY_DEADLINE')
+
+    def _send(self, data):
+        view = memoryview(data)
+        offset = 0
+        while offset < len(view):
+            self._check()
+            try:
+                written = os.write(self.write_fd, view[offset:])
+            except InterruptedError:
+                continue
+            except BlockingIOError:
+                try:
+                    select.select([], [self.write_fd], [], min(.02, max(0, self.payload_end-time.monotonic())))
+                except InterruptedError:
+                    pass
+                continue
+            if written <= 0:
+                raise ObservationError('REPLAY_WRITE_FAILED')
+            self.written_hash.update(view[offset:offset+written])
+            self.written_bytes += written
+            offset += written
+
+    def _write(self):
+        try:
+            decoder = zlib.decompressobj(wbits=31)
+            while self.encoded_bytes < self.capture.retained:
+                self._check()
+                data = os.pread(self.input_fd, min(CODEC_CHUNK, self.capture.retained-self.encoded_bytes),
+                                self.encoded_bytes)
+                if not data:
+                    raise ObservationError('REPLAY_ENCODED_TRUNCATED')
+                self.encoded_bytes += len(data)
+                self.encoded_hash.update(data)
+                while True:
+                    self._check()
+                    raw = decoder.decompress(data, CODEC_CHUNK)
+                    data = decoder.unconsumed_tail
+                    if decoder.unused_data:
+                        raise ObservationError('REPLAY_TRAILING_DATA')
+                    self.decoded_bytes += len(raw)
+                    if self.decoded_bytes > self.capture.observed:
+                        raise ObservationError('REPLAY_RAW_LENGTH')
+                    self.decoded_hash.update(raw)
+                    self._send(raw)
+                    if not data and len(raw) < CODEC_CHUNK:
+                        break
+            self.gzip_eof = decoder.eof
+            if not self.gzip_eof:
+                raise ObservationError('REPLAY_GZIP_TRUNCATED')
+            if (self.encoded_bytes != self.capture.retained
+                    or self.encoded_hash.digest() != self.capture.retained_hash.digest()
+                    or self.decoded_bytes != self.capture.observed
+                    or self.decoded_hash.digest() != self.capture.observed_hash.digest()
+                    or self.written_bytes != self.decoded_bytes
+                    or self.written_hash.digest() != self.decoded_hash.digest()):
+                raise ObservationError('REPLAY_IDENTITY_MISMATCH')
+            self.identity_verified = True
+        except ObservationError as error:
+            code = str(error)
+            self._fail(code if code in self.ERRORS else 'REPLAY_CODEC_OR_IO_FAILED')
+        except BaseException:
+            self._fail('REPLAY_CODEC_OR_IO_FAILED')
+        finally:
+            # After start, only this worker closes these descriptors. Closing
+            # them from another thread could reuse an fd for a raw evidence write.
+            self._close_fd('input')
+            self._close_fd('write')
+
+    def alive(self):
+        return self.worker_started and self.thread.is_alive()
+
+    def finish(self, *, group_safe):
+        if self.finished:
+            return self.report()
+        self.finished = True
+        self.group_safe = group_safe
+        self.stop.set()
+        if self.worker_started:
+            self.thread.join(timeout=max(0, min(REPLAY_CLOSE_SECONDS, self.deadline-time.monotonic())))
+        else:
+            self._fail('REPLAY_NOT_STARTED')
+            self._close_fd('input')
+            self._close_fd('write')
+        if self.alive():
+            self._fail('REPLAY_WORKER_NOT_CLOSED')
+            return self.report()  # retain live-owned fds, never allow fd reuse
+        if group_safe and self.write_closed:
+            try:
+                self.consumer_eof = os.read(self.read_fd, 1) == b''
+                if not self.consumer_eof:
+                    self._fail('REPLAY_UNCONSUMED_DATA')
+            except BlockingIOError:
+                self._fail('REPLAY_EOF_NOT_OBSERVED')
+            except BaseException:
+                self._fail('REPLAY_EOF_FAILED')
+        elif not group_safe:
+            self._fail('REPLAY_GROUP_UNCLEAN')
+        self._close_fd('read')
+        if time.monotonic() > self.deadline:
+            self._fail('REPLAY_FIXED_DEADLINE_EXCEEDED')
+        self.cleanup_ok = self.input_closed and self.write_closed and self.read_closed and group_safe
+        return self.report()
+
+    def report(self):
+        complete = (self.finished and not self.error and self.identity_verified and self.gzip_eof
+                    and self.consumer_eof and self.cleanup_ok and not self.alive())
+        return dict(version='gzip-replay-v1', status='COMPLETE' if complete else 'INCOMPLETE', error=self.error,
+                    encoded_bytes=self.encoded_bytes, encoded_sha256=self.encoded_hash.hexdigest(),
+                    decoded_bytes=self.decoded_bytes, decoded_sha256=self.decoded_hash.hexdigest(),
+                    written_bytes=self.written_bytes, written_sha256=self.written_hash.hexdigest(),
+                    identity_verified=self.identity_verified, gzip_eof=self.gzip_eof,
+                    consumer_eof=self.consumer_eof, worker_started=self.worker_started,
+                    worker_alive=self.alive(), owned_group_safe=self.group_safe, cleanup_ok=self.cleanup_ok,
+                    pipe_capacity_bytes=self.pipe_capacity,
+                    limits='Exact decoded identity and final pipe EOF after both owners exit are required. '
+                           'Writing a complete pipe stream alone does not prove consumption.')
+
+    def close(self):
+        if not self.finished:
+            self.finish(group_safe=False)
+        if self.alive():
+            raise ObservationError('REPLAY_WORKER_NOT_CLOSED')
+        self._close_fd('read')
+
+
 class Lines:
     """Bounded line framing with per-stream hashes; raw bytes never leave feed."""
     def __init__(self):
@@ -758,8 +1104,9 @@ def validate_record(value):
 
 class Summary(Lines):
     """Strict 2.27.4 summary projection. Unknown combinations remain partial."""
-    def __init__(self, records):
+    def __init__(self, records, *, replay=None):
         super().__init__()
+        self.replay = replay
         schema_path = Path(__file__).with_name('codeql_summary_schema_2_27_4.json')
         if schema_path.stat().st_size > 256 * 1024:
             raise ObservationError('SCHEMA_LIMIT')
@@ -780,6 +1127,15 @@ class Summary(Lines):
         self.reuse_examples = []
         self.rejected_hashes = []
         self.tops = {'official_millis': [], 'known_iteration_subtotal': []}
+
+    def poll(self, deadline):
+        super().poll(deadline)
+        if self.replay is not None:
+            # runtime calls poll only after Popen and stream registration. No
+            # writer thread exists during its fork/preexec path.
+            self.replay.start(deadline)
+            if self.replay.error:
+                raise ObservationError('SUMMARY_REPLAY_FAILED')
 
     def _reject(self, field, data):
         setattr(self, field, getattr(self, field) + 1)
@@ -940,6 +1296,7 @@ class Observation:
         self.summary_result = dict(status='NOT_REACHED')
         self.summary_attempted = False
         self.numeric_result = dict(status='NOT_REACHED')
+        self.replay = None
 
     def start(self):
         if runtime.WRITE_CAP - runtime.output_bytes(self.root) < RAW_CAP + OUTPUT_CAP:
@@ -949,7 +1306,7 @@ class Observation:
         runtime.CAP -= RAW_CAP + NUMERIC_RESERVE
         runtime.WRITE_CAP -= RAW_CAP + NUMERIC_RESERVE
         try:
-            self.capture = Capture(projection=NumericProjection())
+            self.capture = CompressedCapture(projection=NumericProjection())
             self.progress = Progress(self.records)
         except BaseException:
             self.close()
@@ -1007,26 +1364,42 @@ class Observation:
             self.summary_result = dict(status='NOT_REACHED_EVIDENCE_BUDGET')
             return
         with self.output_budget():
+            summary_end = min(end, time.monotonic() + SUMMARY_SECONDS)
+            result = None
             try:
-                observer = Summary(self.records)
+                self.replay = GzipReplay(self.capture, summary_end)
+                observer = Summary(self.records, replay=self.replay)
                 result = runtime.run([str(cli), 'generate', 'log-summary', '--format=predicates',
-                                      '--minify-output', '--utc', '--verbosity=errors', self.capture.path],
-                    cwd, self.out / 'official-summary.log', end, SUMMARY_SECONDS, self.root, env,
+                                      '--minify-output', '--utc', '--verbosity=errors', self.replay.path],
+                    cwd, self.out / 'official-summary.log', summary_end-REPLAY_CLOSE_SECONDS,
+                    SUMMARY_SECONDS, self.root, env,
                     file_limit=None, observer=observer, restricted_output=True)
                 self.summary_result = dict(status=observer.summary()['status'], exit=result['exit'],
                                            failure_kind=None, projection=observer.summary())
             except runtime.PhaseError as error:
+                result = error.result
                 self.summary_result = dict(status='PARTIAL', exit=error.result['exit'],
                     failure_kind=error.result['failure_kind'], projection=error.result.get('output_observation'))
             except Exception:
                 self.summary_result = dict(status='PARTIAL', failure_kind='SUMMARY_ADMISSION_ERROR')
+            finally:
+                if self.replay is not None:
+                    group_safe = (result is not None and bool(result.get('pid'))
+                                  and not result.get('cleanup_errors'))
+                    replay = self.replay.finish(group_safe=group_safe)
+                    self.summary_result['replay'] = replay
+                    if replay['status'] != 'COMPLETE':
+                        self.summary_result['status'] = 'PARTIAL'
+                        self.summary_result['failure_kind'] = (self.summary_result.get('failure_kind')
+                                                               or 'SUMMARY_REPLAY_INCOMPLETE')
 
     def receipt(self):
         capture = self.capture.summary() if self.capture else dict(status='NOT_REACHED')
         if self.capture and self.capture.feed_cost is not None:
             capture['feed_cost'] = self.capture.feed_cost_summary()
         complete = (capture['status'] == 'CAPTURED' and capture['log_boundary_status'] == 'COMPLETE'
-                    and self.summary_result['status'] == 'PROJECTED')
+                    and self.summary_result['status'] == 'PROJECTED'
+                    and self.summary_result.get('replay', {}).get('status') == 'COMPLETE')
         return dict(version=VERSION, instrumented=True, status='COMPLETE' if complete else 'INCOMPLETE',
                     capture=capture, progress=self.progress.summary() if self.progress else None,
                     batch_parent_cpu=dict(self.batch_parent_cpu.report(),
@@ -1038,7 +1411,8 @@ class Observation:
                     raw_memory_reserve_bytes=RAW_CAP, numeric_memory_reserve_bytes=NUMERIC_RESERVE,
                     observation_output_limit_bytes=OUTPUT_CAP, summary_limit_seconds=SUMMARY_SECONDS,
                     persisted_observation_limit_bytes=OUTPUT_CAP-NUMERIC_RESERVE,
-                    budget_scope='Raw memory, numeric state, persisted evidence and terminal reserve share 64MiB; '
+                    budget_scope='Encoded storage and codec/transport reserve, numeric state, persisted evidence '
+                                 'and terminal reserve share 64MiB; '
                                  'numeric state and persisted observation together share 8MiB, not a Python/RSS hard limit.',
                     limits='Observation completeness never certifies batch computation or oracle success.')
 
@@ -1051,6 +1425,7 @@ class Observation:
                     numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_FAILED')
                 numeric['observed_stream_sha256'] = self.capture.observed_hash.hexdigest()
                 numeric['observed_stream_bytes'] = self.capture.observed
+                numeric['capacity_basis'] = 'gzip-encoded-bytes'
                 if len((json.dumps(numeric, indent=2)+'\n').encode()) > runtime.MAX_CONTROL_RECEIPT:
                     numeric = dict(version=NumericProjection.VERSION, status='PARTIAL', error='PROJECTION_RECEIPT_LIMIT')
                 path = self.out / 'numeric-projection.json'
@@ -1066,6 +1441,10 @@ class Observation:
                     receipt_sha256=runtime.digest(self.out / 'observation-terminal.json'))
 
     def close(self):
+        if self.replay is not None:
+            # A failed join keeps its reservation and descriptors owned until
+            # the worker exits. Never release them into an unrelated operation.
+            self.replay.close()
         try:
             if self.capture:
                 self.capture.close()

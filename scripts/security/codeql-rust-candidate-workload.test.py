@@ -345,6 +345,16 @@ class Workload(unittest.TestCase):
                          dependencies={}, millis=7, position='', queryCausingWork='fixture-query', resultSize=1)
             if self.bad_summary: value['unrecognized'] = 'RAW_CANARY_UNKNOWN_SUMMARY'
             observer = observation['observer']
+            self.assertFalse(observer.replay.start_attempted)
+            observer.poll(end - m.runtime.CLEANUP_SECONDS - .75)
+            replay_hash = hashlib.sha256()
+            replay_bytes = 0
+            with open(argv[-1], 'rb', buffering=0) as replay_input:
+                while chunk := replay_input.read(65536):
+                    replay_hash.update(chunk)
+                    replay_bytes += len(chunk)
+            self.assertEqual(replay_bytes, observer.replay.capture.observed)
+            self.assertEqual(replay_hash.digest(), observer.replay.capture.observed_hash.digest())
             data = (json.dumps(dict(summaryLogVersion='0.4.0', codeqlVersion='2.27.4', startTime='2026-11-11T00:00:00Z'))+
                     '\n'+json.dumps(value)).encode()
             output.write_bytes(observer.feed('stdout', data, final=True))
@@ -377,7 +387,7 @@ class Workload(unittest.TestCase):
                 raise m.runtime.PhaseError(dict(exit=143, failure_kind='timeout', cleanup_errors=[], evidence_errors=[],
                                                error='injected command timeout'))
             raise TimeoutError('injected command timeout')
-        return dict(exit=0, argv=argv)
+        return dict(exit=0, argv=argv, pid=1, cleanup_errors=[], evidence_errors=[])
 
     def invoke(self, phase, **outcomes):
         argv = [str(HERE / 'codeql-rust-candidate-workload.py'), phase, '--codeql', str(self.official / 'codeql'),
@@ -465,6 +475,12 @@ class Workload(unittest.TestCase):
         self.assertEqual(terminal['performance_observation']['status'], 'COMPLETE')
         self.assertEqual(terminal['performance_observation']['numeric_status'], 'OBSERVED')
         observation = m.read_json(self.out / 'candidate-observation/observation-terminal.json')
+        self.assertEqual(observation['capture']['version'], 'gzip-capture-v1')
+        self.assertEqual(observation['capture']['encoding'], 'gzip')
+        self.assertEqual(observation['capture']['memory_reserve_bytes'], 48 * 1024**2)
+        self.assertEqual(observation['capture']['encoded_limit_bytes'], 47 * 1024**2)
+        self.assertEqual(observation['summary']['replay']['status'], 'COMPLETE')
+        self.assertTrue(observation['summary']['replay']['consumer_eof'])
         self.assertEqual(observation['batch_parent_cpu']['status'], 'MEASURED')
         self.assertEqual(observation['batch_parent_cpu']['intervals'], 1)
         feed_cost = observation['capture']['feed_cost']['buckets']
@@ -529,8 +545,8 @@ class Workload(unittest.TestCase):
 
     def test_memory_limit_preserves_44_results_and_oracles_without_completing_research(self):
         self.prepare()
-        real_capture = m.candidate_profile.Capture
-        with patch.object(m.candidate_profile, 'Capture', side_effect=lambda **kwargs: real_capture(4, **kwargs)):
+        real_capture = m.candidate_profile.CompressedCapture
+        with patch.object(m.candidate_profile, 'CompressedCapture', side_effect=lambda **kwargs: real_capture(4, **kwargs)):
             self.assertEqual(self.invoke('run'), 1)
         terminal = m.read_json(self.out/'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_INCOMPLETE')
