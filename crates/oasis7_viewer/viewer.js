@@ -20563,8 +20563,7 @@ var worldViewTransport = createWorldViewTransport({
 	getScope: () => worldViewScopeKey(state),
 	getConnection: () => socket
 });
-var requestWorldView = (query) => worldViewTransport.request(query);
-var readWorldViewTransportStatistics = () => worldViewTransport.statistics();
+var { request: requestWorldView, statistics: readWorldViewTransportStatistics } = worldViewTransport;
 var scopeSnapshotTransport = createScopeSnapshotTransport({
 	send: sendJson,
 	getScope: () => worldViewScopeKey(state),
