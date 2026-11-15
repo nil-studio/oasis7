@@ -78,6 +78,16 @@ def definition_digest(root, revision):
         if type(config["custody_execution_version"]) is not int or config["custody_execution_version"] != 1:
             raise ValueError("invalid trusted custody execution definition")
         contents["scripts/ci-custody-platform.py"] = read("scripts/ci-custody-platform.py")
+    if "custody_compile_proof_version" in config:
+        if (type(config["custody_compile_proof_version"]) is not int
+                or config["custody_compile_proof_version"] != 1
+                or type(config.get("custody_execution_version")) is not int
+                or config["custody_execution_version"] != 1
+                or type(config.get("workspace_support_partition_version")) is not int
+                or config["workspace_support_partition_version"] != 1):
+            raise ValueError("invalid trusted custody compile proof definition")
+        proof = "crates/oasis7_custody_worker/scripts/verify.sh"
+        contents[proof] = read(proof)
     contract_tests = set()
     if "workflow_governance_python_tests" in config:
         governed = config["workflow_governance_python_tests"]

@@ -347,7 +347,8 @@ def validate_candidate_graph(workflow, config):
         if group == 'workspace_support':
             summary = jobs['workspace-support']
             expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other',
-                                'custody-native-contracts', 'custody-native', 'custody-wasm-production', 'custody-wasm-approval', 'custody-node']
+                                'custody-native-contracts', 'custody-wasm-contracts', 'custody-native',
+                                'custody-wasm-production', 'custody-wasm-approval', 'custody-node']
             dependencies = re.search(r'    needs: \[(.*)\]', summary).group(1).split(', ')
             if (dependencies != expected_support or 'always()' not in summary
                     or 'ci-custody-platform.py validate' not in summary
@@ -366,7 +367,8 @@ def validate_candidate_graph(workflow, config):
             if ('fail-fast: false' not in node or 'max-parallel: 4' not in node
                     or 'custody_node_shards' not in node or 'exclude:' in node or 'include:' in node
                     or 'ci-custody-platform.py restore' not in node or 'ci-custody-platform.py run' not in node
-                    or 'if: matrix.shard == 0' not in node or 'npm run test:types' not in node):
+                    or 'if: matrix.shard == 0' not in node or 'npm run test:types' not in node
+                    or 'needs: [select, custody-native, custody-wasm-production, custody-wasm-approval]' not in node):
                 raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
             proof = jobs['custody-native-contracts']
             if ('    needs: select' not in proof or 'custody_execution_version == 1' not in proof
@@ -374,13 +376,26 @@ def validate_candidate_graph(workflow, config):
                     or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
                     or 'custody-native-contracts' in node):
                 raise ValueError('native proof must remain required without blocking artifact consumers')
+            wasm_proof = jobs['custody-wasm-contracts']
+            if ('    needs: select\n' not in wasm_proof
+                    or 'custody_compile_proof_version == 1' not in wasm_proof
+                    or 'custody_execution_version == 1' not in wasm_proof
+                    or 'CUSTODY_COMPONENT: wasm-contracts' not in wasm_proof
+                    or 'ci-custody-platform.py stage' not in wasm_proof
+                    or 'verify.sh --stage "$stage"' not in wasm_proof
+                    or 'run_worker_wasm_compile_profiles' not in wasm_proof
+                    or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in wasm_proof
+                    or 'actions/upload-artifact' in wasm_proof
+                    or 'custody-wasm-contracts' in node):
+                raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
             for component in ('native', 'wasm-production', 'wasm-approval'):
                 producer = jobs['custody-' + component]
                 if ('    needs: select' not in producer
                         or 'custody_execution_version == 1' not in producer
                         or 'CUSTODY_COMPONENT: ' + component not in producer
                         or 'verify.sh --stage "$stage"' not in producer
-                        or 'stage=native-fixtures' not in producer
+                        or 'ci-custody-platform.py stage' not in producer
+                        or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in producer
                         or 'run_worker_wasm_compile_profiles' not in producer
                         or 'ci-custody-platform.py pack' not in producer):
                     raise ValueError('custody producer must preserve every verification stage')
@@ -882,7 +897,7 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
                     self.assertEqual(trace.read_text().splitlines(), expected_calls)
 
     def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='',
-                      real_receipt=False, ref=None, policy_config=None):
+                      real_receipt=False, ref=None, policy_config=None, candidate_config=None):
         """Execute the real workflow shell against immutable local Git fixtures."""
         repo = Path(directory) / 'repo'
         repo.mkdir()
@@ -906,6 +921,8 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
             policy_files = set(runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))['POLICY_FILES'])
             if CONFIG.get('custody_execution_version') == 1:
                 policy_files.add('scripts/ci-custody-platform.py')
+            if CONFIG.get('custody_compile_proof_version') == 1:
+                policy_files.add('crates/oasis7_custody_worker/scripts/verify.sh')
             if 'scripts/ci-worker-build.py' in CONFIG.get('python_control_contracts', {}):
                 policy_files.add('scripts/ci-worker-build.py')
             policy_files.update(test for entry in CONFIG.get('python_control_contracts', {}).values()
@@ -937,6 +954,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         # If the shell accidentally runs candidate policy instead of BASE, fail.
         (repo / 'scripts/plan-rust-required-scope.py').write_text("raise SystemExit('untrusted candidate planner executed')\n")
         (repo / 'scripts/ci-python-control-contracts.py').write_text("raise SystemExit('untrusted candidate control authority executed')\n")
+        if candidate_config is not None:
+            (repo / 'scripts/ci-required-scope.json').write_text(json.dumps(candidate_config))
         git('add', '.')
         git('commit', '-qm', 'candidate')
         source = git('rev-parse', 'HEAD')
@@ -972,7 +991,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
-        self.assertLessEqual(consumers, fields | {'ordinary_main_fast_cache_writer_version'})
+        self.assertLessEqual(consumers, fields | {'ordinary_main_fast_cache_writer_version',
+                                                'custody_compile_proof_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
         guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
         self.assertEqual(guard, workflow_step_script(JOBS['explicit-full-gate'], 'Validate complete selection handoff'))
@@ -1124,12 +1144,22 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertNotEqual(result.returncode, 0)
             support = dict(select=selection, **{name: {'result': 'skipped'} for name in (
                 'workspace-support-other', 'custody-native', 'custody-wasm-production', 'custody-wasm-approval',
-                'custody-native-contracts', 'custody-node')})
+                'custody-native-contracts', 'custody-wasm-contracts', 'custody-node')})
             support['workspace-support-legacy'] = {'result': 'success'}
             script = workflow_step_script(JOBS['workspace-support'], 'Require all selected support stages and complete file inventory')
             environment['SUPPORT_NEEDS'] = json.dumps(support)
             result = subprocess.run(['bash', '-euc', script], cwd=ROOT, env=environment, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for state in ('success', 'failure', 'cancelled', None, 'missing'):
+                changed = dict(support)
+                if state == 'missing':
+                    del changed['custody-wasm-contracts']
+                else:
+                    changed['custody-wasm-contracts'] = {'result': state}
+                with self.subTest(unselected_proof=state):
+                    result = subprocess.run(['bash', '-euc', script], cwd=ROOT,
+                        env=environment | {'SUPPORT_NEEDS': json.dumps(changed)}, text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
             support['unexpected'] = {'result': 'success'}
             result = subprocess.run(['bash', '-euc', script], cwd=ROOT,
                 env=environment | {'SUPPORT_NEEDS': json.dumps(support)}, text=True, capture_output=True)
@@ -1142,6 +1172,84 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertEqual(result.returncode, 0, result.stderr)
             row = json.loads(result.stdout.strip().split('=', 1)[1])
             self.assertEqual(row['needs'], {'select': 'success'})
+
+    def test_custody_proof_projection_rejects_forged_or_invalid_complete_capabilities(self):
+        field = 'custody_compile_proof_version'
+        guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = large_transport_plan() | {'workspace_support_partition_version': 1, 'test_policy_changed': False}
+            environment = dict(os.environ, RUNNER_TEMP=directory, SOURCE_SHA=plan['source_sha'],
+                               TESTED_SHA=plan['tested_sha'], POLICY_SHA=plan['policy_sha'])
+            def invoke(projected):
+                return subprocess.run(['bash', '-euo', 'pipefail', '-c', guard], cwd=root,
+                    env=environment | {'WORKFLOW_PLAN': json.dumps(projected)}, text=True, capture_output=True)
+            legacy = project_selection(root, plan)
+            self.assertNotIn(field, legacy)
+            self.assertEqual(invoke(legacy).returncode, 0)
+            self.assertNotEqual(invoke(legacy | {field: 1}).returncode, 0)
+            current = project_selection(root, plan | {field: 1})
+            self.assertEqual(current[field], 1)
+            self.assertEqual(invoke(current).returncode, 0)
+            self.assertNotEqual(invoke({key: value for key, value in current.items() if key != field}).returncode, 0)
+            for key in (field, 'custody_execution_version', 'workspace_support_partition_version'):
+                for value in (None, False, True, 0, 2, 1.0, '1', 'missing'):
+                    changed = plan | {field: 1, key: value}
+                    if value == 'missing':
+                        if key == field:
+                            continue
+                        del changed[key]
+                    with self.subTest(key=key, value=value):
+                        with self.assertRaises(AssertionError):
+                            project_selection(root, changed)
+                        raw = (root / 'selection.json').read_bytes()
+                        forged = current | {'selection_sha256': hashlib.sha256(raw).hexdigest()}
+                        if key in current:
+                            if value == 'missing':
+                                del forged[key]
+                            else:
+                                forged[key] = value
+                        self.assertNotEqual(invoke(forged).returncode, 0)
+            for policy in (None, True, 0, 'false'):
+                with self.subTest(policy=policy), self.assertRaises(AssertionError):
+                    project_selection(root, plan | {field: 1, 'test_policy_changed': policy})
+
+    def test_trusted_selection_projects_custody_proof_only_for_the_capable_baseline(self):
+        condition = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
+                              JOBS['custody-wasm-contracts'], re.M | re.S)[1]
+        for version in ('new', 'old-custody', 'legacy'):
+            policy = dict(CONFIG)
+            if version != 'new':
+                del policy['custody_compile_proof_version']
+            if version == 'legacy':
+                del policy['custody_execution_version']
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
+                result, outputs, plan, _, _ = self.run_selection(directory, policy_config=policy)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                projected = json.loads(outputs['plan'])
+                self.assertEqual('custody_compile_proof_version' in plan, version == 'new')
+                self.assertEqual('custody_compile_proof_version' in projected, version == 'new')
+                values = {'needs.select.result': 'success',
+                          'fromJSON(needs.select.outputs.plan).custody_execution_version': projected.get('custody_execution_version', 0),
+                          'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': projected.get('custody_compile_proof_version', 0)}
+                self.assertEqual(effective_job_condition(condition, values, ['skipped', 'success']), version == 'new')
+
+    def test_current_workflow_preserves_the_fixed_historical_custody_source_protocol(self):
+        old = {key: value for key, value in CONFIG.items() if key != 'custody_compile_proof_version'}
+        for event in ('workflow_dispatch', 'pull_request', 'push'):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory:
+                result, outputs, plan, policy, source = self.run_selection(
+                    directory, event=event, source_ref='candidate' if event == 'workflow_dispatch' else '',
+                    candidate=event != 'workflow_dispatch', ref='refs/heads/main' if event == 'push' else None,
+                    candidate_config=old)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotEqual(source, policy)
+                self.assertEqual(plan['custody_execution_version'], 1)
+                self.assertNotIn('custody_compile_proof_version', plan)
+                projected = json.loads(outputs['plan'])
+                self.assertNotIn('custody_compile_proof_version', projected)
+                self.assertEqual(plan['tested_sha'], source)
+                self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
 
     def test_manual_and_scheduled_selection_expands_complete_fixed_inventory(self):
         for event in ('workflow_dispatch', 'schedule'):
@@ -3873,15 +3981,15 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             'consensus', 'distfs', 'node', 'net', 'viewer-js-required',
             'viewer-performance-report', 'pixel-world-bridge', 'launcher-web',
             'workspace-support-legacy', 'workspace-support-other', 'custody-native', 'custody-native-contracts',
-            'custody-wasm-production', 'custody-wasm-approval', 'custody-node',
+            'custody-wasm-production', 'custody-wasm-approval', 'custody-wasm-contracts', 'custody-node',
             'scenario-regression', 'operational-contracts', 'packaging-contracts',
             'workflow-governance', 'codex-agent-config-validation', 'compile-metrics',
             'site-quality', 'doc-checker-contracts', 'cargo-tooling-contracts',
             'windows-rollout', 'macos-package-contract', 'fleet-health',
         )
-        self.assertEqual(len(names), 31)
+        self.assertEqual(len(names), 32)
         producers = ('custody-native', 'custody-wasm-production', 'custody-wasm-approval')
-        split_jobs = {*producers, 'custody-native-contracts', 'custody-node', 'workspace-support-other'}
+        split_jobs = {*producers, 'custody-native-contracts', 'custody-wasm-contracts', 'custody-node', 'workspace-support-other'}
         conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
@@ -3896,6 +4004,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
                 'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs else 0,
+                'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': 1 if selected else 0,
                 'fromJSON(needs.select.outputs.plan).execution_profile': {
                     'pull_request': 'pr-fast', 'push': 'main-fast',
                     'workflow_dispatch': 'candidate-full',
@@ -3986,6 +4095,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         summary = JOBS['workspace-support']
         for before, after in [
                 ('custody-node]', ']'),
+                ('custody-wasm-contracts, ', ''),
                 ('ci-custody-platform.py validate', 'true'),
                 ('pattern: custody-node-${{ github.run_id }}-*', 'pattern: stale-*')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
@@ -3996,6 +4106,14 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                               ('npm run test:types', 'true')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
+        proof = JOBS['custody-wasm-contracts']
+        for before, after in [('custody_compile_proof_version == 1', 'custody_compile_proof_version == 2'),
+                              ('ci-custody-platform.py stage', 'true'),
+                              ('verify.sh --stage "$stage"', 'true'),
+                              ('run_worker_wasm_compile_profiles', 'true'),
+                              ('    needs: select\n', '    needs: custody-wasm-approval\n')]:
+            with self.subTest(before=before), self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW.replace(proof, proof.replace(before, after)), CONFIG)
 
     def test_custody_bundle_upload_rejects_hidden_file_filtering_or_checkout_upload(self):
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
@@ -4024,56 +4142,109 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 validate_candidate_graph(candidate, CONFIG)
 
     def test_custody_approval_step_initializes_real_driver_and_propagates_compile_failure(self):
-        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
-                    JOBS['custody-wasm-approval'], re.M | re.S)
-                    if 'name: Build and verify the complete custody component' in step)
-        script = 'set -euo pipefail\n' + textwrap.dedent(step.split('        run: |\n', 1)[1])
+        scripts_by_component = {
+            'wasm-approval': workflow_step_script(JOBS['custody-wasm-approval'], 'Build and verify the complete custody component'),
+            'wasm-contracts': workflow_step_script(JOBS['custody-wasm-contracts'], 'Execute complete custody WASM compile proofs'),
+        }
+        self.assertEqual(*(script.split('bash crates/', 1)[1].rstrip() for script in scripts_by_component.values()))
         features = ('identity', 'owner', 'executor', 'recovery-fence',
                     'owner,approval-harness', 'identity,native-runtime-harness')
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             scripts = root / 'scripts'
             scripts.mkdir()
-            for name in ('ci-tests.sh', 'find-python-with-module.sh', 'plan-rust-required-scope.py'):
+            for name in ('ci-tests.sh', 'find-python-with-module.sh', 'plan-rust-required-scope.py',
+                         'ci-custody-platform.py', 'ci_process_runner.py'):
                 (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
             worker = root / 'crates/oasis7_custody_worker'
             (worker / 'scripts').mkdir(parents=True)
             names = sorted({name for profile in features for name in profile.split(',')})
             (worker / 'Cargo.toml').write_text('[features]\ndefault = []\n'
                 + ''.join(name + ' = []\n' for name in names))
+            (worker / 'tests').mkdir()
+            (worker / 'tests/fixture.test.mjs').write_text('// complete inventory fixture\n')
+            (root / 'rust-toolchain.toml').write_text('[toolchain]\nchannel="1.96.0"\n')
             (worker / 'scripts/verify.sh').write_text(
-                '#!/bin/bash\n[[ "$*" == "--stage wasm-approval" ]] || exit 2\n'
+                '#!/bin/bash\nprintf "%s\\n" "$*" >> "$VERIFY_CAPTURE"\n'
+                '[[ "$*" == "--stage $EXPECTED_STAGE" ]] || exit 2\n'
                 'exit "${VERIFY_RESULT:-0}"\n')
             binary = root / 'bin'
             binary.mkdir()
             capture = root / 'commands'
             cargo = binary / 'cargo'
             cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\n'
-                             'exit "$WORKER_COMPILE_RESULT"\n')
+                '[ "$WORKER_COMPILE_RESULT" = 0 ] || exit "$WORKER_COMPILE_RESULT"\n'
+                'case "$*" in *"--features executor,execution-signer-harness "*) ;;\n'
+                '*execution-signer-harness*) echo "execution-signer-harness requires executor and is not a deployment profile"; exit 1;; esac\n')
             cargo.chmod(0o755)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
+            git('init', '-q')
+            git('add', '.')
+            git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'stage fixture')
+            verify_capture = root / 'verify-commands'
+            plan = dict(source_sha='a' * 40, tested_sha=git('rev-parse', 'HEAD'), policy_sha='b' * 40,
+                groups=['workspace_support'], custody_execution_version=1, custody_node_shards=[0, 1, 2, 3],
+                workspace_support_profile_version=1, workspace_support_profiles=['oasis7_custody_worker'],
+                workspace_support_partition_version=1, workspace_support_partitions=['custody'], test_policy_changed=False)
+            selection = root / 'selection.json'
             environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
-                               GITHUB_WORKSPACE=str(root), CUSTODY_COMPONENT='wasm-approval',
+                               GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), GITHUB_RUN_ID='71', GITHUB_RUN_ATTEMPT='1',
+                               VERIFY_CAPTURE=str(verify_capture),
+                               **{'OASIS7_SUPPORT_' + key.upper(): plan[key] for key in ('source_sha', 'tested_sha', 'policy_sha')},
                                WORKER_COMPILE_CAPTURE=str(capture), WORKER_COMPILE_RESULT='0')
-            expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
-                        '--no-default-features --features ' + feature + ' --locked'
-                        for feature in features]
-            result = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
-                                    text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(capture.read_text().splitlines(), expected)
-            capture.unlink()
-            environment['WORKER_COMPILE_RESULT'] = '42'
-            failed = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
-                                    text=True, capture_output=True)
-            self.assertNotEqual(failed.returncode, 0)
-            self.assertIn('exit status 42', failed.stderr)
-            self.assertEqual(capture.read_text().splitlines(), expected[:1])
-            capture.unlink()
-            environment['VERIFY_RESULT'] = '37'
-            failed = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
-                                    text=True, capture_output=True)
-            self.assertEqual(failed.returncode, 37)
-            self.assertFalse(capture.exists())
+            current_helper = (scripts / 'ci-custody-platform.py').read_text()
+            def invoke(extra=None):
+                capture.unlink(missing_ok=True)
+                verify_capture.unlink(missing_ok=True)
+                script = 'set -euo pipefail\n' + scripts_by_component[environment['CUSTODY_COMPONENT']]
+                return subprocess.run(['bash', '-c', script], cwd=root, env=environment | (extra or {}),
+                                      text=True, capture_output=True)
+            for signer in (False, True):
+                if signer:
+                    with (worker / 'Cargo.toml').open('a') as manifest:
+                        manifest.write('execution-signer-harness = []\n')
+                    git('add', 'crates/oasis7_custody_worker/Cargo.toml')
+                    git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'signer profile')
+                    plan['tested_sha'] = git('rev-parse', 'HEAD')
+                    environment['OASIS7_SUPPORT_TESTED_SHA'] = plan['tested_sha']
+                selected = [*features, *(['executor,execution-signer-harness', 'identity,execution-signer-harness',
+                                         'owner,execution-signer-harness', 'recovery-fence,execution-signer-harness'] if signer else [])]
+                expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
+                            '--no-default-features --features ' + feature + ' --locked' for feature in selected]
+                for proof, component, stage in [(False, 'wasm-approval', 'wasm-approval'),
+                                                (True, 'wasm-approval', 'wasm-approval-artifacts'),
+                                                (True, 'wasm-contracts', 'wasm-contracts')]:
+                    with self.subTest(signer=signer, proof=proof, component=component):
+                        current = plan | ({'custody_compile_proof_version': 1} if proof else {})
+                        selection.write_text(json.dumps(current))
+                        environment.update(CUSTODY_COMPONENT=component, EXPECTED_STAGE=stage,
+                                           CUSTODY_COMPILE_PROOF_VERSION='1' if proof else '',
+                                           CUSTODY_SELECTION_SHA256=hashlib.sha256(selection.read_bytes()).hexdigest())
+                        # The old source's helper has no stage CLI. Its complete
+                        # approval path must not try that optional new interface.
+                        (scripts / 'ci-custody-platform.py').write_text(current_helper if proof else
+                            "raise SystemExit('legacy helper does not support stage')\n")
+                        result = invoke()
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(verify_capture.read_text().splitlines(), ['--stage ' + stage])
+                        actual = capture.read_text().splitlines() if capture.exists() else []
+                        self.assertEqual(actual, [] if stage == 'wasm-approval-artifacts' else expected)
+                        failed = invoke({'VERIFY_RESULT': '37'})
+                        self.assertEqual(failed.returncode, 37)
+                        self.assertFalse(capture.exists())
+                        if stage != 'wasm-approval-artifacts':
+                            failed = invoke({'WORKER_COMPILE_RESULT': '42'})
+                            self.assertNotEqual(failed.returncode, 0)
+                            self.assertIn('exit status 42', failed.stderr)
+                            self.assertEqual(capture.read_text().splitlines(), expected[:1])
+                        invalid_contexts = ({'CUSTODY_SELECTION_SHA256': '0' * 64},
+                                            {'OASIS7_SUPPORT_POLICY_SHA': 'c' * 40}) if proof else ()
+                        for invalid in invalid_contexts:
+                            failed = invoke(invalid)
+                            self.assertNotEqual(failed.returncode, 0)
+                            self.assertFalse(verify_capture.exists())
+                            self.assertFalse(capture.exists())
 
     def test_concurrency_is_per_pr_and_per_non_pr_run(self):
         self.assertIn("format('pr-{0}', github.event.pull_request.number)", WORKFLOW)
