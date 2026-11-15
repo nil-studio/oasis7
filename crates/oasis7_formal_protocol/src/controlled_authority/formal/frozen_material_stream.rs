@@ -95,7 +95,11 @@ mod tests {
             ArtifactRole::Wasm,
             ArtifactRole::Rules,
         ] {
-            let bytes = format!("actual-{role:?}").into_bytes();
+            let bytes = if role == ArtifactRole::Input {
+                vec![7u8; (64 << 10) + 17]
+            } else {
+                format!("actual-{role:?}").into_bytes()
+            };
             let hash = blake3::hash(&bytes).to_hex().to_string();
             roots.insert(role, hash.clone());
             objects.insert(
@@ -150,8 +154,11 @@ mod tests {
     fn streamed_frozen_sink_caps_chunks_and_latches_limit_failure() {
         let mut left = 1 << 20;
         let mut sink = Sink {
-            hash: blake3::Hasher::new(), encoded: 0, left: &mut left,
-            cancelled: || false, failed: false,
+            hash: blake3::Hasher::new(),
+            encoded: 0,
+            left: &mut left,
+            cancelled: || false,
+            failed: false,
         };
         let data = vec![7u8; (64 << 10) + 17];
         assert_eq!(sink.write(&data).unwrap(), 64 << 10);
@@ -168,27 +175,39 @@ mod tests {
     #[test]
     fn streamed_frozen_digest_admission_and_final_cancel_release_memory() {
         let material = ClosedRecord {
-            payload_digest: String::new(), before_state_root: String::new(),
-            after_state_root: String::new(), roots: Default::default(), objects: vec![],
+            payload_digest: String::new(),
+            before_state_root: String::new(),
+            after_state_root: String::new(),
+            roots: Default::default(),
+            objects: vec![],
         };
         let small = MemoryBudget::new(4095, 0).unwrap();
         let mut allowance = 1 << 20;
-        assert!(frozen_material_digest_bounded_v1(&material, &small, &mut allowance, || false).is_err());
+        assert!(
+            frozen_material_digest_bounded_v1(&material, &small, &mut allowance, || false).is_err()
+        );
         assert_eq!(allowance, 1 << 20);
         assert_eq!(small.used(), 0);
         let memory = MemoryBudget::new(8192, 0).unwrap();
         let mut calls = 0;
         let mut left = 1 << 20;
-        frozen_material_digest_bounded_v1(&material, &memory, &mut left, || { calls += 1; false }).unwrap();
+        frozen_material_digest_bounded_v1(&material, &memory, &mut left, || {
+            calls += 1;
+            false
+        })
+        .unwrap();
         let consumed = (1 << 20) - left;
         let mut again = 0;
         let mut left = 1 << 20;
-        assert!(frozen_material_digest_bounded_v1(&material, &memory, &mut left, || {
-            again += 1; again == calls
-        }).is_err());
+        assert!(
+            frozen_material_digest_bounded_v1(&material, &memory, &mut left, || {
+                again += 1;
+                again == calls
+            })
+            .is_err()
+        );
         assert_eq!(again, calls);
         assert_eq!((1 << 20) - left, consumed);
         assert_eq!(memory.used(), 0);
     }
-
 }
