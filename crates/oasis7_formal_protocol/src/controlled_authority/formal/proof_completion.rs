@@ -119,8 +119,11 @@ pub fn verify_formal_qualified_from_decision(
         )?;
     }
     let mut verified_record_id = [0u8; 32];
-    hex::decode_to_slice(&proof.primary_complete.body.record_id, &mut verified_record_id)
-        .map_err(|_| invalid("verified commit cached record id"))?;
+    hex::decode_to_slice(
+        &proof.primary_complete.body.record_id,
+        &mut verified_record_id,
+    )
+    .map_err(|_| invalid("verified commit cached record id"))?;
     Ok(VerifiedFormalCommitV1 {
         verified_record_id,
         record: decision.record.clone(),
