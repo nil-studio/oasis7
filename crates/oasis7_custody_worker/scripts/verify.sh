@@ -61,6 +61,13 @@ case "$mode" in
     done
     ;;
 esac
+# The isolated compile-proof stage must supply the real input consumed by the
+# subsequent owner,approval-harness profile, without building deployment bundles.
+if [[ "$mode" == wasm-contracts ]]; then
+  mkdir -p crates/oasis7_custody_worker/artifacts
+  OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT="$PWD/crates/oasis7_custody_worker/artifacts/approval-fixture.json" \
+    env -u RUSTC_WRAPPER cargo test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked
+fi
 [[ "$mode" != checks && "$mode" != wasm-contracts ]] || exit 0
 
 # Each stage owns a disjoint artifact set. Separate runners must execute the two

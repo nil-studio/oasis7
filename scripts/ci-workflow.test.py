@@ -4173,7 +4173,6 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             capture = root / 'commands'
             cargo = binary / 'cargo'
             cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\n'
-                'case "$*" in "test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked") exit 0;; esac\n'
                 '[ "$WORKER_COMPILE_RESULT" = 0 ] || exit "$WORKER_COMPILE_RESULT"\n'
                 'case "$*" in *"--features executor,execution-signer-harness "*) ;;\n'
                 '*execution-signer-harness*) echo "execution-signer-harness requires executor and is not a deployment profile"; exit 1;; esac\n')
@@ -4213,7 +4212,6 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                                          'owner,execution-signer-harness', 'recovery-fence,execution-signer-harness'] if signer else [])]
                 expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
                             '--no-default-features --features ' + feature + ' --locked' for feature in selected]
-                expected.insert(0, 'test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked')
                 for proof, component, stage in [(False, 'wasm-approval', 'wasm-approval'),
                                                 (True, 'wasm-approval', 'wasm-approval-artifacts'),
                                                 (True, 'wasm-contracts', 'wasm-contracts')]:
@@ -4239,7 +4237,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                             failed = invoke({'WORKER_COMPILE_RESULT': '42'})
                             self.assertNotEqual(failed.returncode, 0)
                             self.assertIn('exit status 42', failed.stderr)
-                            self.assertEqual(capture.read_text().splitlines(), expected[:2])
+                            self.assertEqual(capture.read_text().splitlines(), expected[:1])
                         invalid_contexts = ({'CUSTODY_SELECTION_SHA256': '0' * 64},
                                             {'OASIS7_SUPPORT_POLICY_SHA': 'c' * 40}) if proof else ()
                         for invalid in invalid_contexts:

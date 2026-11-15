@@ -19,6 +19,34 @@ SPEC.loader.exec_module(C)
 
 
 class Custody(unittest.TestCase):
+    def test_isolated_wasm_contracts_exports_real_fixture_and_propagates_failure(self):
+        source = Path(__file__).resolve().parents[1] / C.WORKER / 'scripts/verify.sh'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / C.WORKER / 'scripts/verify.sh'
+            script.parent.mkdir(parents=True)
+            shutil.copyfile(source, script)
+            binary = root / 'bin'
+            binary.mkdir()
+            cargo = binary / 'cargo'
+            cargo.write_text("#!/usr/bin/env python3\nimport os,sys\nfrom pathlib import Path\na=sys.argv[1:]\nwith open(os.environ['CAPTURE'],'a') as f: f.write(' '.join(a)+'\\n')\nif 'export_developer_admission_fixture' in a:\n    if os.environ['EXPORT_RESULT'] != '0': sys.exit(int(os.environ['EXPORT_RESULT']))\n    Path(os.environ['OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT']).write_text('exported-by-test-double')\n    sys.exit(0)\nif 'oasis7_custody_worker' in a:\n    feature=a[a.index('--features')+1] if '--features' in a else ''\n    if not feature or (',' in feature and 'harness' not in feature):\n        print('requires exactly one role feature'); sys.exit(1)\n    if feature == 'identity,approval-harness':\n        print('approval-harness requires owner'); sys.exit(1)\n    if 'native-runtime-harness' in feature and not feature.startswith('identity,'):\n        print('native-runtime-harness requires identity'); sys.exit(1)\n")
+            cargo.chmod(0o755)
+            for status in ('0', '71'):
+                with self.subTest(export_result=status):
+                    capture = root / 'commands'
+                    capture.write_text('')
+                    environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                                       CAPTURE=str(capture), EXPORT_RESULT=status, OASIS7_SUPPORT_CAPACITY='0')
+                    result = subprocess.run(['bash', str(script), '--stage', 'wasm-contracts'],
+                                            env=environment, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, int(status), result.stdout + result.stderr)
+                    lines = capture.read_text().splitlines()
+                    self.assertEqual(lines[-1], 'test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked')
+                    self.assertEqual(sum('export_developer_admission_fixture' in line for line in lines), 1)
+                    if status == '0':
+                        self.assertEqual((root / C.WORKER / 'artifacts/approval-fixture.json').read_text(),
+                                         'exported-by-test-double')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
