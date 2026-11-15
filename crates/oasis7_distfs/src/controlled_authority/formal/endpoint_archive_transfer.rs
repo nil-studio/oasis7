@@ -4,6 +4,18 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 pub trait FormalArchiveSourceV1: Send + Sync {
+    /// Explicit paid entry point. Legacy providers fail closed rather than
+    /// allocating through the old whole-object or range adapters.
+    fn read_object_bounded(
+        &self,
+        _id: &str,
+        _max: usize,
+        _memory: &oasis7_proto::memory_budget::MemoryBudget,
+        _work: &FormalArchiveReadWorkV1,
+        _cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<FormalArchiveReadOwnerV1>, FormalError> {
+        Err(invalid("bounded formal archive provider unsupported"))
+    }
     fn read_object(&self, id: &str) -> Result<Option<Vec<u8>>, FormalError>;
     fn read_range(
         &self,
@@ -86,6 +98,24 @@ struct LocalArchiveSource {
     fallback: Vec<Arc<dyn FormalArchiveSourceV1>>,
 }
 impl FormalArchiveSourceV1 for LocalArchiveSource {
+    fn read_object_bounded(
+        &self,
+        id: &str,
+        max: usize,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<FormalArchiveReadOwnerV1>, FormalError> {
+        super::archive_bounded_read::read_archive_chain_bounded_v1(
+            &self.source,
+            &self.fallback,
+            id,
+            max,
+            memory,
+            work,
+            cancelled,
+        )
+    }
     fn read_range(
         &self,
         id: &str,
@@ -218,4 +248,12 @@ impl FileFormalEndpoint {
             }),
         })
     }
+}
+
+#[cfg(test)]
+pub(super) fn bounded_local_for_test(
+    source: FileFormalArchiveSourceV1,
+    fallback: Vec<Arc<dyn FormalArchiveSourceV1>>,
+) -> Arc<dyn FormalArchiveSourceV1> {
+    Arc::new(LocalArchiveSource { source, fallback })
 }
