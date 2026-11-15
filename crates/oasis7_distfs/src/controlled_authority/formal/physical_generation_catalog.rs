@@ -670,6 +670,25 @@ pub(super) fn validate_file(path: &Path, digest: &str) -> Result<(), FormalError
     stored_file(path, digest).map(|_| ())
 }
 
+// One uncached membership node is live at a time. Decode may grow its leaf
+// vector, and canonical re-encoding may double its output capacity. Branch
+// references and leaf strings are alternatives, not a retained whole tree.
+pub(super) fn lookup_workspace_bytes() -> Result<usize, FormalError> {
+    use std::mem::size_of;
+    let overflow = || invalid("generation lookup workspace layout");
+    let leaf = LEAF_IDS
+        .checked_mul(2 * size_of::<String>() + 64)
+        .ok_or_else(overflow)?;
+    let branch = size_of::<[Option<NodeRef>; 16]>()
+        .checked_add(16 * 64)
+        .ok_or_else(overflow)?;
+    leaf.max(branch)
+        .checked_add(size_of::<Node>() + 2 * size_of::<usize>() + size_of::<Arc<Node>>())
+        .and_then(|n| n.checked_add(2 * NODE_BYTES + size_of::<Vec<u8>>()))
+        .and_then(|n| n.checked_add(4096))
+        .ok_or_else(overflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,23 +752,4 @@ mod tests {
         };
         assert!(format!("{error}").len() < 512);
     }
-}
-
-// One uncached membership node is live at a time. Decode may grow its leaf
-// vector, and canonical re-encoding may double its output capacity. Branch
-// references and leaf strings are alternatives, not a retained whole tree.
-pub(super) fn lookup_workspace_bytes() -> Result<usize, FormalError> {
-    use std::mem::size_of;
-    let overflow = || invalid("generation lookup workspace layout");
-    let leaf = LEAF_IDS
-        .checked_mul(2 * size_of::<String>() + 64)
-        .ok_or_else(overflow)?;
-    let branch = size_of::<[Option<NodeRef>; 16]>()
-        .checked_add(16 * 64)
-        .ok_or_else(overflow)?;
-    leaf.max(branch)
-        .checked_add(size_of::<Node>() + 2 * size_of::<usize>() + size_of::<Arc<Node>>())
-        .and_then(|n| n.checked_add(2 * NODE_BYTES + size_of::<Vec<u8>>()))
-        .and_then(|n| n.checked_add(4096))
-        .ok_or_else(overflow)
 }
