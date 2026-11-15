@@ -144,6 +144,7 @@
   "ordinary_artifact_delivery_version": 2,
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
+  "custody_compile_proof_version": 1,
   "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
   "additive_governance_registration_version": 1,

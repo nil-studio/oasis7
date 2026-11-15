@@ -182,6 +182,7 @@ fn make_candidate(
         EndpointRole::Replica => 1,
     };
     let initial = HotBody {
+        data_closure: None,
         version: 1,
         instance_digest: instance.digest().map_err(fencing_error)?,
         authority_id: transition.body().successor.authority_id()?,

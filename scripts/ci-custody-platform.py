@@ -86,6 +86,14 @@ def load(path):
 
 def enabled(plan):
     version = plan.get('custody_execution_version')
+    if 'custody_compile_proof_version' in plan:
+        if (type(plan['custody_compile_proof_version']) is not int
+                or plan['custody_compile_proof_version'] != 1
+                or type(version) is not int or version != 1
+                or type(plan.get('workspace_support_profile_version')) is not int
+                or type(plan.get('workspace_support_partition_version')) is not int
+                or plan.get('test_policy_changed') is not False):
+            raise ValueError('invalid custody compile proof plan')
     if version is None:
         return False
     if type(version) is not int or version != 1:
@@ -99,6 +107,38 @@ def enabled(plan):
             or any(type(item) is not int for item in plan['custody_node_shards'])):
         raise ValueError('incomplete custody execution plan')
     return True
+
+
+def separate_proof(plan):
+    return enabled(plan) and plan.get('custody_compile_proof_version') == 1
+
+
+def build_contract(plan, component):
+    proof = separate_proof(plan)
+    if component not in COMPONENTS:
+        raise ValueError('unknown custody artifact component')
+    if proof and component == 'wasm-approval':
+        return BUILD_CONTRACTS[component][:2]
+    return BUILD_CONTRACTS[component]
+
+
+def build_stage(root, plan, component, run_id, attempt, expected_identity):
+    context = identity(root, plan, run_id)
+    positive_attempt(attempt)
+    if {key: context[key] for key in ('source_sha', 'tested_sha', 'policy_sha')} != expected_identity:
+        raise ValueError('custody plan differs from the independently selected identity')
+    proof = separate_proof(plan)
+    if component == 'wasm-contracts':
+        if not proof:
+            raise ValueError('separate custody proof is not selected')
+        return component
+    if component not in COMPONENTS:
+        raise ValueError('unknown custody build component')
+    if component == 'native':
+        return 'native-fixtures'
+    if component == 'wasm-approval' and proof:
+        return 'wasm-approval-artifacts'
+    return component
 
 
 def inventory(root):
@@ -204,7 +244,7 @@ def pack(root, plan, component, bundle, run_id, attempt):
         destination.chmod(mode)
         rows.append(dict(path=name, size=destination.stat().st_size, sha256=digest(destination), mode=mode))
     manifest = dict(schema=SCHEMA, context=context, component=component,
-                    producer_attempt=attempt, build_contract=BUILD_CONTRACTS[component], files=rows)
+                    producer_attempt=attempt, build_contract=build_contract(plan, component), files=rows)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, sort_keys=True) + '\n')
     return manifest
 
@@ -213,7 +253,7 @@ def check_bundle(root, plan, component, bundle, run_id, attempt):
     manifest = load(regular(bundle / 'manifest.json', bundle))
     if (manifest.get('schema') != SCHEMA or manifest.get('context') != identity(root, plan, run_id)
             or manifest.get('component') != component
-            or manifest.get('build_contract') != BUILD_CONTRACTS[component]
+            or manifest.get('build_contract') != build_contract(plan, component)
             or type(manifest.get('producer_attempt')) is not int
             or manifest['producer_attempt'] != positive_attempt(attempt)):
         raise ValueError('custody build identity mismatch')
@@ -350,6 +390,8 @@ def validate_jobs(plan, needs):
                 'workspace-support-other': split and 'other' in plan.get('workspace_support_partitions', []),
                 **{f'custody-{component}': split for component in COMPONENTS},
                 'custody-native-contracts': split, 'custody-node': split}
+    if separate_proof(plan):
+        expected['custody-wasm-contracts'] = True
     if set(needs) != {'select', *expected}:
         raise ValueError('unknown or missing support dependencies')
     for job, required in expected.items():
@@ -360,12 +402,12 @@ def validate_jobs(plan, needs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('pack', 'restore', 'run', 'validate'))
+    parser.add_argument('action', choices=('stage', 'pack', 'restore', 'run', 'validate'))
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--run-id', default=os.environ.get('GITHUB_RUN_ID', ''))
     parser.add_argument('--attempt', type=int, default=int(os.environ.get('GITHUB_RUN_ATTEMPT', '0')))
-    parser.add_argument('--component', choices=COMPONENTS)
+    parser.add_argument('--component', choices=(*COMPONENTS, 'wasm-contracts'))
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--bundles', type=Path)
     parser.add_argument('--producer-attempts', help='Exact successful producer outputs, keyed by component')
@@ -377,8 +419,15 @@ def main():
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     if actual != plan.get('tested_sha'):
         raise ValueError('custody checkout is not the selected tested commit')
-    if args.action == 'pack':
-        if args.component is None or args.bundle is None:
+    if args.action == 'stage':
+        expected_digest = os.environ.get('CUSTODY_SELECTION_SHA256', '')
+        if not re.fullmatch(r'[0-9a-f]{64}', expected_digest) or digest(args.plan) != expected_digest:
+            raise ValueError('custody selection does not match its scheduling digest')
+        expected_identity = {key: os.environ.get('OASIS7_SUPPORT_' + key.upper())
+                             for key in ('source_sha', 'tested_sha', 'policy_sha')}
+        print(build_stage(root, plan, args.component, args.run_id, args.attempt, expected_identity))
+    elif args.action == 'pack':
+        if args.component not in COMPONENTS or args.bundle is None:
             parser.error('pack needs --component and --bundle')
         pack(root, plan, args.component, args.bundle.resolve(), args.run_id, args.attempt)
     elif args.action == 'restore':

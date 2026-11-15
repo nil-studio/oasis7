@@ -39,6 +39,7 @@ CHECK_INVENTORY_VERSION = 1
 PYTHON_CONTROL_CONTRACT_VERSION = 1
 ADDITIVE_GOVERNANCE_REGISTRATION_VERSION = 1
 CUSTODY_EXECUTION_VERSION = 1
+CUSTODY_COMPILE_PROOF_VERSION = 1
 CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
@@ -1096,6 +1097,14 @@ def validate_config(config):
                 or type(config.get('workspace_support_partition_version')) is not int
                 or config['workspace_support_partition_version'] != 1):
             raise ValueError('invalid custody execution capability')
+    if 'custody_compile_proof_version' in config:
+        if (type(config['custody_compile_proof_version']) is not int
+                or config['custody_compile_proof_version'] != CUSTODY_COMPILE_PROOF_VERSION
+                or type(config.get('custody_execution_version')) is not int
+                or config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
+                or type(config.get('workspace_support_partition_version')) is not int
+                or config['workspace_support_partition_version'] != 1):
+            raise ValueError('invalid custody compile proof capability')
     if 'ordinary_artifact_partition_version' in config:
         if (type(config['ordinary_artifact_partition_version']) is not int
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
@@ -3217,6 +3226,37 @@ def complete_ordinary_partitions(config, plan):
             # --all-targets tail; the split build contract does not replace it.
             plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
                         custody_node_shards=list(CUSTODY_NODE_SHARDS))
+            if config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION:
+                if custody_source_supports_compile_proof(plan):
+                    plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
+                else:
+                    plan['reasons'].append('tested source retains complete legacy custody approval proofs')
+
+
+def custody_source_supports_compile_proof(plan):
+    # A trusted workflow can validate a historical source whose helper and
+    # verifier predate this optional protocol. Source declarations can only
+    # withhold trusted authority, never grant it. The same rule applies to fast
+    # plans: CI-only edits need not set the Rust test-policy change flag.
+    tested, policy = plan['tested_sha'], plan['policy_sha']
+    if tested == policy:
+        return True
+    try:
+        source_config = json.loads(git('show', f'{tested}:scripts/ci-required-scope.json'))
+    except (subprocess.CalledProcessError, ValueError, UnicodeError) as error:
+        raise ValueError('cannot read tested custody protocol configuration') from error
+    if not isinstance(source_config, dict):
+        raise ValueError('invalid tested custody protocol configuration')
+    field = 'custody_compile_proof_version'
+    if field not in source_config:
+        return False
+    if (type(source_config[field]) is not int or source_config[field] != CUSTODY_COMPILE_PROOF_VERSION
+            or type(source_config.get('custody_execution_version')) is not int
+            or source_config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
+            or type(source_config.get('workspace_support_partition_version')) is not int
+            or source_config['workspace_support_partition_version'] != 1):
+        raise ValueError('invalid tested custody compile proof capability')
+    return True
 
 
 def support_partitions(profiles):

@@ -128,6 +128,7 @@ class Qualification(unittest.TestCase):
 class DefinitionDigest(unittest.TestCase):
     RUNNER = 'scripts/ci-python-control-contracts.py'
     CONTRACT = 'scripts/ci-required-result.test.py'
+    PROOF = 'crates/oasis7_custody_worker/scripts/verify.sh'
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -252,6 +253,59 @@ class DefinitionDigest(unittest.TestCase):
             self.write_config()
             with self.subTest(version=version), self.assertRaises(ValueError):
                 module.definition_digest(self.root, self.commit())
+
+    def prepare_separate_custody_proof(self):
+        self.config.update(custody_execution_version=1, custody_compile_proof_version=1,
+                           workspace_support_partition_version=1)
+        self.write_config()
+        (self.root / 'scripts/ci-custody-platform.py').write_text('# custody execution helper\n')
+        proof = self.root / self.PROOF
+        proof.parent.mkdir(parents=True)
+        proof.write_text('# complete role proof commands\n')
+        return proof
+
+    def test_separate_custody_proof_script_change_invalidates_previous_full_receipt(self):
+        self.prepare_separate_custody_proof()
+        self.assert_rejects_previous_definition(self.PROOF)
+
+    def test_separate_custody_proof_definition_reads_fixed_revision_not_worktree(self):
+        proof = self.prepare_separate_custody_proof()
+        revision = self.commit()
+        expected = module.definition_digest(self.root, revision)
+        proof.write_text('# uncommitted candidate proof\n')
+        self.config['custody_compile_proof_version'] = True
+        self.write_config()
+        self.assertEqual(module.definition_digest(self.root, revision), expected)
+
+    def test_legacy_custody_definition_does_not_require_or_hash_separate_proof_script(self):
+        proof = self.prepare_separate_custody_proof()
+        del self.config['custody_compile_proof_version']
+        self.write_config()
+        proof.unlink()
+        expected = module.definition_digest(self.root, self.commit())
+        proof.write_text('# not an input to this historical definition\n')
+        self.assertEqual(module.definition_digest(self.root, self.commit()), expected)
+
+    def test_separate_custody_proof_requires_script_and_strict_parent_capabilities(self):
+        proof = self.prepare_separate_custody_proof()
+        proof.unlink()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+        proof.write_text('# real selected proof\n')
+        valid = copy.deepcopy(self.config)
+        for key in ('custody_compile_proof_version', 'custody_execution_version',
+                    'workspace_support_partition_version'):
+            for value in (None, True, False, 0, 2, '1', 'missing'):
+                self.config = copy.deepcopy(valid)
+                if value == 'missing':
+                    if key == 'custody_compile_proof_version':
+                        continue
+                    del self.config[key]
+                else:
+                    self.config[key] = value
+                self.write_config()
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    module.definition_digest(self.root, self.commit())
 
 
 class Response(io.BytesIO):

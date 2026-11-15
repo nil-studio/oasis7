@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Exercise custody file completeness, artifact relocation and failed execution."""
 import copy
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -62,6 +64,72 @@ class Custody(unittest.TestCase):
                            ('workspace_support_partitions', ['other']), ('groups', ['baseline'])]:
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 C.enabled(dict(self.plan, **{key: value}))
+
+    def proof_plan(self):
+        return dict(self.plan, custody_compile_proof_version=1, test_policy_changed=False)
+
+    def test_compile_proof_requires_strict_capability_and_complete_parent_plan(self):
+        self.assertFalse(C.separate_proof(self.plan))
+        plan = self.proof_plan()
+        self.assertTrue(C.separate_proof(plan))
+        for key in ('custody_compile_proof_version', 'custody_execution_version',
+                    'workspace_support_partition_version', 'workspace_support_profile_version'):
+            for value in (None, False, True, 0, 2, '1'):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    C.enabled(dict(plan, **{key: value}))
+        for key in ('custody_execution_version', 'workspace_support_partition_version',
+                    'test_policy_changed'):
+            changed = dict(plan)
+            del changed[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                C.enabled(changed)
+        for key, value in [('test_policy_changed', True), ('test_policy_changed', 0),
+                           ('groups', []), ('workspace_support_profiles', []),
+                           ('workspace_support_partitions', ['other']), ('custody_node_shards', [0, 1, 2])]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                C.enabled(dict(plan, **{key: value}))
+
+    def test_build_stage_cli_binds_selected_file_checkout_and_independent_run_identity(self):
+        def git(*arguments):
+            return subprocess.check_output(['git', '-C', str(self.root), *arguments], text=True).strip()
+        git('init', '-q')
+        git('add', '.')
+        git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid',
+            'commit', '-qm', 'custody stage fixture')
+        plan = self.proof_plan() | {'tested_sha': git('rev-parse', 'HEAD')}
+        path = Path(self.temporary.name) / 'selection.json'
+        path.write_text(json.dumps(plan))
+        environment = dict(os.environ, GITHUB_RUN_ID='71', GITHUB_RUN_ATTEMPT='2',
+            CUSTODY_SELECTION_SHA256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            **{'OASIS7_SUPPORT_' + key.upper(): plan[key] for key in ('source_sha', 'tested_sha', 'policy_sha')})
+        def stage(component, extra_environment=None):
+            return subprocess.run([sys.executable, str(Path(C.__file__)), 'stage', '--repo-root', str(self.root),
+                '--plan', str(path), '--component', component], env=environment | (extra_environment or {}),
+                text=True, capture_output=True)
+        for component, expected in [('native', 'native-fixtures'), ('wasm-production', 'wasm-production'),
+                                    ('wasm-approval', 'wasm-approval-artifacts'), ('wasm-contracts', 'wasm-contracts')]:
+            result = stage(component)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), expected)
+        for field, value in [('CUSTODY_SELECTION_SHA256', '0' * 64), ('GITHUB_RUN_ID', '0'),
+                             ('GITHUB_RUN_ATTEMPT', '0'), ('OASIS7_SUPPORT_SOURCE_SHA', 'd' * 40),
+                             ('OASIS7_SUPPORT_TESTED_SHA', 'd' * 40), ('OASIS7_SUPPORT_POLICY_SHA', 'd' * 40)]:
+            with self.subTest(field=field):
+                result = stage('wasm-contracts', {field: value})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, '')
+        path.write_text(json.dumps(plan | {'tested_sha': 'd' * 40}))
+        result = stage('wasm-contracts', {'CUSTODY_SELECTION_SHA256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                                         'OASIS7_SUPPORT_TESTED_SHA': 'd' * 40})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('checkout is not the selected tested commit', result.stderr)
+        del plan['custody_compile_proof_version']
+        path.write_text(json.dumps(plan))
+        environment['CUSTODY_SELECTION_SHA256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertEqual(stage('wasm-approval').stdout.strip(), 'wasm-approval')
+        result = stage('wasm-contracts')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('separate custody proof is not selected', result.stderr)
 
     def test_all_files_are_assigned_once_including_new_files(self):
         first = C.partition(C.inventory(self.root))
@@ -153,6 +221,26 @@ class Custody(unittest.TestCase):
                 C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
             self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
             path.write_text(json.dumps(original))
+        C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+
+    def test_new_approval_claims_only_its_artifacts_and_cross_protocol_restore_is_rejected(self):
+        legacy = dict(self.plan)
+        self.plan = self.proof_plan()
+        self.packed()
+        self.assertEqual(C.load(self.bundles['wasm-approval'] / 'manifest.json')['build_contract'],
+                         ['owner,approval-harness', 'approval-admission:export'])
+        consumer = Path(self.temporary.name) / 'consumer'
+        shutil.copytree(self.root, consumer, ignore=shutil.ignore_patterns('artifacts', 'target'))
+        with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+            C.restore(consumer, legacy, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+        self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+        path = self.bundles['wasm-approval'] / 'manifest.json'
+        original = C.load(path)
+        path.write_text(json.dumps(original | {'build_contract': C.BUILD_CONTRACTS['wasm-approval']}))
+        with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+            C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
+        self.assertFalse((consumer / C.WORKER / 'artifacts').exists())
+        path.write_text(json.dumps(original))
         C.restore(consumer, self.plan, self.bundles, '71', dict.fromkeys(C.COMPONENTS, 2), 3)
 
     def test_bad_payloads_duplicate_paths_modes_and_traversal_are_rejected(self):
@@ -257,6 +345,23 @@ class Custody(unittest.TestCase):
         for job in needs:
             needs[job]['result'] = 'success' if job in ('select', 'workspace-support-legacy') else 'skipped'
         self.assertFalse(C.validate_jobs(legacy, needs))
+
+    def test_separate_wasm_proof_is_required_only_under_the_selected_capability(self):
+        needs = {'select': dict(result='success'), 'workspace-support-legacy': dict(result='skipped'),
+                 'workspace-support-other': dict(result='skipped'), 'custody-node': dict(result='success'),
+                 'custody-native-contracts': dict(result='success'), 'custody-wasm-contracts': dict(result='success'),
+                 **{f'custody-{part}': dict(result='success') for part in C.COMPONENTS}}
+        self.assertTrue(C.validate_jobs(self.proof_plan(), needs))
+        with self.assertRaisesRegex(ValueError, 'unknown or missing support dependencies'):
+            C.validate_jobs(self.plan, needs)
+        for state in ('failure', 'cancelled', 'skipped', None, 'missing'):
+            changed = copy.deepcopy(needs)
+            if state == 'missing':
+                del changed['custody-wasm-contracts']
+            else:
+                changed['custody-wasm-contracts']['result'] = state
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                C.validate_jobs(self.proof_plan(), changed)
 
 
 if __name__ == '__main__':
