@@ -149,6 +149,27 @@ pub fn authority_binding(
     })
 }
 
+/// Same verified authority window as `authority_binding`, with the original
+/// serializer and every frame/hash byte charged to the caller's existing Core.
+pub fn authority_binding_bounded(
+    authority: &VerifiedAuthorityV1,
+    ctx: &mut super::bounded_context::FormalBoundedContextV1<'_>,
+) -> Result<crate::incremental_execution::AuthorityBinding, FormalError> {
+    ctx.consume_steps(1)?;
+    if authority.definition().profile_version != IWS_AUTHORITY_PROFILE_VERSION {
+        return Err(invalid("incremental authority profile required"));
+    }
+    let digest = authority.context_digest_bounded(ctx)?;
+    ctx.charge(1, digest.len() as u64)?;
+    let mut token = [0; 32];
+    hex::decode_to_slice(digest.as_str(), &mut token)
+        .map_err(|_| invalid("authority context width"))?;
+    Ok(crate::incremental_execution::AuthorityBinding {
+        token,
+        epoch: authority.definition().epoch,
+    })
+}
+
 #[derive(Debug)]
 pub enum BindingError {
     Protocol(FormalError),
