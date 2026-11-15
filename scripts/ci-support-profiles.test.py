@@ -81,6 +81,38 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
+    def test_worker_compile_profiles_prepare_approval_fixture_and_stop_on_export_failure(self):
+        script = r'''set -euo pipefail
+source "$DRIVER"
+ci_python="$PYTHON"
+driver_dir="$SCRIPTS"
+run() {
+  printf '%s\n' "$*" >> "$CALLS"
+  if [[ "$1" == mkdir ]]; then "$@"; return; fi
+  if [[ "$1" == env ]]; then
+    [[ "$*" == *"cargo test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked" ]] || exit 72
+    [[ "$*" == *"OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT=$PWD/crates/oasis7_custody_worker/artifacts/approval-fixture.json"* ]] || exit 73
+    [[ "$FAIL_EXPORT" != 1 ]] || return 71
+    printf 'fixture' > crates/oasis7_custody_worker/artifacts/approval-fixture.json
+    return
+  fi
+  [[ -f crates/oasis7_custody_worker/artifacts/approval-fixture.json ]] || exit 74
+  echo profiles-after-fixture
+}
+run_worker_wasm_compile_profiles
+'''
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                calls = Path(directory) / 'calls'
+                env = dict(os.environ, DRIVER=str(ROOT / 'scripts/ci-tests.sh'),
+                           PYTHON=sys.executable, SCRIPTS=str(ROOT / 'scripts'),
+                           CALLS=str(calls), FAIL_EXPORT=str(int(fail)))
+                result = subprocess.run(['bash', '-c', script], cwd=directory,
+                                        env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 71 if fail else 0, result.stderr)
+                self.assertEqual('profiles-after-fixture' in result.stdout, not fail)
+                self.assertIn('export_developer_admission_fixture --locked', calls.read_text())
+
     def test_custody_node_files_are_bounded_isolated_complete_and_propagate_failure(self):
         command = json.loads((ROOT / 'crates/oasis7_custody_worker/package.json').read_text())['scripts']['test']
         checker, runner = command.split(' && ')
@@ -488,7 +520,10 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         result = self.invoke(json.dumps(['oasis7_custody_worker']))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('contract bash crates/oasis7_custody_worker/scripts/verify.sh --platform', result.stdout)
-        self.assertNotIn('cargo ', result.stdout)
+        cargo_lines = [line for line in result.stdout.splitlines() if 'cargo ' in line]
+        self.assertEqual(len(cargo_lines), 1)
+        self.assertTrue(cargo_lines[0].endswith(
+            'cargo test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked'))
         self.assertNotIn('full-inventory', result.stdout)
 
     def test_selected_worker_profile_runs_real_compile_helper_and_propagates_failure(self):

@@ -452,6 +452,12 @@ run_signed_read_protocol_contract_tests() {
 }
 
 run_worker_wasm_compile_profiles() {
+  # The isolated wasm-contracts stage does not build approval artifacts. Its
+  # owner,approval-harness compile profile still needs the real generated input.
+  local fixture_dir="$PWD/crates/oasis7_custody_worker/artifacts"
+  run mkdir -p "$fixture_dir" || return
+  run env -u RUSTC_WRAPPER "OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT=$fixture_dir/approval-fixture.json" \
+    cargo test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked || return
   # Run the trusted planner's exact compile tuples; candidate role flags do not
   # become test-execution evidence and mutually exclusive roles stay separate.
   run "$ci_python" - "$driver_dir/plan-rust-required-scope.py" <<'PY_WORKER_COMPILE'
