@@ -508,6 +508,9 @@ class Selection(unittest.TestCase):
             self.write(f'crates/{package}/Cargo.toml', manifest)
             self.write(f'crates/{package}/src/lib.rs', '')
         self.write('doc/readme.md', 'ordinary doc')
+        # Plans that grant an optional execution protocol also inspect its
+        # declaration in this immutable tested source, independently of policy.
+        self.write('scripts/ci-required-scope.json', (HERE / 'ci-required-scope.json').read_text())
         self.base = self.commit()
         groups = ['baseline', 'rust_baseline', 'core', 'consumer', 'other', *selector.PLATFORM_GROUPS]
         self.config = {'groups': groups, 'resources': {g: [] for g in groups},
@@ -4871,6 +4874,7 @@ class CustodyExecutionPlans(unittest.TestCase):
                 self.assertIn('custody', plan['workspace_support_partitions'])
                 self.assertEqual(plan['custody_execution_version'], 1)
                 self.assertEqual(plan['custody_node_shards'], [0, 1, 2, 3])
+                self.assertEqual(plan['custody_compile_proof_version'], 1)
 
     def test_other_support_and_docs_do_not_select_custody_jobs(self):
         for path in ('crates/oasis7_proto/src/lib.rs', 'doc/readme.md'):
@@ -4881,10 +4885,12 @@ class CustodyExecutionPlans(unittest.TestCase):
                 self.assertNotIn('custody_execution_version', plan)
                 self.assertNotIn('custody_node_shards', plan)
                 self.assertNotIn('oasis7_custody_worker', plan['workspace_support_profiles'])
+                self.assertNotIn('custody_compile_proof_version', plan)
 
     def test_missing_baseline_capability_cannot_be_self_enrolled_by_candidate(self):
         old = copy.deepcopy(self.config)
         old.pop('custody_execution_version')
+        old.pop('custody_compile_proof_version')
         self.write('scripts/ci-required-scope.json', json.dumps(old))
         self.base = self.commit()
         self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// worker case\n')
@@ -4898,6 +4904,83 @@ class CustodyExecutionPlans(unittest.TestCase):
                 self.assertIn('custody', plan['workspace_support_partitions'])
                 self.assertNotIn('custody_execution_version', plan)
                 self.assertNotIn('custody_node_shards', plan)
+                self.assertNotIn('custody_compile_proof_version', plan)
+
+    def test_missing_baseline_proof_capability_preserves_old_approval_and_cannot_self_enroll(self):
+        old = copy.deepcopy(self.config)
+        del old['custody_compile_proof_version']
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        base = self.commit()
+        self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// complete old custody case\n')
+        head = self.commit()
+        plan = selector.select(old, base, head, profile='pr-fast')
+        self.assertEqual(plan['custody_execution_version'], 1)
+        self.assertNotIn('custody_compile_proof_version', plan)
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        plan = selector.select(old, base, self.commit(), profile='pr-fast')
+        self.assertNotIn('custody_compile_proof_version', plan)
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(old, profile, head)
+            self.assertEqual(plan['custody_execution_version'], 1)
+            self.assertNotIn('custody_compile_proof_version', plan)
+
+    def test_proof_capability_requires_exact_version_and_existing_parent(self):
+        for invalid in (None, False, True, 0, 2, '1'):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, 'custody compile proof'):
+                selector.validate_config(self.config | {'custody_compile_proof_version': invalid})
+        old = copy.deepcopy(self.config)
+        del old['custody_execution_version']
+        with self.assertRaisesRegex(ValueError, 'custody compile proof'):
+            selector.validate_config(old)
+
+    def test_current_policy_preserves_historical_source_protocol_in_fast_and_full_plans(self):
+        old = copy.deepcopy(self.config)
+        del old['custody_compile_proof_version']
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// old protocol inventory\n')
+        source = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        policy = self.commit()
+        for profile in ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                plan = (selector.full_plan(self.config, profile, source, policy_ref=policy)
+                        if profile.endswith('-full') else
+                        selector.select(self.config, policy, source, profile=profile, policy_ref=policy))
+                self.assertEqual(plan['custody_execution_version'], 1)
+                self.assertEqual(plan['custody_node_shards'], [0, 1, 2, 3])
+                self.assertNotIn('custody_compile_proof_version', plan)
+                self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
+                self.assertTrue(any('complete legacy custody approval' in reason for reason in plan['reasons']))
+        # The worktree currently declares the new protocol, but the fixed old
+        # source does not. Conversely, the actual tested merge may support it.
+        self.assertFalse(selector.custody_source_supports_compile_proof(
+            dict(tested_sha=source, policy_sha=policy)))
+        self.assertEqual(selector.select(self.config, policy, source, test_head=policy,
+                         profile='pr-fast')['custody_compile_proof_version'], 1)
+
+    def test_fixed_tested_protocol_rejects_invalid_or_unreadable_declarations(self):
+        field = 'custody_compile_proof_version'
+        bad_configs = [self.config | {field: value} for value in (None, False, True, 0, 2, 1.0, '1')]
+        bad_configs += [{key: value for key, value in self.config.items() if key != parent}
+                        for parent in ('custody_execution_version', 'workspace_support_partition_version')]
+        bad_configs += [self.config | {parent: True}
+                        for parent in ('custody_execution_version', 'workspace_support_partition_version')]
+        bad_configs += [[], '{invalid json', 'missing']
+        for bad in bad_configs:
+            with self.subTest(config=bad):
+                self.git('checkout', '-q', self.base)
+                path = Path('scripts/ci-required-scope.json')
+                if bad == 'missing':
+                    path.unlink()
+                else:
+                    path.write_text(bad if isinstance(bad, str) else json.dumps(bad))
+                source = self.commit()
+                for profile in ('pr-fast', 'candidate-full'):
+                    with self.subTest(profile=profile), self.assertRaisesRegex(ValueError, 'tested custody'):
+                        if profile.endswith('-full'):
+                            selector.full_plan(self.config, profile, source, policy_ref=self.base)
+                        else:
+                            selector.select(self.config, self.base, source, profile=profile)
 
     def test_custody_requires_exact_version_and_support_partition_capability(self):
         for invalid in (None, False, True, 0, 2, '1'):
@@ -4917,6 +5000,7 @@ class CustodyExecutionPlans(unittest.TestCase):
         self.assertIn('custody', plan['workspace_support_partitions'])
         self.assertNotIn('custody_execution_version', plan)
         self.assertNotIn('custody_node_shards', plan)
+        self.assertNotIn('custody_compile_proof_version', plan)
 
     def test_only_explicit_false_test_policy_grants_split_custody(self):
         for value in (None, True, 0, '', [], {}, 'false'):
@@ -4928,6 +5012,7 @@ class CustodyExecutionPlans(unittest.TestCase):
                 selector.complete_ordinary_partitions(self.config, plan)
                 self.assertNotIn('custody_execution_version', plan)
                 self.assertNotIn('custody_node_shards', plan)
+                self.assertNotIn('custody_compile_proof_version', plan)
 
 
 class AdditiveGovernanceRegistrations(unittest.TestCase):
