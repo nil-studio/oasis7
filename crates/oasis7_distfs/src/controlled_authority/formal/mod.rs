@@ -62,3 +62,7 @@ pub use native_environment::{
 };
 
 pub use oasis7_formal_protocol::native_environment as native_environment_protocol;
+
+// Bounded physical bytes only; this grants no execution or publication authority.
+#[cfg(unix)]
+pub use physical::{PhysicalReadWorkV1, read_unknown_length_durable_v1};
