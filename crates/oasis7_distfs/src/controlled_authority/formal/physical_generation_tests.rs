@@ -324,3 +324,18 @@ fn selected_generation_retires_orphans_with_a_new_live_overlay_under_exclusive_f
     assert_eq!(logical(&fixture.0, &first), first.1);
     assert_eq!(logical(&fixture.0, &late), late.1);
 }
+
+#[test]
+fn hostile_generation_manifest_control_key_is_bounded_before_serde() {
+    let fixture = Fixture::new();
+    let bytes = metadata_preflight::hostile_unknown_key(2 << 20);
+    let id = blake3::hash(&bytes).to_hex().to_string();
+    let directory = fixture.0.join(GENERATIONS).join(&id);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join(MANIFEST), bytes).unwrap();
+    let error = match manifest(&fixture.0, &id) {
+        Err(e) => e,
+        Ok(_) => panic!("unknown manifest key accepted"),
+    };
+    assert!(format!("{error}").len() < 512);
+}
