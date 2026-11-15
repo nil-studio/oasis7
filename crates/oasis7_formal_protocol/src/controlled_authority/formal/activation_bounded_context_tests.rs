@@ -119,8 +119,10 @@ fn bounded_binding_rejects_wrong_profile_and_releases_digest_on_exhaustion() {
     let work = FormalBoundedWorkV1::new(100_000, 4 << 20).unwrap();
     let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut no);
     assert!(
-        crate::controlled_authority::formal::incremental::authority_binding_bounded(&wrong, &mut ctx,)
-            .is_err()
+        crate::controlled_authority::formal::incremental::authority_binding_bounded(
+            &wrong, &mut ctx,
+        )
+        .is_err()
     );
     assert_eq!(memory.used(), 0);
 }
