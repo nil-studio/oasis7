@@ -118,7 +118,14 @@ pub fn verify_formal_qualified_from_decision(
             &binding.instance.endpoint_public_key,
         )?;
     }
+    let mut verified_record_id = [0u8; 32];
+    hex::decode_to_slice(
+        &proof.primary_complete.body.record_id,
+        &mut verified_record_id,
+    )
+    .map_err(|_| invalid("verified commit cached record id"))?;
     Ok(VerifiedFormalCommitV1 {
+        verified_record_id,
         record: decision.record.clone(),
         finalizing_authority_id: decision.finalizer.authority_id()?,
     })
