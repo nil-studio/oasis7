@@ -592,6 +592,7 @@ pub use generation::FormalGenerationProgress;
 pub(crate) use generation::{
     GenerationBudget, GenerationSession, advance_with_budget, advance_with_session,
 };
+pub(crate) use generation::{GenerationSelectedReadWorkV1, with_selected_path_bounded_v1};
 pub(super) use generation::{ids as logical_ids, selected_path, visit_ids as visit_logical_ids};
 
 #[path = "physical_span.rs"]

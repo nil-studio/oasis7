@@ -265,14 +265,18 @@ class VerifyStagesTests(unittest.TestCase):
         self.assert_success(result)
         result, proof = self.run_verify("--stage", "wasm-contracts")
         self.assert_success(result)
-        self.assertEqual(len(proof), 16)
-        self.assertTrue(all(command[:2] == ["cargo", "check"] for command in proof))
+        exporter = ["cargo", "test", "-p", "oasis7_custody_core", "--test",
+                    "approval_admission", "export_developer_admission_fixture", "--locked"]
+        self.assertEqual(len(proof), 17)
+        self.assertEqual(proof[-1], exporter)
+        checks = proof[:-1]
+        self.assertTrue(all(command[:2] == ["cargo", "check"] for command in checks))
         result, artifacts = self.run_verify("--stage", "wasm-approval-artifacts")
         self.assert_success(result)
         self.assertFalse(any(command[0] == "cargo" for command in artifacts))
         self.assertEqual([command for command in artifacts if command[0].startswith("build-")],
                          [["build-approval-harness.sh"]])
-        self.assertEqual(Counter(map(tuple, proof + artifacts)), Counter(map(tuple, legacy)))
+        self.assertEqual(Counter(map(tuple, checks + artifacts)), Counter(map(tuple, legacy)))
 
     def test_mismatched_worker_cache_is_rejected_without_installing_or_building(self):
         result, commands = self.run_verify(
