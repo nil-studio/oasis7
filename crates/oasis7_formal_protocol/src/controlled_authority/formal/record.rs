@@ -253,13 +253,11 @@ impl CanonicalRecordV1 {
             return Err(invalid("formal record version/position/closure roots").into());
         }
         if super::incremental::is_iws_record(self.schema_version) {
-            if {
-                work(self.payload_digest.len())?;
-                if let Some(input) = self.artifact_roots.get(&ArtifactRole::Input) {
-                    work(input.len())?;
-                }
-                self.artifact_roots.get(&ArtifactRole::Input) != Some(&self.payload_digest)
-            } {
+            work(self.payload_digest.len())?;
+            if let Some(input) = self.artifact_roots.get(&ArtifactRole::Input) {
+                work(input.len())?;
+            }
+            if self.artifact_roots.get(&ArtifactRole::Input) != Some(&self.payload_digest) {
                 return Err(invalid("incremental record original input root").into());
             }
             super::incremental::validate_roots_with_work(

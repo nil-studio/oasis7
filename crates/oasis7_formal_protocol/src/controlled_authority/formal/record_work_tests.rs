@@ -66,6 +66,8 @@ fn metered_record_keeps_original_first_validation_error() {
     cases[0].position = 0;
     cases[1].artifact_roots.insert(ArtifactRole::Input, "bad".into());
     cases[2].parent_record_id = "bad".into();
+    cases[3].kind = FormalRecordKindV1::Execution;
+    cases[3].frozen_reservation_id = Some("06".repeat(32));
     cases[3].handoff = Some(ProfileHandoffV1 {
         next_authority_digest: "bad".into(),
         next_profile: "".into(),
@@ -73,12 +75,40 @@ fn metered_record_keeps_original_first_validation_error() {
         valid_from_position: 0,
     });
     cases[4].artifact_roots.remove(&ArtifactRole::Rules);
-    for r in cases {
-        let expected = format!("{:?}", r.validate().unwrap_err());
+    // Fixed messages from the pre-extraction validator, not the new wrapper.
+    let errors = [
+        "formal world identity bounds",
+        "incremental record original input root",
+        "formal digest/key requires canonical lowercase hex32",
+        "formal digest/key requires canonical lowercase hex32",
+        "formal record version/position/closure roots",
+    ];
+    for (r, reason) in cases.into_iter().zip(errors) {
+        let expected = FormalError::Invalid(reason.into());
+        assert_eq!(r.validate().unwrap_err(), expected);
         let result = r.validate_with_work(&mut |_| Ok::<(), Stop>(()));
         match result {
-            Err(Stop::Invalid(error)) => assert_eq!(format!("{error:?}"), expected),
+            Err(Stop::Invalid(error)) => assert_eq!(error, expected),
             other => panic!("unexpected validation result: {other:?}"),
         }
     }
+}
+
+#[test]
+fn metered_handoff_preserves_boundary_and_work_failure() {
+    let h = ProfileHandoffV1 {
+        next_authority_digest: "07".repeat(32),
+        next_profile: "controlled_single_authority".into(),
+        next_profile_version: 1,
+        valid_from_position: 3,
+    };
+    h.validate_with_work(2, &mut |_| Ok::<(), Stop>(())).unwrap();
+    assert_eq!(h.validate(3), Err(FormalError::Invalid("formal handoff target/boundary".into())));
+    let mut calls = 0;
+    let result = h.validate_with_work(2, &mut |_| {
+        calls += 1;
+        if calls == 2 { Err(Stop::Budget) } else { Ok(()) }
+    });
+    assert!(matches!(result, Err(Stop::Budget)));
+    assert_eq!(calls, 2);
 }
