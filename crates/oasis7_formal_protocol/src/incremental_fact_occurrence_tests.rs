@@ -952,3 +952,5 @@ fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
     assert_eq!(event_inherited.location().ordinal, 2);
     assert_eq!((f.objects.reads, f.pages.reads.get()), reads);
 }
+#[path = "incremental_fact_promotion_tests.rs"]
+mod promotion;

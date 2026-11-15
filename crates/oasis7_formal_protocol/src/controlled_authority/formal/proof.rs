@@ -99,10 +99,15 @@ pub fn formal_decision_proof_digest(proof: &FormalDecisionProofV1) -> Result<Str
 }
 #[derive(Debug, Clone)]
 pub struct VerifiedFormalCommitV1 {
+    verified_record_id: [u8; 32],
     record: CanonicalRecordV1,
     finalizing_authority_id: String,
 }
 impl VerifiedFormalCommitV1 {
+    /// Cached exact ID established only by genuine verified constructors.
+    pub fn verified_record_id(&self) -> [u8; 32] {
+        self.verified_record_id
+    }
     pub fn record(&self) -> &CanonicalRecordV1 {
         &self.record
     }
