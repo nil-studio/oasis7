@@ -23,6 +23,14 @@ const RETIRE: &str = ".physical-retire-v1.cbor";
 const LIMIT: usize = 64 * 1024 * 1024;
 const META_LIMIT: usize = 16 * 1024 * 1024;
 const FRAME: usize = 65536;
+#[cfg(unix)]
+#[path = "physical_bounded_read.rs"]
+mod bounded_read;
+#[cfg(unix)]
+pub use bounded_read::{PhysicalReadWorkV1, read_unknown_length_durable_v1};
+#[path = "physical_metadata_preflight.rs"]
+mod metadata_preflight;
+
 const MAX_OBJECTS: usize = 65536;
 #[path = "physical_batch.rs"]
 mod batch;
@@ -308,21 +316,31 @@ thread_local! {
     static FRAME_DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 fn decode_frame(root: &Path, frame: &Frame) -> Result<Vec<u8>, FormalError> {
+    decode_frame_with_readers(root, frame, &mut read, &mut |decoder, limit| {
+        let mut output = Vec::new();
+        decoder
+            .take(limit as u64)
+            .read_to_end(&mut output)
+            .map_err(io)?;
+        Ok(output)
+    })
+}
+fn decode_frame_with_readers(
+    root: &Path,
+    frame: &Frame,
+    read_stored: &mut impl FnMut(&Path, usize) -> Result<Vec<u8>, FormalError>,
+    read_decoded: &mut impl FnMut(&mut dyn Read, usize) -> Result<Vec<u8>, FormalError>,
+) -> Result<Vec<u8>, FormalError> {
     #[cfg(test)]
     FRAME_DECODES.with(|count| count.set(count.get() + 1));
-    let stored = read(&root.join(FRAMES).join(&frame.stored), FRAME)?;
+    let stored = read_stored(&root.join(FRAMES).join(&frame.stored), FRAME)?;
     if blake3::hash(&stored).to_hex().as_str() != frame.stored {
         return Err(invalid("physical stored checksum"));
     }
     let bytes = if frame.compressed {
         let mut decoder = zstd::stream::read::Decoder::new(stored.as_slice()).map_err(io)?;
         decoder.window_log_max(16).map_err(io)?;
-        let mut output = Vec::new();
-        decoder
-            .take(frame.length as u64 + 1)
-            .read_to_end(&mut output)
-            .map_err(io)?;
-        output
+        read_decoded(&mut decoder, frame.length as usize + 1)?
     } else {
         stored
     };
