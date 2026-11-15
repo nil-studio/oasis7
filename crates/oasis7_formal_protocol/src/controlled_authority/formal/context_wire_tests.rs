@@ -13,7 +13,10 @@ fn bridge_preserves_wire_and_debits_the_callers_existing_meter() {
     let output = encode_paid(&value, 4096, &mut ctx, "wire limit", "encoding").unwrap();
     assert_eq!(&**output, &expected);
     assert!(output.uses_budget(&memory));
-    assert_eq!(work.remaining_read_bytes(), 4096 - 2 * expected.len() as u64);
+    assert_eq!(
+        work.remaining_read_bytes(),
+        4096 - 2 * expected.len() as u64
+    );
     assert!(work.remaining_steps() < 999);
     assert!(!work.is_child_active());
     assert!(memory.used() > 0);
@@ -51,9 +54,14 @@ fn bridge_cancellation_callback_cannot_reenter_parent_meter() {
     };
     let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
     let error = encode_paid(&42u64, 4096, &mut ctx, "wire limit", "encoding").unwrap_err();
-    assert!(matches!(error, FormalError::Invalid(message) if message == "bounded archive read cancelled"));
+    assert!(
+        matches!(error, FormalError::Invalid(message) if message == "bounded archive read cancelled")
+    );
     assert!(!work.is_child_active());
-    assert_eq!((work.remaining_steps(), work.remaining_read_bytes()), (999, 4096));
+    assert_eq!(
+        (work.remaining_steps(), work.remaining_read_bytes()),
+        (999, 4096)
+    );
     assert_eq!(memory.used(), 0);
     assert!(calls >= 2);
 }

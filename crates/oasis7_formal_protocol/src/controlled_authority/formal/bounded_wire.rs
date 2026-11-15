@@ -173,7 +173,6 @@ pub fn encode_bounded_wire_v1<T: serde::Serialize, C: FnMut() -> bool>(
     if writer.len != measured {
         return Err(BoundedWireErrorV1::ChangedLength);
     }
-    drop(writer);
     if bytes.len() != measured || bytes.capacity() > measured {
         return Err(BoundedWireErrorV1::ChangedLength);
     }
