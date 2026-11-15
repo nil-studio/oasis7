@@ -252,12 +252,12 @@ pub fn read_unknown_length_durable_v1(
             let mut read_stored = |path: &Path, bound: usize| {
                 let mut state = shared.borrow_mut();
                 let (work, stop) = &mut *state;
-                stored(path, bound, *work, *stop)
+                stored(path, bound, work, *stop)
             };
             let mut read_decoded = |reader: &mut dyn Read, bound: usize| {
                 let mut state = shared.borrow_mut();
                 let (work, stop) = &mut *state;
-                collect(reader, bound, *work, false, *stop)
+                collect(reader, bound, work, false, *stop)
             };
             let decoded = super::decode_frame_with_readers(
                 &selected_root,
