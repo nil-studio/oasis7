@@ -289,10 +289,14 @@ fn verify_formal_candidate_with<O: QuorumValidationOps>(
                 .initial
                 .as_ref()
                 .ok_or_else(|| invalid("initial formal proof missing initial authorization"))?;
-            if !matches!(
+            let schema_matches = matches!(
                 (initial.schema_version, record.schema_version),
-                (1, 1) | (2, 5) | (3, 7)
-            ) || record.parent_record_id != record.world.genesis_head()?.record_id
+                (1, 1) | (2, 5)
+            ) || (initial.schema_version
+                == super::incremental::IWS_ACTIVATION_SCHEMA
+                && super::incremental::is_iws_initial_record_schema(record.schema_version));
+            if !schema_matches
+                || record.parent_record_id != record.world.genesis_head()?.record_id
                 || record.before_state_root != initial.initial_state_root
                 || record.after_state_root != initial.initial_state_root
                 || record.runtime_manifest_digest != initial.runtime_manifest_digest
