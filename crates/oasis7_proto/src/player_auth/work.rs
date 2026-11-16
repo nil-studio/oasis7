@@ -96,12 +96,7 @@ impl<'a, A: CapabilityCanonicalWorkV1> Phase<'a, A> {
             return Ok(());
         }
         if self.fees.len() == self.fees.capacity() {
-            let cap = self
-                .fees
-                .capacity()
-                .checked_mul(2)
-                .unwrap_or(usize::MAX)
-                .max(4);
+            let cap = self.fees.capacity().saturating_mul(2).max(4);
             let bytes =
                 cap.checked_mul(size_of::<A::Charge>())
                     .ok_or(PlayerAuthWorkErrorV1::Work(

@@ -1,8 +1,8 @@
 //! The original committed-projection event-era and visibility rules. This
 //! readonly DATA kernel is shared by Legacy formatting and Current capture.
 use super::current_commitment::ProjectionColumnErrorV1;
+use crate::{WorldEvent, WorldEventBody};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
-use oasis7_world_state::{WorldEvent, WorldEventBody};
 use serde::{Serialize, Serializer, ser::SerializeSeq};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProjectionJournalBoundsV1 {

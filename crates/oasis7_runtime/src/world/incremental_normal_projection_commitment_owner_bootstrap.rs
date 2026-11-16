@@ -10,7 +10,7 @@ use crate::world::{
     incremental_normal_sources::BoundNormalTickParentV1,
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
-use oasis7_world_projection::current_commitment::ProjectionDataPathRefV1 as Path;
+use oasis7_world_state::observation_projection::current_commitment::ProjectionDataPathRefV1 as Path;
 
 impl BoundNormalProjectionBootstrapSourceV1 {
     /// No graph, root, completion flag or bare identity is accepted. Failed

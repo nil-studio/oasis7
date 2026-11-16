@@ -7,7 +7,7 @@ use oasis7_formal_protocol::{
     incremental_state::MerkleNodeReader,
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
-use oasis7_world_projection::current_commitment::ProjectionColumnDataV1;
+use oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1;
 use std::mem::size_of;
 struct Leaves {
     values: Vec<(ProjectionAudienceV1, String)>,

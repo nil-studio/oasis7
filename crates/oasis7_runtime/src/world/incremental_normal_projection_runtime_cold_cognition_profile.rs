@@ -4,7 +4,7 @@
 use crate::world::{incremental_body::BodyMutationError,incremental_normal_sources::{BoundNormalTickParentV1,root_bytes}};
 use oasis7_formal_protocol::{controlled_authority::formal::bounded_context::FormalBoundedContextV1,incremental_value::ValueTreeError};
 use oasis7_proto::memory_budget::MemoryClass;
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1};
 use oasis7_world_state::incremental_cognition_current_complete_v3::CognitionCurrentPresenceV3;
 fn bad()->BodyMutationError{BodyMutationError::Invalid("qualified Cold Cognition profile")}
 pub(in crate::world)fn prepare_qualified_cognition_projection_profile_v1(parent:&BoundNormalTickParentV1<'_>,common:&mut FormalBoundedContextV1<'_>)->Result<ProjectionColumnDataV1,BodyMutationError>{

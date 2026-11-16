@@ -170,7 +170,7 @@ where
 /// source assembler can construct it; an arbitrary graph cannot be admitted by
 /// callers. It grants no execution, accepted-parent or retained-read authority.
 pub(in crate::world) struct ActualCurrentNormalProjectionAuxV1 {
-    columns: oasis7_world_projection::current_commitment::ProjectionColumnDataV1,
+    columns: oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
     parent_record: [u8; 32],
     guard: oasis7_formal_protocol::incremental_execution::PreparedGuard,
     core: WorkIdentityV1,
@@ -203,7 +203,8 @@ impl ActualCurrentNormalProjectionAuxV1 {
     }
     pub(in crate::world) fn columns_v1(
         &self,
-    ) -> &oasis7_world_projection::current_commitment::ProjectionColumnDataV1 {
+    ) -> &oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1
+    {
         &self.columns
     }
 }
@@ -239,8 +240,10 @@ mod fields;
 pub(in crate::world) fn bootstrap_projection_value_v1(
     bytes: &[u8],
     common: &mut FormalBoundedContextV1<'_>,
-) -> Result<oasis7_world_projection::current_commitment::ProjectionColumnDataV1, BodyMutationError>
-{
+) -> Result<
+    oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
+    BodyMutationError,
+> {
     fold::value(bytes, common)
 }
 

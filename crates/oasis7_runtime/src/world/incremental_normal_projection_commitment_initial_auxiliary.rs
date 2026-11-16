@@ -2,7 +2,7 @@
 //! preparation. Each original typed field uses the original JSON codec; no
 //! Snapshot, executable World clone or aggregate World serialization is made.
 use super::*;
-use oasis7_world_projection::current_commitment::ProjectionDataPathRefV1 as Path;
+use oasis7_world_state::observation_projection::current_commitment::ProjectionDataPathRefV1 as Path;
 fn graph_error<E: std::error::Error + Send + Sync + 'static>(
     e: ProjectionColumnErrorV1<E>,
 ) -> BodyMutationError {

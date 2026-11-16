@@ -1,4 +1,4 @@
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey};
 use serde::Serialize;
 
 pub const COLLECT_DATA_PREFLIGHT_OPERATION: &str = "collect_data_preflight";
@@ -140,6 +140,10 @@ pub(crate) fn encode_authorization_payload_in_phase_v1<
         phase,
     )
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve the seven original authorization arguments plus the caller's existing work phase."
+)]
 pub(crate) fn verify_authorization_in_phase_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
     operation: &str,
     electricity_cost: i64,

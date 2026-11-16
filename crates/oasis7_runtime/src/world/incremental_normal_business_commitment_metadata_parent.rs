@@ -277,7 +277,7 @@ impl PreparedNormalBusinessMetadataGenesisV1 {
         self.permission
     }
     pub(in crate::world) fn journal_bounds(&self) -> (u64, u64, u64) {
-        let b=oasis7_world_projection::current_commitment_history::original_journal_bounds_from_actual_suffix_v1(0,self.first_latest_era,self.high,self.event_era);
+        let b=oasis7_world_state::observation_projection::current_commitment_history::original_journal_bounds_from_actual_suffix_v1(0,self.first_latest_era,self.high,self.event_era);
         (b.floor, b.high, b.era)
     }
     pub(in crate::world) fn runtime_binding_bounded(

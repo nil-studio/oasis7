@@ -19,7 +19,7 @@ fn scale_material_stacks<E>(
     scale: i64,
     work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
 ) -> Result<Option<Vec<MaterialStack>>, E> {
-    work(1, 0, stacks.len() * std::mem::size_of::<MaterialStack>())?;
+    work(1, 0, std::mem::size_of_val(stacks))?;
     let mut out = Vec::with_capacity(stacks.len());
     for stack in stacks {
         work(1, stack.kind.len(), stack.kind.len())?;

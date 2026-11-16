@@ -4,7 +4,7 @@ use super::*;
 use super::super::{shared_json,raw_hash,state_columns::OriginalStateColumnsDataV1,original_rows::OriginalProjectionRowsDataV1};
 use crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1;
 use crate::world::incremental_normal_process_source::PaidProjectionProcessFactsV1;
-use oasis7_world_projection::{WorldServiceAgentContext,WorldServiceContinuationContext,WorldServiceProjection,current_commitment::{ProjectionColumnDataV1,ProjectionColumnRefV1,ProjectionColumnErrorV1}};
+use oasis7_world_state::observation_projection::{WorldServiceAgentContext,WorldServiceContinuationContext,WorldServiceProjection,current_commitment::{ProjectionColumnDataV1,ProjectionColumnRefV1,ProjectionColumnErrorV1}};
 use oasis7_world_state::{AgentContinuation,SchedulerWakeV1,CognitionLeaseV1};
 use std::{collections::BTreeMap,mem::size_of};
 #[path="incremental_normal_projection_commitment_aux_cognition_values.rs"]mod values;

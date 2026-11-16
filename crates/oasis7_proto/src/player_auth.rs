@@ -157,14 +157,6 @@ fn normalize_agent_chat_authority(
     }
 }
 
-fn normalize_optional_agent_chat_field(
-    raw: Option<&str>,
-    label: &str,
-) -> Result<Option<String>, String> {
-    raw.map(|value| normalize_required_field(value, label))
-        .transpose()
-}
-
 fn build_gameplay_action_signing_payload(
     request: &GameplayActionRequest,
     player_id: &str,
@@ -175,18 +167,6 @@ fn build_gameplay_action_signing_payload(
         .map_err(work::legacy_error)?;
     work::gameplay_payload(request, player_id, public_key, nonce, &mut phase)
         .map_err(work::legacy_error)
-}
-
-fn encode_signing_payload<T>(payload: T) -> Result<Vec<u8>, String>
-where
-    T: Serialize,
-{
-    let envelope = ViewerPlayerAuthSigningEnvelope {
-        version: VIEWER_PLAYER_AUTH_PAYLOAD_VERSION,
-        payload,
-        actor: None,
-    };
-    serde_cbor::to_vec(&envelope).map_err(|err| format!("encode auth payload failed: {err}"))
 }
 
 fn sign_player_auth_proof(

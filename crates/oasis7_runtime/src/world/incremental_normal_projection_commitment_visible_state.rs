@@ -1,7 +1,7 @@
 //! Fixed visible-state composition over actual readonly columns. This module
 //! deliberately cannot construct a qualified projection commitment or a World.
 use super::*;
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1, ProjectionColumnErrorV1, project_agent_cells_data_v1,
     project_claim_sequences_data_v1, project_location_authorities_data_v1,
     project_pending_builds_data_v1, project_site_authorities_data_v1,

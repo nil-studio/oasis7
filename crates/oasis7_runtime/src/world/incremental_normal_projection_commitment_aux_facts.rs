@@ -1,7 +1,7 @@
 //! Fixed original auxiliary row access. The constructor is private to the
 //! formatter's actual-column pipeline; this object grants no read permission.
 use super::*;
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnRefV1,ProjectionColumnErrorV1};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnRefV1,ProjectionColumnErrorV1};
 use crate::world::industrial_control::readonly_runtime_owner::RuntimeOwnerReadonlyFactsV1;
 use oasis7_world_state::world_rules::IndustrialOwnerReadonlyFactsV1;
 use oasis7_agent_api::game::{GameParticipantReceiptV1,GameIdentityNamespaceV1};

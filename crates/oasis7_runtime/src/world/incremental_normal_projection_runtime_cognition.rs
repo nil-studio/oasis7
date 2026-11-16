@@ -5,12 +5,12 @@ use super::*;
 use crate::world::incremental_cognition_projection_aux_state::{
     PaidCognitionProofProjectionAuxV1, PaidCognitionStateProjectionAuxV1,
 };
-use oasis7_world_projection::current_commitment::{
-    ProjectionColumnDataV1 as Column, ProjectionDataPathRefV1 as Path,
-};
 use oasis7_world_state::incremental_cognition_projection_aux::{
     CognitionAuxJsonPatchV1 as Patch, CognitionAuxJsonPatchValueV1 as Change,
     CognitionAuxPathStepV1 as Step,
+};
+use oasis7_world_state::observation_projection::current_commitment::{
+    ProjectionColumnDataV1 as Column, ProjectionDataPathRefV1 as Path,
 };
 use std::cell::RefCell;
 

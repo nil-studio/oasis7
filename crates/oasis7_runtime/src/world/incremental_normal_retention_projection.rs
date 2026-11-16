@@ -133,33 +133,35 @@ where
     }
 }
 pub(in crate::world) fn fold_current_normal_retention_projection_v1<M: MerkleNodeReader>(
-    before: &oasis7_world_projection::current_commitment::ProjectionColumnDataV1,
+    before: &oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
     source: &PaidNormalRetentionProjectionV1,
     tx: &ExecutionTransaction<'_, M>,
     common: &mut FormalBoundedContextV1<'_>,
     live: &ExecutionFence,
-) -> Result<oasis7_world_projection::current_commitment::ProjectionColumnDataV1, BodyMutationError>
-{
+) -> Result<
+    oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
+    BodyMutationError,
+> {
     use crate::world::incremental_normal_projection_runtime as cognition;
     source.validate(tx, common, live)?;
     let memory = common.memory().clone();
     let mut columns = before
         .share_data(&memory, &mut |s, b| common.charge(s, b))
         .map_err(|e| match e {
-            oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Work(e) => {
+            oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Work(e) => {
                 formal(e)
             }
-            oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Memory(e) => {
+            oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Memory(e) => {
                 ValueTreeError::Memory(e).into()
             }
-            oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Invalid(e) => {
+            oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Invalid(e) => {
                 BodyMutationError::Invalid(e)
             }
         })?;
     let cognition = columns
         .select_path_data_v1(
             &[
-                oasis7_world_projection::current_commitment::ProjectionDataPathRefV1::Field(
+                oasis7_world_state::observation_projection::current_commitment::ProjectionDataPathRefV1::Field(
                     "cognition",
                 ),
             ],
@@ -167,13 +169,13 @@ pub(in crate::world) fn fold_current_normal_retention_projection_v1<M: MerkleNod
             &mut |s, b| common.charge(s, b),
         )
         .map_err(|e| match e {
-            oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Work(e) => {
+            oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Work(e) => {
                 formal(e)
             }
-            oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Memory(e) => {
+            oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Memory(e) => {
                 ValueTreeError::Memory(e).into()
             }
-            oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Invalid(e) => {
+            oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Invalid(e) => {
                 BodyMutationError::Invalid(e)
             }
         })?

@@ -6739,7 +6739,6 @@ dependencies = [
  "oasis7_wasm_materializer",
  "oasis7_wasm_router",
  "oasis7_wasm_store",
- "oasis7_world_projection",
  "oasis7_world_state",
  "serde",
  "serde_cbor_2",

@@ -11,7 +11,7 @@ use oasis7_formal_protocol::{
     },
     incremental_state::MerkleNodeReader,
 };
-use oasis7_world_projection::current_commitment::ProjectionColumnDataV1;
+use oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1;
 use std::{mem::size_of, sync::Arc};
 
 /// All allocations are original readonly columns, not an executable World.
@@ -356,16 +356,18 @@ impl FrozenNormalProjectionCommitmentV1 {
 }
 
 fn projection_data_error<E: std::error::Error + Send + Sync + 'static>(
-    error: oasis7_world_projection::current_commitment::ProjectionColumnErrorV1<E>,
+    error: oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1<
+        E,
+    >,
 ) -> BodyMutationError {
     match error {
-        oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Work(error) => {
+        oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Work(error) => {
             paid(error)
         }
-        oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Memory(error) => {
+        oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Memory(error) => {
             ValueTreeError::Memory(error).into()
         }
-        oasis7_world_projection::current_commitment::ProjectionColumnErrorV1::Invalid(note) => {
+        oasis7_world_state::observation_projection::current_commitment::ProjectionColumnErrorV1::Invalid(note) => {
             invalid(note)
         }
     }

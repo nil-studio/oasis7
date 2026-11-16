@@ -17,7 +17,7 @@ struct CurrentRecovery<'f, 'a, 's, 'c, 'w, M> {
     facts: &'f CurrentProjectionReadFactsV1<'a, 's, 'c, M>,
     state: &'f OriginalStateColumnsDataV1,
     electricity: &'f OriginalProjectionRowsDataV1,
-    aux: &'f oasis7_world_projection::current_commitment::ProjectionColumnDataV1,
+    aux: &'f oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
     metadata:
         &'f crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1<
             'f,
@@ -154,7 +154,7 @@ impl PaidCurrentGameplayQueryDataV1 {
 pub(in crate::world) fn prepare_current_gameplay_query_data_v1<M: MerkleNodeReader>(
     state: &OriginalStateColumnsDataV1,
     electricity: &OriginalProjectionRowsDataV1,
-    aux: &oasis7_world_projection::current_commitment::ProjectionColumnDataV1,
+    aux: &oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
     metadata:&crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1<'_>,
     raw: &super::super::raw_hash::PaidOriginalStateHashDataV1,
     binding: Option<&ReservedValue<oasis7_agent_api::RuntimeBindingV1>>,

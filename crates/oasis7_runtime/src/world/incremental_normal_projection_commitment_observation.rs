@@ -1,7 +1,7 @@
 //! Path-copy observation columns from the same real typed delta rows. Raw
 //! State SHA keeps its separate original-order slot/typed-key serialization.
 use super::*;
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1,ProjectionDataPathRefV1 as Path};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1,ProjectionDataPathRefV1 as Path};
 use std::{cell::RefCell,mem::size_of};
 pub(super) fn column_error<E:std::error::Error+Send+Sync+'static>(error:ProjectionColumnErrorV1<E>)->BodyMutationError{match error{ProjectionColumnErrorV1::Work(e)=>paid(e),ProjectionColumnErrorV1::Memory(e)=>ValueTreeError::Memory(e).into(),ProjectionColumnErrorV1::Invalid(e)=>invalid(e)}}
 #[derive(Debug)]struct JsonCause{error:serde_json::Error,_phase:MemoryReservation}

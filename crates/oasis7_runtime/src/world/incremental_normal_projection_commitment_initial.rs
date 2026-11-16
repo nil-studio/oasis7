@@ -2,7 +2,7 @@
 //! Original semantic-key bytes and typed JSON field order are kept together;
 //! ordinary transitions must bind real TX writes before reusing this DATA.
 use super::*;
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1, ProjectionColumnErrorV1,
 };
 use oasis7_world_state::{

@@ -14,7 +14,7 @@ use oasis7_formal_protocol::{
     incremental_state::MerkleNodeReader,
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
-use oasis7_world_projection::{
+use oasis7_world_state::observation_projection::{
     WorldServiceProjection,
     current_commitment::{ProjectionColumnDataV1, ProjectionColumnErrorV1},
 };
@@ -271,13 +271,14 @@ pub(super) fn format_current_projection_data_v1<
     let runtime_binding = binding
         .map(|value| copy_binding(value, &mut strings, common))
         .transpose()?;
-    let mut projection = oasis7_world_projection::original_formatter::base_data_v1(
-        visible,
-        status,
-        owner,
-        feedback,
-        runtime_binding,
-    );
+    let mut projection =
+        oasis7_world_state::observation_projection::original_formatter::base_data_v1(
+            visible,
+            status,
+            owner,
+            feedback,
+            runtime_binding,
+        );
     let mut execution_actor = None;
     if let Some(agent) = reader {
         let source = super::facts::prepare_current_native_authorizations_data_v1(
@@ -342,7 +343,7 @@ pub(super) fn format_current_projection_data_v1<
         live,
     )?;
     let (query, query_fees) = query.into_parts_v1();
-    oasis7_world_projection::original_formatter::attach_gameplay_query_data_v1(
+    oasis7_world_state::observation_projection::original_formatter::attach_gameplay_query_data_v1(
         &mut projection,
         query,
     );
@@ -376,7 +377,7 @@ pub(super) fn format_current_projection_data_v1<
         journal_high_watermark: metadata.journal_high_watermark(),
         governance_membership: Some(governance),
     };
-    oasis7_world_projection::original_formatter::attach_formal_header_data_v1(
+    oasis7_world_state::observation_projection::original_formatter::attach_formal_header_data_v1(
         &mut projection,
         header,
         events,

@@ -1,7 +1,7 @@
 //! Fixed actual Runtime revocation source fold. Container creation comes only
 //! from the original codec's presence patch, never a guessed missing baseline.
 use super::*;
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1 as Column, ProjectionColumnErrorV1, ProjectionDataPathRefV1 as Path,
 };
 use oasis7_world_state::incremental_runtime_revocation::RevocationProjectionContainerV1 as Container;

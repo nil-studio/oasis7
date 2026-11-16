@@ -50,7 +50,7 @@ where M:MerkleNodeReader,S:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<
  common.charge(1,48)?;
  if seen!=expected||events.array_len_data_v1(&memory,&mut|s,b|common.charge(s,b)).map_err(graph_error)?!=expected{return Err(invalid("cold journal complete source count mismatch").into())}
  let high=metadata.journal_high_watermark();if previous.is_some_and(|last|last!=high){return Err(invalid("cold journal last original differs from actual high watermark").into())}
- let bounds=oasis7_world_projection::current_commitment_history::original_journal_bounds_from_actual_suffix_v1(latest_start,first_latest,high,metadata.next_event_id_era_v1());
+ let bounds=oasis7_world_state::observation_projection::current_commitment_history::original_journal_bounds_from_actual_suffix_v1(latest_start,first_latest,high,metadata.next_event_id_era_v1());
  if bounds.start!=metadata.journal_current_era_start_v1()||bounds.floor!=metadata.journal_retention_floor()||bounds.high!=metadata.journal_high_watermark()||bounds.era!=metadata.event_id_era(){return Err(invalid("cold journal originals differ from actual header bounds").into())}
  metadata.validate_provenance(tx,common,live)?;tx.validate_bootstrap_read_only_v1(live)?;
  let source=ActualCurrentJournalProjectionV1{events,next_event_id:metadata.next_event_id_v1(),next_event_id_era:metadata.next_event_id_era_v1(),guard:tx.guard(),core:common.work().identity(),parent_record:parent.refs().head.verified_record_id(),memory,_fee:fee};

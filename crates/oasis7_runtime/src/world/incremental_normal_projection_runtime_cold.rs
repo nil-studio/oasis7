@@ -14,10 +14,10 @@ use crate::world::{
     },
 };
 use oasis7_proto::memory_budget::ReservedValue;
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::incremental_cognition_projection_aux::CognitionProjectionAuxWorkV1;
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1, ProjectionDataPathRefV1 as Path,
 };
-use oasis7_world_state::incremental_cognition_projection_aux::CognitionProjectionAuxWorkV1;
 impl<M, R, E, C, W, F, O> RootModuleExecutionContextV1<'_, '_, '_, '_, M, R, E, C, W, F, O>
 where
     M: MerkleNodeReader,

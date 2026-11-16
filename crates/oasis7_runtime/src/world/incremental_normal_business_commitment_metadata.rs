@@ -62,7 +62,7 @@ pub struct NormalTerminalReadMetadataV1 {
     binding_layout: usize,
     governance_layout: usize,
     clock: u64,
-    journal: oasis7_world_projection::current_commitment_history::ProjectionJournalBoundsV1,
+    journal: oasis7_world_state::observation_projection::current_commitment_history::ProjectionJournalBoundsV1,
     latest_start: u64,
     retained: u64,
     physical_event_era: u64,
@@ -682,7 +682,7 @@ where
             let physical_event_era = event_sequence.era;
             let physical_next_event_id = event_sequence.next;
             common.charge(1, 24).map_err(original)?;
-            let bounds=oasis7_world_projection::current_commitment_history::original_journal_bounds_from_actual_suffix_v1(usize::try_from(floor_ordinal.saturating_sub(window.start)).map_err(|_|bad())?,first,high,physical_event_era);
+            let bounds=oasis7_world_state::observation_projection::current_commitment_history::original_journal_bounds_from_actual_suffix_v1(usize::try_from(floor_ordinal.saturating_sub(window.start)).map_err(|_|bad())?,first,high,physical_event_era);
             let guard = self.ctx.transaction.guard();
             self.ctx.transaction.validate_guard(&guard, &live_owner())?;
             Ok(NormalTerminalReadMetadataV1 {

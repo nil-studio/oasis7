@@ -3,10 +3,10 @@
 use super::fold::{graph, select, value};
 use super::*;
 use crate::world::incremental_cognition_projection_aux_state::PaidCognitionHistoryProjectionAuxV1;
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::incremental_cognition_history::CognitionHistoryFieldV1 as Field;
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1 as Column, ProjectionDataPathRefV1 as Path,
 };
-use oasis7_world_state::incremental_cognition_history::CognitionHistoryFieldV1 as Field;
 use std::cell::RefCell;
 fn path(field: Field) -> ([Path<'static>; 3], usize) {
     match field {

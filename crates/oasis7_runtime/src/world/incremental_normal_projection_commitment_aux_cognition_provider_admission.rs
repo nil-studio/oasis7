@@ -70,7 +70,7 @@ impl<M:MerkleNodeReader>catalog::CapabilityCatalogSourcesV1 for Provider<'_, '_,
   let row=self.view.required(&["world_journal"])?;let memory=self.view.facts.common.borrow().memory().clone();let mut pay=|s,b|self.view.facts.common.borrow_mut().charge(s,b).map_err(paid);
   fn graph(e:ProjectionColumnErrorV1<BodyMutationError>)->BodyMutationError{match e{ProjectionColumnErrorV1::Work(e)=>e,ProjectionColumnErrorV1::Memory(e)=>ValueTreeError::Memory(e).into(),ProjectionColumnErrorV1::Invalid(e)=>invalid(e)}}
   let journal=row.share_data(&memory,&mut pay).map_err(graph)?;let len=journal.array_len_data_v1(&memory,&mut pay).map_err(graph)?;if len==0{return Ok(0)}
-  use oasis7_world_projection::current_commitment::ProjectionDataPathRefV1 as Path;
+  use oasis7_world_state::observation_projection::current_commitment::ProjectionDataPathRefV1 as Path;
   let selected=journal.select_path_data_v1(&[Path::Index(len-1),Path::Field("id")],&memory,&mut pay).map_err(graph)?.ok_or_else(||invalid("actual retained journal last id"))?;
   Ok(self.view.decode(&selected.root_data())?.map_err(|_|invalid("actual retained journal id type"))?)
  }

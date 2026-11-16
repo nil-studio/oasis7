@@ -1,6 +1,6 @@
 //! One-time static default schema DATA, never actual execution State.
 use super::*;
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1};
 pub(in crate::world) struct StaticProjectionSchemaDataV1{value:ProjectionColumnDataV1}
 impl StaticProjectionSchemaDataV1{
  pub(in crate::world) fn data(&self)->&ProjectionColumnDataV1{&self.value}

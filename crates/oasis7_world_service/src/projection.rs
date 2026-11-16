@@ -285,30 +285,32 @@ pub(crate) fn legacy_projection_from_world(
     }
     // Generic journals may contain private cognition/prompt artifacts.
     // Authorized committed changes are delivered by the changes route.
-    Ok(WorldServiceProjection {
-        world_rule_status: world.world_rule_status(authorized_agent),
-        canonical_agent_owner: authorized_agent
-            .map(|agent| super::agent_chat::owner_view(world, agent))
-            .transpose()?
-            .flatten()
-            .as_ref()
-            .map(Into::into),
-        canonical_agent_chat: None,
-        game_task_control: None,
-        native_delegation_authorizations: Vec::new(),
-        feedback_history: authorized_agent
-            .map(|agent| feedback_history_from_world(world, agent))
-            .transpose()?,
-        state,
-        events: Vec::new(),
-        formal_commit_header: None,
-        runtime_binding: world.current_cognition_runtime_binding().ok(),
-        agent_context: None,
-        scheduler_wakes: Vec::new(),
-        continuation_contexts: Default::default(),
-        continuations: Vec::new(),
-        cognition_leases: Vec::new(),
-    })
+    Ok(WorldServiceProjection::from(
+        oasis7_world_projection::WorldServiceProjectionData {
+            world_rule_status: world.world_rule_status(authorized_agent),
+            canonical_agent_owner: authorized_agent
+                .map(|agent| super::agent_chat::owner_view(world, agent))
+                .transpose()?
+                .flatten()
+                .as_ref()
+                .map(Into::into),
+            canonical_agent_chat: None,
+            game_task_control: None,
+            native_delegation_authorizations: Vec::new(),
+            feedback_history: authorized_agent
+                .map(|agent| feedback_history_from_world(world, agent))
+                .transpose()?,
+            state,
+            events: Vec::new(),
+            formal_commit_header: None,
+            runtime_binding: world.current_cognition_runtime_binding().ok(),
+            agent_context: None,
+            scheduler_wakes: Vec::new(),
+            continuation_contexts: Default::default(),
+            continuations: Vec::new(),
+            cognition_leases: Vec::new(),
+        },
+    ))
 }
 
 #[cfg(test)]

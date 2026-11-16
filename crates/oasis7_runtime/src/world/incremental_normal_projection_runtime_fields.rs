@@ -4,7 +4,7 @@
 use super::cognition::{apply_at_path_v1, check_at_path_v1, path_from_base_v1};
 use super::fold::{graph, select, value};
 use super::*;
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1 as Column, ProjectionDataPathRefV1 as Path,
 };
 use oasis7_world_state::{

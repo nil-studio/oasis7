@@ -11,7 +11,7 @@ use crate::world::{
         runtime_projection_links_v1,
     },
 };
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1 as Column, ProjectionDataPathRefV1 as Path,
 };
 use oasis7_world_state::{

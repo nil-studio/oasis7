@@ -1,10 +1,7 @@
 //! DATA-only work variant of the original quote/request digest. The canonical
 //! tuple, encoder and BLAKE3 prefix are identical to legacy_scheduler::digest.
 use super::*;
-use oasis7_wasm_abi::{
-    CanonicalCborStreamError as Error, CapabilityCanonicalWorkV1,
-    stream_canonical_cbor_with_work_v1,
-};
+use oasis7_wasm_abi::{CapabilityCanonicalWorkV1, stream_canonical_cbor_with_work_v1};
 use std::io::{self, Write};
 pub struct PaidLeaseDigestDataV1<C> {
     pub(super) text: String,

@@ -4,7 +4,7 @@
 use super::*;
 use super::state_columns::OriginalStateColumnsDataV1;
 use oasis7_world_state::incremental_diplomacy::{CurrentDiplomacyProjectionDeltaV1,DiplomacyProjectionPathRefV1 as Cell,DiplomacyFieldV1 as Kind};
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionDataPathRefV1 as Path};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionDataPathRefV1 as Path};
 use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
 use std::{cell::RefCell,mem::size_of};
 fn entity_id<'a>(semantic:&'a[u8],common:&mut FormalBoundedContextV1<'_>)->Result<&'a str,BodyMutationError>{common.charge(1,semantic.len()as u64).map_err(paid)?;match oasis7_world_state::incremental_semantic_key::read_semantic_key_v1(semantic).map_err(invalid)?{oasis7_world_state::incremental_semantic_key::SemanticKeyRefV1::Text(v)=>Ok(v),_=>Err(invalid("diplomacy observation entity key"))}}

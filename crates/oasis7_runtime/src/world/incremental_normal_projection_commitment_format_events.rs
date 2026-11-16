@@ -1,6 +1,6 @@
 //! Original current-era audience event suffix from the real auxiliary journal.
 use super::*;
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1};
 use std::{cell::RefCell,mem::size_of,ops::ControlFlow};
 fn col(e:ProjectionColumnErrorV1<BodyMutationError>)->BodyMutationError{match e{ProjectionColumnErrorV1::Work(e)=>e,ProjectionColumnErrorV1::Memory(e)=>ValueTreeError::Memory(e).into(),ProjectionColumnErrorV1::Invalid(note)=>invalid(note)}}
 pub(super) struct CurrentEventsFeesV1{_rows:Vec<MemoryReservation>,_slots:MemoryReservation}
@@ -16,6 +16,6 @@ pub(super) fn events_data_v1(aux:&ProjectionColumnDataV1,metadata:&crate::world:
   let raw=super::shared_json::capture_shared_v1(&node,&shared,&RefCell::new(None),usize::MAX).map_err(ProjectionColumnErrorV1::Work)?;
   let(event,fee)=super::fact_decode::recover_world_event_parts_data_v1(&raw,&shared).map_err(ProjectionColumnErrorV1::Work)?;
   shared.borrow_mut().charge(1,raw.len()as u64).map_err(paid).map_err(ProjectionColumnErrorV1::Work)?;
-  if oasis7_world_projection::current_commitment_history::original_projection_event_visible_v1(&event,reader){events.push(event);fees.push(fee)}Ok(ControlFlow::Continue(()))
+  if oasis7_world_state::observation_projection::current_commitment_history::original_projection_event_visible_v1(&event,reader){events.push(event);fees.push(fee)}Ok(ControlFlow::Continue(()))
  }).map_err(col)?;shared.borrow_mut().consume_steps(0).map_err(paid)?;Ok((events,CurrentEventsFeesV1{_rows:fees,_slots:slots}))
 }

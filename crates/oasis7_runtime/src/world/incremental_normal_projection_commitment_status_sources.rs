@@ -3,7 +3,7 @@
 use super::*;
 use std::{cell::{RefCell,RefMut},ops::ControlFlow};
 use oasis7_wasm_abi::{CanonicalCborAllocator,CanonicalCborStreamError as Error,CapabilityCanonicalWorkV1};
-use oasis7_world_projection::current_commitment::{ProjectionColumnRefV1,ProjectionColumnDataV1,ProjectionColumnErrorV1,ProjectionDataPathRefV1 as Path};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnRefV1,ProjectionColumnDataV1,ProjectionColumnErrorV1,ProjectionDataPathRefV1 as Path};
 use crate::world::industrial_control::readonly_runtime_owner::{RuntimeOwnerReadonlyFactsV1,current_agent_identity_readonly_v1,current_agent_owner_readonly_v1,owner_public_key_readonly_v1,world_rule_binding_readonly_v1};
 pub(super)struct CurrentStatus<'v,'f,'a,'s,'c,'k,M>{view:&'v values::View<'f,'a,'s,'c,M>,canonical:RefCell<&'k mut oasis7_wasm_abi::CanonicalCborWorkV1>,first:RefCell<Option<BodyMutationError>>}
 fn graph(e:ProjectionColumnErrorV1<BodyMutationError>)->BodyMutationError{match e{ProjectionColumnErrorV1::Work(e)=>e,ProjectionColumnErrorV1::Memory(e)=>ValueTreeError::Memory(e).into(),ProjectionColumnErrorV1::Invalid(e)=>invalid(e)}}

@@ -12,7 +12,7 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard},
     incremental_state::MerkleNodeReader,
 };
-use oasis7_world_projection::current_commitment::{
+use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1, ProjectionColumnErrorV1,
 };
 use std::mem::size_of;

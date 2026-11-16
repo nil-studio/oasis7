@@ -1,8 +1,8 @@
 //! Fixed original Rules visibility over actual typed-key rows and JSON nodes.
 //! Only selected row DATA and paid identity sets are retained, never a World.
 use super::*;
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1,ProjectionColumnRefV1};
-use oasis7_world_projection::current_commitment::ProjectionDataPathRefV1;
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnErrorV1,ProjectionColumnRefV1};
+use oasis7_world_state::observation_projection::current_commitment::ProjectionDataPathRefV1;
 use oasis7_world_state::incremental_world_rule_projection_delta::WorldRuleLogicalColumnV1 as C;
 use oasis7_world_state::world_rules::{IndustrialOwnerReadonlyFactsV1,IndustrialStartReadonlyFactsV1,IndustrialScratchReadonlyFactsV1};
 use oasis7_agent_api::world_action::*;

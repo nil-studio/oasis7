@@ -2,7 +2,7 @@
 //! This private DATA carrier grants no read, execution or accepted authority.
 use super::*;
 use oasis7_client_api::formal_projection::{ProjectionAudienceV1,MAX_PROJECTION_SCOPES};
-use oasis7_world_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnRefV1,ProjectionColumnErrorV1};
+use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionColumnRefV1,ProjectionColumnErrorV1};
 use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
 use crate::service_admission::agent_authority::{owner_public_key_from_original_owner_v1,original_agent_signer_is_owner_v1,OriginalDelegationBindingDataV1,validate_original_delegation_fields_v1};
 use std::{cell::RefCell,collections::BTreeSet,mem::size_of};

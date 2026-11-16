@@ -15,7 +15,6 @@ oasis7_agent_api = { path = "../oasis7_agent_api" }
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-oasis7_world_projection = { path = "../oasis7_world_projection" }
 oasis7_client_api = { path = "../oasis7_client_api" }
 oasis7_proto = { path = "../oasis7_proto" }
 oasis7_consensus = { path = "../oasis7_consensus" }
