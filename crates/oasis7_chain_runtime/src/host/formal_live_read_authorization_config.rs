@@ -3,6 +3,7 @@
 //! existing V3 signature, history, protected-time and per-chunk lease gate.
 use super::super::formal_live_service::full_sync_read_gate::{
     FullSyncV3ReadGateConfig, remote_evidence::RemoteFullSyncReadEvidenceSourceV3,
+    validate_full_sync_read_mode_gate_pair,
 };
 use ed25519_dalek::SigningKey;
 use oasis7_distfs::controlled_authority::formal::{
@@ -45,5 +46,23 @@ impl FormalLiveReadAuthorizationV3 {
             minimum_anchor: self.minimum_anchor.clone(),
             source: Arc::new(source),
         })
+    }
+}
+
+impl super::ValidatedFormalLiveConfigV1 {
+    /// Assemble optional dependencies only after enforcing the configured mode.
+    /// The runtime still validates the pair before creating its listener.
+    pub(crate) fn build_full_sync_read_gate(
+        &self,
+        provider: &SigningKey,
+    ) -> Result<Option<FullSyncV3ReadGateConfig>, String> {
+        let configured = self.config.full_sync_read_authorization_v3.as_ref();
+        validate_full_sync_read_mode_gate_pair(
+            self.config.full_sync_provider_read_authorization,
+            configured.is_some(),
+        )?;
+        configured
+            .map(|config| config.build(&self.trust.initial_trust, provider))
+            .transpose()
     }
 }

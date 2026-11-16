@@ -685,18 +685,7 @@ impl FormalLiveRuntime {
     }
 
     pub(crate) fn start(&mut self) -> Result<(), String> {
-        let configured = self
-            .validated
-            .config
-            .full_sync_read_authorization_v3
-            .as_ref();
-        validate_full_sync_read_mode_gate_pair(
-            self.validated.config.full_sync_provider_read_authorization,
-            configured.is_some(),
-        )?;
-        let gate = configured
-            .map(|config| config.build(&self.validated.trust.initial_trust, &self.node_signer))
-            .transpose()?;
+        let gate = self.validated.build_full_sync_read_gate(&self.node_signer)?;
         self.start_with_full_sync_read_authorization(gate)
     }
 
