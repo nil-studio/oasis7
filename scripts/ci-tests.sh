@@ -360,6 +360,10 @@ run_oasis7_iws_rule_core_tests() {
     Linux:x86_64|Linux:aarch64) ;;
     *) echo 'IWS Rule/Wasm integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
   esac
+  # The actual sealed-process Rule path loads the executor's real worker binary.
+  # Build it explicitly on a clean checkout before entering the component cases.
+  run_cargo build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker --no-default-features \
+    --features wasmtime || return
   # Both features are required; a default Cargo run executes none of the cases.
   run_cargo test --locked -p oasis7_runtime_iws_tests --test iws_rule_core --no-default-features \
     --features test-support,wasmtime -- --test-threads=1

@@ -3167,14 +3167,17 @@ run_cargo() {
 run_group iws_host_native
 '''
         expected = [
+            'CARGO|build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+            '--no-default-features --features wasmtime',
             'CARGO|test --locked -p oasis7_runtime_iws_tests --test iws_rule_core '
             '--no-default-features --features test-support,wasmtime -- --test-threads=1',
             'CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
             '--no-default-features --features iws-host-native-test-support -- --test-threads=1']
         for system, arch, failed_package, cargo_status, status, count in (
-                ('Linux', 'x86_64', '', 0, 0, 2), ('Linux', 'aarch64', '', 0, 0, 2),
-                ('Linux', 'x86_64', 'oasis7_runtime_iws_tests', 37, 37, 1),
-                ('Linux', 'x86_64', 'oasis7_chain_runtime', 43, 43, 2),
+                ('Linux', 'x86_64', '', 0, 0, 3), ('Linux', 'aarch64', '', 0, 0, 3),
+                ('Linux', 'x86_64', 'oasis7_wasm_executor', 31, 31, 1),
+                ('Linux', 'x86_64', 'oasis7_runtime_iws_tests', 37, 37, 2),
+                ('Linux', 'x86_64', 'oasis7_chain_runtime', 43, 43, 3),
                 ('Darwin', 'arm64', '', 0, 2, 0), ('Linux', 's390x', '', 0, 2, 0)):
             with self.subTest(system=system, arch=arch, failed_package=failed_package):
                 result = subprocess.run(
@@ -3207,8 +3210,9 @@ run_group iws_host_native
                              '-s) echo Linux ;;\n-m) echo x86_64 ;;\n*) exit 92 ;;\nesac\n')
             uname.chmod(0o755)
             for failed_package, status, count in (
-                    ('', 0, 2), ('oasis7_runtime_iws_tests', 41, 1),
-                    ('oasis7_chain_runtime', 42, 2)):
+                    ('', 0, 3), ('oasis7_wasm_executor', 40, 1),
+                    ('oasis7_runtime_iws_tests', 41, 2),
+                    ('oasis7_chain_runtime', 42, 3)):
                 with self.subTest(failed_package=failed_package, status=status):
                     result = subprocess.run(
                         ['bash', str(ROOT / 'scripts/ci-tests.sh'), 'required',
@@ -3221,6 +3225,8 @@ run_group iws_host_native
                     self.assertEqual(result.returncode, status, result.stderr)
                     calls = [line for line in result.stdout.splitlines() if line.startswith('IWS_CARGO|')]
                     self.assertEqual(calls, [
+                        'IWS_CARGO|build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+                        '--no-default-features --features wasmtime',
                         'IWS_CARGO|test --locked -p oasis7_runtime_iws_tests --test iws_rule_core '
                         '--no-default-features --features test-support,wasmtime -- --test-threads=1',
                         'IWS_CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
