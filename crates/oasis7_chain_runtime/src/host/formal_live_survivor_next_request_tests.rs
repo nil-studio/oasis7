@@ -52,7 +52,12 @@ pub(super) fn submit_after_recovery(
         return Err("survivor next request was already applied before submission".into());
     }
     runtime.start()?;
-    let client = RemoteWorldServiceClient::new(owner.clone()).map_err(|e| e.to_string())?;
+    // The bootstrap receipt belongs to the original public reader. The next
+    // action has an Agent-private result and must use its exact owner scope.
+    let original_client = RemoteWorldServiceClient::new(owner.clone()).map_err(|e| e.to_string())?;
+    let mut next_owner = owner.clone();
+    next_owner.scope_id = format!("agent:{}", action.target_agent_id);
+    let client = RemoteWorldServiceClient::new(next_owner.clone()).map_err(|e| e.to_string())?;
     assert_volatile_admission(
         client.submit(request.clone()).map_err(|e| e.to_string())?,
         &request.correlation,
@@ -69,9 +74,21 @@ pub(super) fn submit_after_recovery(
             result.rejected
         ));
     }
+    let public_lookup_error = original_client
+        .lookup_formal_original(request.clone())
+        .err()
+        .ok_or("survivor next private result was exposed through public scope")?;
+    if !public_lookup_error
+        .to_string()
+        .contains("formal result private Agent scope mismatch")
+    {
+        return Err(format!(
+            "unexpected public-scope rejection: {public_lookup_error}"
+        ));
+    }
     let committed = lookup_original_commit(&client, &request)?;
     if committed.position <= original_ref.position
-        || lookup_original_commit(&client, original)? != *original_ref
+        || lookup_original_commit(&original_client, original)? != *original_ref
     {
         return Err("survivor next request replaced or preceded the original result".into());
     }
@@ -102,9 +119,10 @@ pub(super) fn submit_after_recovery(
     drop(runtime);
     let mut runtime = FormalLiveRuntime::open_with_native_history(config)?;
     runtime.start()?;
-    let client = RemoteWorldServiceClient::new(owner).map_err(|e| e.to_string())?;
+    let original_client = RemoteWorldServiceClient::new(owner).map_err(|e| e.to_string())?;
+    let client = RemoteWorldServiceClient::new(next_owner).map_err(|e| e.to_string())?;
     if lookup_original_commit(&client, &request)? != committed
-        || lookup_original_commit(&client, original)? != *original_ref
+        || lookup_original_commit(&original_client, original)? != *original_ref
         || runtime
             .published
             .current()?
