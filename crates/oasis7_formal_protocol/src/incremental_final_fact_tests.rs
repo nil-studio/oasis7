@@ -1,6 +1,127 @@
 use super::*;
 
 #[test]
+fn final_result_pair_uses_one_frozen_root_and_appends_both_in_order() {
+    let pages = Pages::default();
+    let memory = memory();
+    let parent = empty_parent();
+    let live = parent.fence().unwrap();
+    let mut tx =
+        ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
+    tx.write(StateNamespaceV1::Business, b"changed", Some([3; 32]))
+        .unwrap();
+    tx.append_fact(fact(ExecutionFactKindV1::Input, 1)).unwrap();
+    let guard = tx.guard();
+    let prepared = tx
+        .seal_with_final_results(
+            &guard,
+            &live,
+            9,
+            || false,
+            |after| {
+                assert_eq!(after.simulation_tick, 9);
+                assert_ne!(after.digest().unwrap(), parent.roots.digest().unwrap());
+                Ok::<_, &str>([
+                    ExecutionFactRefV1 {
+                        kind: ExecutionFactKindV1::Result,
+                        id: after.digest().unwrap(),
+                    },
+                    fact(ExecutionFactKindV1::Result, 7),
+                ])
+            },
+        )
+        .unwrap();
+    assert_eq!(prepared.record.facts.len(), 3);
+    assert_eq!(
+        prepared.record.facts[0],
+        fact(ExecutionFactKindV1::Input, 1)
+    );
+    assert_eq!(
+        prepared.record.facts[1].id,
+        prepared.record.after.digest().unwrap()
+    );
+    assert_eq!(
+        prepared.record.facts[2],
+        fact(ExecutionFactKindV1::Result, 7)
+    );
+    TransitionVerifier {
+        parent: &parent,
+        operation: [1; 32],
+        source: &pages,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        max_pending_node_bytes: limits().max_pending_node_bytes,
+    }
+    .verify(&prepared.record)
+    .unwrap();
+}
+
+#[test]
+fn final_result_pair_admits_both_before_io_and_rejects_partial_or_wrong_results() {
+    for mode in 0..5 {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut bounds = limits();
+        if mode == 0 {
+            bounds.max_facts = 2;
+        }
+        let mut tx = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, bounds).unwrap();
+        tx.append_fact(fact(ExecutionFactKindV1::Input, 1)).unwrap();
+        let guard = tx.guard();
+        let called = Cell::new(false);
+        let cancel = Cell::new(false);
+        let result = tx.seal_with_final_results(
+            &guard,
+            &live,
+            9,
+            || cancel.get(),
+            |_| {
+                called.set(true);
+                if mode == 3 {
+                    return Err("second original failed");
+                }
+                cancel.set(mode == 4);
+                Ok([
+                    fact(
+                        if mode == 1 {
+                            ExecutionFactKindV1::Event
+                        } else {
+                            ExecutionFactKindV1::Result
+                        },
+                        2,
+                    ),
+                    fact(ExecutionFactKindV1::Result, if mode == 2 { 2 } else { 3 }),
+                ])
+            },
+        );
+        assert_eq!(called.get(), mode != 0);
+        match mode {
+            0 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(
+                    ExecutionError::ResourceLimited(_)
+                ))
+            )),
+            1 | 2 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(ExecutionError::Invalid(
+                    "final Result pair"
+                )))
+            )),
+            3 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Producer("second original failed"))
+            )),
+            _ => assert!(matches!(result, Err(SealWithFinalFactError::Cancelled))),
+        }
+        drop(guard);
+        assert_eq!(memory.used(), 0, "pair failure mode {mode}");
+    }
+}
+
+#[test]
 fn final_fact_observes_frozen_actual_after_roots_and_preserves_prior_order() {
     let pages = Pages::default();
     let memory = memory();
@@ -165,5 +286,145 @@ fn final_fact_producer_error_and_both_cancel_boundaries_return_no_prepared_prefi
         }
         drop(guard);
         assert_eq!(memory.used(), 0);
+    }
+}
+
+#[test]
+fn final_result_profiles_retain_prior_response_results_in_order() {
+    for triple in [false, true] {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut tx =
+            ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits())
+                .unwrap();
+        let prefix = [
+            fact(ExecutionFactKindV1::Input, 1),
+            fact(ExecutionFactKindV1::Result, 11),
+            fact(ExecutionFactKindV1::Event, 12),
+        ];
+        for value in prefix {
+            tx.append_fact(value).unwrap();
+        }
+        let guard = tx.guard();
+        let prepared = if triple {
+            tx.seal_with_proof_ledger_results(
+                &guard,
+                &live,
+                9,
+                || false,
+                |_| {
+                    Ok::<_, &str>([
+                        fact(ExecutionFactKindV1::Result, 7),
+                        fact(ExecutionFactKindV1::Result, 8),
+                        fact(ExecutionFactKindV1::Result, 9),
+                    ])
+                },
+            )
+            .unwrap()
+        } else {
+            tx.seal_with_final_results(
+                &guard,
+                &live,
+                9,
+                || false,
+                |_| {
+                    Ok::<_, &str>([
+                        fact(ExecutionFactKindV1::Result, 7),
+                        fact(ExecutionFactKindV1::Result, 8),
+                    ])
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(&prepared.record.facts[..prefix.len()], &prefix);
+        let final_count = if triple { 3 } else { 2 };
+        assert_eq!(prepared.record.facts.len(), prefix.len() + final_count);
+        assert_eq!(
+            prepared
+                .record
+                .facts
+                .iter()
+                .filter(|f| f.kind == ExecutionFactKindV1::Result)
+                .count(),
+            final_count + 1
+        );
+        TransitionVerifier {
+            parent: &parent,
+            operation: [1; 32],
+            source: &pages,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: limits().max_pending_node_bytes,
+        }
+        .verify(&prepared.record)
+        .unwrap();
+    }
+}
+
+#[test]
+fn final_result_triple_rejects_all_duplicate_pairs_and_releases_failed_outputs() {
+    for mode in 0..7 {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut bounds = limits();
+        if mode == 0 {
+            bounds.max_facts = 2;
+        }
+        let tx = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, bounds).unwrap();
+        let guard = tx.guard();
+        let called = Cell::new(false);
+        let cancelled = Cell::new(false);
+        let result = tx.seal_with_proof_ledger_results(
+            &guard,
+            &live,
+            9,
+            || cancelled.get(),
+            |_| {
+                called.set(true);
+                if mode == 5 {
+                    return Err("producer failed");
+                }
+                cancelled.set(mode == 6);
+                let mut facts = [
+                    fact(ExecutionFactKindV1::Result, 1),
+                    fact(ExecutionFactKindV1::Result, 2),
+                    fact(ExecutionFactKindV1::Result, 3),
+                ];
+                match mode {
+                    1 => facts[1].kind = ExecutionFactKindV1::Event,
+                    2 => facts[1].id = facts[0].id,
+                    3 => facts[2].id = facts[0].id,
+                    4 => facts[2].id = facts[1].id,
+                    _ => {}
+                }
+                Ok(facts)
+            },
+        );
+        assert_eq!(called.get(), mode != 0);
+        match mode {
+            0 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(
+                    ExecutionError::ResourceLimited(_)
+                ))
+            )),
+            1..=4 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(ExecutionError::Invalid(
+                    "final Result triple"
+                )))
+            )),
+            5 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Producer("producer failed"))
+            )),
+            _ => assert!(matches!(result, Err(SealWithFinalFactError::Cancelled))),
+        }
+        drop(guard);
+        assert_eq!(memory.used(), 0, "mode {mode}");
     }
 }

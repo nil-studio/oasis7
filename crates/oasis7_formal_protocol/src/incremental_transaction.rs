@@ -345,7 +345,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             live,
             next_tick,
             &mut || false,
-            None::<fn(&RootSetV1) -> Result<ExecutionFactRefV1, std::convert::Infallible>>,
+            None::<fn(&RootSetV1) -> Result<[ExecutionFactRefV1; 0], std::convert::Infallible>>,
         );
         match result {
             Ok(value) => Ok(value),
@@ -368,10 +368,48 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         mut cancelled: impl FnMut() -> bool,
         produce: impl FnOnce(&RootSetV1) -> Result<ExecutionFactRefV1, E>,
     ) -> Result<ReservedValue<PreparedTransition>, SealWithFinalFactError<E>> {
+        self.seal_inner(
+            guard,
+            live,
+            next_tick,
+            &mut cancelled,
+            Some(|roots: &RootSetV1| produce(roots).map(|fact| [fact])),
+        )
+    }
+
+    /// Produce two distinct Result facts from the same frozen roots. Admit all
+    /// slots before producer I/O; errors return no prepared transition. The
+    /// producer owns validation of each original's content/root binding; this
+    /// interface checks Result kinds, distinct IDs and transition structure.
+    pub fn seal_with_final_results<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 2], E>,
+    ) -> Result<ReservedValue<PreparedTransition>, SealWithFinalFactError<E>> {
         self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce))
     }
 
-    fn seal_inner<E, F: FnOnce(&RootSetV1) -> Result<ExecutionFactRefV1, E>>(
+    /// Three distinct Result originals for the matching-enabled profile.
+    /// This prepares facts only; it does not execute or authenticate ProofLedger.
+    pub fn seal_with_proof_ledger_results<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
+    ) -> Result<ReservedValue<PreparedTransition>, SealWithFinalFactError<E>> {
+        self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce))
+    }
+
+    fn seal_inner<
+        E,
+        const N: usize,
+        F: FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; N], E>,
+    >(
         self,
         guard: &PreparedGuard,
         live: &ExecutionFence,
@@ -386,7 +424,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         let fact_count = self
             .facts
             .len()
-            .checked_add(usize::from(produce.is_some()))
+            .checked_add(if produce.is_some() { N } else { 0 })
             .ok_or(ExecutionError::ResourceLimited("ordered facts"))?;
         if fact_count > self.limits.max_facts {
             return Err(ExecutionError::ResourceLimited("ordered facts").into());
@@ -464,11 +502,29 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             return Err(SealWithFinalFactError::Cancelled);
         }
         if let Some(produce) = produce {
-            let fact = produce(&record.after).map_err(SealWithFinalFactError::Producer)?;
+            let facts = produce(&record.after).map_err(SealWithFinalFactError::Producer)?;
             if cancelled() {
                 return Err(SealWithFinalFactError::Cancelled);
             }
-            record.facts.push(fact);
+            if N == 2
+                && (facts
+                    .iter()
+                    .any(|fact| fact.kind != ExecutionFactKindV1::Result)
+                    || facts[0].id == facts[1].id)
+            {
+                return Err(ExecutionError::Invalid("final Result pair").into());
+            }
+            if N == 3
+                && (facts
+                    .iter()
+                    .any(|fact| fact.kind != ExecutionFactKindV1::Result)
+                    || facts[0].id == facts[1].id
+                    || facts[0].id == facts[2].id
+                    || facts[1].id == facts[2].id)
+            {
+                return Err(ExecutionError::Invalid("final Result triple").into());
+            }
+            record.facts.extend(facts);
             record.validate()?;
         }
         new_nodes.sort_unstable_by(|a, b| a.digest.cmp(&b.digest));
