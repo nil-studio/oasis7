@@ -156,7 +156,16 @@ fn http_response(body: &[u8]) -> Vec<u8> {
 
 #[test]
 fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recovers() {
-    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let (world, trust, initial_anchor, initial_material, proof) = full_sync_fixture();
+    let target = same_epoch_successor_fixture(&world, &initial_anchor, &initial_material);
+    let (mut server, endpoint, key, runtime, published, history) =
+        start_live_service(world, trust.clone(), initial_anchor, initial_material, proof);
+    history.push(target.clone());
+    published.publish(target.world.clone(), target.anchor.clone()).unwrap();
+    // A real C0 -> C1 page must survive rejected material and client rebuild.
+    // C0 alone intentionally has no persisted last_verified_cut.
+    let anchor = target.anchor;
+    let material = target.material;
     let declared: u64 = material.objects.iter().map(|o| o.bytes.len() as u64).sum();
     let late = material
         .objects
@@ -173,8 +182,6 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
     let junk_hash = blake3_hex(&junk);
     let late_hash = late.content_hash.clone();
     let snapshot_hash = material.roots[&ArtifactRole::Snapshot].clone();
-    let (mut server, endpoint, key, runtime, _, _) =
-        start_live_service(world, trust.clone(), anchor.clone(), material, proof);
     let hostile = hostile_provider(endpoint.clone(), junk.clone(), late_hash.clone());
     let node_key = test_key(92);
     for spare in [0, junk.len() as u64] {
