@@ -673,3 +673,43 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
         );
     }
 }
+
+#[test]
+fn policy_upgrade_rejects_wrong_identity_and_unknown_writes_without_mutation() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = fixture();
+    let mut target = fixture.config.clone();
+    target.mode = PeerRecordReceiverMode::V2Only;
+    let before = fs::read(state_path(&fixture)).unwrap();
+    let wrong_key = Keypair::generate_ed25519();
+    assert!(
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &wrong_key, &fixture.template).is_err()
+    );
+    let mut wrong_domain = fixture.template.clone();
+    wrong_domain.network_id = "another-network".into();
+    assert!(
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &wrong_domain).is_err()
+    );
+    assert!(
+        PeerRecordReceiver::upgrade_to_v2_only(
+            &fixture.config,
+            &fixture.local_key,
+            &fixture.template,
+        )
+        .is_err()
+    );
+    for name in [STATE_TEMP_FILE, "peer-record-receiver-v2.initializing.cbor"] {
+        let unknown = fixture.directory.join(name);
+        fs::write(&unknown, b"unknown-operation").unwrap();
+        fs::set_permissions(&unknown, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+                .is_err()
+        );
+        assert_eq!(fs::read(&unknown).unwrap(), b"unknown-operation");
+        assert_eq!(fs::read(state_path(&fixture)).unwrap(), before);
+        fs::remove_file(unknown).unwrap();
+    }
+    PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template).unwrap();
+}
