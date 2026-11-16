@@ -62,7 +62,7 @@ impl CurrentNativeProjectionDeltaV1 {
     }
 }
 macro_rules! native_fields {
-    ($m:ident $(,$arg:expr)*) => { $m! { ($($arg),*)
+    ($m:ident $(,$arg:expr)*) => { native_fields! { @apply $m; ($($arg),*)
         "product_validation_receipts" => crate::incremental_world_native_industry::ProductValidationReceiptsFieldV1,
         "product_profiles" => crate::incremental_world_native_industry::ProductProfilesFieldV1,
         "latest_product_validation" => crate::incremental_world_native_industry::LatestProductValidationFieldV1,
@@ -88,6 +88,9 @@ macro_rules! native_fields {
         "main_token_treasury_distribution_records" => crate::incremental_world_native_governance::MainTokenTreasuryDistributionRecordsFieldV1,
         "restricted_starter_claim_liveops_pool_top_up_records" => crate::incremental_world_native_governance::RestrictedStarterClaimLiveopsPoolTopUpRecordsFieldV1,
     } };
+    (@apply is_native; $($args:tt)*) => { is_native! { $($args)* } };
+    (@apply dispatch; $($args:tt)*) => { dispatch! { $($args)* } };
+    (@apply qualified_dispatch; $($args:tt)*) => { qualified_dispatch! { $($args)* } };
 }
 macro_rules! is_native {
     (($name:expr) $($n:literal => $f:ty,)+) => { matches!($name, $($n)|+) };

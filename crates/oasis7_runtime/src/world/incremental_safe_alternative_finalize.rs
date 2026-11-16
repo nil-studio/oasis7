@@ -176,9 +176,14 @@ where
             .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
         let visits = child.remaining_steps() / 10;
         let bytes = child.remaining_read_bytes() / 8;
+        macro_rules! apply {
+            (clamp_bytes; $($args:tt)*) => { clamp_bytes!($($args)*) };
+            (clamp_steps; $($args:tt)*) => { clamp_steps!($($args)*) };
+            (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+        }
         macro_rules! lanes {
             ($m:ident) => {
-                $m!(
+                apply!($m;
                     work.json.cells_remaining,
                     work.json.json_nodes_remaining,
                     scan.nodes_remaining,
@@ -194,7 +199,7 @@ where
         }
         macro_rules! byte_lanes {
             ($m:ident) => {
-                $m!(
+                apply!($m;
                     scan.read_bytes_remaining,
                     overlay.values.io.read_bytes_remaining,
                     read.values.io.read_bytes_remaining,

@@ -351,9 +351,16 @@ fn paid<
         .memory()
         .reserve(4096, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
+    macro_rules! apply {
+        (clamp_bytes; $($args:tt)*) => { clamp_bytes!($($args)*) };
+        (clamp_steps; $($args:tt)*) => { clamp_steps!($($args)*) };
+        (restore_bytes; $($args:tt)*) => { restore_bytes!($($args)*) };
+        (restore_steps; $($args:tt)*) => { restore_steps!($($args)*) };
+        (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+    }
     macro_rules! steps {
         ($m:ident) => {
-            $m!(
+            apply!($m;
                 ctx.values.io.nodes_remaining,
                 work.scan.nodes_remaining,
                 work.scan.leaves_remaining,
@@ -379,7 +386,7 @@ fn paid<
     };
     macro_rules! bytes {
         ($m:ident) => {
-            $m!(
+            apply!($m;
                 ctx.values.io.read_bytes_remaining,
                 ctx.values.io.write_bytes_remaining,
                 ctx.key_work.bytes_remaining,

@@ -9,8 +9,15 @@ pub(super) fn paid<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueT
  if !ctx.values.memory.same_pool(common.memory())||!ctx.transaction.uses_budget(common.memory())||ctx.values.class!=MemoryClass::Ordinary{return Err(bad())}
  common.charge(1,1024).map_err(|e|BodyMutationError::Original(Box::new(e)))?;
  let _phase=common.memory().reserve(1024,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
- macro_rules! steps{($m:ident)=>{$m!(ctx.values.io.nodes_remaining,work.read.cells_remaining,work.scan.nodes_remaining,work.scan.leaves_remaining,work.typed.json.cells_remaining,work.typed.json.json_nodes_remaining,work.revocation.json.cells_remaining,work.revocation.json.json_nodes_remaining)}};
- macro_rules! bytes{($m:ident)=>{$m!(ctx.values.io.read_bytes_remaining,ctx.values.io.write_bytes_remaining,ctx.key_work.bytes_remaining,work.read.comparison_bytes_remaining,work.scan.read_bytes_remaining,orders.ids.comparison_bytes_remaining,orders.merge_comparison_bytes_remaining)}};
+ macro_rules! apply {
+     (clamp_bytes; $($args:tt)*) => { clamp_bytes!($($args)*) };
+     (clamp_steps; $($args:tt)*) => { clamp_steps!($($args)*) };
+     (restore_bytes; $($args:tt)*) => { restore_bytes!($($args)*) };
+     (restore_steps; $($args:tt)*) => { restore_steps!($($args)*) };
+     (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+ }
+ macro_rules! steps{($m:ident)=>{apply!($m;ctx.values.io.nodes_remaining,work.read.cells_remaining,work.scan.nodes_remaining,work.scan.leaves_remaining,work.typed.json.cells_remaining,work.typed.json.json_nodes_remaining,work.revocation.json.cells_remaining,work.revocation.json.json_nodes_remaining)}};
+ macro_rules! bytes{($m:ident)=>{apply!($m;ctx.values.io.read_bytes_remaining,ctx.values.io.write_bytes_remaining,ctx.key_work.bytes_remaining,work.read.comparison_bytes_remaining,work.scan.read_bytes_remaining,orders.ids.comparison_bytes_remaining,orders.merge_comparison_bytes_remaining)}};
  macro_rules! snapshot{($($v:expr),*)=>{[$($v),*]}};
  let original_steps=steps!(snapshot);let original_bytes=bytes!(snapshot);let original_pending=[work.pending_entries_remaining,orders.pending_entries_remaining];
  let(_,meter,stop)=common.parts();let child=meter.begin_child().map_err(|e|BodyMutationError::Original(Box::new(e)))?;

@@ -10,7 +10,13 @@ use oasis7_agent_api::game::*;
 // reader. The authority reader omits only correlation payload traversal.
 macro_rules! revocation_fields {
     ($emit:ident) => {
-        $emit!(CapabilityRevocationState,{participants,epoch,revoked_grant_ids,superseded_by,authority_records,authority_finality_proofs,finalized_receipt_id,agent_identities,manufactured_identity_acquisition_sequences,agent_signer_delegations,world_service_results,task_terminals_v2,safe_alternatives,system_identities});
+        $crate::incremental_runtime_revocation::dto::revocation_fields!(@apply $emit;CapabilityRevocationState,{participants,epoch,revoked_grant_ids,superseded_by,authority_records,authority_finality_proofs,finalized_receipt_id,agent_identities,manufactured_identity_acquisition_sequences,agent_signer_delegations,world_service_results,task_terminals_v2,safe_alternatives,system_identities});
+    };
+    (@apply dto; $($args:tt)*) => {
+        $crate::incremental_typed_record_codec::dto!($($args)*);
+    };
+    (@apply authority_codec; $($args:tt)*) => {
+        $crate::incremental_runtime_revocation::authority::authority_codec!($($args)*);
     };
 }
 pub(super) use revocation_fields;

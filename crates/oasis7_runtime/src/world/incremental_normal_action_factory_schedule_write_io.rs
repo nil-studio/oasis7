@@ -288,8 +288,18 @@ where
         let module_original=module.as_deref().map(|m|m.io_snapshot_v1());
         if let Some(module)=module.as_deref_mut(){module.clamp_io_v1(visits,bytes);}
         let module_before=module.as_deref().map(|m|m.io_snapshot_v1());
+        macro_rules! apply {
+            (clamp_bytes; $($args:tt)*) => { clamp_bytes!($($args)*) };
+            (clamp_entries; $($args:tt)*) => { clamp_entries!($($args)*) };
+            (clamp_steps; $($args:tt)*) => { clamp_steps!($($args)*) };
+            (entry_snapshot; $($args:tt)*) => { entry_snapshot!($($args)*) };
+            (restore_bytes; $($args:tt)*) => { restore_bytes!($($args)*) };
+            (restore_entries; $($args:tt)*) => { restore_entries!($($args)*) };
+            (restore_steps; $($args:tt)*) => { restore_steps!($($args)*) };
+            (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+        }
         macro_rules! steps {
-            ($m:ident)=> { $m!(
+            ($m:ident)=> { apply!($m;
                 read.values.io.nodes_remaining,
                 parent.values.io.nodes_remaining,
                 work.lifecycle.steps_remaining,
@@ -345,7 +355,7 @@ where
             ) };
         }
         macro_rules! bytes {
-            ($m:ident)=> { $m!(
+            ($m:ident)=> { apply!($m;
                 read.values.io.read_bytes_remaining,
                 read.values.io.write_bytes_remaining,
                 parent.values.io.read_bytes_remaining,
@@ -385,7 +395,7 @@ where
             ) };
         }
         macro_rules! entries {
-            ($m:ident)=> { $m!(
+            ($m:ident)=> { apply!($m;
                 work.lifecycle.pending_entries_remaining,
                 work.lifecycle.lifecycle.pending_entries_remaining,
                 work.inventory_directory.pending_entries_remaining,

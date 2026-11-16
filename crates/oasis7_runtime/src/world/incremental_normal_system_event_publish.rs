@@ -166,9 +166,16 @@ where
                 .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
             let visits = child.remaining_steps() / 8;
             let bytes = child.remaining_read_bytes() / 9;
+            macro_rules! apply {
+                (clamp_bytes; $($args:tt)*) => { clamp_bytes!($($args)*) };
+                (clamp_steps; $($args:tt)*) => { clamp_steps!($($args)*) };
+                (restore_bytes; $($args:tt)*) => { restore_bytes!($($args)*) };
+                (restore_steps; $($args:tt)*) => { restore_steps!($($args)*) };
+                (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+            }
             macro_rules! steps {
                 ($m:ident) => {
-                    $m!(
+                    apply!($m;
                         self.mutation.io.nodes_remaining,
                         self.original_work.visits_remaining,
                         materials.read_io.nodes_remaining,
@@ -181,7 +188,7 @@ where
             }
             macro_rules! bytes {
                 ($m:ident) => {
-                    $m!(
+                    apply!($m;
                         self.mutation.io.read_bytes_remaining,
                         self.mutation.io.write_bytes_remaining,
                         self.original_work.bytes_remaining,

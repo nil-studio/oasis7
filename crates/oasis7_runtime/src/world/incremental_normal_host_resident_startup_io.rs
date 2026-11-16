@@ -4,8 +4,15 @@ pub(super) fn selected<M,R,E,C>(parent:&BoundNormalTickParentV1<'_>,read:&mut Wo
 where M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>+Copy,C:FnMut()->bool+Copy {
  if !read.values.memory.same_pool(common.memory())||read.values.class!=MemoryClass::Ordinary{return Err(bad());}
  common.charge(1,4096).map_err(formal)?;let _phase=common.memory().reserve(4096,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
- macro_rules! steps{($m:ident)=>{$m!(read.values.io.nodes_remaining,work.manifest.body_scan.nodes_remaining,work.manifest.body_scan.leaves_remaining,work.manifest.fields.cells_remaining,work.manifest.fields.json.cells_remaining,work.manifest.fields.json.json_nodes_remaining,work.manifest.json.cells_remaining,work.manifest.json.json_nodes_remaining,work.material_scan.nodes_remaining,work.material_scan.leaves_remaining,work.inventory.records_remaining,work.inventory.index_steps_remaining )};}
- macro_rules! bytes{($m:ident)=>{$m!(read.values.io.read_bytes_remaining,read.values.io.write_bytes_remaining,read.key_work.bytes_remaining,work.manifest.body_scan.read_bytes_remaining,work.manifest.hash_bytes_remaining,work.material_scan.read_bytes_remaining,work.material.comparison_bytes_remaining )};}
+ macro_rules! apply {
+     (clamp_b; $($args:tt)*) => { clamp_b!($($args)*) };
+     (clamp_s; $($args:tt)*) => { clamp_s!($($args)*) };
+     (restore_b; $($args:tt)*) => { restore_b!($($args)*) };
+     (restore_s; $($args:tt)*) => { restore_s!($($args)*) };
+     (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+ }
+ macro_rules! steps{($m:ident)=>{apply!($m;read.values.io.nodes_remaining,work.manifest.body_scan.nodes_remaining,work.manifest.body_scan.leaves_remaining,work.manifest.fields.cells_remaining,work.manifest.fields.json.cells_remaining,work.manifest.fields.json.json_nodes_remaining,work.manifest.json.cells_remaining,work.manifest.json.json_nodes_remaining,work.material_scan.nodes_remaining,work.material_scan.leaves_remaining,work.inventory.records_remaining,work.inventory.index_steps_remaining )};}
+ macro_rules! bytes{($m:ident)=>{apply!($m;read.values.io.read_bytes_remaining,read.values.io.write_bytes_remaining,read.key_work.bytes_remaining,work.manifest.body_scan.read_bytes_remaining,work.manifest.hash_bytes_remaining,work.material_scan.read_bytes_remaining,work.material.comparison_bytes_remaining )};}
  macro_rules! snapshot{($($lane:expr),*)=>{[$($lane),*]};}
  let original_s=steps!(snapshot);let original_b=bytes!(snapshot);let original_n=work.material.pending_entries_remaining;
  let (_,meter,stop)=common.parts();let child=meter.begin_child().map_err(formal)?;

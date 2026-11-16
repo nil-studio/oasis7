@@ -44,14 +44,19 @@ where
     let child = meter.begin_child()?;
     let visits = child.remaining_steps() / 2;
     let bytes = child.remaining_read_bytes() / 5;
+    macro_rules! apply {
+        (clamp_bytes; $($args:tt)*) => { clamp_bytes!($($args)*) };
+        (clamp_steps; $($args:tt)*) => { clamp_steps!($($args)*) };
+        (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
+    }
     macro_rules! steps {
         ($m:ident) => {
-            $m!(overlay.values.io.nodes_remaining, write.io.nodes_remaining)
+            apply!($m;overlay.values.io.nodes_remaining, write.io.nodes_remaining)
         };
     }
     macro_rules! byte_lanes {
         ($m:ident) => {
-            $m!(
+            apply!($m;
                 overlay.values.io.read_bytes_remaining,
                 write.io.read_bytes_remaining,
                 write.io.write_bytes_remaining,

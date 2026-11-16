@@ -15,6 +15,7 @@ macro_rules! pending_action_field {
     (decode, $field:ident, $($args:expr),*) => { tagged_codec!(@default_field decode, $field, $($args),*) };
     (accept, $field:ident, $($args:expr),*) => { tagged_codec!(@default_field accept, $field, $($args),*) };
 }
+pub(crate) use pending_action_field;
 
 tagged_codec!(@fields pending_action_field, Action, units {}, tuples {}, records {
     WorldRule { actor_id, request_id, command } = 1,

@@ -185,9 +185,17 @@ fn capture_inner<
         .map_err(ValueTreeError::Memory)?;
     let core = common.work().identity();
     let memory = common.memory().clone();
+    macro_rules! apply {
+        (clamp_b; $($args:tt)*) => { clamp_b!($($args)*) };
+        (clamp_s; $($args:tt)*) => { clamp_s!($($args)*) };
+        (restore_b; $($args:tt)*) => { restore_b!($($args)*) };
+        (restore_s; $($args:tt)*) => { restore_s!($($args)*) };
+        (snap; $($args:tt)*) => { snap!($($args)*) };
+        (zero; $($args:tt)*) => { zero!($($args)*) };
+    }
     macro_rules! steps {
         ($m:ident) => {
-            $m!(
+            apply!($m;
                 ctx.values.io.nodes_remaining,
                 work.json.json.cells_remaining,
                 work.json.json.json_nodes_remaining,
@@ -199,7 +207,7 @@ fn capture_inner<
     }
     macro_rules! bytes {
         ($m:ident) => {
-            $m!(
+            apply!($m;
                 ctx.values.io.read_bytes_remaining,
                 ctx.values.io.write_bytes_remaining,
                 ctx.key_work.bytes_remaining,

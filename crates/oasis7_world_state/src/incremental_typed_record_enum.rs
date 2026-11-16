@@ -115,7 +115,9 @@ macro_rules! tagged_codec {
     (@field_hook plain,$op:ident,$($args:tt)*) => {
         $crate::incremental_typed_record_codec::tagged_codec!(@default_field $op,$($args)*)
     };
-    (@field_hook $hook:ident,$op:ident,$($args:tt)*) => {$hook!($op,$($args)*)};
+    (@field_hook pending_action_field,$op:ident,$($args:tt)*) => {
+        $crate::incremental_pending_action_codec::pending_action_field!($op,$($args)*)
+    };
     (@default_field put,$field:ident,$profile:expr,$parent:expr,$value:expr,$ctx:expr,$work:expr) => {{
         let encoded=$value.encode($profile,$ctx,$work)?;
         put($profile,$parent,stringify!($field),encoded,$ctx,$work)

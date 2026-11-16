@@ -58,6 +58,7 @@ macro_rules! authority_codec {
         }
     };
 }
+pub(super) use authority_codec;
 super::dto::revocation_fields!(authority_codec);
 
 /// One-time GEN/cold selected-source recovery. Warm normal execution must edit
