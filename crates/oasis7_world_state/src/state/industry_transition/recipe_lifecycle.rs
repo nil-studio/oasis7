@@ -136,13 +136,28 @@ impl PreparedRecipeLifecycle {
         else {
             unreachable!()
         };
-        let prefix=match crate::world_rules::readonly_recipe_started::admission_prefix(state,event,now){Ok(result)=>result?,Err(error)=>match error{}};
-        let allocations=prefix.allocations;
-        let mut factory=state.factories.get(factory_id).expect("validated factory").clone();
-        let power_owner=power_owner_agent_id.as_deref().expect("validated power owner");
-        let mut agent=state.agents.get(power_owner).expect("validated power owner agent").clone();
-        let (mut materials,world)=normalized_materials(state);
-        let world_id=MaterialLedgerId::world();
+        let prefix = match crate::world_rules::readonly_recipe_started::admission_prefix(
+            state, event, now,
+        ) {
+            Ok(result) => result?,
+            Err(error) => match error {},
+        };
+        let allocations = prefix.allocations;
+        let mut factory = state
+            .factories
+            .get(factory_id)
+            .expect("validated factory")
+            .clone();
+        let power_owner = power_owner_agent_id
+            .as_deref()
+            .expect("validated power owner");
+        let mut agent = state
+            .agents
+            .get(power_owner)
+            .expect("validated power owner agent")
+            .clone();
+        let (mut materials, world) = normalized_materials(state);
+        let world_id = MaterialLedgerId::world();
         let prepared_rules = if let Some(obligation) = emergency_power_obligation {
             let canonical = crate::builtin_recipe_plan(recipe_id, *accepted_batches)
                 .ok_or_else(|| invalid("unsupported_essential_recipe"))?;
@@ -186,7 +201,14 @@ impl PreparedRecipeLifecycle {
             )?;
             Some(rules)
         } else {
-            match crate::world_rules::readonly_recipe_started::ordinary_power(state,prefix.electricity,*power_required){Ok(result)=>result?,Err(error)=>match error{}}
+            match crate::world_rules::readonly_recipe_started::ordinary_power(
+                state,
+                prefix.electricity,
+                *power_required,
+            ) {
+                Ok(result) => result?,
+                Err(error) => match error {},
+            }
             None
         };
         let mut ledgers = BTreeMap::from([(world_id.clone(), world)]);

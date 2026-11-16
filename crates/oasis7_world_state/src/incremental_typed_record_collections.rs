@@ -1,7 +1,9 @@
 //! Typed collection keys and fixed-arity original tuples.
 use super::*;
 pub(crate) trait CollectionKey: Ord + Sized {
- fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>;
+    fn key_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>;
 
     type Semantic<'a>: SemanticKeyV1
     where
@@ -10,7 +12,18 @@ pub(crate) trait CollectionKey: Ord + Sized {
     fn from_column(key: ColumnKeyV1) -> Result<Self, ValueTreeError>;
     fn accepts_column(key: &ColumnKeyV1) -> bool;
 }
-impl CollectionKey for String {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+impl CollectionKey for String {
+    fn key_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        Ok(
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >(),
+        )
+    }
 
     type Semantic<'a> = &'a str;
     fn semantic_key(&self) -> &str {
@@ -26,7 +39,18 @@ impl CollectionKey for String {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut(
         }
     }
 }
-impl CollectionKey for u64 {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+impl CollectionKey for u64 {
+    fn key_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        Ok(
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >(),
+        )
+    }
 
     type Semantic<'a> = u64;
     fn semantic_key(&self) -> u64 {
@@ -42,7 +66,20 @@ impl CollectionKey for u64 {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->
         }
     }
 }
-impl<A: CollectionKey, B: CollectionKey> CollectionKey for (A, B) {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(A::key_decode_layout_v1(visit)?);l.merge(B::key_decode_layout_v1(visit)?);Ok(l)}
+impl<A: CollectionKey, B: CollectionKey> CollectionKey for (A, B) {
+    fn key_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.merge(A::key_decode_layout_v1(visit)?);
+        l.merge(B::key_decode_layout_v1(visit)?);
+        Ok(l)
+    }
 
     type Semantic<'a>
         = (A::Semantic<'a>, B::Semantic<'a>)

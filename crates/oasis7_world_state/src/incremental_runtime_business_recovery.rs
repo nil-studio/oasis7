@@ -51,10 +51,23 @@ pub fn recover_runtime_business_v1<
     .visit_entries(
         roots.state_root(StateNamespaceV1::Business),
         |entry| {
-            if with_runtime_threat_member_v1(entry,&mut ctx.values,ctx.semantic_bytes,ctx.record_bytes,&mut key,bound,&mut || (cancel.borrow_mut())(),|original,value|receive_threat(original,value))?.is_some(){
-                seen=seen.checked_add(1).ok_or_else(invalid)?;
+            if with_runtime_threat_member_v1(
+                entry,
+                &mut ctx.values,
+                ctx.semantic_bytes,
+                ctx.record_bytes,
+                &mut key,
+                bound,
+                &mut || (cancel.borrow_mut())(),
+                |original, value| receive_threat(original, value),
+            )?
+            .is_some()
+            {
+                seen = seen.checked_add(1).ok_or_else(invalid)?;
             }
-            if (cancel.borrow_mut())(){return Err(ValueTreeError::Cancelled);}
+            if (cancel.borrow_mut())() {
+                return Err(ValueTreeError::Cancelled);
+            }
             Ok(())
         },
         || (cancel.borrow_mut())(),
@@ -86,88 +99,88 @@ pub fn recover_runtime_business_v1<
 
 /// Unique original Threat member decoder shared by recovery and the resident
 /// key directory. The caller pre-admits the key buffer and retained output.
-pub(crate) fn with_runtime_threat_member_v1<R:ValueNodeReader,C:FnMut()->bool,T>(
- entry:&oasis7_formal_protocol::incremental_state::StateEntryV1,
- values:&mut oasis7_formal_protocol::incremental_value::ValueReadContext<'_,R>,
- semantic_bytes:u64,record_bytes:u64,key:&mut Vec<u8>,bound:usize,cancelled:&mut C,
- receive:impl FnOnce(&str,i64)->Result<T,ValueTreeError>,
-)->Result<Option<T>,ValueTreeError>{
-            if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
-                return Ok(None);
+pub(crate) fn with_runtime_threat_member_v1<R: ValueNodeReader, C: FnMut() -> bool, T>(
+    entry: &oasis7_formal_protocol::incremental_state::StateEntryV1,
+    values: &mut oasis7_formal_protocol::incremental_value::ValueReadContext<'_, R>,
+    semantic_bytes: u64,
+    record_bytes: u64,
+    key: &mut Vec<u8>,
+    bound: usize,
+    cancelled: &mut C,
+    receive: impl FnOnce(&str, i64) -> Result<T, ValueTreeError>,
+) -> Result<Option<T>, ValueTreeError> {
+    if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
+        return Ok(None);
+    }
+    let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
+    if parsed.owner != FieldOwner::Runtime
+        || parsed.name != "threat_heatmap"
+        || parsed.kind == WorldFieldRecordKindV1::Metadata
+    {
+        return Ok(None);
+    }
+    let field_key = WorldFieldKeyV1::new(
+        RuntimeBusinessFieldV1::ThreatHeatmap.descriptor(),
+        parsed.kind,
+        parsed.semantic_key,
+    )
+    .map_err(ValueTreeError::Invalid)?;
+    if field_key.as_bytes() != entry.key
+        || parsed.namespace != entry.namespace
+        || parsed.kind != WorldFieldRecordKindV1::Entry
+    {
+        return Err(invalid());
+    }
+    key.clear();
+    let mut payload = [0u8; 8];
+    // Fixed slice output cannot grow past the pre-admitted original-key bound.
+    // The limited writer checks capacity before every copy.
+    struct KeyWriter<'a> {
+        key: &'a mut Vec<u8>,
+        bound: usize,
+    }
+    impl std::io::Write for KeyWriter<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.bound.saturating_sub(self.key.len()) {
+                return Err(std::io::ErrorKind::OutOfMemory.into());
             }
-            let parsed =
-                WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
-            if parsed.owner != FieldOwner::Runtime
-                || parsed.name != "threat_heatmap"
-                || parsed.kind == WorldFieldRecordKindV1::Metadata
-            {
-                return Ok(None);
-            }
-            let field_key = WorldFieldKeyV1::new(
-                RuntimeBusinessFieldV1::ThreatHeatmap.descriptor(),
-                parsed.kind,
-                parsed.semantic_key,
-            )
-            .map_err(ValueTreeError::Invalid)?;
-            if field_key.as_bytes() != entry.key
-                || parsed.namespace != entry.namespace
-                || parsed.kind != WorldFieldRecordKindV1::Entry
-            {
-                return Err(invalid());
-            }
-            key.clear();
-            let mut payload = [0u8; 8];
-            // Fixed slice output cannot grow past the pre-admitted original-key bound.
-            // The limited writer checks capacity before every copy.
-            struct KeyWriter<'a> {
-                key: &'a mut Vec<u8>,
-                bound: usize,
-            }
-            impl std::io::Write for KeyWriter<'_> {
-                fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                    if bytes.len() > self.bound.saturating_sub(self.key.len()) {
-                        return Err(std::io::ErrorKind::OutOfMemory.into());
-                    }
-                    self.key.extend_from_slice(bytes);
-                    Ok(bytes.len())
-                }
-                fn flush(&mut self) -> std::io::Result<()> {
-                    Ok(())
-                }
-            }
-            let info = read_member_record_v1(
-                &entry.value,
-                &field_key,
-                values,
-                MemberRecordLimitsV1 {
-                    semantic_bytes: semantic_bytes,
-                    payload_bytes: 8,
-                    record_bytes: record_bytes,
-                },
-                &mut KeyWriter {
-                    key,
-                    bound,
-                },
-                &mut &mut payload[..],
-                cancelled,
-            )?;
-            if info.codec != MemberPayloadCodecV1::I64
-                || info.payload_bytes != 8
-                || key.len() < SEMANTIC_KEY_DOMAIN.len() + 9
-                || &key[..SEMANTIC_KEY_DOMAIN.len()] != SEMANTIC_KEY_DOMAIN
-                || key[SEMANTIC_KEY_DOMAIN.len()] != 1
-            {
-                return Err(invalid());
-            }
-            let start = SEMANTIC_KEY_DOMAIN.len() + 9;
-            let len = u64::from_be_bytes(
-                key[SEMANTIC_KEY_DOMAIN.len() + 1..start]
-                    .try_into()
-                    .map_err(|_| invalid())?,
-            );
-            if len != (key.len() - start) as u64 {
-                return Err(invalid());
-            }
-            let original = std::str::from_utf8(&key[start..]).map_err(|_| invalid())?;
-            Ok(Some(receive(original,i64::from_be_bytes(payload))?))
+            self.key.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let info = read_member_record_v1(
+        &entry.value,
+        &field_key,
+        values,
+        MemberRecordLimitsV1 {
+            semantic_bytes: semantic_bytes,
+            payload_bytes: 8,
+            record_bytes: record_bytes,
+        },
+        &mut KeyWriter { key, bound },
+        &mut &mut payload[..],
+        cancelled,
+    )?;
+    if info.codec != MemberPayloadCodecV1::I64
+        || info.payload_bytes != 8
+        || key.len() < SEMANTIC_KEY_DOMAIN.len() + 9
+        || &key[..SEMANTIC_KEY_DOMAIN.len()] != SEMANTIC_KEY_DOMAIN
+        || key[SEMANTIC_KEY_DOMAIN.len()] != 1
+    {
+        return Err(invalid());
+    }
+    let start = SEMANTIC_KEY_DOMAIN.len() + 9;
+    let len = u64::from_be_bytes(
+        key[SEMANTIC_KEY_DOMAIN.len() + 1..start]
+            .try_into()
+            .map_err(|_| invalid())?,
+    );
+    if len != (key.len() - start) as u64 {
+        return Err(invalid());
+    }
+    let original = std::str::from_utf8(&key[start..]).map_err(|_| invalid())?;
+    Ok(Some(receive(original, i64::from_be_bytes(payload))?))
 }

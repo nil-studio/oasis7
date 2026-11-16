@@ -95,7 +95,7 @@ impl WakeSchemeV2 {
         }
     }
 }
-#[path="legacy_scheduler_work.rs"]
+#[path = "legacy_scheduler_work.rs"]
 mod work;
 pub use work::WakeConditionWorkErrorV1;
 pub struct WakeConditionValidator;
@@ -116,12 +116,30 @@ impl WakeConditionValidator {
         require_canonical_order: bool,
         scheme: WakeSchemeV2,
     ) -> Result<(), WakeConditionError> {
-        work::legacy(Self::validate_internal_with_source_v1(conditions,require_canonical_order,scheme,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+        work::legacy(Self::validate_internal_with_source_v1(
+            conditions,
+            require_canonical_order,
+            scheme,
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        ))
     }
-    pub fn validate_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(conditions:&[WakeConditionV1],source:&A)->Result<Result<(),WakeConditionError>,oasis7_wasm_abi::CanonicalCborStreamError>{
-        match Self::validate_internal_with_source_v1(conditions,true,WakeSchemeV2::Legacy,source){Ok(())=>Ok(Ok(())),Err(work::WakeConditionWorkErrorV1::Business(e))=>Ok(Err(e)),Err(work::WakeConditionWorkErrorV1::Work(e))=>Err(e)}
+    pub fn validate_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        conditions: &[WakeConditionV1],
+        source: &A,
+    ) -> Result<Result<(), WakeConditionError>, oasis7_wasm_abi::CanonicalCborStreamError> {
+        match Self::validate_internal_with_source_v1(conditions, true, WakeSchemeV2::Legacy, source)
+        {
+            Ok(()) => Ok(Ok(())),
+            Err(work::WakeConditionWorkErrorV1::Business(e)) => Ok(Err(e)),
+            Err(work::WakeConditionWorkErrorV1::Work(e)) => Err(e),
+        }
     }
-    fn validate_internal_with_source_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(conditions:&[WakeConditionV1],require_canonical_order:bool,scheme:WakeSchemeV2,source:&A)->Result<(),work::WakeConditionWorkErrorV1>{
+    fn validate_internal_with_source_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        conditions: &[WakeConditionV1],
+        require_canonical_order: bool,
+        scheme: WakeSchemeV2,
+        source: &A,
+    ) -> Result<(), work::WakeConditionWorkErrorV1> {
         if conditions.is_empty() {
             return Err(WakeConditionError::new("wake_conditions_empty").into());
         }
@@ -131,14 +149,23 @@ impl WakeConditionValidator {
         let mut seen = BTreeSet::new();
         let mut total = 0usize;
         let mut previous: Option<Vec<u8>> = None;
-        let mut fees:[Option<A::Charge>;MAX_CONDITIONS]=std::array::from_fn(|_|None);
-        for (index,condition) in conditions.iter().enumerate() {
+        let mut fees: [Option<A::Charge>; MAX_CONDITIONS] = std::array::from_fn(|_| None);
+        for (index, condition) in conditions.iter().enumerate() {
             Self::validate_one_with_source_v1(condition, scheme, source)?;
-            let encoded = work::canonical_condition(condition,source)?;
+            let encoded = work::canonical_condition(condition, source)?;
             let bytes = encoded.value;
-            let heap=bytes.len().checked_mul(2).and_then(|n|n.checked_add(11*(std::mem::size_of::<Vec<u8>>()+32)+256)).ok_or(oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited("wake condition set layout"))?;
-            source.charge_work(1+(bytes.len()* (seen.len()+2))as u64,(bytes.len()*2)as u64)?;
-            fees[index]=Some(source.reserve(heap)?);
+            let heap = bytes
+                .len()
+                .checked_mul(2)
+                .and_then(|n| n.checked_add(11 * (std::mem::size_of::<Vec<u8>>() + 32) + 256))
+                .ok_or(oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited(
+                    "wake condition set layout",
+                ))?;
+            source.charge_work(
+                1 + (bytes.len() * (seen.len() + 2)) as u64,
+                (bytes.len() * 2) as u64,
+            )?;
+            fees[index] = Some(source.reserve(heap)?);
             if bytes.len() > MAX_ITEM_BYTES || !seen.insert(bytes.clone()) {
                 return Err(WakeConditionError::new("wake_condition_invalid").into());
             }
@@ -269,10 +296,18 @@ impl WakeConditionValidator {
         condition: &WakeConditionV1,
         scheme: WakeSchemeV2,
     ) -> Result<(), WakeConditionError> {
-        work::legacy(Self::validate_one_with_source_v1(condition,scheme,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+        work::legacy(Self::validate_one_with_source_v1(
+            condition,
+            scheme,
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        ))
     }
-    fn validate_one_with_source_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(condition:&WakeConditionV1,scheme:WakeSchemeV2,source:&A)->Result<(),work::WakeConditionWorkErrorV1>{
-        work::fields(condition,source)?;
+    fn validate_one_with_source_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        condition: &WakeConditionV1,
+        scheme: WakeSchemeV2,
+        source: &A,
+    ) -> Result<(), work::WakeConditionWorkErrorV1> {
+        work::fields(condition, source)?;
         if condition.schema_version != scheme.schema() {
             return Err(WakeConditionError::new("wake_condition_invalid").into());
         }
@@ -329,7 +364,7 @@ impl WakeConditionValidator {
                     .expected_value_bytes
                     .as_ref()
                     .expect("presence checked");
-                let _decode_fee=work::before_expected(expected,source)?;
+                let _decode_fee = work::before_expected(expected, source)?;
                 let value = if scheme == WakeSchemeV2::IwsCurrent {
                     // New scheme has only closed predicate layouts. Decode
                     // those original CBOR types directly: an attacker cannot
@@ -342,7 +377,13 @@ impl WakeConditionValidator {
                     };
                     value
                 };
-                let canonical=match work::encode_value(&value,source){Ok(value)=>value,Err(oasis7_wasm_abi::CanonicalCborStreamError::Invalid(_))=>return Err(WakeConditionError::new("wake_condition_invalid").into()),Err(error)=>return Err(error.into())};
+                let canonical = match work::encode_value(&value, source) {
+                    Ok(value) => value,
+                    Err(oasis7_wasm_abi::CanonicalCborStreamError::Invalid(_)) => {
+                        return Err(WakeConditionError::new("wake_condition_invalid").into());
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 if expected.is_empty()
                     || expected.len() > 512
                     || canonical.value.as_slice() != expected.as_slice()

@@ -229,7 +229,10 @@ impl PreparedIndustryEvent {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
-        match crate::world_rules::readonly_recipe_factory_capacity_gate_v1(state,event){Ok(result)=>result?,Err(never)=>match never{}}
+        match crate::world_rules::readonly_recipe_factory_capacity_gate_v1(state, event) {
+            Ok(result) => result?,
+            Err(never) => match never {},
+        }
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. } => Ok(Self::LogisticsTopology(

@@ -57,7 +57,9 @@ pub trait CanonicalCborAllocator {
     type Charge;
     /// Optional continuing caller meter. Implementations debit before returning;
     /// the codec never refunds these debits or treats them as authority.
-    fn charge_work(&self, _steps: u64, _bytes: u64) -> Result<(), CanonicalCborStreamError> { Ok(()) }
+    fn charge_work(&self, _steps: u64, _bytes: u64) -> Result<(), CanonicalCborStreamError> {
+        Ok(())
+    }
     fn reserve(&self, bytes: usize) -> Result<Self::Charge, CanonicalCborStreamError>;
 }
 /// Work includes key discovery/replay and every output attempt, including

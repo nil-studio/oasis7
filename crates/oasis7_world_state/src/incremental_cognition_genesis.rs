@@ -130,6 +130,22 @@ pub fn prepare_cognition_state_genesis_v1<
 #[path = "incremental_cognition_genesis_tests.rs"]
 mod tests;
 
-pub(crate) fn prepare_cognition_control_fields_v1<W:ValueNodeWriter,C:FnMut()->bool,S:FnMut(ReservedValue<ExecutionWriteV1>)->Result<(),ValueTreeError>>(
-    source:CognitionEnvelopeRefV1<'_>,fields:impl IntoIterator<Item=CognitionControlFieldV1>,context:&mut MemberRecordWriteContext<'_,W,C>,records_remaining:&mut u64,sink:&mut S,
-)->Result<(),MemberRecordError>{prepare_cognition_control_fields_from_values_v1(crate::incremental_cognition_json::CognitionValuesSourceV1::Envelope(source),fields,context,records_remaining,sink)}
+pub(crate) fn prepare_cognition_control_fields_v1<
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+>(
+    source: CognitionEnvelopeRefV1<'_>,
+    fields: impl IntoIterator<Item = CognitionControlFieldV1>,
+    context: &mut MemberRecordWriteContext<'_, W, C>,
+    records_remaining: &mut u64,
+    sink: &mut S,
+) -> Result<(), MemberRecordError> {
+    prepare_cognition_control_fields_from_values_v1(
+        crate::incremental_cognition_json::CognitionValuesSourceV1::Envelope(source),
+        fields,
+        context,
+        records_remaining,
+        sink,
+    )
+}

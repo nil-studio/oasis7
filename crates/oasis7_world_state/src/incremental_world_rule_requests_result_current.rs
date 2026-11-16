@@ -11,7 +11,7 @@ use oasis7_formal_protocol::incremental_execution::{
     ExecutionError, ExecutionFence, ExecutionTransaction, PreparedGuard,
 };
 use oasis7_formal_protocol::incremental_value::ValueReadContext;
-type Continuity = std::collections::BTreeMap<String,crate::world_rules::WorldRuleReceiptV1>;
+type Continuity = std::collections::BTreeMap<String, crate::world_rules::WorldRuleReceiptV1>;
 pub struct CurrentRequestsResultSourcesV1 {
     selected: ReservedValue<Vec<(String, String)>>,
     _index: requests_result::index::RequestsResultIndexV1,

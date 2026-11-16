@@ -152,7 +152,12 @@ impl PreparedOwnerSignature {
         }
         #[cfg(feature = "signature-metrics")]
         metrics.strict_attempt(&public_key, &self.signature, &self.canonical_bytes);
-        let result=verify_owner_signature_bytes_strict_v1(&self.key,&self.signature,&self.canonical_bytes).map_err(str::to_owned);
+        let result = verify_owner_signature_bytes_strict_v1(
+            &self.key,
+            &self.signature,
+            &self.canonical_bytes,
+        )
+        .map_err(str::to_owned);
         if result.is_ok() {
             signature_memo::record_success(public_key, self.signature, &self.canonical_bytes);
             #[cfg(feature = "signature-metrics")]
@@ -169,9 +174,15 @@ pub fn prepare_owner_signature_strict<T: Serialize>(
     subject_public_key: &str,
     signature_hex: &str,
 ) -> Result<PreparedOwnerSignature, String> {
-    let result=strict_work::prepare_owner_signature_strict_with_work_v1(domain,request,subject_public_key,signature_hex,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
-        .map(strict_work::PaidPreparedOwnerSignatureV1::into_legacy)
-        .map_err(super::authority::work::legacy_error);
+    let result = strict_work::prepare_owner_signature_strict_with_work_v1(
+        domain,
+        request,
+        subject_public_key,
+        signature_hex,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map(strict_work::PaidPreparedOwnerSignatureV1::into_legacy)
+    .map_err(super::authority::work::legacy_error);
     // Old public verify counts malformed envelopes/weak keys/encoding failures as
     // one failed call, with zero strict attempts. Successful prepare is counted
     // only by verify_strict, so the wrapper never double counts.
@@ -341,9 +352,17 @@ pub fn prepared_goal_commitment(
 #[cfg(test)]
 mod tests;
 
-fn verify_owner_signature_bytes_strict_v1(key:&VerifyingKey,signature:&[u8;64],canonical_bytes:&[u8])->Result<(),&'static str>{
- key.verify_strict(canonical_bytes,&Signature::from_bytes(signature)).map_err(|_|"invalid private goal owner signature")
+fn verify_owner_signature_bytes_strict_v1(
+    key: &VerifyingKey,
+    signature: &[u8; 64],
+    canonical_bytes: &[u8],
+) -> Result<(), &'static str> {
+    key.verify_strict(canonical_bytes, &Signature::from_bytes(signature))
+        .map_err(|_| "invalid private goal owner signature")
 }
-#[path="private_goal/strict_work.rs"]
+#[path = "private_goal/strict_work.rs"]
 mod strict_work;
-pub use strict_work::{PaidPreparedOwnerSignatureV1,prepare_owner_signature_strict_with_work_v1,verify_owner_signature_strict_with_work_v1};
+pub use strict_work::{
+    PaidPreparedOwnerSignatureV1, prepare_owner_signature_strict_with_work_v1,
+    verify_owner_signature_strict_with_work_v1,
+};

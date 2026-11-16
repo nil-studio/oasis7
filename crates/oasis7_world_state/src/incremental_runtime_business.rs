@@ -226,5 +226,10 @@ mod recovery;
 pub use recovery::*;
 
 pub(crate) use recovery::with_runtime_threat_member_v1;
-#[path="incremental_runtime_threat_directory.rs"]mod threat_directory;
-pub use threat_directory::{ThreatKeyDirectoryV1,CurrentThreatKeyDirectoryV1,FrozenThreatKeyDirectoryV1,ThreatKeyDirectoryWorkV1,build_threat_key_directory_v1,read_current_threat_key_directory_v1,freeze_current_threat_key_directory_v1};
+#[path = "incremental_runtime_threat_directory.rs"]
+mod threat_directory;
+pub use threat_directory::{
+    CurrentThreatKeyDirectoryV1, FrozenThreatKeyDirectoryV1, ThreatKeyDirectoryV1,
+    ThreatKeyDirectoryWorkV1, build_threat_key_directory_v1,
+    freeze_current_threat_key_directory_v1, read_current_threat_key_directory_v1,
+};

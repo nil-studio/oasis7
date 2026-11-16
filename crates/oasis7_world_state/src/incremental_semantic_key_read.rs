@@ -26,7 +26,9 @@ pub struct SemanticKeyTokenV1<'a>(&'a [u8]);
 impl<'a> SemanticKeyTokenV1<'a> {
     /// Original validated token bytes, without the enclosing root domain.
     /// This borrowed DATA does not qualify a field, root or source.
-    pub fn original_token_bytes_v1(self) -> &'a [u8] { self.0 }
+    pub fn original_token_bytes_v1(self) -> &'a [u8] {
+        self.0
+    }
 
     pub fn decode(self) -> Result<SemanticKeyRefV1<'a>, &'static str> {
         decode(self.0)

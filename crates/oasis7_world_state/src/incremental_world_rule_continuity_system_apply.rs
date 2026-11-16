@@ -112,23 +112,38 @@ pub fn apply_current_organization_continuity_system_v1<
         // Read-set growth in unrelated selected facts does not change this
         // branch. Authenticate its actual Current root again before encoding
         // any diff, including the semantic no-change path.
-        let live_guard=context.transaction.guard();
-        let observed=crate::incremental_world_rule_composite_overlay::bind_current_world_rule_branch_v1(parent,roots,state,context,scan,read_work,&live_guard,live)?;
-        if observed.body()!=actual.body(){return Err(system_bad().into())}
+        let live_guard = context.transaction.guard();
+        let observed =
+            crate::incremental_world_rule_composite_overlay::bind_current_world_rule_branch_v1(
+                parent,
+                roots,
+                state,
+                context,
+                scan,
+                read_work,
+                &live_guard,
+                live,
+            )?;
+        if observed.body() != actual.body() {
+            return Err(system_bad().into());
+        }
 
-        let _layout = write.memory.reserve(
-            7 * (size_of::<ReservedValue<Vec<u8>>>()
-                + size_of::<Option<[u8; 32]>>()
-                + size_of::<Option<Encoded<'_>>>()
-                + size_of::<Vec<&[u8]>>()
-                + size_of::<CompositePathPatchV1<'_>>())
-                + size_of::<Vec<ReservedValue<Vec<u8>>>>()
-                + size_of::<Vec<Option<[u8; 32]>>>()
-                + size_of::<Vec<Option<Encoded<'_>>>>()
-                + size_of::<Vec<Vec<&[u8]>>>()
-                + size_of::<Vec<CompositePathPatchV1<'_>>>(),
-            MemoryClass::Ordinary,
-        ).map_err(ValueTreeError::Memory)?;
+        let _layout = write
+            .memory
+            .reserve(
+                7 * (size_of::<ReservedValue<Vec<u8>>>()
+                    + size_of::<Option<[u8; 32]>>()
+                    + size_of::<Option<Encoded<'_>>>()
+                    + size_of::<Vec<&[u8]>>()
+                    + size_of::<CompositePathPatchV1<'_>>())
+                    + size_of::<Vec<ReservedValue<Vec<u8>>>>()
+                    + size_of::<Vec<Option<[u8; 32]>>>()
+                    + size_of::<Vec<Option<Encoded<'_>>>>()
+                    + size_of::<Vec<Vec<&[u8]>>>()
+                    + size_of::<Vec<CompositePathPatchV1<'_>>>(),
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
 
         let mut keys = Vec::with_capacity(7);
         let mut expected = Vec::with_capacity(7);

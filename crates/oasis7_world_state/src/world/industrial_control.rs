@@ -11,9 +11,15 @@ pub struct ResolvedAgentOwnerV1 {
 }
 impl WorldState {
     pub fn is_manufactured_agent(&self, agent: &str) -> bool {
-        match crate::world_rules::is_manufactured_agent_readonly_v1(self,agent) {Ok(value)=>value,Err(never)=>match never{}}
+        match crate::world_rules::is_manufactured_agent_readonly_v1(self, agent) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
     pub fn resolved_agent_owner(&self, agent: &str) -> Option<ResolvedAgentOwnerV1> {
-        match crate::world_rules::resolve_industrial_owner_readonly_v1(self,agent) {Ok(value)=>value,Err(never)=>match never{}}
+        match crate::world_rules::resolve_industrial_owner_readonly_v1(self, agent) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
 }

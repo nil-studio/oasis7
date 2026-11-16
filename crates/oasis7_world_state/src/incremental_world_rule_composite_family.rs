@@ -16,12 +16,12 @@ pub use industrial_directory::{
     CurrentIndustrialWorkV1, IndustrialWorkDirectoryV1, bind_current_industrial_work_directory_v1,
     current_industrial_disposition_present_v1, read_current_industrial_completion_root_v1,
 };
-#[path = "incremental_world_rule_requests_result.rs"]
-mod requests_result;
 #[path = "incremental_world_rule_continuity_contracts.rs"]
 mod continuity_contracts;
 #[path = "incremental_world_rule_continuity_contracts_current.rs"]
 mod continuity_contracts_current;
+#[path = "incremental_world_rule_requests_result.rs"]
+mod requests_result;
 pub use continuity_contracts_current::{
     CurrentContinuityContractSourcesV1, observe_current_continuity_contract_sources_v1,
 };
@@ -30,10 +30,10 @@ pub use continuity_contracts_current::{
 mod continuity_scope;
 #[path = "incremental_world_rule_lifecycle_emergency.rs"]
 mod lifecycle_emergency;
+use crate::incremental_organization_scope_index::OrganizationScopeIndexV1;
+pub use lifecycle_emergency::EmergencyActiveInputsV1;
 pub use lifecycle_emergency::EmergencyLifecycleDirectoryV1;
 pub(crate) use lifecycle_emergency::project_current as project_current_emergency_lifecycle_directory_v1;
-pub use lifecycle_emergency::EmergencyActiveInputsV1;
-use crate::incremental_organization_scope_index::OrganizationScopeIndexV1;
 pub(crate) trait CompositeBranchCodecV1: Codec {
     const BRANCH: WorldRuleCompositeBranchV1;
 }
@@ -100,7 +100,10 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
         &self,
         memory: &MemoryBudget,
         class: MemoryClass,
-    ) -> Result<(), ValueTreeError> where T: CompositeBranchCodecV1 {
+    ) -> Result<(), ValueTreeError>
+    where
+        T: CompositeBranchCodecV1,
+    {
         if !self.memory.same_pool(memory)
             || self.class != class
             || self.present != self.body.is_some()
@@ -248,14 +251,8 @@ pub(crate) fn qualify_world_rule_branch_v1<
         scan,
         work,
     )?;
-    let requests_result = requests_result::update::<T, _, _, _, _>(
-        None,
-        None,
-        body.as_deref(),
-        ctx,
-        scan,
-        work,
-    )?;
+    let requests_result =
+        requests_result::update::<T, _, _, _, _>(None, None, body.as_deref(), ctx, scan, work)?;
     let industrial_directory = industrial_directory::update::<T, _, _, _, _>(
         None,
         None,
@@ -264,14 +261,8 @@ pub(crate) fn qualify_world_rule_branch_v1<
         scan,
         work,
     )?;
-    let emergency_lifecycle = lifecycle_emergency::update::<T, _, _, _, _>(
-        None,
-        None,
-        body.as_deref(),
-        ctx,
-        scan,
-        work,
-    )?;
+    let emergency_lifecycle =
+        lifecycle_emergency::update::<T, _, _, _, _>(None, None, body.as_deref(), ctx, scan, work)?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         memory: ctx.values.memory.clone(),
@@ -558,12 +549,11 @@ mod tests;
 #[path = "incremental_world_rule_composite_orders_current.rs"]
 mod orders_current;
 pub use orders_current::{
-    replace_current_industrial_order_v1,
     AgentOrderDirectoryWorkV1, CurrentAgentOrderIndexV1, CurrentAgentOrdersV1,
     bind_current_agent_orders_v1, collect_changed_agent_order_ids_v1,
-    collect_parent_agent_order_ids_v1, read_current_agent_order_index_v1,
-    read_current_agent_order_v1, validate_current_agent_orders_v1,
-    mark_current_industrial_order_delivered_v1,
+    collect_parent_agent_order_ids_v1, mark_current_industrial_order_delivered_v1,
+    read_current_agent_order_index_v1, read_current_agent_order_v1,
+    replace_current_industrial_order_v1, validate_current_agent_orders_v1,
 };
 
 #[path = "incremental_world_rule_continuity_current_scope.rs"]
@@ -572,4 +562,6 @@ pub use current_scope::{CurrentContinuityRiskV1, observe_current_continuity_risk
 
 #[path = "incremental_world_rule_requests_result_current.rs"]
 mod requests_result_current;
-pub use requests_result_current::{CurrentRequestsResultSourcesV1,observe_current_requests_result_sources_v1};
+pub use requests_result_current::{
+    CurrentRequestsResultSourcesV1, observe_current_requests_result_sources_v1,
+};

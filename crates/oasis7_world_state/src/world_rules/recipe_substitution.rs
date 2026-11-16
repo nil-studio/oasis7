@@ -51,8 +51,17 @@ fn preview_with_rules(
     world: &str,
     now: u64,
 ) -> Result<SubstitutionPreviewV1, WorldError> {
-    let source=super::readonly_start_industrial_overlay::IndustrialInputOverlayFactsV1{source:state,industrial,substitution:rules};
-    match super::readonly_substitution::preview_substitution_readonly_v1(&source,actor,request,world,now){Ok(value)=>value,Err(never)=>match never{}}
+    let source = super::readonly_start_industrial_overlay::IndustrialInputOverlayFactsV1 {
+        source: state,
+        industrial,
+        substitution: rules,
+    };
+    match super::readonly_substitution::preview_substitution_readonly_v1(
+        &source, actor, request, world, now,
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
 }
 
 impl PreparedWorldRule {

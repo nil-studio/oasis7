@@ -75,7 +75,8 @@ pub fn read_qualified_reward_projection_columns_v1<
         let mut counts = [0u64; 2];
         let mut metadata = [false; 2];
         let mut markers = [false; 2];
-        let mut length_seen=false;let mut ordered=super::super::receiver::OrderChanges::default();
+        let mut length_seen = false;
+        let mut ordered = super::super::receiver::OrderChanges::default();
         for root in &roots.state {
             let stop = RefCell::new(&mut ctx.cancelled);
             StateScanContext {
@@ -95,7 +96,7 @@ pub fn read_qualified_reward_projection_columns_v1<
                         return Err(bad().into());
                     }
                     *cells = cells.checked_sub(1).ok_or_else(limited)?;
-                    let index=super::super::family::index(kind);
+                    let index = super::super::family::index(kind);
                     let parsed =
                         WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
                     let selected = {
@@ -118,12 +119,40 @@ pub fn read_qualified_reward_projection_columns_v1<
                         };
                         super::super::family::outer(entry, &mut top)?
                     };
-                    match selected{
-                        Some(super::super::family::Outer::Metadata(actual))=>{if actual!=kind||metadata[index]{return Err(bad().into())}metadata[index]=true;return Ok(())},
-                        Some(super::super::family::Outer::Format(actual))=>{if actual!=kind||markers[index]{return Err(bad().into())}markers[index]=true;return Ok(())},
-                        Some(super::super::family::Outer::Length(length))=>{if kind!=RewardRecordKindV1::Mint||length_seen||length!=family.mint_length(){return Err(bad().into())}length_seen=true;return Ok(())},
-                        Some(super::super::family::Outer::Record(actual,_))=>{if actual.kind!=kind{return Err(bad().into())}if kind==RewardRecordKindV1::Mint{ordered.observe(actual.index,false,true)?;}},
-                        None=>return Err(bad().into())
+                    match selected {
+                        Some(super::super::family::Outer::Metadata(actual)) => {
+                            if actual != kind || metadata[index] {
+                                return Err(bad().into());
+                            }
+                            metadata[index] = true;
+                            return Ok(());
+                        }
+                        Some(super::super::family::Outer::Format(actual)) => {
+                            if actual != kind || markers[index] {
+                                return Err(bad().into());
+                            }
+                            markers[index] = true;
+                            return Ok(());
+                        }
+                        Some(super::super::family::Outer::Length(length)) => {
+                            if kind != RewardRecordKindV1::Mint
+                                || length_seen
+                                || length != family.mint_length()
+                            {
+                                return Err(bad().into());
+                            }
+                            length_seen = true;
+                            return Ok(());
+                        }
+                        Some(super::super::family::Outer::Record(actual, _)) => {
+                            if actual.kind != kind {
+                                return Err(bad().into());
+                            }
+                            if kind == RewardRecordKindV1::Mint {
+                                ordered.observe(actual.index, false, true)?;
+                            }
+                        }
+                        None => return Err(bad().into()),
                     }
                     if changes.len() == count {
                         return Err(bad().into());
@@ -162,8 +191,9 @@ pub fn read_qualified_reward_projection_columns_v1<
                 }
             })?;
         }
-        ordered.check(0,family.mint_length())?;
-        if !length_seen||counts != expected
+        ordered.check(0, family.mint_length())?;
+        if !length_seen
+            || counts != expected
             || metadata != [true; 2]
             || markers != [true; 2]
             || changes.len() != count
@@ -201,8 +231,9 @@ pub fn read_qualified_reward_projection_columns_v1<
         let out = QualifiedRewardProjectionColumnsV1 {
             counts: expected,
             data: CurrentRewardProjectionDeltaV1 {
-                entities:rows,
-                before_length:0,after_length:family.mint_length(),
+                entities: rows,
+                before_length: 0,
+                after_length: family.mint_length(),
                 guard: ctx.transaction.guard(),
                 parent: ctx.transaction.parent_fence().parent_roots,
                 memory,

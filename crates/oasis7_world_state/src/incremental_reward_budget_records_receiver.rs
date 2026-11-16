@@ -11,7 +11,25 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueReadContext},
 };
 use oasis7_proto::memory_budget::ReservedValue;
-fn child<R:ValueNodeReader,C:FnMut()->bool>(kind:RewardRecordKindV1,before:&StateRootV1,after:&StateRootV1,records:&mut InventoryValueReader<'_, '_,R,C>,cells:&mut u64,max:u64)->Result<(),ValueTreeError>{child_with_work_and_observer(kind,before,after,records,cells,max,|_,_,_|Ok(()),&mut |_|Ok(()))}
+fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: RewardRecordKindV1,
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    max: u64,
+) -> Result<(), ValueTreeError> {
+    child_with_work_and_observer(
+        kind,
+        before,
+        after,
+        records,
+        cells,
+        max,
+        |_, _, _| Ok(()),
+        &mut |_| Ok(()),
+    )
+}
 pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: RewardRecordKindV1,
     before: &StateRootV1,
@@ -19,8 +37,12 @@ pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> boo
     records: &mut InventoryValueReader<'_, '_, R, C>,
     cells: &mut u64,
     max: u64,
-    mut observe:impl FnMut(Option<&StateEntryV1>,Option<&StateEntryV1>,&mut InventoryValueReader<'_, '_,R,C>)->Result<(),ValueTreeError>,
-    work:&mut dyn FnMut(usize)->Result<(),ValueTreeError>,
+    mut observe: impl FnMut(
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+    ) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
     if before.namespace != kind.namespace() || after.namespace != kind.namespace() {
         return Err(read::invalid());
@@ -73,7 +95,7 @@ pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> boo
                     }
                 }
             }
-            observe(old,new,records)
+            observe(old, new, records)
         },
         work,
     )?;
@@ -92,7 +114,12 @@ pub(super) struct OrderChanges {
     removed_min: Option<u64>,
 }
 impl OrderChanges {
-    pub(super) fn observe(&mut self, index: u64, old: bool, new: bool) -> Result<(), ValueTreeError> {
+    pub(super) fn observe(
+        &mut self,
+        index: u64,
+        old: bool,
+        new: bool,
+    ) -> Result<(), ValueTreeError> {
         if old {
             self.old_max = Some(self.old_max.map_or(index, |n| n.max(index)));
         }

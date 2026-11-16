@@ -14,18 +14,77 @@ pub fn industrial_ref<T: Serialize>(
     revision: u64,
     payload: &T,
 ) -> Result<IndustrialRefV1, WorldError> {
-    match industrial_ref_with_work_v1(world,domain,schema,id,revision,payload,&mut|_,_,_|Ok::<(),std::convert::Infallible>(())){Ok(result)=>result,Err(never)=>match never{}}
+    match industrial_ref_with_work_v1(
+        world,
+        domain,
+        schema,
+        id,
+        revision,
+        payload,
+        &mut |_, _, _| Ok::<(), std::convert::Infallible>(()),
+    ) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
 }
 /// Same original JSON hash, owned field copies and qualified-ref gate. Work
 /// callbacks only admit processing/allocation and cannot choose identity bytes.
-pub fn industrial_ref_with_work_v1<T:Serialize,E>(world:&str,domain:&str,schema:&str,id:&str,revision:u64,payload:&T,work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Result<IndustrialRefV1,WorldError>,E>{
- work(1,0,std::mem::size_of::<String>()+64)?;
- let digest=match crate::util::hash_json_with_work_v1(&(world,domain,schema,id,revision,payload),&mut|steps,bytes|work(steps,bytes as usize,0)){Ok(value)=>value,Err(crate::util::JsonHashWorkErrorV1::Work(error))=>return Err(error),Err(crate::util::JsonHashWorkErrorV1::Codec(error))=>{let note=super::format_readonly_projection_data_v1(format_args!("{}",error),work)?;return Ok(Err(WorldError::Serde(note)))}};
- fn copy<E>(value:&str,work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<String,E>{work(1,0,std::mem::size_of::<String>()+value.len())?;let mut bytes=Vec::with_capacity(value.len());assert_eq!(bytes.capacity(),value.len(),"industrial ref text exact capacity");for part in value.as_bytes().chunks(8192){work(1,part.len(),0)?;bytes.extend_from_slice(part)}Ok(String::from_utf8(bytes).expect("copied original UTF-8"))}
- work(1,0,std::mem::size_of::<IndustrialRefV1>())?;
- let value=IndustrialRefV1{world_binding:copy(world,work)?,domain:copy(domain,work)?,schema:copy(schema,work)?,id:copy(id,work)?,revision,digest};
- work(1,world.len()+domain.len()+schema.len()+id.len()+64,std::mem::size_of::<WorldError>()+"industrial_reference_invalid".len())?;
- match validate_ref(&value,world){Ok(())=>Ok(Ok(value)),Err(error)=>Ok(Err(error))}
+pub fn industrial_ref_with_work_v1<T: Serialize, E>(
+    world: &str,
+    domain: &str,
+    schema: &str,
+    id: &str,
+    revision: u64,
+    payload: &T,
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<IndustrialRefV1, WorldError>, E> {
+    work(1, 0, std::mem::size_of::<String>() + 64)?;
+    let digest = match crate::util::hash_json_with_work_v1(
+        &(world, domain, schema, id, revision, payload),
+        &mut |steps, bytes| work(steps, bytes as usize, 0),
+    ) {
+        Ok(value) => value,
+        Err(crate::util::JsonHashWorkErrorV1::Work(error)) => return Err(error),
+        Err(crate::util::JsonHashWorkErrorV1::Codec(error)) => {
+            let note = super::format_readonly_projection_data_v1(format_args!("{}", error), work)?;
+            return Ok(Err(WorldError::Serde(note)));
+        }
+    };
+    fn copy<E>(
+        value: &str,
+        work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+    ) -> Result<String, E> {
+        work(1, 0, std::mem::size_of::<String>() + value.len())?;
+        let mut bytes = Vec::with_capacity(value.len());
+        assert_eq!(
+            bytes.capacity(),
+            value.len(),
+            "industrial ref text exact capacity"
+        );
+        for part in value.as_bytes().chunks(8192) {
+            work(1, part.len(), 0)?;
+            bytes.extend_from_slice(part)
+        }
+        Ok(String::from_utf8(bytes).expect("copied original UTF-8"))
+    }
+    work(1, 0, std::mem::size_of::<IndustrialRefV1>())?;
+    let value = IndustrialRefV1 {
+        world_binding: copy(world, work)?,
+        domain: copy(domain, work)?,
+        schema: copy(schema, work)?,
+        id: copy(id, work)?,
+        revision,
+        digest,
+    };
+    work(
+        1,
+        world.len() + domain.len() + schema.len() + id.len() + 64,
+        std::mem::size_of::<WorldError>() + "industrial_reference_invalid".len(),
+    )?;
+    match validate_ref(&value, world) {
+        Ok(()) => Ok(Ok(value)),
+        Err(error) => Ok(Err(error)),
+    }
 }
 
 fn canonical_digest(digest: &str) -> bool {
@@ -158,8 +217,24 @@ pub fn accept_root(
     state.roots.insert(root.root_ref.id.clone(), root);
     Ok(true)
 }
-fn validate_parents(state:&IndustrialWorkStateV1,root:&RootOperationV1,slot:&IndustrialInputSlotV1,parents:&[IndustrialParentV1],world:&str)->Result<(),WorldError>{
- match super::readonly_parent_consumption::validate_parents(&super::readonly_parent_consumption::LegacyParentWorkV1,state,root,slot,parents,world){Ok(result)=>result,Err(error)=>match error{}}
+fn validate_parents(
+    state: &IndustrialWorkStateV1,
+    root: &RootOperationV1,
+    slot: &IndustrialInputSlotV1,
+    parents: &[IndustrialParentV1],
+    world: &str,
+) -> Result<(), WorldError> {
+    match super::readonly_parent_consumption::validate_parents(
+        &super::readonly_parent_consumption::LegacyParentWorkV1,
+        state,
+        root,
+        slot,
+        parents,
+        world,
+    ) {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
 }
 /// Caller must first resolve the exact persisted substitution decision and scope.
 pub fn apply_parent_binding(
@@ -204,8 +279,22 @@ pub fn apply_parent_binding(
     Ok(())
 }
 /// Consumes the canonical slot once, irrespective of later binding revisions.
-pub fn consume_bound_slot(state:&mut IndustrialWorkStateV1,root_ref:&IndustrialRefV1,slot_id:&str,world:&str)->Result<Vec<IndustrialParentV1>,WorldError>{
- match super::readonly_parent_consumption::consume_bound_slot(&super::readonly_parent_consumption::LegacyParentWorkV1,state,root_ref,slot_id,world){Ok(result)=>result,Err(error)=>match error{}}
+pub fn consume_bound_slot(
+    state: &mut IndustrialWorkStateV1,
+    root_ref: &IndustrialRefV1,
+    slot_id: &str,
+    world: &str,
+) -> Result<Vec<IndustrialParentV1>, WorldError> {
+    match super::readonly_parent_consumption::consume_bound_slot(
+        &super::readonly_parent_consumption::LegacyParentWorkV1,
+        state,
+        root_ref,
+        slot_id,
+        world,
+    ) {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
 }
 pub fn apply_disposition(
     state: &mut IndustrialWorkStateV1,
@@ -237,7 +326,17 @@ pub fn record_receipt(
     receipt: IndustrialReceiptV1,
     world: &str,
 ) -> Result<bool, WorldError> {
-    match super::readonly_industrial_receipt::validate(&super::readonly_industrial_receipt::Resident(state),&receipt,world){Ok(result)=>match result?{super::readonly_industrial_receipt::ReceiptInsertDataV1::Existing=>return Ok(false),super::readonly_industrial_receipt::ReceiptInsertDataV1::Fresh=>{}},Err(never)=>match never{}}
+    match super::readonly_industrial_receipt::validate(
+        &super::readonly_industrial_receipt::Resident(state),
+        &receipt,
+        world,
+    ) {
+        Ok(result) => match result? {
+            super::readonly_industrial_receipt::ReceiptInsertDataV1::Existing => return Ok(false),
+            super::readonly_industrial_receipt::ReceiptInsertDataV1::Fresh => {}
+        },
+        Err(never) => match never {},
+    }
     state
         .receipts
         .insert(receipt.receipt_ref.id.clone(), receipt);
@@ -306,7 +405,20 @@ pub fn consume_lots(
 /// Private graph projection. No receipt or binding may bridge into another owner.
 pub fn for_reader(state: &IndustrialWorkStateV1, owner: &str) -> IndustrialWorkStateV1 {
     let mut view = state.clone();
-    view.roots.retain(|_,root|super::industrial_work_visibility::industrial_root_reader_with_work_v1(root,owner,&mut|_,_|Ok::<(),std::convert::Infallible>(()),&mut|reference,owner|Ok(state.lots.get(&reference.id).is_some_and(|lot|lot.owner_id==owner&&lot.lot_ref==*reference))).unwrap());
+    view.roots.retain(|_, root| {
+        super::industrial_work_visibility::industrial_root_reader_with_work_v1(
+            root,
+            owner,
+            &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+            &mut |reference, owner| {
+                Ok(state
+                    .lots
+                    .get(&reference.id)
+                    .is_some_and(|lot| lot.owner_id == owner && lot.lot_ref == *reference))
+            },
+        )
+        .unwrap()
+    });
     view.lots.retain(|_, lot| lot.owner_id == owner);
     view.imported_lot_authorities
         .retain(|id, _| view.lots.contains_key(id));
@@ -320,8 +432,24 @@ pub fn for_reader(state: &IndustrialWorkStateV1, owner: &str) -> IndustrialWorkS
             .get(&reference.id)
             .is_some_and(|lot| &lot.lot_ref == reference)
     };
-    view.receipts.retain(|_,receipt|super::industrial_work_visibility::industrial_receipt_reader_with_work_v1(receipt,&mut|_,_|Ok::<(),std::convert::Infallible>(()),&mut|reference|Ok(root_visible(reference)),&mut|reference|Ok(lot_visible(reference))).unwrap());
-    view.bindings.retain(|binding|super::industrial_work_visibility::industrial_binding_reader_with_work_v1(binding,&mut|_,_|Ok::<(),std::convert::Infallible>(()),&mut|reference|Ok(root_visible(reference)),&mut|reference|Ok(lot_visible(reference))).unwrap());
+    view.receipts.retain(|_, receipt| {
+        super::industrial_work_visibility::industrial_receipt_reader_with_work_v1(
+            receipt,
+            &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+            &mut |reference| Ok(root_visible(reference)),
+            &mut |reference| Ok(lot_visible(reference)),
+        )
+        .unwrap()
+    });
+    view.bindings.retain(|binding| {
+        super::industrial_work_visibility::industrial_binding_reader_with_work_v1(
+            binding,
+            &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+            &mut |reference| Ok(root_visible(reference)),
+            &mut |reference| Ok(lot_visible(reference)),
+        )
+        .unwrap()
+    });
     view.dispositions
         .retain(|_, plan| root_visible(&plan.root_ref));
     // Sink keys are opaque world authority internals, never a player read surface.

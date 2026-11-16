@@ -7,8 +7,12 @@ pub fn from_formal_committed_world(
 ) -> Result<WorldServiceProjection, String> {
     let mut projection = from_committed_world(world, agent, reader)?;
     let (header, start) = super::super::formal_projection_header::committed_header(world)?;
-    let events=super::super::formal_projection_header::current_era_events(world,start,agent);
-    oasis7_world_projection::original_formatter::attach_formal_header_data_v1(&mut projection,header,events);
+    let events = super::super::formal_projection_header::current_era_events(world, start, agent);
+    oasis7_world_projection::original_formatter::attach_formal_header_data_v1(
+        &mut projection,
+        header,
+        events,
+    );
     Ok(projection)
 }
 

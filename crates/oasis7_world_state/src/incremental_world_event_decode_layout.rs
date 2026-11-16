@@ -141,6 +141,19 @@ pub(crate) const fn world_event_owned_layouts_v1() -> WorldEventOwnedLayoutsV1 {
 
 /// Fixed original WorldEvent inventory for paid single-row JSON recovery.
 /// This DATA layout cannot select a decoder, profile or source field.
-pub const fn world_event_json_owned_header_max_v1()->usize{
- let v=world_event_owned_layouts_v1();maximum([v.root,v.seq_element,v.map_key,v.map_value,v.map_pair,v.set_element,v.box_pointee,v.content,v.content_pair,v.flatten_element,v.json_value])
+pub const fn world_event_json_owned_header_max_v1() -> usize {
+    let v = world_event_owned_layouts_v1();
+    maximum([
+        v.root,
+        v.seq_element,
+        v.map_key,
+        v.map_value,
+        v.map_pair,
+        v.set_element,
+        v.box_pointee,
+        v.content,
+        v.content_pair,
+        v.flatten_element,
+        v.json_value,
+    ])
 }

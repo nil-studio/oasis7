@@ -119,7 +119,9 @@ pub fn decode_runtime_history_original_v1<C: FnMut() -> bool>(
             "Runtime History typed bytes",
         ))?;
     let fixed = std::mem::size_of::<Envelope<TickConsensusRecord>>()
-        .max(std::mem::size_of::<Envelope<crate::incremental_iws_tick_consensus::IwsTickConsensusRecordV1>>())
+        .max(std::mem::size_of::<
+            Envelope<crate::incremental_iws_tick_consensus::IwsTickConsensusRecordV1>,
+        >())
         .max(std::mem::size_of::<Envelope<SnapshotRecord>>())
         .max(std::mem::size_of::<
             Envelope<TickConsensusRejectionAuditEvent>,
@@ -175,20 +177,42 @@ pub fn decode_runtime_history_original_v1<C: FnMut() -> bool>(
         // A borrowed header is a separate actual pass. Charge it before serde;
         // IgnoredAny walks the already-preflighted definite graph without a
         // Content tree or owned payload. It grants no type/source permission.
-        work.structure.values_remaining = work.structure.values_remaining.checked_sub(shape.values).ok_or(ValueTreeError::ResourceLimited("Runtime History schema visits"))?;
-        work.structure.bytes_remaining = work.structure.bytes_remaining.checked_sub(raw.len() as u64).ok_or(ValueTreeError::ResourceLimited("Runtime History schema bytes"))?;
+        work.structure.values_remaining = work
+            .structure
+            .values_remaining
+            .checked_sub(shape.values)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "Runtime History schema visits",
+            ))?;
+        work.structure.bytes_remaining = work
+            .structure
+            .bytes_remaining
+            .checked_sub(raw.len() as u64)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "Runtime History schema bytes",
+            ))?;
         #[derive(Deserialize)]
-        struct Header<'a> { domain: &'a str, schema: &'a str, value: serde::de::IgnoredAny }
+        struct Header<'a> {
+            domain: &'a str,
+            schema: &'a str,
+            value: serde::de::IgnoredAny,
+        }
         let header: Header<'_> = serde_cbor::from_slice(raw).map_err(|_| invalid())?;
         let _ = header.value;
-        if cancelled() { return Err(ValueTreeError::Cancelled); }
-        if header.domain != "oasis7.runtime.history.original.v1" { return Err(invalid()); }
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        if header.domain != "oasis7.runtime.history.original.v1" {
+            return Err(invalid());
+        }
         match header.schema {
             "tick-consensus-record.v1" => RuntimeHistoryDecodeKindV1::Tick,
             "iws-tick-consensus-record.v1" => RuntimeHistoryDecodeKindV1::IwsTick,
             _ => return Err(invalid()),
         }
-    } else { kind };
+    } else {
+        kind
+    };
     let value = match kind {
         RuntimeHistoryDecodeKindV1::TickFamily => return Err(invalid()),
         RuntimeHistoryDecodeKindV1::Snapshot => DecodedRuntimeHistoryOriginalV1::Snapshot(decode(
@@ -275,11 +299,17 @@ fn audit_layout(v: &TickConsensusRejectionAuditEvent) {
     }
 }
 
-fn iws_tick_layout(v:&crate::incremental_iws_tick_consensus::IwsTickConsensusRecordV1){
-    use crate::incremental_iws_tick_consensus::{IwsTickConsensusRecordV1,IwsCurrentCommitmentFrameV1,IwsNodeCommitContextV1,IwsTickEventIdentityV1};
+fn iws_tick_layout(v: &crate::incremental_iws_tick_consensus::IwsTickConsensusRecordV1) {
+    use crate::incremental_iws_tick_consensus::{
+        IwsCurrentCommitmentFrameV1, IwsNodeCommitContextV1, IwsTickConsensusRecordV1,
+        IwsTickEventIdentityV1,
+    };
     layout_fields!(IwsTickConsensusRecordV1,v;domain:String,version:u32,consensus_height:u64,tick:u64,authority_source:String,parent_tick_original:Option<[u8;32]>,current:IwsCurrentCommitmentFrameV1,current_digest:[u8;32],ordered_events:Vec<IwsTickEventIdentityV1>,ordered_action_ids:Vec<u64>);
-    let current=&v.current;
+    let current = &v.current;
     layout_fields!(IwsCurrentCommitmentFrameV1,current;domain:String,version:u32,parent_record:[u8;32],parent_body:[u8;32],parent_roots:[u8;32],runtime_original:[u8;32],runtime_ordinal:u64,cognition_original:[u8;32],cognition_ordinal:u64,current_roots:Vec<u8>,manifest_hash:String,policy_namespace_root:Vec<u8>,frozen_material:[u8;32],input_original:[u8;32],input_bytes:u64,policy_original:[u8;32],policy_bytes:u64,context:IwsNodeCommitContextV1);
-    let context=&current.context;layout_fields!(IwsNodeCommitContextV1,context;world_id:String,node_id:String,proposer_id:String,height:u64,slot:u64,epoch:u64,node_block_hash:String,action_root:String,committed_at_unix_ms:i64);
-    for event in &v.ordered_events{layout_fields!(IwsTickEventIdentityV1,event;event_id:u64,original:[u8;32]);}
+    let context = &current.context;
+    layout_fields!(IwsNodeCommitContextV1,context;world_id:String,node_id:String,proposer_id:String,height:u64,slot:u64,epoch:u64,node_block_hash:String,action_root:String,committed_at_unix_ms:i64);
+    for event in &v.ordered_events {
+        layout_fields!(IwsTickEventIdentityV1,event;event_id:u64,original:[u8;32]);
+    }
 }

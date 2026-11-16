@@ -28,18 +28,39 @@ impl CurrentOrganizationContinuityV1 {
     }
     /// Actual decoder reservations for this closed derived-Clone DTO. The sum
     /// stays attached to its source; callers separately admit any copy.
-    pub fn retained_allocation_bytes_v1(&self, steps: &mut u64, cancelled: impl FnMut()->bool) -> Result<usize,ValueTreeError> {
-        match &self.value {Some(value)=>value.retained_allocation_bytes_v1(steps,cancelled),None=>Ok(0)}
+    pub fn retained_allocation_bytes_v1(
+        &self,
+        steps: &mut u64,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<usize, ValueTreeError> {
+        match &self.value {
+            Some(value) => value.retained_allocation_bytes_v1(steps, cancelled),
+            None => Ok(0),
+        }
     }
     pub(crate) fn proof(&self) -> Option<&ReservedValue<WorldRuleCompositeOverlayV1<State>>> {
         self.proof.as_ref()
     }
     /// Provenance only. The fixed CAS writer separately reopens and compares
     /// the actual Current branch; this never renews the original source guard.
-    pub(crate) fn validate_transaction_identity_v1<M:MerkleNodeReader>(&self,tx:&ExecutionTransaction<'_,M>,memory:&MemoryBudget,live:&ExecutionFence)->Result<(),WorldFieldOverlayErrorV1>{
+    pub(crate) fn validate_transaction_identity_v1<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+        memory: &MemoryBudget,
+        live: &ExecutionFence,
+    ) -> Result<(), WorldFieldOverlayErrorV1> {
         tx.validate_transaction_identity(&self.identity)?;
-        tx.validate_guard(&tx.guard(),live)?;
-        if !self.memory.same_pool(memory)||!tx.uses_budget(memory)||self.proof.is_some()!=self.value.is_some()||self.proof.as_ref().is_some_and(|proof|!proof.uses_budget(memory)){return Err(ValueTreeError::Invalid("Current continuity transaction source").into())}
+        tx.validate_guard(&tx.guard(), live)?;
+        if !self.memory.same_pool(memory)
+            || !tx.uses_budget(memory)
+            || self.proof.is_some() != self.value.is_some()
+            || self
+                .proof
+                .as_ref()
+                .is_some_and(|proof| !proof.uses_budget(memory))
+        {
+            return Err(ValueTreeError::Invalid("Current continuity transaction source").into());
+        }
         Ok(())
     }
     pub fn validate<M: MerkleNodeReader>(

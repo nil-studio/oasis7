@@ -75,9 +75,9 @@ pub use cognition::{
     COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
 };
 
+pub mod iws_scheduler_v2;
 pub mod legacy_economy;
 pub mod legacy_scheduler;
-pub mod iws_scheduler_v2;
 
 /// Shared portable model-selection default; transport stays in the provider.
 pub const DEFAULT_LLM_MODEL: &str = "gpt-5.4-mini";

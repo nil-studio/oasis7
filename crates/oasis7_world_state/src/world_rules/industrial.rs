@@ -69,10 +69,16 @@ pub struct AgentIndustrialOrderV1 {
 }
 impl AgentIndustrialOrderV1 {
     pub fn validate(&self) -> Result<(), WorldError> {
-        match self.validate_with_work_v1(&mut |_,_,_|Ok::<_,std::convert::Infallible>(())) {Ok(result)=>result,Err(never)=>match never{}}
+        match self.validate_with_work_v1(&mut |_, _, _| Ok::<_, std::convert::Infallible>(())) {
+            Ok(result) => result,
+            Err(never) => match never {},
+        }
     }
-    pub fn validate_with_work_v1<E>(&self,work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Result<(),WorldError>,E>{
-        super::readonly_order_validation::validate(self,work)
+    pub fn validate_with_work_v1<E>(
+        &self,
+        work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+    ) -> Result<Result<(), WorldError>, E> {
+        super::readonly_order_validation::validate(self, work)
     }
     pub fn is_terminal(&self) -> bool {
         matches!(
@@ -91,14 +97,37 @@ impl AgentIndustrialOrderV1 {
     /// Fixed original pre-production decision. Validation/source facts are
     /// DATA; only actual Current source owners may use this in a commit path.
     /// Callers preserve the lazy refund-source read after successful validate.
-    pub fn delivery_prefix_after_validation_v1(&self,now:WorldTime,validation:Result<(),WorldError>,refund_source_current:Option<bool>)->Option<String>{
-        match self.delivery_prefix_after_validation_with_work_v1(now,validation,refund_source_current,&mut |_,_,_|Ok::<_,std::convert::Infallible>(())) {Ok(value)=>value,Err(never)=>match never{}}
+    pub fn delivery_prefix_after_validation_v1(
+        &self,
+        now: WorldTime,
+        validation: Result<(), WorldError>,
+        refund_source_current: Option<bool>,
+    ) -> Option<String> {
+        match self.delivery_prefix_after_validation_with_work_v1(
+            now,
+            validation,
+            refund_source_current,
+            &mut |_, _, _| Ok::<_, std::convert::Infallible>(()),
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
-    pub fn delivery_prefix_after_validation_with_work_v1<E>(&self,now:WorldTime,validation:Result<(),WorldError>,refund_source_current:Option<bool>,work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Option<String>,E>{
-        super::readonly_order_validation::prefix(self,now,validation,refund_source_current,work)
+    pub fn delivery_prefix_after_validation_with_work_v1<E>(
+        &self,
+        now: WorldTime,
+        validation: Result<(), WorldError>,
+        refund_source_current: Option<bool>,
+        work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+    ) -> Result<Option<String>, E> {
+        super::readonly_order_validation::prefix(self, now, validation, refund_source_current, work)
     }
     pub fn blocker(&self, state: &WorldState, now: WorldTime) -> Option<String> {
-        match super::readonly_manufacturing::industrial_order_blocker_readonly_v1(state,self,now) {Ok(value)=>value,Err(never)=>match never{}}
+        match super::readonly_manufacturing::industrial_order_blocker_readonly_v1(state, self, now)
+        {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
 }
 pub fn manufacturing_reserved_targets(state: &WorldState, owner: &str) -> BTreeSet<String> {
@@ -114,41 +143,114 @@ pub fn manufacturing_reserved_targets(state: &WorldState, owner: &str) -> BTreeS
 /// Original primary/claim projection. This is business DATA, not a capability;
 /// the Current consumer obtains the entire iterator from its private directory.
 pub fn manufacturing_existing_targets_from_facts_v1<'a>(
-    owner:&str,primary:super::industrial_eligibility_kernel::PrimaryProductionFactsV1<'_>,
-    targets:impl IntoIterator<Item=&'a str>,
-)->Result<BTreeSet<String>,WorldError>{
-    super::industrial_eligibility_kernel::validate_primary_production_facts_v1(primary,owner)?;
-    let mut targets_out=BTreeSet::from([owner.to_string()]);
-    targets_out.extend(targets.into_iter().map(str::to_owned));Ok(targets_out)
+    owner: &str,
+    primary: super::industrial_eligibility_kernel::PrimaryProductionFactsV1<'_>,
+    targets: impl IntoIterator<Item = &'a str>,
+) -> Result<BTreeSet<String>, WorldError> {
+    super::industrial_eligibility_kernel::validate_primary_production_facts_v1(primary, owner)?;
+    let mut targets_out = BTreeSet::from([owner.to_string()]);
+    targets_out.extend(targets.into_iter().map(str::to_owned));
+    Ok(targets_out)
 }
-pub fn manufacturing_existing_targets(state:&WorldState,owner:&str)->Result<BTreeSet<String>,WorldError>{
-    manufacturing_existing_targets_from_facts_v1(owner,super::industrial_eligibility_kernel::PrimaryProductionFactsV1 {
-        agent_exists:state.agents.contains_key(owner),starter_claim:state.starter_oc_claims.get(owner),
-    },state.agent_claims.values().filter(|c|c.claim_owner_id==owner).map(|c|c.target_agent_id.as_str()))
+pub fn manufacturing_existing_targets(
+    state: &WorldState,
+    owner: &str,
+) -> Result<BTreeSet<String>, WorldError> {
+    manufacturing_existing_targets_from_facts_v1(
+        owner,
+        super::industrial_eligibility_kernel::PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(owner),
+            starter_claim: state.starter_oc_claims.get(owner),
+        },
+        state
+            .agent_claims
+            .values()
+            .filter(|c| c.claim_owner_id == owner)
+            .map(|c| c.target_agent_id.as_str()),
+    )
 }
 /// Fixed original union/creates-new order. In particular a reserved target must
 /// not make creates_new_identity false before the existing set is inspected.
 pub fn manufacturing_capacity_from_targets_v1<'a>(
-    mut set:BTreeSet<String>,reserved:impl IntoIterator<Item=&'a str>,target:Option<&str>,new_order:bool,reputation_score:i64,
-)->Result<(),WorldError>{
-    match manufacturing_capacity_from_targets_with_work_v1(set,reserved,target,new_order,reputation_score,&mut |_|Ok::<_,std::convert::Infallible>(())){Ok(result)=>result,Err(never)=>match never{}}
+    mut set: BTreeSet<String>,
+    reserved: impl IntoIterator<Item = &'a str>,
+    target: Option<&str>,
+    new_order: bool,
+    reputation_score: i64,
+) -> Result<(), WorldError> {
+    match manufacturing_capacity_from_targets_with_work_v1(
+        set,
+        reserved,
+        target,
+        new_order,
+        reputation_score,
+        &mut |_| Ok::<_, std::convert::Infallible>(()),
+    ) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
 }
-pub fn manufacturing_capacity_from_targets_with_work_v1<'a,E>(
-    mut set:BTreeSet<String>,reserved:impl IntoIterator<Item=&'a str>,target:Option<&str>,new_order:bool,reputation_score:i64,
-    work:&mut impl FnMut(usize)->Result<(),E>,
-)->Result<Result<(),WorldError>,E>{
-    if let Some(target)=target{work(target.len().saturating_add(1).saturating_mul((set.len()+1).ilog2() as usize+2))?;}
-    let creates_new_identity=new_order||target.is_some_and(|id|!set.contains(id));
-    for key in reserved{let levels=(set.len()+1).ilog2() as usize+2;work(512usize.saturating_mul(levels).saturating_add(key.len().saturating_add(1).saturating_mul(levels*2+4)))?;set.insert(key.to_owned());}
-    if let Some(target)=target{let levels=(set.len()+1).ilog2() as usize+2;work(512usize.saturating_mul(levels).saturating_add(target.len().saturating_add(1).saturating_mul(levels*2+4)))?;set.insert(target.into());}
+pub fn manufacturing_capacity_from_targets_with_work_v1<'a, E>(
+    mut set: BTreeSet<String>,
+    reserved: impl IntoIterator<Item = &'a str>,
+    target: Option<&str>,
+    new_order: bool,
+    reputation_score: i64,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<Result<(), WorldError>, E> {
+    if let Some(target) = target {
+        work(
+            target
+                .len()
+                .saturating_add(1)
+                .saturating_mul((set.len() + 1).ilog2() as usize + 2),
+        )?;
+    }
+    let creates_new_identity = new_order || target.is_some_and(|id| !set.contains(id));
+    for key in reserved {
+        let levels = (set.len() + 1).ilog2() as usize + 2;
+        work(
+            512usize
+                .saturating_mul(levels)
+                .saturating_add(key.len().saturating_add(1).saturating_mul(levels * 2 + 4)),
+        )?;
+        set.insert(key.to_owned());
+    }
+    if let Some(target) = target {
+        let levels = (set.len() + 1).ilog2() as usize + 2;
+        work(
+            512usize.saturating_mul(levels).saturating_add(
+                target
+                    .len()
+                    .saturating_add(1)
+                    .saturating_mul(levels * 2 + 4),
+            ),
+        )?;
+        set.insert(target.into());
+    }
     work(0)?;
-    let count=set.len()+usize::from(new_order);let tier=crate::agent_claim_reputation_tier(reputation_score);
-    if creates_new_identity&&count>usize::from(crate::agent_claim_cap_for_tier(tier)){return Ok(Err(invalid("manufacturing_acquisition_cap")));}Ok(Ok(()))
+    let count = set.len() + usize::from(new_order);
+    let tier = crate::agent_claim_reputation_tier(reputation_score);
+    if creates_new_identity && count > usize::from(crate::agent_claim_cap_for_tier(tier)) {
+        return Ok(Err(invalid("manufacturing_acquisition_cap")));
+    }
+    Ok(Ok(()))
 }
-pub fn manufacturing_capacity_guard(state:&WorldState,owner:&str,target:Option<&str>,new_order:bool)->Result<(),WorldError>{
-    let set=manufacturing_existing_targets(state,owner)?;
-    let reserved=manufacturing_reserved_targets(state,owner);
-    manufacturing_capacity_from_targets_v1(set,reserved.iter().map(String::as_str),target,new_order,state.reputation_scores.get(owner).copied().unwrap_or(0))
+pub fn manufacturing_capacity_guard(
+    state: &WorldState,
+    owner: &str,
+    target: Option<&str>,
+    new_order: bool,
+) -> Result<(), WorldError> {
+    let set = manufacturing_existing_targets(state, owner)?;
+    let reserved = manufacturing_reserved_targets(state, owner);
+    manufacturing_capacity_from_targets_v1(
+        set,
+        reserved.iter().map(String::as_str),
+        target,
+        new_order,
+        state.reputation_scores.get(owner).copied().unwrap_or(0),
+    )
 }
 
 pub fn manufacturing_reserved_slots(state: &WorldState, factory: &str) -> u32 {
@@ -157,9 +259,7 @@ pub fn manufacturing_reserved_slots(state: &WorldState, factory: &str) -> u32 {
         .as_ref()
         .into_iter()
         .flat_map(|r| r.agent_orders.values())
-        .filter(|o| {
-            manufacturing_order_reserves_slot_v1(o,factory)
-        })
+        .filter(|o| manufacturing_order_reserves_slot_v1(o, factory))
         .count() as u32
 }
 fn legacy_production_facts<'a>(
@@ -237,8 +337,11 @@ fn production_eligibility(
     )
 }
 fn refund_source_is_current(state: &WorldState, order: &AgentIndustrialOrderV1) -> bool {
-        match super::readonly_manufacturing::refund_source_is_current_readonly_v1(state,order) {Ok(value)=>value,Err(never)=>match never{}}
+    match super::readonly_manufacturing::refund_source_is_current_readonly_v1(state, order) {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
+}
 
 pub fn order_production_eligibility(
     state: &WorldState,
@@ -282,8 +385,14 @@ pub fn order_production_eligibility(
 impl WorldState {
     /// Private order bodies belong to the frozen principal, not merely a
     /// reusable Agent registry key. Source revocation leaves public status only.
-    pub fn can_read_agent_industrial_order(&self,order:&AgentIndustrialOrderV1,reader:Option<&str>,world_binding:Option<&str>)->bool{
-        let owner=self.resolved_agent_owner(&order.owner_id);can_read_agent_industrial_order_from_owner_v1(order,reader,world_binding,owner.as_ref())
+    pub fn can_read_agent_industrial_order(
+        &self,
+        order: &AgentIndustrialOrderV1,
+        reader: Option<&str>,
+        world_binding: Option<&str>,
+    ) -> bool {
+        let owner = self.resolved_agent_owner(&order.owner_id);
+        can_read_agent_industrial_order_from_owner_v1(order, reader, world_binding, owner.as_ref())
     }
     pub fn agent_manufacturing_quote(
         &self,
@@ -300,7 +409,16 @@ impl WorldState {
         quoted_at: WorldTime,
         world_binding: Option<&str>,
     ) -> Result<AgentManufacturingQuoteV1, WorldError> {
-        match super::readonly_manufacturing::agent_manufacturing_quote_readonly_v1(self,owner,factory_id,quoted_at,world_binding) {Ok(result)=>result,Err(never)=>match never{}}
+        match super::readonly_manufacturing::agent_manufacturing_quote_readonly_v1(
+            self,
+            owner,
+            factory_id,
+            quoted_at,
+            world_binding,
+        ) {
+            Ok(result) => result,
+            Err(never) => match never {},
+        }
     }
 }
 impl PreparedWorldRule {
@@ -454,10 +572,15 @@ impl PreparedWorldRule {
                         self.terminate_industrial(state, &mut order, "owner_disposed", now)?;
                     }
                     _ => {
-                        match advance_industrial_order_from_source_v1(&mut order, now, IndustrialAdvanceEligibilityV1::LegacyWorld(state))? {
-                            IndustrialAdvanceOutcomeV1::Updated => {},
-                            IndustrialAdvanceOutcomeV1::Terminate(reason) =>
-                                self.terminate_industrial(state, &mut order, reason, now)?,
+                        match advance_industrial_order_from_source_v1(
+                            &mut order,
+                            now,
+                            IndustrialAdvanceEligibilityV1::LegacyWorld(state),
+                        )? {
+                            IndustrialAdvanceOutcomeV1::Updated => {}
+                            IndustrialAdvanceOutcomeV1::Terminate(reason) => {
+                                self.terminate_industrial(state, &mut order, reason, now)?
+                            }
                         }
                     }
                 }
@@ -499,10 +622,15 @@ impl PreparedWorldRule {
                 .unwrap_or_default();
             add_industrial_refund_materials_v1(order, &mut refunded)?;
             self.ledgers.insert(ledger.clone(), refunded);
-            add_industrial_refund_electricity_v1(order, &mut self.agents
-                .get_mut(&order.owner_id)
-                .ok_or_else(|| invalid("owner_missing"))?
-                .state.resources)?;
+            add_industrial_refund_electricity_v1(
+                order,
+                &mut self
+                    .agents
+                    .get_mut(&order.owner_id)
+                    .ok_or_else(|| invalid("owner_missing"))?
+                    .state
+                    .resources,
+            )?;
         }
         let mut account = state
             .main_token_balances
@@ -611,17 +739,43 @@ impl PreparedWorldRule {
 
 #[path = "industrial_advance.rs"]
 mod advance;
-pub use advance::{IndustrialAdvancePhaseV1, IndustrialAdvanceOutcomeV1, industrial_advance_phase_v1, advance_industrial_order_from_source_v1, IndustrialAdvanceEligibilityV1};
+pub use advance::{
+    IndustrialAdvanceEligibilityV1, IndustrialAdvanceOutcomeV1, IndustrialAdvancePhaseV1,
+    advance_industrial_order_from_source_v1, industrial_advance_phase_v1,
+};
 
 #[path = "industrial_refund.rs"]
 mod refund;
-pub use refund::{mark_industrial_order_terminated_v1,validate_industrial_refund_phase_v1,add_industrial_refund_materials_v1,add_industrial_refund_electricity_v1,add_industrial_refund_account_v1,finish_industrial_refund_v1};
+pub use refund::{
+    add_industrial_refund_account_v1, add_industrial_refund_electricity_v1,
+    add_industrial_refund_materials_v1, finish_industrial_refund_v1,
+    mark_industrial_order_terminated_v1, validate_industrial_refund_phase_v1,
+};
 
 /// Visibility only, shared by the original State wrapper and immutable Current
 /// projection facts. It cannot create an order, grant a lease or apply an action.
-pub fn can_read_agent_industrial_order_from_owner_v1(order:&AgentIndustrialOrderV1,reader:Option<&str>,world_binding:Option<&str>,owner:Option<&crate::ResolvedAgentOwnerV1>)->bool{
- reader==Some(order.owner_id.as_str())&&order.quote.world_binding.as_deref()==world_binding&&owner.is_some_and(|owner|owner.player_id==order.quote.owner_player_id&&owner.source_id==order.quote.owner_source_id&&owner.public_key.as_ref().is_some_and(|key|!key.is_empty()))
+pub fn can_read_agent_industrial_order_from_owner_v1(
+    order: &AgentIndustrialOrderV1,
+    reader: Option<&str>,
+    world_binding: Option<&str>,
+    owner: Option<&crate::ResolvedAgentOwnerV1>,
+) -> bool {
+    reader == Some(order.owner_id.as_str())
+        && order.quote.world_binding.as_deref() == world_binding
+        && owner.is_some_and(|owner| {
+            owner.player_id == order.quote.owner_player_id
+                && owner.source_id == order.quote.owner_source_id
+                && owner.public_key.as_ref().is_some_and(|key| !key.is_empty())
+        })
 }
 
 /// Original slot-reservation predicate, shared by mutation and readonly facts.
-pub fn manufacturing_order_reserves_slot_v1(order:&AgentIndustrialOrderV1,factory:&str)->bool{order.factory_id==factory&&matches!(order.phase,AgentIndustrialPhaseV1::Reserved|AgentIndustrialPhaseV1::Producing|AgentIndustrialPhaseV1::ProductionBlocked)}
+pub fn manufacturing_order_reserves_slot_v1(order: &AgentIndustrialOrderV1, factory: &str) -> bool {
+    order.factory_id == factory
+        && matches!(
+            order.phase,
+            AgentIndustrialPhaseV1::Reserved
+                | AgentIndustrialPhaseV1::Producing
+                | AgentIndustrialPhaseV1::ProductionBlocked
+        )
+}

@@ -82,23 +82,68 @@ fn authorization_root_read_profile_v1() -> crate::incremental_record_value_read:
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn read_current_authorization_root_value_v1<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(
-    qualification:&oasis7_proto::memory_budget::ReservedValue<RuntimeAuthorizationRootQualificationV1>,roots:&oasis7_formal_protocol::incremental_execution::RootSetV1,
-    ctx:&mut crate::incremental_field_overlay::WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,max_bytes:u64,
-    guard:&oasis7_formal_protocol::incremental_execution::PreparedGuard,live:&oasis7_formal_protocol::incremental_execution::ExecutionFence,output:&mut impl std::io::Write,
-)->Result<u64,crate::incremental_field_overlay::WorldFieldOverlayErrorV1>{
-    use crate::{incremental_inventory_value_read::InventoryValueReader,incremental_field_overlay::lookup,incremental_record_value_read::*};
-    ctx.transaction.contribute(|tx|{
-        tx.validate_guard(guard,live)?;qualification.validate_binding(roots)?;
-        if !qualification.uses_budget(ctx.values.memory)||qualification.allocation_class()!=oasis7_proto::memory_budget::MemoryClass::Ordinary||!tx.uses_budget(ctx.values.memory)||ctx.values.class!=oasis7_proto::memory_budget::MemoryClass::Ordinary||tx.parent_fence().parent_roots!=roots.digest()?{return Err(ValueTreeError::Invalid("Current authorization root source").into())}
-        let mut records=InventoryValueReader{values:&mut ctx.values,key_work:&mut*ctx.key_work,semantic_bytes:ctx.semantic_bytes,record_bytes:ctx.record_bytes,cancelled:&mut ctx.cancelled};
-        let field=authorization_root_descriptor_v1();let meta=WorldFieldKeyV1::new(field,WorldFieldRecordKindV1::Metadata,None).map_err(ValueTreeError::Invalid)?;
-        let value=lookup(tx,&meta,&mut records,&mut ctx.take_state_error)?.ok_or(ValueTreeError::Invalid("Current authorization root metadata"))?;records.presence(&value,&meta,0)?;
-        let key=records.key(field,WorldFieldRecordKindV1::Entry,&())?;
-        let value=lookup(tx,&key.0,&mut records,&mut ctx.take_state_error)?.ok_or(ValueTreeError::Invalid("Current authorization root absent"))?;
-        let value=read_record_value_v1(&value,&key,&mut records,max_bytes,output,authorization_root_read_profile_v1())?;
-        tx.validate_guard(&tx.guard(),live)?;
-        match value{RecordValueV1::Text{utf8_bytes}=>Ok(utf8_bytes),_=>Err(ValueTreeError::Invalid("Current authorization root codec").into())}
+pub fn read_current_authorization_root_value_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    qualification: &oasis7_proto::memory_budget::ReservedValue<
+        RuntimeAuthorizationRootQualificationV1,
+    >,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    ctx: &mut crate::incremental_field_overlay::WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    max_bytes: u64,
+    guard: &oasis7_formal_protocol::incremental_execution::PreparedGuard,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    output: &mut impl std::io::Write,
+) -> Result<u64, crate::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+    use crate::{
+        incremental_field_overlay::lookup, incremental_inventory_value_read::InventoryValueReader,
+        incremental_record_value_read::*,
+    };
+    ctx.transaction.contribute(|tx| {
+        tx.validate_guard(guard, live)?;
+        qualification.validate_binding(roots)?;
+        if !qualification.uses_budget(ctx.values.memory)
+            || qualification.allocation_class()
+                != oasis7_proto::memory_budget::MemoryClass::Ordinary
+            || !tx.uses_budget(ctx.values.memory)
+            || ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+            || tx.parent_fence().parent_roots != roots.digest()?
+        {
+            return Err(ValueTreeError::Invalid("Current authorization root source").into());
+        }
+        let mut records = InventoryValueReader {
+            values: &mut ctx.values,
+            key_work: &mut *ctx.key_work,
+            semantic_bytes: ctx.semantic_bytes,
+            record_bytes: ctx.record_bytes,
+            cancelled: &mut ctx.cancelled,
+        };
+        let field = authorization_root_descriptor_v1();
+        let meta = WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Metadata, None)
+            .map_err(ValueTreeError::Invalid)?;
+        let value = lookup(tx, &meta, &mut records, &mut ctx.take_state_error)?.ok_or(
+            ValueTreeError::Invalid("Current authorization root metadata"),
+        )?;
+        records.presence(&value, &meta, 0)?;
+        let key = records.key(field, WorldFieldRecordKindV1::Entry, &())?;
+        let value = lookup(tx, &key.0, &mut records, &mut ctx.take_state_error)?
+            .ok_or(ValueTreeError::Invalid("Current authorization root absent"))?;
+        let value = read_record_value_v1(
+            &value,
+            &key,
+            &mut records,
+            max_bytes,
+            output,
+            authorization_root_read_profile_v1(),
+        )?;
+        tx.validate_guard(&tx.guard(), live)?;
+        match value {
+            RecordValueV1::Text { utf8_bytes } => Ok(utf8_bytes),
+            _ => Err(ValueTreeError::Invalid("Current authorization root codec").into()),
+        }
     })
 }
 

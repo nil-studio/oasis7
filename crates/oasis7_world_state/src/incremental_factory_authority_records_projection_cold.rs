@@ -7,7 +7,9 @@ pub struct QualifiedFactoryAuthorityProjectionColumnsV1 {
     data: CurrentFactoryAuthorityProjectionDeltaV1,
 }
 impl QualifiedFactoryAuthorityProjectionColumnsV1 {
-    pub fn record_counts(&self) -> [u64; 2] { self.counts }
+    pub fn record_counts(&self) -> [u64; 2] {
+        self.counts
+    }
     pub fn validate<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,

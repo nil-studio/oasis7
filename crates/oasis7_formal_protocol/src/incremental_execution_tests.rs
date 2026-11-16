@@ -994,7 +994,6 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
 #[path = "incremental_final_fact_tests.rs"]
 mod final_fact_tests;
 
-
 #[test]
 fn pending_write_inspection_scopes_namespace_and_preserves_guard_on_callback_error() {
     let pages = Pages::default();

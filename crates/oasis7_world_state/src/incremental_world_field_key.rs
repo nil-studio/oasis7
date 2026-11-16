@@ -115,7 +115,9 @@ impl WorldFieldKeyV1 {
     /// Decodes structural ownership only. Consumers must bind the registered
     /// descriptor, expected namespace and the value's original semantic key.
     /// Readonly routing only; full grammar and registration remain checked by the original parser and field owner.
-    pub fn is_field_key_v1(bytes:&[u8])->bool{bytes.starts_with(DOMAIN)}
+    pub fn is_field_key_v1(bytes: &[u8]) -> bool {
+        bytes.starts_with(DOMAIN)
+    }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<WorldFieldKeyRefV1<'_>, &'static str> {
         let start = DOMAIN.len();

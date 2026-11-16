@@ -144,7 +144,25 @@ fn changed<R: ValueNodeReader, C: FnMut() -> bool>(
         visit(cell, records)
     })
 }
-pub(super) fn child<R:ValueNodeReader,C:FnMut()->bool>(kind:GovernanceRecordKindV1,before:&StateRootV1,after:&StateRootV1,records:&mut InventoryValueReader<'_, '_,R,C>,cells:&mut u64,max:u64)->Result<(),ValueTreeError>{child_with_work_and_observer(kind,before,after,records,cells,max,|_,_,_,_|Ok(()),&mut |_|Ok(()))}
+pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: GovernanceRecordKindV1,
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    max: u64,
+) -> Result<(), ValueTreeError> {
+    child_with_work_and_observer(
+        kind,
+        before,
+        after,
+        records,
+        cells,
+        max,
+        |_, _, _, _| Ok(()),
+        &mut |_| Ok(()),
+    )
+}
 pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: GovernanceRecordKindV1,
     before: &StateRootV1,
@@ -152,8 +170,13 @@ pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> boo
     records: &mut InventoryValueReader<'_, '_, R, C>,
     cells: &mut u64,
     max: u64,
-    mut observe:impl FnMut(GovernanceCellV1<'_>,Option<&StateEntryV1>,Option<&StateEntryV1>,&mut InventoryValueReader<'_, '_,R,C>)->Result<(),ValueTreeError>,
-    work:&mut dyn FnMut(usize)->Result<(),ValueTreeError>,
+    mut observe: impl FnMut(
+        GovernanceCellV1<'_>,
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+    ) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
     if before.namespace != kind.namespace() || after.namespace != kind.namespace() {
         return Err(invalid());
@@ -225,7 +248,7 @@ pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> boo
                         changes[3].observe(old.is_some(), new.is_some(), None)?
                     }
                 }
-                observe(cell,old,new,records)
+                observe(cell, old, new, records)
             })
         },
         work,

@@ -66,7 +66,7 @@ pub struct WorldRulesContinuityProjection<'a> {
     pub organization_continuity: &'a OrganizationContinuityStateV1,
 }
 
-#[path="world_rules/projection_fields.rs"]
+#[path = "world_rules/projection_fields.rs"]
 mod projection_fields;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldRuleReceiptV1 {
@@ -123,40 +123,56 @@ impl PreparedWorldRule {
             industry: None,
             claim: None,
         };
-        let start_root=matches!(command,WorldRuleCommandV1::IndustrialWork{command}if matches!(&**command,oasis7_agent_api::world_action::IndustrialWorkCommandV1::StartRoot{..}));
+        let start_root = matches!(command,WorldRuleCommandV1::IndustrialWork{command}if matches!(&**command,oasis7_agent_api::world_action::IndustrialWorkCommandV1::StartRoot{..}));
         if start_root {
-            match readonly_start_envelope::envelope(state,actor_id,request_id,command,world_binding.as_deref()) {Ok(result)=>if matches!(result?,readonly_start_envelope::StartEnvelopeDataV1::Replay){return Ok(next)},Err(never)=>match never{}}
-        } else {
-        if let Some(receipt) = next.rules.requests.get(&key) {
-            if receipt.actor_id != *actor_id || receipt.command != *command {
-                return Err(invalid("request_content_conflict"));
+            match readonly_start_envelope::envelope(
+                state,
+                actor_id,
+                request_id,
+                command,
+                world_binding.as_deref(),
+            ) {
+                Ok(result) => {
+                    if matches!(
+                        result?,
+                        readonly_start_envelope::StartEnvelopeDataV1::Replay
+                    ) {
+                        return Ok(next);
+                    }
+                }
+                Err(never) => match never {},
             }
-            return Ok(next);
-        }
-        validate_manufactured_world_scope(state, actor_id, world_binding.as_deref())?;
-        if serde_json::to_vec(command)?.len() > 65_536 {
-            return Err(invalid("world_rule_command_too_large"));
-        }
-        if matches!(
-            command,
-            WorldRuleCommandV1::OpenOrganizationProtection { .. }
-                | WorldRuleCommandV1::BeginOrganizationDissolution { .. }
-                | WorldRuleCommandV1::AdvanceOrganization { .. }
-                | WorldRuleCommandV1::GrantOrganizationScope { .. }
-                | WorldRuleCommandV1::RevokeOrganizationScope { .. }
-                | WorldRuleCommandV1::RequestOrganizationRecovery { .. }
-                | WorldRuleCommandV1::ResolveOrganizationRecovery { .. }
-                | WorldRuleCommandV1::DisposeOrganizationEstate { .. }
-        ) {
-            return Err(invalid("organization_continuity_upgrade_required"));
-        }
-        if command
-            .governance_proposal()
-            .is_some_and(|id| next.rules.governance_effects.contains_key(id))
-        {
-            return Err(invalid("governance_proposal_already_consumed"));
-        }
-        if state
+        } else {
+            if let Some(receipt) = next.rules.requests.get(&key) {
+                if receipt.actor_id != *actor_id || receipt.command != *command {
+                    return Err(invalid("request_content_conflict"));
+                }
+                return Ok(next);
+            }
+            validate_manufactured_world_scope(state, actor_id, world_binding.as_deref())?;
+            if serde_json::to_vec(command)?.len() > 65_536 {
+                return Err(invalid("world_rule_command_too_large"));
+            }
+            if matches!(
+                command,
+                WorldRuleCommandV1::OpenOrganizationProtection { .. }
+                    | WorldRuleCommandV1::BeginOrganizationDissolution { .. }
+                    | WorldRuleCommandV1::AdvanceOrganization { .. }
+                    | WorldRuleCommandV1::GrantOrganizationScope { .. }
+                    | WorldRuleCommandV1::RevokeOrganizationScope { .. }
+                    | WorldRuleCommandV1::RequestOrganizationRecovery { .. }
+                    | WorldRuleCommandV1::ResolveOrganizationRecovery { .. }
+                    | WorldRuleCommandV1::DisposeOrganizationEstate { .. }
+            ) {
+                return Err(invalid("organization_continuity_upgrade_required"));
+            }
+            if command
+                .governance_proposal()
+                .is_some_and(|id| next.rules.governance_effects.contains_key(id))
+            {
+                return Err(invalid("governance_proposal_already_consumed"));
+            }
+            if state
             .gameplay_policy
             .blocked_agents
             .iter()
@@ -510,9 +526,11 @@ impl WorldState {
         reader: Option<&str>,
         world_binding: Option<&str>,
     ) -> Option<serde_json::Value> {
-        match world_rule_status_readonly_v1(self,reader,world_binding){Ok(value)=>value,Err(never)=>match never{}}
+        match world_rule_status_readonly_v1(self, reader, world_binding) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
-
 }
 
 impl WorldRulesStateV1 {
@@ -551,30 +569,52 @@ impl WorldRulesStateV1 {
         value.substitution = SubstitutionStateV1::default();
         value.emergency_supply = self.emergency_supply.for_reader(reader);
         value.organization_continuity = self.organization_continuity.for_reader(reader);
-        let visibility_source=readonly_visibility::LegacySupplyVisibilityV1(&self.supply_authorizations);
-        let visibility=readonly_visibility::supply_visibility_plan_v1(&visibility_source,reader).unwrap();
+        let visibility_source =
+            readonly_visibility::LegacySupplyVisibilityV1(&self.supply_authorizations);
+        let visibility =
+            readonly_visibility::supply_visibility_plan_v1(&visibility_source, reader).unwrap();
         for auth in value.supply_authorizations.values_mut() {
-            auth.requests.retain(|id,_|visibility.request(&visibility_source,&auth.provider_id,id,reader).unwrap());
+            auth.requests.retain(|id, _| {
+                visibility
+                    .request(&visibility_source, &auth.provider_id, id, reader)
+                    .unwrap()
+            });
         }
         for batch in value.supply_batches.values_mut() {
-            let provider=visibility.provider(&visibility_source,&batch.authorization_id,reader).unwrap();
-            batch
-                .demands
-                .retain(|id, _| visibility.beneficiary_request(&visibility_source,provider,id,reader).unwrap());
-            batch
-                .allocation
-                .retain(|id, _| visibility.beneficiary_request(&visibility_source,provider,id,reader).unwrap());
+            let provider = visibility
+                .provider(&visibility_source, &batch.authorization_id, reader)
+                .unwrap();
+            batch.demands.retain(|id, _| {
+                visibility
+                    .beneficiary_request(&visibility_source, provider, id, reader)
+                    .unwrap()
+            });
+            batch.allocation.retain(|id, _| {
+                visibility
+                    .beneficiary_request(&visibility_source, provider, id, reader)
+                    .unwrap()
+            });
             batch
                 .frozen_lineages
-                .retain(|id, _| visibility.lineage(&visibility_source,id).unwrap());
+                .retain(|id, _| visibility.lineage(&visibility_source, id).unwrap());
         }
         value
             .supply_lineages
-            .retain(|id, _| visibility.lineage(&visibility_source,id).unwrap());
-        value.supply_shipments.retain(|_,shipment|visibility.shipment(&visibility_source,shipment,reader).unwrap());
+            .retain(|id, _| visibility.lineage(&visibility_source, id).unwrap());
+        value.supply_shipments.retain(|_, shipment| {
+            visibility
+                .shipment(&visibility_source, shipment, reader)
+                .unwrap()
+        });
         for case in value.organization_cases.values_mut() {
-            let custodian=visibility.case_custodian(&visibility_source,case,reader).unwrap();
-            case.requests.retain(|_,request|visibility.case_request(&visibility_source,custodian,&request.requester_id,reader).unwrap());
+            let custodian = visibility
+                .case_custodian(&visibility_source, case, reader)
+                .unwrap();
+            case.requests.retain(|_, request| {
+                visibility
+                    .case_request(&visibility_source, custodian, &request.requester_id, reader)
+                    .unwrap()
+            });
         }
         value
     }
@@ -613,13 +653,22 @@ pub use industrial_work_start::{
     validate_industrial_output_capacity_from_reservations_with_work_v1,
 };
 mod readonly_owner;
-pub use readonly_owner::{IndustrialOwnerReadonlyFactsV1,is_manufactured_agent_readonly_v1,resolve_industrial_owner_readonly_v1};
+pub use readonly_owner::{
+    IndustrialOwnerReadonlyFactsV1, is_manufactured_agent_readonly_v1,
+    resolve_industrial_owner_readonly_v1,
+};
 mod readonly_manufacturing;
-pub use readonly_manufacturing::{ManufacturingQuoteReadonlyFactsV1,agent_manufacturing_quote_readonly_v1,industrial_order_blocker_readonly_v1,order_production_eligibility_readonly_v1,refund_source_is_current_readonly_v1};
+pub use readonly_manufacturing::{
+    ManufacturingQuoteReadonlyFactsV1, agent_manufacturing_quote_readonly_v1,
+    industrial_order_blocker_readonly_v1, order_production_eligibility_readonly_v1,
+    refund_source_is_current_readonly_v1,
+};
 mod readonly_organization;
-pub use readonly_organization::{OrganizationActivityReadonlyFactsV1,organization_activity_candidates_readonly_v1};
-mod readonly_order_validation;
+pub use readonly_organization::{
+    OrganizationActivityReadonlyFactsV1, organization_activity_candidates_readonly_v1,
+};
 mod readonly_format;
+mod readonly_order_validation;
 
 #[path = "world_rules/supply_current_observation.rs"]
 mod supply_current_observation;
@@ -629,22 +678,27 @@ pub use supply_current_observation::{
     validate_current_observation_shape_v2,
 };
 
-mod readonly_industrial_data;
-mod readonly_parent_consumption;
-mod readonly_start_gates;
-mod readonly_industrial_scratch;
-mod readonly_recipe_tags;
 mod readonly_industrial_consume;
+mod readonly_industrial_data;
+mod readonly_industrial_scratch;
+mod readonly_parent_consumption;
+mod readonly_recipe_tags;
+mod readonly_start_gates;
 
+pub use readonly_industrial_consume::{
+    IndustrialProductReadonlyFactsV1, industrial_effective_consume_readonly_v1,
+};
 pub use readonly_recipe_tags::compatible as recipe_preferred_tags_with_work_v1;
-pub use readonly_industrial_consume::{IndustrialProductReadonlyFactsV1,industrial_effective_consume_readonly_v1};
 
 pub use readonly_industrial_scratch::IndustrialScratchReadonlyFactsV1;
 
 mod readonly_output_capacity;
 
 mod readonly_industrial_start;
-pub use readonly_industrial_start::{IndustrialStartReadonlyFactsV1,IndustrialStartInputPreviewDataV1,preview_industrial_start_inputs_readonly_v1};
+pub use readonly_industrial_start::{
+    IndustrialStartInputPreviewDataV1, IndustrialStartReadonlyFactsV1,
+    preview_industrial_start_inputs_readonly_v1,
+};
 
 pub(crate) use readonly_format::format as format_readonly_data_v1;
 
@@ -654,32 +708,43 @@ pub(crate) mod readonly_recipe_started;
 pub use readonly_recipe_started::RecipeStartedReadonlyFactsV1;
 
 mod readonly_start_recipe_overlay;
-pub use readonly_industrial_start::{IndustrialStartRecipePreviewDataV1,preview_industrial_start_recipe_readonly_v1};
+pub use readonly_industrial_start::{
+    IndustrialStartRecipePreviewDataV1, preview_industrial_start_recipe_readonly_v1,
+};
 
 pub(crate) use readonly_recipe_started::factory_capacity_reservation_gate_v1 as readonly_recipe_factory_capacity_gate_v1;
 
 mod readonly_start_envelope;
-pub use readonly_start_envelope::{IndustrialStartEnvelopeReadonlyFactsV1,IndustrialStartRehearsalDataV1,preview_new_recipe_start_root_readonly_v1};
+pub use readonly_start_envelope::{
+    IndustrialStartEnvelopeReadonlyFactsV1, IndustrialStartRehearsalDataV1,
+    preview_new_recipe_start_root_readonly_v1,
+};
 
 mod readonly_industrial_receipt;
 pub use readonly_industrial_receipt::IndustrialReceiptReadonlyFactsV1;
 
 mod readonly_start_industrial_overlay;
 
-mod readonly_substitution_data;
 mod readonly_substitution;
-pub use readonly_substitution::{SubstitutionReadonlyFactsV1,preview_substitution_readonly_v1};
+mod readonly_substitution_data;
+pub use readonly_substitution::{SubstitutionReadonlyFactsV1, preview_substitution_readonly_v1};
 
 mod industrial_work_visibility;
-pub use industrial_work_visibility::{industrial_root_reader_with_work_v1,industrial_receipt_reader_with_work_v1,industrial_binding_reader_with_work_v1,industrial_reference_equal_with_work_v1};
+pub use industrial_work_visibility::{
+    industrial_binding_reader_with_work_v1, industrial_receipt_reader_with_work_v1,
+    industrial_reference_equal_with_work_v1, industrial_root_reader_with_work_v1,
+};
 
 mod substitution_visibility;
-pub use substitution_visibility::{current_rule_request_visible_with_work_v1,substitution_authority_visible_with_work_v1,substitution_decision_visible_with_work_v1};
+pub use substitution_visibility::{
+    current_rule_request_visible_with_work_v1, substitution_authority_visible_with_work_v1,
+    substitution_decision_visible_with_work_v1,
+};
 
 mod readonly_status;
-mod readonly_status_substitution;
 mod readonly_status_legacy;
-pub use readonly_status::{WorldRuleStatusReadonlyFactsV1,world_rule_status_readonly_v1};
+mod readonly_status_substitution;
+pub use readonly_status::{WorldRuleStatusReadonlyFactsV1, world_rule_status_readonly_v1};
 
 pub use industrial_work_admission::industrial_owner_binding_with_work_v1;
 

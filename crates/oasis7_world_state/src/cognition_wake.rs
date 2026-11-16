@@ -76,7 +76,10 @@ impl AgentContinuation {
     /// legacy persisted shape may omit `continuation_status_digest`, but a
     /// projection crossing into the simulator must carry the Runtime-issued
     /// digest and match the canonical status fields exactly.
-    pub(crate) fn validate_identity_for_schema_v1(&self, schema: &str) -> Result<(), WakeConditionError> {
+    pub(crate) fn validate_identity_for_schema_v1(
+        &self,
+        schema: &str,
+    ) -> Result<(), WakeConditionError> {
         let bounded = |value: &str| is_canonical_identifier(value, MAX_ID_BYTES);
         let terminal = matches!(
             self.status,
@@ -127,24 +130,84 @@ impl AgentContinuation {
     }
 
     pub fn validate_authoritative(&self) -> Result<(), WakeConditionError> {
-        match self.validate_authoritative_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1){Ok(result)=>result,Err(_)=>unreachable!("legacy continuation work cannot fail")}
+        match self
+            .validate_authoritative_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+        {
+            Ok(result) => result,
+            Err(_) => unreachable!("legacy continuation work cannot fail"),
+        }
     }
-    pub fn validate_authoritative_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(&self,source:&A)->Result<Result<(),WakeConditionError>,oasis7_wasm_abi::CanonicalCborStreamError>{
-        source.charge_work(1,0)?;
-        let identity_bytes=[self.schema_version.as_str(),self.continuation_id.as_str(),self.wake_id.as_str(),self.world_id.as_str(),self.branch_id.as_str(),self.finality_status.as_str(),self.runtime_manifest_hash.as_str(),self.agent_id.as_str(),self.agent_session_id.as_str(),self.agent_turn_id.as_str(),self.decision_request_id.as_str(),self.origin_turn_id.as_str(),self.origin_request_digest.as_str(),self.continuation_proposal_id.as_str(),self.proposal_digest.as_str(),self.precondition_digest.as_str(),self.remaining_budget.unit.as_str()].into_iter().chain([self.finality_block_hash.as_deref(),self.action_or_envelope_digest.as_deref(),self.terminal_disposition.as_deref()].into_iter().flatten());
-        for text in identity_bytes {for part in text.as_bytes().chunks(8192){source.charge_work(1+4*part.len()as u64,part.len()as u64)?;}}
-        if let Err(error)=self.validate_identity_for_schema_v1(CONTINUATION_SCHEMA){return Ok(Err(error))}
-        let terminal = matches!(self.status, ContinuationStatusV1::Completed | ContinuationStatusV1::Cancelled | ContinuationStatusV1::Invalidated | ContinuationStatusV1::Expired | ContinuationStatusV1::Rejected);
-        if let Err(error)=WakeConditionValidator::validate_with_work_v1(self.wake_conditions.as_slice(),source)?{return Ok(Err(error))}
+    pub fn validate_authoritative_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<Result<(), WakeConditionError>, oasis7_wasm_abi::CanonicalCborStreamError> {
+        source.charge_work(1, 0)?;
+        let identity_bytes = [
+            self.schema_version.as_str(),
+            self.continuation_id.as_str(),
+            self.wake_id.as_str(),
+            self.world_id.as_str(),
+            self.branch_id.as_str(),
+            self.finality_status.as_str(),
+            self.runtime_manifest_hash.as_str(),
+            self.agent_id.as_str(),
+            self.agent_session_id.as_str(),
+            self.agent_turn_id.as_str(),
+            self.decision_request_id.as_str(),
+            self.origin_turn_id.as_str(),
+            self.origin_request_digest.as_str(),
+            self.continuation_proposal_id.as_str(),
+            self.proposal_digest.as_str(),
+            self.precondition_digest.as_str(),
+            self.remaining_budget.unit.as_str(),
+        ]
+        .into_iter()
+        .chain(
+            [
+                self.finality_block_hash.as_deref(),
+                self.action_or_envelope_digest.as_deref(),
+                self.terminal_disposition.as_deref(),
+            ]
+            .into_iter()
+            .flatten(),
+        );
+        for text in identity_bytes {
+            for part in text.as_bytes().chunks(8192) {
+                source.charge_work(1 + 4 * part.len() as u64, part.len() as u64)?;
+            }
+        }
+        if let Err(error) = self.validate_identity_for_schema_v1(CONTINUATION_SCHEMA) {
+            return Ok(Err(error));
+        }
+        let terminal = matches!(
+            self.status,
+            ContinuationStatusV1::Completed
+                | ContinuationStatusV1::Cancelled
+                | ContinuationStatusV1::Invalidated
+                | ContinuationStatusV1::Expired
+                | ContinuationStatusV1::Rejected
+        );
+        if let Err(error) =
+            WakeConditionValidator::validate_with_work_v1(self.wake_conditions.as_slice(), source)?
+        {
+            return Ok(Err(error));
+        }
         if (terminal && self.terminal_disposition.is_none())
             || (!terminal && self.terminal_disposition.is_some())
-
         {
             return Ok(Err(WakeConditionError::new("recovery_pending")));
         }
-        let digest=self.status_digest_with_work_v1(source)?;
-        source.charge_work(1,self.continuation_status_digest.as_ref().map_or(0,String::len)as u64+digest.as_str().len()as u64)?;
-        if self.continuation_status_digest.as_deref()!=Some(digest.as_str()){return Ok(Err(WakeConditionError::new("recovery_pending")))}
+        let digest = self.status_digest_with_work_v1(source)?;
+        source.charge_work(
+            1,
+            self.continuation_status_digest
+                .as_ref()
+                .map_or(0, String::len) as u64
+                + digest.as_str().len() as u64,
+        )?;
+        if self.continuation_status_digest.as_deref() != Some(digest.as_str()) {
+            return Ok(Err(WakeConditionError::new("recovery_pending")));
+        }
         Ok(Ok(()))
     }
 
@@ -196,11 +259,24 @@ impl AgentContinuation {
             terminal_disposition: self.terminal_disposition.as_deref(),
         }
     }
-    pub fn status_digest_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(&self,source:&A)->Result<oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,oasis7_wasm_abi::CanonicalCborStreamError>{
-        oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(CONTINUATION_STATUS_DIGEST_DOMAIN,&self.status_digest_input_v1(),source)
+    pub fn status_digest_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
+            CONTINUATION_STATUS_DIGEST_DOMAIN,
+            &self.status_digest_input_v1(),
+            source,
+        )
     }
     pub fn status_digest(&self) -> String {
-        h_v1(CONTINUATION_STATUS_DIGEST_DOMAIN, &self.status_digest_input_v1())
+        h_v1(
+            CONTINUATION_STATUS_DIGEST_DOMAIN,
+            &self.status_digest_input_v1(),
+        )
     }
 }
 #[derive(Debug, Serialize)]
@@ -227,6 +303,6 @@ fn h_v1<T: Serialize>(domain: &str, payload: &T) -> String {
     format!("blake3:{}", blake3::hash(&bytes))
 }
 
-#[path="cognition_iws_continuation_v2.rs"]
+#[path = "cognition_iws_continuation_v2.rs"]
 mod iws_v2;
 pub use iws_v2::*;

@@ -107,20 +107,21 @@ impl Builder {
         receipt: &crate::world_rules::WorldRuleReceiptV1,
         fee: &mut Fee<'_>,
     ) -> Result<(), ValueTreeError> {
-        fee(1,u(add(receipt.actor_id.len(),receipt.request_id.len())?)?)?;
-        let key_fee=self.memory.reserve(outer.len().checked_add(512).ok_or_else(limit)?,self.class)?;
-        if crate::world_rules::request_key(&receipt.actor_id,&receipt.request_id)!=outer {
-            return Err(ValueTreeError::Invalid("request result index outer binding"));
+        fee(
+            1,
+            u(add(receipt.actor_id.len(), receipt.request_id.len())?)?,
+        )?;
+        let key_fee = self
+            .memory
+            .reserve(outer.len().checked_add(512).ok_or_else(limit)?, self.class)?;
+        if crate::world_rules::request_key(&receipt.actor_id, &receipt.request_id) != outer {
+            return Err(ValueTreeError::Invalid(
+                "request result index outer binding",
+            ));
         }
         drop(key_fee);
-        let mut bytes = add(
-            arc::<Row>()?,
-            add(outer.len(), receipt.actor_id.len())?,
-        )?;
-        bytes = add(
-            bytes,
-            mul(2, size_of::<String>())?,
-        )?;
+        let mut bytes = add(arc::<Row>()?, add(outer.len(), receipt.actor_id.len())?)?;
+        bytes = add(bytes, mul(2, size_of::<String>())?)?;
         for id in [&receipt.result_id, &receipt.request_id] {
             fee(1, u(id.len())?)?;
             bytes = add(bytes, id.len())?;
@@ -141,26 +142,30 @@ impl Builder {
         }
         let outer_copy = outer.to_owned();
         let organization = receipt.actor_id.clone();
-        if outer_copy.capacity() > outer.len()
-            || organization.capacity() > receipt.actor_id.len()
-        {
+        if outer_copy.capacity() > outer.len() || organization.capacity() > receipt.actor_id.len() {
             return Err(limit());
         }
         self.remove(outer, fee)?;
         self.capacity(add(self.rows.len(), 1)?)?;
         // Original requests.values() traverses outer BTree keys. Preserve that
         // order after sparse replacement as well as after cold construction.
-        let mut position=self.rows.len();
-        for (index,row) in self.rows.iter().enumerate(){
-            fee(1,u(add(row.outer.len(),outer.len())?)?)?;
-            if row.outer.as_str()>outer{position=index;break;}
+        let mut position = self.rows.len();
+        for (index, row) in self.rows.iter().enumerate() {
+            fee(1, u(add(row.outer.len(), outer.len())?)?)?;
+            if row.outer.as_str() > outer {
+                position = index;
+                break;
+            }
         }
-        fee(1,u(mul(self.rows.len()-position,size_of::<Held>())?)?)?;
-        self.rows.insert(position,Arc::new(paid.retain(Row {
-            outer: outer_copy,
-            organization,
-            result_and_request,
-        })));
+        fee(1, u(mul(self.rows.len() - position, size_of::<Held>())?)?)?;
+        self.rows.insert(
+            position,
+            Arc::new(paid.retain(Row {
+                outer: outer_copy,
+                organization,
+                result_and_request,
+            })),
+        );
         Ok(())
     }
     pub(crate) fn finish(self) -> Result<RequestsResultIndexV1, ValueTreeError> {
@@ -183,9 +188,7 @@ impl RequestsResultIndexV1 {
         class: MemoryClass,
     ) -> Result<Self, ValueTreeError> {
         if !self.memory.same_pool(memory) || self.class != class || !self.data.uses_budget(memory) {
-            return Err(ValueTreeError::Invalid(
-                "request result index pool/class",
-            ));
+            return Err(ValueTreeError::Invalid("request result index pool/class"));
         }
         Ok(Self {
             data: self.data.clone(),
@@ -221,7 +224,10 @@ impl RequestsResultIndexV1 {
         out.capacity(self.data.rows.len())?;
         for row in &self.data.rows {
             let mut bytes = add(arc::<Row>()?, add(row.outer.len(), row.organization.len())?)?;
-            bytes = add(bytes, mul(row.result_and_request.len(), size_of::<String>())?)?;
+            bytes = add(
+                bytes,
+                mul(row.result_and_request.len(), size_of::<String>())?,
+            )?;
             for text in &row.result_and_request {
                 fee(1, u(text.len())?)?;
                 bytes = add(bytes, text.len())?;
@@ -299,7 +305,10 @@ impl RequestsResultIndexV1 {
                 fee(1, u(add(id.len(), contract.len())?)?)?;
                 if id == contract {
                     fee(1, u(add(row.outer.len(), row.organization.len())?)?)?;
-                    visit(&row.organization, row.result_and_request.get(1).ok_or_else(limit)?)?;
+                    visit(
+                        &row.organization,
+                        row.result_and_request.get(1).ok_or_else(limit)?,
+                    )?;
                     break;
                 }
             }

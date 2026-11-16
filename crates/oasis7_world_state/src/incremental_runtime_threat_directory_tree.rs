@@ -96,7 +96,10 @@ pub(super) fn put(
         return Ok((node(id, None, None, memory, work, c)?, true));
     };
     match compare(&id.key, &n.id.key, work, c)? {
-        Ordering::Equal => Ok((node(id,n.left.clone(),n.right.clone(),memory,work,c)?,false)),
+        Ordering::Equal => Ok((
+            node(id, n.left.clone(), n.right.clone(), memory, work, c)?,
+            false,
+        )),
         Ordering::Less => {
             let (left, new) = put(&n.left, id, memory, work, c)?;
             Ok((
@@ -175,9 +178,33 @@ pub(super) fn remove(
     }
 }
 
-pub(super) fn find<'a>(root:&'a Option<NodeRef>,key:&[u8],work:&mut ThreatKeyDirectoryWorkV1,c:&mut impl FnMut()->bool)->Result<Option<&'a ThreatKeyRowV1>,ValueTreeError>{
- let mut at=root.as_ref();while let Some(n)=at {match compare(key,&n.id.key,work,c)? {Ordering::Equal=>return Ok(Some(&n.id)),Ordering::Less=>at=n.left.as_ref(),Ordering::Greater=>at=n.right.as_ref()}}Ok(None)
+pub(super) fn find<'a>(
+    root: &'a Option<NodeRef>,
+    key: &[u8],
+    work: &mut ThreatKeyDirectoryWorkV1,
+    c: &mut impl FnMut() -> bool,
+) -> Result<Option<&'a ThreatKeyRowV1>, ValueTreeError> {
+    let mut at = root.as_ref();
+    while let Some(n) = at {
+        match compare(key, &n.id.key, work, c)? {
+            Ordering::Equal => return Ok(Some(&n.id)),
+            Ordering::Less => at = n.left.as_ref(),
+            Ordering::Greater => at = n.right.as_ref(),
+        }
+    }
+    Ok(None)
 }
-pub(super) fn visit<E:From<ValueTreeError>>(root:&Option<NodeRef>,work:&mut ThreatKeyDirectoryWorkV1,c:&mut impl FnMut()->bool,emit:&mut impl FnMut(&ThreatKeyRowV1,&mut ThreatKeyDirectoryWorkV1)->Result<(),E>)->Result<(),E>{
- if let Some(n)=root {work.step(0,c).map_err(E::from)?;visit(&n.left,work,c,emit)?;emit(&n.id,work)?;visit(&n.right,work,c,emit)?;}Ok(())
+pub(super) fn visit<E: From<ValueTreeError>>(
+    root: &Option<NodeRef>,
+    work: &mut ThreatKeyDirectoryWorkV1,
+    c: &mut impl FnMut() -> bool,
+    emit: &mut impl FnMut(&ThreatKeyRowV1, &mut ThreatKeyDirectoryWorkV1) -> Result<(), E>,
+) -> Result<(), E> {
+    if let Some(n) = root {
+        work.step(0, c).map_err(E::from)?;
+        visit(&n.left, work, c, emit)?;
+        emit(&n.id, work)?;
+        visit(&n.right, work, c, emit)?;
+    }
+    Ok(())
 }

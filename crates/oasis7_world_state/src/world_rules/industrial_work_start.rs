@@ -40,10 +40,34 @@ impl PreparedWorldRule {
         now: WorldTime,
         world: &str,
     ) -> Result<String, WorldError> {
-        let selected=match super::readonly_industrial_start::prepare_inputs(state,&super::readonly_industrial_start::ResidentStartRowsV1,&super::readonly_parent_consumption::LegacyParentWorkV1,&mut self.rules.industrial_work,actor,root_ref,expected_profile_digest,now,world){Ok(result)=>result?,Err(error)=>match error{}};
-        let super::readonly_industrial_start::StartInputDataV1{root,plan,consume,parents}=selected;
-        let profile=state.recipe_profiles.get(&root.pinned_recipe_id).expect("validated recipe profile");
-        let factory=state.factories.get(&root.factory_id).expect("validated factory");
+        let selected = match super::readonly_industrial_start::prepare_inputs(
+            state,
+            &super::readonly_industrial_start::ResidentStartRowsV1,
+            &super::readonly_parent_consumption::LegacyParentWorkV1,
+            &mut self.rules.industrial_work,
+            actor,
+            root_ref,
+            expected_profile_digest,
+            now,
+            world,
+        ) {
+            Ok(result) => result?,
+            Err(error) => match error {},
+        };
+        let super::readonly_industrial_start::StartInputDataV1 {
+            root,
+            plan,
+            consume,
+            parents,
+        } = selected;
+        let profile = state
+            .recipe_profiles
+            .get(&root.pinned_recipe_id)
+            .expect("validated recipe profile");
+        let factory = state
+            .factories
+            .get(&root.factory_id)
+            .expect("validated factory");
         let DomainEvent::WorldRuleCommitted { action_id, .. } = self.event else {
             return Err(invalid("industrial_start_event_required"));
         };
@@ -193,10 +217,26 @@ where
     I: Iterator<Item = IndustrialOutputReservationRefV1<'a>> + Clone,
 {
     before_allocation(plan)?;
-    let result=super::readonly_output_capacity::capacity(root,plan,exclude_job,ledger,&mut|visit|{
-        for job in pending.clone(){if visit(job)?.is_break(){break;}}Ok::<(),E>(())
-    },&mut|_,_,_|Ok::<(),E>(()));
-    match result {Ok(Ok(()))=>Ok(()),Ok(Err(error))=>Err(E::from(error)),Err(error)=>Err(error)}
+    let result = super::readonly_output_capacity::capacity(
+        root,
+        plan,
+        exclude_job,
+        ledger,
+        &mut |visit| {
+            for job in pending.clone() {
+                if visit(job)?.is_break() {
+                    break;
+                }
+            }
+            Ok::<(), E>(())
+        },
+        &mut |_, _, _| Ok::<(), E>(()),
+    );
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(E::from(error)),
+        Err(error) => Err(error),
+    }
 }
 
 /// Ordinary admission bound for the one concrete output-aggregation map. The

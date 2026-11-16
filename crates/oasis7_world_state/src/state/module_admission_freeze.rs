@@ -36,15 +36,28 @@ pub fn serialize_module_instance_projection<S: SerializeStruct>(
     if let Some(overlay) = module_instance_overlay {
         overlay.serialize_fields(state, output)?;
     } else {
-        output.serialize_field(ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1[0].name, &state.module_instances)?;
+        output.serialize_field(
+            ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1[0].name,
+            &state.module_instances,
+        )?;
         if !state.module_admission_freezes.is_empty() {
-            output.serialize_field(ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1[1].name, &state.module_admission_freezes)?;
+            output.serialize_field(
+                ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1[1].name,
+                &state.module_admission_freezes,
+            )?;
         }
     }
     Ok(())
 }
 
-pub(crate) const ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1:[crate::state::projection::OriginalStateFieldSlotV1;2]=[
- crate::state::projection::OriginalStateFieldSlotV1{name:"module_instances",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"module_admission_freezes",emission:crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty},
+pub(crate) const ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1:
+    [crate::state::projection::OriginalStateFieldSlotV1; 2] = [
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "module_instances",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "module_admission_freezes",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty,
+    },
 ];

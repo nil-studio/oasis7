@@ -169,25 +169,98 @@ impl NativeBuiltinRecipeQuote {
 
 #[cfg(test)]
 mod paid_selection_tests {
- use super::*;
- fn quote()->NativeBuiltinRecipeQuote {
-  let plan=builtin_recipe_plan("recipe.smelter.iron_ingot",1).unwrap();
-  NativeBuiltinRecipeQuote{action:Action::ScheduleRecipe{requester_agent_id:"a".into(),factory_id:"f".into(),recipe_id:"recipe.smelter.iron_ingot".into(),plan:plan.clone(),logistics_route_ids:vec![],logistics_path_ids:vec![]},quoted_at_tick:5,
-   authorization:AgentDelegationAuthorizationV1{grant:AgentDelegationGrantV1{grant_id:"g".into(),source_id:"s".into(),issuer_id:"p".into(),owner_id:"p".into(),organization_id:None,agent_id:"a".into(),object_id:"f".into(),action_kinds:vec!["ScheduleRecipe".into()],revision:1,period_id:"q".into(),valid_from_tick:0,valid_until_tick:10,limit_units:100,resource_kind:"electricity".into(),revoked:false},cost_units:8,spent_units:0,remaining_units:100},
-   electricity_before:100,electricity_after:Some(92),rejection:None,preview:Some(BuiltinRecipeStartPreview{consume_ledger:MaterialLedgerId::agent("a"),output_ledger:MaterialLedgerId::agent("a"),consume:plan.consume,produce:plan.produce,byproducts:plan.byproducts,power_required:8,duration_ticks:plan.duration_ticks.max(1)})}
- }
- #[test]fn original_selection_and_refusal_preserved(){
-  let mut value=quote();
-  assert_eq!(value.validate_selection("a","f","recipe.smelter.iron_ingot",1),Ok(()));
-  let mut paid=0u64;
-  assert_eq!(value.validate_selection_with_work_v1("a","f","recipe.smelter.iron_ingot",1,&mut|s,_,_|{paid+=s;Ok::<_,()>(())}),Ok(Ok(())));
-  assert!(paid>0);
-  value.authorization.cost_units=9;
-  assert_eq!(value.validate_selection("a","f","recipe.smelter.iron_ingot",1),Err("native recipe quote selection or authority mismatch".into()));
- }
- #[test]fn resource_failure_keeps_its_outer_type(){
-  let value=quote();let mut remaining=1u64;
-  let result=value.validate_selection_with_work_v1("a","f","recipe.smelter.iron_ingot",1,&mut |steps,_,_|{remaining=remaining.checked_sub(steps).ok_or("steps")?;Ok(())});
-  assert_eq!(result,Err("steps"));assert_eq!(remaining,0);
- }
+    use super::*;
+    fn quote() -> NativeBuiltinRecipeQuote {
+        let plan = builtin_recipe_plan("recipe.smelter.iron_ingot", 1).unwrap();
+        NativeBuiltinRecipeQuote {
+            action: Action::ScheduleRecipe {
+                requester_agent_id: "a".into(),
+                factory_id: "f".into(),
+                recipe_id: "recipe.smelter.iron_ingot".into(),
+                plan: plan.clone(),
+                logistics_route_ids: vec![],
+                logistics_path_ids: vec![],
+            },
+            quoted_at_tick: 5,
+            authorization: AgentDelegationAuthorizationV1 {
+                grant: AgentDelegationGrantV1 {
+                    grant_id: "g".into(),
+                    source_id: "s".into(),
+                    issuer_id: "p".into(),
+                    owner_id: "p".into(),
+                    organization_id: None,
+                    agent_id: "a".into(),
+                    object_id: "f".into(),
+                    action_kinds: vec!["ScheduleRecipe".into()],
+                    revision: 1,
+                    period_id: "q".into(),
+                    valid_from_tick: 0,
+                    valid_until_tick: 10,
+                    limit_units: 100,
+                    resource_kind: "electricity".into(),
+                    revoked: false,
+                },
+                cost_units: 8,
+                spent_units: 0,
+                remaining_units: 100,
+            },
+            electricity_before: 100,
+            electricity_after: Some(92),
+            rejection: None,
+            preview: Some(BuiltinRecipeStartPreview {
+                consume_ledger: MaterialLedgerId::agent("a"),
+                output_ledger: MaterialLedgerId::agent("a"),
+                consume: plan.consume,
+                produce: plan.produce,
+                byproducts: plan.byproducts,
+                power_required: 8,
+                duration_ticks: plan.duration_ticks.max(1),
+            }),
+        }
+    }
+    #[test]
+    fn original_selection_and_refusal_preserved() {
+        let mut value = quote();
+        assert_eq!(
+            value.validate_selection("a", "f", "recipe.smelter.iron_ingot", 1),
+            Ok(())
+        );
+        let mut paid = 0u64;
+        assert_eq!(
+            value.validate_selection_with_work_v1(
+                "a",
+                "f",
+                "recipe.smelter.iron_ingot",
+                1,
+                &mut |s, _, _| {
+                    paid += s;
+                    Ok::<_, ()>(())
+                }
+            ),
+            Ok(Ok(()))
+        );
+        assert!(paid > 0);
+        value.authorization.cost_units = 9;
+        assert_eq!(
+            value.validate_selection("a", "f", "recipe.smelter.iron_ingot", 1),
+            Err("native recipe quote selection or authority mismatch".into())
+        );
+    }
+    #[test]
+    fn resource_failure_keeps_its_outer_type() {
+        let value = quote();
+        let mut remaining = 1u64;
+        let result = value.validate_selection_with_work_v1(
+            "a",
+            "f",
+            "recipe.smelter.iron_ingot",
+            1,
+            &mut |steps, _, _| {
+                remaining = remaining.checked_sub(steps).ok_or("steps")?;
+                Ok(())
+            },
+        );
+        assert_eq!(result, Err("steps"));
+        assert_eq!(remaining, 0);
+    }
 }

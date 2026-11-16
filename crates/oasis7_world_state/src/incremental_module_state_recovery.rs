@@ -35,18 +35,41 @@ impl<R: MerkleNodeReader, V: ValueNodeReader> ModuleStateRecoveryContextV1<'_, R
         &mut self,
         cancelled: impl FnMut() -> bool,
     ) -> Result<ReservedValue<VerifiedModuleStateContentV1>, BodyMutationError> {
-        self.verify_inner(false,cancelled).map(|(counts,_)|counts)
+        self.verify_inner(false, cancelled)
+            .map(|(counts, _)| counts)
     }
     pub(crate) fn verify_with_directory(
-        &mut self,cancelled:impl FnMut()->bool,
-    )->Result<(ReservedValue<VerifiedModuleStateContentV1>,crate::incremental_module_state_family::directory::ModuleStateKeyDirectoryV1),BodyMutationError>{
-        let (counts,directory)=self.verify_inner(true,cancelled)?;
-        Ok((counts,directory.ok_or(BodyMutationError::Invalid("module state directory missing"))?))
+        &mut self,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<
+        (
+            ReservedValue<VerifiedModuleStateContentV1>,
+            crate::incremental_module_state_family::directory::ModuleStateKeyDirectoryV1,
+        ),
+        BodyMutationError,
+    > {
+        let (counts, directory) = self.verify_inner(true, cancelled)?;
+        Ok((
+            counts,
+            directory.ok_or(BodyMutationError::Invalid("module state directory missing"))?,
+        ))
     }
     fn verify_inner(
-        &mut self,collect:bool,cancelled:impl FnMut()->bool,
-    )->Result<(ReservedValue<VerifiedModuleStateContentV1>,Option<crate::incremental_module_state_family::directory::ModuleStateKeyDirectoryV1>),BodyMutationError>{
-        let mut directory=if collect {Some(crate::incremental_module_state_family::directory::ModuleStateKeyDirectoryV1::empty(self.memory,self.class)?)}else{None};
+        &mut self,
+        collect: bool,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<
+        (
+            ReservedValue<VerifiedModuleStateContentV1>,
+            Option<crate::incremental_module_state_family::directory::ModuleStateKeyDirectoryV1>,
+        ),
+        BodyMutationError,
+    > {
+        let mut directory = if collect {
+            Some(crate::incremental_module_state_family::directory::ModuleStateKeyDirectoryV1::empty(self.memory,self.class)?)
+        } else {
+            None
+        };
         let mut phase = self
             .memory
             .reserve(64 << 10, self.class)
@@ -73,11 +96,16 @@ impl<R: MerkleNodeReader, V: ValueNodeReader> ModuleStateRecoveryContextV1<'_, R
                 if !ModuleStateKeyV1::is_state_key(&entry.key) {
                     return Ok(());
                 }
-                let state_key=ModuleStateKeyV1::state_key_from_bytes(&entry.key)
+                let state_key = ModuleStateKeyV1::state_key_from_bytes(&entry.key)
                     .map_err(BodyMutationError::Invalid)?;
-                if let Some(directory)=&mut directory {
-                    crate::incremental_module_state_family::directory::pay_key(state_key,directory.len(),self.content,&mut ||(cancelled.borrow_mut())())?;
-                    directory.insert(state_key,self.memory,self.class)?;
+                if let Some(directory) = &mut directory {
+                    crate::incremental_module_state_family::directory::pay_key(
+                        state_key,
+                        directory.len(),
+                        self.content,
+                        &mut || (cancelled.borrow_mut())(),
+                    )?;
+                    directory.insert(state_key, self.memory, self.class)?;
                 }
                 if self.content.states_remaining == 0 {
                     return Err(
@@ -126,10 +154,13 @@ impl<R: MerkleNodeReader, V: ValueNodeReader> ModuleStateRecoveryContextV1<'_, R
         if (cancelled.borrow_mut())() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        Ok((phase
-            .split(std::mem::size_of::<VerifiedModuleStateContentV1>())
-            .map_err(BodyMutationError::Invalid)?
-            .retain(result),directory))
+        Ok((
+            phase
+                .split(std::mem::size_of::<VerifiedModuleStateContentV1>())
+                .map_err(BodyMutationError::Invalid)?
+                .retain(result),
+            directory,
+        ))
     }
 }
 

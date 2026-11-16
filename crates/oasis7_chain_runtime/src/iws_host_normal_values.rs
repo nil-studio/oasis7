@@ -56,7 +56,9 @@ impl<'a, 'store> HostNormalValuesV1<'a, 'store> {
 fn reentry() -> ValueTreeError {
     ValueTreeError::Invalid("normal value IO reentry")
 }
-pub(in crate::iws_host_runtime) struct HostNormalValueHandleV1<'s, 'a, 'store>(&'s HostNormalValuesV1<'a, 'store>);
+pub(in crate::iws_host_runtime) struct HostNormalValueHandleV1<'s, 'a, 'store>(
+    &'s HostNormalValuesV1<'a, 'store>,
+);
 impl ValueNodeReader for HostNormalValueHandleV1<'_, '_, '_> {
     fn read_node(
         &self,

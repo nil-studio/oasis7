@@ -258,32 +258,54 @@ fn sort(
     // work and cancellation before examining the original outer account key.
     fn greater(
         rows: &[Arc<ReservedValue<RestrictedClaimGrantIdentityV1>>],
-        a: usize, b: usize, cells: &mut u64, keys: &mut u64,
+        a: usize,
+        b: usize,
+        cells: &mut u64,
+        keys: &mut u64,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<bool, ValueTreeError> {
         step(cells, cancelled)?;
-        *keys = keys.checked_sub(rows[a].outer_id().len().min(rows[b].outer_id().len()) as u64).ok_or_else(limited)?;
+        *keys = keys
+            .checked_sub(rows[a].outer_id().len().min(rows[b].outer_id().len()) as u64)
+            .ok_or_else(limited)?;
         Ok(rows[a].outer_id() > rows[b].outer_id())
     }
     fn sift(
         rows: &mut [Arc<ReservedValue<RestrictedClaimGrantIdentityV1>>],
-        mut root: usize, end: usize, cells: &mut u64, keys: &mut u64,
+        mut root: usize,
+        end: usize,
+        cells: &mut u64,
+        keys: &mut u64,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<(), ValueTreeError> {
         loop {
-            let Some(left) = root.checked_mul(2).and_then(|v| v.checked_add(1)).filter(|v| *v < end) else { break; };
+            let Some(left) = root
+                .checked_mul(2)
+                .and_then(|v| v.checked_add(1))
+                .filter(|v| *v < end)
+            else {
+                break;
+            };
             let mut largest = root;
-            if greater(rows, left, largest, cells, keys, cancelled)? { largest = left; }
+            if greater(rows, left, largest, cells, keys, cancelled)? {
+                largest = left;
+            }
             let right = left + 1;
-            if right < end && greater(rows, right, largest, cells, keys, cancelled)? { largest = right; }
-            if largest == root { break; }
+            if right < end && greater(rows, right, largest, cells, keys, cancelled)? {
+                largest = right;
+            }
+            if largest == root {
+                break;
+            }
             rows.swap(root, largest);
             root = largest;
         }
         Ok(())
     }
     let len = rows.len();
-    for root in (0..len / 2).rev() { sift(rows, root, len, cells, keys, cancelled)?; }
+    for root in (0..len / 2).rev() {
+        sift(rows, root, len, cells, keys, cancelled)?;
+    }
     for end in (1..len).rev() {
         step(cells, cancelled)?;
         rows.swap(0, end);
@@ -594,8 +616,16 @@ pub fn recover_current_restricted_claim_grant_snapshot_v1<
             &mut ctx.key_work.bytes_remaining,
             &mut ctx.cancelled,
         )?;
-        if (ctx.cancelled)() { return Err(ValueTreeError::Cancelled.into()); }
-        if state.allocation_class() != Some(ctx.values.class) || !state.allocation_budget().is_some_and(|pool| pool.same_pool(ctx.values.memory)) { return Err(invalid().into()); }
+        if (ctx.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if state.allocation_class() != Some(ctx.values.class)
+            || !state
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(ctx.values.memory))
+        {
+            return Err(invalid().into());
+        }
         let guard = ctx.transaction.guard();
         ctx.transaction.validate_guard(&guard, live)?;
         Ok(fee.retain(CurrentRestrictedClaimGrantSnapshotV1 {
@@ -620,9 +650,7 @@ impl CurrentRestrictedClaimGrantSnapshotV1 {
         live: &ExecutionFence,
     ) -> Result<(), WorldFieldOverlayErrorV1> {
         tx.validate_guard(&self.guard, live)?;
-        if !self.memory.same_pool(memory)
-            || !tx.uses_budget(memory)
-        {
+        if !self.memory.same_pool(memory) || !tx.uses_budget(memory) {
             return Err(invalid().into());
         }
         Ok(())

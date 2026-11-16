@@ -1128,4 +1128,5 @@ where
 #[path = "incremental_owner_marketplace_bridge.rs"]
 pub(crate) mod bridge;
 
-#[path="incremental_owner_marketplace_projection.rs"] pub(super) mod projection;
+#[path = "incremental_owner_marketplace_projection.rs"]
+pub(super) mod projection;

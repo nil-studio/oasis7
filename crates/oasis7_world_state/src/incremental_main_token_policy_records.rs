@@ -445,7 +445,14 @@ pub use grant_directory::{
     recover_current_restricted_claim_grant_snapshot_v1,
 };
 
-#[path="incremental_main_token_policy_records_projection.rs"] mod projection;
-pub use projection::{CurrentMainTokenPolicyProjectionDeltaV1,read_current_main_token_policy_projection_delta_v1,is_main_token_policy_projection_field_v1};
+#[path = "incremental_main_token_policy_records_projection.rs"]
+mod projection;
+pub use projection::{
+    CurrentMainTokenPolicyProjectionDeltaV1, is_main_token_policy_projection_field_v1,
+    read_current_main_token_policy_projection_delta_v1,
+};
 
-pub use projection::{QualifiedMainTokenPolicyProjectionColumnsV1,read_qualified_main_token_policy_projection_columns_v1};
+pub use projection::{
+    QualifiedMainTokenPolicyProjectionColumnsV1,
+    read_qualified_main_token_policy_projection_columns_v1,
+};

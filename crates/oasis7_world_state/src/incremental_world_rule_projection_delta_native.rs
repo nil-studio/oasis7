@@ -44,7 +44,9 @@ impl CurrentNativeProjectionDeltaV1 {
         mut stop: impl FnMut() -> bool,
         visit: impl FnMut(&'static str, &[u8], &[u8], Option<&[u8]>) -> Result<(), E>,
     ) -> Result<(), E> {
-        let p = Processing { bank: std::cell::RefCell::new(processing) };
+        let p = Processing {
+            bank: std::cell::RefCell::new(processing),
+        };
         self.visit_with_work_v1(|_, _| spend(&p, 0, &mut stop).map_err(E::from), visit)
     }
     /// The same original DATA emission with continuing caller work. Neither
@@ -56,7 +58,12 @@ impl CurrentNativeProjectionDeltaV1 {
     ) -> Result<(), E> {
         for row in &self.rows {
             work(1, 0)?;
-            visit(row.field, &row.semantic, &row.key_json, row.value_json.as_deref().map(Vec::as_slice))?;
+            visit(
+                row.field,
+                &row.semantic,
+                &row.key_json,
+                row.value_json.as_deref().map(Vec::as_slice),
+            )?;
         }
         Ok(())
     }
@@ -106,9 +113,49 @@ fn selected(raw: &[u8]) -> Result<bool, ValueTreeError> {
     let key = WorldFieldKeyV1::from_bytes(raw).map_err(ValueTreeError::Invalid)?;
     Ok(key.owner == FieldOwner::WorldState && is_native_projection_field_v1(key.name))
 }
-enum NativeSelection<'a>{Current(&'a Pending),Qualified(&'a StateEntryV1)}
-impl NativeSelection<'_>{fn key(&self)->&[u8]{match self{Self::Current(row)=>&row.key,Self::Qualified(entry)=>&entry.key}}fn root(&self)->Result<[u8;32],ValueTreeError>{match self{Self::Current(row)=>row.after.or(row.before).ok_or_else(bad),Self::Qualified(entry)=>Ok(entry.value)}}fn present(&self)->bool{match self{Self::Current(row)=>row.after.is_some(),Self::Qualified(_)=>true}}}
-fn one<F:WorldNativeFieldSpecV1,M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(row:&Pending,ns:StateNamespaceV1,ctx:&mut WorldFieldReadContextV1<'_,M,R,E,C>,scan:&mut StateScanBudget,work:&mut TypedRecordReadWorkV1,p:&Processing<'_>)->Result<Option<NativeRow>,ValueTreeError>where F::Value:serde::Serialize{one_selection::<F,_,_,_,_>(NativeSelection::Current(row),ns,ctx,scan,work,p)}
+enum NativeSelection<'a> {
+    Current(&'a Pending),
+    Qualified(&'a StateEntryV1),
+}
+impl NativeSelection<'_> {
+    fn key(&self) -> &[u8] {
+        match self {
+            Self::Current(row) => &row.key,
+            Self::Qualified(entry) => &entry.key,
+        }
+    }
+    fn root(&self) -> Result<[u8; 32], ValueTreeError> {
+        match self {
+            Self::Current(row) => row.after.or(row.before).ok_or_else(bad),
+            Self::Qualified(entry) => Ok(entry.value),
+        }
+    }
+    fn present(&self) -> bool {
+        match self {
+            Self::Current(row) => row.after.is_some(),
+            Self::Qualified(_) => true,
+        }
+    }
+}
+fn one<
+    F: WorldNativeFieldSpecV1,
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    row: &Pending,
+    ns: StateNamespaceV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut TypedRecordReadWorkV1,
+    p: &Processing<'_>,
+) -> Result<Option<NativeRow>, ValueTreeError>
+where
+    F::Value: serde::Serialize,
+{
+    one_selection::<F, _, _, _, _>(NativeSelection::Current(row), ns, ctx, scan, work, p)
+}
 fn one_selection<
     F: WorldNativeFieldSpecV1,
     M: MerkleNodeReader,
@@ -133,9 +180,10 @@ where
         return Err(bad());
     }
     if parsed.kind == WorldFieldRecordKindV1::Metadata {
-        if let NativeSelection::Qualified(entry)=&row {
-            ctx.values.verify_closure(&entry.value,ctx.record_bytes,&mut ctx.cancelled)?;
-            ctx.records().presence(&entry.value,&fixed,0)?;
+        if let NativeSelection::Qualified(entry) = &row {
+            ctx.values
+                .verify_closure(&entry.value, ctx.record_bytes, &mut ctx.cancelled)?;
+            ctx.records().presence(&entry.value, &fixed, 0)?;
         }
         return Ok(None);
     }
@@ -436,5 +484,6 @@ pub fn read_current_native_projection_delta_v1<
     }
 }
 
-#[path="incremental_world_rule_projection_delta_native_cold.rs"]mod cold;
-pub use cold::{QualifiedNativeProjectionColumnsV1,read_qualified_native_projection_columns_v1};
+#[path = "incremental_world_rule_projection_delta_native_cold.rs"]
+mod cold;
+pub use cold::{QualifiedNativeProjectionColumnsV1, read_qualified_native_projection_columns_v1};

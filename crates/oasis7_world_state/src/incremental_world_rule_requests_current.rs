@@ -64,8 +64,16 @@ impl CurrentWorldRuleRequestV1 {
         self.value.as_ref().map(RecoveredTypedRecordV1::value)
     }
     /// Retained original Receipt decoder allocations, without detaching fees.
-    pub fn retained_allocation_bytes_v1(&self, steps:&mut u64,cancelled:impl FnMut()->bool)->Result<usize,ValueTreeError>{match &self.value{Some(value)=>value.retained_allocation_bytes_v1(steps,cancelled),None=>Ok(0)}}
-
+    pub fn retained_allocation_bytes_v1(
+        &self,
+        steps: &mut u64,
+        cancelled: impl FnMut() -> bool,
+    ) -> Result<usize, ValueTreeError> {
+        match &self.value {
+            Some(value) => value.retained_allocation_bytes_v1(steps, cancelled),
+            None => Ok(0),
+        }
+    }
 }
 fn point<M, R, E, C>(
     body: &StateRootV1,
@@ -220,7 +228,8 @@ where
         // Those reads may extend the read-set; retain transaction identity and
         // the live fence while minting the new source at the resulting cut.
         ctx.transaction.validate_transaction_identity(guard)?;
-        ctx.transaction.validate_guard(&ctx.transaction.guard(), live)?;
+        ctx.transaction
+            .validate_guard(&ctx.transaction.guard(), live)?;
         let fee = ctx
             .values
             .memory

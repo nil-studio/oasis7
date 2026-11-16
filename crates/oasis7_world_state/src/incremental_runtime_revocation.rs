@@ -158,10 +158,16 @@ pub use business_diff::{
     read_current_business_participant_v1, read_current_business_result_delta_v1,
 };
 
-#[path="incremental_runtime_revocation_projection.rs"]
+#[path = "incremental_runtime_revocation_projection.rs"]
 mod projection;
-pub use projection::{CurrentRuntimeRevocationProjectionDeltaV1,RevocationProjectionPatchRefV1,RevocationProjectionContainerV1,read_current_runtime_revocation_projection_delta_v1};
+pub use projection::{
+    CurrentRuntimeRevocationProjectionDeltaV1, RevocationProjectionContainerV1,
+    RevocationProjectionPatchRefV1, read_current_runtime_revocation_projection_delta_v1,
+};
 
-#[path="incremental_runtime_revocation_projection_cold.rs"]
+#[path = "incremental_runtime_revocation_projection_cold.rs"]
 mod projection_cold;
-pub use projection_cold::{QualifiedRuntimeRevocationProjectionColumnsV1,read_qualified_runtime_revocation_projection_columns_v1};
+pub use projection_cold::{
+    QualifiedRuntimeRevocationProjectionColumnsV1,
+    read_qualified_runtime_revocation_projection_columns_v1,
+};

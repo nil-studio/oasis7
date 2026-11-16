@@ -187,10 +187,27 @@ impl PreparedAgentClaimEconomic {
                     })?
                 };
                 prepare_selected_agent_claim_economic_v1(
-                    event,&quote,actor,&mut account,&mut supply,&state.main_token_treasury_balances,&mut treasury,
-                    state.restricted_starter_claim_grants.get(actor),state.starter_oc_claims.get(actor),industrial_origin,
-                    acquisition_sequence_update.as_ref().map_or(0,|(_,sequence)|*sequence),state.agent_claim_last_processed_epoch,
-                    |event,sequence|crate::util::hash_json(&("oasis7.agent-claim.acquisition.v1",event,sequence)),
+                    event,
+                    &quote,
+                    actor,
+                    &mut account,
+                    &mut supply,
+                    &state.main_token_treasury_balances,
+                    &mut treasury,
+                    state.restricted_starter_claim_grants.get(actor),
+                    state.starter_oc_claims.get(actor),
+                    industrial_origin,
+                    acquisition_sequence_update
+                        .as_ref()
+                        .map_or(0, |(_, sequence)| *sequence),
+                    state.agent_claim_last_processed_epoch,
+                    |event, sequence| {
+                        crate::util::hash_json(&(
+                            "oasis7.agent-claim.acquisition.v1",
+                            event,
+                            sequence,
+                        ))
+                    },
                 )?
             }
             DomainEvent::AgentClaimUpkeepSettled {
@@ -210,8 +227,15 @@ impl PreparedAgentClaimEconomic {
                     .ok_or_else(|| {
                         invalid(format!("agent claim not found: target={target_agent_id}"))
                     })?;
-                apply_selected_agent_claim_upkeep_v1(event, actor, &mut claim,&mut account,&mut supply,
-                    &state.main_token_treasury_balances,&mut treasury)?;
+                apply_selected_agent_claim_upkeep_v1(
+                    event,
+                    actor,
+                    &mut claim,
+                    &mut account,
+                    &mut supply,
+                    &state.main_token_treasury_balances,
+                    &mut treasury,
+                )?;
                 (
                     claim,
                     state
@@ -396,9 +420,19 @@ impl PreparedAgentClaimEconomic {
 fn invalid(r: impl Into<String>) -> WorldError {
     WorldError::ResourceBalanceInvalid { reason: r.into() }
 }
-trait TreasuryBalancesV1 {fn treasury_balance(&self,key:&str)->Option<u64>;}
-impl TreasuryBalancesV1 for WorldState {fn treasury_balance(&self,key:&str)->Option<u64>{self.main_token_treasury_balances.get(key).copied()}}
-impl TreasuryBalancesV1 for BTreeMap<String,u64> {fn treasury_balance(&self,key:&str)->Option<u64>{self.get(key).copied()}}
+trait TreasuryBalancesV1 {
+    fn treasury_balance(&self, key: &str) -> Option<u64>;
+}
+impl TreasuryBalancesV1 for WorldState {
+    fn treasury_balance(&self, key: &str) -> Option<u64> {
+        self.main_token_treasury_balances.get(key).copied()
+    }
+}
+impl TreasuryBalancesV1 for BTreeMap<String, u64> {
+    fn treasury_balance(&self, key: &str) -> Option<u64> {
+        self.get(key).copied()
+    }
+}
 fn value(s: &impl TreasuryBalancesV1, u: &BTreeMap<String, u64>, k: &str) -> u64 {
     u.get(k)
         .copied()
@@ -533,246 +567,269 @@ fn burn(s: &mut MainTokenSupplyState, n: u64) -> Result<(), WorldError> {
     Ok(())
 }
 
-
 /// Borrowed fixed reducer shared by the legacy World wrapper and genuine
 /// Current delivery. Inputs/outputs are DATA; callers still own all acquisition,
 /// source, capacity and exact-CAS checks. The hash callback must preserve the
 /// original acquisition tuple; it exists solely to meter its encoding/copy.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_selected_agent_claim_economic_v1(
-    event:&DomainEvent, quote:&crate::AgentClaimCostQuote, actor:&String,
-    account:&mut Option<MainTokenAccountBalance>, supply:&mut MainTokenSupplyState,
-    treasury_base:&BTreeMap<String,u64>, treasury:&mut BTreeMap<String,u64>,
-    restricted_grant:Option<&crate::main_token::RestrictedStarterClaimGrantState>,
-    control_root:Option<&crate::StarterOcClaimState>, industrial_origin:bool,
-    acquisition_sequence:u64,last_processed_epoch:u64,
-    mut hash_acquisition:impl FnMut(&DomainEvent,u64)->Result<String,WorldError>,
-)->Result<(AgentClaimState,u64),WorldError> {
-let DomainEvent::AgentClaimed {
-                acquisition_contract_version,
-                target_agent_id,
-                reputation_tier,
-                slot_index,
-                activation_fee_amount,
-                activation_fee_burn_amount,
-                activation_fee_treasury_amount,
-                claim_bond_amount,
-                upfront_restricted_spent_amount,
-                upfront_liquid_spent_amount,
-                auto_issued_restricted_amount,
-                auto_issued_restricted_source_treasury_bucket_id,
-                claim_bond_locked_restricted_amount,
-                claim_bond_locked_liquid_amount,
-                upkeep_per_epoch,
-                claimed_at_epoch,
-                upkeep_paid_through_epoch,
-                release_cooldown_epochs,
-                grace_epochs,
-                idle_warning_epochs,
-                forced_idle_reclaim_epochs,
-                forced_reclaim_penalty_bps,
-                ..
-            } = event else { return Err(invalid("selected claim economic event")); };
+    event: &DomainEvent,
+    quote: &crate::AgentClaimCostQuote,
+    actor: &String,
+    account: &mut Option<MainTokenAccountBalance>,
+    supply: &mut MainTokenSupplyState,
+    treasury_base: &BTreeMap<String, u64>,
+    treasury: &mut BTreeMap<String, u64>,
+    restricted_grant: Option<&crate::main_token::RestrictedStarterClaimGrantState>,
+    control_root: Option<&crate::StarterOcClaimState>,
+    industrial_origin: bool,
+    acquisition_sequence: u64,
+    last_processed_epoch: u64,
+    mut hash_acquisition: impl FnMut(&DomainEvent, u64) -> Result<String, WorldError>,
+) -> Result<(AgentClaimState, u64), WorldError> {
+    let DomainEvent::AgentClaimed {
+        acquisition_contract_version,
+        target_agent_id,
+        reputation_tier,
+        slot_index,
+        activation_fee_amount,
+        activation_fee_burn_amount,
+        activation_fee_treasury_amount,
+        claim_bond_amount,
+        upfront_restricted_spent_amount,
+        upfront_liquid_spent_amount,
+        auto_issued_restricted_amount,
+        auto_issued_restricted_source_treasury_bucket_id,
+        claim_bond_locked_restricted_amount,
+        claim_bond_locked_liquid_amount,
+        upkeep_per_epoch,
+        claimed_at_epoch,
+        upkeep_paid_through_epoch,
+        release_cooldown_epochs,
+        grace_epochs,
+        idle_warning_epochs,
+        forced_idle_reclaim_epochs,
+        forced_reclaim_penalty_bps,
+        ..
+    } = event
+    else {
+        return Err(invalid("selected claim economic event"));
+    };
     Ok({
-if quote.reputation_tier != *reputation_tier
-    || quote.slot_index != *slot_index
-    || quote.activation_fee_amount != *activation_fee_amount
-    || quote.activation_fee_burn_amount != *activation_fee_burn_amount
-    || quote.activation_fee_treasury_amount != *activation_fee_treasury_amount
-    || quote.claim_bond_amount != *claim_bond_amount
-    || quote.upkeep_per_epoch != *upkeep_per_epoch
-    || quote.release_cooldown_epochs != *release_cooldown_epochs
-    || quote.grace_epochs != *grace_epochs
-    || quote.idle_warning_epochs != *idle_warning_epochs
-    || quote.forced_idle_reclaim_epochs != *forced_idle_reclaim_epochs
-    || quote.forced_reclaim_penalty_bps != *forced_reclaim_penalty_bps
-{
-    return Err(invalid(format!(
-        "agent claim quote fields diverged: owner={actor} target={target_agent_id}"
-    )));
-}
-if *activation_fee_amount == 0 || *claim_bond_amount == 0 || *upkeep_per_epoch == 0
-{
-    return Err(invalid(format!(
-        "agent claim costs must be positive: target={target_agent_id}"
-    )));
-}
-if *upkeep_paid_through_epoch < *claimed_at_epoch {
-    return Err(invalid(format!(
-        "agent claim upkeep epoch mismatch: target={target_agent_id} claimed={claimed_at_epoch} paid_through={upkeep_paid_through_epoch}"
-    )));
-}
-let upfront = activation_fee_amount.checked_add(*claim_bond_amount).and_then(|v| v.checked_add(*upkeep_per_epoch)).ok_or_else(|| invalid(format!("agent claim upfront overflow: target={target_agent_id} activation={activation_fee_amount} bond={claim_bond_amount} upkeep={upkeep_per_epoch}")))?;
-let liquid = account.as_ref().map_or(0, |a| a.liquid_balance);
-let restricted = account
-    .as_ref()
-    .map_or(0, |a| a.restricted_starter_claim_balance);
-let auto = auto_restricted_starter_claim_amount(
-    *slot_index,
-    liquid,
-    restricted,
-    value(
-        treasury_base,
-        &*treasury,
-        MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
-    ),
-    upfront,
-    restricted_grant
-        .is_some_and(|g| g.status == RestrictedStarterClaimGrantStatus::Issued),
-);
-let funding = split_agent_claim_upfront_funding(
-    *slot_index,
-    liquid,
-    restricted.saturating_add(auto),
-    *activation_fee_amount,
-    *claim_bond_amount,
-    *upkeep_per_epoch,
-)
-.map_err(invalid)?;
-let source = (auto > 0 && funding.claim_bond.restricted_amount > 0).then(|| {
-    MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL.to_string()
-});
-if auto != *auto_issued_restricted_amount
-    || source != *auto_issued_restricted_source_treasury_bucket_id
-{
-    return Err(invalid(format!(
-        "agent claim auto funding mismatch: target={target_agent_id} expected_amount={auto} actual_amount={auto_issued_restricted_amount} expected_bucket={source:?} actual_bucket={auto_issued_restricted_source_treasury_bucket_id:?}"
-    )));
-}
-if funding.upfront.restricted_amount != *upfront_restricted_spent_amount
-    || funding.upfront.liquid_amount != *upfront_liquid_spent_amount
-    || funding.claim_bond.restricted_amount != *claim_bond_locked_restricted_amount
-    || funding.claim_bond.liquid_amount != *claim_bond_locked_liquid_amount
-{
-    return Err(invalid(format!(
-        "agent claim funding split mismatch: target={target_agent_id} slot={slot_index} upfront_restricted={upfront_restricted_spent_amount} upfront_liquid={upfront_liquid_spent_amount} bond_restricted={claim_bond_locked_restricted_amount} bond_liquid={claim_bond_locked_liquid_amount}"
-    )));
-}
-if auto > 0 {
-    debit_treasury(
-        treasury_base,
-        treasury,
-        MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
-        auto,
-    )?;
-    credit_restricted(account, actor, auto)?;
-    increase_circulating(supply, auto)?;
-}
-debit_restricted(account, actor, *upfront_restricted_spent_amount)?;
-debit_liquid(account, actor, *upfront_liquid_spent_amount)?;
-decrease_circulating(supply, upfront)?;
-burn(supply, *activation_fee_burn_amount)?;
-let ecosystem = activation_fee_treasury_amount.checked_add(*upkeep_per_epoch).ok_or_else(|| invalid(format!("agent claim treasury overflow: target={target_agent_id} activation_treasury={activation_fee_treasury_amount} upkeep={upkeep_per_epoch}")))?;
-add_treasury(
-    treasury_base,
-    treasury,
-    MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
-    ecosystem,
-)?;
-(
-    AgentClaimState {
-        control_source: if *acquisition_contract_version == 1 && industrial_origin {
-            let root = control_root
-                .ok_or_else(|| invalid("manufactured_claim_root_unavailable"))?;
-            if root.agent_id != *actor
-                || root.player_id.is_empty()
-                || root.public_key.as_ref().is_none_or(|key| key.is_empty())
-            {
-                return Err(invalid("manufactured_claim_root_invalid"));
-            }
-            Some(crate::gameplay_state::AgentClaimControlSourceV1 {
-                acquisition_sequence: acquisition_sequence,
-                root_agent_id: actor.clone(),
-                player_id: root.player_id.clone(),
-                root_claimed_at: root.claimed_at,
-                acquired_event_digest: hash_acquisition(event, acquisition_sequence)?,
-            })
-        } else {
-            None
-        },
-        target_agent_id: target_agent_id.clone(),
-        claim_owner_id: actor.clone(),
-        reputation_tier: *reputation_tier,
-        slot_index: *slot_index,
-        activation_fee_amount: *activation_fee_amount,
-        activation_fee_burn_amount: *activation_fee_burn_amount,
-        activation_fee_treasury_amount: *activation_fee_treasury_amount,
-        claim_bond_amount: *claim_bond_amount,
-        locked_bond_amount: *claim_bond_amount,
-        upfront_restricted_spent_amount: *upfront_restricted_spent_amount,
-        upfront_liquid_spent_amount: *upfront_liquid_spent_amount,
-        claim_bond_locked_restricted_amount: *claim_bond_locked_restricted_amount,
-        claim_bond_locked_liquid_amount: *claim_bond_locked_liquid_amount,
-        claim_bond_restricted_source_treasury_bucket_id:
-            auto_issued_restricted_source_treasury_bucket_id.clone(),
-        upkeep_per_epoch: *upkeep_per_epoch,
-        release_cooldown_epochs: *release_cooldown_epochs,
-        grace_epochs: *grace_epochs,
-        idle_warning_epochs: *idle_warning_epochs,
-        forced_idle_reclaim_epochs: *forced_idle_reclaim_epochs,
-        forced_reclaim_penalty_bps: *forced_reclaim_penalty_bps,
-        claimed_at_epoch: *claimed_at_epoch,
-        upkeep_paid_through_epoch: *upkeep_paid_through_epoch,
-        delinquent_since_epoch: None,
-        grace_deadline_epoch: None,
-        release_requested_at_epoch: None,
-        release_ready_at_epoch: None,
-        idle_warning_emitted_at_epoch: None,
-    },
-    last_processed_epoch
-        .max(*claimed_at_epoch),
-)
+        if quote.reputation_tier != *reputation_tier
+            || quote.slot_index != *slot_index
+            || quote.activation_fee_amount != *activation_fee_amount
+            || quote.activation_fee_burn_amount != *activation_fee_burn_amount
+            || quote.activation_fee_treasury_amount != *activation_fee_treasury_amount
+            || quote.claim_bond_amount != *claim_bond_amount
+            || quote.upkeep_per_epoch != *upkeep_per_epoch
+            || quote.release_cooldown_epochs != *release_cooldown_epochs
+            || quote.grace_epochs != *grace_epochs
+            || quote.idle_warning_epochs != *idle_warning_epochs
+            || quote.forced_idle_reclaim_epochs != *forced_idle_reclaim_epochs
+            || quote.forced_reclaim_penalty_bps != *forced_reclaim_penalty_bps
+        {
+            return Err(invalid(format!(
+                "agent claim quote fields diverged: owner={actor} target={target_agent_id}"
+            )));
+        }
+        if *activation_fee_amount == 0 || *claim_bond_amount == 0 || *upkeep_per_epoch == 0 {
+            return Err(invalid(format!(
+                "agent claim costs must be positive: target={target_agent_id}"
+            )));
+        }
+        if *upkeep_paid_through_epoch < *claimed_at_epoch {
+            return Err(invalid(format!(
+                "agent claim upkeep epoch mismatch: target={target_agent_id} claimed={claimed_at_epoch} paid_through={upkeep_paid_through_epoch}"
+            )));
+        }
+        let upfront = activation_fee_amount.checked_add(*claim_bond_amount).and_then(|v| v.checked_add(*upkeep_per_epoch)).ok_or_else(|| invalid(format!("agent claim upfront overflow: target={target_agent_id} activation={activation_fee_amount} bond={claim_bond_amount} upkeep={upkeep_per_epoch}")))?;
+        let liquid = account.as_ref().map_or(0, |a| a.liquid_balance);
+        let restricted = account
+            .as_ref()
+            .map_or(0, |a| a.restricted_starter_claim_balance);
+        let auto = auto_restricted_starter_claim_amount(
+            *slot_index,
+            liquid,
+            restricted,
+            value(
+                treasury_base,
+                &*treasury,
+                MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
+            ),
+            upfront,
+            restricted_grant.is_some_and(|g| g.status == RestrictedStarterClaimGrantStatus::Issued),
+        );
+        let funding = split_agent_claim_upfront_funding(
+            *slot_index,
+            liquid,
+            restricted.saturating_add(auto),
+            *activation_fee_amount,
+            *claim_bond_amount,
+            *upkeep_per_epoch,
+        )
+        .map_err(invalid)?;
+        let source = (auto > 0 && funding.claim_bond.restricted_amount > 0)
+            .then(|| MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL.to_string());
+        if auto != *auto_issued_restricted_amount
+            || source != *auto_issued_restricted_source_treasury_bucket_id
+        {
+            return Err(invalid(format!(
+                "agent claim auto funding mismatch: target={target_agent_id} expected_amount={auto} actual_amount={auto_issued_restricted_amount} expected_bucket={source:?} actual_bucket={auto_issued_restricted_source_treasury_bucket_id:?}"
+            )));
+        }
+        if funding.upfront.restricted_amount != *upfront_restricted_spent_amount
+            || funding.upfront.liquid_amount != *upfront_liquid_spent_amount
+            || funding.claim_bond.restricted_amount != *claim_bond_locked_restricted_amount
+            || funding.claim_bond.liquid_amount != *claim_bond_locked_liquid_amount
+        {
+            return Err(invalid(format!(
+                "agent claim funding split mismatch: target={target_agent_id} slot={slot_index} upfront_restricted={upfront_restricted_spent_amount} upfront_liquid={upfront_liquid_spent_amount} bond_restricted={claim_bond_locked_restricted_amount} bond_liquid={claim_bond_locked_liquid_amount}"
+            )));
+        }
+        if auto > 0 {
+            debit_treasury(
+                treasury_base,
+                treasury,
+                MAIN_TOKEN_TREASURY_BUCKET_RESTRICTED_STARTER_CLAIM_LIVEOPS_POOL,
+                auto,
+            )?;
+            credit_restricted(account, actor, auto)?;
+            increase_circulating(supply, auto)?;
+        }
+        debit_restricted(account, actor, *upfront_restricted_spent_amount)?;
+        debit_liquid(account, actor, *upfront_liquid_spent_amount)?;
+        decrease_circulating(supply, upfront)?;
+        burn(supply, *activation_fee_burn_amount)?;
+        let ecosystem = activation_fee_treasury_amount.checked_add(*upkeep_per_epoch).ok_or_else(|| invalid(format!("agent claim treasury overflow: target={target_agent_id} activation_treasury={activation_fee_treasury_amount} upkeep={upkeep_per_epoch}")))?;
+        add_treasury(
+            treasury_base,
+            treasury,
+            MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
+            ecosystem,
+        )?;
+        (
+            AgentClaimState {
+                control_source: if *acquisition_contract_version == 1 && industrial_origin {
+                    let root = control_root
+                        .ok_or_else(|| invalid("manufactured_claim_root_unavailable"))?;
+                    if root.agent_id != *actor
+                        || root.player_id.is_empty()
+                        || root.public_key.as_ref().is_none_or(|key| key.is_empty())
+                    {
+                        return Err(invalid("manufactured_claim_root_invalid"));
+                    }
+                    Some(crate::gameplay_state::AgentClaimControlSourceV1 {
+                        acquisition_sequence: acquisition_sequence,
+                        root_agent_id: actor.clone(),
+                        player_id: root.player_id.clone(),
+                        root_claimed_at: root.claimed_at,
+                        acquired_event_digest: hash_acquisition(event, acquisition_sequence)?,
+                    })
+                } else {
+                    None
+                },
+                target_agent_id: target_agent_id.clone(),
+                claim_owner_id: actor.clone(),
+                reputation_tier: *reputation_tier,
+                slot_index: *slot_index,
+                activation_fee_amount: *activation_fee_amount,
+                activation_fee_burn_amount: *activation_fee_burn_amount,
+                activation_fee_treasury_amount: *activation_fee_treasury_amount,
+                claim_bond_amount: *claim_bond_amount,
+                locked_bond_amount: *claim_bond_amount,
+                upfront_restricted_spent_amount: *upfront_restricted_spent_amount,
+                upfront_liquid_spent_amount: *upfront_liquid_spent_amount,
+                claim_bond_locked_restricted_amount: *claim_bond_locked_restricted_amount,
+                claim_bond_locked_liquid_amount: *claim_bond_locked_liquid_amount,
+                claim_bond_restricted_source_treasury_bucket_id:
+                    auto_issued_restricted_source_treasury_bucket_id.clone(),
+                upkeep_per_epoch: *upkeep_per_epoch,
+                release_cooldown_epochs: *release_cooldown_epochs,
+                grace_epochs: *grace_epochs,
+                idle_warning_epochs: *idle_warning_epochs,
+                forced_idle_reclaim_epochs: *forced_idle_reclaim_epochs,
+                forced_reclaim_penalty_bps: *forced_reclaim_penalty_bps,
+                claimed_at_epoch: *claimed_at_epoch,
+                upkeep_paid_through_epoch: *upkeep_paid_through_epoch,
+                delinquent_since_epoch: None,
+                grace_deadline_epoch: None,
+                release_requested_at_epoch: None,
+                release_ready_at_epoch: None,
+                idle_warning_emitted_at_epoch: None,
+            },
+            last_processed_epoch.max(*claimed_at_epoch),
+        )
     })
 }
 
 /// Original upkeep mutation on selected actual records; no admission capability.
 #[allow(clippy::too_many_arguments)]
-pub fn apply_selected_agent_claim_upkeep_v1(event:&DomainEvent,actor:&str,claim:&mut AgentClaimState,account:&mut Option<MainTokenAccountBalance>,supply:&mut MainTokenSupplyState,treasury_base:&BTreeMap<String,u64>,treasury:&mut BTreeMap<String,u64>)->Result<(),WorldError>{
-let DomainEvent::AgentClaimUpkeepSettled{target_agent_id,settled_at_epoch:_,charged_epochs,amount,restricted_spent_amount,liquid_spent_amount,upkeep_paid_through_epoch,..}=event else{return Err(invalid("claim upkeep requires settlement event"))};
-                if claim.claim_owner_id != actor {
-                    return Err(invalid(format!(
-                        "agent claim upkeep owner mismatch: target={target_agent_id} owner={} claimer={actor}",
-                        claim.claim_owner_id
-                    )));
-                }
-                if *charged_epochs == 0 || *amount == 0 {
-                    return Err(invalid(format!(
-                        "agent claim upkeep settlement must be positive: target={target_agent_id}"
-                    )));
-                }
-                let expected = claim.upkeep_per_epoch.checked_mul(*charged_epochs).ok_or_else(|| invalid(format!("agent claim upkeep overflow: target={target_agent_id} upkeep={} epochs={charged_epochs}", claim.upkeep_per_epoch)))?;
-                if expected != *amount {
-                    return Err(invalid(format!(
-                        "agent claim upkeep mismatch: target={target_agent_id} expected={expected} actual={amount}"
-                    )));
-                }
-                let liquid = account.as_ref().map_or(0, |a| a.liquid_balance);
-                let restricted = account
-                    .as_ref()
-                    .map_or(0, |a| a.restricted_starter_claim_balance);
-                let funding =
-                    split_agent_claim_spend(claim.slot_index, liquid, restricted, *amount)
-                        .map_err(invalid)?;
-                if funding.restricted_amount != *restricted_spent_amount
-                    || funding.liquid_amount != *liquid_spent_amount
-                {
-                    return Err(invalid(format!(
-                        "agent claim upkeep funding split mismatch: target={target_agent_id} slot={} restricted={restricted_spent_amount} liquid={liquid_spent_amount}",
-                        claim.slot_index
-                    )));
-                }
-                debit_restricted(account, actor, *restricted_spent_amount)?;
-                debit_liquid(account, actor, *liquid_spent_amount)?;
-                decrease_circulating(supply, *amount)?;
-                add_treasury(
-                    treasury_base,
-                    treasury,
-                    MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
-                    *amount,
-                )?;
-                claim.upkeep_paid_through_epoch = *upkeep_paid_through_epoch;
-                claim.delinquent_since_epoch = None;
-                claim.grace_deadline_epoch = None;
+pub fn apply_selected_agent_claim_upkeep_v1(
+    event: &DomainEvent,
+    actor: &str,
+    claim: &mut AgentClaimState,
+    account: &mut Option<MainTokenAccountBalance>,
+    supply: &mut MainTokenSupplyState,
+    treasury_base: &BTreeMap<String, u64>,
+    treasury: &mut BTreeMap<String, u64>,
+) -> Result<(), WorldError> {
+    let DomainEvent::AgentClaimUpkeepSettled {
+        target_agent_id,
+        settled_at_epoch: _,
+        charged_epochs,
+        amount,
+        restricted_spent_amount,
+        liquid_spent_amount,
+        upkeep_paid_through_epoch,
+        ..
+    } = event
+    else {
+        return Err(invalid("claim upkeep requires settlement event"));
+    };
+    if claim.claim_owner_id != actor {
+        return Err(invalid(format!(
+            "agent claim upkeep owner mismatch: target={target_agent_id} owner={} claimer={actor}",
+            claim.claim_owner_id
+        )));
+    }
+    if *charged_epochs == 0 || *amount == 0 {
+        return Err(invalid(format!(
+            "agent claim upkeep settlement must be positive: target={target_agent_id}"
+        )));
+    }
+    let expected = claim.upkeep_per_epoch.checked_mul(*charged_epochs).ok_or_else(|| invalid(format!("agent claim upkeep overflow: target={target_agent_id} upkeep={} epochs={charged_epochs}", claim.upkeep_per_epoch)))?;
+    if expected != *amount {
+        return Err(invalid(format!(
+            "agent claim upkeep mismatch: target={target_agent_id} expected={expected} actual={amount}"
+        )));
+    }
+    let liquid = account.as_ref().map_or(0, |a| a.liquid_balance);
+    let restricted = account
+        .as_ref()
+        .map_or(0, |a| a.restricted_starter_claim_balance);
+    let funding =
+        split_agent_claim_spend(claim.slot_index, liquid, restricted, *amount).map_err(invalid)?;
+    if funding.restricted_amount != *restricted_spent_amount
+        || funding.liquid_amount != *liquid_spent_amount
+    {
+        return Err(invalid(format!(
+            "agent claim upkeep funding split mismatch: target={target_agent_id} slot={} restricted={restricted_spent_amount} liquid={liquid_spent_amount}",
+            claim.slot_index
+        )));
+    }
+    debit_restricted(account, actor, *restricted_spent_amount)?;
+    debit_liquid(account, actor, *liquid_spent_amount)?;
+    decrease_circulating(supply, *amount)?;
+    add_treasury(
+        treasury_base,
+        treasury,
+        MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
+        *amount,
+    )?;
+    claim.upkeep_paid_through_epoch = *upkeep_paid_through_epoch;
+    claim.delinquent_since_epoch = None;
+    claim.grace_deadline_epoch = None;
 
-Ok(())
+    Ok(())
 }

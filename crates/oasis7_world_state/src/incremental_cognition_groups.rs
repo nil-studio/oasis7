@@ -377,18 +377,80 @@ pub fn qualify_cognition_group_json_overlay_v1<
     })
 }
 
-pub fn change_cognition_group_v1<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool,W:StatePageWriter+ValueNodeReader,CW:FnMut()->bool>(expected:&ReservedValue<CognitionGroupExpectedV1>,source:Option<CognitionEnvelopeRefV1<'_>>,context:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,write:&mut MemberRecordWriteContext<'_,W,CW>,work:&mut CognitionGroupWriteWorkV1,guard:&PreparedGuard,live:&ExecutionFence)->Result<bool,WorldFieldOverlayErrorV1>{change_cognition_group_from_values_v1(expected,source.map(crate::incremental_cognition_json::CognitionValuesSourceV1::Envelope),context,write,work,guard,live)}
+pub fn change_cognition_group_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: StatePageWriter + ValueNodeReader,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CognitionGroupExpectedV1>,
+    source: Option<CognitionEnvelopeRefV1<'_>>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    work: &mut CognitionGroupWriteWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<bool, WorldFieldOverlayErrorV1> {
+    change_cognition_group_from_values_v1(
+        expected,
+        source.map(crate::incremental_cognition_json::CognitionValuesSourceV1::Envelope),
+        context,
+        write,
+        work,
+        guard,
+        live,
+    )
+}
 /// Fixed actual absent-Economy creation from its original sixteen fields.
 /// No placeholder scheduler/journal/envelope fields are fabricated.
-pub fn create_current_cognition_economy_group_v1<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool,W:StatePageWriter+ValueNodeReader,CW:FnMut()->bool>(expected:&ReservedValue<CognitionGroupExpectedV1>,source:&serde_json::Value,context:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,write:&mut MemberRecordWriteContext<'_,W,CW>,work:&mut CognitionGroupWriteWorkV1,guard:&PreparedGuard,live:&ExecutionFence)->Result<bool,WorldFieldOverlayErrorV1>{
+pub fn create_current_cognition_economy_group_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: StatePageWriter + ValueNodeReader,
+    CW: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CognitionGroupExpectedV1>,
+    source: &serde_json::Value,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    work: &mut CognitionGroupWriteWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<bool, WorldFieldOverlayErrorV1> {
     use crate::incremental_cognition_fields::COGNITION_ECONOMY_FIELDS;
-    let object=source.as_object().ok_or_else(invalid)?;
-    context.transaction.validate_guard(guard,live)?;
-    if expected.group!=CognitionOptionalGroupV1::Economy||expected.present||object.len()!=COGNITION_ECONOMY_FIELDS.len(){return Err(invalid().into())}
-    for name in COGNITION_ECONOMY_FIELDS{
-        if (context.cancelled)()||(write.cancelled)(){return Err(ValueTreeError::Cancelled.into())}
-        work.records_remaining=work.records_remaining.checked_sub(1).ok_or(ValueTreeError::ResourceLimited("Economy fixed source fields"))?;
-        if !object.contains_key(name){return Err(invalid().into())}
+    let object = source.as_object().ok_or_else(invalid)?;
+    context.transaction.validate_guard(guard, live)?;
+    if expected.group != CognitionOptionalGroupV1::Economy
+        || expected.present
+        || object.len() != COGNITION_ECONOMY_FIELDS.len()
+    {
+        return Err(invalid().into());
     }
-    change_cognition_group_from_values_v1(expected,Some(crate::incremental_cognition_json::CognitionValuesSourceV1::Economy(object)),context,write,work,guard,live)
+    for name in COGNITION_ECONOMY_FIELDS {
+        if (context.cancelled)() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        work.records_remaining =
+            work.records_remaining
+                .checked_sub(1)
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "Economy fixed source fields",
+                ))?;
+        if !object.contains_key(name) {
+            return Err(invalid().into());
+        }
+    }
+    change_cognition_group_from_values_v1(
+        expected,
+        Some(crate::incremental_cognition_json::CognitionValuesSourceV1::Economy(object)),
+        context,
+        write,
+        work,
+        guard,
+        live,
+    )
 }

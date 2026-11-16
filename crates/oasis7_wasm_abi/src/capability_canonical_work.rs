@@ -149,7 +149,7 @@ pub fn stream_canonical_cbor_with_work_v1<T: Serialize + ?Sized, A: CapabilityCa
         }
     }
     let mut active = Restore {
-        original: &mut *loan,
+        original: &mut loan,
         context: CanonicalCborStreamContextV1::new(source, moved, (|| false) as fn() -> bool),
     };
     match stream_canonical_cbor_v1(value, &mut active.context, output) {

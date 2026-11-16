@@ -292,10 +292,12 @@ mod claims;
 #[path = "projection_serialization.rs"]
 mod serialization;
 
-#[path="projection/emitter.rs"]
+#[path = "projection/emitter.rs"]
 mod emitter;
-pub use emitter::{OriginalStateFieldEmissionV1,OriginalStateFieldSlotV1,OriginalStateFieldSlotEventV1};
 pub(crate) use emitter::SlotOutput as OriginalStateSlotOutputV1;
+pub use emitter::{
+    OriginalStateFieldEmissionV1, OriginalStateFieldSlotEventV1, OriginalStateFieldSlotV1,
+};
 
 #[expect(clippy::too_many_arguments)]
 fn serialize_world_state<S>(
@@ -387,6 +389,6 @@ where
         agent_claim_terminal_overlay,
         product_validation_delivery_cursor,
         industry_history_overlay,
-        |field_count|serializer.serialize_struct("WorldState",field_count),
+        |field_count| serializer.serialize_struct("WorldState", field_count),
     )
 }

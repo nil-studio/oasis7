@@ -213,7 +213,13 @@ mod phase_tests;
 
 pub(crate) use receiver::accept_material_verified_v1;
 
-#[path="incremental_material_records_projection.rs"] mod projection;
-pub use projection::{CurrentMaterialProjectionDeltaV1,read_current_material_projection_delta_v1,is_material_projection_field_v1};
+#[path = "incremental_material_records_projection.rs"]
+mod projection;
+pub use projection::{
+    CurrentMaterialProjectionDeltaV1, is_material_projection_field_v1,
+    read_current_material_projection_delta_v1,
+};
 
-pub use projection::{QualifiedMaterialProjectionColumnsV1,read_qualified_material_projection_columns_v1};
+pub use projection::{
+    QualifiedMaterialProjectionColumnsV1, read_qualified_material_projection_columns_v1,
+};

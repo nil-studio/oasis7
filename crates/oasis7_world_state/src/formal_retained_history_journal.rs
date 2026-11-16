@@ -121,5 +121,5 @@ impl FormalRetainedHistoryIndexViewV1 {
     }
 }
 
-#[path="formal_retained_history_journal_layout.rs"]
+#[path = "formal_retained_history_journal_layout.rs"]
 mod owned_layout;

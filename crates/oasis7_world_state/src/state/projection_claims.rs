@@ -67,13 +67,26 @@ pub fn serialize_claim_projection<S: SerializeStruct>(
     if let Some(overlay) = starter_oc_claim_overlay {
         overlay.serialize_claims(state, output)?;
     } else if !state.starter_oc_claims.is_empty() {
-        output.serialize_field(ORIGINAL_CLAIM_FIELD_SLOTS_V1[2].name, &state.starter_oc_claims)?;
+        output.serialize_field(
+            ORIGINAL_CLAIM_FIELD_SLOTS_V1[2].name,
+            &state.starter_oc_claims,
+        )?;
     }
     Ok(())
 }
 
-pub(crate) const ORIGINAL_CLAIM_FIELD_SLOTS_V1:[crate::state::projection::OriginalStateFieldSlotV1;3]=[
- crate::state::projection::OriginalStateFieldSlotV1{name:"agent_claims",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"agent_claim_acquisition_sequences",emission:crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty},
- crate::state::projection::OriginalStateFieldSlotV1{name:"starter_oc_claims",emission:crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty},
+pub(crate) const ORIGINAL_CLAIM_FIELD_SLOTS_V1:
+    [crate::state::projection::OriginalStateFieldSlotV1; 3] = [
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "agent_claims",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "agent_claim_acquisition_sequences",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "starter_oc_claims",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty,
+    },
 ];

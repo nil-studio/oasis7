@@ -94,7 +94,10 @@ pub fn read_qualified_diplomacy_projection_columns_v1<
                         return Err(bad().into());
                     }
                     *cells = cells.checked_sub(1).ok_or_else(limit)?;
-                    let index=DiplomacyFieldV1::ALL.into_iter().position(|candidate|candidate==kind).ok_or_else(bad)?;
+                    let index = DiplomacyFieldV1::ALL
+                        .into_iter()
+                        .position(|candidate| candidate == kind)
+                        .ok_or_else(bad)?;
                     let parsed =
                         WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
                     let selected = {

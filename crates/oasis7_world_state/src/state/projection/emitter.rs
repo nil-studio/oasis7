@@ -2,22 +2,76 @@
 //! value is cloned or encoded by this visitor interface.
 use super::*;
 
-#[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum OriginalStateFieldEmissionV1{Always,Some,NonEmpty,OriginalDefault}
-impl OriginalStateFieldEmissionV1{/// Count is raw cardinality, Some=0/1, or an actual qualified non-default witness=0/1.
- pub fn emits_count(self,actual_count:usize)->bool{matches!(self,Self::Always)||actual_count>0}}
-#[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub struct OriginalStateFieldSlotV1{pub name:&'static str,pub emission:OriginalStateFieldEmissionV1}
-#[derive(Debug,Clone,Copy)]pub enum OriginalStateFieldSlotEventV1{Declared(OriginalStateFieldSlotV1),Emitted(&'static str)}
-pub(crate) struct SlotOutput<'a,O:serde::ser::SerializeStruct>{inner:O,slots:&'a mut dyn FnMut(OriginalStateFieldSlotEventV1)->Result<(),O::Error>}
-impl<O:serde::ser::SerializeStruct> SlotOutput<'_,O>{
- pub(crate) fn new<'a>(inner:O,slots:&'a mut dyn FnMut(OriginalStateFieldSlotEventV1)->Result<(),O::Error>)->SlotOutput<'a,O>{SlotOutput{inner,slots}}
- pub(crate) fn declare(&mut self,name:&'static str,emission:OriginalStateFieldEmissionV1)->Result<(),O::Error>{(self.slots)(OriginalStateFieldSlotEventV1::Declared(OriginalStateFieldSlotV1{name,emission}))}
- pub(crate) fn declare_all(&mut self,fields:&[OriginalStateFieldSlotV1])->Result<(),O::Error>{for field in fields{(self.slots)(OriginalStateFieldSlotEventV1::Declared(*field))?}Ok(())}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OriginalStateFieldEmissionV1 {
+    Always,
+    Some,
+    NonEmpty,
+    OriginalDefault,
 }
-impl<O:serde::ser::SerializeStruct> serde::ser::SerializeStruct for SlotOutput<'_,O>{type Ok=O::Ok;type Error=O::Error;fn serialize_field<T:Serialize+?Sized>(&mut self,key:&'static str,value:&T)->Result<(),O::Error>{(self.slots)(OriginalStateFieldSlotEventV1::Emitted(key))?;self.inner.serialize_field(key,value)}fn end(self)->Result<O::Ok,O::Error>{self.inner.end()}}
+impl OriginalStateFieldEmissionV1 {
+    /// Count is raw cardinality, Some=0/1, or an actual qualified non-default witness=0/1.
+    pub fn emits_count(self, actual_count: usize) -> bool {
+        matches!(self, Self::Always) || actual_count > 0
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OriginalStateFieldSlotV1 {
+    pub name: &'static str,
+    pub emission: OriginalStateFieldEmissionV1,
+}
+#[derive(Debug, Clone, Copy)]
+pub enum OriginalStateFieldSlotEventV1 {
+    Declared(OriginalStateFieldSlotV1),
+    Emitted(&'static str),
+}
+pub(crate) struct SlotOutput<'a, O: serde::ser::SerializeStruct> {
+    inner: O,
+    slots: &'a mut dyn FnMut(OriginalStateFieldSlotEventV1) -> Result<(), O::Error>,
+}
+impl<O: serde::ser::SerializeStruct> SlotOutput<'_, O> {
+    pub(crate) fn new<'a>(
+        inner: O,
+        slots: &'a mut dyn FnMut(OriginalStateFieldSlotEventV1) -> Result<(), O::Error>,
+    ) -> SlotOutput<'a, O> {
+        SlotOutput { inner, slots }
+    }
+    pub(crate) fn declare(
+        &mut self,
+        name: &'static str,
+        emission: OriginalStateFieldEmissionV1,
+    ) -> Result<(), O::Error> {
+        (self.slots)(OriginalStateFieldSlotEventV1::Declared(
+            OriginalStateFieldSlotV1 { name, emission },
+        ))
+    }
+    pub(crate) fn declare_all(
+        &mut self,
+        fields: &[OriginalStateFieldSlotV1],
+    ) -> Result<(), O::Error> {
+        for field in fields {
+            (self.slots)(OriginalStateFieldSlotEventV1::Declared(*field))?
+        }
+        Ok(())
+    }
+}
+impl<O: serde::ser::SerializeStruct> serde::ser::SerializeStruct for SlotOutput<'_, O> {
+    type Ok = O::Ok;
+    type Error = O::Error;
+    fn serialize_field<T: Serialize + ?Sized>(
+        &mut self,
+        key: &'static str,
+        value: &T,
+    ) -> Result<(), O::Error> {
+        (self.slots)(OriginalStateFieldSlotEventV1::Emitted(key))?;
+        self.inner.serialize_field(key, value)
+    }
+    fn end(self) -> Result<O::Ok, O::Error> {
+        self.inner.end()
+    }
+}
 #[expect(clippy::too_many_arguments)]
-pub(super) fn emit_world_state_fields_v1<O,F>(
+pub(super) fn emit_world_state_fields_v1<O, F>(
     state: &WorldState,
     world_rule_overlay: Option<&crate::world_rules::PreparedWorldRule>,
     body_overlay: Option<&BodyOverlay>,
@@ -76,13 +130,44 @@ pub(super) fn emit_world_state_fields_v1<O,F>(
 ) -> Result<O::Ok, O::Error>
 where
     O: serde::ser::SerializeStruct,
-    F: FnOnce(usize)->Result<O,O::Error>,
+    F: FnOnce(usize) -> Result<O, O::Error>,
 {
- emit_world_state_fields_with_slots_v1(state,world_rule_overlay,body_overlay,command_overlay,module_visual_entities_overlay,module_instance_overlay,module_release_overlay,module_marketplace_overlay,governance_identity_profile_overlay,governance_registry_overlay,agent_intent_overlay,economy_data_overlay,economic_contract_overlay,alliance_war_overlay,governance_meta_overlay,core_policy_overlay,industry_overlay,power_redemption_overlay,node_points_settlement_overlay,main_token_monetary_overlay,main_token_governance_monetary_overlay,main_token_restricted_claim_overlay,starter_oc_claim_overlay,agent_claim_light_lifecycle_overlay,agent_claim_economic_overlay,agent_claim_terminal_overlay,product_validation_delivery_cursor,industry_history_overlay,create,&mut|_|Ok(()))
+    emit_world_state_fields_with_slots_v1(
+        state,
+        world_rule_overlay,
+        body_overlay,
+        command_overlay,
+        module_visual_entities_overlay,
+        module_instance_overlay,
+        module_release_overlay,
+        module_marketplace_overlay,
+        governance_identity_profile_overlay,
+        governance_registry_overlay,
+        agent_intent_overlay,
+        economy_data_overlay,
+        economic_contract_overlay,
+        alliance_war_overlay,
+        governance_meta_overlay,
+        core_policy_overlay,
+        industry_overlay,
+        power_redemption_overlay,
+        node_points_settlement_overlay,
+        main_token_monetary_overlay,
+        main_token_governance_monetary_overlay,
+        main_token_restricted_claim_overlay,
+        starter_oc_claim_overlay,
+        agent_claim_light_lifecycle_overlay,
+        agent_claim_economic_overlay,
+        agent_claim_terminal_overlay,
+        product_validation_delivery_cursor,
+        industry_history_overlay,
+        create,
+        &mut |_| Ok(()),
+    )
 }
 
 #[expect(clippy::too_many_arguments)]
-pub(super) fn emit_world_state_fields_with_slots_v1<O,F>(
+pub(super) fn emit_world_state_fields_with_slots_v1<O, F>(
     state: &WorldState,
     world_rule_overlay: Option<&crate::world_rules::PreparedWorldRule>,
     body_overlay: Option<&BodyOverlay>,
@@ -138,11 +223,11 @@ pub(super) fn emit_world_state_fields_with_slots_v1<O,F>(
         &super::industry_history_transition::PreparedIndustryHistoryEvent,
     >,
     create: F,
-    slots:&mut dyn FnMut(OriginalStateFieldSlotEventV1)->Result<(),O::Error>,
+    slots: &mut dyn FnMut(OriginalStateFieldSlotEventV1) -> Result<(), O::Error>,
 ) -> Result<O::Ok, O::Error>
 where
     O: serde::ser::SerializeStruct,
-    F: FnOnce(usize)->Result<O,O::Error>,
+    F: FnOnce(usize) -> Result<O, O::Error>,
 {
     let WorldState {
         world_rules: _,
@@ -316,10 +401,15 @@ where
                 .unwrap_or(&state.module_visual_entities)
                 .is_empty(),
         );
-    let mut output = SlotOutput{inner:create(field_count)?,slots};
-    output.declare_all(&super::super::formal_retention_projection::ORIGINAL_RETENTION_FIELD_SLOTS_V1)?;
+    let mut output = SlotOutput {
+        inner: create(field_count)?,
+        slots,
+    };
+    output.declare_all(
+        &super::super::formal_retention_projection::ORIGINAL_RETENTION_FIELD_SLOTS_V1,
+    )?;
     serialize_prefix(&mut output, state)?;
-    output.declare("world_rules",OriginalStateFieldEmissionV1::Some)?;
+    output.declare("world_rules", OriginalStateFieldEmissionV1::Some)?;
     if let Some(overlay) = world_rule_overlay {
         output.serialize_field("world_rules", &overlay.rules)?;
     } else if let Some(continuity) =
@@ -390,7 +480,10 @@ where
             },
         )?;
     }
-    output.declare("agent_intent_ledger",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "agent_intent_ledger",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if let Some(overlay) = agent_intent_overlay
         && (!state.agent_intent_ledger.is_empty() || !overlay.ledger_updates.is_empty())
     {
@@ -495,7 +588,10 @@ where
             &state.factory_production_failure_dispositions,
         )?;
     }
-    output.declare("product_validation_receipts",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "product_validation_receipts",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if let Some(overlay) = industry_history_overlay {
         overlay.serialize_receipts(state, &mut output)?;
     } else if !state.product_validation_receipts.is_empty() {
@@ -515,7 +611,10 @@ where
     } else {
         output.serialize_field("product_profiles", &state.product_profiles)?;
     }
-    output.declare("latest_product_validation",OriginalStateFieldEmissionV1::Some)?;
+    output.declare(
+        "latest_product_validation",
+        OriginalStateFieldEmissionV1::Some,
+    )?;
     if let Some(overlay) = governance_meta_overlay {
         overlay.serialize_product(state, &mut output)?;
     } else if let Some(overlay) = industry_history_overlay {
@@ -578,7 +677,10 @@ where
         output.serialize_field("pending_recipe_jobs", &state.pending_recipe_jobs)?;
         output.serialize_field("settled_recipe_job_ids", &state.settled_recipe_job_ids)?;
     }
-    output.declare("factory_construction_receipts",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "factory_construction_receipts",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if let Some(overlay) = industry_overlay {
         overlay.serialize_construction_receipts(state, &mut output)?;
     } else if !state.factory_construction_receipts.is_empty() {
@@ -587,7 +689,10 @@ where
             &state.factory_construction_receipts,
         )?;
     }
-    output.declare("product_validation_attempts",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "product_validation_attempts",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if let Some(overlay) = industry_history_overlay {
         overlay.serialize_attempts(state, &mut output)?;
     } else if !state.product_validation_attempts.is_empty() {
@@ -612,8 +717,14 @@ where
             &state.industry_settlement_orders,
         )?;
     }
-    output.declare("recipe_completion_receipts",OriginalStateFieldEmissionV1::NonEmpty)?;
-    output.declare("factory_recycle_receipts",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "recipe_completion_receipts",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
+    output.declare(
+        "factory_recycle_receipts",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if let Some(overlay) = industry_overlay {
         overlay.serialize_terminal_receipts(state, &mut output)?;
     } else {
@@ -673,7 +784,10 @@ where
         agent_claim_light_lifecycle_overlay,
         starter_oc_claim_overlay,
     )?;
-    output.declare("authenticated_collect_data_last_nonces",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "authenticated_collect_data_last_nonces",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if let Some(overlay) = economy_data_overlay
         && overlay.has_projected_nonces(state)
     {
@@ -770,7 +884,10 @@ where
     }
     let module_visual_entities =
         module_visual_entities_overlay.unwrap_or(&state.module_visual_entities);
-    output.declare("module_visual_entities",OriginalStateFieldEmissionV1::NonEmpty)?;
+    output.declare(
+        "module_visual_entities",
+        OriginalStateFieldEmissionV1::NonEmpty,
+    )?;
     if !module_visual_entities.is_empty() {
         output.serialize_field("module_visual_entities", module_visual_entities)?;
     }
@@ -781,7 +898,9 @@ where
         output.serialize_field("module_artifact_listings", &state.module_artifact_listings)?;
         output.serialize_field("module_artifact_bids", &state.module_artifact_bids)?;
     }
-    output.declare_all(&super::super::module_admission_freeze::ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1)?;
+    output.declare_all(
+        &super::super::module_admission_freeze::ORIGINAL_MODULE_INSTANCE_FIELD_SLOTS_V1,
+    )?;
     serialize_module_instance_projection(state, module_instance_overlay, &mut output)?;
     if let Some(overlay) = module_release_overlay {
         output.serialize_field(
@@ -989,21 +1108,38 @@ where
     output.end()
 }
 
-impl WorldState{
- /// Observe the original base-state fields in their exact serializer order.
- /// The adapter receives individual typed borrows and original omission
- /// decisions; this never constructs an execution state or a snapshot.
- pub fn visit_original_serialized_fields_v1<O,F>(&self,create:F)->Result<O::Ok,O::Error>
- where O:serde::ser::SerializeStruct,F:FnOnce(usize)->Result<O,O::Error>{
-  emit_world_state_fields_v1(self,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,create)
- }
- pub fn visit_original_serialized_fields_with_slots_v1<O,F>(&self,create:F,slots:&mut dyn FnMut(OriginalStateFieldSlotEventV1)->Result<(),O::Error>)->Result<O::Ok,O::Error>
- where O:serde::ser::SerializeStruct,F:FnOnce(usize)->Result<O,O::Error>{
-  emit_world_state_fields_with_slots_v1(self,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,None,create,slots)
- }
-
+impl WorldState {
+    /// Observe the original base-state fields in their exact serializer order.
+    /// The adapter receives individual typed borrows and original omission
+    /// decisions; this never constructs an execution state or a snapshot.
+    pub fn visit_original_serialized_fields_v1<O, F>(&self, create: F) -> Result<O::Ok, O::Error>
+    where
+        O: serde::ser::SerializeStruct,
+        F: FnOnce(usize) -> Result<O, O::Error>,
+    {
+        emit_world_state_fields_v1(
+            self, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            create,
+        )
+    }
+    pub fn visit_original_serialized_fields_with_slots_v1<O, F>(
+        &self,
+        create: F,
+        slots: &mut dyn FnMut(OriginalStateFieldSlotEventV1) -> Result<(), O::Error>,
+    ) -> Result<O::Ok, O::Error>
+    where
+        O: serde::ser::SerializeStruct,
+        F: FnOnce(usize) -> Result<O, O::Error>,
+    {
+        emit_world_state_fields_with_slots_v1(
+            self, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            create, slots,
+        )
+    }
 }
 
 #[cfg(test)]
-#[path="emitter_tests.rs"]
+#[path = "emitter_tests.rs"]
 mod tests;

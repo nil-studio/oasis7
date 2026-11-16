@@ -483,6 +483,11 @@ mod tests;
 
 #[path = "incremental_owner_closure_primitives_projection.rs"]
 mod projection;
-pub use projection::{CurrentPrimitiveProjectionDeltaV1,is_primitive_projection_field_v1,read_current_primitive_projection_delta_v1};
+pub use projection::{
+    CurrentPrimitiveProjectionDeltaV1, is_primitive_projection_field_v1,
+    read_current_primitive_projection_delta_v1,
+};
 
-pub use projection::{QualifiedPrimitiveProjectionColumnsV1,read_qualified_primitive_projection_columns_v1};
+pub use projection::{
+    QualifiedPrimitiveProjectionColumnsV1, read_qualified_primitive_projection_columns_v1,
+};

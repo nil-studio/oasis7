@@ -432,12 +432,19 @@ pub fn recover_current_latest_product_validation_v1<
     })
 }
 
-#[path="incremental_profile_governance_native.rs"]
+#[path = "incremental_profile_governance_native.rs"]
 mod profiles;
 pub use profiles::*;
 
-#[path="incremental_world_native_current_module_release.rs"]
+#[path = "incremental_world_native_current_module_release.rs"]
 mod module_release;
-pub use module_release::{read_current_module_release_manifest_mapping_v1,write_current_module_release_manifest_mapping_v1,CurrentModuleReleaseRequestsV1,read_current_module_release_request_v1,read_current_module_release_requests_v1,write_current_module_release_request_v1};
+pub use module_release::{
+    CurrentModuleReleaseRequestsV1, read_current_module_release_manifest_mapping_v1,
+    read_current_module_release_request_v1, read_current_module_release_requests_v1,
+    write_current_module_release_manifest_mapping_v1, write_current_module_release_request_v1,
+};
 
-pub use module_release::{read_current_module_admission_freeze_entry_v1,insert_current_module_admission_freeze_if_absent_v1};
+pub use module_release::{
+    insert_current_module_admission_freeze_if_absent_v1,
+    read_current_module_admission_freeze_entry_v1,
+};

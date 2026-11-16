@@ -205,7 +205,7 @@ fn bind_point<
             DecodedRuntimeHistoryOriginalV1::IwsTick(v) => {
                 iws::check_iws_candidate_record_v1(v, index_ordinal, request, ctx, work)?;
                 RuntimeHistoryOriginalRefV1::IwsTick(v)
-            },
+            }
             DecodedRuntimeHistoryOriginalV1::Audit(v) => {
                 RuntimeHistoryOriginalRefV1::RejectionAudit(v)
             }
@@ -480,5 +480,5 @@ where
     })
 }
 
-#[path="incremental_runtime_history_candidate_iws.rs"]
+#[path = "incremental_runtime_history_candidate_iws.rs"]
 mod iws;

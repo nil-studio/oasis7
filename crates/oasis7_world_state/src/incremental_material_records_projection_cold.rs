@@ -7,7 +7,9 @@ pub struct QualifiedMaterialProjectionColumnsV1 {
     data: CurrentMaterialProjectionDeltaV1,
 }
 impl QualifiedMaterialProjectionColumnsV1 {
-    pub fn record_counts(&self) -> [u64; 2] { self.counts }
+    pub fn record_counts(&self) -> [u64; 2] {
+        self.counts
+    }
     pub fn validate<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,
@@ -102,12 +104,29 @@ pub fn read_qualified_material_projection_columns_v1<
                         return Err(bad().into());
                     }
                     *cells = cells.checked_sub(1).ok_or_else(limit)?;
-                    let index=MaterialRecordKindV1::ALL.into_iter().position(|candidate|candidate==kind).ok_or_else(bad)?;
+                    let index = MaterialRecordKindV1::ALL
+                        .into_iter()
+                        .position(|candidate| candidate == kind)
+                        .ok_or_else(bad)?;
                     let parsed =
                         WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
                     let selected = {
-                        let mut top=crate::incremental_field_read::WorldFieldReadContextV1{root,state,values:oasis7_formal_protocol::incremental_value::ValueReadContext{source:ctx.values.source,memory:&memory,class:MemoryClass::Ordinary,io:&mut*ctx.values.io},key_work:&mut*ctx.key_work,semantic_bytes:ctx.semantic_bytes,record_bytes:ctx.record_bytes,take_state_error:&mut ctx.take_state_error,cancelled:||(stop.borrow_mut())()};
-                        super::super::family::outer(entry,&mut top)?
+                        let mut top = crate::incremental_field_read::WorldFieldReadContextV1 {
+                            root,
+                            state,
+                            values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                                source: ctx.values.source,
+                                memory: &memory,
+                                class: MemoryClass::Ordinary,
+                                io: &mut *ctx.values.io,
+                            },
+                            key_work: &mut *ctx.key_work,
+                            semantic_bytes: ctx.semantic_bytes,
+                            record_bytes: ctx.record_bytes,
+                            take_state_error: &mut ctx.take_state_error,
+                            cancelled: || (stop.borrow_mut())(),
+                        };
+                        super::super::family::outer(entry, &mut top)?
                     };
                     if selected.is_none() {
                         let seen = if parsed.kind == WorldFieldRecordKindV1::Metadata {
@@ -169,9 +188,7 @@ pub fn read_qualified_material_projection_columns_v1<
             &memory,
             count
                 .checked_mul(size_of::<Row>())
-                .and_then(|n| {
-                    n.checked_add(size_of::<QualifiedMaterialProjectionColumnsV1>())
-                })
+                .and_then(|n| n.checked_add(size_of::<QualifiedMaterialProjectionColumnsV1>()))
                 .ok_or_else(limit)?,
             p,
             &mut ctx.cancelled,

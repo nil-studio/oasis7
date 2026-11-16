@@ -1200,7 +1200,6 @@ pub use execution_hook::VerifiedNodeLocalContinuationV1;
 pub use execution_hook::VerifiedNodeRestoredContinuationV1;
 
 pub use execution_hook::{
-    ReplicatedExecutionInputValidationOpsV1,
-    decode_replicated_execution_input_action_with,
+    ReplicatedExecutionInputValidationOpsV1, decode_replicated_execution_input_action_with,
     validate_replicated_execution_input_actions_with,
 };

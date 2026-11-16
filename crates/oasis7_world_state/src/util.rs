@@ -89,14 +89,14 @@ where
 }
 
 /// Compute SHA256 hash of a serializable value.
-#[path="util_json_hash_work.rs"]
+#[path = "util_json_hash_work.rs"]
 mod json_hash_work;
-pub use json_hash_work::{JsonHashWorkErrorV1,hash_json_with_work_v1,measure_json_with_work_v1};
+pub use json_hash_work::{JsonHashWorkErrorV1, hash_json_with_work_v1, measure_json_with_work_v1};
 pub fn hash_json<T: Serialize>(value: &T) -> Result<String, WorldError> {
-    match hash_json_with_work_v1(value,&mut|_,_|Ok::<(),std::convert::Infallible>(())){
-        Ok(value)=>Ok(value),
-        Err(JsonHashWorkErrorV1::Codec(error))=>Err(error.into()),
-        Err(JsonHashWorkErrorV1::Work(never))=>match never{},
+    match hash_json_with_work_v1(value, &mut |_, _| Ok::<(), std::convert::Infallible>(())) {
+        Ok(value) => Ok(value),
+        Err(JsonHashWorkErrorV1::Codec(error)) => Err(error.into()),
+        Err(JsonHashWorkErrorV1::Work(never)) => match never {},
     }
 }
 

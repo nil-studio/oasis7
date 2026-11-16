@@ -626,7 +626,9 @@ pub mod resource_basis;
 pub mod task_cleanup_v2;
 pub mod task_context_projection;
 
-pub(crate) use authority::work::{refusal as service_protocol_refusal_with_work_v1,legacy_error as legacy_service_work_error_v1};
+pub(crate) use authority::work::{
+    legacy_error as legacy_service_work_error_v1, refusal as service_protocol_refusal_with_work_v1,
+};
 pub mod executor_codec;
 
 pub mod task_projection;

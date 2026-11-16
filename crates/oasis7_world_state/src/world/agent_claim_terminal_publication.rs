@@ -70,10 +70,19 @@ impl PreparedAgentClaimTerminal {
         let mut account = state.main_token_balances.get(actor).cloned();
         let mut supply = state.main_token_supply.clone();
         let mut treasury = BTreeMap::new();
-        apply_selected_agent_claim_terminal_v1(event, actor, target, &claim,
-            &SelectedClaimTerminalSourceV1 { treasury:&state.main_token_treasury_balances,
-                grant:state.restricted_starter_claim_grants.get(actor) },
-            &mut account,&mut supply,&mut treasury)?;
+        apply_selected_agent_claim_terminal_v1(
+            event,
+            actor,
+            target,
+            &claim,
+            &SelectedClaimTerminalSourceV1 {
+                treasury: &state.main_token_treasury_balances,
+                grant: state.restricted_starter_claim_grants.get(actor),
+            },
+            &mut account,
+            &mut supply,
+            &mut treasury,
+        )?;
         agent.last_active = now;
         Ok(Self {
             event: event.clone(),
@@ -398,142 +407,173 @@ fn increase_circulating(supply: &mut MainTokenSupplyState, amount: u64) -> Resul
 }
 
 /// Readonly selected monetary facts; no authority or state-write capability.
-pub struct SelectedClaimTerminalSourceV1<'a>{pub treasury:&'a BTreeMap<String,u64>,pub grant:Option<&'a super::super::RestrictedStarterClaimGrantState>}
+pub struct SelectedClaimTerminalSourceV1<'a> {
+    pub treasury: &'a BTreeMap<String, u64>,
+    pub grant: Option<&'a super::super::RestrictedStarterClaimGrantState>,
+}
 #[allow(clippy::too_many_arguments)]
-pub fn apply_selected_agent_claim_terminal_v1(event:&DomainEvent,actor:&str,target:&str,claim:&super::super::AgentClaimState,state:&SelectedClaimTerminalSourceV1<'_>,account:&mut Option<MainTokenAccountBalance>,supply:&mut MainTokenSupplyState,treasury:&mut BTreeMap<String,u64>)->Result<(),WorldError>{
-        validate_selected_claim_terminal_owner_v1(event,claim)?;
-        match event {
-            DomainEvent::AgentClaimReleased {
-                refunded_bond_amount,
-                refunded_bond_restricted_amount,
-                refunded_bond_liquid_amount,
+pub fn apply_selected_agent_claim_terminal_v1(
+    event: &DomainEvent,
+    actor: &str,
+    target: &str,
+    claim: &super::super::AgentClaimState,
+    state: &SelectedClaimTerminalSourceV1<'_>,
+    account: &mut Option<MainTokenAccountBalance>,
+    supply: &mut MainTokenSupplyState,
+    treasury: &mut BTreeMap<String, u64>,
+) -> Result<(), WorldError> {
+    validate_selected_claim_terminal_owner_v1(event, claim)?;
+    match event {
+        DomainEvent::AgentClaimReleased {
+            refunded_bond_amount,
+            refunded_bond_restricted_amount,
+            refunded_bond_liquid_amount,
+            refunded_bond_restricted_sink,
+            refunded_bond_restricted_sink_bucket_id,
+            ..
+        } => {
+            if *refunded_bond_amount != claim.locked_bond_amount {
+                return Err(invalid(format!(
+                    "agent claim release refund mismatch: target={target} expected={} actual={refunded_bond_amount}",
+                    claim.locked_bond_amount
+                )));
+            }
+            validate_refund(
+                state,
+                actor,
+                target,
+                &claim,
+                0,
+                *refunded_bond_amount,
+                *refunded_bond_restricted_amount,
+                *refunded_bond_liquid_amount,
                 refunded_bond_restricted_sink,
                 refunded_bond_restricted_sink_bucket_id,
-                ..
-            } => {
-                if *refunded_bond_amount != claim.locked_bond_amount {
-                    return Err(invalid(format!(
-                        "agent claim release refund mismatch: target={target} expected={} actual={refunded_bond_amount}",
-                        claim.locked_bond_amount
-                    )));
-                }
-                validate_refund(
-                    state,
-                    actor,
-                    target,
-                    &claim,
-                    0,
-                    *refunded_bond_amount,
-                    *refunded_bond_restricted_amount,
-                    *refunded_bond_liquid_amount,
-                    refunded_bond_restricted_sink,
-                    refunded_bond_restricted_sink_bucket_id,
-                    "release",
-                )?;
-                refund(
-                    state,
-                    account,
-                    supply,
-                    treasury,
-                    actor,
-                    target,
-                    *refunded_bond_amount,
-                    *refunded_bond_restricted_amount,
-                    *refunded_bond_liquid_amount,
-                    refunded_bond_restricted_sink,
-                    refunded_bond_restricted_sink_bucket_id,
-                    "release",
-                    true,
-                )?;
-            }
-            DomainEvent::AgentClaimReclaimed {
-                upkeep_arrears_amount,
-                collected_upkeep_amount,
-                penalty_amount,
-                refunded_bond_amount,
-                refunded_bond_restricted_amount,
-                refunded_bond_liquid_amount,
+                "release",
+            )?;
+            refund(
+                state,
+                account,
+                supply,
+                treasury,
+                actor,
+                target,
+                *refunded_bond_amount,
+                *refunded_bond_restricted_amount,
+                *refunded_bond_liquid_amount,
                 refunded_bond_restricted_sink,
                 refunded_bond_restricted_sink_bucket_id,
-                ..
-            } => {
-                let collected = claim.locked_bond_amount.min(*upkeep_arrears_amount);
-                let remaining = claim.locked_bond_amount.saturating_sub(collected);
-                let penalty =
-                    remaining.saturating_mul(u64::from(claim.forced_reclaim_penalty_bps)) / 10_000;
-                let refunded = remaining.saturating_sub(penalty);
-                if collected != *collected_upkeep_amount
-                    || penalty != *penalty_amount
-                    || refunded != *refunded_bond_amount
-                {
-                    return Err(invalid(format!(
-                        "agent claim reclaim settlement mismatch: target={target} collected={collected_upkeep_amount} penalty={penalty_amount} refund={refunded_bond_amount}"
-                    )));
-                }
-                validate_refund(
-                    state,
-                    actor,
-                    target,
-                    &claim,
-                    collected_upkeep_amount.saturating_add(*penalty_amount),
-                    *refunded_bond_amount,
-                    *refunded_bond_restricted_amount,
-                    *refunded_bond_liquid_amount,
-                    refunded_bond_restricted_sink,
-                    refunded_bond_restricted_sink_bucket_id,
-                    "reclaim",
-                )?;
-                if *collected_upkeep_amount > 0 {
-                    add_treasury(
-                        state,
-                        treasury,
-                        MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
-                        *collected_upkeep_amount,
-                    )?;
-                }
-                if *penalty_amount > 0 {
-                    add_treasury(
-                        state,
-                        treasury,
-                        MAIN_TOKEN_TREASURY_BUCKET_SLASH,
-                        *penalty_amount,
-                    )?;
-                }
-                refund(
-                    state,
-                    account,
-                    supply,
-                    treasury,
-                    actor,
-                    target,
-                    *refunded_bond_amount,
-                    *refunded_bond_restricted_amount,
-                    *refunded_bond_liquid_amount,
-                    refunded_bond_restricted_sink,
-                    refunded_bond_restricted_sink_bucket_id,
-                    "reclaim",
-                    false,
-                )?;
-            }
-            _ => unreachable!(),
+                "release",
+                true,
+            )?;
         }
+        DomainEvent::AgentClaimReclaimed {
+            upkeep_arrears_amount,
+            collected_upkeep_amount,
+            penalty_amount,
+            refunded_bond_amount,
+            refunded_bond_restricted_amount,
+            refunded_bond_liquid_amount,
+            refunded_bond_restricted_sink,
+            refunded_bond_restricted_sink_bucket_id,
+            ..
+        } => {
+            let collected = claim.locked_bond_amount.min(*upkeep_arrears_amount);
+            let remaining = claim.locked_bond_amount.saturating_sub(collected);
+            let penalty =
+                remaining.saturating_mul(u64::from(claim.forced_reclaim_penalty_bps)) / 10_000;
+            let refunded = remaining.saturating_sub(penalty);
+            if collected != *collected_upkeep_amount
+                || penalty != *penalty_amount
+                || refunded != *refunded_bond_amount
+            {
+                return Err(invalid(format!(
+                    "agent claim reclaim settlement mismatch: target={target} collected={collected_upkeep_amount} penalty={penalty_amount} refund={refunded_bond_amount}"
+                )));
+            }
+            validate_refund(
+                state,
+                actor,
+                target,
+                &claim,
+                collected_upkeep_amount.saturating_add(*penalty_amount),
+                *refunded_bond_amount,
+                *refunded_bond_restricted_amount,
+                *refunded_bond_liquid_amount,
+                refunded_bond_restricted_sink,
+                refunded_bond_restricted_sink_bucket_id,
+                "reclaim",
+            )?;
+            if *collected_upkeep_amount > 0 {
+                add_treasury(
+                    state,
+                    treasury,
+                    MAIN_TOKEN_TREASURY_BUCKET_ECOSYSTEM_POOL,
+                    *collected_upkeep_amount,
+                )?;
+            }
+            if *penalty_amount > 0 {
+                add_treasury(
+                    state,
+                    treasury,
+                    MAIN_TOKEN_TREASURY_BUCKET_SLASH,
+                    *penalty_amount,
+                )?;
+            }
+            refund(
+                state,
+                account,
+                supply,
+                treasury,
+                actor,
+                target,
+                *refunded_bond_amount,
+                *refunded_bond_restricted_amount,
+                *refunded_bond_liquid_amount,
+                refunded_bond_restricted_sink,
+                refunded_bond_restricted_sink_bucket_id,
+                "reclaim",
+                false,
+            )?;
+        }
+        _ => unreachable!(),
+    }
 
-Ok(())
+    Ok(())
 }
 
-fn validate_selected_claim_terminal_owner_v1(event:&DomainEvent,claim:&super::super::AgentClaimState)->Result<(),WorldError>{
-let (actor,target)=match event{DomainEvent::AgentClaimReleased{claimer_agent_id,target_agent_id,..}|DomainEvent::AgentClaimReclaimed{claimer_agent_id,target_agent_id,..}=>(claimer_agent_id,target_agent_id),_=>return Err(invalid("claim terminal preparation requires a supported event"))};
-        if claim.claim_owner_id != *actor {
-            let operation = if matches!(event, DomainEvent::AgentClaimReleased { .. }) {
-                "release"
-            } else {
-                "reclaim"
-            };
-            return Err(invalid(format!(
-                "agent claim {operation} owner mismatch: target={target} owner={} claimer={actor}",
-                claim.claim_owner_id
-            )));
+fn validate_selected_claim_terminal_owner_v1(
+    event: &DomainEvent,
+    claim: &super::super::AgentClaimState,
+) -> Result<(), WorldError> {
+    let (actor, target) = match event {
+        DomainEvent::AgentClaimReleased {
+            claimer_agent_id,
+            target_agent_id,
+            ..
         }
+        | DomainEvent::AgentClaimReclaimed {
+            claimer_agent_id,
+            target_agent_id,
+            ..
+        } => (claimer_agent_id, target_agent_id),
+        _ => {
+            return Err(invalid(
+                "claim terminal preparation requires a supported event",
+            ));
+        }
+    };
+    if claim.claim_owner_id != *actor {
+        let operation = if matches!(event, DomainEvent::AgentClaimReleased { .. }) {
+            "release"
+        } else {
+            "reclaim"
+        };
+        return Err(invalid(format!(
+            "agent claim {operation} owner mismatch: target={target} owner={} claimer={actor}",
+            claim.claim_owner_id
+        )));
+    }
 
-Ok(())
+    Ok(())
 }

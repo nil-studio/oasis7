@@ -1,8 +1,8 @@
 //! Reserved execution-input wire and its original pure predicates.
 //! Node transports these bytes; Runtime may inspect them without a Node/DistFS
 //! dependency. None of these DTOs creates a verified Node decision or lease.
-use serde::{Deserialize,Serialize};
 use crate::node_consensus_action::NodeConsensusAction;
+use serde::{Deserialize, Serialize};
 /// Reserved consensus action identity for execution inputs that are authored
 /// by the block proposer and then replayed by every materializing node.
 ///
@@ -101,7 +101,11 @@ pub fn validate_replicated_execution_input_actions(
     actions: &[NodeConsensusAction],
     expected_height: u64,
 ) -> Result<(), String> {
-    match validate_replicated_execution_input_actions_with(actions, expected_height, &mut replicated_input::Legacy) {
+    match validate_replicated_execution_input_actions_with(
+        actions,
+        expected_height,
+        &mut replicated_input::Legacy,
+    ) {
         Ok(result) => result,
         Err(never) => match never {},
     }
@@ -124,6 +128,9 @@ pub fn bind_replicated_execution_input_action(
     .map_err(|err| format!("rebuild replicated execution input action failed: {err}"))?;
     Ok(true)
 }
-#[path="replicated_execution_input_ops.rs"]
+#[path = "replicated_execution_input_ops.rs"]
 mod replicated_input;
-pub use replicated_input::{ReplicatedExecutionInputValidationOpsV1,decode_replicated_execution_input_action_with,validate_replicated_execution_input_actions_with};
+pub use replicated_input::{
+    ReplicatedExecutionInputValidationOpsV1, decode_replicated_execution_input_action_with,
+    validate_replicated_execution_input_actions_with,
+};

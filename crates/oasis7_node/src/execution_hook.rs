@@ -18,12 +18,11 @@ pub use bft_v3::*;
 pub use oasis7_consensus::replicated_execution_input::{
     NodeReplicatedExecutionInputV1, PROVIDER_BACKED_BOOTSTRAP_EXECUTION_INPUT_KIND,
     REPLICATED_EXECUTION_INPUT_ACTION_ID, REPLICATED_EXECUTION_INPUT_SUBMITTER,
-    REPLICATED_EXECUTION_INPUT_VERSION, bind_replicated_execution_input_action,
-    decode_replicated_execution_input_action, validate_replicated_execution_input_actions,
-    ReplicatedExecutionInputValidationOpsV1, decode_replicated_execution_input_action_with,
+    REPLICATED_EXECUTION_INPUT_VERSION, ReplicatedExecutionInputValidationOpsV1,
+    bind_replicated_execution_input_action, decode_replicated_execution_input_action,
+    decode_replicated_execution_input_action_with, validate_replicated_execution_input_actions,
     validate_replicated_execution_input_actions_with,
 };
-
 
 pub use oasis7_consensus::normal_tick_input::NodeExecutionCommitContext;
 

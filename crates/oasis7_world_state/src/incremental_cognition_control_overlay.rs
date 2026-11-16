@@ -217,7 +217,7 @@ pub fn change_cognition_control_v1<
 /// reservation. The payload bound is enforced by the original record reader.
 #[allow(clippy::too_many_arguments)]
 fn read_current_cognition_control_inner_v1<M, R, E, C>(
-    profile:ControlReadProfileV1,
+    profile: ControlReadProfileV1,
     field: CognitionControlFieldV1,
     parent: &oasis7_proto::memory_budget::ReservedValue<
         crate::incremental_cognition_current_complete_v3::CompleteCognitionCurrentQualificationV3,
@@ -238,11 +238,17 @@ where
     use crate::incremental_cognition_read::CognitionControlReadV1;
     ctx.transaction.contribute(|tx| {
         tx.validate_guard(guard, live)?;
-        let allowed=match profile{
-            ControlReadProfileV1::Service=>matches!(field,CognitionControlFieldV1::JournalHeadSeq|CognitionControlFieldV1::JournalHeadDigest|CognitionControlFieldV1::ReorgInvalidationEpoch),
-            ControlReadProfileV1::Economy{..}=>economy_control(field),
+        let allowed = match profile {
+            ControlReadProfileV1::Service => matches!(
+                field,
+                CognitionControlFieldV1::JournalHeadSeq
+                    | CognitionControlFieldV1::JournalHeadDigest
+                    | CognitionControlFieldV1::ReorgInvalidationEpoch
+            ),
+            ControlReadProfileV1::Economy { .. } => economy_control(field),
         };
-        if !allowed || ctx.values.class != MemoryClass::Ordinary
+        if !allowed
+            || ctx.values.class != MemoryClass::Ordinary
             || !parent.uses_budget(ctx.values.memory)
             || parent.allocation_class() != MemoryClass::Ordinary
             || !tx.uses_budget(ctx.values.memory)
@@ -268,7 +274,12 @@ where
             records.key(field.descriptor(), WorldFieldRecordKindV1::Entry, &())?;
         let root = lookup(tx, &key, &mut records, &mut ctx.take_state_error)?;
         let Some(metadata_root) = metadata_root else {
-            let absent=match profile{ControlReadProfileV1::Service=>field==CognitionControlFieldV1::ReorgInvalidationEpoch,ControlReadProfileV1::Economy{present}=>!present};
+            let absent = match profile {
+                ControlReadProfileV1::Service => {
+                    field == CognitionControlFieldV1::ReorgInvalidationEpoch
+                }
+                ControlReadProfileV1::Economy { present } => !present,
+            };
             if !absent || root.is_some() {
                 return Err(invalid().into());
             }
@@ -308,34 +319,99 @@ where
     })
 }
 
-#[derive(Clone,Copy)]
-enum ControlReadProfileV1{Service,Economy{present:bool}}
-fn economy_control(field:CognitionControlFieldV1)->bool{
-    matches!(field,CognitionControlFieldV1::EconomySchema|CognitionControlFieldV1::EconomyProvisionHeadSeq|CognitionControlFieldV1::EconomyProvisionHeadDigest|CognitionControlFieldV1::EconomyHeadSeq|CognitionControlFieldV1::EconomyHeadDigest)
+#[derive(Clone, Copy)]
+enum ControlReadProfileV1 {
+    Service,
+    Economy { present: bool },
 }
-pub fn read_current_cognition_service_control_v2<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(
-    field:CognitionControlFieldV1,
-    parent:&oasis7_proto::memory_budget::ReservedValue<crate::incremental_cognition_current_complete_v3::CompleteCognitionCurrentQualificationV3>,
-    roots:&oasis7_formal_protocol::incremental_execution::RootSetV1,
-    ctx:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,output:&mut impl std::io::Write,max_text:u64,guard:&PreparedGuard,live:&ExecutionFence,
-)->Result<crate::incremental_cognition_read::CognitionControlReadV1,WorldFieldOverlayErrorV1>{
-    read_current_cognition_control_inner_v1(ControlReadProfileV1::Service,field,parent,roots,ctx,output,max_text,guard,live)
+fn economy_control(field: CognitionControlFieldV1) -> bool {
+    matches!(
+        field,
+        CognitionControlFieldV1::EconomySchema
+            | CognitionControlFieldV1::EconomyProvisionHeadSeq
+            | CognitionControlFieldV1::EconomyProvisionHeadDigest
+            | CognitionControlFieldV1::EconomyHeadSeq
+            | CognitionControlFieldV1::EconomyHeadDigest
+    )
+}
+pub fn read_current_cognition_service_control_v2<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    field: CognitionControlFieldV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<
+        crate::incremental_cognition_current_complete_v3::CompleteCognitionCurrentQualificationV3,
+    >,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    output: &mut impl std::io::Write,
+    max_text: u64,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<crate::incremental_cognition_read::CognitionControlReadV1, WorldFieldOverlayErrorV1> {
+    read_current_cognition_control_inner_v1(
+        ControlReadProfileV1::Service,
+        field,
+        parent,
+        roots,
+        ctx,
+        output,
+        max_text,
+        guard,
+        live,
+    )
 }
 /// Fixed Economy controls. The absence branch is derived from the original
 /// complete Current Economy group reader, never from a caller presence flag.
-pub fn read_current_cognition_economy_control_v1<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(
-    field:CognitionControlFieldV1,
-    parent:&oasis7_proto::memory_budget::ReservedValue<crate::incremental_cognition_current_complete_v3::CompleteCognitionCurrentQualificationV3>,
-    roots:&oasis7_formal_protocol::incremental_execution::RootSetV1,
-    ctx:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,output:&mut impl std::io::Write,max_text:u64,guard:&PreparedGuard,live:&ExecutionFence,
-)->Result<crate::incremental_cognition_read::CognitionControlReadV1,WorldFieldOverlayErrorV1>{
+pub fn read_current_cognition_economy_control_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    field: CognitionControlFieldV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<
+        crate::incremental_cognition_current_complete_v3::CompleteCognitionCurrentQualificationV3,
+    >,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    output: &mut impl std::io::Write,
+    max_text: u64,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<crate::incremental_cognition_read::CognitionControlReadV1, WorldFieldOverlayErrorV1> {
     use crate::incremental_cognition_history::CognitionHistoryCurrentSourceV1;
-    if !economy_control(field){return Err(invalid().into())}
-    ctx.transaction.validate_guard(guard,live)?;
+    if !economy_control(field) {
+        return Err(invalid().into());
+    }
+    ctx.transaction.validate_guard(guard, live)?;
     parent.validate_binding(roots)?;
-    if !parent.uses_budget(ctx.values.memory)||parent.allocation_class()!=MemoryClass::Ordinary{return Err(invalid().into())}
-    let CognitionHistoryCurrentSourceV1::Enabled(base)=parent.history_source()else{return Err(invalid().into())};
-    let group=crate::incremental_cognition_groups::read_cognition_group_overlay_v1(crate::incremental_cognition_groups::CognitionOptionalGroupV1::Economy,base,ctx)?;
-    let current_guard=ctx.transaction.guard();
-    read_current_cognition_control_inner_v1(ControlReadProfileV1::Economy{present:group.present()},field,parent,roots,ctx,output,max_text,&current_guard,live)
+    if !parent.uses_budget(ctx.values.memory) || parent.allocation_class() != MemoryClass::Ordinary
+    {
+        return Err(invalid().into());
+    }
+    let CognitionHistoryCurrentSourceV1::Enabled(base) = parent.history_source() else {
+        return Err(invalid().into());
+    };
+    let group = crate::incremental_cognition_groups::read_cognition_group_overlay_v1(
+        crate::incremental_cognition_groups::CognitionOptionalGroupV1::Economy,
+        base,
+        ctx,
+    )?;
+    let current_guard = ctx.transaction.guard();
+    read_current_cognition_control_inner_v1(
+        ControlReadProfileV1::Economy {
+            present: group.present(),
+        },
+        field,
+        parent,
+        roots,
+        ctx,
+        output,
+        max_text,
+        &current_guard,
+        live,
+    )
 }

@@ -1,72 +1,699 @@
 //! Actual changed Alliance/War/Crisis/Contract records through the original outer/body/cell
 //! kernels. No record-root bytes are decoded as CBOR or treated as a DTO.
 use super::*;
-use crate::{incremental_agent_mutation::BodyMutationError,incremental_field_overlay::{WorldFieldOverlayContextV1,WorldFieldOverlayErrorV1},incremental_runtime_revocation::BusinessDiffProcessingWorkV1,incremental_semantic_key::{read_semantic_key_v1,SemanticKeyRefV1},incremental_world_field_key::WorldFieldKeyV1};
-use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence,PreparedGuard,RootSetV1},incremental_state::{MerkleNodeReader,StateScanBudget,StateEntryV1},incremental_value::ValueNodeReader};
-use oasis7_proto::memory_budget::{MemoryBudget,MemoryClass,MemoryReservation,ReservedValue};
-use std::{cell::RefCell,mem::size_of,io::{self,Write}};
-struct Change{kind:DiplomacyFieldV1,key:Vec<u8>,before:Option<[u8;32]>,after:Option<[u8;32]>}
-#[derive(Clone,Copy)]
-pub enum DiplomacyProjectionPathRefV1{Scalar(&'static str),Length(u64),Member(u64)}
-#[derive(Clone,Copy)]enum Path{Scalar(&'static str),Length(u64),Member(u64)}
-struct Patch{path:Path,json:Option<ReservedValue<Vec<u8>>>}
-struct Patches{values:Vec<Patch>,_slots:MemoryReservation}
-struct Entity{kind:DiplomacyFieldV1,semantic:ReservedValue<Vec<u8>>,key:ReservedValue<Vec<u8>>,before:bool,after:bool,patches:Patches}
-pub struct CurrentDiplomacyProjectionDeltaV1{rows:Vec<Entity>,guard:PreparedGuard,parent:[u8;32],memory:MemoryBudget,_fee:MemoryReservation}
-fn bad()->ValueTreeError{ValueTreeError::Invalid("Current governance projection")}
-fn limit()->ValueTreeError{ValueTreeError::ResourceLimited("Current governance projection")}
-fn oe(e:WorldFieldOverlayErrorV1)->BodyMutationError{match e{WorldFieldOverlayErrorV1::Execution(e)=>BodyMutationError::Execution(e),WorldFieldOverlayErrorV1::Value(e)=>BodyMutationError::Value(e),e=>BodyMutationError::Original(Box::new(e))}}
-fn pay(work:&mut BusinessDiffProcessingWorkV1,n:usize,stop:&mut impl FnMut()->bool)->Result<(),BodyMutationError>{if stop(){return Err(ValueTreeError::Cancelled.into())}let n=u64::try_from(n).map_err(|_|limit())?;work.steps_remaining=work.steps_remaining.checked_sub(n.checked_add(1).ok_or_else(limit)?).ok_or_else(limit)?;work.bytes_remaining=work.bytes_remaining.checked_sub(n).ok_or_else(limit)?;Ok(())}
-fn reserve(memory:&MemoryBudget,n:usize,work:&mut BusinessDiffProcessingWorkV1,stop:&mut impl FnMut()->bool)->Result<MemoryReservation,BodyMutationError>{pay(work,n,stop)?;memory.reserve(n,MemoryClass::Ordinary).map_err(ValueTreeError::Memory).map_err(Into::into)}
-impl CurrentDiplomacyProjectionDeltaV1{
- pub fn validate<M:MerkleNodeReader>(&self,tx:&ExecutionTransaction<'_,M>,memory:&MemoryBudget,live:&ExecutionFence)->Result<(),BodyMutationError>{tx.validate_read_source_guard(&self.guard,live)?;if !self.memory.same_pool(memory)||!self._fee.uses_budget(memory)||!tx.uses_budget(memory)||self.parent!=tx.parent_fence().parent_roots{return Err(bad().into())}Ok(())}
- pub fn visit_entities_with_work_v1<E>(&self,mut work:impl FnMut(u64,u64)->Result<(),E>,mut emit:impl FnMut(DiplomacyFieldV1,&[u8],&[u8],bool,bool)->Result<(),E>)->Result<(),E>{for row in &self.rows{work(1,0)?;emit(row.kind,&row.semantic,&row.key,row.before,row.after)?}Ok(())}
- pub fn entity_patch_count_with_work_v1<E>(&self,kind:DiplomacyFieldV1,semantic:&[u8],mut work:impl FnMut(u64,u64)->Result<(),E>)->Result<Option<usize>,E>{for row in &self.rows{work(1,(row.semantic.len()+semantic.len())as u64)?;if row.kind==kind&&row.semantic.as_slice()==semantic{return Ok(Some(row.patches.values.len()))}}Ok(None)}
- pub fn visit_entity_patches_with_work_v1<E>(&self,kind:DiplomacyFieldV1,semantic:&[u8],mut work:impl FnMut(u64,u64)->Result<(),E>,mut emit:impl FnMut(DiplomacyProjectionPathRefV1,Option<&[u8]>)->Result<(),E>)->Result<(),E>{for row in &self.rows{work(1,(row.semantic.len()+semantic.len())as u64)?;if row.kind!=kind||row.semantic.as_slice()!=semantic{continue}for patch in &row.patches.values{work(1,0)?;let path=match patch.path{Path::Scalar(v)=>DiplomacyProjectionPathRefV1::Scalar(v),Path::Length(v)=>DiplomacyProjectionPathRefV1::Length(v),Path::Member(v)=>DiplomacyProjectionPathRefV1::Member(v)};emit(path,patch.json.as_deref().map(Vec::as_slice))?}break;}Ok(())}
- pub fn visit_patches_with_work_v1<E>(&self,mut work:impl FnMut(u64,u64)->Result<(),E>,mut emit:impl FnMut(DiplomacyFieldV1,&[u8],&[u8],DiplomacyProjectionPathRefV1,Option<&[u8]>)->Result<(),E>)->Result<(),E>{for row in &self.rows{work(1,0)?;for patch in &row.patches.values{work(1,0)?;let path=match patch.path{Path::Scalar(v)=>DiplomacyProjectionPathRefV1::Scalar(v),Path::Length(v)=>DiplomacyProjectionPathRefV1::Length(v),Path::Member(v)=>DiplomacyProjectionPathRefV1::Member(v)};emit(row.kind,&row.semantic,&row.key,path,patch.json.as_deref().map(Vec::as_slice))?}}Ok(())}
+use crate::{
+    incremental_agent_mutation::BodyMutationError,
+    incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
+    incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+    incremental_semantic_key::{SemanticKeyRefV1, read_semantic_key_v1},
+    incremental_world_field_key::WorldFieldKeyV1,
+};
+use oasis7_formal_protocol::{
+    incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard, RootSetV1},
+    incremental_state::{MerkleNodeReader, StateEntryV1, StateScanBudget},
+    incremental_value::ValueNodeReader,
+};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
+use std::{
+    cell::RefCell,
+    io::{self, Write},
+    mem::size_of,
+};
+struct Change {
+    kind: DiplomacyFieldV1,
+    key: Vec<u8>,
+    before: Option<[u8; 32]>,
+    after: Option<[u8; 32]>,
 }
-pub fn is_diplomacy_projection_field_v1(name:&str)->bool{DiplomacyFieldV1::ALL.iter().any(|kind|kind.name()==name)}
-fn identify(key:&[u8])->Result<Option<DiplomacyFieldV1>,BodyMutationError>{if !WorldFieldKeyV1::is_field_key_v1(key){return Ok(None)}let parsed=WorldFieldKeyV1::from_bytes(key).map_err(ValueTreeError::Invalid)?;let Some(kind)=DiplomacyFieldV1::ALL.into_iter().find(|kind|kind.name()==parsed.name)else{return Ok(None)};let expected=WorldFieldKeyV1::new(kind.descriptor()?,parsed.kind,parsed.semantic_key).map_err(ValueTreeError::Invalid)?;if expected.as_bytes()!=key||parsed.namespace!=StateNamespaceV1::Business{return Err(bad().into())}Ok(Some(kind))}
-fn spend(p:&mut BusinessDiffProcessingWorkV1,n:usize)->Result<(),ValueTreeError>{let n=u64::try_from(n).map_err(|_|ValueTreeError::ResourceLimited("governance projection processing"))?;p.steps_remaining=p.steps_remaining.checked_sub(n.checked_add(1).ok_or_else(||ValueTreeError::ResourceLimited("governance projection processing"))?).ok_or(ValueTreeError::ResourceLimited("governance projection steps"))?;p.bytes_remaining=p.bytes_remaining.checked_sub(n).ok_or(ValueTreeError::ResourceLimited("governance projection bytes"))?;Ok(())}
-impl Patches{fn new(memory:&MemoryBudget)->Result<Self,ValueTreeError>{Ok(Self{values:Vec::new(),_slots:memory.reserve(0,MemoryClass::Ordinary)?})}fn push(&mut self,patch:Patch,memory:&MemoryBudget,p:&mut BusinessDiffProcessingWorkV1)->Result<(),ValueTreeError>{spend(p,0)?;if self.values.len()==self.values.capacity(){let cap=self.values.capacity().max(1).checked_mul(2).ok_or(ValueTreeError::ResourceLimited("governance projection slots"))?;let n=cap.checked_mul(size_of::<Patch>()).ok_or(ValueTreeError::ResourceLimited("governance projection slots"))?;spend(p,n)?;let fee=memory.reserve(n,MemoryClass::Ordinary)?;self.values.reserve_exact(cap-self.values.len());if self.values.capacity()!=cap{return Err(ValueTreeError::ResourceLimited("governance projection slot capacity"))}self._slots=fee;}self.values.push(patch);Ok(())}}
-fn observe<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(field:DiplomacyFieldV1,old:Option<&StateEntryV1>,new:Option<&StateEntryV1>,view:&mut crate::incremental_field_read::WorldFieldReadContextV1<'_,M,R,E,C>,p:&mut BusinessDiffProcessingWorkV1,max:u64,output:&mut Patches)->Result<(),ValueTreeError>{
- let entry=new.or(old).ok_or(ValueTreeError::Invalid("diplomacy projection missing change"))?;let(_,semantic)=closure::identity(field,entry,view,max)?;let row=schema::inspect(field,&semantic)?;let memory=view.values.memory.clone();let(path,json)=match row{
- schema::Row::Column(slot)=>{let spec=profile::specs(field).get(slot).ok_or(ValueTreeError::Invalid("diplomacy projection slot"))?;if matches!(spec.path,super::Path::Length(_)){(Path::Length(closure::length(field,view)?),None)}else{let Some((name,json))=super::projection_cells::scalar_json(field,slot,view,p,max)?else{return Ok(())};(Path::Scalar(name),Some(json))}},
- schema::Row::Member(index)|schema::Row::Outcome(index,_)=>{let value=if new.is_some(){Some(super::projection_cells::member_json(field,index,view,p,max)?)}else{None};(Path::Member(index),value)}
- };output.push(Patch{path,json},&memory,p)
+#[derive(Clone, Copy)]
+pub enum DiplomacyProjectionPathRefV1 {
+    Scalar(&'static str),
+    Length(u64),
+    Member(u64),
 }
-fn decode_projection_entity_v1<M:MerkleNodeReader,P:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(change:Change,family:&ReservedValue<DiplomacyFamilyQualificationV1>,roots:&RootSetV1,state:&P,ctx:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,scan:&mut StateScanBudget,cells:&mut u64,processing:&mut BusinessDiffProcessingWorkV1,max_text:u64,live:&ExecutionFence)->Result<Option<Entity>,BodyMutationError>{let memory=ctx.values.memory.clone();
- pay(processing,change.key.len(),&mut ctx.cancelled)?;if ctx.transaction.read(StateNamespaceV1::Business,&change.key)?!=change.after{return Err(bad().into())}let value=change.after.or(change.before).ok_or_else(bad)?;let entry=StateEntryV1{namespace:StateNamespaceV1::Business,key:change.key,value};
- let parent_root=roots.state.iter().find(|root|root.namespace==StateNamespaceV1::Business).ok_or_else(bad)?;
- let mut top=crate::incremental_field_read::WorldFieldReadContextV1{root:parent_root,state,values:oasis7_formal_protocol::incremental_value::ValueReadContext{source:ctx.values.source,memory:&memory,class:MemoryClass::Ordinary,io:&mut *ctx.values.io},key_work:&mut *ctx.key_work,semantic_bytes:ctx.semantic_bytes,record_bytes:ctx.record_bytes,take_state_error:&mut ctx.take_state_error,cancelled:&mut ctx.cancelled};
- let _child_fee=reserve(&memory,2*size_of::<oasis7_formal_protocol::incremental_state::StateRootV1>()+512,processing,&mut top.cancelled)?;
- let _old_key_fee=reserve(&memory,entry.key.len(),processing,&mut top.cancelled)?;let selected=super::family::outer(&entry,&mut top)?;let before=if let Some(value)=change.before{super::family::outer(&StateEntryV1{namespace:entry.namespace,key:entry.key.clone(),value},&mut top)?}else{None};drop(top);let Some((_kind,owner,child))=selected else{if change.after.is_none(){return Err(bad().into())}return Ok(None)};
- let parsed=WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;let expected=WorldFieldKeyV1::new(change.kind.descriptor()?,parsed.kind,parsed.semantic_key).map_err(ValueTreeError::Invalid)?;
- let limits=MemberRecordLimitsV1{semantic_bytes:ctx.semantic_bytes,payload_bytes:oasis7_formal_protocol::incremental_record_root::RECORD_ROOT_BYTES as u64,record_bytes:ctx.record_bytes};let header=read_member_record_header_v1(&entry.value,&expected,&mut ctx.values,limits,&mut ctx.cancelled)?;let n=usize::try_from(header.semantic_bytes).map_err(|_|limit())?;let semantic_fee=reserve(&memory,n.checked_add(size_of::<Vec<u8>>()).ok_or_else(limit)?,processing,&mut ctx.cancelled)?;let mut semantic=Vec::with_capacity(n);if semantic.capacity()!=n{return Err(limit().into())}read_member_record_key_v1(&entry.value,&expected,&mut ctx.values,limits,&mut semantic,&mut ctx.cancelled)?;if semantic.len()!=n{return Err(bad().into())}pay(processing,n,&mut ctx.cancelled)?;let semantic=semantic_fee.retain(semantic);let SemanticKeyRefV1::Text(id)=read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)?else{return Err(bad().into())};let key_json=crate::incremental_world_rule_projection_delta::encode_original_projection_json_data_v1(&id,&memory,processing,&mut ctx.cancelled)?;
- let mut patches=Patches::new(&memory)?;if change.after.is_some(){
- let mut selected=crate::incremental_field_read::WorldFieldReadContextV1{root:&child,state,values:oasis7_formal_protocol::incremental_value::ValueReadContext{source:ctx.values.source,memory:&memory,class:MemoryClass::Ordinary,io:&mut *ctx.values.io},key_work:&mut *ctx.key_work,semantic_bytes:ctx.semantic_bytes,record_bytes:ctx.record_bytes,take_state_error:&mut ctx.take_state_error,cancelled:&mut ctx.cancelled};let old=before.as_ref().map(|(_,_,root)|&**root);
- let shared=RefCell::new(&mut *processing);super::receiver::child_with_work_and_observer(change.kind,old,&child,&mut selected,cells,max_text,|_,_|Ok(()),&mut|n|spend(&mut shared.borrow_mut(),n))?;
- let empty=StateRootV1::empty(StateNamespaceV1::Business).map_err(|_|bad())?;let old=old.unwrap_or(&empty);let error=&mut selected.take_state_error;let mut records=crate::incremental_inventory_value_read::InventoryValueReader{values:&mut selected.values,key_work:&mut *selected.key_work,semantic_bytes:selected.semantic_bytes,record_bytes:selected.record_bytes,cancelled:&mut selected.cancelled};
- crate::incremental_record_diff::visit_with_work(old,&child,&mut records,cells,crate::incremental_record_diff::RecordDiffLabelsV1{invalid:"diplomacy projection diff",cells:"diplomacy projection paths",stack:"diplomacy projection stack",tree:inner_tree::LABELS},|old,new,records|{let mut view=crate::incremental_field_read::WorldFieldReadContextV1{root:&child,state,values:oasis7_formal_protocol::incremental_value::ValueReadContext{source:records.values.source,memory:&memory,class:MemoryClass::Ordinary,io:&mut *records.values.io},key_work:&mut *records.key_work,semantic_bytes:records.semantic_bytes,record_bytes:records.record_bytes,take_state_error:&mut *error,cancelled:&mut *records.cancelled};observe(change.kind,old,new,&mut view,&mut shared.borrow_mut(),max_text,&mut patches)},&mut|n|spend(&mut shared.borrow_mut(),n))?;
- }Ok(Some(Entity{kind:change.kind,semantic,key:key_json,before:change.before.is_some(),after:change.after.is_some(),patches}))
+#[derive(Clone, Copy)]
+enum Path {
+    Scalar(&'static str),
+    Length(u64),
+    Member(u64),
 }
-pub fn read_current_diplomacy_projection_delta_v1<M:MerkleNodeReader,P:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(family:&ReservedValue<DiplomacyFamilyQualificationV1>,roots:&RootSetV1,state:&P,ctx:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,scan:&mut StateScanBudget,cells:&mut u64,pending:&mut usize,processing:&mut BusinessDiffProcessingWorkV1,max_text:u64,guard:&PreparedGuard,live:&ExecutionFence)->Result<CurrentDiplomacyProjectionDeltaV1,BodyMutationError>{
- let result=(||{
- ctx.transaction.validate_guard(guard,live)?;let memory=ctx.values.memory.clone();if ctx.values.class!=MemoryClass::Ordinary||!ctx.transaction.uses_budget(&memory)||!family.uses_budget(&memory)||family.allocation_class()!=MemoryClass::Ordinary{return Err(bad().into())}family.validate_binding(&ctx.transaction.parent_fence().parent_roots)?;if roots.digest().map_err(|_|bad())?!=ctx.transaction.parent_fence().parent_roots{return Err(bad().into())}
- let mut count=0usize;let mut bytes=0usize;for namespace in [StateNamespaceV1::Business]{
- let p=RefCell::new(&mut *processing);let stop=RefCell::new(&mut ctx.cancelled);
- ctx.transaction.visit_pending_writes(namespace,pending,||pay(&mut p.borrow_mut(),0,&mut **stop.borrow_mut()),|key,before,after|{pay(&mut p.borrow_mut(),key.len(),&mut **stop.borrow_mut())?;if before!=after&&identify(key)?.is_some(){count=count.checked_add(1).ok_or_else(limit)?;bytes=bytes.checked_add(key.len()).ok_or_else(limit)?}Ok::<_,BodyMutationError>(())})?;}
- let _phase=reserve(&memory,count.checked_mul(size_of::<Change>()).and_then(|n|n.checked_add(bytes)).ok_or_else(limit)?,processing,&mut ctx.cancelled)?;let mut changes=Vec::with_capacity(count);if changes.capacity()!=count{return Err(limit().into())}for namespace in [StateNamespaceV1::Business]{
- let p=RefCell::new(&mut *processing);let stop=RefCell::new(&mut ctx.cancelled);
- ctx.transaction.visit_pending_writes(namespace,pending,||pay(&mut p.borrow_mut(),0,&mut **stop.borrow_mut()),|key,before,after|{pay(&mut p.borrow_mut(),key.len(),&mut **stop.borrow_mut())?;if before==after{return Ok(())}if let Some(kind)=identify(key)?{if changes.len()==count{return Err(limit().into())}let mut copy=Vec::with_capacity(key.len());if copy.capacity()!=key.len(){return Err(limit().into())}copy.extend_from_slice(key);changes.push(Change{kind,key:copy,before,after})}Ok::<_,BodyMutationError>(())})?;}
- let fee=reserve(&memory,count.checked_mul(size_of::<Entity>()).and_then(|n|n.checked_add(size_of::<CurrentDiplomacyProjectionDeltaV1>())).ok_or_else(limit)?,processing,&mut ctx.cancelled)?;let mut rows=Vec::with_capacity(count);if rows.capacity()!=count{return Err(limit().into())}
- for change in changes{if let Some(row)=decode_projection_entity_v1(change,family,roots,state,ctx,scan,cells,processing,max_text,live)?{rows.push(row)}}
+struct Patch {
+    path: Path,
+    json: Option<ReservedValue<Vec<u8>>>,
+}
+struct Patches {
+    values: Vec<Patch>,
+    _slots: MemoryReservation,
+}
+struct Entity {
+    kind: DiplomacyFieldV1,
+    semantic: ReservedValue<Vec<u8>>,
+    key: ReservedValue<Vec<u8>>,
+    before: bool,
+    after: bool,
+    patches: Patches,
+}
+pub struct CurrentDiplomacyProjectionDeltaV1 {
+    rows: Vec<Entity>,
+    guard: PreparedGuard,
+    parent: [u8; 32],
+    memory: MemoryBudget,
+    _fee: MemoryReservation,
+}
+fn bad() -> ValueTreeError {
+    ValueTreeError::Invalid("Current governance projection")
+}
+fn limit() -> ValueTreeError {
+    ValueTreeError::ResourceLimited("Current governance projection")
+}
+fn oe(e: WorldFieldOverlayErrorV1) -> BodyMutationError {
+    match e {
+        WorldFieldOverlayErrorV1::Execution(e) => BodyMutationError::Execution(e),
+        WorldFieldOverlayErrorV1::Value(e) => BodyMutationError::Value(e),
+        e => BodyMutationError::Original(Box::new(e)),
+    }
+}
+fn pay(
+    work: &mut BusinessDiffProcessingWorkV1,
+    n: usize,
+    stop: &mut impl FnMut() -> bool,
+) -> Result<(), BodyMutationError> {
+    if stop() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    let n = u64::try_from(n).map_err(|_| limit())?;
+    work.steps_remaining = work
+        .steps_remaining
+        .checked_sub(n.checked_add(1).ok_or_else(limit)?)
+        .ok_or_else(limit)?;
+    work.bytes_remaining = work.bytes_remaining.checked_sub(n).ok_or_else(limit)?;
+    Ok(())
+}
+fn reserve(
+    memory: &MemoryBudget,
+    n: usize,
+    work: &mut BusinessDiffProcessingWorkV1,
+    stop: &mut impl FnMut() -> bool,
+) -> Result<MemoryReservation, BodyMutationError> {
+    pay(work, n, stop)?;
+    memory
+        .reserve(n, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)
+        .map_err(Into::into)
+}
+impl CurrentDiplomacyProjectionDeltaV1 {
+    pub fn validate<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+        memory: &MemoryBudget,
+        live: &ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        tx.validate_read_source_guard(&self.guard, live)?;
+        if !self.memory.same_pool(memory)
+            || !self._fee.uses_budget(memory)
+            || !tx.uses_budget(memory)
+            || self.parent != tx.parent_fence().parent_roots
+        {
+            return Err(bad().into());
+        }
+        Ok(())
+    }
+    pub fn visit_entities_with_work_v1<E>(
+        &self,
+        mut work: impl FnMut(u64, u64) -> Result<(), E>,
+        mut emit: impl FnMut(DiplomacyFieldV1, &[u8], &[u8], bool, bool) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for row in &self.rows {
+            work(1, 0)?;
+            emit(row.kind, &row.semantic, &row.key, row.before, row.after)?
+        }
+        Ok(())
+    }
+    pub fn entity_patch_count_with_work_v1<E>(
+        &self,
+        kind: DiplomacyFieldV1,
+        semantic: &[u8],
+        mut work: impl FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Option<usize>, E> {
+        for row in &self.rows {
+            work(1, (row.semantic.len() + semantic.len()) as u64)?;
+            if row.kind == kind && row.semantic.as_slice() == semantic {
+                return Ok(Some(row.patches.values.len()));
+            }
+        }
+        Ok(None)
+    }
+    pub fn visit_entity_patches_with_work_v1<E>(
+        &self,
+        kind: DiplomacyFieldV1,
+        semantic: &[u8],
+        mut work: impl FnMut(u64, u64) -> Result<(), E>,
+        mut emit: impl FnMut(DiplomacyProjectionPathRefV1, Option<&[u8]>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for row in &self.rows {
+            work(1, (row.semantic.len() + semantic.len()) as u64)?;
+            if row.kind != kind || row.semantic.as_slice() != semantic {
+                continue;
+            }
+            for patch in &row.patches.values {
+                work(1, 0)?;
+                let path = match patch.path {
+                    Path::Scalar(v) => DiplomacyProjectionPathRefV1::Scalar(v),
+                    Path::Length(v) => DiplomacyProjectionPathRefV1::Length(v),
+                    Path::Member(v) => DiplomacyProjectionPathRefV1::Member(v),
+                };
+                emit(path, patch.json.as_deref().map(Vec::as_slice))?
+            }
+            break;
+        }
+        Ok(())
+    }
+    pub fn visit_patches_with_work_v1<E>(
+        &self,
+        mut work: impl FnMut(u64, u64) -> Result<(), E>,
+        mut emit: impl FnMut(
+            DiplomacyFieldV1,
+            &[u8],
+            &[u8],
+            DiplomacyProjectionPathRefV1,
+            Option<&[u8]>,
+        ) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for row in &self.rows {
+            work(1, 0)?;
+            for patch in &row.patches.values {
+                work(1, 0)?;
+                let path = match patch.path {
+                    Path::Scalar(v) => DiplomacyProjectionPathRefV1::Scalar(v),
+                    Path::Length(v) => DiplomacyProjectionPathRefV1::Length(v),
+                    Path::Member(v) => DiplomacyProjectionPathRefV1::Member(v),
+                };
+                emit(
+                    row.kind,
+                    &row.semantic,
+                    &row.key,
+                    path,
+                    patch.json.as_deref().map(Vec::as_slice),
+                )?
+            }
+        }
+        Ok(())
+    }
+}
+pub fn is_diplomacy_projection_field_v1(name: &str) -> bool {
+    DiplomacyFieldV1::ALL.iter().any(|kind| kind.name() == name)
+}
+fn identify(key: &[u8]) -> Result<Option<DiplomacyFieldV1>, BodyMutationError> {
+    if !WorldFieldKeyV1::is_field_key_v1(key) {
+        return Ok(None);
+    }
+    let parsed = WorldFieldKeyV1::from_bytes(key).map_err(ValueTreeError::Invalid)?;
+    let Some(kind) = DiplomacyFieldV1::ALL
+        .into_iter()
+        .find(|kind| kind.name() == parsed.name)
+    else {
+        return Ok(None);
+    };
+    let expected = WorldFieldKeyV1::new(kind.descriptor()?, parsed.kind, parsed.semantic_key)
+        .map_err(ValueTreeError::Invalid)?;
+    if expected.as_bytes() != key || parsed.namespace != StateNamespaceV1::Business {
+        return Err(bad().into());
+    }
+    Ok(Some(kind))
+}
+fn spend(p: &mut BusinessDiffProcessingWorkV1, n: usize) -> Result<(), ValueTreeError> {
+    let n = u64::try_from(n)
+        .map_err(|_| ValueTreeError::ResourceLimited("governance projection processing"))?;
+    p.steps_remaining =
+        p.steps_remaining
+            .checked_sub(n.checked_add(1).ok_or_else(|| {
+                ValueTreeError::ResourceLimited("governance projection processing")
+            })?)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "governance projection steps",
+            ))?;
+    p.bytes_remaining = p
+        .bytes_remaining
+        .checked_sub(n)
+        .ok_or(ValueTreeError::ResourceLimited(
+            "governance projection bytes",
+        ))?;
+    Ok(())
+}
+impl Patches {
+    fn new(memory: &MemoryBudget) -> Result<Self, ValueTreeError> {
+        Ok(Self {
+            values: Vec::new(),
+            _slots: memory.reserve(0, MemoryClass::Ordinary)?,
+        })
+    }
+    fn push(
+        &mut self,
+        patch: Patch,
+        memory: &MemoryBudget,
+        p: &mut BusinessDiffProcessingWorkV1,
+    ) -> Result<(), ValueTreeError> {
+        spend(p, 0)?;
+        if self.values.len() == self.values.capacity() {
+            let cap = self.values.capacity().max(1).checked_mul(2).ok_or(
+                ValueTreeError::ResourceLimited("governance projection slots"),
+            )?;
+            let n = cap
+                .checked_mul(size_of::<Patch>())
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "governance projection slots",
+                ))?;
+            spend(p, n)?;
+            let fee = memory.reserve(n, MemoryClass::Ordinary)?;
+            self.values.reserve_exact(cap - self.values.len());
+            if self.values.capacity() != cap {
+                return Err(ValueTreeError::ResourceLimited(
+                    "governance projection slot capacity",
+                ));
+            }
+            self._slots = fee;
+        }
+        self.values.push(patch);
+        Ok(())
+    }
+}
+fn observe<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    field: DiplomacyFieldV1,
+    old: Option<&StateEntryV1>,
+    new: Option<&StateEntryV1>,
+    view: &mut crate::incremental_field_read::WorldFieldReadContextV1<'_, M, R, E, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+    max: u64,
+    output: &mut Patches,
+) -> Result<(), ValueTreeError> {
+    let entry = new.or(old).ok_or(ValueTreeError::Invalid(
+        "diplomacy projection missing change",
+    ))?;
+    let (_, semantic) = closure::identity(field, entry, view, max)?;
+    let row = schema::inspect(field, &semantic)?;
+    let memory = view.values.memory.clone();
+    let (path, json) = match row {
+        schema::Row::Column(slot) => {
+            let spec = profile::specs(field)
+                .get(slot)
+                .ok_or(ValueTreeError::Invalid("diplomacy projection slot"))?;
+            if matches!(spec.path, super::Path::Length(_)) {
+                (Path::Length(closure::length(field, view)?), None)
+            } else {
+                let Some((name, json)) =
+                    super::projection_cells::scalar_json(field, slot, view, p, max)?
+                else {
+                    return Ok(());
+                };
+                (Path::Scalar(name), Some(json))
+            }
+        }
+        schema::Row::Member(index) | schema::Row::Outcome(index, _) => {
+            let value = if new.is_some() {
+                Some(super::projection_cells::member_json(
+                    field, index, view, p, max,
+                )?)
+            } else {
+                None
+            };
+            (Path::Member(index), value)
+        }
+    };
+    output.push(Patch { path, json }, &memory, p)
+}
+fn decode_projection_entity_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    change: Change,
+    family: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    roots: &RootSetV1,
+    state: &P,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    cells: &mut u64,
+    processing: &mut BusinessDiffProcessingWorkV1,
+    max_text: u64,
+    live: &ExecutionFence,
+) -> Result<Option<Entity>, BodyMutationError> {
+    let memory = ctx.values.memory.clone();
+    pay(processing, change.key.len(), &mut ctx.cancelled)?;
+    if ctx
+        .transaction
+        .read(StateNamespaceV1::Business, &change.key)?
+        != change.after
+    {
+        return Err(bad().into());
+    }
+    let value = change.after.or(change.before).ok_or_else(bad)?;
+    let entry = StateEntryV1 {
+        namespace: StateNamespaceV1::Business,
+        key: change.key,
+        value,
+    };
+    let parent_root = roots
+        .state
+        .iter()
+        .find(|root| root.namespace == StateNamespaceV1::Business)
+        .ok_or_else(bad)?;
+    let mut top = crate::incremental_field_read::WorldFieldReadContextV1 {
+        root: parent_root,
+        state,
+        values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+            source: ctx.values.source,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut *ctx.values.io,
+        },
+        key_work: &mut *ctx.key_work,
+        semantic_bytes: ctx.semantic_bytes,
+        record_bytes: ctx.record_bytes,
+        take_state_error: &mut ctx.take_state_error,
+        cancelled: &mut ctx.cancelled,
+    };
+    let _child_fee = reserve(
+        &memory,
+        2 * size_of::<oasis7_formal_protocol::incremental_state::StateRootV1>() + 512,
+        processing,
+        &mut top.cancelled,
+    )?;
+    let _old_key_fee = reserve(&memory, entry.key.len(), processing, &mut top.cancelled)?;
+    let selected = super::family::outer(&entry, &mut top)?;
+    let before = if let Some(value) = change.before {
+        super::family::outer(
+            &StateEntryV1 {
+                namespace: entry.namespace,
+                key: entry.key.clone(),
+                value,
+            },
+            &mut top,
+        )?
+    } else {
+        None
+    };
+    drop(top);
+    let Some((_kind, owner, child)) = selected else {
+        if change.after.is_none() {
+            return Err(bad().into());
+        }
+        return Ok(None);
+    };
+    let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
+    let expected =
+        WorldFieldKeyV1::new(change.kind.descriptor()?, parsed.kind, parsed.semantic_key)
+            .map_err(ValueTreeError::Invalid)?;
+    let limits = MemberRecordLimitsV1 {
+        semantic_bytes: ctx.semantic_bytes,
+        payload_bytes: oasis7_formal_protocol::incremental_record_root::RECORD_ROOT_BYTES as u64,
+        record_bytes: ctx.record_bytes,
+    };
+    let header = read_member_record_header_v1(
+        &entry.value,
+        &expected,
+        &mut ctx.values,
+        limits,
+        &mut ctx.cancelled,
+    )?;
+    let n = usize::try_from(header.semantic_bytes).map_err(|_| limit())?;
+    let semantic_fee = reserve(
+        &memory,
+        n.checked_add(size_of::<Vec<u8>>()).ok_or_else(limit)?,
+        processing,
+        &mut ctx.cancelled,
+    )?;
+    let mut semantic = Vec::with_capacity(n);
+    if semantic.capacity() != n {
+        return Err(limit().into());
+    }
+    read_member_record_key_v1(
+        &entry.value,
+        &expected,
+        &mut ctx.values,
+        limits,
+        &mut semantic,
+        &mut ctx.cancelled,
+    )?;
+    if semantic.len() != n {
+        return Err(bad().into());
+    }
+    pay(processing, n, &mut ctx.cancelled)?;
+    let semantic = semantic_fee.retain(semantic);
+    let SemanticKeyRefV1::Text(id) =
+        read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)?
+    else {
+        return Err(bad().into());
+    };
+    let key_json =
+        crate::incremental_world_rule_projection_delta::encode_original_projection_json_data_v1(
+            &id,
+            &memory,
+            processing,
+            &mut ctx.cancelled,
+        )?;
+    let mut patches = Patches::new(&memory)?;
+    if change.after.is_some() {
+        let mut selected = crate::incremental_field_read::WorldFieldReadContextV1 {
+            root: &child,
+            state,
+            values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                source: ctx.values.source,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut *ctx.values.io,
+            },
+            key_work: &mut *ctx.key_work,
+            semantic_bytes: ctx.semantic_bytes,
+            record_bytes: ctx.record_bytes,
+            take_state_error: &mut ctx.take_state_error,
+            cancelled: &mut ctx.cancelled,
+        };
+        let old = before.as_ref().map(|(_, _, root)| &**root);
+        let shared = RefCell::new(&mut *processing);
+        super::receiver::child_with_work_and_observer(
+            change.kind,
+            old,
+            &child,
+            &mut selected,
+            cells,
+            max_text,
+            |_, _| Ok(()),
+            &mut |n| spend(&mut shared.borrow_mut(), n),
+        )?;
+        let empty = StateRootV1::empty(StateNamespaceV1::Business).map_err(|_| bad())?;
+        let old = old.unwrap_or(&empty);
+        let error = &mut selected.take_state_error;
+        let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+            values: &mut selected.values,
+            key_work: &mut *selected.key_work,
+            semantic_bytes: selected.semantic_bytes,
+            record_bytes: selected.record_bytes,
+            cancelled: &mut selected.cancelled,
+        };
+        crate::incremental_record_diff::visit_with_work(
+            old,
+            &child,
+            &mut records,
+            cells,
+            crate::incremental_record_diff::RecordDiffLabelsV1 {
+                invalid: "diplomacy projection diff",
+                cells: "diplomacy projection paths",
+                stack: "diplomacy projection stack",
+                tree: inner_tree::LABELS,
+            },
+            |old, new, records| {
+                let mut view = crate::incremental_field_read::WorldFieldReadContextV1 {
+                    root: &child,
+                    state,
+                    values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                        source: records.values.source,
+                        memory: &memory,
+                        class: MemoryClass::Ordinary,
+                        io: &mut *records.values.io,
+                    },
+                    key_work: &mut *records.key_work,
+                    semantic_bytes: records.semantic_bytes,
+                    record_bytes: records.record_bytes,
+                    take_state_error: &mut *error,
+                    cancelled: &mut *records.cancelled,
+                };
+                observe(
+                    change.kind,
+                    old,
+                    new,
+                    &mut view,
+                    &mut shared.borrow_mut(),
+                    max_text,
+                    &mut patches,
+                )
+            },
+            &mut |n| spend(&mut shared.borrow_mut(), n),
+        )?;
+    }
+    Ok(Some(Entity {
+        kind: change.kind,
+        semantic,
+        key: key_json,
+        before: change.before.is_some(),
+        after: change.after.is_some(),
+        patches,
+    }))
+}
+pub fn read_current_diplomacy_projection_delta_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    family: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    roots: &RootSetV1,
+    state: &P,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    cells: &mut u64,
+    pending: &mut usize,
+    processing: &mut BusinessDiffProcessingWorkV1,
+    max_text: u64,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<CurrentDiplomacyProjectionDeltaV1, BodyMutationError> {
+    let result = (|| {
+        ctx.transaction.validate_guard(guard, live)?;
+        let memory = ctx.values.memory.clone();
+        if ctx.values.class != MemoryClass::Ordinary
+            || !ctx.transaction.uses_budget(&memory)
+            || !family.uses_budget(&memory)
+            || family.allocation_class() != MemoryClass::Ordinary
+        {
+            return Err(bad().into());
+        }
+        family.validate_binding(&ctx.transaction.parent_fence().parent_roots)?;
+        if roots.digest().map_err(|_| bad())? != ctx.transaction.parent_fence().parent_roots {
+            return Err(bad().into());
+        }
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for namespace in [StateNamespaceV1::Business] {
+            let p = RefCell::new(&mut *processing);
+            let stop = RefCell::new(&mut ctx.cancelled);
+            ctx.transaction.visit_pending_writes(
+                namespace,
+                pending,
+                || pay(&mut p.borrow_mut(), 0, &mut **stop.borrow_mut()),
+                |key, before, after| {
+                    pay(&mut p.borrow_mut(), key.len(), &mut **stop.borrow_mut())?;
+                    if before != after && identify(key)?.is_some() {
+                        count = count.checked_add(1).ok_or_else(limit)?;
+                        bytes = bytes.checked_add(key.len()).ok_or_else(limit)?
+                    }
+                    Ok::<_, BodyMutationError>(())
+                },
+            )?;
+        }
+        let _phase = reserve(
+            &memory,
+            count
+                .checked_mul(size_of::<Change>())
+                .and_then(|n| n.checked_add(bytes))
+                .ok_or_else(limit)?,
+            processing,
+            &mut ctx.cancelled,
+        )?;
+        let mut changes = Vec::with_capacity(count);
+        if changes.capacity() != count {
+            return Err(limit().into());
+        }
+        for namespace in [StateNamespaceV1::Business] {
+            let p = RefCell::new(&mut *processing);
+            let stop = RefCell::new(&mut ctx.cancelled);
+            ctx.transaction.visit_pending_writes(
+                namespace,
+                pending,
+                || pay(&mut p.borrow_mut(), 0, &mut **stop.borrow_mut()),
+                |key, before, after| {
+                    pay(&mut p.borrow_mut(), key.len(), &mut **stop.borrow_mut())?;
+                    if before == after {
+                        return Ok(());
+                    }
+                    if let Some(kind) = identify(key)? {
+                        if changes.len() == count {
+                            return Err(limit().into());
+                        }
+                        let mut copy = Vec::with_capacity(key.len());
+                        if copy.capacity() != key.len() {
+                            return Err(limit().into());
+                        }
+                        copy.extend_from_slice(key);
+                        changes.push(Change {
+                            kind,
+                            key: copy,
+                            before,
+                            after,
+                        })
+                    }
+                    Ok::<_, BodyMutationError>(())
+                },
+            )?;
+        }
+        let fee = reserve(
+            &memory,
+            count
+                .checked_mul(size_of::<Entity>())
+                .and_then(|n| n.checked_add(size_of::<CurrentDiplomacyProjectionDeltaV1>()))
+                .ok_or_else(limit)?,
+            processing,
+            &mut ctx.cancelled,
+        )?;
+        let mut rows = Vec::with_capacity(count);
+        if rows.capacity() != count {
+            return Err(limit().into());
+        }
+        for change in changes {
+            if let Some(row) = decode_projection_entity_v1(
+                change, family, roots, state, ctx, scan, cells, processing, max_text, live,
+            )? {
+                rows.push(row)
+            }
+        }
 
- if let Some(error)=(ctx.take_state_error)(){return Err(error.into())}pay(processing,0,&mut ctx.cancelled)?;let guard=ctx.transaction.guard();let output=CurrentDiplomacyProjectionDeltaV1{rows,guard,parent:ctx.transaction.parent_fence().parent_roots,memory,_fee:fee};output.validate(ctx.transaction,ctx.values.memory,live)?;Ok(output)
- })();
- let result=match (ctx.take_state_error)(){Some(error)=>Err(BodyMutationError::Value(error)),None=>result};
- if result.is_err(){let _:Result<(),oasis7_formal_protocol::incremental_execution::ExecutionError>=ctx.transaction.contribute(|_|Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted));}result
+        if let Some(error) = (ctx.take_state_error)() {
+            return Err(error.into());
+        }
+        pay(processing, 0, &mut ctx.cancelled)?;
+        let guard = ctx.transaction.guard();
+        let output = CurrentDiplomacyProjectionDeltaV1 {
+            rows,
+            guard,
+            parent: ctx.transaction.parent_fence().parent_roots,
+            memory,
+            _fee: fee,
+        };
+        output.validate(ctx.transaction, ctx.values.memory, live)?;
+        Ok(output)
+    })();
+    let result = match (ctx.take_state_error)() {
+        Some(error) => Err(BodyMutationError::Value(error)),
+        None => result,
+    };
+    if result.is_err() {
+        let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+            ctx.transaction.contribute(|_| {
+                Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+            });
+    }
+    result
 }
 
-#[path="incremental_diplomacy_projection_cold.rs"] mod cold;
-pub use cold::{QualifiedDiplomacyProjectionColumnsV1,read_qualified_diplomacy_projection_columns_v1};
+#[path = "incremental_diplomacy_projection_cold.rs"]
+mod cold;
+pub use cold::{
+    QualifiedDiplomacyProjectionColumnsV1, read_qualified_diplomacy_projection_columns_v1,
+};

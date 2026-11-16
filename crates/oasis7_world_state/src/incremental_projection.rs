@@ -232,7 +232,7 @@ macro_rules! visit_iws_field {
 
 #[path = "incremental_state_projection.rs"]
 mod state;
-pub use state::{WORLD_STATE_FIELDS,WorldStateColumnCodecVisitorV1};
+pub use state::{WORLD_STATE_FIELDS, WorldStateColumnCodecVisitorV1};
 #[path = "incremental_snapshot_fields.rs"]
 mod snapshot;
 pub use snapshot::{SNAPSHOT_FIELDS, SnapshotFieldLink, SnapshotFieldLinkKind};

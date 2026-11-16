@@ -72,13 +72,18 @@ pub(super) fn outer<
         record_bytes: ctx.record_bytes,
         cancelled: &mut ctx.cancelled,
     };
-    let value=outer_from_records_v1(entry,&mut records)?;
-    if value.is_some(){ctx.check()?;}
+    let value = outer_from_records_v1(entry, &mut records)?;
+    if value.is_some() {
+        ctx.check()?;
+    }
     Ok(value)
 }
 /// Original outer grammar only; the caller supplies an actually authenticated
 /// entry. No current body closure or execution permission is created here.
-pub(super) fn outer_from_records_v1<R:ValueNodeReader,C:FnMut()->bool>(entry:&StateEntryV1,records:&mut InventoryValueReader<'_, '_,R,C>)->Result<Option<(FactoryAuthorityRecordKindV1,[u8;32],StateRootV1)>,ValueTreeError>{
+pub(super) fn outer_from_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    entry: &StateEntryV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Option<(FactoryAuthorityRecordKindV1, [u8; 32], StateRootV1)>, ValueTreeError> {
     if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
         return Ok(None);
     }
@@ -125,12 +130,7 @@ pub(super) fn outer_from_records_v1<R:ValueNodeReader,C:FnMut()->bool>(entry:&St
         },
         &mut *records.cancelled,
     )?;
-    let child = read::outer(
-        kind,
-        &(key, info.semantic_bytes),
-        &entry.value,
-        records,
-    )?;
+    let child = read::outer(kind, &(key, info.semantic_bytes), &entry.value, records)?;
     let owner = binding.semantic_key.ok_or_else(invalid)?;
     Ok(Some((kind, owner, child)))
 }

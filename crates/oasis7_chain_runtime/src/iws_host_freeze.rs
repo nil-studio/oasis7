@@ -8,7 +8,9 @@ use oasis7_formal_protocol::controlled_authority::formal::{
 use oasis7_formal_protocol::controlled_authority::replicated_protocol::ClosedRecord;
 
 pub(super) struct HostNormalContinuationV1 {
-    pub(super) resident: Option<oasis7_proto::memory_budget::ReservedValue<oasis7_runtime::NormalHostResidentSourcesV1>>,
+    pub(super) resident: Option<
+        oasis7_proto::memory_budget::ReservedValue<oasis7_runtime::NormalHostResidentSourcesV1>,
+    >,
     pub(super) identity:
         oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
     pub(super) fee: oasis7_proto::memory_budget::ReservedValue<()>,
@@ -109,8 +111,15 @@ impl IwsHostRuntimeV1 {
             .continuation
             .as_ref()
             .ok_or_else(|| FormalError::Invalid("Host normal continuation missing".into()))?;
-        let prepared =
-            prepare_normal_current(&mut self.current, expected, source, None, memory, work, cancelled)?;
+        let prepared = prepare_normal_current(
+            &mut self.current,
+            expected,
+            source,
+            None,
+            memory,
+            work,
+            cancelled,
+        )?;
         prepared.finish();
         self.continuation = None;
         Ok(())
@@ -121,7 +130,9 @@ fn prepare_normal_current<'a>(
     slot: &'a mut slot::HostCurrentSlotV1,
     expected: &HostNormalContinuationV1,
     source: PaidAcceptedGenesisHostSourceV1,
-    resident: Option<oasis7_proto::memory_budget::ReservedValue<oasis7_runtime::NormalHostResidentSourcesV1>>,
+    resident: Option<
+        oasis7_proto::memory_budget::ReservedValue<oasis7_runtime::NormalHostResidentSourcesV1>,
+    >,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     cancelled: &AtomicBool,
@@ -130,11 +141,21 @@ fn prepare_normal_current<'a>(
     {
         let mut context = work.bounded_context(memory, &mut stop);
         source.validate_context(&mut context)?;
-        if let Some(resident)=resident.as_ref(){resident.validate_live_binding_v1(source.record_id(),&source.fence(),&mut context).map_err(IwsHostRuntimeErrorV1::NormalSource)?;}
-        match (expected.resident.as_ref(),resident.as_ref()) {
-            (Some(previous),Some(next))=>next.validate_same_host_process_v1(previous,&mut context).map_err(IwsHostRuntimeErrorV1::NormalSource)?,
-            (None,None)=>(),
-            _=>return Err(FormalError::Invalid("normal Host process resident continuity".into()).into()),
+        if let Some(resident) = resident.as_ref() {
+            resident
+                .validate_live_binding_v1(source.record_id(), &source.fence(), &mut context)
+                .map_err(IwsHostRuntimeErrorV1::NormalSource)?;
+        }
+        match (expected.resident.as_ref(), resident.as_ref()) {
+            (Some(previous), Some(next)) => next
+                .validate_same_host_process_v1(previous, &mut context)
+                .map_err(IwsHostRuntimeErrorV1::NormalSource)?,
+            (None, None) => (),
+            _ => {
+                return Err(
+                    FormalError::Invalid("normal Host process resident continuity".into()).into(),
+                );
+            }
         }
         if expected.identity != context.work().identity() || !expected.fee.uses_budget(memory) {
             return Err(FormalError::Invalid("Host normal continuation pool/Core".into()).into());
@@ -187,10 +208,24 @@ impl IwsHostRuntimeV1 {
         let rexpected = replica.continuation.as_ref().ok_or_else(|| {
             FormalError::Invalid("replica Host normal continuation missing".into())
         })?;
-        let p =
-            prepare_normal_current(&mut primary.current, pexpected, p, None, memory, work, cancelled)?;
-        let r =
-            prepare_normal_current(&mut replica.current, rexpected, r, None, memory, work, cancelled)?;
+        let p = prepare_normal_current(
+            &mut primary.current,
+            pexpected,
+            p,
+            None,
+            memory,
+            work,
+            cancelled,
+        )?;
+        let r = prepare_normal_current(
+            &mut replica.current,
+            rexpected,
+            r,
+            None,
+            memory,
+            work,
+            cancelled,
+        )?;
         p.finish();
         r.finish();
         primary.continuation = None;
@@ -204,19 +239,55 @@ impl IwsHostRuntimeV1 {
     /// no source-only slot is silently upgraded or reconstructed from history.
     #[allow(clippy::too_many_arguments)]
     pub fn install_accepted_normal_pair_with_residents_bounded(
-        primary:&mut Self,replica:&mut Self,
-        pair:oasis7_distfs::controlled_authority::formal::endpoint::PaidNormalAcceptedPairV1,
-        primary_resident:oasis7_runtime::PreparedNormalHostResidentV1,replica_resident:oasis7_runtime::PreparedNormalHostResidentV1,
-        memory:&MemoryBudget,work:&FormalArchiveReadWorkV1,cancelled:&AtomicBool,
-    )->Result<(),IwsHostRuntimeErrorV1>{
-        let (p,r,quorum,_pair_fee)=pair.into_sources();
-        quorum.validate_context(&mut work.bounded_context(memory,&mut ||cancelled.load(Ordering::Acquire)))?;
-        let p_resident=primary_resident.finish(quorum.verified()).map_err(IwsHostRuntimeErrorV1::Move)?;
-        let r_resident=replica_resident.finish(quorum.verified()).map_err(IwsHostRuntimeErrorV1::Move)?;
-        let pe=primary.continuation.as_ref().ok_or_else(||FormalError::Invalid("primary normal continuation missing".into()))?;
-        let re=replica.continuation.as_ref().ok_or_else(||FormalError::Invalid("replica normal continuation missing".into()))?;
-        let p=prepare_normal_current(&mut primary.current,pe,p,Some(p_resident),memory,work,cancelled)?;
-        let r=prepare_normal_current(&mut replica.current,re,r,Some(r_resident),memory,work,cancelled)?;
-        p.finish();r.finish();primary.continuation=None;replica.continuation=None;Ok(())
+        primary: &mut Self,
+        replica: &mut Self,
+        pair: oasis7_distfs::controlled_authority::formal::endpoint::PaidNormalAcceptedPairV1,
+        primary_resident: oasis7_runtime::PreparedNormalHostResidentV1,
+        replica_resident: oasis7_runtime::PreparedNormalHostResidentV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &AtomicBool,
+    ) -> Result<(), IwsHostRuntimeErrorV1> {
+        let (p, r, quorum, _pair_fee) = pair.into_sources();
+        quorum.validate_context(
+            &mut work.bounded_context(memory, &mut || cancelled.load(Ordering::Acquire)),
+        )?;
+        let p_resident = primary_resident
+            .finish(quorum.verified())
+            .map_err(IwsHostRuntimeErrorV1::Move)?;
+        let r_resident = replica_resident
+            .finish(quorum.verified())
+            .map_err(IwsHostRuntimeErrorV1::Move)?;
+        let pe = primary
+            .continuation
+            .as_ref()
+            .ok_or_else(|| FormalError::Invalid("primary normal continuation missing".into()))?;
+        let re = replica
+            .continuation
+            .as_ref()
+            .ok_or_else(|| FormalError::Invalid("replica normal continuation missing".into()))?;
+        let p = prepare_normal_current(
+            &mut primary.current,
+            pe,
+            p,
+            Some(p_resident),
+            memory,
+            work,
+            cancelled,
+        )?;
+        let r = prepare_normal_current(
+            &mut replica.current,
+            re,
+            r,
+            Some(r_resident),
+            memory,
+            work,
+            cancelled,
+        )?;
+        p.finish();
+        r.finish();
+        primary.continuation = None;
+        replica.continuation = None;
+        Ok(())
     }
 }

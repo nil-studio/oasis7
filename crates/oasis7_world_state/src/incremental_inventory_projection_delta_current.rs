@@ -657,5 +657,8 @@ where
     }
 }
 
-#[path="incremental_inventory_projection_delta_cold.rs"]mod cold;
-pub use cold::{QualifiedInventoryProjectionColumnsV1,read_qualified_inventory_projection_columns_v1};
+#[path = "incremental_inventory_projection_delta_cold.rs"]
+mod cold;
+pub use cold::{
+    QualifiedInventoryProjectionColumnsV1, read_qualified_inventory_projection_columns_v1,
+};

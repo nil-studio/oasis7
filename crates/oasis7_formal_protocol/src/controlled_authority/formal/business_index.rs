@@ -161,12 +161,12 @@ pub trait BusinessIndexNodeReader {
 #[path = "business_index_paid.rs"]
 mod paid;
 pub use paid::{
-    validate_business_index_root_bounded_v1,
     PaidBusinessIndexDeltaV1, PaidBusinessIndexErrorV1, PaidBusinessIndexLeafV1,
     PaidBusinessIndexNodeReaderV1, PaidDecodedBusinessIndexDeltaV1,
     build_business_index_v2_bounded_v1, canonical_business_index_root_bounded_v1,
     decode_business_index_delta_bounded_v1, empty_business_index_root_bounded_v1,
-    get_business_index_leaf_bounded_v1, verify_business_index_delta_bounded_v1,
+    get_business_index_leaf_bounded_v1, validate_business_index_root_bounded_v1,
+    verify_business_index_delta_bounded_v1,
 };
 
 struct Kernel<'a> {

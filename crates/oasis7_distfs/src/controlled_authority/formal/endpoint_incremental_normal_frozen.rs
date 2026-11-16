@@ -18,9 +18,9 @@ mod source;
 #[path = "endpoint_incremental_normal_frozen_state.rs"]
 mod state;
 pub use pair::{
-    NormalFrozenPairFailureV1, NormalReadyPairFailureV1, NormalReadyPublicationFailureV1,
-    PaidNormalAcceptedPairV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1, NormalReadyCandidateReadViewV1,
-    join_normal_frozen_endpoints_bounded,
+    NormalFrozenPairFailureV1, NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1,
+    NormalReadyPublicationFailureV1, PaidNormalAcceptedPairV1, PaidNormalFrozenPairV1,
+    PaidNormalReadyPairV1, join_normal_frozen_endpoints_bounded,
 };
 pub(in crate::controlled_authority) use receipt::PaidNormalFrozenReceiptSourceV1;
 use source::{NormalFrozenRecoveryV1, NormalFrozenTransactionV1};

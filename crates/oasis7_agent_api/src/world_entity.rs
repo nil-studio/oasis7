@@ -88,5 +88,6 @@ impl RobotBodySpec {
     }
 }
 
-#[path="world_entity_projection.rs"] mod projection;
-pub use projection::{ModuleVisualAnchorProjectionDataV1,ModuleVisualEntityProjectionFieldsV1};
+#[path = "world_entity_projection.rs"]
+mod projection;
+pub use projection::{ModuleVisualAnchorProjectionDataV1, ModuleVisualEntityProjectionFieldsV1};

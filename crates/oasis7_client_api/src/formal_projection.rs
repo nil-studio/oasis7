@@ -4,8 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub const MAX_PROJECTION_SCOPES: usize = 16_384;
 const MAX_PROJECTION_BYTES: usize = 4 * 1024 * 1024;
-fn hash(domain:&str,value:&impl Serialize)->Result<String,String>{
- current_work::legacy_digest_string(current_work::hash_paid(domain,value,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+fn hash(domain: &str, value: &impl Serialize) -> Result<String, String> {
+    current_work::legacy_digest_string(current_work::hash_paid(
+        domain,
+        value,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    ))
 }
 
 fn hash_valid(s: &str) -> bool {
@@ -55,8 +59,15 @@ impl ProjectionAudienceV1 {
     }
 }
 /// Exact shared formatter/UTF-8 canonical JSON kernel; Legacy carries no meter.
-pub fn projection_leaf(audience:&ProjectionAudienceV1,value:&impl Serialize)->Result<String,String>{
- current_work::legacy_digest_string(projection_leaf_with_work_v1(audience,value,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+pub fn projection_leaf(
+    audience: &ProjectionAudienceV1,
+    value: &impl Serialize,
+) -> Result<String, String> {
+    current_work::legacy_digest_string(projection_leaf_with_work_v1(
+        audience,
+        value,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    ))
 }
 
 fn parent(left: &str, right: &str) -> Result<String, String> {
@@ -123,8 +134,14 @@ pub struct ProjectionCommitmentsV1 {
     levels: Vec<Vec<String>>,
 }
 impl ProjectionCommitmentsV1 {
-    pub fn from_leaves(leaves:Vec<(ProjectionAudienceV1,String)>)->Result<Self,String>{
- match projection_tree_with_work_v1(leaves,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1){Ok(value)=>Ok(value.value),Err(e)=>Err(current_work::legacy_error_string(e))}
+    pub fn from_leaves(leaves: Vec<(ProjectionAudienceV1, String)>) -> Result<Self, String> {
+        match projection_tree_with_work_v1(
+            leaves,
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        ) {
+            Ok(value) => Ok(value.value),
+            Err(e) => Err(current_work::legacy_error_string(e)),
+        }
     }
     pub fn root(&self) -> Result<String, String> {
         bound_root(self.scopes.len(), &self.levels.last().expect("root")[0])
@@ -264,5 +281,6 @@ mod tests {
 mod terminal_v2;
 pub use terminal_v2::ClosedTaskFormalProjectionV2;
 
-#[path="formal_projection_current_work.rs"] mod current_work;
+#[path = "formal_projection_current_work.rs"]
+mod current_work;
 pub use current_work::*;

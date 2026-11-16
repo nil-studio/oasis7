@@ -851,5 +851,6 @@ impl NormalReadyPairFailureV1 {
     }
 }
 
-#[path="endpoint_incremental_normal_ready_candidate.rs"] mod candidate_read;
+#[path = "endpoint_incremental_normal_ready_candidate.rs"]
+mod candidate_read;
 pub use candidate_read::NormalReadyCandidateReadViewV1;

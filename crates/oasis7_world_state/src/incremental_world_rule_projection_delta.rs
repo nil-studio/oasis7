@@ -32,7 +32,11 @@ pub use native::{
 };
 #[path = "incremental_world_rule_projection_delta_seed.rs"]
 mod seed;
-pub use seed::{QualifiedWorldRuleLogicalRowsVisitorV1,WorldRuleLogicalTopSlotV1,WorldRuleLogicalColumnV1,WorldRuleLogicalContainerKindV1,WorldRuleLogicalRowsVisitorV1,visit_original_world_rule_logical_rows_v1};
+pub use seed::{
+    QualifiedWorldRuleLogicalRowsVisitorV1, WorldRuleLogicalColumnV1,
+    WorldRuleLogicalContainerKindV1, WorldRuleLogicalRowsVisitorV1, WorldRuleLogicalTopSlotV1,
+    visit_original_world_rule_logical_rows_v1,
+};
 fn bad() -> ValueTreeError {
     ValueTreeError::Invalid("Current WorldRules typed projection delta")
 }
@@ -346,7 +350,9 @@ pub(crate) fn encode_original_projection_json_data_v1<T: serde::Serialize>(
     processing: &mut BusinessDiffProcessingWorkV1,
     stop: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<Vec<u8>>, ValueTreeError> {
-    let p = Processing { bank: std::cell::RefCell::new(processing) };
+    let p = Processing {
+        bank: std::cell::RefCell::new(processing),
+    };
     json(value, memory, &p, stop)
 }
 fn path(
@@ -1348,8 +1354,10 @@ pub fn read_current_world_rule_projection_delta_v1<
 #[path = "incremental_world_rule_projection_delta_flat.rs"]
 mod flat;
 
-pub use native::{QualifiedNativeProjectionColumnsV1,read_qualified_native_projection_columns_v1};
+pub use native::{QualifiedNativeProjectionColumnsV1, read_qualified_native_projection_columns_v1};
 
 #[path = "incremental_world_rule_projection_delta_cold.rs"]
 mod cold;
-pub use cold::{QualifiedWorldRuleProjectionColumnsV1,read_qualified_world_rule_projection_columns_v1};
+pub use cold::{
+    QualifiedWorldRuleProjectionColumnsV1, read_qualified_world_rule_projection_columns_v1,
+};

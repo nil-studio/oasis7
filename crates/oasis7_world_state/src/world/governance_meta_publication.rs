@@ -385,11 +385,11 @@ impl PreparedProposal {
                         invalid(format!("governance proposal missing: {proposal_key}"))
                     })?;
                 let projected=crate::incremental_normal_gameplay_cycles_selected::selected_governance_finalization_projection_v1(event,now);
-                proposal.status=projected.status;
-                proposal.finalized_at=projected.finalized_at;
-                proposal.winning_option=projected.winning_option.map(str::to_owned);
-                proposal.winning_weight=projected.winning_weight;
-                proposal.total_weight_at_finalize=projected.total_weight_at_finalize;
+                proposal.status = projected.status;
+                proposal.finalized_at = projected.finalized_at;
+                proposal.winning_option = projected.winning_option.map(str::to_owned);
+                proposal.winning_weight = projected.winning_weight;
+                proposal.total_weight_at_finalize = projected.total_weight_at_finalize;
                 proposals.insert(proposal_key.clone(), proposal);
                 if let Some(mut vote) = state.governance_votes.get(proposal_key).cloned() {
                     vote.last_updated_at = projected.vote_last_updated_at;
@@ -424,7 +424,9 @@ impl PreparedCrisis {
             } => {
                 crises.insert(
                     crisis_id.clone(),
-                    crate::incremental_normal_gameplay_cycles_selected::selected_crisis_spawn_v1(event,now),
+                    crate::incremental_normal_gameplay_cycles_selected::selected_crisis_spawn_v1(
+                        event, now,
+                    ),
                 );
             }
             DomainEvent::CrisisResolved {
@@ -467,10 +469,10 @@ impl PreparedCrisis {
                         invalid(format!("crisis not found for timeout: {crisis_id}"))
                     })?;
                 let projected=crate::incremental_normal_gameplay_cycles_selected::selected_crisis_timeout_projection_v1(*penalty_impact,now);
-                crisis.status=projected.status;
-                crisis.success=projected.success;
-                crisis.impact=projected.impact;
-                crisis.resolved_at=projected.resolved_at;
+                crisis.status = projected.status;
+                crisis.success = projected.success;
+                crisis.impact = projected.impact;
+                crisis.resolved_at = projected.resolved_at;
                 crises.insert(crisis_id.clone(), crisis);
             }
             _ => unreachable!(),

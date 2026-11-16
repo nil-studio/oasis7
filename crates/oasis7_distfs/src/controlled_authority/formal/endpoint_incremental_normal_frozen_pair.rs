@@ -323,6 +323,6 @@ mod parent_view;
 #[path = "endpoint_incremental_normal_ready_pair.rs"]
 mod normal_ready;
 pub use normal_ready::{
-    NormalReadyPairFailureV1, NormalReadyPublicationFailureV1, PaidNormalAcceptedPairV1,
-    PaidNormalReadyPairV1, NormalReadyCandidateReadViewV1,
+    NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1, NormalReadyPublicationFailureV1,
+    PaidNormalAcceptedPairV1, PaidNormalReadyPairV1,
 };

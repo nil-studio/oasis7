@@ -52,7 +52,7 @@ fn spend(value: &mut u64, amount: u64) -> Result<(), ValueTreeError> {
         .ok_or(ValueTreeError::ResourceLimited("Cognition CBOR work"))?;
     Ok(())
 }
-#[path="incremental_cognition_projection_aux_history_json.rs"]
+#[path = "incremental_cognition_projection_aux_history_json.rs"]
 mod projection_json;
 struct Parser<'a, R, C> {
     input: &'a mut R,
@@ -137,7 +137,9 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
         if length > self.remaining {
             return Err(invalid());
         }
-        if let Some(json) = &mut self.projection_json { json.text(length)?; }
+        if let Some(json) = &mut self.projection_json {
+            json.text(length)?;
+        }
         let mut buffer = [0; 8192];
         let mut sink = std::io::sink();
         let mut utf8 = Utf8Output::new(&mut sink, "Cognition CBOR UTF8");
@@ -146,13 +148,17 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
             let n = left.min(buffer.len() as u64) as usize;
             self.read(&mut buffer[..n])?;
             utf8.write_all(&buffer[..n]).map_err(ValueTreeError::Io)?;
-            if let Some(json) = &mut self.projection_json { json.feed_text(&buffer[..n])?; }
+            if let Some(json) = &mut self.projection_json {
+                json.feed_text(&buffer[..n])?;
+            }
             left -= n as u64;
         }
         if !utf8.is_complete() {
             return Err(invalid());
         }
-        if let Some(json) = &mut self.projection_json { json.end_text()?; }
+        if let Some(json) = &mut self.projection_json {
+            json.end_text()?;
+        }
         self.check()
     }
     fn key(&mut self) -> Result<ReservedValue<Vec<u8>>, ValueTreeError> {
@@ -187,14 +193,18 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
         match initial >> 5 {
             0 => {
                 let value = self.argument(initial & 31)?;
-                if let Some(json) = &mut self.projection_json { json.scalar(serde_json::Value::Number(value.into()))?; }
+                if let Some(json) = &mut self.projection_json {
+                    json.scalar(serde_json::Value::Number(value.into()))?;
+                }
             }
             1 => {
                 let value = self.argument(initial & 31)?;
                 if value > i64::MAX as u64 {
                     return Err(invalid());
                 }
-                if let Some(json) = &mut self.projection_json { json.scalar(serde_json::Value::Number((-1i64 - value as i64).into()))?; }
+                if let Some(json) = &mut self.projection_json {
+                    json.scalar(serde_json::Value::Number((-1i64 - value as i64).into()))?;
+                }
             }
             3 => {
                 let length = self.argument(initial & 31)?;
@@ -211,7 +221,9 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
                 if length > self.work.nodes_remaining || length > self.remaining {
                     return Err(ValueTreeError::ResourceLimited("Cognition CBOR array"));
                 }
-                if let Some(json) = &mut self.projection_json { json.array(length)?; }
+                if let Some(json) = &mut self.projection_json {
+                    json.array(length)?;
+                }
                 for _ in 0..length {
                     let first = self.byte()?;
                     self.value(depth + 1, first)?;
@@ -227,7 +239,9 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
                 {
                     semantic.start(count);
                 }
-                if let Some(json) = &mut self.projection_json { json.object(count)?; }
+                if let Some(json) = &mut self.projection_json {
+                    json.object(count)?;
+                }
                 let mut previous: Option<ReservedValue<Vec<u8>>> = None;
                 for _ in 0..count {
                     if depth == 0
@@ -249,7 +263,9 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
                     {
                         semantic.key(&key)?;
                     }
-                    if let Some(json) = &mut self.projection_json { json.key(&key)?; }
+                    if let Some(json) = &mut self.projection_json {
+                        json.key(&key)?;
+                    }
                     previous = Some(key);
                     let first = self.byte()?;
                     if depth == 0
@@ -266,7 +282,15 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
                 }
             }
             7 => match initial {
-                0xf4..=0xf6 => { if let Some(json) = &mut self.projection_json { json.scalar(match initial { 0xf4 => serde_json::Value::Bool(false), 0xf5 => serde_json::Value::Bool(true), _ => serde_json::Value::Null })?; } }
+                0xf4..=0xf6 => {
+                    if let Some(json) = &mut self.projection_json {
+                        json.scalar(match initial {
+                            0xf4 => serde_json::Value::Bool(false),
+                            0xf5 => serde_json::Value::Bool(true),
+                            _ => serde_json::Value::Null,
+                        })?;
+                    }
+                }
                 0xf9..=0xfb => {
                     let width = match initial {
                         0xf9 => 2,
@@ -287,7 +311,11 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
                     if encoded != bytes[..=width] {
                         return Err(invalid());
                     }
-                    if let Some(json) = &mut self.projection_json { json.scalar(serde_json::Value::Number(serde_json::Number::from_f64(value).ok_or_else(invalid)?))?; }
+                    if let Some(json) = &mut self.projection_json {
+                        json.scalar(serde_json::Value::Number(
+                            serde_json::Number::from_f64(value).ok_or_else(invalid)?,
+                        ))?;
+                    }
                 }
                 _ => return Err(invalid()),
             },
@@ -296,7 +324,11 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
         if let Some(record) = &mut self.record {
             record.end(depth)?;
         }
-        if matches!(initial >> 5, 4 | 5) { if let Some(json) = &mut self.projection_json { json.end_container()?; } }
+        if matches!(initial >> 5, 4 | 5) {
+            if let Some(json) = &mut self.projection_json {
+                json.end_container()?;
+            }
+        }
         self.check()
     }
 }
@@ -344,7 +376,8 @@ fn parse<R: Read, C: FnMut() -> bool>(
     semantic: Option<Box<schema::Schema>>,
     record: Option<Box<record_schema::Schema>>,
 ) -> Result<Parsed, ValueTreeError> {
-    parse_with_json(request,input,work,cancelled,semantic,record,None).map(|(parsed,_)|parsed)
+    parse_with_json(request, input, work, cancelled, semantic, record, None)
+        .map(|(parsed, _)| parsed)
 }
 fn parse_with_json<R: Read, C: FnMut() -> bool>(
     request: CanonicalRequest<'_>,
@@ -380,7 +413,10 @@ fn parse_with_json<R: Read, C: FnMut() -> bool>(
         projection_json: None,
     };
     parser.check()?;
-    parser.projection_json = projection.map(|processing|projection_json::Collector::new(length,memory,class,processing)).transpose()?.map(Box::new);
+    parser.projection_json = projection
+        .map(|processing| projection_json::Collector::new(length, memory, class, processing))
+        .transpose()?
+        .map(Box::new);
     let first = parser.byte()?;
     if first >> 5 != 5 {
         return Err(invalid());
@@ -420,16 +456,23 @@ fn parse_with_json<R: Read, C: FnMut() -> bool>(
         .map(|record| record.finish(semantic.as_ref().ok_or_else(invalid)?, parser.work))
         .transpose()?;
     parser.check()?;
-    let json = parser.projection_json.take().map(|json|(*json).finish()).transpose()?;
-    Ok(((
-        retained.retain(CognitionCanonicalOriginalV1 {
-            id: expected,
-            bytes: length,
-            class,
-        }),
-        semantic,
-        record,
-    ), json))
+    let json = parser
+        .projection_json
+        .take()
+        .map(|json| (*json).finish())
+        .transpose()?;
+    Ok((
+        (
+            retained.retain(CognitionCanonicalOriginalV1 {
+                id: expected,
+                bytes: length,
+                class,
+            }),
+            semantic,
+            record,
+        ),
+        json,
+    ))
 }
 
 pub struct CognitionOriginalCborRequestV1 {
@@ -476,7 +519,8 @@ pub fn verify_cognition_history_original_record_schema_v1<R: Read, C: FnMut() ->
     work: &mut CognitionHistoryCborWorkV1,
     cancelled: C,
 ) -> Result<ReservedValue<CognitionHistoryRecordSchemaV1>, ValueTreeError> {
-    verify_record_with_json(request,input,memory,class,work,cancelled,None).map(|(schema,_)|schema)
+    verify_record_with_json(request, input, memory, class, work, cancelled, None)
+        .map(|(schema, _)| schema)
 }
 fn verify_record_with_json<R: Read, C: FnMut() -> bool>(
     request: CognitionOriginalCborRequestV1,
@@ -486,7 +530,13 @@ fn verify_record_with_json<R: Read, C: FnMut() -> bool>(
     work: &mut CognitionHistoryCborWorkV1,
     cancelled: C,
     projection: Option<&mut crate::incremental_runtime_revocation::BusinessDiffProcessingWorkV1>,
-) -> Result<(ReservedValue<CognitionHistoryRecordSchemaV1>,Option<ReservedValue<serde_json::Value>>), ValueTreeError> {
+) -> Result<
+    (
+        ReservedValue<CognitionHistoryRecordSchemaV1>,
+        Option<ReservedValue<serde_json::Value>>,
+    ),
+    ValueTreeError,
+> {
     let retained = memory.reserve(1024, class)?;
     let _semantic = memory.reserve(std::mem::size_of::<schema::Schema>() + 32768, class)?;
     let _record = memory.reserve(std::mem::size_of::<record_schema::Schema>() + 32768, class)?;
@@ -506,10 +556,13 @@ fn verify_record_with_json<R: Read, C: FnMut() -> bool>(
         Some(record),
         projection,
     )?;
-    Ok((retained.retain(record_schema::qualified(
-        semantic.ok_or_else(invalid)?,
-        record.ok_or_else(invalid)?,
-    )),json))
+    Ok((
+        retained.retain(record_schema::qualified(
+            semantic.ok_or_else(invalid)?,
+            record.ok_or_else(invalid)?,
+        )),
+        json,
+    ))
 }
 
 #[cfg(test)]
@@ -522,4 +575,29 @@ mod tests;
 /// Original canonical/schema validation plus a paid original JSON graph.
 /// Membership, Current fact/source binding and History admission stay with
 /// the actual fixed consumer, exactly as for the original schema-only API.
-pub fn materialize_cognition_history_original_json_v1<R:Read,C:FnMut()->bool>(request:CognitionOriginalCborRequestV1,input:&mut R,memory:&MemoryBudget,class:MemoryClass,work:&mut CognitionHistoryCborWorkV1,processing:&mut crate::incremental_runtime_revocation::BusinessDiffProcessingWorkV1,cancelled:C)->Result<(ReservedValue<CognitionHistoryRecordSchemaV1>,ReservedValue<serde_json::Value>),ValueTreeError>{let(schema,json)=verify_record_with_json(request,input,memory,class,work,cancelled,Some(processing))?;Ok((schema,json.ok_or_else(invalid)?))}
+pub fn materialize_cognition_history_original_json_v1<R: Read, C: FnMut() -> bool>(
+    request: CognitionOriginalCborRequestV1,
+    input: &mut R,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    work: &mut CognitionHistoryCborWorkV1,
+    processing: &mut crate::incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+    cancelled: C,
+) -> Result<
+    (
+        ReservedValue<CognitionHistoryRecordSchemaV1>,
+        ReservedValue<serde_json::Value>,
+    ),
+    ValueTreeError,
+> {
+    let (schema, json) = verify_record_with_json(
+        request,
+        input,
+        memory,
+        class,
+        work,
+        cancelled,
+        Some(processing),
+    )?;
+    Ok((schema, json.ok_or_else(invalid)?))
+}

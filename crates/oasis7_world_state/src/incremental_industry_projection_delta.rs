@@ -473,10 +473,12 @@ where
         factory.validate_binding(&digest)?;
         industry.validate_binding(&digest)?;
         logistics.validate_binding(&digest)?;
-        let fee = memory.reserve(
-            size_of::<CurrentIndustryProjectionDeltaV1>(),
-            MemoryClass::Ordinary,
-        ).map_err(ValueTreeError::Memory)?;
+        let fee = memory
+            .reserve(
+                size_of::<CurrentIndustryProjectionDeltaV1>(),
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
         let mut n = 0usize;
         let mut bytes = 0usize;
         for ns in [
@@ -509,12 +511,14 @@ where
                 },
             )?;
         }
-        let pending_fee = memory.reserve(
-            n.checked_mul(size_of::<Pending>())
-                .and_then(|n| n.checked_add(bytes))
-                .ok_or_else(limit)?,
-            MemoryClass::Ordinary,
-        ).map_err(ValueTreeError::Memory)?;
+        let pending_fee = memory
+            .reserve(
+                n.checked_mul(size_of::<Pending>())
+                    .and_then(|n| n.checked_add(bytes))
+                    .ok_or_else(limit)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
         let mut pending = Vec::with_capacity(n);
         if pending.capacity() != n {
             return Err(limit().into());
@@ -565,10 +569,12 @@ where
         if rows.capacity() != n {
             return Err(limit().into());
         }
-        let slots = memory.reserve(
-            n.checked_mul(size_of::<Row>()).ok_or_else(limit)?,
-            MemoryClass::Ordinary,
-        ).map_err(ValueTreeError::Memory)?;
+        let slots = memory
+            .reserve(
+                n.checked_mul(size_of::<Row>()).ok_or_else(limit)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
         for pending in pending {
             if check() {
                 return Err(ValueTreeError::Cancelled.into());
@@ -792,5 +798,8 @@ where
     }
 }
 
-#[path="incremental_industry_projection_delta_cold.rs"]mod cold;
-pub use cold::{QualifiedIndustryProjectionColumnsV1,read_qualified_industry_projection_columns_v1};
+#[path = "incremental_industry_projection_delta_cold.rs"]
+mod cold;
+pub use cold::{
+    QualifiedIndustryProjectionColumnsV1, read_qualified_industry_projection_columns_v1,
+};

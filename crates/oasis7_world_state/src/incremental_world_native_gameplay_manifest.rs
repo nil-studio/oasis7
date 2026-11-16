@@ -54,7 +54,23 @@ dto!(oasis7_wasm_abi::GameplayContract, {
 // Keep the commands field visible to conservative workspace call-site analysis;
 // an unknown DTO macro cannot distinguish this field from a CLI module reference.
 impl Codec for oasis7_wasm_abi::ModuleSchemaDeclarations {
-fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(crate::incremental_pending_action_codec::layout::projected::<Self,_,LE>(|v|&v.commands,visit)?);Ok(l)}
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.merge(
+            crate::incremental_pending_action_codec::layout::projected::<Self, _, LE>(
+                |v| &v.commands,
+                visit,
+            )?,
+        );
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,

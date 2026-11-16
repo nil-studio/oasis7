@@ -22,7 +22,10 @@ pub fn from_authenticated_world(
         projection.native_delegation_authorizations = world
             .agent_delegation_authorizations(agent)
             .map_err(|_| "native delegation read unavailable")?;
-        if oasis7_world_projection::original_formatter::owner_key_matches_data_v1(&super::agent_authority::owner_public_key(world, agent)?,caller_public_key) {
+        if oasis7_world_projection::original_formatter::owner_key_matches_data_v1(
+            &super::agent_authority::owner_public_key(world, agent)?,
+            caller_public_key,
+        ) {
             projection.canonical_agent_chat = super::agent_chat::owner_view(world, agent)?;
         }
         if let Some(control) = super::game_task::current_control(world, agent)? {
@@ -46,8 +49,11 @@ pub fn from_authenticated_world(
     });
     let query =
         world.gameplay_capability_query(subject, "current_industrial_capability", execution_actor);
-    let query=serde_json::to_value(query).map_err(|_| "gameplay query encoding unavailable")?;
-    oasis7_world_projection::original_formatter::attach_gameplay_query_data_v1(&mut projection,query);
+    let query = serde_json::to_value(query).map_err(|_| "gameplay query encoding unavailable")?;
+    oasis7_world_projection::original_formatter::attach_gameplay_query_data_v1(
+        &mut projection,
+        query,
+    );
     Ok(projection)
 }
 
@@ -110,42 +116,68 @@ pub fn from_world(
     // established public profiles/anchors, but never publish other Agents'
     // location assignments or a site's full private membership list.
     state.agent_location_authorities.retain(|id, authority| {
-        oasis7_world_projection::current_commitment::projection_location_visible_v1(id,&authority.agent_id,authorized_agent)
+        oasis7_world_projection::current_commitment::projection_location_visible_v1(
+            id,
+            &authority.agent_id,
+            authorized_agent,
+        )
     });
     state.factory_site_authorities.retain(|_, authority| {
-        oasis7_world_projection::current_commitment::projection_site_visible_v1(&authority.owner_agent_id,authority.authorized_agent_ids.iter().map(String::as_str),authorized_agent)
+        oasis7_world_projection::current_commitment::projection_site_visible_v1(
+            &authority.owner_agent_id,
+            authority.authorized_agent_ids.iter().map(String::as_str),
+            authorized_agent,
+        )
     });
     for authority in state.factory_site_authorities.values_mut() {
-        authority
-            .authorized_agent_ids
-            .retain(|id| oasis7_world_projection::current_commitment::projection_site_member_visible_v1(id,authorized_agent));
-        if !oasis7_world_projection::current_commitment::projection_site_owner_visible_v1(&authority.owner_agent_id,authorized_agent) {
+        authority.authorized_agent_ids.retain(|id| {
+            oasis7_world_projection::current_commitment::projection_site_member_visible_v1(
+                id,
+                authorized_agent,
+            )
+        });
+        if !oasis7_world_projection::current_commitment::projection_site_owner_visible_v1(
+            &authority.owner_agent_id,
+            authorized_agent,
+        ) {
             authority.owner_agent_id.clear();
         }
     }
-    state
-        .pending_factory_builds
-        .retain(|_, job| oasis7_world_projection::current_commitment::projection_build_visible_v1(&job.builder_agent_id,authorized_agent));
+    state.pending_factory_builds.retain(|_, job| {
+        oasis7_world_projection::current_commitment::projection_build_visible_v1(
+            &job.builder_agent_id,
+            authorized_agent,
+        )
+    });
     for (id, agent) in &mut state.agents {
         agent.mailbox.clear();
-        if !oasis7_world_projection::current_commitment::projection_intent_visible_v1(id,authorized_agent) {
+        if !oasis7_world_projection::current_commitment::projection_intent_visible_v1(
+            id,
+            authorized_agent,
+        ) {
             agent.intent = None;
         }
     }
     // Generic journals may contain private cognition/prompt artifacts.
     // Authorized committed changes are delivered by the changes route.
-    let world_rule_status=world.world_rule_status(authorized_agent);
-    let canonical_agent_owner=authorized_agent
-            .map(|agent| super::agent_chat::owner_view(world, agent))
-            .transpose()?
-            .flatten()
-            .as_ref()
-            .map(Into::into);
-    let feedback_history=authorized_agent
-            .map(|agent| feedback_history_from_world(world, agent))
-            .transpose()?;
-    let runtime_binding=world.current_cognition_runtime_binding().ok();
-    Ok(oasis7_world_projection::original_formatter::base_data_v1(state,world_rule_status,canonical_agent_owner,feedback_history,runtime_binding))
+    let world_rule_status = world.world_rule_status(authorized_agent);
+    let canonical_agent_owner = authorized_agent
+        .map(|agent| super::agent_chat::owner_view(world, agent))
+        .transpose()?
+        .flatten()
+        .as_ref()
+        .map(Into::into);
+    let feedback_history = authorized_agent
+        .map(|agent| feedback_history_from_world(world, agent))
+        .transpose()?;
+    let runtime_binding = world.current_cognition_runtime_binding().ok();
+    Ok(oasis7_world_projection::original_formatter::base_data_v1(
+        state,
+        world_rule_status,
+        canonical_agent_owner,
+        feedback_history,
+        runtime_binding,
+    ))
 }
 
 #[cfg(test)]
@@ -209,25 +241,45 @@ pub(crate) fn legacy_projection_from_world(
     // established public profiles/anchors, but never publish other Agents'
     // location assignments or a site's full private membership list.
     state.agent_location_authorities.retain(|id, authority| {
-        oasis7_world_projection::current_commitment::projection_location_visible_v1(id,&authority.agent_id,authorized_agent)
+        oasis7_world_projection::current_commitment::projection_location_visible_v1(
+            id,
+            &authority.agent_id,
+            authorized_agent,
+        )
     });
     state.factory_site_authorities.retain(|_, authority| {
-        oasis7_world_projection::current_commitment::projection_site_visible_v1(&authority.owner_agent_id,authority.authorized_agent_ids.iter().map(String::as_str),authorized_agent)
+        oasis7_world_projection::current_commitment::projection_site_visible_v1(
+            &authority.owner_agent_id,
+            authority.authorized_agent_ids.iter().map(String::as_str),
+            authorized_agent,
+        )
     });
     for authority in state.factory_site_authorities.values_mut() {
-        authority
-            .authorized_agent_ids
-            .retain(|id| oasis7_world_projection::current_commitment::projection_site_member_visible_v1(id,authorized_agent));
-        if !oasis7_world_projection::current_commitment::projection_site_owner_visible_v1(&authority.owner_agent_id,authorized_agent) {
+        authority.authorized_agent_ids.retain(|id| {
+            oasis7_world_projection::current_commitment::projection_site_member_visible_v1(
+                id,
+                authorized_agent,
+            )
+        });
+        if !oasis7_world_projection::current_commitment::projection_site_owner_visible_v1(
+            &authority.owner_agent_id,
+            authorized_agent,
+        ) {
             authority.owner_agent_id.clear();
         }
     }
-    state
-        .pending_factory_builds
-        .retain(|_, job| oasis7_world_projection::current_commitment::projection_build_visible_v1(&job.builder_agent_id,authorized_agent));
+    state.pending_factory_builds.retain(|_, job| {
+        oasis7_world_projection::current_commitment::projection_build_visible_v1(
+            &job.builder_agent_id,
+            authorized_agent,
+        )
+    });
     for (id, agent) in &mut state.agents {
         agent.mailbox.clear();
-        if !oasis7_world_projection::current_commitment::projection_intent_visible_v1(id,authorized_agent) {
+        if !oasis7_world_projection::current_commitment::projection_intent_visible_v1(
+            id,
+            authorized_agent,
+        ) {
             agent.intent = None;
         }
     }

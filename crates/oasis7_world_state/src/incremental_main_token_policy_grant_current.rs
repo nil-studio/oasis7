@@ -173,8 +173,16 @@ pub fn read_current_restricted_claim_grant_v1<
 ) -> Result<ReservedValue<CurrentRestrictedClaimGrantV1>, WorldFieldOverlayErrorV1> {
     let result = (|| {
         ctx.transaction.validate_guard(guard, live)?;
-        if (ctx.cancelled)() { return Err(ValueTreeError::Cancelled.into()); }
-        if state.allocation_class() != Some(ctx.values.class) || !state.allocation_budget().is_some_and(|pool| pool.same_pool(ctx.values.memory)) { return Err(invalid().into()); }
+        if (ctx.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if state.allocation_class() != Some(ctx.values.class)
+            || !state
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(ctx.values.memory))
+        {
+            return Err(invalid().into());
+        }
         if ctx.values.class != MemoryClass::Ordinary
             || !parent.uses_budget(ctx.values.memory)
             || parent.allocation_class() != MemoryClass::Ordinary
@@ -353,8 +361,16 @@ pub fn read_current_restricted_claim_grant_v1<
             true,
             live,
         )?;
-        if (ctx.cancelled)() { return Err(ValueTreeError::Cancelled.into()); }
-        if state.allocation_class() != Some(ctx.values.class) || !state.allocation_budget().is_some_and(|pool| pool.same_pool(ctx.values.memory)) { return Err(invalid().into()); }
+        if (ctx.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if state.allocation_class() != Some(ctx.values.class)
+            || !state
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(ctx.values.memory))
+        {
+            return Err(invalid().into());
+        }
         ctx.transaction
             .validate_guard(&ctx.transaction.guard(), live)?;
         Ok(retained.retain(CurrentRestrictedClaimGrantV1 {

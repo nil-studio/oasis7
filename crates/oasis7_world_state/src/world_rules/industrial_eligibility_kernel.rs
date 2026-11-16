@@ -96,12 +96,30 @@ pub fn production_eligibility_from_facts_v1(
     _factory_id: &str,
     location: &str,
 ) -> Result<(), WorldError> {
-    let factory=production_factory_eligibility_from_facts_v1(facts.primary,facts.retired,facts.blocked,facts.factory,owner)?;
-    production_site_eligibility_from_facts_v1(factory,facts.site,facts.anchor_active,owner,location)
+    let factory = production_factory_eligibility_from_facts_v1(
+        facts.primary,
+        facts.retired,
+        facts.blocked,
+        facts.factory,
+        owner,
+    )?;
+    production_site_eligibility_from_facts_v1(
+        factory,
+        facts.site,
+        facts.anchor_active,
+        owner,
+        location,
+    )
 }
 /// Same original prefix, available to lazy readonly source readers before
 /// fetching the location-specific site/anchor rows.
-pub fn production_factory_eligibility_from_facts_v1<'a>(primary:PrimaryProductionFactsV1<'a>,retired:bool,blocked:bool,factory:Option<FactoryProductionFactsV1<'a>>,owner:&str)->Result<FactoryProductionFactsV1<'a>,WorldError>{
+pub fn production_factory_eligibility_from_facts_v1<'a>(
+    primary: PrimaryProductionFactsV1<'a>,
+    retired: bool,
+    blocked: bool,
+    factory: Option<FactoryProductionFactsV1<'a>>,
+    owner: &str,
+) -> Result<FactoryProductionFactsV1<'a>, WorldError> {
     validate_primary_production_facts_v1(primary, owner)?;
     if retired {
         return Err(super::invalid("factory_retired"));
@@ -109,8 +127,7 @@ pub fn production_factory_eligibility_from_facts_v1<'a>(primary:PrimaryProductio
     if blocked {
         return Err(super::invalid("production_authority_blocked"));
     }
-    let factory = factory
-        .ok_or_else(|| super::invalid("factory_missing"))?;
+    let factory = factory.ok_or_else(|| super::invalid("factory_missing"))?;
     if !factory.builtin_spec_available {
         return Err(super::invalid("assembler_policy_unavailable"));
     }
@@ -124,11 +141,16 @@ pub fn production_factory_eligibility_from_facts_v1<'a>(primary:PrimaryProductio
     Ok(factory)
 }
 /// Same original suffix; callers cannot supply a substituted authority result.
-pub fn production_site_eligibility_from_facts_v1(factory:FactoryProductionFactsV1<'_>,site:Option<FactorySiteProductionFactsV1<'_>>,anchor_active:Option<bool>,owner:&str,location:&str)->Result<(),WorldError>{
-    let site = site
-        .ok_or_else(|| super::invalid("factory_site_authority_unavailable"))?;
-    let anchor_active = anchor_active
-        .ok_or_else(|| super::invalid("factory_location_unavailable"))?;
+pub fn production_site_eligibility_from_facts_v1(
+    factory: FactoryProductionFactsV1<'_>,
+    site: Option<FactorySiteProductionFactsV1<'_>>,
+    anchor_active: Option<bool>,
+    owner: &str,
+    location: &str,
+) -> Result<(), WorldError> {
+    let site = site.ok_or_else(|| super::invalid("factory_site_authority_unavailable"))?;
+    let anchor_active =
+        anchor_active.ok_or_else(|| super::invalid("factory_location_unavailable"))?;
     if !site.active
         || !site.chunk_ready
         || site.location_id != location
@@ -156,16 +178,22 @@ pub fn order_production_eligibility_from_facts_v1(
     let factory = facts
         .factory
         .ok_or_else(|| super::invalid("factory_missing"))?;
-    order_input_eligibility_from_facts_v1(factory.input_ledger,order)?;
-    order_owner_eligibility_from_facts_v1(facts.resolved_owner,order)
+    order_input_eligibility_from_facts_v1(factory.input_ledger, order)?;
+    order_owner_eligibility_from_facts_v1(facts.resolved_owner, order)
 }
-pub fn order_input_eligibility_from_facts_v1(input_ledger:&MaterialLedgerId,order:&AgentIndustrialOrderV1)->Result<(),WorldError>{
+pub fn order_input_eligibility_from_facts_v1(
+    input_ledger: &MaterialLedgerId,
+    order: &AgentIndustrialOrderV1,
+) -> Result<(), WorldError> {
     if input_ledger != &order.quote.input_ledger {
         return Err(super::invalid("manufacturing_input_source_changed"));
     }
     Ok(())
 }
-pub fn order_owner_eligibility_from_facts_v1(resolved_owner:Option<ResolvedProductionOwnerFactsV1<'_>>,order:&AgentIndustrialOrderV1)->Result<(),WorldError>{
+pub fn order_owner_eligibility_from_facts_v1(
+    resolved_owner: Option<ResolvedProductionOwnerFactsV1<'_>>,
+    order: &AgentIndustrialOrderV1,
+) -> Result<(), WorldError> {
     if !resolved_owner.is_some_and(|owner| {
         owner.player_id == order.quote.owner_player_id
             && owner.source_id == order.quote.owner_source_id

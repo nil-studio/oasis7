@@ -129,6 +129,6 @@ fields! {
     reward_signature_governance_policy => value, Value, FieldDestination::State(Namespace::Authorization);
 }
 
-#[path="incremental_state_projection_codec.rs"]
+#[path = "incremental_state_projection_codec.rs"]
 mod column_codec;
 pub use column_codec::WorldStateColumnCodecVisitorV1;

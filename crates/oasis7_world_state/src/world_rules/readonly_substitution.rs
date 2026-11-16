@@ -1,30 +1,142 @@
 //! Original substitution selection over fixed typed readonly facts. No World
 //! snapshot, status/verdict callback, authority mint or mutation is involved.
-use super::{IndustrialOwnerReadonlyFactsV1,IndustrialStartEnvelopeReadonlyFactsV1,IndustrialReceiptReadonlyFactsV1,readonly_industrial_data as data,readonly_substitution_data as copy,readonly_industrial_start::hash,invalid};
-use crate::{WorldError,MaterialLedgerId};
+use super::{
+    IndustrialOwnerReadonlyFactsV1, IndustrialReceiptReadonlyFactsV1,
+    IndustrialStartEnvelopeReadonlyFactsV1, invalid, readonly_industrial_data as data,
+    readonly_industrial_start::hash, readonly_substitution_data as copy,
+};
+use crate::{MaterialLedgerId, WorldError};
 use oasis7_agent_api::world_action::*;
 use oasis7_wasm_abi::*;
-use std::{collections::{BTreeMap,BTreeSet},mem::size_of,ops::ControlFlow};
-type Error<S>=<S as IndustrialOwnerReadonlyFactsV1>::Error;
-pub trait SubstitutionReadonlyFactsV1:Sized+IndustrialStartEnvelopeReadonlyFactsV1+IndustrialReceiptReadonlyFactsV1<Error=<Self as IndustrialOwnerReadonlyFactsV1>::Error>{
- fn substitution_metered(&self)->bool{true}
- fn substitution_rules_present(&self)->Result<bool,Error<Self>>;
- fn substitution_with_authority<T>(&self,id:&str,visit:impl FnOnce(Option<&SubstitutionExecutionAuthorityV1>)->Result<T,Error<Self>>)->Result<T,Error<Self>>;
- fn substitution_visit_authorities(&self,visit:impl FnMut(&SubstitutionExecutionAuthorityV1)->Result<ControlFlow<()>,Error<Self>>)->Result<(),Error<Self>>;
- fn substitution_visit_roots(&self,visit:impl FnMut(&RootOperationV1)->Result<ControlFlow<()>,Error<Self>>)->Result<(),Error<Self>>;
- fn substitution_visit_lots(&self,visit:impl FnMut(&IndustrialLotV1)->Result<ControlFlow<()>,Error<Self>>)->Result<(),Error<Self>>;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem::size_of,
+    ops::ControlFlow,
+};
+type Error<S> = <S as IndustrialOwnerReadonlyFactsV1>::Error;
+pub trait SubstitutionReadonlyFactsV1:
+    Sized
+    + IndustrialStartEnvelopeReadonlyFactsV1
+    + IndustrialReceiptReadonlyFactsV1<Error = <Self as IndustrialOwnerReadonlyFactsV1>::Error>
+{
+    fn substitution_metered(&self) -> bool {
+        true
+    }
+    fn substitution_rules_present(&self) -> Result<bool, Error<Self>>;
+    fn substitution_with_authority<T>(
+        &self,
+        id: &str,
+        visit: impl FnOnce(Option<&SubstitutionExecutionAuthorityV1>) -> Result<T, Error<Self>>,
+    ) -> Result<T, Error<Self>>;
+    fn substitution_visit_authorities(
+        &self,
+        visit: impl FnMut(&SubstitutionExecutionAuthorityV1) -> Result<ControlFlow<()>, Error<Self>>,
+    ) -> Result<(), Error<Self>>;
+    fn substitution_visit_roots(
+        &self,
+        visit: impl FnMut(&RootOperationV1) -> Result<ControlFlow<()>, Error<Self>>,
+    ) -> Result<(), Error<Self>>;
+    fn substitution_visit_lots(
+        &self,
+        visit: impl FnMut(&IndustrialLotV1) -> Result<ControlFlow<()>, Error<Self>>,
+    ) -> Result<(), Error<Self>>;
 }
-macro_rules! domain{($value:expr)=>{match $value{Ok(value)=>value,Err(error)=>return Ok(Err(error))}};}
-fn fail<S:IndustrialOwnerReadonlyFactsV1,T>(s:&S,note:&str)->Result<Result<T,WorldError>,Error<S>>{s.owner_work(1,note.len())?;s.owner_before_owned(size_of::<WorldError>()+note.len())?;Ok(Err(invalid(note)))}
-fn formatted<S:IndustrialOwnerReadonlyFactsV1>(s:&S,args:std::fmt::Arguments<'_>)->Result<String,Error<S>>{super::format_readonly_projection_data_v1(args,&mut|steps,bytes,heap|{s.owner_work(steps,bytes)?;if heap==0{Ok(())}else{s.owner_before_owned(heap)}})}
-fn qualified<S:IndustrialOwnerReadonlyFactsV1>(s:&S,v:&IndustrialRefV1,world:&str)->Result<Result<(),WorldError>,Error<S>>{for text in [&v.world_binding,&v.domain,&v.schema,&v.id,&v.digest]{for part in text.as_bytes().chunks(8192){s.owner_work(1,part.len())?;}}s.owner_work(1,world.len())?;s.owner_before_owned(size_of::<WorldError>()+"substitution_reference_invalid".len())?;Ok(super::recipe_substitution::qualified(v,world))}
-fn comparison<S:SubstitutionReadonlyFactsV1,T:serde::Serialize+?Sized>(s:&S,value:&T)->Result<Result<(),WorldError>,Error<S>>{if !s.substitution_metered(){return Ok(Ok(()))}match crate::util::measure_json_with_work_v1(value,&mut|steps,bytes|s.owner_work(steps,bytes as usize)){Ok(n)=>{s.owner_work((n as u64).saturating_mul(4).saturating_add(2048),n.saturating_mul(4))?;Ok(Ok(()))},Err(crate::util::JsonHashWorkErrorV1::Work(error))=>Err(error),Err(crate::util::JsonHashWorkErrorV1::Codec(error))=>Ok(Err(WorldError::Serde(formatted(s,format_args!("{}",error))?)))}}
-fn binding<S:IndustrialOwnerReadonlyFactsV1>(s:&S,actor:&str)->Result<Result<String,WorldError>,Error<S>>{let owner=super::resolve_industrial_owner_readonly_v1(s,actor)?;super::industrial_work_admission::industrial_owner_binding_with_work_v1(owner.as_ref(),&mut|steps,bytes,heap|{s.owner_work(steps,bytes)?;if heap==0{Ok(())}else{s.owner_before_owned(heap)}})}
+macro_rules! domain {
+    ($value:expr) => {
+        match $value {
+            Ok(value) => value,
+            Err(error) => return Ok(Err(error)),
+        }
+    };
+}
+fn fail<S: IndustrialOwnerReadonlyFactsV1, T>(
+    s: &S,
+    note: &str,
+) -> Result<Result<T, WorldError>, Error<S>> {
+    s.owner_work(1, note.len())?;
+    s.owner_before_owned(size_of::<WorldError>() + note.len())?;
+    Ok(Err(invalid(note)))
+}
+fn formatted<S: IndustrialOwnerReadonlyFactsV1>(
+    s: &S,
+    args: std::fmt::Arguments<'_>,
+) -> Result<String, Error<S>> {
+    super::format_readonly_projection_data_v1(args, &mut |steps, bytes, heap| {
+        s.owner_work(steps, bytes)?;
+        if heap == 0 {
+            Ok(())
+        } else {
+            s.owner_before_owned(heap)
+        }
+    })
+}
+fn qualified<S: IndustrialOwnerReadonlyFactsV1>(
+    s: &S,
+    v: &IndustrialRefV1,
+    world: &str,
+) -> Result<Result<(), WorldError>, Error<S>> {
+    for text in [&v.world_binding, &v.domain, &v.schema, &v.id, &v.digest] {
+        for part in text.as_bytes().chunks(8192) {
+            s.owner_work(1, part.len())?;
+        }
+    }
+    s.owner_work(1, world.len())?;
+    s.owner_before_owned(size_of::<WorldError>() + "substitution_reference_invalid".len())?;
+    Ok(super::recipe_substitution::qualified(v, world))
+}
+fn comparison<S: SubstitutionReadonlyFactsV1, T: serde::Serialize + ?Sized>(
+    s: &S,
+    value: &T,
+) -> Result<Result<(), WorldError>, Error<S>> {
+    if !s.substitution_metered() {
+        return Ok(Ok(()));
+    }
+    match crate::util::measure_json_with_work_v1(value, &mut |steps, bytes| {
+        s.owner_work(steps, bytes as usize)
+    }) {
+        Ok(n) => {
+            s.owner_work(
+                (n as u64).saturating_mul(4).saturating_add(2048),
+                n.saturating_mul(4),
+            )?;
+            Ok(Ok(()))
+        }
+        Err(crate::util::JsonHashWorkErrorV1::Work(error)) => Err(error),
+        Err(crate::util::JsonHashWorkErrorV1::Codec(error)) => Ok(Err(WorldError::Serde(
+            formatted(s, format_args!("{}", error))?,
+        ))),
+    }
+}
+fn binding<S: IndustrialOwnerReadonlyFactsV1>(
+    s: &S,
+    actor: &str,
+) -> Result<Result<String, WorldError>, Error<S>> {
+    let owner = super::resolve_industrial_owner_readonly_v1(s, actor)?;
+    super::industrial_work_admission::industrial_owner_binding_with_work_v1(
+        owner.as_ref(),
+        &mut |steps, bytes, heap| {
+            s.owner_work(steps, bytes)?;
+            if heap == 0 {
+                Ok(())
+            } else {
+                s.owner_before_owned(heap)
+            }
+        },
+    )
+}
 /// Every selection arm is the original predicate sequence. References are
 /// recovered through their real fixed field rows before this function runs.
-pub(super) fn candidate<S:SubstitutionReadonlyFactsV1>(s:&S,request:&SubstitutionPreviewRequestV1,reference:&IndustrialRefV1,actor:&str,world:&str,now:u64)->Result<Result<SubstitutionCandidateV1,WorldError>,Error<S>>{
- domain!(qualified(s,&request.root_ref,world)?);domain!(qualified(s,reference,world)?);
- s.start_with_root(&request.root_ref.id,|root|{
+pub(super) fn candidate<S: SubstitutionReadonlyFactsV1>(
+    s: &S,
+    request: &SubstitutionPreviewRequestV1,
+    reference: &IndustrialRefV1,
+    actor: &str,
+    world: &str,
+    now: u64,
+) -> Result<Result<SubstitutionCandidateV1, WorldError>, Error<S>> {
+    domain!(qualified(s, &request.root_ref, world)?);
+    domain!(qualified(s, reference, world)?);
+    s.start_with_root(&request.root_ref.id,|root|{
   let Some(root)=root else{return fail(s,"substitution_root_missing")};domain!(comparison(s,&(&root.root_ref,&request.root_ref))?);if root.root_ref!=request.root_ref{return fail(s,"substitution_root_missing")};let binding=domain!(binding(s,actor)?);domain!(comparison(s,&(root,actor,&binding))?);if root.owner_id!=actor||root.owner_binding_digest!=binding{return fail(s,"owner_mismatch")}
   s.owner_work(1,(request.slot_id.len()+1).saturating_mul(((root.slots.len()+1).ilog2()as usize+2)*11))?;let Some(slot)=root.slots.get(&request.slot_id)else{return fail(s,"substitution_slot_missing")};s.owner_work(1,0)?;if slot.consumed{return fail(s,"substitution_slot_unavailable")}if s.industrial_with_disposition(&root.root_ref.id,|v|Ok(v.is_some()))?{return fail(s,"substitution_slot_unavailable")}
   s.substitution_with_authority(&reference.id,|authority|{
@@ -93,30 +205,236 @@ pub(super) fn candidate<S:SubstitutionReadonlyFactsV1>(s:&S,request:&Substitutio
  })
 }
 
-fn insert_ref<S:SubstitutionReadonlyFactsV1>(s:&S,set:&mut BTreeSet<IndustrialRefV1>,value:&IndustrialRefV1)->Result<Result<(),WorldError>,Error<S>>{domain!(comparison(s,value)?);let levels=(set.len()+1).ilog2()as usize+2;let node=11*size_of::<IndustrialRefV1>()+13*size_of::<usize>()+128;s.owner_work((levels*11)as u64,node.saturating_mul(levels))?;s.owner_before_owned(node.saturating_mul(levels))?;set.insert(data::reference(s,value)?);Ok(Ok(()))}
+fn insert_ref<S: SubstitutionReadonlyFactsV1>(
+    s: &S,
+    set: &mut BTreeSet<IndustrialRefV1>,
+    value: &IndustrialRefV1,
+) -> Result<Result<(), WorldError>, Error<S>> {
+    domain!(comparison(s, value)?);
+    let levels = (set.len() + 1).ilog2() as usize + 2;
+    let node = 11 * size_of::<IndustrialRefV1>() + 13 * size_of::<usize>() + 128;
+    s.owner_work((levels * 11) as u64, node.saturating_mul(levels))?;
+    s.owner_before_owned(node.saturating_mul(levels))?;
+    set.insert(data::reference(s, value)?);
+    Ok(Ok(()))
+}
 /// Complete original preview, including all three selections, ordered authority
 /// set equality and the original post-codec 48KiB business limit.
-pub fn preview_substitution_readonly_v1<'source,S:SubstitutionReadonlyFactsV1>(s:&'source S,actor:&str,request:&SubstitutionPreviewRequestV1,world:&str,now:u64)->Result<Result<SubstitutionPreviewV1,WorldError>,Error<S>>{
- if !s.substitution_rules_present()?{return fail(s,"missing_authority")}domain!(qualified(s,&request.root_ref,world)?);
- s.start_with_root(&request.root_ref.id,|root|{
-  let Some(root)=root else{return fail(s,"substitution_root_missing_or_unauthorized")};domain!(comparison(s,&(&root.root_ref,&request.root_ref,&root.owner_id,actor))?);if root.root_ref!=request.root_ref||root.owner_id!=actor{return fail(s,"substitution_root_missing_or_unauthorized")}
-  let current_binding=domain!(binding(s,actor)?);s.owner_work(1,root.owner_binding_digest.len()+current_binding.len())?;if root.owner_binding_digest!=current_binding{return fail(s,"substitution_root_owner_stale")}
-  s.owner_work(1,(request.slot_id.len()+1).saturating_mul(((root.slots.len()+1).ilog2()as usize+2)*11))?;if !root.slots.contains_key(&request.slot_id){return fail(s,"substitution_slot_missing")}
-  let mut expected=BTreeSet::new();let mut source_domain_error=None;s.substitution_visit_authorities(|authority|{if let Err(error)=comparison(s,&(&authority.root_ref,&authority.slot_id,&authority.owner_id))?{source_domain_error=Some(error);return Ok(ControlFlow::Break(()))}
-   if authority.root_ref==request.root_ref&&authority.slot_id==request.slot_id&&authority.owner_id==actor{match insert_ref(s,&mut expected,&authority.authority_ref)?{Ok(())=>{},Err(error)=>{source_domain_error=Some(error);return Ok(ControlFlow::Break(()))}}}Ok(ControlFlow::Continue(()))})?;if let Some(error)=source_domain_error{return Ok(Err(error))}
-  let mut supplied=BTreeSet::new();for reference in &request.authority_refs{s.owner_work(1,0)?;domain!(insert_ref(s,&mut supplied,reference)?);}
-  domain!(comparison(s,&(&expected,&supplied))?);if expected.len()>32||(!supplied.is_empty()&&(supplied!=expected||supplied.len()!=request.authority_refs.len())){return fail(s,"substitution_incomplete_authority_set")}
-  s.owner_before_owned(size_of::<Vec<SubstitutionCandidateV1>>()+expected.len().checked_mul(size_of::<SubstitutionCandidateV1>()).expect("substitution candidates layout"))?;let mut candidates=Vec::with_capacity(expected.len());assert_eq!(candidates.capacity(),expected.len(),"substitution candidates exact capacity");let mut blocker=None;
-  for reference in &expected{s.owner_work(1,0)?;match candidate(s,request,reference,actor,world,now)?{Ok(value)=>candidates.push(value),Err(error)=>blocker=Some(formatted(s,format_args!("{error:?}"))?)}}
-  if expected.is_empty(){blocker=Some(data::text(s,"missing_authority")?)}
-  let no_rules=s.start_with_recipe(&root.pinned_recipe_id,|profile|{let Some(profile)=profile else{return Ok(Ok(false))};s.owner_work(1,0)?;if !profile.substitution_rules.is_empty(){return Ok(Ok(false))}match hash(s,profile)?{Ok(digest)=>{s.owner_work(1,digest.len()+root.pinned_profile_digest.len())?;Ok(Ok(digest==root.pinned_profile_digest))},Err(_)=>Ok(Ok(false))}})?;let no_rules=domain!(no_rules);
-  let status=if !candidates.is_empty(){SubstitutionPreviewStatusV1::Available}else{
-   let mut possible_source=false;s.substitution_visit_lots(|lot|{s.owner_work(1,lot.owner_id.len()+actor.len())?;if lot.owner_id==actor&&lot.remaining>0{s.owner_work(1,(request.slot_id.len()+1).saturating_mul(((root.slots.len()+1).ilog2()as usize+2)*11))?;if let Some(slot)=root.slots.get(&request.slot_id){s.owner_work(1,slot.material.len()+lot.material.len())?;if slot.material==lot.material{possible_source=true;return Ok(ControlFlow::Break(()))}}}Ok(ControlFlow::Continue(()))})?;
-   let mut possible_recipe=false;let mut root_error=None;s.substitution_visit_roots(|other|{if let Err(error)=comparison(s,&(&other.root_ref,&root.root_ref,&other.owner_id,&other.factory_id))?{root_error=Some(error);return Ok(ControlFlow::Break(()))}if other.root_ref!=root.root_ref&&other.owner_id==actor&&other.factory_id==root.factory_id&&other.work==0&&!other.first_sink{possible_recipe=true;return Ok(ControlFlow::Break(()))}Ok(ControlFlow::Continue(()))})?;
-   if let Some(error)=root_error{return Ok(Err(error))}if no_rules&&expected.is_empty()&&!possible_source&&!possible_recipe{blocker=None;SubstitutionPreviewStatusV1::NoLegalSubstitute}else{SubstitutionPreviewStatusV1::Unknown}
-  };
-  s.owner_before_owned(size_of::<SubstitutionPreviewV1>())?;let mut recheck=now;if let Some(first)=candidates.first(){recheck=first.authority.next_recheck;for candidate in candidates.iter().skip(1){s.owner_work(1,0)?;recheck=recheck.min(candidate.authority.next_recheck)}}
-  let mut preview=SubstitutionPreviewV1{preview_digest:String::new(),status,blocker,next_action:data::text(s,if candidates.is_empty(){"resolve_blocker"}else{"explicit_confirmation"})?,next_recheck:recheck,request:copy::request(s,request)?,candidates,evaluated_at:now};preview.preview_digest=domain!(hash(s,&preview)?);
-  let len=match crate::util::measure_json_with_work_v1(&preview,&mut|steps,bytes|s.owner_work(steps,bytes as usize)){Ok(n)=>n,Err(crate::util::JsonHashWorkErrorV1::Work(error))=>return Err(error),Err(crate::util::JsonHashWorkErrorV1::Codec(error))=>return Ok(Err(WorldError::Serde(formatted(s,format_args!("{}",error))?)))};if len>48*1024{return fail(s,"substitution_preview_capacity_exceeded")}Ok(Ok(preview))
- })
+pub fn preview_substitution_readonly_v1<'source, S: SubstitutionReadonlyFactsV1>(
+    s: &'source S,
+    actor: &str,
+    request: &SubstitutionPreviewRequestV1,
+    world: &str,
+    now: u64,
+) -> Result<Result<SubstitutionPreviewV1, WorldError>, Error<S>> {
+    if !s.substitution_rules_present()? {
+        return fail(s, "missing_authority");
+    }
+    domain!(qualified(s, &request.root_ref, world)?);
+    s.start_with_root(&request.root_ref.id, |root| {
+        let Some(root) = root else {
+            return fail(s, "substitution_root_missing_or_unauthorized");
+        };
+        domain!(comparison(
+            s,
+            &(&root.root_ref, &request.root_ref, &root.owner_id, actor)
+        )?);
+        if root.root_ref != request.root_ref || root.owner_id != actor {
+            return fail(s, "substitution_root_missing_or_unauthorized");
+        }
+        let current_binding = domain!(binding(s, actor)?);
+        s.owner_work(1, root.owner_binding_digest.len() + current_binding.len())?;
+        if root.owner_binding_digest != current_binding {
+            return fail(s, "substitution_root_owner_stale");
+        }
+        s.owner_work(
+            1,
+            (request.slot_id.len() + 1)
+                .saturating_mul(((root.slots.len() + 1).ilog2() as usize + 2) * 11),
+        )?;
+        if !root.slots.contains_key(&request.slot_id) {
+            return fail(s, "substitution_slot_missing");
+        }
+        let mut expected = BTreeSet::new();
+        let mut source_domain_error = None;
+        s.substitution_visit_authorities(|authority| {
+            if let Err(error) = comparison(
+                s,
+                &(&authority.root_ref, &authority.slot_id, &authority.owner_id),
+            )? {
+                source_domain_error = Some(error);
+                return Ok(ControlFlow::Break(()));
+            }
+            if authority.root_ref == request.root_ref
+                && authority.slot_id == request.slot_id
+                && authority.owner_id == actor
+            {
+                match insert_ref(s, &mut expected, &authority.authority_ref)? {
+                    Ok(()) => {}
+                    Err(error) => {
+                        source_domain_error = Some(error);
+                        return Ok(ControlFlow::Break(()));
+                    }
+                }
+            }
+            Ok(ControlFlow::Continue(()))
+        })?;
+        if let Some(error) = source_domain_error {
+            return Ok(Err(error));
+        }
+        let mut supplied = BTreeSet::new();
+        for reference in &request.authority_refs {
+            s.owner_work(1, 0)?;
+            domain!(insert_ref(s, &mut supplied, reference)?);
+        }
+        domain!(comparison(s, &(&expected, &supplied))?);
+        if expected.len() > 32
+            || (!supplied.is_empty()
+                && (supplied != expected || supplied.len() != request.authority_refs.len()))
+        {
+            return fail(s, "substitution_incomplete_authority_set");
+        }
+        s.owner_before_owned(
+            size_of::<Vec<SubstitutionCandidateV1>>()
+                + expected
+                    .len()
+                    .checked_mul(size_of::<SubstitutionCandidateV1>())
+                    .expect("substitution candidates layout"),
+        )?;
+        let mut candidates = Vec::with_capacity(expected.len());
+        assert_eq!(
+            candidates.capacity(),
+            expected.len(),
+            "substitution candidates exact capacity"
+        );
+        let mut blocker = None;
+        for reference in &expected {
+            s.owner_work(1, 0)?;
+            match candidate(s, request, reference, actor, world, now)? {
+                Ok(value) => candidates.push(value),
+                Err(error) => blocker = Some(formatted(s, format_args!("{error:?}"))?),
+            }
+        }
+        if expected.is_empty() {
+            blocker = Some(data::text(s, "missing_authority")?)
+        }
+        let no_rules = s.start_with_recipe(&root.pinned_recipe_id, |profile| {
+            let Some(profile) = profile else {
+                return Ok(Ok(false));
+            };
+            s.owner_work(1, 0)?;
+            if !profile.substitution_rules.is_empty() {
+                return Ok(Ok(false));
+            }
+            match hash(s, profile)? {
+                Ok(digest) => {
+                    s.owner_work(1, digest.len() + root.pinned_profile_digest.len())?;
+                    Ok(Ok(digest == root.pinned_profile_digest))
+                }
+                Err(_) => Ok(Ok(false)),
+            }
+        })?;
+        let no_rules = domain!(no_rules);
+        let status = if !candidates.is_empty() {
+            SubstitutionPreviewStatusV1::Available
+        } else {
+            let mut possible_source = false;
+            s.substitution_visit_lots(|lot| {
+                s.owner_work(1, lot.owner_id.len() + actor.len())?;
+                if lot.owner_id == actor && lot.remaining > 0 {
+                    s.owner_work(
+                        1,
+                        (request.slot_id.len() + 1)
+                            .saturating_mul(((root.slots.len() + 1).ilog2() as usize + 2) * 11),
+                    )?;
+                    if let Some(slot) = root.slots.get(&request.slot_id) {
+                        s.owner_work(1, slot.material.len() + lot.material.len())?;
+                        if slot.material == lot.material {
+                            possible_source = true;
+                            return Ok(ControlFlow::Break(()));
+                        }
+                    }
+                }
+                Ok(ControlFlow::Continue(()))
+            })?;
+            let mut possible_recipe = false;
+            let mut root_error = None;
+            s.substitution_visit_roots(|other| {
+                if let Err(error) = comparison(
+                    s,
+                    &(
+                        &other.root_ref,
+                        &root.root_ref,
+                        &other.owner_id,
+                        &other.factory_id,
+                    ),
+                )? {
+                    root_error = Some(error);
+                    return Ok(ControlFlow::Break(()));
+                }
+                if other.root_ref != root.root_ref
+                    && other.owner_id == actor
+                    && other.factory_id == root.factory_id
+                    && other.work == 0
+                    && !other.first_sink
+                {
+                    possible_recipe = true;
+                    return Ok(ControlFlow::Break(()));
+                }
+                Ok(ControlFlow::Continue(()))
+            })?;
+            if let Some(error) = root_error {
+                return Ok(Err(error));
+            }
+            if no_rules && expected.is_empty() && !possible_source && !possible_recipe {
+                blocker = None;
+                SubstitutionPreviewStatusV1::NoLegalSubstitute
+            } else {
+                SubstitutionPreviewStatusV1::Unknown
+            }
+        };
+        s.owner_before_owned(size_of::<SubstitutionPreviewV1>())?;
+        let mut recheck = now;
+        if let Some(first) = candidates.first() {
+            recheck = first.authority.next_recheck;
+            for candidate in candidates.iter().skip(1) {
+                s.owner_work(1, 0)?;
+                recheck = recheck.min(candidate.authority.next_recheck)
+            }
+        }
+        let mut preview = SubstitutionPreviewV1 {
+            preview_digest: String::new(),
+            status,
+            blocker,
+            next_action: data::text(
+                s,
+                if candidates.is_empty() {
+                    "resolve_blocker"
+                } else {
+                    "explicit_confirmation"
+                },
+            )?,
+            next_recheck: recheck,
+            request: copy::request(s, request)?,
+            candidates,
+            evaluated_at: now,
+        };
+        preview.preview_digest = domain!(hash(s, &preview)?);
+        let len = match crate::util::measure_json_with_work_v1(&preview, &mut |steps, bytes| {
+            s.owner_work(steps, bytes as usize)
+        }) {
+            Ok(n) => n,
+            Err(crate::util::JsonHashWorkErrorV1::Work(error)) => return Err(error),
+            Err(crate::util::JsonHashWorkErrorV1::Codec(error)) => {
+                return Ok(Err(WorldError::Serde(formatted(
+                    s,
+                    format_args!("{}", error),
+                )?)));
+            }
+        };
+        if len > 48 * 1024 {
+            return fail(s, "substitution_preview_capacity_exceeded");
+        }
+        Ok(Ok(preview))
+    })
 }

@@ -322,11 +322,16 @@ fn container<
     } else {
         0
     };
-    let skips_empty = matches!(path,
-        ["manufactured_identity_acquisition_sequences"] | ["agent_signer_delegations"]
-        | ["world_service_results"] | ["safe_alternatives"]
-        | ["participants", "policy_history"] | ["participants", "migrated_bindings"]
-        | ["participants", "devlocal_policy_history"]);
+    let skips_empty = matches!(
+        path,
+        ["manufactured_identity_acquisition_sequences"]
+            | ["agent_signer_delegations"]
+            | ["world_service_results"]
+            | ["safe_alternatives"]
+            | ["participants", "policy_history"]
+            | ["participants", "migrated_bindings"]
+            | ["participants", "devlocal_policy_history"]
+    );
     let emitted = physical_present && (!skips_empty || length != 0);
     out.push(
         path,
@@ -383,35 +388,62 @@ fn container<
                 RevocationProjectionContainerV1::Object => return Err(invalid()),
             };
             let _ = old;
-            if emitted { out.push(path, selector, json, processing, &mut d.ctx.cancelled) }
-            else { Ok(()) }
+            if emitted {
+                out.push(path, selector, json, processing, &mut d.ctx.cancelled)
+            } else {
+                Ok(())
+            }
         },
     )
 }
 
 /// Exactly ParticipantRegistryV1::is_empty, using authenticated small
 /// headers. It never loads policy-history, binding or operation payloads.
-fn participants_empty<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(
- cell:Option<&TypedCellRefV1<'_>>,d:&mut ChangeDecoder<'_, '_,M,R,E,C>,processing:&mut BusinessDiffProcessingWorkV1,
-)->Result<bool,ValueTreeError>{
- let Some(cell)=cell else{return Ok(true)};let profile=d.profile;
- let body=diff::root(&profile,cell,d)?;
- spend(processing,0,&mut d.ctx.cancelled)?;
- let policy=diff::point_typed_column_v1(&profile,&body,"policy",d,8192)?;
- if !matches!(policy.cell,ColumnCellV1::Unit){
-  if !matches!(policy.cell,ColumnCellV1::Root(_)){return Err(invalid())}
-  return Ok(false)
- }
- for name in ["policy_history","devlocal_policy_history","migrated_bindings","bindings","operations"]{
-  spend(processing,name.len(),&mut d.ctx.cancelled)?;
-  let row=diff::point_typed_column_v1(&profile,&body,name,d,8192)?;
-  let ColumnCellV1::Root(root)=&row.cell else{return Err(invalid())};
-  let length=diff::point_typed_column_v1(&profile,root,"_length",d,8192)?;
-  let ColumnCellV1::U64(count)=length.cell else{return Err(invalid())};
-  if count.checked_add(2)!=Some(root.leaf_count){return Err(invalid())}
-  if count!=0{return Ok(false)}
- }
- Ok(true)
+fn participants_empty<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    cell: Option<&TypedCellRefV1<'_>>,
+    d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
+    processing: &mut BusinessDiffProcessingWorkV1,
+) -> Result<bool, ValueTreeError> {
+    let Some(cell) = cell else { return Ok(true) };
+    let profile = d.profile;
+    let body = diff::root(&profile, cell, d)?;
+    spend(processing, 0, &mut d.ctx.cancelled)?;
+    let policy = diff::point_typed_column_v1(&profile, &body, "policy", d, 8192)?;
+    if !matches!(policy.cell, ColumnCellV1::Unit) {
+        if !matches!(policy.cell, ColumnCellV1::Root(_)) {
+            return Err(invalid());
+        }
+        return Ok(false);
+    }
+    for name in [
+        "policy_history",
+        "devlocal_policy_history",
+        "migrated_bindings",
+        "bindings",
+        "operations",
+    ] {
+        spend(processing, name.len(), &mut d.ctx.cancelled)?;
+        let row = diff::point_typed_column_v1(&profile, &body, name, d, 8192)?;
+        let ColumnCellV1::Root(root) = &row.cell else {
+            return Err(invalid());
+        };
+        let length = diff::point_typed_column_v1(&profile, root, "_length", d, 8192)?;
+        let ColumnCellV1::U64(count) = length.cell else {
+            return Err(invalid());
+        };
+        if count.checked_add(2) != Some(root.leaf_count) {
+            return Err(invalid());
+        }
+        if count != 0 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 fn participants<
     M: MerkleNodeReader,
@@ -426,10 +458,16 @@ fn participants<
     out: &mut Output,
 ) -> Result<(), ValueTreeError> {
     let profile = d.profile;
-    let old_empty = participants_empty(before,d,processing)?;
-    let new_empty = participants_empty(after,d,processing)?;
+    let old_empty = participants_empty(before, d, processing)?;
+    let new_empty = participants_empty(after, d, processing)?;
     if new_empty {
-        return out.push(&["participants"],Selector::Value,None,processing,&mut d.ctx.cancelled);
+        return out.push(
+            &["participants"],
+            Selector::Value,
+            None,
+            processing,
+            &mut d.ctx.cancelled,
+        );
     }
     out.push(
         &["participants"],
@@ -441,7 +479,7 @@ fn participants<
     // An omitted original parent had all six actual empty/null fields. Open
     // the full new struct once when it becomes emitted; all its payloads are
     // new delta in that case, including the original required empty members.
-    let before=if old_empty {None}else{before};
+    let before = if old_empty { None } else { before };
     diff::accept_struct(
         &profile,
         before,

@@ -304,7 +304,10 @@ impl FileFormalEndpoint {
     ) -> Result<Option<VerifiedFormalCommitV1>, FormalError> {
         // Preserve the original checkpoint verifier's authenticated predecessor.
         if let Some(entry) = self.store.head_entry()? {
-            let FormalRequestStateV1::Qualified { candidate, proof, .. } = entry else {
+            let FormalRequestStateV1::Qualified {
+                candidate, proof, ..
+            } = entry
+            else {
                 return Err(invalid("formal checkpoint qualified entry"));
             };
             verify_record_material(&proof.decision.record, &candidate.material)?;
@@ -1182,8 +1185,10 @@ pub use incremental::genesis::PaidGenesisAcceptanceV1;
 pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
 pub(in crate::controlled_authority) use incremental::host_source::PaidNormalFrozenReceiptSourceV1;
 pub use incremental::host_source::{
-    HostAcceptedParentReadViewV1, PaidHostQualifiedParentProofV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
-    PaidAcceptedGenesisHostSourceV1, PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1, NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1, PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1,
+    HostAcceptedParentReadViewV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
+    NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1, NormalReadyPublicationFailureV1,
+    PaidAcceptedGenesisHostSourceV1, PaidHostQualifiedParentProofV1, PaidNormalAcceptedPairV1,
+    PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1,
     join_normal_frozen_endpoints_bounded,
 };
 pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
@@ -1197,4 +1202,7 @@ pub(in crate::controlled_authority) use tests::{
     with_bounded_transaction_fixture, with_cold_transaction_fixture,
     with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
     with_signed_checkpoint_fixture, with_unaccepted_host_endpoint_fixture,
-}; #[path="endpoint_checkpoint_parent.rs"] mod checkpoint_parent; pub use incremental::AuthenticatedColdHostErrorV1;
+};
+#[path = "endpoint_checkpoint_parent.rs"]
+mod checkpoint_parent;
+pub use incremental::AuthenticatedColdHostErrorV1;

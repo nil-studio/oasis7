@@ -308,5 +308,6 @@ fn decode_hex_array<const N: usize>(raw: &str, label: &str) -> Result<[u8; N], S
         .map_err(|_| format!("{label} must be {N}-byte hex"))
 }
 
-#[path="reward_asset_projection.rs"] mod projection;
+#[path = "reward_asset_projection.rs"]
+mod projection;
 pub use projection::SystemOrderPoolBudgetProjectionFieldsV1;

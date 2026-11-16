@@ -23,10 +23,10 @@ use index::{
 mod family;
 #[path = "incremental_world_collection_controls_receiver.rs"]
 mod receiver;
+#[path = "incremental_world_collection_controls_release_roles.rs"]
+mod release_roles;
 #[path = "incremental_world_collection_controls_semantic.rs"]
 mod semantic;
-#[path="incremental_world_collection_controls_release_roles.rs"]
-mod release_roles;
 pub use family::{
     qualify_world_collection_controls_v1, readmit_world_collection_controls_ordinary_v1,
 };
@@ -60,8 +60,8 @@ pub struct WorldCollectionControlsQualificationV1 {
     counts: [[u64; 2]; 3],
     cursor_entries: u64,
     groups: CollectionControlsIndexV1,
-    release_roles:release_roles::ReleaseRolesDirectoryV1,
-    _release_roles_ordinary:Option<oasis7_proto::memory_budget::MemoryReservation>,
+    release_roles: release_roles::ReleaseRolesDirectoryV1,
+    _release_roles_ordinary: Option<oasis7_proto::memory_budget::MemoryReservation>,
 }
 impl WorldCollectionControlsQualificationV1 {
     pub fn field_count(&self) -> usize {
@@ -77,14 +77,17 @@ impl WorldCollectionControlsQualificationV1 {
         self.cursor_entries
     }
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {
-        if self.release_roles.count()!=self.counts[1][1]{return Err(invalid())}
+        if self.release_roles.count() != self.counts[1][1] {
+            return Err(invalid());
+        }
         if self.roots != roots.digest().map_err(|_| invalid())? {
             return Err(invalid());
         }
         Ok(())
     }
     fn check(&self, m: &MemoryBudget, class: MemoryClass) -> Result<(), ValueTreeError> {
-        self.release_roles.check(m,class,self._release_roles_ordinary.as_ref())?;
+        self.release_roles
+            .check(m, class, self._release_roles_ordinary.as_ref())?;
         if self.class != class || self.groups.class() != class || !self.groups.uses_budget(m) {
             return Err(invalid());
         }
@@ -307,11 +310,21 @@ pub use current_group::{
     read_current_data_access_group_size_v1,
 };
 
-#[path="incremental_world_collection_controls_current_release_roles.rs"]
+#[path = "incremental_world_collection_controls_current_release_roles.rs"]
 mod current_release_roles;
-pub use current_release_roles::{CurrentModuleReleaseRolesV1,read_current_module_release_roles_v1,replace_current_module_release_roles_v1};
+pub use current_release_roles::{
+    CurrentModuleReleaseRolesV1, read_current_module_release_roles_v1,
+    replace_current_module_release_roles_v1,
+};
 
-#[path="incremental_world_collection_controls_projection.rs"] mod projection;
-pub use projection::{CurrentCollectionControlsProjectionDeltaV1,read_current_collection_controls_projection_delta_v1,is_collection_controls_projection_field_v1};
+#[path = "incremental_world_collection_controls_projection.rs"]
+mod projection;
+pub use projection::{
+    CurrentCollectionControlsProjectionDeltaV1, is_collection_controls_projection_field_v1,
+    read_current_collection_controls_projection_delta_v1,
+};
 
-pub use projection::{QualifiedCollectionControlsProjectionColumnsV1,read_qualified_collection_controls_projection_columns_v1};
+pub use projection::{
+    QualifiedCollectionControlsProjectionColumnsV1,
+    read_qualified_collection_controls_projection_columns_v1,
+};

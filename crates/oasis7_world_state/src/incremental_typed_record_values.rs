@@ -78,7 +78,18 @@ fn encode<W:ValueNodeWriter+ValueNodeReader+StatePageWriter,C:FnMut()->bool>(&se
 fn decode<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(cell:ColumnCellV1,d:&mut Decoder<'_, '_,M,R,E,C>)->Result<Self,ValueTreeError>{Self::try_from(u64::decode(cell,d)?).map_err(|_|invalid())}
 })*};}
 unsigned!(u8, u16, u32);
-impl Codec for String {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+impl Codec for String {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        Ok(
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >(),
+        )
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,
@@ -116,7 +127,19 @@ impl Codec for String {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Res
         }
     }
 }
-impl<T: Codec> Codec for Option<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(T::owned_decode_layout_v1(visit)?);Ok(l)}
+impl<T: Codec> Codec for Option<T> {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.merge(T::owned_decode_layout_v1(visit)?);
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,
@@ -161,7 +184,19 @@ impl<T: Codec> Codec for Option<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn
         }
     }
 }
-impl<T: Codec> Codec for Box<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.boxed::<T,LE>(visit)?;Ok(l)}
+impl<T: Codec> Codec for Box<T> {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.boxed::<T, LE>(visit)?;
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,
@@ -205,7 +240,19 @@ impl<T: Codec> Codec for Box<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn Fn
         Ok(Box::new(value))
     }
 }
-impl<T: Codec> Codec for Vec<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.sequence::<T,LE>(visit)?;Ok(l)}
+impl<T: Codec> Codec for Vec<T> {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.sequence::<T, LE>(visit)?;
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,
@@ -274,7 +321,21 @@ impl<T: Codec> Codec for Vec<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn Fn
         Ok(out)
     }
 }
-impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.map_pair=std::mem::size_of::<(K,T)>();l.merge(K::key_decode_layout_v1(visit)?);l.merge(T::owned_decode_layout_v1(visit)?);Ok(l)}
+impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.map_pair = std::mem::size_of::<(K, T)>();
+        l.merge(K::key_decode_layout_v1(visit)?);
+        l.merge(T::owned_decode_layout_v1(visit)?);
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,
@@ -357,7 +418,20 @@ impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {fn owned_decode_layou
         Ok(out)
     }
 }
-impl<K: CollectionKey> Codec for BTreeSet<K> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.set_element=std::mem::size_of::<K>();l.merge(K::key_decode_layout_v1(visit)?);Ok(l)}
+impl<K: CollectionKey> Codec for BTreeSet<K> {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.set_element = std::mem::size_of::<K>();
+        l.merge(K::key_decode_layout_v1(visit)?);
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,
@@ -438,7 +512,21 @@ impl<K: CollectionKey> Codec for BTreeSet<K> {fn owned_decode_layout_v1<LE>(visi
 }
 #[path = "incremental_typed_record_json_change.rs"]
 mod json_change;
-impl Codec for serde_json::Value {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.sequence_element=std::mem::size_of::<Self>();l.map_pair=std::mem::size_of::<(String,Self)>();l.box_pointee=std::mem::size_of::<Self>();Ok(l)}
+impl Codec for serde_json::Value {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        let mut l =
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+                Self,
+            >();
+        l.sequence_element = std::mem::size_of::<Self>();
+        l.map_pair = std::mem::size_of::<(String, Self)>();
+        l.box_pointee = std::mem::size_of::<Self>();
+        Ok(l)
+    }
 
     fn accept_changed<
         M: MerkleNodeReader,

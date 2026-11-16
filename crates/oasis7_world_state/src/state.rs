@@ -64,8 +64,10 @@ mod logistics_path_authority;
 mod module_admission_freeze;
 pub mod module_instance_transition;
 pub mod module_release_records;
-pub use module_release_records::{prepare_module_release_records_v1, ModuleReleaseRecordProjectionV1};
 pub use module_admission_freeze::ModuleAdmissionFreeze;
+pub use module_release_records::{
+    ModuleReleaseRecordProjectionV1, prepare_module_release_records_v1,
+};
 pub mod module_marketplace_transition;
 pub mod module_release_transition;
 mod module_visual;
@@ -94,8 +96,11 @@ pub use command_projection::{
 pub use logistics_path_authority::{
     LogisticsPathAuthorityV1, allocate_recipe_path_amounts_from_records_v1,
 };
-pub use projection::{BodyOverlay, WorldStateProjection, OriginalStateFieldEmissionV1, OriginalStateFieldSlotV1, OriginalStateFieldSlotEventV1};
 pub(crate) use projection::OriginalStateSlotOutputV1;
+pub use projection::{
+    BodyOverlay, OriginalStateFieldEmissionV1, OriginalStateFieldSlotEventV1,
+    OriginalStateFieldSlotV1, WorldStateProjection,
+};
 
 pub use self::industry_state::{
     AgentLocationAuthorityV1, FACTORY_BUILD_STARTED_MODERN_VERSION, FactoryBuildPowerObligationV1,
@@ -1074,7 +1079,13 @@ impl WorldState {
 #[path = "state/world_state_debug.rs"]
 mod world_state_debug;
 
-pub use module_marketplace_transition::{select_module_market_bid_v1, settle_module_action_fee_from_records_v1, validate_module_market_event_rows_v1};
+pub use module_marketplace_transition::{
+    select_module_market_bid_v1, settle_module_action_fee_from_records_v1,
+    validate_module_market_event_rows_v1,
+};
 
-#[path="state_marketplace_projection.rs"] mod marketplace_projection;
-pub use marketplace_projection::{ModuleArtifactListingProjectionFieldsV1,ModuleArtifactBidProjectionFieldsV1};
+#[path = "state_marketplace_projection.rs"]
+mod marketplace_projection;
+pub use marketplace_projection::{
+    ModuleArtifactBidProjectionFieldsV1, ModuleArtifactListingProjectionFieldsV1,
+};

@@ -15,7 +15,9 @@ use crate::{
     world_rules::OrganizationEstateDepositV1,
 };
 use oasis7_formal_protocol::{
-    incremental_execution::{ExecutionError, ExecutionFence, ExecutionTransaction, PreparedGuard, RootSetV1},
+    incremental_execution::{
+        ExecutionError, ExecutionFence, ExecutionTransaction, PreparedGuard, RootSetV1,
+    },
     incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1},
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateScanBudget},
     incremental_value::{ValueNodeReader, ValueTreeError},
@@ -83,15 +85,21 @@ fn charge_scope(
     }
     *cells = cells
         .checked_sub(steps)
-        .ok_or(ValueTreeError::ResourceLimited("organization Current scope cells"))?;
-    scan.nodes_remaining = scan
-        .nodes_remaining
-        .checked_sub(steps)
-        .ok_or(ValueTreeError::ResourceLimited("organization Current scope steps"))?;
-    scan.read_bytes_remaining = scan
-        .read_bytes_remaining
-        .checked_sub(bytes)
-        .ok_or(ValueTreeError::ResourceLimited("organization Current scope bytes"))?;
+        .ok_or(ValueTreeError::ResourceLimited(
+            "organization Current scope cells",
+        ))?;
+    scan.nodes_remaining =
+        scan.nodes_remaining
+            .checked_sub(steps)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "organization Current scope steps",
+            ))?;
+    scan.read_bytes_remaining =
+        scan.read_bytes_remaining
+            .checked_sub(bytes)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "organization Current scope bytes",
+            ))?;
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }
@@ -167,9 +175,13 @@ where
     let capacity_bound = capacity
         .checked_mul(2)
         .and_then(|value| value.checked_add(64))
-        .ok_or(ValueTreeError::ResourceLimited("organization Estate text capacity"))?;
+        .ok_or(ValueTreeError::ResourceLimited(
+            "organization Estate text capacity",
+        ))?;
     if bytes.capacity() < capacity || bytes.capacity() > capacity_bound {
-        return Err(ValueTreeError::ResourceLimited("organization Estate text capacity"));
+        return Err(ValueTreeError::ResourceLimited(
+            "organization Estate text capacity",
+        ));
     }
     let actual = read_field(owner, proof, field, context, max_payload, &mut bytes)?;
     if text_length(actual)? != expected || bytes.len() != capacity {
@@ -213,7 +225,9 @@ pub fn read_current_organization_estate_v1<
             || !parent.permits_class(MemoryClass::Ordinary)
             || !risk.uses_budget(memory)
             || state.allocation_class() != Some(MemoryClass::Ordinary)
-            || !state.allocation_budget().is_some_and(|pool| pool.same_pool(memory))
+            || !state
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(memory))
         {
             return Err(invalid().into());
         }
@@ -290,8 +304,7 @@ pub fn read_current_organization_estate_v1<
                 &mut Cursor::new(root_bytes.as_mut_slice()),
                 &mut context.cancelled,
             )?;
-            RecordRootRefV1::from_canonical_bytes(&root_bytes)
-                .map_err(|_| invalid())?
+            RecordRootRefV1::from_canonical_bytes(&root_bytes).map_err(|_| invalid())?
         };
         let owner_key = WorldFieldKeyV1::from_bytes(outer_key.as_bytes())
             .map_err(ValueTreeError::Invalid)?
@@ -337,27 +350,85 @@ pub fn read_current_organization_estate_v1<
         )?;
 
         let mut sink = std::io::sink();
-        let id_len = text_length(read_field(owner, &qualification, OrganizationScalarFieldV1::Id, &mut read_context, max_payload, &mut sink)?)?;
-        let organization_len = text_length(read_field(owner, &qualification, OrganizationScalarFieldV1::OrganizationId, &mut read_context, max_payload, &mut sink)?)?;
-        let contributor_len = text_length(read_field(owner, &qualification, OrganizationScalarFieldV1::ContributorId, &mut read_context, max_payload, &mut sink)?)?;
-        let material_len = text_length(read_field(owner, &qualification, OrganizationScalarFieldV1::Material, &mut read_context, max_payload, &mut sink)?)?;
-        let amount = match read_field(owner, &qualification, OrganizationScalarFieldV1::Amount, &mut read_context, max_payload, &mut sink)? {
+        let id_len = text_length(read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::Id,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )?)?;
+        let organization_len = text_length(read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::OrganizationId,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )?)?;
+        let contributor_len = text_length(read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::ContributorId,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )?)?;
+        let material_len = text_length(read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::Material,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )?)?;
+        let amount = match read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::Amount,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )? {
             OrganizationFieldValueV1::I64(value) => value,
             _ => return Err(invalid().into()),
         };
-        let held_in_trust = match read_field(owner, &qualification, OrganizationScalarFieldV1::HeldInTrust, &mut read_context, max_payload, &mut sink)? {
+        let held_in_trust = match read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::HeldInTrust,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )? {
             OrganizationFieldValueV1::Bool(value) => value,
             _ => return Err(invalid().into()),
         };
-        let disposed = match read_field(owner, &qualification, OrganizationScalarFieldV1::Disposed, &mut read_context, max_payload, &mut sink)? {
+        let disposed = match read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::Disposed,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )? {
             OrganizationFieldValueV1::Bool(value) => value,
             _ => return Err(invalid().into()),
         };
-        let effect_len = optional_text_length(read_field(owner, &qualification, OrganizationScalarFieldV1::EffectReceipt, &mut read_context, max_payload, &mut sink)?)?;
+        let effect_len = optional_text_length(read_field(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::EffectReceipt,
+            &mut read_context,
+            max_payload,
+            &mut sink,
+        )?)?;
         let total_text = [id_len, organization_len, contributor_len, material_len]
             .into_iter()
             .chain(effect_len)
-            .try_fold(0u64, |total, length| total.checked_add(length).ok_or_else(invalid))?;
+            .try_fold(0u64, |total, length| {
+                total.checked_add(length).ok_or_else(invalid)
+            })?;
         if total_text > max_payload.saturating_mul(5) {
             return Err(invalid().into());
         }
@@ -390,16 +461,53 @@ pub fn read_current_organization_estate_v1<
             .try_reserve_exact(outer_id.len())
             .map_err(|_| ValueTreeError::ResourceLimited("organization Estate outer"))?;
         if outer.capacity() > outer_id.len().saturating_mul(2).saturating_add(64) {
-            return Err(ValueTreeError::ResourceLimited("organization Estate outer capacity").into());
+            return Err(
+                ValueTreeError::ResourceLimited("organization Estate outer capacity").into(),
+            );
         }
         outer.push_str(outer_id);
 
-        let id = read_text(owner, &qualification, OrganizationScalarFieldV1::Id, id_len, &mut read_context, max_payload)?;
-        let organization = read_text(owner, &qualification, OrganizationScalarFieldV1::OrganizationId, organization_len, &mut read_context, max_payload)?;
-        let contributor = read_text(owner, &qualification, OrganizationScalarFieldV1::ContributorId, contributor_len, &mut read_context, max_payload)?;
-        let material = read_text(owner, &qualification, OrganizationScalarFieldV1::Material, material_len, &mut read_context, max_payload)?;
+        let id = read_text(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::Id,
+            id_len,
+            &mut read_context,
+            max_payload,
+        )?;
+        let organization = read_text(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::OrganizationId,
+            organization_len,
+            &mut read_context,
+            max_payload,
+        )?;
+        let contributor = read_text(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::ContributorId,
+            contributor_len,
+            &mut read_context,
+            max_payload,
+        )?;
+        let material = read_text(
+            owner,
+            &qualification,
+            OrganizationScalarFieldV1::Material,
+            material_len,
+            &mut read_context,
+            max_payload,
+        )?;
         let effect_receipt = match effect_len {
-            Some(length) => Some(read_text(owner, &qualification, OrganizationScalarFieldV1::EffectReceipt, length, &mut read_context, max_payload)?),
+            Some(length) => Some(read_text(
+                owner,
+                &qualification,
+                OrganizationScalarFieldV1::EffectReceipt,
+                length,
+                &mut read_context,
+                max_payload,
+            )?),
             None => None,
         };
         if organization != organization_id {

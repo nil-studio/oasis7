@@ -291,33 +291,52 @@ impl oasis7_runtime::PaidProjectionRetainedOriginalReaderV1
     for HostNormalOriginalReaderV1<'_, '_, '_, '_>
 {
     type RetainedError = BodyMutationError;
-    fn allocation_budget(&self) -> &MemoryBudget { self.0.memory }
-    fn allocation_class(&self) -> MemoryClass { MemoryClass::Ordinary }
+    fn allocation_budget(&self) -> &MemoryBudget {
+        self.0.memory
+    }
+    fn allocation_class(&self) -> MemoryClass {
+        MemoryClass::Ordinary
+    }
     fn read_retained_original_bounded_v1(
         &mut self,
         id: &[u8; 32],
         max_bytes: usize,
         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
     ) -> Result<Arc<ReservedValue<Vec<u8>>>, Self::RetainedError> {
-        common.charge(1, 32).map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        common
+            .charge(1, 32)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
         if !self.0.memory.same_pool(common.memory()) || !self.0._fee.uses_budget(common.memory()) {
-            return Err(BodyMutationError::Invalid("retained original actual Host pool"));
+            return Err(BodyMutationError::Invalid(
+                "retained original actual Host pool",
+            ));
         }
-        let raw = self.0.with_metered_actual_reader(common, |reader| {
-            OriginalObjectReader::read_original(reader, id, max_bytes, self.0.memory)
-        }).map_err(|error| match error {
-            PairedNormalOriginalMeterErrorV1::Context(error) => BodyMutationError::Original(Box::new(error)),
-            PairedNormalOriginalMeterErrorV1::Store(error) => body(error),
-        })?;
+        let raw = self
+            .0
+            .with_metered_actual_reader(common, |reader| {
+                OriginalObjectReader::read_original(reader, id, max_bytes, self.0.memory)
+            })
+            .map_err(|error| match error {
+                PairedNormalOriginalMeterErrorV1::Context(error) => {
+                    BodyMutationError::Original(Box::new(error))
+                }
+                PairedNormalOriginalMeterErrorV1::Store(error) => body(error),
+            })?;
         if !raw.uses_budget(common.memory()) || raw.len() > max_bytes {
-            return Err(BodyMutationError::Invalid("retained original actual allocation/length"));
+            return Err(BodyMutationError::Invalid(
+                "retained original actual allocation/length",
+            ));
         }
         let mut hash = blake3::Hasher::new();
         for chunk in raw.chunks(8192) {
-            common.charge(1, chunk.len() as u64).map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+            common
+                .charge(1, chunk.len() as u64)
+                .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
             hash.update(chunk);
         }
-        common.charge(1, 32).map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        common
+            .charge(1, 32)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
         if hash.finalize().as_bytes() != id {
             return Err(BodyMutationError::Invalid("retained original content hash"));
         }

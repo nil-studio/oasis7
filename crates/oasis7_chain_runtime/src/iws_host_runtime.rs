@@ -343,7 +343,9 @@ pub(crate) use normal_commit::{
 
 #[path = "iws_host_normal_execute.rs"]
 mod normal_execute;
-pub(crate) use normal_execute::{NormalExecutionCommitFailureV1, execute_and_commit_frozen_normal_bounded_v1};
+pub(crate) use normal_execute::{
+    NormalExecutionCommitFailureV1, execute_and_commit_frozen_normal_bounded_v1,
+};
 
 pub use normal::NormalCommitPersistErrorV1;
 

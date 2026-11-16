@@ -7,7 +7,7 @@ use oasis7_world_state::{WorldEvent, WorldState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorldServiceProjection<S=WorldState> {
+pub struct WorldServiceProjection<S = WorldState> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_rule_status: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -26,7 +26,7 @@ pub struct WorldServiceProjection<S=WorldState> {
         Vec<oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback_history: Option<WorldServiceFeedbackHistory>,
-    pub state:S,
+    pub state: S,
     pub events: Vec<WorldEvent>,
     pub runtime_binding: Option<RuntimeBindingV1>,
     pub agent_context: Option<WorldServiceAgentContext>,

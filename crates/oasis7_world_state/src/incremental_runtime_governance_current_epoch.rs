@@ -14,24 +14,84 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::ReservedValue;
 
 #[allow(clippy::too_many_arguments)]
-pub fn read_current_governance_record_v1<M:MerkleNodeReader,S:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(
-    parent:&ReservedValue<RuntimeGovernanceQualificationV1>,roots:&RootSetV1,key:RuntimeGovernanceKeyV1,state:&S,
-    context:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,scan:&mut StateScanBudget,max_heap:usize,guard:&PreparedGuard,live:&ExecutionFence,
-)->Result<Option<crate::incremental_record_columns_read::RecoveredColumnsV1<RecoveredRuntimeGovernanceRecordV1>>,WorldFieldOverlayErrorV1>{
-    context.transaction.contribute(|tx|{
-        tx.validate_guard(guard,live)?;parent.validate_binding(roots)?;
-        if parent.allocation_class()!=MemoryClass::Ordinary||!parent.uses_budget(context.values.memory)||context.values.class!=MemoryClass::Ordinary||!tx.uses_budget(context.values.memory)||tx.parent_fence().parent_roots!=roots.digest()?{return Err(ValueTreeError::Invalid("Current governance record binding").into())}
-        let kind=overlay::kind(key);
-        let (outer,value)={let mut records=InventoryValueReader{values:&mut context.values,key_work:&mut*context.key_work,semantic_bytes:context.semantic_bytes,record_bytes:context.record_bytes,cancelled:&mut context.cancelled};
-            let metadata=WorldFieldKeyV1::new(kind.descriptor(),WorldFieldRecordKindV1::Metadata,None).map_err(ValueTreeError::Invalid)?;
-            let meta=lookup(tx,&metadata,&mut records,&mut context.take_state_error)?.ok_or(ValueTreeError::Invalid("Current governance metadata"))?;records.presence(&meta,&metadata,0)?;
-            let outer=overlay::outer(key,&mut records)?;let value=lookup(tx,&outer.0,&mut records,&mut context.take_state_error)?;(outer,value)};
-        let Some(value)=value else{return Ok(None)};
-        let mut read=WorldFieldReadContextV1{root:roots.state_root(StateNamespaceV1::Authorization),state,values:ValueReadContext{source:context.values.source,memory:context.values.memory,class:context.values.class,io:&mut*context.values.io},key_work:&mut*context.key_work,semantic_bytes:context.semantic_bytes,record_bytes:context.record_bytes,take_state_error:&mut context.take_state_error,cancelled:&mut context.cancelled};
-        let (actual,body)=family::child(kind,&outer.0,&value,&mut read)?;
-        if actual!=key{return Err(ValueTreeError::Invalid("Current governance original key").into())}
-        let value=recover_runtime_governance_record_v1(kind,&body,&mut read,scan,max_heap)?;
-        read.check()?;tx.validate_guard(&tx.guard(),live)?;Ok(Some(value))
+pub fn read_current_governance_record_v1<
+    M: MerkleNodeReader,
+    S: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<RuntimeGovernanceQualificationV1>,
+    roots: &RootSetV1,
+    key: RuntimeGovernanceKeyV1,
+    state: &S,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    max_heap: usize,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<
+    Option<
+        crate::incremental_record_columns_read::RecoveredColumnsV1<
+            RecoveredRuntimeGovernanceRecordV1,
+        >,
+    >,
+    WorldFieldOverlayErrorV1,
+> {
+    context.transaction.contribute(|tx| {
+        tx.validate_guard(guard, live)?;
+        parent.validate_binding(roots)?;
+        if parent.allocation_class() != MemoryClass::Ordinary
+            || !parent.uses_budget(context.values.memory)
+            || context.values.class != MemoryClass::Ordinary
+            || !tx.uses_budget(context.values.memory)
+            || tx.parent_fence().parent_roots != roots.digest()?
+        {
+            return Err(ValueTreeError::Invalid("Current governance record binding").into());
+        }
+        let kind = overlay::kind(key);
+        let (outer, value) = {
+            let mut records = InventoryValueReader {
+                values: &mut context.values,
+                key_work: &mut *context.key_work,
+                semantic_bytes: context.semantic_bytes,
+                record_bytes: context.record_bytes,
+                cancelled: &mut context.cancelled,
+            };
+            let metadata =
+                WorldFieldKeyV1::new(kind.descriptor(), WorldFieldRecordKindV1::Metadata, None)
+                    .map_err(ValueTreeError::Invalid)?;
+            let meta = lookup(tx, &metadata, &mut records, &mut context.take_state_error)?
+                .ok_or(ValueTreeError::Invalid("Current governance metadata"))?;
+            records.presence(&meta, &metadata, 0)?;
+            let outer = overlay::outer(key, &mut records)?;
+            let value = lookup(tx, &outer.0, &mut records, &mut context.take_state_error)?;
+            (outer, value)
+        };
+        let Some(value) = value else { return Ok(None) };
+        let mut read = WorldFieldReadContextV1 {
+            root: roots.state_root(StateNamespaceV1::Authorization),
+            state,
+            values: ValueReadContext {
+                source: context.values.source,
+                memory: context.values.memory,
+                class: context.values.class,
+                io: &mut *context.values.io,
+            },
+            key_work: &mut *context.key_work,
+            semantic_bytes: context.semantic_bytes,
+            record_bytes: context.record_bytes,
+            take_state_error: &mut context.take_state_error,
+            cancelled: &mut context.cancelled,
+        };
+        let (actual, body) = family::child(kind, &outer.0, &value, &mut read)?;
+        if actual != key {
+            return Err(ValueTreeError::Invalid("Current governance original key").into());
+        }
+        let value = recover_runtime_governance_record_v1(kind, &body, &mut read, scan, max_heap)?;
+        read.check()?;
+        tx.validate_guard(&tx.guard(), live)?;
+        Ok(Some(value))
     })
 }
 
@@ -53,7 +113,17 @@ where
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 {
-    read_current_governance_execution_policy_v1(parent,roots,state,context,scan,max_record_heap,guard,live).map(|policy|policy.epoch_length_ticks)
+    read_current_governance_execution_policy_v1(
+        parent,
+        roots,
+        state,
+        context,
+        scan,
+        max_record_heap,
+        guard,
+        live,
+    )
+    .map(|policy| policy.epoch_length_ticks)
 }
 
 #[allow(clippy::too_many_arguments)]

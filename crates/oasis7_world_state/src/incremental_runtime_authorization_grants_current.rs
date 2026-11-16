@@ -2,23 +2,63 @@
 //! Recovered data conveys no capability or complete-family qualification.
 use super::*;
 
-pub struct CurrentAuthorizationGrantPresenceV1 { row:Option<[u8;32]> }
-impl CurrentAuthorizationGrantPresenceV1 { pub fn is_present(&self)->bool{self.row.is_some()} }
+pub struct CurrentAuthorizationGrantPresenceV1 {
+    row: Option<[u8; 32]>,
+}
+impl CurrentAuthorizationGrantPresenceV1 {
+    pub fn is_present(&self) -> bool {
+        self.row.is_some()
+    }
+}
 #[allow(clippy::too_many_arguments)]
-pub fn read_current_authorization_grant_presence_v1<M:MerkleNodeReader,P:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(
-    parent:&ReservedValue<AuthorizationGrantsQualificationV1>,roots:&RootSetV1,id:&str,tx:&mut ExecutionTransaction<'_,M>,read:&mut WorldFieldReadContextV1<'_,P,R,E,C>,guard:&PreparedGuard,live:&ExecutionFence,
-)->Result<ReservedValue<CurrentAuthorizationGrantPresenceV1>,WorldFieldOverlayErrorV1>{
-    tx.contribute(|tx|{
-        tx.validate_guard(guard,live)?;parent.validate_binding(roots)?;
-        if parent.class!=MemoryClass::Ordinary||!parent.uses_budget(read.values.memory)||read.values.class!=MemoryClass::Ordinary||!tx.uses_budget(read.values.memory)||tx.parent_fence().parent_roots!=roots.digest()?{return Err(invalid().into())}
-        let fee=read.values.memory.reserve(512,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
-        let profile=authorization_grant_profile_v1();
-        let mut records=InventoryValueReader{values:&mut read.values,key_work:&mut*read.key_work,semantic_bytes:read.semantic_bytes,record_bytes:read.record_bytes,cancelled:&mut read.cancelled};
-        let meta=WorldFieldKeyV1::new(profile.field,WorldFieldRecordKindV1::Metadata,None).map_err(ValueTreeError::Invalid)?;
-        let value=lookup(tx,&meta,&mut records,&mut read.take_state_error)?.ok_or_else(invalid)?;records.presence(&value,&meta,0)?;
-        let (key,_)=records.key(profile.field,WorldFieldRecordKindV1::Entry,&id)?;
-        let row=lookup(tx,&key,&mut records,&mut read.take_state_error)?;
-        tx.validate_guard(&tx.guard(),live)?;Ok(fee.retain(CurrentAuthorizationGrantPresenceV1{row}))
+pub fn read_current_authorization_grant_presence_v1<
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<AuthorizationGrantsQualificationV1>,
+    roots: &RootSetV1,
+    id: &str,
+    tx: &mut ExecutionTransaction<'_, M>,
+    read: &mut WorldFieldReadContextV1<'_, P, R, E, C>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<CurrentAuthorizationGrantPresenceV1>, WorldFieldOverlayErrorV1> {
+    tx.contribute(|tx| {
+        tx.validate_guard(guard, live)?;
+        parent.validate_binding(roots)?;
+        if parent.class != MemoryClass::Ordinary
+            || !parent.uses_budget(read.values.memory)
+            || read.values.class != MemoryClass::Ordinary
+            || !tx.uses_budget(read.values.memory)
+            || tx.parent_fence().parent_roots != roots.digest()?
+        {
+            return Err(invalid().into());
+        }
+        let fee = read
+            .values
+            .memory
+            .reserve(512, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let profile = authorization_grant_profile_v1();
+        let mut records = InventoryValueReader {
+            values: &mut read.values,
+            key_work: &mut *read.key_work,
+            semantic_bytes: read.semantic_bytes,
+            record_bytes: read.record_bytes,
+            cancelled: &mut read.cancelled,
+        };
+        let meta = WorldFieldKeyV1::new(profile.field, WorldFieldRecordKindV1::Metadata, None)
+            .map_err(ValueTreeError::Invalid)?;
+        let value =
+            lookup(tx, &meta, &mut records, &mut read.take_state_error)?.ok_or_else(invalid)?;
+        records.presence(&value, &meta, 0)?;
+        let (key, _) = records.key(profile.field, WorldFieldRecordKindV1::Entry, &id)?;
+        let row = lookup(tx, &key, &mut records, &mut read.take_state_error)?;
+        tx.validate_guard(&tx.guard(), live)?;
+        Ok(fee.retain(CurrentAuthorizationGrantPresenceV1 { row }))
     })
 }
 use crate::{

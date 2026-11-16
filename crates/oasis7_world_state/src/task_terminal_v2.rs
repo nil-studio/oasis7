@@ -63,7 +63,13 @@ pub fn validate_task_terminal_record_v2(
 }
 impl TaskTerminalIndexV2 {
     pub fn validate(&self) -> Result<(), String> {
-        match validate_task_terminal_index_with_work_v2(self,&mut|_,_|Ok::<(),std::convert::Infallible>(())) {Ok(())=>Ok(()),Err(TaskTerminalIndexValidationErrorV2::Invalid(note))=>Err(note),Err(TaskTerminalIndexValidationErrorV2::Work(never))=>match never{}}
+        match validate_task_terminal_index_with_work_v2(self, &mut |_, _| {
+            Ok::<(), std::convert::Infallible>(())
+        }) {
+            Ok(()) => Ok(()),
+            Err(TaskTerminalIndexValidationErrorV2::Invalid(note)) => Err(note),
+            Err(TaskTerminalIndexValidationErrorV2::Work(never)) => match never {},
+        }
     }
 }
 
@@ -98,15 +104,27 @@ mod tests {
     }
 }
 
-#[path="task_terminal_v2_layout.rs"]
+#[path = "task_terminal_v2_layout.rs"]
 mod owned_layout;
-pub use owned_layout::{task_terminal_record_owned_layout_v2,task_terminal_index_owned_layout_v2};
+pub use owned_layout::{task_terminal_index_owned_layout_v2, task_terminal_record_owned_layout_v2};
 
 /// Work callbacks cannot replace a record predicate or change its ordering.
 /// The fixed bounded caller admits the actual flat record graph and any error
 /// string before the original shape/comparison kernel runs.
-pub enum TaskTerminalIndexValidationErrorV2<E>{Work(E),Invalid(String)}
-pub fn validate_task_terminal_index_with_work_v2<E>(index:&TaskTerminalIndexV2,work:&mut impl FnMut(&str,&TaskTerminalRecordV2)->Result<(),E>)->Result<(),TaskTerminalIndexValidationErrorV2<E>>{
- validate_task_terminal_index_header_v2(index).map_err(TaskTerminalIndexValidationErrorV2::Invalid)?;
- for(task_id,record)in &index.records{work(task_id,record).map_err(TaskTerminalIndexValidationErrorV2::Work)?;validate_task_terminal_record_v2(task_id,record).map_err(TaskTerminalIndexValidationErrorV2::Invalid)?;}Ok(())
+pub enum TaskTerminalIndexValidationErrorV2<E> {
+    Work(E),
+    Invalid(String),
+}
+pub fn validate_task_terminal_index_with_work_v2<E>(
+    index: &TaskTerminalIndexV2,
+    work: &mut impl FnMut(&str, &TaskTerminalRecordV2) -> Result<(), E>,
+) -> Result<(), TaskTerminalIndexValidationErrorV2<E>> {
+    validate_task_terminal_index_header_v2(index)
+        .map_err(TaskTerminalIndexValidationErrorV2::Invalid)?;
+    for (task_id, record) in &index.records {
+        work(task_id, record).map_err(TaskTerminalIndexValidationErrorV2::Work)?;
+        validate_task_terminal_record_v2(task_id, record)
+            .map_err(TaskTerminalIndexValidationErrorV2::Invalid)?;
+    }
+    Ok(())
 }

@@ -27,17 +27,21 @@ pub use types::*;
 mod helpers;
 use helpers::*;
 pub use helpers::{activity_catalog_root, economic_contract_terms_hash};
-pub use helpers::{controller_binding_from_owner_v1,controller_binding_matches_owner_v1,economic_contract_terms_hash_with_work_v1};
+pub use helpers::{
+    controller_binding_from_owner_v1, controller_binding_matches_owner_v1,
+    economic_contract_terms_hash_with_work_v1,
+};
 
 #[path = "organization_continuity_system.rs"]
 mod system;
 pub use system::{
     OrganizationCurrentAgentFactV1, OrganizationCurrentAllianceFactV1,
-    OrganizationCurrentContractFactV1, OrganizationCurrentLifecycleFactsV1,
-    OrganizationCurrentRequestFactV1, OrganizationCurrentEstateFactV1,
-    OrganizationCurrentOwnerV1, apply_system_lifecycle_command_from_current_v1,
-    prepare_lifecycle_commands_from_current_v1, prepare_lifecycle_commands_selected_from_current_v1, prepare_activity_close_commands_from_current_v1,
+    OrganizationCurrentContractFactV1, OrganizationCurrentEstateFactV1,
+    OrganizationCurrentLifecycleFactsV1, OrganizationCurrentOwnerV1,
+    OrganizationCurrentRequestFactV1, apply_system_lifecycle_command_from_current_v1,
     prepare_activity_close_command_for_registration_v1,
+    prepare_activity_close_commands_from_current_v1, prepare_lifecycle_commands_from_current_v1,
+    prepare_lifecycle_commands_selected_from_current_v1,
 };
 
 /// A plain fixed semantic plan, never a source or execution capability.
@@ -141,7 +145,12 @@ impl OrganizationContinuityStateV1 {
         reader: Option<&str>,
         world_binding: Option<&str>,
     ) -> Vec<OrganizationActivityContractCandidateV1> {
-        crate::world_rules::readonly_organization::legacy_candidates(state,self,reader,world_binding)
+        crate::world_rules::readonly_organization::legacy_candidates(
+            state,
+            self,
+            reader,
+            world_binding,
+        )
     }
 
     /// Observe only a previously registered AtomicExchange. The economic

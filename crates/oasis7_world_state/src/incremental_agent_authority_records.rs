@@ -140,7 +140,14 @@ pub(crate) use receiver::accept_agent_authority_verified_v1;
 mod selected;
 pub use selected::open_agent_authority_body_overlay_v1;
 
-#[path="incremental_agent_authority_records_projection.rs"] mod projection;
-pub use projection::{CurrentAgentAuthorityProjectionDeltaV1,read_current_agent_authority_projection_delta_v1,is_agent_authority_projection_field_v1};
+#[path = "incremental_agent_authority_records_projection.rs"]
+mod projection;
+pub use projection::{
+    CurrentAgentAuthorityProjectionDeltaV1, is_agent_authority_projection_field_v1,
+    read_current_agent_authority_projection_delta_v1,
+};
 
-pub use projection::{QualifiedAgentAuthorityProjectionColumnsV1,read_qualified_agent_authority_projection_columns_v1};
+pub use projection::{
+    QualifiedAgentAuthorityProjectionColumnsV1,
+    read_qualified_agent_authority_projection_columns_v1,
+};

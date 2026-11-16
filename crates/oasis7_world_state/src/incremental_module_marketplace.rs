@@ -995,11 +995,14 @@ pub use visual::{
 #[path = "incremental_module_lifecycle_market_current.rs"]
 mod lifecycle_current;
 pub use lifecycle_current::{
-    CurrentModuleLifecycleListingV1, read_current_module_lifecycle_listing_v1,
-    replace_current_module_lifecycle_listing_v1, CurrentModuleLifecycleBidsV1,
-    read_current_module_lifecycle_bids_v1, change_current_module_lifecycle_bids_v1,
-    ModuleLifecycleBidEditV1,
+    CurrentModuleLifecycleBidsV1, CurrentModuleLifecycleListingV1, ModuleLifecycleBidEditV1,
+    change_current_module_lifecycle_bids_v1, read_current_module_lifecycle_bids_v1,
+    read_current_module_lifecycle_listing_v1, replace_current_module_lifecycle_listing_v1,
 };
 
-#[path="incremental_module_marketplace_projection_index.rs"] mod projection_index;
-pub use projection_index::{MarketplaceBidIndexNodeDataV1,MarketplaceBidIndexMetaDataV1,visit_original_genesis_bid_index_data_v1};
+#[path = "incremental_module_marketplace_projection_index.rs"]
+mod projection_index;
+pub use projection_index::{
+    MarketplaceBidIndexMetaDataV1, MarketplaceBidIndexNodeDataV1,
+    visit_original_genesis_bid_index_data_v1,
+};

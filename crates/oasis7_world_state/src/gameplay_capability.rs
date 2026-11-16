@@ -19,11 +19,19 @@ pub struct GameplayCapabilityFactsV1<'a> {
     pub(crate) industry_progress: &'a IndustryProgressState,
     pub(crate) gameplay_policy: &'a GameplayPolicyState,
     pub(crate) factory_site_authorities: &'a BTreeMap<String, FactorySiteAuthorityV1>,
-    pub(crate) material_ledgers: &'a BTreeMap<MaterialLedgerId, BTreeMap<String,i64>>,
+    pub(crate) material_ledgers: &'a BTreeMap<MaterialLedgerId, BTreeMap<String, i64>>,
 }
 impl<'a> GameplayCapabilityFactsV1<'a> {
     pub(crate) fn from_world(state: &'a WorldState) -> Self {
-        Self { time:state.time, factories:&state.factories,pending_recipe_jobs:&state.pending_recipe_jobs,industry_progress:&state.industry_progress,gameplay_policy:&state.gameplay_policy,factory_site_authorities:&state.factory_site_authorities,material_ledgers:&state.material_ledgers }
+        Self {
+            time: state.time,
+            factories: &state.factories,
+            pending_recipe_jobs: &state.pending_recipe_jobs,
+            industry_progress: &state.industry_progress,
+            gameplay_policy: &state.gameplay_policy,
+            factory_site_authorities: &state.factory_site_authorities,
+            material_ledgers: &state.material_ledgers,
+        }
     }
 }
 
@@ -97,30 +105,46 @@ impl WorldState {
         subject: GameplaySubject,
         goal_id: &str,
     ) -> GameplayCapabilityQuery {
-        gameplay_capability_query_from_facts_v1(&GameplayCapabilityFactsV1::from_world(self),subject,goal_id)
+        gameplay_capability_query_from_facts_v1(
+            &GameplayCapabilityFactsV1::from_world(self),
+            subject,
+            goal_id,
+        )
     }
 }
 
 pub fn gameplay_capability_query_from_facts_v1(
-    facts:&GameplayCapabilityFactsV1<'_>, subject:GameplaySubject, goal_id:&str,
+    facts: &GameplayCapabilityFactsV1<'_>,
+    subject: GameplaySubject,
+    goal_id: &str,
 ) -> GameplayCapabilityQuery {
-    infallible(readonly::gameplay_capability_query_readonly_v1(facts,subject,goal_id))
+    infallible(readonly::gameplay_capability_query_readonly_v1(
+        facts, subject, goal_id,
+    ))
 }
 
 // The canonical reducer owns the window and identity. Its completed window
 // remains historical evidence while a different job is in flight; it cannot
 // certify the current candidate on the player's goal card.
 pub fn has_current_stable_line(state: &WorldState, factory: &FactoryState) -> bool {
-    has_current_stable_line_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state),factory)
+    has_current_stable_line_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state), factory)
 }
-pub fn has_current_stable_line_from_facts_v1(state:&GameplayCapabilityFactsV1<'_>, factory:&FactoryState)->bool {
-    infallible(readonly::has_current_stable_line_readonly_v1(state,factory))
+pub fn has_current_stable_line_from_facts_v1(
+    state: &GameplayCapabilityFactsV1<'_>,
+    factory: &FactoryState,
+) -> bool {
+    infallible(readonly::has_current_stable_line_readonly_v1(
+        state, factory,
+    ))
 }
 
 pub fn current_repeat_count(state: &WorldState, factory: &FactoryState) -> u32 {
-    current_repeat_count_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state),factory)
+    current_repeat_count_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state), factory)
 }
-pub fn current_repeat_count_from_facts_v1(state:&GameplayCapabilityFactsV1<'_>, factory:&FactoryState)->u32 {
+pub fn current_repeat_count_from_facts_v1(
+    state: &GameplayCapabilityFactsV1<'_>,
+    factory: &FactoryState,
+) -> u32 {
     if current_candidate_matches_completed(state, factory) {
         factory.production.same_recipe_repeat_count
     } else {
@@ -128,18 +152,26 @@ pub fn current_repeat_count_from_facts_v1(state:&GameplayCapabilityFactsV1<'_>, 
     }
 }
 
-fn current_candidate_matches_completed(state: &GameplayCapabilityFactsV1<'_>, factory: &FactoryState) -> bool {
-    infallible(readonly::current_candidate_matches_completed_readonly_v1(state,factory))
+fn current_candidate_matches_completed(
+    state: &GameplayCapabilityFactsV1<'_>,
+    factory: &FactoryState,
+) -> bool {
+    infallible(readonly::current_candidate_matches_completed_readonly_v1(
+        state, factory,
+    ))
 }
 
 pub fn primary_personal_factory<'a>(
     state: &'a WorldState,
     agent_id: &str,
 ) -> Option<&'a FactoryState> {
-    primary_personal_factory_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state),agent_id)
+    primary_personal_factory_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state), agent_id)
 }
-pub fn primary_personal_factory_from_facts_v1<'a>(state:&GameplayCapabilityFactsV1<'a>,agent_id:&str)->Option<&'a FactoryState> {
-    let key=infallible(readonly::primary_outer_key(state,agent_id))?;
+pub fn primary_personal_factory_from_facts_v1<'a>(
+    state: &GameplayCapabilityFactsV1<'a>,
+    agent_id: &str,
+) -> Option<&'a FactoryState> {
+    let key = infallible(readonly::primary_outer_key(state, agent_id))?;
     state.factories.get(&key)
 }
 
@@ -148,10 +180,20 @@ pub fn personal_stage(
     factory: Option<&FactoryState>,
     agent_id: Option<&str>,
 ) -> IndustryStage {
-    personal_stage_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state),factory,agent_id)
+    personal_stage_from_facts_v1(
+        &GameplayCapabilityFactsV1::from_world(state),
+        factory,
+        agent_id,
+    )
 }
-pub fn personal_stage_from_facts_v1(state:&GameplayCapabilityFactsV1<'_>,factory:Option<&FactoryState>,agent_id:Option<&str>)->IndustryStage {
-    infallible(readonly::personal_stage_readonly_v1(state,factory,agent_id))
+pub fn personal_stage_from_facts_v1(
+    state: &GameplayCapabilityFactsV1<'_>,
+    factory: Option<&FactoryState>,
+    agent_id: Option<&str>,
+) -> IndustryStage {
+    infallible(readonly::personal_stage_readonly_v1(
+        state, factory, agent_id,
+    ))
 }
 
 /// Project only a recorded settlement for the currently controlled owner.
@@ -160,13 +202,31 @@ pub fn settled_outcome(
     state: &WorldState,
     controlled_agent_id: Option<&str>,
 ) -> Option<FirstSettlementEvidence> {
-    settled_outcome_from_facts_v1(&GameplayCapabilityFactsV1::from_world(state),controlled_agent_id)
+    settled_outcome_from_facts_v1(
+        &GameplayCapabilityFactsV1::from_world(state),
+        controlled_agent_id,
+    )
 }
-pub fn settled_outcome_from_facts_v1(state:&GameplayCapabilityFactsV1<'_>,controlled_agent_id:Option<&str>)->Option<FirstSettlementEvidence> {
-    infallible(readonly::settled_outcome_readonly_v1(state,controlled_agent_id))
+pub fn settled_outcome_from_facts_v1(
+    state: &GameplayCapabilityFactsV1<'_>,
+    controlled_agent_id: Option<&str>,
+) -> Option<FirstSettlementEvidence> {
+    infallible(readonly::settled_outcome_readonly_v1(
+        state,
+        controlled_agent_id,
+    ))
 }
 
 #[path = "gameplay_capability_readonly.rs"]
 mod readonly;
-pub use readonly::{GameplayCapabilityReadonlyFactsV1,gameplay_capability_query_readonly_v1,has_current_stable_line_readonly_v1,personal_stage_readonly_v1,settled_outcome_readonly_v1,current_candidate_matches_completed_readonly_v1};
-fn infallible<T>(result:Result<T,std::convert::Infallible>)->T {match result{Ok(value)=>value,Err(never)=>match never{}}}
+pub use readonly::{
+    GameplayCapabilityReadonlyFactsV1, current_candidate_matches_completed_readonly_v1,
+    gameplay_capability_query_readonly_v1, has_current_stable_line_readonly_v1,
+    personal_stage_readonly_v1, settled_outcome_readonly_v1,
+};
+fn infallible<T>(result: Result<T, std::convert::Infallible>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
+}

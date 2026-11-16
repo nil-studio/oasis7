@@ -30,5 +30,5 @@ mod committed_input_metadata;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 mod iws_normal_input_decode;
 
-#[cfg(all(unix,not(target_arch="wasm32")))]
+#[cfg(all(unix, not(target_arch = "wasm32")))]
 mod iws_normal_input_plan;

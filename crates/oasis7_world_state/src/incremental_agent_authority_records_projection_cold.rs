@@ -7,7 +7,9 @@ pub struct QualifiedAgentAuthorityProjectionColumnsV1 {
     data: CurrentAgentAuthorityProjectionDeltaV1,
 }
 impl QualifiedAgentAuthorityProjectionColumnsV1 {
-    pub fn record_counts(&self) -> [u64; 3] { self.counts }
+    pub fn record_counts(&self) -> [u64; 3] {
+        self.counts
+    }
     pub fn validate<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,
@@ -102,7 +104,10 @@ pub fn read_qualified_agent_authority_projection_columns_v1<
                         return Err(bad().into());
                     }
                     *cells = cells.checked_sub(1).ok_or_else(limit)?;
-                    let index=AgentAuthorityRecordKindV1::ALL.into_iter().position(|candidate|candidate==kind).ok_or_else(bad)?;
+                    let index = AgentAuthorityRecordKindV1::ALL
+                        .into_iter()
+                        .position(|candidate| candidate == kind)
+                        .ok_or_else(bad)?;
                     let parsed =
                         WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
                     let selected = {
@@ -115,7 +120,12 @@ pub fn read_qualified_agent_authority_projection_columns_v1<
                                 record_bytes: ctx.record_bytes,
                                 cancelled: &mut cancelled,
                             };
-                        super::super::family::outer_parts_from_records_v1(entry.namespace,&entry.key,entry.value,&mut records)?
+                        super::super::family::outer_parts_from_records_v1(
+                            entry.namespace,
+                            &entry.key,
+                            entry.value,
+                            &mut records,
+                        )?
                     };
                     if selected.is_none() {
                         let seen = if parsed.kind == WorldFieldRecordKindV1::Metadata {

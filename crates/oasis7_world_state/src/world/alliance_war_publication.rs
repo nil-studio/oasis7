@@ -302,14 +302,14 @@ impl PreparedAllianceWarEvent {
                         invalid(format!("war not found for conclusion: {war_id}"))
                     })?;
                 let projected=crate::incremental_normal_gameplay_cycles_selected::selected_war_conclusion_projection_v1(&war.aggressor_alliance_id,&war.defender_alliance_id,event,now);
-                war.active=projected.active;
-                war.aggressor_score=projected.aggressor_score;
-                war.defender_score=projected.defender_score;
-                war.concluded_at=projected.concluded_at;
-                war.winner_alliance_id=Some(projected.winner_alliance_id.to_owned());
-                war.loser_alliance_id=Some(projected.loser_alliance_id.to_owned());
-                war.settlement_summary=Some(projected.settlement_summary.to_owned());
-                war.participant_outcomes=projected.participant_outcomes.to_vec();
+                war.active = projected.active;
+                war.aggressor_score = projected.aggressor_score;
+                war.defender_score = projected.defender_score;
+                war.concluded_at = projected.concluded_at;
+                war.winner_alliance_id = Some(projected.winner_alliance_id.to_owned());
+                war.loser_alliance_id = Some(projected.loser_alliance_id.to_owned());
+                war.settlement_summary = Some(projected.settlement_summary.to_owned());
+                war.participant_outcomes = projected.participant_outcomes.to_vec();
                 for outcome in participant_outcomes {
                     let mut cell = agents
                         .get(&outcome.agent_id)
@@ -523,6 +523,15 @@ fn apply_delta(
     if delta == 0 {
         return Ok(());
     }
-    let after=crate::incremental_normal_gameplay_cycles_selected::apply_war_resource_delta_v1(kind,cell.state.resources.get(kind),delta,id,context)?;
-    cell.state.resources.set(kind,after).map_err(|err|invalid(format!("{context} apply failed for {id}: {err:?}")))
+    let after = crate::incremental_normal_gameplay_cycles_selected::apply_war_resource_delta_v1(
+        kind,
+        cell.state.resources.get(kind),
+        delta,
+        id,
+        context,
+    )?;
+    cell.state
+        .resources
+        .set(kind, after)
+        .map_err(|err| invalid(format!("{context} apply failed for {id}: {err:?}")))
 }

@@ -62,8 +62,24 @@ fn emit<C: FnMut() -> bool>(
         stop,
     )
 }
-enum Selection<'a> { Current(&'a Pending), Qualified(&'a oasis7_formal_protocol::incremental_state::StateEntryV1) }
-impl Selection<'_>{fn key(&self)->&[u8]{match self{Self::Current(v)=>&v.key,Self::Qualified(v)=>&v.key}}fn value(&self)->Option<[u8;32]>{match self{Self::Current(v)=>v.after,Self::Qualified(v)=>Some(v.value)}}}
+enum Selection<'a> {
+    Current(&'a Pending),
+    Qualified(&'a oasis7_formal_protocol::incremental_state::StateEntryV1),
+}
+impl Selection<'_> {
+    fn key(&self) -> &[u8] {
+        match self {
+            Self::Current(v) => &v.key,
+            Self::Qualified(v) => &v.key,
+        }
+    }
+    fn value(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Current(v) => v.after,
+            Self::Qualified(v) => Some(v.value),
+        }
+    }
+}
 fn edge<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -75,7 +91,9 @@ fn edge<
     schema: [u8; 32],
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
 ) -> Result<Option<ReservedValue<StateRootV1>>, WorldFieldOverlayErrorV1> {
-    let Some(id) = row.value() else { return Ok(None) };
+    let Some(id) = row.value() else {
+        return Ok(None);
+    };
     let parsed = WorldFieldKeyV1::from_bytes(row.key()).map_err(ValueTreeError::Invalid)?;
     let key = WorldFieldKeyV1::new(
         crate::incremental_world_rule_parent::descriptor()?,
@@ -452,6 +470,70 @@ fn shipment<
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn project<M:MerkleNodeReader,S:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(row:&Pending,semantic:&[u8],child:Option<&'static str>,roots:&RootSetV1,state:&S,ctx:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,scan:&mut StateScanBudget,work:&mut TypedRecordReadWorkV1,p:&Processing<'_>,b:&mut Build,live:&ExecutionFence)->Result<(),WorldFieldOverlayErrorV1>{project_selection(&Selection::Current(row),semantic,child,roots,state,ctx,scan,work,p,b,live)}
+pub(super) fn project<
+    M: MerkleNodeReader,
+    S: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    row: &Pending,
+    semantic: &[u8],
+    child: Option<&'static str>,
+    roots: &RootSetV1,
+    state: &S,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut TypedRecordReadWorkV1,
+    p: &Processing<'_>,
+    b: &mut Build,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    project_selection(
+        &Selection::Current(row),
+        semantic,
+        child,
+        roots,
+        state,
+        ctx,
+        scan,
+        work,
+        p,
+        b,
+        live,
+    )
+}
 #[allow(clippy::too_many_arguments)]
-pub(super) fn project_qualified<M:MerkleNodeReader,S:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(row:&oasis7_formal_protocol::incremental_state::StateEntryV1,semantic:&[u8],child:Option<&'static str>,roots:&RootSetV1,state:&S,ctx:&mut WorldFieldOverlayContextV1<'_, '_, '_,M,R,E,C>,scan:&mut StateScanBudget,work:&mut TypedRecordReadWorkV1,p:&Processing<'_>,b:&mut Build,live:&ExecutionFence)->Result<(),WorldFieldOverlayErrorV1>{project_selection(&Selection::Qualified(row),semantic,child,roots,state,ctx,scan,work,p,b,live)}
+pub(super) fn project_qualified<
+    M: MerkleNodeReader,
+    S: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    row: &oasis7_formal_protocol::incremental_state::StateEntryV1,
+    semantic: &[u8],
+    child: Option<&'static str>,
+    roots: &RootSetV1,
+    state: &S,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut TypedRecordReadWorkV1,
+    p: &Processing<'_>,
+    b: &mut Build,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    project_selection(
+        &Selection::Qualified(row),
+        semantic,
+        child,
+        roots,
+        state,
+        ctx,
+        scan,
+        work,
+        p,
+        b,
+        live,
+    )
+}

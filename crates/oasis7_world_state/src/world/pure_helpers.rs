@@ -15,16 +15,25 @@ pub fn material_transit_has_capacity(state: &crate::WorldState) -> bool {
     state.pending_material_transits.len() < MATERIAL_TRANSFER_MAX_INFLIGHT
 }
 pub fn material_transit_loss_bps_for_state(state: &crate::WorldState, kind: &str) -> i64 {
-    material_transit_loss_bps_from_transport_class_v1(state.material_profiles.get(kind).map(|profile|profile.transport_loss_class))
+    material_transit_loss_bps_from_transport_class_v1(
+        state
+            .material_profiles
+            .get(kind)
+            .map(|profile| profile.transport_loss_class),
+    )
 }
 /// Pure original transport-loss rule over an actual optional profile class.
-pub fn material_transit_loss_bps_from_transport_class_v1(class:Option<MaterialTransportLossClass>)->i64{
+pub fn material_transit_loss_bps_from_transport_class_v1(
+    class: Option<MaterialTransportLossClass>,
+) -> i64 {
     let base = MATERIAL_TRANSFER_LOSS_PER_KM_BPS.max(0);
-    let factor = class.map(|class|match class {
-        MaterialTransportLossClass::Low => 1_i64,
-        MaterialTransportLossClass::Medium => 2_i64,
-        MaterialTransportLossClass::High => 4_i64,
-    }).unwrap_or(1);
+    let factor = class
+        .map(|class| match class {
+            MaterialTransportLossClass::Low => 1_i64,
+            MaterialTransportLossClass::Medium => 2_i64,
+            MaterialTransportLossClass::High => 4_i64,
+        })
+        .unwrap_or(1);
     base.saturating_mul(factor)
 }
 
@@ -51,5 +60,12 @@ pub fn recipe_preferred_tags_compatible(
     preferred_tags: &[String],
     factory_tags: &[String],
 ) -> bool {
-    match crate::world_rules::recipe_preferred_tags_with_work_v1(preferred_tags,factory_tags,&mut|_,_,_|Ok::<(),std::convert::Infallible>(())){Ok(value)=>value,Err(error)=>match error{}}
+    match crate::world_rules::recipe_preferred_tags_with_work_v1(
+        preferred_tags,
+        factory_tags,
+        &mut |_, _, _| Ok::<(), std::convert::Infallible>(()),
+    ) {
+        Ok(value) => value,
+        Err(error) => match error {},
+    }
 }

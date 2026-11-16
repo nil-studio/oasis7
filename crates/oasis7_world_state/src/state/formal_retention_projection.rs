@@ -23,7 +23,14 @@ where
     Ok(())
 }
 
-pub(crate) const ORIGINAL_RETENTION_FIELD_SLOTS_V1:[crate::state::projection::OriginalStateFieldSlotV1;2]=[
- crate::state::projection::OriginalStateFieldSlotV1{name:"time",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"retained_history_root",emission:crate::state::projection::OriginalStateFieldEmissionV1::Some},
+pub(crate) const ORIGINAL_RETENTION_FIELD_SLOTS_V1:
+    [crate::state::projection::OriginalStateFieldSlotV1; 2] = [
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "time",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "retained_history_root",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Some,
+    },
 ];

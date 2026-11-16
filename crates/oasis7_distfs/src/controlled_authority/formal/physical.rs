@@ -53,7 +53,6 @@ impl PhysicalReadWorkV1 {
     }
 }
 
-
 const MAX_OBJECTS: usize = 65536;
 #[path = "physical_batch.rs"]
 mod batch;

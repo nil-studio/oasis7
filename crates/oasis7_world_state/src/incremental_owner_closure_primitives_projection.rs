@@ -103,7 +103,12 @@ impl CurrentPrimitiveProjectionDeltaV1 {
     ) -> Result<(), E> {
         for row in &self.rows {
             work(1, 0)?;
-            visit(row.field, &row.semantic, &row.key_json, row.value_json.as_deref().map(Vec::as_slice))?;
+            visit(
+                row.field,
+                &row.semantic,
+                &row.key_json,
+                row.value_json.as_deref().map(Vec::as_slice),
+            )?;
         }
         Ok(())
     }
@@ -132,13 +137,77 @@ fn copy_capacity(
     }
     Ok((out, fee))
 }
-struct PrimitiveReadContextV1<'a,'v,R,C>{values:&'a mut oasis7_formal_protocol::incremental_value::ValueReadContext<'v,R>,key_work:&'a mut crate::incremental_semantic_key::SemanticKeyBudget,semantic_bytes:u64,record_bytes:u64,cancelled:&'a mut C}
-enum PrimitiveSelection<'a>{Current(&'a Change),Qualified(&'a oasis7_formal_protocol::incremental_state::StateEntryV1)}
-impl PrimitiveSelection<'_>{fn namespace(&self)->StateNamespaceV1{match self{Self::Current(c)=>c.namespace,Self::Qualified(e)=>e.namespace}}fn key(&self)->&[u8]{match self{Self::Current(c)=>&c.key,Self::Qualified(e)=>&e.key}}fn root(&self)->Result<[u8;32],ValueTreeError>{match self{Self::Current(c)=>c.after.or(c.before).ok_or_else(bad),Self::Qualified(e)=>Ok(e.value)}}fn present_root(&self)->Option<[u8;32]>{match self{Self::Current(c)=>c.after,Self::Qualified(e)=>Some(e.value)}}}
-fn one<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(change:&Change,roots:&RootSetV1,ctx:&mut WorldFieldOverlayContextV1<'_,'_,'_,M,R,E,C>,family:&mut WorldPrimitiveFamilyWorkV1,processing:&mut BusinessDiffProcessingWorkV1)->Result<Option<Row>,WorldFieldOverlayErrorV1>{
- let mut read=PrimitiveReadContextV1{values:&mut ctx.values,key_work:&mut *ctx.key_work,semantic_bytes:ctx.semantic_bytes,record_bytes:ctx.record_bytes,cancelled:&mut ctx.cancelled};one_selection(PrimitiveSelection::Current(change),roots,&mut read,family,processing)
+struct PrimitiveReadContextV1<'a, 'v, R, C> {
+    values: &'a mut oasis7_formal_protocol::incremental_value::ValueReadContext<'v, R>,
+    key_work: &'a mut crate::incremental_semantic_key::SemanticKeyBudget,
+    semantic_bytes: u64,
+    record_bytes: u64,
+    cancelled: &'a mut C,
 }
-fn one_selection<R:ValueNodeReader,C:FnMut()->bool>(change:PrimitiveSelection<'_>,roots:&RootSetV1,ctx:&mut PrimitiveReadContextV1<'_,'_,R,C>,family:&mut WorldPrimitiveFamilyWorkV1,processing:&mut BusinessDiffProcessingWorkV1)->Result<Option<Row>,WorldFieldOverlayErrorV1>{
+enum PrimitiveSelection<'a> {
+    Current(&'a Change),
+    Qualified(&'a oasis7_formal_protocol::incremental_state::StateEntryV1),
+}
+impl PrimitiveSelection<'_> {
+    fn namespace(&self) -> StateNamespaceV1 {
+        match self {
+            Self::Current(c) => c.namespace,
+            Self::Qualified(e) => e.namespace,
+        }
+    }
+    fn key(&self) -> &[u8] {
+        match self {
+            Self::Current(c) => &c.key,
+            Self::Qualified(e) => &e.key,
+        }
+    }
+    fn root(&self) -> Result<[u8; 32], ValueTreeError> {
+        match self {
+            Self::Current(c) => c.after.or(c.before).ok_or_else(bad),
+            Self::Qualified(e) => Ok(e.value),
+        }
+    }
+    fn present_root(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Current(c) => c.after,
+            Self::Qualified(e) => Some(e.value),
+        }
+    }
+}
+fn one<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    change: &Change,
+    roots: &RootSetV1,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    family: &mut WorldPrimitiveFamilyWorkV1,
+    processing: &mut BusinessDiffProcessingWorkV1,
+) -> Result<Option<Row>, WorldFieldOverlayErrorV1> {
+    let mut read = PrimitiveReadContextV1 {
+        values: &mut ctx.values,
+        key_work: &mut *ctx.key_work,
+        semantic_bytes: ctx.semantic_bytes,
+        record_bytes: ctx.record_bytes,
+        cancelled: &mut ctx.cancelled,
+    };
+    one_selection(
+        PrimitiveSelection::Current(change),
+        roots,
+        &mut read,
+        family,
+        processing,
+    )
+}
+fn one_selection<R: ValueNodeReader, C: FnMut() -> bool>(
+    change: PrimitiveSelection<'_>,
+    roots: &RootSetV1,
+    ctx: &mut PrimitiveReadContextV1<'_, '_, R, C>,
+    family: &mut WorldPrimitiveFamilyWorkV1,
+    processing: &mut BusinessDiffProcessingWorkV1,
+) -> Result<Option<Row>, WorldFieldOverlayErrorV1> {
     let Some((_, field, key)) = identify(change.namespace(), change.key()).map_err(owner_error)?
     else {
         return Err(bad().into());
@@ -147,8 +216,14 @@ fn one_selection<R:ValueNodeReader,C:FnMut()->bool>(change:PrimitiveSelection<'_
     spend(family).map_err(owner_error)?;
     if parsed.kind == WorldFieldRecordKindV1::Metadata {
         match change {
-            PrimitiveSelection::Current(change)=>{if change.before.is_none()||change.before!=change.after{return Err(bad().into())}},
-            PrimitiveSelection::Qualified(entry)=>metadata(&key,&entry.value,ctx.values,&mut ctx.cancelled).map_err(owner_error)?,
+            PrimitiveSelection::Current(change) => {
+                if change.before.is_none() || change.before != change.after {
+                    return Err(bad().into());
+                }
+            }
+            PrimitiveSelection::Qualified(entry) => {
+                metadata(&key, &entry.value, ctx.values, &mut ctx.cancelled).map_err(owner_error)?
+            }
         }
         return Ok(None);
     }
@@ -490,5 +565,8 @@ pub fn read_current_primitive_projection_delta_v1<
     })
 }
 
-#[path="incremental_owner_closure_primitives_projection_cold.rs"]mod cold;
-pub use cold::{QualifiedPrimitiveProjectionColumnsV1,read_qualified_primitive_projection_columns_v1};
+#[path = "incremental_owner_closure_primitives_projection_cold.rs"]
+mod cold;
+pub use cold::{
+    QualifiedPrimitiveProjectionColumnsV1, read_qualified_primitive_projection_columns_v1,
+};

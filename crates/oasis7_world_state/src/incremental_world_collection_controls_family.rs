@@ -29,7 +29,7 @@ pub fn qualify_world_collection_controls_v1<
         class,
     )?;
     let mut groups = CollectionControlsIndexV1::new(memory, class);
-    let mut release_roles=release_roles::ReleaseRolesDirectoryV1::new(memory,class)?;
+    let mut release_roles = release_roles::ReleaseRolesDirectoryV1::new(memory, class)?;
     let mut iw = CollectionControlsIndexWorkV1 {
         steps_remaining: std::mem::take(&mut work.index_steps_remaining),
     };
@@ -72,7 +72,9 @@ pub fn qualify_world_collection_controls_v1<
                             return Err(invalid());
                         }
                         let decoded = row(field, &key, &entry.value, false, &mut local, work)?;
-                        if field==1{release_roles.row(&key,&entry.value,true,&mut local,work)?;}
+                        if field == 1 {
+                            release_roles.row(&key, &entry.value, true, &mut local, work)?;
+                        }
                         if let Row::Meta(i) = decoded {
                             if metadata[i] {
                                 return Err(invalid());
@@ -116,14 +118,18 @@ pub fn qualify_world_collection_controls_v1<
             Ok(())
         })?;
         final_counts(&groups, &counts, cursor_entries)?;
-        if release_roles.count()!=counts[1][1]{return Err(invalid().into())}
+        if release_roles.count() != counts[1][1] {
+            return Err(invalid().into());
+        }
         ctx.check()?;
         Ok(WorldCollectionControlsQualificationV1 {
             roots: roots.digest().map_err(|_| invalid())?,
             class,
             counts,
             cursor_entries,
-            groups: groups.clone(),release_roles,_release_roles_ordinary:None,
+            groups: groups.clone(),
+            release_roles,
+            _release_roles_ordinary: None,
         })
     })();
     work.index_steps_remaining = iw.steps_remaining;
@@ -167,6 +173,8 @@ pub fn readmit_world_collection_controls_ordinary_v1(
         class: MemoryClass::Ordinary,
         counts: source.counts,
         cursor_entries: source.cursor_entries,
-        groups: result?,release_roles:source.release_roles.clone(),_release_roles_ordinary:source.release_roles.coverage(memory)?,
+        groups: result?,
+        release_roles: source.release_roles.clone(),
+        _release_roles_ordinary: source.release_roles.coverage(memory)?,
     }))
 }

@@ -137,7 +137,7 @@ pub(in crate::world) fn prepare_module_release_shadow_v1<S:ModuleReleaseBusiness
                 return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied {
                             notes: vec![reason],
                         }));
-    
+
             }
         };
         return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseShadowed {
@@ -226,7 +226,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
             Ok(hash) => hash,
             Err(note) => {
                 return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied { notes: vec![note] }));
-    
+
             }
         };
         let normalized_source_hash =
@@ -234,7 +234,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                 Ok(hash) => hash,
                 Err(note) => {
                     return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied { notes: vec![note] }));
-        
+
                 }
             };
         let normalized_wasm_hash =
@@ -242,7 +242,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                 Ok(hash) => hash,
                 Err(note) => {
                     return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied { notes: vec![note] }));
-        
+
                 }
             };
         if request.manifest.wasm_hash != normalized_wasm_hash {
@@ -272,7 +272,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                 Ok(digest) => digest,
                 Err(note) => {
                     return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied { notes: vec![note] }));
-        
+
                 }
             };
         let normalized_container_platform = match crate::world::World::normalize_module_release_attestation_label(
@@ -282,7 +282,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
             Ok(value) => value,
             Err(note) => {
                 return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied { notes: vec![note] }));
-    
+
             }
         };
         let normalized_canonicalizer_version =
@@ -293,7 +293,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                 Ok(value) => value,
                 Err(note) => {
                     return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied { notes: vec![note] }));
-        
+
                 }
             };
         let attestation_key = crate::world::World::module_release_attestation_key(
@@ -315,7 +315,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                                 normalized_signer_node_id, normalized_platform
                             )],
                         }));
-    
+
             }
         } else if request.attestations.len() >= MODULE_RELEASE_ATTESTATION_LIMIT {
             return Ok(ModuleReleaseBusinessDecisionV1::Rejected(RejectReason::RuleDenied {

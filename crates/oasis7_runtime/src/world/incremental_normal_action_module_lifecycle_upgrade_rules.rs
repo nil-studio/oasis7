@@ -103,4 +103,3 @@ pub(in crate::world) fn validate_upgrade_interface_compatible_v1(
         }
         Ok(())
     }
-

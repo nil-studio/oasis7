@@ -368,4 +368,6 @@ pub use overlay::{AuthorizationGrantChangeV1, change_authorization_grant_overlay
 #[path = "incremental_runtime_authorization_grants_current.rs"]
 mod current;
 pub use current::recover_current_authorization_grant_v1;
-pub use current::{CurrentAuthorizationGrantPresenceV1,read_current_authorization_grant_presence_v1};
+pub use current::{
+    CurrentAuthorizationGrantPresenceV1, read_current_authorization_grant_presence_v1,
+};

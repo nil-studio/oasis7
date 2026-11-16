@@ -90,7 +90,7 @@ pub(crate) fn accept_world_collection_controls_verified_v1<
         .map_err(ValueTreeError::Memory)?;
     let mut touched = Vec::with_capacity(record.writes.len());
     let mut groups = parent.groups.clone();
-    let mut release_roles=parent.release_roles.clone();
+    let mut release_roles = parent.release_roles.clone();
     let mut counts = parent.counts;
     let mut cursor_entries = parent.cursor_entries;
     let mut iw = CollectionControlsIndexWorkV1 {
@@ -120,7 +120,9 @@ pub(crate) fn accept_world_collection_controls_verified_v1<
             for (id, add) in [(write.mutation.before, false), (write.mutation.after, true)] {
                 let Some(id) = id else { continue };
                 let decoded = row(field, &key, &id, !add, ctx, work)?;
-                if field==1{release_roles.row(&key,&id,add,ctx,work)?;}
+                if field == 1 {
+                    release_roles.row(&key, &id, add, ctx, work)?;
+                }
                 if let Row::Meta(_) = decoded {
                     return Err(invalid().into());
                 }
@@ -152,14 +154,18 @@ pub(crate) fn accept_world_collection_controls_verified_v1<
             }
         }
         final_counts(&groups, &counts, cursor_entries)?;
-        if release_roles.count()!=counts[1][1]{return Err(invalid().into())}
+        if release_roles.count() != counts[1][1] {
+            return Err(invalid().into());
+        }
         ctx.check()?;
         Ok(WorldCollectionControlsQualificationV1 {
             roots: record.after.digest().map_err(|_| invalid())?,
             class: MemoryClass::Ordinary,
             counts,
             cursor_entries,
-            groups: groups.clone(),_release_roles_ordinary:release_roles.coverage(memory)?,release_roles,
+            groups: groups.clone(),
+            _release_roles_ordinary: release_roles.coverage(memory)?,
+            release_roles,
         })
     })();
     work.index_steps_remaining = iw.steps_remaining;

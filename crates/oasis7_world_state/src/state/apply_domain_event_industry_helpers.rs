@@ -56,22 +56,65 @@ impl WorldState {
     }
 }
 
-pub fn validate_recipe_material_stacks(label:&str,stacks:&[MaterialStack])->Result<(),String>{
- match validate_recipe_material_stacks_with_work_v1(label,stacks,&mut|_,_,_|Ok::<(),std::convert::Infallible>(())){Ok(result)=>result,Err(error)=>match error{}}
+pub fn validate_recipe_material_stacks(
+    label: &str,
+    stacks: &[MaterialStack],
+) -> Result<(), String> {
+    match validate_recipe_material_stacks_with_work_v1(label, stacks, &mut |_, _, _| {
+        Ok::<(), std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
 }
-pub fn validate_recipe_material_stacks_with_work_v1<E>(label:&str,stacks:&[MaterialStack],work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Result<(),String>,E>{
- for stack in stacks{work(1,stack.kind.len(),0)?;if stack.kind.trim().is_empty()||stack.amount<=0{return Ok(Err(crate::world_rules::format_readonly_data_v1(format_args!("{label} stack must have a non-empty kind and amount > 0"),work)?))}}Ok(Ok(()))
+pub fn validate_recipe_material_stacks_with_work_v1<E>(
+    label: &str,
+    stacks: &[MaterialStack],
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<(), String>, E> {
+    for stack in stacks {
+        work(1, stack.kind.len(), 0)?;
+        if stack.kind.trim().is_empty() || stack.amount <= 0 {
+            return Ok(Err(crate::world_rules::format_readonly_data_v1(
+                format_args!("{label} stack must have a non-empty kind and amount > 0"),
+                work,
+            )?));
+        }
+    }
+    Ok(Ok(()))
 }
-pub fn aggregate_recipe_material_stacks(stacks:&[MaterialStack])->Result<BTreeMap<String,i64>,String>{
- match aggregate_recipe_material_stacks_with_work_v1(stacks,&mut|_,_,_|Ok::<(),std::convert::Infallible>(())){Ok(result)=>result,Err(error)=>match error{}}
+pub fn aggregate_recipe_material_stacks(
+    stacks: &[MaterialStack],
+) -> Result<BTreeMap<String, i64>, String> {
+    match aggregate_recipe_material_stacks_with_work_v1(stacks, &mut |_, _, _| {
+        Ok::<(), std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
 }
-pub fn aggregate_recipe_material_stacks_with_work_v1<E>(stacks:&[MaterialStack],work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Result<BTreeMap<String,i64>,String>,E>{
- let mut totals=BTreeMap::<String,i64>::new();
- for stack in stacks{
-  let levels=(totals.len()+1).ilog2()as usize+2;work(1,(stack.kind.len()+1).saturating_mul(levels*2+4)+512*levels,stack.kind.len()+std::mem::size_of::<String>()+512*levels)?;
-  let entry=totals.entry(stack.kind.clone()).or_insert(0);
-  let Some(value)=entry.checked_add(stack.amount)else{return Ok(Err(crate::world_rules::format_readonly_data_v1(format_args!("material amount overflow for kind={}",stack.kind),work)?))};*entry=value;
- }Ok(Ok(totals))
+pub fn aggregate_recipe_material_stacks_with_work_v1<E>(
+    stacks: &[MaterialStack],
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<BTreeMap<String, i64>, String>, E> {
+    let mut totals = BTreeMap::<String, i64>::new();
+    for stack in stacks {
+        let levels = (totals.len() + 1).ilog2() as usize + 2;
+        work(
+            1,
+            (stack.kind.len() + 1).saturating_mul(levels * 2 + 4) + 512 * levels,
+            stack.kind.len() + std::mem::size_of::<String>() + 512 * levels,
+        )?;
+        let entry = totals.entry(stack.kind.clone()).or_insert(0);
+        let Some(value) = entry.checked_add(stack.amount) else {
+            return Ok(Err(crate::world_rules::format_readonly_data_v1(
+                format_args!("material amount overflow for kind={}", stack.kind),
+                work,
+            )?));
+        };
+        *entry = value;
+    }
+    Ok(Ok(totals))
 }
 
 pub fn validate_recipe_output_capacity(

@@ -4,4 +4,6 @@ pub use crate::incremental_inventory::projection::{
     read_current_inventory_projection_delta_v1,
 };
 
-pub use crate::incremental_inventory::projection::{QualifiedInventoryProjectionColumnsV1,read_qualified_inventory_projection_columns_v1};
+pub use crate::incremental_inventory::projection::{
+    QualifiedInventoryProjectionColumnsV1, read_qualified_inventory_projection_columns_v1,
+};

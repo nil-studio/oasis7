@@ -33,7 +33,9 @@ pub type ConsensusActionPayloadBody =
         crate::world_service::SubmitIntentRequest<crate::world_service::WorldServicePayloadV1>,
     >;
 pub type ConsensusActionPayloadEnvelope =
-    oasis7_client_api::consensus_action_wire::ConsensusActionPayloadEnvelope<ConsensusActionPayloadBody>;
+    oasis7_client_api::consensus_action_wire::ConsensusActionPayloadEnvelope<
+        ConsensusActionPayloadBody,
+    >;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MainTokenActionAuthError {
@@ -109,7 +111,6 @@ struct UpdateRestrictedStarterClaimAdminRegistrySigningData<'a> {
     controller_account_id: &'a str,
     next_admin_account_ids: &'a [String],
 }
-
 
 pub use oasis7_agent_api::world_action::main_token_action_auth_required;
 

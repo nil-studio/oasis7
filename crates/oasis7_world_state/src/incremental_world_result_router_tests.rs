@@ -13,8 +13,14 @@ fn result_label_probe_dispatches_only_the_actual_closed_envelope() {
     for (schema, expected) in [
         ("snapshot-record.v1", RuntimeHistoryDecodeKindV1::Snapshot),
         ("tick-consensus-record.v1", RuntimeHistoryDecodeKindV1::Tick),
-        ("tick-consensus-rejection-audit.v1", RuntimeHistoryDecodeKindV1::Audit),
-        ("iws-tick-consensus-record.v1", RuntimeHistoryDecodeKindV1::IwsTick),
+        (
+            "tick-consensus-rejection-audit.v1",
+            RuntimeHistoryDecodeKindV1::Audit,
+        ),
+        (
+            "iws-tick-consensus-record.v1",
+            RuntimeHistoryDecodeKindV1::IwsTick,
+        ),
     ] {
         let raw=oasis7_wasm_abi::encode_canonical_cbor(&serde_json::json!({"domain":"oasis7.runtime.history.original.v1","schema":schema,"value":{"nested":[null,true,17,"payload"]}})).unwrap();
         let kind = runtime_label(&raw, &mut labels(), &mut || false)

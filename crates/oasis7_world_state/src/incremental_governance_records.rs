@@ -179,8 +179,15 @@ pub use gameplay_current::{
     recover_current_gameplay_tallies_v1,
 };
 
-#[path="incremental_governance_records_projection_cells.rs"] mod projection_cells;
-#[path="incremental_governance_records_projection.rs"] mod projection;
-pub use projection::{CurrentGovernanceProjectionDeltaV1,GovernanceProjectionPathRefV1,read_current_governance_projection_delta_v1,is_governance_projection_field_v1};
+#[path = "incremental_governance_records_projection.rs"]
+mod projection;
+#[path = "incremental_governance_records_projection_cells.rs"]
+mod projection_cells;
+pub use projection::{
+    CurrentGovernanceProjectionDeltaV1, GovernanceProjectionPathRefV1,
+    is_governance_projection_field_v1, read_current_governance_projection_delta_v1,
+};
 
-pub use projection::{QualifiedGovernanceProjectionColumnsV1,read_qualified_governance_projection_columns_v1};
+pub use projection::{
+    QualifiedGovernanceProjectionColumnsV1, read_qualified_governance_projection_columns_v1,
+};

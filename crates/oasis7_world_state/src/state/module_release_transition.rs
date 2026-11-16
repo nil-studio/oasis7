@@ -165,35 +165,87 @@ impl PreparedModuleRelease {
             }
         }
         match event {
-            DomainEvent::ModuleReleaseRequested{request_id,..}
-            |DomainEvent::ModuleReleaseShadowed{request_id,..}
-            |DomainEvent::ModuleReleaseAttested{request_id,..}
-            |DomainEvent::ModuleReleaseRoleApproved{request_id,..}
-            |DomainEvent::ModuleReleaseRejected{request_id,..}
-            |DomainEvent::ModuleReleaseApplied{request_id,..}=>{
-                use super::module_release_records::{prepare_module_release_records_v1,validate_module_release_request_id_v1,validate_module_release_attestation_signer_v1};
+            DomainEvent::ModuleReleaseRequested { request_id, .. }
+            | DomainEvent::ModuleReleaseShadowed { request_id, .. }
+            | DomainEvent::ModuleReleaseAttested { request_id, .. }
+            | DomainEvent::ModuleReleaseRoleApproved { request_id, .. }
+            | DomainEvent::ModuleReleaseRejected { request_id, .. }
+            | DomainEvent::ModuleReleaseApplied { request_id, .. } => {
+                use super::module_release_records::{
+                    prepare_module_release_records_v1,
+                    validate_module_release_attestation_signer_v1,
+                    validate_module_release_request_id_v1,
+                };
                 // Preserve the original actor/trusted-binding reads at their
                 // exact header position. The shared record kernel is DATA only.
-                match event{
-                    DomainEvent::ModuleReleaseRequested{requester_agent_id,..}=>{
+                match event {
+                    DomainEvent::ModuleReleaseRequested {
+                        requester_agent_id, ..
+                    } => {
                         validate_module_release_request_id_v1(*request_id)?;
-                        if !state.agents.contains_key(requester_agent_id){return Err(WorldError::AgentNotFound{agent_id:requester_agent_id.clone()})}
-                    },
-                    DomainEvent::ModuleReleaseAttested{operator_agent_id,signer_node_id,..}=>{
-                        if !state.agents.contains_key(operator_agent_id){return Err(WorldError::AgentNotFound{agent_id:operator_agent_id.clone()})}
-                        validate_module_release_attestation_signer_v1(*request_id,signer_node_id)?;
-                        if !state.node_identity_bindings.contains_key(signer_node_id.trim()){return Err(invalid(format!("module release attestation signer_node_id is untrusted: {signer_node_id}")))}
-                    },_=>{},
+                        if !state.agents.contains_key(requester_agent_id) {
+                            return Err(WorldError::AgentNotFound {
+                                agent_id: requester_agent_id.clone(),
+                            });
+                        }
+                    }
+                    DomainEvent::ModuleReleaseAttested {
+                        operator_agent_id,
+                        signer_node_id,
+                        ..
+                    } => {
+                        if !state.agents.contains_key(operator_agent_id) {
+                            return Err(WorldError::AgentNotFound {
+                                agent_id: operator_agent_id.clone(),
+                            });
+                        }
+                        validate_module_release_attestation_signer_v1(*request_id, signer_node_id)?;
+                        if !state
+                            .node_identity_bindings
+                            .contains_key(signer_node_id.trim())
+                        {
+                            return Err(invalid(format!(
+                                "module release attestation signer_node_id is untrusted: {signer_node_id}"
+                            )));
+                        }
+                    }
+                    _ => {}
                 }
                 // Requested/Attested deliberately use the base state, while
                 // the other four prefer staged records, exactly as before.
-                let base_only=matches!(event,DomainEvent::ModuleReleaseRequested{..}|DomainEvent::ModuleReleaseAttested{..});
-                let before_request=if base_only{state.module_release_requests.get(request_id)}else{self.requests.get(request_id).or_else(||state.module_release_requests.get(request_id))};
-                let before_mapping=if base_only{state.module_release_manifest_mappings.get(request_id)}else{self.mappings.get(request_id).or_else(||state.module_release_manifest_mappings.get(request_id))};
-                let projection=prepare_module_release_records_v1(event,before_request,before_mapping,now,state.next_module_release_request_id)?;
-                self.requests.insert(*request_id,projection.request);
-                if let Some(mapping)=projection.mapping{self.mappings.insert(*request_id,mapping);}
-                if let Some(next)=projection.next_request_id{self.next_request_id=Some(next);}
+                let base_only = matches!(
+                    event,
+                    DomainEvent::ModuleReleaseRequested { .. }
+                        | DomainEvent::ModuleReleaseAttested { .. }
+                );
+                let before_request = if base_only {
+                    state.module_release_requests.get(request_id)
+                } else {
+                    self.requests
+                        .get(request_id)
+                        .or_else(|| state.module_release_requests.get(request_id))
+                };
+                let before_mapping = if base_only {
+                    state.module_release_manifest_mappings.get(request_id)
+                } else {
+                    self.mappings
+                        .get(request_id)
+                        .or_else(|| state.module_release_manifest_mappings.get(request_id))
+                };
+                let projection = prepare_module_release_records_v1(
+                    event,
+                    before_request,
+                    before_mapping,
+                    now,
+                    state.next_module_release_request_id,
+                )?;
+                self.requests.insert(*request_id, projection.request);
+                if let Some(mapping) = projection.mapping {
+                    self.mappings.insert(*request_id, mapping);
+                }
+                if let Some(next) = projection.next_request_id {
+                    self.next_request_id = Some(next);
+                }
             }
             DomainEvent::ModuleReleaseRolesBound {
                 operator_agent_id,
@@ -229,16 +281,26 @@ impl PreparedModuleRelease {
             }
             DomainEvent::ProductProfileGoverned { profile, .. } => {
                 validate_governed_product_profile_v1(profile)?;
-                self.products.insert(profile.product_id.clone(), profile.clone());
+                self.products
+                    .insert(profile.product_id.clone(), profile.clone());
             }
             DomainEvent::RecipeProfileGoverned { profile, .. } => {
                 validate_governed_recipe_profile_v1(profile)?;
-                self.recipes.insert(profile.recipe_id.clone(), profile.clone());
+                self.recipes
+                    .insert(profile.recipe_id.clone(), profile.clone());
             }
             DomainEvent::FactoryProfileGoverned { profile, .. } => {
-                validate_governed_factory_profile_v1(profile, self.factories.get(&profile.factory_id).or_else(|| state.factory_profiles.get(&profile.factory_id)))?;
-                if !self.factories.contains_key(&profile.factory_id) && !state.factory_profiles.contains_key(&profile.factory_id) {
-                    self.factories.insert(profile.factory_id.clone(), profile.clone());
+                validate_governed_factory_profile_v1(
+                    profile,
+                    self.factories
+                        .get(&profile.factory_id)
+                        .or_else(|| state.factory_profiles.get(&profile.factory_id)),
+                )?;
+                if !self.factories.contains_key(&profile.factory_id)
+                    && !state.factory_profiles.contains_key(&profile.factory_id)
+                {
+                    self.factories
+                        .insert(profile.factory_id.clone(), profile.clone());
                 }
             }
             _ => unreachable!(),
@@ -352,17 +414,55 @@ impl<K: Ord + Serialize, V: Serialize> Serialize for ReleaseMapProjection<'_, K,
     }
 }
 
-pub fn validate_governed_product_profile_v1(profile:&oasis7_wasm_abi::ProductProfileV1)->Result<(),WorldError>{
- if profile.product_id.trim().is_empty(){return Err(invalid("product profile product_id cannot be empty"))}
- if profile.role_tag.trim().is_empty(){return Err(invalid(format!("product profile role_tag cannot be empty: {}",profile.product_id)))}Ok(())
+pub fn validate_governed_product_profile_v1(
+    profile: &oasis7_wasm_abi::ProductProfileV1,
+) -> Result<(), WorldError> {
+    if profile.product_id.trim().is_empty() {
+        return Err(invalid("product profile product_id cannot be empty"));
+    }
+    if profile.role_tag.trim().is_empty() {
+        return Err(invalid(format!(
+            "product profile role_tag cannot be empty: {}",
+            profile.product_id
+        )));
+    }
+    Ok(())
 }
-pub fn validate_governed_recipe_profile_v1(profile:&oasis7_wasm_abi::RecipeProfileV1)->Result<(),WorldError>{
- profile.validate_substitution_rules().map_err(|error|invalid(format!("invalid recipe substitution profile: {error}")))?;
- if profile.recipe_id.trim().is_empty(){return Err(invalid("recipe profile recipe_id cannot be empty"))}Ok(())
+pub fn validate_governed_recipe_profile_v1(
+    profile: &oasis7_wasm_abi::RecipeProfileV1,
+) -> Result<(), WorldError> {
+    profile
+        .validate_substitution_rules()
+        .map_err(|error| invalid(format!("invalid recipe substitution profile: {error}")))?;
+    if profile.recipe_id.trim().is_empty() {
+        return Err(invalid("recipe profile recipe_id cannot be empty"));
+    }
+    Ok(())
 }
-pub fn validate_governed_factory_profile_v1(profile:&oasis7_wasm_abi::FactoryProfileV1,existing:Option<&oasis7_wasm_abi::FactoryProfileV1>)->Result<(),WorldError>{
- if profile.factory_id.trim().is_empty(){return Err(invalid("factory profile factory_id cannot be empty"))}
- if profile.tier==0{return Err(invalid(format!("factory profile tier must be >= 1: {}",profile.factory_id)))}
- if profile.recipe_slots==0{return Err(invalid(format!("factory profile recipe_slots must be > 0: {}",profile.factory_id)))}
- if existing.is_some_and(|old|old!=profile){return Err(invalid(format!("factory profile id is immutable and conflicts with persisted profile: factory_id={}",profile.factory_id)))}Ok(())
+pub fn validate_governed_factory_profile_v1(
+    profile: &oasis7_wasm_abi::FactoryProfileV1,
+    existing: Option<&oasis7_wasm_abi::FactoryProfileV1>,
+) -> Result<(), WorldError> {
+    if profile.factory_id.trim().is_empty() {
+        return Err(invalid("factory profile factory_id cannot be empty"));
+    }
+    if profile.tier == 0 {
+        return Err(invalid(format!(
+            "factory profile tier must be >= 1: {}",
+            profile.factory_id
+        )));
+    }
+    if profile.recipe_slots == 0 {
+        return Err(invalid(format!(
+            "factory profile recipe_slots must be > 0: {}",
+            profile.factory_id
+        )));
+    }
+    if existing.is_some_and(|old| old != profile) {
+        return Err(invalid(format!(
+            "factory profile id is immutable and conflicts with persisted profile: factory_id={}",
+            profile.factory_id
+        )));
+    }
+    Ok(())
 }

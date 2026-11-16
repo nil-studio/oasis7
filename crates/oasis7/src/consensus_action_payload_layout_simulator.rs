@@ -58,14 +58,49 @@ SettleEconomicContract{operator_agent_id,contract_id,success,notes}
 });
 enum_layout!(oasis7_simulator::ActionSubmitter,units{System},tuples{},records{Agent{agent_id},Player{player_id}});
 record_layout!(oasis7_simulator::LocationProfile,{material,radius_cm,radiation_emission_per_tick});
-enum_layout!(oasis7_simulator::MaterialKind,units{Silicate,Metal,Ice,Carbon,Composite},tuples{},records{});
+enum_layout!(
+    oasis7_simulator::MaterialKind,
+    units {
+        Silicate,
+        Metal,
+        Ice,
+        Carbon,
+        Composite
+    },
+    tuples {},
+    records {}
+);
 enum_layout!(oasis7_simulator::ResourceOwner,units{},tuples{},records{Agent{agent_id},Location{location_id}});
-enum_layout!(oasis7_simulator::PowerOrderSide,units{Buy,Sell},tuples{},records{});
+enum_layout!(
+    oasis7_simulator::PowerOrderSide,
+    units { Buy, Sell },
+    tuples {},
+    records {}
+);
 record_layout!(oasis7_simulator::SocialStake,{kind,amount});
-enum_layout!(oasis7_simulator::SocialAdjudicationDecision,units{Confirm,Retract},tuples{},records{});
-enum_layout!(oasis7_simulator::MicroDepotPressureClass,units{None,Low,Medium,High,Critical},tuples{},records{});
+enum_layout!(
+    oasis7_simulator::SocialAdjudicationDecision,
+    units { Confirm, Retract },
+    tuples {},
+    records {}
+);
+enum_layout!(
+    oasis7_simulator::MicroDepotPressureClass,
+    units {
+        None,
+        Low,
+        Medium,
+        High,
+        Critical
+    },
+    tuples {},
+    records {}
+);
 record_layout!(oasis7_agent_api::world_entity::ModuleVisualEntity,{entity_id,module_id,kind,label,anchor});
 enum_layout!(oasis7_agent_api::world_entity::ModuleVisualAnchor,units{},tuples{},records{Agent{agent_id},Location{location_id},Absolute{pos}});
 // Their exact same concrete types are already in the WS Action schema. The
 // delegated graph is conservative and retains every actual child layout.
-runtime_layout!(oasis7_agent_api::world_action::ResourceKind,oasis7_agent_api::world_action::ModuleInstallTarget);
+runtime_layout!(
+    oasis7_agent_api::world_action::ResourceKind,
+    oasis7_agent_api::world_action::ModuleInstallTarget
+);

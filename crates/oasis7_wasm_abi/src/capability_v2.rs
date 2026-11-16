@@ -968,12 +968,6 @@ impl fmt::Display for CapabilityAuthorizationValidationError {
 
 impl std::error::Error for CapabilityAuthorizationValidationError {}
 
-fn required(
-    field: &'static str,
-    value: &str,
-) -> Result<(), CapabilityAuthorizationValidationError> {
-    required_with_work_v1(field, value, &mut |_, _| Ok(()))
-}
 fn required_with_work_v1(
     field: &'static str,
     value: &str,
@@ -987,12 +981,6 @@ fn required_with_work_v1(
     }
 }
 
-fn optional_required(
-    field: &'static str,
-    value: Option<&str>,
-) -> Result<(), CapabilityAuthorizationValidationError> {
-    optional_required_with_work_v1(field, value, &mut |_, _| Ok(()))
-}
 fn optional_required_with_work_v1(
     field: &'static str,
     value: Option<&str>,
@@ -1001,12 +989,6 @@ fn optional_required_with_work_v1(
     value.map_or(Ok(()), |value| required_with_work_v1(field, value, work))
 }
 
-fn validate_selectors(
-    field: &'static str,
-    selectors: Option<&[String]>,
-) -> Result<(), CapabilityAuthorizationValidationError> {
-    validate_selectors_with_work_v1(field, selectors, &mut |_, _| Ok(()))
-}
 fn validate_selectors_with_work_v1(
     field: &'static str,
     selectors: Option<&[String]>,

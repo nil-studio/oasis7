@@ -19,7 +19,9 @@ pub struct SupplyFamilyQualificationV1 {
     lifecycle: std::sync::Arc<lifecycle::SupplyLifecycleRowsV1>,
 }
 impl SupplyFamilyQualificationV1 {
-    pub(crate) fn allocation_class(&self) -> MemoryClass { self.class }
+    pub(crate) fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
     pub(super) fn validate_lifecycle_record(
         &self,
         owner: SupplyRootKeyV1<'_>,
@@ -435,5 +437,6 @@ pub(super) fn advanced(
         }))
 }
 
-#[path="incremental_world_rule_supply_lifecycle_pending.rs"] mod pending;
-pub use pending::{CurrentSupplyLifecycleDirectoryV1,open_current_supply_lifecycle_directory_v1};
+#[path = "incremental_world_rule_supply_lifecycle_pending.rs"]
+mod pending;
+pub use pending::{CurrentSupplyLifecycleDirectoryV1, open_current_supply_lifecycle_directory_v1};

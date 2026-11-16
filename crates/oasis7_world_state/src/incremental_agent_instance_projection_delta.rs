@@ -114,17 +114,38 @@ impl CurrentAgentInstanceProjectionDeltaV1 {
     }
     /// Actual optional intent captured from the same decoded AgentCell. An
     /// existing agent with no intent emits JSON null; deletion emits None.
-    pub fn visit_agent_intents_with_work_v1<E>(&self,mut work:impl FnMut(u64,u64)->Result<(),E>,mut emit:impl FnMut(&[u8],&[u8],Option<&[u8]>)->Result<(),E>)->Result<(),E>{for row in &self.rows{work(1,0)?;if row.field=="agents"{emit(&row.semantic,&row.key,row.intent.as_deref().map(Vec::as_slice))?}}Ok(())}
+    pub fn visit_agent_intents_with_work_v1<E>(
+        &self,
+        mut work: impl FnMut(u64, u64) -> Result<(), E>,
+        mut emit: impl FnMut(&[u8], &[u8], Option<&[u8]>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for row in &self.rows {
+            work(1, 0)?;
+            if row.field == "agents" {
+                emit(
+                    &row.semantic,
+                    &row.key,
+                    row.intent.as_deref().map(Vec::as_slice),
+                )?
+            }
+        }
+        Ok(())
+    }
     /// Work-only traversal of the same retained typed rows. Qualification,
     /// decoding and actual Original IO remain in the fixed source producer.
     pub fn visit_with_work_v1<E>(
         &self,
-        mut work: impl FnMut(u64,u64)->Result<(),E>,
-        mut visit: impl FnMut(&'static str,&[u8],&[u8],Option<&[u8]>)->Result<(),E>,
-    )->Result<(),E>{
-        for row in &self.rows{
-            work(1,0)?;
-            visit(row.field,&row.semantic,&row.key,row.value.as_deref().map(Vec::as_slice))?;
+        mut work: impl FnMut(u64, u64) -> Result<(), E>,
+        mut visit: impl FnMut(&'static str, &[u8], &[u8], Option<&[u8]>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        for row in &self.rows {
+            work(1, 0)?;
+            visit(
+                row.field,
+                &row.semantic,
+                &row.key,
+                row.value.as_deref().map(Vec::as_slice),
+            )?;
         }
         Ok(())
     }
@@ -137,8 +158,7 @@ impl CurrentAgentInstanceProjectionDeltaV1 {
         let p = Processing {
             bank: std::cell::RefCell::new(processing),
         };
-        self.visit_with_work_v1(|_, _| spend(&p, 0, &mut stop).map_err(E::from),visit)
-
+        self.visit_with_work_v1(|_, _| spend(&p, 0, &mut stop).map_err(E::from), visit)
     }
 }
 struct Pending {
@@ -364,14 +384,60 @@ impl<
             self.absent_group(a, F::IntentSchema, F::IntentRequestDigest)?;
             return Ok(None);
         }
-        use crate::incremental_intent_fields::{IntentFieldV1 as I,OriginalIntentProjectionScalarV1 as V,assemble_original_intent_projection_v1};
-        let intent=assemble_original_intent_projection_v1(|field|Ok(match field{
-            I::SchemaVersion=>match self.required(a,F::IntentSchema,0)?{Scalar::U32(value)=>V::U32(value),_=>return Err(WorldFieldOverlayErrorV1::from(bad()))},
-            I::AgentId=>V::Text(self.text(a,F::IntentAgent,0)?),I::IntentId=>V::Text(self.text(a,F::IntentId,0)?),I::Kind=>V::Text(self.text(a,F::IntentKind,0)?),I::Summary=>V::Text(self.text(a,F::IntentSummary,0)?),
-            I::TargetId=>self.optional_text(a,F::IntentTarget)?.map_or(V::Unit,V::Text),I::EffectIntentId=>self.optional_text(a,F::IntentEffect)?.map_or(V::Unit,V::Text),I::IntentTick=>self.optional_u64(a,F::IntentTick)?.map_or(V::Unit,V::U64),I::WorldId=>self.optional_text(a,F::IntentWorld)?.map_or(V::Unit,V::Text),I::ReorgEpoch=>self.optional_u64(a,F::IntentReorg)?.map_or(V::Unit,V::U64),I::AuthorityScope=>self.optional_text(a,F::IntentAuthorityScope)?.map_or(V::Unit,V::Text),
-            I::Status=>V::Text(self.text(a,F::IntentStatus,0)?),I::Source=>V::Text(self.text(a,F::IntentSource,0)?),I::LogicalTime=>V::U64(self.u64(a,F::IntentLogicalTime)?),I::EventSeq=>V::U64(self.u64(a,F::IntentEventSeq)?),I::UpdatedAt=>V::U64(self.u64(a,F::IntentUpdated)?),
-            I::ReceiptRef=>self.optional_text(a,F::IntentReceipt)?.map_or(V::Unit,V::Text),I::ReasonCode=>self.optional_text(a,F::IntentReasonCode)?.map_or(V::Unit,V::Text),I::ReasonSummary=>self.optional_text(a,F::IntentReasonSummary)?.map_or(V::Unit,V::Text),I::ReplacedBy=>self.optional_text(a,F::IntentReplacedBy)?.map_or(V::Unit,V::Text),I::ActorId=>V::Text(self.text(a,F::IntentActor,0)?),I::RequestDigest=>V::Text(self.text(a,F::IntentRequestDigest,0)?),
-        }),"Current Agent/Instance projection")?;
+        use crate::incremental_intent_fields::{
+            IntentFieldV1 as I, OriginalIntentProjectionScalarV1 as V,
+            assemble_original_intent_projection_v1,
+        };
+        let intent = assemble_original_intent_projection_v1(
+            |field| {
+                Ok(match field {
+                    I::SchemaVersion => match self.required(a, F::IntentSchema, 0)? {
+                        Scalar::U32(value) => V::U32(value),
+                        _ => return Err(WorldFieldOverlayErrorV1::from(bad())),
+                    },
+                    I::AgentId => V::Text(self.text(a, F::IntentAgent, 0)?),
+                    I::IntentId => V::Text(self.text(a, F::IntentId, 0)?),
+                    I::Kind => V::Text(self.text(a, F::IntentKind, 0)?),
+                    I::Summary => V::Text(self.text(a, F::IntentSummary, 0)?),
+                    I::TargetId => self
+                        .optional_text(a, F::IntentTarget)?
+                        .map_or(V::Unit, V::Text),
+                    I::EffectIntentId => self
+                        .optional_text(a, F::IntentEffect)?
+                        .map_or(V::Unit, V::Text),
+                    I::IntentTick => self.optional_u64(a, F::IntentTick)?.map_or(V::Unit, V::U64),
+                    I::WorldId => self
+                        .optional_text(a, F::IntentWorld)?
+                        .map_or(V::Unit, V::Text),
+                    I::ReorgEpoch => self
+                        .optional_u64(a, F::IntentReorg)?
+                        .map_or(V::Unit, V::U64),
+                    I::AuthorityScope => self
+                        .optional_text(a, F::IntentAuthorityScope)?
+                        .map_or(V::Unit, V::Text),
+                    I::Status => V::Text(self.text(a, F::IntentStatus, 0)?),
+                    I::Source => V::Text(self.text(a, F::IntentSource, 0)?),
+                    I::LogicalTime => V::U64(self.u64(a, F::IntentLogicalTime)?),
+                    I::EventSeq => V::U64(self.u64(a, F::IntentEventSeq)?),
+                    I::UpdatedAt => V::U64(self.u64(a, F::IntentUpdated)?),
+                    I::ReceiptRef => self
+                        .optional_text(a, F::IntentReceipt)?
+                        .map_or(V::Unit, V::Text),
+                    I::ReasonCode => self
+                        .optional_text(a, F::IntentReasonCode)?
+                        .map_or(V::Unit, V::Text),
+                    I::ReasonSummary => self
+                        .optional_text(a, F::IntentReasonSummary)?
+                        .map_or(V::Unit, V::Text),
+                    I::ReplacedBy => self
+                        .optional_text(a, F::IntentReplacedBy)?
+                        .map_or(V::Unit, V::Text),
+                    I::ActorId => V::Text(self.text(a, F::IntentActor, 0)?),
+                    I::RequestDigest => V::Text(self.text(a, F::IntentRequestDigest, 0)?),
+                })
+            },
+            "Current Agent/Instance projection",
+        )?;
         if intent.agent_id != a {
             return Err(bad().into());
         }
@@ -1139,7 +1205,10 @@ fn read_current_agent_instance_projection_delta_impl<
                         .map(|v| json(v, &memory, &p, &mut reader.ctx.cancelled))
                         .transpose()?,
                     electricity,
-                    value.as_ref().map(|agent|json(&agent.intent,&memory,&p,&mut reader.ctx.cancelled)).transpose()?,
+                    value
+                        .as_ref()
+                        .map(|agent| json(&agent.intent, &memory, &p, &mut reader.ctx.cancelled))
+                        .transpose()?,
                 )
             }
             Kind::Instance => {
@@ -1235,4 +1304,6 @@ pub fn read_current_agent_instance_projection_delta_v1<
 
 #[path = "incremental_agent_instance_projection_delta_cold.rs"]
 mod cold;
-pub use cold::{QualifiedAgentInstanceProjectionColumnsV1, read_qualified_agent_instance_projection_columns_v1};
+pub use cold::{
+    QualifiedAgentInstanceProjectionColumnsV1, read_qualified_agent_instance_projection_columns_v1,
+};

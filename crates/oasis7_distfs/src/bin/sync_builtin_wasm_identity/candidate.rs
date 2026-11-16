@@ -1,10 +1,10 @@
 //! Engineering expectations only. This module never selects a Runtime/release identity.
 use super::*;
 
-#[path = "candidate_partial.rs"]
-mod partial;
 #[path = "candidate_iws_fixture.rs"]
 mod iws_fixture;
+#[path = "candidate_partial.rs"]
+mod partial;
 
 pub(super) fn verify_iws_fixture(args: &[String]) -> Result<(), String> {
     iws_fixture::run(args)

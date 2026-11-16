@@ -51,7 +51,10 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
             &overlay.authorization_nonces
         });
     if !authorization_nonces.is_empty() {
-        output.serialize_field(ORIGINAL_GOVERNANCE_FIELD_SLOTS_V1[5].name, authorization_nonces)?;
+        output.serialize_field(
+            ORIGINAL_GOVERNANCE_FIELD_SLOTS_V1[5].name,
+            authorization_nonces,
+        )?;
     }
     output.serialize_field(
         ORIGINAL_GOVERNANCE_FIELD_SLOTS_V1[6].name,
@@ -72,14 +75,42 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
     Ok(())
 }
 
-pub(crate) const ORIGINAL_GOVERNANCE_FIELD_SLOTS_V1:[crate::state::projection::OriginalStateFieldSlotV1;9]=[
- crate::state::projection::OriginalStateFieldSlotV1{name:"node_identity_bindings",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"node_main_token_account_bindings",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"governance_finality_signer_registry",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"governance_validator_admissions",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"governance_main_token_controller_registry",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"governance_authorization_nonces",emission:crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty},
- crate::state::projection::OriginalStateFieldSlotV1{name:"reward_signature_governance_policy",emission:crate::state::projection::OriginalStateFieldEmissionV1::Always},
- crate::state::projection::OriginalStateFieldSlotV1{name:"governance_finality_key_rotations",emission:crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty},
- crate::state::projection::OriginalStateFieldSlotV1{name:"governance_bootstrap_finality_key_rotations",emission:crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty},
+pub(crate) const ORIGINAL_GOVERNANCE_FIELD_SLOTS_V1:
+    [crate::state::projection::OriginalStateFieldSlotV1; 9] = [
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "node_identity_bindings",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "node_main_token_account_bindings",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "governance_finality_signer_registry",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "governance_validator_admissions",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "governance_main_token_controller_registry",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "governance_authorization_nonces",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "reward_signature_governance_policy",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::Always,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "governance_finality_key_rotations",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty,
+    },
+    crate::state::projection::OriginalStateFieldSlotV1 {
+        name: "governance_bootstrap_finality_key_rotations",
+        emission: crate::state::projection::OriginalStateFieldEmissionV1::NonEmpty,
+    },
 ];

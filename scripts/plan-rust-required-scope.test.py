@@ -596,24 +596,30 @@ class Selection(unittest.TestCase):
                 self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.lock') else 'targeted')
 
     def native_generated_fixture(self, register=True):
-        # Retain the real producer and its three OUT_DIR consumers. A workspace
-        # without these sources failed to reproduce the docs-only over-selection.
+        # Retain the real producer and the worker that now owns all three
+        # OUT_DIR reads. Copying only its former capture facade loses the
+        # generated-input dependency and makes invalid bindings look resolved.
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         package = 'oasis7_chain_runtime'
         directory = 'crates/' + package
         producer = directory + '/build.rs'
-        consumer = directory + '/src/host/native_environment_capture.rs'
+        consumer = directory + '/src/host/native_environment_capture_worker.rs'
         self.write(directory + '/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
         self.write(directory + '/src/lib.rs', '')
         for path in (producer, consumer):
             self.write(path, (HERE.parent / path).read_text())
+        outputs = ['native-build-metadata.txt', 'native-toolchain.txt', 'native-Cargo.lock']
+        self.assertEqual(
+            [(call['macro'], call['kind'], call['path'])
+             for call in selector.rust_source_inputs(Path(consumer).read_text())[1]],
+            [('include_bytes', 'generated', '/' + name) for name in outputs])
         self.write('Cargo.lock', '# existing workspace lock\n')
         self.base = self.commit()
         declaration = {
             'package': package,
             'producer': producer,
             'producer_sha256': hashlib.sha256(selector.git('show', f'{self.base}:{producer}')).hexdigest(),
-            'outputs': ['native-build-metadata.txt', 'native-toolchain.txt', 'native-Cargo.lock'],
+            'outputs': outputs,
         }
         if register:
             self.config['generated_inputs'] = [declaration]
@@ -900,10 +906,10 @@ class Selection(unittest.TestCase):
                 self.assertEqual(graph[2].get('__unresolved_embed__', set()), unresolved)
 
     def test_generated_cross_package_reader_requires_every_owner_binding(self):
-        producer, _, declaration = self.native_generated_fixture()
+        producer, consumer, declaration = self.native_generated_fixture()
         self.write('crates/core/src/lib.rs',
-                   '#[path = "../../oasis7_chain_runtime/src/host/'
-                   'native_environment_capture.rs"] mod captured;\n')
+                   '#[path = "../../' + consumer.removeprefix('crates/')
+                   + '"] mod captured;\n')
         self.base = self.commit()
         self.assert_unresolved_document('only the physical source owner has a producer')
         graph = selector.cargo_graph(self.base, self.config['generated_inputs'])
@@ -4657,7 +4663,13 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual({key: value for key, value in current.items() if key not in physical},
                                  {key: value for key, value in legacy.items() if key not in physical})
                 self.assertTrue(current['ordinary_risk_targets'])
-                self.assertEqual(sum(len(target['cases']) for target in current['ordinary_risk_targets']), 5)
+                self.assertEqual(current['ordinary_risk_targets'],
+                                 self.config['ordinary_scale_contract']['targets'])
+                self.assertEqual(
+                    {(target['package'], target['target_kind'], target['target_name']): len(target['cases'])
+                     for target in current['ordinary_risk_targets']},
+                    {('oasis7', 'test', 'incremental_full_scales'): 5,
+                     ('oasis7_runtime', 'test', 'iws_rule_core'): 4})
 
     def test_main_fast_cache_capability_preserves_complete_v1_v2_and_expanded_builds(self):
         field = 'ordinary_main_fast_cache_writer_version'

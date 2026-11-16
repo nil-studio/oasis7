@@ -382,8 +382,16 @@ impl Default for GameplayPolicyState {
     }
 }
 
-#[path="gameplay_governance_projection.rs"] mod governance_projection;
-pub use governance_projection::{GovernanceIdentityProjectionFieldsV1,GovernanceProposalProjectionFieldsV1,GovernanceVoteProjectionFieldsV1};
+#[path = "gameplay_governance_projection.rs"]
+mod governance_projection;
+pub use governance_projection::{
+    GovernanceIdentityProjectionFieldsV1, GovernanceProposalProjectionFieldsV1,
+    GovernanceVoteProjectionFieldsV1,
+};
 
-#[path="gameplay_diplomacy_projection.rs"] mod diplomacy_projection;
-pub use diplomacy_projection::{AllianceProjectionFieldsV1,WarProjectionFieldsV1,CrisisProjectionFieldsV1,EconomicContractProjectionFieldsV1};
+#[path = "gameplay_diplomacy_projection.rs"]
+mod diplomacy_projection;
+pub use diplomacy_projection::{
+    AllianceProjectionFieldsV1, CrisisProjectionFieldsV1, EconomicContractProjectionFieldsV1,
+    WarProjectionFieldsV1,
+};

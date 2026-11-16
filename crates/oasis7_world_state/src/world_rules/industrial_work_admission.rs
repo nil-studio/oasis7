@@ -7,19 +7,56 @@ use std::collections::BTreeMap;
 
 const MAX_INDUSTRIAL_RECORDS: usize = 4096;
 
-pub fn industrial_owner_binding(state:&WorldState,actor:&str)->Result<String,WorldError>{
-    let owner=state.resolved_agent_owner(actor);industrial_owner_binding_from_owner_v1(owner.as_ref())
+pub fn industrial_owner_binding(state: &WorldState, actor: &str) -> Result<String, WorldError> {
+    let owner = state.resolved_agent_owner(actor);
+    industrial_owner_binding_from_owner_v1(owner.as_ref())
 }
 /// Raw readonly owner facts; this result conveys no command or write authority.
-pub fn industrial_owner_binding_from_owner_v1(owner:Option<&crate::ResolvedAgentOwnerV1>)->Result<String,WorldError>{
-    match industrial_owner_binding_with_work_v1(owner,&mut|_,_,_|Ok::<(),std::convert::Infallible>(())){Ok(result)=>result,Err(error)=>match error{}}
+pub fn industrial_owner_binding_from_owner_v1(
+    owner: Option<&crate::ResolvedAgentOwnerV1>,
+) -> Result<String, WorldError> {
+    match industrial_owner_binding_with_work_v1(owner, &mut |_, _, _| {
+        Ok::<(), std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
 }
-pub fn industrial_owner_binding_with_work_v1<E>(owner:Option<&crate::ResolvedAgentOwnerV1>,work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Result<String,WorldError>,E>{
-    let owner=owner.filter(|o|!o.player_id.is_empty()&&!o.source_id.is_empty()&&o.public_key.as_ref().is_some_and(|k|!k.is_empty()));
-    let Some(owner)=owner else{let reason="industrial_owner_authority_missing";work(1,reason.len(),std::mem::size_of::<WorldError>()+reason.len())?;return Ok(Err(invalid(reason)))};
-    work(1,0,64+std::mem::size_of::<String>())?;
-    match crate::util::hash_json_with_work_v1(&(&owner.primary_agent_id,&owner.player_id,&owner.public_key,&owner.source_id,owner.generation),&mut|steps,bytes|work(steps,bytes as usize,0)){
-        Ok(digest)=>Ok(Ok(digest)),Err(crate::util::JsonHashWorkErrorV1::Work(error))=>Err(error),Err(crate::util::JsonHashWorkErrorV1::Codec(error))=>{let message=super::readonly_format::format(format_args!("{}",error),work)?;Ok(Err(WorldError::Serde(message)))}
+pub fn industrial_owner_binding_with_work_v1<E>(
+    owner: Option<&crate::ResolvedAgentOwnerV1>,
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<String, WorldError>, E> {
+    let owner = owner.filter(|o| {
+        !o.player_id.is_empty()
+            && !o.source_id.is_empty()
+            && o.public_key.as_ref().is_some_and(|k| !k.is_empty())
+    });
+    let Some(owner) = owner else {
+        let reason = "industrial_owner_authority_missing";
+        work(
+            1,
+            reason.len(),
+            std::mem::size_of::<WorldError>() + reason.len(),
+        )?;
+        return Ok(Err(invalid(reason)));
+    };
+    work(1, 0, 64 + std::mem::size_of::<String>())?;
+    match crate::util::hash_json_with_work_v1(
+        &(
+            &owner.primary_agent_id,
+            &owner.player_id,
+            &owner.public_key,
+            &owner.source_id,
+            owner.generation,
+        ),
+        &mut |steps, bytes| work(steps, bytes as usize, 0),
+    ) {
+        Ok(digest) => Ok(Ok(digest)),
+        Err(crate::util::JsonHashWorkErrorV1::Work(error)) => Err(error),
+        Err(crate::util::JsonHashWorkErrorV1::Codec(error)) => {
+            let message = super::readonly_format::format(format_args!("{}", error), work)?;
+            Ok(Err(WorldError::Serde(message)))
+        }
     }
 }
 
@@ -137,7 +174,11 @@ pub fn industrial_effective_consume(
     state: &WorldState,
     plan: &oasis7_wasm_abi::RecipeExecutionPlan,
 ) -> Result<Vec<crate::MaterialStack>, WorldError> {
-    match super::readonly_industrial_consume::industrial_effective_consume_readonly_v1(state,plan){Ok(result)=>result,Err(error)=>match error{}}
+    match super::readonly_industrial_consume::industrial_effective_consume_readonly_v1(state, plan)
+    {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
 }
 
 fn metadata(value: &str) -> Result<(), WorldError> {

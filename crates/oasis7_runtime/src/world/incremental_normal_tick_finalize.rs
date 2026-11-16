@@ -15,4 +15,3 @@ pub(super) mod journal;
 
 #[path = "incremental_normal_tick_finalize_consensus.rs"]
 pub(in crate::world) mod consensus;
-

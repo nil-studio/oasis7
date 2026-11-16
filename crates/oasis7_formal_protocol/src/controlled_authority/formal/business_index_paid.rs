@@ -445,13 +445,22 @@ pub fn validate_business_index_root_bounded_v1(
     common: &mut FormalBoundedContextV1<'_>,
 ) -> Result<(), PaidBusinessIndexErrorV1> {
     common.consume_steps(1).map_err(|e| failure(e, None))?;
-    let phase = common.memory().reserve(128 * 1024, MemoryClass::Ordinary)
+    let phase = common
+        .memory()
+        .reserve(128 * 1024, MemoryClass::Ordinary)
         .map_err(|_| failure(bad("business root validation phase"), None))?;
-    let state = RefCell::new(State { common, first: None });
+    let state = RefCell::new(State {
+        common,
+        first: None,
+    });
     let result = (|| {
         let meter = |n| state.borrow_mut().pay(n);
         let empty = build_empty_hashes_with(Some(&meter))?;
-        Kernel { empty, meter: Some(&meter) }.validate_root(root)
+        Kernel {
+            empty,
+            meter: Some(&meter),
+        }
+        .validate_root(root)
     })();
     let state = state.into_inner();
     match result {
@@ -459,6 +468,9 @@ pub fn validate_business_index_root_bounded_v1(
             Some(error) => Err(failure(error, Some(phase))),
             None => Ok(()),
         },
-        Err(note) => Err(failure(state.first.unwrap_or(FormalError::Invalid(note)), Some(phase))),
+        Err(note) => Err(failure(
+            state.first.unwrap_or(FormalError::Invalid(note)),
+            Some(phase),
+        )),
     }
 }
