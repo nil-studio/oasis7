@@ -3680,7 +3680,8 @@ var fail$5 = (code, diagnostic) => {
 var json = (value) => JSON.stringify(value);
 var copy$1 = (value) => JSON.parse(json(value));
 var hex$3 = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-var same$3 = (a, b) => json(a) === json(b);
+var comparable = (value) => Array.isArray(value) ? value.map(comparable) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, comparable(value[key])])) : value;
+var same$3 = (a, b) => json(comparable(a)) === json(comparable(b));
 var WORLD_PATHS = Object.freeze({
 	describe: "/v1/world/describe",
 	owner: "/v1/world/participant-owner-view",
