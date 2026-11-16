@@ -143,6 +143,10 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接[专业成员应
 
 撤销／轮换后，旧 signer 对 `h+2` 及以后新消息不再有效，但此前合法历史按历史集合验证。equivocation 报告本身只是证据，不触发本机单方面删 stake／改 quorum。受控单权威 profile 的 epoch、writer fencing 与接管继续由[受控 epoch 接管](../design.md#des-p2p-controlled-epoch-takeover-v1)拥有，本安装接口不得作为单权威到 BFT 的隐式升级。当前没有 safe runtime install API；上述状态是目标语义，不是现有 CLI 新增枚举。
 
+长期离线的 checkpoint 期限、独立更新 issuer、有限根授权／撤销窗口和受保护时间门禁，统一由[P2P checkpoint 更新合同](../design.md#des-p2p-bft-checkpoint-renewal-v1)规定。原 activation、治理或私有读取 issuer 的既有权力不自动包含 checkpoint-renewal purpose；只有原 C0/H 独立授权明确 pin 的 policy 才能授予该用途，并须在原授权内明确绝对安全上界及真实旧 key／stake 约束。当前未固定这些部署输入时停止自动更新／新签名，不能从普通 provider receipt 或已退出 validator 的自证建立新信任。
+
+该更新不改写 `h+2`，不替代组件安装确认、不授予新 key／stake 权力，也不把历史可读等同当前服务。已提交 minimum 的原安装可以在期限失效后完成本地完整性恢复；重新声明当前或生成新 proposal/vote 前仍需当前有效的独立授权、可信时间和真实安装门禁。对应版本化配置、发行／验证接口、真实保护资源与部署验收仍是实现义务，文档不表示已可运行。
+
 <a id="readiness-full-sync-read-authorization"></a>
 ### 私有 full-state 读取授权与撤销目标
 
