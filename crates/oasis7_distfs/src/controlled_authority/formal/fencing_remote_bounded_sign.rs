@@ -414,12 +414,16 @@ fn validate_protected_result_paid(
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[path = "fencing_remote_bounded_genesis_receipt.rs"]
 mod genesis_receipt;
+#[cfg(not(target_arch = "wasm32"))]
 pub(in crate::controlled_authority) use genesis_receipt::{
     PaidGenesisReceiptSignatureV1, sign_genesis_receipt_bounded_v1,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
 #[path = "fencing_remote_bounded_normal_frozen.rs"]
 mod normal_frozen_receipt;
+#[cfg(not(target_arch = "wasm32"))]
 pub(in crate::controlled_authority) use normal_frozen_receipt::sign_normal_frozen_receipt_bounded_v1;

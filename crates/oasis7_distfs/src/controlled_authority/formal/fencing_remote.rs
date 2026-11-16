@@ -37,11 +37,15 @@ pub use bounded_acquire::{
     BoundedAcquireErrorV1, BoundedMonotonicEndpointProvider, PaidRemoteLeaseV1,
     acquire_provider_lease_bounded_v1,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub(in crate::controlled_authority) use bounded_acquire::{
-    PaidGenesisReceiptSignatureV1, PaidNativeCheckpointBeginV1, PaidNativeCheckpointSignatureV1,
-    begin_signed_native_checkpoint_bounded_v1, initialize_protected_registration_bounded_v1,
-    sign_genesis_receipt_bounded_v1, sign_native_checkpoint_bounded_v1,
+    PaidGenesisReceiptSignatureV1, sign_genesis_receipt_bounded_v1,
     sign_normal_frozen_receipt_bounded_v1,
+};
+pub(in crate::controlled_authority) use bounded_acquire::{
+    PaidNativeCheckpointBeginV1, PaidNativeCheckpointSignatureV1,
+    begin_signed_native_checkpoint_bounded_v1, initialize_protected_registration_bounded_v1,
+    sign_native_checkpoint_bounded_v1,
 };
 #[path = "fencing_remote_durable_set.rs"]
 mod durable_set_client;
