@@ -82,6 +82,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 **实际部署核验：** 本组三项均未取得当日运行窗口。[历史云上清单](../../governance/environment-lanes-and-inventory-2026-05-29.md#7-当前云上清单)只用于定位；当前节点数、版本、实际角色、健康和外部可达性保持未核对。
 
+共享网络资源（2026-11-16，目标设计）：[发现资源预算](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)沿标准 development host → node → net 规定真实连接尝试与子流 I/O 的联合限额，所有配额显式输入，旧 profile 不自动获得新保证。TCP／QUIC／relay 未接全计量接缝时拒启新 profile；正式 authority 仍须独立 lane 适配。当前只补合同，运行时与部署证据仍由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接。
+
 <a id="cc-architecture-authority"></a>
 
 ## 世界权威与状态

@@ -170,6 +170,8 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 
 ## 最近做了什么
 
+发现资源预算（2026-11-16，文档范围）：[目标合同](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)固定 development host 显式配置的连接池与共享 60 秒子流累计额度，区分真实连接终止、协议请求终态和未用预留结算。共享额度也影响业务流量；正式 authority 的 lane 隔离与跨重启配额没有因此完成。实现和真实 transport 验收由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 继续承接；本次未核验部署，下面历史记录保留原核验窗口。
+
 下列 8 项均已由 GitHub 的实际合入状态与 merge commit 核对，且出现在固定 main 的最近 30 条提交中。
 时间为北京时间（+08:00）；验证描述引用各 PR 记录，本次没有重新运行，也没有把合入解释为部署。
 
