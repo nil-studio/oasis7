@@ -593,6 +593,54 @@ class RiskTargetInventory(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.validate_ordinary_selection(expanded)
 
+    def test_iws_rule_full_supplement_keeps_four_cases_and_one_worker_owner(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        target = next(item for item in config['ordinary_scale_contract']['targets']
+                      if item['package'] == 'oasis7_runtime' and item['target_name'] == 'iws_rule_core')
+        self.assertEqual(set(target['cases']), artifacts.IWS_RULE_CORE_TESTS)
+        fixture = TargetedArtifactPartitions()
+        selected = fixture.selection() | dict(
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_runtime'],
+            risk_test_inventory_version=1, ordinary_risk_targets=[target])
+        manifest = fixture.manifest(selected)
+        full = FastTargetInventory().binary(target, 'required-risk-0')
+        manifest['binaries']['iws-rule-core'] = full | dict(path='iws-rule-core', cwd='.')
+        manifest['binaries']['runtime-required'] = full | dict(
+            path='runtime-required', cwd='.', target='oasis7_runtime', target_kind=['lib'],
+            variant='required', tests=['ordinary_runtime_case'], features=['test_tier_required'],
+            requested_features=['oasis7_runtime/test_tier_required'])
+        artifacts.validate_ordinary_selection(manifest)
+        commands = artifacts.required_native_commands(selected)
+        self.assertEqual([args for args in commands if 'iws_rule_core' in args],
+                         [['-p', 'oasis7_runtime', '--test', 'iws_rule_core', '--features', 'test_tier_full']])
+        owners, covered = [], []
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            for owner in selected['ordinary_partitions'][1:]:
+                with redirect_stdout(io.StringIO()):
+                    entries = artifacts.ordinary_artifact_entries(manifest, selected, owner)
+                binaries = {entry['binary'] for entry in entries}
+                self.assertEqual(artifacts.runtime_worker_test_selected(manifest, binaries),
+                                 'iws-rule-core' in binaries)
+                if 'iws-rule-core' in binaries:
+                    owners.append(owner)
+                covered.extend(case for binary, case in fixture.coverage(manifest, entries)
+                               if binary == 'iws-rule-core')
+        self.assertEqual(len(owners), 1)
+        # The generic fixture also has an unlisted active regression: the
+        # minimum four-case contract must not trim the actual whole harness.
+        self.assertCountEqual(covered, full['tests'])
+        self.assertTrue(set(target['cases']) <= set(covered))
+        for damage in ('missing', 'empty', 'ignored'):
+            broken = copy.deepcopy(manifest)
+            if damage == 'missing':
+                del broken['binaries']['iws-rule-core']
+            elif damage == 'empty':
+                broken['binaries']['iws-rule-core']['tests'] = []
+            else:
+                broken['binaries']['iws-rule-core']['ignored_tests'] = target['cases'][:1]
+            with self.subTest(damage=damage), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(broken)
+
     def test_all_scope_cannot_silently_drop_risk_contracts(self):
         for expanded in (False, True):
             selected = self.selection() | {'test_policy_changed': expanded}
@@ -4920,7 +4968,7 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
              patch.object(artifacts, 'inventory', side_effect=lambda path, ignored=False, env=None:
                           sorted(ignored_cases) if ignored else cases), \
              patch.object(artifacts, 'cache_begin', return_value={}), \
-             patch.object(artifacts, 'cache_record', side_effect=lambda state, item: recorded.append(item)), \
+             patch.object(artifacts, 'cache_record', side_effect=lambda state, item, *, ordinary_baseline=False: recorded.append(item)), \
              patch.object(artifacts, 'cache_finish'), \
              patch.object(artifacts, 'BuildObservation', side_effect=observation), \
              patch.object(artifacts.sys, 'platform', platform), patch.dict(os.environ, SOURCE_SHA='source'):
@@ -5019,6 +5067,49 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         self.library.write_bytes(b'tampered dependency')
         with self.assertRaisesRegex(ValueError, 'corrupt executable/library'):
             artifacts.validate_runtime_worker_companion(self.bundle, bad_library)
+
+    def test_iws_rule_worker_requires_exact_target_and_active_case_inventory(self):
+        manifest = self.manifest()
+        binary = manifest['binaries']['runtime-module-tests']
+        binary.update(target=artifacts.IWS_RULE_CORE_TARGET, target_kind=['test'],
+                      tests=sorted(artifacts.IWS_RULE_CORE_TESTS))
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+            self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+            for field, value in (('package', 'oasis7_runtime_iws_tests'), ('target', 'different_target'),
+                                 ('target_kind', ['lib']), ('ordinary', False), ('test', False),
+                                 ('tests', []), ('tests', ['unrelated_case']),
+                                 ('ignored_tests', sorted(artifacts.IWS_RULE_CORE_TESTS))):
+                broken = copy.deepcopy(manifest)
+                broken['binaries']['runtime-module-tests'][field] = value
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(broken))
+        with patch.object(artifacts.sys, 'platform', 'darwin'):
+            self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+
+    def test_iws_rule_worker_is_packed_loaded_and_rejects_missing_or_corrupt_bytes(self):
+        manifest = self.manifest()
+        manifest['binaries']['runtime-module-tests'].update(
+            target=artifacts.IWS_RULE_CORE_TARGET, target_kind=['test'],
+            tests=sorted(artifacts.IWS_RULE_CORE_TESTS))
+        archive, consumer, environment = self.publish_and_load(manifest)
+        with tarfile.open(archive) as packed:
+            self.assertIn(artifacts.RUNTIME_WORKER_PATH, packed.getnames())
+            self.assertIn('lib/libexecutor_fixture.so', packed.getnames())
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        with patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            missing = copy.deepcopy(manifest)
+            del missing['worker_companion']
+            (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing-rule-worker.tar.gz', suite='ordinary')
+            (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+            self.worker.write_bytes(b'corrupt worker')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-rule-worker.tar.gz', suite='ordinary')
+
 
 
 class WorkspaceCacheSelection(unittest.TestCase):

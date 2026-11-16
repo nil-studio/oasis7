@@ -1,5 +1,5 @@
 //! Linux-only tiny test binary; zero tests on another platform is not VM evidence.
-#![cfg(all(target_os = "linux", feature = "wasmtime", feature = "test-support"))]
+#![cfg(all(target_os = "linux", feature = "wasmtime", feature = "test_tier_full"))]
 use oasis7_runtime::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};
 #[test]
 fn selected_core_consumes_actual_nonempty_rule_modify_and_pricing() {

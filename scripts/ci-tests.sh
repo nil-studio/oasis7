@@ -237,7 +237,7 @@ run_oasis7_test_tier_with_viewer() {
     set -- --tests
   fi
   local viewer_binary
-  viewer_binary="$(build_oasis7_viewer_binary "$features")"
+  viewer_binary="$(build_oasis7_viewer_binary "$features")" || return
   PRE2_VIEWER_BINARY="$viewer_binary" run_oasis7_package_tests "$features" "$@"
 }
 
@@ -260,23 +260,6 @@ run_oasis7_required_tier_tests() {
   else
     run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
   fi
-  # The IWS Rule carrier has no ordinary bundle target. Its package-wide
-  # execution belongs only to controls (or the unpartitioned local path).
-  # Native artifact partitions retain their Cargo-free consumer contract.
-  case "${ordinary_partition:-all}" in
-    controls|all)
-      if [[ -n "${required_plan:-}" ]]; then
-        local iws_rule_selection
-        iws_rule_selection=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
-          --plan "$required_plan" --phase iws-rule-core) || return
-        case "$iws_rule_selection" in
-          run) run_oasis7_iws_rule_core_tests || return ;;
-          skip) ;;
-          *) echo 'Invalid IWS Rule test selection' >&2; return 2 ;;
-        esac
-      fi
-      ;;
-  esac
   if [[ "${ordinary_partition:-}" == controls ]]; then return; fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
     run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
@@ -352,10 +335,15 @@ run_oasis7_required_clippy_for_group() {
 }
 
 run_oasis7_full_tier_tests() {
+  # The full Runtime --tests inventory includes the actual Rule integration.
+  # Its worker must exist before starting that inventory on a clean checkout.
+  if [[ "$(uname -s)" == Linux ]]; then
+    build_oasis7_iws_rule_worker || return
+  fi
   run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
 }
 
-run_oasis7_iws_rule_core_tests() {
+build_oasis7_iws_rule_worker() {
   case "$(uname -s):$(uname -m)" in
     Linux:x86_64|Linux:aarch64) ;;
     *) echo 'IWS Rule/Wasm integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
@@ -363,22 +351,46 @@ run_oasis7_iws_rule_core_tests() {
   # The actual sealed-process Rule path loads the executor's real worker binary.
   # Build it explicitly on a clean checkout before entering the component cases.
   run_cargo build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker --no-default-features \
-    --features wasmtime || return
-  # Both features are required; a default Cargo run executes none of the cases.
-  run_cargo test --locked -p oasis7_runtime_iws_tests --test iws_rule_core --no-default-features \
-    --features test-support,wasmtime -- --test-threads=1
+    --features wasmtime
 }
 
-run_oasis7_iws_host_native_tests() {
+run_oasis7_iws_rule_core_tests() {
+  build_oasis7_iws_rule_worker || return
+  # The same full-feature target is executed by expanded ordinary artifacts.
+  run_cargo test --locked -p oasis7_runtime --test iws_rule_core --no-default-features \
+    --features test_tier_full,wasmtime -- --test-threads=1
+}
+
+verify_oasis7_iws_host_native_fixture() {
   # This target needs real Linux descriptors, sealed FDs and a same-build ELF.
   # An explicitly requested unsupported target must not report zero-test success.
   case "$(uname -s):$(uname -m)" in
     Linux:x86_64|Linux:aarch64) ;;
     *) echo 'IWS native Host integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
   esac
-  run_oasis7_iws_rule_core_tests || return
+  # Fixed actual candidate test bytes are versioned with this checkout. Verify
+  # their complete source/recipe/receipt and current candidate identity first.
+  # This read-only path neither refreshes release manifests nor falls back to Docker.
+  run_cargo run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity \
+    --bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture "$repo_root" \
+    "$repo_root/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate"
+}
+
+run_oasis7_iws_host_native_target() {
   run_cargo test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features \
     --features iws-host-native-test-support -- --test-threads=1
+}
+
+run_oasis7_iws_host_native_tests() {
+  verify_oasis7_iws_host_native_fixture || return
+  run_oasis7_iws_rule_core_tests || return
+  run_oasis7_iws_host_native_target
+}
+
+run_oasis7_iws_host_native_after_full_tests() {
+  # The successful full Runtime harness already executed all four Rule cases.
+  verify_oasis7_iws_host_native_fixture || return
+  run_oasis7_iws_host_native_target
 }
 
 run_oasis7_production_mock_guard() {
@@ -1334,9 +1346,9 @@ prepare_full_provider_artifact() {
 }
 
 run_full_extended_tier_tests() {
-  run_oasis7_full_tier_tests
+  run_oasis7_full_tier_tests || return
   if [[ "$(uname -s)" == Linux ]]; then
-    run_oasis7_iws_host_native_tests
+    run_oasis7_iws_host_native_after_full_tests || return
   fi
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke

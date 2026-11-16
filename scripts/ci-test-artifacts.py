@@ -25,6 +25,13 @@ import shlex
 RUNTIME_WORKER_TEST = 'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter'
 RUNTIME_WORKER_PACKAGE = 'oasis7_runtime'
 RUNTIME_WORKER_TARGET = 'oasis7_runtime'
+IWS_RULE_CORE_TARGET = 'iws_rule_core'
+IWS_RULE_CORE_TESTS = frozenset((
+    'selected_core_consumes_actual_nonempty_rule_modify_and_pricing',
+    'selected_core_rejected_move_settles_general_cost_without_pricing_cost',
+    'selected_core_insufficient_rule_cost_preserves_position_and_balance',
+    'selected_core_genuine_rule_denial_preserves_balance_and_position',
+))
 # Observation label for an inventory-selected test resource, never a planned
 # test variant or a dependency-cache warming context.
 RUNTIME_WORKER_BUILD = 'runtime-worker-companion'
@@ -699,22 +706,6 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
-    if phase == 'iws-rule-core':
-        selected = fast_plan(plan)
-        if selected is None:
-            return ['skip']
-        # This separate consumer is absent from the ordinary artifact inventory.
-        # Exact fast targets keep their original coverage and defer it to full.
-        required_packages(selected)
-        if ordinary_fast_targets(selected) is not None:
-            return ['skip']
-        affected = selected.get('affected_packages', [])
-        if (not isinstance(affected, list)
-                or any(not isinstance(package, str)
-                       or re.fullmatch(r'[A-Za-z0-9_-]+', package) is None for package in affected)
-                or len(affected) != len(set(affected))):
-            raise ValueError('invalid affected package inventory for IWS Rule tests')
-        return ['run' if 'oasis7_runtime_iws_tests' in affected else 'skip']
     if phase == 'distfs-industry':
         targets = ordinary_fast_targets(plan)
         selected = targets is None or any(
@@ -1849,16 +1840,21 @@ def runtime_worker_test_selected(manifest, included=None):
     for logical in included:
         binary = binaries.get(logical, {})
         if (binary.get('ordinary') is not True or binary.get('test') is not True
-                or binary.get('package') != RUNTIME_WORKER_PACKAGE
-                or binary.get('target') != RUNTIME_WORKER_TARGET
-                or binary.get('target_kind') != ['lib']):
+                or binary.get('package') != RUNTIME_WORKER_PACKAGE):
+            continue
+        library = (binary.get('target') == RUNTIME_WORKER_TARGET
+                   and binary.get('target_kind') == ['lib'])
+        rule_core = (binary.get('target') == IWS_RULE_CORE_TARGET
+                     and binary.get('target_kind') == ['test'])
+        if not library and not rule_core:
             continue
         tests, ignored = binary.get('tests', []), binary.get('ignored_tests', [])
         if (not isinstance(tests, list) or any(not isinstance(case, str) for case in tests)
                 or not isinstance(ignored, list) or any(not isinstance(case, str) for case in ignored)):
             continue
         active = set(tests) - set(ignored)
-        if runtime_worker_case_selected(active):
+        if ((library and runtime_worker_case_selected(active))
+                or (rule_core and active & IWS_RULE_CORE_TESTS)):
             return True
     return False
 
@@ -3452,7 +3448,7 @@ def main():
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'iws-rule-core', 'partition'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'

@@ -5,6 +5,12 @@ edition = "2024"
 license = "MIT"
 publish = false
 
+# Keep this non-shipping library's Cargo identity until the next producer rebuild.
+# The four executable Rule cases now belong to oasis7_runtime's integration target.
+[lib]
+test = false
+doctest = false
+
 [features]
 default = []
 test-support = ["dep:oasis7_runtime", "oasis7_runtime/test-support"]
@@ -12,8 +18,3 @@ wasmtime = ["dep:oasis7_runtime", "oasis7_runtime/wasmtime"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 oasis7_runtime = { path = "../oasis7_runtime", optional = true }
-
-[[test]]
-name = "iws_rule_core"
-path = "tests/iws_rule_core.rs"
-required-features = ["test-support", "wasmtime"]

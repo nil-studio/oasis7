@@ -25,6 +25,21 @@
           "unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver",
           "cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json"
         ]
+      },
+      {
+        "package": "oasis7_runtime",
+        "target_kind": "test",
+        "target_name": "iws_rule_core",
+        "default_features": true,
+        "features": [
+          "test_tier_full"
+        ],
+        "cases": [
+          "selected_core_consumes_actual_nonempty_rule_modify_and_pricing",
+          "selected_core_rejected_move_settles_general_cost_without_pricing_cost",
+          "selected_core_insufficient_rule_cost_preserves_position_and_balance",
+          "selected_core_genuine_rule_denial_preserves_balance_and_position"
+        ]
       }
     ],
     "isolated_sources": {
