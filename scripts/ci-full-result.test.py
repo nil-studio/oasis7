@@ -340,17 +340,21 @@ class History:
     """Fixed Actions facts; the real selector and receipt validator decide."""
     repository = "nil-studio/oasis7"
 
-    def __init__(self, runs, artifacts=None, payloads=None, jobs=None):
+    def __init__(self, runs, artifacts=None, payloads=None, jobs=None, attempts=None):
         self.runs = runs
         self.artifacts = artifacts or {}
         self.payloads = payloads or {}
         self.jobs = jobs or {}
+        self.attempts = attempts or {}
         self.downloads = []
         self.queries = []
 
     def get(self, path):
         if path == "actions/workflows/rust.yml":
             return {"id": 7}
+        parts = path.split("/")
+        if len(parts) == 5 and parts[:2] == ["actions", "runs"] and parts[3] == "attempts":
+            return self.attempts[(int(parts[2]), int(parts[4]))]
         if path.startswith("actions/runs/"):
             return next(run for run in self.runs if str(run["id"]) == path.rsplit("/", 1)[1])
         raise AssertionError("unexpected API object: " + path)
@@ -537,17 +541,27 @@ class Attempts(unittest.TestCase):
         self.assertEqual(self.api.downloads, [])
 
     def test_selection_reuse_requires_successful_producer_and_no_current_select(self):
-        run = dict(self.green, id=99, run_attempt=3, event="workflow_dispatch", head_sha=B)
+        run = dict(self.green, id=99, run_attempt=3, event="workflow_dispatch", head_sha=B,
+                   run_started_at="2026-10-30T11:00:00Z", updated_at="2026-10-30T11:30:00Z")
         selection = {"id": 9902, "name": "ci-selection-99-2", "expired": False}
-        producer = dict(name="select", run_attempt=2, status="completed", conclusion="success")
+        producer = dict(name="select", run_id=99, head_sha=B, run_attempt=2, status="completed", conclusion="success",
+                        started_at="2026-10-30T10:00:01Z", completed_at="2026-10-30T10:00:05Z",
+                        steps=[dict(name="Select", number=1, status="completed", conclusion="success",
+                                    started_at="2026-10-30T10:00:01Z", completed_at="2026-10-30T10:00:05Z")])
         api = History([run], payloads={9902: dict(scope="explicit-full", execution_profile="candidate-full",
                                                 source_sha=A, tested_sha=A, policy_sha=B)},
+                      attempts={(99, 2): dict(run, run_attempt=2, run_started_at="2026-10-30T10:00:00Z",
+                                             updated_at="2026-10-30T10:30:00Z")},
                       jobs={(99, 2): [producer], (99, 3): [
                           dict(name="candidate-full-regression", run_attempt=3, status="completed", conclusion="failure")
                       ]})
         self.assertEqual(module.selected_source_for_attempt(api, run, [selection]), A)
+        rerun = dict(producer, run_attempt=3, started_at="2026-10-30T11:00:01Z",
+                     completed_at="2026-10-30T11:00:05Z",
+                     steps=[dict(producer["steps"][0], started_at="2026-10-30T11:00:01Z",
+                                 completed_at="2026-10-30T11:00:05Z")])
         for conclusion in ("success", "failure", "cancelled"):
-            api.jobs[(99, 3)] = [dict(producer, run_attempt=3, conclusion=conclusion)]
+            api.jobs[(99, 3)] = [dict(rerun, conclusion=conclusion)]
             with self.subTest(current_select=conclusion), self.assertRaisesRegex(ValueError, "select was rerun"):
                 module.selected_source_for_attempt(api, run, [selection])
         api.jobs[(99, 3)] = []
@@ -558,7 +572,7 @@ class Attempts(unittest.TestCase):
             with self.subTest(producer_jobs=producers), self.assertRaisesRegex(ValueError, "producing select"):
                 module.selected_source_for_attempt(api, run, [selection])
         api.jobs[(99, 2)] = [producer]
-        api.jobs[(99, 3)] = [dict(producer, run_attempt=3)]
+        api.jobs[(99, 3)] = [rerun]
         current = dict(selection, id=9903, name="ci-selection-99-3")
         api.payloads[9903] = dict(api.payloads[9902], source_sha="c" * 40, tested_sha="c" * 40)
         self.assertEqual(module.selected_source_for_attempt(api, run, [selection, current]), "c" * 40)
@@ -741,6 +755,7 @@ class PeriodicAdmission(unittest.TestCase):
                 elif kind == "duplicate":
                     artifacts.append(dict(artifacts[0], id=4199))
                 elif kind == "old_attempt":
+                    self.api.attempts[(41, 1)] = dict(run)
                     run["run_attempt"] = 2
                     self.api.jobs[(41, 2)] = [dict(job, run_attempt=2) for job in self.api.jobs[(41, 1)]]
                 elif kind == "job_failure":
