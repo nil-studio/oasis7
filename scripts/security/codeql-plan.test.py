@@ -49,6 +49,74 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_issue_metadata_add_modify_delete_is_not_executable_code(self):
+        for name in ('code-development', 'config', 'decision', 'defect', 'document', 'test'):
+            path = '.github/ISSUE_TEMPLATE/' + name + '.yml'
+            for value in ('name: Example\n', 'name: Updated\n'):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, value); self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], [])
+                self.assertEqual(result['status'], 'not_applicable')
+            self.base = self.git('rev-parse', 'HEAD')
+            (self.root / path).unlink(); self.commit()
+            self.assertEqual(self.run_plan()['selected_units'], [])
+
+    def test_issue_metadata_neighbors_fail_closed(self):
+        for path in ('.github/ISSUE_TEMPLATE/future.yml',
+                     '.github/ISSUE_TEMPLATE/code-development.yaml',
+                     '.github/ISSUE_TEMPLATE/nested/config.yml',
+                     '.github/config.yml', 'data/config.yml'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path); self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
+
+    def test_issue_metadata_rename_to_unknown_fails_closed(self):
+        self.write('.github/ISSUE_TEMPLATE/config.yml'); self.base = self.commit()
+        self.git('mv', '.github/ISSUE_TEMPLATE/config.yml', '.github/ISSUE_TEMPLATE/future.yml')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+
+    def test_issue_metadata_symlink_requires_review(self):
+        path = self.root / '.github/ISSUE_TEMPLATE/config.yml'
+        path.parent.mkdir(parents=True)
+        path.symlink_to('../../docs/guide.md'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
+    def test_issue_metadata_preserves_rust_consumers_and_batch_limits(self):
+        path = '.github/ISSUE_TEMPLATE/config.yml'
+        self.write(path, 'blank_issues_enabled: false\n')
+        self.write('src/lib.rs', 'const S: &str = include_str!("../' + path + '");\n')
+        self.base = self.commit()
+        self.write(path, 'blank_issues_enabled: true\n'); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['rust-repo'])
+        self.assertEqual(self.run_plan(batch_modes='{}')['status'], 'disabled')
+        # Old-side build scripts still count even when deleted in the same diff.
+        self.write('build.rs', 'fn main() {}'); self.base = self.commit()
+        (self.root / 'build.rs').unlink()
+        self.write(path, 'blank_issues_enabled: false\n'); self.commit()
+        result = self.run_plan()
+        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
+
+    def test_issue_metadata_possible_build_and_dynamic_consumers(self):
+        path = '.github/ISSUE_TEMPLATE/config.yml'
+        for source, content in (('build.rs', 'fn main() {}'),
+                                ('src/lib.rs', 'const S: &str = include_str!(env!("INPUT"));')):
+            with self.subTest(source=source):
+                self.write(path, 'blank_issues_enabled: false')
+                self.write(source, content); self.base = self.commit()
+                self.write(path, 'blank_issues_enabled: true'); self.commit()
+                self.assertEqual(self.run_plan()['selected_units'], ['rust-repo'])
+                # The metadata registration must not cancel full maintenance.
+                self.assertEqual(self.run_plan(full=True)['selected_units'],
+                                 ['actions-repo', 'python-repo', 'javascript-repo', 'rust-repo'])
+                (self.root / source).unlink(); self.commit()
+
     def test_worker_deployment_config_routes_both_consumers(self):
         path = 'crates/oasis7_dev_test_worker/wrangler.toml'
         for value in ('name="fixture"', 'name="changed"'):

@@ -194,6 +194,7 @@ python3 -I scripts/security/codeql-plan.py \
 | `.rs`、Cargo manifest/lock、Rust toolchain/Cargo config | Rust 单元 |
 | Python 源码、Python 依赖/导入配置 | Python 单元 |
 | JS/TS/HTML/模板、前端 package 与 lock | JS 单元 |
+| 已登记的 GitHub Issue 表单与选择器配置：`.github/ISSUE_TEMPLATE/` 下的 `code-development.yml`、`config.yml`、`decision.yml`、`defect.yml`、`document.yml`、`test.yml` | GitHub 非执行元数据，本身不新增语言扫描单元；仍保留真实嵌入和可能 build 输入的消费者并集。仅登记这六个精确路径，不豁免同目录新文件、其他 YAML 或符号链接；其表单与流程有效性仍由现有治理检查承接 |
 | workflow 或 local action metadata | Actions；涉及扫描/多语言工具链配置则选相关语言并集 |
 | `.github/workflows/codeql.yml`、安全策略、planner、扫描配置 | 四语言及静态安全契约测试 |
 | 被 Rust `include_str!`、`include_bytes!`、build script 等使用的前端/数据文件 | 文件所属语言单元与消费者单元；识别不清选保守并集 |
