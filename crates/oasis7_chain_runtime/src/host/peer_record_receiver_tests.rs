@@ -416,10 +416,21 @@ fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
         .into_iter(),
     )
     .unwrap();
+    let run_upgrade = |options: CliOptions| {
+        super::run_cli(vec![
+            "--runtime-root".into(),
+            runtime_root.to_str().unwrap().into(),
+            "--config".into(),
+            options.config_path,
+            "--p2p-peer-record-reception".into(),
+            "v2_only".into(),
+            "--upgrade-peer-record-receiver".into(),
+        ])
+    };
     let missing_identity = scratch.join("missing-identity.toml");
     let mut missing = upgrade.clone();
     missing.config_path = missing_identity.to_str().unwrap().to_owned();
-    assert!(super::run_chain_runtime(missing).is_err());
+    assert!(run_upgrade(missing).is_err());
     assert!(
         !missing_identity.exists(),
         "upgrade must not provision a replacement identity"
@@ -433,10 +444,10 @@ fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
     );
     let state = runtime_root.join("p2p/peer-record-receiver/peer-record-receiver-v2.state.cbor");
     let before = std::fs::read(&state).unwrap();
-    super::run_chain_runtime(upgrade.clone()).unwrap();
+    run_upgrade(upgrade.clone()).unwrap();
     let after = std::fs::read(&state).unwrap();
     assert_ne!(before, after);
-    super::run_chain_runtime(upgrade).unwrap();
+    run_upgrade(upgrade).unwrap();
     assert_eq!(after, std::fs::read(state).unwrap());
     assert!(
         super::run_chain_runtime(initial).is_err(),
