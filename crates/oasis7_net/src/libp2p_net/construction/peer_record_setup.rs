@@ -55,4 +55,23 @@ impl Libp2pNetwork {
                 })?;
         PeerRecordReceiver::initialize(&config.peer_record_receiver, keypair, template)
     }
+    /// Upgrade an existing receiver ledger to V2Only without starting networking.
+    /// Repeating this action recovers the same interrupted transaction.
+    pub fn upgrade_peer_record_receiver(config: &Libp2pNetworkConfig) -> Result<(), WorldError> {
+        let keypair =
+            config
+                .keypair
+                .as_ref()
+                .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                    protocol: "receiver upgrade requires a stable configured keypair".into(),
+                })?;
+        let template =
+            config
+                .peer_record
+                .as_ref()
+                .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                    protocol: "receiver upgrade requires a configured peer-record template".into(),
+                })?;
+        PeerRecordReceiver::upgrade_to_v2_only(&config.peer_record_receiver, keypair, template)
+    }
 }

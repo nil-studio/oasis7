@@ -290,6 +290,16 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本切片目标为显�
 
 验证必须覆盖真实 host→node→net 的独立接收配置、TCP/DHT 接收后重启拒绝低序号与 V1、同序号冲突后缓存／转发／排队拨号失效、原件丢失／损坏／绑定／重复实例、容量拒绝与既有 peer 正向升序，以及持久提交失败不暴露新候选。纯 helper 测试不代替上述生产路径。
 
+### 原账本接收策略显式升级
+
+Trace refs：O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；#5507。
+
+标准 development host 使用 `--p2p-peer-record-reception v2_only --upgrade-peer-record-receiver` 明确执行一次升级／恢复，然后退出，不启动网络或 World，也不创建 publisher。它不持久化到普通运行配置，不与初始化、Withdraw/Resume 共用一次命令。仅允许已有 DurableCompatible 账本到 V2Only；已达目标的重复命令不写入。空目录、Legacy、错误身份／域、旧配置及并发写者保持拒绝，formal/guarded host 不新增模式。
+
+事务先取得原 receiver 文件锁并核对锁路径、private filesystem、ready、canonical ledger、身份／域和所有签名 floor。原账本的签名原件、floor、V1 退休、冲突隔离与 tombstone 不变，只改变 mode。转换记录版本为 3，绑定原身份／域与源、目标 canonical CBOR 的 BLAKE3 摘要；复用 `initializing.cbor` 及其临时文件作为阻断标记，使旧 reader／initializer 也拒绝未知转换。写入次序为转换记录落盘并同步目录、原 state 原子替换并回读与同步目录、移除转换记录并同步目录。未完成时普通启动失败关闭，必须重复同一显式命令恢复。
+
+恢复从原 state 或已替换的目标 state 重建两侧 canonical 图像并逐字核对转换记录；只删除与本次目标严格前缀一致的 torn temp，再继续同一替换。无转换记录的普通 ingress 未知写入、混杂记录、错误摘要或非匹配临时文件保留并诊断，不清空、不回宽松 default。现有 1,024 floors、64 MiB ledger、16 KiB signed record 与 TTL 边界不变；GC、可信时间和既有认证会话撤销不在本次升级范围内。
+
 <a id="discovery-record-admission-budget"></a>
 ### 本进程 peer-record 准入预算
 

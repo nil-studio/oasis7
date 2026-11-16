@@ -122,6 +122,8 @@ mod formal_live_service;
 pub(crate) use formal_bft_read_cli::{
     run_until_shutdown as run_formal_bft_read_cli_until_shutdown, tests::install_handoff_for_test,
 };
+#[path = "host/cognition_authority_diagnostic.rs"]
+mod cognition_authority_diagnostic;
 #[path = "host/gameplay_submit_api.rs"]
 mod gameplay_submit_api;
 #[path = "host/governance_registry.rs"]
@@ -160,10 +162,10 @@ mod node_points_runtime_closure;
 mod p2p_status;
 #[path = "host/peer_record_cli.rs"]
 mod peer_record_cli;
-#[path = "host/preview_world_init.rs"]
-mod preview_world_init;
 #[path = "host/preview_world_history.rs"]
 mod preview_world_history;
+#[path = "host/preview_world_init.rs"]
+mod preview_world_init;
 #[path = "host/publication_lifecycle.rs"]
 mod publication_lifecycle;
 #[path = "host/publication_proof.rs"]
@@ -204,8 +206,6 @@ mod wasm_status;
 #[cfg(unix)]
 #[path = "host/world_initialization.rs"]
 mod world_initialization;
-#[path = "host/cognition_authority_diagnostic.rs"]
-mod cognition_authority_diagnostic;
 #[path = "host/world_service_api.rs"]
 mod world_service_api;
 #[path = "host/world_writer_lock.rs"]
@@ -429,7 +429,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
         apply_network_tier_manifest_defaults(&mut initialization_options);
         return initialize_default_peer_record_publication(&initialization_options);
     }
-    if options.initialize_peer_record_receiver {
+    if options.initialize_peer_record_receiver || options.upgrade_peer_record_receiver {
         let mut initialization_options = options;
         apply_network_tier_manifest_defaults(&mut initialization_options);
         return initialize_default_peer_record_receiver(&initialization_options);

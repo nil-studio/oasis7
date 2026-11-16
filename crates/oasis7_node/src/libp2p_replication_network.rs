@@ -268,6 +268,18 @@ impl Libp2pReplicationNetwork {
         })
     }
 
+    /// Explicitly upgrade/recover the existing receiver ledger without networking.
+    pub fn upgrade_peer_record_receiver(
+        config: &Libp2pReplicationNetworkConfig,
+    ) -> Result<(), WorldError> {
+        Libp2pNetwork::upgrade_peer_record_receiver(&Libp2pNetworkConfig {
+            keypair: config.keypair.clone(),
+            peer_record: config.peer_record.clone(),
+            peer_record_receiver: config.peer_record_receiver.clone(),
+            ..Libp2pNetworkConfig::default()
+        })
+    }
+
     pub fn peer_id(&self) -> PeerId {
         self.inner.peer_id()
     }

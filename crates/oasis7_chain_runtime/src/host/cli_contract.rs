@@ -145,6 +145,15 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         default: None,
     },
     OptionSpec {
+        name: "--upgrade-peer-record-receiver",
+        alias: None,
+        kind: OptionKind::Switch,
+        conflict: Some("--upgrade-peer-record-receiver"),
+        value: "",
+        description: "explicit durable-compatible to v2-only receiver upgrade/recovery; preserves the existing ledger and exits without runtime",
+        default: None,
+    },
+    OptionSpec {
         name: "--initialize-peer-record-receiver",
         alias: None,
         kind: OptionKind::Switch,

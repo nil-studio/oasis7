@@ -187,8 +187,14 @@ pub(super) fn initialize_default_peer_record_receiver(options: &CliOptions) -> R
         let mut network_config =
             build_default_peer_record_network_config(options, &root_keypair, &paths)?;
         network_config.peer_record_publication_directory = None;
-        Libp2pReplicationNetwork::initialize_peer_record_receiver(&network_config)
-            .map_err(|err| format!("failed to initialize durable peer-record receiver: {err:?}"))
+        if options.upgrade_peer_record_receiver {
+            Libp2pReplicationNetwork::upgrade_peer_record_receiver(&network_config)
+                .map_err(|err| format!("failed to upgrade durable peer-record receiver: {err:?}"))
+        } else {
+            Libp2pReplicationNetwork::initialize_peer_record_receiver(&network_config).map_err(
+                |err| format!("failed to initialize durable peer-record receiver: {err:?}"),
+            )
+        }
     }
 }
 

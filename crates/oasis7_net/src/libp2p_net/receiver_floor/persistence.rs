@@ -1,3 +1,6 @@
+mod upgrade;
+pub(super) use upgrade::upgrade_to_v2_only;
+
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};

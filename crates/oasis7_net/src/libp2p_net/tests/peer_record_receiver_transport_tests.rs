@@ -248,6 +248,15 @@ fn tcp_dht_receiver_persists_v2_floor_across_restart_and_allows_higher_sequence(
     );
 
     drop(receiver);
+    // The original durable replay floor remains the consumer after explicit upgrade.
+    let mut receiver_config = receiver_config;
+    receiver_config.peer_record_receiver.mode = PeerRecordReceiverMode::V2Only;
+    // Network shutdown may release the original receiver lock asynchronously.
+    wait_until(
+        "receiver policy upgrade after shutdown",
+        Instant::now() + Duration::from_secs(5),
+        || Libp2pNetwork::upgrade_peer_record_receiver(&receiver_config).is_ok(),
+    );
     let higher = signed_v2(&source_keypair, 3);
     store_and_verify_source_record(&source, &higher);
     let receiver = open_receiver(&receiver_config);

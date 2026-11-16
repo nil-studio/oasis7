@@ -550,3 +550,126 @@ fn directory_sync_failure_after_rename_poisons_memory_and_reopen_follows_disk_fl
     assert!(reopened.lease_guard(&next).is_ok());
     assert!(reopened.lease_guard(&old).is_err());
 }
+
+#[test]
+fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
+    for interrupted in [false, true] {
+        let fixture = fixture();
+        let receiver = open(&fixture);
+        let remote = Keypair::generate_ed25519();
+        let withdrawn = Keypair::generate_ed25519();
+        let conflicted = Keypair::generate_ed25519();
+        let legacy_key = Keypair::generate_ed25519();
+        let legacy = super::super::peer_record::sign_peer_record(
+            &record_body(&legacy_key, "legacy"),
+            &legacy_key,
+        )
+        .expect("legacy signature");
+        assert_eq!(
+            receiver.admit_serialized(&legacy).unwrap(),
+            ReceiverAdmission::Accepted
+        );
+        receiver
+            .admit_serialized(&signed(&remote, 7, "live"))
+            .unwrap();
+        let mut withdrawn_body = record_body(&withdrawn, "withdrawn");
+        withdrawn_body.direct_addrs.clear();
+        let tombstone = super::super::peer_record::sign_peer_record_v2(
+            &withdrawn_body,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence: 3,
+                state: PeerRecordPublicationStateV2::Tombstone,
+            },
+            &withdrawn,
+        )
+        .unwrap();
+        receiver.admit_serialized(&tombstone).unwrap();
+        receiver
+            .admit_serialized(&signed(&conflicted, 4, "first"))
+            .unwrap();
+        receiver
+            .admit_serialized(&signed(&conflicted, 4, "fork"))
+            .unwrap();
+        let before: ReceiverLedgerV2 =
+            serde_cbor::from_slice(&fs::read(state_path(&fixture)).unwrap()).unwrap();
+        let mut target = fixture.config.clone();
+        target.mode = PeerRecordReceiverMode::V2Only;
+        assert!(
+            PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+                .is_err(),
+            "live writer holds lock"
+        );
+        drop(receiver);
+        if interrupted {
+            use std::os::unix::fs::PermissionsExt;
+            #[derive(Serialize)]
+            struct Intent {
+                schema_version: u16,
+                binding: ReceiverBindingV2,
+                source_blake3: String,
+                target_blake3: String,
+            }
+            let mut target_ledger = before.clone();
+            target_ledger.mode = PeerRecordReceiverMode::V2Only;
+            let target_bytes = state_bytes(&target_ledger);
+            let intent = super::super::durable_peer_record_publisher::canonical_cbor(&Intent {
+                schema_version: 3,
+                binding: before.binding.clone(),
+                source_blake3: blake3::hash(&state_bytes(&before)).to_hex().to_string(),
+                target_blake3: blake3::hash(&target_bytes).to_hex().to_string(),
+            })
+            .unwrap();
+            let intent_path = fixture
+                .directory
+                .join("peer-record-receiver-v2.initializing.cbor");
+            fs::write(&intent_path, intent).unwrap();
+            fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
+            write_state(&fixture, &target_bytes);
+            assert!(
+                PeerRecordReceiver::open(&target, &fixture.local_key, Some(&fixture.template))
+                    .is_err()
+            );
+        }
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+            .unwrap();
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+            .unwrap();
+        let after: ReceiverLedgerV2 =
+            serde_cbor::from_slice(&fs::read(state_path(&fixture)).unwrap()).unwrap();
+        assert_eq!(before.binding, after.binding);
+        assert_eq!(
+            before.floors, after.floors,
+            "signed bytes and isolation remain exact"
+        );
+        assert_eq!(after.mode, PeerRecordReceiverMode::V2Only);
+        assert!(
+            PeerRecordReceiver::open(&fixture.config, &fixture.local_key, Some(&fixture.template))
+                .is_err()
+        );
+        let receiver =
+            PeerRecordReceiver::open(&target, &fixture.local_key, Some(&fixture.template)).unwrap();
+        assert!(receiver.admit_serialized(&legacy).is_err());
+        assert!(
+            receiver
+                .admit_serialized(&signed(&remote, 6, "regressed"))
+                .is_err()
+        );
+        assert!(
+            receiver
+                .admit_serialized(&signed(&withdrawn, 2, "stale-live"))
+                .is_err()
+        );
+        assert!(
+            receiver
+                .admit_serialized(&signed(&conflicted, 5, "higher"))
+                .is_err()
+        );
+        assert_eq!(
+            receiver
+                .admit_serialized(&signed(&remote, 8, "higher"))
+                .unwrap(),
+            ReceiverAdmission::Accepted
+        );
+    }
+}
