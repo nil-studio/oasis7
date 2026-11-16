@@ -21,7 +21,7 @@ does not claim complete resource-budget or formal network qualification. Initial
 packet parsing, OS buffers and Quinn endpoint bookkeeping remain outside this
 handshake ordering guarantee.
 
-Regression entry: `cargo test -p oasis7_net --test quic_inbound_admission`.
+Regression entry: `cargo test -p oasis7_net --lib quic_inbound_admission`.
 
 Compatibility detail: an Incoming::accept error is now returned by the specific
 listener upgrade as ConnectionError, rather than emitted as ListenerError. This
@@ -33,3 +33,7 @@ that the real pending-inbound policy produces IncomingConnectionError::Denied
 and the remote dial fails. Upgrade errors use the existing pool task mapping to
 PendingInboundConnectionError::Transport and Swarm ListenFailure /
 IncomingConnectionError; they do not terminate the listener.
+
+Regressions live in oasis7_net's library test target so existing net CI executes
+them. The wasm-builder manifest-only context also carries this root path patch;
+its metadata stub is not transport source qualification.

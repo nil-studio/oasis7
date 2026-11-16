@@ -15,18 +15,18 @@ for source in crates/oasis7_wasm_build/src/lib.rs tools/wasm_build_suite/src/mai
     exit 2
   }
 done
-for directory in crates tools vendor-if-watch-3.2.2 vendor-libp2p-swarm-0.48.0 vendor-libp2p-rendezvous-0.18.1; do
+for directory in crates tools vendor-if-watch-3.2.2 vendor-libp2p-swarm-0.48.0 vendor-libp2p-rendezvous-0.18.1 vendor-libp2p-quic-0.14.0; do
   [[ -d "$directory" && ! -L "$directory" ]] || {
     echo "error: missing real manifest directory: $directory" >&2
     exit 2
   }
 done
 # Neither metadata traversal nor generated targets may follow context links.
-links="$(find crates tools vendor-if-watch-3.2.2 vendor-libp2p-swarm-0.48.0 vendor-libp2p-rendezvous-0.18.1 -type l -print -quit)"
+links="$(find crates tools vendor-if-watch-3.2.2 vendor-libp2p-swarm-0.48.0 vendor-libp2p-rendezvous-0.18.1 vendor-libp2p-quic-0.14.0 -type l -print -quit)"
 [[ -z "$links" ]] || { echo 'error: symlink in builder context' >&2; exit 2; }
 manifest_list="$(mktemp)"
 trap 'rm -f -- "$manifest_list"' EXIT
-find crates tools vendor-if-watch-3.2.2 vendor-libp2p-swarm-0.48.0 vendor-libp2p-rendezvous-0.18.1 -type f -name Cargo.toml -print0 > "$manifest_list"
+find crates tools vendor-if-watch-3.2.2 vendor-libp2p-swarm-0.48.0 vendor-libp2p-rendezvous-0.18.1 vendor-libp2p-quic-0.14.0 -type f -name Cargo.toml -print0 > "$manifest_list"
 while IFS= read -r -d '' manifest; do
   case "$manifest" in
     crates/oasis7_wasm_build/*|tools/wasm_build_suite/*) continue ;;
