@@ -39,7 +39,7 @@ NON_SUCCESS_SCHEMA = 'non_success_global_v1'
 SUMMARY_RA_LIMIT = 49152
 SUMMARY_RA_SLOTS = 65536
 SUMMARY_RA_PROBES = 256
-SUMMARY_RA_BYTES = 4 * SUMMARY_RA_SLOTS + 36 * SUMMARY_RA_LIMIT
+SUMMARY_RA_BYTES = 2 * SUMMARY_RA_SLOTS + 36 * SUMMARY_RA_LIMIT
 SUMMARY_FIXED_RESERVE = 512 * 1024
 SUMMARY_CHUNK_CAP = 64 * 1024
 SUMMARY_WORK_CAP = NUMERIC_RESERVE - SUMMARY_RA_BYTES - SUMMARY_FIXED_RESERVE - SUMMARY_CHUNK_CAP
@@ -1298,7 +1298,8 @@ def _summary_lexical(data):
 class SummaryRA:
     """Fixed full-digest index; ordinals persist until the entire stream closes."""
     def __init__(self):
-        self.slots = bytearray(4 * SUMMARY_RA_SLOTS)
+        # Slots hold 0 or a 1-based index up to 49152, not the record ordinal.
+        self.slots = bytearray(2 * SUMMARY_RA_SLOTS)
         self.entries = bytearray(36 * SUMMARY_RA_LIMIT)
         self.count = 0
 
@@ -1308,13 +1309,13 @@ class SummaryRA:
     def first(self, digest, ordinal):
         slot = int.from_bytes(digest[:4], 'little') % SUMMARY_RA_SLOTS
         for probe in range(min(SUMMARY_RA_SLOTS, SUMMARY_RA_PROBES)):
-            index = struct.unpack_from('<I', self.slots, 4*slot)[0]
+            index = struct.unpack_from('<H', self.slots, 2*slot)[0]
             if not index:
                 if self.count >= SUMMARY_RA_LIMIT:
                     raise SummaryStateLimit('RA_CAPACITY', ra_count=self.count, ra_probes=probe+1)
                 struct.pack_into('<32sI', self.entries, 36*self.count, digest, ordinal)
                 self.count += 1
-                struct.pack_into('<I', self.slots, 4*slot, self.count)
+                struct.pack_into('<H', self.slots, 2*slot, self.count)
                 return ordinal, False
             offset = 36*(index-1)
             if self.entries[offset:offset+32] == digest:
