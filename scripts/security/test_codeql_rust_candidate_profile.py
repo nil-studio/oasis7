@@ -1206,6 +1206,96 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(report['unknown_shapes'],1)
         self.assertEqual(report['rankings']['official_millis'],[])
 
+    def test_validated_unknown_shape_keeps_safe_descriptor_without_admission(self):
+        # Public synthetic combination, not a reconstruction of the run 36 row.
+        unknown = self.row(isCached=False, completionType='SUCCESS')
+        report = self.project([self.row(), unknown, self.row()])
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual((report['records'], report['accepted_records'], report['unknown_shapes'],
+                          report['invalid_records']), (3, 2, 1, 0))
+        diagnostic = report['first_unknown_shape']
+        self.assertEqual(diagnostic, dict(status='CAPTURED', record=2,
+            record_sha256=hashlib.sha256(json.dumps(unknown).encode()).hexdigest(),
+            types={key:type(value).__name__ for key,value in unknown.items()},
+            enums=dict(evaluationStrategy='EXTENSIONAL', completionType='SUCCESS', isCached=False)))
+        self.assertEqual(diagnostic['record_sha256'], report['rejected_record_sha256'][0])
+        self.assertEqual({row['record'] for row in report['rankings']['official_millis']}, {1, 3})
+        self.assertEqual(report['distinct_ra_hashes'], 1)
+
+    def test_unknown_shape_diagnostic_absent_for_known_and_invalid_records(self):
+        good = self.project([self.row()])
+        self.assertEqual(good['status'], 'PROJECTED')
+        self.assertIsNone(good['first_unknown_shape'])
+        for invalid in (self.row(**{SYNTHETIC_CANARY: SYNTHETIC_CANARY}),
+                        self.row(isCached=SYNTHETIC_CANARY),
+                        self.row(pipelineRuns=[{SYNTHETIC_CANARY:SYNTHETIC_CANARY}])):
+            with self.subTest(fields=sorted(invalid)):
+                report = self.project([invalid])
+                self.assertEqual((report['unknown_shapes'], report['invalid_records']), (0, 1))
+                self.assertIsNone(report['first_unknown_shape'])
+
+    def test_many_unknown_shapes_keep_first_descriptor_and_existing_hash_cap(self):
+        unknowns = [self.row(isCached=False, raHash=f'{SYNTHETIC_CANARY}-{index}') for index in range(32)]
+        report = self.project(unknowns)
+        self.assertEqual((report['status'], report['unknown_shapes'], report['accepted_records']),
+                         ('PARTIAL', 32, 0))
+        self.assertEqual(len(report['rejected_record_sha256']), 16)
+        self.assertEqual(report['first_unknown_shape']['record'], 1)
+        self.assertEqual(report['first_unknown_shape']['record_sha256'],
+                         hashlib.sha256(json.dumps(unknowns[0]).encode()).hexdigest())
+        self.assertEqual(report['distinct_ra_hashes'], 0)
+        self.assertTrue(all(not rows for rows in report['rankings'].values()))
+
+    def test_unknown_shape_diagnostic_bounds_all_fields_without_retaining_values(self):
+        diagnostics = []
+        for repetitions in (1, 200):
+            text = SYNTHETIC_CANARY*repetitions
+            value = self.row(position=text, raHash=text, predicateName=text,
+                queryCausingWork=text, appearsAs={text:{text:[0]}}, dependencies={text:text},
+                ra={text:[text]}, pipelineRuns=[dict(raReference=text, exceptionName=text)],
+                predicateIterationMillis=[1, -1], deltaSizes=[1, -1], mainHash=text,
+                layerSize=1, sentinelRaHash=text, exceptionName=text,
+                completionType='SUCCESS', isCached=False)
+            report = self.project([value])
+            diagnostic = report['first_unknown_shape']
+            self.assertEqual(set(diagnostic['types']), set(profile.FIELD_TYPES))
+            encoded = json.dumps(diagnostic, separators=(',', ':')).encode()
+            self.assertLessEqual(len(encoded), 2048)
+            diagnostics.append(diagnostic)
+        self.assertNotEqual(diagnostics[0]['record_sha256'], diagnostics[1]['record_sha256'])
+        for diagnostic in diagnostics: del diagnostic['record_sha256']
+        self.assertEqual(diagnostics[0], diagnostics[1])
+
+    def test_unknown_shape_diagnostic_capacity_failure_preserves_rejection(self):
+        with patch.object(profile, 'SUMMARY_ROW_CAP', 1):
+            report = self.project([self.row(isCached=False), self.row(isCached=True)])
+        self.assertEqual(report['first_unknown_shape'],
+                         dict(status='UNAVAILABLE', reason='DIAGNOSTIC_LIMIT'))
+        self.assertEqual((report['status'], report['unknown_shapes'], report['invalid_records']),
+                         ('PARTIAL', 2, 0))
+        self.assertIsNone(report['first_state_limit'])
+        self.assertIsNone(report['feed_failure'])
+        self.assertEqual(report['accepted_records'], 0)
+
+    def test_unknown_shape_diagnostic_construction_failure_preserves_first_rejection(self):
+        observer = profile.Summary([QUERY])
+        header = dict(summaryLogVersion='0.4.0', codeqlVersion='2.27.4', startTime='now')
+        observer.feed('stdout', json.dumps(header).encode()+b'\n')
+        data = json.dumps(self.row(isCached=False)).encode()+b'\n'
+        with patch.object(profile.json, 'dumps', side_effect=RuntimeError(SYNTHETIC_CANARY)):
+            self.assertEqual(observer.feed('stdout', data), b'')
+        observer.feed('stdout', data, final=True)
+        observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        self.assertEqual(report['first_unknown_shape'],
+                         dict(status='UNAVAILABLE', reason='DIAGNOSTIC_ERROR'))
+        self.assertEqual((report['status'], report['unknown_shapes'], report['invalid_records']),
+                         ('PARTIAL', 2, 0))
+        self.assertIsNone(report['first_state_limit'])
+        self.assertIsNone(report['feed_failure'])
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+        self.assertIs(report, observer.summary())
+
     def test_missing_footer_stderr_and_unobserved_null_delta_are_partial(self):
         report=self.project([self.row()],stderr=b'ERROR: Reached end of log file before footer was found.\n')
         self.assertEqual(report['status'],'PARTIAL');self.assertTrue(report['input_footer_missing'])
