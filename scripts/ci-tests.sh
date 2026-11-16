@@ -260,6 +260,23 @@ run_oasis7_required_tier_tests() {
   else
     run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
   fi
+  # The IWS Rule carrier has no ordinary bundle target. Its package-wide
+  # execution belongs only to controls (or the unpartitioned local path).
+  # Native artifact partitions retain their Cargo-free consumer contract.
+  case "${ordinary_partition:-all}" in
+    controls|all)
+      if [[ -n "${required_plan:-}" ]]; then
+        local iws_rule_selection
+        iws_rule_selection=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+          --plan "$required_plan" --phase iws-rule-core) || return
+        case "$iws_rule_selection" in
+          run) run_oasis7_iws_rule_core_tests || return ;;
+          skip) ;;
+          *) echo 'Invalid IWS Rule test selection' >&2; return 2 ;;
+        esac
+      fi
+      ;;
+  esac
   if [[ "${ordinary_partition:-}" == controls ]]; then return; fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
     run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
@@ -338,6 +355,16 @@ run_oasis7_full_tier_tests() {
   run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
 }
 
+run_oasis7_iws_rule_core_tests() {
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:aarch64) ;;
+    *) echo 'IWS Rule/Wasm integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
+  esac
+  # Both features are required; a default Cargo run executes none of the cases.
+  run_cargo test --locked -p oasis7_runtime_iws_tests --test iws_rule_core --no-default-features \
+    --features test-support,wasmtime -- --test-threads=1
+}
+
 run_oasis7_iws_host_native_tests() {
   # This target needs real Linux descriptors, sealed FDs and a same-build ELF.
   # An explicitly requested unsupported target must not report zero-test success.
@@ -345,6 +372,7 @@ run_oasis7_iws_host_native_tests() {
     Linux:x86_64|Linux:aarch64) ;;
     *) echo 'IWS native Host integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
   esac
+  run_oasis7_iws_rule_core_tests || return
   run_cargo test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features \
     --features iws-host-native-test-support -- --test-threads=1
 }

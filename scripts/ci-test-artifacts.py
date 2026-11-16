@@ -699,6 +699,22 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
+    if phase == 'iws-rule-core':
+        selected = fast_plan(plan)
+        if selected is None:
+            return ['skip']
+        # This separate consumer is absent from the ordinary artifact inventory.
+        # Exact fast targets keep their original coverage and defer it to full.
+        required_packages(selected)
+        if ordinary_fast_targets(selected) is not None:
+            return ['skip']
+        affected = selected.get('affected_packages', [])
+        if (not isinstance(affected, list)
+                or any(not isinstance(package, str)
+                       or re.fullmatch(r'[A-Za-z0-9_-]+', package) is None for package in affected)
+                or len(affected) != len(set(affected))):
+            raise ValueError('invalid affected package inventory for IWS Rule tests')
+        return ['run' if 'oasis7_runtime_iws_tests' in affected else 'skip']
     if phase == 'distfs-industry':
         targets = ordinary_fast_targets(plan)
         selected = targets is None or any(
@@ -3436,7 +3452,7 @@ def main():
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact execution owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'partition'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'distfs-industry', 'iws-rule-core', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
