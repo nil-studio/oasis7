@@ -1,12 +1,12 @@
 # IWS 转账 Rule 的真实候选构建原件
 
-本目录保存 `m1.rule.transfer` 的 WASM、metadata 与 receipt4 三件原件，供 Linux 的真实 governed GEN → 双端接受 → Host 驻留集成用例使用。它们来自 [WasmDeterminism run 43803744773](https://github.com/nil-studio/oasis7/actions/runs/43803744773) 的 M1 producer artifact `14198035884`；该次执行生成的 37 组三件原件也用于本分支的 candidate baseline。
+本目录保存 `m1.rule.transfer` 的 WASM、metadata 与 receipt4 三件原件，供 Linux 的真实 governed GEN → 双端接受 → Host 驻留集成用例使用。它们来自 [WasmDeterminism run 43876028218](https://github.com/nil-studio/oasis7/actions/runs/43876028218) 的 M1 producer artifact `14231660825`（源码 head `8762211743c3a693bbc4fb7d3b11e1474c8a6372`）；该次执行生成的 37 组三件原件也用于本分支的 candidate baseline。
 
 | 原件 | 字节数 | SHA-256 |
 | --- | ---: | --- |
 | `m1.rule.transfer.wasm` | 407277 | `4db769768e3bde644cc2e34d65ae61c8ab2776b678541cfe5ddd15b467e6a504` |
-| `m1.rule.transfer.metadata.json` | 7811 | `08521e501c7d33f7151bc823e89ed0d47dc05760566f1b29ad91c32ec174c74a` |
-| `m1.rule.transfer.build-receipt.json` | 7763 | `f031f83118d0bd1d01da1984a6d23f14d25e064c241ce1031a3dc93304c2e8a8` |
+| `m1.rule.transfer.metadata.json` | 7811 | `e8f60a5a9460fe091093b7356997465fe93ce1d91dbadc60ecc8b3c192270509` |
+| `m1.rule.transfer.build-receipt.json` | 7763 | `05c4a1644974340761b972274cdb5534c58adda07246da096823c4aad7a9f776` |
 
 这些文件的 purpose 保持 `candidate-build`，不赋予 builtin release 资格。测试在自己的初始 World 中，通过真实提案、shadow、approve、apply 路径安装它；不会修改被冻结的 release 六文件、伪造 worker 或替换为 WAT stub。fixture 的专用签名只表达这个测试 World 的治理授权。
 

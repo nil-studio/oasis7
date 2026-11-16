@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "recorded_at_unix_ms": 1794803220097,
+  "recorded_at_unix_ms": 1794835968295,
   "module_id": "m1.rule.transfer",
   "target": "wasm32-unknown-unknown",
   "profile": "release",
@@ -47,7 +47,7 @@
     }
   ],
   "source_hash": "8d40f8fc9deba132b3c722c3fa3328a27113042b03a591c9e8ed3c27c06a6e93",
-  "build_manifest_hash": "749b024f2d5c1da248531549430240d23a58c1dc3b0dbec2d114ea56f916fe90",
+  "build_manifest_hash": "d957c3f35972752b1599cd0bc61a9e9f9cb53bc00711c1d5adbd33585e291734",
   "canonicalizer_version": "strip-custom-sections-v1",
   "container_platform": "linux-x86_64",
   "purpose": "candidate-build",
@@ -55,7 +55,7 @@
   "builder_recipe": {
     "recipe_schema_version": 1,
     "kind": "producer-content",
-    "producer_recipe_hash": "bf144131f420567d414117608dc9cfc7f09ae782555adf42802347a096f58ec1",
+    "producer_recipe_hash": "e356185267736f8f44e9c3c9446719a0d237c9631a79daf26c9f2f873c3c4ee7",
     "arguments": [
       {
         "name": "GUEST_CARGO_BUILD_JOBS",
@@ -87,7 +87,7 @@
       {
         "kind": "source-file",
         "path": "Cargo.lock",
-        "sha256": "dda285cd037be08055ee9ad60ee26b394e30a257a3e12e347fe091fa01a351a4"
+        "sha256": "168c3fdaca06babe35bbc463f8408fe98de788a97c485da7f897ab61fd3ff05a"
       },
       {
         "kind": "source-file",
@@ -194,15 +194,15 @@
   "builder_execution": {
     "execution_schema_version": 1,
     "kind": "local-docker-build",
-    "image_ref": "oasis7/wasm-builder:candidate-bf144131f420567d414117608dc9cfc7f09ae782555adf42802347a096f58ec1",
-    "image_id": "sha256:c5ef63537441bd1051e302715e716c6536684a4a351cca77d6ab851541a03c37",
+    "image_ref": "oasis7/wasm-builder:candidate-e356185267736f8f44e9c3c9446719a0d237c9631a79daf26c9f2f873c3c4ee7",
+    "image_id": "sha256:8875de58c7c2040e5c4b8e5cf2ab96b3dc8a6d9306330a1a83012679af98e575",
     "docker_platform": "linux/amd64"
   },
   "build_timing": {
-    "total_build_wall_ms": 22483,
-    "cargo_build_ms": 22132,
+    "total_build_wall_ms": 29547,
+    "cargo_build_ms": 29206,
     "canonicalize_ms": 0,
-    "hash_ms": 64,
+    "hash_ms": 84,
     "receipt_write_ms": 0,
     "metadata_write_ms": 0
   },
