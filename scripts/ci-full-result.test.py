@@ -217,6 +217,28 @@ class DefinitionDigest(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             module.definition_digest(self.root, self.commit())
 
+    def test_workerd_capture_implementation_and_real_contract_fixtures_bind_the_definition(self):
+        paths = ('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
+                 'scripts/ci-custody-workerd-gdb-contracts.py', self.CONTRACT)
+        for path in paths:
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('# initial debugger contract\n')
+        self.config['python_control_contracts'][paths[0]] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        for path in paths:
+            with self.subTest(path=path):
+                (self.root / path).write_text('# original contract for ' + path + '\n')
+                self.assert_rejects_previous_definition(path)
+
+    def test_registered_workerd_capture_fails_when_driver_or_fixture_is_absent(self):
+        self.config['python_control_contracts']['scripts/ci-custody-workerd-capture.py'] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+
     def test_invalid_trusted_contract_paths_fail_before_reading_unowned_data(self):
         for path in ('../outside.test.py', '/tmp/outside.test.py', 'scripts/*.test.py',
                      'scripts/../outside.test.py', 'scripts/ordinary.py'):

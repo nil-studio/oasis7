@@ -2,6 +2,7 @@
 """Bind complete custody build outputs and Node file shards to one selected run."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,11 @@ import subprocess
 import tomllib
 
 from ci_process_runner import run
+
+CAPTURE_SPEC = importlib.util.spec_from_file_location(
+    'workerd_capture', Path(__file__).with_name('ci-custody-workerd-capture.py'))
+workerd_capture = importlib.util.module_from_spec(CAPTURE_SPEC)
+CAPTURE_SPEC.loader.exec_module(workerd_capture)
 
 WORKER = Path('crates/oasis7_custody_worker')
 COMPONENTS = ('native', 'wasm-production', 'wasm-approval')
@@ -325,7 +331,7 @@ def tap_summary(text, filename):
     return values
 
 
-def execute(root, plan, shard, results, run_id, attempt):
+def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
     context = identity(root, plan, run_id)
     positive_attempt(attempt)
     if type(shard) is not int or shard not in SHARDS:
@@ -337,19 +343,32 @@ def execute(root, plan, shard, results, run_id, attempt):
     receipts = []
     for filename in files:
         log = results / (filename + '.log')
+        command = ['node', '--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/' + filename]
+        environment = os.environ.copy()
+        capture = None
+        if capture_workerd and filename == workerd_capture.TEST_FILE:
+            capture, command, environment = workerd_capture.prepare(
+                root, results, environment, context, attempt, command)
         with log.open('w') as stream:
-            result = run(['node', '--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/' + filename],
-                         root / WORKER, os.environ.copy(), 'custody', filename, results / 'processes.jsonl',
+            result = run(command, root / WORKER, environment, 'custody', filename, results / 'processes.jsonl',
                          timeout_seconds=2400, log_stream=stream)
+        capture_passed = True
+        if capture is not None:
+            try:
+                capture_passed = workerd_capture.finish(capture, context, attempt, result['passed'])['passed']
+            except (OSError, ValueError):
+                capture_passed = False
         if not result['passed']:
             raise ValueError(f'custody Node file failed: {filename}')
+        if not capture_passed:
+            raise ValueError('workerd capture failed, was incomplete, or observed a runtime restart/failure')
         receipts.append(dict(file=filename, counts=tap_summary(log.read_text(), filename),
                              process=result))
     (results / 'result.json').write_text(json.dumps(dict(schema=SCHEMA, context=context, shard=shard,
         consumer_attempt=attempt, files=receipts), sort_keys=True) + '\n')
 
 
-def validate_results(root, plan, paths, run_id, attempt):
+def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False):
     context = identity(root, plan, run_id)
     positive_attempt(attempt)
     batches = partition(context['tests'])
@@ -366,6 +385,9 @@ def validate_results(root, plan, paths, run_id, attempt):
         if not isinstance(rows, list) or [row.get('file') for row in rows] != batches[shard]:
             raise ValueError('missing or duplicate custody test files')
         for row in rows:
+            capture = path.parent / 'workerd-fault'
+            if row['file'] == workerd_capture.TEST_FILE and (capture_workerd or capture.exists()):
+                workerd_capture.validate(capture, context, producer)
             counts = row.get('counts', {})
             if any(type(value) is not int for value in counts.values()):
                 raise ValueError('invalid Node counts')
@@ -414,6 +436,8 @@ def main():
     parser.add_argument('--shard', type=int)
     parser.add_argument('--results', type=Path)
     parser.add_argument('--needs')
+    parser.add_argument('--capture-workerd-faults', action='store_true',
+                        help='Observe the original client-abuse Node process tree with standard GDB')
     args = parser.parse_args()
     root, plan = args.repo_root.resolve(), load(args.plan)
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
@@ -438,14 +462,15 @@ def main():
     elif args.action == 'run':
         if args.results is None:
             parser.error('run needs --results')
-        execute(root, plan, args.shard, args.results, args.run_id, args.attempt)
+        execute(root, plan, args.shard, args.results, args.run_id, args.attempt, args.capture_workerd_faults)
     else:
         if args.needs is None:
             parser.error('validate needs --needs')
         if validate_jobs(plan, json.loads(args.needs)):
             if args.results is None:
                 parser.error('split validation needs --results')
-            validate_results(root, plan, list(args.results.glob('*/result.json')), args.run_id, args.attempt)
+            validate_results(root, plan, list(args.results.glob('*/result.json')), args.run_id, args.attempt,
+                             args.capture_workerd_faults)
 
 
 if __name__ == '__main__':
