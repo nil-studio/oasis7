@@ -31,23 +31,42 @@ test('real Rust Wasm auth, metadata and pre-network durable budget survive resta
  }finally{await mf.dispose();rmSync(persist,{recursive:true,force:true});}
 });
 test('real Rust auth-hop deadline retains charged admission and never sends control POST',{timeout:60000},async()=>{
- const persist=mkdtempSync(resolve(tmpdir(),'oasis7-worker-deadline-'));let posts=0,gets=0,capabilityGets=0;
- const config=JSON.parse(policy);config.timeout_ms=100;config.max_calls=1;
- const mf=new Miniflare({...convertV4MiniflareOptions({name:'dev-test-deadline',modules:[{type:'ESModule',path:resolve(root,'build/entry.mjs')},{type:'ESModule',path:resolve(root,'build/index.js')},{type:'CompiledWasm',path:resolve(root,'build/index_bg.wasm')}],modulesRoot:root,compatibilityDate:'2026-10-25',cf:false,durableObjects:{DEV_TEST_ACCOUNTS:{className:'DevTestAccounts',useSQLite:true}},bindings:{DEV_TEST_POLICY:JSON.stringify(config),DEV_TEST_TOKEN:token,DEV_TEST_STATE_KEK:'18'.repeat(32),DEV_TEST_MATERIAL:JSON.stringify({executor_seed:'17'.repeat(32),identity_cookie:'__Host-oasis7_sid=private'})},outboundService:async request=>{
+ const persist=mkdtempSync(resolve(tmpdir(),'oasis7-worker-deadline-'));let posts=0,gets=0,capabilityGets=0;const hops=[];
+ const config=JSON.parse(policy);config.timeout_ms=10000;config.max_calls=1;
+ // Only this Miniflare instance loads the clock shim. Rust/Wasm, durable SQL,
+ // encryption and nativeHttp remain real; advance 4s at each authentication response. Each hop is within the 10s
+ // budget but the third crosses the original deadline; no cold-runner race.
+ const entry=readFileSync(resolve(root,'build/entry.mjs'),'utf8');
+ const clockEntry=`
+ const realNow=Date.now.bind(Date);let clock;
+ Date.now=()=>clock ??= realNow();
+ const realFetch=globalThis.fetch.bind(globalThis);
+ globalThis.fetch=async (...args)=>{
+  const response=await realFetch(...args);
+  const input=args[0];const url=typeof input==='string'?input:input.url;
+  if(['/api/public/hosted-account/v2/session','/api/public/hosted-account/v2/capabilities'].includes(new URL(url).pathname))clock=Date.now()+4000;
+  return response;
+ };
+ ${entry}`;
+ const mf=new Miniflare({...convertV4MiniflareOptions({name:'dev-test-deadline',modules:[{type:'ESModule',path:resolve(root,'build/entry.mjs'),contents:clockEntry},{type:'ESModule',path:resolve(root,'build/index.js')},{type:'CompiledWasm',path:resolve(root,'build/index_bg.wasm')}],modulesRoot:root,compatibilityDate:'2026-10-25',cf:false,durableObjects:{DEV_TEST_ACCOUNTS:{className:'DevTestAccounts',useSQLite:true}},bindings:{DEV_TEST_POLICY:JSON.stringify(config),DEV_TEST_TOKEN:token,DEV_TEST_STATE_KEK:'18'.repeat(32),DEV_TEST_MATERIAL:JSON.stringify({executor_seed:'17'.repeat(32),identity_cookie:'__Host-oasis7_sid=private'})},outboundService:async request=>{
   const path=new URL(request.url).pathname;
   if(request.method==='POST'){posts++;return Response.json({unexpected:true});}
-  gets++;
+  gets++;hops.push(path);
   if(path==='/api/public/hosted-account/v2/session')return Response.json({account:{account_id:'identity'}});
   assert.equal(path,'/api/public/hosted-account/v2/capabilities');capabilityGets++;
-  await new Promise(r=>setTimeout(r,150));
   return Response.json({csrf_token:'19'.repeat(32)});
  }}),resourcePersistencePath:persist,unsafeDevRegistryPath:resolve(persist,'registry')});
  try{
   const open=await(await mcp(mf,'tools/call',{name:'dev_test_accounts_call',arguments:{method:'open',grant_ref:'grant',expires_at_unix:4102444700}})).json();
-  assert.equal(open.result.structuredContent.status,'unavailable');
-  assert.ok(gets>=3,'must exercise native authentication across both hops');
-  assert.equal(capabilityGets,1);
-  assert.ok(['native_outcome_unknown','native_deadline_unknown'].includes(open.result.structuredContent.code));
+  const diagnostic=JSON.stringify({gets,capabilityGets,posts,hops,result:open.result.structuredContent});
+  assert.equal(open.result.structuredContent.status,'unavailable',diagnostic);
+  assert.deepEqual(hops,[
+   '/api/public/hosted-account/v2/session',
+   '/api/public/hosted-account/v2/session',
+   '/api/public/hosted-account/v2/capabilities',
+  ],diagnostic);
+  assert.equal(capabilityGets,1,diagnostic);
+  assert.ok(['native_outcome_unknown','native_deadline_unknown'].includes(open.result.structuredContent.code),diagnostic);
   assert.equal(posts,0,'deadline across authentication cannot create control POST');
   const again=await(await mcp(mf,'tools/call',{name:'dev_test_accounts_call',arguments:{method:'open',grant_ref:'grant',expires_at_unix:4102444700}})).json();
   assert.equal(again.result.structuredContent.code,'call_limit_exhausted');
