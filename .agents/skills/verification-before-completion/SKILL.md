@@ -13,7 +13,7 @@ description: Use when reporting oasis7 verification or completion.
 
 问题修复的自检按[设计检查与修复](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对根因及设计判断：设计缺陷已先修正文档，实现与回归符合正确约定；纯实现 bug 能说明设计依据且已完成修复验证。没有设计缺陷不要求文档 diff，未确认的设计缺口不能用测试通过代替澄清；不另造完成证书。
 
-报告 ready 前检查适用评审及阻断项，报告代码完成前确认 PR 已实际 merged，并核对提交。明确的部署、多 PR 和管理义务尚未完成时列出剩余工作。
+按本次约定的交付终点报告状态。`implementation:ready` 表示具备实施条件且尚未确认领取；交付可评审 PR 时注明是否已合入；报告“可合入”前检查当前候选的必要 CI、适用评审及阻断项；报告“已合入的代码交付”前确认 PR 已实际 merged，并核对提交。明确的部署、多 PR 和管理义务尚未完成时列出剩余工作，不以本轮请求完成代替父目标完成。
 
 ## 按消费者给出验证结论
 

@@ -50,9 +50,9 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 
 从父目标组织可用模块增量、逐步细化近期任务和判断拆分收益，统一按[项目拆解](workflow/source-of-truth.md#project-decomposition)执行；模块增量使用父项现有正文，不增加必建的 Issue 层级。[独立开发会话](workflow/source-of-truth.md#independent-development-sessions)、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)同样由 workflow 定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接近期派工、早期真实消费检查、组合验收与收尾。直接开发会话与可选 TPM 使用同一[领取与状态维护规则](workflow/source-of-truth.md#coding-agent-task-claim)，现有 Issue/PR 模板承载必要安排和真实结果。
 
-[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)由 workflow 唯一定义：每项尽量不超过 30 个代码文件，Issue 的范围说明承载估算，实施和 PR 评审结合实际 diff 及关联批次复核累计规模。超过时优先评估拆分收益，必要的完整改动可保留并在原说明中写清原因；模板、技能、TPM 和 dot 引用同一口径，文件数不作为 ready、停工、合入或 CI 的硬门槛，也不新增豁免审批。
+[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)和[范围变化的处置](workflow/source-of-truth.md#task-scope-change)由 workflow 唯一定义。Issue/PR 承载范围、依赖、验收及交付终点的实际变化；模板、技能、TPM 和 dot 只保留执行所需摘要与引用，完整保留适用条件。必要联动、独立结果、非阻断建议及执行缺口沿同一规则判断归属，代码文件数继续作为规模建议。
 
-修改这些载体时，走读简单任务直接实施、后续范围未细化而当前批次就绪、同一业务的底层步骤留在原任务、共享接口早期检查、多个开发会话及可选 TPM、原会话修复与中断恢复；核对父子领取、写入隔离、共享预算、局部/整体验收和待集成成果优先收尾。任务规模走读超过 30 个但有必要完整联动、适合独立拆分、跨 PR 并集、测试及生成代码计数和归并后的范围判断，确认数量建议不会变成硬门禁或导致遗漏验收。共同准备结果分别检查仍有效、输入或环境变化及覆盖不足；等待信号从已有记录取得，缺时刻不补造。专项试玩与 dot 时间表沿原规则执行，运行适用文档检查。静态验收只证明规则和入口一致；首次可用结果、接口返工、评审/集成等待和必要重构建次数的改善仍需实际任务数据，不新增固定效率报表或门禁。治理复盘复用已有来源，专题明确的周期义务仍由其主责要求拥有。
+修改这些载体时，按本次影响选择代表场景走读，核对简单任务直接实施、纯工程要求来源、已有回归复用、约定交付终点、必要联动与独立发现的归属；涉及拆分或并行时，再核对当前批次、共享接口早期检查、原会话修复与中断恢复；核对父子领取、写入隔离、共享预算、局部/整体验收和待集成成果优先收尾。任务规模走读超过 30 个但有必要完整联动、适合独立拆分、跨 PR 并集、测试及生成代码计数和归并后的范围判断，确认数量建议不会变成硬门禁或导致遗漏验收。共同准备结果分别检查仍有效、输入或环境变化及覆盖不足；等待信号从已有记录取得，缺时刻不补造。专项试玩与 dot 时间表沿原规则执行，运行适用文档检查。静态验收只证明规则和入口一致；首次可用结果、接口返工、评审/集成等待和必要重构建次数的改善仍需实际任务数据，不新增固定效率报表或门禁。治理复盘复用已有来源，专题明确的周期义务仍由其主责要求拥有。
 
 #### Viewer 试点与有限走读
 
@@ -64,7 +64,7 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 | 修改一个 Rust 包的内部函数 | 领域设计、实际调用方、Rust 工程合同、所属 target/feature 与现有回归 | 定向 canonical 测试及真实反向消费者，保留 CI planner 的必要范围；同包不同 tuple 不误去重，不从本地局部通过推断 required 全绿 |
 | 修改 Viewer 的跨边界交互 | Viewer 短导航、准确产品/控制面设计、真实前端与协议消费者、S6 | component/协议回归与适用真实浏览器分别选择；状态/权限/世界效果按领域承接，fixture 不代签真实世界 |
 
-以上是导航方案的静态验收，不执行所举业务修改，也不伪造 Rust 或浏览器运行结果。当前 PR 记录固定版本、失效链接的修复、三类来源走读及遗漏；需要量化阅读成本或漏测改善时，使用 [evaluating-development-methods](../../.agents/skills/evaluating-development-methods/SKILL.md)的同条件有限比较，缺少可比样本时只保留静态结论。
+以上是导航方案的静态验收方法，不表示已执行所举业务修改或取得 Rust、浏览器运行结果。实际走读的版本、所选场景、结论与遗漏保留在对应 PR；需要量化阅读成本或漏测改善时，使用 [evaluating-development-methods](../../.agents/skills/evaluating-development-methods/SKILL.md)的同条件有限比较，缺少可比样本时只保留静态结论。
 
 风险是入口再次复制正文或调用方改变后导航失效；变更主责条款、代码路径或命令时由对应维护者同步直接引用。回退只恢复受影响导航和配对说明，不回退领域安全/验证合同；单次走读不足以证明全仓导航完整或开发效率提升。
 
