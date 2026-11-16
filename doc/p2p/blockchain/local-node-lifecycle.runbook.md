@@ -42,7 +42,7 @@ Init captures absolute paths and byte hashes for the manifest, genesis, registry
 
 Formal profiles use `oasis7.chain-config/v2` for `formal_public_observer_v1` and `oasis7.chain-config/v3` for `formal_full_state_sync_read_only_v1`. The chain owner supplies the World identity and genesis digest, service endpoint and service public key, an `InitialActivationTrustV1`, and a `FormalReadCheckpointV1` with its digest. These trust values must be pinned independently of the service response; a service-provided checkpoint or issuer key cannot establish its own authority.
 
-For the v3 full-state profile, `formal_full_sync` also fixes the expected role (`state_sync` or `full_read_only`), polling interval, request timeout, and total transfer budget. Set `grant` to `null` in the chain configuration used by `node init`: the node key does not exist until initialization completes. The node identity is local and does not change the World or its formal authority. Keep the chain configuration and the issuer trust material in a private, backed-up operator-controlled location.
+在现有 v3 完整状态同步 chain config 中，`formal_full_sync` 固定预期角色（`state_sync` 或 `full_read_only`）、轮询间隔、单请求 timeout 以及**按 digest 去重的材料预算**。`max_total_sync_bytes` 不是实际网络字节计数：一次 `sync_latest()` 在独立 pin 的不同 provider 之间共享这份材料预算和首个已验证目标。执行 `node init` 时 `grant` 必须为 `null`；初始化生成 node key 后再安装独立签名 grant。chain config 与 issuer 信任材料应保存在私有、已备份的运维存储中。
 
 The full-state service serves only the current qualified cut. It binds every manifest and object request to the World, exact position and record ID, state root, active and finalizing authorities, current authority epoch, node public key, role, and lease window. Objects are sent in bounded chunks. A client independently checks the record closure and retained-history paths, restores the World, and rereads the head before becoming ready. This is full state synchronization for a read-only node, not an archive guarantee or permission to read arbitrary historical private snapshots.
 
@@ -73,6 +73,14 @@ The grant file is a `FormalNodeReadGrantV1` signed by the issuer key in the inde
 `node full-sync-grant` is a stopped-only operation: the target instance must be `stopped` or `failed`, and no unresolved start intent may exist. It checks the issuer signature, node key, World, chain, role, externally pinned authority floor, time window, and grant generation before atomically replacing the private node config. A replacement grant must advance `grant_epoch`; a node already running must be stopped before installation. Preserve the grant only in private operator storage.
 
 Status reports `formal_full_state_sync`, `verified_sync_readiness`, `can_propose: false`, and the full-sync CAS/history paths. Wait for `verified_sync_readiness: "ready"`; a running process with a missing grant, expired lease, unavailable source, failed proof, or incomplete restore is not synchronized. The full-state node has no validator or proposal rights.
+
+[整次操作预算合同](../design.md#des-p2p-full-sync-operation-budget-v1)是待实现扩展。其版本入口固定为 `chain-config/v4`、内层 `formal-full-state-sync/v2` 与必填 `transfer_policy` V1、本地 `local-node/v4` 及 `formal-full-sync-status/v2`。现有配置和状态 V1 不提供持久传输账、跨进程 attempt 接续或整次 attempt 绝对期限；不得向旧 strict 配置添加新字段，也不能因为进程正在运行就推断它支持这份合同。
+
+支持该合同的 build 必须输出确切配置／状态版本和显式 operation policy。启动前记录固定 World/C0、node/role、原 minimum、材料上限、编码消息上限、交换／proof 上限、有限 attempt 次数、attempt timeout 及本地 reopen timeout。HTTP 编码计数覆盖传输计量点的完整签名 JSON 正文，不包括 HTTP headers/framing 或 TLS/TCP 开销；状态必须区分已知实际 bytes 与尚未结算的预留，并明确哪些维度不支持或未知。各 attempt 授权窗口总额不是耗时 SLO。
+
+中断后保留原 operation、cut、ledger、已验证 history 和 CAS/pins。当前有效 owner 开启下一 attempt 前须确认旧 attempt 的 I/O／worker 和占用已终止；新 owner 还须证明旧实例已经停止或受到合法 fencing。随后只恢复原本地事务，或在同一 operation、剩余次数与预算下开始合法的新 bounded attempt；未定预留继续占额度。不得删除 ledger、替换 grant/cut、选择旧 pointer 或清零预算来制造续传成功，陈旧或缺失账本也不能自动重建。不要用 wall clock 恢复旧单调 deadline。
+
+触限或到期后，先读取 typed blocker 和原状态，再按该合同决定后续动作。最后合法只读 cut 不等于当前服务资格；已提交 minimum 可能仍需完成其原已保存的本地安装，到期不授权回滚。缺原材料或累计额度耗尽时继续阻塞。checkpoint／授权到期依各自可信时间政策，不依本地 timeout；普通文件持久化仅证明本机崩溃恢复，不证明 custody 抗回滚或跨主机 fencing。原 grant、角色及私有传输要求继续适用。
 
 The issuer grant is bound to one exact authority epoch. After a legal recovery advances that epoch, obtain a new issuer-signed grant for the new epoch and install it while the node is stopped. An old-epoch grant cannot authorize the new current cut. A higher `grant_epoch` is only an install-time local ordering check: the source does not track a per-node grant high-water mark or revocation list. Reissuing a grant therefore does not immediately revoke a still-unexpired grant for the same node and authority epoch; that older signed lease may remain usable until its expiry, up to the 30-day maximum. Treat expiry as the revocation window.
 

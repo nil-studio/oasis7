@@ -120,6 +120,8 @@ ARCH-07 局部核对（2026-10-28，源码基线 `112a627e889cb0601ed368b2c0be20
 
 **实际部署核验：** 未验证正式 profile 激活、实际存储同步、故障域隔离、旧写者 fencing、备份可用性或恢复后的写服务。这些结论需要各自候选与环境证据，不能由代码数量汇总为完成率。
 
+同步资源与恢复（2026-11-16，目标设计）：[整次操作合同](../../../p2p/design.md#des-p2p-full-sync-operation-budget-v1)把原请求／固定 cut 的持久累计账与单次有界 attempt 分开，HTTP 计量覆盖编码正文而非网卡流量；未知传输预留不得在重开时归零。已提交 minimum 的原安装仍可恢复，新写入与当前服务资格继续受原门禁约束。受控 v2 与 wire 3 逐项映射，既有材料预算不代表新增期限／传输实现；后续由 [#5541](https://github.com/nil-studio/oasis7/issues/5541) 承接。
+
 正式激活、独立故障域恢复和人工交接的能力边界由对应专业合同持有。[#4363 的旧规划](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)仅作历史来源；该 Issue 已停止独立跟踪，不据此恢复执行义务。
 
 <a id="cc-architecture-world-policy-contracts"></a>
