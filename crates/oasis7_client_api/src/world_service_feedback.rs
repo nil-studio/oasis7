@@ -27,6 +27,8 @@ pub enum FeedbackHistoryWorkV1<'a> {
     Slots(usize),
     ActionId(u64),
 }
+type FeedbackMetadataRowsV1 = Vec<(FeedbackEnvelopeV1, String, String)>;
+
 impl WorldServiceFeedbackHistory {
     pub fn metadata(
         &self,
@@ -41,7 +43,7 @@ impl WorldServiceFeedbackHistory {
         &self,
         agent: &str,
         work: &mut impl FnMut(FeedbackHistoryWorkV1<'_>) -> Result<(), E>,
-    ) -> Result<Result<Vec<(FeedbackEnvelopeV1, String, String)>, String>, E> {
+    ) -> Result<Result<FeedbackMetadataRowsV1, String>, E> {
         fn note<E>(
             s: &str,
             work: &mut impl FnMut(FeedbackHistoryWorkV1<'_>) -> Result<(), E>,

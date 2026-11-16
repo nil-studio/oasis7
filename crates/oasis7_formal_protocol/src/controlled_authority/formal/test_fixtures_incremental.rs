@@ -113,97 +113,6 @@ pub fn setup_with_config_state_and_facts(
         extra_genesis_facts,
     )
 }
-#[cfg(test)]
-mod explicit_config_tests {
-    use super::*;
-    fn digest(value: &str) -> [u8; 32] {
-        hex::decode(value).unwrap().try_into().unwrap()
-    }
-    #[test]
-    fn explicit_fixture_keeps_legacy_config_and_signed_wire_identical() {
-        let old = setup();
-        let new = setup_with_config_and_state(
-            MemoryBudget::new(32 << 20, 4 << 20).unwrap(),
-            old.config.clone(),
-            old.roots.state.clone(),
-            FixtureExecutionArtifactRefsV1 {
-                manifest: digest(&old.certificate.body.runtime_manifest_digest),
-                wasm: [47; 32],
-                rules: [48; 32],
-                policy: digest(&old.certificate.body.execution_policy_digest),
-            },
-        );
-        assert_eq!(new.config, old.config);
-        assert_eq!(new.roots, old.roots);
-        assert_eq!(
-            new.history.body.canonical_bytes().unwrap(),
-            old.history.body.canonical_bytes().unwrap()
-        );
-        assert_eq!(
-            serde_json::to_vec(&new.certificate).unwrap(),
-            serde_json::to_vec(&old.certificate).unwrap()
-        );
-        assert_eq!(
-            serde_json::to_vec(&new.proof).unwrap(),
-            serde_json::to_vec(&old.proof).unwrap()
-        );
-    }
-    #[test]
-    fn explicit_fixture_signs_the_actual_config_scope_state_and_artifacts() {
-        let config = GenesisConfigV1 {
-            world_id: "explicit-new-format-world".into(),
-            format_profile: [81; 32],
-            initial_content: [82; 32],
-            activation_config: [83; 32],
-            execution_environment: [84; 32],
-        };
-        let scope = config.scope().unwrap();
-        let state = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config)
-            .unwrap()
-            .state;
-        let setup = setup_with_config_and_state(
-            MemoryBudget::new(32 << 20, 4 << 20).unwrap(),
-            config.clone(),
-            state.clone(),
-            FixtureExecutionArtifactRefsV1 {
-                manifest: [85; 32],
-                wasm: [86; 32],
-                rules: [87; 32],
-                policy: [88; 32],
-            },
-        );
-        assert_eq!(setup.config, config);
-        assert_eq!(setup.roots.state, state);
-        assert_eq!(setup.authority.definition().world.world_id, config.world_id);
-        assert_eq!(
-            setup.authority.definition().world.genesis_digest,
-            hex::encode(scope.genesis_config)
-        );
-        for role in [
-            ArtifactRole::NativeExecutionEnvironment,
-            ArtifactRole::IncrementalGenesisConfig,
-            ArtifactRole::IncrementalRootSet,
-        ] {
-            let expected = match role {
-                ArtifactRole::NativeExecutionEnvironment => config.execution_environment,
-                ArtifactRole::IncrementalGenesisConfig => scope.genesis_config,
-                _ => setup.roots.digest().unwrap(),
-            };
-            assert_eq!(
-                setup.commit.record().artifact_roots.get(&role),
-                Some(&hex::encode(expected))
-            );
-        }
-        assert_eq!(
-            setup.certificate.body.runtime_manifest_digest,
-            hex::encode([85; 32])
-        );
-        assert_eq!(
-            setup.certificate.body.execution_policy_digest,
-            hex::encode([88; 32])
-        );
-    }
-}
 fn setup_with_roots(
     memory: MemoryBudget,
     native: [u8; 32],
@@ -481,4 +390,96 @@ pub fn native_fixture() -> (
         },
         raw,
     )
+}
+
+#[cfg(test)]
+mod explicit_config_tests {
+    use super::*;
+    fn digest(value: &str) -> [u8; 32] {
+        hex::decode(value).unwrap().try_into().unwrap()
+    }
+    #[test]
+    fn explicit_fixture_keeps_legacy_config_and_signed_wire_identical() {
+        let old = setup();
+        let new = setup_with_config_and_state(
+            MemoryBudget::new(32 << 20, 4 << 20).unwrap(),
+            old.config.clone(),
+            old.roots.state.clone(),
+            FixtureExecutionArtifactRefsV1 {
+                manifest: digest(&old.certificate.body.runtime_manifest_digest),
+                wasm: [47; 32],
+                rules: [48; 32],
+                policy: digest(&old.certificate.body.execution_policy_digest),
+            },
+        );
+        assert_eq!(new.config, old.config);
+        assert_eq!(new.roots, old.roots);
+        assert_eq!(
+            new.history.body.canonical_bytes().unwrap(),
+            old.history.body.canonical_bytes().unwrap()
+        );
+        assert_eq!(
+            serde_json::to_vec(&new.certificate).unwrap(),
+            serde_json::to_vec(&old.certificate).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_vec(&new.proof).unwrap(),
+            serde_json::to_vec(&old.proof).unwrap()
+        );
+    }
+    #[test]
+    fn explicit_fixture_signs_the_actual_config_scope_state_and_artifacts() {
+        let config = GenesisConfigV1 {
+            world_id: "explicit-new-format-world".into(),
+            format_profile: [81; 32],
+            initial_content: [82; 32],
+            activation_config: [83; 32],
+            execution_environment: [84; 32],
+        };
+        let scope = config.scope().unwrap();
+        let state = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config)
+            .unwrap()
+            .state;
+        let setup = setup_with_config_and_state(
+            MemoryBudget::new(32 << 20, 4 << 20).unwrap(),
+            config.clone(),
+            state.clone(),
+            FixtureExecutionArtifactRefsV1 {
+                manifest: [85; 32],
+                wasm: [86; 32],
+                rules: [87; 32],
+                policy: [88; 32],
+            },
+        );
+        assert_eq!(setup.config, config);
+        assert_eq!(setup.roots.state, state);
+        assert_eq!(setup.authority.definition().world.world_id, config.world_id);
+        assert_eq!(
+            setup.authority.definition().world.genesis_digest,
+            hex::encode(scope.genesis_config)
+        );
+        for role in [
+            ArtifactRole::NativeExecutionEnvironment,
+            ArtifactRole::IncrementalGenesisConfig,
+            ArtifactRole::IncrementalRootSet,
+        ] {
+            let expected = match role {
+                ArtifactRole::NativeExecutionEnvironment => config.execution_environment,
+                ArtifactRole::IncrementalGenesisConfig => scope.genesis_config,
+                _ => setup.roots.digest().unwrap(),
+            };
+            assert_eq!(
+                setup.commit.record().artifact_roots.get(&role),
+                Some(&hex::encode(expected))
+            );
+        }
+        assert_eq!(
+            setup.certificate.body.runtime_manifest_digest,
+            hex::encode([85; 32])
+        );
+        assert_eq!(
+            setup.certificate.body.execution_policy_digest,
+            hex::encode([88; 32])
+        );
+    }
 }

@@ -16,12 +16,6 @@ pub(super) enum CatalogLeaf {
 }
 pub(super) struct CatalogCodec;
 
-pub(super) fn query_key(
-    scope: &WorldScopeV1,
-    query: CatalogQueryV1,
-) -> Result<[u8; 32], ExecutionError> {
-    query_key_with_work(scope, query, &mut |_, _| Ok(()))
-}
 pub(super) fn query_key_with_work(
     scope: &WorldScopeV1,
     query: CatalogQueryV1,

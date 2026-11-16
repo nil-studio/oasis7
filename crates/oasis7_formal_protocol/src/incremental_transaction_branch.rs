@@ -197,7 +197,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
                 facts.insert(
                     *index,
                     Fact {
-                        value: fact.value.clone(),
+                        value: fact.value,
                         _charge: fee,
                     },
                 );

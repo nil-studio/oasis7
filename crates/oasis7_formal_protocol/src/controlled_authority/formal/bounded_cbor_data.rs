@@ -427,84 +427,6 @@ impl Write for MeteredWrite<'_, '_, '_> {
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::super::bounded_context::FormalBoundedWorkV1;
-    use super::*;
-    use oasis7_proto::memory_budget::MemoryBudget;
-    fn layout() -> CborDataLayoutV1 {
-        CborDataLayoutV1 {
-            root: std::mem::size_of::<String>(),
-            sequence_element: 0,
-            map_pair: 0,
-            set_element: 0,
-            box_pointee: 0,
-            default_heap_per_value: 0,
-            symbols_bytes: 0,
-            visits: 1,
-            missing: None,
-        }
-    }
-    fn limits() -> CborDataLimitsV1 {
-        CborDataLimitsV1 {
-            max_wire_bytes: 4096,
-            max_graph_bytes: 1 << 20,
-            max_depth: 128,
-        }
-    }
-    #[test]
-    fn consuming_move_keeps_same_pool_fee_until_callback_finishes() {
-        struct Wrap;
-        impl CborDataMoveWrapV1<String> for Wrap {
-            type Output = Option<String>;
-            fn wrap_data(v: String) -> Self::Output {
-                Some(v)
-            }
-        }
-        let memory = MemoryBudget::new(8 << 20, 0).unwrap();
-        let work = FormalBoundedWorkV1::new(100_000, 1 << 24).unwrap();
-        let mut stop = || false;
-        let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
-        let owner =
-            decode_closed_cbor_data_v1::<String>(&[0x61, b'x'], layout(), &limits(), &mut common)
-                .unwrap()
-                .ok()
-                .unwrap();
-        let owner = owner.map_move::<Wrap>(&mut common).unwrap();
-        let result = owner
-            .with_data(&mut common, |v, _| {
-                assert!(memory.used() > 0);
-                assert_eq!(v.as_deref(), Some("x"));
-                Err::<(), _>("consumer error")
-            })
-            .unwrap();
-        assert_eq!(result, Err("consumer error"));
-        assert_eq!(memory.used(), 0);
-    }
-    #[test]
-    fn codec_refusal_is_paid_and_missing_layout_never_runs_deserializer() {
-        let memory = MemoryBudget::new(8 << 20, 0).unwrap();
-        let work = FormalBoundedWorkV1::new(100_000, 1 << 24).unwrap();
-        let mut stop = || false;
-        let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
-        let result =
-            decode_closed_cbor_data_v1::<String>(&[0xff], layout(), &limits(), &mut common)
-                .unwrap();
-        let refusal = result.err().unwrap();
-        assert!(!refusal.message().is_empty());
-        assert!(memory.used() > 0);
-        refusal.validate_context(&mut common).unwrap();
-        drop(refusal);
-        assert_eq!(memory.used(), 0);
-        let mut missing = layout();
-        missing.missing = Some("closed child");
-        assert!(matches!(
-            decode_closed_cbor_data_v1::<String>(&[0x61, b'x'], missing, &limits(), &mut common),
-            Err(BoundedCborDataErrorV1::Invalid(_))
-        ));
-        assert_eq!(memory.used(), 0);
-    }
-}
 /// Resource admission for a shallow move into a separately paid DATA carrier.
 /// The descriptor must cover that carrier's complete closed output graph.
 /// This reservation grants no right to execute or qualify its eventual value.
@@ -615,4 +537,83 @@ pub fn decode_closed_json_value_data_v1<T: DeserializeOwned>(
     };
     drop(phase);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::bounded_context::FormalBoundedWorkV1;
+    use super::*;
+    use oasis7_proto::memory_budget::MemoryBudget;
+    fn layout() -> CborDataLayoutV1 {
+        CborDataLayoutV1 {
+            root: std::mem::size_of::<String>(),
+            sequence_element: 0,
+            map_pair: 0,
+            set_element: 0,
+            box_pointee: 0,
+            default_heap_per_value: 0,
+            symbols_bytes: 0,
+            visits: 1,
+            missing: None,
+        }
+    }
+    fn limits() -> CborDataLimitsV1 {
+        CborDataLimitsV1 {
+            max_wire_bytes: 4096,
+            max_graph_bytes: 1 << 20,
+            max_depth: 128,
+        }
+    }
+    #[test]
+    fn consuming_move_keeps_same_pool_fee_until_callback_finishes() {
+        struct Wrap;
+        impl CborDataMoveWrapV1<String> for Wrap {
+            type Output = Option<String>;
+            fn wrap_data(v: String) -> Self::Output {
+                Some(v)
+            }
+        }
+        let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+        let work = FormalBoundedWorkV1::new(100_000, 1 << 24).unwrap();
+        let mut stop = || false;
+        let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+        let owner =
+            decode_closed_cbor_data_v1::<String>(&[0x61, b'x'], layout(), &limits(), &mut common)
+                .unwrap()
+                .ok()
+                .unwrap();
+        let owner = owner.map_move::<Wrap>(&mut common).unwrap();
+        let result = owner
+            .with_data(&mut common, |v, _| {
+                assert!(memory.used() > 0);
+                assert_eq!(v.as_deref(), Some("x"));
+                Err::<(), _>("consumer error")
+            })
+            .unwrap();
+        assert_eq!(result, Err("consumer error"));
+        assert_eq!(memory.used(), 0);
+    }
+    #[test]
+    fn codec_refusal_is_paid_and_missing_layout_never_runs_deserializer() {
+        let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+        let work = FormalBoundedWorkV1::new(100_000, 1 << 24).unwrap();
+        let mut stop = || false;
+        let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+        let result =
+            decode_closed_cbor_data_v1::<String>(&[0xff], layout(), &limits(), &mut common)
+                .unwrap();
+        let refusal = result.err().unwrap();
+        assert!(!refusal.message().is_empty());
+        assert!(memory.used() > 0);
+        refusal.validate_context(&mut common).unwrap();
+        drop(refusal);
+        assert_eq!(memory.used(), 0);
+        let mut missing = layout();
+        missing.missing = Some("closed child");
+        assert!(matches!(
+            decode_closed_cbor_data_v1::<String>(&[0x61, b'x'], missing, &limits(), &mut common),
+            Err(BoundedCborDataErrorV1::Invalid(_))
+        ));
+        assert_eq!(memory.used(), 0);
+    }
 }

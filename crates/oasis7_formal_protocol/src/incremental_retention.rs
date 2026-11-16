@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn old_and_retention_profile_predicates_are_exact() {
         for v in 0..=11 {
-            assert_eq!(incremental::is_iws_record(v), matches!(v, 7 | 8 | 9 | 10));
+            assert_eq!(incremental::is_iws_record(v), matches!(v, 7..=10));
             assert_eq!(
                 incremental::is_iws_initial_record_schema(v),
                 matches!(v, 7 | 9)

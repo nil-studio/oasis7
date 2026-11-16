@@ -156,24 +156,25 @@ pub fn encode_bounded_wire_v1<T: serde::Serialize, C: FnMut() -> bool>(
     if bytes.capacity() > measured {
         return Err(BoundedWireErrorV1::Layout);
     }
-    let mut writer = Wire {
-        work: count.work,
-        cancelled: count.cancelled,
-        output: Some(&mut bytes),
-        limit: measured,
-        len: 0,
-        first: None,
-    };
-    let result = serde_cbor::to_writer(&mut writer, value);
-    writer.finish()?;
-    result.map_err(BoundedWireErrorV1::Encode)?;
-    if (writer.cancelled)() {
-        return Err(BoundedWireErrorV1::Cancelled);
+    {
+        let mut writer = Wire {
+            work: count.work,
+            cancelled: count.cancelled,
+            output: Some(&mut bytes),
+            limit: measured,
+            len: 0,
+            first: None,
+        };
+        let result = serde_cbor::to_writer(&mut writer, value);
+        writer.finish()?;
+        result.map_err(BoundedWireErrorV1::Encode)?;
+        if (writer.cancelled)() {
+            return Err(BoundedWireErrorV1::Cancelled);
+        }
+        if writer.len != measured {
+            return Err(BoundedWireErrorV1::ChangedLength);
+        }
     }
-    if writer.len != measured {
-        return Err(BoundedWireErrorV1::ChangedLength);
-    }
-    drop(writer);
     if bytes.len() != measured || bytes.capacity() > measured {
         return Err(BoundedWireErrorV1::ChangedLength);
     }

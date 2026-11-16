@@ -60,7 +60,7 @@ impl<C> fmt::Display for ProjectionCommitmentWorkErrorV1<C> {
     }
 }
 impl<C> std::error::Error for ProjectionCommitmentWorkErrorV1<C> {}
-type ResultW<T, A: CanonicalCborAllocator> =
+type ResultW<T, A> =
     Result<T, ProjectionCommitmentWorkErrorV1<<A as CanonicalCborAllocator>::Charge>>;
 fn pay<A: CapabilityCanonicalWorkV1>(source: &A, s: u64, b: u64) -> ResultW<(), A> {
     source

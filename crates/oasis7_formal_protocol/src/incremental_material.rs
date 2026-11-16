@@ -320,7 +320,7 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     pages: &R,
     memory: &MemoryBudget,
     budget: &mut CoreBudget,
-    mut cancelled: impl FnMut() -> bool,
+    cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<CheckedCommitCore>, CoreError<O::Error>> {
     verify_record_core(
         request.candidate.record(),
@@ -580,7 +580,7 @@ fn verify_record_core<O: OriginalObjectReader, R: MerkleNodeReader>(
                 source,
                 memory,
                 class: MemoryClass::Ordinary,
-                max_pending_node_bytes: max_pending_node_bytes,
+                max_pending_node_bytes,
             }
             .verify(transition)?;
             check_pages(

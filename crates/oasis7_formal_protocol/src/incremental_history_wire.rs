@@ -24,11 +24,11 @@ impl<'a> Writer<'a> {
         if self.error.is_some() {
             return false;
         }
-        if let Some(work) = self.work {
-            if let Err(error) = work(1, n as u64) {
-                self.error = Some(error);
-                return false;
-            }
+        if let Some(work) = self.work
+            && let Err(error) = work(1, n as u64)
+        {
+            self.error = Some(error);
+            return false;
         }
         true
     }

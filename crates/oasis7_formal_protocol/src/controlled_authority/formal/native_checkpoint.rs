@@ -186,6 +186,10 @@ impl NativeCheckpointVerdictV1 {
             &mut LegacyNativeReadOps(load),
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the shared legacy/paid verifier binds checkpoint authority, endpoint, protected commitment, target and minimum to the original read operations"
+    )]
     fn verify_with_ops(
         signed_checkpoint: &[u8],
         checkpoint_authority: &VerifiedAuthorityV1,

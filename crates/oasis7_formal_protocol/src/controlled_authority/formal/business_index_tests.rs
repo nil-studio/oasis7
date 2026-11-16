@@ -147,7 +147,11 @@ fn sparse_delta_rejects_mutation_missing_parent_nodes_and_tampered_writes() {
     );
     let mut invalid_writes = first.clone();
     invalid_writes.node_writes[0].bytes.push(0);
-    assert!(invalid_writes.validate_shape().is_err());
+    assert!(
+        invalid_writes
+            .validate_shape_with(&Kernel::legacy().unwrap())
+            .is_err()
+    );
 }
 
 #[test]

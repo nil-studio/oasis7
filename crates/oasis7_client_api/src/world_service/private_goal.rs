@@ -1,5 +1,7 @@
 //! Private proof codec only: no HTTP, storage, public intent or activation.
-use super::authority::{sign_read_request, signing_bytes};
+use super::authority::sign_read_request;
+#[cfg(test)]
+use super::authority::signing_bytes;
 use ed25519_dalek::{Signature, VerifyingKey};
 use oasis7_agent_api::game::{
     GAME_GOAL_PREPARE_DOMAIN, GameGoalPrepareV1, GameGoalPublishV1, GameTaskControlV1,

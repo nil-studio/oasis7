@@ -442,14 +442,6 @@ pub(crate) fn derive_correlation_with_legacy_work_v1<
     Ok(phase.finish(correlation))
 }
 
-fn strong_key(key: &str) -> Result<(), String> {
-    crate::legacy_task_results::strong_key_with_work_v1(
-        key,
-        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
-    )
-    .map_err(crate::world_service::legacy_service_work_error_v1)
-}
-
 /// Native task profile: unsupported legacy browser variants are never accepted.
 pub fn derive_correlation(
     world: WorldIdentity,

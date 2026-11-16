@@ -29,13 +29,16 @@ pub enum DecodedConsensusPayloadV1<E, R> {
     LegacyRuntime(R),
 }
 
+type ConsensusPayloadDecodeResultV1<Envelope, RuntimeAction, Error> =
+    Result<Result<DecodedConsensusPayloadV1<Envelope, RuntimeAction>, String>, Error>;
+
 pub fn decode_consensus_action_payload_envelope_with<
     B: ConsensusPayloadBodyViewV1,
     O: ConsensusPayloadDecodeOpsV1<B>,
 >(
     payload_cbor: &[u8],
     ops: &mut O,
-) -> Result<Result<DecodedConsensusPayloadV1<O::Envelope, O::RuntimeAction>, String>, O::Error> {
+) -> ConsensusPayloadDecodeResultV1<O::Envelope, O::RuntimeAction, O::Error> {
     // Recognized null metadata cannot silently downgrade to a legacy action.
     if ops
         .decode_value(payload_cbor)?

@@ -519,9 +519,6 @@ impl BusinessIndexDeltaV1 {
         Ok(self.new.clone())
     }
 
-    fn validate_shape(&self) -> Result<(), String> {
-        self.validate_shape_with(&Kernel::legacy()?)
-    }
     fn validate_shape_with(&self, kernel: &Kernel<'_>) -> Result<(), String> {
         if !matches!(
             self.schema_version,
@@ -558,14 +555,6 @@ impl BusinessIndexDeltaV1 {
     }
 }
 
-fn apply_updates(
-    base: &BusinessIndexRootV1,
-    updates: &[BusinessIndexLeafV1],
-    reader: &impl BusinessIndexNodeReader,
-) -> Result<(BusinessIndexRootV1, Vec<BusinessIndexNodeWriteV1>), String> {
-    apply_updates_with(base, updates, reader, &Kernel::legacy()?)
-}
-
 fn apply_updates_with(
     base: &BusinessIndexRootV1,
     updates: &[BusinessIndexLeafV1],
@@ -575,7 +564,7 @@ fn apply_updates_with(
     let empty = &kernel.empty;
     let source = BusinessNodeSource(reader);
     let mut updater =
-        crate::merkle::Updater::<BusinessNodeCodec, _>::new(&source, &empty, usize::MAX);
+        crate::merkle::Updater::<BusinessNodeCodec, _>::new(&source, empty, usize::MAX);
     if let Some(meter) = kernel.meter {
         updater = updater.with_paid_source_meter(meter);
     }
@@ -625,15 +614,6 @@ fn apply_updates_with(
     Ok((new, node_writes))
 }
 
-fn validate_updates(updates: &[BusinessIndexLeafV1]) -> Result<(), String> {
-    validate_updates_with(
-        updates,
-        &Kernel {
-            empty: Vec::new(),
-            meter: None,
-        },
-    )
-}
 fn validate_updates_with(
     updates: &[BusinessIndexLeafV1],
     kernel: &Kernel<'_>,
@@ -661,14 +641,6 @@ fn validate_leaf(leaf: &BusinessIndexLeafV1) -> Result<(), String> {
         return Err("business index leaf identity/byte bounds".into());
     }
     Ok(())
-}
-
-fn lookup(
-    root: &str,
-    key: &[u8; 32],
-    reader: &impl BusinessIndexNodeReader,
-) -> Result<Option<BusinessIndexLeafV1>, String> {
-    lookup_with(root, key, reader, &Kernel::legacy()?)
 }
 
 fn lookup_with(

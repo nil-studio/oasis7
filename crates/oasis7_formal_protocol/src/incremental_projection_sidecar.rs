@@ -258,10 +258,8 @@ pub fn read_projection_sidecar_bounded_v1<O: PaidProjectionOriginalReaderV1>(
         common
             .charge(1, (object.content_hash.len() + 64) as u64)
             .map_err(E::Context)?;
-        if &object.content_hash == body_hex {
-            if body.replace(object).is_some() {
-                return Err(E::Invalid("projection side duplicate body object"));
-            }
+        if &object.content_hash == body_hex && body.replace(object).is_some() {
+            return Err(E::Invalid("projection side duplicate body object"));
         }
     }
     let body = body.ok_or(E::Invalid("projection side body graph missing"))?;

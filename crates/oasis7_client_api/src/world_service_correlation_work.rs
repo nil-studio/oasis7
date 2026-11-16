@@ -79,12 +79,7 @@ impl<'a, A: CapabilityCanonicalWorkV1> Phase<'a, A> {
             return Ok(());
         }
         if self.fees.len() == self.fees.capacity() {
-            let capacity = self
-                .fees
-                .capacity()
-                .checked_mul(2)
-                .unwrap_or(usize::MAX)
-                .max(4);
+            let capacity = self.fees.capacity().saturating_mul(2).max(4);
             let n = capacity
                 .checked_mul(size_of::<A::Charge>())
                 .ok_or(Error::Work(WorkError::ResourceLimited(

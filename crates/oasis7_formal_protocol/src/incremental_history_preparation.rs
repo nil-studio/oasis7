@@ -229,7 +229,7 @@ impl HeaderPreparation<'_> {
         let mut workspace = memory.reserve(64 * 1024 + facts.len() * 128, MemoryClass::Ordinary)?;
         work(
             facts.len() as u64 + 1,
-            (scope.world_id.len() + facts.len() * std::mem::size_of::<ExecutionFactRefV1>()) as u64,
+            (scope.world_id.len() + std::mem::size_of_val(facts)) as u64,
         )?;
         let fact_set = FactSetV1 {
             scope: scope.clone(),

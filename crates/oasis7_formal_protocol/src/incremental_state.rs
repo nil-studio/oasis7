@@ -360,9 +360,6 @@ impl StateDeltaV1 {
     }
 }
 
-fn validate_writes(writes: &[StateWriteV1]) -> Result<(), String> {
-    validate_writes_with_meter(writes, None)
-}
 fn validate_writes_with_meter(
     writes: &[StateWriteV1],
     meter: Option<&crate::merkle::WorkMeter<'_>>,

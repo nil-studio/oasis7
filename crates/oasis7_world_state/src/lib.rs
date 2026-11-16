@@ -546,6 +546,7 @@ pub mod incremental_module_state_recovery;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_state_family;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_state_projection_delta;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -625,11 +626,16 @@ pub mod incremental_iws_tick_consensus;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_normal_cognition_current;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_agent_instance_projection_delta;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_industry_projection_delta;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory_projection_delta;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rule_projection_delta;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_projection_aux;
 
 #[cfg(not(target_arch = "wasm32"))]

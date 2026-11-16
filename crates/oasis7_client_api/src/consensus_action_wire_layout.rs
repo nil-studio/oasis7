@@ -83,6 +83,8 @@ macro_rules! record_layout {
 macro_rules! enum_layout {
     ($ty:ty,units{$($unit:ident),*$(,)?},tuples{$($tuple:ident($value:ident)),*$(,)?},records{$($record:ident{$($field:ident),+}),*$(,)?})=>{impl OwnedLayout for $ty {
         fn layout<LE>(runtime:Layout,visit:&mut dyn FnMut()->Result<(),LE>)->Result<Layout,LE>{
+            // Unit-only enums have no child that consumes the runtime layout.
+            let _ = runtime;
             let _:fn(&Self)=|owner|match owner{$(Self::$unit=>{},)*$(Self::$tuple(_)=>{},)*$(Self::$record{$($field:_),+}=>{},)*};
             visit()?;let mut out=Layout::scalar::<Self>();
             $(out.symbol(stringify!($unit));out.symbol(stringify!($unit));)*
