@@ -1,0 +1,69 @@
+--- v6-8b32c4d9/TypeInference.qll
++++ candidate-target-qualified-term-v1/TypeInference.qll
+@@ -1525,6 +1525,8 @@
+ 
+           RelevantConstraint() { this = MkRelevantConstraint(target, pos) }
+ 
++          Declaration getTarget() { result = target }
++
+           pragma[nomagic]
+           predicate isRelevantFor(Access a, ConstraintPosition pos_, AccessEnvironment e) {
+             pos.relevantFor(a, e, target) and
+@@ -1566,18 +1568,21 @@
+         }
+ 
+         private newtype TRelevantAccess =
+-          MkRelevantAccess(Access a, ConstraintPosition pos, AccessEnvironment e) {
+-            pos.relevantFor(a, e, _)
++          MkRelevantAccess(
++            Access a, ConstraintPosition pos, AccessEnvironment e, Declaration target
++          ) {
++            pos.relevantFor(a, e, target)
+           }
+ 
+         private class RelevantAccess extends MkRelevantAccess {
+           Access a;
+           ConstraintPosition pos;
+           AccessEnvironment e;
+-
+-          RelevantAccess() { this = MkRelevantAccess(a, pos, e) }
+-
+-          RelevantConstraint getConstraint() { result.isRelevantFor(a, pos, e) }
++          Declaration target;
++
++          RelevantAccess() { this = MkRelevantAccess(a, pos, e, target) }
++
++          RelevantConstraint getConstraint() { result = MkRelevantConstraint(target, pos) }
+ 
+           pragma[nomagic]
+           Type getTypeAt(TypePath path) { result = pos.getInferredType(a, e, path) }
+@@ -1597,7 +1602,7 @@
+           class TypeMatchingContext = Access;
+ 
+           TypeMatchingContext getTypeMatchingContext(RelevantAccess at) {
+-            at = MkRelevantAccess(result, _, _)
++            at = MkRelevantAccess(result, _, _, _)
+           }
+ 
+           pragma[nomagic]
+@@ -1649,7 +1654,8 @@
+           exists(RelevantConstraint constraint, ConstraintPosition pos, TypePath pathToTp |
+             constraint.hasTypeParameterAt(target, pragma[only_bind_into](pos), pathToTp, tp) and
+             SatisfiesRelevantConstraint::satisfiesConstraint(MkRelevantAccess(a,
+-                pragma[only_bind_into](pos), e), constraint, pathToTp.appendInverse(path), t) and
++                pragma[only_bind_into](pos), e, target), constraint, pathToTp.appendInverse(path),
++              t) and
+             hasNotTypeArgument(a, target, tp)
+           )
+         }
+@@ -1663,8 +1669,8 @@
+           exists(ConstraintPosition pos |
+             prefix = constraint.getPathToConstrained(pragma[only_bind_into](pos), apos) and
+             SatisfiesRelevantConstraint::satisfiesConstraintAtTypeParameter(MkRelevantAccess(a,
+-                pragma[only_bind_into](pos), e), constraint, pathToTypeParamInConstraint,
+-              pathToTypeParamInSub)
++                pragma[only_bind_into](pos), e, constraint.getTarget()), constraint,
++              pathToTypeParamInConstraint, pathToTypeParamInSub)
+           )
+         }
+       }

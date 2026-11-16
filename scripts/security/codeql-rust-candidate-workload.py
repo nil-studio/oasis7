@@ -24,10 +24,11 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
-# Keep the v3 and v5 intermediate identities distinct from the final v6 library.
+# Production retains this real v6 component; research has its own final variant.
 VARIANT = 'qualifier-lines-v3'
 V5_VARIANT = 'qualifier-lines-shared-trait-v5'
 WORKLOAD_VARIANT = 'qualifier-lines-constraint-matching-v6'
+RESEARCH_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
 SHARED_FILE = capacity.bundle.SHARED_FILE
 SHARED_OFFICIAL_SHA = capacity.bundle.SHARED_OFFICIAL_SHA
 SHARED_CANDIDATE_SHA = capacity.bundle.SHARED_CANDIDATE_SHA
@@ -38,6 +39,8 @@ CONSTRAINT_API_PATCH_SHA = 'ba47e346672cd8281b3a6a3d94647b0d00d733a273311799b053
 CONSTRAINT_UPSTREAM_PATCH_SHA = '3880e57052c74d8af7f155a7abc8b721eef0725463897647809fd10b28d3a0ba'
 CONSTRAINT_PATCH_SHA = 'e6563cf895df0f662444795cf5c8f2358804784d667ccce4b11fa336ffde7db8'
 CONSTRAINT_CANDIDATE_SHA = '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33'
+TARGET_QUALIFIED_PATCH_SHA = '96dcb5da3818ce129924cc9f80df366cf1517613acc19145df27ea2a65eaed2d'
+TARGET_QUALIFIED_SHA = '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9'
 ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
 TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
 TRAIT_PATCH_SHA = '15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21'
@@ -93,12 +96,19 @@ def regular_snapshot(root, end):
 
 def private_inputs(work, end):
     return {name: regular_snapshot(work / name, end) for name in
-            ('candidate-rust-all', 'candidate-typeinference', 'default-queries', 'public-witnesses')}
+            ('candidate-rust-all', 'candidate-typeinference', 'candidate-target-typeinference',
+             'default-queries', 'public-witnesses')}
 
 
 def workload_closure(official, work):
     closure = comparison.candidate_closure(official, work / 'candidate-rust-all')
     closure['codeql/typeinference']['root'] = str(work / 'candidate-typeinference')
+    return closure
+
+
+def research_closure(official, work):
+    closure = workload_closure(official, work)
+    closure['codeql/typeinference']['root'] = str(work / 'candidate-target-typeinference')
     return closure
 
 
@@ -169,6 +179,75 @@ def prepare_constraint_matching(closure, work, out, end, run):
          '-d', work / 'candidate-typeinference', '-i', patch_file], 'apply-constraint-matching-patch', 20)
     runtime.save(out / 'constraint-matching-identity.json',
                  constraint_matching_identity(closure, work, out, end), out)
+
+
+def target_file_permissions(closure, work, files, end):
+    """The new overlay additionally preserves regular-file permission bits."""
+    permissions = {}
+    for name, root in (('official', Path(closure['codeql/typeinference']['root'])),
+                       ('v6', work / 'candidate-typeinference'),
+                       ('target', work / 'candidate-target-typeinference')):
+        permissions[name] = {}
+        for relative in files:
+            capacity.check_time(end)
+            permissions[name][relative] = (root / relative).stat(follow_symlinks=False).st_mode & 0o7777
+    if permissions['official'] != permissions['v6'] or permissions['v6'] != permissions['target']:
+        raise RuntimeError('candidate differs from the fixed target-qualified overlay permissions')
+    return permissions
+
+
+def target_qualified_identity(closure, work, out, end):
+    """Rebuild the v7 identity from the actual retained v6 tree and receipts."""
+    verify_workload_identity(closure, work, out, end)
+    before = regular_snapshot(work / 'candidate-typeinference', end)
+    after = regular_snapshot(work / 'candidate-target-typeinference', end)
+    if set(before) != set(after):
+        raise RuntimeError('candidate differs from the fixed target-qualified overlay')
+    permissions = target_file_permissions(closure, work, before, end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (capacity.digest_until(HERE / 'codeql-rust-target-qualified.patch', end) != TARGET_QUALIFIED_PATCH_SHA
+            or set(before) != set(after) or changed != [SHARED_FILE]
+            or before[SHARED_FILE]['sha256'] != CONSTRAINT_CANDIDATE_SHA
+            or after[SHARED_FILE]['sha256'] != TARGET_QUALIFIED_SHA
+            or any(before[p]['mode'] != after[p]['mode'] for p in before)):
+        raise RuntimeError('candidate differs from the fixed target-qualified overlay')
+    return dict(variant=RESEARCH_VARIANT, base_variant=WORKLOAD_VARIANT,
+                patch_sha256=TARGET_QUALIFIED_PATCH_SHA,
+                base_receipts_sha256={'constraint-matching-identity.json':
+                                     capacity.digest_until(out / 'constraint-matching-identity.json', end)},
+                changed_files=changed, before_files=before, candidate_files=after,
+                file_permissions=permissions)
+
+
+def verify_target_qualified_identity(closure, work, out, end):
+    identity = target_qualified_identity(closure, work, out, end)
+    if identity != read_json(out / 'target-qualified-identity.json'):
+        raise RuntimeError('target-qualified identity differs after preparation')
+    return identity
+
+
+def prepare_target_qualified(closure, work, out, end, run):
+    verify_workload_identity(closure, work, out, end)
+    patch_file = HERE / 'codeql-rust-target-qualified.patch'
+    if patch_file.resolve() != patch_file or capacity.digest_until(patch_file, end) != TARGET_QUALIFIED_PATCH_SHA:
+        raise RuntimeError('target-qualified patch identity differs')
+    original, private = work / 'candidate-typeinference', work / 'candidate-target-typeinference'
+    if private.resolve() != private or private.exists():
+        raise RuntimeError('unsafe target-qualified destination')
+    before = regular_snapshot(original, end)
+    def copy_file(source, target):
+        capacity.check_time(end)
+        return shutil.copy2(source, target)
+    shutil.copytree(original, private, copy_function=copy_file)
+    if regular_snapshot(private, end) != before or regular_snapshot(original, end) != before:
+        raise RuntimeError('target-qualified v6 copy differs')
+    target_file_permissions(closure, work, before, end)
+    # The original two-header draft is fixed byte-for-byte. An explicit target
+    # file selects this one private file without rewriting the patch headers.
+    run(['patch', '--batch', '--forward', '--no-backup-if-mismatch', '--fuzz=0',
+         private / SHARED_FILE, patch_file], 'apply-target-qualified-patch', 20)
+    runtime.save(out / 'target-qualified-identity.json',
+                 target_qualified_identity(closure, work, out, end), out)
 
 
 def arity_identity():
@@ -523,7 +602,7 @@ def _main(cancellation, owned_resources):
     started = time.monotonic()
     end = started + max(0, args.deadline - time.time()) if math.isfinite(args.deadline) else started
     terminal = dict(status='CANDIDATE_RESEARCH_INCOMPLETE', phase=args.phase, mode=MODE,
-                    candidate_variant=WORKLOAD_VARIANT, image_contract_version=IMAGE_CONTRACT,
+                    candidate_variant=RESEARCH_VARIANT, image_contract_version=IMAGE_CONTRACT,
                     source=capacity.CAPACITY_SOURCE, source_root=str(source), fixed_job_deadline=args.deadline,
                     analysis_deadline=args.analysis_deadline, production_capacity='UNKNOWN', full_rust_coverage='HOLD',
                     production_acceptance='UNCHANGED', security_upload=False, database_upload=False, sarif_upload=False,
@@ -532,7 +611,7 @@ def _main(cancellation, owned_resources):
                     primary_failure=None, secondary_errors=[], stage='admission',
                     final_hosted_job_margin='NOT_OBSERVED', required_final_job_margin_seconds=REQUIRED_MARGIN,
                     margin_scope='pre-upload evidence readiness; final hosted completion including upload/post requires independent readback')
-    before = protected = official_seal = db_sha = None
+    before = protected = official_seal = db_sha = target_before = None
     observation = batch_error = None
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     def save(name, value, control=False): runtime.save(out / name, value, out, terminal=control)
@@ -570,7 +649,7 @@ def _main(cancellation, owned_resources):
             comparison.verify_seal(out, end - EVIDENCE_SECONDS)
             prepared = read_json(out / 'candidate-prepare-terminal.json')
             if (prepared.get('status') != 'CANDIDATE_RESEARCH_PREPARED' or prepared.get('budget') != budget
-                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != WORKLOAD_VARIANT
+                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != RESEARCH_VARIANT
                     or prepared.get('image_contract_version') != IMAGE_CONTRACT
                     or prepared.get('semantic_contract_sha256') != terminal['semantic_contract_sha256']):
                 raise RuntimeError('candidate preparation receipt differs')
@@ -610,7 +689,11 @@ def _main(cancellation, owned_resources):
             terminal['stage'] = 'prepare-constraint-matching'
             prepare_constraint_matching(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True))
-            closure = workload_closure(original_closure, work)
+            terminal['stage'] = 'prepare-target-qualified'
+            prepare_target_qualified(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True))
+            target_before = verify_target_qualified_identity(original_closure, work, out, analysis_end)
+            closure = research_closure(original_closure, work)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
             if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
             closures = dict(default=defaults, witness=closure)
@@ -631,12 +714,12 @@ def _main(cancellation, owned_resources):
             records = read_json(out / 'query-inputs.json')
             expected = query_records(work, source, read_json(checkpoint / 'default-suite.json'),
                                      read_json(checkpoint / 'semantic-query-inputs.json'))
-            witness_closure = workload_closure(original_closure, work)
+            witness_closure = research_closure(original_closure, work)
             if (records != expected or closures != dict(witness=witness_closure,
                     default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
                     or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != TRAIT_TYPE_SHA):
                 raise RuntimeError('candidate workload binding differs from the frozen inputs')
-            verify_workload_identity(original_closure, work, out, min(analysis_end, end - EVIDENCE_SECONDS))
+            target_before = verify_target_qualified_identity(original_closure, work, out, min(analysis_end, end - EVIDENCE_SECONDS))
             if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
                 raise RuntimeError('private input changed after preparation')
             official_seal = comparison.verify_seal(checkpoint, min(analysis_end, end - EVIDENCE_SECONDS))
@@ -691,13 +774,16 @@ def _main(cancellation, owned_resources):
         save('candidate-' + args.phase + '-terminal.json', terminal, True)
         for name, operation in (
             ('private_inputs', lambda: private_inputs(work, end - EVIDENCE_SECONDS) if before is not None else None),
+            ('target_identity', lambda: verify_target_qualified_identity(original_closure, work, out,
+                                    end - EVIDENCE_SECONDS) if target_before is not None else None),
             ('protected_inputs', lambda: capacity.after_identity(source, official, checkpoint, end=end - EVIDENCE_SECONDS) if protected is not None else None),
             ('official_evidence', lambda: comparison.verify_seal(checkpoint, end - EVIDENCE_SECONDS) if official_seal is not None else None),
             ('database_metadata', lambda: capacity.digest_until(database / 'codeql-database.yml', end - EVIDENCE_SECONDS) if db_sha else None),
         ):
             try:
                 actual = operation()
-                expected = {'private_inputs': before, 'protected_inputs': protected, 'official_evidence': official_seal, 'database_metadata': db_sha}[name]
+                expected = {'private_inputs': before, 'target_identity': target_before, 'protected_inputs': protected,
+                            'official_evidence': official_seal, 'database_metadata': db_sha}[name]
                 if actual is not None: save(name + '-' + args.phase + '-after.json', actual, True)
                 if actual != expected: raise RuntimeError(name + ' changed during candidate research')
                 terminal[name + '_after'] = 'UNCHANGED' if expected is not None else 'NOT_REACHED'
@@ -712,7 +798,7 @@ def _main(cancellation, owned_resources):
                     isinstance(batch_error, runtime.PhaseError) and batch_error.clean_timeout
                     and terminal['primary_failure']['stage'] == 'candidate-workload-batch')
                 unchanged = all(terminal.get(name + '_after') == 'UNCHANGED' for name in
-                                ('private_inputs', 'protected_inputs', 'official_evidence', 'database_metadata'))
+                                ('private_inputs', 'target_identity', 'protected_inputs', 'official_evidence', 'database_metadata'))
                 observation.summarize(args.codeql, source, env, end - EVIDENCE_SECONDS,
                     admitted=original_failure_allows_summary and unchanged and not terminal['secondary_errors']
                              and terminal.get('raw_result_preservation') == 'COMPLETE' and not cancellation['cancelled'])

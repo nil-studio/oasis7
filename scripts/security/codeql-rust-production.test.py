@@ -387,6 +387,21 @@ class Production(unittest.TestCase):
         self.assertIn('variant differs from the fixed v6', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
+    def test_target_research_exists_but_production_prepares_and_restores_only_v6(self):
+        with (patch.object(m.candidate, 'prepare_target_qualified', side_effect=AssertionError('research preparation entered')),
+             patch.object(m.candidate, 'verify_target_qualified_identity', side_effect=AssertionError('research verification entered')),
+             patch.object(m.candidate, 'research_closure', side_effect=AssertionError('research closure entered'))):
+            self.prepare_ok()
+            self.assertEqual(self.invoke('run'), 0)
+        self.assertEqual(m.candidate.RESEARCH_VARIANT, 'qualifier-lines-constraint-target-qualified-v7')
+        for phase in ('prepare', 'run'):
+            self.assertEqual(self.terminal(phase)['variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual((self.work / 'candidate-typeinference' / m.candidate.SHARED_FILE).read_text(), 'constraint-shared')
+        self.assertFalse((self.work / 'candidate-target-typeinference').exists())
+        self.assertFalse((self.output / 'target-qualified-identity.json').exists())
+        self.assertEqual(m.read_json(self.output / 'selected-closure.json')['codeql/typeinference']['root'],
+                         str(self.work / 'candidate-typeinference'))
+
     def test_new_independent_workspace_is_included_from_current_checkout(self):
         extra = self.source / 'new-independent'; extra.mkdir()
         (extra / 'Cargo.toml').write_text('[workspace]\nmembers = []\n')
@@ -638,72 +653,96 @@ class Production(unittest.TestCase):
             self.invoke('prepare')
 
 
+def validate_real_production_bindings(test, codeql, work, output, *, end, run):
+    """The original 37 consumer; the caller owns the only deadline and evidence."""
+    if run.end != end:
+        raise RuntimeError('production binding deadline differs from its caller')
+    args = SimpleNamespace(codeql=codeql, source=run.args.source, work=work, output=output)
+    run([codeql, 'version', '--format=json'], 'version', 20)
+    test.assertEqual(m.read_json(output / 'version.log')['version'], m.VERSION)
+    test.assertIs(m.read_json(output / 'version.log').get('configFileFound'), False)
+    official = codeql.parent
+    original = m.capacity.bundle.bundle_closure(official, m.VERSION)
+    original['codeql/suite-helpers'] = m.candidate.suite_helper(official)
+    test.assertEqual(len(original), 14)
+    published = official / 'qlpacks/codeql/rust-queries/0.1.46'
+    published_before = m.candidate.regular_snapshot(published, end)
+    suite_file = published / 'codeql-suites/rust-code-scanning.qls'
+    run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
+    suite = dict(query_root=str(published), suite_sha256=m.capacity.digest_until(suite_file, end),
+                 queries=m.capacity.suite_entries(m.read_json(output / 'official-suite.log'), published))
+    before = {name: m.candidate.regular_snapshot(Path(pack['root']), end)
+              for name, pack in original.items()}
+    closure = m.prepare_libraries(args, original, run)
+    m.candidate.verify_workload_identity(original, work, output, end)
+    expected_files = {
+        'candidate-rust-all/codeql/rust/internal/typeinference/TypeInference.qll':
+            'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b',
+        'candidate-rust-all/codeql/rust/internal/PathResolution.qll':
+            '222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf',
+        'candidate-rust-all/codeql/rust/frameworks/stdlib/core.model.yml':
+            '4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734',
+        'candidate-typeinference/codeql/typeinference/internal/TypeInference.qll':
+            '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33',
+    }
+    test.assertEqual({name: m.capacity.digest_until(work / name, end) for name in expected_files}, expected_files)
+    v3 = m.read_json(output / 'lines-model-identity.json')
+    test.assertEqual(v3['variant'], 'qualifier-lines-v3')
+    test.assertEqual(v3['candidate_files'][m.comparison.TYPE_FILE]['sha256'],
+                     'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb')
+    v6 = m.read_json(output / 'constraint-matching-identity.json')
+    test.assertEqual(v6['variant'], 'qualifier-lines-constraint-matching-v6')
+    test.assertEqual(v6['base_variant'], 'qualifier-lines-shared-trait-v5')
+    test.assertEqual(v6['before_files'][m.candidate.SHARED_FILE]['sha256'],
+                     '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
+    records, _ = m.source_queries(official, work, suite, end)
+    frozen = m.input_snapshot(args, original, end)
+    m.resolve_queries(args, records, closure, run)
+    test.assertEqual(len(records), 37)
+    resolutions = m.read_json(output / 'library-resolution.json')
+    test.assertEqual(len(resolutions), 37)
+    for receipt in resolutions:
+        paths = receipt['actual']['libraryPath']
+        test.assertEqual(len(paths), 15)  # Fourteen dependencies plus the query root.
+        test.assertIn(str(work / 'candidate-rust-all'), paths)
+        test.assertIn(str(work / 'candidate-typeinference'), paths)
+        test.assertNotIn(original['codeql/rust-all']['root'], paths)
+        test.assertNotIn(original['codeql/typeinference']['root'], paths)
+    m.candidate.verify_workload_identity(original, work, output, end)
+    test.assertEqual(m.input_snapshot(args, original, end), frozen)
+    test.assertEqual({name: m.candidate.regular_snapshot(Path(pack['root']), end)
+                      for name, pack in original.items()}, before)
+    test.assertEqual(sorted(m.read_json(output / 'lines-model-identity.json')['changed_files']),
+                     sorted([m.comparison.TYPE_FILE, m.candidate.MODEL_FILE]))
+    test.assertFalse((work / 'candidate-target-typeinference').exists())
+    test.assertFalse((output / 'target-qualified-identity.json').exists())
+    m.save(args, 'binding-validation.json', dict(
+        variant=m.PRODUCTION_VARIANT, queries=records, closure=closure,
+        input_snapshot=frozen, published_queries=published_before))
+    def verify_after(check_end):
+        m.candidate.verify_workload_identity(original, work, output, check_end)
+        test.assertEqual(m.input_snapshot(args, original, check_end), frozen)
+        test.assertEqual(m.candidate.regular_snapshot(published, check_end), published_before)
+        test.assertFalse((work / 'candidate-target-typeinference').exists())
+        test.assertFalse((output / 'target-qualified-identity.json').exists())
+    return verify_after, {name: work / name for name in
+                         ('candidate-rust-all', 'candidate-typeinference', 'default-queries')}
+
+
 @unittest.skipUnless(os.environ.get('OASIS7_CODEQL_PRODUCTION_CLI'), 'explicit pinned CodeQL integration input required')
 class RealCodeQL(unittest.TestCase):
     def test_exact_default_source_pack_and_actual_repaired_dependency_resolution(self):
-        """No Cargo or extraction fixture: validate the real compiler's selected inputs."""
+        """Standalone production consumer; the paired gate calls its helper once."""
         codeql = Path(os.environ['OASIS7_CODEQL_PRODUCTION_CLI']).resolve()
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name).resolve()
             work, output = folder / 'work', folder / 'evidence'
             work.mkdir(); output.mkdir()
-            args = SimpleNamespace(codeql=codeql, source=HERE.parents[1], work=work, output=output)
             end = time.monotonic() + 600
+            args = SimpleNamespace(codeql=codeql, source=HERE.parents[1], work=work, output=output)
             run = m.Runner(args, {}, end)
-            run([codeql, 'version', '--format=json'], 'version', 20)
-            self.assertEqual(m.read_json(output / 'version.log')['version'], m.VERSION)
-            official = codeql.parent
-            original = m.capacity.bundle.bundle_closure(official, m.VERSION)
-            original['codeql/suite-helpers'] = m.candidate.suite_helper(official)
-            self.assertEqual(len(original), 14)
-            published = official / 'qlpacks/codeql/rust-queries/0.1.46'
-            suite_file = published / 'codeql-suites/rust-code-scanning.qls'
-            run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
-            suite = dict(query_root=str(published), suite_sha256=m.runtime.digest(suite_file),
-                         queries=m.capacity.suite_entries(m.read_json(output / 'official-suite.log'), published))
-            before = {name: m.candidate.regular_snapshot(Path(pack['root']), end)
-                      for name, pack in original.items()}
-            closure = m.prepare_libraries(args, original, run)
-            m.candidate.verify_workload_identity(original, work, output, end)
-            expected_files = {
-                'candidate-rust-all/codeql/rust/internal/typeinference/TypeInference.qll':
-                    'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b',
-                'candidate-rust-all/codeql/rust/internal/PathResolution.qll':
-                    '222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf',
-                'candidate-rust-all/codeql/rust/frameworks/stdlib/core.model.yml':
-                    '4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734',
-                'candidate-typeinference/codeql/typeinference/internal/TypeInference.qll':
-                    '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33',
-            }
-            self.assertEqual({name: m.runtime.digest(work / name) for name in expected_files}, expected_files)
-            v3 = m.read_json(output / 'lines-model-identity.json')
-            self.assertEqual(v3['variant'], 'qualifier-lines-v3')
-            self.assertEqual(v3['candidate_files'][m.comparison.TYPE_FILE]['sha256'],
-                             'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb')
-            v6 = m.read_json(output / 'constraint-matching-identity.json')
-            self.assertEqual(v6['variant'], 'qualifier-lines-constraint-matching-v6')
-            self.assertEqual(v6['base_variant'], 'qualifier-lines-shared-trait-v5')
-            self.assertEqual(v6['before_files'][m.candidate.SHARED_FILE]['sha256'],
-                             '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
-            records, _ = m.source_queries(official, work, suite, end)
-            frozen = m.input_snapshot(args, original, end)
-            m.resolve_queries(args, records, closure, run)
-            self.assertEqual(len(records), 37)
-            resolutions = m.read_json(output / 'library-resolution.json')
-            self.assertEqual(len(resolutions), 37)
-            for receipt in resolutions:
-                paths = receipt['actual']['libraryPath']
-                self.assertEqual(len(paths), 15)  # Fourteen dependencies plus the query root.
-                self.assertIn(str(work / 'candidate-rust-all'), paths)
-                self.assertIn(str(work / 'candidate-typeinference'), paths)
-                self.assertNotIn(original['codeql/rust-all']['root'], paths)
-                self.assertNotIn(original['codeql/typeinference']['root'], paths)
-            m.candidate.verify_workload_identity(original, work, output, end)
-            self.assertEqual(m.input_snapshot(args, original, end), frozen)
-            self.assertEqual({name: m.candidate.regular_snapshot(Path(pack['root']), end)
-                              for name, pack in original.items()}, before)
-            self.assertEqual(sorted(m.read_json(output / 'lines-model-identity.json')['changed_files']),
-                             sorted([m.comparison.TYPE_FILE, m.candidate.MODEL_FILE]))
+            verify, _ = validate_real_production_bindings(self, codeql, work, output, end=end, run=run)
+            verify(end)
 
 
 if __name__ == '__main__':

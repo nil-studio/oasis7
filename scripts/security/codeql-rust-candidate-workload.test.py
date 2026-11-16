@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Candidate source binding, single-batch results, failure and absolute-clock contracts."""
+import time
+_PAIR_ENTRY_STARTED = time.monotonic()
+
 import contextlib
 import csv
 import hashlib
@@ -9,12 +12,14 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import sys
 import tempfile
-import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 from test_codeql_rust_resolver import fake_runtime_session
+import codeql_rust_capacity_layout as capacity_layout
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -147,6 +152,15 @@ class ArityPatch(unittest.TestCase):
         self.assertEqual(m.CONSTRAINT_CANDIDATE_SHA,
                          '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33')
 
+    def test_target_patch_has_its_own_research_identity_without_relabelling_v6(self):
+        self.assertEqual(m.WORKLOAD_VARIANT, 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(m.RESEARCH_VARIANT, 'qualifier-lines-constraint-target-qualified-v7')
+        self.assertEqual(m.runtime.digest(HERE / 'codeql-rust-target-qualified.patch'),
+                         '96dcb5da3818ce129924cc9f80df366cf1517613acc19145df27ea2a65eaed2d')
+        self.assertEqual(m.TARGET_QUALIFIED_PATCH_SHA, m.runtime.digest(HERE / 'codeql-rust-target-qualified.patch'))
+        self.assertEqual(m.TARGET_QUALIFIED_SHA,
+                         '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9')
+
 
 class Workload(unittest.TestCase):
     """Real filesystem and oracles; only external CLI and hosted checkout observations are substituted."""
@@ -238,6 +252,7 @@ class Workload(unittest.TestCase):
                                    (m, 'TRAIT_PATH_OFFICIAL_SHA', hashlib.sha256(b'stock-path').hexdigest()),
                                    (m, 'TRAIT_PATH_SHA', hashlib.sha256(b'trait-path').hexdigest()),
                                    (m, 'CONSTRAINT_CANDIDATE_SHA', hashlib.sha256(b'constraint-matching-shared').hexdigest()),
+                                   (m, 'TARGET_QUALIFIED_SHA', hashlib.sha256(b'target-qualified-shared').hexdigest()),
                                    (m.capacity.bundle, 'SHARED_OFFICIAL_SHA', hashlib.sha256(b'stock-shared').hexdigest()),
                                    (m.capacity.bundle, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'helper-shared').hexdigest())):
             self.stack.enter_context(patch.object(target, key, value))
@@ -293,6 +308,14 @@ class Workload(unittest.TestCase):
             self.assertEqual(m.read_json(self.out / 'trait-visibility-identity.json')['variant'], 'qualifier-lines-shared-trait-v5')
             (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('constraint-matching-shared')
             output.write_text('applied fixed ConstraintMatching fixture')
+        elif name == 'apply-target-qualified-patch':
+            target = self.work / 'candidate-target-typeinference' / m.SHARED_FILE
+            self.assertEqual(argv, ['patch', '--batch', '--forward', '--no-backup-if-mismatch', '--fuzz=0',
+                                   str(target), str(HERE / 'codeql-rust-target-qualified.patch')])
+            self.assertEqual(target.read_text(), 'constraint-matching-shared')
+            m.verify_workload_identity(self.closure, self.work, self.out, end)
+            target.write_text('target-qualified-shared')
+            output.write_text('applied fixed target-qualified fixture')
         elif name == 'private-default-suite': self.write(output, [str(self.work / 'default-queries' / r['relative']) for r in self.entries])
         elif name == 'resolver-session':
             self.assertTrue(observation['restricted_output'])
@@ -344,6 +367,11 @@ class Workload(unittest.TestCase):
             if self.mutate == 'query': (self.work / 'default-queries/queries/Q00.ql').write_text('mutated')
             if self.mutate == 'database': (self.db / 'codeql-database.yml').write_text('mutated')
             if self.mutate == 'shared': (self.work / 'candidate-typeinference' / m.SHARED_FILE).write_text('mutated')
+            if self.mutate == 'target': (self.work / 'candidate-target-typeinference' / m.SHARED_FILE).write_text('mutated')
+            if self.mutate == 'target-receipt':
+                receipt = m.read_json(self.out / 'target-qualified-identity.json')
+                receipt['base_variant'] = 'forged'
+                self.write(self.out / 'target-qualified-identity.json', receipt)
             if self.mutate == 'trait-path': (self.work / 'candidate-rust-all' / m.TRAIT_PATH_FILE).write_text('mutated')
         elif name == 'official-summary':
             self.assertTrue(observation['restricted_output'])
@@ -448,7 +476,7 @@ class Workload(unittest.TestCase):
         self.assertEqual(len(interpreted[interpreted.index('--') + 2:]), 37)
         terminal = m.read_json(self.out / 'candidate-run-terminal.json')
         self.assertEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
-        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(terminal['candidate_variant'],'qualifier-lines-constraint-target-qualified-v7')
         self.assertEqual(terminal['image_contract_version'],'image-v2')
         self.assertEqual(m.read_json(self.out/'semantic-Image-terminal.json')['image_contract_version'],'image-v2')
         model=m.read_json(self.out/'lines-model-identity.json')
@@ -484,11 +512,22 @@ class Workload(unittest.TestCase):
         self.assertEqual(set(constraint['before_files']), set(constraint['candidate_files']))
         self.assertEqual(constraint['base_receipts_sha256'], {name: m.runtime.digest(self.out / name) for name in
                          ('shared-helper-identity.json', 'trait-visibility-identity.json')})
+        target = m.read_json(self.out / 'target-qualified-identity.json')
+        self.assertEqual(target['variant'], m.RESEARCH_VARIANT)
+        self.assertEqual(target['base_variant'], m.WORKLOAD_VARIANT)
+        self.assertEqual(target['patch_sha256'], m.TARGET_QUALIFIED_PATCH_SHA)
+        self.assertEqual(target['before_files'], constraint['candidate_files'])
+        self.assertEqual(target['changed_files'], [m.SHARED_FILE])
+        self.assertEqual(target['candidate_files'][m.SHARED_FILE]['sha256'], m.TARGET_QUALIFIED_SHA)
+        self.assertEqual(target['base_receipts_sha256'], {
+            'constraint-matching-identity.json': m.runtime.digest(self.out / 'constraint-matching-identity.json')})
+        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+        self.assertIn('candidate-target-typeinference', m.private_inputs(self.work, time.monotonic() + 30))
         with self.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
             m.verify_v5_identity(self.closure, self.work, self.out, time.monotonic() + 30)
         closures = m.read_json(self.out / 'selected-closures.json')
         for closure in closures.values():
-            self.assertEqual(closure['codeql/typeinference']['root'], str(self.work / 'candidate-typeinference'))
+            self.assertEqual(closure['codeql/typeinference']['root'], str(self.work / 'candidate-target-typeinference'))
         self.assertEqual((Path(self.closure['codeql/typeinference']['root']) / m.SHARED_FILE).read_text(), 'stock-shared')
         self.assertEqual(terminal['production_capacity'], 'UNKNOWN'); self.assertEqual(terminal['full_rust_coverage'], 'HOLD')
         self.assertEqual(terminal['final_hosted_job_margin'], 'NOT_OBSERVED')
@@ -719,6 +758,119 @@ class Workload(unittest.TestCase):
         self.prepare(); (self.work / 'default-queries/queries/Q00.ql').write_text('changed')
         before = len(self.calls); self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
+
+    def test_target_receipt_mutation_during_batch_fails_final_revalidation(self):
+        self.prepare(); self.mutate = 'target-receipt'
+        self.assertEqual(self.invoke('run'), 1)
+        terminal = m.read_json(self.out / 'candidate-run-terminal.json')
+        self.assertEqual(terminal['private_inputs_after'], 'UNCHANGED')
+        self.assertEqual(terminal['primary_failure']['stage'], 'target_identity-after')
+        self.assertNotEqual(terminal['status'], 'CANDIDATE_RESEARCH_COMPLETED')
+
+    def test_target_tree_mutation_during_batch_is_not_admitted(self):
+        self.prepare(); self.mutate = 'target'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['stage'],
+                         'private_inputs-after')
+
+    def test_v6_preparation_cannot_resume_as_target_research(self):
+        self.prepare()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        prepared['candidate_variant'] = m.WORKLOAD_VARIANT
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation receipt differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_missing_target_receipt_blocks_queries_after_resealing(self):
+        self.prepare()
+        (self.out / 'target-qualified-identity.json').unlink()
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('target-qualified-identity.json',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_target_v6_fallback_is_rejected_before_queries(self):
+        self.prepare()
+        closures = m.read_json(self.out / 'selected-closures.json')
+        for selected in closures.values():
+            selected['codeql/typeinference']['root'] = str(self.work / 'candidate-typeinference')
+        self.write(self.out / 'selected-closures.json', closures)
+        prepared = m.read_json(self.out / 'candidate-prepare-terminal.json')
+        m.seal(self.out, prepared, 'prepare', self.deadline, time.monotonic() + 30)
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('workload binding differs',
+                      m.read_json(self.out / 'candidate-run-terminal.json')['primary_failure']['error'])
+
+    def test_target_receipt_cannot_forge_the_retained_v6_baseline(self):
+        self.prepare()
+        receipt = m.read_json(self.out / 'target-qualified-identity.json')
+        receipt['before_files'][m.SHARED_FILE]['sha256'] = m.TARGET_QUALIFIED_SHA
+        self.write(self.out / 'target-qualified-identity.json', receipt)
+        with self.assertRaisesRegex(RuntimeError, 'target-qualified identity differs'):
+            m.verify_target_qualified_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+
+    def test_target_overlay_rejects_extra_missing_and_mode_changed_files(self):
+        self.prepare()
+        root = self.work / 'candidate-target-typeinference'
+        support = root / 'Unchanged.qll'
+        original, mode = support.read_bytes(), support.stat().st_mode
+        for mutation in ('extra', 'missing', 'mode'):
+            with self.subTest(mutation=mutation):
+                if mutation == 'extra': (root / 'Extra.qll').write_text('unapproved')
+                elif mutation == 'missing': support.unlink()
+                else: support.chmod(mode ^ 0o100)
+                try:
+                    with self.assertRaisesRegex(RuntimeError, 'fixed target-qualified overlay'):
+                        m.verify_target_qualified_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+                finally:
+                    if mutation == 'extra': (root / 'Extra.qll').unlink()
+                    elif mutation == 'missing': support.write_bytes(original)
+                    support.chmod(mode)
+
+    def test_target_permissions_cannot_follow_a_mutated_v6_permission_baseline(self):
+        self.prepare()
+        paths = [self.work / name / m.SHARED_FILE for name in
+                 ('candidate-typeinference', 'candidate-target-typeinference')]
+        modes = [path.stat().st_mode for path in paths]
+        for path, mode in zip(paths, modes): path.chmod(mode ^ 0o020)
+        try:
+            # Old v6 records only Git execute bits; the new layer also binds all
+            # permission bits to the actual unchanged official shared package.
+            m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+            with self.assertRaisesRegex(RuntimeError, 'fixed target-qualified overlay'):
+                m.verify_target_qualified_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+        finally:
+            for path, mode in zip(paths, modes): path.chmod(mode)
+
+    def test_wrong_target_patch_stops_before_copy_or_process_and_retains_real_v6(self):
+        with patch.object(m, 'TARGET_QUALIFIED_PATCH_SHA', '0' * 64):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertFalse(any(call[0] == 'apply-target-qualified-patch' for call in self.calls))
+        self.assertFalse((self.work / 'candidate-target-typeinference').exists())
+        self.assertFalse((self.out / 'target-qualified-identity.json').exists())
+        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
+
+    def test_target_copy_permission_drift_is_rejected_before_patch_process(self):
+        original_copy = shutil.copytree
+        def copy(source, destination, *args, **options):
+            result = original_copy(source, destination, *args, **options)
+            if Path(destination).name == 'candidate-target-typeinference':
+                path = Path(destination) / m.SHARED_FILE
+                path.chmod(path.stat().st_mode ^ 0o020)
+            return result
+        with patch.object(shutil, 'copytree', side_effect=copy):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertFalse(any(call[0] == 'apply-target-qualified-patch' for call in self.calls))
+        self.assertFalse((self.out / 'target-qualified-identity.json').exists())
+        m.verify_workload_identity(self.closure, self.work, self.out, time.monotonic() + 30)
 
     def test_v2_preparation_is_rejected_even_with_a_valid_evidence_seal(self):
         self.prepare()
@@ -1092,63 +1244,559 @@ class Workload(unittest.TestCase):
             with self.assertRaises(RuntimeError): m.admit_checkpoint(captured, finished, self.source, self.deadline)
 
 
+def validate_real_candidate_bindings(test, codeql, work, out, *, end, run):
+    """The original 44 consumer, now bound to the separately verified target tree."""
+    if run.end != end:
+        raise RuntimeError('candidate binding deadline differs from its caller')
+    source = run.args.source
+    run([codeql, 'version', '--format=json'], 'version', 20)
+    test.assertEqual(m.read_json(out / 'version.log')['version'], '2.27.4')
+    test.assertIs(m.read_json(out / 'version.log').get('configFileFound'), False)
+    official = m.capacity.bundle.bundle_closure(codeql.parent, '2.27.4')
+    protected = dict(official, **{'codeql/suite-helpers': m.suite_helper(codeql.parent)})
+    before = {key: m.regular_snapshot(Path(value['root']), end) for key, value in protected.items()}
+    m.prepare_candidate(official, work, out, end, run, copy_end=end)
+    m.prepare_shared_helper(official, work, out, end, run, copy_end=end)
+    m.prepare_trait_visibility(official, work, out, end, run)
+    m.verify_v5_identity(official, work, out, end)
+    test.assertEqual(m.capacity.digest_until(work / 'candidate-typeinference' / m.SHARED_FILE, end),
+                     '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
+    m.prepare_constraint_matching(official, work, out, end, run)
+    m.verify_workload_identity(official, work, out, end)
+    test.assertEqual(m.capacity.digest_until(work / 'candidate-typeinference' / m.SHARED_FILE, end),
+                     '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33')
+    m.prepare_target_qualified(official, work, out, end, run)
+    target = m.verify_target_qualified_identity(official, work, out, end)
+    witness = m.research_closure(official, work)
+    closures = dict(witness=witness, default=dict(witness, **{'codeql/suite-helpers': m.suite_helper(codeql.parent)}))
+    test.assertEqual(len(witness), 13); test.assertEqual(len(closures['default']), 14)
+    published = codeql.parent / 'qlpacks/codeql/rust-queries/0.1.46'
+    published_before = m.regular_snapshot(published, end)
+    suite_file = published / 'codeql-suites/rust-code-scanning.qls'
+    run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
+    suite = dict(query_root=str(published), suite_sha256=m.capacity.digest_until(suite_file, end),
+                 queries=m.capacity.suite_entries(m.read_json(out / 'official-suite.log'), published))
+    frozen = m.capacity.semantic_contract(source, image_version=m.IMAGE_CONTRACT)['query_sha256']
+    records = m.source_layout(codeql.parent, work, out, source, suite, frozen, end)
+    private = m.private_inputs(work, end)
+    m.resolve_layout(codeql, records, closures, work, out, run, end=end)
+    test.assertEqual(m.private_inputs(work, end), private)
+    resolved = m.read_json(out / 'library-resolution.json')
+    test.assertEqual(len(records), 44); test.assertEqual(len(resolved), 44)
+    for result in resolved:
+        test.assertIn(str(work / 'candidate-target-typeinference'), result['actual']['libraryPath'])
+        test.assertNotIn(str(work / 'candidate-typeinference'), result['actual']['libraryPath'])
+        test.assertNotIn(official['codeql/typeinference']['root'], result['actual']['libraryPath'])
+    test.assertEqual({key: m.regular_snapshot(Path(value['root']), end) for key, value in protected.items()}, before)
+    test.assertEqual(m.read_json(out / 'shared-helper-identity.json')['changed_files'], [m.SHARED_FILE])
+    trait = m.read_json(out / 'trait-visibility-identity.json')
+    test.assertEqual(trait['candidate_files'][m.comparison.TYPE_FILE]['sha256'], m.TRAIT_TYPE_SHA)
+    test.assertEqual(trait['candidate_files'][m.TRAIT_PATH_FILE]['sha256'], m.TRAIT_PATH_SHA)
+    constraint = m.read_json(out / 'constraint-matching-identity.json')
+    test.assertEqual(constraint['before_files'], m.read_json(out / 'shared-helper-identity.json')['candidate_files'])
+    test.assertEqual(constraint['candidate_files'], m.regular_snapshot(work / 'candidate-typeinference', end))
+    with test.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
+        m.verify_v5_identity(official, work, out, end)
+    with test.assertRaisesRegex(RuntimeError, 'two-file model'):
+        m.verify_candidate_identity(Path(official['codeql/rust-all']['root']), work / 'candidate-rust-all', out, end)
+    m.runtime.save(out / 'binding-validation.json', dict(
+        variant=m.RESEARCH_VARIANT, queries=records, closures=closures,
+        private_inputs=private, official_inputs=before,
+        published_queries=published_before, target_identity=target), out)
+    def verify_after(check_end):
+        test.assertEqual(m.verify_target_qualified_identity(official, work, out, check_end), target)
+        test.assertEqual(m.private_inputs(work, check_end), private)
+        test.assertEqual({key: m.regular_snapshot(Path(value['root']), check_end)
+                          for key, value in protected.items()}, before)
+        test.assertEqual(m.regular_snapshot(published, check_end), published_before)
+    return verify_after, {name: work / name for name in private}
+
+
+PAIR_SECONDS, PAIR_CLOSEOUT_SECONDS = 600, 60
+PAIR_EVIDENCE_CAP = 64 * 1024**2
+
+
+def binding_module(name, path):
+    module_spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
+
+
+def binding_check(end, cancelled=None):
+    m.capacity.check_time(end)
+    if cancelled and cancelled['cancelled']:
+        raise m.runtime.CancelledError('paired binding validation cancelled')
+
+
+def binding_cleanup(owner, end):
+    """Reuse the repository's ancestry/pidfd operations, including setsid children."""
+    initial = sorted(owner.descendants())
+    for sig, seconds in m.runtime.CLEANUP_SIGNALS:
+        binding_check(end)
+        owner.send_owned(sig)
+        until = min(end, time.monotonic() + seconds)
+        while owner.descendants():
+            owner.reap()
+            if time.monotonic() >= until:
+                break
+            time.sleep(min(.02, max(0, until - time.monotonic())))
+        owner.reap()
+    binding_check(end)
+    remaining = sorted(owner.descendants())
+    if remaining:
+        raise RuntimeError('paired binding descendants remain: ' + repr(remaining))
+    return dict(initial_pids=initial, remaining_pids=remaining)
+
+
+class BindingStreams:
+    """Unmodified raw bytes plus explicit pipe EOF for non-resolver commands."""
+    def __init__(self):
+        self.eof = dict(stdout=False, stderr=False)
+
+    def feed(self, name, data, final=False):
+        if final:
+            self.eof[name] = True
+        return data
+
+    def poll(self, end):
+        binding_check(end)
+
+    def summary(self):
+        return dict(eof=dict(self.eof))
+
+
+class BindingRunner:
+    """Only the local 44/37 gate: retain the existing runtime and resolver argv."""
+    def __init__(self, args, end, cancelled, owner):
+        self.args, self.end, self.cancelled, self.owner = args, end, cancelled, owner
+        self.terminal = {}
+        self.env = dict(PATH='/usr/bin:/bin', HOME=os.environ['HOME'], LANG='C.UTF-8', TZ='UTC',
+                        PYTHONDONTWRITEBYTECODE='1', TMPDIR=str(args.work / 'tmp'),
+                        XDG_CACHE_HOME=str(args.work / 'cache'), CODEQL_THREADS='2', CODEQL_RAM='3072',
+                        JAVA_TOOL_OPTIONS='-Xmx3072m -XX:ActiveProcessorCount=2')
+        for name in ('tmp', 'cache'):
+            (args.work / name).mkdir()
+        m.runtime.save(args.output / 'process-environment.json', self.env, args.output)
+
+    def __call__(self, argv, name, limit=None, *, observer=None,
+                 restricted_output=True, reap_orphans=True):
+        binding_check(self.end, self.cancelled)
+        if not restricted_output:
+            raise RuntimeError('paired binding commands require bounded raw capture')
+        observed = observer or BindingStreams()
+        failure = None
+        try:
+            result = m.runtime.run(list(map(str, argv)), self.args.source,
+                self.args.output / (name + '.log'), self.end,
+                min(self.end - time.monotonic(), limit or self.end - time.monotonic()),
+                self.args.output, self.env, file_limit=None, observer=observed,
+                restricted_output=True, reap_orphans=True)
+            if (not isinstance(result.get('pid'), int) or result['pid'] <= 0 or result['exit'] != 0
+                    or result['error'] or result['failure_kind'] or result['cleanup_errors']
+                    or result['evidence_errors'] or result.get('cancelled')
+                    or not all(observed.eof.values())):
+                raise RuntimeError('paired binding runtime was not completely successful')
+        except BaseException as exc:
+            failure = exc
+        try:
+            cleanup = binding_cleanup(self.owner, self.end)
+            m.runtime.save(self.args.output / (name + '.owner.json'), cleanup, self.args.output)
+            if cleanup['initial_pids']:
+                raise RuntimeError('paired binding descendants outlived runtime cleanup')
+            binding_check(self.end, self.cancelled)
+        except BaseException as exc:
+            failure = failure or exc
+        if failure:
+            raise failure
+        return result
+
+
+def binding_repository_file(path, end):
+    binding_check(end)
+    data = capacity_layout._read_regular(path)
+    return dict(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data), mode=path.stat().st_mode & 0o7777)
+
+
+def binding_tools(codeql, end):
+    names = [*capacity_layout.TOOL_FILES, 'codeql-rust-candidate-workload.test.py',
+             'codeql-rust-production.py', 'codeql-rust-production.test.py',
+             'test_codeql_rust_resolver.py']
+    paths = [HERE / name for name in names] + [ROOT / 'scripts/ci-apt-install.py', ROOT / 'scripts/ci-apt-dns.py']
+    identities = {}
+    for path in paths:
+        identities[str(path.relative_to(ROOT))] = binding_repository_file(path, end)
+    cli = {}
+    for path in (codeql, codeql.parent / 'tools/codeql.jar'):
+        binding_check(end)
+        if path.resolve() != path or not path.is_file():
+            raise RuntimeError('unsafe pinned binding CLI input')
+        before = path.stat()
+        cli[str(path.relative_to(codeql.parent))] = dict(
+            sha256=m.capacity.digest_until(path, end), bytes=before.st_size, mode=before.st_mode & 0o7777)
+        after = path.stat()
+        if ((after.st_dev, after.st_ino, after.st_size, after.st_mode, after.st_mtime_ns, after.st_ctime_ns)
+                != (before.st_dev, before.st_ino, before.st_size, before.st_mode, before.st_mtime_ns, before.st_ctime_ns)):
+            raise RuntimeError('binding CLI input changed while hashing')
+    return dict(repository=identities, cli=cli,
+                java=m.regular_snapshot(codeql.parent / 'tools/linux64/java', end))
+
+
+def binding_archive(root, destination, evidence, end):
+    """Preserve complete private source bytes before removing owned work/cache."""
+    before = m.regular_snapshot(root, end)
+    sizes = {name: (root / name).stat().st_size for name in before}
+    if m.runtime.output_bytes(evidence) + sum(sizes.values()) > PAIR_EVIDENCE_CAP - 1024**2:
+        raise RuntimeError('paired binding evidence cap before input copy')
+    for name in before:
+        binding_check(end)
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(root / name, target)
+        if target.stat().st_size != sizes[name]:
+            raise RuntimeError('paired binding input size changed during copy')
+    if m.regular_snapshot(destination, end) != before or m.regular_snapshot(root, end) != before:
+        raise RuntimeError('paired binding preserved input differs')
+
+
+def binding_remove_work(output, identity, end):
+    """Remove only the new work inode; check the common end before every operation."""
+    removed = 0
+    binding_check(end)
+    parent = os.open(output, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    def remove(fd, depth):
+        nonlocal removed
+        binding_check(end)
+        if depth > 100:
+            raise RuntimeError('paired binding cleanup depth')
+        for name in sorted(os.listdir(fd)):
+            binding_check(end)
+            item = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISDIR(item.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                try:
+                    if os.fstat(child) != item:
+                        raise RuntimeError('paired binding cleanup inode changed')
+                    remove(child, depth + 1)
+                finally:
+                    os.close(child)
+                binding_check(end)
+                current = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) != (item.st_dev, item.st_ino):
+                    raise RuntimeError('paired binding cleanup directory changed')
+                os.rmdir(name, dir_fd=fd)
+            else:
+                os.unlink(name, dir_fd=fd)
+            removed += 1
+            if removed > 50000:
+                raise RuntimeError('paired binding cleanup entry limit')
+    try:
+        current = os.stat('work', dir_fd=parent, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != identity:
+            raise RuntimeError('paired binding owned work changed')
+        child = os.open('work', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            if (os.fstat(child).st_dev, os.fstat(child).st_ino) != identity:
+                raise RuntimeError('paired binding opened work changed')
+            remove(child, 0)
+        finally:
+            os.close(child)
+        binding_check(end)
+        current = os.stat('work', dir_fd=parent, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != identity:
+            raise RuntimeError('paired binding owned work changed')
+        os.rmdir('work', dir_fd=parent)
+        binding_check(end)
+        if (output / 'work').exists():
+            raise RuntimeError('paired binding work reappeared')
+        return dict(status='REMOVED', entries=removed + 1)
+    finally:
+        os.close(parent)
+
+
+def binding_seal(evidence, terminal, end, cancelled):
+    marker = evidence / 'ADMISSION.json'
+    try:
+        binding_check(end, cancelled)
+        if any((evidence / name).exists() for name in ('ADMISSION.json', 'terminal.json', 'hashes.json')):
+            raise RuntimeError('paired binding seal files must be new')
+        m.runtime.save(evidence / 'terminal.json', terminal, evidence, terminal=True)
+        m.runtime.save(marker, dict(status='PAIR_BINDINGS_COMPLETE',
+            require_outer_exit_zero=True, counts=[44, 37]), evidence, terminal=True)
+        hashes = {str(path.relative_to(evidence)): m.capacity.digest_until(path, end)
+                  for path in sorted(evidence.rglob('*')) if path.is_file()}
+        m.runtime.save(evidence / 'hashes.json', hashes, evidence, terminal=True)
+        if m.runtime.output_bytes(evidence) > PAIR_EVIDENCE_CAP:
+            raise RuntimeError('paired binding final evidence cap')
+        sealed = m.comparison.verify_seal(evidence, end)
+        binding_check(end, cancelled)
+        return sealed
+    except BaseException:
+        marker.unlink(missing_ok=True)
+        raise
+
+
+def run_real_binding_pair(test, codeql, output):
+    """Fixed local protocol; no database, compilation, evaluation or retry."""
+    started = _PAIR_ENTRY_STARTED
+    end, work_end = started + PAIR_SECONDS, started + PAIR_SECONDS - PAIR_CLOSEOUT_SECONDS
+    if (codeql.resolve() != codeql or not codeql.is_file() or output.resolve() != output
+            or output.exists() or not output.parent.is_dir()
+            or any(output.is_relative_to(root) or root.is_relative_to(output)
+                   for root in (ROOT, codeql.parent))):
+        raise RuntimeError('paired binding output must be new and outside protected roots')
+    output.mkdir(mode=0o700)
+    work, evidence = output / 'work', output / 'evidence'
+    work.mkdir(); evidence.mkdir()
+    identity = (work.stat().st_dev, work.stat().st_ino)
+    owner = None
+    subreaper = None
+    try:
+        with m.runtime.cancellation_guard() as cancelled:
+            binding_check(work_end, cancelled)
+            owner = binding_module('binding_owner', ROOT / 'scripts/ci-apt-install.py')
+            if owner.descendants():
+                raise RuntimeError('paired binding entry requires exclusive child ownership')
+            subreaper = m.resolver.Subreaper()
+            before = binding_tools(codeql, work_end)
+            m.runtime.save(evidence / 'tools-before.json', before, evidence)
+            for relative in before['repository']:
+                binding_check(work_end, cancelled)
+                destination = evidence / 'tools' / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / relative, destination)
+                test.assertEqual(binding_repository_file(destination, work_end), before['repository'][relative])
+            contract = dict(started=started, end=end, work_end=work_end, total_seconds=600,
+                closeout_seconds=60, counts=[44, 37], variants=[m.RESEARCH_VARIANT, m.WORKLOAD_VARIANT],
+                codeql=str(codeql), process_file_limit=None,
+                runtime_evidence_cap_per_consumer=m.runtime.CAP,
+                final_pair_evidence_cap=PAIR_EVIDENCE_CAP,
+                cap_scope='per-consumer runtime writes; combined pair is final admission, not physical peak',
+                resource_request=dict(CODEQL_THREADS=2, CODEQL_RAM=3072),
+                java_options='-Xmx3072m -XX:ActiveProcessorCount=2; not a process RSS limit',
+                no_database_compilation_or_evaluation=True)
+            m.runtime.save(evidence / 'contract.json', contract, evidence)
+            production = binding_module('production_binding_test', HERE / 'codeql-rust-production.test.py')
+            validations = []
+            for name, validate in (('target44', validate_real_candidate_bindings),
+                                   ('production37', production.validate_real_production_bindings)):
+                binding_check(work_end, cancelled)
+                private, out = work / name, evidence / name
+                private.mkdir(); out.mkdir()
+                source = private / 'source'; source.mkdir()
+                args = SimpleNamespace(codeql=codeql, source=source, work=private, output=out)
+                run = BindingRunner(args, work_end, cancelled, owner)
+                verify, archives = validate(test, codeql, private, out, end=work_end, run=run)
+                validations.append((name, verify, archives))
+            binding_check(end, cancelled)
+            for name, verify, archives in validations:
+                verify(end)
+                for relative, root in archives.items():
+                    binding_archive(root, evidence / 'inputs' / name / relative, evidence, end)
+                verify(end)
+            test.assertEqual(binding_tools(codeql, end), before)
+            for relative, expected in before['repository'].items():
+                test.assertEqual(binding_repository_file(evidence / 'tools' / relative, end), expected)
+            cleanup = binding_cleanup(owner, end)
+            test.assertEqual(cleanup['initial_pids'], [])
+            removed = binding_remove_work(output, identity, end)
+            subreaper.close(); subreaper = None
+            binding_check(end, cancelled)
+            terminal = dict(status='PAIR_BINDINGS_COMPLETE', counts=[44, 37],
+                work_removed=removed, children=cleanup, inputs='UNCHANGED',
+                elapsed_seconds=time.monotonic() - started)
+            binding_seal(evidence, terminal, end, cancelled)
+            binding_check(end, cancelled)
+    except BaseException as exc:
+        (evidence / 'ADMISSION.json').unlink(missing_ok=True)
+        try:
+            if owner is not None:
+                binding_cleanup(owner, end)
+            if work.exists():
+                binding_remove_work(output, identity, end)
+            binding_check(end)
+            m.runtime.save(evidence / 'INCOMPLETE.json',
+                dict(status='INCOMPLETE', error=repr(exc), elapsed_seconds=time.monotonic() - started),
+                evidence, terminal=True)
+        except BaseException:
+            pass  # No new deadline, post-deadline hashes, or success marker.
+        raise
+    finally:
+        if subreaper is not None:
+            subreaper.close()
+
+
+class BindingPairProtocol(unittest.TestCase):
+    """Synthetic source consumers and Python children; never start CodeQL."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.bundle = self.root / 'bundle'; self.bundle.mkdir()
+        self.codeql = self.bundle / 'codeql'; self.codeql.write_text('not executable')
+        self.output = self.root / 'pair'
+        self.events, self.verifications = [], []
+        self.clock = [1000.0]
+
+    def consumer(self, label, after=None):
+        def validate(test, codeql, work, out, *, end, run):
+            self.events.append((label, end, run.end))
+            private = work / 'private'; private.mkdir()
+            (private / 'input.ql').write_bytes(label.encode())
+            (out / 'raw.log').write_bytes((label + '\n').encode())
+            def verify(check_end):
+                self.verifications.append((label, check_end))
+                self.assertEqual((private / 'input.ql').read_bytes(), label.encode())
+            if after:
+                after()
+            return verify, dict(private=private)
+        return validate
+
+    def invoke_pair(self, candidate=None, production=None, tools=None):
+        original_module = binding_module
+        def load(name, path):
+            if name == 'production_binding_test':
+                return SimpleNamespace(validate_real_production_bindings=production or self.consumer('production37'))
+            return original_module(name, path)
+        with (patch(__name__ + '.binding_module', side_effect=load),
+              patch(__name__ + '._PAIR_ENTRY_STARTED', 1000),
+              patch(__name__ + '.validate_real_candidate_bindings', candidate or self.consumer('target44')),
+              patch(__name__ + '.binding_tools', side_effect=tools or (lambda *_: dict(repository={}))),
+              patch.object(time, 'monotonic', side_effect=lambda: self.clock[0])):
+            run_real_binding_pair(self, self.codeql, self.output)
+
+    def test_pair_executes_each_consumer_once_with_one_clock_and_preserves_raw_inputs(self):
+        self.invoke_pair()
+        self.assertEqual(self.events, [('target44', 1540, 1540), ('production37', 1540, 1540)])
+        self.assertEqual(self.verifications, [('target44', 1600)] * 2 + [('production37', 1600)] * 2)
+        evidence = self.output / 'evidence'
+        self.assertFalse((self.output / 'work').exists())
+        sealed = m.comparison.verify_seal(evidence, time.monotonic() + 5)
+        self.assertIn('ADMISSION.json', sealed)
+        for name in ('target44', 'production37'):
+            self.assertEqual((evidence / name / 'raw.log').read_bytes(), (name + '\n').encode())
+            self.assertEqual((evidence / 'inputs' / name / 'private/input.ql').read_bytes(), name.encode())
+        self.assertEqual(m.read_json(evidence / 'contract.json')['work_end'], 1540)
+
+    def test_second_consumer_gets_no_fresh_window_after_preparation_exhausts_work_time(self):
+        def exhaust(): self.clock[0] = 1540
+        with self.assertRaises(TimeoutError):
+            self.invoke_pair(candidate=self.consumer('target44', exhaust))
+        self.assertEqual(self.events, [('target44', 1540, 1540)])
+        self.assertFalse((self.output / 'evidence/ADMISSION.json').exists())
+        self.assertFalse((self.output / 'work').exists())
+        self.assertEqual(m.read_json(self.output / 'evidence/INCOMPLETE.json')['status'], 'INCOMPLETE')
+
+    def test_time_before_the_pair_function_is_charged_to_the_module_origin(self):
+        self.clock[0] = 1500
+        self.invoke_pair()
+        self.assertEqual(self.events, [('target44', 1540, 1540), ('production37', 1540, 1540)])
+        self.assertEqual(m.read_json(self.output / 'evidence/terminal.json')['elapsed_seconds'], 500)
+
+    def test_source_identity_change_prevents_sealing_both_completed_consumers(self):
+        values = iter((dict(repository={}, identity=1), dict(repository={}, identity=2)))
+        with self.assertRaises(AssertionError):
+            self.invoke_pair(tools=lambda *_: next(values))
+        self.assertEqual(len(self.events), 2)
+        self.assertFalse((self.output / 'evidence/ADMISSION.json').exists())
+        self.assertFalse((self.output / 'evidence/hashes.json').exists())
+
+    def test_seal_write_or_readback_failure_cannot_leave_admission(self):
+        for failed in ('terminal.json', 'ADMISSION.json', 'hashes.json', 'readback'):
+            with self.subTest(failed=failed), tempfile.TemporaryDirectory(dir=self.root) as name:
+                evidence = Path(name); (evidence / 'raw.log').write_bytes(b'complete original output')
+                original = m.runtime.save
+                def save(path, *args, **kwargs):
+                    if path.name == failed:
+                        raise OSError('injected write failure')
+                    return original(path, *args, **kwargs)
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(patch.object(m.runtime, 'save', side_effect=save))
+                    if failed == 'readback':
+                        stack.enter_context(patch.object(m.comparison, 'verify_seal', side_effect=OSError('readback')))
+                    with self.assertRaises(OSError):
+                        binding_seal(evidence, {}, time.monotonic() + 5, dict(cancelled=False))
+                self.assertFalse((evidence / 'ADMISSION.json').exists())
+                self.assertEqual((evidence / 'raw.log').read_bytes(), b'complete original output')
+
+    def test_late_cancel_or_deadline_after_readback_revokes_admission(self):
+        for fault in ('cancel', 'deadline'):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory(dir=self.root) as name:
+                evidence = Path(name); (evidence / 'raw.log').write_bytes(b'full')
+                state, clock = dict(cancelled=False), [1000]
+                original = m.comparison.verify_seal
+                def readback(root, end):
+                    value = original(root, end)
+                    if fault == 'cancel': state['cancelled'] = True
+                    else: clock[0] = 1010
+                    return value
+                with (patch.object(time, 'monotonic', side_effect=lambda: clock[0]),
+                      patch.object(m.comparison, 'verify_seal', side_effect=readback)):
+                    with self.assertRaises((m.runtime.CancelledError, TimeoutError)):
+                        binding_seal(evidence, {}, 1010, state)
+                self.assertFalse((evidence / 'ADMISSION.json').exists())
+
+    def test_combined_cap_rejects_final_seal_and_copy_admission_without_truncating_raw(self):
+        evidence = self.root / 'evidence'; evidence.mkdir()
+        original = b'x' * 4096; (evidence / 'raw.log').write_bytes(original)
+        with patch(__name__ + '.PAIR_EVIDENCE_CAP', 1024):
+            with self.assertRaisesRegex(RuntimeError, 'final evidence cap'):
+                binding_seal(evidence, {}, time.monotonic() + 5, dict(cancelled=False))
+        self.assertFalse((evidence / 'ADMISSION.json').exists())
+        self.assertEqual((evidence / 'raw.log').read_bytes(), original)
+        source = self.root / 'private'; source.mkdir(); (source / 'input').write_bytes(b'xx')
+        destination = evidence / 'inputs'
+        with patch(__name__ + '.PAIR_EVIDENCE_CAP', 1024**2):
+            with self.assertRaisesRegex(RuntimeError, 'before input copy'):
+                binding_archive(source, destination, evidence, time.monotonic() + 5)
+        self.assertFalse(destination.exists())
+
+    def test_owned_cleanup_never_follows_a_work_symlink(self):
+        self.output.mkdir(); work = self.output / 'work'; work.mkdir()
+        target = self.root / 'protected'; target.mkdir(); (target / 'keep').write_text('keep')
+        (work / 'link').symlink_to(target)
+        identity = (work.stat().st_dev, work.stat().st_ino)
+        self.assertEqual(binding_remove_work(self.output, identity, time.monotonic() + 5)['status'], 'REMOVED')
+        self.assertEqual((target / 'keep').read_text(), 'keep')
+
+    def test_python_child_retains_raw_eof_and_rejects_setsided_descendant_even_after_exit_zero(self):
+        owner = binding_module('synthetic_binding_owner', ROOT / 'scripts/ci-apt-install.py')
+        subreaper = m.resolver.Subreaper()
+        end = time.monotonic() + 15
+        self.addCleanup(subreaper.close)
+        self.addCleanup(lambda: binding_cleanup(owner, time.monotonic() + 5))
+        for label, program in (
+            ('complete', "import sys; print('original stdout'); print('original stderr', file=sys.stderr)"),
+            ('escaped', "import subprocess,sys; p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); print(p.pid,flush=True)")):
+            root = self.root / label; root.mkdir()
+            work, out, source = (root / name for name in ('work', 'evidence', 'source'))
+            for folder in (work, out, source): folder.mkdir()
+            args = SimpleNamespace(work=work, output=out, source=source)
+            with patch.dict(os.environ, CODEQL_JAVA_HOME='/untrusted', _JAVA_OPTIONS='-Xmx99g'):
+                run = BindingRunner(args, end, dict(cancelled=False), owner)
+            self.assertNotIn('CODEQL_JAVA_HOME', run.env); self.assertNotIn('_JAVA_OPTIONS', run.env)
+            if label == 'complete':
+                result = run([sys.executable, '-c', program], label)
+                self.assertEqual(result['output_observation']['eof'], dict(stdout=True, stderr=True))
+                self.assertEqual((out / (label + '.log')).read_text(), 'original stdout\n')
+                self.assertEqual((out / (label + '.log.stderr')).read_text(), 'original stderr\n')
+            else:
+                with self.assertRaisesRegex(RuntimeError, 'outlived runtime cleanup'):
+                    run([sys.executable, '-c', program], label)
+                self.assertEqual(m.read_json(out / (label + '.log.result.json'))['exit'], 0)
+                self.assertTrue(m.read_json(out / (label + '.owner.json'))['initial_pids'])
+                self.assertEqual(owner.descendants(), set())
+
+
 @unittest.skipUnless(os.environ.get('OASIS7_CODEQL_CANDIDATE_CLI'), 'explicit pinned CodeQL integration input required')
 class RealCodeQL(unittest.TestCase):
     def test_actual_patches_and_all_44_shared_library_bindings(self):
-        """Resolve the real source workload; do not create or query a database."""
-        codeql = Path(os.environ['OASIS7_CODEQL_CANDIDATE_CLI']).resolve()
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name).resolve()
-            work, out, source = (root / part for part in ('work', 'evidence', 'source'))
-            for folder in (work, out, source): folder.mkdir()
-            end = time.monotonic() + 600
-            env = {key: value for key, value in os.environ.items() if key not in ('GH_TOKEN', 'GITHUB_TOKEN')}
-            def run(argv, label, limit=None, **options):
-                return m.runtime.run(list(map(str, argv)), source, out / (label + '.log'),
-                                     end, min(end-time.monotonic(), limit or end-time.monotonic()),
-                                     out, env, file_limit=None, **options)
-            run([codeql, 'version', '--format=json'], 'version', 20)
-            self.assertEqual(m.read_json(out / 'version.log')['version'], '2.27.4')
-            official = m.capacity.bundle.bundle_closure(codeql.parent, '2.27.4')
-            before = {key: m.regular_snapshot(Path(value['root']), end) for key, value in official.items()}
-            m.prepare_candidate(official, work, out, end, run, copy_end=end)
-            m.prepare_shared_helper(official, work, out, end, run, copy_end=end)
-            m.prepare_trait_visibility(official, work, out, end, run)
-            m.verify_v5_identity(official, work, out, end)
-            self.assertEqual(m.runtime.digest(work / 'candidate-typeinference' / m.SHARED_FILE),
-                             '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
-            m.prepare_constraint_matching(official, work, out, end, run)
-            m.verify_workload_identity(official, work, out, end)
-            self.assertEqual(m.runtime.digest(work / 'candidate-typeinference' / m.SHARED_FILE),
-                             '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33')
-            witness = m.workload_closure(official, work)
-            closures = dict(witness=witness, default=dict(witness, **{'codeql/suite-helpers': m.suite_helper(codeql.parent)}))
-            self.assertEqual(len(witness), 13); self.assertEqual(len(closures['default']), 14)
-            published = codeql.parent / 'qlpacks/codeql/rust-queries/0.1.46'
-            suite_file = published / 'codeql-suites/rust-code-scanning.qls'
-            run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
-            suite = dict(query_root=str(published), suite_sha256=m.runtime.digest(suite_file),
-                         queries=m.capacity.suite_entries(m.read_json(out / 'official-suite.log'), published))
-            frozen = m.capacity.semantic_contract(source, image_version=m.IMAGE_CONTRACT)['query_sha256']
-            records = m.source_layout(codeql.parent, work, out, source, suite, frozen, end)
-            m.resolve_layout(codeql, records, closures, work, out, run, end=end)
-            resolved = m.read_json(out / 'library-resolution.json')
-            self.assertEqual(len(records), 44); self.assertEqual(len(resolved), 44)
-            for result in resolved:
-                self.assertIn(str(work / 'candidate-typeinference'), result['actual']['libraryPath'])
-                self.assertNotIn(official['codeql/typeinference']['root'], result['actual']['libraryPath'])
-            self.assertEqual({key: m.regular_snapshot(Path(value['root']), end) for key, value in official.items()}, before)
-            self.assertEqual(m.read_json(out / 'shared-helper-identity.json')['changed_files'], [m.SHARED_FILE])
-            trait = m.read_json(out / 'trait-visibility-identity.json')
-            self.assertEqual(trait['candidate_files'][m.comparison.TYPE_FILE]['sha256'], m.TRAIT_TYPE_SHA)
-            self.assertEqual(trait['candidate_files'][m.TRAIT_PATH_FILE]['sha256'], m.TRAIT_PATH_SHA)
-            constraint = m.read_json(out / 'constraint-matching-identity.json')
-            self.assertEqual(constraint['before_files'], m.read_json(out / 'shared-helper-identity.json')['candidate_files'])
-            self.assertEqual(constraint['candidate_files'], m.regular_snapshot(work / 'candidate-typeinference', end))
-            with self.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
-                m.verify_v5_identity(official, work, out, end)
-            with self.assertRaisesRegex(RuntimeError, 'two-file model'):
-                m.verify_candidate_identity(Path(official['codeql/rust-all']['root']), work / 'candidate-rust-all', out, end)
+        """One persisted 44-target → 37-production gate, sharing a single clock."""
+        if os.environ.get('OASIS7_CODEQL_PRODUCTION_CLI'):
+            self.fail('the paired gate must not also enable the standalone production test')
+        codeql = Path(os.environ['OASIS7_CODEQL_CANDIDATE_CLI']).absolute()
+        output = Path(os.environ['OASIS7_CODEQL_BINDING_OUTPUT']).absolute()
+        run_real_binding_pair(self, codeql, output)
 
 
 class Workflow(unittest.TestCase):
