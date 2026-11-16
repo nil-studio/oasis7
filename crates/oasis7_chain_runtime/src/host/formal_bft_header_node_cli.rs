@@ -154,7 +154,10 @@ fn from_paths(
     if config.status_address.is_some() && !serve {
         return Err("header Node status requires --serve".into());
     }
-    let status_listener = config.status_address.map(status::Listener::bind).transpose()?;
+    let status_listener = config
+        .status_address
+        .map(status::Listener::bind)
+        .transpose()?;
     #[cfg(feature = "node-libp2p")]
     if config.network.is_some() && !serve {
         return Err("header Node network configuration requires --serve".into());

@@ -606,15 +606,28 @@ impl Worker {
                 height: self.schedule.height(),
                 round: self.machine.round(),
                 active_set_hash: self.schedule.active_set().set_hash().into(),
-                pending_set_hash: self.schedule.pending_transition().map(|t| t.new_validator_set_hash.clone()),
+                pending_set_hash: self
+                    .schedule
+                    .pending_transition()
+                    .map(|t| t.new_validator_set_hash.clone()),
                 binding_digest: self.checkpoint.state.binding_digest.clone(),
                 checkpoint_revision: self.checkpoint.state.revision,
                 observed_lease_generation: self.checkpoint.lease_generation,
                 window_start_height: self.selected.binding.initial_schedule().height(),
                 committed_window_heights: self.checkpoint.state.history.len(),
                 pending_driver_apply: self.checkpoint.state.pending_driver_apply.is_some(),
-                last_applied_height: self.checkpoint.state.applied_installs.last().map(|r| r.height),
-                last_applied_header_id: self.checkpoint.state.applied_installs.last().map(|r| r.header_id.clone()),
+                last_applied_height: self
+                    .checkpoint
+                    .state
+                    .applied_installs
+                    .last()
+                    .map(|r| r.height),
+                last_applied_header_id: self
+                    .checkpoint
+                    .state
+                    .applied_installs
+                    .last()
+                    .map(|r| r.header_id.clone()),
             }),
         });
         state.tick_count = state.tick_count.saturating_add(1);
