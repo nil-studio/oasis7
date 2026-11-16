@@ -1181,9 +1181,13 @@ impl FileFormalEndpoint {
         result
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub use incremental::genesis::PaidGenesisAcceptanceV1;
+#[cfg(not(target_arch = "wasm32"))]
 pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
+#[cfg(not(target_arch = "wasm32"))]
 pub(in crate::controlled_authority) use incremental::host_source::PaidNormalFrozenReceiptSourceV1;
+#[cfg(not(target_arch = "wasm32"))]
 pub use incremental::host_source::{
     HostAcceptedParentReadViewV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
     NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1, NormalReadyPublicationFailureV1,
@@ -1205,4 +1209,5 @@ pub(in crate::controlled_authority) use tests::{
 };
 #[path = "endpoint_checkpoint_parent.rs"]
 mod checkpoint_parent;
+#[cfg(not(target_arch = "wasm32"))]
 pub use incremental::AuthenticatedColdHostErrorV1;
