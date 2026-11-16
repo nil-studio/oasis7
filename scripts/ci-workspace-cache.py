@@ -117,8 +117,9 @@ def read_state(args):
 def bounded_library_state(state, maximum, report):
     """Retain whole recorded units, never an arbitrary prefix of their files.
 
-    Ordinary full runs can collect many feature variants. Prefer the most
-    recently built units (the full-fast variants run last), then stable paths.
+    Ordinary full runs can collect many feature variants. Prefer units used by
+    the ordinary baseline before later full-fast variants, then newest units
+    and stable paths. Old captures without baseline metadata stay newest-first.
     This is a packing heuristic, not an assertion about compilation savings.
     Generators, unhashed outputs and cross-unit hard links stay together.
     """
@@ -141,6 +142,11 @@ def bounded_library_state(state, maximum, report):
             raise ValueError('ambiguous bounded Cargo unit hash: ' + name)
         else:
             fingerprints[unit] = name
+    baseline = state.get('ordinary_baseline_units', [])
+    if (not isinstance(baseline, list) or any(not isinstance(name, str) for name in baseline)
+            or len(baseline) != len(set(baseline)) or not set(baseline) <= set(fingerprints.values())):
+        raise ValueError('ordinary baseline must name unique recorded Cargo fingerprints')
+    baseline = set(baseline)
     # The existing recorder has already resolved the unique unhashed library
     # fingerprint. Pin every observed unit of that package rather than guessing
     # which public filename belongs to which feature variant.
@@ -228,7 +234,7 @@ def bounded_library_state(state, maximum, report):
     used = sum(groups[name]['bytes'] for name in retained)
     if used > maximum:
         raise ValueError('mandatory Cargo support units exceed bounded staging budget')
-    ordered = sorted(set(groups) - pinned, key=lambda name: (-groups[name]['stamp'], name))
+    ordered = sorted(set(groups) - pinned, key=lambda name: (name not in baseline, -groups[name]['stamp'], name))
     for name in ordered:
         if used + groups[name]['bytes'] <= maximum:
             retained.add(name)
@@ -238,15 +244,25 @@ def bounded_library_state(state, maximum, report):
     if not chosen_files or not chosen_dirs:
         raise ValueError('no complete Cargo library unit fits bounded staging budget')
     omitted = sorted(set(groups) - retained)
-    report.update(selection_policy='whole-units-newest-v1', selection_budget_bytes=maximum,
+    selection_policy = ('whole-units-ordinary-baseline-v1' if 'ordinary_baseline_units' in state
+                        else 'whole-units-newest-v1')
+    report.update(selection_policy=selection_policy, selection_budget_bytes=maximum,
                   selection_candidate_bytes=sum(group['bytes'] for group in groups.values()),
                   selection_retained_bytes=used, retained_unit_groups=len(retained - {'support'}),
                   omitted_unit_groups=len(omitted), omitted_unit_samples=omitted[:50],
-                  omitted_unit_samples_truncated=len(omitted) > 50)
+                  omitted_unit_samples_truncated=len(omitted) > 50,
+                  ordinary_baseline_unit_groups=len(baseline),
+                  ordinary_baseline_bytes=sum(groups[name]['bytes'] for name in baseline),
+                  retained_ordinary_baseline_unit_groups=len(baseline & retained),
+                  retained_ordinary_baseline_bytes=sum(groups[name]['bytes'] for name in baseline & retained),
+                  omitted_ordinary_baseline_unit_groups=len(baseline - retained))
     # Preserve the complete input snapshot and ownership map. An omitted unit
     # has no restored fingerprint; Cargo remains responsible for rebuilding it
     # and propagating its invalidation to all dependent units.
-    return dict(state, files=chosen_files, directories=chosen_dirs)
+    chosen = dict(state, files=chosen_files, directories=chosen_dirs)
+    if 'ordinary_baseline_units' in state:
+        chosen['ordinary_baseline_units'] = sorted(baseline & retained)
+    return chosen
 
 
 def measure_cache(args, report):

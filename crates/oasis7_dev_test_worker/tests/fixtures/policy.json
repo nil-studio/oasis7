@@ -1,0 +1,91 @@
+{
+  "accounts": {
+    "account": {
+      "account_id": "identity",
+      "alias": "A",
+      "disabled": false,
+      "environment": "[\"test\",\"private\"]",
+      "identity_public_key": "3434343434343434343434343434343434343434343434343434343434343434"
+    }
+  },
+  "credentials": [
+    {
+      "caller_id": "caller",
+      "expires_at_unix": 4102444800,
+      "revoked": false,
+      "token_secret": "DEV_TEST_TOKEN"
+    }
+  ],
+  "expires_at_unix": 4102444800,
+  "generation": 1,
+  "grants": [
+    {
+      "binding": {
+        "account_ref": "account",
+        "agent_id": "agent",
+        "authorization_version": 1,
+        "environment": "[\"test\",\"private\"]",
+        "executor_config_digest": "9080450ab5848aeafa45f9f20614942652168414217971151f8e5d714d36278e",
+        "genesis_digest": "genesis",
+        "resource": "resource",
+        "world": "world"
+      },
+      "caller_id": "caller",
+      "enabled": true,
+      "expires_at_unix": 4102444800,
+      "grant_id": "service",
+      "grant_ref": "grant",
+      "methods": [
+        "describe",
+        "task",
+        "capabilities",
+        "context",
+        "move",
+        "lookup"
+      ],
+      "move_targets": []
+    }
+  ],
+  "max_calls": 1,
+  "max_request_bytes": 4096,
+  "origin": "https://worker.example.test",
+  "resources": {
+    "resource": {
+      "account_ref": "account",
+      "endpoint": "https://native.example.test",
+      "fence": {
+        "active_goal_reference": {
+          "activation_committed_height": "2",
+          "goal_ref": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "goal_revision": "1",
+          "prepare_operation_id": "prepare",
+          "publish_operation_id": "publish"
+        },
+        "active_goal_revision": "1",
+        "agent_id": "agent",
+        "branch_id": "branch",
+        "executor_binding": {
+          "delegation_generation": "1",
+          "executor_epoch": "1",
+          "executor_id": "executor",
+          "executor_public_key": "31debe55d37c722768b137131caa6087080b2e0b60b94bd785d14575cfa498bc"
+        },
+        "executor_epoch": "1",
+        "genesis_digest": "genesis",
+        "latest_goal_revision": "1",
+        "owner_binding": "owner",
+        "owner_generation": "1",
+        "owner_public_key": "abababababababababababababababababababababababababababababababab",
+        "reorg_epoch": "0",
+        "task_id": "task",
+        "task_revision": "2",
+        "task_status": "active",
+        "world_id": "world"
+      },
+      "material_secret": "DEV_TEST_MATERIAL",
+      "service_public_key": "1212121212121212121212121212121212121212121212121212121212121212"
+    }
+  },
+  "service_grant_id": "service",
+  "timeout_ms": 1000
+}

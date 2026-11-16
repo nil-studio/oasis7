@@ -535,21 +535,13 @@ impl ExecutorGatewayContext {
         crate::fresh_submit_timing::submit_event("gateway_prepare_begin");
         let mut nonce = [0u8; 32];
         getrandom::fill(&mut nonce).map_err(|_| assurance("executor access nonce unavailable"))?;
-        let read = ReadWorldViewRequest {
-            contract_version: 1,
-            observation_nonce: Some(hex::encode(nonce)),
-            formal_anchor: None,
-            world: self.world(),
-            scope_id: format!("agent:{}", self.fence.agent_id),
-            min_commit: None,
-            fixed_commit: None,
-            deadline_unix_ms: None,
-        };
-        let access = EntryExecutorAccessV1 {
-            read: self.sign_read(VIEW_JSON_PATH, read)?,
-            fence: self.fence.clone(),
-        };
-        let original = EntryExecutorControlRequestV1 { access, operation };
+        let original = ws::executor_codec::gateway(
+            self.fence.clone(),
+            operation,
+            hex::encode(nonce),
+            &self.private_key(),
+        )
+        .map_err(assurance)?;
         let digest =
             ws::request_digest("executor-gateway-transport/v1", &original).map_err(assurance)?;
         let body = zeroize::Zeroizing::new(serde_json::to_vec(&original).map_err(assurance)?);
@@ -604,32 +596,14 @@ impl ExecutorGatewayContext {
     ) -> Result<SignedServiceResponse<R>, Error> {
         let bound = maximum.min(self.max_response_bytes);
         let bytes = self.response_bytes(path, request, bound)?;
-        let value: Value = oasis7_agent_api::game::parse_bounded_json(&bytes, bound)
-            .map_err(|_| assurance("executor gateway signed response malformed"))?;
-        use serde::de::IntoDeserializer;
-        let mut ignored = false;
-        let signed: SignedServiceResponse<R> =
-            serde_ignored::deserialize(value.into_deserializer(), |_| ignored = true)
-                .map_err(|_| assurance("executor gateway signed response malformed"))?;
-        if ignored {
-            return Err(assurance("unsupported executor gateway response field"));
-        }
-        // Check the exact original typed domain, never the gateway outer body.
-        ws::verify_service_response(
+        ws::executor_codec::verify_world_reply(
             path,
-            &ws::request_digest(path, request).map_err(assurance)?,
-            &signed,
+            request,
+            &bytes,
+            bound,
             &self.trusted_service_key,
         )
-        .map_err(assurance)?;
-        ws::private_goal::verify_owner_signature_strict(
-            path,
-            &(&signed.request_digest, &signed.payload),
-            &self.trusted_service_key,
-            &signed.signature_hex,
-        )
-        .map_err(assurance)?;
-        Ok(signed)
+        .map_err(assurance)
     }
 }
 

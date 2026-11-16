@@ -3,17 +3,7 @@
 use crate::dev_test_accounts_remote::{self as protocol, HttpRequest};
 use serde_json::{Value, json};
 pub const TOOL: &str = "dev_test_accounts_call";
-const METHODS: [&str; 9] = [
-    "accounts",
-    "open",
-    "close",
-    "describe",
-    "task",
-    "capabilities",
-    "context",
-    "move",
-    "lookup",
-];
+use oasis7_custody_core::dev_test::METHODS;
 
 fn envelope(arguments: &Value, token: &str) -> Result<Vec<u8>, ()> {
     let mut fields = arguments.as_object().cloned().ok_or(())?;
@@ -160,6 +150,15 @@ mod tests {
         )
         .1
         .unwrap()
+    }
+
+    #[test]
+    fn context_extra_fields_never_reach_the_authenticated_backend() {
+        let reply = call_params(
+            json!({"name":TOOL,"arguments":{"method":"context","session_ref":"S", "operation":{"request_id":"C","arguments":{"kind":"context","credential":"injected"}}}}),
+            |_| panic!("unknown Context field must be rejected before forwarding"),
+        );
+        assert!(reply.get("error").is_some());
     }
 
     #[test]

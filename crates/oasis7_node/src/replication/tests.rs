@@ -1171,3 +1171,6 @@ fn prune_hot_commit_messages_uses_latest_height_window_range() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[path = "local_commit_recovery_tests.rs"]
+mod local_commit_recovery_tests;

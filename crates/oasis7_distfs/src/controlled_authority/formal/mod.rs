@@ -75,3 +75,6 @@ pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoi
 };
 
 pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::PaidCheckpointBeginSourceV1;
+// Bounded physical bytes only; this grants no execution or publication authority.
+#[cfg(unix)]
+pub use physical::{PhysicalReadWorkV1, read_unknown_length_durable_v1};

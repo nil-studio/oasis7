@@ -11,6 +11,7 @@ path = "src/lib.rs"
 signature-metrics = []
 
 [dependencies]
+serde_ignored = "0.1"
 ed25519-dalek = "3"
 hex.workspace = true
 serde.workspace = true

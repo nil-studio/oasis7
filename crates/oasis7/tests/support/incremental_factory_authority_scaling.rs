@@ -1,4 +1,14 @@
-use super::*;
+use super::fixture::{Directory, logical};
+use super::incremental_factory_authority_fixture::{physical_scope, scan, source, state_error};
+use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
+use oasis7_formal_protocol::{
+    incremental_execution::*, incremental_state::*, incremental_value::*,
+};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_runtime::{
+    WorldState, incremental_factory_authority_records::*, incremental_field_member::*,
+    incremental_field_read::*,
+};
 use std::{cell::Cell, sync::Arc};
 struct CountState<'a, R> {
     source: &'a R,
@@ -44,14 +54,15 @@ impl<R: ValueNodeReader> ValueNodeReader for CountValue<'_, R> {
 }
 
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
-#[test]
-fn scalar_receiver_cost_excludes_unchanged_site_text_and_allowlist() {
+
+pub(super) fn exercise_site_scaling(samples: &[(usize, usize)]) {
+    assert!(samples.len() >= 2);
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let mut observed = Vec::new();
         // Fixed in advance: the complete generic+typed receiver may grow by
-        // at most64 calls and64KiB across all three unchanged-state sizes.
-        for (text_bytes, list_len) in [(64, 3), (1 << 20, 32), (32 << 20, 64)] {
+        // at most64 calls and64KiB across all unchanged-state sizes.
+        for &(text_bytes, list_len) in samples {
             let path = directory.0.join(format!("point-pages-{text_bytes}"));
             let before = {
                 let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();

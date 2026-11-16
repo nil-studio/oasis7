@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$ROOT_DIR/scripts/viewer-web-dist-contract.sh"
 VIEWER_ROOT="$ROOT_DIR/crates/oasis7_viewer"
+GENERATED_DIST_DIR=""
 DIST_DIR=""
 OPTIONAL_PAYLOAD_DIR=""
 OPTIONAL_PAYLOAD_PUBLIC_PATH=""
@@ -12,9 +13,12 @@ OPTIONAL_PAYLOAD_NAME="pixel_world_bridge_bindgen_bg.wasm"
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/copy-viewer-web-dist.sh --dist-dir <path> [--viewer-root <path>] \
+  [--generated-dist-dir <path>] \
   [--optional-payload-dir <path>] [--optional-payload-public-path <path>]
 
 Copy the canonical viewer web dist into a prepared output directory.
+--generated-dist-dir reads generated bundles and WASM from an isolated build;
+static sources still come from --viewer-root.
 
 When --optional-payload-dir is provided, the WebGL2 bridge WASM is staged in
 that directory instead of the primary viewer dist. The primary dist receives
@@ -46,6 +50,11 @@ while [[ $# -gt 0 ]]; do
       VIEWER_ROOT="${2:-}"
       shift 2
       ;;
+    --generated-dist-dir)
+      GENERATED_DIST_DIR="${2:-}"
+      [[ -n "$GENERATED_DIST_DIR" ]] || { echo "error: --generated-dist-dir cannot be empty" >&2; exit 2; }
+      shift 2
+      ;;
     --optional-payload-dir)
       OPTIONAL_PAYLOAD_DIR="${2:-}"
       shift 2
@@ -69,6 +78,9 @@ done
 [[ -n "$DIST_DIR" ]] || { echo "error: --dist-dir is required" >&2; exit 2; }
 VIEWER_ROOT="$(resolve_abs_path "$VIEWER_ROOT")"
 DIST_DIR="$(resolve_abs_path "$DIST_DIR")"
+if [[ -n "$GENERATED_DIST_DIR" ]]; then
+  GENERATED_DIST_DIR="$(resolve_abs_path "$GENERATED_DIST_DIR")"
+fi
 if [[ -n "$OPTIONAL_PAYLOAD_DIR" ]]; then
   OPTIONAL_PAYLOAD_DIR="$(resolve_abs_path "$OPTIONAL_PAYLOAD_DIR")"
 fi
@@ -90,15 +102,25 @@ require_file() {
   }
 }
 
+viewer_source_path() {
+  local source_rel="$1"
+  if [[ -n "$GENERATED_DIST_DIR" && ("$source_rel" == viewer.js || "$source_rel" == dist/*) ]]; then
+    printf '%s\n' "$GENERATED_DIST_DIR/${source_rel#dist/}"
+  else
+    printf '%s\n' "$VIEWER_ROOT/$source_rel"
+  fi
+}
+
+generated_dist_dir="${GENERATED_DIST_DIR:-$VIEWER_ROOT/dist}"
 viewer_html="$VIEWER_ROOT/viewer.html"
-viewer_js="$VIEWER_ROOT/viewer.js"
-compat_html="$VIEWER_ROOT/dist/software_safe.html"
-compat_js="$VIEWER_ROOT/dist/software_safe.js"
-compat_claim_evidence="$VIEWER_ROOT/dist/software_safe_first_agent_claim_evidence.html"
-browser_game_client_dir="$VIEWER_ROOT/dist/browser-game-client"
+viewer_js="$(viewer_source_path viewer.js)"
+compat_html="$generated_dist_dir/software_safe.html"
+compat_js="$generated_dist_dir/software_safe.js"
+compat_claim_evidence="$generated_dist_dir/software_safe_first_agent_claim_evidence.html"
+browser_game_client_dir="$generated_dist_dir/browser-game-client"
 require_file "$browser_game_client_dir/oasis7_browser_game_client.js"
 require_file "$browser_game_client_dir/oasis7_browser_game_client_bg.wasm"
-pixel_world_bridge_dir="$VIEWER_ROOT/dist/pixel-world-bridge"
+pixel_world_bridge_dir="$generated_dist_dir/pixel-world-bridge"
 pixel_world_bridge_js="$pixel_world_bridge_dir/pixel_world_bridge.js"
 pixel_world_webgl2_bridge_js="$pixel_world_bridge_dir/webgl2/pixel_world_bridge.js"
 pixel_world_webgl2_bindgen_js="$pixel_world_bridge_dir/webgl2/pixel_world_bridge_bindgen.js"
@@ -116,7 +138,7 @@ if [[ -z "$OPTIONAL_PAYLOAD_DIR" ]]; then
   require_file "$pixel_world_webgl2_wasm"
 fi
 while read -r source_rel _; do
-  require_file "$VIEWER_ROOT/$source_rel"
+  require_file "$(viewer_source_path "$source_rel")"
 done < <(viewer_web_dist_contract_pairs)
 
 if ! grep -Fq 'src="./viewer.js"' "$viewer_html"; then
@@ -145,7 +167,7 @@ fi
 
 mkdir -p "$DIST_DIR"
 while read -r source_rel dist_rel; do
-  source_path="$VIEWER_ROOT/$source_rel"
+  source_path="$(viewer_source_path "$source_rel")"
   dist_path="$DIST_DIR/$dist_rel"
   if [[ "$source_path" != "$dist_path" ]]; then
     cp "$source_path" "$dist_path"
@@ -218,7 +240,7 @@ if [[ -n "$OPTIONAL_PAYLOAD_DIR" ]]; then
     # The player dist deliberately excludes the separately uploaded payload.
     # Keep the canonical source dist intact when this helper is called
     # in-place by build-viewer-software-safe.sh.
-    if [[ "$DIST_DIR" != "$VIEWER_ROOT/dist" ]]; then
+    if [[ "$DIST_DIR" != "$generated_dist_dir" ]]; then
       rm -f "$DIST_DIR/pixel-world-bridge/webgl2/$OPTIONAL_PAYLOAD_NAME"
     fi
     write_optional_payload_manifest "separate_artifact" "$staged_optional_payload"
@@ -227,7 +249,7 @@ if [[ -n "$OPTIONAL_PAYLOAD_DIR" ]]; then
     # source invalidates the optional artifact and must be visible to the
     # player instead of being masked by stale bytes.
     rm -f "$staged_optional_payload"
-    if [[ "$DIST_DIR" != "$VIEWER_ROOT/dist" ]]; then
+    if [[ "$DIST_DIR" != "$generated_dist_dir" ]]; then
       rm -f "$DIST_DIR/pixel-world-bridge/webgl2/$OPTIONAL_PAYLOAD_NAME"
     fi
     write_optional_payload_manifest "source_missing"

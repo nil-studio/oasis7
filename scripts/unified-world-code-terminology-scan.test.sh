@@ -4,12 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-content_probe="doc/testing/templates/unified-world-code-scan-content-probe.template.tsv"
-path_probe="doc/testing/templates/shared""-network-regression-probe.template.tsv"
 sandbox_root=""
 
 cleanup() {
-  rm -f "$content_probe" "$path_probe"
   [[ -z "$sandbox_root" ]] || rm -rf "$sandbox_root"
 }
 trap cleanup EXIT
@@ -35,64 +32,58 @@ assert_fails_with() {
 make_sandbox() {
   [[ -z "$sandbox_root" ]] || rm -rf "$sandbox_root"
   sandbox_root="$(mktemp -d)"
-  mkdir -p "$sandbox_root/scripts/fixtures/document-corpus-v3"
+  mkdir -p "$sandbox_root/scripts" "$sandbox_root/doc/testing/templates" "$sandbox_root/doc/p2p"
   cp ./scripts/unified-world-code-terminology-scan.sh "$sandbox_root/scripts/"
-  cp ./scripts/document_evidence_policy.py "$sandbox_root/scripts/"
-  cp -R ./scripts/fixtures/document-corpus-v3/legacy \
-    "$sandbox_root/scripts/fixtures/document-corpus-v3/"
 }
 
-cleanup
-
 ./scripts/unified-world-code-terminology-scan.sh >/dev/null
+
+# A clean checkout needs no frozen document snapshots or compatibility stub.
+make_sandbox
+"$sandbox_root/scripts/unified-world-code-terminology-scan.sh" >/dev/null
 
 legacy_content="shared""_network should not re-enter active templates"
-printf 'mode\tclaim\nprobe\t%s\n' "$legacy_content" > "$content_probe"
-assert_fails_with "$content_probe" ./scripts/unified-world-code-terminology-scan.sh
-assert_fails_with "$legacy_content" ./scripts/unified-world-code-terminology-scan.sh
-rm -f "$content_probe"
+content_probe="doc/testing/templates/terminology-probe.template.tsv"
+printf 'mode\tclaim\nprobe\t%s\n' "$legacy_content" > "$sandbox_root/$content_probe"
+assert_fails_with "$content_probe" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+assert_fails_with "$legacy_content" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+rm -f "$sandbox_root/$content_probe"
 
-printf 'mode\tclaim\nprobe\tclean contents\n' > "$path_probe"
-assert_fails_with "$path_probe: legacy terminology in path name" ./scripts/unified-world-code-terminology-scan.sh
-rm -f "$path_probe"
+path_probe="doc/testing/templates/shared""-network-regression-probe.template.tsv"
+printf 'mode\tclaim\nprobe\tclean contents\n' > "$sandbox_root/$path_probe"
+assert_fails_with "$path_probe: legacy terminology in path name" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+rm -f "$sandbox_root/$path_probe"
 
-./scripts/unified-world-code-terminology-scan.sh >/dev/null
+# Existing compatibility wrappers and historical boundary explanations remain
+# valid only on their specific surfaces; they do not exempt arbitrary scripts.
+legacy_devnet="shared""-devnet"
+wrapper="scripts/${legacy_devnet}-rehearsal.sh"
+compatibility_line="${legacy_devnet}-rehearsal.sh is a legacy compatibility wrapper"
+printf '%s\n' "$compatibility_line" > "$sandbox_root/$wrapper"
+printf 'legacy %s\n' "$legacy_content" > "$sandbox_root/doc/p2p/prd.md"
+"$sandbox_root/scripts/unified-world-code-terminology-scan.sh" >/dev/null
+printf '%s\n' "$compatibility_line" > "$sandbox_root/scripts/unrelated.sh"
+assert_fails_with "scripts/unrelated.sh" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+rm -f "$sandbox_root/scripts/unrelated.sh"
+printf '%s\n' "$legacy_content" > "$sandbox_root/$wrapper"
+assert_fails_with "$wrapper" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
+rm -f "$sandbox_root/$wrapper"
+printf '%s\n' "$legacy_content" > "$sandbox_root/doc/p2p/prd.md"
+assert_fails_with "doc/p2p/prd.md" "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
 
+# Former snapshot and policy paths no longer have content exemptions.
 make_sandbox
-printf 'clean additional fixture\n' > \
-  "$sandbox_root/scripts/fixtures/document-corpus-v3/legacy/extra.json"
-assert_fails_with "fixture file set differs from the fixed manifest" \
-  "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
-
-make_sandbox
-linked_payload="$sandbox_root/scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json"
-rm -f "$linked_payload"
-ln -s inventory.json "$linked_payload"
-assert_fails_with "fixture path is not a regular file" \
-  "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
-
-make_sandbox
-printf '\n' >> "$sandbox_root/scripts/fixtures/document-corpus-v3/legacy/manifest.json"
-assert_fails_with "fixed manifest SHA-256 mismatch" \
-  "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
-
-make_sandbox
-printf 'changed payload bytes\n' >> \
-  "$sandbox_root/scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json"
-assert_fails_with "frozen payload byte count or SHA-256 mismatch" \
+mkdir -p "$sandbox_root/scripts/fixtures/document-corpus-v3/legacy"
+printf '{"historical_claim":"%s"}\n' "$legacy_content" > \
+  "$sandbox_root/scripts/fixtures/document-corpus-v3/legacy/inventory.json"
+assert_fails_with "scripts/fixtures/document-corpus-v3/legacy/inventory.json" \
   "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
 
 make_sandbox
 misused_reference="doc/testing/evidence/shared""-network-"
-printf 'unexpected_active_reference = "%s"\n' "$misused_reference" >> \
+printf 'unexpected_active_reference = "%s"\n' "$misused_reference" > \
   "$sandbox_root/scripts/document_evidence_policy.py"
 assert_fails_with "unexpected_active_reference" \
-  "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
-
-make_sandbox
-awk '/authority_path = / { print; exit }' ./scripts/document_evidence_policy.py >> \
-  "$sandbox_root/scripts/document_evidence_policy.py"
-assert_fails_with "exact compatibility reference must occur once; found 2" \
   "$sandbox_root/scripts/unified-world-code-terminology-scan.sh"
 
 echo "unified-world-code-terminology-scan.test: OK"

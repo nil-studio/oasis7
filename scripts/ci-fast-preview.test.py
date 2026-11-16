@@ -548,7 +548,7 @@ class Preview(unittest.TestCase):
 
     def test_python_control_changes_do_not_start_product_rust_preview(self):
         for script in ('plan-rust-required-scope', 'ci-fast-preview',
-                       'ci-required-result', 'document_corpus'):
+                       'ci-required-result'):
             for suffix in ('.py', '.test.py'):
                 with self.subTest(path=script + suffix), tempfile.TemporaryDirectory() as directory:
                     repo, base = fixture(directory)

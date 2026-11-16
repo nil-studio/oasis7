@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { measureRetainedJson } from '../software_safe_src/pixel_world_retention.js';
 import { createScopePendingFixture } from './scope-pending-fixture.mjs';
-import { createWorldViewClient } from '../software_safe_src/pixel_world_world_view.js';
+import { createWorldViewClient, createWorldViewTransport } from '../software_safe_src/pixel_world_world_view.js';
 describe('read-only retention components', () => {
   it('counts UTF8 logical encoding without conflating reference identity with bytes', () => {
     const shared = { name: '汉字\n"', values: [null, true, 12] }, roots = [shared, shared];
@@ -33,3 +33,16 @@ describe('read-only retention components', () => {
     finish({}); await pending; assert.equal(client.statistics().paging.active, false);
   });
 });
+
+describe('inflight scalar lifecycle coverage',()=>{
+ it('retains retired Map counts after invalidation until the held page completes',async()=>{
+  const fixture=createScopePendingFixture();let release;const client=createWorldViewClient({request:q=>{const page=fixture.reply({type:'request_world_view',query:q},'local').view;return q.cursor?new Promise(done=>{release=()=>done(page)}):Promise.resolve(page);}});
+  client.reset('private-scope',fixture.describe().world);const task=client.query({});await new Promise(done=>setImmediate(done));
+  const current=client.statistics(null,false).inflight;assert.equal(current.currentQueries,1);assert.deepEqual(current.currentMapEntries,[1,0,0,0]);client.invalidate();
+  const retired=client.statistics(null,false).inflight;assert.equal(retired.currentQueries,0);assert.equal(retired.retiredQueries,1);assert.equal(retired.retiredPageReferences,2);assert.deepEqual(retired.retiredMapEntries,[1,0,0,0]);assert(!JSON.stringify(retired).includes('scope'));release();await task;assert.equal(client.statistics(null,false).inflight.retiredQueries,0);
+ });
+ it('reset does not pretend held closures released and rejected completion releases registration',async()=>{let reject;const client=createWorldViewClient({request:()=>new Promise((_,no)=>reject=no)});client.reset('old');const task=client.query();client.reset('new');assert.equal(client.statistics(null,false).inflight.retiredQueries,1);reject(Error('late'));await task;assert.equal(client.statistics(null,false).inflight.retiredQueries,0);assert.equal(client.statistics().published.entities,0);});
+ it('transport pending counts follow success, error, clear and send failure without keys',async()=>{let message;const transport=createWorldViewTransport({send:m=>message=m});const a=transport.request({request_generation:'1'});assert.deepEqual(Object.keys(transport.statistics()).sort(),['pendingRequests','semantics']);assert.equal(transport.statistics().pendingRequests,1);transport.handle({type:'world_view',view:{request_generation:message.query.request_generation}});await a;assert.equal(transport.statistics().pendingRequests,0);const e=transport.request({request_generation:'error'});const errorRejected=assert.rejects(e);transport.handle({type:'world_view_error',error:{request_generation:message.query.request_generation,code:'unavailable'}});await errorRejected;assert.equal(transport.statistics().pendingRequests,0);const b=transport.request({request_generation:'2'});const rejected=assert.rejects(b);transport.clear();await rejected;assert.equal(transport.statistics().pendingRequests,0);const failing=createWorldViewTransport({send:()=>{throw Error('send')}});await assert.rejects(failing.request({request_generation:'3'}));assert.equal(failing.statistics().pendingRequests,0);});
+});
+
+it('transport timeout releases pending scalar without inventing successful data',async()=>{const transport=createWorldViewTransport({send:()=>{},timeoutMs:1});await assert.rejects(transport.request({request_generation:'timeout'}),/timed out/);assert.equal(transport.statistics().pendingRequests,0);});

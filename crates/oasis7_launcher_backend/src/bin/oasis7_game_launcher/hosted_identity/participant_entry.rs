@@ -250,10 +250,17 @@ impl ParticipantEntry {
         response_request: &R,
         maximum: usize,
     ) -> Result<Value, StoreError> {
-        // Only this read-only path may expose a fixed failure stage. Mutation
-        // and original-lookup transport failures keep their unknown outcome.
+        // Only explicit pure reads expose fixed failure stages. A failed read
+        // is not evidence that a world operation is pending or terminal.
+        // Mutation, prepare and original-lookup failures remain unknown.
         let failure = |code| {
-            if path == PARTICIPANT_OWNER_VIEW_PATH {
+            if matches!(
+                path,
+                PARTICIPANT_OWNER_VIEW_PATH
+                    | oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_PATH
+                    | oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH
+                    | oasis7_client_api::world_service::task_context_projection::CONTEXT_READ_ATTESTED_PATH_V2
+            ) {
                 reject(code)
             } else {
                 StoreError::OutcomeUnknown

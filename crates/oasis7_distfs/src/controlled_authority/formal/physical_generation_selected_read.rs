@@ -139,7 +139,7 @@ pub(crate) fn with_selected_path_bounded_v1<T, C: FnMut() -> bool>(
     let mut read = |path: &Path, limit: usize| {
         let mut s = shared.borrow_mut();
         let (work, stop) = &mut *s;
-        read_metadata(path, limit, memory, *work, *stop)
+        read_metadata(path, limit, memory, work, *stop)
     };
     let selected = if let Some(generation) = super::current_with_reader(root, &mut read)? {
         let manifest = super::manifest_with_reader(root, &generation, &mut read)?;

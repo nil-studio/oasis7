@@ -500,11 +500,17 @@ def main():
     parser.add_argument('--rules', type=Path, default=Path(__file__).with_suffix('.json'))
     parser.add_argument('--graphs-only', action='store_true', help='diagnostic mode; leaves build coverage gaps')
     parser.add_argument('--profile', action='append', help='diagnostic subset; omitted profiles are coverage gaps')
-    parser.add_argument('--plan', help='JSON plan from trusted BASE selector; absent/old plan builds full matrix')
+    plans = parser.add_mutually_exclusive_group()
+    plans.add_argument('--plan', help='JSON plan from trusted BASE selector; absent/old plan builds full matrix')
+    plans.add_argument('--plan-file', type=Path, help='complete trusted selection JSON file')
     args = parser.parse_args()
     try:
         config = json.loads(args.rules.read_text(encoding='utf-8'))
-        report = inspect(args.repo_root.resolve(), config, not args.graphs_only, args.profile, json.loads(args.plan) if args.plan else None)
+        plan = (json.loads(args.plan_file.read_text(encoding='utf-8')) if args.plan_file is not None
+                else json.loads(args.plan) if args.plan is not None else None)
+        if (args.plan_file is not None or args.plan is not None) and not isinstance(plan, dict):
+            raise InspectionError('trusted selection plan must be an object')
+        report = inspect(args.repo_root.resolve(), config, not args.graphs_only, args.profile, plan)
     except (InspectionError, OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
         report = {'results': [{'status': 'inspection_error', 'reason': str(error)}]}
     print(json.dumps(report, indent=2))

@@ -40,6 +40,8 @@ Wait Admit 与 Resume 的崩溃恢复同样等待原请求的完整提交和精�
 
 `real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle` 保留成功 View 的 1000 毫秒响应延迟，并在恢复观察开始后，以原 request digest 与 lease 绑定一个 13 秒的真实 Wait 时钟屏障。只有同一 canonical Admit 和 Settled lease 已确认时才等待；放行前不得存在已选 wake 或 resumed model。等待期间释放 driver 锁，不阻塞 RPC；随后沿原空 tick、wake、Resume、Act 和 memory 路径完成。该专用探针沿用外层 child 截止，普通 Wait 时钟仍为原 20 秒。恢复耗时在完成循环退出时冻结，排除清理耗时；旧 12 秒观察器必须在原完成判据上失败，不能靠调整阈值、改响应字节或延长 transport timeout 通过。
 
+Wait capture crash 恢复保留原 12 秒观察截止及精确 memory、身份和单次效果断言。失败时 `hosted_wait_capture_observation_failure` 仅输出最后 16 个截止前样本：相对毫秒、白名单 phase/operation/I/O 状态、无符号计数、逐项完成条件布尔值（原短路未求值的 memory 为 null），以及清理后的 reader/drain/worker 状态；同时报告丢弃样本数，不能将尾部样本当完整阶段历史。清理后的成功不能改变截止前判定。未知枚举记为 unknown，非数字计数记为 null；不输出 memory、模型内容、请求身份、错误正文或 checkpoint。私有完整现场仍按原私有证据合同保管，不能直接作为公开 artifact 上传。
+
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
 Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌套清理预留，分别保存 `completion-wait-rejection-initial.*.log` 与 `completion-wait-rejection-recovery.*.log`，不提高 ordinary/runtime-tests 总时限。fixture 生命周期回调先复制 root 并释放锁，再进入 gate 状态；补偿 selector 不持 gate 锁读取 root。`http_fixture::lock_order_tests` 用 channel 固定补偿锁与真实 finished/joined 回调的交错，旧锁作用域应明确失败而非挂起。`application_completion::launcher_tests` 覆盖真实初次挂起、exit73 后恢复挂起与独立日志；原 canonical、原身份、写失败及 exit73 断言仍须通过。
@@ -47,7 +49,7 @@ Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌�
 清理采用独立 10 秒 watchdog，必须在 worker join、node stop 完成后显式取消；超时、提前退出或无法证明全部 HTTP worker 已停止时以非零状态终止测试进程，不能丢弃活线程后释放场景 permit。`cleanup_deadline::tests` 用独立子进程注入卡死 join、锁等待、未完成清理及满 stderr 下的退出，外层仍受既有 child 监督。清理诊断是 best-effort：100 毫秒后备退出不能等待日志，输出可能为空或截断；stage/reason/exit code 的完整格式由可控 writer 回归验证，不把日志存在误作有界终止的必要条件。stream Session 的 EOF drain 使用总计 2 秒截止，不以每次读取重新计时；保留 EOF 前排队的 1 MiB 响应回归，并用持续可读 peer 验证超时后仍完成 join。这些是失败收口边界，不替代业务通过条件；宿主调度或系统调用异常仍由外层进程监督兜底。
 
 <a id="local-check-entry"></a>
-## 显式本地检查：当前入口与目标分层
+## 显式本地检查：统一入口与验收范围
 
 普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。help 与本节均将其标为显式诊断。
 
@@ -58,18 +60,42 @@ Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌�
 | 显式本地诊断 | `./scripts/ci-tests.sh commit` | 当前 commit 清单；保留日志和未执行的 required/full 范围 |
 | 正式测试 | `./scripts/ci-tests.sh required` 或 `./scripts/ci-tests.sh full` | 当前手册定义的适用 tier、实际平台和执行结果；仍需按改动补 UI/真实环境验收 |
 
-准备性选测入口：`python3 scripts/ci-local-check-plan.py --profile affected --dry-run --format json`。它只接受干净提交，使用本地 `origin/main` 与 HEAD 的唯一 merge-base；`--base-ref` 可指定该信任锚的祖先，不自动 fetch。规划器及两个配置均从固定 base 加载，沿原 `pr-fast` 逻辑选测，候选改动不能自行缩减检查。输出始终 `validated=false`，检查数与测试数均为零，不代表 affected 已可执行。
+统一入口使用 Python 3.11+；当前真实执行要求 Linux `/proc`，以便超时或取消后核实跨嵌套 session 的自有子进程已清理。选择 profile 后直接运行，不要求依次跑全部层次：
 
-- `--output-dir` 指定报告父目录，必须在工作树外或 ignored 目录下；每次创建独有子目录，不覆盖既有报告。省略时保留在系统临时目录，结果包含实际日志和 `result.json` 路径。仅写这些自有输出及临时 policy 文件，不修改源码、index 或 ref。
-- `--timeout-seconds` 设置规划器时限，默认 120 秒。text/JSON 与持久报告同源，包含固定 SHA、原始计划、实际 argv/cwd、配置摘要、耗时、退出码和未执行组。
-- dirty/untracked、冲突、隐藏 index 标志、缺失或歧义基线及未开放参数为 blocked（2）。执行中输入变化为 stale_input（2），保留已有计划；规划器失败/超时、无效结果或报告写失败为 failed（1），空计划为 no_checks（3），中断为 cancelled（130）。只有显式 dry-run 成功才为 planned（0），没有 passed 状态。
-- 本片不运行 driver，不验证 ignored/外部运行输入、quick/formal、业务测试或其他平台。本地 `origin/main` 的可信性是前提；JSON 的零执行和限制字段必须与计划一起解读。
+```bash
+python3 scripts/check-local.py --profile quick
+python3 scripts/check-local.py --profile affected --dry-run --format json
+python3 scripts/check-local.py --profile affected
+python3 scripts/check-local.py --profile formal --tier required
+```
+
+| Profile | 当前执行能力 | 明确边界 |
+| --- | --- | --- |
+| quick | 复用 `ci-tests.sh required --group baseline`；检查 committed、staged、unstaged 和非 ignored untracked 的空白问题及 baseline 已支持的工作树内容 | 不运行 Rust fmt/编译、业务测试、浏览器或服务；planner/policy 为 `not_used`。工具自测 case 与业务 case 分列 |
+| affected | 从可信 base 加载同一 planner/config；将原计划交给 required driver，保留 case/target/features。支持干净提交，以及具有 snapshot 能力的可信 planner 所处理的 dirty/untracked 输入 | 已选组必须全部具备本地只读及执行证据合同，否则整次执行前 blocked，不删组后报通过 |
+| formal required | 要求干净源码，显式 required，沿同一可信计划执行 canonical required 组 | 同样受当前本地组能力限制；不代替 hosted 或其他平台结果 |
+| formal full | `--dry-run` 沿完整可信库存规划 | 真实执行 blocked：其余准备命令与平台组尚未完成本地适配；须补齐各组原义务，不能用 required 代替 |
+
+当前已审计的组是 `baseline`、`codex_agent_config_validation`、`rust_baseline`、`consensus`、`distfs`、`node`、`net`、`pixel_world_bridge`、条件成立的 `oasis7_required` 和 `workspace_support`，以及 `doc_checker_contracts`、`cargo_tooling_contracts`、`compile_metrics`、`viewer_js_required`、`viewer_performance_report`。`oasis7_required` 若扩张到需要 Docker 构建 provider/builtin 资源的计划，也在启动前阻断。其余组，包括 Windows/macOS/fleet 和尚未接入结果证据的脚本组，保持 selected-but-blocked；具体原因见报告。该表是执行能力边界，不是另一套选测规则。
+
+`workspace_support` 接受可信 version 1 的非空原生 profile 清单，仅执行未扩测的 targeted 计划；入口经 `--support-plan-file` 将完整原计划交回既有 driver，不重新选包或删除未适配项。当前 16 个可执行 profile 的写入限定于当前 worktree 的 ignored `target/` 或自有临时夹具，沿用 locked Cargo 与非零用例证据要求。工具和当前 Rust toolchain 必须预装，`oasis7_context` 另需 `/usr/bin/git` 和 `/usr/bin/python3`；不自动安装。包含 Worker/npm 准备、跨 UID 验收、尚未适配的真实 WASM target 或必要 ignored 用例的 profile，以及未知 profile、full 或扩大 features/targets 的计划，均在执行任何检查前整次 blocked，报告保留原 profile 清单和具体原因。
+
+工程契约组三条完整 driver 清单分别有 11、10、3 项命令检查；缺少任何一项都不能通过。文档组将具有 `tomllib` 和 `markdown_it` 的同一 Python 绑定到整组及嵌套调用；过程式测试复用已有 Python contract 见证，分别核对完整入口、scenario 和实际断言，退出 0 或单独的 `OK` 文本不是完成证据。工具用例与命令检查分列，这三组的业务用例数为零。Cargo 工具组需要已有 Cargo / rustc 及 locked metadata；编译指标组还需要 x86_64 Linux、`zstdmt` 和带 `yaml/json` 的 Ruby，缺前置在整次执行前 blocked，必要 Python skip 保持 incomplete。工程 fixture 使用自己的范围和报告；编译指标的临时 worktree 登记放在自有 Git metadata 中。Linux 下既有 Windows-only fallback 不适用，可选 sccache 真缓存证明未被默认调用；报告明确保留这些未覆盖范围，不自动安装工具或用跳过代签验收。
+
+Viewer 两组要求已准备好的 npm 依赖、Rust/WASM target、匹配锁文件版本的 wasm-bindgen CLI、agent-browser 和 Chromium；缺任何前置都在整次检查前 blocked，不安装或升级工具。源码契约、UI、生产构建、浏览器功能和认证检查沿原 driver 完整执行，产物写入本次报告下独有 Viewer 目录；浏览器只消费本次构建，现有 tracked bundle 不被改写或回退使用。UI 用 TAP-flat 核对完整正数清单，Node 用实际 TAP 计数，浏览器 suite 用完整运行的结构化回执；缺失、重复、跳过和部分结果不能通过，编排进程不重复计数。性能组保留 report-only 语义：完整采集后的阈值未达标会记录报告，采集失败仍失败，不把性能报告虚报为业务用例。浏览器配置、会话和 socket 使用隔离环境，沿已有进程监督收尾。
+
+缺省基线只解析本地 `origin/main` 与 HEAD 的唯一 merge-base，不 fetch；`--base-ref` 必须为该信任锚的祖先。dirty 规划要求该 base 自身含 `LOCAL_INPUTS_VERSION=1`；旧 base 不支持时先 blocked，合入能力后更新本地 main 并 rebase，不能改用候选 planner。输入在私有对象目录中变成 tree，不创建 commit、操作用户 index/ref 或 checkout；base→HEAD、index、实际原始文件内容分别入图，保留抵消、删除、rename 两端和来源。显式 Cargo target/build/依赖、Rust 引用与 ignored 源码需要纳入读集或阻断。未启用 feature 可能引用尚未生成的夹具；入口记录其缺失身份，实际选中编译若需要它仍须失败，运行中出现该文件则 stale，不把缺失身份当成已验证字节。
+
+- `--output-dir` 指定工作树外或 ignored 的报告父目录，每次创建独有子目录；不能放进 baseline 会扫描的 doc/scripts/skills 目录。省略时使用系统临时目录。text/JSON 和 `result.json` 来自同一对象，逐命令保存 argv/cwd、checker 身份、原始日志、耗时、退出码和证据数量。
+- `--timeout-seconds` 是每个 driver 组的时限，默认 2400 秒；`--planner-timeout-seconds` 默认 120 秒。有效检查、工具自测及业务 case 分列；无法解析的必要测试数量为 unknown/incomplete，零匹配和必要 skip 不会报通过。
+- 不自动安装/升级工具，不格式化或暂存。Cargo 命令锁定依赖，保留当前 worktree target 和构建锁；外部/符号链接 target、编译器替换和未审计写入拒绝。允许 ignored 构建输出、自有临时/报告文件及锁定依赖与 advisory 缓存写入。`--offline` 禁止 Cargo 依赖联网；当前 RustSec 离线准备尚未适配，选中该组时在执行前阻断。
+- 冲突、隐藏 index 标志、symlink 读集、Git 内容 filter/encoding、不支持的控制字符文件名、缺失/歧义基线和缺工具为 blocked（2）。运行中 source/index/ref/实际读集或 Cargo 配置变化为 stale_input（2）；失败、必要证据 unknown 或报告写失败为 failed/incomplete（1）；空计划为 no_checks（3）；中断为 cancelled（130）。显式 dry-run 只为 planned（0）、`validated=false`；全部必要检查实际完成才为 passed（0）。
+
+旧 `ci-local-check-plan.py --profile affected --dry-run` 继续提供干净提交的兼容规划，始终不执行检查；其原有参数与证明范围不变。
 
 `./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
 
-目标 `scripts/check-local.py` **尚未实现**。日常按上表直接选择所需检查，不必把所有入口依次跑一遍。后续先提供固定 baseline 的 quick，再接可信 affected（先干净提交、后 dirty 精确选测）；formal 在自身前置具备后独立接入。三个 profile 的合同和边界见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。
-
-当前 planner 只支持 Git refs。检查未提交变更仍用已存在的文档/按包/显式 tier 命令，并记录真实输入、命令与局限；不要运行不存在的目标命令，或把 HEAD 规划当作 dirty 工作树检查通过。quick 未来也只证明固定 baseline，不提供完整影响分析结论。
+三个 profile 的完整合同见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。未适配的 full/组/平台仍沿 #5386 承接，当前分片不关闭整体任务。按包开发 wrapper 和原显式 tier 仍可按各自原合同使用，不能把绕开统一入口的运行记作它已完成的只读验收。
 
 <a id="local-check-entry-validation"></a>
 ### 本地入口核验（实施阶段）
@@ -98,11 +124,31 @@ Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5
 - 本地存储验收分阶段运行：先完成所需编译（可用 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --no-run --locked`），再运行 `env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib --locked`；时限测试执行期间不要在其他 worktree 并行编译或施加资源压力。Cargo 的构建锁不保证测试运行期间独占主机资源。压力实验单独记录负载与实际截止结果，不通过延长测试 RPC 期限消除失败。依赖释放锁后立即重开的用例在独立测试进程运行，防止并行 libtest 的其他 spawn/fork 短暂继承锁描述符；子进程失败、超时和清理失败仍算失败。
 - 磁盘有限时保留少量固定路径开发 worktree，串行任务在确认干净、独占且已保留未推送工作的工作区用 `git switch -c codex/<task> <base>` 切换独立分支；仅并行任务新建 worktree。不要编辑 main 或主工作区。`new-task-worktree.sh --with-harness` 是完整预热的显式选项，普通后端或文档任务不需要它。
 - 工作区选择先检查 `git worktree list --porcelain`，不能仅看当前聊天附件。新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`；根目录由 `git config --local --get oasis7.task-worktrees-root` 指定，未配置时采用脚本默认值。复用或外部创建的工作区也直接使用本地 target，无需准备链接。入口选择规则见开发规范。
-- 盘点工作区磁盘占用使用 `./scripts/worktree-gc-report.sh --footprint`，只报告 Git 与文件系统事实。target 默认随所属 worktree 管理；关闭 incremental 不会自动删除已有增量产物。回收前停止该工作区的构建和运行进程、核对路径及资料，再执行该工作区的 `env -u RUSTC_WRAPPER cargo clean`；显式外部 target 需单独核对归属。全局 Cargo 下载缓存与 sccache 不随单个工作区清空。
+- 盘点工作区磁盘占用使用 `./scripts/worktree-gc-report.sh --footprint`，只报告 Git 与文件系统事实。固定开发 worktree 的 target 可跨串行任务保留，由负责人按容量、闲置与后续用途显式回收；一次性任务专属产物按开发规范清理。关闭 incremental 不会自动删除已有产物。回收前停止相关构建和运行进程、核对路径及资料，再执行该工作区的 `env -u RUSTC_WRAPPER cargo clean`；显式外部 target 单独核对归属，全局 Cargo 下载缓存与 sccache 不随单个工作区清空。
 
 - 最小开发反馈示例：`./scripts/cargo-dev.sh check -p oasis7_proto`；`./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>`；需要完整交互时才运行 `./scripts/worktree-harness.sh up`。正式范围仍由本手册与 CI 决定。
 - `runtime-module-routing-perf-harness.sh --profile dev` 与 `build-game-launcher-bundle.sh --profile dev` 使用开发 wrapper；bundle 的读取目录与编译 target 保持一致，默认玩家 bundle 不编译 operator binaries。默认 release 性能测量、packaging 和 wasm 构建保留原入口。
 - deterministic wasm / release 链路继续保持 `CARGO_TARGET_DIR` 为空；涉及 `scripts/build-wasm-module.sh`、release evidence 或 hash/receipt 对账时，不改用开发 wrapper。Docker 使用工作区内的普通 target，不额外挂载外部缓存。
+
+<a id="local-rust-feedback"></a>
+### 本地 Rust 反馈与构建复用
+
+按当前问题选择反馈，不要求每次修改顺序跑完所有层次。沿用[验证与评审](doc/engineering/workflow/source-of-truth.md#3-验证与评审)的局部自测和正式交付责任。
+
+| 当前目的 | 选择的检查 | 证明范围 |
+| --- | --- | --- |
+| 接口、路径、泛型或生命周期修复 | `./scripts/cargo-dev.sh check -p <package>`；跨模块时包含真实消费方，测试接缝选择 `--tests` 或具名 `--test <target>` | 所选功能配置的类型检查；不执行行为断言 |
+| 局部行为变化或已定位缺陷 | 对应 package/target 下能检出问题的定向回归 | 实际非零执行的用例；可复现缺陷按原规则先观察失败 |
+| 模块路径已接通 | 整合负责人构建所需测试 target，再运行相关成功、拒绝与恢复用例 | 当前实际组合；各会话保留局部自测，避免重复构建同一重型组合 |
+| 正式交付 | 适用的 canonical 命令、CI 与真实环境验收 | 本次交付所需范围；开发配置不代签正式结果 |
+
+`cargo check` 跳过最终代码生成，不能覆盖所有 codegen 错误；测试名称过滤和 `--ignored` 主要改变执行范围，不保证减少所选大型测试程序的编译。`--no-run` 仅分离构建和执行。要减少构建成本，需核对 package/target/features 实际排除了哪些代码、夹具与依赖；`test_tier_required/full` 的名称不证明轻量，也不能通过关闭真实消费者需要的 feature 宣称该消费者已通过。参数语义见 [Cargo check](https://doc.rust-lang.org/cargo/commands/cargo-check.html) 与 [Cargo test](https://doc.rust-lang.org/cargo/commands/cargo-test.html)。
+
+同一轮迭代固定适用的工具链、profile/features/flags 和 worktree target，优先重复同配置 Cargo 命令，由 Cargo 核对产物是否仍有效。一次必要构建后可运行多组相关用例；源码、依赖/lock、工具链、配置或 build-script 输入变化时重新核对构建，运行时 fixture 变化时重跑相应断言。使用 `--no-run` 后直接执行产物时，从 Cargo `compiler-artifact` JSON 获取实际 executable，保留对应 cwd、环境和动态库搜索条件；无法可靠保留时通过 Cargo 执行，不从目录猜选旧程序。复用产物不等于复用旧测试结论。
+
+跨工作区协调重型构建，时限或性能测试期间按上述存储验收规则隔离资源压力；等待 Cargo 锁时不换 target 强制冷构建。组合检查先消除接口错误，再在可执行行为形成时运行重型测试；必要回归不能因合批而延后到交付之后。
+
+异常构建在下一次必要运行中附带 `--timings` 和所需资源观察，区分构建总时间、执行时间、退出码及实际用例数量。Cargo JSON 可提供 target、features、profile、executable 和 `fresh`，语义见[工具输出](https://doc.rust-lang.org/cargo/reference/external-tools.html#artifact-messages)；timings 的稳定报告供人阅读，不保证精确拆出锁等待、下载、codegen 和链接的全部耗时，未知项如实保留。引用已有工具报告和日志一次即可，不为计时额外造一次冷构建或新增手工流水。当前 `cargo-dev.sh` 不自动生成这些分段报告，未采集时不宣称已有数据；是否调整编译边界依据实际瓶颈判断。
 
 ### 旧工作区的 target 链接迁移
 
@@ -215,7 +261,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --test pr_fast_increment
 
 验收包括旧 BASE/控制自改、未映射与混合风险、测试 gate 正文变化、声明删除替换、共享新增 case 的实际 target 可达性，以及真实 Cargo fixture 对未选重目标的编译失败注入。artifact 缺目标/最低 case/feature 变体、零执行和 Clippy 失败均须传播；完整模式仍保留旧 ordinary、五个 Formal suites 与平台集合。上述本地命令和 fixture 不代签 hosted 十分钟或跨平台 full 成功。
 
-仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 继续以 `--support-plan` 接收完整 JSON，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。
+仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 以 `--support-plan-file "$PLAN_PATH"` 读取完整计划，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。完整计划及逐路径原因保存在 selection artifact，workflow 输出仅用于调度；执行和最终门禁都读取完整文件，避免大批量改动触发环境变量或进程参数长度限制。
 
 `main-fast` 使用 push 的完整差异；`periodic-full`/`candidate-full` 无须 diff，直接从可信库存展开全部组。完整 hosted 图并行执行普通组、Formal、平台和 `./scripts/ci-tests.sh full-extended`，最后由 `explicit-full-gate` 核齐。`full-extended` 单独成功不代表完整回归，本地 `full`/`full-standard` 也不能代签其他 OS 的结果。
 
@@ -243,7 +289,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `./scripts/doc-governance-check.sh`
   - `./scripts/check-script-executable-bits.sh`
   - `cargo test -p oasis7_consensus --lib`
-  - `cargo test -p oasis7_distfs --lib`
+  - `cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1`
   - `npm --prefix crates/oasis7_viewer run test:feedback-contract`
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - 用途：显式本地诊断 baseline，不由普通 `pre-commit` 自动执行；不包含 `cargo test -p oasis7 --tests --features test_tier_required`，但包含 repo-owned Viewer Web contract + Solid 组件锚点回归。
@@ -256,14 +302,15 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `cargo test -p oasis7 --tests --features test_tier_required`
     - 这是该 package 的必要 feature 入口；hosted ordinary 实际按计划选择 package，并保留全部适用非 ignored 测试。runtime builtin wasm 扩展用例保留在 full，命中必要风险或分级迁移时仍在 PR 加测；标签本身不证明轻量。
   - `cargo test -p oasis7_consensus --lib`
-  - `cargo test -p oasis7_distfs --lib`
+  - `cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1`
+    - 具名 `tests/incremental_industry_jobs.rs` 迁入后，driver 追加默认 features 的 `cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1` 及该目标的严格 Clippy；同一可信计划的精确快速库存未选择行业目标时，两者都不追加，以保持既有快速路径覆盖。无精确库存、策略变化、full 或独立本地组仍执行；行业目标及 support 的直接或混合变化必须保留行业覆盖。行业选测不由 library Clippy 的转交 owner 决定，执行时仍归 DistFS，非法计划和 helper 失败必须传播。Formal 独立产物继续只构建 library。新目标必须先由可信 BASE 的 planner 证明真实执行根与完整模块门控。
   - `npm --prefix crates/oasis7_viewer run test:feedback-contract`
   - `npm --prefix crates/oasis7_viewer run test:ui`
   - `npm --prefix crates/oasis7_viewer run build:software-safe`
   - 变更 `oasis7_game_client` 时，`workspace_support` 运行独立包的全部 targets strict Clippy 和库测试，并沿 Cargo 依赖图保留主应用消费者。CLI 可用 `cargo run -p oasis7_game_client --bin oasis7_game_client -- --help` 单独验证。
-  - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan` 接收 trusted selector 的完整 JSON，不将 JSON 插入 shell 源码。
+  - 变更 `oasis7_agent_api` 或 `oasis7_agent_harness` 时，planner 选择 `workspace_support` 内实际受影响的 package profiles：API wire-contract 集成测试、Harness 单元测试及对应 strict Clippy；Cargo 依赖图仍保留 `oasis7` 消费者组。Launcher 代码变更保留 native profile 与 `launcher_web`。支持包清单位于 `plan-rust-required-scope.py`；驱动以 `--support-plan-file` 读取 trusted selector 的完整 JSON 文件，旧 `--support-plan` JSON 参数继续兼容。文件路径一直传到解析器，不将完整 JSON 插入 shell 源码、环境或后续进程参数。
   - support profile 计划版本为 1；空、未知、重复 profile 或未知版本拒绝，保守 full scope 展开完整库存。旧 trusted planner 没有 profile 版本字段时仍执行完整支持包库存，不提前缩测；控制/manifest/lockfile/影响不确定及非包规则保守扩大，已确认的未登记路径明确失败。每个 profile 的命令成功后才输出完成标记，失败仍由 `required-gate` 聚合。直接本地 `required --group workspace_support` 不传计划时保留原完整入口。
-  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。快速 baseline 保留增量与必要全局不变量，完整 profile 另运行 `--full-corpus` 历史报告。
+  - planner 始终声明 `baseline`：这是 required-gate 的普适治理/契约入口，不等同于每个 Rust、Node、provider 或 P2P 套件都对所有路径执行。baseline 保留受影响文档、反向引用及必要全局不变量；`--full-corpus` 历史报告按需显式运行。规则、范围选择或解析器改变时运行全部适用治理回归，并核对完整适用文档集合。
   - 触达场景定义、场景 integration test 或场景 PRD 时，planner 追加 `scenario_regression`，运行窄命令：`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --test oasis7_init_demo --features test_tier_full oasis7_init_demo_runs_`；不追加 test-harness 参数，保证 `CI_VERBOSE=1` 的 Cargo verbosity 仍由 wrapper 正确处理。
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
@@ -297,7 +344,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - planner 先执行：`./scripts/plan-wasm-determinism-scope.sh --event-name <push|pull_request|workflow_dispatch> --base-ref <base> --head-ref <head>`
   - 仅命中的 module set 会实际执行：`./scripts/ci-m1-wasm-summary.sh --module-set <m1|m4|m5> --runner-label ... --out ...`
   - planner 校验后输出同源 `selected_module_sets_json`；collect/verify 在 job 层过滤 skip，并只展开选中模块。无关改动只运行 planner，单模块共三个 runner jobs，全部模块共七个。planner、collect 或 verify 失败均不能算通过。
-  - Wasm 与 document-corpus workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
+  - Wasm workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
   - verify job 会按命中的 `module_set` 下载 summaries，并执行：`./scripts/wasm-release-evidence-report.sh --module-sets <m1|m4|m5> --skip-collect --summary-import-dir <downloaded-summary-dir> --expected-runners linux-x86_64`
   - verify job 同时上传 `summary.md/json + logs + module_sets.tsv` 的 release evidence report artifact
   - collect 失败时另保留 `wasm-candidate-raw-<module_set>-<runner>-<run_id>-<attempt>` artifact，保存 7 天，只包含实际生成的 `.wasm`、`.metadata.json` 和 `.build-receipt.json`；构建早期失败时可能不完整，上传成功不改变原 gate 的失败结果。成功运行不重复上传这些诊断原件。

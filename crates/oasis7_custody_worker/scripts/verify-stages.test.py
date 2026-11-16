@@ -178,7 +178,7 @@ class VerifyStagesTests(unittest.TestCase):
         self.assertTrue(all(command[0] == "cargo" for command in commands))
 
     def test_invalid_role_success_is_rejected(self):
-        for arguments in ((), ("--platform",), ("--stage", "wasm-approval")):
+        for arguments in ((), ("--platform",), ("--stage", "wasm-approval"), ("--stage", "wasm-contracts")):
             with self.subTest(arguments=arguments):
                 result, commands = self.run_verify(*arguments, extra_environment={
                     "OASIS7_STAGE_MOCK_ACCEPT_INVALID": "1",
@@ -191,12 +191,13 @@ class VerifyStagesTests(unittest.TestCase):
         for features in ("", "executor,identity", "identity,approval-harness", "owner,native-runtime-harness"):
             for override in ({"OASIS7_STAGE_MOCK_ACCEPT_INVALID": "1"},
                              {"OASIS7_STAGE_MOCK_ERROR_TEXT": "unrelated compiler failure"}):
-                with self.subTest(features=features, override=override):
-                    result, commands = self.run_verify("--stage", "wasm-approval", extra_environment={
-                        "OASIS7_STAGE_MOCK_INVALID_FEATURES": features, **override,
-                    })
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertFalse(any(command[0].startswith("build-") for command in commands))
+                for stage in ("wasm-approval", "wasm-contracts"):
+                    with self.subTest(features=features, override=override, stage=stage):
+                        result, commands = self.run_verify("--stage", stage, extra_environment={
+                            "OASIS7_STAGE_MOCK_INVALID_FEATURES": features, **override,
+                        })
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse(any(command[0].startswith("build-") for command in commands))
 
     def test_three_producers_preserve_full_platform_proof_inventory(self):
         result, full = self.run_verify("--platform")
@@ -259,6 +260,24 @@ class VerifyStagesTests(unittest.TestCase):
         self.assertFalse(any(command[0] == "cargo" for command in production))
         self.assertEqual(len([command for command in approval if command[:2] == ["cargo", "check"]]), 16)
 
+    def test_separate_wasm_proof_preserves_every_legacy_command_and_output_owner(self):
+        result, legacy = self.run_verify("--stage", "wasm-approval")
+        self.assert_success(result)
+        result, proof = self.run_verify("--stage", "wasm-contracts")
+        self.assert_success(result)
+        exporter = ["cargo", "test", "-p", "oasis7_custody_core", "--test",
+                    "approval_admission", "export_developer_admission_fixture", "--locked"]
+        self.assertEqual(len(proof), 17)
+        self.assertEqual(proof[-1], exporter)
+        checks = proof[:-1]
+        self.assertTrue(all(command[:2] == ["cargo", "check"] for command in checks))
+        result, artifacts = self.run_verify("--stage", "wasm-approval-artifacts")
+        self.assert_success(result)
+        self.assertFalse(any(command[0] == "cargo" for command in artifacts))
+        self.assertEqual([command for command in artifacts if command[0].startswith("build-")],
+                         [["build-approval-harness.sh"]])
+        self.assertEqual(Counter(map(tuple, checks + artifacts)), Counter(map(tuple, legacy)))
+
     def test_mismatched_worker_cache_is_rejected_without_installing_or_building(self):
         result, commands = self.run_verify(
             "--stage", "wasm-production",
@@ -289,6 +308,9 @@ class VerifyStagesTests(unittest.TestCase):
             ("native", "node", "contract.mjs check"),
             ("wasm-production", "build-role.sh", "owner"),
             ("wasm-approval", "build-approval-harness.sh", ""),
+            ("wasm-approval-artifacts", "build-approval-harness.sh", ""),
+            ("wasm-contracts", "cargo", "check -p oasis7_custody_core"),
+            ("wasm-contracts", "cargo", "--features executor --locked"),
         ):
             with self.subTest(stage=stage, command=command):
                 result, commands = self.run_verify("--stage", stage, extra_environment={

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Private 37+7 candidate workload, sharing the extraction's fixed analysis window."""
 import argparse
+from contextlib import ExitStack
 import csv
 import hashlib
 import importlib.util
@@ -13,6 +14,8 @@ import shutil
 import time
 
 from codeql_rust_action_deadline import shared_budget
+import codeql_rust_candidate_profile as candidate_profile
+import codeql_rust_resolver as resolver
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('workload_comparison', HERE / 'codeql-rust-qualifier-comparison.py')
@@ -21,7 +24,27 @@ spec.loader.exec_module(comparison)
 capacity, runtime = comparison.capacity, comparison.runtime
 
 MODE = 'candidate-workload-research'
-VARIANT = 'qualifier-lines-v2'
+# Keep the v3 and v5 intermediate identities distinct from the final v6 library.
+VARIANT = 'qualifier-lines-v3'
+V5_VARIANT = 'qualifier-lines-shared-trait-v5'
+WORKLOAD_VARIANT = 'qualifier-lines-constraint-matching-v6'
+SHARED_FILE = capacity.bundle.SHARED_FILE
+SHARED_OFFICIAL_SHA = capacity.bundle.SHARED_OFFICIAL_SHA
+SHARED_CANDIDATE_SHA = capacity.bundle.SHARED_CANDIDATE_SHA
+SHARED_PATCH_SHA = capacity.bundle.SHARED_PATCH_SHA
+SHARED_UPSTREAM = capacity.bundle.SHARED_UPSTREAM
+CONSTRAINT_UPSTREAM = '1c4fea90af949111bc1c625f1e72de56a12c7712'
+CONSTRAINT_API_PATCH_SHA = 'ba47e346672cd8281b3a6a3d94647b0d00d733a273311799b0533dc4b0fd37db'
+CONSTRAINT_UPSTREAM_PATCH_SHA = '3880e57052c74d8af7f155a7abc8b721eef0725463897647809fd10b28d3a0ba'
+CONSTRAINT_PATCH_SHA = 'e6563cf895df0f662444795cf5c8f2358804784d667ccce4b11fa336ffde7db8'
+CONSTRAINT_CANDIDATE_SHA = '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33'
+ARITY_PATCH_SHA = '89a3e6fb117edb4de7f89f2fbc135da98618ddd73aabcd0b72df164e260354c3'
+TYPE_CANDIDATE_SHA = 'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb'
+TRAIT_PATCH_SHA = '15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21'
+TRAIT_TYPE_SHA = 'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b'
+TRAIT_PATH_FILE = 'codeql/rust/internal/PathResolution.qll'
+TRAIT_PATH_OFFICIAL_SHA = 'c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d'
+TRAIT_PATH_SHA = '222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf'
 IMAGE_CONTRACT = capacity.IMAGE_V2
 MODEL_FILE = 'codeql/rust/frameworks/stdlib/core.model.yml'
 MODEL_OFFICIAL_SHA = '756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400'
@@ -70,18 +93,137 @@ def regular_snapshot(root, end):
 
 def private_inputs(work, end):
     return {name: regular_snapshot(work / name, end) for name in
-            ('candidate-rust-all', 'default-queries', 'public-witnesses')}
+            ('candidate-rust-all', 'candidate-typeinference', 'default-queries', 'public-witnesses')}
+
+
+def workload_closure(official, work):
+    closure = comparison.candidate_closure(official, work / 'candidate-rust-all')
+    closure['codeql/typeinference']['root'] = str(work / 'candidate-typeinference')
+    return closure
+
+
+def shared_helper_identity(original, private, end):
+    identity = capacity.bundle.shared_helper_identity(original, private,
+                                                      snapshot=lambda root: regular_snapshot(root, end))
+    return dict(variant=V5_VARIANT, base_variant=VARIANT, **identity)
+
+
+def prepare_shared_helper(closure, work, out, end, run, *, copy_end):
+    def copy_file(source, target):
+        capacity.check_time(copy_end)
+        return shutil.copy2(source, target)
+    identity = capacity.bundle.prepare_shared_helper(closure['codeql/typeinference'], work / 'candidate-typeinference',
+        HERE / 'codeql-rust-shared-constraint.patch', snapshot=lambda root: regular_snapshot(root, end),
+        copy_file=copy_file, file_digest=lambda path: capacity.digest_until(path, end), run=run)
+    runtime.save(out / 'shared-helper-identity.json', dict(variant=V5_VARIANT, base_variant=VARIANT, **identity), out)
+
+
+def verify_v5_identity(closure, work, out, end):
+    """Validate the genuine v5 tree before applying the independent v6 overlay."""
+    if trait_visibility_identity(Path(closure['codeql/rust-all']['root']),
+                                 work / 'candidate-rust-all', out, end) != read_json(out / 'trait-visibility-identity.json'):
+        raise RuntimeError('trait visibility identity differs after preparation')
+    if shared_helper_identity(Path(closure['codeql/typeinference']['root']),
+                              work / 'candidate-typeinference', end) != read_json(out / 'shared-helper-identity.json'):
+        raise RuntimeError('shared helper identity differs after preparation')
+
+
+def constraint_matching_identity(closure, work, out, end):
+    """Revalidate the saved v5 shared base before checking the actual final tree."""
+    if trait_visibility_identity(Path(closure['codeql/rust-all']['root']),
+                                 work / 'candidate-rust-all', out, end) != read_json(out / 'trait-visibility-identity.json'):
+        raise RuntimeError('trait visibility identity differs after preparation')
+    base = read_json(out / 'shared-helper-identity.json')
+    before = base['candidate_files']
+    original = regular_snapshot(Path(closure['codeql/typeinference']['root']), end)
+    expected = dict(variant=V5_VARIANT, base_variant=VARIANT,
+                    **capacity.bundle.shared_snapshot_identity(original, before))
+    if expected != base:
+        raise RuntimeError('v5 shared intermediate identity differs after preparation')
+    after = regular_snapshot(work / 'candidate-typeinference', end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (runtime.digest(HERE / 'codeql-rust-constraint-matching.patch') != CONSTRAINT_PATCH_SHA
+            or set(before) != set(after) or changed != [SHARED_FILE]
+            or after[SHARED_FILE]['sha256'] != CONSTRAINT_CANDIDATE_SHA
+            or any(before[p]['mode'] != after[p]['mode'] for p in before)):
+        raise RuntimeError('candidate differs from the fixed ConstraintMatching overlay')
+    return dict(variant=WORKLOAD_VARIANT, base_variant=V5_VARIANT,
+                upstream_commit=CONSTRAINT_UPSTREAM, upstream_api_patch_sha256=CONSTRAINT_API_PATCH_SHA,
+                upstream_patch_sha256=CONSTRAINT_UPSTREAM_PATCH_SHA, patch_sha256=CONSTRAINT_PATCH_SHA,
+                base_receipts_sha256={name: runtime.digest(out / name) for name in
+                    ('shared-helper-identity.json', 'trait-visibility-identity.json')},
+                changed_files=changed, before_files=before, candidate_files=after)
+
+
+def verify_workload_identity(closure, work, out, end):
+    if constraint_matching_identity(closure, work, out, end) != read_json(out / 'constraint-matching-identity.json'):
+        raise RuntimeError('ConstraintMatching identity differs after preparation')
+
+
+def prepare_constraint_matching(closure, work, out, end, run):
+    verify_v5_identity(closure, work, out, end)
+    patch_file = HERE / 'codeql-rust-constraint-matching.patch'
+    if patch_file.resolve() != patch_file or runtime.digest(patch_file) != CONSTRAINT_PATCH_SHA:
+        raise RuntimeError('ConstraintMatching patch identity differs')
+    run(['patch', '--batch', '--forward', '--no-backup-if-mismatch', '--fuzz=0', '-p1',
+         '-d', work / 'candidate-typeinference', '-i', patch_file], 'apply-constraint-matching-patch', 20)
+    runtime.save(out / 'constraint-matching-identity.json',
+                 constraint_matching_identity(closure, work, out, end), out)
+
+
+def arity_identity():
+    return dict(variant=VARIANT, patch_sha256=ARITY_PATCH_SHA,
+                base_patch_sha256=comparison.PATCH_SHA, base_type_sha256=comparison.CANDIDATE_SHA,
+                candidate_type_sha256=TYPE_CANDIDATE_SHA, changed_files=[comparison.TYPE_FILE])
+
+
+def prepare_candidate(closure, work, out, end, run, *, copy_end):
+    """Preserve the legacy qualifier patch, then bind the v3 arity and lines changes."""
+    private = comparison.prepare_candidate(closure, work, out, end, run, copy_end=copy_end)
+    patch_file = HERE / 'codeql-rust-qualifier-arity.patch'
+    type_file = private / comparison.TYPE_FILE
+    if runtime.digest(patch_file) != ARITY_PATCH_SHA or runtime.digest(type_file) != comparison.CANDIDATE_SHA:
+        raise RuntimeError('arity patch or base qualifier identity differs')
+    before = regular_snapshot(private, end)
+    original = Path(closure['codeql/rust-all']['root'])
+    official = regular_snapshot(original, end)
+    changed = sorted(p for p in set(official) | set(before) if official.get(p) != before.get(p))
+    if (set(official) != set(before) or changed != [comparison.TYPE_FILE]
+            or official[comparison.TYPE_FILE]['mode'] != before[comparison.TYPE_FILE]['mode']):
+        raise RuntimeError('candidate differs from the fixed two-file model before the arity patch')
+    lines_model_bytes(private / MODEL_FILE, end)
+    run(['patch', '--batch', '--fuzz=0', type_file, patch_file], 'apply-arity-patch', 20)
+    after = regular_snapshot(private, end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (set(before) != set(after) or changed != [comparison.TYPE_FILE]
+            or before[comparison.TYPE_FILE]['mode'] != after[comparison.TYPE_FILE]['mode']
+            or runtime.digest(type_file) != TYPE_CANDIDATE_SHA):
+        raise RuntimeError('candidate differs beyond the fixed arity patch')
+    runtime.save(out / 'arity-patch-identity.json', arity_identity(), out)
+    prepare_lines_model(original, private, out, end)
+    return private
+
+
+def verify_candidate_identity(original, private, out, end):
+    if read_json(out / 'arity-patch-identity.json') != arity_identity():
+        raise RuntimeError('candidate arity patch identity differs after preparation')
+    if lines_identity(original, private, end) != read_json(out / 'lines-model-identity.json'):
+        raise RuntimeError('candidate two-file model identity differs after preparation')
 
 
 def lines_identity(original, private, end):
-    official_files, candidate_files = regular_snapshot(original, end), regular_snapshot(private, end)
+    return lines_snapshot_identity(regular_snapshot(original, end), regular_snapshot(private, end))
+
+
+def lines_snapshot_identity(official_files, candidate_files):
+    """Validate either the current v3 tree or its frozen intermediate receipt."""
     changed = sorted(p for p in set(official_files) | set(candidate_files)
                      if official_files.get(p) != candidate_files.get(p))
     if (set(official_files) != set(candidate_files) or changed != sorted((comparison.TYPE_FILE, MODEL_FILE))
-            or runtime.digest(original / comparison.TYPE_FILE) != comparison.OFFICIAL_SHA
-            or runtime.digest(private / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA
-            or runtime.digest(original / MODEL_FILE) != MODEL_OFFICIAL_SHA
-            or runtime.digest(private / MODEL_FILE) != MODEL_CANDIDATE_SHA
+            or official_files[comparison.TYPE_FILE]['sha256'] != comparison.OFFICIAL_SHA
+            or candidate_files[comparison.TYPE_FILE]['sha256'] != TYPE_CANDIDATE_SHA
+            or official_files[MODEL_FILE]['sha256'] != MODEL_OFFICIAL_SHA
+            or candidate_files[MODEL_FILE]['sha256'] != MODEL_CANDIDATE_SHA
             or any(official_files[p]['mode'] != candidate_files[p]['mode'] for p in changed)):
         raise RuntimeError('candidate differs from the fixed qualifier/lines two-file model')
     return dict(variant=VARIANT, image_contract_version=IMAGE_CONTRACT,
@@ -89,8 +231,44 @@ def lines_identity(original, private, end):
                 official_files=official_files, candidate_files=candidate_files)
 
 
-def prepare_lines_model(original, private, out, end):
-    path = private / MODEL_FILE
+def trait_visibility_identity(original, private, out, end):
+    """Bind the annotated Rust tree to the genuine, unchanged v3 intermediate."""
+    if read_json(out / 'arity-patch-identity.json') != arity_identity():
+        raise RuntimeError('candidate arity patch identity differs after preparation')
+    base = read_json(out / 'lines-model-identity.json')
+    before = base['candidate_files']
+    if lines_snapshot_identity(regular_snapshot(original, end), before) != base:
+        raise RuntimeError('candidate v3 intermediate identity differs after preparation')
+    after = regular_snapshot(private, end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (runtime.digest(HERE / 'codeql-rust-trait-visibility.patch') != TRAIT_PATCH_SHA
+            or set(before) != set(after) or changed != sorted((comparison.TYPE_FILE, TRAIT_PATH_FILE))
+            or before[TRAIT_PATH_FILE]['sha256'] != TRAIT_PATH_OFFICIAL_SHA
+            or after[comparison.TYPE_FILE]['sha256'] != TRAIT_TYPE_SHA
+            or after[TRAIT_PATH_FILE]['sha256'] != TRAIT_PATH_SHA
+            or any(before[p]['mode'] != after[p]['mode'] for p in changed)):
+        raise RuntimeError('candidate differs from the fixed trait visibility annotation patch')
+    return dict(variant=V5_VARIANT, base_variant=VARIANT, patch_sha256=TRAIT_PATCH_SHA,
+                base_receipts_sha256={name: runtime.digest(out / name) for name in
+                    ('arity-patch-identity.json', 'lines-model-identity.json')},
+                changed_files=changed, before_files=before, candidate_files=after)
+
+
+def prepare_trait_visibility(closure, work, out, end, run):
+    """Apply the fixed annotations after verifying the genuine v3 intermediate."""
+    original, private = Path(closure['codeql/rust-all']['root']), work / 'candidate-rust-all'
+    verify_candidate_identity(original, private, out, end)
+    patch_file = HERE / 'codeql-rust-trait-visibility.patch'
+    if (runtime.digest(patch_file) != TRAIT_PATCH_SHA
+            or runtime.digest(private / TRAIT_PATH_FILE) != TRAIT_PATH_OFFICIAL_SHA):
+        raise RuntimeError('trait visibility patch or base path identity differs')
+    run(['patch', '--batch', '--fuzz=0', '-p1', '-d', private, '-i', patch_file],
+        'apply-trait-visibility-patch', 20)
+    runtime.save(out / 'trait-visibility-identity.json',
+                 trait_visibility_identity(original, private, out, end), out)
+
+
+def lines_model_bytes(path, end):
     capacity.check_time(end)
     if path.resolve() != path or runtime.digest(path) != MODEL_OFFICIAL_SHA:
         raise RuntimeError('official core model identity differs')
@@ -100,7 +278,12 @@ def prepare_lines_model(original, private, out, end):
     candidate_bytes = original_bytes.replace(MODEL_MARKER, MODEL_MARKER + MODEL_LINE, 1)
     if hashlib.sha256(candidate_bytes).hexdigest() != MODEL_CANDIDATE_SHA:
         raise RuntimeError('lines summary target identity differs')
-    path.write_bytes(candidate_bytes)
+    return candidate_bytes
+
+
+def prepare_lines_model(original, private, out, end):
+    path = private / MODEL_FILE
+    path.write_bytes(lines_model_bytes(path, end))
     runtime.save(out / 'lines-model-identity.json', lines_identity(original, private, end), out)
 
 
@@ -194,7 +377,7 @@ def query_options(closure, work, prefix):
             '--common-caches=' + str(work / (prefix + '-common-cache'))]
 
 
-def resolve_layout(codeql, records, closures, work, out, run):
+def resolve_layout(codeql, records, closures, work, out, run, *, end, on_stage=None):
     options = query_options(closures['default'], work, 'resolve')
     run([codeql, 'resolve', 'queries', work / 'default-queries/codeql-suites/rust-code-scanning.qls',
          '--format=json', options[0], options[-1]], 'private-default-suite', 30)
@@ -202,17 +385,8 @@ def resolve_layout(codeql, records, closures, work, out, run):
     expected = [{key: r[key] for key in ('relative', 'id', 'sha256')} for r in records if r['kind'] == 'default']
     if actual != expected:
         raise RuntimeError('private source wrapper changed the default suite selection')
-    receipts = []
-    for index, record in enumerate(records):
-        name = 'resolve-' + str(index).zfill(2)
-        run([codeql, 'resolve', 'library-path', '--query=' + record['path'], '--format=json', *options], name, 20)
-        actual = read_json(out / (name + '.log'))
-        capacity.bundle.verify_library_path(actual, Path(record['root']), str(Path(record['relative']).with_suffix('')),
-                                           closures[record['kind']], record['pack'])
-        if actual['compilationCache'] != [str(work / 'resolve-compilation-cache')]:
-            raise RuntimeError('resolver selected an unbound compilation cache')
-        receipts.append(dict(query=record['path'], kind=record['kind'], actual=actual, status='PASS_CANDIDATE_CLOSURE'))
-        runtime.save(out / 'library-resolution.json', receipts, out)
+    resolver.resolve(codeql, records, closures, work, out, run, end=end,
+                     mode='candidate', on_stage=on_stage)
 
 
 def admit_checkpoint(captured, finished, source, deadline):
@@ -325,7 +499,7 @@ def seal(out, terminal, phase, deadline, end):
         runtime.save(out / 'hashes.json', hashes, out, terminal=True)
 
 
-def main():
+def _main(cancellation, owned_resources):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('prepare', 'run'))
     for name in ('codeql', 'source', 'database', 'official-evidence', 'output', 'work'):
@@ -349,24 +523,34 @@ def main():
     started = time.monotonic()
     end = started + max(0, args.deadline - time.time()) if math.isfinite(args.deadline) else started
     terminal = dict(status='CANDIDATE_RESEARCH_INCOMPLETE', phase=args.phase, mode=MODE,
-                    candidate_variant=VARIANT, image_contract_version=IMAGE_CONTRACT,
+                    candidate_variant=WORKLOAD_VARIANT, image_contract_version=IMAGE_CONTRACT,
                     source=capacity.CAPACITY_SOURCE, source_root=str(source), fixed_job_deadline=args.deadline,
                     analysis_deadline=args.analysis_deadline, production_capacity='UNKNOWN', full_rust_coverage='HOLD',
                     production_acceptance='UNCHANGED', security_upload=False, database_upload=False, sarif_upload=False,
                     default_result_verification='NOT_REACHED', public_semantics='NOT_REACHED',
+                    performance_observation={'status': 'NOT_REQUESTED' if args.phase == 'prepare' else 'NOT_REACHED'},
                     primary_failure=None, secondary_errors=[], stage='admission',
                     final_hosted_job_margin='NOT_OBSERVED', required_final_job_margin_seconds=REQUIRED_MARGIN,
                     margin_scope='pre-upload evidence readiness; final hosted completion including upload/post requires independent readback')
     before = protected = official_seal = db_sha = None
+    observation = batch_error = None
     env = {k: v for k, v in os.environ.items() if k not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     def save(name, value, control=False): runtime.save(out / name, value, out, terminal=control)
-    def run(argv, name, limit=None, *, analysis=False):
+    def run(argv, name, limit=None, *, analysis=False, observed=False, observer=None,
+            restricted_output=False, reap_orphans=False):
         terminal['stage'] = name
+        if cancellation['cancelled']:
+            raise runtime.CancelledError('CANCELLED_BEFORE_SPAWN')
         child_end = min(end - EVIDENCE_SECONDS, analysis_end) if analysis else end - EVIDENCE_SECONDS
         remaining = child_end - time.monotonic()
         if remaining <= 0: raise TimeoutError('fixed candidate deadline exhausted before ' + name)
+        if observed:
+            return observation.run_batch(list(map(str, argv)), source, child_end,
+                                         min(remaining, limit or remaining), env)
         return runtime.run(list(map(str, argv)), source, out / (name + '.log'), child_end,
-                           min(remaining, limit or remaining), out, env, file_limit=None)
+                           min(remaining, limit or remaining), out, env, file_limit=None,
+                           observer=observer, restricted_output=restricted_output,
+                           reap_orphans=reap_orphans)
     try:
         budget = read_json(checkpoint / 'capacity-budget.json')
         analysis_end, end = shared_budget(budget, args.deadline, args.analysis_deadline, time.time(), time.monotonic())
@@ -386,7 +570,7 @@ def main():
             comparison.verify_seal(out, end - EVIDENCE_SECONDS)
             prepared = read_json(out / 'candidate-prepare-terminal.json')
             if (prepared.get('status') != 'CANDIDATE_RESEARCH_PREPARED' or prepared.get('budget') != budget
-                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != VARIANT
+                    or prepared.get('source_root') != str(source) or prepared.get('candidate_variant') != WORKLOAD_VARIANT
                     or prepared.get('image_contract_version') != IMAGE_CONTRACT
                     or prepared.get('semantic_contract_sha256') != terminal['semantic_contract_sha256']):
                 raise RuntimeError('candidate preparation receipt differs')
@@ -415,10 +599,18 @@ def main():
             raise RuntimeError('official library closure differs')
         if args.phase == 'prepare':
             terminal['stage'] = 'prepare-candidate-library'
-            private = comparison.prepare_candidate(original_closure, work, out, analysis_end,
+            prepare_candidate(original_closure, work, out, analysis_end,
                 lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
-            prepare_lines_model(Path(original_closure['codeql/rust-all']['root']), private, out, analysis_end)
-            closure = comparison.candidate_closure(original_closure, private)
+            terminal['stage'] = 'prepare-shared-helper'
+            prepare_shared_helper(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True), copy_end=analysis_end)
+            terminal['stage'] = 'prepare-trait-visibility'
+            prepare_trait_visibility(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True))
+            terminal['stage'] = 'prepare-constraint-matching'
+            prepare_constraint_matching(original_closure, work, out, analysis_end,
+                lambda argv, name, limit: run(argv, name, limit, analysis=True))
+            closure = workload_closure(original_closure, work)
             defaults = dict(closure, **{'codeql/suite-helpers': suite_helper(official)})
             if len(closure) != 13 or len(defaults) != 14: raise RuntimeError('unexpected dependency closure')
             closures = dict(default=defaults, witness=closure)
@@ -429,7 +621,9 @@ def main():
             before = private_inputs(work, analysis_end)
             save('private-inputs-before.json', before)
             resolve_layout(args.codeql, records, closures, work, out,
-                           lambda argv, name, limit: run(argv, name, limit, analysis=True))
+                           lambda argv, name, limit=None, **options: run(argv, name, limit, analysis=True, **options),
+                           end=min(analysis_end, end - EVIDENCE_SECONDS),
+                           on_stage=lambda name: terminal.__setitem__('stage', name))
             terminal.update(status='CANDIDATE_RESEARCH_PREPARED', resolved_default_queries=37, resolved_public_witnesses=7)
         else:
             terminal['stage'] = 'candidate-input-admission'
@@ -437,14 +631,12 @@ def main():
             records = read_json(out / 'query-inputs.json')
             expected = query_records(work, source, read_json(checkpoint / 'default-suite.json'),
                                      read_json(checkpoint / 'semantic-query-inputs.json'))
-            witness_closure = comparison.candidate_closure(original_closure, work / 'candidate-rust-all')
+            witness_closure = workload_closure(original_closure, work)
             if (records != expected or closures != dict(witness=witness_closure,
                     default=dict(witness_closure, **{'codeql/suite-helpers': suite_helper(official)}))
-                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != comparison.CANDIDATE_SHA):
+                    or runtime.digest(work / 'candidate-rust-all' / comparison.TYPE_FILE) != TRAIT_TYPE_SHA):
                 raise RuntimeError('candidate workload binding differs from the frozen inputs')
-            if lines_identity(Path(original_closure['codeql/rust-all']['root']), work / 'candidate-rust-all',
-                              min(analysis_end, end - EVIDENCE_SECONDS)) != read_json(out / 'lines-model-identity.json'):
-                raise RuntimeError('candidate lines model identity differs after preparation')
+            verify_workload_identity(original_closure, work, out, min(analysis_end, end - EVIDENCE_SECONDS))
             if private_inputs(work, min(analysis_end, end - EVIDENCE_SECONDS)) != before:
                 raise RuntimeError('private input changed after preparation')
             official_seal = comparison.verify_seal(checkpoint, min(analysis_end, end - EVIDENCE_SECONDS))
@@ -460,13 +652,17 @@ def main():
             if (database / 'results').is_symlink() or any(p.is_symlink() or p.suffix == '.bqrs' for p in (database / 'results').rglob('*')):
                 raise RuntimeError('extraction checkpoint already has query results')
             for name in ('batch-compilation-cache', 'batch-common-cache'): (work / name).mkdir(exist_ok=False)
+            terminal['stage'] = 'performance-observation-admission'
+            observation = candidate_profile.Observation(out, work, records)
+            owned_resources.callback(observation.close)
+            observation.start()
             terminal['batch'] = dict(status='RUNNING', queries=44, default_queries=37, public_witnesses=7, invocations=1)
             save('candidate-run-terminal.json', terminal, True)
             batch_error = None
             try:
                 run([args.codeql, 'database', 'run-queries', *query_options(closures['default'], work, 'batch'),
                      '--no-use-precompiled', '--threads=' + str(resources['CODEQL_THREADS']), '--ram=' + str(resources['CODEQL_RAM']),
-                     '--', database, *[r['path'] for r in records]], 'candidate-workload-batch', analysis=True)
+                     '--', database, *[r['path'] for r in records]], 'candidate-workload-batch', analysis=True, observed=True)
                 terminal['batch']['status'] = 'COMPUTED'
             except Exception as error:
                 batch_error = error
@@ -475,7 +671,10 @@ def main():
                 save('candidate-run-terminal.json', terminal, True)
                 raise
             finally:
-                try: preserve_results(results, out, end - EVIDENCE_SECONDS)
+                terminal['raw_result_preservation'] = 'INCOMPLETE'
+                try:
+                    preserve_results(results, out, end - EVIDENCE_SECONDS)
+                    terminal['raw_result_preservation'] = 'COMPLETE'
                 except Exception as error:
                     if batch_error is None: raise
                     terminal['secondary_errors'].append(dict(stage='raw-results', error=repr(error)[:2048]))
@@ -488,7 +687,7 @@ def main():
         for key in ('default_result_verification', 'public_semantics'):
             if terminal[key] == 'RUNNING': terminal[key] = 'INCOMPLETE'
     finally:
-        # Preserve primary failure before optional after checks; no child is spawned here.
+        # Core closeout precedes the single optional summary. Interrupts cannot skip it.
         save('candidate-' + args.phase + '-terminal.json', terminal, True)
         for name, operation in (
             ('private_inputs', lambda: private_inputs(work, end - EVIDENCE_SECONDS) if before is not None else None),
@@ -507,16 +706,64 @@ def main():
                 failure = dict(stage=name + '-after', error=repr(error)[:2048])
                 if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
                 else: terminal['secondary_errors'].append(failure)
+        if observation is not None:
+            try:
+                original_failure_allows_summary = (terminal['primary_failure'] is None or
+                    isinstance(batch_error, runtime.PhaseError) and batch_error.clean_timeout
+                    and terminal['primary_failure']['stage'] == 'candidate-workload-batch')
+                unchanged = all(terminal.get(name + '_after') == 'UNCHANGED' for name in
+                                ('private_inputs', 'protected_inputs', 'official_evidence', 'database_metadata'))
+                observation.summarize(args.codeql, source, env, end - EVIDENCE_SECONDS,
+                    admitted=original_failure_allows_summary and unchanged and not terminal['secondary_errors']
+                             and terminal.get('raw_result_preservation') == 'COMPLETE' and not cancellation['cancelled'])
+                terminal['performance_observation'] = observation.finish()
+                if terminal['performance_observation']['status'] != 'COMPLETE':
+                    raise RuntimeError('PERFORMANCE_OBSERVATION_INCOMPLETE')
+            except Exception:
+                terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+                failure = dict(stage='performance-observation', error='PERFORMANCE_OBSERVATION_INCOMPLETE')
+                if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
+                else: terminal['secondary_errors'].append(failure)
+            finally:
+                try:
+                    observation.close()
+                except Exception:
+                    terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+                    failure = dict(stage='performance-observation-cleanup', error='CAPTURE_CLOSE_FAILED')
+                    if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
+                    else: terminal['secondary_errors'].append(failure)
+        if cancellation['cancelled']:
+            terminal['cancelled'] = True
+            terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
+            if terminal['primary_failure'] is None:
+                terminal['primary_failure'] = dict(stage=terminal['stage'], error='CANCELLED')
         terminal['elapsed_seconds'] = time.monotonic() - started
+        sealed = False
         try:
             seal(out, terminal, args.phase, args.deadline, end - EVIDENCE_SECONDS)
+            sealed = True
         except Exception as error:
             terminal['status'] = 'CANDIDATE_RESEARCH_INCOMPLETE'
             failure = dict(stage='evidence-seal', error=repr(error)[:2048])
             if terminal['primary_failure'] is None: terminal['primary_failure'] = failure
             else: terminal['secondary_errors'].append(failure)
             save('candidate-' + args.phase + '-terminal.json', terminal, True)
-    return 0 if terminal['status'] in ('CANDIDATE_RESEARCH_PREPARED', 'CANDIDATE_RESEARCH_COMPLETED') else 1
+        if cancellation['cancelled'] and not terminal.get('cancelled'):
+            terminal.update(status='CANDIDATE_RESEARCH_INCOMPLETE', cancelled=True)
+            if terminal['primary_failure'] is None:
+                terminal['primary_failure'] = dict(stage=terminal['stage'], error='CANCELLED')
+            filename = 'candidate-' + args.phase + '-terminal.json'
+            save(filename, terminal, True)
+            if sealed:
+                hashes = read_json(out / 'hashes.json')
+                hashes[filename] = runtime.digest(out / filename)
+                save('hashes.json', hashes, True)
+    return 0 if not cancellation['cancelled'] and terminal['status'] in ('CANDIDATE_RESEARCH_PREPARED', 'CANDIDATE_RESEARCH_COMPLETED') else 1
+
+
+def main():
+    with runtime.cancellation_guard() as cancellation, ExitStack() as owned_resources:
+        return _main(cancellation, owned_resources)
 
 
 if __name__ == '__main__':

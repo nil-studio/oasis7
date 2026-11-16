@@ -28,6 +28,7 @@ pub(super) fn initial_hot(
         authority.definition().world.genesis_head()?
     };
     let mut initial = HotBody {
+        data_closure: None,
         version: 1,
         instance_digest: instance.digest().map_err(fencing_error)?,
         authority_id: authority.authority_id()?,
@@ -49,7 +50,6 @@ pub(super) fn initial_hot(
         pending: None,
         decision_head: None,
         seal: None,
-        data_closure: None,
         durable_set: None,
     };
     let mut sources = vec![];

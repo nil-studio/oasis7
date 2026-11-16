@@ -127,7 +127,7 @@ pub(crate) fn read_legacy_unknown_length_durable_v1(
     let mut read_exact = |file: &mut File, bytes: &mut [u8]| {
         let mut state = shared.borrow_mut();
         let (work, stop) = &mut *state;
-        exact(file, bytes, *work, *stop)
+        exact(file, bytes, work, *stop)
     };
     let mut seek = |file: &mut File, at: SeekFrom| {
         let mut state = shared.borrow_mut();
@@ -139,7 +139,7 @@ pub(crate) fn read_legacy_unknown_length_durable_v1(
     let mut hash_raw = |file: &mut File, len: u64| {
         let mut state = shared.borrow_mut();
         let (work, stop) = &mut *state;
-        raw_hash(file, len, *work, *stop)
+        raw_hash(file, len, work, *stop)
     };
     let Some(mut object) = super::open_expected_with_readers(
         path,

@@ -87,11 +87,11 @@ fn manifest_with_reader<B: AsRef<[u8]>>(
     }
     let owner = reader(&root.join(GENERATIONS).join(id).join(MANIFEST), META_LIMIT)?;
     let bytes = owner.as_ref();
-    if blake3::hash(&bytes).to_hex().as_str() != id {
+    if blake3::hash(bytes).to_hex().as_str() != id {
         return Err(invalid("generation manifest checksum"));
     }
-    metadata_preflight::check(&bytes, META_LIMIT)?;
-    let value: Manifest = serde_cbor::from_slice(&bytes).map_err(io)?;
+    metadata_preflight::check(bytes, META_LIMIT)?;
+    let value: Manifest = serde_cbor::from_slice(bytes).map_err(io)?;
     if value.version != 3 {
         return Err(invalid("generation manifest schema"));
     }

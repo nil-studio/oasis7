@@ -212,20 +212,16 @@ fn node_restart_preserves_signed_retained_commit_when_replication_frontier_lags(
     let mut restarted = NodeRuntime::new(config())
         .with_execution_hook(driver)
         .with_local_execution_bootstrap(head);
-    // The durable indexed signed head is an independent barrier before the
-    // lower-frontier reconcile. Do not silently count any startup error as a
-    // successful safety observation: require this exact bounded failure class.
-    let rejected_missing_indexed_commit = matches!(
-        restarted.start(),
-        Err(oasis7_node::NodeError::Replication { reason })
-            if reason.starts_with("latest commit head index points to missing commit world=")
-    );
-    assert!(
-        rejected_missing_indexed_commit,
-        "missing mirror did not fail at the durable indexed signed-head barrier"
-    );
+    // Complete local proof repairs the exact missing mirror; an arbitrary
+    // startup error is neither recovery nor evidence that the original survived.
+    restarted.start().expect("recover the exact retained signed mirror");
+    restarted.stop().expect("stop recovered node");
+    assert!(restarted.snapshot().last_error.is_none());
+    let restored_signed=fs::read(&mirror).expect("recovered signed mirror");
+    assert_eq!(restored_signed,original_signed,"recovery changed original signature/sequence/payload");
+    authenticate(&restored_signed,&signer.public_key_hex,&original_record);
     let retained_unchanged = fs::read(&original_record_path).unwrap() == original_record;
-    let signed_unchanged = !mirror.exists() || fs::read(&mirror).unwrap() == original_signed;
+    let signed_unchanged = fs::read(&mirror).unwrap() == original_signed;
     assert!(
         retained_unchanged && signed_unchanged,
         "restart replaced an authenticated retained commit after replication frontier rollback"
@@ -234,9 +230,9 @@ fn node_restart_preserves_signed_retained_commit_when_replication_frontier_lags(
         store.get(&proof_ref).unwrap() == original_proof,
         "original proof changed"
     );
-    // Restoring the exact original signed mirror must admit ordinary restart;
-    // safety may block an incomplete frontier but must not reject intact history.
-    fs::copy(saved, mirror).unwrap();
+    // A second ordinary restart must continue from the repaired history without
+    // an operator copying a replacement file into the active frontier.
+    assert_eq!(fs::read(saved).unwrap(),restored_signed);
     let baseline = super::super::local_bootstrap::derive_service_execution_bootstrap(
         &root.join("world"),
         &root.join("records"),
@@ -253,17 +249,18 @@ fn node_restart_preserves_signed_retained_commit_when_replication_frontier_lags(
         baseline.clone(),
     )
     .unwrap();
+    let resume_height=baseline.height;
     let mut resumed = NodeRuntime::new(config())
         .with_execution_hook(driver)
         .with_local_execution_bootstrap(baseline);
     resumed.start().unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while resumed.snapshot().consensus.committed_height <= height && Instant::now() < deadline {
+    while resumed.snapshot().consensus.committed_height <= resume_height && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(5));
     }
     resumed.stop().unwrap();
     assert!(
-        resumed.snapshot().consensus.committed_height > height,
+        resumed.snapshot().consensus.committed_height > resume_height,
         "original recovery did not continue"
     );
     assert!(resumed.snapshot().last_error.is_none());

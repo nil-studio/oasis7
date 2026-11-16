@@ -4,7 +4,7 @@ set -euo pipefail
 
 # This suite creates its own Git history. Hosted CI's real-repository range
 # must not leak into fixture calls; individual range-error cases set their own.
-unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD
+unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD GITHUB_EVENT_NAME GITHUB_EVENT_PATH GITHUB_ACTIONS
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -31,32 +31,19 @@ fi
 if [[ -n "${OASIS7_TEST_PYTHON:-}" ]]; then
   REAL_PYTHON="$OASIS7_TEST_PYTHON"
 else
-  REAL_PYTHON="$("$ROOT_DIR/scripts/find-python-with-module.sh" ast)"
+  REAL_PYTHON="$("$ROOT_DIR/scripts/find-python-with-module.sh" markdown_it)"
 fi
 
 FIXTURE="$TMPDIR/repo"
 mkdir -p "$FIXTURE/scripts" "$FIXTURE/doc/.governance" "$FIXTURE/doc/testing" "$FIXTURE/doc/many" "$FIXTURE/doc/devlog" "$FIXTURE/.agents/roles/templates" "$FIXTURE/.agents/roles" "$TMPDIR/bin"
-if [[ ! -x "$REAL_PYTHON" ]] || ! "$REAL_PYTHON" -c 'import ast; print("ready")' | grep -Fxq ready; then
+if [[ ! -x "$REAL_PYTHON" ]] || ! "$REAL_PYTHON" -c 'import markdown_it; print("ready")' | grep -Fxq ready; then
   echo "doc-governance-check.test: OASIS7_TEST_PYTHON or PATH discovery must provide a functional Python interpreter" >&2
   exit 1
 fi
 cp "$ROOT_DIR/scripts/doc-governance-check.sh" "$FIXTURE/scripts/doc-governance-check.sh"
 cp "$ROOT_DIR/scripts/find-python-with-module.sh" "$FIXTURE/scripts/find-python-with-module.sh"
-cat >"$FIXTURE/scripts/document-corpus-inventory-check.py" <<'PY'
-#!/usr/bin/env python3
-import os
-from pathlib import Path
-import sys
-
-log = os.environ.get("DOC_CORPUS_CHECK_LOG")
-if log:
-    with Path(log).open("a", encoding="utf-8") as stream:
-        stream.write("called\n")
-if os.environ.get("DOC_CORPUS_FAIL") == "1":
-    print("document-corpus-inventory: fixture injected failure", file=sys.stderr)
-    raise SystemExit(1)
-print("document-corpus-inventory: fixture OK")
-PY
+cp "$ROOT_DIR/scripts/doc-governance-scope.py" "$FIXTURE/scripts/"
+cp "$ROOT_DIR/scripts/product_doc_markdown.py" "$FIXTURE/scripts/"
 cat >"$FIXTURE/scripts/product-doc-governance-check.py" <<'PY'
 #!/usr/bin/env python3
 raise SystemExit(0)
@@ -122,7 +109,6 @@ DOC
 for number in $(seq 1 80); do
   printf 'fixture document %s\n' "$number" >"$FIXTURE/doc/many/doc-$number.md"
 done
-printf '%s\n' 'doc/README.md' >"$FIXTURE/doc/.governance/doc-root-md-allowlist.txt"
 printf '%s\n' 'fixture documentation landing page' >"$FIXTURE/doc/README.md"
 printf '%s\n' 'fixture many-doc landing page' >"$FIXTURE/doc/many/README.md"
 # Archived prose and optional handoff notes do not create role-format gates.
@@ -169,25 +155,11 @@ Fixture local design.
 | --- | --- | --- | --- | --- | --- |
 | [fixture requirement](upstream.md#fixture-req) | [fixture local](#fixture-local) | fixture obligation | [fixture test](fixture.test.py) | fixture evidence | fixture uncovered |
 DOC
-{
-  printf '%s\n' 'doc/many/README.md' 'doc/testing/README.md' 'doc/testing/prd.md' 'doc/testing/changed.design.md' 'doc/testing/upstream.md' 'doc/testing/design.md'
-  find "$FIXTURE/doc/many" -type f -name '*.md' | sed "s#^$FIXTURE/##" | sort
-} >"$FIXTURE/doc/.governance/module-root-md-allowlist.txt"
-cat >"$FIXTURE/doc/.governance/top-level-directory-registry.json" <<'JSON'
-{
-  "version": 1,
-  "directories": [
-    {"name": "devlog", "type": "retired_archive", "owner": "repository_health_engineer", "entry": "doc/devlog/README.md", "reason": "fixture archive", "exception": {"entry_conditions": "history", "review_trigger": "change", "exit_conditions": "retire"}},
-    {"name": "many", "type": "professional_domain", "owner": "repository_health_engineer", "entry": "doc/many/README.md", "reason": "fixture corpus", "exception": null},
-    {"name": "testing", "type": "professional_domain", "owner": "repository_health_engineer", "entry": "doc/testing/README.md", "reason": "fixture tests", "exception": null}
-  ]
-}
-JSON
 cat >"$FIXTURE/doc/README.md" <<'DOC'
 fixture documentation landing page
-doc/devlog/README.md
-doc/many/README.md
-doc/testing/README.md
+[History](devlog/README.md)
+[Many](many/README.md)
+[Testing](testing/README.md)
 DOC
 printf '%s\n' '# repository health role' >"$FIXTURE/.agents/roles/repository_health_engineer.md"
 cat >"$FIXTURE/.agents/roles/templates/handoff-brief.md" <<'DOC'
@@ -287,10 +259,10 @@ SH
 chmod +x "$TMPDIR/bin/awk"
 
 # Length is editorial guidance, including through the full-corpus caller.
-# The same boundary documents must still fail for real reference/registry/read
+# The same boundary documents must still fail for real reference/navigation/read
 # errors. The content stub tests error propagation, not content parsing.
 cp "$FIXTURE/doc/many/doc-1.md" "$TMPDIR/length-original.md"
-cp "$FIXTURE/doc/.governance/top-level-directory-registry.json" "$TMPDIR/length-registry.json"
+cp "$FIXTURE/doc/README.md" "$TMPDIR/length-navigation.md"
 for length in 999 1000 1001; do
   for mode in default full baseline; do
     command=(./scripts/doc-governance-check.sh)
@@ -310,15 +282,16 @@ if defect == "reference":
 path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 assert len(path.read_text(encoding="utf-8").splitlines()) == length
 PY_LENGTH
-      cp "$TMPDIR/length-registry.json" "$FIXTURE/doc/.governance/top-level-directory-registry.json"
+      cp "$TMPDIR/length-navigation.md" "$FIXTURE/doc/README.md"
       content_failure=0
       input_failure=0
       case "$defect" in
         none) expected='doc-governance-check: OK' ;;
         reference) expected='references missing markdown path: doc/testing/nested/length-missing.md' ;;
         structure)
-          printf '%s\n' '{}' >"$FIXTURE/doc/.governance/top-level-directory-registry.json"
-          expected='top-level directory registry contract failed' ;;
+          sed -i.bak '/\[Many\]/d' "$FIXTURE/doc/README.md"
+          rm -f "$FIXTURE/doc/README.md.bak"
+          expected='top-level directory navigation failed' ;;
         content) content_failure=1; expected='product document content contract failed' ;;
         input)
           input_failure=1
@@ -350,7 +323,7 @@ PY_LENGTH
 done
 rm "$TMPDIR/bin/awk"
 cp "$TMPDIR/length-original.md" "$FIXTURE/doc/many/doc-1.md"
-cp "$TMPDIR/length-registry.json" "$FIXTURE/doc/.governance/top-level-directory-registry.json"
+cp "$TMPDIR/length-navigation.md" "$FIXTURE/doc/README.md"
 (
   cd "$FIXTURE"
   OASIS7_TEST_PYTHON="$REAL_PYTHON" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --help
@@ -365,7 +338,7 @@ if (
   echo "doc-governance-check.test: moving-branch history reference unexpectedly passed" >&2
   exit 1
 fi
-grep -Fq 'doc/README.md references missing markdown path: doc/testing/nested/historical-source.md' "$TMPDIR/moving-history.out"
+grep -Fq 'references missing markdown path: doc/testing/nested/historical-source.md' "$TMPDIR/moving-history.err"
 cp "$TMPDIR/doc-readme-pinned-history.md" "$FIXTURE/doc/README.md"
 
 printf 'Missing active documentation: doc/testing/nested/missing-active.md\n' >>"$FIXTURE/doc/README.md"
@@ -376,13 +349,12 @@ if (
   echo "doc-governance-check.test: genuine missing active markdown path unexpectedly passed" >&2
   exit 1
 fi
-grep -Fq 'doc/README.md references missing markdown path: doc/testing/nested/missing-active.md' "$TMPDIR/missing-active-path.out"
+grep -Fq 'references missing markdown path: doc/testing/nested/missing-active.md' "$TMPDIR/missing-active-path.err"
 cp "$TMPDIR/doc-readme-pinned-history.md" "$FIXTURE/doc/README.md"
 
 if ! (
   cd "$FIXTURE"
-  : >"$TMPDIR/corpus-check.log"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" CONTENT_CHECK_LOG="$TMPDIR/content-check.log" DOC_CORPUS_CHECK_LOG="$TMPDIR/corpus-check.log" PRODUCT_DOC_CONTENT_ARGS="$TMPDIR/product-doc-content.args" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
+  OASIS7_TEST_PYTHON="$REAL_PYTHON" CONTENT_CHECK_LOG="$TMPDIR/content-check.log" PRODUCT_DOC_CONTENT_ARGS="$TMPDIR/product-doc-content.args" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
 ) >"$TMPDIR/full-corpus.out" 2>"$TMPDIR/full-corpus.err"; then
   echo "doc-governance-check.test: --full-corpus caller integration unexpectedly failed" >&2
   cat "$TMPDIR/full-corpus.out" >&2
@@ -390,8 +362,6 @@ if ! (
   exit 1
 fi
 grep -Fxq -- '--full-corpus' "$TMPDIR/product-doc-content.args"
-[[ "$(wc -l <"$TMPDIR/corpus-check.log" | tr -d ' ')" == 1 ]]
-grep -Fxq 'document-corpus-inventory: fixture OK' "$TMPDIR/full-corpus.out"
 
 # Every strict scoped check runs before the separate historical warning pass.
 "$REAL_PYTHON" - "$TMPDIR/content-check.log" "$FIXTURE" <<'PY'
@@ -443,19 +413,8 @@ if (
   exit 1
 fi
 
-if (
-  cd "$FIXTURE"
-  : >"$TMPDIR/corpus-failure.log"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" DOC_CORPUS_CHECK_LOG="$TMPDIR/corpus-failure.log" DOC_CORPUS_FAIL=1 RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
-) >"$TMPDIR/corpus-failure.out" 2>"$TMPDIR/corpus-failure.err"; then
-  echo "doc-governance-check.test: corpus checker failure was not propagated" >&2
-  exit 1
-fi
-grep -Fq 'document corpus inventory contract' "$TMPDIR/corpus-failure.out"
-[[ "$(wc -l <"$TMPDIR/corpus-failure.log" | tr -d ' ')" == 1 ]]
-
 # Historical professional-design warnings must not mask the strict changed-scope
-# gate: retain the trusted range and reject a malformed changed design.
+# gate: retain the trusted range and reject an actual broken validation source.
 fixture_base="$(git -C "$FIXTURE" rev-parse HEAD^{commit})"
 fixture_head="$fixture_base"
 cp "$ROOT_DIR/scripts/doc_content_warnings.py" "$FIXTURE/scripts/doc_content_warnings.py"
@@ -475,17 +434,17 @@ if "--worktree" in sys.argv and os.environ.get("SYSTEM_DESIGN_TRACEABILITY_ARGS"
 runpy.run_path(str(Path(__file__).with_name("system-design-traceability-check.real.py")), run_name="__main__")
 PY
 chmod +x "$FIXTURE/scripts/system-design-traceability-check.py"
-printf '%s\n' '# malformed changed system design' >"$FIXTURE/doc/testing/changed.design.md"
+sed -i 's/(fixture.test.py)/(missing.test.py)/' "$FIXTURE/doc/testing/changed.design.md"
 if (
   cd "$FIXTURE"
   OASIS7_TEST_PYTHON="$REAL_PYTHON" OASIS7_PRODUCT_DOC_BASE="$fixture_base" OASIS7_PRODUCT_DOC_HEAD="$fixture_head" SYSTEM_DESIGN_TRACEABILITY_ARGS="$TMPDIR/system-design.args" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh --full-corpus
 ) >"$TMPDIR/full-corpus-system-design.out" 2>"$TMPDIR/full-corpus-system-design.err"; then
-  echo "doc-governance-check.test: --full-corpus allowed malformed changed system design" >&2
+  echo "doc-governance-check.test: --full-corpus allowed a broken changed validation source" >&2
   exit 1
 fi
-grep -Fq 'trace-upstream-missing' "$TMPDIR/full-corpus-system-design.out"
+grep -Fq 'trace-validation-missing' "$TMPDIR/full-corpus-system-design.out"
 grep -Fq 'system-design-traceability: full-corpus inventoried 2 professional designs; topic-contracts=1 module-overviews=1 module-contracts=0;' "$TMPDIR/full-corpus-system-design.out"
-grep -Fq '::warning::system-design-traceability: trace-upstream-missing' "$TMPDIR/full-corpus-system-design.out"
+grep -Fq '::warning::system-design-traceability: trace-validation-missing' "$TMPDIR/full-corpus-system-design.out"
 grep -Fq 'module-overview: doc/testing/design.md: inventoried' "$TMPDIR/full-corpus-system-design.out"
 grep -Fqx -- '--base' "$TMPDIR/system-design.args"
 grep -Fqx -- "$fixture_base" "$TMPDIR/system-design.args"
@@ -493,83 +452,37 @@ grep -Fqx -- '--head' "$TMPDIR/system-design.args"
 grep -Fqx -- "$fixture_head" "$TMPDIR/system-design.args"
 grep -Fqx -- '--worktree' "$TMPDIR/system-design.args"
 
-REGISTRY_BASE="$TMPDIR/top-level-directory-registry.json"
-cp "$FIXTURE/doc/.governance/top-level-directory-registry.json" "$REGISTRY_BASE"
-reset_registry() {
-  cp "$REGISTRY_BASE" "$FIXTURE/doc/.governance/top-level-directory-registry.json"
-}
+sed -i 's/(missing.test.py)/(fixture.test.py)/' "$FIXTURE/doc/testing/changed.design.md"
 
-sed -i.bak 's/"reason": "fixture tests", //' "$FIXTURE/doc/.governance/top-level-directory-registry.json"
-rm -f "$FIXTURE/doc/.governance/top-level-directory-registry.json.bak"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-required-field.out" 2>"$TMPDIR/registry-required-field.err"; then
-  echo "doc-governance-check.test: registry missing required field unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'missing fields: reason' "$TMPDIR/registry-required-field.out"
-reset_registry
-
-sed -i.bak 's/"owner": "repository_health_engineer"/"owner": "unknown_owner"/' "$FIXTURE/doc/.governance/top-level-directory-registry.json"
-rm -f "$FIXTURE/doc/.governance/top-level-directory-registry.json.bak"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-owner.out" 2>"$TMPDIR/registry-owner.err"; then
-  echo "doc-governance-check.test: registry unknown owner unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'has unknown owner' "$TMPDIR/registry-owner.out"
-reset_registry
-
-sed -i.bak 's#doc/many/README.md#doc/many/missing.md#' "$FIXTURE/doc/.governance/top-level-directory-registry.json"
-rm -f "$FIXTURE/doc/.governance/top-level-directory-registry.json.bak"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-entry.out" 2>"$TMPDIR/registry-entry.err"; then
-  echo "doc-governance-check.test: registry missing entry unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'many has missing entry' "$TMPDIR/registry-entry.out"
-reset_registry
-
-sed -i.bak '/doc\/many\/README.md/d' "$FIXTURE/doc/README.md"
-rm -f "$FIXTURE/doc/README.md.bak"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-navigation.out" 2>"$TMPDIR/registry-navigation.err"; then
-  echo "doc-governance-check.test: registry navigation omission unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'many directory is absent from doc/README.md navigation' "$TMPDIR/registry-navigation.out"
-printf '%s\n' 'doc/many/README.md' >>"$FIXTURE/doc/README.md"
-
-sed -i.bak 's/"review_trigger": "change", //' "$FIXTURE/doc/.governance/top-level-directory-registry.json"
-rm -f "$FIXTURE/doc/.governance/top-level-directory-registry.json.bak"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-lifecycle.out" 2>"$TMPDIR/registry-lifecycle.err"; then
-  echo "doc-governance-check.test: registry missing lifecycle field unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'devlog exception missing review_trigger' "$TMPDIR/registry-lifecycle.out"
-reset_registry
-
-mkdir -p "$FIXTURE/doc/unregistered"
-printf '%s\n' 'unregistered fixture directory' >"$FIXTURE/doc/unregistered/README.md"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry.out" 2>"$TMPDIR/registry.err"; then
-  echo "doc-governance-check.test: unregistered top-level directory unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'top-level directory registry contract failed' "$TMPDIR/registry.out"
-rm -rf "$FIXTURE/doc/unregistered"
+# Directory navigation consumes real links, not a second directory inventory.
+cp "$FIXTURE/doc/README.md" "$TMPDIR/navigation-base.md"
+for defect in prefix code_link wrong_entry missing_readme new_directory; do
+  cp "$TMPDIR/navigation-base.md" "$FIXTURE/doc/README.md"
+  case "$defect" in
+    prefix) sed -i.bak 's#\[Many\](many/README.md)#doc/many/#' "$FIXTURE/doc/README.md" ;;
+    code_link) sed -i.bak 's#\[Many\](many/README.md)#`[Many](many/README.md)`#' "$FIXTURE/doc/README.md" ;;
+    wrong_entry) sed -i.bak 's#\[Many\](many/README.md)#[Many](many/doc-1.md)#' "$FIXTURE/doc/README.md" ;;
+    missing_readme) mv "$FIXTURE/doc/many/README.md" "$FIXTURE/doc/many/entry.saved" ;;
+    new_directory) mkdir -p "$FIXTURE/doc/new-topic"; printf '# New topic\n' >"$FIXTURE/doc/new-topic/README.md" ;;
+  esac
+  rm -f "$FIXTURE/doc/README.md.bak"
+  if (
+    cd "$FIXTURE"
+    OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
+  ) >"$TMPDIR/navigation-$defect.out" 2>&1; then
+    echo "doc-governance-check.test: invalid navigation passed: $defect" >&2
+    exit 1
+  fi
+  grep -Fq 'top-level directory navigation failed' "$TMPDIR/navigation-$defect.out"
+  if [[ "$defect" == missing_readme ]]; then mv "$FIXTURE/doc/many/entry.saved" "$FIXTURE/doc/many/README.md"; fi
+  if [[ "$defect" == new_directory ]]; then
+    printf '\n[New topic](new-topic/README.md)\n' >>"$FIXTURE/doc/README.md"
+    (cd "$FIXTURE"; OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh) >"$TMPDIR/new-directory-valid.out" 2>&1
+    grep -Fxq 'doc-governance-check: OK' "$TMPDIR/new-directory-valid.out"
+    rm -rf "$FIXTURE/doc/new-topic"
+  fi
+done
+cp "$TMPDIR/navigation-base.md" "$FIXTURE/doc/README.md"
 
 mkdir -p "$FIXTURE/doc/testing/nested"
 printf '%s\n' '# forbidden ledger' >"$FIXTURE/doc/testing/nested/reintroduced.project.md"
@@ -583,52 +496,27 @@ fi
 grep -Fq 'project.md / *.project.md ledgers are retired' "$TMPDIR/ledger.out"
 rm -f "$FIXTURE/doc/testing/nested/reintroduced.project.md"
 
-# A top-level documentation symlink must not be able to register an external
-# corpus whose contents are outside the scanner's real-directory traversal.
+# Directory, file and dangling symlinks are independent invalid inputs.
 mkdir -p "$FIXTURE/linked-target"
 printf '%s\n' 'external fixture landing page' >"$FIXTURE/linked-target/README.md"
-ln -s "$FIXTURE/linked-target" "$FIXTURE/doc/linked"
-"$REAL_PYTHON" - "$FIXTURE/doc/.governance/top-level-directory-registry.json" <<'PY'
-import json
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-data = json.loads(path.read_text(encoding="utf-8"))
-data["directories"].append(
-    {
-        "name": "linked",
-        "type": "professional_domain",
-        "owner": "repository_health_engineer",
-        "entry": "doc/linked/README.md",
-        "reason": "fixture symlink",
-        "exception": None,
-    }
-)
-path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-PY
-printf '%s\n' 'doc/linked/README.md' >>"$FIXTURE/doc/README.md"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-symlink.out" 2>"$TMPDIR/registry-symlink.err"; then
-  echo "doc-governance-check.test: top-level documentation symlink unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'doc/linked must be a real directory, not a symlink' "$TMPDIR/registry-symlink.out"
-
 printf '%s\n' 'not a directory' >"$FIXTURE/linked-file-target"
-ln -s "$FIXTURE/linked-file-target" "$FIXTURE/doc/linked-file"
-ln -s "$FIXTURE/missing-linked-target" "$FIXTURE/doc/linked-dangling"
-if (
-  cd "$FIXTURE"
-  OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
-) >"$TMPDIR/registry-nondirectory-symlink.out" 2>"$TMPDIR/registry-nondirectory-symlink.err"; then
-  echo "doc-governance-check.test: non-directory documentation symlinks unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq 'doc/linked-file must be a real directory, not a symlink' "$TMPDIR/registry-nondirectory-symlink.out"
-grep -Fq 'doc/linked-dangling must be a real directory, not a symlink' "$TMPDIR/registry-nondirectory-symlink.out"
+for kind in directory file dangling; do
+  case "$kind" in
+    directory) target="$FIXTURE/linked-target" ;;
+    file) target="$FIXTURE/linked-file-target" ;;
+    dangling) target="$FIXTURE/missing-linked-target" ;;
+  esac
+  ln -s "$target" "$FIXTURE/doc/linked-$kind"
+  if (
+    cd "$FIXTURE"
+    OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
+  ) >"$TMPDIR/symlink-$kind.out" 2>&1; then
+    echo "doc-governance-check.test: $kind documentation symlink unexpectedly passed" >&2
+    exit 1
+  fi
+  grep -Fq "unsupported documentation symlink: doc/linked-$kind" "$TMPDIR/symlink-$kind.out"
+  rm "$FIXTURE/doc/linked-$kind"
+done
 
 printf '%s\n' 'Active task status: doc/testing/nested/reintroduced.project.md' >"$FIXTURE/doc/testing/nested/active-reference.md"
 if (
@@ -638,34 +526,40 @@ if (
   echo "doc-governance-check.test: active project-ledger reference unexpectedly passed" >&2
   exit 1
 fi
-grep -Fq 'active documentation references retired project ledgers or legacy project-management documents' "$TMPDIR/reference.out"
+grep -Fq 'references missing markdown path: doc/testing/nested/reintroduced.project.md' "$TMPDIR/reference.err"
 printf '%s\n' 'Current authority: same-name project document.' >"$FIXTURE/doc/testing/nested/active-reference.md"
 if (
   cd "$FIXTURE"
   OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
 ) >"$TMPDIR/semantic-reference.out" 2>"$TMPDIR/semantic-reference.err"; then
-  echo "doc-governance-check.test: semantic project-ledger reference unexpectedly passed" >&2
+  :
+else
+  echo "doc-governance-check.test: prose advice unexpectedly blocked: semantic project-ledger reference" >&2
   exit 1
 fi
-grep -Fq 'active documentation references retired project ledgers or legacy project-management documents' "$TMPDIR/semantic-reference.out"
+grep -Fq 'advisory: review legacy project-ledger wording' "$TMPDIR/semantic-reference.out"
 printf '%s\n' 'Current authority: same-named design and project.' >"$FIXTURE/doc/testing/nested/active-reference.md"
 if (
   cd "$FIXTURE"
   OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
 ) >"$TMPDIR/stale-wording.out" 2>"$TMPDIR/stale-wording.err"; then
-  echo "doc-governance-check.test: stale project-ledger wording unexpectedly passed" >&2
+  :
+else
+  echo "doc-governance-check.test: prose advice unexpectedly blocked: stale project-ledger wording" >&2
   exit 1
 fi
-grep -Fq 'active documentation references retired project ledgers or legacy project-management documents' "$TMPDIR/stale-wording.out"
+grep -Fq 'advisory: review legacy project-ledger wording' "$TMPDIR/stale-wording.out"
 printf '%s\n' '- Corresponding GitHub Issue/Project task truth: `doc/testing/prd.md`' >"$FIXTURE/doc/testing/nested/active-reference.md"
 if (
   cd "$FIXTURE"
   OASIS7_TEST_PYTHON="$REAL_PYTHON" RG_INVOCATION_LOG="$TMPDIR/rg.log" REAL_RG="$REAL_RG" PATH="$TMPDIR/bin:$PATH" ./scripts/doc-governance-check.sh
 ) >"$TMPDIR/false-task-truth-link.out" 2>"$TMPDIR/false-task-truth-link.err"; then
-  echo "doc-governance-check.test: local markdown falsely labelled as GitHub task truth unexpectedly passed" >&2
+  :
+else
+  echo "doc-governance-check.test: prose advice unexpectedly blocked: local markdown falsely labelled as GitHub task truth" >&2
   exit 1
 fi
-grep -Fq 'active documentation references retired project ledgers or legacy project-management documents' "$TMPDIR/false-task-truth-link.out"
+grep -Fq 'advisory: review legacy project-ledger wording' "$TMPDIR/false-task-truth-link.out"
 
 # Exercise the complete suite under foreign, well-formed CI OIDs as well.
 # The child must still forward its own fixture HEAD, as asserted above. The

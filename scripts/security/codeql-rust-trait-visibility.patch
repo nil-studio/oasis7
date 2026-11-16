@@ -1,0 +1,17 @@
+--- a/codeql/rust/internal/typeinference/TypeInference.qll
++++ b/codeql/rust/internal/typeinference/TypeInference.qll
+@@ -688,4 +688,4 @@
+-  pragma[nomagic]
++  pragma[inline]
+   private predicate assocFunctionCallTraitCandidate(Element afc, Trait trait) {
+     afc =
+       any(AssocFunctionCall afc0 |
+--- a/codeql/rust/internal/PathResolution.qll
++++ b/codeql/rust/internal/PathResolution.qll
+@@ -1818,4 +1818,5 @@
+-  pragma[nomagic]
++  bindingset[trait, element]
++  pragma[inline_late]
+   private predicate relevantTraitVisibleLift(TNode trait, TElement element) {
+     exists(Trait t, Element e |
+       trait = TTrait(t) and

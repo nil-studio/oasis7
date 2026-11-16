@@ -44,3 +44,41 @@ fn prepaid_fact_promotion_refines_without_new_admission() {
     drop(f);
     assert_eq!(memory.used(), 0);
 }
+
+#[test]
+fn prepaid_fact_promotion_rejects_foreign_pool_and_releases_on_cancel_or_drop() {
+    let f = current();
+    let checked = check_candidate_fact_v1(
+        &CandidateFactRequestV1 {
+            kind: ExecutionFactKindV1::Result,
+            candidate: &f.candidate,
+            core: &f.core,
+            originals: &f.originals,
+            ordinal: 1,
+        },
+        &f.s.memory,
+        || false,
+    )
+    .unwrap();
+    let baseline = f.s.memory.used();
+    let foreign = MemoryBudget::new(8 << 20, 0).unwrap();
+    assert!(matches!(
+        prepare_candidate_fact_promotion_v1(&checked, &foreign, || false),
+        Err(CoreError::Invalid("candidate fact pool/charge"))
+    ));
+    assert_eq!(foreign.used(), 0);
+    let mut calls = 0;
+    assert!(matches!(
+        prepare_candidate_fact_promotion_v1(&checked, &f.s.memory, || {
+            calls += 1;
+            calls == 2
+        }),
+        Err(CoreError::Cancelled)
+    ));
+    assert_eq!(calls, 2);
+    assert_eq!(f.s.memory.used(), baseline);
+    let prepared = prepare_candidate_fact_promotion_v1(&checked, &f.s.memory, || false).unwrap();
+    assert!(f.s.memory.used() > baseline);
+    drop(prepared);
+    assert_eq!(f.s.memory.used(), baseline);
+}

@@ -766,6 +766,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         // Only a fully published canonical commit consumes the startup input.
         // A restart revalidates the configured original against retained history.
         self.devlocal_participant.startup = None;
+        crate::cognition_authority_diagnostic::publication_success(self.execution_world.state().time);
         Ok(result)
     }
 
@@ -774,6 +775,31 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
             return Err("legacy Pos restore is disabled by the durable BFT mode fence".into());
         }
         self.restore_execution_head_from_record(world_id, height)
+    }
+
+    fn restore_to_verified_commit(
+        &mut self,
+        context: &NodeExecutionCommitContext,
+        expected: &NodeExecutionCommitResult,
+    ) -> Result<bool, String> {
+        let path=execution_bridge_record_path(self.records_dir.as_path(),context.height);
+        if !path.exists(){return Ok(false);}
+        let record=load_execution_bridge_record(&path)?;
+        if record.world_id!=context.world_id || record.height!=context.height
+            || expected.execution_height!=context.height
+            || record.node_block_hash.as_deref()!=Some(context.node_block_hash.as_str())
+            || record.proposer_id.as_deref()!=Some(context.proposer_id.as_str())
+            || record.action_root.as_deref()!=Some(context.action_root.as_str())
+            || record.timestamp_ms!=context.committed_at_unix_ms
+            || record.execution_block_hash!=expected.execution_block_hash
+            || record.execution_state_root!=expected.execution_state_root
+        {return Err("qualified predecessor execution record binding mismatch".into());}
+        if !self.restore_to_height(&context.world_id,context.height)? {return Ok(false);}
+        if self.state.last_applied_committed_height!=expected.execution_height
+            || self.state.last_execution_block_hash.as_deref()!=Some(expected.execution_block_hash.as_str())
+            || self.state.last_execution_state_root.as_deref()!=Some(expected.execution_state_root.as_str())
+        {return Err("qualified restored execution binding mismatch".into());}
+        Ok(true)
     }
 
     fn export_checkpoint_bundle(

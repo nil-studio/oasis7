@@ -47,3 +47,7 @@ pub fn encode_paid<T: serde::Serialize>(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "context_wire_tests.rs"]
+mod tests;

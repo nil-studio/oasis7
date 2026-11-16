@@ -1,4 +1,5 @@
-use super::*;
+use super::support;
+use oasis7_distfs::incremental_page_store::IncrementalPageStore;
 use oasis7_distfs::incremental_page_store::{
     PageCompression, PageIoBudget,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -27,7 +28,6 @@ use std::{
 const EVENT_OPERATION: [u8; 32] = [0x72; 32];
 const MODULE_KEY: &str = "instance#stable-2\0雪";
 const OTHER_MODULE_KEY: &str = "instance#untouched";
-const STATE_BYTES: usize = 32 << 20;
 
 fn page_io() -> PageIoBudget {
     PageIoBudget {
@@ -255,8 +255,9 @@ impl Write for StateOracle {
     }
 }
 
-#[test]
-fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
+pub(super) fn exercise_module_state(state_bytes: usize) {
+    // OriginalOracle intentionally uses the CBOR 32-bit array-length encoding.
+    assert!(state_bytes > u16::MAX as usize);
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = support::Directory::new();
         let path = directory.0.join("module-state");
@@ -292,11 +293,11 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
                 inner: &values,
                 forbidden: [old_module_value, body_id],
             };
-            let input_charge = memory.reserve(STATE_BYTES, MemoryClass::Ordinary).unwrap();
-            let mut payload = Vec::with_capacity(STATE_BYTES);
-            payload.extend((0..STATE_BYTES).map(state_byte));
+            let input_charge = memory.reserve(state_bytes, MemoryClass::Ordinary).unwrap();
+            let mut payload = Vec::with_capacity(state_bytes);
+            payload.extend((0..state_bytes).map(state_byte));
             let event = module_event(1, 12, payload);
-            let oracle = OriginalOracle::new(&event, STATE_BYTES);
+            let oracle = OriginalOracle::new(&event, state_bytes);
             let qualified = ModuleStateRecoveryContextV1 {
                 root: parent.roots.state_root(Ns::Business),
                 state: &state_source,
@@ -312,7 +313,7 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
                 content: &mut ModuleStateContentBudgetV1 {
                     states_remaining: 1000,
                     logical_bytes_remaining: 64 << 20,
-                    max_state_bytes: STATE_BYTES as u64,
+                    max_state_bytes: state_bytes as u64,
                 },
             }
             .qualify_family(&parent.roots, || false)
@@ -342,8 +343,8 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
             )
             .unwrap();
             let mut event_work = support::original_work();
-            event_work.visits_remaining = (STATE_BYTES as u64) * 128 + 1_000_000;
-            event_work.bytes_remaining = (STATE_BYTES as u64) * 128 + (1 << 20);
+            event_work.visits_remaining = (state_bytes as u64) * 128 + 1_000_000;
+            event_work.bytes_remaining = (state_bytes as u64) * 128 + (1 << 20);
             let mut write_io = value_io();
             let mut mutation = BodyMutationContext {
                 sink: &mut sink,
@@ -365,7 +366,7 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
             step.dispatch_module_state_event(
                 &qualified,
                 &event,
-                STATE_BYTES * 2 + 4096,
+                state_bytes * 2 + 4096,
                 |original| {
                     support::persist_original(
                         original,
@@ -437,14 +438,14 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
                     content: &mut ModuleStateContentBudgetV1 {
                         states_remaining: 1,
                         logical_bytes_remaining: 64 << 20,
-                        max_state_bytes: STATE_BYTES as u64,
+                        max_state_bytes: state_bytes as u64,
                     },
                 },
                 || false,
             )
             .unwrap();
             assert_eq!(accepted.states(), 2);
-            assert_eq!(accepted.logical_bytes(), STATE_BYTES as u64 + 17);
+            assert_eq!(accepted.logical_bytes(), state_bytes as u64 + 17);
             drop(prepared);
             drop(event);
             drop(world);
@@ -473,7 +474,7 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
         let mut content = ModuleStateContentBudgetV1 {
             states_remaining: 8,
             logical_bytes_remaining: 64 << 20,
-            max_state_bytes: STATE_BYTES as u64,
+            max_state_bytes: state_bytes as u64,
         };
         let qualified = ModuleStateRecoveryContextV1 {
             root: &after_parent.roots.state[Ns::Business as usize - 1],
@@ -488,7 +489,7 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
         .qualify_family(&after_parent.roots, || false)
         .unwrap();
         assert_eq!(qualified.states(), 2);
-        assert_eq!(qualified.logical_bytes(), STATE_BYTES as u64 + 17);
+        assert_eq!(qualified.logical_bytes(), state_bytes as u64 + 17);
         let qualified = oasis7_runtime::readmit_module_state_family_ordinary_v1(
             &qualified,
             &after_parent.roots,
@@ -530,12 +531,12 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
                 io: &mut value_budget,
             },
             &mut || false,
-            STATE_BYTES as u64,
+            state_bytes as u64,
             &mut state_output,
         )
         .unwrap();
-        assert_eq!(length, Some(STATE_BYTES as u64));
-        assert_eq!(state_output.position, STATE_BYTES);
+        assert_eq!(length, Some(state_bytes as u64));
+        assert_eq!(state_output.position, state_bytes);
 
         let mut original_physical = page_io();
         let cancelled = AtomicBool::new(false);
@@ -547,7 +548,7 @@ fn module_state_event_genesis_step_original_and_recovery_are_raw_zstd_stable() {
         )
         .unwrap();
         let metadata = module_event(1, 12, Vec::new());
-        let mut oracle = OriginalOracle::new(&metadata, STATE_BYTES);
+        let mut oracle = OriginalOracle::new(&metadata, state_bytes);
         assert_eq!(oracle.encoded_len() as u64, original_length as u64);
         let read = objects
             .read_object_into(

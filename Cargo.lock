@@ -6219,6 +6219,7 @@ dependencies = [
  "oasis7_wasm_abi",
  "serde",
  "serde_cbor_2",
+ "serde_ignored",
  "serde_json",
  "sha2 0.11.0",
  "zeroize",
@@ -6324,6 +6325,7 @@ name = "oasis7_custody_core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "blake3",
  "ed25519-dalek",
  "oasis7_agent_api",
  "oasis7_client_api",
@@ -6351,6 +6353,26 @@ dependencies = [
  "oasis7_wasm_abi",
  "serde",
  "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "worker",
+ "zeroize",
+]
+
+[[package]]
+name = "oasis7_dev_test_worker"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "hex",
+ "js-sys",
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_custody_core",
+ "serde",
+ "serde_json",
+ "subtle",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -7942,9 +7964,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.18"
+version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9746dbde176634f4f2f1faf2404e30a31b2bc1e9cafb5329c95d8177a18c9fc"
+checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
 dependencies = [
  "aws-lc-rs",
  "bytes",
@@ -7966,9 +7988,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35a133f956daabe89a61a685c2649f13d82d5aa4bd5d12d1277e1072a21c0694"
+checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
 dependencies = [
  "cfg_aliases",
  "libc",

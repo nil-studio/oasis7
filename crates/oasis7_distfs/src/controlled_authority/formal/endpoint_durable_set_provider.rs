@@ -193,6 +193,7 @@ pub fn verify_durable_set_native_install_plan(
         1
     };
     let expected = HotBody {
+        data_closure: None,
         version: 1,
         instance_digest: registered_instance.digest().map_err(fencing_error)?,
         authority_id: transition.body().successor.authority_id()?,
@@ -211,7 +212,6 @@ pub fn verify_durable_set_native_install_plan(
         pending: None,
         decision_head: None,
         seal: None,
-        data_closure: None,
         durable_set: Some(fencing::DurableSetNativeBindingV1 {
             transition_digest: transition.digest().into(),
             independent_inventory_digest: inventory.inventory_digest.clone(),

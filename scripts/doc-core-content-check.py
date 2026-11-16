@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 import re
 import sys
-from doc_content_warnings import report_findings
+from doc_content_warnings import report_findings, report_classified_findings, finding_code
 from markdown_it import MarkdownIt
 
 
@@ -29,6 +29,7 @@ system = load_checker('system-design-traceability-check')
 STATUS_FIELDS = ('系统设计状态', '实现状态', '系统设计依据', '实现与验证依据', '核对日期与基线', '剩余范围')
 DESIGN_STATUS = {'未核实', '未设计', '部分覆盖', '已覆盖', '不适用'}
 IMPLEMENTATION_STATUS = {'未核实', '未实现', '部分实现', '已实现待验证', '已验证'}
+ADVISORY_CODES = frozenset({'missing-core-section', 'invalid-structure-tailoring', 'missing-status-field'})
 
 
 def finding(path, line, code, message):
@@ -95,15 +96,14 @@ def _design_relations_reader(root, read_target):
     """
     @lru_cache(maxsize=128)
     def read(target):
-        table = system.table_after_heading(read_target(target), system.DEMAND_HEADING)
+        table, _, _ = system.traceability_tables(read_target(target))
         relations = []
-        if table and system.is_demand_table(table):
-            for row_number, cells in table.rows:
-                row_errors = []
-                relation = system.relation_from_demand_row(
-                    root, target, row_number, cells, row_errors, False, read_target)
-                if relation is not None and not row_errors:
-                    relations.append(relation)
+        for row_number, cells in table.rows:
+            row_errors = []
+            relation = system.relation_from_demand_row(
+                root, target, row_number, cells, row_errors, False, read_target)
+            if relation is not None and not any(finding_code(error) not in system.ADVISORY_CODES for error in row_errors):
+                relations.append(relation)
         return tuple(relations)
     return read
 
@@ -189,9 +189,11 @@ def check_status(path, text, *, root=None, read_target=None, read_design_relatio
         fields = {}
         for label in STATUS_FIELDS:
             matches = re.findall(r'^\s*(?:-\s*)?'+re.escape(label)+r'[:：]\s*(.*?)\s*$', block, re.M)
-            if len(matches) != 1 or not matches[0]:
-                errors.append(finding(path, number, 'missing-status-field', f'{heading.strip()} 需要唯一非空字段：{label}'))
+            if len(matches) > 1:
+                errors.append(finding(path, number, 'duplicate-status-field', f'{heading.strip()} 的已声明字段重复：{label}'))
             fields[label] = matches[0].strip('` ') if matches else ''
+        if not fields['系统设计状态'] and not fields['实现状态']:
+            errors.append(finding(path, number, 'missing-status-field', f'{heading.strip()} 可补充已知状态；未知或未实现不需要填写空证据卡'))
         for label, allowed in [('系统设计状态', DESIGN_STATUS), ('实现状态', IMPLEMENTATION_STATUS)]:
             value = fields[label]
             if value and value not in allowed:
@@ -206,9 +208,9 @@ def check_status(path, text, *, root=None, read_target=None, read_design_relatio
             values = [re.search(word + r'[:：]\s*([^；;]+)', fields['系统设计依据']) for word in ('理由', '范围')]
             if not all(value and value[1].strip(' `。') not in {'无', '-', 'N/A', '待补', '无独立技术义务'} for value in values):
                 errors.append(finding(path, number, 'not-applicable-missing-reason', '设计不适用须说明具体理由和适用范围；需人工核实没有独立技术义务'))
-        if fields['系统设计状态'] == '部分覆盖' or fields['实现状态'] == '部分实现':
+        if fields['系统设计状态'] == '部分覆盖' or fields['实现状态'] in {'部分实现', '已实现待验证'}:
             if not fields['剩余范围'] or fields['剩余范围'] in {'无','N/A','待补','-'}:
-                errors.append(finding(path, number, 'partial-missing-scope', '部分状态须明确剩余未覆盖范围'))
+                errors.append(finding(path, number, 'partial-missing-scope', '部分状态或待验证声明须明确剩余未覆盖/未验证范围'))
         if fields['实现状态'] == '已验证':
             evidence = fields['实现与验证依据'] + fields['核对日期与基线']
             if not re.search(r'\d{4}-\d{2}-\d{2}', fields['核对日期与基线']) or not all(word in evidence for word in ('基线','环境','验收')):
@@ -334,7 +336,9 @@ def main():
                 errors.extend(check_status(path, text, root=root, read_target=read_target,
                                           read_design_relations=read_design_relations))
         print(f'doc-core-content: checked {len(selected)} documents; selected documents scanned in full, including legacy REQ blocks; unrecognized feature prose and evidence truth require human review')
-        return report_findings(errors, args.warn_only or args.full_corpus) if errors else 0
+        if args.full_corpus:
+            return report_findings(errors, True) if errors else 0
+        return report_classified_findings(errors, ADVISORY_CODES) if errors else 0
     except (OSError, ValueError) as exc:
         print(f'doc-core-content: error: {exc}', file=sys.stderr)
         return 2

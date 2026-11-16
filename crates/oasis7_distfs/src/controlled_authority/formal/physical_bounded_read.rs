@@ -3,7 +3,10 @@ use super::*;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::io::{Seek, SeekFrom};
 
-pub(crate) struct PhysicalReadWorkV1 {
+/// Caller-owned allowances consumed across reads, never reset by the reader.
+/// Read bytes charge the requested IO capacity (including EOF probes), not
+/// just bytes returned. Steps cover bounded phases, not every syscall or CPU cycle.
+pub struct PhysicalReadWorkV1 {
     pub remaining_steps: u64,
     pub remaining_read_bytes: u64,
     pub remaining_metadata_bytes: u64,
@@ -144,8 +147,17 @@ fn stored(
     }
     collect(&mut file, bound, work, false, cancelled)
 }
+/// Read one selected physical object without a process-wide decoded cache.
+///
+/// `path` is the canonical object locator in an existing registered namespace;
+/// `id` is its expected BLAKE3 digest and `max` caps the logical output. A missing
+/// selector returns `None`; malformed or unsafe present data returns an error.
+/// The returned bytes retain their memory reservation. This does not authorize
+/// execution/publication or defend against same-user concurrent namespace mutation.
+/// Cancellation is cooperative between bounded phases; blocking filesystem calls
+/// cannot be interrupted by the callback.
 #[cfg(unix)]
-pub(crate) fn read_unknown_length_durable_v1(
+pub fn read_unknown_length_durable_v1(
     path: &Path,
     id: &str,
     max: usize,
@@ -240,12 +252,12 @@ pub(crate) fn read_unknown_length_durable_v1(
             let mut read_stored = |path: &Path, bound: usize| {
                 let mut state = shared.borrow_mut();
                 let (work, stop) = &mut *state;
-                stored(path, bound, *work, *stop)
+                stored(path, bound, work, *stop)
             };
             let mut read_decoded = |reader: &mut dyn Read, bound: usize| {
                 let mut state = shared.borrow_mut();
                 let (work, stop) = &mut *state;
-                collect(reader, bound, *work, false, *stop)
+                collect(reader, bound, work, false, *stop)
             };
             let decoded = super::decode_frame_with_readers(
                 &selected_root,

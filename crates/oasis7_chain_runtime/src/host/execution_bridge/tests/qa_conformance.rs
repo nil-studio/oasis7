@@ -22,6 +22,7 @@ mod application_hosted_transport_recovery;
 mod application_hosted_unpublished_cadence;
 mod application_hosted_wait;
 mod application_hosted_wait_capture_crash;
+mod wait_capture_diagnostics;
 mod application_hosted_wait_crash;
 mod application_hosted_wait_recovery;
 mod application_hosted_wait_rejection;
@@ -683,7 +684,7 @@ impl Fixture {
                         &worker_gate,
                         &request,
                     );
-                    controlled_admission::execute(
+                    controlled_admission::execute_post_response(
                         &worker_driver,
                         &worker_root.join("store"),
                         request,

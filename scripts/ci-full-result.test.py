@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Source, inventory, provenance and recovery contracts for full CI consumers."""
 import copy
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import importlib.util
 import io
 import json
@@ -126,6 +128,7 @@ class Qualification(unittest.TestCase):
 class DefinitionDigest(unittest.TestCase):
     RUNNER = 'scripts/ci-python-control-contracts.py'
     CONTRACT = 'scripts/ci-required-result.test.py'
+    PROOF = 'crates/oasis7_custody_worker/scripts/verify.sh'
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -250,6 +253,59 @@ class DefinitionDigest(unittest.TestCase):
             self.write_config()
             with self.subTest(version=version), self.assertRaises(ValueError):
                 module.definition_digest(self.root, self.commit())
+
+    def prepare_separate_custody_proof(self):
+        self.config.update(custody_execution_version=1, custody_compile_proof_version=1,
+                           workspace_support_partition_version=1)
+        self.write_config()
+        (self.root / 'scripts/ci-custody-platform.py').write_text('# custody execution helper\n')
+        proof = self.root / self.PROOF
+        proof.parent.mkdir(parents=True)
+        proof.write_text('# complete role proof commands\n')
+        return proof
+
+    def test_separate_custody_proof_script_change_invalidates_previous_full_receipt(self):
+        self.prepare_separate_custody_proof()
+        self.assert_rejects_previous_definition(self.PROOF)
+
+    def test_separate_custody_proof_definition_reads_fixed_revision_not_worktree(self):
+        proof = self.prepare_separate_custody_proof()
+        revision = self.commit()
+        expected = module.definition_digest(self.root, revision)
+        proof.write_text('# uncommitted candidate proof\n')
+        self.config['custody_compile_proof_version'] = True
+        self.write_config()
+        self.assertEqual(module.definition_digest(self.root, revision), expected)
+
+    def test_legacy_custody_definition_does_not_require_or_hash_separate_proof_script(self):
+        proof = self.prepare_separate_custody_proof()
+        del self.config['custody_compile_proof_version']
+        self.write_config()
+        proof.unlink()
+        expected = module.definition_digest(self.root, self.commit())
+        proof.write_text('# not an input to this historical definition\n')
+        self.assertEqual(module.definition_digest(self.root, self.commit()), expected)
+
+    def test_separate_custody_proof_requires_script_and_strict_parent_capabilities(self):
+        proof = self.prepare_separate_custody_proof()
+        proof.unlink()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+        proof.write_text('# real selected proof\n')
+        valid = copy.deepcopy(self.config)
+        for key in ('custody_compile_proof_version', 'custody_execution_version',
+                    'workspace_support_partition_version'):
+            for value in (None, True, False, 0, 2, '1', 'missing'):
+                self.config = copy.deepcopy(valid)
+                if value == 'missing':
+                    if key == 'custody_compile_proof_version':
+                        continue
+                    del self.config[key]
+                else:
+                    self.config[key] = value
+                self.write_config()
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    module.definition_digest(self.root, self.commit())
 
 
 class Response(io.BytesIO):
@@ -985,6 +1041,550 @@ class PeriodicAdmission(unittest.TestCase):
                 self.assertFalse(github_output.exists())
 
 
+class ReadRetries(unittest.TestCase):
+    def error(self, api, code, path="actions/workflows/rust.yml"):
+        return urllib.error.HTTPError(api.root + path, code, "fixture HTTP failure", {}, io.BytesIO(b"failure"))
+
+    def test_transient_get_recovers_and_counts_every_attempt(self):
+        for code in (502, 503, 504):
+            for failures in (1, 2):
+                with self.subTest(code=code, failures=failures):
+                    api = module.GitHub("nil-studio/oasis7", "test-only")
+                    deadline = api.deadline
+                    errors = [self.error(api, code) for _ in range(failures)]
+                    with mock.patch.object(api.opener, "open", side_effect=errors + [Response({"id": 7})]) as opened, \
+                         mock.patch.object(module.time, "sleep") as slept:
+                        self.assertEqual(api.get("actions/workflows/rust.yml"), {"id": 7})
+                    self.assertEqual(api.requests, failures + 1)
+                    self.assertEqual(opened.call_count, failures + 1)
+                    self.assertEqual(slept.call_args_list, [mock.call(0.5), mock.call(1.0)][:failures])
+                    self.assertEqual(api.deadline, deadline)
+                    self.assertTrue(all(error.fp.closed for error in errors))
+                    for call in opened.call_args_list:
+                        self.assertEqual(call.args[0].get_method(), "GET")
+                        self.assertEqual(call.args[0].full_url, api.root + "actions/workflows/rust.yml")
+
+    def test_persistent_transient_failure_stops_after_three_attempts(self):
+        for code in (502, 503, 504):
+            with self.subTest(code=code):
+                api = module.GitHub("nil-studio/oasis7", "test-only")
+                errors = [self.error(api, code) for _ in range(3)]
+                with mock.patch.object(api.opener, "open", side_effect=errors + [Response({"id": 7})]) as opened, \
+                     mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        api.get("actions/workflows/rust.yml")
+                self.assertIs(caught.exception, errors[-1])
+                self.assertEqual(api.requests, 3)
+                self.assertEqual(opened.call_count, 3)
+                self.assertEqual(slept.call_args_list, [mock.call(0.5), mock.call(1.0)])
+
+    def test_other_http_transport_and_assertion_errors_are_not_retried(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        failures = [self.error(api, code) for code in (301, 302, 307, 400, 401, 403, 404, 408, 429, 500, 501)]
+        failures += [urllib.error.URLError("unknown transport failure"), TimeoutError("read timed out"),
+                     OSError("unknown read failure"), AssertionError("contract failed")]
+        for failure in failures:
+            with self.subTest(failure=str(failure)):
+                before = api.requests
+                with mock.patch.object(api.opener, "open", side_effect=failure) as opened, \
+                     mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(type(failure)) as caught:
+                        api.get("actions/workflows/rust.yml")
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(api.requests, before + 1)
+                opened.assert_called_once()
+                slept.assert_not_called()
+
+    def test_malformed_or_incomplete_success_responses_are_not_retried(self):
+        for response, collection in ((io.BytesIO(b"{"), False),
+                                      (io.BytesIO(b'{"id":7,"id":8}'), False),
+                                      (Response({"total_count": 1}), True),
+                                      (Response({"total_count": 2, "jobs": [{"id": 1}]}), True)):
+            with self.subTest(collection=collection):
+                api = module.GitHub("nil-studio/oasis7", "test-only")
+                with mock.patch.object(api.opener, "open", return_value=response) as opened, \
+                     mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(ValueError):
+                        api.pages("jobs", "jobs") if collection else api.get("workflow")
+                self.assertEqual(api.requests, 1)
+                opened.assert_called_once()
+                slept.assert_not_called()
+
+    def test_retry_cannot_reset_exhausted_request_budget(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        api.requests = module.MAX_API_REQUESTS - 1
+        with mock.patch.object(api.opener, "open", side_effect=self.error(api, 503)) as opened, \
+             mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                api.get("actions/workflows/rust.yml")
+        self.assertEqual(api.requests, module.MAX_API_REQUESTS)
+        opened.assert_called_once()
+        slept.assert_not_called()
+
+    def test_retry_backoff_must_fit_remaining_shared_deadline(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        now = [api.deadline - 5]
+        def failed(*args, **kwargs):
+            now[0] = api.deadline - 0.25
+            raise self.error(api, 502)
+        with mock.patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+             mock.patch.object(api.opener, "open", side_effect=failed) as opened, \
+             mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                api.get("actions/workflows/rust.yml")
+        opened.assert_called_once()
+        self.assertEqual(api.requests, 1)
+        slept.assert_not_called()
+
+    def test_retry_timeout_uses_original_deadline_after_backoff(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        now = [api.deadline - 2]
+        deadline = api.deadline
+        def delay(seconds):
+            now[0] += seconds
+        with mock.patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+             mock.patch.object(api.opener, "open", side_effect=[self.error(api, 504), Response({"id": 7})]) as opened, \
+             mock.patch.object(module.time, "sleep", side_effect=delay):
+            self.assertEqual(api.get("actions/workflows/rust.yml"), {"id": 7})
+        self.assertEqual([call.kwargs["timeout"] for call in opened.call_args_list], [2, 1.5])
+        self.assertEqual(api.deadline, deadline)
+        self.assertEqual(api.requests, 2)
+
+    def test_retry_rechecks_deadline_after_wait_before_opening(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        now = [api.deadline - 2]
+        def delayed_wakeup(seconds):
+            now[0] = api.deadline
+        with mock.patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+             mock.patch.object(api.opener, "open", side_effect=self.error(api, 502)) as opened, \
+             mock.patch.object(module.time, "sleep", side_effect=delayed_wakeup) as slept:
+            with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                api.get("actions/workflows/rust.yml")
+        opened.assert_called_once()
+        slept.assert_called_once_with(0.5)
+        self.assertEqual(api.requests, 1)
+
+    def test_parallel_retries_share_budget_without_holding_its_lock_during_io(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        api.requests = module.MAX_API_REQUESTS - 6
+        barrier, lock, attempts = threading.Barrier(4), threading.Lock(), {}
+        def failed(request, **kwargs):
+            with lock:
+                attempts[request.full_url] = attempts.get(request.full_url, 0) + 1
+                first = attempts[request.full_url] == 1
+            if first:
+                barrier.wait(timeout=5)
+            raise self.error(api, 503)
+        def read(index):
+            try:
+                api.get(f"actions/runs/{index}")
+                return True
+            except (ValueError, urllib.error.HTTPError):
+                return False
+        with mock.patch.object(api.opener, "open", side_effect=failed) as opened, \
+             mock.patch.object(module.time, "sleep"), module.ThreadPoolExecutor(max_workers=4) as reader:
+            self.assertEqual(list(reader.map(read, range(4))), [False] * 4)
+        self.assertEqual(api.requests, module.MAX_API_REQUESTS)
+        self.assertEqual(opened.call_count, 6)
+        self.assertEqual(len(attempts), 4)
+        self.assertLessEqual(max(attempts.values()), 3)
+
+    def test_later_page_can_recover_without_restarting_complete_earlier_pages(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        responses = [Response({"total_count": 2, "jobs": [{"id": 1}]},
+                              f'<{api.root}page2>; rel="next"'),
+                     self.error(api, 503, "page2"), Response({"total_count": 2, "jobs": [{"id": 2}]})]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+             mock.patch.object(module.time, "sleep"):
+            self.assertEqual(api.pages("page1", "jobs"), [{"id": 1}, {"id": 2}])
+        self.assertEqual([call.args[0].full_url for call in opened.call_args_list],
+                         [api.root + path for path in ("page1", "page2", "page2")])
+        self.assertEqual(api.requests, 3)
+
+    def test_failed_later_page_never_qualifies_a_green_prefix(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        _, green, _ = fixture()
+        responses = [Response({"id": 7}),
+                     Response({"total_count": 2, "workflow_runs": [green]}, f'<{api.root}page2>; rel="next"'),
+                     *[self.error(api, 502, "page2") for _ in range(3)]]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+             mock.patch.object(module.time, "sleep"), mock.patch.object(api, "artifact") as download:
+            with self.assertRaises(urllib.error.HTTPError):
+                module.find_verified(api, A, CONFIG, "definition")
+        download.assert_not_called()
+        self.assertEqual(opened.call_count, 5)
+        self.assertEqual(api.requests, 5)
+        self.assertEqual([call.args[0].full_url for call in opened.call_args_list[-3:]], [api.root + "page2"] * 3)
+
+    def test_retry_failure_cannot_publish_admission_files_or_success_output(self):
+        receipt, _, _ = fixture()
+        environment = {"GITHUB_" + key.upper(): str(value) for key, value in receipt["context"].items()}
+        environment.update(GITHUB_SHA=A, GH_TOKEN="test-only")
+        for exhausted in (False, True):
+            with self.subTest(exhausted=exhausted), tempfile.TemporaryDirectory() as directory:
+                api = module.GitHub("nil-studio/oasis7", "test-only")
+                if exhausted:
+                    api.requests = module.MAX_API_REQUESTS - 1
+                output, github_output = Path(directory) / "admission.json", Path(directory) / "outputs"
+                argv = ["ci-full-result.py", "admit-periodic", "--output", str(output), "--github-output", str(github_output)]
+                with mock.patch.dict(os.environ, environment), mock.patch.object(sys, "argv", argv), \
+                     mock.patch.object(module, "GitHub", return_value=api), \
+                     mock.patch.object(api.opener, "open", side_effect=[self.error(api, 502) for _ in range(3)]), \
+                     mock.patch.object(module.time, "sleep"), mock.patch("builtins.print") as printed:
+                    with self.assertRaises(ValueError if exhausted else urllib.error.HTTPError):
+                        module.main()
+                self.assertFalse(output.exists())
+                self.assertFalse(github_output.exists())
+                printed.assert_not_called()
+                self.assertEqual(api.requests, module.MAX_API_REQUESTS if exhausted else 3)
+
+    def test_artifact_storage_transient_failure_is_not_retried(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        location = "https://artifacts.example.invalid/receipt.zip?signature=fixture"
+        redirect = urllib.error.HTTPError(api.root, 302, "Found", {"Location": location}, None)
+        storage_error = urllib.error.HTTPError(location, 503, "fixture storage failure", {}, None)
+        with mock.patch.object(api.opener, "open", side_effect=redirect) as authenticated, \
+             mock.patch.object(module.urllib.request, "urlopen", side_effect=storage_error) as storage, \
+             mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                api.artifact(9)
+        self.assertIs(caught.exception, storage_error)
+        authenticated.assert_called_once()
+        storage.assert_called_once()
+        slept.assert_not_called()
+        self.assertEqual(api.requests, 2)
+
+    def test_real_http_get_recovers_from_transient_status_and_keeps_identity(self):
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed.append((self.command, self.path, self.headers.get("Authorization")))
+                status = (502, 504, 200)[min(len(observed) - 1, 2)]
+                body = b'{"id":7}' if status == 200 else b"temporary failure"
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        try:
+            api = module.GitHub("nil-studio/oasis7", "test-only")
+            api.root = f"http://127.0.0.1:{server.server_port}/"
+            api.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), module.NoRedirect)
+            self.assertEqual(api.get("actions/workflows/rust.yml"), {"id": 7})
+            self.assertEqual(api.requests, 3)
+            self.assertEqual(observed, [("GET", "/actions/workflows/rust.yml", "Bearer test-only")] * 3)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+        self.assertFalse(thread.is_alive())
+
+
+class CollectionRecovery(unittest.TestCase):
+    def client(self):
+        return module.GitHub("nil-studio/oasis7", "fixture-api-secret", recover_collections=True)
+
+    def facts(self, stderr):
+        return [json.loads(line.split("collection read failed: ", 1)[1])
+                for line in stderr.getvalue().splitlines()]
+
+    def test_incomplete_default_collection_reports_only_bounded_context(self):
+        api = module.GitHub("nil-studio/oasis7", "fixture-api-secret")
+        stderr = io.StringIO()
+        path = "actions/runs/42/attempts/2/jobs?private-query=fixture-secret"
+        with mock.patch.object(api.opener, "open", return_value=Response({
+                "total_count": 2, "jobs": [{"id": 1, "name": "private-response-body"}]})) as opened, \
+             redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "API collection incomplete"):
+                api.pages(path, "jobs")
+        opened.assert_called_once()
+        self.assertEqual(self.facts(stderr), [{
+            "endpoint": "attempt_jobs", "collection": "jobs", "page": 1, "attempt": 1,
+            "expected_count": 2, "reported_count": 2, "actual_count": 1, "has_next": False,
+            "failure": "incomplete_count",
+        }])
+        for secret in ("fixture-api-secret", "private-query", "fixture-secret", "private-response-body", "https://"):
+            self.assertNotIn(secret, stderr.getvalue())
+
+    def test_count_recovery_restarts_every_page_without_retaining_a_green_prefix(self):
+        for changed_count in (False, True):
+            with self.subTest(changed_count=changed_count):
+                api = self.client()
+                path = "actions/workflows/7/runs?event=schedule&per_page=100"
+                next_url = api.root + path + "&page=2"
+                responses = [
+                    Response({"total_count": 3, "workflow_runs": [{"id": 1, "conclusion": "success"}]},
+                             f'<{next_url}>; rel="next"'),
+                    Response({"total_count": 4 if changed_count else 3, "workflow_runs": [{"id": 2}]}),
+                    Response({"total_count": 2, "workflow_runs": [{"id": 8, "conclusion": "failure"}]},
+                             f'<{next_url}>; rel="next"'),
+                    Response({"total_count": 2, "workflow_runs": [{"id": 9, "conclusion": "cancelled"}]}),
+                ]
+                stderr = io.StringIO()
+                with mock.patch.object(api.opener, "open", side_effect=responses) as opened, redirect_stderr(stderr):
+                    result = api.pages(path, "workflow_runs")
+                self.assertEqual(result, [{"id": 8, "conclusion": "failure"}, {"id": 9, "conclusion": "cancelled"}])
+                self.assertEqual([call.args[0].full_url for call in opened.call_args_list],
+                                 [api.root + path, next_url, api.root + path, next_url])
+                self.assertEqual(api.requests, 4)
+                facts = self.facts(stderr)
+                self.assertEqual(len(facts), 1)
+                self.assertEqual(facts[0]["failure"], "changed_count" if changed_count else "incomplete_count")
+                self.assertEqual((facts[0]["page"], facts[0]["actual_count"]), (2, 2))
+
+    def test_persistent_count_mismatch_stops_after_three_complete_attempts(self):
+        api = self.client()
+        stderr = io.StringIO()
+        responses = [Response({"total_count": 2, "artifacts": [{"id": 1}]}) for _ in range(3)]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "API collection incomplete"):
+                api.pages("actions/runs/42/artifacts?per_page=100", "artifacts")
+        self.assertEqual(opened.call_count, 3)
+        self.assertEqual(api.requests, 3)
+        self.assertEqual([fact["attempt"] for fact in self.facts(stderr)], [1, 2, 3])
+
+    def test_invalid_fields_identities_and_links_do_not_enter_count_recovery(self):
+        cases = [
+            ({"total_count": True, "jobs": []}, ""),
+            ({"total_count": -1, "jobs": []}, ""),
+            ({"total_count": 2}, ""),
+            ({"total_count": 3, "jobs": [{"id": 1}, {"id": 1}]}, ""),
+            ({"total_count": 2, "jobs": [{"id": "1"}]}, ""),
+            ({"total_count": 2, "jobs": [{"id": 1}]}, '<https://private.example.invalid/?secret=x>; rel="next"'),
+        ]
+        for data, link in cases:
+            with self.subTest(data=data):
+                api = self.client()
+                stderr = io.StringIO()
+                with mock.patch.object(api.opener, "open", return_value=Response(data, link)) as opened, \
+                     redirect_stderr(stderr):
+                    with self.assertRaises(ValueError):
+                        api.pages("actions/runs/42/attempts/2/jobs", "jobs")
+                opened.assert_called_once()
+                self.assertEqual(len(self.facts(stderr)), 1)
+                self.assertNotIn("private.example", stderr.getvalue())
+                self.assertNotIn("secret=x", stderr.getvalue())
+
+    def test_cycle_or_duplicate_identity_wins_over_a_concurrent_count_change(self):
+        for invalid in ("cycle", "duplicate"):
+            with self.subTest(invalid=invalid):
+                api = self.client()
+                path = "actions/workflows/7/runs?per_page=100"
+                next_url = api.root + path + "&page=2"
+                responses = [Response({"total_count": 2, "workflow_runs": [{"id": 1}]},
+                                      f'<{next_url}>; rel="next"'),
+                             Response({"total_count": 3, "workflow_runs": [{"id": 1 if invalid == "duplicate" else 2}]},
+                                      f'<{api.root + path}>; rel="next"' if invalid == "cycle" else "")]
+                with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+                     redirect_stderr(io.StringIO()):
+                    with self.assertRaisesRegex(ValueError, "cycle" if invalid == "cycle" else "duplicate"):
+                        api.pages(path, "workflow_runs")
+                self.assertEqual(opened.call_count, 2)
+
+    def test_count_recovery_and_http_retries_share_the_original_budget(self):
+        api = self.client()
+        deadline = api.deadline
+        transient = urllib.error.HTTPError(api.root, 503, "fixture temporary error", {}, io.BytesIO(b"private-body"))
+        responses = [Response({"total_count": 1, "jobs": []}), transient,
+                     Response({"total_count": 1, "jobs": [{"id": 7}]})]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+             mock.patch.object(module.time, "sleep") as slept, redirect_stderr(io.StringIO()):
+            self.assertEqual(api.pages("actions/runs/42/attempts/2/jobs", "jobs"), [{"id": 7}])
+        self.assertEqual((api.requests, opened.call_count, api.deadline), (3, 3, deadline))
+        slept.assert_called_once_with(0.5)
+
+    def test_count_recovery_cannot_restore_exhausted_requests_or_time(self):
+        for limit in ("requests", "deadline"):
+            with self.subTest(limit=limit):
+                api = self.client()
+                clock = [api.deadline - 1]
+                if limit == "requests":
+                    api.requests = module.MAX_API_REQUESTS - 1
+                def read(*args, **kwargs):
+                    return Response({"total_count": 1, "jobs": []})
+                def record(*args, **kwargs):
+                    if limit == "deadline":
+                        clock[0] = api.deadline
+                with mock.patch.object(api.opener, "open", side_effect=read) as opened, \
+                     mock.patch.object(module.time, "monotonic", side_effect=lambda: clock[0]), \
+                     mock.patch("builtins.print", side_effect=record):
+                    with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                        api.pages("actions/runs/42/attempts/2/jobs", "jobs")
+                opened.assert_called_once()
+                self.assertEqual(api.requests, module.MAX_API_REQUESTS if limit == "requests" else 1)
+
+    def test_parallel_collection_recovery_shares_one_request_limit(self):
+        api = self.client()
+        api.requests = module.MAX_API_REQUESTS - 6
+        barrier, lock, seen = threading.Barrier(4), threading.Lock(), set()
+        def incomplete(request, **kwargs):
+            with lock:
+                first = request.full_url not in seen
+                seen.add(request.full_url)
+            if first:
+                barrier.wait(timeout=5)
+            return Response({"total_count": 1, "jobs": []})
+        def read(index):
+            try:
+                return api.pages(f"actions/runs/{index + 1}/attempts/1/jobs", "jobs")
+            except ValueError:
+                return None
+        with mock.patch.object(api.opener, "open", side_effect=incomplete) as opened, \
+             redirect_stderr(io.StringIO()), module.ThreadPoolExecutor(max_workers=4) as reader:
+            self.assertEqual(list(reader.map(read, range(4))), [None] * 4)
+        self.assertEqual((api.requests, opened.call_count), (module.MAX_API_REQUESTS, 6))
+
+    def periodic_fixture(self):
+        scenario = PeriodicAdmission()
+        scenario.setUp()
+        failed = scenario.add_run(41, scenario.now - timedelta(minutes=20), conclusion="failure")
+        scenario.api.jobs[(41, 1)] = [scenario.job("periodic-admission", "failure"),
+                                      scenario.job("select", "skipped"), scenario.job("explicit-full-gate", "skipped")]
+        current = scenario.add_run(90, scenario.now, status="in_progress", conclusion=None)
+        # Production pagination verifies numeric identities before classification.
+        for (run_id, attempt), jobs in scenario.api.jobs.items():
+            for index, job in enumerate(jobs):
+                job["id"] = run_id * 100 + index
+        return scenario, current
+
+    def run_periodic_command(self, command, directory, *, persistent=False):
+        scenario, current = self.periodic_fixture()
+        if command == "health":
+            scenario.api.runs.remove(current)
+        context = scenario.context(current)
+        environment = {"GITHUB_" + key.upper(): str(value) for key, value in context.items()}
+        environment.update(GITHUB_SHA=A, GH_TOKEN="fixture-api-secret")
+        output, github_output = Path(directory) / "admission.json", Path(directory) / "outputs"
+        argv = ["ci-full-result.py", command]
+        if command == "admit-periodic":
+            argv += ["--output", str(output), "--github-output", str(github_output)]
+        created, requests = [], []
+        client_type = module.GitHub
+        def factory(*args, **kwargs):
+            api = client_type(*args, **kwargs)
+            def opened(request, **options):
+                path = request.full_url.removeprefix(api.root)
+                requests.append(path)
+                if path == "actions/workflows/rust.yml" or path == "actions/runs/90":
+                    return Response(scenario.api.get(path))
+                key = "workflow_runs" if path.startswith("actions/workflows/") else path.split("?", 1)[0].rsplit("/", 1)[1]
+                entries = scenario.api.pages(path, key)
+                previous = sum(item == path for item in requests)
+                count = len(entries) + int(key == "workflow_runs" and "created=" in path and
+                                           (persistent or previous == 1 and sum("created=" in item for item in requests) == 1))
+                return Response({"total_count": count, key: entries})
+            api.opener.open = mock.Mock(side_effect=opened)
+            created.append(api)
+            return api
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, environment), mock.patch.object(sys, "argv", argv), \
+             mock.patch.object(module, "GitHub", side_effect=factory), \
+             mock.patch.object(module, "datetime", wraps=datetime) as date, \
+             redirect_stdout(stdout), redirect_stderr(stderr):
+            date.now.return_value = scenario.now
+            error = None
+            try:
+                module.main()
+            except ValueError as exc:
+                error = exc
+        return output, github_output, stdout, stderr, created[0], requests, error
+
+    def test_periodic_cli_recovers_before_publishing_and_keeps_prior_control_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, github_output, stdout, stderr, api, requests, error = self.run_periodic_command("admit-periodic", directory)
+            self.assertIsNone(error)
+            receipt = json.loads(output.read_text())
+            self.assertTrue(receipt["run_full"])
+            self.assertEqual(receipt["previous_full"]["id"], 40)
+            self.assertEqual(receipt["control_failure_run_ids"], [41])
+            self.assertEqual(receipt["start_gap_seconds"], 4 * 3600)
+            self.assertEqual(github_output.read_text(), "run_full=true\n")
+            self.assertEqual(json.loads(stdout.getvalue()), receipt)
+            self.assertEqual(len(self.facts(stderr)), 1)
+            self.assertEqual(api.requests, len(requests))
+
+    def test_periodic_cli_exhaustion_never_writes_a_partial_admission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, github_output, stdout, stderr, api, requests, error = self.run_periodic_command(
+                "admit-periodic", directory, persistent=True)
+            self.assertIsInstance(error, ValueError)
+            self.assertIn("API collection incomplete", str(error))
+            self.assertFalse(output.exists())
+            self.assertFalse(github_output.exists())
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(len(self.facts(stderr)), 3)
+            self.assertEqual(api.requests, 5)  # current run + workflow + three complete collection attempts
+
+    def test_health_cli_can_recover_reads_without_clearing_a_previous_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, _, stdout, stderr, _, _, error = self.run_periodic_command("health", directory)
+            self.assertIsInstance(error, ValueError)
+            self.assertIn("periodic admission failed", str(error))
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(len(self.facts(stderr)), 1)
+
+    def test_verify_cli_keeps_its_single_collection_attempt(self):
+        _, green, _ = fixture()
+        clients = []
+        client_type = module.GitHub
+        def factory(*args, **kwargs):
+            api = client_type(*args, **kwargs)
+            api.opener.open = mock.Mock(side_effect=[Response({"id": 7}),
+                Response({"total_count": 2, "workflow_runs": [green]})])
+            clients.append(api)
+            return api
+        environment = dict(GITHUB_REPOSITORY="nil-studio/oasis7", GH_TOKEN="fixture-api-secret", GITHUB_WORKFLOW_SHA=A)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, environment), \
+             mock.patch.object(sys, "argv", ["ci-full-result.py", "verify", "--source", A]), \
+             mock.patch.object(module, "GitHub", side_effect=factory), \
+             mock.patch.object(module, "validate_publication_source"), \
+             mock.patch.object(module, "require_default_ancestor"), \
+             mock.patch.object(module, "definition_digest", return_value="definition"), \
+             redirect_stdout(stdout), redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "API collection incomplete"):
+                module.main()
+        self.assertEqual(clients[0].requests, 2)
+        self.assertEqual(clients[0].opener.open.call_count, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual([fact["attempt"] for fact in self.facts(stderr)], [1])
+
+    def test_real_http_collection_recovers_only_after_a_complete_response(self):
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed.append((self.path, self.headers.get("Authorization")))
+                body = json.dumps({"total_count": 1, "jobs": [] if len(observed) == 1 else [{"id": 7}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        try:
+            api = self.client()
+            api.root = f"http://127.0.0.1:{server.server_port}/"
+            api.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), module.NoRedirect)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(api.pages("actions/runs/42/attempts/2/jobs", "jobs"), [{"id": 7}])
+            self.assertEqual(api.requests, 2)
+            self.assertEqual(observed, [("/actions/runs/42/attempts/2/jobs", "Bearer fixture-api-secret")] * 2)
+            self.assertEqual(len(self.facts(stderr)), 1)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+        self.assertFalse(thread.is_alive())
+
+
 class Collections(unittest.TestCase):
     def test_read_budget_bounds_requests_and_total_wall_time(self):
         api = module.GitHub("nil-studio/oasis7", "test-only")
@@ -1085,9 +1685,14 @@ class Collections(unittest.TestCase):
             bundle.writestr("full-result.json", '{"schema":"fixture"}')
         redirect = urllib.error.HTTPError(api.root + "actions/artifacts/9/zip", 302, "Found",
                                           {"Location": location}, None)
-        with mock.patch.object(api.opener, "open", side_effect=redirect) as authenticated, \
-             mock.patch.object(urllib.request, "urlopen", return_value=io.BytesIO(archive.getvalue())) as storage:
+        transient = urllib.error.HTTPError(api.root, 503, "Service Unavailable", {}, io.BytesIO(b"temporary failure"))
+        with mock.patch.object(api.opener, "open", side_effect=[transient, redirect]) as authenticated, \
+             mock.patch.object(urllib.request, "urlopen", return_value=io.BytesIO(archive.getvalue())) as storage, \
+             mock.patch.object(module.time, "sleep") as slept:
             self.assertEqual(api.artifact(9), {"schema": "fixture"})
+        self.assertEqual(authenticated.call_count, 2)
+        self.assertEqual(api.requests, 3)
+        slept.assert_called_once_with(0.5)
         api_request = authenticated.call_args.args[0]
         self.assertEqual(api_request.get_header("Authorization"), "Bearer fixture-api-secret")
         storage_request = storage.call_args.args[0]

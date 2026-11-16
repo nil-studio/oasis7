@@ -27,3 +27,6 @@ test('failed home phase retains both exact cameras without rounding or relaxing 
  const expected={zoom:1.8461538461538465,pan_y_px:0},actual={zoom:1.8461538461538463,pan_y_px:99.6923076923077};
  assert.deepEqual(describeHomeCameraMismatch(expected,actual,'home'),{phase:'home',expectedCamera:expected,actualCamera:actual});assert.equal(describeHomeCameraMismatch(expected,{...expected},'home'),null);
 });
+
+import {validateMountedMemoryLease} from './viewer-retention-components.mjs';
+test('WASM observations cannot silently cross mount leases between samples',()=>{const first=validateMountedMemoryLease(null,1);assert.equal(validateMountedMemoryLease(first,1),1);assert.throws(()=>validateMountedMemoryLease(first,2),/between observations/);assert.throws(()=>validateMountedMemoryLease(null,null),/missing/);});

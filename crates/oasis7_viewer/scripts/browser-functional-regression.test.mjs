@@ -17,7 +17,106 @@ import {
   resolveBrowserBinary,
   selectCases,
   selectViewports,
+  waitForBrowserState,
+  waitForState,
 } from "./browser-functional-regression.mjs";
+
+test("state polling keeps observed request IDs out of browser program text", async () => {
+  const requestId = '"\\` ${globalThis.compromised = true}\n</script>\u2028\u2029';
+  const expected = { lastPromptFeedback: { stage: "applied", requestId }, nested: [null, false, 12] };
+  const states = [{ lastPromptFeedback: { stage: "accepted", requestId } }, expected];
+  const sources = [];
+  const context = {
+    window: { __AW_TEST__: { getState: () => states.shift() } },
+    compromised: false,
+  };
+  const driver = { async evalJson(source) {
+    sources.push(source);
+    return JSON.parse(vm.runInNewContext(source, context));
+  } };
+  const result = await waitForState(driver,
+    state => state.lastPromptFeedback?.stage === "applied" && state.lastPromptFeedback?.requestId === requestId,
+    "matching request applied",
+  );
+  assert.deepEqual(result, expected);
+  assert.equal(sources.length, 2);
+  assert.equal(sources[0], "JSON.stringify(window.__AW_TEST__?.getState?.() || {})");
+  assert.equal(sources[1], sources[0]);
+  assert.equal(sources[0].includes(requestId), false);
+  assert.equal(sources[0].includes("=>"), false);
+  assert.equal(context.compromised, false);
+});
+
+test("state polling preserves the empty state fallback", async () => {
+  const driver = { async evalJson(source) {
+    return JSON.parse(vm.runInNewContext(source, { window: {} }));
+  } };
+  assert.deepEqual(await waitForState(driver, state => Object.keys(state).length === 0, "empty state"), {});
+});
+
+test("polling timeout retains a descriptive label and bounded last state, not predicate code", async t => {
+  const state = { requestId: "observed-request", detail: "x".repeat(2000) };
+  let now = 0;
+  t.mock.method(Date, "now", () => now);
+  let reads = 0;
+  const driver = { async evalJson() { reads += 1; now = 2; return state; } };
+  const predicate = function neverReady() { return false; };
+  await assert.rejects(waitForState(driver, predicate, "request applied", 1), error => {
+    assert.equal(error.message, `condition not reached: request applied\n${JSON.stringify(state).slice(0, 1200)}`);
+    assert.equal(error.message.includes("neverReady"), false);
+    assert.equal(error.message.includes("return false"), false);
+    return true;
+  });
+  assert.equal(reads, 1);
+});
+
+test("browser-only polling keeps DOM and state observations in the same browser evaluation", async () => {
+  let reads = 0;
+  const context = {
+    window: { __AW_TEST__: { getState: () => ({ selectedId: null, observation: ++reads }) } },
+    document: { body: { get innerText() { return reads > 1 ? "No agents in current snapshot." : "Loading"; } } },
+  };
+  const driver = { async evalJson(source) { return JSON.parse(vm.runInNewContext(source, context)); } };
+  const result = await waitForBrowserState(driver,
+    '(state) => state.selectedId === null && document.body.innerText.includes("No agents in current snapshot.")',
+    "empty snapshot displayed",
+  );
+  assert.deepEqual(result, { selectedId: null, observation: 2 });
+  assert.equal(reads, 2);
+});
+
+test("browser-side missing-epoch checks reject non-finite numbers before JSON converts them to null", async () => {
+  for (const epoch of [NaN, Infinity, -Infinity]) {
+    let reads = 0;
+    const context = { window: { __AW_TEST__: { getState() {
+      reads += 1;
+      return reads === 1 ? { authSessionEpoch: epoch, authBindingEpoch: epoch } : { authSessionEpoch: null };
+    } } } };
+    const driver = { async evalJson(source) { return JSON.parse(vm.runInNewContext(source, context)); } };
+    const result = await waitForBrowserState(driver,
+      "(state) => state.authSessionEpoch == null && state.authBindingEpoch == null",
+      "missing auth epochs",
+    );
+    assert.equal(reads, 2, "a non-finite epoch is not a missing epoch");
+    assert.deepEqual(result, { authSessionEpoch: null });
+  }
+});
+
+test("both polling paths propagate read failures, and state predicate failures are not retried", async () => {
+  const readFailure = new Error("browser read failed");
+  let reads = 0;
+  const driver = { async evalJson() { reads += 1; throw readFailure; } };
+  await assert.rejects(waitForState(driver, () => true, "state ready"), error => error === readFailure);
+  await assert.rejects(waitForBrowserState(driver, "() => true", "DOM ready"), error => error === readFailure);
+  assert.equal(reads, 2);
+  const predicateFailure = new Error("bad state shape");
+  let calls = 0;
+  await assert.rejects(waitForState({ async evalJson() { return {}; } }, () => {
+    calls += 1;
+    throw predicateFailure;
+  }, "state ready"), error => error === predicateFailure);
+  assert.equal(calls, 1);
+});
 
 test("case selection accepts the declared P01-P07 matrix", () => {
   const selected = selectCases([

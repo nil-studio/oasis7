@@ -13,10 +13,30 @@ const distribution = values => {
   const at = q => sorted.length ? sorted[Math.ceil(sorted.length * q) - 1] : null;
   return { count: sorted.length, p50: at(.5), p95: at(.95), p99: at(.99), max: sorted.at(-1) ?? null };
 };
+const isDenseDisplay = m => m?.status === 'observed' && m.profile === 'world_view_v1' && typeof m.cut === 'string' && m.cut.length > 0
+  && m.markers === 1000 && m.bodies === 1000 && m.inView === 1000 && m.labels === 200;
+// Diagnostic association only. Historical preparation cannot certify the
+// current frame, and these classifications never alter the density gate.
+function densityTransition(sample) {
+  const p = sample.densityPreparation, m = sample.displayAtInput;
+  const dense = isDenseDisplay(m);
+  const row = { index: sample.index, preparationVersion: p?.display?.version ?? null, inputVersion: m?.version ?? null,
+    density: m?.status === 'observed' ? dense ? 'confirmed_dense' : 'observed_below_or_mismatched' : 'unknown' };
+  if (!p) return { ...row, status: 'not_recorded' };
+  const times = [p.readStarted, p.readCompleted, p.focusedAt, sample.startTime];
+  if (typeof p.expectedId !== 'string' || !p.expectedId || p.expectedId !== sample.expectedId || !isDenseDisplay(p.display)
+    || p.timeOrigin !== sample.timeOrigin || !Number.isFinite(p.timeOrigin) || p.timeOrigin <= 0
+    || !times.every(Number.isFinite) || times[0] < 0 || times.some((time, index) => index && time < times[index - 1])) {
+    return { ...row, status: 'unpaired_preparation' };
+  }
+  if (m?.status === 'awaiting_frame') {
+    const advanced = Number.isSafeInteger(p.display?.version) && Number.isSafeInteger(m.version) && m.version > p.display.version;
+    return { ...row, status: advanced ? 'version_advanced_awaiting' : 'awaiting_without_proven_advance' };
+  }
+  return { ...row, status: m?.status === 'observed' ? 'observed_at_input' : 'other_input_status' };
+}
 export function summarizeDensityFeedback(samples, trace) {
-  const confirmed = samples.filter(({ displayAtInput: m }) => m?.status === 'observed'
-    && m.profile === 'world_view_v1' && typeof m.cut === 'string' && m.cut.length > 0
-    && m.markers === 1000 && m.bodies === 1000 && m.inView === 1000 && m.labels === 200);
+  const confirmed = samples.filter(({ displayAtInput }) => isDenseDisplay(displayAtInput));
   const all = matchInputPaintTrace(samples, trace), dense = matchInputPaintTrace(confirmed, trace);
   const gate = result => {
     const d = result.distributions;
@@ -27,7 +47,7 @@ export function summarizeDensityFeedback(samples, trace) {
       paintBound: result.unknownPaint || lower === null ? 'unknown' : lower > 100 ? 'confirmed_over_100' : upper <= 100 ? 'within_100' : 'rounding_straddles_100' };
   };
   const pending = samples.filter(s => s.displayAtInput?.status !== 'observed').length;
-  return { all, dense, counts: { total: samples.length, observedDense: confirmed.length, pendingOrUnknown: pending,
+  return { all, dense, densityTransitions: samples.map(densityTransition), counts: { total: samples.length, observedDense: confirmed.length, pendingOrUnknown: pending,
     observedBelowDensity: samples.length - confirmed.length - pending }, allInputsConfirmedDensity: confirmed.length === samples.length && samples.length > 0,
     allFeedback100ms: gate(all), confirmedDensityFeedback100ms: gate(dense), formalP6: false };
 }

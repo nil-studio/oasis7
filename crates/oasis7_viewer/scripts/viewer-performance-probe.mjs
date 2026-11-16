@@ -9,6 +9,7 @@ import { densityScript, installSnapshotFeedScript, nativeCameraGesture } from ".
 import { installPaintTraceScript, matchInputPaintTrace } from "./viewer-performance-paint-trace.mjs";
 import { collectNativeSelectionSamples } from "./viewer-performance-native-input.mjs";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
+import { viewerBuildPaths } from "./viewer-local-output.mjs";
 import {
   VIEWER_PERF_PROFILES,
   buildViewerPerformanceMarkdown,
@@ -20,6 +21,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const browserLaunchArgs = process.env.AGENT_BROWSER_HEADED === "1" ? ["--headed"] : [];
 const viewerRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(viewerRoot, "../..");
+const visualBuildPaths = viewerBuildPaths("visual-test");
 const configuredAgentBrowserBin = process.env.AGENT_BROWSER_BIN || "agent-browser";
 const agentBrowserNpxPackage = process.env.AGENT_BROWSER_NPX_PACKAGE || "agent-browser@0.37.1";
 const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -46,14 +48,14 @@ function resolveAgentBrowserInvocation() {
       label: configuredAgentBrowserBin,
     };
   }
-  if (commandAvailable(npxBin)) {
+  if (!visualBuildPaths.local && commandAvailable(npxBin)) {
     return {
       command: npxBin,
       prefixArgs: ["--yes", agentBrowserNpxPackage],
       label: `${npxBin} --yes ${agentBrowserNpxPackage}`,
     };
   }
-  throw new Error(`missing required browser automation command: ${configuredAgentBrowserBin} (or npx fallback)`);
+  throw new Error(`missing required browser automation command: ${configuredAgentBrowserBin}${visualBuildPaths.local ? "; local checks never install it" : " (or npx fallback)"}`);
 }
 
 const agentBrowserInvocation = resolveAgentBrowserInvocation();
@@ -204,7 +206,8 @@ function serveFile(request, response) {
 }
 
 function prepareViewerWebDist(distDir) {
-  const testDist = resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(viewerRoot, ".viewer-test-dist"));
+  const testDist = visualBuildPaths.local ? visualBuildPaths.distDir
+    : resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(viewerRoot, ".viewer-test-dist"));
   if (!statSync(testDist, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error("viewer performance probe requires npm run build:viewer:visual-test");
   }

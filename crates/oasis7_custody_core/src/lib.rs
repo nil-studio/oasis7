@@ -35,3 +35,5 @@ pub use oasis7_client_api::world_service::private_goal::with_owner_signature_ver
 pub mod context_body;
 
 pub mod management_metadata;
+
+pub mod dev_test;

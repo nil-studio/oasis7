@@ -11,6 +11,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify, isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
+import { pendingStatusLayoutCases } from './pending-status-layout-programs.mjs';
 
 const assert = (value, text) => { if (!value) throw Error(text); };
 assert(process.env.PENDING_LAYOUT_ARTIFACT_ROOT && process.env.PENDING_LAYOUT_SOURCE_HEAD, 'declare immutable artifacts and actual source');
@@ -23,7 +24,7 @@ const files = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.is
 const manifest = () => Object.fromEntries(files(root).sort().map(p => [relative(root, p), { bytes: readFileSync(p).length, sha256: sha(readFileSync(p)) }]));
 const assets = manifest(), http = [];
 const summary = { source: execFileSync('git', ['rev-parse', process.env.PENDING_LAYOUT_SOURCE_HEAD + '^{commit}'], { cwd: repo, encoding: 'utf8' }).trim(),
-  runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), runnerSha256: sha(readFileSync(fileURLToPath(import.meta.url))), assets,
+  runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), runnerSha256: sha(readFileSync(fileURLToPath(import.meta.url))), statusProgramSha256: sha(readFileSync(new URL('./pending-status-layout-programs.mjs', import.meta.url))), assets,
   scope: 'Actual ready empty-world shell; DOM-only Selected A and status copies, including feed open/closed. No WS, pending logic, player authorization, density or performance proof.', rows: [] };
 const server = createServer((req, res) => {
   try {
@@ -64,11 +65,11 @@ try {
     await run(['set', 'viewport', String(width), String(height), '1']);
     await run(['open', `http://pending-layout.localhost:${server.address().port}/viewer.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en`]);
     await evaluate(`(async()=>{const end=Date.now()+15000;while(Date.now()<end){if(document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true')return true;await new Promise(r=>setTimeout(r,100))}throw Error('empty-world shell renderer not ready')})()`);
-    for (const feedOpen of [false, true]) for (const status of ['pending', 'unavailable']) {
+    for (const { feedOpen, status, program } of pendingStatusLayoutCases) {
       const name = `${width}-${feedOpen ? 'feedopen' : 'feedclosed'}-${status}`;
       await evaluate(`(()=>{const c=document.querySelector('.pixel-world-canvas'),feed=document.querySelector('[data-viewer-overlay=feed]');if(feed instanceof HTMLDetailsElement)feed.open=${feedOpen};let chip=c.querySelector('.pixel-world-canvas__selection');if(!chip){chip=document.createElement('div');chip.className='pixel-world-canvas__selection';c.append(chip)}chip.innerHTML='<span>Selected: Agent A</span>';return true})()`);
       const before = await evaluate(canvasState); await run(['screenshot', '--full', resolve(out, name + '-no-status.png')]);
-      const row = await evaluate(`(()=>{const chip=document.querySelector('.pixel-world-canvas__selection'),s=document.createElement('div');s.className='pixel-world-selection-status';s.setAttribute('role','status');s.setAttribute('aria-live','polite');s.dataset.worldSelectionStatus=${JSON.stringify(status)};s.textContent=${JSON.stringify(status === 'pending' ? 'Checking the selected object…' : 'This object could not be confirmed. Select again.')};chip.append(s);const range=document.createRange();range.selectNodeContents(s);const r=range.getBoundingClientRect(),rect=s.getBoundingClientRect();window.__LAYOUT_INPUT__=[];document.addEventListener('pointerdown',e=>__LAYOUT_INPUT__.push({trusted:e.isTrusted,target:e.target.tagName,id:e.target.id}),{once:true,capture:true});return{viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio,status:${JSON.stringify(status)},feedOpen:${feedOpen},textRect:r.toJSON(),rect:rect.toJSON(),chip:chip.getBoundingClientRect().toJSON(),pointer:[getComputedStyle(s).pointerEvents,getComputedStyle(chip).pointerEvents],text:chip.textContent,overlays:[...document.querySelectorAll('[data-viewer-overlay]')].map(e=>({kind:e.dataset.viewerOverlay,rect:e.getBoundingClientRect().toJSON(),z:getComputedStyle(e).zIndex})),auth:window.__AW_TEST__.getState().authReady}})()`);
+      const row = await evaluate(program);
       assert(row.dpr === 1 && row.textRect.top >= 0 && row.textRect.bottom <= height && row.textRect.left >= 0 && row.textRect.right <= width, 'text range outside viewport');
       assert(row.pointer.every(value => value === 'none') && row.auth === false && row.text.startsWith('Selected: Agent A'), 'status changed identity or intercepted input');
       const positive = resolve(out, name + '-positive.png'), negative = resolve(out, name + '-transparent-text.png');

@@ -22,13 +22,13 @@
 
 - 适用于 `doc/product/` 四个既有模块的根 PRD、长期专题 PRD 和配对产品 design。
 - 适用于产品承诺、跨域组合、玩家体验、交互状态和端到端验收；精确规则、数值、接口、实现、测试步骤、运维和任务进度仍归专业 authority。
-- 根 PRD 保留现有身份字段、章节顺序、稳定 Product PRD-ID、完整 SC 清单和六列验收追踪。
+- 根 PRD 保留稳定产品身份、Product PRD-ID、完整 SC 与真实验收关系；章节顺序和六列写法只作参考。
 - 专题不冒用根 PRD 身份；专题的局部 `REQ-*` / `AC-*` 只在自身文档内稳定引用。
 - 目标、已验证事实、设计假设和公开承诺必须分开写；`active` 表示当前文档权威，不表示全部目标已实现或已发布。
 
 ## 3. 采纳承诺
 
-规范正文 [`product-documentation-standard.design.md`](product-documentation-standard.design.md) 是本主题的内容权威，模板分册提供可复用结构。内容规范的机械诊断按[增量检查边界](product-documentation-standard.design.md#advisory-content-checks)执行：PR 新增或实质修改的适用产品/系统设计文档规范 finding 阻断 CI，未触达历史只警告；范围/输入/执行错误及既有身份拓扑、库存、安全等完整性检查不降级。
+规范正文 [`product-documentation-standard.design.md`](product-documentation-standard.design.md) 是本主题的内容权威，模板分册提供可复用结构。自动检查遵循[事实校验与写作提示](product-documentation-standard.design.md#advisory-content-checks)：受影响范围内的路径/锚点/ID、已声明关系和正向完成依据错误使检查失败，输入/执行安全错误不降级；标题、章节、固定列数、普遍状态字段与裁剪形式只提示。
 
 采纳后，新建或实质改写的产品主题应满足：
 
@@ -38,10 +38,10 @@
 4. 对异步、持久化、外部变化和多入口体验区分草稿、接受、应用、保存、历史和可重试授权等玩家语义。
 5. 对经济和持续玩法说明资源来源、用途、持有、流转、取舍与损失边界；精确公式和参数只引用专业权威。
 6. 将规则/能力正确性与玩家体验有效性分开，按适用入口、版本/范围和证据窗口描述可以证明与不能证明的结论。
-7. 对 `doc/product/**/*.prd.md` 与 `doc/product/**/*.design.md` 的新建和实质变更执行明确 `base`/`head`/worktree 的机械检查：`base` 是集成目标、`head` 是待集成源，范围按 `merge-base(base, head)...head` 计算，worktree 另纳入 staged/unstaged/untracked；target-only、部分/格式错误输入不得进入或静默替代源范围。metadata、适用文档最低内容、真实 authority/fragment、显式 REQ/AC/anchor 唯一性与可达性必须接受检查；规范不符合按本次增量失败/历史警告处理；仅空白行、行尾空白和 HTML 注释变化排除，行首缩进变化算实质内容，不能用作者标签或 allowlist 任意绕过。
+7. 对 `doc/product/**/*.prd.md` 与 `doc/product/**/*.design.md` 的新建和实质变更执行明确 `base`/`head`/worktree 的机械检查：`base` 是集成目标、`head` 是待集成源，范围按 `merge-base(base, head)...head` 计算，worktree 另纳入 staged/unstaged/untracked；target-only、部分/格式错误输入不得进入或静默替代源范围。真实 authority/fragment、已声明 REQ/AC/anchor 唯一性及关系有效性接受事实检查；metadata 和最低内容形式只提示；仅空白行、行尾空白和 HTML 注释变化排除，行首缩进变化算实质内容，不能用作者标签或 allowlist 任意绕过。
 8. 检查先移除 fenced code block；其中的 metadata、路径、REQ/AC 和 trace 示例既不能满足也不能触发诊断。配对 design 可以通过带路径和 fragment 的 Markdown 链接承接 paired PRD 的 REQ/AC，不要求复制；REQ/AC 块和追踪表单元格中的每个关联都必须解析，`REQ-X → AC-TYPO` 等未声明关联必须报告规范诊断，本次触达范围内阻断 CI，未触达历史只警告。自动检查不判断趣味性、策略深度、数值合理性或玩家留存。
 
-9. 对每个新建或实质修改功能点保留[独立的系统设计状态与实现状态](product-documentation-standard.design.md#feature-design-implementation-status)、适用 Trace ID、准确设计条款和 Task/PR/验证证据；“部分”列剩余范围，“已验证”限定固定基线、环境与验收范围，要求变化后重核。详细过程仍在 Task，不强制全仓回填或新增任务审批流程。
+9. 功能点按[设计与实现状态边界](product-documentation-standard.design.md#feature-design-implementation-status)表达实际已知信息，不要求普遍六字段；未核实/未实现不填证据占位，“部分”列剩余，“已覆盖/已验证”提供准确设计或实际验证依据，要求变化后重核。详细过程仍在 Task，不强制全仓回填或新增任务审批流程。
 
 10. 游戏非代码设计按[领域覆盖与阶段证据](product-documentation-standard.design.md#game-design-coverage)逐项判断适用性，关联当前范围的设计、内容/资产与验收。全领域导航复用产品总入口，实际决定保留在原 authority；普通变更只核对本次影响，阶段完成声明核对该范围全部适用领域。Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748。
 
@@ -67,7 +67,7 @@
 - **PDOC-7 功能状态可核对**：本次触达功能点的设计/实现状态独立表达，能追到同一要求、准确承接设计和实际交付/验证依据；未知与剩余范围明确，需求变化后不会沿用不适用的完成结论。
 - **PDOC-6 结构与语义诚实**：适用文档检查、链接检查和 diff 检查通过；不新增第五模块、任务台账、实现能力或自动检查器未证明的语义。现行 bounded checker 以 canonical 正文定义的真实 paired-design backlink 与 `topic-missing` 诊断契约为准；结构检查不代替产品语义、专业规则或体验证据评审。
 
-- **PDOC-8 领域与阶段完整性**：GD-01～GD-22 均可从产品入口找到主责、真实来源或明确未知；本次适用主题的具体设计内容、素材要求和验收有去向，阶段结论有对应范围与证据。不适用有理由，延期/缺失/未核实不冒充不适用；首轮导航不等于全部设计完成。该语义核对通过现有作者与专业评审执行，当前 CI 仍仅验证已实现的结构合同。
+- **PDOC-8 领域与阶段完整性**：GD-01～GD-22 均可从产品入口找到主责、真实来源或明确未知；本次适用主题的具体设计内容、素材要求和验收有去向，阶段结论有对应范围与证据。不适用有理由，延期/缺失/未核实不冒充不适用；首轮导航不等于全部设计完成。该语义核对通过现有作者与专业评审执行，当前 CI 验证已实现的事实合同，内容形式只作提示。
 
 非代码设计与交付物的目录职责、内容模板及实际资产定位，同时按[非代码组织验收](doc-structure-standard.prd.md#non-code-organization-acceptance)核对；既有入口、存储规则与技术追踪合同继续有效，不以模板采纳代签业务设计或素材完成。
 

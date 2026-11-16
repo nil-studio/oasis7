@@ -399,6 +399,8 @@ class BoundedWorkspace(unittest.TestCase):
             self.assertEqual(chosen['inputs'], state['inputs'])
             self.assertEqual(chosen['input_owners'], state['input_owners'])
             self.assertEqual(report['omitted_unit_groups'], 1)
+            self.assertEqual(report['selection_policy'], 'whole-units-newest-v1')
+            self.assertNotIn('ordinary_baseline_units', chosen)
             measured = cache.units.cache_stage(chosen, Path(directory).resolve() / 'unused', 1000, measure_only=True)
             self.assertTrue(measured['eligible'], measured)
             self.assertEqual(report['selection_retained_bytes'], measured['raw_bytes'])
@@ -430,6 +432,53 @@ class BoundedWorkspace(unittest.TestCase):
             state['files'].append('debug/mystery.d')
             with self.assertRaisesRegex(ValueError, 'unbound bounded Cargo output'):
                 cache.bounded_library_state(state, 1900, {})
+
+    def test_ordinary_baseline_survives_newer_full_fast_units(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, state = self.make_state(Path(directory).resolve())
+            baseline = 'debug/.fingerprint/unit0-0000000000000001'
+            state['ordinary_baseline_units'] = [baseline]
+            original = json.loads(json.dumps(state))
+            report = {}
+            chosen = cache.bounded_library_state(state, 1000, report)
+            self.assertIn(baseline, chosen['directories'])
+            self.assertEqual(len(chosen['files']), 3)
+            self.assertEqual(state, original)
+            self.assertEqual(report['selection_policy'], 'whole-units-ordinary-baseline-v1')
+            self.assertEqual(report['ordinary_baseline_unit_groups'], 1)
+            self.assertEqual(report['retained_ordinary_baseline_unit_groups'], 1)
+            self.assertEqual(report['omitted_ordinary_baseline_unit_groups'], 0)
+            self.assertLessEqual(report['selection_retained_bytes'], 1000)
+
+    def test_oversized_baseline_remains_bounded_and_reselection_keeps_priority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, state = self.make_state(Path(directory).resolve(), (600, 100, 100))
+            large = 'debug/.fingerprint/unit0-0000000000000001'
+            small = 'debug/.fingerprint/unit1-0000000000000002'
+            state['ordinary_baseline_units'] = [large, small]
+            report = {}
+            chosen = cache.bounded_library_state(state, 300, report)
+            self.assertEqual(chosen['ordinary_baseline_units'], [small])
+            self.assertEqual(len(chosen['directories']), 2)
+            self.assertEqual(report['ordinary_baseline_unit_groups'], 2)
+            self.assertEqual(report['retained_ordinary_baseline_unit_groups'], 1)
+            self.assertEqual(report['omitted_ordinary_baseline_unit_groups'], 1)
+            self.assertGreater(report['ordinary_baseline_bytes'], 300)
+            self.assertLessEqual(report['selection_retained_bytes'], 300)
+            reduced = cache.bounded_library_state(chosen, 150, {})
+            self.assertEqual(reduced['directories'], [small])
+            self.assertEqual(reduced['ordinary_baseline_units'], [small])
+
+    def test_malformed_baseline_cannot_name_unrecorded_or_partial_units(self):
+        baseline = 'debug/.fingerprint/unit0-0000000000000001'
+        for value in (None, baseline, {}, [None], [baseline, baseline], ['../outside'],
+                      ['debug/.fingerprint/unknown-ffffffffffffffff'],
+                      ['debug/deps/libunit0-0000000000000001.rlib']):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                _, state = self.make_state(Path(directory).resolve())
+                state['ordinary_baseline_units'] = value
+                with self.assertRaisesRegex(ValueError, 'ordinary baseline'):
+                    cache.bounded_library_state(state, 1000, {})
 
     def test_oversized_newest_unit_does_not_discard_smaller_complete_units(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -527,6 +576,7 @@ class BoundedWorkspace(unittest.TestCase):
             with self.subTest(inventory_growth=inventory_growth), tempfile.TemporaryDirectory() as directory:
                 directory = Path(directory).resolve()
                 root, state = self.make_state(directory)
+                state['ordinary_baseline_units'] = ['debug/.fingerprint/unit0-0000000000000001']
                 state_path = directory / 'state.json'
                 state_path.write_text(json.dumps(state))
                 args = SimpleNamespace(scope='ordinary', state=state_path, cache=directory / 'cache')
@@ -550,6 +600,8 @@ class BoundedWorkspace(unittest.TestCase):
                     cache.stage_cache(args, 10_000_000_000, report)
                 self.assertEqual(len(packed), 2)
                 self.assertTrue(packed[1] < packed[0])
+                self.assertTrue(any('unit0-' in name for name in packed[1]))
+                self.assertEqual(report['retained_ordinary_baseline_unit_groups'], 1)
                 self.assertEqual(report['save'], not inventory_growth, report)
                 self.assertEqual((args.cache / cache.ARCHIVE_NAME).exists(), not inventory_growth)
                 first.list_caches.assert_called_once_with()
@@ -604,6 +656,103 @@ class BoundedWorkspace(unittest.TestCase):
 @unittest.skipUnless(all(shutil.which(tool) for tool in ('cargo', 'rustc', 'zstd')),
                      'compact workspace smoke requires Cargo, rustc and zstd')
 class RealCargoCompact(unittest.TestCase):
+    def test_baseline_survives_later_feature_variant_and_cargo_checks_changed_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root = base / 'checkout'
+            sources = {
+                'Cargo.toml': '[workspace]\nmembers=["base","app"]\nresolver="2"\n'
+                              '[profile.dev]\ndebug=0\nincremental=false\n',
+                'base/Cargo.toml': '[package]\nname="priority_base"\nversion="0.1.0"\nedition="2021"\n'
+                                   '[features]\nfull=[]\n',
+                'base/src/lib.rs': '#[cfg(not(feature="full"))]\npub fn value() -> u32 { 7 }\n'
+                                   '#[cfg(feature="full")]\npub fn value() -> u32 { 11 }\n',
+                'app/Cargo.toml': '[package]\nname="priority_app"\nversion="0.1.0"\nedition="2021"\n'
+                                  '[dependencies]\npriority_base={path="../base"}\n'
+                                  '[features]\nfull=["priority_base/full"]\n',
+                'app/src/main.rs': 'fn main() { println!("{}", priority_base::value()); }\n',
+                'app/tests/value.rs': '#[test]\nfn has_binary() { '
+                                      'assert!(!env!("CARGO_BIN_EXE_priority_app").is_empty()); }\n',
+            }
+            for name, content in sources.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content)
+            env = dict(os.environ, CARGO_INCREMENTAL='0')
+            for name in ('CARGO_TARGET_DIR', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'):
+                env.pop(name, None)
+            subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, env=env,
+                           check=True, capture_output=True)
+
+            def build(full=False, state=None):
+                command = ['cargo', 'test', '--workspace', '--tests', '--no-run', '--offline', '--locked',
+                           '--message-format=json']
+                if full:
+                    command += ['--features', 'priority_app/full']
+                result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                messages = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+                if state is not None:
+                    for message in messages:
+                        cache.units.cache_record(state, message, ordinary_baseline=not full)
+                artifacts = [item for item in messages if item.get('reason') == 'compiler-artifact']
+                library = [item for item in artifacts if item['target']['kind'] == ['lib']
+                           and item['profile']['test'] is False]
+                self.assertEqual(len(library), 1)
+                # Test harnesses and ordinary executables remain outside this
+                # library cache even when their invocation has baseline priority.
+                self.assertTrue(all(not item['fresh'] for item in artifacts if item not in library))
+                value = subprocess.check_output([str(root / 'target/debug/priority_app')], text=True).strip()
+                return library[0]['fresh'], value
+
+            state = cache.units.cache_begin(root, selection='libraries')
+            self.assertEqual(build(state=state), (False, '7'))
+            self.assertEqual(build(full=True, state=state), (False, '11'))
+            cache.units.cache_finish(state)
+            self.assertEqual(len(state['directories']), 2)
+            self.assertEqual(len(state['ordinary_baseline_units']), 1)
+            measured = cache.units.cache_stage(state, base / 'unused', measure_only=True)
+            # Either complete feature variant fits, but their union cannot.
+            budget = measured['raw_bytes'] - 1
+            legacy = dict(state)
+            del legacy['ordinary_baseline_units']
+            selected = {
+                'legacy': cache.bounded_library_state(legacy, budget, {}),
+                'baseline': cache.bounded_library_state(state, budget, {}),
+            }
+            for name, chosen in selected.items():
+                self.assertEqual(len(chosen['directories']), 1)
+                staged = cache.units.cache_stage(chosen, base / name, budget)
+                self.assertTrue(staged['save'], staged)
+            self.assertNotEqual(selected['legacy']['directories'], selected['baseline']['directories'])
+
+            def restore(name):
+                shutil.rmtree(root / 'target')
+                for source in (*sources, 'Cargo.lock'):
+                    os.utime(root / source, None)
+                restored = cache.units.cache_restore(root, base / name, budget)
+                self.assertTrue(restored['restored'], restored)
+                return restored
+
+            self.assertEqual(restore('legacy')['changed_inputs'], 0)
+            self.assertEqual(build(), (False, '7'))
+            self.assertEqual(restore('baseline')['changed_inputs'], 0)
+            self.assertEqual(build(), (True, '7'))
+            self.assertEqual(restore('baseline')['changed_inputs'], 0)
+            self.assertEqual(build(full=True), (False, '11'))
+
+            source = root / 'base/src/lib.rs'
+            source.write_text(sources['base/src/lib.rs'].replace('{ 7 }', '{ 9 }'))
+            old_stamp = state['inputs']['base/src/lib.rs']['mtime_ns']
+            os.utime(source, ns=(old_stamp, old_stamp))
+            # Keep the changed input's old mtime to exercise content validation,
+            # rather than relying only on Cargo observing a newer checkout.
+            shutil.rmtree(root / 'target')
+            restored = cache.units.cache_restore(root, base / 'baseline', budget)
+            self.assertTrue(restored['restored'], restored)
+            self.assertEqual(restored['changed_inputs'], 1)
+            self.assertEqual(build(), (False, '9'))
+
     def test_compatible_restore_is_fresh_and_changed_leaf_rebuilds(self):
         for scope in ('ordinary', 'formal'):
             with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:

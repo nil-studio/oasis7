@@ -1,8 +1,8 @@
 # oasis7 产品模块入口
 
-本页是产品信息架构的唯一总入口，按玩家价值组织产品，不完全替代 `doc/README.md` 的工程模块矩阵。四大模块的产品真值与设计将逐步迁入本目录的文档树；外部各专业模块中散落的相关产品文档也将随语义归拢逐步清理、删除。
+本页由 `producer_system_designer` 维护，是产品信息架构的唯一总入口，按玩家价值组织产品，不完全替代 `doc/README.md` 的工程模块矩阵。四大模块的产品真值与设计将逐步迁入本目录的文档树；外部各专业模块中散落的相关产品文档也将随语义归拢逐步清理、删除。
 
-本目录的文档树以 PRD 为主，并可按需包含同名配对的 design：PRD 承载产品真值、产品承诺、组合关系和跨域验收；design 承载产品设计。迁移与交付事实由 Git、PR、实际 CI 与评审记录承载；Issue/Project 按需使用，不创建本地 project ledger。
+本目录的文档树以 PRD 为主，并可按需包含明确链接配对的 design（同名是常用写法）：PRD 承载产品真值、产品承诺、组合关系和跨域验收；design 承载产品设计。迁移与交付事实由 Git、PR、实际 CI 与评审记录承载；Issue/Project 按需使用，不创建本地 project ledger。
 
 产品文档规范与可复用模板：[`product-documentation-standard.prd.md`](../engineering/doc-governance/product-documentation-standard.prd.md)、[`product-documentation-standard.design.md`](../engineering/doc-governance/product-documentation-standard.design.md)、[`product-documentation-standard.templates.md`](../engineering/doc-governance/product-documentation-standard.templates.md)。
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 usage() {
-  echo 'usage: verify.sh [--platform | --stage <native|native-contracts|native-fixtures|wasm-production|wasm-approval>]' >&2
+  echo 'usage: verify.sh [--platform | --stage <native|native-contracts|native-fixtures|wasm-production|wasm-approval|wasm-contracts|wasm-approval-artifacts>]' >&2
   exit 2
 }
 mode=checks
@@ -11,7 +11,7 @@ if [[ "$#" == 1 && "$1" == --platform ]]; then
   mode=platform
 elif [[ "$#" == 2 && "$1" == --stage ]]; then
   case "$2" in
-    native|native-contracts|native-fixtures|wasm-production|wasm-approval) mode=$2 ;;
+    native|native-contracts|native-fixtures|wasm-production|wasm-approval|wasm-contracts|wasm-approval-artifacts) mode=$2 ;;
     *) usage ;;
   esac
 elif [[ "$#" != 0 ]]; then
@@ -29,9 +29,9 @@ case "$mode" in
 esac
 [[ "$mode" != native-contracts ]] || exit 0
 case "$mode" in
-  # Keep the complete role/profile proof on the approval runner, which also
-  # executes the trusted dynamic WASM profiles with the same dev dependencies.
-  checks|platform|wasm-approval)
+  # The selected proof owner also runs all manifest-driven WASM profiles with
+  # these dev dependencies. Old approval and complete entry points stay intact.
+  checks|platform|wasm-approval|wasm-contracts)
     env -u RUSTC_WRAPPER cargo check -p oasis7_custody_core --target wasm32-unknown-unknown --locked
     if env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --locked >"$scratch/no-role" 2>&1; then
       echo 'invalid role-less Worker unexpectedly built' >&2; exit 1
@@ -61,12 +61,19 @@ case "$mode" in
     done
     ;;
 esac
-[[ "$mode" != checks ]] || exit 0
+# The isolated compile-proof stage must supply the real input consumed by the
+# subsequent owner,approval-harness profile, without building deployment bundles.
+if [[ "$mode" == wasm-contracts ]]; then
+  mkdir -p crates/oasis7_custody_worker/artifacts
+  OASIS7_CUSTODY_ADMISSION_FIXTURE_OUTPUT="$PWD/crates/oasis7_custody_worker/artifacts/approval-fixture.json" \
+    env -u RUSTC_WRAPPER cargo test -p oasis7_custody_core --test approval_admission export_developer_admission_fixture --locked
+fi
+[[ "$mode" != checks && "$mode" != wasm-contracts ]] || exit 0
 
 # Each stage owns a disjoint artifact set. Separate runners must execute the two
 # WASM producers: worker-build uses one locked build/ directory per checkout.
 case "$mode" in
-  platform|wasm-production|wasm-approval)
+  platform|wasm-production|wasm-approval|wasm-approval-artifacts)
     worker_build_bin="$(python3 scripts/ci-worker-build.py ensure --print-bin)"
     export PATH="$(dirname "$worker_build_bin"):$PATH"
     npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
@@ -83,7 +90,7 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  platform|wasm-approval)
+  platform|wasm-approval|wasm-approval-artifacts)
     bash crates/oasis7_custody_worker/scripts/build-approval-harness.sh
     ;;
 esac
@@ -93,7 +100,7 @@ case "$mode" in
     ;;
 esac
 case "$mode" in
-  platform|wasm-production|wasm-approval)
+  platform|wasm-production|wasm-approval|wasm-approval-artifacts)
     [[ "${OASIS7_SUPPORT_CAPACITY:-0}" != 1 ]] || support_capacity_snapshot custody-wasm-complete
     ;;
 esac

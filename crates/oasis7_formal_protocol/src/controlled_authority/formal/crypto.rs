@@ -85,7 +85,12 @@ pub fn verify_with_preimage<B: AsRef<[u8]>, E: From<FormalError>>(
         .map_err(|_| invalid("formal signature"))?;
     let key = VerifyingKey::from_bytes(&key).map_err(|_| invalid("formal public key"))?;
     let preimage = build()?;
-    work(preimage.as_ref().len())?;
-    key.verify_strict(preimage.as_ref(), &Signature::from_bytes(&signature))
+    let preimage = preimage.as_ref();
+    work(preimage.len())?;
+    key.verify_strict(preimage, &Signature::from_bytes(&signature))
         .map_err(|_| invalid("formal signature verification").into())
 }
+
+#[cfg(test)]
+#[path = "crypto_preimage_tests.rs"]
+mod preimage_tests;

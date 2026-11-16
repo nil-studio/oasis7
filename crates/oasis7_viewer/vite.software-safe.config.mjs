@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
-
-const tempOutDir = resolve(import.meta.dirname, ".software-safe-build");
+import { viewerBuildPaths } from "./scripts/viewer-local-output.mjs";
 
 export default defineConfig(({ mode }) => {
 const visualTest = mode === "visual-test";
@@ -30,7 +29,7 @@ return {
     emptyOutDir: true,
     minify: false,
     sourcemap: false,
-    outDir: visualTest ? resolve(import.meta.dirname, ".software-safe-test-build") : tempOutDir,
+    outDir: viewerBuildPaths(visualTest ? "visual-test" : "release").bundleDir,
     lib: {
       entry: resolve(import.meta.dirname, visualTest ? "software_safe_src/main.visual-test.jsx" : "software_safe_src/main.jsx"),
       formats: ["es"],

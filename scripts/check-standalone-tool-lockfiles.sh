@@ -15,8 +15,11 @@ case "$rust_baseline_selector" in
     ;;
 esac
 
+root_metadata_args=()
+if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then root_metadata_args=(--locked); fi
 root_workspace_member_manifest_paths="$(
   env -u RUSTC_WRAPPER cargo metadata \
+    "${root_metadata_args[@]}" \
     --manifest-path "$repo_root/Cargo.toml" \
     --no-deps \
     --format-version 1 \

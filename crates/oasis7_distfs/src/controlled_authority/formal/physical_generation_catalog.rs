@@ -210,14 +210,14 @@ fn load_with_reader<B: AsRef<[u8]>>(
     reference(value)?;
     let owner = reader(&dir.join(CATALOG).join(&value.digest), NODE_BYTES)?;
     let bytes = owner.as_ref();
-    let digest = blake3::hash(&bytes);
+    let digest = blake3::hash(bytes);
     if digest.to_hex().as_str() != value.digest {
         return Err(invalid("generation node checksum"));
     }
     let node = if use_cache {
-        parsed(&bytes, *digest.as_bytes())?
+        parsed(bytes, *digest.as_bytes())?
     } else {
-        Arc::new(decode(&bytes)?)
+        Arc::new(decode(bytes)?)
     };
     if node.prefix != prefix || node_count(&node)? != value.count {
         return Err(invalid("generation node path/count binding"));
@@ -674,6 +674,25 @@ pub(super) fn validate_file(path: &Path, digest: &str) -> Result<(), FormalError
     stored_file(path, digest).map(|_| ())
 }
 
+// One uncached membership node is live at a time. Decode may grow its leaf
+// vector, and canonical re-encoding may double its output capacity. Branch
+// references and leaf strings are alternatives, not a retained whole tree.
+pub(super) fn lookup_workspace_bytes() -> Result<usize, FormalError> {
+    use std::mem::size_of;
+    let overflow = || invalid("generation lookup workspace layout");
+    let leaf = LEAF_IDS
+        .checked_mul(2 * size_of::<String>() + 64)
+        .ok_or_else(overflow)?;
+    let branch = size_of::<[Option<NodeRef>; 16]>()
+        .checked_add(16 * 64)
+        .ok_or_else(overflow)?;
+    leaf.max(branch)
+        .checked_add(size_of::<Node>() + 2 * size_of::<usize>() + size_of::<Arc<Node>>())
+        .and_then(|n| n.checked_add(2 * NODE_BYTES + size_of::<Vec<u8>>()))
+        .and_then(|n| n.checked_add(4096))
+        .ok_or_else(overflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,23 +761,4 @@ mod tests {
 #[cfg(test)]
 pub(super) fn cache_accesses() -> u64 {
     CACHE_ACCESSES.with(std::cell::Cell::get)
-}
-
-// One uncached membership node is live at a time. Decode may grow its leaf
-// vector, and canonical re-encoding may double its output capacity. Branch
-// references and leaf strings are alternatives, not a retained whole tree.
-pub(super) fn lookup_workspace_bytes() -> Result<usize, FormalError> {
-    use std::mem::size_of;
-    let overflow = || invalid("generation lookup workspace layout");
-    let leaf = LEAF_IDS
-        .checked_mul(2 * size_of::<String>() + 64)
-        .ok_or_else(overflow)?;
-    let branch = size_of::<[Option<NodeRef>; 16]>()
-        .checked_add(16 * 64)
-        .ok_or_else(overflow)?;
-    leaf.max(branch)
-        .checked_add(size_of::<Node>() + 2 * size_of::<usize>() + size_of::<Arc<Node>>())
-        .and_then(|n| n.checked_add(2 * NODE_BYTES + size_of::<Vec<u8>>()))
-        .and_then(|n| n.checked_add(4096))
-        .ok_or_else(overflow)
 }

@@ -412,3 +412,7 @@ pub fn verify_record_material_retaining_snapshot(
     }
     Ok(None)
 }
+
+#[cfg(test)]
+#[path = "record_work_tests.rs"]
+mod work_tests;

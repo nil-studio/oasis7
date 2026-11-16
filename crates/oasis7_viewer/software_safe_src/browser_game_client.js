@@ -8,7 +8,12 @@ const fail = (code, diagnostic) => { throw new BrowserGameError(code, diagnostic
 const json = (value) => JSON.stringify(value);
 const copy = (value) => JSON.parse(json(value));
 const hex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-const same = (a, b) => json(a) === json(b);
+// Equality only: signed protocol bytes retain their original typed encoding.
+const comparable = (value) => Array.isArray(value) ? value.map(comparable)
+ : value && typeof value === "object"
+  ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, comparable(value[key])]))
+  : value;
+const same = (a, b) => json(comparable(a)) === json(comparable(b));
 export const WORLD_PATHS = Object.freeze({ describe: "/v1/world/describe", owner: "/v1/world/participant-owner-view", view: "/v1/world/view-json", submit: "/v1/world/submit", lookup: "/v1/world/lookup", snapshot: "/v1/world/private-task/goal-snapshot", prepare: "/v1/world/private-task/context-prepare", read: "/v1/world/private-task/context-read", recipe: "/v1/world/private-task/recipe-quote", factory: "/v1/world/private-task/factory-quote" });
 const terminal = (status) => ["committed", "rejected", "expired"].includes(status);
 export function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, participantProofs, agentId, taskId, recovery, fetchImpl = globalThis.fetch, gatewayCall, cryptoImpl = globalThis.crypto, signal, beforeEffect = async () => {} } = {}) {

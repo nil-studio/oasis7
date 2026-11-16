@@ -99,6 +99,13 @@ pub struct NativeTaskContext {
     /// Complete authorized goal, soft constraints, observation and catalog.
     pub model_context: Value,
 }
+/// Only authenticated original outcomes may distinguish an unfinished prefix
+/// from a host error. This observation never authorizes a replacement or retry.
+#[derive(Debug, Clone)]
+pub enum NativeTaskPreparation {
+    Ready(Box<NativeTaskContext>),
+    Blocked(NativeTaskRecovery),
+}
 #[derive(Debug, Clone)]
 pub struct NativeTaskToolResult {
     pub value: Value,
@@ -141,6 +148,13 @@ pub trait NativeTaskHost: Send + Sync + 'static {
         Ok(None)
     }
     fn prepare(&self, operation: &str) -> Result<NativeTaskContext, String>;
+    /// Existing adapters keep their original preparation/error behavior. An
+    /// adapter with a verified uncommitted response may report it explicitly;
+    /// callers must not infer that state by matching an error string.
+    fn prepare_observed(&self, operation: &str) -> Result<NativeTaskPreparation, String> {
+        self.prepare(operation)
+            .map(|context| NativeTaskPreparation::Ready(Box::new(context)))
+    }
     fn current_control(&self) -> Result<NativeTaskControl, String>;
     /// The exact authenticated fence bound when this run budget was initialized.
     fn initial_fence(&self) -> Result<GameTaskFenceV1, String> {
@@ -351,7 +365,14 @@ impl<H: NativeTaskHost> NativeTaskRunner<H> {
                 report.stop_reason = NativeTaskStopReason::ControlChanged;
                 break;
             }
-            let context = self.host.prepare(&operation)?;
+            let context = match self.host.prepare_observed(&operation)? {
+                NativeTaskPreparation::Ready(context) => *context,
+                NativeTaskPreparation::Blocked(state) => {
+                    report.stop_reason =
+                        terminal(state).unwrap_or(NativeTaskStopReason::HostFailure);
+                    return Ok(report);
+                }
+            };
             if context.operation != operation || context.fence != run_fence {
                 report.stop_reason = NativeTaskStopReason::ControlChanged;
                 return Ok(report);

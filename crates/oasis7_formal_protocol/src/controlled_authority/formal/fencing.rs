@@ -83,8 +83,9 @@ where
     B: AsRef<[u8]>,
 {
     let preimage = build()?;
-    work(preimage.as_ref().len())?;
-    Ok(hex::encode(key.sign(preimage.as_ref()).to_bytes()))
+    let preimage = preimage.as_ref();
+    work(preimage.len())?;
+    Ok(hex::encode(key.sign(preimage).to_bytes()))
 }
 /// Sign a fencing protocol preimage with the adapter's explicitly held key.
 pub fn sign_fencing_body<T: Serialize>(
@@ -128,9 +129,10 @@ where
     work(key.len())?;
     let verifier = VerifyingKey::from_bytes(&key).map_err(|e| E::from(invalid(e.to_string())))?;
     let preimage = build()?;
-    work(preimage.as_ref().len())?;
+    let preimage = preimage.as_ref();
+    work(preimage.len())?;
     verifier
-        .verify_strict(preimage.as_ref(), &Signature::from_bytes(&signature))
+        .verify_strict(preimage, &Signature::from_bytes(&signature))
         .map_err(|e| E::from(invalid(e.to_string())))
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -632,3 +634,7 @@ pub fn epoch_seal_signing_bytes(body: &EpochSealBodyV1) -> Result<Vec<u8>, Fenci
     body.validate()?;
     bytes(SEAL_DOMAIN, body)
 }
+
+#[cfg(test)]
+#[path = "fencing_crypto_work_tests.rs"]
+mod crypto_work_tests;

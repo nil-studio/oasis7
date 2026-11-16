@@ -1,32 +1,9 @@
 //! Linux account-tool adapter: kernel UID selects the principal, never model JSON.
+#[cfg(any(target_os = "linux", test))]
 use crate::dev_test_operations::Call;
-use serde::{Deserialize, Serialize};
+pub use oasis7_custody_core::dev_test::{METHODS, ModelRequest};
 #[cfg(any(target_os = "linux", test))]
 use serde_json::Value;
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ModelRequest {
-    pub method: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grant_ref: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_ref: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at_unix: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operation: Option<Call>,
-}
-pub const METHODS: [&str; 9] = [
-    "accounts",
-    "open",
-    "close",
-    "describe",
-    "task",
-    "capabilities",
-    "context",
-    "move",
-    "lookup",
-];
 #[cfg(any(target_os = "linux", test))]
 pub(crate) fn decode(body: &[u8]) -> Result<ModelRequest, &'static str> {
     let request: ModelRequest =

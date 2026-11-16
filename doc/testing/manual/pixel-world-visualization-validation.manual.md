@@ -156,7 +156,7 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616。
 Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616。
 对应[AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003)与[AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001)。
 
-数值预算以[系统设计view-quality](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)为唯一来源，本文定义测法，不维护第二份阈值。基准A/B、设备、浏览器、电源和网络限制必须实际记录，不用“普通电脑”作为可比较身份。
+数值预算以[系统设计view-quality](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)为唯一来源，本文定义测法，不维护第二份阈值。指定8GiB及网络A/B已由用户于2026-11-12取消，未执行且不再作为本轮门槛；当前本机设备、浏览器、电源和实际网络必须记录，不用“普通电脑”作为可比较身份。
 
 ### 9.1 测量窗口
 
@@ -164,6 +164,32 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 - 分段：分别记录页面核心UI可操作、optional payload传输字节/耗时、WASM解码/编译、snapshot读取/解码、Rust派生、reconcile、首个真实可命中画面。占位图/DOM不算真实世界帧。
 - 持续交互：在F4里连续平移/缩放、选择、退出跟随和事件突发至少5分钟，记录可见帧间隔、输入反馈和query。静止的按需不渲染、后台节流和Runtime完成时间分别报告。
 - 长稳：同一已稳定负载执行30分钟区域往返/选择/过滤与恢复。比较预热后相同阶段的初/末窗口，记录JS、WASM、应用缓存及可获得的GPU/进程资源；无法测量的分量标unknown，不用JS heap代替全部内存。
+
+### 浏览器缓存隔离能力前置（5772）
+
+`VIEWER_STARTUP_OUTPUT=<不存在的绝对输出目录> npm --prefix crates/oasis7_viewer run test:startup:cache-capability` 只执行三组短能力检查，不采产品启动预算：新空 owned profile A／新 Chrome 进程、同 profile A／新 Chrome 进程、独立空 profile B／新 Chrome 进程。复用现有 Playwright 依赖，可用 `OASIS7_PLAYWRIGHT_NODE_MODULES` 和 `OASIS7_PLAYWRIGHT_CHROME_PATH` 显式指定现有依赖与浏览器；不自动下载。sandbox 必须启用，工具只启动自己的 profile，不清用户或 OS 缓存。缓存资源是固定8字节合法 WASM，仅验证 HTTP/profile 方法，不能代表产品 payload 编译成本。
+
+保存服务端实际资源请求数与 CDP `fromDiskCache`／service-worker 状态；冷样本要求真实网络请求，热样本要求同 origin/profile 的磁盘复用。只读本人启动的 browser 命令行核对精确 profile 后取得 native PID，关闭后必须确认 PID 已退出；失败、清理未知或120秒总硬停均非零，不进入下一 case。保留 owned profile、原始结果与脚本 SHA，不强杀不明进程。HTTP cache 不证明 WASM compiled-code cache；OS page cache 未隔离。该能力通过后，产品核心 UI／bridge ready／Atlas 已可见上界／实际命中端点仍须单独建立，之后才能按上文20冷／30热执行。M3/16GiB 本机结果不代签正式8GiB网络 A/B、P5或P6。
+
+### 真实 Viewer 共享夹具与启动端点（5772／5791）
+
+`viewer-owned-fixture-server.mjs` 供产品启动和密度 RSS caller 共用。它只提供已有1000对象 WorldView 受控只读协议，snapshot 保持空模型，observer/debug 的 `density-qa.localhost` 不走真实玩家登录；不创建身份、grant 或世界命令。产物按实际 source 和完整文件 size/SHA 核对，采集前后校验；所有 HTTP／WS 证据有界，采集 I/O 错误立即终止并保留原错，不能降成普通404继续。公开的 latestView 是实际送出回应的 connection／request generation／world／scope／cut／完整性，不以夹具常量替代实际回应绑定。
+
+`viewer-product-startup-endpoints.mjs` 在 DOM renderer-ready 前只读 DOM，不提前 import optional bridge 或取得 WebGL context；ready 后才读已挂载模块 getter。当前 scope／cut／完整 query／guest 身份与实际1000 body必须同时成立。Atlas 的独立 PNG 正控与空图负控见 `test:startup:atlas-oracle`（需要 Python/Pillow）；只按真实共享16px素材、最终投影脚点和实际 CSS/F/DPR 采样。实际采样使用截图前后同 page/timeOrigin／world／cut／render-version／几何的括定；未匹配保持 unknown。只有真实 opaque atlas 像素已证存在后才读 GPU identity，不能由探针主动获取 context 加速启动。
+
+截图后 pageNow 仅是该图像已可观察的保守上界，不是第一物理呈现时刻。原生 Enter 由共同 owned 输入参数发出，记录可信 keydown/click、typed ID、原 timeStamp／pageNow／timeOrigin及实际 selected DOM，单次输入无重试；此端点不是 GPU 选择高亮 fence、网络完成或真实玩家回执。`prepareOwnedViewerDensity` 仅用真实 overview／wheel 进入1000 body／200 label场景，供 RSS consumer 在计时外准备；不得把其相机操作偷偷塞入“自然首帧”预算。
+
+`viewer-owned-startup-lifecycle.mjs` 在导航前登记同 branded context 的 exact profile／sandbox／native PID，失败前仍可有界关闭并核对 native 退出。共享server与owned profile下的产品校准最多三组，先独立方法审；本机产品20冷／30热仍需固定方法及独立审查，指定8GiB和网络A/B已取消且不记通过，旧8B缓存能力检查不代签本节真实产品端点。
+
+### 自有浏览器 RSS 能力前置（5773）
+
+`VIEWER_RESOURCE_OUTPUT=<不存在的绝对输出目录> node crates/oasis7_viewer/scripts/viewer-owned-resource-capability.mjs` 复用上述唯一 owned-profile factory、现有 Playwright 和已安装 Chrome，启用 sandbox，最多三短组且总界120秒。先以精确 profile 参数及本 context 的 CDP native browser PID 建立归属，只读取 PID/PPID/birth 身份表以求后代，再对已证根与子 PID 读取 RSS；前后身份或后代集合变化、CDP 出现外部 PID、页面归属变化均拒绝。额外自有页面负控须在 RSS 读取前拒绝，关闭后 root PID 退出未知则不能启动后继探针。保留 private profile 和脚本 SHA，不读取用户进程内存、不修改系统权限。
+
+空页与受控两张1024×1024 RGBA8纹理场景仅报告各 owned 进程 RSS 和可能重复共享页的原始和；8MiB 是请求存储字节，不是实际 GPU 分配。GPU 进程 RSS 不等于显存；当前 CDP ProcessInfo 的 PID/type/CPU 时间不能提供总显存，GPU allocated bytes、完整应用缓存及物理呈现继续 unknown。该短能力结果不是产品稳定负载或64MiB/10%预算验收。
+
+真实 Viewer 分量短读（5791）用 `VIEWER_DENSITY_RSS_MANIFEST=<canonical18清单> VIEWER_DENSITY_RSS_OUTPUT=<不存在的绝对目录> npm --prefix crates/oasis7_viewer run test:resource:viewer`。清单绑定实际构建源；runner版本和全部观测依赖另记 SHA，不把旧产物改标为新源。复用同一 owned HTTP/WS fixture、原生 overview/wheel 准备端点及 source PNG Atlas oracle；仅受控 observer/debug，无真实玩家身份或signed服务授权。所有图片尝试与观察开销保留，不以截图代表自然世界新帧。
+
+唯一≤120秒短窗须在当前完整query下实际屏内1000 body／布局200 label；读前后对齐world/cut、scope和query代、同page origin、camera及render version，并与真实WS connection/request generation配对。JS heap／DOM用原只读CDP分量，WASM仅同active mount lease的线性容量，RSS复用OS根/后代身份守卫；跨代、未知或实际负载丢失原样失败，不挑样重采。组件重叠不能相加，GPU进程RSS、WASM容量均不冒总显存／used heap／完整缓存；不是30min/P6或目标机A/B验收。
 
 ### 局部工具证据边界
 
@@ -203,6 +229,10 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 
 权威端点和预算沿[WorldView本地反馈](../../world-simulator/viewer/external-agent-world-view.design.md#view-local-feedback-measurement)及[9.2质量预算](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)。以下是待实现/验证的方法，不声明当前helper已取得完整ACK证据；旧strict selected列、阈值和unknown继续保留，旧466样本不重新标记。通用发行profile与WorldView专项分别报告。
 
+既有 strict selected 采样在原生输入前，通过已持有的同一 owned CDP session 执行同目标、实际1000／200及焦点就绪检查，再发送标准 Enter；准备程序为固定字面量，从既有armed采样状态读取planned ID并按dataset相等定位，不把ID或CSS selector拼入新执行代码；默认 core 消费者仍走原入口。此接线只移除 CLI 命令间的焦点准备间隔，不保证浏览器事件之间绝不换节点，也不重发未送达输入。准备失败不得发送按键；输入后 armed 未送达、target=null、partial／unknown和原错误继续落盘，原100ms／±4ms与selected oracle不变，不能改签可见ACK。
+
+strict selected 的后继诊断另存同目标准备阶段的不可变数值快照（page timeOrigin、metrics读取起止、focus确认时刻、已观察version/profile/cut与1000／200计数），在可信keydown上关联本次原始读数。`densityTransitions` 仅区分准备／输入版本前进、当前已观察partial或关联缺失；准备或后续帧的计数绝不回填当前 `awaiting_frame`。该状态按现有bridge合同表示共享请求版本与PostUpdate计数版本尚未配对，本身不证明主体少于1000，也不定位哪次update导致。新证据不改100ms／±4ms、输入密度gate、旧样本或整体FAIL，不代表GPU完成／可见ACK；原样本缺准备快照时继续保留unknown。
+
 1. **采样前注册。** 固定生产/runner/观测脚本及资产hash、设备/浏览器/电源/viewport/DPR、schema/profile、输入集合、端点、字形校准和失败判据。每个计划输入保留，明确区分本地接受状态、可见ACK、selected最终确认、网络/Runtime完成；不得事后挑较快的一列替换原结果。错误目标/无可信输入/无新反馈/代际不符/时间或可见性缺证据均有独立unknown原因，不填零。
 2. **真实关联。** 保存实际native输入的ref、timeStamp/timeOrigin及同world/scope的显式用户意图代。反馈所有者需提供同一次意图的只读关联，不能由QA写入或从邻近时间猜测。现有泛pending文本/role=status不足以绑定输入；连续旧pending不因不可见token更新就算新的可见响应。字段缺失时只报告状态观察，不开始完整ACK预算计分。新增观测不保存旧实体/权限事实、不发pin或命令，不暴露私有authority key。
 3. **可见性校准。** 在实际shell中先覆盖桌面/窄屏、声明DPR、Feed开闭及遮挡/裁切反例。固定相同候选/字体/文本的完整语义字形区域；A/A稳定正控、透明文本和遮挡负控须能区分有效字形与背景变化，再冻结覆盖与噪声门槛。此校准在计时外单独留证；计时内只观察真实反馈，不复制节点、改文本/样式、隐藏HUD/目标或降低密度。DOM rect、aria-live和非零像素差本身不证明可见ACK。
@@ -212,6 +242,14 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 首轮实施限定为能力探查：由owned Chrome读取Browser版本和`Tracing.getCategories`，只使用实际支持的timeline/图像/UserTiming记录；每组trace预设短时限，前后以`performance.mark`及其调用时间区间建立可审计时钟锚。归档原始字段/图像及映射误差，不假定某个截图事件天然带可用呈现时间。若采集会主动推进帧，或只有稀疏截图而不能证明同帧/时钟关系，该数据只作诊断，ACK可见时延不计合格。既有pending布局helper只能供非计时校准，不能提供真实意图接受证据。
 
 `DENSITY_QA_FRAME_OBSERVATION_MS=3000` 在既有冻结source/artifact、真实WS与1000/200字形前置后运行1–10秒能力探针；与performance、memory、pending模式互斥。工具session只有一个managed tab不证明整个Chrome独占：browser-wide只读枚举每次重新核对唯一owned page；额外newtab/其他页导致该项unavailable，不关闭未知页、不启动global trace。独立page-target screencast只接attached session的正常图像与原始swap metadata，保存page performance/timeOrigin/wall锚；600图/64 MiB上限，任何overflow、采集或清理错误保留且非零退出。稀疏图像不证明每帧覆盖或物理显示，缺world render-version→GPU完成→合成映射时帧预算仍unknown，未校准输入/字形可见性前不计ACK。图像/metadata保全不改变原selected oracle。
+
+#### 自建浏览器的长期内存分量
+
+`viewer-owned-retention-window.mjs` 将既有 5617 的选择、往返 pan、滚轮、搜索／清空及同完整查询 overview 动作放到唯一 factory-owned Playwright 页面；不再同时启动 agent-browser。先声明 `RETENTION_OWNED_SOURCE_HEAD`、`RETENTION_OWNED_ARTIFACT_ROOT`、`RETENTION_OWNED_MANIFEST`、独立 `RETENTION_OWNED_OUTPUT` 和 `RETENTION_OWNED_MS`。短校准成功并独立审阅后才注册一次 `1800000` 毫秒窗口；方法时限至多为计量时长加 180 秒准备／清理预算。页面与原生根进程身份、同 mounted WASM lease、真实当前 1000 屏内主体／200 布局标签，以及读数前后同 query/cut/范围实例与 home 相机均须配对。 初始化期间的 partial 可先产生较窄视口查询，不能在任何输入前死等全域密度。准备阶段只在当前完整同 scope 查询下，以实际相机偏移计算一次原生 canvas 拖动，记录可信 pointer 事件、前后相机与 viewport 查询，随后仍硬核真实 1000／200；不改 DTO、不要求产品 home 必须为零，也不把准备阶段较少实体签为合格负载。
+
+JS/DOM、WASM 线性容量与每个 owned 进程 RSS 分列；进程采集耗时和全部原始身份集合保留。`retention-owned-observations.jsonl` 保存每次读取（包括失败），`retention-owned-rss.jsonl` 关联原阶段与未知分类，初末原始六个 home 不筛选。初末进程集合改变则 RSS 聚合增长 unknown，共同进程身份仍可单列；容量不是 used heap，不与 RSS/JS 相加或直接对照完整缓存 64MiB。current/retired inflight 仅有计数覆盖，其余闭包、transport roots、renderer/GPU 字节与完整缓存仍 unknown。现有 10% 分量判据不变，失败先落 raw 后非零。
+
+本入口显式启用长期 streaming server：完整标准协议只流式落盘，不保留累积 wire 数组；512MiB 固定采集容量和 terminal 原错保全规则不变。短校准须用完整含 LF 文件大小重新外推长窗容量并核磁盘，不沿旧字节数担保新适配器。首次读数不足、替换页面／根进程／mounted lease、真实负载丢失、采集或清理错误均停止，不重发输入或取替代样本。原 JS 30 分钟及其他失败窗口保持原 source/runner 标识，不因新分量能力改标。
 
 ### 9.2 容量与过载反例
 
@@ -264,3 +302,15 @@ Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
 按[当前查询总览合同](../../world-simulator/viewer/external-agent-world-view.design.md#overview-query-fit)，设置 `QUERY_OVERVIEW_ARTIFACT_ROOT=<冻结visual目录>`、`QUERY_OVERVIEW_SOURCE_HEAD=<实际构建源>`、`QUERY_OVERVIEW_COMPOSED_MANIFEST=<逐文件size/SHA清单>`，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:query-overview`。清单名兼容组合产物，summary保留其实际kind；canonical不得改标旧source。`QUERY_OVERVIEW_CASE=complete|cancel|terminal` 分别独立执行一次；`QUERY_OVERVIEW_WIDTH=390` 覆盖窄屏complete及状态文本边界，缺省1440。夹具仅用三个获准观察实体、每响应一条且请求上限仍200，在真实Host/WS/WASM中挂第三页。验证原生手动平移后，partial总览保持相机、不清搜索、不新增查询；同绑定complete实际应用一次，后台full不抢手动相机；取消及终止partial保持相机。每阶段最多12秒，无输入重试、无renderer/rAF冻结，失败保raw并非零退出。
 
 此回归只证明受控技术观察入口的分页导航与指定视口布局。`navigation_result`是主Update消费，不是GPU fence；旧缺schema兼容另由Rust确定性回归覆盖，不能冒称旧入口GPU已验。该工具不证明原内存长窗触发时刻的因果，不代签真实玩家授权、P5、五分钟/30分钟或P6。产物SHA前后核对，记录实际构建源和runner分别身份；不改标已保留失败或旧QA头的raw。
+
+### 后台读取与显式搜索竞态回归
+
+按[显式搜索合同](../../world-simulator/viewer/external-agent-world-view.design.md#view-explicit-search-intent)，设置 `SEARCH_RACE_ARTIFACT_ROOT`、`SEARCH_RACE_SOURCE_HEAD`、`SEARCH_RACE_COMPOSED_MANIFEST` 为冻结目录、实际构建源及逐文件size/SHA清单，运行 `npm --prefix crates/oasis7_viewer run test:pixel-world:search-race`。缺省搜索；`SEARCH_RACE_CLEAR=1` 清空搜索；`SEARCH_RACE_SCOPE=1` 为兼容名称，实际只测试同scope查询scope_unavailable错误，绝非真实授权撤销。`SEARCH_RACE_WIDTH=390` 覆盖窄屏。分别单次执行，失败非零保原raw，不重试输入。
+
+真实fill/focus后发送标准snapshot推进触后台query并挂响应，再仅一次sharedCDP可信Enter；验证submit及新search实际到wire、旧响应不能覆盖结果。查询错误允许保仍获准last-known模型，但必须明确失败、屏内主体0、旧targets不可交互，实际canvas点击不选中且旧晚包不复活。该路径不以DOM删除判定撤权，不伪造身份／grant或暂停renderer/poll。清单保实际source/runner身份与完整依赖SHA；三个实体的技术observer/debug夹具不签真实WorldService、P5/P6或任何性能／长窗结果。
+
+### 本机启动正式分布（5772）
+
+固定产物及runner后，以 `VIEWER_STARTUP_DISTRIBUTION=1` 和三case工具相同的四个 `VIEWER_STARTUP_*` 路径/source环境变量执行 `node crates/oasis7_viewer/scripts/viewer-product-startup-calibration.mjs`。一次20个全新私有profile/进程后，30次重开第一个profile的新进程；同服务器、origin、资源版本、1440×1000/DPR1，保持实际no-store交付，不强求热HTTP命中。不清OS缓存，不宣称已隔离WASM编译缓存。采样前落固定顺序/源/hash/设备/45分钟总界预注册；任何失败终止后继并保留全部已有样本，不补跑/挑样/改变端点。每次owned进程退出证明后才下一样本。
+
+分别报告bridge ready、完整query场景、Atlas正常截图后图像已观察上界、可信原生选择后DOM上界；截图/RPC/Python开销包含且不扣除，physicalFirstFrame和coreGoalUi仍unknown。全部50项成功且端点有限时按nearest-rank（ceil(n*p)）独立统计两cohort P50/P95/max并保留原顺序raw；不足/失败不签完整分布。旧三case不并入本批，原A/B取消非passed；本机受控observer不代签真实玩家授权、50k query或整体P6。

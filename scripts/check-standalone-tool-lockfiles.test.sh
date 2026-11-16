@@ -142,7 +142,10 @@ if ! OASIS7_STANDALONE_TOOL_REPO_ROOT="$fixture_repo" \
   exit 1
 fi
 grep -q "ok: standalone lockfiles are locked and manifest-consistent (5 manifests)" "$structural_out"
-if [[ "$(grep -c -- "--no-deps" "$cargo_call_log")" -ne 1 ]] || grep -q -- "--locked" "$cargo_call_log"; then
+expected_locked_calls=0
+if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then expected_locked_calls=1; fi
+if [[ "$(grep -c -- "--no-deps" "$cargo_call_log")" -ne 1 \
+   || "$(grep -c -- "--locked" "$cargo_call_log" || true)" -ne "$expected_locked_calls" ]]; then
   echo "standalone lockfile structural checks invoked Cargo beyond root workspace membership discovery" >&2
   cat "$cargo_call_log" >&2
   exit 1

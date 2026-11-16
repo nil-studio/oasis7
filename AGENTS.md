@@ -10,7 +10,7 @@
 - Cargo 默认使用各 worktree 的本地 `target/`，无需预先准备。日常反馈用开发 wrapper，正式验收保留 canonical 命令和参数。
 - `third_party/` 只读；Rust 工作参考 `third_party/rust-skills/AGENTS.md`。
 - 默认优先[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)，可独立交付的前置尽早提供给依赖方；强耦合改动可原子跨多个 crate。未拆分的简单修改可直接用 PR，Project 按需使用。
-- 复杂任务先按[任务拆分与并行开发](doc/engineering/workflow/source-of-truth.md#parallel-task-development)梳理依赖、写入范围和集成验收；拆出的开发任务须建立 [GitHub 原生 sub-issue](doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)，使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 按子 Issue 领取并在独立会话中推进。派发前核对[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)，局部自测随本项交付，任务拆分不等于拆 PR。
+- 复杂项目先按[项目拆解](doc/engineering/workflow/source-of-truth.md#project-decomposition)组织可用模块增量、关键依赖和整体验收，只细化当前及近期批次；按实际收益拆出独立任务并建立[原生 sub-issue](doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 核对真实消费接口、[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)与领取，在独立会话中推进并及时集成。同一业务的内部步骤连续完成，任务与 PR 不机械一一对应。
 - 仓库文档及 Issue、PR、评审和交接文字遵循[语言与写作要求](doc/engineering/workflow/source-of-truth.md#language-and-writing)。
 - 问题根因确认后，先按[设计检查与修复](doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：有缺陷先补受影响文档再修实现；纯实现 bug 直接修复验证，不强制改正确设计。
 - 新增或实质修改的跨层要求按[要求追踪规范](doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)关联唯一声明、适用设计与当前 PR：复用同一要求的 Trace ID，不把它当任务身份或准入条件，不为简单编辑虚构要求或补齐三层。
@@ -25,7 +25,7 @@
 - 测试：`testing-manual.md`；UI/Web 见 S6。
 - 按[测试分工](doc/engineering/workflow/source-of-truth.md#issue-lifecycle)，开发者随 PR 完成单元测试及不依赖外部条件的集成测试；合入后仍有复杂测试才转交原 Issue。测试任务按[接收规则](doc/engineering/workflow/source-of-truth.md#test-task-acceptance)及[操作手册](testing-manual.md#test-issue-acceptance)认领、执行和结项。
 - Agent 游戏功能验证须按[规范触发范围](doc/engineering/workflow/source-of-truth.md#agent-gameplay-selftest)执行[自测操作手册](doc/testing/manual/agent-runtime-self-playtest.manual.md)：主 Agent 组织独立试玩、读取正式游戏 Skill、核对世界结果并修复复测；缺前置如实报告，普通 CI 不代签实玩。
-- 显式本地检查见 [测试手册](testing-manual.md#local-check-entry)：文档用 `./scripts/doc-governance-check.sh`；诊断套件用 `./scripts/ci-tests.sh commit`（必须显式 tier）。`pre-commit.sh` 是 no-op 兼容入口，不执行验证。
+- 显式本地检查见 [测试手册](testing-manual.md#local-check-entry)：`python3 scripts/check-local.py --profile quick` 执行固定 baseline；`--profile affected` 沿可信 planner 选测，未适配组在执行前 blocked；formal 必须显式 tier，当前 full 只支持规划。入口按实际 Linux 能力与输入范围报告，不替代原 canonical 验收。`pre-commit.sh` 是 no-op 兼容入口，不执行验证。
 - PR：按[PR 描述要求](doc/engineering/workflow/source-of-truth.md#pr-description)填写并更新正文；`gh pr create`、`gh pr checks <pr> --required`。
 - 合入：满足适用评审、检查及用户限制后，执行 `gh pr merge <pr> --squash --match-head-commit <expected-head>`。
 

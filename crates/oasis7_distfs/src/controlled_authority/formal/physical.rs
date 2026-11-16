@@ -27,7 +27,7 @@ const FRAME: usize = 65536;
 #[path = "physical_bounded_read.rs"]
 mod bounded_read;
 #[cfg(unix)]
-pub(crate) use bounded_read::{PhysicalReadWorkV1, read_unknown_length_durable_v1};
+pub use bounded_read::{PhysicalReadWorkV1, read_unknown_length_durable_v1};
 #[cfg(unix)]
 impl PhysicalReadWorkV1 {
     /// One fixed Store read: finite upper allowances derived from the original
@@ -52,6 +52,7 @@ impl PhysicalReadWorkV1 {
         })
     }
 }
+
 
 const MAX_OBJECTS: usize = 65536;
 #[path = "physical_batch.rs"]

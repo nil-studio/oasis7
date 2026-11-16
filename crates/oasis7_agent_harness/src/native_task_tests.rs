@@ -22,6 +22,7 @@ struct State {
     known_feedback: BTreeMap<String, oasis7_game_client::AuthorizedFeedbackRecord>,
     effects: std::collections::VecDeque<NativeTaskRecovery>,
     read_results: std::collections::VecDeque<Result<Value, &'static str>>,
+    prepare_error: Option<String>,
 }
 struct FakeHost {
     state: Mutex<State>,
@@ -133,6 +134,9 @@ impl NativeTaskHost for FakeHost {
         Ok(Some(result))
     }
     fn prepare(&self, op: &str) -> Result<NativeTaskContext, String> {
+        if let Some(error) = &self.state.lock().unwrap().prepare_error {
+            return Err(error.clone());
+        }
         if self.state.lock().unwrap().expired_contexts.contains_key(op) {
             return Err("expired private context cannot be read".into());
         }
@@ -712,3 +716,6 @@ fn native_runner_consumes_shared_scripted_provider() {
 fn shared_provider_contract_runs_in_harness_tests() {
     oasis7_agent_api::test_support::assert_scripted_contract();
 }
+
+#[path = "native_task_preparation_tests.rs"]
+mod preparation;

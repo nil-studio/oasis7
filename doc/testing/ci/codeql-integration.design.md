@@ -326,7 +326,7 @@ Rust 求值日志的闭包行数不能直接代表独占耗时、实际物理存
 
 ### 7.1 两档查询
 
-PR 和定时默认基线使用内置默认查询：不额外指定自定义 pack、`security-and-quality`、`security-extended` 或实验开关。尽可能保留官方对 Python、JS/TS 的默认增量路径。[E3、E4]
+PR 和定时默认基线保留官方默认查询集合，不加入 `security-and-quality`、`security-extended` 或实验查询。Rust default 的可信默认分支维护使用 §7.2.6 的固定库修复和原始默认查询源码；其他场景继续使用 Action 内置默认选择。尽可能保留官方对 Python、JS/TS 的默认增量路径。[E3、E4]
 
 每日扩展档使用 `security-extended`。对当前查询包明确支持的语言，可以在扩展档验证 `local` threat model，以纳入 CLI 参数、环境和本地文件等来源；支持范围、额外告警和耗时必须单独确认，不能默认它覆盖所有项目 CLI 威胁。PR 默认档不因该扩展而改变。[E10]
 
@@ -463,7 +463,23 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接同一调用补�
 
 Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不把未遮蔽流另外写入 artifact。监督样本、入口身份和终态写入尚未封存的官方 256 MiB 目录；不能修改已封存的私有 prepare 证据。只有监督成功、真实 main 退出 0、进程组收尾可信且原截止内完成，提取 checkpoint 才可准入。超时、外层取消/消失、监控或收据失败均保持不完整；不能因 Action step 或后续采证单独成功而放行。
 
-本模式使用明确版本 `qualifier-lines-v2`：仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；完整文件集合及前后摘要核验最终仅有这两项差异，不允许第三处修改。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。旧 capacity/qualifier 对照仍沿原单文件合同。
+本模式使用独立研究版本 `qualifier-lines-constraint-matching-v6`，依次保留 v3 基础组件、完整 v5 中间层和新增的 ConstraintMatching 父重构身份。基础组件仅在采集树外复制官方 `rust-all`，先按 §7.2.1 核验原 qualifier 补丁及唯一 `TypeInference.qll` 差异，再应用独立固定摘要的 arity 补丁。它仅把原参数个数等式封装为 `bindingset[ce, target]`、`pragma[inline_late]` 检查，使调用及路径解析目标绑定后再展开比较；目标唯一性仍量化同一调用的全部 `ItemNode` 解析结果，原资格条件、类型路径及返回集合不变。该中间 v3 `TypeInference.qll` SHA256 仍为 `d502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb`。原 qualifier 与 arity 的前后摘要分别保存，旧 capacity/qualifier 对照仍使用原单文件补丁；§7.2.6 生产路径复用同一 v3/v5/v6 组成并独立验收。
+
+随后向 `codeql/rust/frameworks/stdlib/core.model.yml` 增加原有唯一通用 summary：`["<core::str>::lines", "Argument[self].Reference", "ReturnValue.Element.Reference", "taint", "manual"]`。固定原文件 SHA256 为 `756cb0231b80f70c944cef16ed8c7db449580629b70328ec1e776d4c3f206400`，新文件仍为 `4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734`；中间 v3 `rust-all` 的完整文件集合及前后摘要仍恰有 TypeInference/core.model 两项差异。该 summary 表示 `&str` 内容到 iterator 元素所引用内容的派生 taint，不证明字符串值相等、实际行数或运行时一定产生元素；它不引用业务路径或见证名称。
+
+v5 中间层沿用 v4 的 shared helper：在采集树外复制固定 `codeql/typeinference` 0.0.42，仅允许 `codeql/typeinference/internal/TypeInference.qll` 一处差异：原 SHA256 为 `2a6d0a6be96444593e6294cb848633256f228f0ff137d42357f1ee4b92724378`，结果为 `4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b`，补丁为 `6b5a4cd3443caca8e994f05aa3c57e34b23c6fe3dfdc27851eb5f5c6ebf3c36c`。来源是上游 [34c3f5b](https://github.com/github/codeql/commit/34c3f5b74d3acee241d57c596044de3f1a0c8918) 的两个 helper hunk；这一层不包含 ConstraintMatching 父重构、ParenExpr 删除或测试预期变化，不修改 extractor、dbscheme 或原官方库。
+
+该改写保持 `satisfiesConstraint0` 的量化域、歧义分支及原约束匹配条件；新增 helper 只先绑定本次 term/constraint 与同一抽象的候选集合。对原 `forall` 域内任一行，外层同一 constraintMention 已是新增存在条件的见证，因此右侧与原条件等价，空域及非歧义分支不变。计划验收须检查真实连接键及递归依赖，不能仅依据 helper 名称；原官方 type-inference fixture 与未改 expected 必须对官方及实际新组合做回归，代表计划与小 fixture 均不证明全仓收敛或性能改善。
+
+v5 只在上述完整基础上应用固定两文件注解补丁（SHA256 `15d67391f614b0ef8ef5cc6ff4a2b404bb98b4656b33ff41a4f6292db8ec1c21`）：关联函数的 `assocFunctionCallTraitCandidate` 从 `nomagic` 改为 `inline`，`PathResolution.qll` 的 `relevantTraitVisibleLift` 从 `nomagic` 改为 `bindingset[trait, element]` 与 `inline_late`。全部谓词体、名称与参数数关联、显式 trait 排除、端点域、图边及最终配对不变；不为前者添加双端 bindingset，因为端点域仍需投影存在性。最终 Rust TypeInference SHA256 为 `db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b`；PathResolution 原 SHA256 为 `c83ebb64d9a10628ec37afaac3543ad0e2ac36f1297cffd4e85e29ea66f9fa8d`，新 SHA256 为 `222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf`。当前生产按 §7.2.6 复用包含该注解的 v6 准备链；v3 中间层准备与验证、旧 qualifier 对照及 WASM helper 保持各自固定合同。
+
+v6 在真实 v5 通过验证后，仅对同一私有 shared 文件叠加上游 [1c4fea90](https://github.com/github/codeql/commit/1c4fea90af949111bc1c625f1e72de56a12c7712) 的 ConstraintMatching 父重构，将共有约束匹配逻辑集中到同一模块。最终 shared SHA256 为 `8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33`，其余 Rust/shared 文件与 v5 完全一致。原 API patch SHA256 为 `ba47e346672cd8281b3a6a3d94647b0d00d733a273311799b0533dc4b0fd37db`；补充私有包路径头的原 8-hunk patch SHA256 为 `3880e57052c74d8af7f155a7abc8b721eef0725463897647809fd10b28d3a0ba`。仓库应用补丁 `codeql-rust-constraint-matching.patch` SHA256 为 `e6563cf895df0f662444795cf5c8f2358804784d667ccce4b11fa336ffde7db8`：只拆分不变上下文并按固定 v5 输入重算行号，保留原全部增删行的字节与顺序，相同输入产生逐字相同的最终文件。应用前验证补丁与 v5 基线，使用 `--forward --no-backup-if-mismatch --fuzz=0`；最终完整集合和 mode 校验不接受备份文件或其他变化。已有 RA/fixture 结论只能随相同最终库字节复用，实际新 helper 的补丁应用和原 44 条解析仍须验证消费路径。
+
+准备、恢复与结果记录绑定 v6 整体身份，`shared-helper-identity.json` 和 `trait-visibility-identity.json` 仍明确标识 `qualifier-lines-shared-trait-v5` 中间层。恢复先用当次官方 Rust 快照重验保存的 v3 两文件基线及实际 trait 注解树，再用当次官方 shared 快照和保存的 v5 shared 快照重建旧 helper 身份。旧 shared 路径验证器保持原签名、路径检查、固定摘要及返回结构；只将快照比较体抽为纯函数，不能把实际 v6 目录冒充 v5。新增 `constraint-matching-identity.json` 绑定这两份 v5 收据摘要、上游/补丁来源、shared 前后完整快照和唯一 `4a65… → 8b32…` 差异。最终相对官方仍恰为三个 Rust 文件和一个 shared 文件变化；44 条实际 closure 均须选择两份私有包。即使重新封存，旧 variant、伪造中间快照、官方 shared 回退、旧字节、额外差异或缺失收据也不得准入。
+
+旧 v5 完整研究运行已超时，默认结果与公共语义未完成，详见 [#4989](https://github.com/nil-studio/oasis7/issues/4989)。旧 v2/v3/v4/v5 收据和结果保留原身份与终态，不代签 v6；本研究不直接启用生产批次，生产接入按 §7.2.6 验收，现有 WASM shared helper 的固定契约保持。
+
+执行计划核对必须使用对应 CLI 和实际编译选项，检查真实目标连接先于仅按 arity 的宽连接，并核对两处 TraitIsVisible 实例：完整 candidate/Lift 不再独立物化，最终由可达关系绑定端点后按原配对过滤，端点存在域与图边保持。TC 起点包装的消去或反向求解须分别证明等价，不能只以谓词名称消失判定优化成立。ConstraintMatching 重构另需核对实际约束位置、连接/投影和递归直接反馈；`inferType` 块未变不能被表述为热点已消除。原官方 type-inference/path-resolution fixture、未改 expected 与实际候选组合需覆盖相关正反例，分别记录结果多重集和原 CLI 结果，不将既有 RESULT 失败改写为通过。计划或小 fixture 均不证明全仓耗时、内存或收敛改善，单查询编译通过不代签原预算下的 37+7 执行、语义或生产容量。
 
 默认查询从冻结的官方 37 项 suite 取得，保留全部原 QL 字节、相对支持文件及 suite；私有源码 pack 明确列出包装差异，排除 `.qlx`、发布编译缓存、嵌入依赖和发布锁定绑定。默认查询的 14 项依赖包含 `suite-helpers` 1.0.61，其 `library:false` 角色单独严格核验，不放宽原 13 个 library 闭包解析器。44 条查询逐项验证实际候选库、完整依赖和 dbscheme；源码清单、命令参数或解析成功不能代替实际编译与求值。执行显式使用 `--no-use-precompiled`、独立编译/common cache 和 Action 实际资源。
 
@@ -472,6 +488,71 @@ Action stdout/stderr 继承 runner 通道以保留命令处理与 masking，不�
 该模型的开发回归使用真实固定源码小样本及独立双 receiver、同名非 stdlib `lines` 控制；后者须先证明来源到实际 receiver 的传播，避免把没有来源的零值当模型隔离通过。小样本只验证候选模型及查询，不代签完整原 crate/workspace、显式 `into_iter`/`next` 或整个 iterator 家族。模型改变影响全部默认查询，后续完整结果必须由同一新候选的一次37+7运行取得，不能拼接旧37结果。
 
 同一 finalized 数据库以一次 `run-queries` 执行44项。37项均须保存并核对 BQRS 身份、完整 info/decode；七表按上述版本的完整正反例、行数和来源 oracle 逐项验证，Image v2 不覆盖或追认 v1 的失败。仅对默认37项在 runner 本地 interpret-results 并调用原 SARIF 校验；SARIF 留在不上传的数据目录，artifact 只保存其 hash、size、受限规则/计数摘要及验证收据。数据库与源码 archive 同样不上传。任一结果不符合时保留原失败和其余已计算观测；解码、进程、预算或证据错误停止后续执行，未执行、超时、真实零行与 oracle FAIL 分开记录。
+
+本候选模式的 `candidate-evaluator-v1` 观测只接入上述唯一批次，固定官方 2.27.4、`--evaluator-log-minify`、日志级别 3 和禁用 tuple counting；不额外运行查询或预热。固定 2.27.4 的 summary collector 会读取 stage-result usages；level 1/2 缺此字段，实测 level 1 summary 出现 NullPointerException，因此使用最低提供 usages 的 level 3，不开启 level 4 cache-miss 或 level 5 RA。候选专用 capture 将 owned FIFO 的原始 evaluator 字节流无损编码为 gzip，固定 zlib level 6、windowBits 31、memLevel 8；实际 encoder 和收据使用同一个候选专用常量。Linux memfd 中的 encoded payload 至多 47 MiB，codec 和传输有界缓冲合计保守预留 1 MiB。原流和编码内容均不写普通文件、artifact 或控制台。默认 raw-only `Capture()`、WASM 与共享 runtime 保持原行为。
+
+level 6 用更高编码 CPU 换取压缩容量，不能承诺总运行更快或任意完整流都能装入。windowBits 31 是有效窗口 15 加 gzip 封装；固定窗口和 memLevel 决定主要 codec 状态分配，参见 [zlib 参数说明](https://zlib.net/manual.html)与[内存说明](https://zlib.net/zlib_tech.html)。每次输入仍至多 64 KiB，feed 与 finish 返回的编码块继续受 128 KiB 检查；返回后检查不是 Python 临时分配或 RSS 的硬上限，也不能用单次整流的 deflateBound 代签 streaming 返回峰值。encoder 在结束后释放，decoder 仅在后续重放阶段拥有状态。容量、输出块或 finish 超界保持原拒绝与清理规则，禁止截断、raw fallback 或扩大预算。`gzip-capture-v1` 的身份含义不变，历史 level 1 原件不重解释；公开固定输入的容量回归须冻结输入生成规则、原始长度/SHA 和测试上限，验证同一流在旧 level 1 超限、新 level 6 完整编码并独立解码，不能在测试执行时按输出重算上限或外推私有全量流与 20 秒摘要容量。
+
+`gzip-capture-v1` 将原流的实际观察字节数、SHA256、header/footer 和传输 EOF，与编码存储的字节数、SHA256、gzip finish 及 memfd seals 分别记录。`encoding_input_bytes` 及其摘要只表示成功交给编码存储路径的原输入前缀，编码未完成时不证明该前缀可解码；`encoded_bytes` 才是 memfd 的实际长度，不沿用 raw `retained_bytes` 的含义。停止生产并清理 owned 进程组后，关闭父写端、有限 drain 到真实 EOF，再完成 gzip 编码并封住 memfd 的写入/增长/截断。gzip finish 的输出也受 47 MiB 上限约束；编码长度不是原流长度，编码结束或 seals 成功也不能代替原流完整与查询成功。
+
+固定 2.27.4 的真实 query/STAGE_RESULT 小日志已验证：非 seekable proc-pipe 输入以及 gzip 解压重放与 regular/sealed memfd 输入的官方摘要逐字相同，修正原“摘要器必须 seek”的静态假设，依据见 [#4989 的续接记录](https://github.com/nil-studio/oasis7/issues/4989#issuecomment-6874145775)。候选仅从已 finish、完整封存的 gzip memfd 有界解压，通过 `/proc/父pid/fd/readfd` 向官方摘要器重放原字节；不将 evaluator 的实时 FIFO 接给摘要器，不落地解压副本。解压须核对 gzip 完整结束、没有额外编码内容，并将重放的原流字节数和 SHA256 与 capture 相等绑定。小样本只证明该输入路径兼容，不代签所有 44 项的日志形状、311 MB 完整流的压缩比或 20 秒全量摘要容量。
+
+临时原始流存储及处理、持久化私有证据和原终态预留共同计入 64 MiB。memfd 存活期间仍保守预留完整 48 MiB，其中 47 MiB 给编码 payload、1 MiB 给 codec/传输；进度、摘要、资源样本及观测收据另受合计 8 MiB 子限，不能挤占终态保留区。候选模式从此子限中预留 4 MiB 给数值投影及随后官方摘要消费的 framing、受限解析和固定关联状态，两者须交接所有权；其余持久化观测证据仍不超过 4 MiB。这是有界输入和保留状态的保守分账，不是 Python 分配器或进程 RSS 的硬上限。只有编码容量将超 47 MiB 时，停止存储新增编码内容，继续排空 FIFO、累计原流实际字节数和摘要，并继续下述白名单数值投影；已有编码存储的字节数、摘要和完成状态另行冻结。该状态记 `MEMORY_LIMIT`、capture/观测 `INCOMPLETE`，不据此中止原唯一 batch；其计算、BQRS 校验和七表 oracle 仍受原截止、证据空间及失败规则约束。不得对不完整编码调用官方摘要器，不伪造丢弃部分的 footer、事件、gzip 尾部或 summary；即使计算及 oracle 通过，研究总体仍为 `CANDIDATE_RESEARCH_INCOMPLETE`。写入、codec 异常、身份、证据空间及清理不可信等其他失败仍按原规则处理，不能套用仅容量不足时的继续排空例外。
+
+数值投影只在上述候选批次的 `Observation.start()` 显式接入同一 `Capture`，从第一字节沿既有 FIFO/framer 观察，不另读数据库原生日志，也不增加查询、摘要进程或截止。默认 `Capture()` 与 WASM 的 `Progress` 保持原行为。固定 CLI 2.27.4/raw log 0.5.0 下只选择一个源码 family：`appearsAs` 的完整 alias 在有界编译器 suffix 之前须含精确 `TypeInference` namespace 分量，末成员须精确为 `inferType/2`；泛型参数内部的同名字样、相似 namespace/member、其他 arity 或成员之后额外 namespace 均不准入。suffix 只作为 opaque 身份，不解释为成本或关系语义；准入 alias 立即转为 SHA-256，构成本次运行的精确映射，不把小 fixture 的 alias SHA 当作完整 v4 批次已经观测的身份，也不使用 `predicateName` 后备匹配。
+
+同一显式数值观察路径在 `Capture.feed` 的既有处理体外计量 wall 与当前线程 CPU，将整次调用及输入字节归入固定三个桶。候选 gzip 路径按实际 encoded 存储是否越界归类：进入调用前已越界为 `AFTER_LIMIT`，本次编码写入首次越界为 `CAP_CROSSING`，其余为 `BEFORE_LIMIT`；恰好填满仍属 `BEFORE_LIMIT`，跨限调用不拆分。不按原流字节数推测编码容量，也不因 gzip 缓冲延迟输出而提前计入越界桶。仅在 gzip finish 时越界须在独立的编码完成状态中记录，不虚构一次 feed 或回改此前桶。默认 raw 路径的原有分桶行为保留。仅保存各桶次数、字节数和时钟差值累计；时钟不可用、读值或差值无效时保留未测次数及已测小计，完整总量为未知，不写异常原文，不改变原 capture、查询失败或验收状态。无调用的桶记 `NOT_OBSERVED`。计量采用固定数量的计数器，并写入原 observation 控制收据，不新增逐调用明细、文件、解析或预算。
+
+`Observation.run_batch` 另在原唯一 `runtime.run` 调用外以父进程时钟计量，`finally` 覆盖成功、超时、异常及原清理。该 CPU 包含调用期间父进程全部线程的监督、采样、feed、drain 和进程收据写入，排除子进程/PGID CPU；不包含整个 job，也不能与 feed CPU 相加或相减当作其他组件独占成本。回调 wall 包含处理期间的等待与调度，时钟读取和累计本身也有观测开销；这些数据不能还原未插桩运行或证明旧运行的因果。计量完整性不成为新的研究或启用门禁，默认 raw-only `Capture`、WASM 和共享 runtime 保持原合同。
+
+原始记录的 `PREDICATE_STARTED.eventId`、`PIPELINE_STARTED.predicateStartEvent` 与完成记录的 `startEvent` 建立同一次流内关联；每个 predicate event 独立记录，多 alias 共享一个事件只投影一次。数值收据使用 `candidate-numeric-v2`，完成和未完成 predicate 样本增加 `ra_identity_sha256` 与 `predicate_start_offset_ns`；前者对原 `raHash` 的 UTF-8 字节使用与官方 summary 投影相同的 SHA-256，缺失或空值为 `null`。同 RA 的不同事件不合并，alias 摘要也不等同于 summary 的 predicate-name 摘要。pipeline 在启动时复制父实例的这两项字段，完成尾样本和未完成样本据此在 predicate 样本裁剪后仍可关联；沿用原活动表、尾样本和收据上限，不增加历史身份表。旧 v1 收据没有这些字段，不能回填或推定旧执行计划相同；外层观测与 capture/summary 合同不变。
+
+`predicate_start_offset_ns` 以同一原生流首个通过既有校验的 `LOG_HEADER.nanoTime` 为原点；零和负的原生 `nanoTime` 都是合法值，重复 header 不重置原点。顶层 `last_observed_offset_ns` 只取流中最后一条未触发现有数值校验错误的事件，包含字段、枚举、完成状态、关联和容量检查；不用最大时间，也不由报错记录推进。未完成 predicate 的 `observed_open_span_ns` 只到该末次有效事件；它不是完成耗时、CPU 或到父进程超时的时长。缺少原生端点、负差或差值超出有符号 64 位非负范围时，仅相应字段为 `null`；多线程事件可按到达顺序交错，后续合法端点仍可恢复可计算信息。末次事件晚于 header 但早于某 predicate 起点时，顶层偏移仍可有效，该 predicate 的观察跨度未知。不得钳制、取绝对值、改用最大时间或补父进程时钟。新增字段缺失或无法计算不增加校验错误或完成门槛；旧 schema 原本拒绝的缺 `nanoTime`、错误类型和非法关联仍保持原错误，未闭合或缺 footer 仍保持 `PARTIAL`。
+
+其余持久化白名单仍只有固定 probe 编号、alias 摘要、event/layer/generation 数字、配对的非负 `nanoTime` 差、分别命名的 predicate/pipeline `result_size`、固定完成/异常存在状态及有界计数和尾部样本；不保存 QName、路径、RA 原文、异常文本或 `queryCausingWork`，不按 query 分摊整批共享关系。省略 `resultSize`、generation 或计时不能补零；成功时可省略的 `completionType` 与显式失败/不完整状态分开保留。单个 pipeline 的零结果之后，同一 predicate 更晚的 generation 仍可有正值，因此 `result_size` 不是通用 delta 或收敛判定；较大 generation 也不直接证明慢。pipeline 与 predicate 区间可能重叠，不相加当作 CPU、全批次耗时或完整排名。
+
+framer 仍最多保留 2 MiB 未完成行；新增数值解析每条最多 64 KiB，并分别固定 alias、活动 predicate/pipeline、包括已关闭事件的目标身份、完成尾样本及拒绝计数的上限。超长记录有界跳过至下一换行，未知 schema、重复/不完整关联、表饱和、解析异常或缺少真实尾部均使数值观察 `PARTIAL`，只保留固定原因和已有允许字段，不抛异常遮盖原 batch 首失败，不回退原文。未命中记 `NOT_OBSERVED`，不能称该源码 family 未执行。数值状态独立单列，是否命中或投影完整不成为研究完成的新门禁；原 capture 与官方 summary 的准入不变，部分投影也不能提升它们或研究、生产验收。数值详情使用原私有 evidence 下单独至多 32 KiB 的控制收据，包含流摘要/字节字段的最终编码、原进程/控制收据及子限一并核验，序列化与清理仍受原截止约束。
+
+`candidate-numeric-v2` 可附加独立版本的 `non_success_global_v1` 诊断，仅解释全流原有 `NON_SUCCESS` 计数增量；此作用域不受外层目标 family 的样本范围限制。固定 23 槽：索引 0–9 为 `PREDICATE_COMPLETED`，10–19 为 `PIPELINE_COMPLETED`，两组均按 `MISSING / IMPLICIT_SUCCESS / SUCCESS / FAILURE / INCOMPLETE` 的顺序、每类先 exception 键不存在再存在；20–22 为 `QUERY_COMPLETED` 的 termination 缺失、`COMPLETED_SUCCESSFULLY`、其他已通过旧类型校验的字符串。前两类 termination 不适用，query 不接纳 completion 或 exception 字段。仅在原两个 NON_SUCCESS 增量点同步计数，失败 completion 与 exception 同时存在仍只计一次；空 exception 字符串仍是键存在，错误类型和未知 completion 仍按原 validator 拒绝。不得按记录有效性、目标命中或是否已触 capture cap 重新筛选，也不改变原时间端点、关联、错误或完整性判定。
+
+每槽与原总计均限制在有符号 64 位非负范围内，饱和须显式标记；完整分账满足 `min(2**63-1, sum(counts)) == errors["NON_SUCCESS"]`。内部只保留固定数量计数器，报告仅有固定 schema/status、数字数组和饱和标记，不保存异常名、termination 原文、事件/query/RA/路径身份或逐事件明细。旧报告先按原 31 KiB 算法完成裁剪与状态判定，再在原 32 KiB 控制收据内附加该诊断及原流身份；不得因新增字段挤掉旧样本或新增 RECEIPT_LIMIT。最终编码仍须有界，诊断不可用或余量不足时仅用固定 UNAVAILABLE 原因，不覆盖原错误、补零或建立新门禁。旧原件缺少该字段表示未采集，不反推历史原因；计数增量不等于唯一事件数或失败查询数。
+
+持久化证据空间不足、写入、组身份或有限 drain 不可信时，仍记观测不完整并停止后续子进程；编码存储上限耗尽不能解释成查询 OOM 或语义 FAIL。先冻结原 batch 退出及首失败、保存已有 BQRS 和核心身份，再按完整 capture 的准入条件，在原证据截止内尝试至多一次官方 `generate log-summary --format=predicates --minify-output --utc`。整个摘要路径共用一个至多 20 秒的绝对截止，包含有界解压、pipe 写入、官方进程及 worker/pipe/进程组清理；剩余时间/空间不足记 `NOT_REACHED`，不重置分析截止或增加收尾预算。
+
+摘要启动前只准备 owned pipe 和 sealed 输入；重放 writer 必须在现有 runtime 的 `Popen` 已返回后，由 `Summary.poll` 首次启动，避免活跃 writer 线程跨越 fork/preexec，不修改共享 runtime。正常完成、错误、超时和取消均须在同一截止内停止并收齐官方进程组与 writer，关闭其写端，再对父进程保留的 readfd 做有界读回检查：必须真实 EOF 且无残余字节。writer 完整写入、重放摘要匹配或 CLI 提前 exit 0 都不能单独证明完整消费；残余、未到 EOF、断管、writer 未退出或组清理不可信均不得记摘要完整。官方摘要原有版本/schema、输出边界及成功条件继续同时满足。
+
+官方 summary 的 stdout 与 stderr 均在首次持久化前受限处理：明确核对 2.27.4 及实测版本的 schema，拒绝重复键、未知字段/类型、非有限数、截断和非法编码；错误只写固定类别、字节数及摘要。名称、路径、RA、源码位置和异常自由文本不原样保存；只输出受限数值/状态、hash 及冻结查询身份。literal `millis` 与非负迭代小计分列，缺失或 `-1` 保留未知，不补零、不把 recursive layer/member 重叠成本相加，不跨运行连接 opaque identity，也不宣称独占 CPU。未知形状保留部分观察，不能由小 fixture 的已知形状推断完整批次兼容。
+
+摘要累计 stdout/stderr 字节数与 SHA256 覆盖整个实际观察流，不受 48 MiB capture 存储上限限制。消费者逐记录处理并丢弃原文，保持 2 MiB 单条、100000 条记录及原 20 秒共同截止；累计流超过 48 MiB 后仍逐项执行完整 schema、失败状态和尾部验证，不能只校验前缀。两流 pending 共用活跃额度，framer 在解析前移交并清空当前 pending，不保留整段 split 副本；当前行转换为 bytes 时的 pending/bytes 同时存活计入 framing 峰值。每次 runtime 读块最多 64 KiB。
+
+JSON 准入先在原 bytes 上识别字符串边界、转义和真实结构，不先整行 decode，不建 token 列表，也不使用为长字符串保留逐字符回溯状态的正则。长字面片段由固定字符类 search、find/count 跳过；字符串内的冒号、逗号和括号不作为容器收费。词法检查仅决定保守表示上界，后续仍由原 JSON/schema 校验拒绝重复键、未知字段、非法 UTF-8/转义、非有限数、类型/范围和截断，不能以预检通过替代字段验证。
+
+设当前源字节数为 N，整行解码表示宽度上界为 K（1、2、4），各字符串按字面片段字节数与反转义单位数上界、自己的宽度及 UTF-8 编码长度上界分别计量。ASCII 源中的 Unicode 转义和代理对可产生较宽的值，不能沿用源的 K；一处字面宽字符也可能扩宽整行 decode。解析 tree 分账为每个字符串的内容表示加 128 字节、非字符串标量 token 每个源字节 4 字节，再加 `512 × (对象数 + 实际键值分隔数) + 128 × 数组数 + 64 × 实际元素分隔数`；空白和结构符不重复算作标量。对象/键值费用包含 object_pairs_hook 的 pairs list/tuple 与最终 dict 同时存活，以及解析器键缓存；后续校验阶段的 associations set 可包含44项之外的唯一 query，仍计入同一结构峰，不能按44个已知 query 免计。
+
+按所有权分三阶段取最大值，再加另一流 pending：decode 峰为 `N + 2 × K × N`，为旧/新解码 writer 同时存活留额；parse 峰为 `N + K × N + tree + 2 × 最大单字符串内容表示`，包含反转义 writer/chunks 的暂存；校验/投影峰为 `N + tree + 最大单字符串反转义后 UTF-8 编码长度上界`。整行 decode 在 parse 返回后不再与后续编码机械累加，text_value 临时编码却不能漏算。固定映射的排序、行对象及其 JSON/UTF-8 编码同时存活继续计入下表控制分账。该模型是有界输入/保留表示的保守分账，不声明 Python allocator/RSS 硬上限；没有以未知私有失败行反推新系数。公开合法大 ASCII、标点字符串、转义等价、BMP/nonBMP、dense 容器与 late-wide 空白样例须验证不同表示和阶段峰；原3744项迭代及对应 delta、累计超过48MiB后的完整尾部验证继续保留。2MiB仍为外层记录硬上限，并不保证任意较小对象都能在状态额度内准入。
+
+摘要接手同一 4 MiB 活跃额度，固定分账如下；不增加第二份活跃状态预留。
+
+| 保留内容 | 字节上限 |
+| --- | ---: |
+| 65536 个四字节索引槽，至多 49152 个完整 32 字节 RA 摘要及四字节首次序号 | 2031616 |
+| 冻结 schema/query 映射、两榜各 50 条受限编码行、至多 16 条复用/拒绝样本及控制状态 | 524288 |
+| 当前 runtime 输入块 | 65536 |
+| 两流 framing、逐记录源字节及解析暂存 | 1572864 |
+
+schema 编码至多 64 KiB、query 映射至多 128 KiB，排名每行至多 2 KiB，临时第 51 项也计入分账；启动 Summary 前释放已经结束的 batch `Progress.queries`，其原 streams/counts 收据继续保留。RA 索引用完整摘要判等，每条最多探测 256 个槽；达到 distinct 上限后仍能查到旧 RA，新 RA 或探测饱和须以 `SUMMARY_STATE_LIMIT` 拒绝，不消耗额外截止。不得清表、截断摘要或静默省略后宣称 `PROJECTED`。状态或输入边界失败须保持 sticky `PARTIAL`，继续现有 runtime 的有限排空与全观察字节/摘要计量，不能恢复完整状态或覆盖原批次首失败。
+
+状态限只增加一个至多2KiB的 sticky first-limit 对象，计入原控制分账及收据上限。固定枚举区分 schema/query、chunk/framing、decode/parse/projection、RA容量/探测与排名行分支；有界整数仅记录流行号、已接纳数量、原字节/另一流pending、真实结构/字符串计数、阶段峰及适用额度，或该分支的RA/probe/行编码大小。没有完整记录时不补长度，不保存原文、名称、路径或异常自由文本；预检拒绝不能标记schema已验证。诊断失败不得覆盖最早状态限或原查询首错，不新增验收门禁，也不回填旧运行的失败记录。
+
+`Summary.summary()` 只承接 runtime 已结束进程与有限 drain 后的幂等终态快照；先保留实际 EOF、未完成 pending 长度及原错误，再释放 RA 表、framing 和不再使用的映射/编码状态后构造受限摘要。没有真实 EOF 的路径仍为 `PARTIAL`，不补 EOF；终态快照后禁止继续 feed，只允许重复读取同一结果。此交接覆盖取消、超时和 drain 未闭合路径，不能只对正常 EOF 释放状态。
+
+任一 `Summary` 构造或摘要子进程启动前，先将已结束数值投影按原至多 32 KiB 收据写入并核摘要，绑定其原流字节数/SHA256，然后释放 `capture.projection` 的关联表与尾样本；保存失败时保留原对象并停止摘要准入。若写入成功但首次核验失败，`finish()` 仅核验已有同一内容，不覆盖重写：使用不跟随符号链接、非阻塞方式读取长度精确匹配的普通文件，至多读取 32 KiB 加一字节，核对读前后文件及路径身份和完整字节摘要；特殊文件、替换、长度或内容不同均拒绝。已冻结引用不重新写入或降为 `NOT_REACHED`。原数值投影的 `PARTIAL`、`NOT_OBSERVED` 仍单列，不新增完成门槛；默认 raw Capture、Progress/WASM 与共享 runtime 保持原合同。
+
+每条观察由本次官方摘要流 SHA256 与 header 后的原记录序号共同标识。`raHash` 是内容身份，不能当执行事件 ID；官方允许其复用，名称也不唯一。所有合法记录按原序号保留各自 literal 计时并参与有界排名，复用仅计数和留受限示例，不据此拒绝、去重或合计成本，也不将同一记录复制归因到多个查询。
+
+batch stdout/stderr 的受限查询进度保留 wall/monotonic 接收时刻、流完整性和冻结查询身份。该时刻含缓冲和观察误差，不是 CLI 内部阶段边界，不能用每 query 标签相加推断整体编译 wall。终态分别记录计算、oracle、capture、summary 与研究完整性；摘要成功不会提升原 timeout 或 `NOT_REACHED`，原首失败不会被后续观测错误覆盖。观测明确标记 `instrumented=true`，资源采样仍是观察下界；部分摘要只描述已观察记录，不能称为全批次完整排名或最后活跃谓词。
+
+开发验收以新 600 秒 D0、独立小 fixture/DB/cache、2 threads/3072 MiB 验证真实 2.27.4 的 gzip memfd/有界解压/proc-pipe/官方摘要链，再覆盖原 candidate 接线及成功、未知 schema、encoded cap 与 finish 越界、重放长度/摘要不匹配、提前 exit 0 未消费、内存/证据边界、取消/超时、尾部 drain、异常隐私和 writer/FD/组清理。它只验收观测适配，不代签完整37+7、全量压缩容量、20 秒摘要完成或性能根因；旧 raw `MEMORY_LIMIT`/`INCOMPLETE` 不以新表示追认为成功，旧 2.27.3 profile 与其他 runtime 调用保持原行为。
 
 执行前后检查完整业务输入、官方 bundle、候选整个库、私有 query pack、DB metadata 和封存 checkpoint。缓存/结果与受保护源码隔离。失败仍在原截止内保存已有有界日志、BQRS/解码和退出收据；官方证据保持 256 MiB 上限，私有证据为 64 MiB 且保留终态空间，部分、超限、身份不明或封存失败不得报告完整研究。研究不追加查询、不自动重试、不改写旧结果。
 
@@ -494,6 +575,82 @@ D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-
 所有准备及执行路径从第一次写入起只保留允许的 manifest/cwd/toolchain/target/features、参数数量和摘要；异常、取消、临时输出和控制台同样适用，不能先落原文再删。合法有界 D1/D2 JSON 经批准图 schema 验证后保存完整依赖图；合法图的角色/成员不符另记 ROLE_CONTEXT_MISMATCH，保留实际 features 与固定失败项后使终态 INCOMPLETE，不把可诊断差异丢成只有摘要；未批准自由文本、非法或超限输出只留类别、字节与摘要，不回退原文。证据合计 64 MiB，含 guard audit/隐藏控制文件、元数据、前后身份、终态与清单；初始按普通 52 MiB、audit 8 MiB、配置/after/终态/hash 4 MiB 预留，启动前证明固定收尾结构够用，必要调整分账须保持总额。guard 原有 256 MiB 检查不代替本项合计上限。
 
 仅两命令、身份、图校验、清理和封存均成立时记 `ROOT_WORKSPACE_ROLE_METADATA_OBSERVED`；准备失败、范围不符、超时或证据不完整分别保留。开发回归覆盖真实启动交接、固定身份、首写投影、取消/TERM/KILL、残留进程、写入失败、预算和 metadata 独立 fixture。该观察不证明 WASM 编译、proc-macro、extractor 选择或 CodeQL 模型，始终保留 production_capacity=UNKNOWN、full_rust_coverage=HOLD；真实 hosted 结果另由父目标验收。
+
+#### 7.2.6 Rust default 生产库接入与首次验收
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；复用候选库的固定组成与身份合同，生产执行及当前源码验收仍按本节独立核对。
+
+本路径承接 CQ-R02/R03/R05/R06/R09，只用于 `codeql.yml` 中可信默认分支的 Rust default 维护扫描。生产输入是本次计划与实际 checkout 一致的提交，不沿用研究入口的冻结业务 SHA、manifest 数量或历史覆盖结论。现有批次变量仍控制是否执行；首次配置为 baseline 时按 §4.2.1 保持 pending acceptance，接线合入和候选研究通过均不代替运营验收。PR default、extended 和其他语言继续各自原有执行路径及预算。
+
+固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。生产库版本为 §7.2.4 的 `qualifier-lines-constraint-matching-v6`；官方库保持只读，在任务私有目录依次复用 v3 qualifier/arity/lines、shared helper、两处 trait 注解与 ConstraintMatching 的实际准备函数。保留真实 v3/v5 中间快照和各层收据，最终完整库集合相对官方恰为三个 Rust 文件与一个 shared 文件变化，固定字节和 mode 继续核验。`str::lines` 使用通用 taint summary，不添加业务专用流边。版本或补丁不匹配时失败，不回退到旧库继续上传。
+
+生产准备终态与恢复检查独立固定为 v6 最终身份，进入实际准备或恢复前核对共享 helper 的 workload 版本一致；研究版本后续变化不能自动改变生产选择。`arity-patch-identity.json`、`lines-model-identity.json` 保持 v3，`shared-helper-identity.json`、`trait-visibility-identity.json` 保持 v5，`constraint-matching-identity.json` 单独绑定 v6 及两份 v5 收据。恢复时从当次官方库重新验证各中间快照与最终差异，不能只比较曾保存的最终快照或将旧收据改标签；五份收据的摘要同时纳入执行前后输入检查。旧 v2/v3/v5 production preparation、缺失或伪造收据、额外文件或 mode 变化、任一私有库被替换均拒绝。
+
+正式 helper 只封装工具准备和完整默认查询执行，不调用强绑定研究源码的容量主入口，也不加入研究七项见证或性能观察器。复制官方 rust-queries 0.1.46 的查询与支持源码，保持原始 37 项默认查询的 ID、字节和集合指纹；移除发布包的预编译 QLX、嵌入库及旧依赖绑定，以独立源码 pack 包装。逐查询解析实际 14 项依赖，确认同时消费私有 `rust-all` 与 `typeinference`，并保留 `suite-helpers` 的 query 角色校验，使用独立编译缓存和 `--no-use-precompiled`。全部官方依赖、两份私有库及源码 query pack 在执行前后保持一致；仅添加 search path 或设置文件存在不足以证明实际依赖正确。开发阶段复用原 600 秒窗口的固定 CLI 37 项真实解析测试，不运行数据库、编译或求值；该测试只证明生产消费者接线，不能代签当前 main 的真实生产验收。
+
+init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 分钟，且不晚于 90 分钟总截止前 600 秒。私有库准备、官方 Action 提取、37 项查询与结果校验共用该截止；提取前重新计算剩余整分钟作为 Action 外层步骤上限，CLI 子进程只消费原截止的剩余时间。复用 §7.2.4 的 Action main 监督核心，以独立 production mode 绑定当前源码和预算，在真实进程启动及清理时执行绝对截止；官方 post 仍由 runner 执行，原研究模式保留固定源码约束。Action 使用公开的 `skip-queries: true` 完成数据库；helper 核验监督结果、finalized DB、实际源码、资源及库身份后运行默认查询，并生成待上传 SARIF。失败、超时或身份不符阻止上传，不重新开始分析预算。
+
+失败采证最多消费分析截止后的 90 秒，属于原 600 秒预留，仍为上传及 post 保留至少 510 秒；该阶段不启动查询或解码子进程。超时后不能完成 guard、身份或日志核对时保留失败和未知，不将采证成功改写为分析成功。
+
+覆盖采证动态枚举当前受维护 manifest 与独立 workspace 锁文件，复用有界源码/锁观察和 Cargo guard，在实际提取的 metadata/解析调用中保留 locked 约束。提取日志和 `coverage_report` 保留原始 COMPLETE/PARTIAL、REVIEW/UNKNOWN；发现清单、成员集合对账或查询完成均不代签实际提取与宏/feature/target 语义。WASM 仍需其真实 CodeQL 上下文验证；未接线源码的归属须明确收口。沿用既定支持范围及两条精确覆盖例外，不扩大忽略路径。
+
+执行状态由提取和正式 helper 联合决定，提取成功但查询失败不能记录为 execution success。通过原 `upload-sarif` 上传，保留 `oasis7/rust-repo/default` category、实际 SHA/ref 及唯一 `sarif_id` 关联；上传关联 evidence v1 结构保持。独立生产 evidence artifact 保存工具、查询库、源码、结果与覆盖收据及有界日志，不包含数据库或完整源码包。查询执行、平台上传、findings 和覆盖验收分别呈现。
+
+首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。PR observe 与 extended 的 45 分钟容量及适用行为单独验收。
+
+#### 7.2.7 合法 WASM 单角色 CodeQL 语义诊断
+
+本入口继续承接 CQ-R03/R04/R05/R06/R09，在 §7.2.5 的同一冻结源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef` 上独立采集真实 CodeQL 上下文，不复用旧 metadata 的通过标签。新增默认关闭的 `CodeQL Rust WASM Context` workflow，仅可信默认分支精确 `execute=true` 的手动请求执行，权限、scan-slot-1 排队和不取消已有运行与 metadata 入口一致。该入口不改生产变量、SARIF 上传、数据库上传、既有研究或生产预算。
+
+完整根 workspace、53 个不同根成员、全部源码与锁文件保持原样；固定 Rust 1.99.0、`wasm32-unknown-unknown` 和唯一 `oasis7_custody_worker/recovery-fence`，安装该工具链的 rust-src 与 WASM 标准库。重新执行受 guard 约束的根 metadata，对实际 resolve 图验证角色与六个本地包，拒绝其余角色及两种 harness。六包身份沿用 §7.2.5；完整根仍是实际项目，不称为独立 crate。工具 helper 在业务根之外，CLI 的 cwd、`--source-root` 和 index 起点均为完整业务根，`database index-files` 只选六包下 `.rs`，记录精确输入集合及摘要。
+
+首次步骤按实际 hosted job start 绑定一次 1800 秒截止，准备最迟在原起点后 780 秒结束。仅剩余至少 1020 秒才准入最多 900 秒的共享提取与小查询窗口，其截止取准入后 900 秒与原总截止前 120 秒的较早值；子进程在该窗口结束前 60 秒停止，余下用于 guard、身份与封存。末尾 120 秒只供 artifact/post，不逐阶段重置、不自动重跑。工具获取、完整源码获取、固定 bundle 校验、工具链安装和依赖 fetch 均计入准备；只用 2 threads、3072 MiB 请求，不将采样资源数当硬限制。
+
+时钟准入使用进程初始的同一 20 秒绝对窗口，HTTP、响应校验与等待均计时。只有唯一 job 的名称、整数 ID、run、attempt 和工具 HEAD 全部匹配后，才允许对 `queued` 或 `in_progress` 且 `started_at` 明确为 null 的状态间隔至多 1 秒重读，重读必须保持同一 job ID；缺 job、重复 job、身份不符、未知状态、缺失时间字段或 HTTP Date 立即拒绝。已有时间必须带时区且合法，开始时间晚于服务器时间或计算年龄达到 120 秒也立即拒绝。超时前未取得实际开始时间则不准入，不以本机当前时间补开始时间，不在重读后重新分配准备或总预算。
+
+既有 `bootstrap-http.json` 保留每次请求的实际状态、字节数与 SHA-256；`bootstrap-terminal.json` 增加固定错误类别、读取/重读次数以及经类型、枚举和时间解析后的白名单时钟字段。未知自由文本、原始响应、token 和异常消息从首次写入起均不保存，原 512 KiB bootstrap 总限不变。证据写失败不得交接 helper。仅有旧 `Rejected` 和响应摘要而没有字段投影的证据，不能事后指定其拒绝子因。
+
+固定官方 Rust-only CodeQL 2.27.4 bundle 及 §7.2.6 的 SHA-256，原包只读。本入口使用独立研究身份 `wasm-shared-helper-v1`，在业务根与官方 bundle 外复制 `codeql/typeinference` 0.0.42，仅应用 §7.2.4 已固定的两个 shared helper hunk 及其补丁、官方和结果 SHA-256；完整文件集合与 mode 必须相同，唯一差异为 `codeql/typeinference/internal/TypeInference.qll`。其余 12 项库保持官方原件，含 stock `rust-all` 0.2.25，不应用 qualifier、arity 或 lines-model 修改。九项见证的 QL、计数和 oracle 不变；已有官方库运行保留原身份和终态。
+
+候选批次与本入口通过既有轻依赖 `codeql-rust-model-diagnostic.py` 共用固定 shared 补丁身份与准备逻辑，各自保留原执行监督、预算和收据包装。补丁纳入 bootstrap 与 executor 的精确 helper 冻结集合，复制、核验及至多 20 秒的受监督应用均计入原准备截止。保存官方与选择后的 13 库 closure、完整 shared 前后文件身份及实际 resolver 结果；实际 library path 必须精确选择本次私有 shared，拒绝官方 shared 回退、额外库或错误 dbscheme，独立编译缓存与查询身份继续核对。查询前复核 shared 身份；成功后重验实际 closure，失败与成功的 finally 均核对官方 bundle、query pack 和已准备 shared 的前后身份。缺少完整 shared 准备或身份变化时不能报告身份通过。
+
+使用 `database init --build-mode=none`、`database index-files`、`database finalize` 后运行有界见证，不运行生产默认 37 项查询。实际 extractor 指定 `cargo_target=wasm32-unknown-unknown`、`cargo_features=oasis7_custody_worker/recovery-fence`，默认 features 不自动开启。官方 `build_script_command` 以 JSON argv 指向本轮绝对 guard cargo，执行根 manifest 的 `check --locked --offline -p oasis7_custody_worker --lib --target wasm32-unknown-unknown --no-default-features --features oasis7_custody_worker/recovery-fence --message-format=json`，target 在业务根之外。根 metadata 仍可读取完整 workspace；不得把默认 `check --workspace` 或只通过预检 metadata 的 guard 收据当作本次提取事实。
+
+见证限定于 `platform.rs`、`recovery_fence_control.rs`、`recovery_fence_store.rs`。AST 绑定原始文件、声明名称和冻结行号；被 attribute expansion 替换而隐藏 Name 的原 Item 使用冻结起始 span，名称可见时仍必须匹配。分别观察 `event(fetch)`、`durable_object`、`wasm_bindgen` attribute expansion 与 `Serialize` derive expansion，要求存在真实生成 AST 后代；普通函数与无 derive 的结构体作为零展开负例。不猜宏生成的符号名称。另对 activation 内的 `call` 和 platform 内的 `control_enabled` 调用，分别计数语法节点、正确静态目标及明确不同的错误目标；正例必须实际出现，错误目标必须为零。另通过公开 `Crate.getACfgOption()` 观察 custody crate 的所有实际上下文，要求 WASM arch/family/os、recovery-fence 阳性和其余角色/harness 阴性；不能仅按请求参数判定 cfg 已生效。返回缺行、重复标签、非整数、只有零值或未知 schema 时不通过；文件被 index、AST 存在、metadata 图合法各自都不等于宏或调用模型通过。该有限语义见证不证明全数据流、所有维护中的 WASM 上下文或生产容量。
+
+原 guard 的真实 Cargo 身份、locked 约束、版本首写 adapter 和审计保持；新验收按实际根 workspace 校验本轮新增提取调用及精确 build-script argv、cwd、工具链，而非要求容量入口的 47 roots 或旧 D1/D2 两条调用。源码、锁、helper、bundle/library 与工具链前后身份独立核对；命令失败、上下文不符、超时、遗留进程或证据不足均保留 INCOMPLETE。持久化 evidence 和控制台从首次写入即受原诊断隐私合同约束，允许 JSON 只有 schema 校验后的投影，原始进程输出只在有界内存中使用，不先写证据再清理。真实提取必需的数据库、其原生日志、TRAP 和源码归档是独立 RUNNER_TEMP 私有工作产物，位于业务采集根及 evidence 目录之外，不作为允许上传的日志或证据。证据合计 64 MiB 并复用分账、终态预留与哈希封存，不包含 DB、源码、原始编译日志或 SARIF。
+
+同一次 `witness-query` 显式使用 `--verbosity=progress` 的 console progress，保留 `--loglevel=ERROR`，该阶段不设置会改走详细日志 stderr 的 `--log-to-stderr`；原生详细日志仍限于私有 DB。直接复用固定 2.27.4 的 `candidate_profile.Progress` 白名单解析器，该依赖一并纳入 bootstrap 冻结闭包。`witness-query.result.json` 的 `query_progress` 只记录本次冻结查询摘要、`COMPILE_START`、`COMPILE_DONE`、`EVALUATE_START`、`EVALUATE_DONE` 的计数及每类首末接收时间，另保留有界流分帧状态。时间是接收时刻，不是 CLI 内部阶段边界；未知行、非法编码与未换行尾部不成为进度事件，缺事件保持未知，不能靠时长或资源采样指定瓶颈。原 stdout/stderr 的实际字节数、SHA-256 和 EOF/前缀状态继续完整记录，原文不持久化。
+
+进度投影覆盖正常读取、TERM/KILL 后有限尾部 drain 和退出收据路径，不增加独立编译、查询、预热或摘要进程，不延长原截止或扩大证据分账。投影错误单列 INCOMPLETE 并保留原命令首失败；原命令成功但进度采证失败时仍拒绝完成。事件计数与实际查询/BQRS/oracle 结果分别判断，不由进度标记提前报告语义通过。
+
+最终分列 metadata、提取、宏见证、静态目标、guard、身份与证据结果；仅本次全部成立可报告 `WASM_CONTEXT_SEMANTICS_OBSERVED`。始终保留 `production_capacity=UNKNOWN`、`full_rust_coverage=HOLD`、平台完成待独立读回。开发阶段可对固定 bundle 解析并编译小查询以核对 API；未实际提取和执行之前必须保持 NOT_RUN，不能把本地编译或历史 release build 当成真实 WASM CodeQL 通过。
+
+#### 7.2.8 候选与生产解析准备的 CLI server 生命周期
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；本节只改变 §7.2.4 与 §7.2.6 的解析进程复用方式，保留原查询、库身份、资源、时限和隐私合同。
+
+候选 `resolve_layout` 的 44 条与生产 `resolve_queries` 的 37 条 `resolve library-path` 使用同一个受限 adapter。各入口仍先独立验证实际默认 suite，保持原 30 秒上限；候选仍逐项解析原 37+7，生产仍逐项解析原 37。不得以 `resolve queries` 的文件列表、代表查询、历史响应或共享缓存推测其余实际 library path；查询准备、编译、求值、结果验证与上传的其他调用不迁入此 adapter。
+
+父执行器冻结本次记录顺序、每条 query 的路径/相对名/pack/SHA、按种类选择的完整 closure、独立 cache 和原绝对截止，保存有界请求身份。adapter 只接受该固定结构并构造 `resolve library-path` 参数，不提供任意 CLI 命令转发接口。复用可信 helper 同目录 `codeql-rust-model-diagnostic.py` 的五字段校验器，保持 `libraryPath`、`dbscheme`、`compilationCache`、`relativeName`、`qlPackName` 的完整检查；候选默认 14 项、见证 13 项依赖及生产 14 项依赖分别核对，两个私有库不得回退官方根。新增 helper 纳入 capacity layout 的复制、Git blob、mode、字节数与 SHA 冻结集合；不能从随后切换的业务 checkout 导入同名模块。
+
+一次既有 `runtime.run` 拥有一个 Python adapter 进程组，adapter 内只启动一次固定 2.27.4 `execute cli-server`，server 与其 launcher/Java 后代继承同一 PGID。进程不跨 `runtime.run` 保活，失败不重启、不切回逐条独立 CLI 补跑。命令是 UTF-8 JSON argv 数组加 NUL；同时最多一条未完成命令。每个实际响应收到 NUL 后，adapter 先核对完整 JSON、五字段、冻结 query 身份与指定 cache，再将该 index 的有界响应交给父执行器。NUL 是协议完成标记，不是 OS exit 0；收据分别保存命令完成标记、实际 server launcher 退出和 adapter 退出。
+
+父 wrapper 在 spawn 前读取、保存并启用自身的 Linux child-subreaper 状态，outer `runtime.run` 显式使用 `reap_orphans=True`，只 wait/reap 本次 owned PGID；该选项本身不启用孤儿收养。adapter 也启用 child-subreaper，并在 TERM 后停止发命令、按原截止收齐 launcher/Java 和输出；若 adapter 在途中被终止，父 wrapper 负责收养并回收该组后代。正常、异常、取消与 spawn 失败都执行有界收尾，并最终恢复父 wrapper 原有 subreaper 状态。状态设置或清理不可信时停止执行；成功退出小样本不能代替在途 TERM/KILL 与孤儿回收的负例。
+
+共享 runtime 的 owned-PGID waitpid 清理必须保留 `(pid, status)`；若回收当前 leader，使用 `os.waitstatus_to_exitcode(status)` 回填其唯一拥有的 `Popen.returncode`，group wait 及回填遵循 Popen 等待锁协议，防止后续 ECHILD 伪造 0。只修正真实退出收据，不改变首失败、deadline 或清理范围；以实际子进程和 WNOWAIT 同步固定 poll→group-wait 竞态，覆盖非零及 signal 状态。
+
+父进程是 evidence 的唯一持久写入者。父观察器再次校验当前 index、query 身份和实际响应，完成该条原始 resolver 响应及 `library-resolution.json` 的保存后，才允许 ACK 当前 index；adapter 收到恰好匹配的 ACK 才能发送下一条。保留已有逐条实际结果与候选/生产 closure 状态含义，不伪造 44 或 37 份独立进程退出收据。运行终态另外绑定唯一 adapter/server 生命周期、已完成前缀和首个失败 index。写失败、超限或任何校验失败均不发送 ACK，保留已保存前缀及当前失败项，尚未发送的项保持未执行。
+
+ACK 只使用一个本次 owned 非阻塞 pipe，承载有界 index 确认，不扩为通用 RPC。共享 runtime 的现有 `Popen` 调用不传入 `pass_fds`；父端保留 pipe 读端，以 `/proc/父pid/fd/readfd` 交给 adapter 显式打开并核对 pipe 身份，写端始终只归父进程。该传递方式沿用已有 proc-pipe 能力，不修改共享 runtime 的 stdin 或继承描述符规则。`observer.feed` 只处理和保存当前响应，不能发 ACK；现有 runtime 在 `feed` 返回后完成本轮输出写入，下一轮先检查取消与 payload 截止，再调用 `observer.poll`，ACK 在这个回调中发出。spawn/输出登记失败、有限尾部 drain 或 `summary()` 路径均不发 ACK。ACK 的 EOF、错序、重复、非法长度、写失败或超时均停止序列；父读端、写端及 adapter 打开的读端在成功、异常和取消时都须关闭。
+
+每条解析仍至多 20 秒，第一条计入 server 启动，响应读取、完整校验、父写入和等待 ACK 都消费该条与原共享绝对截止。一次 adapter 的执行、shutdown、EOF 和 owned-group 清理均在原截止内完成；沿用 runtime 的有界清理预留，不能给 shutdown、ACK 或重试另开窗口。候选仍消费准备/提取/查询共享的分析时间，生产仍消费其原分析时间；不改变 75 分钟分析、90 分钟 job、原收尾预留及资源选择。发下一条前确认取消、剩余时间和输出容量，不能仅按剩余 query 数推定还有预算。
+
+输入、命令和输出全部有界：记录数严格等于本入口冻结的 44 或 37；每条 argv 沿用 16 KiB 上限，请求文件及每条完整 JSON 响应沿用现有读取器的 16 MiB 上限。只保留当前原始响应、一个待确认 index、固定控制状态及受冻结条数和总空间限制的已验证结构化结果，不在内存累积历史原始 stdout/stderr；控制封装、分帧、序列化和双流尾部也要计入实际容量。父端所有请求、响应、会话 stderr、资源样本、控制收据和封口均通过现有 evidence 写入器，计入候选 64 MiB 或生产 256 MiB 总额及原终态预留，不另设可绕开总额的 adapter 目录。单条上限不保证剩余总空间足够，空间不足必须在继续命令前失败。
+
+stderr 只归属整个 server 会话，沿各入口原隐私和证据策略保存；无明确协议边界时不得将异步 stderr 冒认成某条 query 的独立输出。命令 stdout 按实际 NUL 边界保存，未知或多余响应、未归属尾部、截断和非法编码不得当作下一条成功结果。所有已发命令及 ACK 完成后发送一次 `shutdown`，不等待不存在的 shutdown 成功 NUL；实际 launcher 退出、stdout/stderr EOF、adapter wait/reap 和 owned-group 清理共同决定本次完成。stdin EOF 或提前 exit 0 不能代替缺失命令/ACK。超时或取消在同一截止内执行 TERM/KILL 和有限 drain，保留首失败，清理不确定不得报告准备完成。
+
+开发验证直接经过上述真实 44/37 消费入口及同一 adapter，使用固定 CLI、实际私有库补丁、独立 work/cache 和原查询身份；两个入口在受控解析 D0 中共用一次冻结的 600 秒总窗，准备、解析、核验和封存均计时，不为第二个入口重置时钟。保持 2 threads/3072 MiB 请求及预先固定的证据限额，不创建数据库、不编译、不求值。回归覆盖跨 chunk 的 NUL、错 closure/query/cache、父写失败不 ACK、ACK 错序/重复/EOF、命令与 ACK 超时、取消、spawn 失败、非零退出、提前 exit 0、输出饱和、TERM 尾部及 owned-group/FD 清理。真实小样本和解析 D0 只证明协议与消费者接线，不代签 44 项计算、七表 oracle、生产容量或启用验收。
 
 ### 7.3 其他语言
 
@@ -602,6 +759,10 @@ GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job 
 `scripts/security/codeql-health.py` 读取允许的仓库分析和 run 数据，报告最近成功覆盖、失败单元、队列情况、缺失 manifest、耗时与告警趋势。默认只输出本地 JSON/Markdown 或 Actions summary，不写 Issue、不设置 branch protection、不触发重跑。
 
 建议完整 main 覆盖 24 小时内有成功记录；超期标记不健康而不是继续显示旧绿灯。权限不足或 API 不可用标成 unknown，不认定没有告警。
+
+Rust default 的平台补采入口为 `codeql-platform-observation.yml`，只接受本仓 `main` 的手动 dispatch，输入已完成生产 run、最新 attempt 和完整 source SHA；ref/category 固定为 `refs/heads/main` / `oasis7/rust-repo/default`。从 dispatch 的可信 main SHA checkout，复用现有 upload association reader 验证 job/check/provider、官方 SARIF ID、artifact digest 与唯一 analysis；不得按同 SHA、时间或上传步骤成功推断平台接收。入口只有 contents/actions/checks/security-events read 权限，不执行提取、查询、上传 SARIF 或设置变更。
+
+补采 API 共用 240 秒绝对预算，job 上限 7 分钟；完整分页或身份校验失败保留 unknown，并尽可能上传失败报告。报告保留 analysis 的错误、警告、结果数与读取到的 open findings；alerts 的 most_recent_instance 仅表示当前观察，不能冒充本次扫描新发现，也不能证明完整历史或零告警。关联成功只补足 CQ-R05 的平台观察，不代签 manifest/宏/target 覆盖或持续启用验收。
 
 ## 10. 执行安全与供应链
 

@@ -45,7 +45,8 @@ impl<C: FnMut() -> bool> Write for Sink<'_, C> {
 }
 /// Hash the exact existing domain and CBOR wire without an encoded material copy.
 /// `left` is one continuing wire-byte allowance; consumed work is not refunded
-/// on failure. This does not validate roles, original dependencies, authority,
+/// on failure. The fixed domain frame is not part of this CBOR byte allowance.
+/// This does not validate roles, original dependencies, authority,
 /// accepted parent, store continuity, or execution semantics.
 pub fn frozen_material_digest_bounded_v1<C: FnMut() -> bool>(
     material: &crate::controlled_authority::replicated_protocol::ClosedRecord,
@@ -94,7 +95,11 @@ mod tests {
             ArtifactRole::Wasm,
             ArtifactRole::Rules,
         ] {
-            let bytes = format!("actual-{role:?}").into_bytes();
+            let bytes = if role == ArtifactRole::Input {
+                vec![7u8; (64 << 10) + 17]
+            } else {
+                format!("actual-{role:?}").into_bytes()
+            };
             let hash = blake3::hash(&bytes).to_hex().to_string();
             roots.insert(role, hash.clone());
             objects.insert(
@@ -143,6 +148,66 @@ mod tests {
         assert!(
             frozen_material_digest_bounded_v1(&material, &memory, &mut (1 << 20), || true).is_err()
         );
+        assert_eq!(memory.used(), 0);
+    }
+    #[test]
+    fn streamed_frozen_sink_caps_chunks_and_latches_limit_failure() {
+        let mut left = 1 << 20;
+        let mut sink = Sink {
+            hash: blake3::Hasher::new(),
+            encoded: 0,
+            left: &mut left,
+            cancelled: || false,
+            failed: false,
+        };
+        let data = vec![7u8; (64 << 10) + 17];
+        assert_eq!(sink.write(&data).unwrap(), 64 << 10);
+        assert_eq!(sink.encoded, 64 << 10);
+        assert_eq!(*sink.left, (1 << 20) - (64 << 10));
+        sink.encoded = (64 << 20) - 1;
+        let allowance = *sink.left;
+        assert!(sink.write(&[1, 2]).is_err());
+        assert_eq!(*sink.left, allowance);
+        assert!(sink.write(&[1]).is_err());
+        assert!(sink.flush().is_err());
+    }
+
+    #[test]
+    fn streamed_frozen_digest_admission_and_final_cancel_release_memory() {
+        let material = ClosedRecord {
+            payload_digest: String::new(),
+            before_state_root: String::new(),
+            after_state_root: String::new(),
+            roots: Default::default(),
+            objects: vec![],
+        };
+        let small = MemoryBudget::new(4095, 0).unwrap();
+        let mut allowance = 1 << 20;
+        assert!(
+            frozen_material_digest_bounded_v1(&material, &small, &mut allowance, || false).is_err()
+        );
+        assert_eq!(allowance, 1 << 20);
+        assert_eq!(small.used(), 0);
+        let memory = MemoryBudget::new(8192, 0).unwrap();
+        let mut calls = 0;
+        let mut left = 1 << 20;
+        frozen_material_digest_bounded_v1(&material, &memory, &mut left, || {
+            calls += 1;
+            false
+        })
+        .unwrap();
+        let consumed = (1 << 20) - left;
+        let mut again = 0;
+        let mut left = 1 << 20;
+        assert!(
+            frozen_material_digest_bounded_v1(&material, &memory, &mut left, || {
+                again += 1;
+                again == calls
+            })
+            .is_err()
+        );
+        assert_eq!(again, calls);
+        assert_eq!((1 << 20) - left, consumed);
         assert_eq!(memory.used(), 0);
     }
 }

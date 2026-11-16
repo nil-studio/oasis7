@@ -8,7 +8,7 @@
 
 ## 文档适用范围
 
-本文继续作为配对 PRD 的专业出生/初始化设计；本轮仅补身份、接收关系与验证定位，不作生命周期迁移或发布判断。初始化选择/位置由 runtime_engineer 维护，玩家理由由 gameplay_designer / viewer_engineer 承接并由 qa_engineer 独立取证；corpus 启发式 routing 不转移产品语义主责。历史 task/Git evidence 继续拥有实施状态。
+本文继续作为配对 PRD 的专业出生/初始化设计；本轮仅补身份、接收关系与验证定位，不作生命周期迁移或发布判断。初始化选择/位置由 runtime_engineer 维护，玩家理由由 gameplay_designer / viewer_engineer 承接并由 qa_engineer 独立取证；文档入口与检查器诊断不转移产品语义主责。历史 task/Git evidence 继续拥有实施状态。
 
 ## 2. 设计结构
 - 出生采样层：根据场景与碎片布局生成候选站位。

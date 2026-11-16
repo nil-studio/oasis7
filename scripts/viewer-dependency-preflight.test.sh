@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Normal provisioning is exercised only with the fixture npm implementation.
+export OASIS7_LOCAL_CHECK=0
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PREFLIGHT_SCRIPT="$ROOT_DIR/scripts/viewer-dependency-preflight.sh"
 
@@ -82,6 +84,37 @@ if [[ -s "$ready_bin/npm.calls" ]]; then
   cat "$ready_bin/npm.calls" >&2
   exit 1
 fi
+OASIS7_LOCAL_CHECK=1 PATH="$ready_bin:$PATH" "$PREFLIGHT_SCRIPT" --root "$ready_root" --purpose all >/dev/null
+[[ ! -s "$ready_bin/npm.calls" ]]
+
+# Local checks reject absent or stale installs without invoking npm or rewriting locks.
+for condition in missing stale; do
+  local_root="$tmp_root/local-$condition"
+  local_viewer="$(new_fixture "$local_root")"
+  local_bin="$tmp_root/local-$condition-bin"
+  write_mock_npm "$local_bin"
+  if [[ "$condition" == stale ]]; then
+    write_dependency_binaries "$local_viewer"
+    touch -t 202001010000 "$local_viewer/node_modules/.package-lock.json"
+    touch -t 202101010000 "$local_viewer/package-lock.json"
+    cp "$local_viewer/node_modules/.package-lock.json" "$tmp_root/local-installed-lock"
+  fi
+  cp "$local_viewer/package-lock.json" "$tmp_root/local-package-lock"
+  if OASIS7_LOCAL_CHECK=1 PATH="$local_bin:$PATH" "$PREFLIGHT_SCRIPT" --root "$local_root" --purpose all >"$tmp_root/local.stdout" 2>"$tmp_root/local.stderr"; then
+    echo "expected local $condition dependencies to block" >&2
+    exit 1
+  else
+    status=$?
+  fi
+  [[ "$status" == 2 && ! -s "$local_bin/npm.calls" ]]
+  grep -Fq 'automatic installation is disabled' "$tmp_root/local.stderr"
+  cmp "$local_viewer/package-lock.json" "$tmp_root/local-package-lock"
+  if [[ "$condition" == missing ]]; then
+    [[ ! -e "$local_viewer/node_modules" ]]
+  else
+    cmp "$local_viewer/node_modules/.package-lock.json" "$tmp_root/local-installed-lock"
+  fi
+done
 
 # Missing dependencies trigger exactly one npm ci, then pass revalidation.
 missing_root="$tmp_root/missing"

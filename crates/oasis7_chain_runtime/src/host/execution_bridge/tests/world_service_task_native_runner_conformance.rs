@@ -18,7 +18,7 @@ const FACTORY: &str = STARTER_SMELTER_FACTORY_ID;
 
 struct ScriptedFactoryChain {
     calls: Arc<AtomicUsize>,
-    schedule_waited: AtomicBool,
+    schedule_waited: Arc<AtomicBool>,
 }
 impl ModelProvider for ScriptedFactoryChain {
     fn provider_id(&self) -> &str {
@@ -191,6 +191,12 @@ impl oasis7_agent_harness::NativeTaskHost for FrozenOriginalDelivery {
     }
     fn prepare(&self, op: &str) -> Result<oasis7_agent_harness::NativeTaskContext, String> {
         self.inner.prepare(op)
+    }
+    fn prepare_observed(
+        &self,
+        op: &str,
+    ) -> Result<oasis7_agent_harness::NativeTaskPreparation, String> {
+        self.inner.prepare_observed(op)
     }
     fn current_control(&self) -> Result<oasis7_agent_harness::NativeTaskControl, String> {
         self.inner.current_control()
@@ -595,16 +601,28 @@ fn native_task_runner_http_scripted_factory_chain_and_restart_conformance() {
             world: world.clone(),
             deadline,
         });
-        let run_result = NativeTaskRunner::new(
-            delivery_race.clone(),
-            Box::new(ScriptedFactoryChain {
-                calls: calls.clone(),
-                schedule_waited: AtomicBool::new(false),
-            }),
-            run_config(),
-        )
-        .unwrap()
-        .run();
+        let schedule_waited = Arc::new(AtomicBool::new(false));
+        let run_result = loop {
+            let result = NativeTaskRunner::new(
+                delivery_race.clone(),
+                Box::new(ScriptedFactoryChain {
+                    calls: calls.clone(),
+                    schedule_waited: schedule_waited.clone(),
+                }),
+                run_config(),
+            )
+            .unwrap()
+            .run();
+            if !matches!(&result, Ok(report) if report.stop_reason == NativeTaskStopReason::PendingOriginal)
+                || Instant::now() >= deadline
+            {
+                break result;
+            }
+            // Same durable run/budget and provider state. The runner scans all
+            // retained originals before preparing or spending another call.
+            // Unknown only permits queries; do not replay or allocate a slot.
+            std::thread::sleep(Duration::from_millis(run_config().control_poll_ms));
+        };
         if !matches!(&run_result, Ok(report) if report.stop_reason == NativeTaskStopReason::Completed)
         {
             diagnose_original_queries(&client);
@@ -855,7 +873,7 @@ fn native_task_runner_http_scripted_factory_chain_and_restart_conformance() {
             Arc::new(SdkNativeTaskHost::new(reopened.clone())),
             Box::new(ScriptedFactoryChain {
                 calls: calls.clone(),
-                schedule_waited: AtomicBool::new(false),
+                schedule_waited: Arc::new(AtomicBool::new(false)),
             }),
             run_config(),
         )

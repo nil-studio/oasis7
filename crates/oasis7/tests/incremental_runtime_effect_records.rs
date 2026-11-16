@@ -1,4 +1,7 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "support/incremental_runtime_effect_fixture.rs"]
+mod incremental_runtime_effect_fixture;
+use incremental_runtime_effect_fixture::{limits, physical};
 use oasis7_distfs::incremental_page_store::*;
 use oasis7_formal_protocol::{
     incremental_execution::*, incremental_record_root::RecordRootRefV1, incremental_state::*,
@@ -24,19 +27,7 @@ mod pages;
 mod scaling;
 // Complete GEN forest: same bounded setup profile as the adjacent 72-leaf
 // capability fixture, keeping its physical byte/write and all logical quotas.
-fn physical() -> PageIoBudget {
-    PageIoBudget {
-        reads_remaining: 1_250_000,
-        ..fixture::physical()
-    }
-}
-fn limits() -> MemberRecordLimitsV1 {
-    MemberRecordLimitsV1 {
-        semantic_bytes: 4096,
-        payload_bytes: 165,
-        record_bytes: 8192,
-    }
-}
+
 fn descriptor(pending: bool) -> FieldDescriptor {
     FieldDescriptor {
         owner: FieldOwner::Runtime,
@@ -1144,4 +1135,12 @@ fn typed_snapshot_reads(
         assert_eq!(json.namespace, StateNamespaceV1::Effects);
         assert_eq!(json.leaf_count, if pending { 7 } else { 5 });
     }
+}
+
+#[test]
+fn unchanged_params_across_value_chunks_do_not_enter_sender_or_receiver() {
+    scaling::exercise_unchanged_params(&[
+        64,
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    ]);
 }

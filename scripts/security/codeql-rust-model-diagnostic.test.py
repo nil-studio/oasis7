@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Local process/transport and official-input contract tests; no CodeQL execution."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -65,6 +68,89 @@ class Runtime(unittest.TestCase):
             self.assertEqual(json.loads(lines[0]),{'type':'LOG_HEADER'})
             self.assertEqual(json.loads(lines[-1]),{'type':'CLEANUP_MARKER'})
             self.assertEqual(caught.exception.result['cleanup_errors'],[])
+
+    def test_owned_group_reap_preserves_leader_status_after_poll_race(self):
+        class StopBeforeRead:
+            def poll(self, end):
+                raise TimeoutError('force cleanup before the runtime polls the leader')
+
+            def feed(self, stream, chunk, final=False):
+                return chunk
+
+            def summary(self):
+                return {'status': 'TEST_FORCED_TIMEOUT'}
+
+        for mode, expected in (('exit', 23), ('signal', -signal.SIGKILL)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                ready, release = root/'ready', root/'release'
+                program = '''import os, signal, sys, time
+from pathlib import Path
+ready, release = map(Path, sys.argv[1:3])
+def terminate(*_):
+    while not release.exists():
+        time.sleep(.001)
+    if sys.argv[3] == 'signal':
+        os.kill(os.getpid(), signal.SIGKILL)
+    os._exit(23)
+signal.signal(signal.SIGTERM, terminate)
+ready.touch()
+while True:
+    signal.pause()
+'''
+                actual_popen = r.subprocess.Popen
+                observed = []
+
+                def synchronized_popen(*args, **kwargs):
+                    process = actual_popen(*args, **kwargs)
+                    try:
+                        end = time.monotonic()+2
+                        while not ready.exists() and time.monotonic() < end:
+                            time.sleep(.001)
+                        self.assertTrue(ready.exists(), 'child must install its TERM gate')
+                        actual_poll = process.poll
+
+                        def poll_before_exit():
+                            value = actual_poll()
+                            if not observed:
+                                self.assertIsNone(value)
+                                release.touch()
+                                # Observe a real exit without reaping it. The immediately
+                                # following group wait must own this exact wait status.
+                                end = time.monotonic()+2
+                                exited = None
+                                while exited is None and time.monotonic() < end:
+                                    exited = os.waitid(os.P_PID, process.pid,
+                                        os.WEXITED | os.WNOWAIT | os.WNOHANG)
+                                    if exited is None:
+                                        time.sleep(.001)
+                                self.assertIsNotNone(exited, 'child must reach its real exit')
+                                observed.append(exited)
+                            return value
+
+                        process.poll = poll_before_exit
+                        return process
+                    except BaseException:
+                        process.kill(); process.wait()
+                        raise
+
+                with self.assertRaises(r.PhaseError) as caught, \
+                        patch.object(r.subprocess, 'Popen', side_effect=synchronized_popen):
+                    r.run([sys.executable, '-c', program, str(ready), str(release), mode],
+                        root, root/'run.log', time.monotonic()+8, 8, root, dict(os.environ),
+                        observer=StopBeforeRead(), restricted_output=True, reap_orphans=True)
+                receipt = caught.exception.result
+                self.assertEqual(len(observed), 1)
+                self.assertEqual(observed[0].si_pid, receipt['pid'])
+                self.assertEqual(observed[0].si_status, abs(expected))
+                self.assertEqual(receipt['failure_kind'], 'timeout', receipt)
+                self.assertEqual(receipt['error'], 'TIMEOUT')
+                self.assertEqual(receipt['exit'], expected)
+                self.assertEqual(receipt['cleanup_errors'], [])
+                self.assertEqual(receipt['evidence_errors'], [])
+                self.assertEqual(json.loads((root/'run.log.result.json').read_text())['exit'], expected)
+                with self.assertRaises(ProcessLookupError):
+                    os.killpg(receipt['pgid'], 0)
 
     def test_cap_is_checked_before_write_and_not_allowed_summary(self):
         with tempfile.TemporaryDirectory() as directory,patch.object(r,'WRITE_CAP',512):
@@ -167,6 +253,113 @@ class Runtime(unittest.TestCase):
             value=r.stage_observation(path);self.assertEqual(len(value['completed_once_per_event']),1)
             self.assertEqual(value['completed_once_per_event'][0]['elapsed_ns'],10)
             path.write_text('not-json');self.assertEqual(r.stage_observation(path)['status'],'UNKNOWN_SCHEMA')
+
+
+class SharedHelper(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(); self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name).resolve()
+        self.original, self.private = self.root / 'official', self.root / 'private'
+        self.original.mkdir()
+        manifest = self.original / 'qlpack.yml'
+        manifest.write_text('name: codeql/typeinference\nversion: 0.0.42\nlibrary: true\ndependencies: {}\n')
+        self.file = 'codeql/typeinference/internal/TypeInference.qll'
+        (self.original / self.file).parent.mkdir(parents=True)
+        (self.original / self.file).write_bytes(b'official helper\n')
+        (self.original / 'Support.qll').write_bytes(b'unchanged\n')
+        self.patch_file = self.root / 'helper.patch'; self.patch_file.write_bytes(b'fixed fixture patch\n')
+        self.entry = dict(m.pack_manifest(manifest), root=str(self.original))
+        self.calls = []
+        for name, path in [('SHARED_OFFICIAL_SHA', self.original / self.file), ('SHARED_PATCH_SHA', self.patch_file)]:
+            patcher = patch.object(m, name, r.digest(path)); patcher.start(); self.addCleanup(patcher.stop)
+        patcher = patch.object(m, 'SHARED_CANDIDATE_SHA', hashlib.sha256(b'private helper\n').hexdigest())
+        patcher.start(); self.addCleanup(patcher.stop)
+
+    def snapshot(self, root):
+        result = {}
+        for path in sorted(root.rglob('*')):
+            if path.is_symlink() or not (path.is_dir() or path.is_file()): raise RuntimeError('unsafe fixture')
+            if path.is_file():
+                result[path.relative_to(root).as_posix()] = {'sha256': r.digest(path), 'mode': path.stat().st_mode & 0o111}
+        return result
+
+    def apply_patch(self, argv, label, timeout):
+        self.calls.append((list(map(str, argv)), label, timeout))
+        self.assertEqual(list(map(str, argv)), ['patch', '--batch', '--fuzz=0', str(self.private / self.file), str(self.patch_file)])
+        self.assertEqual((label, timeout), ('apply-shared-helper-patch', 20))
+        (self.private / self.file).write_bytes(b'private helper\n')
+
+    def prepare(self):
+        return m.prepare_shared_helper(self.entry, self.private, self.patch_file,
+                                      snapshot=self.snapshot, copy_file=shutil.copy2, file_digest=r.digest, run=self.apply_patch)
+
+    def test_fixed_patch_preserves_complete_official_pack_and_mode(self):
+        before = self.snapshot(self.original)
+        identity = self.prepare()
+        self.assertEqual(self.snapshot(self.original), before)
+        self.assertEqual(identity['official_files'], before)
+        self.assertEqual(identity['changed_files'], [self.file])
+        self.assertEqual(identity['candidate_files'][self.file]['sha256'], m.SHARED_CANDIDATE_SHA)
+        self.assertEqual(identity['candidate_files'][self.file]['mode'], before[self.file]['mode'])
+        self.assertEqual(set(identity), {'upstream_commit', 'patch_sha256', 'changed_files', 'official_files', 'candidate_files'})
+        self.assertEqual(len(self.calls), 1)
+
+    def test_saved_snapshot_validation_preserves_the_legacy_contract(self):
+        identity = self.prepare()
+        official = self.snapshot(self.original)
+        saved = json.loads(json.dumps(identity['candidate_files']))
+        self.assertEqual(m.shared_snapshot_identity(official, saved), identity)
+        saved['Support.qll']['sha256'] = hashlib.sha256(b'forged intermediate').hexdigest()
+        with self.assertRaisesRegex(RuntimeError, 'fixed single-file helper patch'):
+            m.shared_snapshot_identity(official, saved)
+        self.assertEqual(self.snapshot(self.original), official)
+
+    def test_wrong_patch_base_or_manifest_never_spawns_patch(self):
+        for fault in ('patch', 'base', 'version', 'manifest'):
+            with self.subTest(fault=fault):
+                original_patch = self.patch_file.read_bytes()
+                original_base = (self.original / self.file).read_bytes()
+                original_entry = dict(self.entry)
+                try:
+                    if fault == 'patch': self.patch_file.write_bytes(b'changed patch')
+                    elif fault == 'base': (self.original / self.file).write_bytes(b'changed base')
+                    elif fault == 'version': self.entry['version'] = '0.0.43'
+                    else: self.entry['manifest_sha256'] = '0' * 64
+                    with self.assertRaises(RuntimeError): self.prepare()
+                    self.assertEqual(self.calls, [])
+                    self.assertFalse(self.private.exists())
+                finally:
+                    self.patch_file.write_bytes(original_patch)
+                    (self.original / self.file).write_bytes(original_base)
+                    self.entry = original_entry
+
+    def test_private_difference_cannot_expand_or_fall_back_to_stock(self):
+        self.prepare()
+        target = self.private / self.file
+        for fault in ('stock', 'extra', 'removed', 'support', 'mode', 'symlink'):
+            with self.subTest(fault=fault):
+                original = {p: (self.private / p).read_bytes() for p in self.snapshot(self.private)}
+                mode = target.stat().st_mode
+                try:
+                    if fault == 'stock': target.write_bytes(b'official helper\n')
+                    elif fault == 'extra': (self.private / 'Extra.qll').write_bytes(b'extra')
+                    elif fault == 'removed': (self.private / 'Support.qll').unlink()
+                    elif fault == 'support': (self.private / 'Support.qll').write_bytes(b'changed')
+                    elif fault == 'mode': target.chmod(mode ^ 0o100)
+                    else: (self.private / 'Extra.qll').symlink_to(self.original / self.file)
+                    with self.assertRaises(RuntimeError):
+                        m.shared_helper_identity(self.original, self.private, snapshot=self.snapshot)
+                finally:
+                    (self.private / 'Extra.qll').unlink(missing_ok=True)
+                    for path, data in original.items(): (self.private / path).write_bytes(data)
+                    target.chmod(mode)
+
+    def test_copy_does_not_admit_overlapping_or_existing_private_roots(self):
+        for private in (self.original, self.original / 'nested', self.root):
+            with self.subTest(private=private), self.assertRaises(RuntimeError):
+                m.prepare_shared_helper(self.entry, private, self.patch_file,
+                                        snapshot=self.snapshot, copy_file=shutil.copy2, file_digest=r.digest, run=self.apply_patch)
+        self.assertEqual(self.calls, [])
 
 
 class OfficialInputs(unittest.TestCase):

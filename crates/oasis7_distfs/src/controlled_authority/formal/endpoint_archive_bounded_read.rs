@@ -1,5 +1,9 @@
 //! Object-safe archive data helpers. The opaque owner records a genuine local
 //! Ordinary producer, not a caller assertion about an unobservable class.
+//! Only genuine absence advances the source chain; corruption, unsupported
+//! providers, exhausted work and cancellation stop it. Generation selection is
+//! uncached and pinned through consumption. Owners retain memory charges and
+//! their creating meter identity; bytes alone confer no execution authority.
 use super::archive_transfer::FormalArchiveSourceV1;
 use super::{FormalError, invalid};
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
@@ -52,6 +56,7 @@ impl FormalArchiveReadWorkV1 {
     ) -> FormalBoundedContextV1<'a> {
         FormalBoundedContextV1::new(memory, &self.core, cancelled)
     }
+    #[cfg(test)]
     fn is_child_active(&self) -> bool {
         self.core.is_child_active()
     }
