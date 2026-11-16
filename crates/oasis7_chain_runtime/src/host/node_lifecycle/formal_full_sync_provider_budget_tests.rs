@@ -1,6 +1,7 @@
 //! Exercise the outer failover loop over real signed HTTP material responses.
 use super::failover_tests::{config, local_instance};
 use super::*;
+use oasis7_client_api::world_service::SignedReadRequest;
 use oasis7_client_api::world_service_full_sync::{
     FORMAL_FULL_SYNC_OBJECT_PATH, FormalFullSyncManifestV1, FormalFullSyncObjectDescriptorV1,
 };
@@ -65,8 +66,11 @@ fn hostile_provider(upstream: String, junk: Vec<u8>, late_hash: String) -> Hosti
             if let Some(hash) = object_hash {
                 observed.lock().unwrap().push(hash.to_owned());
             }
-            let response = if path == FORMAL_FULL_SYNC_OBJECT_PATH && object_hash == Some(junk_hash.as_str()) {
-                let request: oasis7_client_api::world_service::SignedReadRequest<FormalFullSyncObjectRequestV1> = serde_json::from_slice(&body).unwrap();
+            let response = if path == FORMAL_FULL_SYNC_OBJECT_PATH
+                && object_hash == Some(junk_hash.as_str())
+            {
+                let request: SignedReadRequest<FormalFullSyncObjectRequestV1> =
+                    serde_json::from_slice(&body).unwrap();
                 let payload = FormalFullSyncObjectChunkV1 {
                     schema_version: 1,
                     cut: request.request.cut.clone(),
@@ -84,15 +88,23 @@ fn hostile_provider(upstream: String, junk: Vec<u8>, late_hash: String) -> Hosti
                 .unwrap();
                 http_response(&serde_json::to_vec(&signed).unwrap())
             } else {
-                let mut upstream = TcpStream::connect(upstream.trim_start_matches("http://")).unwrap();
-                upstream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut upstream =
+                    TcpStream::connect(upstream.trim_start_matches("http://")).unwrap();
+                upstream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
                 upstream.write_all(&header).unwrap();
                 upstream.write_all(&body).unwrap();
                 let mut response = Vec::new();
                 upstream.read_to_end(&mut response).unwrap();
                 if path == FORMAL_FULL_SYNC_MANIFEST_PATH {
-                    let split = response.windows(4).position(|bytes| bytes == b"\r\n\r\n").unwrap() + 4;
-                    let signed: SignedServiceResponse<FormalFullSyncManifestV1> = serde_json::from_slice(&response[split..]).unwrap();
+                    let split = response
+                        .windows(4)
+                        .position(|bytes| bytes == b"\r\n\r\n")
+                        .unwrap()
+                        + 4;
+                    let signed: SignedServiceResponse<FormalFullSyncManifestV1> =
+                        serde_json::from_slice(&response[split..]).unwrap();
                     let mut manifest = signed.payload;
                     // Keep roots exact and the descriptor graph structurally closed.
                     // A later object's incorrect length fails only after junk is charged.
@@ -160,9 +172,10 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
         .to_vec();
     let junk_hash = blake3_hex(&junk);
     let late_hash = late.content_hash.clone();
+    let snapshot_hash = material.roots[&ArtifactRole::Snapshot].clone();
     let (mut server, endpoint, key, runtime, _, _) =
         start_live_service(world, trust.clone(), anchor.clone(), material, proof);
-    let hostile = hostile_provider(endpoint.clone(), junk.clone(), late_hash);
+    let hostile = hostile_provider(endpoint.clone(), junk.clone(), late_hash.clone());
     let node_key = test_key(92);
     for spare in [0, junk.len() as u64] {
         hostile.requests.lock().unwrap().clear();
@@ -186,7 +199,10 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
         )
         .unwrap();
         let result = session.sync_latest();
-        assert!(hostile.requests.lock().unwrap().contains(&junk_hash));
+        let requests = hostile.requests.lock().unwrap().clone();
+        let junk_request = requests.iter().position(|hash| hash == &junk_hash).unwrap();
+        let late_request = requests.iter().position(|hash| hash == &late_hash).unwrap();
+        assert!(junk_request < late_request);
         if spare == 0 {
             let error = result
                 .err()
@@ -202,6 +218,8 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
             );
             assert_eq!(session.status().loaded_cut, None);
             assert!(!session.status().ready);
+            assert_eq!(session.status().last_verified_cut, Some(cut(&anchor)));
+            assert!(!session.cas.list_effective_pins().unwrap().contains(&snapshot_hash));
             assert!(!session.cas.list_effective_pins().unwrap().contains(&junk_hash));
             // A reconstructed client and new call reuse the same CAS/history,
             // but do not inherit the previous call's material charges.
@@ -217,6 +235,9 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
             .unwrap();
             let restored = session.sync_latest().unwrap();
             assert_eq!(restored.cut, cut(&anchor));
+            let restored_bytes =
+                oasis7_world_state::codec::snapshot_cbor(&restored.world.snapshot()).unwrap();
+            assert_eq!(blake3_hex(&restored_bytes), anchor.head().record().after_state_root);
         } else {
             let restored = result.unwrap();
             assert_eq!(restored.cut, cut(&anchor));
