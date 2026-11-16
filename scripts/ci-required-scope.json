@@ -1111,6 +1111,10 @@
     "scripts/ci-cache-policy.test.py": ["workflow_governance"],
     "scripts/ci-custody-platform.py": ["workflow_governance"],
     "scripts/ci-custody-platform.test.py": ["workflow_governance"],
+    "scripts/ci-custody-workerd-capture.py": ["workflow_governance"],
+    "scripts/ci-custody-workerd-gdb.py": ["workflow_governance"],
+    "scripts/ci-custody-workerd-gdb-contracts.py": ["workflow_governance"],
+    "scripts/ci-custody-workerd-capture.test.py": ["workflow_governance"],
     "scripts/ci-worker-build.py": ["workflow_governance"],
     "scripts/ci-worker-build.test.py": ["workflow_governance"],
     "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
@@ -1175,6 +1179,7 @@
     "scripts/ci-rust-cache-build.test.py",
     "scripts/ci-support-profiles.test.py",
     "scripts/ci-custody-platform.test.py",
+    "scripts/ci-custody-workerd-capture.test.py",
     "scripts/ci-worker-build.test.py",
     "crates/oasis7_custody_worker/scripts/verify-stages.test.py",
     "scripts/ci-local-signer-tests.test.py",
@@ -1301,6 +1306,22 @@
     "scripts/ci-custody-platform.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-custody-platform.test.py"]
+    },
+    "scripts/ci-custody-workerd-capture.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-custody-workerd-capture.test.py"]
+    },
+    "scripts/ci-custody-workerd-gdb-contracts.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-custody-workerd-capture.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-custody-workerd-gdb.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-custody-workerd-capture.test.py"]
+    },
+    "scripts/ci-custody-workerd-capture.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-custody-workerd-capture.test.py"]
     },
     "scripts/ci-worker-build.py": {
       "group": "workflow_governance",

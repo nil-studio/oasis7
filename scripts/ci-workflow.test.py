@@ -327,6 +327,28 @@ def without_optional_dependency_cache_install(workflow, config=None):
     return workflow
 
 
+def validate_workerd_capture(node, summary):
+    run = next((line for line in node.splitlines() if 'ci-custody-platform.py run ' in line), '')
+    validate = next((line for line in summary.splitlines() if 'ci-custody-platform.py validate ' in line), '')
+    if '--capture-workerd-faults' not in run or '--capture-workerd-faults' not in validate:
+        raise ValueError('client-abuse capture must be produced and consumed by the selected run')
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', node, re.M | re.S)
+    contracts = [step for step in steps if 'ci-custody-workerd-gdb-contracts.py' in step]
+    if (len(contracts) != 1 or 'if: matrix.shard == 0' not in contracts[0]
+            or "OASIS7_REQUIRE_GDB_TESTS: '1'" not in contracts[0]
+            or '--failfast GdbContracts' not in contracts[0]
+            or 'continue-on-error' in contracts[0] or '-- gdb gcc pkg-config' not in node):
+        raise ValueError('standard GDB process contracts must actually run on the hosted consumer')
+    uploads = [step for step in steps if 'name: custody-workerd-fault-' in step]
+    if (len(uploads) != 1 or 'if: always()' not in uploads[0]
+            or 'name: custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}' not in uploads[0]
+            or 'overwrite:' in uploads[0]
+            or '/workerd-fault/records.jsonl' not in uploads[0]
+            or '/workerd-fault/report.json' not in uploads[0]
+            or '/client-abuse.integration.test.mjs.log' not in uploads[0]):
+        raise ValueError('workerd failure evidence must survive later attempts')
+
+
 def validate_candidate_graph(workflow, config):
     jobs = workflow_jobs(workflow)
     gate = jobs['required-gate']
@@ -364,6 +386,7 @@ def validate_candidate_graph(workflow, config):
                     or '--support-partition "$SUPPORT_PARTITION"' not in legacy):
                 raise ValueError('support legacy must retain every trusted partition and old BASE fallback')
             node = jobs['custody-node']
+            validate_workerd_capture(node, summary)
             if ('fail-fast: false' not in node or 'max-parallel: 4' not in node
                     or 'custody_node_shards' not in node or 'exclude:' in node or 'include:' in node
                     or 'ci-custody-platform.py restore' not in node or 'ci-custody-platform.py run' not in node
@@ -925,6 +948,9 @@ exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
                 policy_files.add('crates/oasis7_custody_worker/scripts/verify.sh')
             if 'scripts/ci-worker-build.py' in CONFIG.get('python_control_contracts', {}):
                 policy_files.add('scripts/ci-worker-build.py')
+            if 'scripts/ci-custody-workerd-capture.py' in CONFIG.get('python_control_contracts', {}):
+                policy_files.update(('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
+                                     'scripts/ci-custody-workerd-gdb-contracts.py'))
             policy_files.update(test for entry in CONFIG.get('python_control_contracts', {}).values()
                                 for test in entry['tests'])
             policy_files.update(CONFIG.get('workflow_governance_python_tests', []))
@@ -4154,7 +4180,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             scripts = root / 'scripts'
             scripts.mkdir()
             for name in ('ci-tests.sh', 'find-python-with-module.sh', 'plan-rust-required-scope.py',
-                         'ci-custody-platform.py', 'ci_process_runner.py'):
+                         'ci-custody-platform.py', 'ci-custody-workerd-capture.py', 'ci_process_runner.py'):
                 (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
             worker = root / 'crates/oasis7_custody_worker'
             (worker / 'scripts').mkdir(parents=True)
@@ -4597,6 +4623,7 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
+        expected['rust', 'custody-node', 'Install native libraries'] = ['gdb', 'gcc', *self.NATIVE]
         expected.update({('rust', name, 'Install WASM C compiler'): ['clang', 'llvm']
                          for name in ('pr-fast-preview', 'net')})
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
@@ -4862,6 +4889,31 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
             self.assertNotIn(forbidden, job)
         for gate in ('required-gate', 'explicit-full-gate'):
             self.assertNotIn('pr-ordinary-delivery-preview', JOBS[gate])
+
+
+class WorkerdFaultCapture(unittest.TestCase):
+    def test_real_capture_and_attempt_scoped_artifacts_are_required(self):
+        validate_workerd_capture(JOBS['custody-node'], JOBS['workspace-support'])
+        for path in ('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
+                     'scripts/ci-custody-workerd-gdb-contracts.py',
+                     'scripts/ci-custody-workerd-capture.test.py'):
+            self.assertIn('scripts/ci-custody-workerd-capture.test.py',
+                          CONFIG['python_control_contracts'][path]['tests'])
+
+    def test_missing_capture_contracts_or_overwritten_failure_evidence_is_rejected(self):
+        node, summary = JOBS['custody-node'], JOBS['workspace-support']
+        for before, after in (
+                (' --capture-workerd-faults', ''),
+                ("OASIS7_REQUIRE_GDB_TESTS: '1'", "OASIS7_REQUIRE_GDB_TESTS: '0'"),
+                ('--failfast GdbContracts', 'Receipts'),
+                ('-- gdb gcc pkg-config', '-- pkg-config'),
+                ('custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-',
+                 'custody-workerd-fault-${{ github.run_id }}-'),
+                ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-')):
+            with self.subTest(before=before), self.assertRaises(ValueError):
+                validate_workerd_capture(node.replace(before, after), summary)
+        with self.assertRaises(ValueError):
+            validate_workerd_capture(node, summary.replace(' --capture-workerd-faults', ''))
 
 
 class WorkerToolCache(unittest.TestCase):

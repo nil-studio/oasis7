@@ -3147,7 +3147,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- gdb gcc pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
@@ -3170,13 +3170,20 @@ jobs:
         run: python3 scripts/ci-custody-platform.py restore --plan "$RUNNER_TEMP/selection.json" --bundles "$RUNNER_TEMP/custody-inputs" --producer-attempts "$PRODUCER_ATTEMPTS"
       - name: Install platform test dependencies
         run: npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
+      - name: Verify standard debugger process contracts
+        if: matrix.shard == 0
+        timeout-minutes: 3
+        env:
+          OASIS7_REQUIRE_GDB_TESTS: '1'
+          OASIS7_GDB_CONTRACT_RESULTS: output/workerd-gdb-contracts
+        run: python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts
       - name: Verify the TypeScript consumer once
         if: matrix.shard == 0
         run: npm run test:types --prefix crates/oasis7_custody_worker
       - name: Execute complete Node files without local contention
         env:
           CUSTODY_SHARD: ${{ matrix.shard }}
-        run: python3 scripts/ci-custody-platform.py run --plan "$RUNNER_TEMP/selection.json" --shard "$CUSTODY_SHARD" --results "output/custody-$CUSTODY_SHARD"
+        run: python3 scripts/ci-custody-platform.py run --plan "$RUNNER_TEMP/selection.json" --shard "$CUSTODY_SHARD" --results "output/custody-$CUSTODY_SHARD" --capture-workerd-faults
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -3184,6 +3191,20 @@ jobs:
           path: output/custody-${{ matrix.shard }}
           overwrite: true
           if-no-files-found: error
+          retention-days: 7
+      - name: Preserve workerd evidence for this attempt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: |
+            output/custody-${{ matrix.shard }}/workerd-fault/records.jsonl
+            output/custody-${{ matrix.shard }}/workerd-fault/report.json
+            output/custody-${{ matrix.shard }}/client-abuse.integration.test.mjs.log
+            output/workerd-gdb-contracts/*/records.jsonl
+            output/workerd-gdb-contracts/*/processes.jsonl
+            output/workerd-gdb-contracts/*/node.log
+          if-no-files-found: ignore
           retention-days: 7
 
   workspace-support:
@@ -3230,7 +3251,7 @@ jobs:
           print(json.dumps(needs, separators=(',', ':')))
           PY
           )"
-          python3 scripts/ci-custody-platform.py validate --plan "$RUNNER_TEMP/selection.json" --needs "$support_needs" --results "$RUNNER_TEMP/custody-results"
+          python3 scripts/ci-custody-platform.py validate --plan "$RUNNER_TEMP/selection.json" --needs "$support_needs" --results "$RUNNER_TEMP/custody-results" --capture-workerd-faults
 
   scenario-regression:
     needs: select

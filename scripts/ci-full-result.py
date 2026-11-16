@@ -123,6 +123,10 @@ def definition_digest(root, revision):
         # revisions remain readable and cannot claim the newer definition.
         if "scripts/ci-worker-build.py" in contracts:
             contents["scripts/ci-worker-build.py"] = read("scripts/ci-worker-build.py")
+        if "scripts/ci-custody-workerd-capture.py" in contracts:
+            for path in ("scripts/ci-custody-workerd-capture.py", "scripts/ci-custody-workerd-gdb.py",
+                         "scripts/ci-custody-workerd-gdb-contracts.py"):
+                contents[path] = read(path)
     # These assertions are now executable policy inputs, read from the same
     # immutable revision as the runner and scope. Never load candidate Python.
     for path in sorted(contract_tests.difference(contents)):
