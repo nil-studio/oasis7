@@ -138,27 +138,9 @@ fn retain_economy_frontiers_v1<M: MerkleNodeReader>(
     )))
 }
 
-fn source_error(
-    error: crate::world::incremental_authorization_root_current::WarmError,
-) -> BodyMutationError {
-    use crate::world::incremental_authorization_root_current::{SourceError, WarmError};
-    match error {
-        WarmError::Body(e) => e,
-        WarmError::Source(SourceError::Execution(e)) => e.into(),
-        WarmError::Source(SourceError::Overlay(e)) => overlay_error(e),
-        WarmError::Source(other) => {
-            #[derive(Debug)]
-            struct Cause(SourceError);
-            impl std::fmt::Display for Cause {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "{:?}", self.0)
-                }
-            }
-            impl std::error::Error for Cause {}
-            BodyMutationError::Original(Box::new(Cause(other)))
-        }
-    }
-}
+#[path = "normal_bootstrap_current_errors.rs"]
+mod errors;
+use errors::source_error;
 impl<M, R, E, C, W, F, O> RootModuleExecutionContextV1<'_, '_, '_, '_, M, R, E, C, W, F, O>
 where
     M: MerkleNodeReader,
@@ -1196,21 +1178,6 @@ where
 
 #[path = "normal_bootstrap_current_batch.rs"]
 mod batch;
-
-/// StateRoot is not serde DATA. Its only child is the actual root string;
-/// prepay that exact fixed layout before cloning the original descriptor.
-fn reserve_state_root_v1(
-    root: &oasis7_formal_protocol::incremental_state::StateRootV1,
-    common: &mut FormalBoundedContextV1<'_>,
-) -> Result<MemoryReservation, BodyMutationError> {
-    let n = std::mem::size_of::<oasis7_formal_protocol::incremental_state::StateRootV1>()
-        .checked_add(root.node_root.len())
-        .ok_or(ValueTreeError::ResourceLimited("Bootstrap StateRoot copy"))?;
-    common
-        .charge(1, n as u64)
-        .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
-    common
-        .memory()
-        .reserve(n, MemoryClass::Ordinary)
-        .map_err(|e| ValueTreeError::Memory(e).into())
-}
+#[path = "normal_bootstrap_current_root_reservation.rs"]
+mod root_reservation;
+use root_reservation::reserve_state_root_v1;

@@ -1161,59 +1161,10 @@ fn resolve_precondition_value(
     }
 }
 
-fn compare_precondition(
-    condition: &PreconditionV1,
-    actual: JsonValue,
-) -> Result<(), CognitionValidationError> {
-    let is_unsigned = matches!(
-        condition.path_or_rule.as_str(),
-        "world.logical_tick" | "world.reorg_epoch"
-    );
-    let is_numeric = is_unsigned || is_supported_resource_path(condition.path_or_rule.as_str());
-    if is_numeric {
-        let left = if is_unsigned {
-            actual.as_u64().map(i128::from)
-        } else {
-            actual.as_i64().map(i128::from)
-        };
-        let right = if is_unsigned {
-            serde_cbor::from_slice::<u64>(condition.expected_value_bytes.as_slice())
-                .ok()
-                .map(i128::from)
-        } else {
-            serde_cbor::from_slice::<i64>(condition.expected_value_bytes.as_slice())
-                .ok()
-                .map(i128::from)
-        };
-        let (Some(left), Some(right)) = (left, right) else {
-            return Err(CognitionValidationError::new("precondition_failed"));
-        };
-        let matches = match condition.operator.as_str() {
-            "eq" => left == right,
-            "neq" => left != right,
-            "lt" => left < right,
-            "lte" => left <= right,
-            "gt" => left > right,
-            "gte" => left >= right,
-            _ => false,
-        };
-        if matches {
-            return Ok(());
-        }
-    } else {
-        let expected: JsonValue = serde_cbor::from_slice(condition.expected_value_bytes.as_slice())
-            .map_err(|_| CognitionValidationError::new("precondition_failed"))?;
-        let matches = match condition.operator.as_str() {
-            "eq" => actual == expected,
-            "neq" => actual != expected,
-            _ => false,
-        };
-        if matches {
-            return Ok(());
-        }
-    }
-    Err(CognitionValidationError::new("precondition_failed"))
-}
+#[path = "cognition_precondition_compare.rs"]
+mod precondition_compare;
+use precondition_compare::compare_precondition;
+pub(crate) use precondition_compare::is_supported_resource_path;
 
 fn valid_digest(value: &str) -> bool {
     let hex = value
@@ -1231,10 +1182,6 @@ fn validate_identifier(value: &str, _field: &str) -> Result<(), CognitionValidat
         return Err(CognitionValidationError::new("invalid_identity"));
     }
     Ok(())
-}
-
-pub(crate) fn is_supported_resource_path(path: &str) -> bool {
-    matches!(path, "agent.resource.electricity" | "agent.resource.data")
 }
 
 #[cfg(all(test, feature = "test_tier_required"))]
