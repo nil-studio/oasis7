@@ -3,7 +3,7 @@ use oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole;
 use oasis7_runtime::{BlobStore, LocalCasStore};
 use std::net::{TcpListener, TcpStream};
 
-fn local_instance(label: &str) -> LocalInstance {
+pub(super) fn local_instance(label: &str) -> LocalInstance {
     LocalInstance {
         api_version: "oasis7.local-node-instance/v1".into(),
         action_id: format!("{label}-action"),
@@ -25,7 +25,7 @@ fn free_loopback_endpoint() -> String {
     format!("http://{address}")
 }
 
-fn config(
+pub(super) fn config(
     endpoint: String,
     service_key: String,
     alternates: Vec<FormalFullSyncEndpointV1>,
