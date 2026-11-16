@@ -460,7 +460,9 @@ def validate_admission(receipt, run, repository):
         raise ValueError("unsupported or contradictory periodic admission")
     validate_admission_context(receipt.get("context"), run, repository)
     observed = timestamp(receipt.get("observed_at"))
-    if observed < timestamp(run["created_at"]):
+    # Historical attempt endpoints can report a new created_at after that
+    # attempt actually started. The producer's execution clock is authoritative.
+    if observed < timestamp(run.get("run_started_at") or run["created_at"]):
         raise ValueError("admission predates its Actions run")
     for key in ("active_full_run_ids", "control_failure_run_ids"):
         values = receipt.get(key)
@@ -491,6 +493,81 @@ def validate_admission(receipt, run, repository):
     return receipt
 
 
+def latest_attempt_artifact(artifacts, run, kind):
+    candidates = []
+    for item in artifacts:
+        match = re.fullmatch(rf"ci-{kind}-{run['id']}-([1-9][0-9]*)", item.get("name", ""))
+        if match and int(match[1]) <= run["run_attempt"]:
+            candidates.append((int(match[1]), item))
+    if not candidates:
+        return None
+    attempt = max(value for value, _ in candidates)
+    matches = [item for value, item in candidates if value == attempt]
+    if len(matches) != 1 or matches[0].get("expired"):
+        raise ValueError(f"ambiguous or expired {kind.replace('-', ' ')} evidence")
+    return attempt, matches[0]
+
+
+def successful_artifact_producer(api, run, attempt, name, current_jobs):
+    """Bind an artifact to its execution, including Actions' inherited job aliases.
+
+    Selective reruns can assign new job IDs and run_attempt to an old execution.
+    Its times and steps must still match the actual producer in every later
+    attempt. Missing jobs are allowed in older API representations; a rerun,
+    failure, ambiguous identity or missing timing never permits old evidence.
+    All reads use the caller's shared API deadline and request budget.
+    """
+    def attempt_run(number):
+        actual = run if number == run["run_attempt"] else api.get(f"actions/runs/{run['id']}/attempts/{number}")
+        identity = ("id", "head_sha", "workflow_id", "path", "event", "head_branch")
+        if (actual.get("run_attempt") != number
+                or any(actual.get(key) != run.get(key) or actual.get(key) is None for key in identity)
+                or (number < run["run_attempt"] and actual.get("status") != "completed")):
+            raise ValueError(f"{name} producer attempt identity changed")
+        timestamp(actual.get("run_started_at"))
+        return actual
+
+    def jobs_for(number):
+        return current_jobs if number == run["run_attempt"] else api.pages(
+            f"actions/runs/{run['id']}/attempts/{number}/jobs?per_page=100", "jobs")
+
+    producing = [job for job in jobs_for(attempt) if job.get("name") == name]
+    if (len(producing) != 1 or producing[0].get("run_attempt") != attempt
+            or producing[0].get("status") != "completed" or producing[0].get("conclusion") != "success"):
+        raise ValueError(f"evidence is not bound to a successful producing {name} job")
+    producer = producing[0]
+    if attempt == run["run_attempt"]:
+        # A newly named artifact cannot turn an inherited execution into a new
+        # producer. Retain the existing same-attempt contract otherwise.
+        if (producer.get("started_at") and run.get("run_started_at")
+                and timestamp(producer["started_at"]) < timestamp(run["run_started_at"])):
+            raise ValueError(f"{name} artifact contradicts its inherited producer")
+        return run, producer
+    origin = attempt_run(attempt)
+    started, completed = timestamp(producer.get("started_at")), timestamp(producer.get("completed_at"))
+    previous_start = timestamp(origin["run_started_at"])
+    if (producer.get("run_id") != run["id"] or producer.get("head_sha") != run["head_sha"]
+            or not isinstance(producer.get("steps"), list) or not producer["steps"]
+            or started < previous_start or completed < started):
+        raise ValueError(f"invalid producing {name} execution")
+    execution = ("started_at", "completed_at", "steps", "runner_id", "runner_name")
+    for number in range(attempt + 1, run["run_attempt"] + 1):
+        later = attempt_run(number)
+        later_start = timestamp(later["run_started_at"])
+        aliases = [job for job in jobs_for(number) if job.get("name") == name]
+        if later_start < previous_start or completed > later_start:
+            raise ValueError(f"invalid {name} producer attempt chronology")
+        previous_start = later_start
+        if not aliases:
+            continue
+        if (len(aliases) != 1 or aliases[0].get("run_attempt") != number
+                or aliases[0].get("run_id") != run["id"] or aliases[0].get("head_sha") != run["head_sha"]
+                or aliases[0].get("status") != "completed" or aliases[0].get("conclusion") != "success"
+                or any(aliases[0].get(key) != producer.get(key) for key in execution)):
+            raise ValueError(f"{name} was rerun or its inherited execution is unproven")
+    return origin, producer
+
+
 def classify_periodic_attempt(api, run, workflow_id, artifacts=None):
     """Exclude a no-op only with its immutable decision AND actual skipped jobs.
 
@@ -501,6 +578,9 @@ def classify_periodic_attempt(api, run, workflow_id, artifacts=None):
     """
     trusted_schedule(run, workflow_id)
     jobs = api.pages(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", "jobs")
+    if any(job.get("name") in {"periodic-admission", "select", "explicit-full-gate"}
+           and job.get("run_attempt") != run["run_attempt"] for job in jobs):
+        raise ValueError("periodic control job belongs to another attempt")
     current = [job for job in jobs if job.get("run_attempt") == run["run_attempt"]]
     admission_jobs = [job for job in current if job.get("name") == "periodic-admission"]
     select = [job for job in current if job.get("name") == "select"]
@@ -534,6 +614,16 @@ def classify_periodic_attempt(api, run, workflow_id, artifacts=None):
         artifacts = api.pages(f"actions/runs/{run['id']}/artifacts?per_page=100", "artifacts")
     admission_name = f"ci-periodic-admission-{run['id']}-{run['run_attempt']}"
     matches = [item for item in artifacts if item.get("name") == admission_name]
+    # A real restarted select (including failure or an active job) is a full
+    # execution fact without a successful selection artifact. Only inherited
+    # or omitted executions need the old artifact to recover their start.
+    inherited_select = (not select or (result["full_started_at"] and run.get("run_started_at")
+                        and timestamp(result["full_started_at"]) < timestamp(run["run_started_at"])))
+    selection = (latest_attempt_artifact(artifacts, run, "selection")
+                 if run["run_attempt"] > 1 and inherited_select else None)
+    if selection:
+        _, producer = successful_artifact_producer(api, run, selection[0], "select", jobs)
+        result["full_started_at"] = producer.get("started_at") or result["full_started_at"]
     if not admission_jobs and not matches:
         # Before admission was deployed every schedule was a full attempt. A
         # failed/cancelled legacy attempt must still block an older green.
@@ -544,12 +634,14 @@ def classify_periodic_attempt(api, run, workflow_id, artifacts=None):
         result["full_started_at"] = (result["full_started_at"] or
                                      min(started, key=timestamp, default=run.get("run_started_at") or run["created_at"]))
     else:
-        if len(admission_jobs) != 1 or len(matches) != 1 or matches[0].get("expired"):
+        admission = latest_attempt_artifact(artifacts, run, "periodic-admission")
+        if len(admission_jobs) != 1 or admission is None:
             raise ValueError("missing, ambiguous or expired periodic admission evidence")
-        decision = validate_admission(api.artifact(matches[0]["id"], "admission.json"), run, api.repository)
+        origin, _ = successful_artifact_producer(api, run, admission[0], "periodic-admission", jobs)
+        decision = validate_admission(api.artifact(admission[1]["id"], "admission.json"), origin, api.repository)
+        if admission[0] != run["run_attempt"] and not decision["run_full"]:
+            raise ValueError("an inherited no-op admission cannot classify a new attempt")
         result["decision"] = decision
-        if admission_jobs[0].get("status") != "completed" or admission_jobs[0].get("conclusion") != "success":
-            raise ValueError("periodic decision is not bound to a successful admission job")
         if not decision["run_full"]:
             conflicts = [item for item in artifacts if re.fullmatch(
                 rf"ci-(selection|full-result)-{run['id']}-[1-9][0-9]*", item.get("name", ""))]
@@ -696,12 +788,8 @@ def selected_source_for_attempt(api, run, artifacts, workflow_id=None):
         kind = classify_periodic_attempt(api, run, workflow_id or run.get("workflow_id"), artifacts)["kind"]
         if kind == "observation":
             return ""
-    selections = []
-    for item in artifacts:
-        match = re.fullmatch(rf"ci-selection-{run['id']}-([1-9][0-9]*)", item.get("name", ""))
-        if match and int(match[1]) <= run["run_attempt"]:
-            selections.append((int(match[1]), item))
-    if not selections:
+    selection = latest_attempt_artifact(artifacts, run, "selection")
+    if selection is None:
         if run.get("event") == "schedule":
             return run.get("head_sha")
         # The same trusted workflow also hosts two explicit non-full diagnostic
@@ -720,23 +808,9 @@ def selected_source_for_attempt(api, run, artifacts, workflow_id=None):
                       and job.get("started_at") and job.get("status") in {"in_progress", "completed"}
                       and job.get("conclusion") != "skipped"]
         return "" if skipped and len(diagnostic) == 1 else None
-    attempt = max(value for value, _ in selections)
-    current = [item for value, item in selections if value == attempt]
-    if len(current) != 1 or current[0].get("expired"):
-        raise ValueError("ambiguous or expired selection for a full run")
     current_jobs = api.pages(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", "jobs")
-    if attempt != run["run_attempt"] and any(
-        job.get("name") == "select" and job.get("run_attempt") == run["run_attempt"]
-        for job in current_jobs
-    ):
-        raise ValueError("select was rerun without a current successful selection; source is unknown")
-    producing_jobs = (current_jobs if attempt == run["run_attempt"] else
-                      api.pages(f"actions/runs/{run['id']}/attempts/{attempt}/jobs?per_page=100", "jobs"))
-    selecting = [job for job in producing_jobs if job.get("name") == "select" and job.get("run_attempt") == attempt]
-    if (len(selecting) != 1 or selecting[0].get("status") != "completed"
-            or selecting[0].get("conclusion") != "success"):
-        raise ValueError("selection is not bound to a successful producing select job")
-    selected = api.artifact(current[0]["id"], "selection.json")
+    successful_artifact_producer(api, run, selection[0], "select", current_jobs)
+    selected = api.artifact(selection[1]["id"], "selection.json")
     if selected.get("scope") != "explicit-full":
         # Non-full diagnostics never execute select in this workflow. A
         # selection with missing or conflicting scope is incomplete evidence,
