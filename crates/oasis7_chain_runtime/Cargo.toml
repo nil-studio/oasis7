@@ -20,6 +20,11 @@ name = "native_bound_worker"
 path = "tests/native_bound_worker.rs"
 required-features = ["native-worker-test-support", "wasmtime"]
 
+[[test]]
+name = "iws_host_linux"
+path = "tests/iws_host_linux.rs"
+required-features = ["iws-host-native-test-support"]
+
 [dependencies]
 oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_world_projection = { path = "../oasis7_world_projection" }
@@ -72,6 +77,8 @@ wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 native-worker-test-support = ["node-libp2p"]
+# Heavy Linux GEN/Host integration with the actual libraries and current worker ELF.
+iws-host-native-test-support = ["native-worker-test-support", "wasmtime"]
 
 [dev-dependencies]
 oasis7_distfs = { path = "../oasis7_distfs", features = ["test-support"] }

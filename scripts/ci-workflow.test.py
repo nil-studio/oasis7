@@ -3147,6 +3147,75 @@ release_web_fixture_start() { record start; }
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(trace.read_text().splitlines(), ['viewer', 'fixture', 'start'])
 
+    def test_iws_host_native_group_uses_explicit_target_and_propagates_failure(self):
+        driver = ROOT / 'scripts/ci-tests.sh'
+        prefix = 'set -euo pipefail\nsource ' + shlex.quote(str(driver)) + '\n'
+        mocks = r'''
+uname() {
+  case "$1" in
+    -s) printf '%s\n' "$MOCK_OS" ;;
+    -m) printf '%s\n' "$MOCK_ARCH" ;;
+    *) return 92 ;;
+  esac
+}
+run_cargo() {
+  printf 'CARGO|%s\n' "$*"
+  return "$MOCK_CARGO_STATUS"
+}
+run_group iws_host_native
+'''
+        expected = ('CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                    '--no-default-features --features iws-host-native-test-support '
+                    '-- --test-threads=1')
+        for system, arch, cargo_status, status in (
+                ('Linux', 'x86_64', 0, 0), ('Linux', 'aarch64', 0, 0),
+                ('Linux', 'x86_64', 37, 37), ('Darwin', 'arm64', 0, 2),
+                ('Linux', 's390x', 0, 2)):
+            with self.subTest(system=system, arch=arch, cargo_status=cargo_status):
+                result = subprocess.run(
+                    ['bash', '-c', prefix + mocks], text=True, capture_output=True,
+                    env=dict(os.environ, MOCK_OS=system, MOCK_ARCH=arch,
+                             MOCK_CARGO_STATUS=str(cargo_status)))
+                self.assertEqual(result.returncode, status, result.stderr)
+                if status == 2:
+                    self.assertEqual(result.stdout, '')
+                    self.assertIn('requires Linux x86_64 or aarch64', result.stderr)
+                else:
+                    self.assertEqual(result.stdout.strip(), expected)
+        extended = re.search(r'^run_full_extended_tier_tests\(\) \{\n.*?^\}',
+                             driver.read_text(), re.M | re.S).group()
+        self.assertRegex(extended, r'if \[\[ "\$\(uname -s\)" == Linux \]\]; then\s+'
+                                  r'run_oasis7_iws_host_native_tests\s+fi')
+
+    def test_documented_iws_host_group_runs_through_cli(self):
+        self.assertIn('./scripts/ci-tests.sh required --group iws_host_native',
+                      (ROOT / 'testing-manual.md').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            cargo = directory / 'cargo'
+            cargo.write_text('#!/usr/bin/env bash\nprintf "IWS_CARGO|%s\\n" "$*"\n'
+                             'exit "$MOCK_CARGO_STATUS"\n')
+            cargo.chmod(0o755)
+            uname = directory / 'uname'
+            uname.write_text('#!/usr/bin/env bash\ncase "$1" in\n'
+                             '-s) echo Linux ;;\n-m) echo x86_64 ;;\n*) exit 92 ;;\nesac\n')
+            uname.chmod(0o755)
+            for status in (0, 41):
+                with self.subTest(status=status):
+                    result = subprocess.run(
+                        ['bash', str(ROOT / 'scripts/ci-tests.sh'), 'required',
+                         '--group', 'iws_host_native'], text=True, capture_output=True,
+                        env=dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'],
+                                 MOCK_CARGO_STATUS=str(status), OASIS7_LOCAL_CHECK='0', CI_VERBOSE='0',
+                                 OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
+                                 OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    calls = [line for line in result.stdout.splitlines() if line.startswith('IWS_CARGO|')]
+                    self.assertEqual(calls, [
+                        'IWS_CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        '--no-default-features --features iws-host-native-test-support '
+                        '-- --test-threads=1'])
+
     def test_full_provider_artifact_is_prepared_once_before_each_full_dispatch(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         prelude = re.search(r'^if \[\[ -z "\$group" \]\]; then\n.*?^fi$', driver, re.M | re.S).group()
@@ -3165,6 +3234,7 @@ require_prepared() { [[ "$prepared" == 1 ]]; printf 'CONSUME\\n' >> "$CI_LOG"; }
 run_full_required_superset() { require_prepared; }
 run_rust_baseline() { require_prepared; }
 run_oasis7_full_tier_tests() { require_prepared; }
+run_oasis7_iws_host_native_tests() { require_prepared; }
 run_workspace_support_full_feature_tests() { require_prepared; }
 run_oasis7_llm_baseline_fixture_smoke() { require_prepared; }
 run_oasis7_production_mock_guard() { require_prepared; }
@@ -3196,6 +3266,7 @@ ci_python=python3
 run_full_required_superset() { :; }
 run_rust_baseline() { :; }
 run_oasis7_full_tier_tests() { :; }
+run_oasis7_iws_host_native_tests() { :; }
 run_workspace_support_full_feature_tests() { :; }
 run_oasis7_llm_baseline_fixture_smoke() { :; }
 run_group() { [[ "$1" == formal_process ]] || return 50; printf 'FORMAL\\n' >> "$CI_LOG"; }

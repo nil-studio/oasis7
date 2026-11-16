@@ -1,7 +1,7 @@
 //! Real physical GEN + history and side-ledger originals; no accepted GEN constructor.
 use super::*;
 use oasis7_distfs::controlled_authority::formal::endpoint::{
-    FormalCandidateMaterialV1, IwsCurrentLimitsV1, IwsEndpointVerificationBudgetsV1,
+    FormalCandidateMaterialV1, IwsCurrentLimitsV1,
 };
 use oasis7_formal_protocol::controlled_authority::replicated_protocol::{
     ArtifactObject, ArtifactRole, ClosedRecord,

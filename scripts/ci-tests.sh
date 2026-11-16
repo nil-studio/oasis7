@@ -338,6 +338,17 @@ run_oasis7_full_tier_tests() {
   run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
 }
 
+run_oasis7_iws_host_native_tests() {
+  # This target needs real Linux descriptors, sealed FDs and a same-build ELF.
+  # An explicitly requested unsupported target must not report zero-test success.
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:aarch64) ;;
+    *) echo 'IWS native Host integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
+  esac
+  run_cargo test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features \
+    --features iws-host-native-test-support -- --test-threads=1
+}
+
 run_oasis7_production_mock_guard() {
   local manifest
   manifest="$(mktemp)"
@@ -1292,6 +1303,9 @@ prepare_full_provider_artifact() {
 
 run_full_extended_tier_tests() {
   run_oasis7_full_tier_tests
+  if [[ "$(uname -s)" == Linux ]]; then
+    run_oasis7_iws_host_native_tests
+  fi
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_production_mock_guard
@@ -1333,6 +1347,7 @@ run_rust_baseline() {
 
 run_group() {
   case "$1" in
+    iws_host_native) run_oasis7_iws_host_native_tests ;;
     baseline) run_required_gate_checks ;;
     rust_baseline) run_rust_baseline ;;
     oasis7_required)

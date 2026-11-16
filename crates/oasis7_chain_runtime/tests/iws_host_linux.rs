@@ -1,28 +1,31 @@
-//! Real Linux GEN → accepted namespace owner → native Host admission.
-//! Only source distribution is shared here: no Runtime/Chain library dependency,
-//! copied worker implementation, synthetic accepted owner or WorldReady claim.
+//! Real libraries: Linux GEN → accepted namespace owner → native Host admission.
+//! The current Cargo worker and its original build metadata create a fresh,
+//! self-contained fixture. No synthetic accepted owner or WorldReady claim.
 #![cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
-extern crate self as oasis7_runtime;
-#[path = "../../oasis7_runtime/src/world/incremental_module_worker_allocator.rs"]
-mod actual_allocator;
-#[path = "../../oasis7_runtime/src/world/incremental_cache_move.rs"]
-pub mod incremental_cache_move;
-pub mod incremental_module_execution_worker {
-    pub use crate::actual_allocator::RootModuleWorkerAllocatorV1;
-}
-#[path = "../../oasis7_chain_runtime/tests/support/genesis_endpoint_work.rs"]
+#[path = "support/world_storage_cognition.rs"]
+mod cognition;
+#[path = "support/world_storage_current_work.rs"]
+mod current_work;
+#[path = "support/genesis_endpoint_material.rs"]
+mod endpoint_material;
+#[path = "support/genesis_endpoint_work.rs"]
+mod endpoint_work;
+#[path = "support/world_storage_genesis_work.rs"]
 mod genesis_work;
-#[path = "../../oasis7_chain_runtime/src/iws_genesis.rs"]
-mod iws_genesis;
-#[path = "../../oasis7_chain_runtime/src/iws_host_runtime.rs"]
-mod iws_host_runtime;
+#[path = "support/world_storage_physical_genesis.rs"]
+mod physical_genesis;
+#[path = "support/world_storage_scratch.rs"]
+mod scratch;
 use ed25519_dalek::SigningKey;
+use endpoint_work::*;
+use oasis7_chain_runtime::{iws_genesis, iws_host_runtime};
+use oasis7_distfs::incremental_page_store::objects::{IncrementalObjectStore, ObjectIo};
 use oasis7_distfs::{
     controlled_authority::{
-        fencing::{ControlledFileProvider, TrustedFencingPolicyV1, directory_fingerprint},
+        fencing::{ControlledFileProvider, TrustedFencingPolicyV1},
         formal::endpoint::{
             FileFormalEndpoint, FormalArchiveReadWorkV1, FormalCandidateMaterialV1,
             FormalEndpointAuthorizationV1, IwsPageStoreCapabilityV1,
@@ -31,14 +34,29 @@ use oasis7_distfs::{
     incremental_page_store::{IncrementalPageStore, PageCompression},
 };
 use oasis7_formal_protocol::{
+    controlled_authority::formal::test_fixtures::{self as signed, incremental},
+    incremental_execution::{ExecutionFactKindV1, ExecutionFactRefV1, RootSetV1},
+    incremental_history::GenesisConfigV1,
+    incremental_state::*,
+    incremental_value::*,
+};
+use oasis7_formal_protocol::{
     controlled_authority::{
         formal::{self, InitialActivationTrustV1, SignedInitialActivationV1},
         replicated_protocol::EndpointRole,
     },
     native_environment::{NativeEnvironmentRole, NativeExecutionEnvironmentV1},
 };
+use oasis7_proto::memory_budget::ReservedValue;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime::{World, incremental_genesis::RuntimeGenesisWorkV1};
 use oasis7_wasm_executor::bounded_worker::WorkerLimitsV1;
+use oasis7_world_state::{
+    WorldState, incremental_cognition_history::*, incremental_field_member::*,
+    incremental_field_read::WorldFieldReadContextV1, incremental_runtime_history_index::*,
+    incremental_runtime_history_manifest::*, incremental_semantic_key::SemanticKeyBudget,
+    incremental_world_current_complete::*,
+};
 use std::{
     fs,
     io::{Read, Write},
@@ -47,16 +65,36 @@ use std::{
     sync::atomic::AtomicBool,
 };
 
-fn bundle() -> PathBuf {
-    let root = PathBuf::from(
-        std::env::var_os("OASIS7_IWS_HOST_BUNDLE")
-            .expect("OASIS7_IWS_HOST_BUNDLE is required; missing inputs are not a skipped test"),
-    );
-    assert!(
-        root.is_absolute(),
-        "bundle must name a fresh absolute Linux data directory"
-    );
-    root
+struct Directory(PathBuf);
+impl Directory {
+    fn new() -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        // Match the actual native-worker tests: /proc/maps and stat must see
+        // the same Linux device, rather than a host-bind filesystem mapping.
+        let path = Path::new("/tmp").join(format!(
+            "oasis7-iws-host-integration-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        fs::create_dir(&path).expect("fresh isolated Linux fixture directory");
+        Self(path)
+    }
+}
+impl Drop for Directory {
+    fn drop(&mut self) {
+        fs::remove_dir_all(&self.0).expect("remove only this test's isolated directory");
+    }
+}
+fn put(objects: &IncrementalObjectStore<'_>, bytes: &[u8], io: &mut ObjectIo<'_>) {
+    objects
+        .write_object(
+            &mut &bytes[..],
+            bytes.len() as u64,
+            Some(*blake3::hash(bytes).as_bytes()),
+            io,
+        )
+        .unwrap();
 }
 fn input(path: &Path, cap: usize) -> Vec<u8> {
     let file =
@@ -89,59 +127,33 @@ fn original(path: &Path, bytes: &[u8]) {
         Err(e) => panic!("new original {}: {e}", path.display()),
     }
 }
-/// This mode measures only fresh directories and a genuine provider resource.
-/// Its successful return is preparation evidence, not Host acceptance evidence.
-fn fingerprints(root: &Path, output: &Path) {
-    fs::create_dir_all(root).unwrap();
-    let primary = root.join("primary");
-    let replica = root.join("replica");
-    fs::create_dir(&primary).expect("primary must be fresh; never replace an existing world");
-    fs::create_dir(&replica).expect("replica must be fresh; never replace an existing world");
-    let provider =
-        ControlledFileProvider::new(root.join("resource"), SigningKey::from_bytes(&[3; 32]))
-            .unwrap();
-    let value = serde_json::json!({"primary":directory_fingerprint(&primary).unwrap(),
-        "replica":directory_fingerprint(&replica).unwrap(),"resource":provider.resource_binding()});
-    original(output, &serde_json::to_vec(&value).unwrap());
-    eprintln!(
-        "GEN input preparation only: original Linux directory fingerprints {}",
-        output.display()
-    );
-}
 fn metadata(
     component: &oasis7_formal_protocol::native_environment::NativeEnvironmentComponentV1,
-    outs: &[PathBuf],
 ) -> Vec<u8> {
-    let name = match component.name.as_str() {
-        "build/metadata" => "native-build-metadata.txt",
-        "build/toolchain" => "native-toolchain.txt",
-        "build/Cargo.lock" => "native-Cargo.lock",
+    // These are the very same package build outputs embedded by the worker;
+    // never scan another target directory or mix a previous build's originals.
+    let bytes: &[u8] = match component.name.as_str() {
+        "build/metadata" => include_bytes!(concat!(env!("OUT_DIR"), "/native-build-metadata.txt")),
+        "build/toolchain" => include_bytes!(concat!(env!("OUT_DIR"), "/native-toolchain.txt")),
+        "build/Cargo.lock" => include_bytes!(concat!(env!("OUT_DIR"), "/native-Cargo.lock")),
         other => panic!("unknown original build metadata component {other}"),
     };
-    for out in outs {
-        let path = out.join(name);
-        if !path.is_file() {
-            continue;
-        }
-        let bytes = input(&path, 8 << 20);
-        if blake3::hash(&bytes).to_hex().as_str() == component.content_digest {
-            return bytes;
-        }
-    }
-    panic!(
-        "original matching build bytes missing for {} ({})",
-        component.name, component.content_digest
+    assert_eq!(
+        blake3::hash(bytes).to_hex().as_str(),
+        component.content_digest
     );
+    bytes.to_vec()
 }
-/// The old actual ELF supplies the descriptor. Every later recovered original
+/// The current actual ELF supplies the descriptor. Every archived original
 /// must match that descriptor's original component/chunk hashes exactly.
-fn capture(root: &Path, image: &Path) {
+fn capture(root: &Path) {
+    let image = Path::new(env!("CARGO_BIN_EXE_oasis7-native-bound-fixture"));
     use std::os::unix::fs::PermissionsExt;
     fs::create_dir_all(root).unwrap();
     let archive = root.join("native_archive");
     fs::create_dir(&archive).expect("native archive must be fresh");
     let stable = root.join("native-worker");
-    let mut source = fs::File::open(image).expect("actual old Linux worker ELF required");
+    let mut source = fs::File::open(image).expect("actual current Cargo worker ELF required");
     let mut target = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -168,11 +180,6 @@ fn capture(root: &Path, image: &Path) {
         NativeExecutionEnvironmentV1::decode(&result.stdout).expect("actual descriptor codec");
     assert_eq!(descriptor.os, "linux");
     assert_eq!(descriptor.arch, std::env::consts::ARCH);
-    let outs_file = PathBuf::from(
-        std::env::var_os("OASIS7_IWS_OLD_BUILD_OUTS").expect("original OUT_DIR JSON list required"),
-    );
-    let outs: Vec<PathBuf> = serde_json::from_slice(&input(&outs_file, 1 << 20)).unwrap();
-    assert!(!outs.is_empty(), "original OUT_DIR list cannot be empty");
     let mut total = 0usize;
     for component in &descriptor.components {
         let bytes = match component.role {
@@ -184,7 +191,7 @@ fn capture(root: &Path, image: &Path) {
                     .expect("original mapped library name");
                 input(Path::new(path), 256 << 20)
             }
-            NativeEnvironmentRole::BuildMetadata => metadata(component, &outs),
+            NativeEnvironmentRole::BuildMetadata => metadata(component),
         };
         assert_eq!(bytes.len() as u64, component.byte_len);
         assert_eq!(
@@ -251,15 +258,15 @@ fn accepted_host(root: &Path) {
             .authorized_fencing_resource_bindings
             .clone(),
     };
-    let mut limits = genesis_work::limits();
+    let mut limits = endpoint_material::limits();
     limits.current.nodes_remaining = nodes;
     FileFormalEndpoint::with_genesis_remote_pair_for_fixture(&authority,|primary_provider,replica_provider|{
         let authorization=||FormalEndpointAuthorizationV1{authority:authority.clone(),original:authority.clone(),recovery:None,parent:None};
         let mut primary=FileFormalEndpoint::open_protected(&root.join("primary"),authorization(),EndpointRole::Primary,primary_provider.clone(),None).unwrap();
         let mut replica=FileFormalEndpoint::open_protected(&root.join("replica"),authorization(),EndpointRole::Replica,replica_provider.clone(),None).unwrap();
         for (endpoint,pages) in [(&mut primary,&mut primary_pages),(&mut replica,&mut replica_pages)] {
-            endpoint.install_iws_page_store(IwsPageStoreCapabilityV1::new(pages.take().unwrap(),genesis_work::budgets()).unwrap().with_current_limits(limits.clone()).unwrap()).unwrap();
-            endpoint.supply_iws_candidate_work(genesis_work::source_work()).unwrap();
+            endpoint.install_iws_page_store(IwsPageStoreCapabilityV1::new(pages.take().unwrap(),endpoint_material::budgets()).unwrap().with_current_limits(limits.clone()).unwrap()).unwrap();
+            endpoint.supply_iws_candidate_work(endpoint_material::source_work()).unwrap();
         }
         let context=primary.stage_genesis_source(&candidate,||false).unwrap();
         let other=replica.stage_genesis_source(&candidate,||false).unwrap();
@@ -290,20 +297,48 @@ fn accepted_host(root: &Path) {
         drop(replica);drop(accepted);
     }).unwrap();
 }
-#[test]
-#[ignore = "manual real Linux input directory preparation"]
-fn prepare_linux_host_fingerprints() {
-    let output =
-        std::env::var_os("OASIS7_IWS_HOST_FINGERPRINTS").expect("fingerprint output required");
-    fingerprints(&bundle(), Path::new(&output));
-}
-#[test]
-#[ignore = "manual original ELF/archive collection"]
-fn capture_original_linux_native_archive() {
-    let image = std::env::var_os("OASIS7_IWS_NATIVE_CAPTURE").expect("original ELF path required");
-    capture(&bundle(), Path::new(&image));
+fn prepare_bundle(root: &Path) {
+    let primary = root.join("primary");
+    let replica = root.join("replica");
+    fs::create_dir(&primary).unwrap();
+    fs::create_dir(&replica).unwrap();
+    let provider =
+        ControlledFileProvider::new(root.join("resource"), SigningKey::from_bytes(&[3; 32]))
+            .unwrap();
+    capture(root);
+    let fixture = endpoint_material::prepare_with_native_archive(
+        root,
+        &primary,
+        &replica,
+        provider.resource_binding(),
+        &root.join("native_archive"),
+        None,
+    );
+    // Only original bytes cross the prepare/reopen boundary. The consumer must
+    // independently verify activation, close the quorum and obtain live leases.
+    for (name, bytes) in [
+        (
+            "activation.cbor",
+            serde_cbor::to_vec(&fixture.activation).unwrap(),
+        ),
+        ("trust.cbor", serde_cbor::to_vec(&fixture.trust).unwrap()),
+        (
+            "candidate.cbor",
+            serde_cbor::to_vec(&fixture.candidate).unwrap(),
+        ),
+        (
+            "current_nodes.json",
+            serde_json::to_vec(&fixture.current_limits.current.nodes_remaining).unwrap(),
+        ),
+    ] {
+        original(&root.join(name), &bytes);
+    }
+    drop(fixture);
+    drop(provider);
 }
 #[test]
 fn real_linux_accepted_genesis_installs_native_host() {
-    accepted_host(&bundle());
+    let directory = Directory::new();
+    prepare_bundle(&directory.0);
+    accepted_host(&directory.0);
 }

@@ -6,6 +6,7 @@ use oasis7_formal_protocol::incremental_history::GenesisConfigV1;
 use oasis7_proto::memory_budget::ReservedValue;
 use oasis7_runtime::incremental_genesis::RuntimeGenesisSummaryV1;
 use oasis7_runtime::{BodyMutationError, World};
+use std::sync::atomic::Ordering;
 
 pub(super) fn prepare(
     world: &World,
