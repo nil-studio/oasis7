@@ -50,11 +50,14 @@ impl Retention {
 }
 // Closed reachable graph: SignedHot -> NativeHot -> optional base Record,
 // seal/durable binding; HistoryNode -> Vec<HistoryLink>; ArchivedEntry ->
-// QualifiedProof -> Decision/Record/Frozen/receipts. All their dynamic children
-// are String, Vec, BTreeMap/Set, Box or optional embedded values. The sum of
-// complete enclosing roots bounds every actual typed element/pair/pointee,
-// including the tagged-enum serde Content scratch paid by the shared engine.
-// No generic external type can use this descriptor (ClosedNative is private).
+// QualifiedProof -> Decision/Record/Frozen/receipts. Their only dynamic typed
+// containers are String, Vec<HistoryLink> and BTreeMap<ArtifactRole, String>.
+// before() additionally covers the borrowed authority/policy/provider tuple,
+// whose only extra container is the policy's Vec<String>. Embedded structs and
+// Option fields belong to the enclosing root, not to every CBOR field/value.
+// The shared engine separately pays serde Content, strings, collection growth
+// and malformed length hints. None of these closed types has a Box, a set or
+// a default that allocates. No external type can extend ClosedNative.
 fn layout() -> CborDataLayoutV1 {
     let envelope = size_of::<SignedHot>()
         + size_of::<NativeHistoryNodeV1>()
@@ -62,13 +65,14 @@ fn layout() -> CborDataLayoutV1 {
         + size_of::<NativeCheckpointVerdictV1>();
     CborDataLayoutV1 {
         root: envelope,
-        sequence_element: envelope,
-        map_pair: envelope + 2 * size_of::<String>(),
-        set_element: envelope,
-        box_pointee: envelope,
-        // All native defaults are None/empty. Include one full enclosing slot
-        // per value as an over-reservation for serde's absent-field scratch.
-        default_heap_per_value: envelope,
+        sequence_element: size_of::<NativeHistoryLinkV1>().max(size_of::<String>()),
+        map_pair: size_of::<(
+            crate::controlled_authority::replicated_protocol::ArtifactRole,
+            String,
+        )>(),
+        set_element: 0,
+        box_pointee: 0,
+        default_heap_per_value: 0,
         symbols_bytes: 0,
         visits: 16,
         missing: None,

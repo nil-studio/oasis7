@@ -544,6 +544,69 @@ mod tests {
         fork.record_id = h(98);
         assert!(verify(&checkpoint, &fork, false).is_err());
         assert!(verify(&checkpoint, &commit.head(), true).is_err());
+
+        // The same native verifier must admit a real signed checkpoint and its
+        // referenced proof under a finite small pool. Paying an entire proof
+        // root for each CBOR field used to reject this bounded restore before
+        // the original authentication predicates could run.
+        let verify_paid = |pin: &fencing::EndpointCheckpointBindingV1,
+                           target: &FormalHeadRefV1,
+                           corrupt: bool| {
+            use super::super::super::bounded_context::{
+                FormalBoundedContextV1, FormalBoundedWorkV1,
+            };
+            use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+            let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
+            let work = FormalBoundedWorkV1::new(1_000_000, 1 << 30).unwrap();
+            let mut stop = || false;
+            let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+            let result = NativeCheckpointVerdictV1::verify_bounded(
+                &bytes,
+                &authority,
+                &public(5),
+                pin,
+                &provider,
+                target,
+                &commit.head(),
+                &authority.authority_id().unwrap(),
+                |id, common| {
+                    let source = objects
+                        .get(id)
+                        .ok_or_else(|| invalid("test missing object"))?;
+                    common.charge(1, source.len() as u64)?;
+                    let length = source.len() + usize::from(corrupt);
+                    let fee = common
+                        .memory()
+                        .reserve(
+                            length + std::mem::size_of::<Vec<u8>>(),
+                            MemoryClass::Ordinary,
+                        )
+                        .map_err(|e| invalid(e.to_string()))?;
+                    let mut loaded = Vec::with_capacity(length);
+                    loaded.extend_from_slice(source);
+                    if corrupt {
+                        loaded.push(0);
+                    }
+                    Ok(fee.retain(loaded))
+                },
+                &mut common,
+            );
+            let result = result
+                .map(|paid| {
+                    paid.validate_context(&mut common).unwrap();
+                    assert_eq!(paid.value().proof(), &proof);
+                    assert_eq!(paid.value().head(), verdict.head());
+                    assert!(paid.reserved_bytes() > 0);
+                })
+                .map_err(|e| e.to_string());
+            assert_eq!(memory.used(), 0, "all success/failure owners must drop");
+            result
+        };
+        verify_paid(&checkpoint, &commit.head(), false).unwrap();
+        assert!(verify_paid(&stale_floor, &commit.head(), false).is_err());
+        assert!(verify_paid(&wrong_pin, &commit.head(), false).is_err());
+        assert!(verify_paid(&checkpoint, &fork, false).is_err());
+        assert!(verify_paid(&checkpoint, &commit.head(), true).is_err());
     }
     /// Recovery imports retain the sealed cut as checkpoint base_parent, but
     /// that is an archive boundary, not the parent of the initial activation.
