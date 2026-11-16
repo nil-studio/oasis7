@@ -12,7 +12,7 @@
 - 产品文档采纳目标、Done 与范围：`doc/engineering/doc-governance/product-documentation-standard.prd.md`
 - 根/专题/design 模板与迁移审查卡：`doc/engineering/doc-governance/product-documentation-standard.templates.md`
 - 文档分类、迁移、真实导航、例外与证据生命周期的维护步骤：`doc/engineering/doc-governance/documentation-governance.manual.md`
-- 默认阅读面、活跃真值/审计留痕/历史归档/兼容跳转的消费边界：`doc/engineering/doc-governance/doc-structure-standard.design.md`
+- 文档权威、目录入口、历史证据与兼容跳转的维护边界：`doc/engineering/doc-governance/doc-structure-standard.design.md`
 - 文档存量、热点目录、近限文件与维护成本判断：`doc/engineering/governance/README.md`，并用 `scripts/doc-inventory-report.sh` 复算
 - 已收口的 `world-simulator/viewer` 与 `readme/governance` 热点路径：直接进入各自 landing page；一次性路径治理三件套已退役，历史从 git 与 PR 与实际验证记录 追溯
 - 全量专题三件套索引：`doc/engineering/prd.index.md`
