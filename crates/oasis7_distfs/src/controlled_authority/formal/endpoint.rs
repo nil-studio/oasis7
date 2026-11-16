@@ -1159,28 +1159,11 @@ pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
+#[path = "endpoint_bounded_request.rs"]
+mod bounded_request;
 #[path = "endpoint_native_environment.rs"]
 mod native_environment;
 pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
-impl FileFormalEndpoint {
-    /// Paid data loading preserves the existing failure poison; it neither
-    /// issues a serving permit nor replaces the formal freeze admission path.
-    fn load_bounded(
-        &mut self,
-        request: &str,
-        memory: &oasis7_proto::memory_budget::MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
-        cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<Option<store::PaidRequestStateV1>, FormalError> {
-        let result = self
-            .store
-            .read_request_bounded(request, memory, work, cancelled);
-        if result.is_err() {
-            self.poisoned = true;
-        }
-        result
-    }
-}
 #[cfg(not(target_arch = "wasm32"))]
 pub use incremental::genesis::PaidGenesisAcceptanceV1;
 #[cfg(not(target_arch = "wasm32"))]
