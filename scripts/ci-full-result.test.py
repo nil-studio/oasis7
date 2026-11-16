@@ -593,6 +593,196 @@ class Attempts(unittest.TestCase):
                     self.verify()
 
 
+class InheritedAttempts(unittest.TestCase):
+    """Selective reruns may relabel old successful jobs with new IDs/attempts."""
+
+    def setUp(self):
+        receipt, run, _ = fixture()
+        self.original = dict(run, run_attempt=1, conclusion="failure",
+                             created_at="2026-10-30T07:08:59Z", run_started_at="2026-10-30T07:08:59Z")
+        self.run = dict(self.original, run_attempt=2, conclusion="success",
+                        run_started_at="2026-10-30T09:27:41Z", updated_at="2026-10-30T09:56:49Z")
+        self.producers = [dict(id=10 + index, run_id=42, head_sha=A, name=name, run_attempt=1,
+                               status="completed", conclusion="success", runner_id=10,
+                               runner_name="runner", runner_group_id=0,
+                               started_at=start, completed_at=end,
+                               steps=[dict(number=1, name="Run", status="completed", conclusion="success",
+                                           started_at=start, completed_at=end)])
+                          for index, (name, start, end) in enumerate((
+                              ("periodic-admission", "2026-10-30T07:09:01Z", "2026-10-30T07:09:31Z"),
+                              ("select", "2026-10-30T07:09:32Z", "2026-10-30T07:09:54Z")))]
+        self.aliases = [dict(copy.deepcopy(job), id=job["id"] + 100, run_attempt=2,
+                             created_at="2026-10-30T09:27:43Z", runner_group_id=None)
+                        for job in self.producers]
+        context = dict(receipt["context"], run_attempt=1, source_sha=A)
+        decision = module.periodic_decision([], context, module.timestamp("2026-10-30T07:09:15Z"))
+        self.api = History([self.run], attempts={(42, 1): self.original},
+                           artifacts={42: [dict(id=100, name="ci-periodic-admission-42-1", expired=False),
+                                           dict(id=101, name="ci-selection-42-1", expired=False),
+                                           dict(id=102, name="ci-full-result-42-2", expired=False)]},
+                           payloads={100: decision, 101: receipt["plan"], 102: receipt},
+                           jobs={(42, 1): self.producers,
+                                 (42, 2): self.aliases + [dict(name="explicit-full-gate", run_attempt=2,
+                                                              status="completed", conclusion="success")]})
+
+    def classify(self):
+        return module.classify_periodic_attempt(self.api, self.run, 7)
+
+    def selected(self):
+        return module.selected_source_for_attempt(self.api, self.run, self.api.artifacts[42], 7)
+
+    def test_aliases_keep_original_admission_selection_and_cadence(self):
+        classified = self.classify()
+        self.assertEqual(classified["kind"], "full")
+        self.assertTrue(classified["successful"])
+        self.assertEqual(classified["decision"]["context"]["run_attempt"], 1)
+        self.assertEqual(classified["full_started_at"], "2026-10-30T07:09:32Z")
+        self.assertEqual(self.selected(), A)
+        decision = module.periodic_decision([classified], dict(self.api.payloads[100]["context"], run_id=90),
+                                            module.timestamp("2026-10-30T11:09:32Z"))
+        self.assertTrue(decision["run_full"])
+        self.assertEqual(decision["start_gap_seconds"], 4 * 3600)
+        self.api.artifacts[42].pop()
+        self.assertFalse(self.classify()["successful"])
+        with self.assertRaisesRegex(ValueError, "current attempt"):
+            module.find_verified(self.api, A, CONFIG, "definition", run_id=42)
+
+    def test_omitted_inherited_jobs_keep_actual_select_start(self):
+        self.api.jobs[(42, 2)] = self.api.jobs[(42, 2)][2:]
+        self.assertEqual(self.selected(), A)
+        self.assertEqual(self.classify()["full_started_at"], "2026-10-30T07:09:32Z")
+
+    def test_manual_candidate_alias_keeps_source_distinct_from_workflow(self):
+        self.run["event"] = self.original["event"] = "workflow_dispatch"
+        self.api.payloads[101].update(source_sha=B, tested_sha=B, execution_profile="candidate-full")
+        self.assertEqual(self.selected(), B)
+
+    def test_changed_failed_incomplete_or_ambiguous_alias_cannot_reuse_old_evidence(self):
+        for index in (0, 1):
+            for mutation in ({"status": "in_progress", "conclusion": None}, {"conclusion": "failure"},
+                             {"conclusion": "cancelled"}, {"started_at": "2026-10-30T09:28:00Z"},
+                             {"completed_at": None}, {"steps": []}, {"head_sha": B}, {"run_id": 99},
+                             {"run_attempt": 1}, {"steps": [dict(number=1, name="Different")]},
+                             {"completed_at": "2026-10-30T09:28:00Z"}):
+                with self.subTest(job=index, mutation=mutation):
+                    self.setUp()
+                    self.aliases[index].update(mutation)
+                    with self.assertRaises(ValueError):
+                        self.selected()
+            self.setUp()
+            self.api.jobs[(42, 2)].append(copy.deepcopy(self.aliases[index]))
+            with self.subTest(duplicate=index), self.assertRaises(ValueError):
+                self.selected()
+
+    def test_attempt_identity_and_missing_producer_timing_fail_closed(self):
+        for mutation in ({"id": 99}, {"run_attempt": 2}, {"head_sha": B}, {"workflow_id": 8},
+                         {"path": "other.yml"}, {"event": "workflow_dispatch"}, {"head_branch": "other"},
+                         {"run_started_at": None}, {"run_started_at": "2026-10-30T09:30:00Z"}):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                self.original.update(mutation)
+                with self.assertRaises(ValueError):
+                    self.selected()
+        self.setUp()
+        del self.producers[0]["completed_at"]
+        with self.assertRaises(ValueError):
+            self.classify()
+
+    def third_attempt(self):
+        second = copy.deepcopy(self.run)
+        # The attempt endpoint's created_at is not the original run creation time.
+        second["created_at"] = "2026-10-30T09:27:43Z"
+        self.api.attempts[(42, 2)] = second
+        self.run.update(run_attempt=3, run_started_at="2026-10-30T10:30:00Z")
+        self.api.jobs[(42, 3)] = [dict(copy.deepcopy(job), id=job["id"] + 100, run_attempt=3)
+                                 for job in self.aliases]
+
+    def test_every_intermediate_attempt_is_checked(self):
+        self.third_attempt()
+        self.assertEqual(self.selected(), A)
+        self.assertEqual(self.classify()["full_started_at"], "2026-10-30T07:09:32Z")
+        for index in (0, 1):
+            with self.subTest(intermediate_job=index):
+                self.setUp()
+                self.third_attempt()
+                self.aliases[index].update(conclusion="failure", started_at="2026-10-30T09:28:00Z")
+                with self.assertRaises(ValueError):
+                    self.selected()
+
+    def test_later_producer_uses_actual_attempt_start_not_endpoint_creation(self):
+        for index, job in enumerate(self.aliases):
+            start = "2026-10-30T09:27:42Z" if index == 0 else "2026-10-30T09:27:51Z"
+            end = "2026-10-30T09:27:50Z" if index == 0 else "2026-10-30T09:28:00Z"
+            job.update(started_at=start, completed_at=end,
+                       steps=[dict(job["steps"][0], started_at=start, completed_at=end)])
+        self.api.artifacts[42].extend([dict(id=200, name="ci-periodic-admission-42-2", expired=False),
+                                      dict(id=201, name="ci-selection-42-2", expired=False)])
+        self.api.payloads[200] = module.periodic_decision(
+            [], dict(self.api.payloads[100]["context"], run_attempt=2),
+            module.timestamp("2026-10-30T09:27:42.500000Z"))
+        self.api.payloads[201] = copy.deepcopy(self.api.payloads[101])
+        self.third_attempt()
+        self.assertEqual(self.selected(), A)
+        classified = self.classify()
+        self.assertEqual(classified["decision"]["context"]["run_attempt"], 2)
+        self.assertEqual(classified["full_started_at"], "2026-10-30T09:27:51Z")
+        self.api.payloads[200]["observed_at"] = "2026-10-30T09:27:40Z"
+        with self.assertRaisesRegex(ValueError, "admission predates"):
+            self.classify()
+
+    def test_newer_artifact_cannot_be_skipped_or_forged_from_an_alias(self):
+        for name, artifact_id in (("periodic-admission", 100), ("selection", 101)):
+            for kind in ("alias", "expired", "duplicate"):
+                with self.subTest(name=name, kind=kind):
+                    self.setUp()
+                    self.third_attempt()
+                    current = dict(id=200, name=f"ci-{name}-42-2", expired=kind == "expired")
+                    self.api.artifacts[42].append(current)
+                    self.api.payloads[200] = copy.deepcopy(self.api.payloads[artifact_id])
+                    if kind == "duplicate":
+                        self.api.artifacts[42].append(dict(current, id=201))
+                    with self.assertRaises(ValueError):
+                        self.selected()
+
+    def test_inherited_noop_cannot_become_a_new_observation(self):
+        decision = self.api.payloads[100]
+        decision.update(run_full=False, reason="not_due", start_gap_seconds=555,
+                        previous_full=dict(id=40, run_attempt=1, head_sha=A, status="completed",
+                                           full_started_at="2026-10-30T07:00:00Z"))
+        with self.assertRaises(ValueError):
+            self.classify()
+
+    def test_actual_select_rerun_without_new_selection_keeps_full_failure_or_activity(self):
+        for status, conclusion in (("completed", "failure"), ("completed", "cancelled"),
+                                   ("completed", "success"), ("in_progress", None)):
+            with self.subTest(status=status, conclusion=conclusion):
+                self.setUp()
+                self.run.update(status=status, conclusion="failure" if status == "completed" else None)
+                for index, job in enumerate(self.aliases):
+                    start = "2026-10-30T09:27:42Z" if index == 0 else "2026-10-30T09:27:51Z"
+                    end = "2026-10-30T09:27:50Z" if index == 0 else "2026-10-30T09:28:00Z"
+                    job.update(started_at=start, completed_at=end,
+                               steps=[dict(job["steps"][0], started_at=start, completed_at=end)])
+                self.aliases[1].update(status=status, conclusion=conclusion)
+                if status == "in_progress":
+                    self.aliases[1]["completed_at"] = None
+                self.api.jobs[(42, 2)][2].update(conclusion="failure")
+                self.api.artifacts[42][-1] = dict(id=200, name="ci-periodic-admission-42-2", expired=False)
+                self.api.payloads[200] = module.periodic_decision(
+                    [], dict(self.api.payloads[100]["context"], run_attempt=2),
+                    module.timestamp("2026-10-30T09:27:45Z"))
+                classified = self.classify()
+                self.assertEqual(classified["kind"], "full")
+                self.assertFalse(classified["successful"])
+                self.assertEqual(classified["full_started_at"], "2026-10-30T09:27:51Z")
+                later = module.periodic_decision([classified], dict(self.api.payloads[200]["context"], run_id=90),
+                                                 module.timestamp("2026-10-30T13:27:51Z"))
+                self.assertEqual(later["run_full"], status == "completed")
+                self.assertEqual(later["reason"], "due" if status == "completed" else "full_active")
+                with self.assertRaisesRegex(ValueError, "select was rerun"):
+                    self.selected()
+
+
 class PeriodicAdmission(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
