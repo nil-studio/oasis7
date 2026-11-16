@@ -686,7 +686,10 @@ class Server:
             if self.stream_bytes > self.plan['output_limit'] - 2 * HEADER_LIMIT:
                 raise ResolverError('SESSION_OUTPUT_LIMIT', self.index)
             if key.data == 'stderr':
-                self.write(2, part, end, cleanup=cleanup)
+                # A deadline/cancel may cross after select; this chunk is already
+                # consumed. Forward it within the existing closeout reserve.
+                stderr_end = end if cleanup else min(self.end, self.work_end + CLEANUP_SECONDS)
+                self.write(2, part, stderr_end, cleanup=True)
             else:
                 if len(self.stdout) + len(part) > READ_LIMIT + 1:
                     raise ResolverError('RESPONSE_LIMIT', self.index)

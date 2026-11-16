@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -110,6 +111,90 @@ def subreaper_state():
     if ctypes.CDLL(None).prctl(37, ctypes.byref(value), 0, 0, 0) != 0:
         raise RuntimeError('could not read subreaper')
     return value.value
+
+
+class ServerStderr(unittest.TestCase):
+    """Cross the work boundary only after a real stderr pipe becomes readable."""
+    def setUp(self):
+        original_fds = set(os.listdir('/proc/self/fd'))
+        self.addCleanup(lambda: self.assertEqual(set(os.listdir('/proc/self/fd')), original_fds))
+        self.clock, self.cancelled = [100.0], [False]
+        self.server = m.Server(dict(started=100.0, end=130.0, output_limit=65536), None, self.cancelled)
+        self.addCleanup(self.server.selector.close)
+        self.server.proc = SimpleNamespace(poll=lambda: None)
+        self.tail = b'term-tail\n'
+        self.source, writer = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+        self.addCleanup(os.close, self.source)
+        try:
+            os.write(writer, self.tail)
+        finally:
+            os.close(writer)
+        self.capture, sink = os.pipe2(os.O_NONBLOCK | os.O_CLOEXEC)
+        self.addCleanup(os.close, self.capture)
+        self.addCleanup(os.close, sink)
+        self.server.selector.register(self.source, m.selectors.EVENT_READ, 'stderr')
+        real_write = os.write
+        self.enterContext(patch.object(m.os, 'write',
+                                      lambda fd, data: real_write(sink if fd == 2 else fd, data)))
+        self.enterContext(patch.object(m.time, 'monotonic', side_effect=lambda: self.clock[0]))
+
+    def at_ready(self, now, *, cancelled=False):
+        original = self.server.selector.select
+        def select(_timeout=None):
+            ready = original(0)
+            self.assertEqual([key.data for key, _ in ready], ['stderr'])
+            self.clock[0], self.cancelled[0] = now, cancelled
+            return ready
+        self.enterContext(patch.object(self.server.selector, 'select', select))
+
+    def captured(self):
+        self.assertEqual(os.read(self.source, 1), b'')
+        try:
+            return os.read(self.capture, 65536)
+        except BlockingIOError:
+            return b''
+
+    def test_work_deadline_after_read_preserves_tail_and_stops_command(self):
+        self.at_ready(117.0)  # Work ends at 116.25; its existing closeout ends at 120.
+        self.server.pump(self.server.work_end)
+        self.assertEqual(self.captured(), self.tail)
+        with self.assertRaisesRegex(m.ResolverError, 'DEADLINE'):
+            self.server.send(b'next-command', self.server.work_end)
+
+    def test_cancellation_after_read_preserves_tail_and_stops_command(self):
+        self.at_ready(100.1, cancelled=True)
+        self.server.pump(self.server.work_end)
+        self.assertEqual(self.captured(), self.tail)
+        with self.assertRaisesRegex(m.ResolverError, 'CANCELLED'):
+            self.server.send(b'next-command', self.server.work_end)
+
+    def test_command_closeout_expiry_does_not_use_later_session_deadline(self):
+        self.at_ready(120.1)  # Session reserve ends at 126.25; this command ends at 120.
+        with self.assertRaisesRegex(m.ResolverError, 'DEADLINE'):
+            self.server.pump(self.server.work_end)
+        self.assertEqual(self.captured(), b'')
+
+    def test_shorter_cleanup_stage_deadline_is_not_extended(self):
+        self.clock[0] = 116.5
+        self.at_ready(117.1, cancelled=True)
+        with self.assertRaisesRegex(m.ResolverError, 'DEADLINE'):
+            self.server.pump(117.0, cleanup=True)
+        self.assertEqual(self.captured(), b'')
+
+    def test_work_boundary_does_not_bypass_stream_limit(self):
+        self.server.plan['output_limit'] = 2*m.HEADER_LIMIT + len(self.tail)-1
+        self.at_ready(117.0)
+        with self.assertRaisesRegex(m.ResolverError, 'SESSION_OUTPUT_LIMIT'):
+            self.server.pump(self.server.work_end)
+        self.assertEqual(self.captured(), b'')
+
+    def test_work_boundary_does_not_bypass_forwarded_output_limit(self):
+        self.server.plan['output_limit'] = 2*m.HEADER_LIMIT + len(self.tail)
+        self.server.write(2, b'prior\n', self.server.work_end)
+        self.at_ready(117.0)
+        with self.assertRaisesRegex(m.ResolverError, 'SESSION_OUTPUT_LIMIT'):
+            self.server.pump(self.server.work_end)
+        self.assertEqual(self.captured(), b'prior\n')
 
 
 class Resolver(unittest.TestCase):
