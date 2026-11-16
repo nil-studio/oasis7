@@ -459,3 +459,83 @@ fn three_result_profile_rejects_non_results_and_repeated_ids() {
         );
     }
 }
+
+#[test]
+fn seal_binding_preserves_original_seal_bytes_and_releases_owners() {
+    let memory = MemoryBudget::new(32 << 20, 0).unwrap();
+    let source = Empty;
+    let make = || {
+        let mut tx =
+            ExecutionTransaction::begin(parent(), [2; 32], &source, &memory, limits()).unwrap();
+        tx.write(StateNamespaceV1::Business, b"same-write", Some([4; 32]))
+            .unwrap();
+        tx.append_fact(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Input,
+            id: [3; 32],
+        })
+        .unwrap();
+        tx
+    };
+    let ordinary = make();
+    let ordinary_guard = ordinary.guard();
+    let live = ordinary.parent_fence();
+    let ordinary = ordinary.seal(&ordinary_guard, &live, 1).unwrap();
+    let wrapped = make();
+    let guard = wrapped.guard();
+    let wrapped = wrapped.seal_with_binding(&guard, &live, 1).unwrap();
+    assert_eq!(wrapped.transition().record, ordinary.record);
+    assert_eq!(wrapped.transition().new_nodes, ordinary.new_nodes);
+    assert_eq!(
+        wrapped.binding().after_roots_digest(),
+        ordinary.record.after.digest().unwrap()
+    );
+    let (transition, binding) = wrapped.into_parts();
+    drop(transition);
+    binding.validate_source_guard(&guard, &memory).unwrap();
+    drop(binding);
+    drop(guard);
+    drop(ordinary);
+    drop(ordinary_guard);
+    assert_eq!(memory.used(), 0);
+}
+
+#[test]
+fn failed_seal_binding_releases_memory_without_exposing_witness() {
+    for mode in 0..5 {
+        let memory = MemoryBudget::new(32 << 20, 0).unwrap();
+        let source = Empty;
+        let mut initial = parent();
+        if mode == 4 {
+            initial.roots.simulation_tick = 10;
+        }
+        let mut tx =
+            ExecutionTransaction::begin(initial, [3; 32], &source, &memory, limits()).unwrap();
+        let guard = tx.guard();
+        let mut live = tx.parent_fence();
+        let mut held = None;
+        match mode {
+            0 => {
+                tx.write(StateNamespaceV1::Business, b"changed", Some([1; 32]))
+                    .unwrap();
+            }
+            1 => {
+                live.authority.epoch += 1;
+            }
+            2 => {
+                let _: Result<(), ExecutionError> = tx.contribute(|_| Err(ExecutionError::Aborted));
+            }
+            3 => {
+                held = Some(
+                    memory
+                        .reserve((32 << 20) - memory.used(), MemoryClass::Ordinary)
+                        .unwrap(),
+                );
+            }
+            _ => {}
+        }
+        assert!(tx.seal_with_binding(&guard, &live, 1).is_err());
+        drop(held);
+        drop(guard);
+        assert_eq!(memory.used(), 0, "failure mode {mode}");
+    }
+}

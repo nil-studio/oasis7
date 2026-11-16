@@ -1,5 +1,8 @@
 //! A process-local witness of ONE successful real transaction seal.
 //! It is neither execution acceptance nor durable/selected-head authority.
+//! It binds only the source guard, memory pool and after-root digest, not the
+//! complete transition's operation, read/write/fact payloads or new-node bytes.
+//! Consumers must not use root equality as authentication of a modified package.
 use super::*;
 /// No public constructor or Clone: arbitrary public PreparedTransition values
 /// cannot manufacture the opaque guard owner captured by the actual seal.
