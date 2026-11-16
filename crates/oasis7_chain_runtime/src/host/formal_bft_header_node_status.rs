@@ -170,6 +170,56 @@ fn request_bytes_valid(bytes: &[u8], authority: &str) -> bool {
 }
 
 #[cfg(test)]
+pub(crate) fn collect_for_test(runtime: &NodeRuntime) -> serde_json::Value {
+    use std::process::{Command, Stdio};
+    let socket = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = socket.local_addr().unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let listener = Listener {
+        socket,
+        incarnation: "a".repeat(64),
+        authority: address.to_string(),
+    };
+    let scripts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
+    let code = r#"
+import importlib.util,json,sys,time
+spec=importlib.util.spec_from_file_location('live_collector',sys.argv[1])
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+status,error=m.fetch(sys.argv[2])
+assert error == "success", error
+profile=m.adapter.project(status,'http',time.time_ns()//1_000_000)
+print(json.dumps({'profile':profile,'markdown':m.adapter.markdown(profile)}))
+"#;
+    let mut child = Command::new("python3")
+        .arg("-B")
+        .arg("-c")
+        .arg(code)
+        .arg(scripts.join("p2p-triad-http-profile.py"))
+        .arg(format!("http://{address}{PATH}"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            let _ = child.wait();
+            panic!("live diagnostic collector timed out");
+        }
+        listener.poll(runtime);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

@@ -425,6 +425,27 @@ fn node_case() {
         binding.initial_schedule().height()
     );
     assert!(!observation.pending_driver_apply);
+    let report = crate::formal_bft_header_cli::collect_node_diagnostics_for_test(&node);
+    assert_eq!(report["profile"]["last_applied_height"], first.height);
+    assert_eq!(
+        report["profile"]["last_applied_header_id"],
+        first.block_hash
+    );
+    assert_eq!(
+        report["profile"]["binding_digest"],
+        binding.digest().unwrap()
+    );
+    assert_eq!(report["profile"]["status"], "unknown");
+    assert_eq!(report["profile"]["can_propose"], false);
+    assert_eq!(report["profile"]["source"], "http");
+    assert!(
+        report["markdown"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|line| line.as_str().unwrap().contains("last_applied_height"))
+    );
+    assert!(!report.to_string().contains("node-wire3-first-agent"));
     let encoded = serde_json::to_string(&observation).unwrap();
     assert!(!encoded.contains("node-wire3-first-agent"));
     assert!(!encoded.contains("payload_cbor"));

@@ -230,7 +230,7 @@ producer 发布实际 profile、world/chain、构建与实例身份，adapter �
 
 ### wire-3 worker 诊断接线子范围
 
-`bft-header node --serve` 可在私有配置中显式设置 `status_address` 为非零 loopback 地址，暴露只读 `GET /v1/bft/status`，schema 为 `oasis7.bft-node-observation/v1`。未设置不监听；非 serve、非 loopback 或端口冲突拒绝。监听器随同一 Node invocation 释放，每次启动随机 incarnation；不新增 submit 或 private-read 入口。请求至多 2048 字节、100ms 绝对读取预算，响应至多 16KiB，不提供 CORS 或缓存。URL 必须使用配置中数值 loopback 地址及端口（例如 `http://127.0.0.1:8901/v1/bft/status`）；请求只接受一个精确匹配的 Host，拒绝 Origin，不接受 localhost 别名或浏览器跨源访问。
+`bft-header node --serve` 可在私有配置中显式设置 `status_address` 为非零 loopback 地址，暴露只读 `GET /v1/bft/status`，schema 为 `oasis7.bft-node-observation/v1`。未设置不监听；非 serve、非 loopback 或端口冲突拒绝。监听器随同一 Node invocation 释放，每次启动随机 incarnation；不新增 submit 或 private-read 入口。请求至多 2048 字节、100ms 绝对读取预算，响应至多 16KiB，不提供 CORS 或缓存。URL 必须使用配置中数值 loopback 地址及端口（例如 `http://127.0.0.1:8901/v1/bft/status`）；请求只接受一个精确匹配的 Host，拒绝 Origin，不接受 localhost 别名或浏览器跨源访问。loopback 不是 OS 用户认证，本机其他进程也可读取这些公开诊断字段；读取和写入各有独立 100ms 绝对预算，单次请求最坏约 200ms。
 
 此入口只输出 worker 从其已经验证的 checkpoint 和 opaque schedule 取得的有界事实：world/chain/operator instance、epoch/height/round、active/pending set hash、binding digest、checkpoint revision、已观测 lease generation、原窗口起点/累计提交数、pending apply 及最近 applied height/header。观察时间由 worker 更新，HTTP 读取不刷新它；不输出 journal、action、凭据、路径或原始错误。`running` 及固定 blocker 是查询时的实例诊断，不是资格来源。服务故障或停止后的采集失败保持 unknown，不能借最后成功恢复当前资格。
 

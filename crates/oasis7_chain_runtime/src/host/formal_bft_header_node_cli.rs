@@ -20,7 +20,7 @@ use std::{
 mod network;
 
 #[path = "formal_bft_header_node_status.rs"]
-mod status;
+pub(super) mod status;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

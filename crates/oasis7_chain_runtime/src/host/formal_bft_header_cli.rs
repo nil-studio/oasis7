@@ -4,6 +4,8 @@ mod ledger;
 #[path = "formal_bft_header_node_cli.rs"]
 mod node;
 pub(crate) use node::BindingReport as NodeBindingReport;
+#[cfg(test)]
+pub(crate) use node::status::collect_for_test as collect_node_diagnostics_for_test;
 
 /// Initialize the private qualified-H Node origin and expose its public descriptor.
 /// No provider connection or signing authority is acquired.
