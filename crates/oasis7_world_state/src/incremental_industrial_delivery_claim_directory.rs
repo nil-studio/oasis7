@@ -312,6 +312,10 @@ struct PendingClaim {
     before: Option<[u8; 32]>,
     after: Option<[u8; 32]>,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn fold<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -406,7 +410,6 @@ fn fold<
         },
     )?;
     w.pending_entries_remaining = second_remaining;
-    drop(stop);
     for change in pending {
         w.step(change.key.len(), &mut ctx.cancelled)?;
         let old = tree::find(&tree, &change.key, w, &mut ctx.cancelled)?;
@@ -439,6 +442,10 @@ fn fold<
 }
 /// Complete original inner-target set for one actual owner. The private index
 /// preserves duplicate inner targets, which the original BTreeSet then folds.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn recover_current_industrial_claim_targets_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -589,6 +596,10 @@ impl FrozenIndustrialClaimDirectoryV1 {
         }))
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn freeze_current_industrial_claim_directory_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -655,7 +666,7 @@ impl CurrentIndustrialClaimSnapshotV1 {
     pub fn entries(&self) -> impl ExactSizeIterator<Item = IndustrialClaimSnapshotEntryV1<'_>> {
         self.rows
             .iter()
-            .map(|row| IndustrialClaimSnapshotEntryV1(&***row))
+            .map(|row| IndustrialClaimSnapshotEntryV1(row))
     }
 }
 #[allow(clippy::too_many_arguments)]

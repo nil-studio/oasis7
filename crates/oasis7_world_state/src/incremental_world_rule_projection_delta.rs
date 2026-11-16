@@ -132,6 +132,13 @@ pub struct CurrentWorldRuleProjectionDeltaV1 {
 }
 type Requests = BTreeMap<String, crate::world_rules::WorldRuleReceiptV1>;
 type Orders = BTreeMap<String, crate::world_rules::AgentIndustrialOrderV1>;
+// Each variant owns a qualified overlay (and its memory reservations) for the
+// projection lifetime. The row snapshots are consumed during construction;
+// accessing these payloads again is intentionally unnecessary.
+#[expect(
+    dead_code,
+    reason = "Qualified overlay ownership retains its memory charge"
+)]
 enum Source {
     Supply(ReservedValue<crate::incremental_world_rule_supply_root::SupplyRecordQualificationV1>),
     Organization(
@@ -235,12 +242,7 @@ impl Build {
         stop: &mut impl FnMut() -> bool,
     ) -> Result<(), ValueTreeError> {
         if self.rows.len() == self.rows.capacity() {
-            let cap = self
-                .rows
-                .capacity()
-                .checked_mul(2)
-                .unwrap_or(usize::MAX)
-                .max(4);
+            let cap = self.rows.capacity().saturating_mul(2).max(4);
             let bytes = cap.checked_mul(size_of::<Row>()).ok_or_else(limit)?;
             spend(p, bytes, stop)?;
             let mut fee = self.memory.reserve(bytes, MemoryClass::Ordinary)?;
@@ -713,37 +715,36 @@ fn map<
     p: &Processing<'_>,
     b: &mut Build,
 ) -> Result<(), ValueTreeError> {
-    if old.is_none() {
-        if let Some(new) = new {
-            let root = diff::root(profile, new, d)?;
-            if root.leaf_count == 2 {
-                <BTreeMap<String, V> as Codec>::accept_changed(profile, old, Some(new), d)?;
-                let payload =
-                    read_typed_projection_cell_json_impl::<BTreeMap<String, V>, _, _, _, _>(
-                        profile, new, d, p,
-                    )?;
-                let key = if matches!(new, TypedCellRefV1::Body(_)) {
-                    branch_semantic(
-                        parts.get(1).ok_or_else(bad)?,
-                        &b.memory,
-                        p,
-                        &mut d.ctx.cancelled,
-                    )?
-                } else {
-                    semantic(profile, new, d, p)?
-                };
-                let (path, fee) = path(parts, &b.memory, p, &mut d.ctx.cancelled)?;
-                return b.push(
-                    Row {
-                        path,
-                        semantic: key,
-                        json: Some(payload),
-                        _fee: fee,
-                    },
+    if old.is_none()
+        && let Some(new) = new
+    {
+        let root = diff::root(profile, new, d)?;
+        if root.leaf_count == 2 {
+            <BTreeMap<String, V> as Codec>::accept_changed(profile, old, Some(new), d)?;
+            let payload = read_typed_projection_cell_json_impl::<BTreeMap<String, V>, _, _, _, _>(
+                profile, new, d, p,
+            )?;
+            let key = if matches!(new, TypedCellRefV1::Body(_)) {
+                branch_semantic(
+                    parts.get(1).ok_or_else(bad)?,
+                    &b.memory,
                     p,
                     &mut d.ctx.cancelled,
-                );
-            }
+                )?
+            } else {
+                semantic(profile, new, d, p)?
+            };
+            let (path, fee) = path(parts, &b.memory, p, &mut d.ctx.cancelled)?;
+            return b.push(
+                Row {
+                    path,
+                    semantic: key,
+                    json: Some(payload),
+                    _fee: fee,
+                },
+                p,
+                &mut d.ctx.cancelled,
+            );
         }
     }
     diff::accept_container::<BTreeMap<String, V>, _, _, _, _>(
@@ -772,6 +773,10 @@ fn map<
         },
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn map_field<
     Owner,
     V: Codec + serde::Serialize,
@@ -791,6 +796,10 @@ fn map_field<
 ) -> Result<(), ValueTreeError> {
     map::<V, _, _, _, _>(parts, profile, old, new, d, p, b)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn whole_field<
     Owner,
     T: Codec + serde::Serialize,
@@ -865,6 +874,10 @@ fields!(crate::world_rules::OrganizationContinuityStateV1,{registrations:map_fie
 fields!(crate::world_rules::EmergencySupplyStateV1,{world_id:whole_field,minimum_services:map_field,region_lineages:map_field,observations:map_field,observation_interval_coverage:map_field,overflowed_windows:whole_field,services:map_field,evidence:map_field,authorizations:map_field,batches:map_field,needs:map_field,reviews:map_field,restricted_power:map_field});
 fields!(oasis7_agent_api::world_action::IndustrialWorkStateV1,{roots:map_field,lots:map_field,imported_lot_authorities:map_field,receipts:map_field,sink_keys:whole_field,bindings:whole_field,dispositions:map_field});
 fields!(oasis7_agent_api::world_action::SubstitutionStateV1,{authorities:map_field,decisions:map_field,settlements:map_field,conversion_domains:whole_field,terminal_used:map_field,retained_residuals:map_field});
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn project_branch<
     T: ProjectBranch,
     M: MerkleNodeReader,

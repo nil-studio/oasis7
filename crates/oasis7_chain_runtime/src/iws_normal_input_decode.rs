@@ -336,7 +336,4 @@ mod tests;
 
 #[path = "iws_normal_input_decode_replicated.rs"]
 mod replicated;
-pub(crate) use replicated::{
-    PaidNodeReplicatedInputV1, PaidNodeReplicatedRefusalV1, decode_paid_replicated_input_codec_v1,
-    decode_paid_replicated_input_data_v1,
-};
+pub(crate) use replicated::{PaidNodeReplicatedInputV1, decode_paid_replicated_input_codec_v1};

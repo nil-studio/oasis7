@@ -35,6 +35,10 @@ pub(super) fn child<
         &mut |_| Ok(()),
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn child_with_work_and_observer<
     M: MerkleNodeReader,
     R: ValueNodeReader,

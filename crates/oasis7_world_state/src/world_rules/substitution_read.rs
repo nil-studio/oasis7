@@ -1,10 +1,7 @@
 //! One authorized projection for native API, Agent and Viewer consumers.
 use super::{WorldRulesStateV1, industrial_work, recipe_substitution};
 use crate::WorldState;
-use oasis7_agent_api::world_action::SubstitutionPreviewRequestV1;
-use oasis7_agent_api::world_action::{
-    IndustrialWorkCommandV1, RecipeSubstitutionCommandV1, WorldRuleCommandV1,
-};
+use oasis7_agent_api::world_action::WorldRuleCommandV1;
 
 impl WorldRulesStateV1 {
     /// Reacquiring an Agent identity does not grant access to its former owner's records.
@@ -20,11 +17,9 @@ impl WorldRulesStateV1 {
         owner: Option<&crate::ResolvedAgentOwnerV1>,
     ) -> Self {
         let mut view = self.for_reader(reader);
-        let Some((actor, binding)) = reader.and_then(|actor| {
-            super::industrial_work_admission::industrial_owner_binding_from_owner_v1(owner)
-                .ok()
-                .map(|binding| (actor, binding))
-        }) else {
+        let Some((actor, binding)) = reader.zip(
+            super::industrial_work_admission::industrial_owner_binding_from_owner_v1(owner).ok(),
+        ) else {
             view.requests.retain(|_, r| {
                 !matches!(
                     r.command,

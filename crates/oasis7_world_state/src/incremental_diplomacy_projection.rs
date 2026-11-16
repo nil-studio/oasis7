@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     incremental_agent_mutation::BodyMutationError,
-    incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
+    incremental_field_overlay::WorldFieldOverlayContextV1,
     incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
     incremental_semantic_key::{SemanticKeyRefV1, read_semantic_key_v1},
     incremental_world_field_key::WorldFieldKeyV1,
@@ -16,7 +16,7 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use std::{
     cell::RefCell,
-    io::{self, Write},
+    io::{self},
     mem::size_of,
 };
 struct Change {
@@ -65,13 +65,6 @@ fn bad() -> ValueTreeError {
 }
 fn limit() -> ValueTreeError {
     ValueTreeError::ResourceLimited("Current governance projection")
-}
-fn oe(e: WorldFieldOverlayErrorV1) -> BodyMutationError {
-    match e {
-        WorldFieldOverlayErrorV1::Execution(e) => BodyMutationError::Execution(e),
-        WorldFieldOverlayErrorV1::Value(e) => BodyMutationError::Value(e),
-        e => BodyMutationError::Original(Box::new(e)),
-    }
 }
 fn pay(
     work: &mut BusinessDiffProcessingWorkV1,
@@ -224,14 +217,14 @@ fn identify(key: &[u8]) -> Result<Option<DiplomacyFieldV1>, BodyMutationError> {
 fn spend(p: &mut BusinessDiffProcessingWorkV1, n: usize) -> Result<(), ValueTreeError> {
     let n = u64::try_from(n)
         .map_err(|_| ValueTreeError::ResourceLimited("governance projection processing"))?;
-    p.steps_remaining =
-        p.steps_remaining
-            .checked_sub(n.checked_add(1).ok_or_else(|| {
-                ValueTreeError::ResourceLimited("governance projection processing")
-            })?)
-            .ok_or(ValueTreeError::ResourceLimited(
-                "governance projection steps",
-            ))?;
+    p.steps_remaining = p
+        .steps_remaining
+        .checked_sub(n.checked_add(1).ok_or(ValueTreeError::ResourceLimited(
+            "governance projection processing",
+        ))?)
+        .ok_or(ValueTreeError::ResourceLimited(
+            "governance projection steps",
+        ))?;
     p.bytes_remaining = p
         .bytes_remaining
         .checked_sub(n)
@@ -326,6 +319,10 @@ fn observe<
     };
     output.push(Patch { path, json }, &memory, p)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn decode_projection_entity_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -334,15 +331,15 @@ fn decode_projection_entity_v1<
     C: FnMut() -> bool,
 >(
     change: Change,
-    family: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    _family: &ReservedValue<DiplomacyFamilyQualificationV1>,
     roots: &RootSetV1,
     state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
-    scan: &mut StateScanBudget,
+    _scan: &mut StateScanBudget,
     cells: &mut u64,
     processing: &mut BusinessDiffProcessingWorkV1,
     max_text: u64,
-    live: &ExecutionFence,
+    _live: &ExecutionFence,
 ) -> Result<Option<Entity>, BodyMutationError> {
     let memory = ctx.values.memory.clone();
     pay(processing, change.key.len(), &mut ctx.cancelled)?;
@@ -399,8 +396,7 @@ fn decode_projection_entity_v1<
     } else {
         None
     };
-    drop(top);
-    let Some((_kind, owner, child)) = selected else {
+    let Some((_kind, _owner, child)) = selected else {
         if change.after.is_none() {
             return Err(bad().into());
         }
@@ -546,6 +542,10 @@ fn decode_projection_entity_v1<
         patches,
     }))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_diplomacy_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -581,7 +581,8 @@ pub fn read_current_diplomacy_projection_delta_v1<
         }
         let mut count = 0usize;
         let mut bytes = 0usize;
-        for namespace in [StateNamespaceV1::Business] {
+        {
+            let namespace = StateNamespaceV1::Business;
             let p = RefCell::new(&mut *processing);
             let stop = RefCell::new(&mut ctx.cancelled);
             ctx.transaction.visit_pending_writes(
@@ -611,7 +612,8 @@ pub fn read_current_diplomacy_projection_delta_v1<
         if changes.capacity() != count {
             return Err(limit().into());
         }
-        for namespace in [StateNamespaceV1::Business] {
+        {
+            let namespace = StateNamespaceV1::Business;
             let p = RefCell::new(&mut *processing);
             let stop = RefCell::new(&mut ctx.cancelled);
             ctx.transaction.visit_pending_writes(

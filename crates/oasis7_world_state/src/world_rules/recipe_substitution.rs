@@ -3,7 +3,6 @@ use super::{PreparedWorldRule, industrial_work as work, invalid, verify_world_ru
 use crate::{MaterialLedgerId, WorldError, WorldState, WorldTime};
 use oasis7_agent_api::world_action::*;
 pub use oasis7_agent_api::world_action::{SubstitutionPreviewV1, SubstitutionStateV1};
-use oasis7_wasm_abi::SubstitutionConversionV1;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy)]

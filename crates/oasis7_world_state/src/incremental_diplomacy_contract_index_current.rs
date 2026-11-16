@@ -159,7 +159,6 @@ pub fn observe_current_creator_contract_count_v1<
                 Ok(())
             },
         )?;
-        drop(cancelled);
         let mut next = if changed.is_empty() {
             None
         } else {

@@ -525,11 +525,11 @@ pub fn observe_current_factory_lifecycle_v1<
         }
         for delta in &jc {
             ctx.check()?;
-            if let Some(job) = &delta.after {
-                if work.comparison(&job.factory, id)?.is_eq() {
-                    read::recheck_job(job, id, tx, ctx, work)?;
-                    ids.push(job.id);
-                }
+            if let Some(job) = &delta.after
+                && work.comparison(&job.factory, id)?.is_eq()
+            {
+                read::recheck_job(job, id, tx, ctx, work)?;
+                ids.push(job.id);
             }
         }
         sort(&mut ids, work, &mut ctx.cancelled, |a, b, w| {

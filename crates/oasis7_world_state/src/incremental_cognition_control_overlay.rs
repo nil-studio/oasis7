@@ -334,6 +334,10 @@ fn economy_control(field: CognitionControlFieldV1) -> bool {
             | CognitionControlFieldV1::EconomyHeadDigest
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_cognition_service_control_v2<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -365,6 +369,10 @@ pub fn read_current_cognition_service_control_v2<
 }
 /// Fixed Economy controls. The absence branch is derived from the original
 /// complete Current Economy group reader, never from a caller presence flag.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_cognition_economy_control_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,

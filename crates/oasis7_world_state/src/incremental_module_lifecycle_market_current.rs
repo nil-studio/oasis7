@@ -5,6 +5,7 @@ use crate::incremental_field_member::MemberPayloadCodecV1;
 use crate::incremental_module_marketplace::ModuleMarketplaceFamilyQualificationV1;
 use oasis7_formal_protocol::incremental_execution::{ExecutionTransaction, RootSetV1};
 use oasis7_proto::memory_budget::MemoryReservation;
+type ModuleListingChildRootV1 = (WorldFieldKeyV1, Option<[u8; 32]>, Option<StateRootV1>);
 pub struct CurrentModuleLifecycleListingV1 {
     key: String,
     outer: WorldFieldKeyV1,
@@ -54,7 +55,7 @@ fn child_root<M, R, E, C>(
     field: ModuleMarketplaceFieldV1,
     key: &str,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
-) -> Result<(WorldFieldKeyV1, Option<[u8; 32]>, Option<StateRootV1>), WorldFieldOverlayErrorV1>
+) -> Result<ModuleListingChildRootV1, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -122,6 +123,10 @@ where
     }
     Ok((outer, Some(value), Some(root)))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn column<R: ValueNodeReader, C: FnMut() -> bool, K: SemanticKeyV1 + ?Sized>(
     root: &StateRootV1,
     field: ModuleMarketplaceFieldV1,
@@ -164,6 +169,10 @@ fn column<R: ValueNodeReader, C: FnMut() -> bool, K: SemanticKeyV1 + ?Sized>(
     )?;
     Ok(info.payload_bytes)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_module_lifecycle_listing_v1<M, R, E, C>(
     key: &str,
     parent: &ReservedValue<ModuleMarketplaceFamilyQualificationV1>,
@@ -404,6 +413,10 @@ fn owner_error(
         E::Scan(s) => ValueTreeError::Io(std::io::Error::other(s)).into(),
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_module_lifecycle_bids_v1<M, P, R, E, C>(
     key: &str,
     parent: &ReservedValue<ModuleMarketplaceFamilyQualificationV1>,
@@ -496,7 +509,6 @@ where
                 ValueTreeError::Io(std::io::Error::other(s)).into()
             }
         })?;
-        drop(stop);
         step(cells, &mut ctx.cancelled)?;
         let (length, _) = bid_index::read_u64_member(
             &root,

@@ -152,7 +152,6 @@ pub fn observe_current_continuity_risk_v1<
             MemoryClass::Ordinary,
             &mut |s, b| continuity_scope::spend(scan, &mut read.cancelled, s, b),
         )?;
-        drop(read);
         Ok(fee.retain(CurrentContinuityRiskV1 {
             risk: flags.risk_frozen,
             _index: index,

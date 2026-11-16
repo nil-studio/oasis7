@@ -215,7 +215,7 @@ pub(crate) fn accept_agent_authority_verified_v1<
         match (&old, &new) {
             (None, Some((owner_kind, owner, root))) => {
                 let mut body = WorldFieldReadContextV1 {
-                    root: &root,
+                    root,
                     state: ctx.state,
                     values: ValueReadContext {
                         source: ctx.values.source,
@@ -243,7 +243,7 @@ pub(crate) fn accept_agent_authority_verified_v1<
                 if old_kind != new_kind || old_owner != new_owner {
                     return Err(invalid().into());
                 }
-                child(kind, &old, &new, &mut ctx.records(), cells, max)?;
+                child(kind, old, new, &mut ctx.records(), cells, max)?;
             }
             (Some(_), None) => {
                 counts[index] = counts[index].checked_sub(1).ok_or_else(invalid)?;

@@ -886,6 +886,10 @@ pub fn apply_system_lifecycle_command_from_current_v1(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn apply_close_activity_tick_from_current_v1(
     continuity: &mut OrganizationContinuityStateV1,
     facts: &OrganizationCurrentLifecycleFactsV1,

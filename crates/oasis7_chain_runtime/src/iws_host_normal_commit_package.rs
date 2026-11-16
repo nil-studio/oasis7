@@ -39,7 +39,7 @@ pub(crate) fn commit_prepared_normal_output_bounded_v1<'w, 'common>(
     replica: &mut IwsHostRuntimeV1,
     sources: PaidNormalTickSourcesV1,
     prepared: PreparedNormalHostRuntimeV1,
-    mut work: NormalCommitWorkV1<'w, 'common>,
+    work: NormalCommitWorkV1<'w, 'common>,
     writer: &ed25519_dalek::SigningKey,
     input_limits: &NormalInputDecodeLimitsV1,
     canonical: &mut CanonicalCborWorkV1,

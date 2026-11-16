@@ -113,6 +113,10 @@ pub fn begin_cognition_retention_current_v1<M: MerkleNodeReader>(
 }
 /// Existing retention mutates only the actual selected path. Original plans
 /// choose those paths; no complete JSON rebuild is performed here.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn edit_current_cognition_retention_ledger_v1<M, P, R, E, C, W, D>(
     current: &mut CurrentCognitionRetentionLedgerV1,
     path: &[JsonPathSegmentV1<'_>],
@@ -183,7 +187,7 @@ where
                         edit,
                         &mut source,
                         &mut output,
-                        &mut work.producer,
+                        work.producer,
                     )
                     .map_err(member)?;
                     let next = advance_json_subtree_v1(
@@ -191,7 +195,7 @@ where
                         old,
                         change.after(),
                         &mut source,
-                        &mut work.changed,
+                        work.changed,
                     )?;
                     source.check()?;
                     Ok(next)
@@ -216,6 +220,10 @@ where
 }
 /// Explicit optional-field CAS, limited to first creation or removal. Original
 /// pin/GC/marker plans use the path writer for all changes to existing payloads.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn change_current_cognition_retention_presence_v1<M, P, R, E, C, W, D>(
     current: &mut CurrentCognitionRetentionLedgerV1,
     expected: Option<&StateRootV1>,
@@ -270,7 +278,7 @@ where
                         cancelled: || write_stop() || (stop.borrow_mut())(),
                     };
                     let root =
-                        prepare_json_subtree_v1(profile(), value, &mut output, &mut work.producer)
+                        prepare_json_subtree_v1(profile(), value, &mut output, work.producer)
                             .map_err(member)?;
                     let mut source = WorldFieldReadContextV1 {
                         root: &root,
@@ -287,7 +295,7 @@ where
                         take_state_error: &mut read.take_state_error,
                         cancelled: || read_stop() || (stop.borrow_mut())(),
                     };
-                    qualify_json_subtree_v1(profile(), &root, &mut source, &mut work.json)
+                    qualify_json_subtree_v1(profile(), &root, &mut source, work.json)
                 },
             )?;
             current.payload = Some(q);
@@ -490,7 +498,7 @@ where
                     parent,
                     path,
                     &mut source.records(),
-                    &mut work.json,
+                    work.json,
                 )
                 .map_err(member)?;
                 let Some(q) = q else {
@@ -504,7 +512,7 @@ where
                     profile(),
                     &q,
                     &mut source.records(),
-                    &mut work.json,
+                    work.json,
                     limit,
                 )?;
                 source.check()?;

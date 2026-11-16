@@ -33,6 +33,10 @@ impl QualifiedMainTokenPolicyProjectionColumnsV1 {
         Ok(())
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_qualified_main_token_policy_projection_columns_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

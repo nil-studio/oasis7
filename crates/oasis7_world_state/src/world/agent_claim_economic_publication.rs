@@ -78,26 +78,26 @@ impl PreparedAgentClaimEconomic {
             DomainEvent::AgentClaimed {
                 acquisition_contract_version,
                 target_agent_id,
-                reputation_tier,
-                slot_index,
-                activation_fee_amount,
-                activation_fee_burn_amount,
-                activation_fee_treasury_amount,
-                claim_bond_amount,
-                upfront_restricted_spent_amount,
-                upfront_liquid_spent_amount,
-                auto_issued_restricted_amount,
-                auto_issued_restricted_source_treasury_bucket_id,
-                claim_bond_locked_restricted_amount,
-                claim_bond_locked_liquid_amount,
-                upkeep_per_epoch,
-                claimed_at_epoch,
-                upkeep_paid_through_epoch,
-                release_cooldown_epochs,
-                grace_epochs,
-                idle_warning_epochs,
-                forced_idle_reclaim_epochs,
-                forced_reclaim_penalty_bps,
+                reputation_tier: _,
+                slot_index: _,
+                activation_fee_amount: _,
+                activation_fee_burn_amount: _,
+                activation_fee_treasury_amount: _,
+                claim_bond_amount: _,
+                upfront_restricted_spent_amount: _,
+                upfront_liquid_spent_amount: _,
+                auto_issued_restricted_amount: _,
+                auto_issued_restricted_source_treasury_bucket_id: _,
+                claim_bond_locked_restricted_amount: _,
+                claim_bond_locked_liquid_amount: _,
+                upkeep_per_epoch: _,
+                claimed_at_epoch: _,
+                upkeep_paid_through_epoch: _,
+                release_cooldown_epochs: _,
+                grace_epochs: _,
+                idle_warning_epochs: _,
+                forced_idle_reclaim_epochs: _,
+                forced_reclaim_penalty_bps: _,
                 ..
             } => {
                 if !state.agents.contains_key(target_agent_id)
@@ -213,11 +213,11 @@ impl PreparedAgentClaimEconomic {
             DomainEvent::AgentClaimUpkeepSettled {
                 target_agent_id,
                 settled_at_epoch,
-                charged_epochs,
-                amount,
-                restricted_spent_amount,
-                liquid_spent_amount,
-                upkeep_paid_through_epoch,
+                charged_epochs: _,
+                amount: _,
+                restricted_spent_amount: _,
+                liquid_spent_amount: _,
+                upkeep_paid_through_epoch: _,
                 ..
             } => {
                 let mut claim = state
@@ -720,7 +720,7 @@ pub fn prepare_selected_agent_claim_economic_v1(
                         return Err(invalid("manufactured_claim_root_invalid"));
                     }
                     Some(crate::gameplay_state::AgentClaimControlSourceV1 {
-                        acquisition_sequence: acquisition_sequence,
+                        acquisition_sequence,
                         root_agent_id: actor.clone(),
                         player_id: root.player_id.clone(),
                         root_claimed_at: root.claimed_at,

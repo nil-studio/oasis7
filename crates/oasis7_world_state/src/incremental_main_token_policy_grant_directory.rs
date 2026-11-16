@@ -13,7 +13,7 @@ use oasis7_formal_protocol::{
     },
     incremental_value::{ValueNodeReader, ValueReadContext},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::{io::Write, mem::size_of, sync::Arc};
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("restricted grant directory")
@@ -209,7 +209,6 @@ fn inspect<
     let mut status_out = std::io::Cursor::new(status_bytes.as_mut_slice());
     let status_value = scalar(MainTokenPolicyColumnV1::Status, &mut status_out)?;
     let n = usize::try_from(status_out.position()).map_err(|_| invalid())?;
-    drop(status_out);
     if status_value
         != (MainTokenPolicyValueV1::Text {
             utf8_bytes: n as u64,
@@ -230,7 +229,6 @@ fn inspect<
     else {
         return Err(invalid());
     };
-    drop(scalar);
     body.check()?;
     let fee = body.values.memory.reserve(
         size_of::<ReservedValue<RestrictedClaimGrantIdentityV1>>()
@@ -278,14 +276,11 @@ fn sort(
         keys: &mut u64,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<(), ValueTreeError> {
-        loop {
-            let Some(left) = root
-                .checked_mul(2)
-                .and_then(|v| v.checked_add(1))
-                .filter(|v| *v < end)
-            else {
-                break;
-            };
+        while let Some(left) = root
+            .checked_mul(2)
+            .and_then(|v| v.checked_add(1))
+            .filter(|v| *v < end)
+        {
             let mut largest = root;
             if greater(rows, left, largest, cells, keys, cancelled)? {
                 largest = left;
@@ -399,7 +394,6 @@ pub fn build_restricted_claim_grant_directory_v1<
             },
             || (stop.borrow_mut())(),
         );
-        drop(stop);
         let page = match result {
             Ok(page) => page,
             Err(StateScanError::Visitor(e)) => return Err(e),

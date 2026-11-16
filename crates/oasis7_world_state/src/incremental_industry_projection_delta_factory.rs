@@ -6,8 +6,8 @@ use oasis7_formal_protocol::{
     incremental_state::{StateRootV1, StateScanContext, StateScanError},
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation};
-use serde_json::{Map, Value};
+use oasis7_proto::memory_budget::MemoryClass;
+use serde_json::Value;
 use std::{cell::RefCell, io, mem::size_of};
 fn bad() -> ValueTreeError {
     ValueTreeError::Invalid("selected Factory original JSON projection")
@@ -255,7 +255,6 @@ pub(crate) fn project<R: ValueNodeReader, C: FnMut() -> bool>(
                 }
                 read?;
                 decoder.finish()?;
-                drop(decoder);
                 let member = String::from_utf8(member).map_err(|_| bad())?;
                 assembly.member(section, name, None, None, Some(&member), value)?;
             }

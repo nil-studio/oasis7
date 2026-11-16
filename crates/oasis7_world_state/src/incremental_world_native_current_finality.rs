@@ -133,7 +133,6 @@ where
             },
         )?;
     }
-    drop(cancel);
     let mut output = BTreeMap::new();
     for (key, _key_fee) in keys {
         step(work, &mut read.cancelled)?;
@@ -284,6 +283,10 @@ pub fn recover_current_governance_finality_records_v1<
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn current_registry<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -346,6 +349,10 @@ fn current_registry<
 }
 
 /// Actual selected registry row; reads no admissions or rotation directory.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn current_governance_finality_registry_present_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

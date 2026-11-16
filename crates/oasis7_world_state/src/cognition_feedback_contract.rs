@@ -107,12 +107,11 @@ impl RuntimeFeedbackProjectionV1 {
             (self.committed_event_summary.as_deref(), 512),
             (self.world_delta_summary.as_deref(), 1024),
         ] {
-            if let Some(value) = value {
-                if value.len() > limit
-                    || contains_sensitive_marker_with_work_v1(value.as_bytes(), source)?
-                {
-                    return Err(CognitionRecoveryError::new("feedback_projection_too_large").into());
-                }
+            if let Some(value) = value
+                && (value.len() > limit
+                    || contains_sensitive_marker_with_work_v1(value.as_bytes(), source)?)
+            {
+                return Err(CognitionRecoveryError::new("feedback_projection_too_large").into());
             }
         }
         let encoded = match readonly_work::json_bytes(self, source) {

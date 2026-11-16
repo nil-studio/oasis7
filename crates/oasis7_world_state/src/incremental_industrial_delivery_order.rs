@@ -12,6 +12,10 @@ use crate::{
         patch_world_rule_agent_orders_v1,
     },
 };
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn mark_current_industrial_order_delivered_v1<M, S, R, E, C, W, CW>(
     parent: &ReservedValue<AgentOrdersQualificationV1>,
     source: &ReservedValue<CurrentAgentOrdersV1>,
@@ -108,7 +112,6 @@ where
                 return Err(bad().into());
             }
             d.check()?;
-            drop(d);
             let mut records = read.records();
             let key = records
                 .key(p.field, WorldFieldRecordKindV1::Entry, "phase")?
@@ -217,6 +220,10 @@ where
 /// Replace only one real selected Current Order. Runtime owns the original
 /// phase/refund reducer and the actual-shape admission of its after DTO. No
 /// caller-supplied expected root or embedded-ID equality grants authority.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn replace_current_industrial_order_v1<M, S, R, E, C, W, CW>(
     parent: &ReservedValue<AgentOrdersQualificationV1>,
     source: &ReservedValue<CurrentAgentOrdersV1>,

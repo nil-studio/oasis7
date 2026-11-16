@@ -15,8 +15,6 @@ pub use current::{
     observe_current_alliance_memberships_v1, open_current_diplomacy_relation_record_v1,
 };
 
-pub use contracts::{CurrentContractCreatorCountV1, observe_current_creator_contract_count_v1};
-
 pub struct DiplomacyIndexWorkV1 {
     pub cells_remaining: u64,
     pub comparison_bytes_remaining: u64,

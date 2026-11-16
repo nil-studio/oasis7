@@ -49,7 +49,7 @@ pub trait WorldStateColumnCodecVisitorV1 {
     fn ordered<V: Serialize + DeserializeOwned>(
         &mut self,
         field: FieldDescriptor,
-        value: &Vec<V>,
+        value: &[V],
     ) -> Result<(), Self::Error>;
     fn side<T: Serialize + DeserializeOwned>(
         &mut self,

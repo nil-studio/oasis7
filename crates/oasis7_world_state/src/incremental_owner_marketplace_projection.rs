@@ -205,6 +205,10 @@ fn push(
     out.push(value);
     Ok(())
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn observe<R: ValueNodeReader, C: FnMut() -> bool>(
     old: Option<&StateEntryV1>,
     new: Option<&StateEntryV1>,
@@ -321,12 +325,12 @@ impl CurrentMarketplaceProjectionDeltaV1 {
                     &row.key,
                     match patch {
                         Patch::Scalar(n, v) => MarketplaceProjectionPatchRefV1::Scalar(
-                            *n,
+                            n,
                             v.as_deref().map(Vec::as_slice),
                         ),
                         Patch::Bid(id, n, v) => MarketplaceProjectionPatchRefV1::Bid(
                             *id,
-                            *n,
+                            n,
                             v.as_deref().map(Vec::as_slice),
                         ),
                         Patch::Node(id, v) => MarketplaceProjectionPatchRefV1::Node(*id, *v),
@@ -636,6 +640,10 @@ fn decode_projection_entity_v1<
         _patches: patchfee,
     })
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_marketplace_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -725,23 +733,23 @@ pub fn read_current_marketplace_projection_delta_v1<
                         return Err(ValueTreeError::Cancelled.into());
                     }
                     pay(&mut p.borrow_mut(), key.len())?;
-                    if before != after {
-                        if let Some(kind) = identify(key)? {
-                            if changes.len() == count {
-                                return Err(limited().into());
-                            }
-                            let mut owned = Vec::with_capacity(key.len());
-                            if owned.capacity() != key.len() {
-                                return Err(limited().into());
-                            }
-                            owned.extend_from_slice(key);
-                            changes.push(Change {
-                                kind,
-                                key: owned,
-                                before,
-                                after,
-                            });
+                    if before != after
+                        && let Some(kind) = identify(key)?
+                    {
+                        if changes.len() == count {
+                            return Err(limited().into());
                         }
+                        let mut owned = Vec::with_capacity(key.len());
+                        if owned.capacity() != key.len() {
+                            return Err(limited().into());
+                        }
+                        owned.extend_from_slice(key);
+                        changes.push(Change {
+                            kind,
+                            key: owned,
+                            before,
+                            after,
+                        });
                     }
                     Ok::<_, BodyMutationError>(())
                 },
@@ -805,7 +813,7 @@ impl CurrentMarketplaceProjectionDeltaV1 {
                     emit(
                         &row.semantic,
                         &row.key,
-                        *name,
+                        name,
                         value.as_deref().map(Vec::as_slice),
                     )?;
                 }

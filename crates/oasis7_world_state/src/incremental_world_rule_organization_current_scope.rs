@@ -242,7 +242,6 @@ pub fn observe_current_organization_risk_v1<
             MemoryClass::Ordinary,
             &mut |s, b| scope::spend(scan, &mut local.cancelled, s, b),
         )?;
-        drop(local);
         Ok(fee.retain(CurrentOrganizationRiskV1 {
             active_case: protection.active_case,
             risk_frozen: protection.risk_frozen,

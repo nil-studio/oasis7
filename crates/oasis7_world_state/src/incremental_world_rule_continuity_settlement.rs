@@ -109,7 +109,6 @@ pub fn read_current_continuity_settlement_row_v1<
             scan,
             work,
         )?;
-        drop(read);
         let copied = organization.to_owned();
         if copied.capacity() > organization.len() {
             return Err(limited().into());

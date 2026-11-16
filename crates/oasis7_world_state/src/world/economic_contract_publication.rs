@@ -5,8 +5,8 @@ use serde::ser::SerializeStruct;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::{
-    AgentCell, DomainEvent, EconomicContractFulfillmentKind, EconomicContractState,
-    EconomicContractStatus, MaterialLedgerId, WorldError, WorldState, WorldTime,
+    AgentCell, DomainEvent, EconomicContractState, EconomicContractStatus, MaterialLedgerId,
+    WorldError, WorldState, WorldTime,
 };
 use super::economy_data_publication::SparseMapProjection;
 

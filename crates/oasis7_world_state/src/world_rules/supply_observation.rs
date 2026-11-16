@@ -3,6 +3,7 @@ use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_agent_api::world_action::{
     EmergencyObservationV1 as Observation, EmergencySupplyCommandV1 as C,
 };
+pub type EmergencyObservationCoverageV1 = (BTreeMap<String, i64>, BTreeMap<String, i64>);
 pub fn snapshot_key(region: &str, window: u64) -> String {
     format!(
         "observation:{}",
@@ -273,7 +274,7 @@ pub fn project_emergency_observation_coverage_v1(
     services: &[oasis7_agent_api::world_action::EmergencyServiceRegistrationV1],
     balances: &mut BTreeMap<String, i64>,
     now: u64,
-) -> Result<(BTreeMap<String, i64>, BTreeMap<String, i64>), WorldError> {
+) -> Result<EmergencyObservationCoverageV1, WorldError> {
     match project_emergency_observation_coverage_with_work_v1(services, balances, now, &mut |_| {
         Ok(())
     }) {
@@ -295,10 +296,7 @@ pub fn project_emergency_observation_coverage_with_work_v1<
     fee: &mut impl FnMut(
         super::policy::EmergencyObservationWorkV1,
     ) -> Result<(), oasis7_formal_protocol::incremental_value::ValueTreeError>,
-) -> Result<
-    (BTreeMap<String, i64>, BTreeMap<String, i64>),
-    super::policy::EmergencyObservationValidationErrorV1,
-> {
+) -> Result<EmergencyObservationCoverageV1, super::policy::EmergencyObservationValidationErrorV1> {
     use super::policy::{
         EmergencyObservationValidationErrorV1::Resource, EmergencyObservationWorkV1::*,
     };

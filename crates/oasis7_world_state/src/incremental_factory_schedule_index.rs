@@ -402,16 +402,17 @@ where
         let mut changed = false;
         for change in &changes {
             work.charge(size_of::<u64>())?;
-            if let FactoryBuildCurrentOuterChangeV1::Record { id, before, .. } = &**change {
-                if *id == row.id {
-                    if before.as_ref().is_none_or(|old| {
-                        old.value_root != row.value || old.record_root != row.child
-                    }) {
-                        return Err(invalid().into());
-                    }
-                    changed = true;
-                    break;
+            if let FactoryBuildCurrentOuterChangeV1::Record { id, before, .. } = &**change
+                && *id == row.id
+            {
+                if before
+                    .as_ref()
+                    .is_none_or(|old| old.value_root != row.value || old.record_root != row.child)
+                {
+                    return Err(invalid().into());
                 }
+                changed = true;
+                break;
             }
         }
         if !changed {
@@ -584,16 +585,16 @@ pub fn observe_current_factory_schedule_builds_v1<
             let mut changed = false;
             for change in &changes {
                 work.charge(size_of::<u64>())?;
-                if let FactoryBuildCurrentOuterChangeV1::Record { id, before, .. } = &**change {
-                    if *id == row.id {
-                        if before.as_ref().is_none_or(|old| {
-                            old.value_root != row.value || old.record_root != row.child
-                        }) {
-                            return Err(invalid().into());
-                        }
-                        changed = true;
-                        break;
+                if let FactoryBuildCurrentOuterChangeV1::Record { id, before, .. } = &**change
+                    && *id == row.id
+                {
+                    if before.as_ref().is_none_or(|old| {
+                        old.value_root != row.value || old.record_root != row.child
+                    }) {
+                        return Err(invalid().into());
                     }
+                    changed = true;
+                    break;
                 }
             }
             if !changed {

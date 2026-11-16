@@ -320,7 +320,7 @@ where
             }
             Ok(())
         },
-        || check(),
+        check,
     );
     if let Some(error) = source.first.borrow_mut().take() {
         return Err(error);

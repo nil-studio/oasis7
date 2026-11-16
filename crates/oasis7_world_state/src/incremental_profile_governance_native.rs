@@ -6,6 +6,10 @@ use crate::incremental_world_native_industry::{
 use oasis7_formal_protocol::incremental_state::StatePageWriter;
 macro_rules! profile {
     ($read:ident,$write:ident,$slot:ident,$field:ty,$value:ty) => {
+        #[expect(
+            clippy::too_many_arguments,
+            reason = "Bounded inputs are independently validated"
+        )]
         pub fn $read<M, P, R, E, C>(
             id: &str,
             parent: &ReservedValue<WorldNativeFieldsQualificationV1>,
@@ -39,6 +43,10 @@ macro_rules! profile {
                 live,
             )
         }
+        #[expect(
+            clippy::too_many_arguments,
+            reason = "Bounded inputs are independently validated"
+        )]
         pub fn $write<M, P, R, E, C, W, CW>(
             expected: &ReservedValue<CurrentFactoryNativeRecordV1<$value>>,
             id: &str,

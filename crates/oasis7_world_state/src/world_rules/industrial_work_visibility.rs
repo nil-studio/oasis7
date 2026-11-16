@@ -1,6 +1,5 @@
 //! Original industrial observation predicates over real selected rows.
 use oasis7_agent_api::world_action::*;
-use std::ops::ControlFlow;
 /// Only processing is supplied by the caller. Membership queries refer to the
 /// actual stage of the original filter, never an authorization result.
 pub fn industrial_root_reader_with_work_v1<E>(

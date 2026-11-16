@@ -229,7 +229,6 @@ fn current<
                 },
             )?;
         }
-        drop(cancel);
         for (key, (before, after, _fee)) in changes {
             if before == after {
                 continue;

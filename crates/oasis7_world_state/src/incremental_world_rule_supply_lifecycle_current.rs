@@ -412,16 +412,15 @@ where
                 .clone();
             (owner_digest, child)
         };
-        if let Some(proof) = retained {
-            if proof.uses_budget(ctx.values.memory)
-                && proof.permits_class(MemoryClass::Ordinary)
-                && proof.validate_binding(owner, &owner_digest, &child).is_ok()
-            {
-                if (ctx.cancelled)() {
-                    return Err(ValueTreeError::Cancelled.into());
-                }
-                return Ok(Some(proof));
+        if let Some(proof) = retained
+            && proof.uses_budget(ctx.values.memory)
+            && proof.permits_class(MemoryClass::Ordinary)
+            && proof.validate_binding(owner, &owner_digest, &child).is_ok()
+        {
+            if (ctx.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
             }
+            return Ok(Some(proof));
         }
         let mut read = WorldFieldReadContextV1 {
             root: &child,

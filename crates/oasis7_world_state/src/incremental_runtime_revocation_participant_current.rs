@@ -5,6 +5,11 @@ use crate::incremental_inventory_value_read::InventoryValueReader;
 use crate::incremental_typed_record_diff::{self as diff, ChangeDecoder};
 use oasis7_formal_protocol::incremental_execution::{ExecutionFence, PreparedGuard};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryReservation, ReservedValue};
+type ParticipantSlotBuffersV1 = (
+    MemoryReservation,
+    Vec<(String, String)>,
+    Vec<MemoryReservation>,
+);
 fn spend(work: &mut RevocationReadWorkV1, n: usize) -> Result<(), ValueTreeError> {
     let n = u64::try_from(n)
         .ok()
@@ -32,14 +37,7 @@ fn slots(
     n: usize,
     memory: &MemoryBudget,
     class: MemoryClass,
-) -> Result<
-    (
-        MemoryReservation,
-        Vec<(String, String)>,
-        Vec<MemoryReservation>,
-    ),
-    ValueTreeError,
-> {
+) -> Result<ParticipantSlotBuffersV1, ValueTreeError> {
     let bytes = n
         .checked_mul(
             std::mem::size_of::<(String, String)>() + std::mem::size_of::<MemoryReservation>(),

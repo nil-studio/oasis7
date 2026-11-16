@@ -180,17 +180,17 @@ fn read_current_agent_instance_projection_delta_impl<
             }
             let (id, ordinal) =
                 MailboxKeyV1::from_bytes(&row.key).map_err(ValueTreeError::Invalid)?;
-            if let Some(ordinal) = ordinal {
-                if row.after.is_some() {
-                    let key = MailboxKeyV1::new(id, None).map_err(ValueTreeError::Invalid)?;
-                    let original = reader
-                        .point(Ns::Scheduler, key.as_bytes())?
-                        .ok_or_else(bad)?;
-                    let frontier = MailboxFrontierV1::from_canonical_bytes(&reader.raw(&original)?)
-                        .map_err(ValueTreeError::Invalid)?;
-                    if ordinal < frontier.head || ordinal >= frontier.tail {
-                        return Err(bad().into());
-                    }
+            if let Some(ordinal) = ordinal
+                && row.after.is_some()
+            {
+                let key = MailboxKeyV1::new(id, None).map_err(ValueTreeError::Invalid)?;
+                let original = reader
+                    .point(Ns::Scheduler, key.as_bytes())?
+                    .ok_or_else(bad)?;
+                let frontier = MailboxFrontierV1::from_canonical_bytes(&reader.raw(&original)?)
+                    .map_err(ValueTreeError::Invalid)?;
+                if ordinal < frontier.head || ordinal >= frontier.tail {
+                    return Err(bad().into());
                 }
             }
             (Kind::Agent, reader.own(id)?)

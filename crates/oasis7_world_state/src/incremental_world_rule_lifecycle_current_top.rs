@@ -414,9 +414,6 @@ where
         .ok_or_else(limited)?;
     drop(records_left);
     drop(cells_left);
-    drop(cells);
-    drop(records);
-    drop(stop);
     ids.sort_unstable();
     ids.dedup();
     Ok((ids, fee))

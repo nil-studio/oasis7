@@ -51,7 +51,7 @@ impl<'w, 'common> NormalOutputCommitFailureV1<'w, 'common> {
                 package,
                 sources,
                 prepared,
-                mut work,
+                work,
                 ..
             } => {
                 // A partial Original write is content-addressed DATA. Resume

@@ -152,7 +152,6 @@ pub fn observe_current_continuity_contract_sources_v1<
             MemoryClass::Ordinary,
             &mut |s, b| continuity_contracts::spend(scan, &mut read.cancelled, s, b),
         )?;
-        drop(read);
         Ok(fee.retain(CurrentContinuityContractSourcesV1 {
             selected,
             _index: index,

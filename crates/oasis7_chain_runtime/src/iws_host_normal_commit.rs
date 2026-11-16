@@ -332,7 +332,7 @@ pub(crate) fn publish_prepared_normal_runtime_bounded<'w, 'common>(
     sources: PaidNormalTickSourcesV1,
     prepared: PreparedNormalHostRuntimeV1,
     package: super::normal_package::PersistedNormalCandidatePackageV1,
-    mut work: NormalCommitWorkV1<'w, 'common>,
+    work: NormalCommitWorkV1<'w, 'common>,
     primary_provider: &RemoteMonotonicEndpointProvider,
     replica_provider: &RemoteMonotonicEndpointProvider,
     primary_policy: &TrustedFencingPolicyV1,

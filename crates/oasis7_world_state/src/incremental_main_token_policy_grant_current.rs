@@ -54,6 +54,10 @@ impl Write for Output {
         Ok(())
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn cell<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -84,6 +88,10 @@ fn cell<
         live,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn text<
     M: MerkleNodeReader,
     R: ValueNodeReader,

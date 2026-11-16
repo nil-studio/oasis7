@@ -41,7 +41,7 @@ pub fn validate_current_observation_shape_v2(
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     }
     if value.format != 2
-        || value.window_start % 60 != 0
+        || !value.window_start.is_multiple_of(60)
         || !digest(&value.current_commitment)
         || !digest(&value.source_original)
         || value.obligation_ids.is_empty()

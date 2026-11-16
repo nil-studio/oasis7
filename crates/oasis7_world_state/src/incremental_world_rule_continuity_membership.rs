@@ -52,6 +52,10 @@ fn key<R: ValueNodeReader, C: FnMut() -> bool>(
 }
 /// One original typed path, with the exact member value ID retained separately
 /// from any embedded organization/member identifier.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn point<R, E, C>(
     root: &StateRootV1,
     path: &[Key<'_>],
@@ -301,7 +305,6 @@ where
                     Key::Field("membership_controller_bindings"),
                 ])?
                 .ok_or_else(bad)?;
-                drop(get);
                 match h {
                     Some((value, ColumnCellV1::Root(body))) => {
                         let mut read = WorldFieldReadContextV1 {
@@ -602,7 +605,6 @@ fn copy_histories(
     if !existed {
         add(&source.member, &[], true)?;
     }
-    drop(add);
     Ok(fee.retain(out))
 }
 fn copy_bindings(
@@ -676,7 +678,6 @@ fn copy_bindings(
     if let Some(after) = after {
         add(&source.member, after)?;
     }
-    drop(add);
     Ok(fee.retain(out))
 }
 /// Preflight first, before a genuine Accepted audit. Controller resolution is
@@ -719,10 +720,10 @@ pub fn prepare_current_continuity_membership_v1<M: MerkleNodeReader>(
     } else {
         Some(copy_histories(&source, plan, tick, event_ref, common)?)
     };
-    if plan == P::Close {
-        if let Some(bindings) = source.bindings.as_ref() {
-            probe_keys(bindings.value().keys(), &source.member, common)?;
-        }
+    if plan == P::Close
+        && let Some(bindings) = source.bindings.as_ref()
+    {
+        probe_keys(bindings.value().keys(), &source.member, common)?;
     }
     let bindings = if plan == P::Close
         && source

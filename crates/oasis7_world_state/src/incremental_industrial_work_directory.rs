@@ -664,10 +664,10 @@ pub(super) fn update<
     if T::BRANCH != WorldRuleCompositeBranchV1::IndustrialWork {
         return Ok(None);
     }
-    if before == after {
-        if let Some(parent) = parent {
-            return Ok(Some(parent.share(ctx.values.memory, ctx.values.class)?));
-        }
+    if before == after
+        && let Some(parent) = parent
+    {
+        return Ok(Some(parent.share(ctx.values.memory, ctx.values.class)?));
     }
     if before.is_some() && parent.is_none() {
         return Err(invalid());
@@ -1133,7 +1133,6 @@ where
         let present =
             crate::incremental_record_tree::lookup(&dispositions, &key, &mut records, p.labels)?
                 .is_some();
-        drop(records);
         context.transaction.validate_guard(guard, live)?;
         Ok(present)
     })();

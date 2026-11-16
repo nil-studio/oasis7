@@ -16,6 +16,7 @@ use oasis7_formal_protocol::incremental_execution::{
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::mem::size_of;
+type ContinuityChangedFieldV1<'a> = (ReservedValue<Vec<u8>>, Option<[u8; 32]>, Encoded<'a>);
 
 fn system_bad() -> ValueTreeError {
     ValueTreeError::Invalid("organization continuity system Current writer")
@@ -29,7 +30,7 @@ fn changed_field<'a, T, M, R, E, C, W, CW>(
     context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     write: &mut MemberRecordWriteContext<'_, W, CW>,
     write_work: &mut TypedRecordWriteWorkV1,
-) -> Result<Option<(ReservedValue<Vec<u8>>, Option<[u8; 32]>, Encoded<'a>)>, WorldFieldOverlayErrorV1>
+) -> Result<Option<ContinuityChangedFieldV1<'a>>, WorldFieldOverlayErrorV1>
 where
     T: Codec + PartialEq,
     M: MerkleNodeReader,

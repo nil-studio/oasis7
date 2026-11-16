@@ -121,8 +121,8 @@ where
     let profile = authorization_grant_profile_v1();
     let mut bytes = [0; RECORD_ROOT_BYTES];
     let info = read_member_record_v1(
-        &value,
-        &key,
+        value,
+        key,
         &mut context.values,
         MemberRecordLimitsV1 {
             semantic_bytes: context.semantic_bytes,

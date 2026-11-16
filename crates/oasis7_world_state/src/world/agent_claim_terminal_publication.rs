@@ -252,7 +252,7 @@ fn validate_refund(
 
 fn refund_sink(
     state: &SelectedClaimTerminalSourceV1<'_>,
-    actor: &str,
+    _actor: &str,
     claim: &super::super::AgentClaimState,
 ) -> (RestrictedStarterClaimRefundSink, String) {
     if let Some(bucket) = &claim.claim_bond_restricted_source_treasury_bucket_id {
@@ -442,7 +442,7 @@ pub fn apply_selected_agent_claim_terminal_v1(
                 state,
                 actor,
                 target,
-                &claim,
+                claim,
                 0,
                 *refunded_bond_amount,
                 *refunded_bond_restricted_amount,
@@ -495,7 +495,7 @@ pub fn apply_selected_agent_claim_terminal_v1(
                 state,
                 actor,
                 target,
-                &claim,
+                claim,
                 collected_upkeep_amount.saturating_add(*penalty_amount),
                 *refunded_bond_amount,
                 *refunded_bond_restricted_amount,

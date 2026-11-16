@@ -149,7 +149,6 @@ where
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        drop(records);
         if let Some(error) = (ctx.take_state_error)() {
             return Err(error.into());
         }

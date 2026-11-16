@@ -1,9 +1,10 @@
 //! Fixed Manifest paths and dirty selected Registry entries.
 use super::*;
-use crate::{
-    incremental_inventory_value_read::InventoryValueReader,
-    incremental_runtime_artifact_config::{self as cfg, *},
-};
+use crate::incremental_runtime_artifact_config::{self as cfg, *};
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn capture<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

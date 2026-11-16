@@ -136,7 +136,7 @@ pub(super) fn outer_parts_from_records_v1<R: ValueNodeReader, C: FnMut() -> bool
     if !key_bytes.starts_with(b"oasis7.iws.world-field-key.v1\0") {
         return Ok(None);
     }
-    let binding = WorldFieldKeyV1::from_bytes(&key_bytes).map_err(ValueTreeError::Invalid)?;
+    let binding = WorldFieldKeyV1::from_bytes(key_bytes).map_err(ValueTreeError::Invalid)?;
     let Some(kind) = AgentAuthorityRecordKindV1::ALL
         .into_iter()
         .find(|k| k.field_name() == binding.name)

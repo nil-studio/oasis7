@@ -107,19 +107,19 @@ where
     let p = emergency_profile();
     let old = map_root(before, "authorizations", d)?;
     let new = map_root(after, "authorizations", d)?;
-    visit_entries(&*old, &*new, d, |before, after, d| {
+    visit_entries(&old, &new, d, |before, after, d| {
         let cell = after.or(before).ok_or_else(invalid)?;
         let Some(parsed_outer) = outer_key(&p, cell, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
         if before.is_some() {
-            builder.remove_authorization(&outer, d.scan, &mut d.ctx.cancelled)?;
+            builder.remove_authorization(outer, d.scan, &mut d.ctx.cancelled)?;
         }
         if let Some(cell) = after {
             let record = root(&p, cell, d)?;
             let value = recover_typed_record_body_v1::<Authorization, _, _, _, _>(
-                &*record, &p, d.ctx, d.scan, d.work,
+                &record, &p, d.ctx, d.scan, d.work,
             )?;
             let v = value.value();
             let text = outer
@@ -134,7 +134,7 @@ where
                 text,
             )?;
             builder.insert_authorization(
-                &outer,
+                outer,
                 &v.id,
                 &v.provider_id,
                 &v.region_id,
@@ -161,19 +161,19 @@ where
     let p = emergency_profile();
     let old = map_root(before, "batches", d)?;
     let new = map_root(after, "batches", d)?;
-    visit_entries(&*old, &*new, d, |before, after, d| {
+    visit_entries(&old, &new, d, |before, after, d| {
         let cell = after.or(before).ok_or_else(invalid)?;
         let Some(parsed_outer) = outer_key(&p, cell, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
         if before.is_some() {
-            builder.remove_batch(&outer, d.scan, &mut d.ctx.cancelled)?;
+            builder.remove_batch(outer, d.scan, &mut d.ctx.cancelled)?;
         }
         if let Some(cell) = after {
             let record = root(&p, cell, d)?;
             let value = recover_typed_record_body_v1::<Batch, _, _, _, _>(
-                &*record, &p, d.ctx, d.scan, d.work,
+                &record, &p, d.ctx, d.scan, d.work,
             )?;
             let v = value.value();
             let text = outer
@@ -185,7 +185,7 @@ where
                 builder.batches.len(),
                 text,
             )?;
-            builder.insert_batch(&outer, &v.authorization_id, v.committed_at)?;
+            builder.insert_batch(outer, &v.authorization_id, v.committed_at)?;
         }
         d.check()
     })
@@ -205,26 +205,26 @@ where
     let p = emergency_profile();
     let old = map_root(before, "observations", d)?;
     let new = map_root(after, "observations", d)?;
-    visit_entries(&*old, &*new, d, |before, after, d| {
+    visit_entries(&old, &new, d, |before, after, d| {
         let cell = after.or(before).ok_or_else(invalid)?;
         let Some(parsed_outer) = outer_key(&p, cell, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
         if before.is_some() {
-            builder.remove_observation(&outer, d.scan, &mut d.ctx.cancelled)?;
+            builder.remove_observation(outer, d.scan, &mut d.ctx.cancelled)?;
         }
         if let Some(cell) = after {
             let record = root(&p, cell, d)?;
             let _value = recover_typed_record_body_v1::<Observation, _, _, _, _>(
-                &*record, &p, d.ctx, d.scan, d.work,
+                &record, &p, d.ctx, d.scan, d.work,
             )?;
             charge_projection_insert::<_, _, _, _, String>(
                 d,
                 builder.observations.len(),
                 outer.len(),
             )?;
-            builder.insert_observation(&outer)?;
+            builder.insert_observation(outer)?;
         }
         d.check()
     })
@@ -245,19 +245,19 @@ where
     let p = emergency_profile();
     let old = map_root(before, "minimum_services", d)?;
     let new = map_root(after, "minimum_services", d)?;
-    visit_entries(&*old, &*new, d, |before, after, d| {
+    visit_entries(&old, &new, d, |before, after, d| {
         let cell = after.or(before).ok_or_else(invalid)?;
         let Some(parsed_outer) = outer_key(&p, cell, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
         if before.is_some() {
-            builder.remove_minimum_service(&outer, d.scan, &mut d.ctx.cancelled)?;
+            builder.remove_minimum_service(outer, d.scan, &mut d.ctx.cancelled)?;
         }
         if let Some(cell) = after {
             let record = root(&p, cell, d)?;
             let value = recover_typed_record_body_v1::<MinimumService, _, _, _, _>(
-                &*record, &p, d.ctx, d.scan, d.work,
+                &record, &p, d.ctx, d.scan, d.work,
             )?;
             let v = value.value();
             let text = outer
@@ -271,7 +271,7 @@ where
                 text,
             )?;
             builder.insert_minimum_service(
-                &outer,
+                outer,
                 &v.operator_agent_id,
                 &v.registration.region_id,
                 v.registered_at,

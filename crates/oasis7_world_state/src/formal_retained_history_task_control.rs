@@ -1,6 +1,18 @@
 //! Original signed task-control scope and immutable result matching.
 use super::*;
 
+/// Borrowed task scope fields used by the signed-result identity comparison.
+pub type GameTaskResultScopeFieldsV1<'a> = (
+    &'a str,
+    &'a str,
+    u64,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    u64,
+);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GameTaskControlLookupV1 {
@@ -77,50 +89,49 @@ pub fn game_task_result_lookup(
 /// consumers use this one variant dispatcher.
 pub fn game_task_result_scope_data_v1(
     result: &CanonicalIntentResultV1,
-) -> Option<(&str, &str, u64, &str, &str, &str, &str, u64)> {
+) -> Option<GameTaskResultScopeFieldsV1<'_>> {
     use crate::service_admission::WorldServicePayloadV1;
-    let fields: (&str, &str, u64, &str, &str, &str, &str, u64) =
-        match &result.request.signed_payload {
-            WorldServicePayloadV1::GameTaskCreate(s) => {
-                let r = &s.request;
-                (
-                    &r.agent_id,
-                    &r.owner_binding,
-                    r.owner_generation.0,
-                    &s.subject_public_key,
-                    &r.world_id,
-                    &r.genesis_digest,
-                    &r.branch_id,
-                    r.reorg_epoch.0,
-                )
-            }
-            WorldServicePayloadV1::GameGoalPublish(s) => {
-                let r = &s.request;
-                (
-                    &r.agent_id,
-                    &r.owner_binding,
-                    r.owner_generation.0,
-                    &s.subject_public_key,
-                    &r.world_id,
-                    &r.genesis_digest,
-                    &r.branch_id,
-                    r.reorg_epoch.0,
-                )
-            }
-            WorldServicePayloadV1::GameExecutorControl(s) => {
-                let r = &s.request.fence;
-                (
-                    &r.agent_id,
-                    &r.owner_binding,
-                    r.owner_generation.0,
-                    &s.subject_public_key,
-                    &r.world_id,
-                    &r.genesis_digest,
-                    &r.branch_id,
-                    r.reorg_epoch.0,
-                )
-            }
-            _ => return None,
-        };
+    let fields: GameTaskResultScopeFieldsV1<'_> = match &result.request.signed_payload {
+        WorldServicePayloadV1::GameTaskCreate(s) => {
+            let r = &s.request;
+            (
+                &r.agent_id,
+                &r.owner_binding,
+                r.owner_generation.0,
+                &s.subject_public_key,
+                &r.world_id,
+                &r.genesis_digest,
+                &r.branch_id,
+                r.reorg_epoch.0,
+            )
+        }
+        WorldServicePayloadV1::GameGoalPublish(s) => {
+            let r = &s.request;
+            (
+                &r.agent_id,
+                &r.owner_binding,
+                r.owner_generation.0,
+                &s.subject_public_key,
+                &r.world_id,
+                &r.genesis_digest,
+                &r.branch_id,
+                r.reorg_epoch.0,
+            )
+        }
+        WorldServicePayloadV1::GameExecutorControl(s) => {
+            let r = &s.request.fence;
+            (
+                &r.agent_id,
+                &r.owner_binding,
+                r.owner_generation.0,
+                &s.subject_public_key,
+                &r.world_id,
+                &r.genesis_digest,
+                &r.branch_id,
+                r.reorg_epoch.0,
+            )
+        }
+        _ => return None,
+    };
     Some(fields)
 }

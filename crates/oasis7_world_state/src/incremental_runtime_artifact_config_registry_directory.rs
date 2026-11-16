@@ -73,6 +73,10 @@ fn arc_bytes<T>() -> Result<usize, ValueTreeError> {
         )
         .ok_or_else(limited)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn make(
     key: Arc<ReservedValue<Vec<u8>>>,
     priority: [u8; 32],
@@ -125,6 +129,10 @@ fn earlier(
     Ok(a.priority < b.priority
         || (a.priority == b.priority && compare(&a.key, &b.key, work, keys, c)? == Ordering::Less))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn put(
     root: &Link,
     key: Arc<ReservedValue<Vec<u8>>>,
@@ -434,6 +442,10 @@ impl RegistryRecordKeysV1 {
             fee: memory.reserve(arc_bytes::<Self>()?, MemoryClass::Ordinary)?,
         })
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub(in crate::incremental_runtime_artifact_config) fn change(
         &mut self,
         key: &[u8],

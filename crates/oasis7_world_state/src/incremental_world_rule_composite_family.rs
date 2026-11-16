@@ -277,7 +277,7 @@ pub(crate) fn qualify_world_rule_branch_v1<
         _type: PhantomData,
     }))
 }
-pub fn readmit_world_rule_branch_ordinary_v1<T: CompositeBranchCodecV1>(
+pub(crate) fn readmit_world_rule_branch_ordinary_v1<T: CompositeBranchCodecV1>(
     source: &ReservedValue<WorldRuleCompositeQualificationV1<T>>,
     roots: &RootSetV1,
     memory: &MemoryBudget,

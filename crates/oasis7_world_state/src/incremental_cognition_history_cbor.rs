@@ -324,10 +324,10 @@ impl<R: Read, C: FnMut() -> bool> Parser<'_, R, C> {
         if let Some(record) = &mut self.record {
             record.end(depth)?;
         }
-        if matches!(initial >> 5, 4 | 5) {
-            if let Some(json) = &mut self.projection_json {
-                json.end_container()?;
-            }
+        if matches!(initial >> 5, 4 | 5)
+            && let Some(json) = &mut self.projection_json
+        {
+            json.end_container()?;
         }
         self.check()
     }

@@ -30,10 +30,10 @@ impl Serialize for AllianceState {
             formed_at,
         } = self;
         AllianceProjectionFieldsV1 {
-            alliance_id: alliance_id,
-            members: members,
-            charter: charter,
-            formed_by_agent_id: formed_by_agent_id,
+            alliance_id,
+            members,
+            charter,
+            formed_by_agent_id,
             formed_at: *formed_at,
         }
         .serialize(s)
@@ -126,11 +126,11 @@ impl Serialize for WarState {
             declared_at,
         } = self;
         WarProjectionFieldsV1 {
-            war_id: war_id,
-            initiator_agent_id: initiator_agent_id,
-            aggressor_alliance_id: aggressor_alliance_id,
-            defender_alliance_id: defender_alliance_id,
-            objective: objective,
+            war_id,
+            initiator_agent_id,
+            aggressor_alliance_id,
+            defender_alliance_id,
+            objective,
             intensity: *intensity,
             active: *active,
             declared_mobilization_electricity_cost: *declared_mobilization_electricity_cost,
@@ -142,7 +142,7 @@ impl Serialize for WarState {
             winner_alliance_id: winner_alliance_id.as_deref(),
             loser_alliance_id: loser_alliance_id.as_deref(),
             settlement_summary: settlement_summary.as_deref(),
-            participant_outcomes: participant_outcomes,
+            participant_outcomes,
             declared_at: *declared_at,
         }
         .serialize(s)
@@ -208,8 +208,8 @@ impl Serialize for CrisisState {
             resolved_at,
         } = self;
         CrisisProjectionFieldsV1 {
-            crisis_id: crisis_id,
-            kind: kind,
+            crisis_id,
+            kind,
             severity: *severity,
             status: *status,
             opened_at: *opened_at,
@@ -298,15 +298,15 @@ impl Serialize for EconomicContractState {
             settlement_notes,
         } = self;
         EconomicContractProjectionFieldsV1 {
-            contract_id: contract_id,
-            creator_agent_id: creator_agent_id,
-            counterparty_agent_id: counterparty_agent_id,
+            contract_id,
+            creator_agent_id,
+            counterparty_agent_id,
             fulfillment_kind: *fulfillment_kind,
             settlement_kind: *settlement_kind,
             settlement_amount: *settlement_amount,
             reputation_stake: *reputation_stake,
             expires_at: *expires_at,
-            description: description,
+            description,
             status: *status,
             accepted_at: *accepted_at,
             settled_at: *settled_at,

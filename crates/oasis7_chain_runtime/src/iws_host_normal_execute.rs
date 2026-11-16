@@ -25,7 +25,7 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1<'w, 'common>(
     primary: &mut IwsHostRuntimeV1,
     replica: &mut IwsHostRuntimeV1,
     sources: PaidNormalTickSourcesV1,
-    mut work: NormalCommitWorkV1<'w, 'common>,
+    work: NormalCommitWorkV1<'w, 'common>,
     writer: &ed25519_dalek::SigningKey,
     input_limits: &NormalInputDecodeLimitsV1,
     action_limits: &CborDataLimitsV1,

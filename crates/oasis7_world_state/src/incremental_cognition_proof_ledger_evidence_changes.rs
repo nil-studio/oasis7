@@ -99,6 +99,10 @@ enum LedgerPointV3<'a> {
 impl CurrentCognitionProofLedgerV1 {
     /// Reopen one complete row; actual array absence remains distinct from an
     /// unread source. The original V1/V2 call and its grammar are unchanged.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub fn read_evidence_row_v2<M, P, R, E, C>(
         &self,
         field: CognitionProofLedgerFieldV1,
@@ -133,6 +137,10 @@ impl CurrentCognitionProofLedgerV1 {
     /// Fixed service fields only. Preserve the original legal Value domain:
     /// absent/non-object maps to no member, never a fabricated empty object.
     /// Legacy manifests lacking these fields remain an explicit missing source.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub fn read_service_object_member_v3<M, P, R, E, C>(
         &self,
         field: CognitionProofLedgerFieldV1,
@@ -164,6 +172,10 @@ impl CurrentCognitionProofLedgerV1 {
             live,
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     fn read_fixed_point_v3<M, P, R, E, C>(
         &self,
         field: CognitionProofLedgerFieldV1,
@@ -318,8 +330,7 @@ impl CurrentCognitionProofLedgerV1 {
         let mut steps = 0u64;
         let mut bytes = 0u64;
         let mut broken = false;
-        let mut i = 0;
-        for lane in [
+        for (i, lane) in [
             &mut read.values.io.nodes_remaining,
             &mut json.cells_remaining,
             &mut json.json_nodes_remaining,
@@ -327,7 +338,10 @@ impl CurrentCognitionProofLedgerV1 {
             &mut path.json_nodes_remaining,
             &mut read.values.io.read_bytes_remaining,
             &mut read.key_work.bytes_remaining,
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             broken |= *lane > cap[i];
             let used = cap[i].saturating_sub(*lane);
             *lane = original[i] - used;
@@ -337,7 +351,6 @@ impl CurrentCognitionProofLedgerV1 {
             } else {
                 broken = true
             }
-            i += 1;
         }
         let paid = lease.consume(steps, bytes).map_err(common_error);
         lease.finish();

@@ -30,7 +30,7 @@ fn scalar<
         work.max_payload_bytes,
         &mut std::io::sink(),
     )?
-    .ok_or_else(|| ValueTreeError::Invalid("gameplay selector scalar absent"))
+    .ok_or(ValueTreeError::Invalid("gameplay selector scalar absent"))
 }
 fn text<
     M: MerkleNodeReader,
@@ -59,7 +59,7 @@ fn text<
     }
     let value =
         read_qualified_diplomacy_scalar_v1(id, field, column, proof, ctx, cap as u64, &mut bytes)?
-            .ok_or_else(|| ValueTreeError::Invalid("gameplay selector text absent"))?;
+            .ok_or(ValueTreeError::Invalid("gameplay selector text absent"))?;
     if value
         != (RecordValueV1::Text {
             utf8_bytes: bytes.len() as u64,

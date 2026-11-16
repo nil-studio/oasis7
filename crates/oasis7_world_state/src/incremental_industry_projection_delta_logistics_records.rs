@@ -6,8 +6,7 @@ use oasis7_formal_protocol::{
     incremental_state::{StateRootV1, StateScanContext, StateScanError},
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation};
-use serde_json::{Map, Value};
+use oasis7_proto::memory_budget::MemoryClass;
 use std::{cell::RefCell, io, mem::size_of};
 fn bad() -> ValueTreeError {
     ValueTreeError::Invalid("selected Logistics original JSON projection")
@@ -268,7 +267,6 @@ pub(crate) fn outer<R: ValueNodeReader, C: FnMut() -> bool>(
     );
     let error = probe.error();
     let framing = probe.finish();
-    drop(probe);
     if let Some(e) = error {
         return Err(ValueTreeError::Invalid(e));
     }

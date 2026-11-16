@@ -299,8 +299,6 @@ where
             },
         )?;
     local.check()?;
-    drop(local);
-    drop(cancel);
     let value = CurrentIntentReorgAggregateV2 {
         tree,
         cover: parent.intent_ordinary_cover.as_ref().map(Arc::clone),

@@ -290,11 +290,11 @@ impl PreparedAllianceWarEvent {
             }
             DomainEvent::WarConcluded {
                 war_id,
-                winner_alliance_id,
-                loser_alliance_id,
-                aggressor_score,
-                defender_score,
-                summary,
+                winner_alliance_id: _,
+                loser_alliance_id: _,
+                aggressor_score: _,
+                defender_score: _,
+                summary: _,
                 participant_outcomes,
             } => {
                 let mut war =

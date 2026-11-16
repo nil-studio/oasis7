@@ -1,7 +1,4 @@
-use super::super::apply_domain_event_industry_helpers::{
-    aggregate_recipe_material_stacks, validate_recipe_material_stacks,
-    validate_recipe_output_capacity,
-};
+use super::super::apply_domain_event_industry_helpers::validate_recipe_output_capacity;
 use super::*;
 use crate::AgentActivityV1;
 

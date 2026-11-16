@@ -245,7 +245,7 @@ impl PreparedModuleMarketplace {
             DomainEvent::ModuleArtifactDelisted {
                 seller_agent_id,
                 wasm_hash,
-                order_id,
+                order_id: _,
                 fee_kind,
                 fee_amount,
             } => {
@@ -267,7 +267,7 @@ impl PreparedModuleMarketplace {
             DomainEvent::ModuleArtifactDestroyed {
                 owner_agent_id,
                 wasm_hash,
-                reason,
+                reason: _,
                 fee_kind,
                 fee_amount,
             } => {
@@ -365,7 +365,7 @@ impl PreparedModuleMarketplace {
                 price_kind,
                 price_amount,
                 sale_id,
-                listing_order_id,
+                listing_order_id: _,
                 bid_order_id,
             } => {
                 validate_module_market_event_rows_v1(

@@ -26,6 +26,10 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use std::{collections::BTreeMap, mem::size_of};
 type Requests = BTreeMap<String, crate::world_rules::WorldRuleReceiptV1>;
+type WorldRuleRequestPointV1 = (
+    [u8; 32],
+    ReservedValue<crate::incremental_record_columns_read::ColumnRowV1>,
+);
 #[path = "incremental_world_rule_observation_registry.rs"]
 mod observation_registry;
 pub use observation_registry::{
@@ -80,13 +84,7 @@ fn point<M, R, E, C>(
     entry: Option<&str>,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     max_heap: usize,
-) -> Result<
-    Option<(
-        [u8; 32],
-        ReservedValue<crate::incremental_record_columns_read::ColumnRowV1>,
-    )>,
-    WorldFieldOverlayErrorV1,
->
+) -> Result<Option<WorldRuleRequestPointV1>, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
     R: ValueNodeReader,

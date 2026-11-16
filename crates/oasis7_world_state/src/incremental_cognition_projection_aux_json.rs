@@ -2,7 +2,6 @@
 use super::*;
 use crate::{
     incremental_inventory_value_read::InventoryValueReader,
-    incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
     incremental_world_rule_projection_delta::{Processing, spend},
 };
 use oasis7_formal_protocol::incremental_state::StateEntryV1;
@@ -404,13 +403,13 @@ fn walk<R: ValueNodeReader, C: FnMut() -> bool>(
                         _ => return Err(bad()),
                     }
                 }
-                if let Some((_, CognitionAuxPathStepV1::Index(index), _)) = &a {
-                    if b.is_none() {
-                        if *index >= new.length {
-                            return Ok(());
-                        }
-                        return Err(bad());
+                if let Some((_, CognitionAuxPathStepV1::Index(index), _)) = &a
+                    && b.is_none()
+                {
+                    if *index >= new.length {
+                        return Ok(());
                     }
+                    return Err(bad());
                 }
                 let step = if let Some((_, step, _)) = &b {
                     step

@@ -140,7 +140,6 @@ pub fn read_current_cognition_json_record_v1<
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        drop(records);
         let guard = tx.guard();
         tx.validate_guard(&guard, live)?;
         Ok(Some(phase.retain(CurrentCognitionJsonRecordV1 {
@@ -218,7 +217,6 @@ pub fn replace_current_cognition_service_record_v1<
         if (records.cancelled)() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        drop(records);
         tx.validate_guard(&expected.guard, live)?;
         let namespace = WorldFieldKeyV1::from_bytes(expected.key.as_bytes())
             .map_err(ValueTreeError::Invalid)?
@@ -495,7 +493,7 @@ fn create_current_cognition_service_value_v2<
                 cancelled: &mut write.cancelled,
             },
         )
-        .map_err(|e| WorldFieldOverlayErrorV1::Member(e.into()))?;
+        .map_err(WorldFieldOverlayErrorV1::Member)?;
         if entry.field_key != key || marker.field_key != metadata {
             return Err(invalid().into());
         }

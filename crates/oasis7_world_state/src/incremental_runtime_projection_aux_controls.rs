@@ -4,7 +4,6 @@ use super::*;
 use crate::incremental_runtime_controls::{
     RuntimeControlFieldV1 as Field, RuntimeControlReadV1 as Read, read_runtime_control_overlay_v1,
 };
-use std::io::{self, Write};
 pub(super) fn capture<
     M: MerkleNodeReader,
     R: ValueNodeReader,

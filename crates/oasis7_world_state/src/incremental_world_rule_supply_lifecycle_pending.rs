@@ -295,8 +295,6 @@ where
         if pending.len() != count {
             return Err(bad().into());
         }
-        drop(stop);
-        drop(meter);
         let mut counts = parent.record_counts();
         for mutation in pending {
             tick(cells, mutation.key.len(), &mut ctx.cancelled)?;

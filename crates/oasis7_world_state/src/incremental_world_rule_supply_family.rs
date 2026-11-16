@@ -235,7 +235,6 @@ fn outer<
     let Some(owner) = probe.finish()? else {
         return Ok(None);
     };
-    drop(probe);
     let outer_id = String::from_utf8(sink).map_err(|_| invalid())?;
     if info.codec != MemberPayloadCodecV1::RecordRoot
         || info.payload_bytes != RECORD_ROOT_BYTES as u64

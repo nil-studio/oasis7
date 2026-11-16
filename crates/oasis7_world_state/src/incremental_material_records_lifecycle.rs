@@ -176,6 +176,10 @@ pub fn delete_qualified_material_record_v1<
 
 /// Fixed MaterialProfile overwrite through the original complete seven-column
 /// codec. The actual Current outer and closure are checked before publication.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn upsert_current_material_profile_v1<M, P, R, E, C, W, CW>(
     profile: &MaterialProfileV1,
     parent: &ReservedValue<MaterialFamilyQualificationV1>,
@@ -254,7 +258,7 @@ where
                 &mut read,
                 scan,
                 &mut work.cells_remaining,
-                ctx.record_bytes as u64,
+                ctx.record_bytes,
             )?)
         } else {
             None

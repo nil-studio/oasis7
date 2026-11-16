@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     incremental_agent_mutation::BodyMutationError,
-    incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
+    incremental_field_overlay::WorldFieldOverlayContextV1,
     incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
     incremental_semantic_key::{SemanticKeyRefV1, read_semantic_key_v1},
     incremental_world_field_key::WorldFieldKeyV1,
@@ -43,13 +43,6 @@ fn bad() -> ValueTreeError {
 }
 fn limit() -> ValueTreeError {
     ValueTreeError::ResourceLimited("Current MainTokenPolicy projection")
-}
-fn oe(e: WorldFieldOverlayErrorV1) -> BodyMutationError {
-    match e {
-        WorldFieldOverlayErrorV1::Execution(e) => BodyMutationError::Execution(e),
-        WorldFieldOverlayErrorV1::Value(e) => BodyMutationError::Value(e),
-        e => BodyMutationError::Original(Box::new(e)),
-    }
 }
 fn pay(
     work: &mut BusinessDiffProcessingWorkV1,
@@ -449,6 +442,10 @@ fn json<
         }
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn decode_projection_row_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -457,7 +454,7 @@ fn decode_projection_row_v1<
     C: FnMut() -> bool,
 >(
     change: Change,
-    family: &ReservedValue<MainTokenPolicyFamilyQualificationV1>,
+    _family: &ReservedValue<MainTokenPolicyFamilyQualificationV1>,
     roots: &RootSetV1,
     state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
@@ -465,7 +462,7 @@ fn decode_projection_row_v1<
     cells: &mut u64,
     processing: &mut BusinessDiffProcessingWorkV1,
     max_text: u64,
-    live: &ExecutionFence,
+    _live: &ExecutionFence,
 ) -> Result<Option<Row>, BodyMutationError> {
     let memory = ctx.values.memory.clone();
     pay(processing, change.key.len(), &mut ctx.cancelled)?;
@@ -505,7 +502,6 @@ fn decode_projection_row_v1<
         &mut top.cancelled,
     )?;
     let selected = super::family::outer(&entry, &mut top)?;
-    drop(top);
     let Some((_kind, owner, child)) = selected else {
         return Ok(None);
     };
@@ -626,6 +622,10 @@ fn decode_projection_row_v1<
         json: data,
     }))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_main_token_policy_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

@@ -209,7 +209,6 @@ pub fn read_current_module_release_requests_v1<
                 },
             )?;
         }
-        drop(cancel);
         for (key, (before, after, _fee)) in changes {
             if before == after {
                 continue;

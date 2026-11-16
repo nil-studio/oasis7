@@ -286,6 +286,10 @@ impl<'a> PendingCurrentCognitionResponsesV1<'a> {
             Err(p) => std::panic::resume_unwind(p),
         }
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub fn append<M, P, R, E, C, W, D>(
         &mut self,
         raw: &[u8],
@@ -309,6 +313,10 @@ impl<'a> PendingCurrentCognitionResponsesV1<'a> {
     {
         self.edit(None, raw, id, location, tx, read, write, work, common, live)
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub fn replace<M, P, R, E, C, W, D>(
         &mut self,
         ordinal: u64,
@@ -346,6 +354,10 @@ impl<'a> PendingCurrentCognitionResponsesV1<'a> {
             live,
         )
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     fn edit<M, P, R, E, C, W, D>(
         &mut self,
         before: Option<(u64, CognitionHistoryIndexRowV1, &[u8])>,

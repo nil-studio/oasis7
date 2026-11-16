@@ -271,8 +271,6 @@ impl<
             Err(StateScanError::Invalid(e)) => return Err(ValueTreeError::Invalid(e)),
             Err(StateScanError::Tree(_)) => return Err(bad()),
         }
-        drop(stop);
-        drop(errors);
         self.fee
             .merge(&mut admitted)
             .map_err(ValueTreeError::Invalid)?;
@@ -286,7 +284,7 @@ impl<
         T::read(key, self)
     }
 }
-trait Value: Sized {
+pub(super) trait Value: Sized {
     fn read<
         M: MerkleNodeReader,
         R: ValueNodeReader,

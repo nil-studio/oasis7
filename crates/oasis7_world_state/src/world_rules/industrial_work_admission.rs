@@ -144,14 +144,14 @@ pub fn industrial_ledger_access_from_records_v1(
 ) -> Result<(), WorldError> {
     let allowed = match ledger {
         MaterialLedgerId::Agent(owner) => owner == actor,
-        MaterialLedgerId::Site(site) => site_authority.is_some_and(|a| {
+        MaterialLedgerId::Site(_site) => site_authority.is_some_and(|a| {
             a.active
                 && a.chunk_ready
                 && a.registered_at <= now
                 && (a.owner_agent_id == actor
                     || a.authorized_agent_ids.iter().any(|id| id == actor))
         }),
-        MaterialLedgerId::Factory(id) => factory.is_some_and(|f| {
+        MaterialLedgerId::Factory(_id) => factory.is_some_and(|f| {
             f.builder_agent_id == actor
                 && !retired
                 && f.durability_ppm > 0

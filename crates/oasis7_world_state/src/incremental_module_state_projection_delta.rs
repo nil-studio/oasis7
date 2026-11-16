@@ -324,8 +324,6 @@ pub fn read_current_module_state_projection_delta_v1<
             Ok::<_, BodyMutationError>(())
         },
     )?;
-    drop(bank);
-    drop(stop);
     if pending.len() != count {
         return Err(bad().into());
     }

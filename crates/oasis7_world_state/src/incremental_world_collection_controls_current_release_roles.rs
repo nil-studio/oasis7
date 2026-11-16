@@ -160,8 +160,6 @@ pub fn read_current_module_release_roles_v1<
                 Ok(())
             },
         )?;
-        drop(local);
-        drop(stop);
         work.step(&mut read.cancelled)?;
         // Metadata keys use the closed no-semantic constructor, unlike group/member keys.
         let metadata = WorldFieldKeyV1::new(descriptor(1)?, WorldFieldRecordKindV1::Metadata, None)
@@ -307,7 +305,6 @@ pub fn replace_current_module_release_roles_v1<
                 Ok(())
             },
         )?;
-        drop(stop);
         if count != expected.pending.len()
             || tx.read(StateNamespaceV1::Authorization, expected.group.as_bytes())?
                 != expected.group_root

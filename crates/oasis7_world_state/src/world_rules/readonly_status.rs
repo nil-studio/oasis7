@@ -5,7 +5,7 @@ use crate::{FactoryState, WorldState};
 use oasis7_agent_api::world_action::*;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::{collections::BTreeMap, mem::size_of, ops::ControlFlow};
+use std::{collections::BTreeMap, ops::ControlFlow};
 type Error<S> = <S as IndustrialOwnerReadonlyFactsV1>::Error;
 pub trait WorldRuleStatusReadonlyFactsV1:
     OrganizationActivityReadonlyFactsV1 + SubstitutionReadonlyFactsV1

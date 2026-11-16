@@ -352,7 +352,6 @@ pub fn build_threat_key_directory_v1<
             },
             || (stop.borrow_mut())(),
         );
-        drop(stop);
         let page = match result {
             Ok(p) => p,
             Err(StateScanError::Visitor(e)) => return Err(e),

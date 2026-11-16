@@ -33,6 +33,10 @@ impl QualifiedFactoryAuthorityProjectionColumnsV1 {
         Ok(())
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_qualified_factory_authority_projection_columns_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

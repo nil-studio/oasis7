@@ -3,7 +3,6 @@
 use super::{
     invalid, readonly_industrial_data as data,
     readonly_industrial_scratch::IndustrialScratchReadonlyFactsV1,
-    readonly_owner::IndustrialOwnerReadonlyFactsV1,
 };
 use crate::WorldError;
 use oasis7_agent_api::world_action::*;

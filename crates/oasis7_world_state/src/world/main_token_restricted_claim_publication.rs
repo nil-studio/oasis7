@@ -12,6 +12,13 @@ use super::super::{
 };
 use super::economy_data_publication::SparseMapProjection;
 
+type RestrictedClaimLedgerDeltaV1 = (
+    RestrictedStarterClaimGrantState,
+    BTreeMap<String, MainTokenAccountBalance>,
+    BTreeMap<String, u64>,
+    MainTokenSupplyState,
+);
+
 #[derive(Debug)]
 pub struct PreparedMainTokenRestrictedClaimEvent {
     event: DomainEvent,
@@ -330,7 +337,7 @@ impl PreparedMainTokenRestrictedClaimEvent {
         configured_expiry: u64,
         revoke_reason: Option<&String>,
     ) -> Result<(), WorldError> {
-        let mut grant = state
+        let grant = state
             .restricted_starter_claim_grants
             .get(beneficiary)
             .cloned()
@@ -549,15 +556,7 @@ pub fn prepare_selected_restricted_grant_terminal_v1(
     terminal_epoch: u64,
     configured_expiry: u64,
     revoke_reason: Option<&String>,
-) -> Result<
-    (
-        RestrictedStarterClaimGrantState,
-        BTreeMap<String, MainTokenAccountBalance>,
-        BTreeMap<String, u64>,
-        MainTokenSupplyState,
-    ),
-    WorldError,
-> {
+) -> Result<RestrictedClaimLedgerDeltaV1, WorldError> {
     let mut balances_out = BTreeMap::new();
     let mut treasury_out = BTreeMap::new();
     let operation = if revoke_reason.is_some() {

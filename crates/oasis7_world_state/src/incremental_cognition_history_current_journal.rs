@@ -15,6 +15,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryReservation;
+pub type CognitionJournalHashRowsV1 = Vec<(u64, [u8; 32])>;
 pub struct PendingCurrentCognitionJournalV1<'a> {
     field: CognitionHistoryFieldV1,
     height: u64,
@@ -105,7 +106,7 @@ impl<'a> PendingCurrentCognitionJournalV1<'a> {
         memory: &MemoryBudget,
         hashes: &mut CognitionHeadHashWorkV1,
         live: &ExecutionFence,
-        mut stop: impl FnMut() -> bool,
+        stop: impl FnMut() -> bool,
     ) -> Result<Self, ValueTreeError> {
         // Legacy direct constructor is valid only when the selected fact is
         // from this very accepted head. Inherited views need the real head API.
@@ -427,7 +428,7 @@ impl<'a> PendingCurrentCognitionJournalV1<'a> {
         work: &mut CognitionHeadHashWorkV1,
         live: &ExecutionFence,
         mut stop: impl FnMut() -> bool,
-    ) -> Result<ReservedValue<Vec<(u64, [u8; 32])>>, ValueTreeError> {
+    ) -> Result<ReservedValue<CognitionJournalHashRowsV1>, ValueTreeError> {
         self.validate_evidence(tx, memory, live)?;
         if self.field != CognitionHistoryFieldV1::JournalEvents {
             return Err(bad());
@@ -481,6 +482,10 @@ impl<'a> PendingCurrentCognitionJournalV1<'a> {
     pub fn last_digest(&self) -> Option<[u8; 32]> {
         self.last
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub fn append<
         M: MerkleNodeReader,
         P: MerkleNodeReader,

@@ -298,6 +298,10 @@ impl ContractCreatorIndexV1 {
         Ok(n)
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn retain_row(
     key: &WorldFieldKeyV1,
     member: [u8; 32],
@@ -401,7 +405,6 @@ pub(in crate::incremental_diplomacy) fn project_contract_row<
         "expired" => EconomicContractStatus::Expired,
         _ => return Err(closure::invalid()),
     };
-    drop(local);
     retain_row(
         &key,
         entry.value,

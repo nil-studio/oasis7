@@ -216,6 +216,10 @@ impl<S: IndustrialStartReadonlyFactsV1> StartRowLoaderV1<S> for SelectedStartRow
 }
 /// Source loading occurs at the original per-input read point. Legacy passes
 /// its existing staged maps; Current loads only these selected parent records.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn prepare_inputs<
     S: IndustrialStartReadonlyFactsV1,
     W: parents::ParentWorkV1<Error = S::Error>,

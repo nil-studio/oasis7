@@ -75,10 +75,10 @@ pub(super) fn update<
     if T::BRANCH != WorldRuleCompositeBranchV1::OrganizationContinuity {
         return Ok(None);
     }
-    if before == after {
-        if let Some(index) = parent {
-            return Ok(Some(index.share(ctx.values.memory, ctx.values.class)?));
-        }
+    if before == after
+        && let Some(index) = parent
+    {
+        return Ok(Some(index.share(ctx.values.memory, ctx.values.class)?));
     }
     let trees_remaining = work.max_retained_trees;
     let mut d = ChangeDecoder {
@@ -91,10 +91,10 @@ pub(super) fn update<
     };
     let old = registrations(before, &mut d)?;
     let new = registrations(after, &mut d)?;
-    if old.as_deref() == new.as_deref() {
-        if let Some(index) = parent {
-            return Ok(Some(index.share(d.ctx.values.memory, d.ctx.values.class)?));
-        }
+    if old.as_deref() == new.as_deref()
+        && let Some(index) = parent
+    {
+        return Ok(Some(index.share(d.ctx.values.memory, d.ctx.values.class)?));
     }
     let builder = if let Some(index) = parent {
         index.copy_for_changes(d.ctx.values.memory, d.ctx.values.class, &mut |s, b| {

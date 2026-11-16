@@ -8,7 +8,7 @@ pub(crate) struct ReleaseRowV1 {
     pub outer: [u8; 32],
     pub record: WorldNativeRecoveredRecordV1<crate::state::ModuleReleaseRequestState>,
     pub bytes: usize,
-    pub class: MemoryClass,
+    pub _class: MemoryClass,
 }
 #[path = "incremental_world_native_release_tree.rs"]
 mod tree;
@@ -57,6 +57,10 @@ impl ReleaseRowsV1 {
             )?))
         }
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub(crate) fn replace<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -99,7 +103,7 @@ impl ReleaseRowsV1 {
                 outer: outer.ok_or_else(invalid)?,
                 record,
                 bytes,
-                class: ctx.values.class,
+                _class: ctx.values.class,
             }));
             let (root, new) = tree::put(
                 &self.root,

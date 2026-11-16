@@ -103,11 +103,11 @@ pub fn apply_meta_progress_delta_v1<E>(
     progress.track_points.insert(track.to_owned(), next);
     progress.total_points = progress.total_points.saturating_add(points);
     progress.last_granted_at = now;
-    if let Some(id) = achievement {
-        if !contains(&progress.achievements, id, &mut visit)? {
-            visit(id.len())?;
-            progress.achievements.push(id.to_owned());
-        }
+    if let Some(id) = achievement
+        && !contains(&progress.achievements, id, &mut visit)?
+    {
+        visit(id.len())?;
+        progress.achievements.push(id.to_owned());
     }
     for (tier, threshold) in [("bronze", 20), ("silver", 50), ("gold", 100)] {
         visit(0)?;

@@ -155,7 +155,6 @@ pub fn read_current_world_rule_projection_delta_v1<
             if pending.len() != count {
                 return Err(bad().into());
             }
-            drop(stop);
             let source_cap = count.checked_add(6).ok_or_else(limit)?;
             spend(
                 p,

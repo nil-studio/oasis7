@@ -4,6 +4,11 @@ use crate::incremental_field_overlay::WorldFieldOverlayErrorV1;
 use oasis7_formal_protocol::incremental_execution::{TransitionRecordV1, TransitionVerifier};
 use oasis7_proto::memory_budget::ReservedValue;
 use std::cell::RefCell;
+type OrganizationRootEdgeV1 = (
+    OrganizationRootKeyV1<'static>,
+    ReservedValue<StateRootV1>,
+    ReservedValue<String>,
+);
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("organization transition closure")
 }
@@ -22,14 +27,7 @@ pub(super) fn edge<
     key: &WorldFieldKeyV1,
     value: Option<[u8; 32]>,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-) -> Result<
-    Option<(
-        OrganizationRootKeyV1<'static>,
-        ReservedValue<StateRootV1>,
-        ReservedValue<String>,
-    )>,
-    ValueTreeError,
-> {
+) -> Result<Option<OrganizationRootEdgeV1>, ValueTreeError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -363,14 +361,12 @@ pub(crate) fn accept_organization_verified_v1<
         }
         let old = edge(&key, write.mutation.before, context)?;
         let new = edge(&key, write.mutation.after, context)?;
-        if old.is_some() || new.is_some() {
-            if scope.is_none() {
-                scope = Some(parent.scope.copy_for_changes(
-                    context.values.memory,
-                    context.values.class,
-                    &mut |s, b| scope::spend(scan, &mut context.cancelled, s, b),
-                )?);
-            }
+        if (old.is_some() || new.is_some()) && scope.is_none() {
+            scope = Some(parent.scope.copy_for_changes(
+                context.values.memory,
+                context.values.class,
+                &mut |s, b| scope::spend(scan, &mut context.cancelled, s, b),
+            )?);
         }
         match (old, new) {
             (None, None) => {}

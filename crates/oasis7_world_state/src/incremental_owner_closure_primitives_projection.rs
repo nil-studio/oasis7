@@ -234,7 +234,7 @@ fn one_selection<R: ValueNodeReader, C: FnMut() -> bool>(
             &key,
             &after,
             roots.state_root(change.namespace()),
-            &mut ctx.values,
+            ctx.values,
             family,
             &mut ctx.cancelled,
         )
@@ -245,8 +245,7 @@ fn one_selection<R: ValueNodeReader, C: FnMut() -> bool>(
         payload_bytes: ctx.record_bytes,
         record_bytes: ctx.record_bytes,
     };
-    let header =
-        read_member_record_header_v1(&root, &key, &mut ctx.values, limits, &mut ctx.cancelled)?;
+    let header = read_member_record_header_v1(&root, &key, ctx.values, limits, &mut ctx.cancelled)?;
     let n = usize::try_from(header.semantic_bytes).map_err(|_| limit())?;
     pay(
         processing,
@@ -257,7 +256,7 @@ fn one_selection<R: ValueNodeReader, C: FnMut() -> bool>(
     read_member_record_key_v1(
         &root,
         &key,
-        &mut ctx.values,
+        ctx.values,
         limits,
         &mut semantic,
         &mut ctx.cancelled,
@@ -294,7 +293,7 @@ fn one_selection<R: ValueNodeReader, C: FnMut() -> bool>(
         })
     } else {
         let mut reader = InventoryValueReader {
-            values: &mut ctx.values,
+            values: ctx.values,
             key_work: &mut *ctx.key_work,
             semantic_bytes: ctx.semantic_bytes,
             record_bytes: ctx.record_bytes,

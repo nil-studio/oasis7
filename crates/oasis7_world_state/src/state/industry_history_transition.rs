@@ -186,10 +186,10 @@ impl PreparedIndustryHistoryEvent {
                     .get(&attempt.job_id)
                     .cloned()
                     .unwrap_or_default();
-                if !state.settled_recipe_job_ids.contains(&attempt.job_id) {
-                    if product_validation_attempt_needs_append_v1(&attempts, attempt)? {
-                        attempts.push(attempt.clone());
-                    }
+                if !state.settled_recipe_job_ids.contains(&attempt.job_id)
+                    && product_validation_attempt_needs_append_v1(&attempts, attempt)?
+                {
+                    attempts.push(attempt.clone());
                 }
 
                 Ok(Self::ValidationAttempt(

@@ -6,10 +6,9 @@ impl Codec for f64 {
     ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
     {
         visit()?;
-        let mut l =
-            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
-                Self,
-            >();
+        let l = crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<
+            Self,
+        >();
         Ok(l)
     }
 

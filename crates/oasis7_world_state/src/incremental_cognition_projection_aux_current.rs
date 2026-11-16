@@ -321,8 +321,6 @@ fn capture<
             patches,
         });
     }
-    drop(records);
-    drop(value_read);
     if let Some(error) = (ctx.take_state_error)() {
         return Err(error.into());
     }

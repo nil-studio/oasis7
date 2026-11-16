@@ -163,6 +163,10 @@ pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
         &mut |_| Ok(()),
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: GovernanceRecordKindV1,
     before: &StateRootV1,

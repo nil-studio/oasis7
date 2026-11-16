@@ -267,8 +267,6 @@ pub(super) fn capture_controls<
         };
         rows[index] = Some(Row { field, json: value });
     }
-    drop(records);
-    drop(vr);
     if let Some(error) = (ctx.take_state_error)() {
         return Err(error.into());
     }

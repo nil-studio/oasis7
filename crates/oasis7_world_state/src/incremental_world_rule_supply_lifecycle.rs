@@ -139,6 +139,10 @@ impl SupplyLifecycleRowsV1 {
         }
         Ok(next)
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub(in super::super) fn insert<M, R, E, C>(
         &mut self,
         outer_id: String,
@@ -476,6 +480,10 @@ where
     Ok(output)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn changed_allocations<M, R, E, C>(
     owner: SupplyRootKeyV1<'_>,
     previous: &BTreeMap<String, i64>,

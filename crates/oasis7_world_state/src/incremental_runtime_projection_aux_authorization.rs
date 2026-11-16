@@ -56,10 +56,10 @@ pub(super) fn capture<
         .after()
         .map(|id| member::text_root(&key, &id, &schema, read, p))
         .transpose()?;
-    if let (Some(a), Some(b)) = (&before, &after) {
-        if a.key.as_str() != b.key.as_str() {
-            return Err(bad());
-        }
+    if let (Some(a), Some(b)) = (&before, &after)
+        && a.key.as_str() != b.key.as_str()
+    {
+        return Err(bad());
     }
     let identity = after.as_ref().or(before.as_ref()).ok_or_else(bad)?;
     let (path, _path_fee) = owned_path(
@@ -94,24 +94,24 @@ pub(super) fn capture<
         record_bytes: read.record_bytes,
         cancelled: &mut read.cancelled,
     };
-    if !selected.qualified() {
-        if let Some(after) = &after {
-            if let Some(before) = &before {
-                crate::incremental_json_records::advance_from_qualified_root(
-                    profile,
-                    &before.root,
-                    &after.root,
-                    &mut records,
-                    work.json,
-                )?;
-            } else {
-                crate::incremental_json_records::qualify_json_subtree_records_v1(
-                    profile,
-                    &after.root,
-                    &mut records,
-                    &mut work.json.json,
-                )?;
-            }
+    if !selected.qualified()
+        && let Some(after) = &after
+    {
+        if let Some(before) = &before {
+            crate::incremental_json_records::advance_from_qualified_root(
+                profile,
+                &before.root,
+                &after.root,
+                &mut records,
+                work.json,
+            )?;
+        } else {
+            crate::incremental_json_records::qualify_json_subtree_records_v1(
+                profile,
+                &after.root,
+                &mut records,
+                &mut work.json.json,
+            )?;
         }
     }
     let mut patches = JsonAuxBuildV1::new(&build.memory)?;

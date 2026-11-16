@@ -13,9 +13,7 @@ use crate::{
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionTransaction, RootSetV1},
     incremental_record_root::{RECORD_ROOT_BYTES, RecordRootRefV1},
-    incremental_state::{
-        MerkleNodeReader, StateNamespaceV1, StateRootV1, StateScanContext, StateScanError,
-    },
+    incremental_state::{MerkleNodeReader, StateRootV1, StateScanContext, StateScanError},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};

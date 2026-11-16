@@ -96,7 +96,6 @@ pub fn open_current_gameplay_governance_record_v1<
         };
         let result = qualify_governance_body_v1(key.kind, owner, &mut body, scan, cells, max)?;
         body.check()?;
-        drop(body);
         ctx.check()?;
         tx.validate_guard(&tx.guard(), live)?;
         Ok(Some(result))
@@ -153,9 +152,12 @@ pub fn recover_current_gameplay_tallies_v1<
     guard: &PreparedGuard,
     live: &ExecutionFence,
 ) -> Result<ReservedValue<CurrentGameplayTalliesV1>, WorldFieldOverlayErrorV1> {
-    use std::{cell::RefCell, mem::size_of};
     tx_tallies(id, proof, state, ctx, scan, work, guard, live)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn tx_tallies<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -283,8 +285,6 @@ fn tx_tallies<
             },
             || (stop.borrow_mut())(),
         );
-        drop(records);
-        drop(stop);
         if let Some(error) = (ctx.take_state_error)() {
             return Err(error.into());
         }

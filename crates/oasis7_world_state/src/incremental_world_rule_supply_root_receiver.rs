@@ -4,6 +4,11 @@ use crate::incremental_field_overlay::WorldFieldOverlayErrorV1;
 use oasis7_formal_protocol::incremental_execution::{TransitionRecordV1, TransitionVerifier};
 use oasis7_proto::memory_budget::ReservedValue;
 use std::cell::RefCell;
+type SupplyRootEdgeV1 = (
+    SupplyRootKeyV1<'static>,
+    ReservedValue<StateRootV1>,
+    ReservedValue<String>,
+);
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("supply transition closure")
 }
@@ -22,14 +27,7 @@ pub(super) fn edge<
     key: &WorldFieldKeyV1,
     value: Option<[u8; 32]>,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-) -> Result<
-    Option<(
-        SupplyRootKeyV1<'static>,
-        ReservedValue<StateRootV1>,
-        ReservedValue<String>,
-    )>,
-    ValueTreeError,
-> {
+) -> Result<Option<SupplyRootEdgeV1>, ValueTreeError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -73,7 +71,6 @@ pub(super) fn edge<
     let Some(owner) = probe.finish()? else {
         return Ok(None);
     };
-    drop(probe);
     let outer_id = id_fee.retain(String::from_utf8(sink).map_err(|_| invalid())?);
     if info.codec != MemberPayloadCodecV1::RecordRoot
         || info.payload_bytes != RECORD_ROOT_BYTES as u64

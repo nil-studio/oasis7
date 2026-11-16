@@ -126,6 +126,10 @@ fn binding<S: IndustrialOwnerReadonlyFactsV1>(
 }
 /// Every selection arm is the original predicate sequence. References are
 /// recovered through their real fixed field rows before this function runs.
+#[expect(
+    clippy::possible_missing_else,
+    reason = "Independent rejection guards deliberately exit before subsequent paid reads"
+)]
 pub(super) fn candidate<S: SubstitutionReadonlyFactsV1>(
     s: &S,
     request: &SubstitutionPreviewRequestV1,
@@ -220,8 +224,8 @@ fn insert_ref<S: SubstitutionReadonlyFactsV1>(
 }
 /// Complete original preview, including all three selections, ordered authority
 /// set equality and the original post-codec 48KiB business limit.
-pub fn preview_substitution_readonly_v1<'source, S: SubstitutionReadonlyFactsV1>(
-    s: &'source S,
+pub fn preview_substitution_readonly_v1<S: SubstitutionReadonlyFactsV1>(
+    s: &S,
     actor: &str,
     request: &SubstitutionPreviewRequestV1,
     world: &str,

@@ -701,6 +701,10 @@ where
 
 /// Replace one actual ordinal while preserving the complete index count.
 /// Called only by the concrete Current owner; this is not a qualification ctor.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn replace_cognition_history_index_parts_v3<M, R, E, C, W, CW>(
     root: &StateRootV1,
     field: CognitionHistoryFieldV1,

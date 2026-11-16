@@ -12,6 +12,10 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueReadContext},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn open_current_industrial_main_token_supply_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -40,6 +44,10 @@ pub fn open_current_industrial_main_token_supply_v1<
         live,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn open_current_fixed_economy_projection_body_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

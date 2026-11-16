@@ -111,7 +111,6 @@ fn fold<
     );
     work.pending_entries_remaining = remaining;
     result?;
-    drop(stop);
     let mut tree = directory.tree.clone();
     let mut size = directory.count;
     for change in pending {

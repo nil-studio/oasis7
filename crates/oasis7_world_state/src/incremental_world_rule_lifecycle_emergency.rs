@@ -6,15 +6,13 @@ use super::*;
 use crate::{
     incremental_record_columns_read::{ColumnCellV1, ColumnKeyV1},
     incremental_typed_record_diff::{
-        ChangeDecoder, TypedCellRefV1, accept_body, key, point_typed_column_v1, root, visit_entries,
+        ChangeDecoder, TypedCellRefV1, key, point_typed_column_v1, root, visit_entries,
     },
-    incremental_world_field_key::WorldFieldRecordKindV1,
     incremental_world_rules_family::{
         LifecycleEmergencyAuthorizationV1, LifecycleEmergencyBatchV1, LifecycleMinimumServiceV1,
     },
 };
 use oasis7_formal_protocol::{
-    incremental_execution::RootSetV1,
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateRootV1, StateScanBudget},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
@@ -27,7 +25,6 @@ use std::{
 mod close_inputs;
 pub use close_inputs::EmergencyActiveInputsV1;
 
-type Emergency = crate::world_rules::EmergencySupplyStateV1;
 type Authorization = crate::world_rules::EmergencyAuthorizationV1;
 type Batch = crate::world_rules::EmergencyBatchV1;
 type MinimumService = crate::world_rules::MinimumServiceContractV1;
@@ -117,11 +114,12 @@ pub struct EmergencyLifecycleDirectoryV1 {
     batches: Vec<Arc<ReservedValue<LifecycleEmergencyBatchV1>>>,
     observations: Vec<Arc<ReservedValue<String>>>,
     active_inputs: EmergencyActiveInputsV1,
-    minimum_service_slots: MemoryReservation,
-    authorization_slots: MemoryReservation,
-    batch_slots: MemoryReservation,
-    observation_slots: MemoryReservation,
-    container_fee: MemoryReservation,
+    // Reservations remain owned by the published directory for its full lifetime.
+    _minimum_service_slots: MemoryReservation,
+    _authorization_slots: MemoryReservation,
+    _batch_slots: MemoryReservation,
+    _observation_slots: MemoryReservation,
+    _container_fee: MemoryReservation,
     memory: MemoryBudget,
     class: MemoryClass,
 }
@@ -811,6 +809,10 @@ impl EmergencyLifecycleBuilderV1 {
         self.minimum_services.insert(pos, row);
         Ok(())
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     fn insert_authorization(
         &mut self,
         outer: &str,
@@ -945,13 +947,13 @@ impl EmergencyLifecycleBuilderV1 {
             observations: self.observations,
             active_inputs,
             minimum_services: self.minimum_services,
-            minimum_service_slots: self.minimum_service_slots,
-            authorization_slots: self.authorization_slots,
-            batch_slots: self.batch_slots,
-            observation_slots: self.observation_slots,
+            _minimum_service_slots: self.minimum_service_slots,
+            _authorization_slots: self.authorization_slots,
+            _batch_slots: self.batch_slots,
+            _observation_slots: self.observation_slots,
             memory: self.memory,
             class: self.class,
-            container_fee: self.container_fee,
+            _container_fee: self.container_fee,
         })
     }
 }

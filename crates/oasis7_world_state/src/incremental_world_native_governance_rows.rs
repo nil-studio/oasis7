@@ -80,6 +80,10 @@ impl GovernanceRowsV1 {
             )?))
         }
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub(crate) fn replace<
         F: WorldNativeFieldSpecV1,
         M: MerkleNodeReader,

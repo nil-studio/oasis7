@@ -153,7 +153,7 @@ impl CurrentAgentInstanceProjectionDeltaV1 {
         &self,
         processing: &mut BusinessDiffProcessingWorkV1,
         mut stop: impl FnMut() -> bool,
-        mut visit: impl FnMut(&'static str, &[u8], &[u8], Option<&[u8]>) -> Result<(), E>,
+        visit: impl FnMut(&'static str, &[u8], &[u8], Option<&[u8]>) -> Result<(), E>,
     ) -> Result<(), E> {
         let p = Processing {
             bank: std::cell::RefCell::new(processing),

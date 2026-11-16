@@ -50,6 +50,10 @@ fn layout<T>(
         .and_then(|n| n.checked_add(items.checked_mul(size_of::<String>())?))
         .ok_or_else(invalid)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn cell<M, R, E, C>(
     key: FactoryAuthorityRecordKeyV1<'_>,
     which: FactoryAuthorityCellV1,
@@ -299,6 +303,10 @@ where
 }
 
 use crate::{AgentLocationAuthorityV1, LocationAnchorV1, incremental_agent_authority_records::*};
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn agent_cell<M, R, E, C>(
     key: AgentAuthorityRecordKeyV1<'_>,
     column: AgentAuthorityColumnV1,

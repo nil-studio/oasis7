@@ -23,6 +23,10 @@ impl QualifiedRewardProjectionColumnsV1 {
         &self.data
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_qualified_reward_projection_columns_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -97,7 +101,7 @@ pub fn read_qualified_reward_projection_columns_v1<
                     }
                     *cells = cells.checked_sub(1).ok_or_else(limited)?;
                     let index = super::super::family::index(kind);
-                    let parsed =
+                    let _parsed =
                         WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
                     let selected = {
                         let parent_root = roots.state_root(kind.namespace());

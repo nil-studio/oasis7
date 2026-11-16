@@ -68,6 +68,10 @@ impl CurrentCognitionProofLedgerV1 {
         }
         Ok(())
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     pub fn read_field<M, P, R, E, C>(
         &self,
         tx: &ExecutionTransaction<'_, M>,

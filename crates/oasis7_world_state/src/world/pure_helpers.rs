@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 pub const MATERIAL_TRANSFER_LOSS_PER_KM_BPS: i64 = 5;
 pub const MATERIAL_TRANSFER_SPEED_KM_PER_TICK: i64 = 100;
 pub const MATERIAL_TRANSFER_MAX_INFLIGHT: usize = 2;

@@ -99,6 +99,10 @@ pub fn recover_runtime_business_v1<
 
 /// Unique original Threat member decoder shared by recovery and the resident
 /// key directory. The caller pre-admits the key buffer and retained output.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(crate) fn with_runtime_threat_member_v1<R: ValueNodeReader, C: FnMut() -> bool, T>(
     entry: &oasis7_formal_protocol::incremental_state::StateEntryV1,
     values: &mut oasis7_formal_protocol::incremental_value::ValueReadContext<'_, R>,
@@ -156,9 +160,9 @@ pub(crate) fn with_runtime_threat_member_v1<R: ValueNodeReader, C: FnMut() -> bo
         &field_key,
         values,
         MemberRecordLimitsV1 {
-            semantic_bytes: semantic_bytes,
+            semantic_bytes,
             payload_bytes: 8,
-            record_bytes: record_bytes,
+            record_bytes,
         },
         &mut KeyWriter { key, bound },
         &mut &mut payload[..],

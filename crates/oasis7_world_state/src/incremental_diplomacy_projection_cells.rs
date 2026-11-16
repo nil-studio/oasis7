@@ -6,6 +6,7 @@ use std::{
     io::{self, Write},
     mem::size_of,
 };
+type DiplomacyProjectionJsonCellV1 = (&'static str, ReservedValue<Vec<u8>>);
 fn bad() -> ValueTreeError {
     closure::invalid()
 }
@@ -156,7 +157,7 @@ pub(super) fn scalar_json<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     p: &mut BusinessDiffProcessingWorkV1,
     max: u64,
-) -> Result<Option<(&'static str, ReservedValue<Vec<u8>>)>, ValueTreeError> {
+) -> Result<Option<DiplomacyProjectionJsonCellV1>, ValueTreeError> {
     let specs = profile::specs(field);
     let spec = specs.get(slot).ok_or_else(bad)?;
     let name = match spec.path {

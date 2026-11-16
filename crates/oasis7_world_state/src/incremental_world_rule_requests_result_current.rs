@@ -152,7 +152,6 @@ pub fn observe_current_requests_result_sources_v1<
             MemoryClass::Ordinary,
             &mut |s, b| requests_result::spend(scan, &mut read.cancelled, s, b),
         )?;
-        drop(read);
         Ok(fee.retain(CurrentRequestsResultSourcesV1 {
             selected,
             _index: index,

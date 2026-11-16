@@ -580,13 +580,13 @@ where
         }
         for group in touched {
             let meta = with_index(work, &p, |iw| groups.get(group, iw, &mut || check()))?;
-            if let Some(meta) = meta {
-                if !meta.present {
-                    if meta.members != 0 {
-                        return Err(bad().into());
-                    }
-                    groups = with_index(work, &p, |iw| groups.remove(group, iw, &mut || check()))?;
+            if let Some(meta) = meta
+                && !meta.present
+            {
+                if meta.members != 0 {
+                    return Err(bad().into());
                 }
+                groups = with_index(work, &p, |iw| groups.remove(group, iw, &mut || check()))?;
             }
         }
         if u64::try_from(groups.len()).ok() != Some(counts[2]) {

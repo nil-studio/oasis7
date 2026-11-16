@@ -42,6 +42,10 @@ where
         work,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(super) fn fold_with_state<M, R, E, C, P, PC>(
     directory: &ReservedValue<InventoryIdentityDirectoryV1>,
     family: &ReservedValue<InventoryFamilyQualificationV1>,
@@ -346,6 +350,10 @@ where
 
 /// Original module-request projection of all actual Current ledgers. Empty
 /// ledgers survive; only strictly positive quantities become MaterialStacks.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn recover_current_inventory_stacks_by_ledger_v1<M, R, E, C, P, V, ER, CR>(
     directory: &ReservedValue<InventoryIdentityDirectoryV1>,
     family: &ReservedValue<InventoryFamilyQualificationV1>,

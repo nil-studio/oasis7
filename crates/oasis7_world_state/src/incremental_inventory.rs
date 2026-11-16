@@ -190,7 +190,7 @@ fn row_from_records_with_semantic<R: ValueNodeReader, C: FnMut() -> bool>(
         read_field_presence_v1(
             value,
             key,
-            &mut records.values,
+            records.values,
             PresenceRecordLimitsV1 {
                 semantic_bytes: max as u64,
                 record_bytes: records.record_bytes,
@@ -203,7 +203,7 @@ fn row_from_records_with_semantic<R: ValueNodeReader, C: FnMut() -> bool>(
         let info = read_member_record_v1(
             value,
             key,
-            &mut records.values,
+            records.values,
             MemberRecordLimitsV1 {
                 semantic_bytes: max as u64,
                 payload_bytes: 8,

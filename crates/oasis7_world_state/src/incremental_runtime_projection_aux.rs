@@ -268,7 +268,7 @@ impl CurrentRuntimeProjectionAuxV1 {
         Ok(())
     }
 }
-struct Pending {
+pub(crate) struct Pending {
     namespace: StateNamespaceV1,
     key: Vec<u8>,
     before: Option<[u8; 32]>,
@@ -434,6 +434,10 @@ impl PendingRows {
             keys: Vec::new(),
         })
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Bounded inputs are independently validated"
+    )]
     fn push<C: FnMut() -> bool>(
         &mut self,
         namespace: StateNamespaceV1,
@@ -600,6 +604,10 @@ fn headers<C: FnMut() -> bool>(
     }
     Ok(())
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn dispatch<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -758,16 +766,16 @@ fn capture_inner<
         bank: RefCell::new(&mut **processing),
     };
     let mut work = ReadWork {
-        pending_entries: &mut **pending_entries,
-        outer_scan: &mut **outer_scan,
-        inner_scan: &mut **inner_scan,
-        config: &mut **config,
-        resource_scans: &mut **resource_scans,
-        resource_cells: &mut **resource_cells,
-        governance: &mut **governance,
-        json: &mut **json,
-        authorization_cells: &mut **authorization_cells,
-        controls_cells: &mut **controls_cells,
+        pending_entries,
+        outer_scan,
+        inner_scan,
+        config,
+        resource_scans,
+        resource_cells,
+        governance,
+        json,
+        authorization_cells,
+        controls_cells,
         selected_heap: *selected_heap,
     };
     let root_bytes = roots
@@ -825,14 +833,10 @@ fn capture_inner<
                         return Err(bad().into());
                     }
                     dirty[index] = true;
-                    if parsed.kind == WorldFieldRecordKindV1::Entry {
-                        if let Some(count) = count_index(index) {
-                            adjust_count(
-                                &mut after_counts[count],
-                                before.is_some(),
-                                after.is_some(),
-                            )?;
-                        }
+                    if parsed.kind == WorldFieldRecordKindV1::Entry
+                        && let Some(count) = count_index(index)
+                    {
+                        adjust_count(&mut after_counts[count], before.is_some(), after.is_some())?;
                     }
                     pending.push(root.namespace, key, before, after, &memory, &p, &mut || {
                         (stop.borrow_mut())()
@@ -927,10 +931,10 @@ fn capture_inner<
                         return Err(bad());
                     }
                     dirty[index] = true;
-                    if parsed.kind == WorldFieldRecordKindV1::Entry {
-                        if let Some(i) = count_index(index) {
-                            observed[i] = observed[i].checked_add(1).ok_or_else(limit)?;
-                        }
+                    if parsed.kind == WorldFieldRecordKindV1::Entry
+                        && let Some(i) = count_index(index)
+                    {
+                        observed[i] = observed[i].checked_add(1).ok_or_else(limit)?;
                     }
                     if entries.len() == entries.capacity() {
                         let cap = entries.capacity().checked_mul(2).ok_or_else(limit)?.max(4);
@@ -960,7 +964,6 @@ fn capture_inner<
                 },
                 || (scan_stop.borrow_mut())(),
             );
-            drop(scan_stop);
             if let Some(error) = state.first.borrow_mut().take() {
                 return Err(error.into());
             }

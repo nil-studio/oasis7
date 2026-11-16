@@ -124,7 +124,6 @@ fn decode_id<R: ValueNodeReader, C: FnMut() -> bool>(
     );
     let probe_error = probe.error();
     let framing = probe.finish();
-    drop(probe);
     if output.hit_limit {
         return Err(limited());
     }

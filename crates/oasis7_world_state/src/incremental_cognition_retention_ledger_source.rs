@@ -4,6 +4,7 @@ use super::*;
 use oasis7_formal_protocol::incremental_retention::{
     RETENTION_LEDGER_MANIFEST_MAX_BYTES_V1, RetentionLedgerBindingErrorV1, retention_root_id_v1,
 };
+type RetentionCommitmentRootsV1 = ([u8; 32], Option<[u8; 32]>, [u8; 32]);
 #[derive(Debug)]
 pub enum CognitionRetentionSourceErrorV1 {
     Value(ValueTreeError),
@@ -63,6 +64,10 @@ fn descriptor(
         stop,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn descriptor_binding(
     roots: [u8; 32],
     previous_record: Option<[u8; 32]>,
@@ -433,7 +438,7 @@ fn accepted_history_binding(
     >,
     memory: &MemoryBudget,
     class: MemoryClass,
-) -> Result<([u8; 32], Option<[u8; 32]>, [u8; 32]), CognitionRetentionSourceErrorV1> {
+) -> Result<RetentionCommitmentRootsV1, CognitionRetentionSourceErrorV1> {
     let occurrence = runtime.occurrence();
     if !runtime.uses_budget(memory)
         || runtime.allocation_class() != class

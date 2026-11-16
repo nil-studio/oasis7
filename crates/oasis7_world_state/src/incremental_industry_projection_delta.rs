@@ -1,7 +1,6 @@
 //! Fixed Factory/Industry/Logistics dirty records to original typed JSON.
 //! No parent scan, generic CBOR decoder, field-root substitution or permission.
 use crate::{
-    incremental_field_member::*,
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
     incremental_inventory_value_read::InventoryValueReader,
     incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
@@ -545,18 +544,18 @@ where
                             .and_then(|n| n.checked_add(256))
                             .ok_or_else(limit)?,
                     )?;
-                    if before != after {
-                        if let Some(field) = classify(raw)? {
-                            if pending.len() == n {
-                                return Err(bad().into());
-                            }
-                            pending.push(Pending {
-                                field,
-                                key: raw.to_vec(),
-                                before,
-                                after,
-                            })
+                    if before != after
+                        && let Some(field) = classify(raw)?
+                    {
+                        if pending.len() == n {
+                            return Err(bad().into());
                         }
+                        pending.push(Pending {
+                            field,
+                            key: raw.to_vec(),
+                            before,
+                            after,
+                        })
                     }
                     Ok::<_, WorldFieldOverlayErrorV1>(())
                 },

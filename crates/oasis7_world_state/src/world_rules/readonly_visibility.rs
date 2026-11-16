@@ -379,10 +379,10 @@ pub fn emergency_visibility_plan_v1<S: EmergencyVisibilityFactsV1>(
         s.visibility_emergency_batch(&review.batch_id, |batch| {
             let Some(batch) = batch else { return Ok(()) };
             s.visibility_emergency_authorization(&batch.authorization_id, |auth| {
-                if let Some(auth) = auth {
-                    if reader(s, &auth.reviewer_id, value)? {
-                        visible.insert(s, &review.need_id)?
-                    }
+                if let Some(auth) = auth
+                    && reader(s, &auth.reviewer_id, value)?
+                {
+                    visible.insert(s, &review.need_id)?
                 }
                 Ok(())
             })

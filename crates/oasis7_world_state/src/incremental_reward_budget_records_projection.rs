@@ -272,6 +272,10 @@ fn observe<R: ValueNodeReader, C: FnMut() -> bool>(
         }
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn decode_projection_entity_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -280,7 +284,7 @@ fn decode_projection_entity_v1<
     C: FnMut() -> bool,
 >(
     change: Change,
-    family: &ReservedValue<RewardFamilyQualificationV1>,
+    _family: &ReservedValue<RewardFamilyQualificationV1>,
     roots: &RootSetV1,
     state: &P,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
@@ -341,7 +345,6 @@ fn decode_projection_entity_v1<
         })
         .transpose()?
         .flatten();
-    drop(read);
     let (key, child) = match selected {
         Some(family::Outer::Record(key, root)) => (key, root),
         Some(family::Outer::Metadata(_) | family::Outer::Format(_) | family::Outer::Length(_)) => {
@@ -434,7 +437,6 @@ fn decode_projection_entity_v1<
         if before.is_none() {
             let _proof = qualify_reward_body_v1(key, &mut selected, scan, cells, max)?;
         }
-        drop(selected);
         let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
             values: &mut ctx.values,
             key_work: &mut *ctx.key_work,
@@ -513,6 +515,10 @@ fn decode_projection_entity_v1<
         patches,
     }))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_reward_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -557,14 +563,14 @@ pub fn read_current_reward_projection_delta_v1<
                 || pay(&mut p.borrow_mut(), 0, &mut **stop.borrow_mut()),
                 |key, before, after| {
                     pay(&mut p.borrow_mut(), key.len(), &mut **stop.borrow_mut())?;
-                    if before != after {
-                        if let Some(kind) = identify(key)? {
-                            if kind.namespace() != ns {
-                                return Err(bad().into());
-                            }
-                            count = count.checked_add(1).ok_or_else(limited)?;
-                            keybytes = keybytes.checked_add(key.len()).ok_or_else(limited)?
+                    if before != after
+                        && let Some(kind) = identify(key)?
+                    {
+                        if kind.namespace() != ns {
+                            return Err(bad().into());
                         }
+                        count = count.checked_add(1).ok_or_else(limited)?;
+                        keybytes = keybytes.checked_add(key.len()).ok_or_else(limited)?
                     }
                     Ok::<_, BodyMutationError>(())
                 },
@@ -592,23 +598,23 @@ pub fn read_current_reward_projection_delta_v1<
                 || pay(&mut p.borrow_mut(), 0, &mut **stop.borrow_mut()),
                 |key, before, after| {
                     pay(&mut p.borrow_mut(), key.len(), &mut **stop.borrow_mut())?;
-                    if before != after {
-                        if let Some(kind) = identify(key)? {
-                            if changes.len() == count {
-                                return Err(limited().into());
-                            }
-                            let mut copy = Vec::with_capacity(key.len());
-                            if copy.capacity() != key.len() {
-                                return Err(limited().into());
-                            }
-                            copy.extend_from_slice(key);
-                            changes.push(Change {
-                                kind,
-                                key: copy,
-                                before,
-                                after,
-                            });
+                    if before != after
+                        && let Some(kind) = identify(key)?
+                    {
+                        if changes.len() == count {
+                            return Err(limited().into());
                         }
+                        let mut copy = Vec::with_capacity(key.len());
+                        if copy.capacity() != key.len() {
+                            return Err(limited().into());
+                        }
+                        copy.extend_from_slice(key);
+                        changes.push(Change {
+                            kind,
+                            key: copy,
+                            before,
+                            after,
+                        });
                     }
                     Ok::<_, BodyMutationError>(())
                 },

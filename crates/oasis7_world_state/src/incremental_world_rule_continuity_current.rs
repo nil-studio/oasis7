@@ -198,7 +198,6 @@ where
                 work,
             )?;
             read.check()?;
-            drop(read);
             (Some(proof), Some(value))
         } else {
             (None, None)

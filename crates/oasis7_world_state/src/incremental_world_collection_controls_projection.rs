@@ -9,7 +9,6 @@ use crate::{
 };
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard},
-    incremental_state::StateEntryV1,
     incremental_value::ValueReadContext,
 };
 use oasis7_proto::memory_budget::MemoryReservation;
@@ -298,7 +297,6 @@ fn decode_projection_change_v1<
         return Err(bad().into());
     }
     let semantic = semantic(&key, &value, &mut reader, p)?;
-    drop(reader);
     let (key_json, data) = match read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)? {
         SemanticKeyRefV1::Text(group) => {
             if !matches!(selected, super::Row::Group(..)) {
@@ -376,6 +374,10 @@ fn decode_projection_change_v1<
         json: data,
     })))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_collection_controls_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -418,14 +420,14 @@ pub fn read_current_collection_controls_projection_delta_v1<
                 || pay(&mut p.borrow_mut(), 0, &mut **stop.borrow_mut()),
                 |raw, before, after| {
                     pay(&mut p.borrow_mut(), raw.len(), &mut **stop.borrow_mut())?;
-                    if before != after {
-                        if let Some((field, _)) = super::key(raw)? {
-                            if namespace(field) != ns {
-                                return Err(bad().into());
-                            }
-                            count = count.checked_add(1).ok_or_else(limit)?;
-                            keybytes = keybytes.checked_add(raw.len()).ok_or_else(limit)?
+                    if before != after
+                        && let Some((field, _)) = super::key(raw)?
+                    {
+                        if namespace(field) != ns {
+                            return Err(bad().into());
                         }
+                        count = count.checked_add(1).ok_or_else(limit)?;
+                        keybytes = keybytes.checked_add(raw.len()).ok_or_else(limit)?
                     }
                     Ok::<_, BodyMutationError>(())
                 },
@@ -453,23 +455,23 @@ pub fn read_current_collection_controls_projection_delta_v1<
                 || pay(&mut p.borrow_mut(), 0, &mut **stop.borrow_mut()),
                 |raw, before, after| {
                     pay(&mut p.borrow_mut(), raw.len(), &mut **stop.borrow_mut())?;
-                    if before != after {
-                        if let Some((field, _)) = super::key(raw)? {
-                            if changes.len() == count {
-                                return Err(limit().into());
-                            }
-                            let mut key = Vec::with_capacity(raw.len());
-                            if key.capacity() != raw.len() {
-                                return Err(limit().into());
-                            }
-                            key.extend_from_slice(raw);
-                            changes.push(Change {
-                                field,
-                                key,
-                                before,
-                                after,
-                            })
+                    if before != after
+                        && let Some((field, _)) = super::key(raw)?
+                    {
+                        if changes.len() == count {
+                            return Err(limit().into());
                         }
+                        let mut key = Vec::with_capacity(raw.len());
+                        if key.capacity() != raw.len() {
+                            return Err(limit().into());
+                        }
+                        key.extend_from_slice(raw);
+                        changes.push(Change {
+                            field,
+                            key,
+                            before,
+                            after,
+                        })
                     }
                     Ok::<_, BodyMutationError>(())
                 },

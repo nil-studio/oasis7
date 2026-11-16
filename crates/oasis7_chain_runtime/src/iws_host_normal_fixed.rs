@@ -12,7 +12,7 @@ use oasis7_runtime::{
 };
 impl IwsHostRuntimeV1 {
     #[allow(clippy::too_many_arguments)]
-    pub fn prepare_frozen_normal_runtime_bounded(
+    pub(crate) fn prepare_frozen_normal_runtime_bounded(
         &self,
         input: &crate::iws_normal_input::PaidVerifiedNormalTickInputV1<'_>,
         memory: &MemoryBudget,

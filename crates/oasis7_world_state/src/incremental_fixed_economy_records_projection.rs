@@ -226,6 +226,10 @@ enum Scope {
     Current,
     Qualified,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_fixed_economy_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -258,6 +262,10 @@ pub fn read_current_fixed_economy_projection_delta_v1<
         Scope::Current,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn capture<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -312,16 +320,16 @@ fn capture<
                             key.len(),
                             &mut **stop.borrow_mut(),
                         )?;
-                        if before != after {
-                            if let Some(field) = identify(key)? {
-                                if field.namespace() != namespace {
-                                    return Err(bad().into());
-                                }
-                                dirty[FixedEconomyFieldV1::ALL
-                                    .into_iter()
-                                    .position(|f| f == field)
-                                    .ok_or_else(bad)?] = true
+                        if before != after
+                            && let Some(field) = identify(key)?
+                        {
+                            if field.namespace() != namespace {
+                                return Err(bad().into());
                             }
+                            dirty[FixedEconomyFieldV1::ALL
+                                .into_iter()
+                                .position(|f| f == field)
+                                .ok_or_else(bad)?] = true
                         }
                         Ok::<_, BodyMutationError>(())
                     },
@@ -442,6 +450,10 @@ impl QualifiedFixedEconomyProjectionColumnsV1 {
         Ok(())
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_qualified_fixed_economy_projection_columns_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

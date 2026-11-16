@@ -196,13 +196,13 @@ where
                 debit_outer(work, entry.key.len())?;
                 let (semantic, _semantic_fee) =
                     read_member_semantic(&entry.value, &key, &mut local, max_semantic)?;
-                if let Some((id, marker)) = shipment_key(&semantic)? {
-                    if marker {
-                        if ids.len() == expected_count {
-                            return Err(invalid());
-                        }
-                        ids.push(id);
+                if let Some((id, marker)) = shipment_key(&semantic)?
+                    && marker
+                {
+                    if ids.len() == expected_count {
+                        return Err(invalid());
                     }
+                    ids.push(id);
                 }
                 local.check()
             },
@@ -387,17 +387,17 @@ fn validate_source_families<
     if supply
         .lifecycle_authorizations()
         .iter()
-        .any(|row| !row.uses_budget(&ctx.values.memory))
+        .any(|row| !row.uses_budget(ctx.values.memory))
         || supply
             .lifecycle_batches()
             .iter()
-            .any(|row| !row.uses_budget(&ctx.values.memory))
+            .any(|row| !row.uses_budget(ctx.values.memory))
     {
         return Err(invalid());
     }
     remainder.validate_binding(roots)?;
     emergency.validate_binding(roots)?;
-    emergency.check_budget(&ctx.values.memory, ctx.values.class)?;
+    emergency.check_budget(ctx.values.memory, ctx.values.class)?;
     if supply.rules_present() != remainder.rules_present()
         || emergency.parent_present() != remainder.rules_present()
     {
@@ -428,12 +428,12 @@ where
 {
     validate_source_families(roots, supply, remainder, emergency, ctx)?;
     let digest = roots.digest().map_err(|_| invalid())?;
-    let mut builder = WorldRuleLifecycleIndexBuilderV1::new(&ctx.values.memory, ctx.values.class)?;
+    let mut builder = WorldRuleLifecycleIndexBuilderV1::new(ctx.values.memory, ctx.values.class)?;
     copy_supply_rows(&mut builder, supply, work, &mut ctx.cancelled)?;
     copy_emergency_rows(
         &mut builder,
         emergency,
-        &ctx.values.memory,
+        ctx.values.memory,
         ctx.values.class,
         work,
         &mut ctx.cancelled,
@@ -478,7 +478,7 @@ pub fn accept_world_rule_lifecycle_index_v1<M, R, E, C>(
     emergency: &WorldRuleCompositeQualificationV1<crate::world_rules::EmergencySupplyStateV1>,
     witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-    scan: &mut StateScanBudget,
+    _scan: &mut StateScanBudget,
     work: &mut WorldRulesFamilyWorkV1,
 ) -> Result<ReservedValue<WorldRuleLifecycleIndexV1>, WorldFieldOverlayErrorV1>
 where
@@ -492,13 +492,13 @@ where
     let after_digest = record.after.digest().map_err(|_| invalid())?;
     if ctx.values.class != MemoryClass::Ordinary
         || parent_index.class != MemoryClass::Ordinary
-        || !parent_index.uses_budget(&ctx.values.memory)
+        || !parent_index.uses_budget(ctx.values.memory)
         || !ctx.values.memory.same_pool(&parent_index.memory)
         || ctx.root != record.after.state_root(StateNamespaceV1::Authorization)
     {
         return Err(invalid().into());
     }
-    witness.check_context(&ctx.values.memory, ctx.values.class, ctx.root)?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
     parent_index.validate_binding(&record.before)?;
     parent_supply.validate_binding(&before_digest)?;
     parent_remainder.validate_binding(&record.before)?;
@@ -509,12 +509,12 @@ where
     validate_source_families(&record.after, supply, remainder, emergency, ctx)?;
 
     let mut builder =
-        WorldRuleLifecycleIndexBuilderV1::new(&ctx.values.memory, MemoryClass::Ordinary)?;
+        WorldRuleLifecycleIndexBuilderV1::new(ctx.values.memory, MemoryClass::Ordinary)?;
     copy_supply_rows(&mut builder, supply, work, &mut ctx.cancelled)?;
     copy_emergency_rows(
         &mut builder,
         emergency,
-        &ctx.values.memory,
+        ctx.values.memory,
         MemoryClass::Ordinary,
         work,
         &mut ctx.cancelled,
@@ -542,7 +542,7 @@ where
         match (old_id, changed_id) {
             (Some(old), Some(new)) if old < new => {
                 let row = &parent_index.supply_shipments[old_at];
-                if !row.uses_budget(&ctx.values.memory) {
+                if !row.uses_budget(ctx.values.memory) {
                     return Err(invalid().into());
                 }
                 debit_outer(work, row.bytes()?)?;
@@ -578,7 +578,7 @@ where
             }
             (Some(_), None) => {
                 let row = &parent_index.supply_shipments[old_at];
-                if !row.uses_budget(&ctx.values.memory) {
+                if !row.uses_budget(ctx.values.memory) {
                     return Err(invalid().into());
                 }
                 debit_outer(work, row.bytes()?)?;
@@ -615,43 +615,43 @@ pub fn readmit_world_rule_lifecycle_index_ordinary_v1(
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_supply_authorization(&***row)?;
+        builder.copy_supply_authorization(row)?;
     }
     for row in &source.supply_batches {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_supply_batch(&***row)?;
+        builder.copy_supply_batch(row)?;
     }
     for row in &source.supply_shipments {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_supply_shipment(&***row)?;
+        builder.copy_supply_shipment(row)?;
     }
     for row in &source.minimum_services {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_minimum_service(&***row)?;
+        builder.copy_minimum_service(row)?;
     }
     for row in &source.emergency_authorizations {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_emergency_authorization(&***row)?;
+        builder.copy_emergency_authorization(row)?;
     }
     for row in &source.emergency_batches {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_emergency_batch(&***row)?;
+        builder.copy_emergency_batch(row)?;
     }
     for row in &source.observation_keys {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        builder.copy_observation(&**row)?;
+        builder.copy_observation(row)?;
     }
     let output = builder.finish(source.roots)?;
     if cancelled() {

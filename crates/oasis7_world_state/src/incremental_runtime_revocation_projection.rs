@@ -14,10 +14,7 @@ use oasis7_formal_protocol::incremental_execution::{
     ExecutionFence, ExecutionTransaction, PreparedGuard,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryReservation, ReservedValue};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    mem::size_of,
-};
+use std::mem::size_of;
 
 #[derive(Clone, Copy)]
 pub enum RevocationProjectionContainerV1 {
@@ -179,12 +176,7 @@ impl Output {
         spend(processing, bytes, stop)?;
         let fee = self.memory.reserve(bytes, MemoryClass::Ordinary)?;
         if self.patches.len() == self.patches.capacity() {
-            let cap = self
-                .patches
-                .capacity()
-                .checked_mul(2)
-                .unwrap_or(usize::MAX)
-                .max(4);
+            let cap = self.patches.capacity().saturating_mul(2).max(4);
             let bytes = cap
                 .checked_mul(size_of::<ReservedValue<Patch>>())
                 .ok_or_else(invalid)?;

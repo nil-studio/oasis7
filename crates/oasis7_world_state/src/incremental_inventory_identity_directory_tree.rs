@@ -238,10 +238,10 @@ pub(super) fn material<E: From<ValueTreeError>>(
     )
     .map_err(E::from)?;
     self::material(&node.left, material, work, cancelled, emit)?;
-    if let (Some(ledger), Some(kind)) = (&node.id.ledger, &node.id.material) {
-        if kind == material {
-            emit(ledger, kind)?;
-        }
+    if let (Some(ledger), Some(kind)) = (&node.id.ledger, &node.id.material)
+        && kind == material
+    {
+        emit(ledger, kind)?;
     }
     self::material(&node.right, material, work, cancelled, emit)
 }

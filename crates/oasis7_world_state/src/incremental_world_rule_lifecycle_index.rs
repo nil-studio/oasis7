@@ -17,8 +17,7 @@ use crate::{
 use oasis7_formal_protocol::{
     incremental_execution::{RootSetV1, TransitionRecordV1},
     incremental_state::{
-        MerkleNodeReader, StateEntryV1, StateNamespaceV1, StateRootV1, StateScanBudget,
-        StateScanContext, StateScanError,
+        MerkleNodeReader, StateNamespaceV1, StateScanBudget, StateScanContext, StateScanError,
     },
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
@@ -276,7 +275,7 @@ impl LifecycleSupplyShipmentV1 {
             v.lineage_id.capacity(),
         ]
         .into_iter()
-        .try_fold(0usize, |n, m| add(n, m))
+        .try_fold(0usize, add)
     }
 }
 

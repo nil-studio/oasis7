@@ -72,7 +72,7 @@ fn genesis_payload<W: StatePageWriter + ValueNodeReader, C: FnMut() -> bool>(
             limits: write.limits,
             cancelled: || caller_stop() || stop(),
         };
-        prepare_json_subtree_v1(profile(), value, &mut output, &mut work.producer).map_err(member)
+        prepare_json_subtree_v1(profile(), value, &mut output, work.producer).map_err(member)
     }));
     let result = match result {
         Ok(result) => result,

@@ -10,16 +10,14 @@ use crate::{
     incremental_inventory_value_read::InventoryValueReader,
     incremental_record_columns_read::{ColumnCellV1, ColumnReadProfileV1, read_column_row_v1},
     incremental_typed_record_codec::{
-        Codec, Encoded, RecoveredTypedRecordV1, TypedRecordReadWorkV1, TypedRecordWriteWorkV1,
-        recover_typed_record_body_v1,
+        Codec, Encoded, RecoveredTypedRecordV1, TypedRecordReadWorkV1, recover_typed_record_body_v1,
     },
-    incremental_typed_record_diff::{ChangeDecoder, accept_body},
     incremental_world_field_key::WorldFieldRecordKindV1,
     incremental_world_rule_composite::{
         WorldRuleCompositeBranchV1, WorldRuleCompositeReadWorkV1, WorldRuleCompositeWriteWorkV1,
     },
     incremental_world_rule_composite_family::{
-        CompositeBranchCodecV1, WorldRuleCompositeQualificationV1, check, read_body,
+        WorldRuleCompositeQualificationV1, check, read_body,
     },
     incremental_world_rule_composite_overlay::{
         CompositePathPatchV1, WorldRuleCompositeOverlayV1, bind_current_world_rule_branch_v1,
@@ -240,12 +238,12 @@ where
     ctx.transaction.validate_guard(guard, live)?;
     ctx.transaction
         .validate_transaction_identity(&source.identity)?;
-    parent.check_budget(&ctx.values.memory, MemoryClass::Ordinary)?;
-    if !source.uses_budget(&ctx.values.memory)
-        || !source.memory.same_pool(&ctx.values.memory)
-        || !source.overlay.uses_budget(&ctx.values.memory)
+    parent.check_budget(ctx.values.memory, MemoryClass::Ordinary)?;
+    if !source.uses_budget(ctx.values.memory)
+        || !source.memory.same_pool(ctx.values.memory)
+        || !source.overlay.uses_budget(ctx.values.memory)
         || ctx.values.class != MemoryClass::Ordinary
-        || !ctx.transaction.uses_budget(&ctx.values.memory)
+        || !ctx.transaction.uses_budget(ctx.values.memory)
         || source.parent != ctx.transaction.parent_fence().parent_roots
         || source.parent != roots.digest().map_err(|_| bad())?
     {
@@ -284,7 +282,7 @@ where
     let result = (|| {
         ctx.transaction.validate_guard(guard, live)?;
         if ctx.values.class != MemoryClass::Ordinary
-            || !ctx.transaction.uses_budget(&ctx.values.memory)
+            || !ctx.transaction.uses_budget(ctx.values.memory)
         {
             return Err(bad().into());
         }
@@ -363,7 +361,6 @@ where
             work,
         )?;
         read.check()?;
-        drop(read);
         // The projection read updates this transaction's read set. Validate
         // against the tail guard captured after those reads while retaining
         // the strict entry validation above.
@@ -434,7 +431,6 @@ where
     else {
         return Err(bad().into());
     };
-    drop(records);
     let _entry = ctx
         .values
         .memory
@@ -468,7 +464,6 @@ where
     let ColumnCellV1::Root(root) = &row.cell else {
         return Err(bad().into());
     };
-    drop(records);
     let fee = ctx
         .values
         .memory
@@ -477,6 +472,10 @@ where
     Ok(fee.retain(root.clone()))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn read_selected<T, M, S, R, E, C>(
     source: &ReservedValue<CurrentEmergencyLifecycleSourceV1>,
     parent: &ReservedValue<WorldRuleCompositeQualificationV1<Emergency>>,
@@ -547,7 +546,6 @@ where
         let ColumnCellV1::Root(record) = &row.cell else {
             return Err(bad().into());
         };
-        drop(records);
         let mut read = WorldFieldReadContextV1 {
             root: record,
             state,
@@ -568,7 +566,6 @@ where
         check(&mut read)?;
         Some(decoded)
     } else {
-        drop(records);
         None
     };
     let fee_bytes = size_of::<CurrentEmergencyRecordCoreV1>()
@@ -711,10 +708,12 @@ where
         .len()
         .checked_add(expected.node_root.len())
         .ok_or_else(bad)?;
-    work.outer_records_remaining = work
-        .outer_records_remaining
-        .checked_sub(1)
-        .ok_or_else(|| ValueTreeError::ResourceLimited("Current Emergency source join"))?;
+    work.outer_records_remaining =
+        work.outer_records_remaining
+            .checked_sub(1)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "Current Emergency source join",
+            ))?;
     work.remainder.cells_remaining = work
         .remainder
         .cells_remaining
@@ -724,7 +723,9 @@ where
                 .checked_add(1)
                 .ok_or_else(bad)?,
         )
-        .ok_or_else(|| ValueTreeError::ResourceLimited("Current Emergency source join"))?;
+        .ok_or(ValueTreeError::ResourceLimited(
+            "Current Emergency source join",
+        ))?;
     if (ctx.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -746,6 +747,10 @@ pub use close_write::{
     commit_current_emergency_close_columns_v1,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn patch_selected<T, M, S, R, E, C, W, CW>(
     source: &ReservedValue<CurrentEmergencyLifecycleSourceV1>,
     selected: &CurrentEmergencyRecordCoreV1,
@@ -778,10 +783,10 @@ where
         .validate_transaction_identity(&selected.identity)?;
     if selected.parent != source.parent
         || selected.collection.is_empty()
-        || !selected.memory.same_pool(&ctx.values.memory)
-        || !source.memory.same_pool(&ctx.values.memory)
-        || !write.memory.same_pool(&ctx.values.memory)
-        || !source.uses_budget(&ctx.values.memory)
+        || !selected.memory.same_pool(ctx.values.memory)
+        || !source.memory.same_pool(ctx.values.memory)
+        || !write.memory.same_pool(ctx.values.memory)
+        || !source.uses_budget(ctx.values.memory)
         || !selected._fee.bytes().gt(&0)
         || ctx.values.class != MemoryClass::Ordinary
     {
@@ -855,8 +860,8 @@ where
     };
     let encoded_after = if let Some(value) = after {
         let encoded = {
-            let mut context_cancel = std::cell::RefCell::new(&mut ctx.cancelled);
-            let mut write_cancel = std::cell::RefCell::new(&mut write.cancelled);
+            let context_cancel = std::cell::RefCell::new(&mut ctx.cancelled);
+            let write_cancel = std::cell::RefCell::new(&mut write.cancelled);
             let mut cancelled =
                 || (*context_cancel.borrow_mut())() || (*write_cancel.borrow_mut())();
             let mut output = MemberRecordWriteContext {

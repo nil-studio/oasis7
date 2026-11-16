@@ -74,7 +74,7 @@ pub(crate) fn project_actual_chain_resource_manifest_v1<
             verifier.verify_record(Record::ChainResourceManifest, &after, work.resource_scans)?
         }
     }
-    let mut path = Vec::new();
+    let path = Vec::new();
     let _path = build.memory.reserve(0, MemoryClass::Ordinary)?;
     project_record(
         &mut verifier,
@@ -85,7 +85,7 @@ pub(crate) fn project_actual_chain_resource_manifest_v1<
         &mut work.json.paths_remaining,
         p,
         build,
-        &mut path,
+        &path,
     )?;
     if verifier.cancelled() {
         return Err(ValueTreeError::Cancelled);
@@ -147,6 +147,10 @@ fn container<C: FnMut() -> bool>(
         cancel,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn project_record<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -161,7 +165,7 @@ fn project_record<
     frames: &mut u64,
     p: &Processing<'_>,
     build: &mut Build,
-    path: &mut Vec<Step>,
+    path: &[Step],
 ) -> Result<(), ValueTreeError> {
     spend(p, 128, &mut || (verifier.cancelled.borrow_mut())())?;
     if before == Some(after) {
@@ -342,14 +346,13 @@ fn project_record<
                     ordinal: true,
                     ..
                 } = cell
+                    && new.is_none()
                 {
-                    if new.is_none() {
-                        let key::KeyValue::Unsigned(index) = parsed_key.value else {
-                            return Err(invalid());
-                        };
-                        if index >= state.counts[usize::from(group)] {
-                            return Ok(());
-                        }
+                    let key::KeyValue::Unsigned(index) = parsed_key.value else {
+                        return Err(invalid());
+                    };
+                    if index >= state.counts[usize::from(group)] {
+                        return Ok(());
                     }
                 }
                 let (path_tail, _tail_fee) =
@@ -378,7 +381,6 @@ fn project_record<
                     if before_child.as_ref().is_some_and(|v| v.0 != child_record) {
                         return Err(invalid());
                     }
-                    let mut next = next;
                     return project_record(
                         &mut local,
                         child_record,
@@ -388,7 +390,7 @@ fn project_record<
                         frames,
                         p,
                         build,
-                        &mut next,
+                        &next,
                     );
                 }
                 emit_scalar(
@@ -537,6 +539,10 @@ fn json_key<T: serde::Serialize, C: FnMut() -> bool>(
     let text = serde_json::from_slice::<String>(&encoded).map_err(|_| invalid())?;
     Ok(fee.retain(text))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn emit_scalar<
     M: MerkleNodeReader,
     R: ValueNodeReader,

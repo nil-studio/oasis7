@@ -203,16 +203,16 @@ where
                     }
                     (_, None) => None,
                 };
-                if i < 3 || field == CognitionProofLedgerFieldV1::DelegationReceipts {
-                    if let Some(q) = &fields[i] {
-                        crate::incremental_json_records::require_json_container_records_v1(
-                            jp,
-                            q,
-                            i < 3,
-                            &mut field_read.records(),
-                            cold,
-                        )?;
-                    }
+                if (i < 3 || field == CognitionProofLedgerFieldV1::DelegationReceipts)
+                    && let Some(q) = &fields[i]
+                {
+                    crate::incremental_json_records::require_json_container_records_v1(
+                        jp,
+                        q,
+                        i < 3,
+                        &mut field_read.records(),
+                        cold,
+                    )?;
                 }
             }
         }

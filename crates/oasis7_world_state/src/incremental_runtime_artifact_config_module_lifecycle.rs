@@ -11,7 +11,7 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StatePageWriter},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::ReservedValue;
 
 #[derive(Clone, Copy)]
 pub enum ModuleLifecycleArtifactConfigEditV1<'a> {

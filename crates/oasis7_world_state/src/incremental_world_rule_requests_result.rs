@@ -1,7 +1,6 @@
 //! Only authenticated changed registrations feed the resident contract directory.
 use super::*;
 use crate::{
-    incremental_typed_record_diff::point_typed_column_v1,
     incremental_typed_record_diff::{TypedCellRefV1, key, root, visit_entries},
     world_rules::WorldRuleReceiptV1,
 };
@@ -49,10 +48,10 @@ pub(super) fn update<
     if T::BRANCH != WorldRuleCompositeBranchV1::Requests {
         return Ok(None);
     }
-    if before == after {
-        if let Some(index) = parent {
-            return Ok(Some(index.share(ctx.values.memory, ctx.values.class)?));
-        }
+    if before == after
+        && let Some(index) = parent
+    {
+        return Ok(Some(index.share(ctx.values.memory, ctx.values.class)?));
     }
     let trees_remaining = work.max_retained_trees;
     let mut d = ChangeDecoder {
@@ -65,10 +64,10 @@ pub(super) fn update<
     };
     let old = before;
     let new = after;
-    if old == new {
-        if let Some(index) = parent {
-            return Ok(Some(index.share(d.ctx.values.memory, d.ctx.values.class)?));
-        }
+    if old == new
+        && let Some(index) = parent
+    {
+        return Ok(Some(index.share(d.ctx.values.memory, d.ctx.values.class)?));
     }
     let builder = if let Some(index) = parent {
         index.copy_for_changes(d.ctx.values.memory, d.ctx.values.class, &mut |s, b| {

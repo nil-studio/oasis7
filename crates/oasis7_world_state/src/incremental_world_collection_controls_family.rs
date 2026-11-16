@@ -119,7 +119,7 @@ pub fn qualify_world_collection_controls_v1<
         })?;
         final_counts(&groups, &counts, cursor_entries)?;
         if release_roles.count() != counts[1][1] {
-            return Err(invalid().into());
+            return Err(invalid());
         }
         ctx.check()?;
         Ok(WorldCollectionControlsQualificationV1 {

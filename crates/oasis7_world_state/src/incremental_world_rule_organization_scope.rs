@@ -6,7 +6,7 @@ use crate::incremental_organization_scope_index::{
 use crate::world_rules::{
     OrganizationDispositionPhaseV1 as Disposition, OrganizationProtectionPhaseV1 as Phase,
 };
-use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+use oasis7_proto::memory_budget::ReservedValue;
 use std::io::{self, Write};
 fn bad() -> ValueTreeError {
     ValueTreeError::Invalid("organization scope source")
@@ -109,7 +109,6 @@ pub(super) fn original_outer<
         return Err(ValueTreeError::Invalid(reason));
     }
     let owner = probe.finish();
-    drop(probe);
     if output.limited {
         return Err(limited());
     }
@@ -259,8 +258,6 @@ pub(super) fn project<
             )
         }
     };
-    drop(field);
-    drop(local);
     builder.put(kind, outer, &organization, flags, &mut |s, b| {
         spend(scan, &mut ctx.cancelled, s, b)
     })

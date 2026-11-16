@@ -136,6 +136,10 @@ fn identify(key: &[u8]) -> Result<Option<FactoryAuthorityRecordKindV1>, BodyMuta
     }
     Ok(Some(kind))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn cell<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -170,6 +174,10 @@ fn cell<
     .map_err(oe)?
     .ok_or_else(|| bad().into())
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn text<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -250,6 +258,10 @@ fn text<
     held.merge(&mut fee).map_err(ValueTreeError::Invalid)?;
     Ok(value)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn unsigned<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -270,6 +282,10 @@ fn unsigned<
         _ => Err(bad().into()),
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn boolean<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -417,6 +433,10 @@ fn json<
         }
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn decode_projection_row_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -532,6 +552,10 @@ fn decode_projection_row_v1<
         json: data,
     }))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_factory_authority_projection_delta_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

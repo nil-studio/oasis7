@@ -58,6 +58,10 @@ read_api!(
     "minimum_services"
 );
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn validate_selected_current<M, R, E, C>(
     source: &ReservedValue<CurrentEmergencyLifecycleSourceV1>,
     selected: &CurrentEmergencyRecordCoreV1,
@@ -113,6 +117,10 @@ where
 }
 macro_rules! validate_selection {
     ($name:ident,$wrapper:ty,$collection:literal) => {
+        #[expect(
+            clippy::too_many_arguments,
+            reason = "Bounded inputs are independently validated"
+        )]
         pub fn $name<M, R, E, C>(
             source: &ReservedValue<CurrentEmergencyLifecycleSourceV1>,
             selected: &ReservedValue<$wrapper>,

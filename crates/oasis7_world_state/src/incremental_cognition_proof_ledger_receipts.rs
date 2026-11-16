@@ -50,6 +50,10 @@ where
 }
 /// Presence CAS for the two original optional service fields. Their values are
 /// preserved verbatim; only the original business operation requires a map.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn change_current_cognition_service_proof_field_presence_v3<M, P, R, E, C, W, D>(
     current: &mut CurrentCognitionProofLedgerV1,
     field: CognitionProofLedgerFieldV1,
@@ -84,6 +88,10 @@ where
         current, field, expected, after, tx, read, write, producer, changed, common, live,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn change_current_proof_field_presence<M, P, R, E, C, W, D>(
     current: &mut CurrentCognitionProofLedgerV1,
     field: CognitionProofLedgerFieldV1,

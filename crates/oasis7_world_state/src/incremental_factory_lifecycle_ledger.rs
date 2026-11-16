@@ -12,7 +12,7 @@ use crate::{
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard},
     incremental_state::StatePageWriter,
-    incremental_value::{ValueNodeWriter, ValueReadContext},
+    incremental_value::ValueReadContext,
 };
 use std::cell::RefCell;
 pub struct FactoryOutputLedgerGroupWorkV1 {
@@ -196,7 +196,7 @@ pub fn ensure_current_factory_output_ledger_group_v1<
                                 class: MemoryClass::Ordinary,
                                 io: &mut *values.io,
                             },
-                            key_work: &mut **keys,
+                            key_work: &mut keys,
                             semantic_bytes: semantic_limit,
                             record_bytes: record_limit,
                             take_state_error: &mut **error,

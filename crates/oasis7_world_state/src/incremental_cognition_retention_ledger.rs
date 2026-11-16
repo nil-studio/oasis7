@@ -21,7 +21,7 @@ use oasis7_formal_protocol::{
         ExecutionError, ExecutionFence, ExecutionTransaction, PreparedGuard, RootSetV1,
         SealedExecutionBindingV1,
     },
-    incremental_material::{CheckedCommitCore, OriginalObjectReader},
+    incremental_material::CheckedCommitCore,
     incremental_retention::RetentionLedgerManifestV1,
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StatePageWriter, StateRootV1},
     incremental_value::{ValueNodeReader, ValueTreeError},

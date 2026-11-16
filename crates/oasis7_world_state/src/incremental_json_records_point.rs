@@ -133,15 +133,6 @@ fn path_key<R: ValueNodeReader, C: FnMut() -> bool>(
         ),
     }
 }
-fn child<R: ValueNodeReader, C: FnMut() -> bool>(
-    profile: JsonRecordProfileV1,
-    root: &StateRootV1,
-    key: &(WorldFieldKeyV1, u64),
-    records: &mut InventoryValueReader<'_, '_, R, C>,
-) -> Result<([u8; 32], StateRootV1), ValueTreeError> {
-    child_optional(profile, root, key, records)?
-        .ok_or(ValueTreeError::Invalid("JSON point missing cell"))
-}
 fn child_optional<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     root: &StateRootV1,
@@ -753,6 +744,10 @@ pub(crate) fn qualify_optional_json_path_records_v1<R: ValueNodeReader, C: FnMut
         true,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn qualify_json_path_optional_inner<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
@@ -786,9 +781,9 @@ fn qualify_json_path_optional_inner<R: ValueNodeReader, C: FnMut() -> bool>(
         records.values.class,
     )?;
     let mut path_work = PathWork {
-        cells: cells,
-        nodes: nodes,
-        max_depth: max_depth,
+        cells,
+        nodes,
+        max_depth,
     };
     if !resolved.walk_optional(profile, path, records, &mut path_work, allow_missing)? {
         return Ok(None);

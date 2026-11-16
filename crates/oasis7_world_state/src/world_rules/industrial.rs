@@ -172,7 +172,7 @@ pub fn manufacturing_existing_targets(
 /// Fixed original union/creates-new order. In particular a reserved target must
 /// not make creates_new_identity false before the existing set is inspected.
 pub fn manufacturing_capacity_from_targets_v1<'a>(
-    mut set: BTreeSet<String>,
+    set: BTreeSet<String>,
     reserved: impl IntoIterator<Item = &'a str>,
     target: Option<&str>,
     new_order: bool,
@@ -312,29 +312,6 @@ fn legacy_production_facts<'a>(
             .map(|anchor| anchor.active),
         resolved_owner: None,
     }
-}
-fn production_eligibility(
-    state: &WorldState,
-    owner: &str,
-    factory_id: &str,
-    location: &str,
-) -> Result<(), WorldError> {
-    use super::industrial_eligibility_kernel::*;
-    // This predicate only needs the primary checks, not an allocated target set.
-    // Capacity consumers continue to use manufacturing_existing_targets.
-    validate_primary_production_facts_v1(
-        PrimaryProductionFactsV1 {
-            agent_exists: state.agents.contains_key(owner),
-            starter_claim: state.starter_oc_claims.get(owner),
-        },
-        owner,
-    )?;
-    production_eligibility_from_facts_v1(
-        legacy_production_facts(state, owner, factory_id, location),
-        owner,
-        factory_id,
-        location,
-    )
 }
 fn refund_source_is_current(state: &WorldState, order: &AgentIndustrialOrderV1) -> bool {
     match super::readonly_manufacturing::refund_source_is_current_readonly_v1(state, order) {

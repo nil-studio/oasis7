@@ -13,7 +13,8 @@ pub fn prepare_module_release_records_v1(
     now: WorldTime,
     next_current: u64,
 ) -> Result<ModuleReleaseRecordProjectionV1, WorldError> {
-    let mut projected_request = None;
+    // Every accepted event produces exactly one request row; rejected events return early.
+    let projected_request;
     let mut projected_mapping = None;
     let mut next_request_id = None;
     match event {

@@ -516,25 +516,25 @@ where
         let mut changed = false;
         for change in &changes {
             work.charge(size_of::<u64>())?;
-            if let IndustryCurrentOuterChangeV1::Record { id, before, .. } = &**change {
-                if *id == row.id {
-                    let Some(before) = before else {
-                        return Err(invalid().into());
-                    };
-                    work.charge(
-                        before
-                            .record_root
-                            .node_root
-                            .len()
-                            .checked_add(row.child.node_root.len())
-                            .ok_or_else(invalid)?,
-                    )?;
-                    if before.value_root != row.value || before.record_root != row.child {
-                        return Err(invalid().into());
-                    }
-                    changed = true;
-                    break;
+            if let IndustryCurrentOuterChangeV1::Record { id, before, .. } = &**change
+                && *id == row.id
+            {
+                let Some(before) = before else {
+                    return Err(invalid().into());
+                };
+                work.charge(
+                    before
+                        .record_root
+                        .node_root
+                        .len()
+                        .checked_add(row.child.node_root.len())
+                        .ok_or_else(invalid)?,
+                )?;
+                if before.value_root != row.value || before.record_root != row.child {
+                    return Err(invalid().into());
                 }
+                changed = true;
+                break;
             }
         }
         if !changed {

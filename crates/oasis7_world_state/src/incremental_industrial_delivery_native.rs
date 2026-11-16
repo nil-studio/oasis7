@@ -18,6 +18,10 @@ impl<T> CurrentIndustrialClaimRecordV1<T> {
         self.value.as_ref().map(|r| r.value().value())
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn select<
     F: WorldNativeFieldSpecV1<Key = String>,
     M: MerkleNodeReader,
@@ -95,6 +99,10 @@ fn select<
 }
 macro_rules! selected {
     ($name:ident,$slot:ident,$spec:ty,$value:ty) => {
+        #[expect(
+            clippy::too_many_arguments,
+            reason = "Bounded inputs are independently validated"
+        )]
         pub fn $name<
             M: MerkleNodeReader,
             P: MerkleNodeReader,
@@ -147,6 +155,10 @@ selected!(
 /// Exact outer-root CAS remains valid across other fields' same-TX reads/writes;
 /// the caller supplies a fresh strict guard and the real observed member root.
 /// The DTO is data, never business permission.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn write_current_industrial_agent_claim_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

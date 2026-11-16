@@ -130,13 +130,12 @@ fn capture_inner<
     {
         return Err(invalid().into());
     }
-    if let Scope::Current(after) = scope {
-        if after.wire_version_data_v1() != before.manifest().wire_version
+    if let Scope::Current(after) = scope
+        && (after.wire_version_data_v1() != before.manifest().wire_version
             || !after.uses_budget(&memory)
-            || after.parent_record_data_v1() != occurrence.head_record_id()
-        {
-            return Err(invalid().into());
-        }
+            || after.parent_record_data_v1() != occurrence.head_record_id())
+    {
+        return Err(invalid().into());
     }
     let p = Processing {
         bank: RefCell::new(processing),
@@ -206,8 +205,6 @@ fn capture_inner<
             patches,
         });
     }
-    drop(records);
-    drop(values);
     if let Some(error) = (ctx.take_state_error)() {
         return Err(error.into());
     }

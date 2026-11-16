@@ -7,8 +7,7 @@ use oasis7_distfs::{
         IwsColdParentWorkV1,
     },
     incremental_page_store::{
-        PageIoBudget, PageStoreError, StatePageSession, ValuePageSession,
-        objects::{IncrementalObjectStore, ObjectIo},
+        PageIoBudget, PageStoreError, StatePageSession, ValuePageSession, objects::ObjectIo,
     },
 };
 use oasis7_formal_protocol::{

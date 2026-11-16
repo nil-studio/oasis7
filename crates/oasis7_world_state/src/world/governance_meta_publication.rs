@@ -372,10 +372,10 @@ impl PreparedProposal {
             }
             DomainEvent::GovernanceProposalFinalized {
                 proposal_key,
-                winning_option,
-                winning_weight,
-                total_weight,
-                passed,
+                winning_option: _,
+                winning_weight: _,
+                total_weight: _,
+                passed: _,
             } => {
                 let mut proposal = state
                     .governance_proposals
@@ -418,9 +418,9 @@ impl PreparedCrisis {
         match event {
             DomainEvent::CrisisSpawned {
                 crisis_id,
-                kind,
-                severity,
-                expires_at,
+                kind: _,
+                severity: _,
+                expires_at: _,
             } => {
                 crises.insert(
                     crisis_id.clone(),

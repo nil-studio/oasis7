@@ -67,7 +67,7 @@ fn shape(value: &WorldRuleReceiptV1, region: &str, window: u64) -> Result<(), Va
         .ok_or_else(invalid)?;
     if region_id != region
         || value.committed_at != window.checked_add(60).ok_or_else(invalid)?
-        || window % 60 != 0
+        || !window.is_multiple_of(60)
         || id.len() != 64
         || !id
             .bytes()
@@ -102,7 +102,7 @@ where
 {
     let result = (|| {
         ctx.transaction.validate_guard(guard, live)?;
-        if window % 60 != 0 || region.is_empty() || region.len() > 128 {
+        if !window.is_multiple_of(60) || region.is_empty() || region.len() > 128 {
             return Err(invalid().into());
         }
         let bytes = region

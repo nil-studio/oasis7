@@ -396,6 +396,10 @@ impl CurrentAuthorityGenerationV1 {
     }
 }
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::possible_missing_else,
+    reason = "Independent typed-record validation guards preserve their first-error order"
+)]
 pub fn read_current_authority_generation_v1<M, R, E, C, P, V, ER, CR>(
     parent_max: u64,
     qualification: &ReservedValue<RuntimeRevocationQualificationV1>,

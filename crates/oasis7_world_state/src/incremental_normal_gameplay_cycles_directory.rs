@@ -9,8 +9,8 @@ use oasis7_formal_protocol::{
         ExecutionTransaction, PreparedGuard, RootSetV1, SealedExecutionBindingV1,
     },
     incremental_state::{
-        MerkleNodeReader, StateEntryV1, StateNamespaceV1, StateRootV1, StateScanBudget,
-        StateScanContext, StateScanError,
+        MerkleNodeReader, StateEntryV1, StateNamespaceV1, StateScanBudget, StateScanContext,
+        StateScanError,
     },
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
@@ -66,7 +66,7 @@ pub struct GameplayDirectoryRowV1 {
     outer: String,
     member: [u8; 32],
     selector: GameplaySelectorV1,
-    class: MemoryClass,
+    _class: MemoryClass,
 }
 impl GameplayDirectoryRowV1 {
     pub fn kind(&self) -> GameplayDirectoryKindV1 {
@@ -233,6 +233,10 @@ pub(crate) enum GameplaySelectorRefV1<'a> {
         expires_at: u64,
     },
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub(crate) fn retain_row(
     kind: GameplayDirectoryKindV1,
     entry: &StateEntryV1,
@@ -303,7 +307,7 @@ pub(crate) fn retain_row(
         outer: outer.to_owned(),
         member: entry.value,
         selector,
-        class,
+        _class: class,
     })))
 }
 /// The sole original semantic-key decoder is reused. Neither an embedded DTO
@@ -546,7 +550,6 @@ pub fn build_gameplay_cycle_directory_v1<
                 Err(StateScanError::ResourceLimited) => return Err(limited()),
                 Err(_) => return Err(invalid()),
             };
-            drop(stop);
             for entry in entries.drain(..) {
                 let mut local = WorldFieldReadContextV1 {
                     root: state_root,
@@ -607,6 +610,10 @@ struct Pending {
     before: Option<[u8; 32]>,
     after: Option<[u8; 32]>,
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 fn fold<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -708,7 +715,6 @@ fn fold<
         work.pending_entries_remaining = remaining;
         visited?;
     }
-    drop(stop);
     let mut tree = directory.tree.clone();
     let mut counts = directory.counts;
     for change in pending {
@@ -770,7 +776,7 @@ fn fold<
 }
 pub struct CurrentGameplayCycleDirectoryV1 {
     tree: Option<tree::NodeRef>,
-    counts: [u64; 4],
+    _counts: [u64; 4],
     guard: PreparedGuard,
     parent: [u8; 32],
     memory: MemoryBudget,
@@ -837,7 +843,7 @@ pub fn open_current_gameplay_cycle_directory_v1<
         tx.validate_guard(&guard, live)?;
         Ok(fee.retain(CurrentGameplayCycleDirectoryV1 {
             tree,
-            counts,
+            _counts: counts,
             guard,
             parent: tx.parent_fence().parent_roots,
             memory: ctx.values.memory.clone(),

@@ -168,7 +168,6 @@ fn outer<
         cells,
         max_payload,
     )?;
-    drop(inner);
     scope::project(
         owner,
         &outer,

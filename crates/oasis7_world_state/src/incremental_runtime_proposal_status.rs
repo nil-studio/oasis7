@@ -306,6 +306,10 @@ pub use create::create_runtime_proposal_overlay_v1;
 
 /// DATA-only actual Current proposal status. The qualified parent authenticates
 /// the family; the sole transaction selects the current outer and status row.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_current_runtime_proposal_status_kind_v1<M, P, R, E, C>(
     id: u64,
     parent: &ReservedValue<RuntimeProposalsQualificationV1>,

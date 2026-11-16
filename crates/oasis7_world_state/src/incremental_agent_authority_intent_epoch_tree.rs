@@ -28,7 +28,7 @@ pub(in crate::incremental_agent_authority_records) struct Node {
     max: u64,
     heap: usize,
     recovery_heap: usize,
-    class: MemoryClass,
+    _class: MemoryClass,
     count: u64,
 }
 pub(super) struct Meter<'a, C> {
@@ -137,7 +137,7 @@ fn make<C: FnMut() -> bool>(
         max,
         heap,
         recovery_heap,
-        class: m.class,
+        _class: m.class,
         count,
     })))
 }

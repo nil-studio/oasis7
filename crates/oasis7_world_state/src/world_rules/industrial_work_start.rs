@@ -1,8 +1,5 @@
 //! Atomic bridge from qualified escrow parents to ordinary recipe production.
-use super::industrial_work::{consume_bound_slot, industrial_ref, record_receipt};
-use super::industrial_work_admission::{
-    industrial_effective_consume, industrial_ledger_access, industrial_owner_binding,
-};
+use super::industrial_work::{industrial_ref, record_receipt};
 use super::{PreparedWorldRule, invalid};
 use crate::{DomainEvent, WorldError, WorldState, WorldTime};
 use oasis7_agent_api::world_action::*;

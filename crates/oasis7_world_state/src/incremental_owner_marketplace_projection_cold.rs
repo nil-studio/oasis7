@@ -18,6 +18,10 @@ impl QualifiedMarketplaceProjectionColumnsV1 {
         &self.data
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
 pub fn read_qualified_marketplace_projection_columns_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

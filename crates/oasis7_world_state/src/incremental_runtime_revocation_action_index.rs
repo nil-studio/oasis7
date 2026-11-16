@@ -102,10 +102,10 @@ where
     C: FnMut() -> bool,
 {
     ctx.check()?;
-    if let Some(parent) = parent {
-        if !parent.uses_budget(ctx.values.memory) {
-            return Err(invalid());
-        }
+    if let Some(parent) = parent
+        && !parent.uses_budget(ctx.values.memory)
+    {
+        return Err(invalid());
     }
     let profile = profile();
     let mut d = ChangeDecoder {

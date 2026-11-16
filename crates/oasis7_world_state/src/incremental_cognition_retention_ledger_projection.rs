@@ -173,8 +173,6 @@ pub fn capture_current_cognition_retention_projection_aux_v1<
             &p,
             &mut patches,
         )?;
-        drop(records);
-        drop(values);
         if let Some(error) = (ctx.take_state_error)() {
             return Err(error.into());
         }
