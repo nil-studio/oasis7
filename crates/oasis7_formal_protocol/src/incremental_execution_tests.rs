@@ -262,6 +262,7 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
     let live = parent.fence().unwrap();
     let mut txn =
         ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
+    let initial_used = memory.used();
     let guard = txn.guard();
     txn.validate_transaction_identity(&guard).unwrap();
     for changed in 0..4 {
@@ -313,7 +314,9 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
     assert_eq!(pages.reads.get(), 0);
     drop(other);
     drop(txn);
-    assert_eq!(memory.used(), 64);
+    // The retained guard owns both its identity and the shared lineage domain;
+    // consuming the transaction releases the workspace and every overlay entry.
+    assert_eq!(memory.used(), initial_used - 64 * 1024);
     drop(guard);
     assert_eq!(memory.used(), 0);
 }
@@ -749,13 +752,21 @@ fn missing_parent_page_and_memory_failure_also_prevent_partial_seal() {
         Err(ExecutionError::Aborted)
     ));
 
-    let tiny = MemoryBudget::new(64 * 1024 + 64 + 513, 0).unwrap();
+    let limit = 128 * 1024;
+    let tiny = MemoryBudget::new(limit, 0).unwrap();
     let original = empty_parent();
     let live = original.fence().unwrap();
     let source = Pages::default();
     let mut txn = ExecutionTransaction::begin(original, [3; 32], &source, &tiny, limits()).unwrap();
+    // Leave exactly one one-byte-key entry after the actual owner/domain fees.
+    // This boundary does not assume an architecture-specific identity layout.
+    let pressure = tiny
+        .reserve(limit - tiny.used() - 513, MemoryClass::Ordinary)
+        .unwrap();
+    assert_eq!(limit - tiny.used(), 513);
     txn.write(StateNamespaceV1::Business, b"a", Some([1; 32]))
         .unwrap();
+    assert_eq!(tiny.used(), limit);
     assert!(matches!(
         txn.append_fact(fact(ExecutionFactKindV1::Result, 3)),
         Err(ExecutionError::Memory(_))
@@ -766,6 +777,8 @@ fn missing_parent_page_and_memory_failure_also_prevent_partial_seal() {
         Err(ExecutionError::Aborted)
     ));
     drop(guard);
+    assert_eq!(tiny.used(), pressure.bytes());
+    drop(pressure);
     assert_eq!(tiny.used(), 0);
 }
 
@@ -818,6 +831,7 @@ fn external_contribution_failures_cannot_seal_partial_reducers() {
         let live = parent.fence().unwrap();
         let mut txn =
             ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+        let initial_used = memory.used();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             txn.contribute::<(), ExecutionError>(|txn| {
                 txn.write(StateNamespaceV1::Business, b"debit", Some([1; 32]))?;
@@ -843,7 +857,9 @@ fn external_contribution_failures_cannot_seal_partial_reducers() {
             txn.seal(&guard, &live, 0),
             Err(ExecutionError::Aborted)
         ));
-        assert_eq!(memory.used(), 64); // only retained guard identity
+        assert_eq!(memory.used(), initial_used - 64 * 1024); // retained identity and lineage
+        drop(guard);
+        assert_eq!(memory.used(), 0);
     }
 }
 
