@@ -236,13 +236,17 @@ impl CanonicalRecordV1 {
                 | (6, Some(_))
                 | (7, None)
                 | (8, Some(_))
-        ) || (!matches!(self.schema_version, 1 | 5 | 7)
+                | (9, None)
+                | (10, Some(_))
+        ) || (!matches!(self.schema_version, 1 | 5 | 7 | 9)
             && self.kind != FormalRecordKindV1::Execution)
             || self.position == 0
             || self.original_epoch == 0
             || self.artifact_roots.len()
                 != if super::incremental::is_iws_record(self.schema_version) {
-                    9
+                    9 + usize::from(super::incremental::has_retention_ledger(
+                        self.schema_version,
+                    ))
                 } else if self.schema_version >= 5 {
                     10
                 } else {
@@ -265,9 +269,10 @@ impl CanonicalRecordV1 {
             } {
                 return Err(invalid("incremental record original input root").into());
             }
-            super::incremental::validate_roots_with_work(
+            super::incremental::validate_roots_for_profile_with_work(
                 &self.artifact_roots,
                 false,
+                super::incremental::has_retention_ledger(self.schema_version),
                 &self.world,
                 &self.after_state_root,
                 &self.runtime_manifest_digest,

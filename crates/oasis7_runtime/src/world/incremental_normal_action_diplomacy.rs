@@ -56,12 +56,14 @@ pub(in crate::world) struct AllianceSourcesV1<'a, 'source> {
     pub continuity: &'a ReservedValue<OrganizationContinuityQualificationV1>,
     pub organizations: &'a ReservedValue<OrganizationFamilyQualificationV1>,
     pub native: &'a ReservedValue<WorldNativeFieldsQualificationV1>,
-    pub orders: &'a ReservedValue<
-        super::incremental_factory_directory_orders::CurrentFactoryOrderDirectoryV1<'source>,
+    pub orders: &'source ReservedValue<
+        super::incremental_factory_directory_orders::AcceptedFactoryOrderDirectoryV1,
     >,
+    pub rules: &'a ReservedValue<oasis7_world_state::incremental_world_rules_family::WorldRulesQualificationV1>,
     pub roots: &'a RootSetV1,
 }
 pub(in crate::world) struct AllianceWorkV1 {
+    pub orders: crate::world::incremental_factory_directory_orders::FactoryOrderDirectoryWorkV1,
     pub pending_entries_remaining: usize,
     pub index: DiplomacyIndexWorkV1,
     pub scope_scan: StateScanBudget,

@@ -75,9 +75,9 @@ fn same<T: serde::Serialize + PartialEq>(
 ) -> Result<bool, FormalError> {
     store::bounded_transaction::same(a, b, memory, work, stop)
 }
-fn qualified_state(
+pub(super) fn qualified_state_from_proof(
     candidate: &FormalCandidateMaterialV1,
-    quorum: &PaidVerifiedGenesisCommitV1,
+    proof: &FormalQualifiedCommitProofV1,
     closure: &str,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
@@ -92,7 +92,7 @@ fn qualified_state(
         "GEN candidate sizing",
     )?;
     let p = store::context_wire::encode_paid(
-        quorum.proof(),
+        proof,
         64 * 1024 * 1024,
         &mut ctx,
         "formal object byte limit",
@@ -116,7 +116,7 @@ fn qualified_state(
     ctx.charge(1, n as u64)?;
     let state = FormalRequestStateV1::Qualified {
         candidate: candidate.clone(),
-        proof: quorum.proof().clone(),
+        proof: proof.clone(),
         data_closure: Some(closure.to_owned()),
     };
     let state = fee.retain(state);
@@ -144,15 +144,15 @@ impl PaidGenesisAcceptanceV1 {
         self.head.reserved_bytes()
     }
 }
-fn paid_parent_copy(
-    quorum: &PaidVerifiedGenesisCommitV1,
+pub(super) fn paid_parent_copy_from_verified(
+    verified: &VerifiedFormalCommitV1,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<(VerifiedFormalCommitV1, ReservedValue<()>), FormalError> {
     let mut ctx = work.bounded_context(memory, stop);
     let wire = store::context_wire::encode_paid(
-        quorum.verified().record(),
+        verified.record(),
         64 * 1024 * 1024,
         &mut ctx,
         "formal encoding exceeds byte bound",
@@ -160,14 +160,12 @@ fn paid_parent_copy(
     )?;
     let n = wire
         .len()
-        .checked_add(quorum.verified().finalizing_authority_id().len())
+        .checked_add(verified.finalizing_authority_id().len())
         .and_then(|n| n.checked_add(std::mem::size_of::<VerifiedFormalCommitV1>()))
         .and_then(|n| {
             n.checked_add(
-                store::bounded_native_draft::role_map_nodes(
-                    quorum.verified().record().artifact_roots.len(),
-                )
-                .ok()?,
+                store::bounded_native_draft::role_map_nodes(verified.record().artifact_roots.len())
+                    .ok()?,
             )
         })
         .ok_or_else(|| invalid("GEN formal parent layout"))?;
@@ -175,7 +173,7 @@ fn paid_parent_copy(
         .reserve(n, MemoryClass::Ordinary)
         .map_err(|_| invalid("GEN formal parent admission"))?;
     ctx.charge(1, n as u64)?;
-    Ok((quorum.verified().clone(), fee.retain(())))
+    Ok((verified.clone(), fee.retain(())))
 }
 impl FileFormalEndpoint {
     /// Final GEN lane. Receipt preparation is a separate, mandatory producer:
@@ -195,7 +193,7 @@ impl FileFormalEndpoint {
         // Durable exact retries precede fresh-head and staged-source admission.
         // They return the original public proof result without signing, native
         // writes, cache replacement or a new source/hash counter allocation.
-        if self.authority.definition().profile_version==oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION && candidate.candidate.record.schema_version==7 && candidate.candidate.record.kind==FormalRecordKindV1::InitialActivation{
+        if self.authority.definition().profile_version==oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION && oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) && candidate.candidate.record.kind==FormalRecordKindV1::InitialActivation{
             if let Some(existing)=self.store.read_request_bounded(&candidate.candidate.record.request_digest,memory,work,stop)?{
                 if let FormalRequestStateV1::Qualified{candidate:old,proof:installed,..}=existing.state(){
                     if !same(old,candidate,memory,work,stop)? || !same(installed,proof,memory,work,stop)? || !same(context.finalizing_authority().definition(),self.authority.definition(),memory,work,stop)? || !same(&context.finalizing_authority().activation_ref(),&self.authority.activation_ref(),memory,work,stop)?{return Err(FormalError::Conflict("GEN retained Qualified exact original proof/material".into()).into());}
@@ -207,7 +205,7 @@ impl FileFormalEndpoint {
                 }
             }
         }
-        if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || self.parent.is_some() || self.recovery.is_some() || candidate.candidate.record.schema_version!=7 || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN exact initial authority/candidate required").into());}
+        if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || self.parent.is_some() || self.recovery.is_some() || !oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN exact initial authority/candidate required").into());}
         if !same(
             context.finalizing_authority().definition(),
             self.authority.definition(),
@@ -255,7 +253,10 @@ impl FileFormalEndpoint {
             .iws_page_store
             .as_ref()
             .ok_or_else(|| invalid("GEN real page capability required"))?;
-        if !capability.jobs.matches(candidate, &mut || stop())? {
+        if !capability
+            .jobs
+            .matches_bounded(candidate, memory, work, stop)?
+        {
             return Err(invalid("GEN complete exact material job required").into());
         }
         let mut ctx = work.bounded_context(memory, stop);
@@ -301,7 +302,8 @@ impl FileFormalEndpoint {
             }
             _ => return Err(invalid("GEN requires durable local ProofComplete").into()),
         }
-        let (parent, parent_fee) = paid_parent_copy(&quorum, memory, work, stop)?;
+        let (parent, parent_fee) =
+            paid_parent_copy_from_verified(quorum.verified(), memory, work, stop)?;
         let output_fee = memory
             .reserve(
                 std::mem::size_of::<PaidGenesisAcceptanceV1>()
@@ -315,7 +317,8 @@ impl FileFormalEndpoint {
             position: quorum.verified().record().position,
             record_id: hex::encode(quorum.verified().verified_record_id()),
         });
-        let qualified = qualified_state(candidate, &quorum, closure, memory, work, stop)?;
+        let qualified =
+            qualified_state_from_proof(candidate, quorum.proof(), closure, memory, work, stop)?;
         let permit = GenesisInstallPermit {
             job,
             inputs: GenesisValidatedInputs { quorum, qualified },

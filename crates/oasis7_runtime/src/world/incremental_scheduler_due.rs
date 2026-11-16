@@ -51,8 +51,31 @@ impl World {
         V: ValueNodeReader,
         C: FnMut() -> bool,
     {
+        Self::read_iws_due_module_batch_at(
+            self.state.time,
+            txn,
+            values,
+            context,
+            scan_budget,
+            limits,
+        )
+    }
+
+    pub(in crate::world) fn read_iws_due_module_batch_at<R, V, W, C>(
+        now: u64,
+        txn: &mut ExecutionTransaction<'_, R>,
+        values: &V,
+        context: &mut BodyMutationContext<'_, W, C>,
+        scan_budget: &mut ScheduleScanBudget,
+        limits: DueModuleBatchLimitsV1,
+    ) -> Result<DueModuleBatchV1, BodyMutationError>
+    where
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        C: FnMut() -> bool,
+    {
         txn.contribute(|txn| {
-            check_clock(self.state.time, txn, values, context)?;
+            check_clock(now, txn, values, context)?;
             let bytes = read_fixed::<SCHEDULE_ROOT_BYTES, _, _, _, _>(
                 txn,
                 Ns::Scheduler,
@@ -93,7 +116,7 @@ impl World {
                 };
                 let result = scan.visit_due(
                     &root,
-                    self.state.time,
+                    now,
                     |wake, instance| {
                         if rows.len() == limits.entries {
                             return Err(BodyMutationError::Value(ValueTreeError::ResourceLimited(

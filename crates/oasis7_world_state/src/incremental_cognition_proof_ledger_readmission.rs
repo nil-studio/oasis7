@@ -40,7 +40,7 @@ pub fn readmit_cognition_proof_ledger_ordinary_v1(
     let upper = measured
         .len()
         .checked_mul(4)
-        .and_then(|n| n.checked_add(4 * 1024 + COGNITION_PROOF_LEDGER_BYTES_V1 + 5 * 512 + 4096))
+        .and_then(|n| n.checked_add(4 * 1024 + COGNITION_PROOF_LEDGER_MAX_BYTES + 8 * 512 + 4096))
         .ok_or_else(invalid)?;
     common
         .charge(upper as u64, upper as u64)
@@ -68,7 +68,7 @@ pub fn readmit_cognition_proof_ledger_ordinary_v1(
         .map_err(ValueTreeError::Memory)?;
     let mf = memory
         .reserve(
-            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 5 * 512,
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
             MemoryClass::Ordinary,
         )
         .map_err(ValueTreeError::Memory)?;

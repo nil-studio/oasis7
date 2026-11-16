@@ -93,6 +93,68 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
     physical: RuntimeGenesisPhysicalBudgetsV1,
     work: &mut IwsGenesisTransferWorkV1,
 ) -> Result<ProvisionalRuntimeGenesisIndexV1, IwsGenesisTransferErrorV1> {
+    match prepare_iws_genesis_for_endpoints_inner_v1(
+        world, source, targets, config, context, producer, physical, work, None,
+    )? {
+        GenesisEndpointOutputV1::Original(value) => Ok(value),
+        GenesisEndpointOutputV1::Projected(_) => unreachable!("fixed original GEN mode"),
+    }
+}
+
+/// Same physical fanout and readback as the original GEN entry, retaining
+/// same-World projection/business source data for the actual output assembler.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
+    world: &World,
+    source: &IncrementalPageStore,
+    targets: [&IncrementalPageStore; 2],
+    config: &oasis7_formal_protocol::incremental_history::GenesisConfigV1,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    producer: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisPhysicalBudgetsV1,
+    work: &mut IwsGenesisTransferWorkV1,
+    retention_work: &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>,
+    common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+) -> Result<ProvisionalProjectedRuntimeGenesisIndexV1, IwsGenesisTransferErrorV1> {
+    match prepare_iws_genesis_for_endpoints_inner_v1(
+        world,
+        source,
+        targets,
+        config,
+        context,
+        producer,
+        physical,
+        work,
+        Some((common, retention_work)),
+    )? {
+        GenesisEndpointOutputV1::Projected(value) => Ok(value),
+        GenesisEndpointOutputV1::Original(_) => unreachable!("fixed projected GEN mode"),
+    }
+}
+enum GenesisEndpointOutputV1 {
+    Original(ProvisionalRuntimeGenesisIndexV1),
+    Projected(ProvisionalProjectedRuntimeGenesisIndexV1),
+}
+impl GenesisEndpointOutputV1 {
+    fn roots(&self) -> &oasis7_formal_protocol::incremental_execution::RootSetV1 {
+        match self {
+            Self::Original(value) => &value.roots,
+            Self::Projected(value) => value.roots(),
+        }
+    }
+}
+#[allow(clippy::too_many_arguments)]
+fn prepare_iws_genesis_for_endpoints_inner_v1(
+    world: &World,
+    source: &IncrementalPageStore,
+    targets: [&IncrementalPageStore; 2],
+    config: &oasis7_formal_protocol::incremental_history::GenesisConfigV1,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    producer: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisPhysicalBudgetsV1,
+    work: &mut IwsGenesisTransferWorkV1,
+    common: Option<(&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>, &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>)>,
+) -> Result<GenesisEndpointOutputV1, IwsGenesisTransferErrorV1> {
     if context.cancelled.load(Ordering::Acquire) {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -158,19 +220,9 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
         targets: &targets,
         memory,
     };
-    let result = prepare_runtime_genesis_index_with_writer_v1(
-        world,
-        source,
-        config,
-        context,
-        producer,
-        RuntimeGenesisIndexBudgetsV1 {
-            index_reads,
-            index_writes,
-            index,
-        },
-        &mut fanout,
-        &mut |reference, bytes| {
+    let mut persist_artifact =
+        |reference: oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1,
+         bytes: &[u8]| {
             originals
                 .borrow_mut()
                 .raw(reference.id, bytes)
@@ -178,30 +230,31 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
                     *body_error.borrow_mut() = Some(error);
                     ValueTreeError::Invalid("IWS GEN artifact original transfer failed")
                 })
-        },
-        &mut |_ordinal, action| {
-            let receipt = persist_action_original_v1(
-                action,
-                memory,
-                &mut canonical.borrow_mut(),
-                &mut || cancelled.load(Ordering::Acquire),
-                max_original,
-                &mut |stream: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
-                    originals.borrow_mut().stream(stream, poll)
-                },
-            )
-            .map_err(|error| {
-                *body_error.borrow_mut() = Some(error);
-                ValueTreeError::Invalid("IWS GEN action original transfer failed")
-            })?;
-            Ok(
-                oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1 {
-                    id: receipt.original_id(),
-                    byte_len: receipt.original_bytes(),
-                },
-            )
-        },
-        &mut |_agent, _ordinal, event| {
+        };
+    let mut persist_action = |_ordinal: u64, action: &oasis7_world_state::ActionEnvelope| {
+        let receipt = persist_action_original_v1(
+            action,
+            memory,
+            &mut canonical.borrow_mut(),
+            &mut || cancelled.load(Ordering::Acquire),
+            max_original,
+            &mut |stream: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                originals.borrow_mut().stream(stream, poll)
+            },
+        )
+        .map_err(|error| {
+            *body_error.borrow_mut() = Some(error);
+            ValueTreeError::Invalid("IWS GEN action original transfer failed")
+        })?;
+        Ok(
+            oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1 {
+                id: receipt.original_id(),
+                byte_len: receipt.original_bytes(),
+            },
+        )
+    };
+    let mut mailbox_original =
+        |_agent: &str, _ordinal: u64, event: &oasis7_world_state::DomainEvent| {
             let mut selected = None;
             for original in &world.journal().events {
                 *mailbox_steps = mailbox_steps
@@ -228,8 +281,45 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
                 },
             )?;
             Ok(receipt.original_id())
-        },
-    );
+        };
+    let result = match common {
+        Some((common, retention_work)) => prepare_projected_runtime_genesis_index_with_writer_v1(
+            world,
+            source,
+            config,
+            context,
+            producer,
+            RuntimeGenesisIndexBudgetsV1 {
+                index_reads,
+                index_writes,
+                index,
+            },
+            &mut fanout,
+            &mut persist_artifact,
+            &mut persist_action,
+            &mut mailbox_original,
+            retention_work,
+            common,
+        )
+        .map(GenesisEndpointOutputV1::Projected),
+        None => prepare_runtime_genesis_index_with_writer_v1(
+            world,
+            source,
+            config,
+            context,
+            producer,
+            RuntimeGenesisIndexBudgetsV1 {
+                index_reads,
+                index_writes,
+                index,
+            },
+            &mut fanout,
+            &mut persist_artifact,
+            &mut persist_action,
+            &mut mailbox_original,
+        )
+        .map(GenesisEndpointOutputV1::Original),
+    };
     if let Some(error) = failed.borrow_mut().take() {
         return Err(IwsGenesisTransferErrorV1::Store(error));
     }
@@ -258,7 +348,7 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
         cancelled,
     )?;
     let transferred = pages::send_outer_indexes(
-        &result.roots,
+        result.roots(),
         &state,
         &targets,
         memory,

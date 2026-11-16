@@ -16,6 +16,7 @@ pub struct CurrentOrganizationRiskV1 {
     active_case: bool,
     risk_frozen: bool,
     undisposed_estate: bool,
+    scope: crate::incremental_organization_scope_index::OrganizationScopeIndexV1,
     guard: PreparedGuard,
     memory: MemoryBudget,
 }
@@ -28,6 +29,28 @@ impl CurrentOrganizationRiskV1 {
     }
     pub fn undisposed_estate(&self) -> bool {
         self.undisposed_estate
+    }
+    /// Enumerates the exact Current estate outer keys for one organization.
+    /// The caller must retain and validate this owner before opening selected
+    /// record bodies; these borrowed IDs are data, not record qualifications.
+    pub fn visit_current_estate_outers_v1(
+        &self,
+        organization: &str,
+        memory: &MemoryBudget,
+        mut charge: impl FnMut(u64, u64) -> Result<(), ValueTreeError>,
+        visit: impl FnMut(&str) -> Result<(), ValueTreeError>,
+    ) -> Result<(), ValueTreeError> {
+        if !self.memory.same_pool(memory) {
+            return Err(bad());
+        }
+        self.scope.visit_matching_outers(
+            OrganizationScopeKindV1::Estate,
+            organization,
+            memory,
+            MemoryClass::Ordinary,
+            &mut charge,
+            visit,
+        )
     }
     pub fn validate<M: MerkleNodeReader>(
         &self,
@@ -224,6 +247,7 @@ pub fn observe_current_organization_risk_v1<
             active_case: protection.active_case,
             risk_frozen: protection.risk_frozen,
             undisposed_estate: estate.undisposed_estate,
+            scope: index,
             guard: tx.guard(),
             memory: read.values.memory.clone(),
         }))

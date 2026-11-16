@@ -654,3 +654,12 @@ pub fn visit_factory_current_outer_changes_v1<
     )?;
     Ok(())
 }
+
+/// Actual complete family cardinalities from the accepted base and both
+/// original closed Current outer-change readers; never a family qualification.
+pub fn read_current_factory_family_counts_v1<M:MerkleNodeReader,R:ValueNodeReader,C:FnMut()->bool>(tx:&ExecutionTransaction<'_,M>,q:&ReservedValue<FactoryFamilyQualificationV1>,ctx:&mut FactoryTransitionReadContextV1<'_,R,C>,work:&mut FactoryWorkBudgetV1)->Result<[u64;2],WorldFieldOverlayErrorV1>{
+ let mut counts=q.record_counts();
+ visit_factory_current_outer_changes_v1(tx,q,ctx,work,|row|{if let FactoryCurrentOuterChangeV1::Record{before,after,..}=&*row{counts[0]=match(before.is_some(),after.is_some()){(false,true)=>counts[0].checked_add(1),(true,false)=>counts[0].checked_sub(1),_=>Some(counts[0])}.ok_or_else(invalid)?;}Ok(())})?;
+ visit_build_current_outer_changes_v1(tx,q,ctx,work,|row|{if let FactoryBuildCurrentOuterChangeV1::Record{before,after,..}=&*row{counts[1]=match(before.is_some(),after.is_some()){(false,true)=>counts[1].checked_add(1),(true,false)=>counts[1].checked_sub(1),_=>Some(counts[1])}.ok_or_else(invalid)?;}Ok(())})?;
+ Ok(counts)
+}

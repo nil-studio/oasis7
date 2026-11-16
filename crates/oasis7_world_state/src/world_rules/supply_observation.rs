@@ -10,16 +10,25 @@ pub fn snapshot_key(region: &str, window: u64) -> String {
     )
 }
 pub fn validate_location(state: &WorldState, agent: &str, location: &str, now: u64) -> bool {
-    state
-        .agent_location_authorities
-        .get(agent)
-        .is_some_and(|a| {
-            a.active && a.agent_id == agent && a.location_id == location && a.effective_at <= now
-        })
-        && state
-            .location_anchors
-            .get(location)
-            .is_some_and(|a| a.active && a.location_id == location && a.effective_at <= now)
+    validate_observation_location_from_records_v1(
+        state.agent_location_authorities.get(agent),
+        state.location_anchors.get(location),
+        agent,
+        location,
+        now,
+    )
+}
+/// The original location predicate over selected actual records; data only.
+pub fn validate_observation_location_from_records_v1(
+    authority: Option<&crate::AgentLocationAuthorityV1>,
+    anchor: Option<&crate::LocationAnchorV1>,
+    agent: &str,
+    location: &str,
+    now: u64,
+) -> bool {
+    authority.is_some_and(|a| {
+        a.active && a.agent_id == agent && a.location_id == location && a.effective_at <= now
+    }) && anchor.is_some_and(|a| a.active && a.location_id == location && a.effective_at <= now)
 }
 impl PreparedWorldRule {
     pub fn observe_supply(
@@ -101,26 +110,8 @@ impl PreparedWorldRule {
                     .max(0)
             });
         }
-        let mut normal: BTreeMap<String, i64> = services
-            .iter()
-            .map(|s| (s.obligation_id.clone(), 0))
-            .collect();
-        let mut intervals = BTreeMap::new();
-        for index in 0..10u64 {
-            let start = now
-                .checked_add(index * 60)
-                .ok_or_else(|| invalid("numeric_overflow"))?;
-            for s in &services {
-                let balance = balances.get_mut(&s.beneficiary_id).unwrap();
-                let coverage = (*balance).min(s.electricity_per_interval);
-                *balance -= coverage;
-                let total = normal.get_mut(&s.obligation_id).unwrap();
-                *total = total
-                    .checked_add(coverage)
-                    .ok_or_else(|| invalid("numeric_overflow"))?;
-                intervals.insert(super::policy::need_key(&s.obligation_id, start), coverage);
-            }
-        }
+        let (normal, intervals) =
+            project_emergency_observation_coverage_v1(&services, &mut balances, now)?;
         let root = crate::util::hash_json(state)?;
         self.rules.emergency_supply.observations.insert(
             key.clone(),
@@ -273,4 +264,32 @@ impl EmergencySupplyStateV1 {
         }
         self.prepare_consumption(actor, obligation, recipe, now, quantity)
     }
+}
+
+/// Original ten-window projection over already-validated service records.
+/// This is data arithmetic, not source/owner/evidence authorization. Bounded
+/// callers prepay the two result maps and all selected rows before calling.
+pub fn project_emergency_observation_coverage_v1(services:&[oasis7_agent_api::world_action::EmergencyServiceRegistrationV1],balances:&mut BTreeMap<String,i64>,now:u64)->Result<(BTreeMap<String,i64>,BTreeMap<String,i64>),WorldError>{
+ match project_emergency_observation_coverage_with_work_v1(services,balances,now,&mut |_|Ok(())){
+  Ok(v)=>Ok(v),Err(super::policy::EmergencyObservationValidationErrorV1::Policy(e))=>Err(e),Err(super::policy::EmergencyObservationValidationErrorV1::Resource(_))=>unreachable!("original no-op fee callback")
+ }
+}
+/// Same fixed ten-window projection over borrowed actual service records.
+/// Fee/cancellation hooks cannot alter loop order or duplicate-ID overwrite.
+pub fn project_emergency_observation_coverage_with_work_v1<S:std::borrow::Borrow<oasis7_agent_api::world_action::EmergencyServiceRegistrationV1>>(services:&[S],balances:&mut BTreeMap<String,i64>,now:u64,fee:&mut impl FnMut(super::policy::EmergencyObservationWorkV1)->Result<(),oasis7_formal_protocol::incremental_value::ValueTreeError>)->Result<(BTreeMap<String,i64>,BTreeMap<String,i64>),super::policy::EmergencyObservationValidationErrorV1>{
+ use super::policy::{EmergencyObservationWorkV1::*,EmergencyObservationValidationErrorV1::Resource};
+ let mut normal=BTreeMap::new();
+ for item in services {let s:&oasis7_agent_api::world_action::EmergencyServiceRegistrationV1=item.borrow();fee(OwnedId{bytes:s.obligation_id.len()}).map_err(Resource)?;normal.insert(s.obligation_id.clone(),0i64);}
+ let mut intervals=BTreeMap::new();
+ for index in 0..10u64 {
+  fee(Read{bytes:0}).map_err(Resource)?;let start=now.checked_add(index*60).ok_or_else(||invalid("numeric_overflow"))?;
+  for item in services {let s:&oasis7_agent_api::world_action::EmergencyServiceRegistrationV1=item.borrow();fee(Read{bytes:s.beneficiary_id.len()}).map_err(Resource)?;
+   let balance=balances.get_mut(&s.beneficiary_id).unwrap();let coverage=(*balance).min(s.electricity_per_interval);*balance-=coverage;
+   fee(Read{bytes:s.obligation_id.len()}).map_err(Resource)?;let total=normal.get_mut(&s.obligation_id).unwrap();*total=total.checked_add(coverage).ok_or_else(||invalid("numeric_overflow"))?;
+   // Original need_key owns its temporary decimal/hash input and fixed 69-byte
+   // output. Admit both before invoking the sole original key producer.
+   let scratch=s.obligation_id.len().saturating_add(20+20+2+69);fee(OwnedId{bytes:scratch}).map_err(Resource)?;
+   intervals.insert(super::policy::need_key(&s.obligation_id,start),coverage);
+  }
+ }Ok((normal,intervals))
 }

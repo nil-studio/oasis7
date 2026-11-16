@@ -185,7 +185,7 @@ fn bind_point<
     } else {
         let decode_kind = match lane {
             RuntimeHistoryLaneV1::Snapshot => RuntimeHistoryDecodeKindV1::Snapshot,
-            RuntimeHistoryLaneV1::Tick => RuntimeHistoryDecodeKindV1::Tick,
+            RuntimeHistoryLaneV1::Tick => RuntimeHistoryDecodeKindV1::TickFamily,
             RuntimeHistoryLaneV1::Audit => RuntimeHistoryDecodeKindV1::Audit,
             _ => unreachable!(),
         };
@@ -202,6 +202,10 @@ fn bind_point<
                 RuntimeHistoryOriginalRefV1::Snapshot(v)
             }
             DecodedRuntimeHistoryOriginalV1::Tick(v) => RuntimeHistoryOriginalRefV1::Tick(v),
+            DecodedRuntimeHistoryOriginalV1::IwsTick(v) => {
+                iws::check_iws_candidate_record_v1(v, index_ordinal, request, ctx, work)?;
+                RuntimeHistoryOriginalRefV1::IwsTick(v)
+            },
             DecodedRuntimeHistoryOriginalV1::Audit(v) => {
                 RuntimeHistoryOriginalRefV1::RejectionAudit(v)
             }
@@ -475,3 +479,6 @@ where
         indexes,
     })
 }
+
+#[path="incremental_runtime_history_candidate_iws.rs"]
+mod iws;

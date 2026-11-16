@@ -384,18 +384,15 @@ impl PreparedProposal {
                     .ok_or_else(|| {
                         invalid(format!("governance proposal missing: {proposal_key}"))
                     })?;
-                proposal.status = if *passed {
-                    GovernanceProposalStatus::Passed
-                } else {
-                    GovernanceProposalStatus::Rejected
-                };
-                proposal.finalized_at = Some(now);
-                proposal.winning_option = winning_option.clone();
-                proposal.winning_weight = *winning_weight;
-                proposal.total_weight_at_finalize = *total_weight;
+                let projected=crate::incremental_normal_gameplay_cycles_selected::selected_governance_finalization_projection_v1(event,now);
+                proposal.status=projected.status;
+                proposal.finalized_at=projected.finalized_at;
+                proposal.winning_option=projected.winning_option.map(str::to_owned);
+                proposal.winning_weight=projected.winning_weight;
+                proposal.total_weight_at_finalize=projected.total_weight_at_finalize;
                 proposals.insert(proposal_key.clone(), proposal);
                 if let Some(mut vote) = state.governance_votes.get(proposal_key).cloned() {
-                    vote.last_updated_at = now;
+                    vote.last_updated_at = projected.vote_last_updated_at;
                     votes.insert(proposal_key.clone(), vote);
                 }
             }
@@ -427,19 +424,7 @@ impl PreparedCrisis {
             } => {
                 crises.insert(
                     crisis_id.clone(),
-                    CrisisState {
-                        crisis_id: crisis_id.clone(),
-                        kind: kind.clone(),
-                        severity: *severity,
-                        status: CrisisStatus::Active,
-                        opened_at: now,
-                        expires_at: *expires_at,
-                        resolver_agent_id: None,
-                        strategy: None,
-                        success: None,
-                        impact: 0,
-                        resolved_at: None,
-                    },
+                    crate::incremental_normal_gameplay_cycles_selected::selected_crisis_spawn_v1(event,now),
                 );
             }
             DomainEvent::CrisisResolved {
@@ -481,10 +466,11 @@ impl PreparedCrisis {
                     state.crises.get(crisis_id).cloned().ok_or_else(|| {
                         invalid(format!("crisis not found for timeout: {crisis_id}"))
                     })?;
-                crisis.status = CrisisStatus::TimedOut;
-                crisis.success = Some(false);
-                crisis.impact = *penalty_impact;
-                crisis.resolved_at = Some(now);
+                let projected=crate::incremental_normal_gameplay_cycles_selected::selected_crisis_timeout_projection_v1(*penalty_impact,now);
+                crisis.status=projected.status;
+                crisis.success=projected.success;
+                crisis.impact=projected.impact;
+                crisis.resolved_at=projected.resolved_at;
                 crises.insert(crisis_id.clone(), crisis);
             }
             _ => unreachable!(),

@@ -7,8 +7,8 @@ fn lifecycle_work() -> FactoryLifecycleWorkV1 {
         steps_remaining: 1_000_000,
         bytes_remaining: 64 << 20,
         pending_entries_remaining: 100_000,
-        max_scalar_bytes: 64 << 10,
-        max_material_entries: 1024,
+        max_scalar_bytes: 4096,
+        max_material_entries: 16,
         factory: oasis7_world_state::incremental_factory_records::FactoryWorkBudgetV1 {
             cells_remaining: 1_000_000,
             max_pending_node_bytes: 16 << 20,
@@ -143,13 +143,7 @@ pub(super) fn assert_factory_fifo(world: World) {
         expected.push(
             oasis7_wasm_abi::encode_canonical_cbor(oracle.journal.events.last().unwrap()).unwrap(),
         );
-        states.push(
-            oracle
-                .state
-                .factories
-                .get("assembler")
-                .map(|f| f.durability_ppm),
-        );
+        states.push(oracle.state.factories.get("assembler").cloned());
         economy.push((
             oracle.state.material_ledgers.clone(),
             oracle
@@ -175,6 +169,10 @@ pub(super) fn assert_factory_fifo(world: World) {
                         operator_agent_id, ..
                     },
                 ) => operator_agent_id == id,
+                crate::WorldEventBody::Domain(crate::DomainEvent::FactoryProductionPaused {
+                    requester_agent_id,
+                    ..
+                }) => requester_agent_id == id,
                 _ => false,
             })
             .map(|event| {
@@ -355,19 +353,18 @@ pub(super) fn assert_factory_fifo(world: World) {
                 take_state_error: || reader.cas.error(),
                 cancelled: || false,
             };
-            let actual = oasis7_world_state::incremental_factory_records::read_factory_cell_overlay_v1(
-                oasis7_world_state::incremental_factory_records::FactoryRecordKeyV1::Factory("assembler"), oasis7_world_state::incremental_factory_records::FactoryCellV1::Column(
-                    oasis7_world_state::incremental_factory_records::FactoryColumnV1::FactoryDurabilityPpm),
-                &mut overlay, 4096, &mut std::io::sink()).unwrap();
-            let expected_cell = states.map_or(
-                oasis7_world_state::incremental_factory_records::FactoryCellReadV1::RecordAbsent,
-                |n| {
-                    oasis7_world_state::incremental_factory_records::FactoryCellReadV1::Value(
-                        oasis7_world_state::incremental_factory_records::FactoryValueV1::Signed(n),
-                    )
-                },
-            );
-            assert_eq!(actual, expected_cell);
+            let guard = overlay.transaction.guard();
+            let mut selected_factory_work = oasis7_world_state::incremental_factory_schedule_factory::FactoryScheduleFactoryWorkV1 {
+                cells_remaining: 100_000,
+                bytes_remaining: 16 << 20,
+                max_text_bytes: 4096,
+                max_tags: 16,
+                max_stacks: 16,
+            };
+            let actual = oasis7_world_state::incremental_factory_schedule_factory::recover_current_schedule_complete_factory_v1(
+                "assembler", fixture.current.native().factory(), &mut overlay, &mut selected_factory_work, &guard, &live,
+            ).unwrap();
+            assert_eq!(actual.as_deref(), states.as_ref());
             use oasis7_world_state::incremental_inventory_read::LedgerQuantityV1;
             let oracle_ledgers = [
                 oasis7_world_state::MaterialLedgerId::World,

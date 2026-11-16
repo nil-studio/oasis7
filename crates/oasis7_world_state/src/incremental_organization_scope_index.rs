@@ -169,6 +169,37 @@ impl OrganizationScopeIndexV1 {
         charge(1, 0)?;
         Ok(out)
     }
+    /// Visits only the original outer keys whose already-qualified Current
+    /// projection belongs to `organization`. The caller supplies the same
+    /// continuous work/cancellation meter used to build the projection.
+    /// Returned strings are borrowed from the retained, immutable index.
+    pub(crate) fn visit_matching_outers(
+        &self,
+        kind: OrganizationScopeKindV1,
+        organization: &str,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+        charge: &mut impl FnMut(u64, u64) -> Result<(), ValueTreeError>,
+        mut visit: impl FnMut(&str) -> Result<(), ValueTreeError>,
+    ) -> Result<(), ValueTreeError> {
+        self.check_budget(memory, class)?;
+        charge(1, 0)?;
+        for (outer, row) in &self.data.rows[kind.index()] {
+            charge_text(
+                charge,
+                1,
+                organization
+                    .len()
+                    .checked_add(row.organization.len())
+                    .and_then(|n| n.checked_add(outer.len()))
+                    .ok_or_else(bound)?,
+            )?;
+            if row.organization == organization {
+                visit(outer)?;
+            }
+        }
+        charge(1, 0)
+    }
     /// Copies resident metadata only when actual typed child roots changed.
     /// No World DTO, quote, history payload or page is loaded here.
     pub(crate) fn copy_for_changes(

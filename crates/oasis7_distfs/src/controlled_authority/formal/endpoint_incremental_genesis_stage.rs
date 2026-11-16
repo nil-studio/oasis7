@@ -10,7 +10,7 @@ impl FileFormalEndpoint {
         if cancelled() {
             return Err(invalid("GEN source cancelled before verification"));
         }
-        if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || self.parent.is_some() || self.recovery.is_some() || candidate.candidate.record.schema_version!=7 || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN source requires fresh initial IWS authority/candidate"));}
+        if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || self.parent.is_some() || self.recovery.is_some() || !oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN source requires fresh initial IWS authority/candidate"));}
         // Original ClosedRecord validation, writer signature/context and the
         // full CompleteEvidence/localwriter/jobs.stage pipeline remain intact.
         let context = self.verify_iws_candidate(candidate, &mut cancelled)?;
@@ -43,7 +43,7 @@ impl FileFormalEndpoint {
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<Option<PaidVerifiedGenesisCommitV1>, FormalError> {
         work.consume_steps(1, stop)?;
-        if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || candidate.candidate.record.schema_version!=7 || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN retained proof requires initial IWS request"));}
+        if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || !oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN retained proof requires initial IWS request"));}
         if !same(
             context.finalizing_authority().definition(),
             self.authority.definition(),

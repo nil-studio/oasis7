@@ -15,6 +15,8 @@ pub(crate) struct AuthenticatedLocalClosureV1 {
     body: [u8; 32],
     roots: [u8; 32],
     page_identity: (u64, u64),
+    native_identity: (u64, u64),
+    generation: Option<[u8; 32]>,
     pages: IncrementalPageStore,
     _native: File,
 }
@@ -33,6 +35,12 @@ impl AuthenticatedLocalClosureV1 {
     }
     pub(crate) fn page_identity(&self) -> (u64, u64) {
         self.page_identity
+    }
+    pub(crate) fn native_identity(&self) -> (u64, u64) {
+        self.native_identity
+    }
+    pub(crate) fn native_generation(&self) -> Option<[u8; 32]> {
+        self.generation
     }
     pub(crate) fn pages(&self) -> &IncrementalPageStore {
         &self.pages
@@ -53,10 +61,50 @@ fn file_identity(file: &File) -> Result<(u64, u64), FormalError> {
         Err(invalid("local closure requires Unix fixed leases"))
     }
 }
+enum ProviderRef<'a> {
+    Legacy(&'a dyn fencing::MonotonicEndpointGuard),
+    Paid(&'a crate::controlled_authority::fencing::PaidRemoteLeaseV1),
+}
+enum EvidenceRef<'a> {
+    Owned(fencing::MonotonicProviderEvidenceV1),
+    Borrowed(&'a fencing::MonotonicProviderEvidenceV1),
+}
+impl std::ops::Deref for EvidenceRef<'_> {
+    type Target = fencing::MonotonicProviderEvidenceV1;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(v) => v,
+            Self::Borrowed(v) => v,
+        }
+    }
+}
+impl ProviderRef<'_> {
+    fn checkpoint(&self) -> &fencing::EndpointCheckpointBindingV1 {
+        match self {
+            Self::Legacy(g) => g.checkpoint(),
+            Self::Paid(g) => g.checkpoint(),
+        }
+    }
+    fn evidence(&self) -> Result<EvidenceRef<'_>, FormalError> {
+        match self {
+            Self::Legacy(g) => g.evidence().map(EvidenceRef::Owned).map_err(fencing_error),
+            Self::Paid(g) => g
+                .evidence()
+                .map(EvidenceRef::Borrowed)
+                .ok_or_else(|| invalid("cold trusted provider evidence absent")),
+        }
+    }
+}
+#[derive(Clone, Copy)]
+enum RecordRef<'a> {
+    Legacy,
+    Paid(&'a ReservedValue<Vec<u8>>),
+}
 fn read_record(
     endpoint: &FileFormalEndpoint,
     memory: &MemoryBudget,
     reference: &str,
+    source: RecordRef<'_>,
     work: &mut LocalClosureReadWorkV1,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<LocalDataClosureRecordV1>, FormalError> {
@@ -81,22 +129,45 @@ fn read_record(
         )
         .map_err(|_| invalid("cold local record admission"))?;
     let _phase = memory
-        .reserve(128 * 1024 * 1024, MemoryClass::Ordinary)
+        .reserve(
+            match source {
+                RecordRef::Legacy => 128 * 1024 * 1024,
+                // Complete fixed record graph: only integers, fixed byte arrays,
+                // tuples and one optional array; no String/Vec/Map/Box fields. Cover
+                // serde diagnostic escaping plus fixed field/type labels as well.
+                RecordRef::Paid(raw) => raw
+                    .len()
+                    .checked_mul(24)
+                    .and_then(|n| n.checked_add(8192))
+                    .ok_or_else(|| invalid("cold local fixed decoder layout"))?,
+            },
+            MemoryClass::Ordinary,
+        )
         .map_err(|_| invalid("cold local uncached metadata admission"))?;
-    let directory = endpoint.store.path.join("formal-objects-v1");
-    let path = crate::controlled_authority::formal::physical::selected_path_uncached(
-        &directory.join(reference),
-        reference,
-    )?;
-    let mut batch = crate::controlled_authority::formal::physical::read_durable_batch_uncached(
-        &directory,
-        &[(
-            path.clone(),
-            reference.to_owned(),
-            LOCAL_DATA_CLOSURE_WIRE_BYTES,
-        )],
-    )?;
-    let raw = match batch
+    let owned;
+    let raw: &[u8] = match source {
+        RecordRef::Paid(raw) => {
+            if !raw.uses_budget(memory) {
+                return Err(invalid("cold local original foreign pool"));
+            }
+            raw.as_slice()
+        }
+        RecordRef::Legacy => {
+            let directory = endpoint.store.path.join("formal-objects-v1");
+            let path = crate::controlled_authority::formal::physical::selected_path_uncached(
+                &directory.join(reference),
+                reference,
+            )?;
+            let mut batch =
+                crate::controlled_authority::formal::physical::read_durable_batch_uncached(
+                    &directory,
+                    &[(
+                        path.clone(),
+                        reference.to_owned(),
+                        LOCAL_DATA_CLOSURE_WIRE_BYTES,
+                    )],
+                )?;
+            owned = match batch
         .pop()
         .ok_or_else(|| invalid("cold local record batch coverage"))?
     {
@@ -108,13 +179,16 @@ fn read_record(
         )?
         .ok_or_else(|| invalid("cold local record missing"))?,
     };
+            &owned
+        }
+    };
     if raw.len() != LOCAL_DATA_CLOSURE_WIRE_BYTES
-        || blake3::hash(&raw).to_hex().as_str() != reference
+        || blake3::hash(raw).to_hex().as_str() != reference
     {
         return Err(invalid("cold local record exact identity/length"));
     }
     let record: LocalDataClosureRecordV1 =
-        serde_cbor::from_slice(&raw).map_err(|e| invalid(e.to_string()))?;
+        serde_cbor::from_slice(raw).map_err(|e| invalid(e.to_string()))?;
     if cancelled() {
         return Err(invalid("cold local record final cancellation"));
     }
@@ -126,6 +200,48 @@ fn read_record(
 pub(in super::super) fn recover_authenticated_local_closure_v1(
     endpoint: &FileFormalEndpoint,
     guard: &dyn fencing::MonotonicEndpointGuard,
+    head: &VerifiedFormalCommitV1,
+    cache: &AcceptedCandidateCache,
+    pages: &IncrementalPageStore,
+    work: &mut LocalClosureReadWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ReservedValue<AuthenticatedLocalClosureV1>, FormalError> {
+    recover_with_sources(
+        endpoint,
+        ProviderRef::Legacy(guard),
+        RecordRef::Legacy,
+        head,
+        cache,
+        pages,
+        work,
+        cancelled,
+    )
+}
+pub(in super::super) fn recover_authenticated_local_closure_paid_v1(
+    endpoint: &FileFormalEndpoint,
+    lease: &crate::controlled_authority::fencing::PaidRemoteLeaseV1,
+    raw: &ReservedValue<Vec<u8>>,
+    head: &VerifiedFormalCommitV1,
+    cache: &AcceptedCandidateCache,
+    pages: &IncrementalPageStore,
+    work: &mut LocalClosureReadWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ReservedValue<AuthenticatedLocalClosureV1>, FormalError> {
+    recover_with_sources(
+        endpoint,
+        ProviderRef::Paid(lease),
+        RecordRef::Paid(raw),
+        head,
+        cache,
+        pages,
+        work,
+        cancelled,
+    )
+}
+fn recover_with_sources(
+    endpoint: &FileFormalEndpoint,
+    guard: ProviderRef<'_>,
+    original: RecordRef<'_>,
     head: &VerifiedFormalCommitV1,
     cache: &AcceptedCandidateCache,
     pages: &IncrementalPageStore,
@@ -150,7 +266,7 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
     {
         return Err(invalid("cold local exact Ordinary source admission"));
     }
-    let AcceptedCurrentOwner::Cold { results, .. } = &cache.current_owner else {
+    let Some(results) = cache.accepted_cold_results() else {
         return Err(invalid(
             "cold local requires actual recovered closed Results",
         ));
@@ -174,7 +290,7 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
     let _phase = memory
         .reserve(fee, MemoryClass::Ordinary)
         .map_err(|_| invalid("cold protected scope admission"))?;
-    let evidence = guard.evidence().map_err(fencing_error)?;
+    let evidence = guard.evidence()?;
     if evidence.signature.len() != 128 || guard.checkpoint() != &endpoint.store.checkpoint {
         return Err(invalid("cold actual protected checkpoint"));
     }
@@ -194,7 +310,7 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
     let native_directory = endpoint.store.path.join("formal-objects-v1");
     let native = crate::controlled_authority::formal::physical::pin(&native_directory, false)?
         .ok_or_else(|| invalid("cold native actual lease unavailable"))?;
-    let record = read_record(endpoint, memory, reference, work, cancelled)?;
+    let record = read_record(endpoint, memory, reference, original, work, cancelled)?;
     record.validate_scope(&endpoint.store.body)?;
     let expected_manifest = fixed_id(
         head.record()
@@ -232,7 +348,42 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
     if page_identity != record.page_lease || native_identity != record.native_lease {
         return Err(invalid("cold local foreign or replaced namespace"));
     }
-    check_maintenance_generation(&record, &native_directory, memory, cancelled)?;
+    let generation = match original {
+        RecordRef::Legacy => {
+            check_maintenance_generation(&record, &native_directory, memory, cancelled)?
+        }
+        RecordRef::Paid(_) => {
+            struct Loan<'a> {
+                steps: &'a mut u64,
+                bytes: &'a mut u64,
+                work: crate::controlled_authority::formal::physical::GenerationSelectedReadWorkV1,
+            }
+            impl Drop for Loan<'_> {
+                fn drop(&mut self) {
+                    *self.steps = self.work.remaining_steps;
+                    *self.bytes = self.work.remaining_read_bytes;
+                }
+            }
+            let actual =
+                crate::controlled_authority::formal::physical::GenerationSelectedReadWorkV1 {
+                    remaining_steps: std::mem::take(&mut work.reads_remaining),
+                    remaining_read_bytes: std::mem::take(&mut work.original_bytes_remaining),
+                };
+            let mut loan = Loan {
+                steps: &mut work.reads_remaining,
+                bytes: &mut work.original_bytes_remaining,
+                work: actual,
+            };
+            let observed = crate::controlled_authority::formal::physical::current_generation_digest_bounded_v1(
+                &native_directory, memory, &mut loan.work, cancelled)?;
+            if observed != record.native_generation {
+                return Err(invalid(
+                    "cold local maintenance generation changed; full rebuild required",
+                ));
+            }
+            observed
+        }
+    };
     if cancelled() {
         return Err(invalid("cold local closure final cancellation"));
     }
@@ -248,6 +399,8 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
         body: record.body,
         roots: record.roots,
         page_identity,
+        native_identity,
+        generation,
         pages: opened,
         _native: native,
     }))

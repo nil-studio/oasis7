@@ -84,8 +84,49 @@ pub struct FactoryOrderDirectoryWorkV1 {
 pub struct AcceptedFactoryOrderDirectoryV1 {
     commit: [u8; 32],
     roots: [u8; 32],
-    ids: ReservedValue<Vec<String>>,
-    indices: Vec<Arc<CachedOrderIndexV1>>,
+    entries: AcceptedOrderEntriesV1,
+}
+enum AcceptedOrderEntriesV1 {
+    Built {
+        ids: ReservedValue<Vec<String>>,
+        indices: Vec<Arc<CachedOrderIndexV1>>,
+    },
+    Sealed(Arc<crate::world::incremental_directory_bundle::SharedFrozenRuntimeDirectoryBundleV1>),
+}
+impl AcceptedFactoryOrderDirectoryV1 {
+    fn ids(&self) -> &[String] {
+        match &self.entries {
+            AcceptedOrderEntriesV1::Built { ids, .. } => ids,
+            AcceptedOrderEntriesV1::Sealed(owner) => owner.orders().ids(),
+        }
+    }
+    fn indices(&self) -> &[Arc<CachedOrderIndexV1>] {
+        match &self.entries {
+            AcceptedOrderEntriesV1::Built { indices, .. } => indices,
+            AcceptedOrderEntriesV1::Sealed(owner) => owner.orders().indices(),
+        }
+    }
+    fn backing_uses_budget(&self, memory: &MemoryBudget) -> bool {
+        match &self.entries {
+            AcceptedOrderEntriesV1::Built { ids, .. } => ids.uses_budget(memory),
+            AcceptedOrderEntriesV1::Sealed(owner) => owner.uses_budget(memory),
+        }
+    }
+    pub(in crate::world) fn prepare_warm_parent_v1(
+        binding: &crate::world::incremental_normal_cache_promotion::WarmSealedDirectoryBindingV1<
+            '_,
+        >,
+    ) -> Result<ReservedValue<Self>, ValueTreeError> {
+        let fee = binding
+            .memory()
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        Ok(fee.retain(Self {
+            commit: binding.body_id(),
+            roots: binding.roots_id(),
+            entries: AcceptedOrderEntriesV1::Sealed(Arc::clone(binding.shared())),
+        }))
+    }
 }
 /// Holds the genuine validated source alive. The snapshot covers ALL orders,
 /// including delivered/terminal entries needed by original identity selection.
@@ -278,8 +319,7 @@ where
         Ok(fee.retain(AcceptedFactoryOrderDirectoryV1 {
             commit: fence.parent_commit,
             roots: fence.parent_roots,
-            ids,
-            indices,
+            entries: AcceptedOrderEntriesV1::Built { ids, indices },
         }))
     })();
     if result.is_err() {
@@ -376,7 +416,7 @@ where
         if ids.capacity() > capacity || indices.capacity() > work.ids.max_ids {
             return Err(ValueTreeError::ResourceLimited("order directory actual capacity").into());
         }
-        for id in parent.ids.iter().chain(changes.iter()) {
+        for id in parent.ids().iter().chain(changes.iter()) {
             if (ctx.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -420,10 +460,10 @@ where
                 .transpose()?
             } else {
                 let position = parent
-                    .ids
+                    .ids()
                     .binary_search(&ids[index])
                     .map_err(|_| ValueTreeError::Invalid("uncertified order identity"))?;
-                Some(Arc::clone(parent.indices.get(position).ok_or(
+                Some(Arc::clone(parent.indices().get(position).ok_or(
                     ValueTreeError::Invalid("accepted order index missing"),
                 )?))
             };
@@ -466,3 +506,21 @@ mod freeze;
 pub(in crate::world) use freeze::{
     FrozenFactoryOrderDirectoryV1, freeze_current_factory_order_directory_v1,
 };
+
+impl AcceptedFactoryOrderDirectoryV1 {
+    pub(in crate::world) fn validate_action_source_v1(
+        &self,
+        fence: &ExecutionFence,
+        memory: &MemoryBudget,
+    ) -> Result<(), ValueTreeError> {
+        if self.commit != fence.parent_commit
+            || self.roots != fence.parent_roots
+            || !self.backing_uses_budget(memory)
+        {
+            return Err(ValueTreeError::Invalid(
+                "normal accepted order directory parent",
+            ));
+        }
+        Ok(())
+    }
+}

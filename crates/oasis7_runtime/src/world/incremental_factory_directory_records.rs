@@ -60,9 +60,54 @@ pub struct FactoryRecipeDirectoryWorkV1 {
 pub struct AcceptedFactoryRecipeDirectoryV1 {
     commit: [u8; 32],
     roots: [u8; 32],
-    factories: Vec<String>,
-    recipes: Vec<u64>,
-    reservations: Vec<RecipeOutputReservationV1>,
+    entries: AcceptedRecipeEntriesV1,
+}
+enum AcceptedRecipeEntriesV1 {
+    Built {
+        factories: Vec<String>,
+        recipes: Vec<u64>,
+        reservations: Vec<RecipeOutputReservationV1>,
+    },
+    Sealed(
+        std::sync::Arc<
+            crate::world::incremental_directory_bundle::SharedFrozenRuntimeDirectoryBundleV1,
+        >,
+    ),
+}
+impl AcceptedFactoryRecipeDirectoryV1 {
+    fn factories(&self) -> &[String] {
+        match &self.entries {
+            AcceptedRecipeEntriesV1::Built { factories, .. } => factories,
+            AcceptedRecipeEntriesV1::Sealed(owner) => owner.records().factories(),
+        }
+    }
+    fn recipes(&self) -> &[u64] {
+        match &self.entries {
+            AcceptedRecipeEntriesV1::Built { recipes, .. } => recipes,
+            AcceptedRecipeEntriesV1::Sealed(owner) => owner.records().recipes(),
+        }
+    }
+    fn reservations(&self) -> &[RecipeOutputReservationV1] {
+        match &self.entries {
+            AcceptedRecipeEntriesV1::Built { reservations, .. } => reservations,
+            AcceptedRecipeEntriesV1::Sealed(owner) => owner.records().reservations(),
+        }
+    }
+    pub(in crate::world) fn prepare_warm_parent_v1(
+        binding: &crate::world::incremental_normal_cache_promotion::WarmSealedDirectoryBindingV1<
+            '_,
+        >,
+    ) -> Result<ReservedValue<Self>, ValueTreeError> {
+        let fee = binding
+            .memory()
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        Ok(fee.retain(Self {
+            commit: binding.body_id(),
+            roots: binding.roots_id(),
+            entries: AcceptedRecipeEntriesV1::Sealed(std::sync::Arc::clone(binding.shared())),
+        }))
+    }
 }
 struct FactoryDelta {
     id: Option<String>,
@@ -492,9 +537,11 @@ where
         Ok(fee.retain(AcceptedFactoryRecipeDirectoryV1 {
             commit: fence.parent_commit,
             roots: fence.parent_roots,
-            factories,
-            recipes,
-            reservations,
+            entries: AcceptedRecipeEntriesV1::Built {
+                factories,
+                recipes,
+                reservations,
+            },
         }))
     })();
     if result.is_err() {
@@ -622,7 +669,7 @@ where
         if factories.capacity() > fcap || recipes.capacity() > rcap {
             return Err(ValueTreeError::ResourceLimited("directory merged actual capacity").into());
         }
-        for id in &parent.factories {
+        for id in parent.factories() {
             if (factory.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -656,7 +703,7 @@ where
                 factories.push(copy);
             }
         }
-        for id in &parent.recipes {
+        for id in parent.recipes() {
             if (recipe.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -744,7 +791,7 @@ where
                 }
                 None => {
                     let index = parent
-                        .reservations
+                        .reservations()
                         .binary_search_by_key(job_id, |reservation| reservation.job_id)
                         .map_err(|_| {
                             Error::from(ValueTreeError::Invalid(
@@ -753,7 +800,7 @@ where
                         })?;
                     let mut cancelled = || (factory.cancelled)() || (recipe.cancelled)();
                     clone_output_reservation_v1(
-                        &parent.reservations[index],
+                        &parent.reservations()[index],
                         memory,
                         work,
                         &mut cancelled,
@@ -801,3 +848,12 @@ mod freeze;
 pub(in crate::world) use freeze::{
     FrozenFactoryRecipeDirectoryV1, freeze_current_factory_recipe_directory_v1,
 };
+
+impl AcceptedFactoryRecipeDirectoryV1 {
+    /// Pure exact-parent borrowing check for the fixed normal tail assembler.
+    pub(in crate::world) fn validate_tail_source_v1(&self,fence:&oasis7_formal_protocol::incremental_execution::ExecutionFence,memory:&MemoryBudget)->Result<(),ValueTreeError>{
+        if self.commit!=fence.parent_commit||self.roots!=fence.parent_roots{return Err(ValueTreeError::Invalid("normal tail accepted recipe parent"))}
+        if let AcceptedRecipeEntriesV1::Sealed(owner)=&self.entries{if !owner.uses_budget(memory){return Err(ValueTreeError::Invalid("normal tail recipe graph pool"))}}
+        Ok(())
+    }
+}

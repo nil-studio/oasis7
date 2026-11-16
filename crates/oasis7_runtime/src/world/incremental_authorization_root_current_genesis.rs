@@ -62,7 +62,7 @@ impl World {
     /// Borrow the actual seven original owners. Output is only provisional
     /// canonical DATA: genuine seven-source joins and parent/tx binding remain
     /// mandatory before Root can install a qualified resident cache.
-    pub(in crate::world) fn prepare_iws_authorization_projection_data_v1(
+    pub fn prepare_iws_authorization_projection_data_v1(
         &self,
         limits: AuthorizationRootCacheLimitsV1,
         common: &mut FormalBoundedContextV1<'_>,

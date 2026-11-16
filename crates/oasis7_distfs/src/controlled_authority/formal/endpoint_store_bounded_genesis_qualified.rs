@@ -262,45 +262,22 @@ impl Store {
             draft, memory, work, stop,
         )?
         .into_draft();
-        let mut ctx = work.bounded_context(memory, stop);
-        let lease = acquire_provider_lease_bounded_v1(
+        let installed = super::bounded_qualified_install::install_signed_qualified_draft_bounded(
+            self,
+            draft,
             provider,
             instance,
-            &self.checkpoint,
             policy,
-            &mut ctx,
-        )?;
-        let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
-        let checkpoint =
-            super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
-                signed, &mut ctx,
-            )?;
-        let begun = begin_signed_native_checkpoint_bounded_v1(provider, checkpoint, &mut ctx)?;
-        let (body, body_fee) = begun.draft().paid_cache_copy(&mut ctx)?;
-        drop(ctx);
-        let (binding, binding_fee) = super::bounded_transaction::copy_checkpoint(
-            begun.next_checkpoint(),
             memory,
             work,
             stop,
+            |draft| draft.into_genesis_sources(),
         )?;
-        #[cfg(test)]
-        if self.fault == Some(1) {
-            return Err(FormalError::Io("injected after provider intent".into()).into());
-        }
-        self.atomic_hot_bounded(begun.native_bytes(), memory, work, stop)?;
-        #[cfg(test)]
-        if self.fault == Some(2) {
-            return Err(FormalError::Io("injected after native checkpoint".into()).into());
-        }
-        let mut ctx = work.bounded_context(memory, stop);
-        let finished = begun.finish_bounded(provider, &mut ctx)?;
-        let source = finished.consume_draft(|draft| draft.into_genesis_sources())?;
-        let quorum = source.inputs.into_quorum();
-        self.body = body;
-        self.checkpoint = binding;
-        self._bounded_cache_fee = Some(body_fee);
-        self._bounded_checkpoint_fee = Some(binding_fee);
+        let quorum = installed.value.inputs.into_quorum();
+        self.body = installed.body;
+        self.checkpoint = installed.checkpoint;
+        self._bounded_cache_fee = Some(installed.body_fee);
+        self._bounded_checkpoint_fee = Some(installed.checkpoint_fee);
         Ok(DurableGenesisPublication { quorum, job })
     }
 }

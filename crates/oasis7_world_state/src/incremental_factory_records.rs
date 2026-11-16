@@ -28,7 +28,8 @@ pub use family::{
 mod current_identity;
 pub use current_identity::{
     FactoryCurrentOuterChangeV1, FactoryOuterRecordRootV1, FactoryQualifiedOuterIdentityV1,
-    visit_factory_current_outer_changes_v1, visit_qualified_factory_parent_identities_v1,
+    read_current_factory_family_counts_v1, visit_factory_current_outer_changes_v1,
+    visit_qualified_factory_parent_identities_v1,
 };
 #[path = "incremental_factory_build_current_identity.rs"]
 mod build_current_identity;
@@ -365,3 +366,6 @@ pub(crate) fn decode_factory_lifecycle_outer_record_v1<
         record_root,
     }))
 }
+
+#[path = "incremental_industry_projection_delta_factory.rs"]
+pub(crate) mod projection;

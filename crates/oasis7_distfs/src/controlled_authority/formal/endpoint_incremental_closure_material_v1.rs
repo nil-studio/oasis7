@@ -187,6 +187,84 @@ fn bind_manifest(
 /// Parent may only be the actual endpoint accepted cache plus genuine Formal
 /// commit. A cold cache without the static baseline must perform full reads.
 #[allow(clippy::too_many_arguments)]
+// The only additional source is the actual paid native checkpoint producer,
+// whose restore produced this genuine accepted head/predecessor. No raw record
+// or supplied branch can construct the private source kind.
+enum MaterialSource<'a> {
+    Candidate(&'a oasis7_formal_protocol::controlled_authority::formal::VerifiedCandidateContextV1),
+    ActualCold(&'a super::super::cold_checkpoint::AuthenticatedColdCheckpointV1),
+}
+impl MaterialSource<'_> {
+    fn record(&self) -> &oasis7_formal_protocol::controlled_authority::formal::CanonicalRecordV1 {
+        match self {
+            Self::Candidate(q) => q.record(),
+            Self::ActualCold(q) => q.head().record(),
+        }
+    }
+    fn branch(&self) -> FormalCompletionBranchV1 {
+        match self {
+            Self::Candidate(q) => q.branch(),
+            Self::ActualCold(q) => q.native().proof().decision.branch,
+        }
+    }
+    fn validate_cold(
+        &self,
+        memory: &MemoryBudget,
+        core: &CheckedCommitCore,
+    ) -> Result<(), FormalError> {
+        if let Self::ActualCold(q) = self {
+            q.validate_material_binding_v1(memory, core)?;
+        }
+        Ok(())
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub(in crate::controlled_authority::formal::endpoint::incremental) fn verify_accepted_cold_execution_material_v1<
+    O: OriginalObjectStreamReader,
+    R: MerkleNodeReader,
+>(
+    endpoint: &FileFormalEndpoint,
+    checkpoint: &super::super::cold_checkpoint::AuthenticatedColdCheckpointV1,
+    core: &ReservedValue<CheckedCommitCore>,
+    objects: &mut O,
+    pages: &IncrementalPageStore,
+    reader: &R,
+    native_work: &mut CoreBudget,
+    artifact_work: &mut ExecutionArtifactBudget,
+    bridge_work: &mut NativeChunkReadWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
+    let FormalRequestStateV1::Qualified { candidate, .. } = checkpoint.state() else {
+        return Err(invalid("cold execution material actual Qualified source"));
+    };
+    let fee = endpoint
+        .store
+        .path
+        .as_os_str()
+        .as_encoded_bytes()
+        .len()
+        .checked_add(1024)
+        .ok_or_else(|| invalid("execution native path bound"))?;
+    let _path_phase = pages
+        .memory_budget()
+        .reserve(fee, MemoryClass::Ordinary)
+        .map_err(|_| invalid("execution native path admission"))?;
+    let directory = endpoint.store.path.join("formal-objects-v1");
+    verify_in_directory_source(
+        &directory,
+        candidate,
+        &MaterialSource::ActualCold(checkpoint),
+        core,
+        objects,
+        pages,
+        reader,
+        None,
+        native_work,
+        artifact_work,
+        bridge_work,
+        cancelled,
+    )
+}
 pub(crate) fn verify_candidate_execution_material_v1<
     O: OriginalObjectStreamReader,
     R: MerkleNodeReader,
@@ -254,6 +332,40 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
     bridge_work: &mut NativeChunkReadWorkV1,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
+    verify_in_directory_source(
+        directory,
+        candidate,
+        &MaterialSource::Candidate(context),
+        core,
+        objects,
+        pages,
+        reader,
+        parent,
+        native_work,
+        artifact_work,
+        bridge_work,
+        cancelled,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_in_directory_source<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
+    directory: &std::path::Path,
+    candidate: &FormalCandidateMaterialV1,
+    context: &MaterialSource<'_>,
+    core: &ReservedValue<CheckedCommitCore>,
+    objects: &mut O,
+    pages: &IncrementalPageStore,
+    reader: &R,
+    parent: Option<(
+        &VerifiedFormalCommitV1,
+        &ReservedValue<CandidateExecutionMaterialV1>,
+    )>,
+    native_work: &mut CoreBudget,
+    artifact_work: &mut ExecutionArtifactBudget,
+    bridge_work: &mut NativeChunkReadWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
     if cancelled() {
         return Err(invalid("execution material candidate cancelled"));
     }
@@ -287,6 +399,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
     {
         return Err(invalid("execution material actual pool/class"));
     }
+    context.validate_cold(memory, core)?;
     if context
         .record()
         .record_id()

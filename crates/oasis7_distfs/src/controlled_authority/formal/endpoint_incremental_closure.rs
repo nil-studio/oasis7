@@ -30,6 +30,7 @@ pub(super) use pages::{StoreReadWitness, StoreSessions, restore_store_read_witne
 #[path = "endpoint_incremental_closure_material_v1.rs"]
 mod material_v1;
 pub use material_v1::NativeWorkerLeaseV1;
+pub(super) use material_v1::verify_accepted_cold_execution_material_v1;
 pub(super) use material_v1::{
     CandidateExecutionMaterialV1, NativeChunkReadWorkV1, verify_candidate_execution_material_v1,
 };
@@ -41,3 +42,5 @@ mod evidence;
 #[path = "endpoint_incremental_closure_originals.rs"]
 mod originals;
 pub(super) use evidence::{CompleteDataClosureEvidenceV1, consume_candidate_data_closure_v1};
+
+pub(super) use evidence::qualify_cold_complete_data_v1;

@@ -16,7 +16,7 @@ use oasis7_world_state::{
 };
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 struct CountedNote {
     original: [u8; 32],
@@ -43,9 +43,10 @@ struct Counts {
 }
 struct Inner {
     memory: MemoryBudget,
-    guard: PreparedGuard,
+    guard: Mutex<PreparedGuard>,
     base_hot: u64,
     counts: Mutex<Counts>,
+    staged: AtomicUsize,
     failed: AtomicBool,
     factory_prologue_claimed: AtomicBool,
     journal_retention: Mutex<Option<usize>>,
@@ -78,7 +79,8 @@ impl WorldEventCounterV1 {
         Ok(Self {
             inner: Arc::new(Inner {
                 memory: memory.clone(),
-                guard,
+                guard: Mutex::new(guard),
+                staged: AtomicUsize::new(0),
                 base_hot: parent.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()].count,
                 counts: Mutex::new(Counts {
                     latest_note: None,
@@ -131,7 +133,8 @@ impl WorldEventCounterV1 {
         {
             return Err(invalid());
         }
-        transaction.validate_transaction_identity(&self.inner.guard)?;
+        let guard = self.inner.guard.lock().map_err(|_| invalid())?;
+        transaction.validate_exact_transaction_identity(&*guard)?;
         Ok(())
     }
     /// One prologue claim across every clone of this sole transaction counter.
@@ -379,3 +382,30 @@ impl super::World {
         }))
     }
 }
+
+#[path = "incremental_world_event_counter_branch.rs"]
+mod staged_branch;
+pub(super) use staged_branch::WorldEventCounterStageV1;
+
+impl WorldJournalRetentionV1 {
+    pub(in crate::world) fn retain_normal_successor_v1(
+        &self,
+        common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<Self>, crate::world::incremental_body::BodyMutationError> {
+        common.consume_steps(1).map_err(|e| {
+            crate::world::incremental_body::BodyMutationError::Original(Box::new(e))
+        })?;
+        let fee = common
+            .memory()
+            .reserve(std::mem::size_of::<Self>(), MemoryClass::Ordinary)
+            .map_err(oasis7_formal_protocol::incremental_value::ValueTreeError::Memory)?;
+        Ok(fee.retain(Self {
+            max_events: self.max_events,
+            class: self.class,
+        }))
+    }
+}
+
+#[path = "incremental_world_event_counter_cold_resources.rs"]
+mod cold_resources;
+pub(in crate::world) use cold_resources::cold_configuration_retention_v1;

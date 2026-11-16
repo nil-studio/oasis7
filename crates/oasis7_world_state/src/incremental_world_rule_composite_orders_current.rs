@@ -528,3 +528,6 @@ mod tests;
 #[path = "incremental_world_rule_composite_orders_index.rs"]
 mod index;
 pub use index::{CurrentAgentOrderIndexV1, read_current_agent_order_index_v1};
+
+#[path="incremental_industrial_delivery_order.rs"] mod industrial_delivery;
+pub use industrial_delivery::{mark_current_industrial_order_delivered_v1,replace_current_industrial_order_v1};

@@ -231,3 +231,5 @@ where
     ctx.check()?;
     Ok(result)
 }
+
+pub(crate) use changed::project_actual_chain_resource_manifest_v1;

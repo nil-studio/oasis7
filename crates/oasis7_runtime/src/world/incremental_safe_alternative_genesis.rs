@@ -14,7 +14,10 @@ use oasis7_world_state::{
     incremental_field_member::{MemberRecordError, MemberRecordWriteContext},
 };
 impl World {
-    pub(crate) fn prepare_iws_cognition_proof_ledger_genesis_v1<W, C>(
+    /// Produce borrowed actual Cognition side-ledger DATA after the caller has
+    /// finalized the complete world roots. The manifest must still enter the
+    /// real Result/Core/endpoint checks; this grants no accepted GEN authority.
+    pub fn prepare_iws_cognition_proof_ledger_genesis_v1<W, C>(
         &self,
         roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
         write: &mut MemberRecordWriteContext<'_, W, C>,

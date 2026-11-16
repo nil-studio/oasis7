@@ -173,6 +173,11 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
                 .and_then(|v| v.checked_mul(16))
                 .and_then(|v| v.checked_add(64))
                 .ok_or(Error::ResourceLimited("sort work overflow"))?;
+            // Comparator clones/re-encodes the actual retained key models.
+            // Debit their admitted byte bound before entering standard sort.
+            let comparison_bytes = allowance.checked_mul(scratch as u64)
+                .ok_or(Error::ResourceLimited("sort byte work overflow"))?;
+            self.engine.allocator.charge_work(allowance, comparison_bytes)?;
             self.engine.work.visits_remaining = self
                 .engine
                 .work

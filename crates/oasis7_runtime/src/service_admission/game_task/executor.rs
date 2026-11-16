@@ -115,23 +115,23 @@ fn validate_executor_binding(
     fence: &GameTaskFenceV1,
     subject: &str,
 ) -> Result<(), String> {
-    if fence.task_status != GameTaskStatusV1::Active || fence.active_goal_reference.is_none() {
-        return Err("task is not executable".into());
-    }
-    let executor = fence
-        .executor_binding
-        .as_ref()
-        .ok_or("task executor unavailable")?;
-    if executor.executor_public_key != subject || subject == fence.owner_public_key {
-        return Err("task requires bound executor signature".into());
-    }
-    strong_key(subject)?;
-    agent_authority::validate_agent_signer(
-        world,
-        &fence.agent_id,
-        subject,
-        executor.delegation_generation.0,
-    )
+    match validate_executor_binding_readonly_v1(fence,subject,&mut|_,_|Ok::<_,std::convert::Infallible>(()),&mut|key|Ok(strong_key(key)),&mut|agent,key,generation|Ok(agent_authority::validate_agent_signer(world,agent,key,generation))){Ok(result)=>result,Err(never)=>match never{}}
+}
+
+/// Original executor reader predicate. Callbacks charge work and read/verify
+/// actual signer sources; they cannot supply a precomputed validity flag.
+pub(crate) fn validate_executor_binding_readonly_v1<E>(
+ fence:&GameTaskFenceV1,subject:&str,work:&mut impl FnMut(u64,usize)->Result<(),E>,
+ strong:&mut impl FnMut(&str)->Result<Result<(),String>,E>,
+ signer:&mut impl FnMut(&str,&str,u64)->Result<Result<(),String>,E>,
+)->Result<Result<(),String>,E>{
+ work(1,0)?;
+ if fence.task_status!=GameTaskStatusV1::Active||fence.active_goal_reference.is_none(){return Ok(Err("task is not executable".into()))}
+ let Some(executor)=fence.executor_binding.as_ref()else{return Ok(Err("task executor unavailable".into()))};
+ work(1,executor.executor_public_key.len()+subject.len()+fence.owner_public_key.len())?;
+ if executor.executor_public_key!=subject||subject==fence.owner_public_key{return Ok(Err("task requires bound executor signature".into()))}
+ if let Err(error)=strong(subject)?{return Ok(Err(error))}
+ signer(&fence.agent_id,subject,executor.delegation_generation.0)
 }
 
 pub(super) fn validate_task_executor_against_tasks(

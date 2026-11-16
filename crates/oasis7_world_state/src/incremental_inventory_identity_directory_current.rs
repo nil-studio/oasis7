@@ -343,3 +343,189 @@ where
     }
     result
 }
+
+/// Original module-request projection of all actual Current ledgers. Empty
+/// ledgers survive; only strictly positive quantities become MaterialStacks.
+pub fn recover_current_inventory_stacks_by_ledger_v1<M, R, E, C, P, V, ER, CR>(
+    directory: &ReservedValue<InventoryIdentityDirectoryV1>,
+    family: &ReservedValue<InventoryFamilyQualificationV1>,
+    roots: &RootSetV1,
+    overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    parent: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
+    family_work: &mut InventoryFamilyWorkV1,
+    work: &mut InventoryIdentityDirectoryWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<
+    ReservedValue<BTreeMap<String, Vec<oasis7_wasm_abi::MaterialStack>>>,
+    WorldFieldOverlayErrorV1,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    ER: FnMut() -> Option<ValueTreeError>,
+    CR: FnMut() -> bool,
+{
+    let result = (|| {
+        overlay.transaction.validate_guard(guard, live)?;
+        let tree = fold(directory, family, roots, overlay, parent, family_work, work)?;
+        let mut groups = 0usize;
+        let mut entries = 0usize;
+        let mut text = 0usize;
+        tree::all(
+            &tree,
+            work,
+            &mut || (overlay.cancelled)() || (parent.cancelled)(),
+            &mut |id| {
+                if let Some(ledger) = &id.ledger {
+                    if let Some(material) = &id.material {
+                        entries = entries.checked_add(1).ok_or_else(invalid)?;
+                        text = text.checked_add(material.len()).ok_or_else(invalid)?;
+                    } else {
+                        groups = groups.checked_add(1).ok_or_else(invalid)?;
+                        let (_, name) = ledger_parts(Some(ledger_ref(ledger)));
+                        text = name
+                            .len()
+                            .checked_add(32)
+                            .and_then(|n| n.checked_mul(2))
+                            .and_then(|n| text.checked_add(n))
+                            .ok_or_else(invalid)?;
+                    }
+                }
+                Ok(())
+            },
+        )?;
+        if groups.checked_add(entries).ok_or_else(invalid)? > work.max_output_entries {
+            return Err(ValueTreeError::ResourceLimited("inventory module input entries").into());
+        }
+        let memory = overlay.values.memory;
+        let group_fee = memory
+            .reserve(
+                groups
+                    .checked_mul(size_of::<Arc<ReservedValue<Identity>>>())
+                    .ok_or_else(invalid)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
+        let mut ledgers = Vec::with_capacity(groups);
+        if ledgers.capacity() > groups {
+            return Err(invalid().into());
+        }
+        tree::all(
+            &tree,
+            work,
+            &mut || (overlay.cancelled)() || (parent.cancelled)(),
+            &mut |id| {
+                if id.ledger.is_some() && id.material.is_none() {
+                    ledgers.push(Arc::clone(id));
+                }
+                Ok(())
+            },
+        )?;
+        // One BTree node per entry is deliberately conservative, including
+        // header/edge padding; all Strings and complete vector capacity are paid.
+        let bytes = groups
+            .checked_mul(
+                16 * (size_of::<String>()
+                    + size_of::<Vec<oasis7_wasm_abi::MaterialStack>>()
+                    + 4 * size_of::<usize>()),
+            )
+            .and_then(|n| {
+                entries
+                    .checked_mul(size_of::<oasis7_wasm_abi::MaterialStack>())
+                    .and_then(|v| n.checked_add(v))
+            })
+            .and_then(|n| n.checked_add(text))
+            .and_then(|n| {
+                n.checked_add(size_of::<
+                    BTreeMap<String, Vec<oasis7_wasm_abi::MaterialStack>>,
+                >())
+            })
+            .ok_or_else(invalid)?;
+        let fee = memory
+            .reserve(bytes, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let mut output = BTreeMap::new();
+        for id in &ledgers {
+            let ledger = id.ledger.as_ref().ok_or_else(invalid)?;
+            let guard = overlay.transaction.guard();
+            let values = recover_current_inventory_ledger_v1(
+                ledger,
+                directory,
+                family,
+                roots,
+                overlay,
+                parent,
+                family_work,
+                work,
+                &guard,
+                live,
+            )?;
+            let values = values.as_ref().ok_or_else(invalid)?;
+            let mut stacks = Vec::with_capacity(values.len());
+            if stacks.capacity() > values.len() {
+                return Err(invalid().into());
+            }
+            for (kind, quantity) in values {
+                work.step(kind.len(), &mut || {
+                    (overlay.cancelled)() || (parent.cancelled)()
+                })?;
+                if *quantity > 0 {
+                    let owned = kind.clone();
+                    if owned.capacity() > kind.len() {
+                        return Err(invalid().into());
+                    }
+                    stacks.push(oasis7_wasm_abi::MaterialStack::new(owned, *quantity));
+                }
+            }
+            let (_, name) = ledger_parts(Some(ledger_ref(ledger)));
+            let comparisons = 12usize * usize::BITS as usize;
+            work.visits_remaining = work
+                .visits_remaining
+                .checked_sub(comparisons as u64)
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "inventory module map comparisons",
+                ))?;
+            work.comparison_bytes_remaining = work
+                .comparison_bytes_remaining
+                .checked_sub(
+                    (name
+                        .len()
+                        .checked_add(32)
+                        .and_then(|n| n.checked_mul(comparisons))
+                        .ok_or_else(invalid)?) as u64,
+                )
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "inventory module map comparison bytes",
+                ))?;
+            let key = ledger.to_string();
+            if key.capacity()
+                > name
+                    .len()
+                    .checked_add(32)
+                    .and_then(|n| n.checked_mul(2))
+                    .ok_or_else(invalid)?
+            {
+                return Err(invalid().into());
+            }
+            // Matches original BTree<MaterialLedgerId>::iter().collect(): a
+            // display-key collision replaces the earlier ledger's projection.
+            output.insert(key, stacks);
+        }
+        drop(ledgers);
+        drop(group_fee);
+        let guard = overlay.transaction.guard();
+        overlay.transaction.validate_guard(&guard, live)?;
+        Ok(fee.retain(output))
+    })();
+    if result.is_err() {
+        let _: Result<(), ExecutionError> = overlay
+            .transaction
+            .contribute(|_| Err(ExecutionError::Aborted));
+    }
+    result
+}

@@ -419,3 +419,7 @@ where
         Ok(())
     }
 }
+
+#[path = "incremental_runtime_projection_aux_resources_codec.rs"]
+mod projection;
+pub(crate) use projection::project_actual_chain_resource_manifest_v1;

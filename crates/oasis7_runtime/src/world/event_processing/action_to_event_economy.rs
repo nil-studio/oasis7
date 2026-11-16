@@ -577,6 +577,7 @@ mod factory_schedule_recipe;
 mod factory_schedule_sources;
 pub(in crate::world) mod factory_schedule_fixed {
     pub(in crate::world) use super::action_to_event_economy_support::resolve_recipe_bottleneck_tags;
+    pub(in crate::world) use super::action_to_event_economy_support::resolve_recipe_bottleneck_tags_with_work_v1;
     pub(in crate::world) use super::factory_schedule_build::*;
     pub(in crate::world) use super::factory_schedule_recipe::*;
     pub(in crate::world) use super::factory_schedule_sources::*;

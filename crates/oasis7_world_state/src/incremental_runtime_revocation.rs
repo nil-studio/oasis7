@@ -108,9 +108,15 @@ mod bytes;
 
 #[path = "incremental_runtime_revocation_current_identity.rs"]
 mod current_identity;
+#[path = "incremental_runtime_revocation_module_admission.rs"]
+mod module_admission;
 pub use current_identity::{
     CurrentRevocationAgentIdentityV1, read_current_revocation_agent_identity_v1,
     resolve_manufactured_identity_generation_v1,
+};
+pub use module_admission::{
+    ModuleAdmissionRevocationRequestV1, ModuleAdmissionRevocationValueV1,
+    read_current_module_admission_revocation_v1,
 };
 #[path = "incremental_runtime_revocation_current_alternative.rs"]
 mod current_alternative;
@@ -132,3 +138,30 @@ pub use authority::{
     AuthorityRevocationProjectionV1, recover_current_authority_revocation_v1,
     recover_qualified_authority_revocation_v1,
 };
+
+#[path = "incremental_runtime_revocation_bootstrap.rs"]
+mod bootstrap;
+pub use bootstrap::{
+    BootstrapRevocationChangeV1, BootstrapRevocationWriteKindV1, BootstrapRevocationWriteReceiptV1,
+    publish_current_bootstrap_revocation_v1,
+};
+
+#[path = "incremental_runtime_revocation_bootstrap_set.rs"]
+mod bootstrap_set;
+pub use bootstrap_set::{CurrentBootstrapRevokedSetV1, read_current_bootstrap_revoked_set_v1};
+
+#[path = "incremental_runtime_revocation_business_diff.rs"]
+mod business_diff;
+pub use business_diff::{
+    BusinessDiffProcessingWorkV1, CurrentAuthorityGenerationV1, CurrentBusinessResultChangeV1,
+    CurrentBusinessResultDeltaV1, read_current_authority_generation_v1,
+    read_current_business_participant_v1, read_current_business_result_delta_v1,
+};
+
+#[path="incremental_runtime_revocation_projection.rs"]
+mod projection;
+pub use projection::{CurrentRuntimeRevocationProjectionDeltaV1,RevocationProjectionPatchRefV1,RevocationProjectionContainerV1,read_current_runtime_revocation_projection_delta_v1};
+
+#[path="incremental_runtime_revocation_projection_cold.rs"]
+mod projection_cold;
+pub use projection_cold::{QualifiedRuntimeRevocationProjectionColumnsV1,read_qualified_runtime_revocation_projection_columns_v1};

@@ -137,43 +137,25 @@ where
         + StatePageWriter,
     C: FnMut() -> bool,
 {
-    if start == end {
-        return Ok((NO_BID_ID, BidIndexSummaryV1 { size: 0, height: 0 }));
-    }
-    let middle = start + (end - start) / 2;
-    let (left_id, left) =
-        append_balanced(descriptor, root, start, middle, middle, context, remaining)?;
-    let (right_id, right) = append_balanced(
-        descriptor,
-        root,
-        middle + 1,
-        end,
-        middle,
-        context,
-        remaining,
-    )?;
-    if middle == NO_BID_ID {
-        return Err(MemberRecordError::Invalid("marketplace bid ID sentinel"));
-    }
-    let node = BidIndexNodeV1 {
-        left_id,
-        right_id,
-        left_size: left.size,
-        left_height: left.height,
-        right_size: right.size,
-        right_height: right.height,
-        parent_id,
-    };
-    let summary = node.summary()?;
-    append_member(
-        descriptor,
-        root,
-        &(("bid", middle), BID_INDEX_NODE_FIELD),
-        MemberPayloadRefV1::FixedU64x7(node.fields()),
-        context,
-        remaining,
-    )?;
-    Ok((middle, summary))
+    visit_balanced_nodes_v1(start,end,parent_id,&mut|_|Ok(()),&mut|id,node|{
+        append_member(descriptor,root,&(("bid",id),BID_INDEX_NODE_FIELD),MemberPayloadRefV1::FixedU64x7(node.fields()),context,remaining)
+    })
+}
+/// The one original GEN tree shape. This emits DATA nodes and grants neither
+/// a root binding nor permission to install a live/cold cache.
+pub(crate) fn visit_balanced_nodes_v1<E:From<MemberRecordError>>(
+ start:u64,end:u64,parent_id:u64,
+ work:&mut dyn FnMut(usize)->Result<(),E>,emit:&mut dyn FnMut(u64,BidIndexNodeV1)->Result<(),E>,
+)->Result<(u64,BidIndexSummaryV1),E>{
+ work(1)?;
+ if start==end{return Ok((NO_BID_ID,BidIndexSummaryV1{size:0,height:0}))}
+ let middle=start+(end-start)/2;
+ let(left_id,left)=visit_balanced_nodes_v1(start,middle,middle,work,emit)?;
+ let(right_id,right)=visit_balanced_nodes_v1(middle+1,end,middle,work,emit)?;
+ if middle==NO_BID_ID{return Err(E::from(MemberRecordError::Invalid("marketplace bid ID sentinel")))}
+ let node=BidIndexNodeV1{left_id,right_id,left_size:left.size,left_height:left.height,right_size:right.size,right_height:right.height,parent_id};
+ let summary=node.summary().map_err(MemberRecordError::from).map_err(E::from)?;
+ emit(middle,node)?;Ok((middle,summary))
 }
 
 #[expect(

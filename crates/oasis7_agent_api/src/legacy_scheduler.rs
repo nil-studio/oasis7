@@ -70,6 +70,34 @@ impl WakeConditionV1 {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WakeSchemeV2 {
+    Legacy,
+    IwsCurrent,
+}
+impl WakeSchemeV2 {
+    fn schema(self) -> &'static str {
+        match self {
+            Self::Legacy => WAKE_SCHEMA,
+            Self::IwsCurrent => "iws-wake-condition.v2",
+        }
+    }
+    fn conditions_domain(self) -> &'static str {
+        match self {
+            Self::Legacy => WAKE_CONDITIONS_DIGEST_DOMAIN,
+            Self::IwsCurrent => "oasis7.cognition.iws-wake-conditions.v2",
+        }
+    }
+    fn evaluation_domain(self) -> &'static str {
+        match self {
+            Self::Legacy => "oasis7.cognition.wake-evaluation.v1",
+            Self::IwsCurrent => "oasis7.cognition.iws-wake-evaluation.v2",
+        }
+    }
+}
+#[path="legacy_scheduler_work.rs"]
+mod work;
+pub use work::WakeConditionWorkErrorV1;
 pub struct WakeConditionValidator;
 
 impl WakeConditionValidator {
@@ -81,37 +109,61 @@ impl WakeConditionValidator {
         conditions: &[WakeConditionV1],
         require_canonical_order: bool,
     ) -> Result<(), WakeConditionError> {
+        Self::validate_internal_in_scheme(conditions, require_canonical_order, WakeSchemeV2::Legacy)
+    }
+    pub(crate) fn validate_internal_in_scheme(
+        conditions: &[WakeConditionV1],
+        require_canonical_order: bool,
+        scheme: WakeSchemeV2,
+    ) -> Result<(), WakeConditionError> {
+        work::legacy(Self::validate_internal_with_source_v1(conditions,require_canonical_order,scheme,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+    }
+    pub fn validate_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(conditions:&[WakeConditionV1],source:&A)->Result<Result<(),WakeConditionError>,oasis7_wasm_abi::CanonicalCborStreamError>{
+        match Self::validate_internal_with_source_v1(conditions,true,WakeSchemeV2::Legacy,source){Ok(())=>Ok(Ok(())),Err(work::WakeConditionWorkErrorV1::Business(e))=>Ok(Err(e)),Err(work::WakeConditionWorkErrorV1::Work(e))=>Err(e)}
+    }
+    fn validate_internal_with_source_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(conditions:&[WakeConditionV1],require_canonical_order:bool,scheme:WakeSchemeV2,source:&A)->Result<(),work::WakeConditionWorkErrorV1>{
         if conditions.is_empty() {
-            return Err(WakeConditionError::new("wake_conditions_empty"));
+            return Err(WakeConditionError::new("wake_conditions_empty").into());
         }
         if conditions.len() > MAX_CONDITIONS {
-            return Err(WakeConditionError::new("wake_condition_invalid"));
+            return Err(WakeConditionError::new("wake_condition_invalid").into());
         }
         let mut seen = BTreeSet::new();
         let mut total = 0usize;
         let mut previous: Option<Vec<u8>> = None;
-        for condition in conditions {
-            Self::validate_one(condition)?;
-            let bytes = Self::canonical_bytes(condition);
+        let mut fees:[Option<A::Charge>;MAX_CONDITIONS]=std::array::from_fn(|_|None);
+        for (index,condition) in conditions.iter().enumerate() {
+            Self::validate_one_with_source_v1(condition, scheme, source)?;
+            let encoded = work::canonical_condition(condition,source)?;
+            let bytes = encoded.value;
+            let heap=bytes.len().checked_mul(2).and_then(|n|n.checked_add(11*(std::mem::size_of::<Vec<u8>>()+32)+256)).ok_or(oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited("wake condition set layout"))?;
+            source.charge_work(1+(bytes.len()* (seen.len()+2))as u64,(bytes.len()*2)as u64)?;
+            fees[index]=Some(source.reserve(heap)?);
             if bytes.len() > MAX_ITEM_BYTES || !seen.insert(bytes.clone()) {
-                return Err(WakeConditionError::new("wake_condition_invalid"));
+                return Err(WakeConditionError::new("wake_condition_invalid").into());
             }
             if require_canonical_order && previous.as_ref().is_some_and(|item| item > &bytes) {
-                return Err(WakeConditionError::new("wake_condition_invalid"));
+                return Err(WakeConditionError::new("wake_condition_invalid").into());
             }
             previous = Some(bytes.clone());
             total = total.saturating_add(bytes.len());
             if total > MAX_LIST_BYTES {
-                return Err(WakeConditionError::new("wake_condition_invalid"));
+                return Err(WakeConditionError::new("wake_condition_invalid").into());
             }
         }
         Ok(())
     }
 
     pub fn canonicalize(
-        mut conditions: Vec<WakeConditionV1>,
+        conditions: Vec<WakeConditionV1>,
     ) -> Result<Vec<WakeConditionV1>, WakeConditionError> {
-        Self::validate_internal(&conditions, false)?;
+        Self::canonicalize_in_scheme(conditions, WakeSchemeV2::Legacy)
+    }
+    pub(crate) fn canonicalize_in_scheme(
+        mut conditions: Vec<WakeConditionV1>,
+        scheme: WakeSchemeV2,
+    ) -> Result<Vec<WakeConditionV1>, WakeConditionError> {
+        Self::validate_internal_in_scheme(&conditions, false, scheme)?;
         conditions.sort_by_key(Self::canonical_bytes);
         Ok(conditions)
     }
@@ -122,6 +174,12 @@ impl WakeConditionValidator {
     }
 
     pub fn conditions_digest(conditions: &[WakeConditionV1]) -> String {
+        Self::conditions_digest_in_scheme(conditions, WakeSchemeV2::Legacy)
+    }
+    pub(crate) fn conditions_digest_in_scheme(
+        conditions: &[WakeConditionV1],
+        scheme: WakeSchemeV2,
+    ) -> String {
         // The list is explicitly set-like in the v1 wake contract.  Always
         // sort here as well as in `canonicalize`, so callers cannot
         // accidentally create a different identity by hashing a non-canonical
@@ -129,14 +187,21 @@ impl WakeConditionValidator {
         let mut canonical = conditions.to_vec();
         canonical.sort_by_key(Self::canonical_bytes);
         let bytes = oasis7_wasm_abi::encode_canonical_cbor(&canonical).unwrap_or_default();
-        h_v1(WAKE_CONDITIONS_DIGEST_DOMAIN, &bytes)
+        h_v1(scheme.conditions_domain(), &bytes)
     }
 
     pub fn evaluate(
         conditions: &[WakeConditionV1],
         context: &WakeEvaluationContext,
     ) -> Result<WakeEvaluation, WakeConditionError> {
-        let canonical = Self::canonicalize(conditions.to_vec())?;
+        Self::evaluate_in_scheme(conditions, context, WakeSchemeV2::Legacy)
+    }
+    pub(crate) fn evaluate_in_scheme(
+        conditions: &[WakeConditionV1],
+        context: &WakeEvaluationContext,
+        scheme: WakeSchemeV2,
+    ) -> Result<WakeEvaluation, WakeConditionError> {
+        let canonical = Self::canonicalize_in_scheme(conditions.to_vec(), scheme)?;
         let mut expired = false;
         let mut all_met = true;
         for condition in &canonical {
@@ -144,7 +209,7 @@ impl WakeConditionValidator {
             expired |= reference_expired;
             all_met &= met;
         }
-        let conditions_digest = Self::conditions_digest(canonical.as_slice());
+        let conditions_digest = Self::conditions_digest_in_scheme(canonical.as_slice(), scheme);
         let (status, reason) = if expired {
             ("expired", "wake_condition_expired")
         } else if all_met {
@@ -153,7 +218,7 @@ impl WakeConditionValidator {
             ("pending", "condition_not_met")
         };
         let evaluation_digest = h_v1(
-            "oasis7.cognition.wake-evaluation.v1",
+            scheme.evaluation_domain(),
             &(
                 conditions_digest.as_str(),
                 status,
@@ -185,7 +250,14 @@ impl WakeConditionValidator {
         conditions: &[WakeConditionV1],
         current_tick: u64,
     ) -> Result<Option<u64>, WakeConditionError> {
-        Self::validate(conditions)?;
+        Self::next_wake_tick_in_scheme(conditions, current_tick, WakeSchemeV2::Legacy)
+    }
+    pub(crate) fn next_wake_tick_in_scheme(
+        conditions: &[WakeConditionV1],
+        current_tick: u64,
+        scheme: WakeSchemeV2,
+    ) -> Result<Option<u64>, WakeConditionError> {
+        Self::validate_internal_in_scheme(conditions, true, scheme)?;
         Ok(conditions
             .iter()
             .filter_map(|condition| condition.logical_tick)
@@ -193,9 +265,16 @@ impl WakeConditionValidator {
             .max())
     }
 
-    fn validate_one(condition: &WakeConditionV1) -> Result<(), WakeConditionError> {
-        if condition.schema_version != WAKE_SCHEMA {
-            return Err(WakeConditionError::new("wake_condition_invalid"));
+    pub(crate) fn validate_one_in_scheme(
+        condition: &WakeConditionV1,
+        scheme: WakeSchemeV2,
+    ) -> Result<(), WakeConditionError> {
+        work::legacy(Self::validate_one_with_source_v1(condition,scheme,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+    }
+    fn validate_one_with_source_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(condition:&WakeConditionV1,scheme:WakeSchemeV2,source:&A)->Result<(),work::WakeConditionWorkErrorV1>{
+        work::fields(condition,source)?;
+        if condition.schema_version != scheme.schema() {
+            return Err(WakeConditionError::new("wake_condition_invalid").into());
         }
         let present = [
             condition.logical_tick.is_some(),
@@ -210,27 +289,31 @@ impl WakeConditionValidator {
         match condition.kind.as_str() {
             "at_or_after_tick" if exact([true, false, false, false, false, false, false]) => Ok(()),
             "world_event_committed" if exact([false, true, false, false, false, false, false]) => {
-                Self::canonical_digest(condition.event_digest.as_deref())
+                Self::canonical_digest(condition.event_digest.as_deref()).map_err(Into::into)
             }
             "receipt_linked" if exact([false, false, true, false, false, false, false]) => {
-                Self::canonical_digest(condition.receipt_id.as_deref())
+                Self::canonical_digest(condition.receipt_id.as_deref()).map_err(Into::into)
             }
             "state_predicate" if exact([false, false, false, true, true, true, true]) => {
                 let subject = condition.subject.as_ref().expect("presence checked");
                 let path = condition.path_or_rule.as_deref().expect("presence checked");
                 if !is_canonical_identifier(&subject.id, MAX_ID_BYTES) {
-                    return Err(WakeConditionError::new("wake_condition_invalid"));
+                    return Err(WakeConditionError::new("wake_condition_invalid").into());
                 }
                 let (expected_subject, numeric) = match path {
                     "world.logical_tick" | "world.reorg_epoch" => ("world", true),
-                    "world.state_root" | "world.runtime_manifest_hash" => ("world", false),
+                    "world.state_root" if scheme == WakeSchemeV2::Legacy => ("world", false),
+                    "world.iws_current_commitment.v1" if scheme == WakeSchemeV2::IwsCurrent => {
+                        ("world", false)
+                    }
+                    "world.runtime_manifest_hash" => ("world", false),
                     "agent.status"
                     | "agent.position"
                     | "agent.inventory_digest"
                     | "agent.capability_snapshot_hash" => ("agent", false),
                     path if is_supported_resource_path(path) => ("agent", true),
                     "intent.status" => ("intent", false),
-                    _ => return Err(WakeConditionError::new("wake_condition_invalid")),
+                    _ => return Err(WakeConditionError::new("wake_condition_invalid").into()),
                 };
                 if subject.kind != expected_subject
                     || path.len() > MAX_PATH_BYTES
@@ -240,28 +323,36 @@ impl WakeConditionValidator {
                     )
                     || (!numeric && !matches!(condition.operator.as_deref(), Some("eq" | "neq")))
                 {
-                    return Err(WakeConditionError::new("wake_condition_invalid"));
+                    return Err(WakeConditionError::new("wake_condition_invalid").into());
                 }
                 let expected = condition
                     .expected_value_bytes
                     .as_ref()
                     .expect("presence checked");
-                let Ok(value) = serde_cbor::from_slice::<serde_cbor::Value>(expected) else {
-                    return Err(WakeConditionError::new("wake_condition_invalid"));
+                let _decode_fee=work::before_expected(expected,source)?;
+                let value = if scheme == WakeSchemeV2::IwsCurrent {
+                    // New scheme has only closed predicate layouts. Decode
+                    // those original CBOR types directly: an attacker cannot
+                    // turn a tiny wire array/map hint into a generic Value
+                    // allocation before the later canonical check.
+                    decode_iws_predicate_value(path, expected)?
+                } else {
+                    let Ok(value) = serde_cbor::from_slice::<serde_cbor::Value>(expected) else {
+                        return Err(WakeConditionError::new("wake_condition_invalid").into());
+                    };
+                    value
                 };
-                let Ok(canonical) = oasis7_wasm_abi::encode_canonical_cbor(&value) else {
-                    return Err(WakeConditionError::new("wake_condition_invalid"));
-                };
+                let canonical=match work::encode_value(&value,source){Ok(value)=>value,Err(oasis7_wasm_abi::CanonicalCborStreamError::Invalid(_))=>return Err(WakeConditionError::new("wake_condition_invalid").into()),Err(error)=>return Err(error.into())};
                 if expected.is_empty()
                     || expected.len() > 512
-                    || canonical.as_slice() != expected.as_slice()
-                    || !valid_predicate_value(path, &value)
+                    || canonical.value.as_slice() != expected.as_slice()
+                    || !valid_predicate_value_in_scheme(path, &value, scheme)
                 {
-                    return Err(WakeConditionError::new("wake_condition_invalid"));
+                    return Err(WakeConditionError::new("wake_condition_invalid").into());
                 }
                 Ok(())
             }
-            _ => Err(WakeConditionError::new("wake_condition_invalid")),
+            _ => Err(WakeConditionError::new("wake_condition_invalid").into()),
         }
     }
 
@@ -287,7 +378,56 @@ fn valid_blake3_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-fn valid_predicate_value(path: &str, value: &serde_cbor::Value) -> bool {
+fn valid_iws_current_digest(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|hex| {
+        hex.len() == 64
+            && hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
+fn decode_iws_predicate_value(
+    path: &str,
+    wire: &[u8],
+) -> Result<serde_cbor::Value, WakeConditionError> {
+    let bad = || WakeConditionError::new("wake_condition_invalid");
+    if wire.is_empty() || wire.len() > 512 {
+        return Err(bad());
+    }
+    match path {
+        "world.logical_tick" | "world.reorg_epoch" => {
+            let value: u64 = serde_cbor::from_slice(wire).map_err(|_| bad())?;
+            Ok(serde_cbor::Value::Integer(i128::from(value)))
+        }
+        path if is_supported_resource_path(path) => {
+            let value: i64 = serde_cbor::from_slice(wire).map_err(|_| bad())?;
+            Ok(serde_cbor::Value::Integer(i128::from(value)))
+        }
+        "agent.position" => {
+            let [x, y]: [i64; 2] = serde_cbor::from_slice(wire).map_err(|_| bad())?;
+            Ok(serde_cbor::Value::Array(vec![
+                serde_cbor::Value::Integer(i128::from(x)),
+                serde_cbor::Value::Integer(i128::from(y)),
+            ]))
+        }
+        _ => {
+            // Borrowed decoding admits no owned String/scratch for indefinite
+            // input. Such encodings would fail the original canonical check.
+            let value: &str = serde_cbor::from_slice(wire).map_err(|_| bad())?;
+            if value.len() > MAX_ID_BYTES {
+                return Err(bad());
+            }
+            Ok(serde_cbor::Value::Text(value.to_owned()))
+        }
+    }
+}
+
+fn valid_predicate_value_in_scheme(
+    path: &str,
+    value: &serde_cbor::Value,
+    scheme: WakeSchemeV2,
+) -> bool {
     match path {
         "world.logical_tick" | "world.reorg_epoch" => matches!(
             value,
@@ -308,8 +448,13 @@ fn valid_predicate_value(path: &str, value: &serde_cbor::Value) -> bool {
             }),
             _ => false,
         },
-        "world.state_root"
-        | "world.runtime_manifest_hash"
+        "world.state_root" if scheme == WakeSchemeV2::Legacy => {
+            matches!(value,serde_cbor::Value::Text(value)if !value.is_empty()&&value.len()<=MAX_ID_BYTES)
+        }
+        "world.iws_current_commitment.v1" if scheme == WakeSchemeV2::IwsCurrent => {
+            matches!(value,serde_cbor::Value::Text(value)if valid_iws_current_digest(value))
+        }
+        "world.runtime_manifest_hash"
         | "agent.inventory_digest"
         | "agent.capability_snapshot_hash" => {
             matches!(value, serde_cbor::Value::Text(value) if !value.is_empty() && value.len() <= MAX_ID_BYTES)
@@ -612,7 +757,7 @@ struct ContinuationProposalDigestInput<'a> {
     policy_revision: u64,
     precondition_summary: &'a str,
     precondition_digest: &'a str,
-    wake_conditions: Vec<WakeConditionV1>,
+    wake_conditions: &'a [WakeConditionV1],
     valid_until_tick: Option<u64>,
     source: &'a str,
 }
@@ -654,8 +799,8 @@ impl CognitionContinuationResumeRequestV1 {
 impl CognitionContinuationProposalV1 {
     /// Recompute the canonical paired-schema digest. Runtime-derived
     /// branch/finality and wake-tick fields are intentionally excluded.
-    pub fn proposal_digest(&self) -> String {
-        let payload = ContinuationProposalDigestInput {
+    pub(crate) fn proposal_digest_input(&self) -> impl Serialize + '_ {
+        ContinuationProposalDigestInput {
             schema_version: self.schema_version,
             continuation_proposal_id: &self.continuation_proposal_id,
             world_id: &self.world_id,
@@ -674,16 +819,24 @@ impl CognitionContinuationProposalV1 {
             policy_revision: self.policy_revision,
             precondition_summary: &self.precondition_summary,
             precondition_digest: &self.precondition_digest,
-            wake_conditions: self.wake_conditions.clone(),
+            wake_conditions: &self.wake_conditions,
             valid_until_tick: self.valid_until_tick,
             source: &self.source,
-        };
-        h_v1("oasis7.cognition.continuation-proposal.v1", &payload)
+        }
+    }
+    pub fn proposal_digest(&self) -> String {
+        h_v1(
+            "oasis7.cognition.continuation-proposal.v1",
+            &self.proposal_digest_input(),
+        )
     }
 
-    pub fn validate(&self) -> Result<(), WakeConditionError> {
+    pub(crate) fn validate_identity_for_schema(
+        &self,
+        version: u16,
+    ) -> Result<(), WakeConditionError> {
         let bounded = |value: &str| is_canonical_identifier(value, MAX_ID_BYTES);
-        if self.schema_version != 1
+        if self.schema_version != version
             || !bounded(&self.continuation_proposal_id)
             || !bounded(&self.world_id)
             || !bounded(&self.agent_id)
@@ -710,7 +863,14 @@ impl CognitionContinuationProposalV1 {
                 &self.finality_status,
                 self.finality_block_hash.as_deref(),
             )
-            || WakeConditionValidator::validate(self.wake_conditions.as_slice()).is_err()
+        {
+            return Err(WakeConditionError::new("continuation_proposal_invalid"));
+        }
+        Ok(())
+    }
+    pub fn validate(&self) -> Result<(), WakeConditionError> {
+        self.validate_identity_for_schema(1)?;
+        if WakeConditionValidator::validate(self.wake_conditions.as_slice()).is_err()
             || self.proposal_digest != self.proposal_digest()
         {
             return Err(WakeConditionError::new("continuation_proposal_invalid"));
@@ -760,7 +920,7 @@ pub struct PreconditionSubjectV1 {
     pub id: String,
 }
 
-fn is_canonical_identifier(value: &str, max_bytes: usize) -> bool {
+pub(crate) fn is_canonical_identifier(value: &str, max_bytes: usize) -> bool {
     !value.trim().is_empty()
         && value.len() <= max_bytes
         && !value.chars().any(char::is_control)
@@ -775,3 +935,61 @@ pub fn digest<T: Serialize>(domain: &str, payload: &T) -> String {
     format!("blake3:{}", blake3::hash(&bytes))
 }
 use digest as h_v1;
+
+#[cfg(test)]
+mod iws_expected_layout_tests {
+    use super::*;
+    #[test]
+    fn iws_predicates_decode_only_fixed_layouts_before_canonical_validation() {
+        let encode =
+            |value: &serde_cbor::Value| oasis7_wasm_abi::encode_canonical_cbor(value).unwrap();
+        for (path, value) in [
+            (
+                "world.logical_tick",
+                serde_cbor::Value::Integer(u64::MAX as i128),
+            ),
+            ("world.reorg_epoch", serde_cbor::Value::Integer(0)),
+            (
+                "agent.position",
+                serde_cbor::Value::Array(vec![
+                    serde_cbor::Value::Integer(i64::MIN as i128),
+                    serde_cbor::Value::Integer(i64::MAX as i128),
+                ]),
+            ),
+            ("agent.status", serde_cbor::Value::Text("active".into())),
+            (
+                "world.iws_current_commitment.v1",
+                serde_cbor::Value::Text(format!("sha256:{}", "0".repeat(64))),
+            ),
+        ] {
+            assert_eq!(
+                decode_iws_predicate_value(path, &encode(&value)).unwrap(),
+                value
+            );
+        }
+        // Massive array/map/byte-string/text hints have only nine input bytes;
+        // all must fail at their fixed typed decoder, without a Value graph.
+        for major in [0x5b, 0x7b, 0x9b, 0xbb] {
+            let mut wire = vec![major];
+            wire.extend_from_slice(&u64::MAX.to_be_bytes());
+            for path in ["agent.position", "agent.status", "world.logical_tick"] {
+                assert!(decode_iws_predicate_value(path, &wire).is_err());
+            }
+        }
+        assert!(
+            decode_iws_predicate_value(
+                "agent.status",
+                &encode(&serde_cbor::Value::Text("x".repeat(129)))
+            )
+            .is_err()
+        );
+        assert!(
+            decode_iws_predicate_value(
+                "world.logical_tick",
+                &encode(&serde_cbor::Value::Integer(-1))
+            )
+            .is_err()
+        );
+        assert!(decode_iws_predicate_value("agent.position", &[0x81, 0x00]).is_err());
+    }
+}

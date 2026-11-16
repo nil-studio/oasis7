@@ -1024,6 +1024,8 @@ mod resource_balance_kernel;
 
 #[path = "incremental_action_factory_lifecycle.rs"]
 mod incremental_action_factory_lifecycle;
+#[path="incremental_normal_action_profile.rs"]
+mod incremental_normal_action_profile;
 #[path = "incremental_action_route_availability.rs"]
 mod incremental_action_route_availability;
 
@@ -1073,3 +1075,129 @@ pub(in crate::world) mod incremental_safe_alternative_genesis;
 pub(in crate::world) mod incremental_authorization_root_current;
 
 mod incremental_normal_action_factory_schedule;
+
+#[path = "incremental_normal_world_rule_lifecycle.rs"]
+mod incremental_normal_world_rule_lifecycle;
+#[path = "incremental_normal_world_rule_observation_v2.rs"]
+mod incremental_normal_world_rule_observation_v2;
+pub use incremental_normal_world_rule_observation_v2::{
+    ObservationJsonOriginalSinkV2, ObservationJsonOriginalStreamV2,
+    ObservationOriginalStreamFailedV2,
+};
+
+#[path="incremental_normal_gameplay_cycles.rs"]
+pub(in crate::world) mod incremental_normal_gameplay_cycles;
+#[path="incremental_normal_claim_epochs.rs"]
+pub(in crate::world) mod incremental_normal_claim_epochs;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_organization_tail.rs"]
+pub(in crate::world) mod incremental_normal_organization_tail;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_system_tail.rs"]
+pub(in crate::world) mod incremental_normal_system_tail;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_tick_finalize.rs"]
+pub(in crate::world) mod incremental_normal_tick_finalize;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_cognition_owned.rs"]
+pub(in crate::world) mod incremental_normal_cognition_owned;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_cognition_expiry.rs"]
+pub(in crate::world) mod incremental_normal_cognition_expiry;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_cognition_registered_turn.rs"]
+pub(in crate::world) mod incremental_normal_cognition_registered_turn;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_cognition_service_evidence.rs"]
+pub(in crate::world) mod incremental_normal_cognition_service_evidence;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_cognition_commit.rs"]
+pub(in crate::world) mod incremental_normal_cognition_commit;
+
+#[path = "incremental_normal_cognition_service.rs"]
+pub(in crate::world) mod incremental_normal_cognition_service;
+#[path = "incremental_normal_cognition_completion.rs"]
+pub(in crate::world) mod incremental_normal_cognition_completion;
+
+#[path = "incremental_normal_action_work.rs"]
+mod incremental_normal_action_work;
+
+#[path = "incremental_normal_queue.rs"]
+mod incremental_normal_queue;
+
+#[path = "incremental_normal_tick_driver.rs"]
+mod incremental_normal_tick_driver;
+
+#[path = "incremental_normal_action_module_lifecycle.rs"]
+mod incremental_normal_action_module_lifecycle;
+
+mod incremental_module_artifact_identity_payload;
+pub(in crate::world) use incremental_module_artifact_identity_payload::prepare_identity_signature_payload_v1;
+
+mod incremental_normal_action_module_identity_current;
+pub(in crate::world) use incremental_normal_action_module_identity_current::{
+    validate_current_module_artifact_identity_v1,
+    validate_module_artifact_identity_from_legacy_v1,
+    validate_module_artifact_identity_fields_from_legacy_v1,
+};
+
+mod incremental_normal_action_module_state_keys_current;
+pub(in crate::world) use incremental_normal_action_module_state_keys_current::{
+    PaidCurrentModuleStateKeysV1, read_current_module_state_keys_v1,
+};
+
+mod incremental_module_artifact_original;
+pub(in crate::world) use incremental_module_artifact_original::{persist_artifact_original_data_v1,ArtifactOriginalWriteErrorV1};
+
+mod incremental_module_capability_admission_rules;
+pub(in crate::world) use incremental_module_capability_admission_rules::{
+    ModuleCapabilityAdmissionSourcesV1,ModuleCapabilityAdmissionFeesV1,
+    PaidModuleCapabilityAdmissionV1,validate_current_module_required_capability_v1,
+    PaidCurrentModuleGovernanceFinalityV1, CurrentModuleGovernanceFinalityErrorV1,
+    validate_current_module_governance_finality_v1,
+    PaidCurrentLocalModuleGovernanceFinalityV1, build_current_local_module_governance_finality_v1,
+    PaidCurrentModuleEpochSnapshotV1, read_current_module_epoch_snapshot_v1,
+};
+
+pub(in crate::world) use incremental_normal_action_module_lifecycle::instance_current::validate_gameplay_activation_conflicts_from_legacy_v1;
+
+mod incremental_normal_source_action_views;
+
+mod incremental_normal_parent_caches;
+
+pub mod incremental_normal_cache_promotion;
+
+#[path = "incremental_normal_tail_sources.rs"]
+mod incremental_normal_tail_sources;
+
+#[path = "incremental_normal_host_work.rs"]
+mod incremental_normal_host_work;
+
+#[path = "incremental_normal_committed_input.rs"]
+mod incremental_normal_committed_input;
+
+#[path = "incremental_normal_host_context.rs"]
+mod incremental_normal_host_context;
+
+#[path = "incremental_normal_input_decode.rs"]
+mod incremental_normal_input_decode;
+
+mod incremental_normal_host_finish;
+mod incremental_normal_provider_bootstrap_decode;
+pub use incremental_normal_provider_bootstrap_decode::{provider_bootstrap_owned_layout_v1,decode_provider_bootstrap_data_v1};
+
+mod incremental_normal_host_driver;
+
+mod incremental_normal_final_sources;
+
+
+
+include!("incremental_normal_host_modules.rs");

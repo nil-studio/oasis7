@@ -141,3 +141,6 @@ pub use membership::{
     apply_prepared_continuity_settlement_v1, prepare_continuity_settlement_pause_v1,
     prepare_continuity_settlement_receipt_v1, read_current_continuity_settlement_row_v1,
 };
+
+/// Fixed system command writer; no arbitrary patch input is exported.
+pub use membership::apply_current_organization_continuity_system_v1;

@@ -1,6 +1,8 @@
 //! Typed collection keys and fixed-arity original tuples.
 use super::*;
 pub(crate) trait CollectionKey: Ord + Sized {
+ fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>;
+
     type Semantic<'a>: SemanticKeyV1
     where
         Self: 'a;
@@ -8,7 +10,8 @@ pub(crate) trait CollectionKey: Ord + Sized {
     fn from_column(key: ColumnKeyV1) -> Result<Self, ValueTreeError>;
     fn accepts_column(key: &ColumnKeyV1) -> bool;
 }
-impl CollectionKey for String {
+impl CollectionKey for String {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+
     type Semantic<'a> = &'a str;
     fn semantic_key(&self) -> &str {
         self.as_str()
@@ -23,7 +26,8 @@ impl CollectionKey for String {
         }
     }
 }
-impl CollectionKey for u64 {
+impl CollectionKey for u64 {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+
     type Semantic<'a> = u64;
     fn semantic_key(&self) -> u64 {
         *self
@@ -38,7 +42,8 @@ impl CollectionKey for u64 {
         }
     }
 }
-impl<A: CollectionKey, B: CollectionKey> CollectionKey for (A, B) {
+impl<A: CollectionKey, B: CollectionKey> CollectionKey for (A, B) {fn key_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(A::key_decode_layout_v1(visit)?);l.merge(B::key_decode_layout_v1(visit)?);Ok(l)}
+
     type Semantic<'a>
         = (A::Semantic<'a>, B::Semantic<'a>)
     where
@@ -63,7 +68,8 @@ impl<A: CollectionKey, B: CollectionKey> CollectionKey for (A, B) {
 macro_rules! tuple {
 (@accept 2;$a:ident,$b:ident;$profile:expr,$before:expr,$after:expr,$d:expr)=>{crate::incremental_typed_record_diff::accept_tuple2::<$a,$b,_,_,_,_>($profile,$before,$after,$d)};
 (@accept 3;$a:ident,$b:ident,$c:ident;$profile:expr,$before:expr,$after:expr,$d:expr)=>{crate::incremental_typed_record_diff::accept_tuple3::<$a,$b,$c,_,_,_,_>($profile,$before,$after,$d)};
-($n:tt; $(($ty:ident,$name:ident,$index:literal)),+) => {impl<$($ty:Codec),+> Codec for ($($ty,)+) {
+($n:tt; $(($ty:ident,$name:ident,$index:literal)),+) => {impl<$($ty:Codec),+> Codec for ($($ty,)+) {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();$(l.merge($ty::owned_decode_layout_v1(visit)?);)+Ok(l)}
+
 fn accept_changed<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(profile:&TypedRecordProfileV1,before:Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,after:Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,d:&mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_,M,R,E,C>)->Result<(),ValueTreeError>{
     tuple!(@accept $n; $($ty),+; profile,before,after,d)
 }

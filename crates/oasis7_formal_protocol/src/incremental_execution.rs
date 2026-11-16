@@ -16,7 +16,8 @@ mod transaction;
 pub use transaction::{
     CurrentRootsPreviewErrorV1, CurrentRootsPreviewV1, ExecutionTransaction, PreparedGuard,
     SealWithFinalFactError, SealedExecutionBindingV1, SealedExecutionTransitionV1,
-    TransactionLimits,
+    StagedBranchDispositionV1, StagedBranchRejoinEvidenceV1, StagedExecutionBranchErrorV1,
+    StagedExecutionBranchV1, TransactionLimits,
 };
 #[path = "incremental_transition.rs"]
 mod transition;

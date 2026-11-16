@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use super::super::{
     ActiveGameplayModule, GAMEPLAY_BASELINE_KINDS, GameplayContract, GameplayKindCoverage,
@@ -69,9 +69,15 @@ impl World {
         &self,
         module: &ModuleManifest,
     ) -> Result<(), WorldError> {
+        Self::validate_gameplay_contract_for_manifest_data_v1(module)
+    }
+
+    pub(super) fn validate_gameplay_contract_for_manifest_data_v1(
+        module:&ModuleManifest,
+    )->Result<(),WorldError>{
         match (&module.role, &module.abi_contract.gameplay) {
             (ModuleRole::Gameplay, Some(gameplay)) => {
-                self.validate_gameplay_contract(module, gameplay)
+                Self::validate_gameplay_contract_data_v1(module, gameplay)
             }
             (ModuleRole::Gameplay, None) => Err(WorldError::ModuleChangeInvalid {
                 reason: format!(
@@ -89,8 +95,7 @@ impl World {
         }
     }
 
-    fn validate_gameplay_contract(
-        &self,
+    fn validate_gameplay_contract_data_v1(
         module: &ModuleManifest,
         gameplay: &GameplayContract,
     ) -> Result<(), WorldError> {
@@ -151,86 +156,7 @@ impl World {
         &self,
         changes: &super::super::ModuleChangeSet,
     ) -> Result<(), WorldError> {
-        let mut post_change_active = self.module_registry.active.clone();
-        for deactivation in &changes.deactivate {
-            post_change_active.remove(&deactivation.module_id);
-        }
-        for upgrade in &changes.upgrade {
-            if post_change_active
-                .get(&upgrade.module_id)
-                .is_some_and(|version| version == &upgrade.from_version)
-            {
-                post_change_active.insert(upgrade.module_id.clone(), upgrade.to_version.clone());
-            }
-        }
-        for activation in &changes.activate {
-            post_change_active.insert(activation.module_id.clone(), activation.version.clone());
-        }
-
-        let mut claimed_slots: BTreeMap<(String, GameplayModuleKind), String> = BTreeMap::new();
-        for (module_id, version) in &post_change_active {
-            let manifest =
-                self.resolve_module_manifest_for_version(changes, module_id.as_str(), version)?;
-            if manifest.role != ModuleRole::Gameplay {
-                continue;
-            }
-            let Some(gameplay) = &manifest.abi_contract.gameplay else {
-                continue;
-            };
-            for mode in &gameplay.game_modes {
-                let slot = (mode.clone(), gameplay.kind);
-                match claimed_slots.get(&slot) {
-                    Some(existing_module_id) if existing_module_id != module_id => {
-                        return Err(WorldError::ModuleChangeInvalid {
-                            reason: format!(
-                                "gameplay slot conflict mode='{}' kind='{}': {} vs {}",
-                                slot.0,
-                                slot.1.as_str(),
-                                existing_module_id,
-                                module_id
-                            ),
-                        });
-                    }
-                    Some(_) => {}
-                    None => {
-                        claimed_slots.insert(slot, module_id.clone());
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        crate::world::validate_gameplay_activation_conflicts_from_legacy_v1(self, changes)
     }
 
-    fn resolve_module_manifest_for_version<'a>(
-        &'a self,
-        changes: &'a super::super::ModuleChangeSet,
-        module_id: &str,
-        version: &str,
-    ) -> Result<&'a ModuleManifest, WorldError> {
-        if let Some(manifest) = changes
-            .register
-            .iter()
-            .find(|manifest| manifest.module_id == module_id && manifest.version == version)
-        {
-            return Ok(manifest);
-        }
-        if let Some(manifest) = changes.upgrade.iter().find_map(|upgrade| {
-            if upgrade.module_id == module_id && upgrade.to_version == version {
-                Some(&upgrade.manifest)
-            } else {
-                None
-            }
-        }) {
-            return Ok(manifest);
-        }
-        let record_key = ModuleRegistry::record_key(module_id, version);
-        self.module_registry
-            .records
-            .get(&record_key)
-            .map(|record| &record.manifest)
-            .ok_or_else(|| WorldError::ModuleChangeInvalid {
-                reason: format!("module record missing for activation {record_key}"),
-            })
-    }
 }

@@ -38,6 +38,9 @@ pub(super) trait ReservationValidationOps {
     fn authority_id(&self) -> Option<&str> {
         None
     }
+    fn parent_head(&self) -> Option<&FormalHeadRefV1> {
+        None
+    }
     fn preimage(&mut self, body: &FormalFrozenBodyV1) -> Result<Self::Preimage, FormalError>;
     fn crypto_work(&mut self, n: usize) -> Result<(), FormalError>;
     fn before_clone(&mut self, _: &SignedFormalFrozenV1) -> Result<(), FormalError>;
@@ -80,11 +83,12 @@ pub(super) fn verify_formal_reservation_with<O: ReservationValidationOps>(
     {
         return Err(invalid("frozen reservation incremental parent format"));
     }
-    super::proof::verify_normal_parent_continuity_with_id(
+    super::proof::verify_normal_parent_continuity_with_ids(
         authority,
         parent,
         body.next_position,
         ops.authority_id(),
+        ops.parent_head(),
     )?;
     if parent
         .record()
@@ -103,7 +107,11 @@ pub(super) fn verify_formal_reservation_with<O: ReservationValidationOps>(
             .as_ref()
         || body.epoch != authority.definition().epoch
         || body.activation_ref != authority.activation_ref()
-        || body.parent != parent.head()
+        || body.parent
+            != match ops.parent_head() {
+                Some(head) => head.clone(),
+                None => parent.head(),
+            }
         || body.pre_state_root != parent.record().after_state_root
         || body.governing_manifest_digest != parent.record().governing_manifest_digest
         || body.execution_policy_digest != parent.record().execution_policy_digest
@@ -406,10 +414,17 @@ impl FormalFrozenCertificateV1 {
         verify_frozen_certificate_with(self, authority, activation_ref, &mut LegacyCertificateOps)
     }
     pub fn matches_record(&self, record: &CanonicalRecordV1) -> Result<(), FormalError> {
+        self.matches_record_with(record, || self.reservation.body.reservation_id())
+    }
+    pub(super) fn matches_record_with<T: AsRef<str>>(
+        &self,
+        record: &CanonicalRecordV1,
+        reservation_id: impl FnOnce() -> Result<T, FormalError>,
+    ) -> Result<(), FormalError> {
         let body = &self.reservation.body;
         if ((body.schema_version == 4) != super::incremental::is_iws_record(record.schema_version))
             || (body.schema_version >= 3 && record.schema_version < 5)
-            || record.frozen_reservation_id.as_deref() != Some(body.reservation_id()?.as_str())
+            || record.frozen_reservation_id.as_deref() != Some(reservation_id()?.as_ref())
             || record.world != body.world
             || record.original_authority_id != body.authority_id
             || record.original_epoch != body.epoch

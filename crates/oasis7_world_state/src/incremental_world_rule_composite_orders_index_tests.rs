@@ -20,6 +20,7 @@ fn actual_order_index_reads_only_phase_factory_target_and_delivery_without_quote
     order.delivered_at = None;
     order.quote.dependency_digest = "large-unread-quote".repeat(32768);
     let expected_factory = order.factory_id.clone();
+    let expected_owner = order.owner_id.clone();
     let expected_target = order.target_agent_id.clone();
     let source = std::collections::BTreeMap::from([("a".into(), order)]);
     let (memory, pages, roots) = fx::seed(&source);
@@ -90,6 +91,7 @@ fn actual_order_index_reads_only_phase_factory_target_and_delivery_without_quote
         crate::world_rules::AgentIndustrialPhaseV1::Producing
     );
     assert_eq!(index.factory_id(), expected_factory);
+    assert_eq!(index.owner_id(), expected_owner);
     assert_eq!(index.target_agent_id(), expected_target);
     assert_eq!(index.delivered_at(), None);
     let guard = ctx.transaction.guard();

@@ -1074,3 +1074,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
 mod tests;
 
 pub(crate) use primitives::accept_world_primitive_verified_v1;
+
+pub use module_marketplace::projection::{CurrentMarketplaceProjectionDeltaV1,MarketplaceProjectionPatchRefV1,read_current_marketplace_projection_delta_v1};
+
+pub use module_marketplace::projection::{QualifiedMarketplaceProjectionColumnsV1,read_qualified_marketplace_projection_columns_v1};

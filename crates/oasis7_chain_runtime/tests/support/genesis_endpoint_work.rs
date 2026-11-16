@@ -181,7 +181,21 @@ pub(crate) fn source_work()
         max_depth: 64,
         max_key_bytes: 4096,
     };
+    let proof_json = || oasis7_world_state::incremental_json_records::JsonReadWorkV1 {
+        cells_remaining: 1_000_000,
+        json_nodes_remaining: 1_000_000,
+        max_depth: 64,
+        max_payload_bytes: 32 << 20,
+    };
     IwsCandidateSourceWorkV1 {
+        proof_ledger_metadata_steps: 1_000_000,
+        proof_ledger_metadata_bytes: 1 << 20,
+        proof_ledger_cold: proof_json(),
+        proof_ledger_changed: oasis7_world_state::incremental_json_records::JsonChangeWorkV1 {
+            json: proof_json(),
+            paths_remaining: 1_000_000,
+            max_pending_pairs: 65536,
+        },
         router: WorldResultRouterWorkV1 {
             facts: facts(),
             envelope: structure(),

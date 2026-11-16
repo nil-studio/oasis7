@@ -245,3 +245,20 @@ pub(super) fn material<E: From<ValueTreeError>>(
     }
     self::material(&node.right, material, work, cancelled, emit)
 }
+
+/// Walk the resident identities in original ledger/material order.
+pub(super) fn all(
+    root: &Option<NodeRef>,
+    work: &mut InventoryIdentityDirectoryWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+    emit: &mut impl FnMut(&Arc<ReservedValue<Identity>>) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    work.step(0, cancelled)?;
+    if let Some(node) = root {
+        all(&node.left, work, cancelled, emit)?;
+        work.step(node.id.material.as_ref().map_or(0, String::len), cancelled)?;
+        emit(&node.id)?;
+        all(&node.right, work, cancelled, emit)?;
+    }
+    Ok(())
+}

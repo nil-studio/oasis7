@@ -48,3 +48,7 @@ impl CompleteDataClosureEvidenceV1 {
 #[path = "endpoint_incremental_closure_pipeline.rs"]
 mod pipeline;
 pub(crate) use pipeline::consume_candidate_data_closure_v1;
+
+#[path = "endpoint_incremental_closure_cold_evidence.rs"]
+mod cold;
+pub(in crate::controlled_authority::formal::endpoint::incremental) use cold::qualify_cold_complete_data_v1;

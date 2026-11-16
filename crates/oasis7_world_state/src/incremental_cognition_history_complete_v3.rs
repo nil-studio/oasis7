@@ -22,6 +22,11 @@ pub struct CheckedCognitionHistorySourceV3 {
     parts: CheckedCognitionHistoryComponentsV3,
 }
 impl CheckedCognitionHistorySourceV3 {
+    pub fn disabled(&self)->Option<&ReservedValue<CheckedDisabledCognitionHistorySourceV3>>{self.parts.disabled.as_ref()}
+
+    /// Borrowed checked DATA; no accepted occurrence is constructed.
+    pub fn indexes(&self) -> &[Option<ReservedValue<CheckedCognitionHistoryIndexSourceV3>>;4] { &self.parts.indexes }
+
     pub fn selected(&self) -> &ReservedValue<CheckedCognitionHistoryViewV1> {
         &self.parts.selected
     }

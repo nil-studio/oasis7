@@ -724,3 +724,5 @@ pub(super) fn admitted_cache_accesses() -> (u64, u64) {
 }
 
 pub(crate) use generation::current_generation_digest_uncached;
+
+pub(crate) use generation::current_generation_digest_bounded_v1;

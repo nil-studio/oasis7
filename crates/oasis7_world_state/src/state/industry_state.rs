@@ -291,39 +291,47 @@ pub struct FactoryProductionSnapshot {
 
 impl FactoryProductionSnapshot {
     pub fn from_recipe_job(job: &RecipeJobState) -> Self {
-        Self {
-            recipe_id: job.recipe_id.clone(),
-            consume: normalize_material_stacks(&job.consume),
-            produce: normalize_material_stacks(&job.produce),
-            byproducts: normalize_material_stacks(&job.byproducts),
-            consume_ledger: job.consume_ledger.clone(),
-            power_required: job.power_required,
-            output_ledger: job.output_ledger.clone(),
-            bottleneck_tags: normalize_bottleneck_tags(&job.bottleneck_tags),
-            logistics_route_ids: job.logistics_route_ids.clone(),
-            logistics_path_ids: job.logistics_path_ids.clone(),
-        }
+        match Self::from_recipe_job_with_work_v1(job,&mut |_|Ok::<_,std::convert::Infallible>(())) {Ok(value)=>value,Err(never)=>match never{}}
+    }
+    /// Work-only extension of the original normalization/clone kernel.
+    pub fn from_recipe_job_with_work_v1<E>(job:&RecipeJobState,work:&mut impl FnMut(usize)->Result<(),E>)->Result<Self,E>{
+        work(std::mem::size_of::<Self>())?;
+        let recipe_id=clone_snapshot_text(&job.recipe_id,work)?;
+        let consume=normalize_material_stacks(&job.consume,work)?;
+        let produce=normalize_material_stacks(&job.produce,work)?;
+        let byproducts=normalize_material_stacks(&job.byproducts,work)?;
+        let consume_ledger=clone_snapshot_ledger(&job.consume_ledger,work)?;
+        let output_ledger=clone_snapshot_ledger(&job.output_ledger,work)?;
+        let bottleneck_tags=normalize_bottleneck_tags(&job.bottleneck_tags,work)?;
+        let logistics_route_ids=clone_snapshot_strings(&job.logistics_route_ids,work)?;
+        let logistics_path_ids=clone_snapshot_strings(&job.logistics_path_ids,work)?;
+        Ok(Self{recipe_id,consume,produce,byproducts,consume_ledger,power_required:job.power_required,output_ledger,bottleneck_tags,logistics_route_ids,logistics_path_ids})
+    }
+    pub fn visit_readonly_comparison_bytes_v1<E>(&self,work:&mut impl FnMut(usize)->Result<(),E>)->Result<(),E>{
+        let Self{recipe_id,consume,produce,byproducts,consume_ledger,power_required:_,output_ledger,bottleneck_tags,logistics_route_ids,logistics_path_ids}=self;
+        work(std::mem::size_of::<Self>())?;work(recipe_id.len())?;
+        for stacks in [consume,produce,byproducts]{for stack in stacks{work(std::mem::size_of::<MaterialStack>().saturating_add(stack.kind.len()))?;}}
+        for ledger in [consume_ledger,output_ledger]{work(match ledger{MaterialLedgerId::World=>1,MaterialLedgerId::Agent(v)|MaterialLedgerId::Site(v)|MaterialLedgerId::Factory(v)=>v.len().saturating_add(1)})?;}
+        for strings in [bottleneck_tags,logistics_route_ids,logistics_path_ids]{for text in strings{work(std::mem::size_of::<String>().saturating_add(text.len()))?;}}
+        Ok(())
     }
 }
-
-fn normalize_material_stacks(stacks: &[MaterialStack]) -> Vec<MaterialStack> {
+fn clone_snapshot_text<E>(text:&str,work:&mut impl FnMut(usize)->Result<(),E>)->Result<String,E>{work(text.len().saturating_add(std::mem::size_of::<String>()))?;Ok(text.to_owned())}
+fn clone_snapshot_ledger<E>(ledger:&MaterialLedgerId,work:&mut impl FnMut(usize)->Result<(),E>)->Result<MaterialLedgerId,E>{Ok(match ledger{MaterialLedgerId::World=>MaterialLedgerId::World,MaterialLedgerId::Agent(v)=>MaterialLedgerId::Agent(clone_snapshot_text(v,work)?),MaterialLedgerId::Site(v)=>MaterialLedgerId::Site(clone_snapshot_text(v,work)?),MaterialLedgerId::Factory(v)=>MaterialLedgerId::Factory(clone_snapshot_text(v,work)?)})}
+fn clone_snapshot_strings<E>(strings:&[String],work:&mut impl FnMut(usize)->Result<(),E>)->Result<Vec<String>,E>{work(strings.len().saturating_mul(std::mem::size_of::<String>()))?;let mut out=Vec::with_capacity(strings.len());for text in strings{out.push(clone_snapshot_text(text,work)?);}Ok(out)}
+fn normalize_material_stacks<E>(stacks: &[MaterialStack],work:&mut impl FnMut(usize)->Result<(),E>) -> Result<Vec<MaterialStack>,E> {
     let mut merged = BTreeMap::<String, i64>::new();
     for stack in stacks {
+        let levels=(merged.len()+1).ilog2() as usize+2;
+        work(512usize.saturating_mul(levels).saturating_add(stack.kind.len().saturating_add(1).saturating_mul(levels.saturating_mul(2).saturating_add(4))))?;
         let kind = stack.kind.trim().to_ascii_lowercase();
         let amount = merged.entry(kind).or_default();
         *amount = amount.saturating_add(stack.amount);
     }
-    merged
-        .into_iter()
-        .map(|(kind, amount)| MaterialStack::new(kind, amount))
-        .collect()
+    work(merged.len().saturating_mul(std::mem::size_of::<MaterialStack>()))?;
+    let mut out=Vec::with_capacity(merged.len());for (kind,amount) in merged{work(kind.len().saturating_add(std::mem::size_of::<MaterialStack>()))?;out.push(MaterialStack::new(kind,amount));}Ok(out)
 }
-
-fn normalize_bottleneck_tags(tags: &[String]) -> Vec<String> {
-    tags.iter()
-        .map(|tag| tag.trim().to_ascii_lowercase())
-        .filter(|tag| !tag.is_empty())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+fn normalize_bottleneck_tags<E>(tags: &[String],work:&mut impl FnMut(usize)->Result<(),E>) -> Result<Vec<String>,E> {
+    let mut set=BTreeSet::new();for tag in tags{let levels=(set.len()+1usize).ilog2() as usize+2;work(512usize.saturating_mul(levels).saturating_add(tag.len().saturating_add(1).saturating_mul(levels.saturating_mul(2).saturating_add(4))))?;let tag=tag.trim().to_ascii_lowercase();if !tag.is_empty(){set.insert(tag);}}
+    work(set.len().saturating_mul(std::mem::size_of::<String>()))?;let mut out=Vec::with_capacity(set.len());for tag in set{work(tag.len().saturating_add(std::mem::size_of::<String>()))?;out.push(tag);}Ok(out)
 }

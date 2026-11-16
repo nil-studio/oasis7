@@ -12,6 +12,7 @@ include!("host.rs");
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_store;
+pub mod incremental_emergency_observation_store;
 
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 pub mod iws_genesis;
@@ -23,3 +24,11 @@ pub mod iws_host_runtime;
 mod iws_normal_input;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 mod iws_normal_input_origin;
+
+mod committed_input_metadata;
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+mod iws_normal_input_decode;
+
+#[cfg(all(unix,not(target_arch="wasm32")))]
+mod iws_normal_input_plan;

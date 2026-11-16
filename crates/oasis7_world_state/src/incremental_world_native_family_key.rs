@@ -2,7 +2,7 @@
 use super::*;
 use crate::incremental_semantic_key::{SemanticKeyRefV1, read_semantic_key_v1};
 use oasis7_formal_protocol::incremental_record_root::RECORD_ROOT_BYTES;
-pub(super) fn original_ref<F: WorldNativeFieldSpecV1>(
+pub(crate) fn original_ref<F: WorldNativeFieldSpecV1>(
     bytes: &[u8],
 ) -> Result<WorldNativeKeyRefV1<'_>, ValueTreeError> {
     match read_semantic_key_v1(bytes).map_err(ValueTreeError::Invalid)? {
@@ -20,7 +20,7 @@ pub(super) fn original_ref<F: WorldNativeFieldSpecV1>(
         _ => Err(invalid()),
     }
 }
-pub(super) fn canonical<F: WorldNativeFieldSpecV1>(
+pub(crate) fn canonical<F: WorldNativeFieldSpecV1>(
     entry: &StateEntryV1,
 ) -> Result<WorldFieldKeyV1, ValueTreeError> {
     let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
@@ -35,7 +35,7 @@ pub(super) fn canonical<F: WorldNativeFieldSpecV1>(
     }
     Ok(expected)
 }
-pub(super) fn original<F: WorldNativeFieldSpecV1>(
+pub(crate) fn original<F: WorldNativeFieldSpecV1>(
     entry: &StateEntryV1,
     ctx: &mut WorldFieldReadContextV1<
         '_,

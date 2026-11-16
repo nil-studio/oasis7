@@ -55,14 +55,18 @@ impl CognitionEconomyStateV1 {
             .or_default()
     }
 
-    pub(super) fn provision_for_binding(
-        &self,
-        binding_key: &str,
-    ) -> Option<&CognitionProvisioningRequestV1> {
-        self.provisions
-            .values()
-            .find(|record| record.request.binding_key() == binding_key)
-            .map(|record| &record.request)
+    pub(super) fn provision_for_binding(&self,binding_key:&str)->Option<&CognitionProvisioningRequestV1>{
+        self.provision_for_binding_with_work_v1(binding_key,&mut LegacyEconomyWorkV1)
+            .expect("cognition payload must be canonically encodable")
+    }
+    pub(super) fn provision_for_binding_with_work_v1<O:CognitionEconomyWorkOpsV1>(
+        &self,binding_key:&str,ops:&mut O,
+    )->Result<Option<&CognitionProvisioningRequestV1>,CognitionEconomyError>{
+        for record in self.provisions.values(){
+            ops.work(1,binding_key.len())?;
+            if record.request.binding_key_with_work_v1(ops)?==binding_key{return Ok(Some(&record.request))}
+        }
+        Ok(None)
     }
 
     pub(super) fn provisioned_balance_mut(

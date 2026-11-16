@@ -11,6 +11,12 @@ pub(in crate::world) struct FrozenInvocationDirectoryV1 {
     registry: ReservedValue<Vec<Vec<u8>>>,
 }
 impl FrozenInvocationDirectoryV1 {
+    pub(super) fn instances(&self) -> &ReservedValue<Vec<Vec<u8>>> {
+        &self.instances
+    }
+    pub(super) fn registry(&self) -> &ReservedValue<Vec<Vec<u8>>> {
+        &self.registry
+    }
     pub(in crate::world) fn validate_guard<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,
@@ -84,7 +90,7 @@ where
         let instances = keys::current_keys_v1(
             ctx.transaction,
             state,
-            Some(&parent.instances),
+            Some(parent.instances()),
             StateNamespaceV1::Business,
             CurrentKeyEnumerationBudgetV1 {
                 memory: ctx.values.memory,
@@ -99,7 +105,7 @@ where
         let registry = keys::current_keys_v1(
             ctx.transaction,
             state,
-            Some(&parent.registry),
+            Some(parent.registry()),
             StateNamespaceV1::Artifacts,
             CurrentKeyEnumerationBudgetV1 {
                 memory: ctx.values.memory,

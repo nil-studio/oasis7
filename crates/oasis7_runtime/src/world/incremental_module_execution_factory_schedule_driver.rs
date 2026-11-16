@@ -87,7 +87,7 @@ where
                 .unwrap_or(&selected.envelope().action);
             if !matches!(
                 effective,
-                crate::Action::BuildFactory { .. } | crate::Action::ScheduleRecipe { .. }
+                crate::Action::BuildFactory { .. } | crate::Action::ScheduleRecipe { .. } | crate::Action::ValidateProduct { .. }
             ) || !outcome.uses_budget(self.ctx.values.memory)
                 || !self
                     .events

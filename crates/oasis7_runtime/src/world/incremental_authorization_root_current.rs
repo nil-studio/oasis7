@@ -19,7 +19,7 @@ mod tree;
 mod wire;
 use tree::{CanonicalKeyV1, CanonicalValueV1, ValueRef};
 #[derive(Debug)]
-pub(in crate::world) enum AuthorizationRootCacheErrorV1 {
+pub enum AuthorizationRootCacheErrorV1 {
     Value(ValueTreeError),
     Formal(FormalError),
     Io(io::Error),
@@ -55,7 +55,7 @@ fn invalid(s: &'static str) -> AuthorizationRootCacheErrorV1 {
     AuthorizationRootCacheErrorV1::Invalid(s)
 }
 #[derive(Clone, Copy)]
-pub(in crate::world) struct AuthorizationRootCacheLimitsV1 {
+pub struct AuthorizationRootCacheLimitsV1 {
     pub max_wire_bytes: usize,
     pub max_depth: usize,
     pub max_map_keys: usize,
@@ -76,7 +76,7 @@ impl std::fmt::Display for AuthorizationRootCacheErrorV1 {
 }
 impl std::error::Error for AuthorizationRootCacheErrorV1 {}
 /// An unqualified data projection. No accepted/Current constructor is exposed.
-pub(in crate::world) struct ProvisionalAuthorizationProjectionV1 {
+pub struct ProvisionalAuthorizationProjectionV1 {
     root: ValueRef,
     class: MemoryClass,
     limits: AuthorizationRootCacheLimitsV1,
@@ -86,7 +86,7 @@ pub(in crate::world) enum AuthorizationProjectionPathV1<'a> {
     Index(u64),
 }
 impl ProvisionalAuthorizationProjectionV1 {
-    pub(in crate::world) fn read_hint_data(
+    pub fn read_hint_data(
         raw: &ReservedValue<Vec<u8>>,
         limits: AuthorizationRootCacheLimitsV1,
         common: &mut FormalBoundedContextV1<'_>,
@@ -386,7 +386,13 @@ mod read;
 mod sources;
 pub(in crate::world) use owner::{
     AcceptedAuthorizationProjectionV1, AuthorizationProjectionRefreshV1,
-    CurrentAuthorizationProjectionV1, FinalAuthorizationProjectionV1, OwnedProjectedOutcomeV1,
-    RootPublishedOutcomeV1, WarmError, qualify_accepted_parent,
+    CurrentAuthorizationProjectionV1, FinalAuthorizationProjectionV1,
+    FrozenNormalAuthorizationProjectionV1, OwnedProjectedOutcomeV1,
+    PublishedCurrentBootstrapRootV1, RootPublishedOutcomeV1, WarmError, qualify_accepted_parent,
 };
-pub(in crate::world) use read::{AuthorizationRootSourceReadWorkV1, SourceError};
+pub use read::AuthorizationRootSourceReadWorkV1;
+pub(in crate::world) use read::SourceError;
+
+pub(in crate::world) use read::paid as with_authorization_source_read_work_v1;
+
+pub(in crate::world) use read::paid_with_processing as with_business_source_read_work_v1;

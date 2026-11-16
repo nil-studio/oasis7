@@ -25,6 +25,17 @@ pub(crate) struct PaidVerifiedNormalTickInputV1<'a> {
     _outer: ReservedValue<()>,
 }
 impl PaidNormalTickSourcesV1 {
+    /// Chain's fixed publication phase keeps the original Node provenance and
+    /// its paid shell beside the consumed dual-Frozen/Ready recovery owner.
+    pub(crate) fn into_publication_parts(
+        self,
+    ) -> (
+        PaidNormalFrozenPairV1,
+        PaidNodeInputOriginV1,
+        ReservedValue<()>,
+    ) {
+        (self.frozen, self.node, self._outer)
+    }
     pub(crate) fn fresh(
         frozen: PaidNormalFrozenPairV1,
         node: &VerifiedNodeLocalContinuationV1<'_>,
@@ -122,6 +133,9 @@ impl PaidNormalTickSourcesV1 {
     }
 }
 impl PaidVerifiedNormalTickInputV1<'_> {
+    pub(crate) fn frozen_sources(&self) -> &PaidNormalFrozenPairV1 {
+        &self.source.frozen
+    }
     pub(crate) fn data(&self) -> &PaidBoundNormalInputDataV1<'_> {
         &self.data
     }

@@ -850,11 +850,19 @@ AgentSubtreeStructureQualification 仅证明这些状态字段/集合关系；Ma
 
 <a id="iws-cognition-owner-v1"></a>
 
-Cognition 沿用原 Runtime JSON envelope 的十二个 required 与八个 optional 名称，不把 envelope 当作一个 blob，不 clone 或反序列化整个 Snapshot。required 为 schema_version、cognition_journal、responses、commit_records、receipt_registry、receipt_lineage_registry、feedback_outbox、idempotency_index、staged_actions、scheduler_state、continuations、recovery；optional 为 runtime_binding、retention_state、continuation_contexts、cognition_economy、agent_delegation、agent_delegation_active_decision、continuation_evaluations、reorg_invalidation_epoch。未知与缺失 required 拒绝，active_decision 继续只属临时事务输入，不能持久 GEN。原 String 外键与记录内 ID 独立，数组保持 ordinal、重复及原顺序，Option 的缺失、null、空字符串与空集合不可折叠。
+Cognition 沿用原 Runtime JSON envelope 的十二个 required 与十个 optional 名称，不把 envelope 当作一个 blob，不 clone 或反序列化整个 Snapshot。required 为 schema_version、cognition_journal、responses、commit_records、receipt_registry、receipt_lineage_registry、feedback_outbox、idempotency_index、staged_actions、scheduler_state、continuations、recovery；optional 为 runtime_binding、retention_state、continuation_contexts、cognition_economy、agent_delegation、agent_delegation_active_decision、continuation_evaluations、reorg_invalidation_epoch、service_causal_proposals、action_digests。后两项是原 CognitionProjection.flatten extra 中由真实提交逻辑写入的字段，并非新增业务语义。未知与缺失 required 拒绝，active_decision 继续只属临时事务输入，不能持久 GEN。原 String 外键与记录内 ID 独立，数组保持 ordinal、重复及原顺序，Option 的缺失、null、空字符串与空集合不可折叠。
 
 原归属保持：journal.events 与 responses 是 History；commit_records、receipt_registry、receipt_lineage_registry、recovery、runtime_binding 是 ProofLedger；retention_state 是 RetentionLedger。它们不是 RootSet 当前状态叶，不能为方便实现而引入当前 root 自循环。schema_version 和 journal.schema_version 属 Artifacts，journal.head_seq/head_digest 属 Allocator，feedback_outbox/staged_actions/continuations/continuation_contexts 属 Effects，idempotency_index 与 reorg_invalidation_epoch 属 Authorization，scheduler_state/continuation_evaluations 属 Scheduler；economy 和 delegation 继续细分原投影，不以一个 optional JSON 值替代其已有归属。
 
 独立 ProofLedger v1 使用 `oasis7.cognition.proof-ledger.v1\0` Result capsule，保留 History v3 原 wire 与接受域。capsule 固定承诺 commit_records、receipt_registry、receipt_lineage_registry、recovery 四个 required 原 JSON 值和 runtime_binding optional 原 JSON 值的五个独立 Artifacts typed 子树；缺失 optional 与显式 null 不折叠。每个子树使用固定字段 schema 和原 object key/array ordinal，canonical 原件及其页面独立保留，不写入当前 RootSet。capsule 绑定本次 RootSet 摘要及精确 predecessor record ID；GEN predecessor 为 None，普通与恢复 successor 只接受真实 accepted parent 的相同五字段来源及实际 changed path。未变子树按父资格继承，变化子树验证实际旧新闭包，不每 tick 扫描全部历史。
+
+ProofLedger 版本兼容沿用上述归属声明：V1 magic 与五槽字节长度保持精确不变；V2 使用独立 `oasis7.cognition.proof-ledger.v2\0` magic 和第六槽 `delegation.receipts`，该槽保存原 `agent_delegation.receipts` 对象子树，不能变成顶层带点 JSON key。manifest 显式保留 wire 版本；V2 槽缺失证明原 delegation 分支缺失，存在的空对象与缺失不同。V1 没有该槽，表示未知来源，读取该字段必须报旧版本缺源，不得解释为空或据此签发完整冷恢复资格。新 GEN 从同一真实 envelope 生产 V2；普通执行只继承真实 accepted 版本并变更实际路径，不能仅换 magic 把 V1 未知值提升为 V2 absence。Result router、候选检查、接受晋升和冷恢复使用同一版本解码核，保留原四个必需字段及 runtime_binding 的有无规则。版本扩展不将 retention_state 纳入 RootSet，也不把事务输入 active decision 持久化为状态。
+
+ProofLedger V3 使用独立版本 magic 和八槽，将原 service_causal_proposals、action_digests 两个 optional 原值追加在 V2 六槽之后。它们仍是原 JSON Value；null、数组、对象及缺失均按原样保存，具体业务操作再执行原 as_object 谓词，不由通用存储资格额外收窄语法。新 GEN 直接生产 V3；V1/V2 的原 magic、字节与解码门保留，旧版本没有的槽是缺源，不能解释为空或只更换 magic 升级。两字段的改变与读取沿真实 accepted 版本、Current 路径、候选、接受和 Cold 同一来源核，原 retained action/causal 冲突与精确重试判断不得略过。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
+
+RetentionLedger 独立于 RootSet 和 ProofLedger Result。原 WorldCommitRecordV1.commit_id 是 envelope digest/idempotency key 的 cognition 域摘要，不是 IWS CanonicalRecord ID；原 State SHA 在 terminal Cognition 投影前计算，结构上排除 Cognition。因此原提交、abort、replay 与 GC/pin 内核可以在 IWS candidate 签名前形成真实 retention 变更，无须未认证的提交后文件写入。不得将这个逻辑 ID 改成当前 IWS record/body ID。
+
+IWS record schema 9/10 在原 7/8 的角色与 durable parity 上增加独立 IncrementalRetentionLedger signed artifact role；旧 schema 接受域保持，缺该角色表示缺失认证来源，不表示空 ledger。固定版本描述符绑定本次 RootSet digest、精确 accepted predecessor record 与 optional Artifacts 子树根，不包含自身当前 record/body ID。原 retention_state 缺失与存在空 store 不同，horizon、gc_floor_tick、records、pins、response_artifacts 的原值与键全部保留。角色根进入原签名 artifact_roots；原件 references 只证明图可达，不替代签名绑定。普通写入沿唯一原 terminal/replay/GC/pin 决策形成真实路径变更，不每 tick 重写整个 ledger。真实 Frozen 来源随候选材料跨 Begin、原子 Hot 写入和 Finish 保持，仅正式接受后晋升 accepted/cache/Host 来源；冷恢复再核签名角色、完整子树与原 auxiliary 投影。缺源、预算耗尽、取消及未知结果不能生成空替代或提前晋升。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
 
 只有实际 Result Fact occurrence、原件内容 hash、exact accepted record/body/roots、独立 manifest schema/namespace 及 typed 闭包联合验证后才能签发 ProofLedger 来源。旧版本无该 capsule 时不得签发 matching SafeAlternative 资格。History complete、Current SafeAlternative JSON、公开 ID 与 bool 均不能替代独立 ProofLedger；matching owner 另需原签名、实际身份/owner/runtime_binding/position/policy/module/tick、Selected action 和实际 result/outcome 的固定验证。该来源不授 WorldReady、物理持久性或业务结果预授权。
 
@@ -1583,3 +1591,60 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；承接 REQ-LWS-001 的
 同进程绑定模式分别使用 `--oasis7-native-bound-worker-v1` 与 `--oasis7-native-bound-regex-worker-v1`，请求携带原 descriptor 和相应 typed 输入。两者复用唯一的 native capture/verifier，在实际 Wasm 或 regex 运算前后验证同一加载闭包，并持有依赖文件 pin。后置验证成功前不得发布结果；regex 的非法表达式响应也须通过后置验证。缺少真实 verifier 时拒绝，不回退到普通 worker 模式。
 
 验收需要实际 Linux 封存 worker 的握手与 typed 调用正例，以及错误 executable、版本/能力不匹配、foreign head、取消和 lease 生命周期负例。编译通过、字段被读取或单独保留 descriptor 均不能代签真实 Host 执行；完整执行与持久闭包守卫在其余启用条件满足前继续保留。
+
+### IWS normal tick 的 Current commitment 与最终尾部
+
+IWS schema4 normal 路径的 consensus/Cognition 不能把六命名空间 Merkle digest 写入旧 `state_root`、`state_projection_hash` 或 `evaluation_head_digest`，并称其等于 legacy `WorldStateProjection + manifest_hash + policy_hash` 的 JSON SHA-256。legacy 的原 DTO、domain、摘要算法和恢复规则保持原语义；两个摘要空间不得互认。
+
+新路径采用独立的 `IwsCurrentCommitmentV1`，domain 固定为 `oasis7.iws.normal-current-commitment.v1`。唯一 producer 在本次真实 `ExecutionTransaction` 上复用 seal 的 pending-write→Merkle patch 核生成只读 `CurrentRootsPreviewV1`，检查实际 clock，再承诺该预览的原 `RootSetV1` canonical bytes（完整 world/genesis/height/tick 与固定顺序的六 namespace roots）。frame 同时包含实际 accepted parent Core 的 record/body/roots 身份、实际 Runtime/Cognition History occurrence 身份、真实 Current world-manifest digest、实际 Current Authorization root 对 policy 内容的绑定，以及实际 checked Frozen/Node execution context 的 world/node/height/slot/epoch/block/action-root 身份。frame 使用原 bounded canonical CBOR encoder，整体 SHA-256；持有预览、输入和所有原来源费用的私 owner 才可把摘要交给后续固定消费者。不得由 caller roots、hash 字串、phase bool、旧 World snapshot 或自定义验证 callback 构造该 owner。
+
+该承诺表示一个明确的 pre-write Current cut，不是未来最终 RootSet、seal、Node finality、普通 receipt 或 AcceptedTick 许可。producer 必须先完成该 cut 所需的 manifest/policy/evidence 读取，再生成预览；任何新增 read-set 或写入使其 strict guard 失效。消费者必须在消费前重核同 transaction/Core/pool、实际 parent/clock 和来源 guard；需观察新 Current 的消费者重新生成承诺，不得放宽 guard 或复用旧 cut。只读预览不 advance clock、不 consume transaction、不补造 Result facts，也不绕过真实 terminal seal。
+
+IWS consensus 使用独立命名和原件 schema 的 `IwsTickConsensusRecordV1`，显式保存上述 commitment frame/digest、真实 Node context、原顺序的本 tick 实际 counted event/action identities 和实际 authority source。其 producer、固定 verifier、Current/History writer、Result 原件、typed index、qualification、recovery、候选接受与 accepted cache 必须一起识别该 schema；原 `TickConsensusRecord` 及其 legacy state-root 校验不得接受该记录作为兼容替身。仅生成 DTO 或把摘要存入旧字段不构成接线完成。
+
+ProviderBacked bootstrap 与 capability authorization 的批内发布沿同一 ExecutionTransaction 更新原授权状态、原顺序 WorldEvent 和授权 Journal；任何一步失败使本次事务不可接受。legacy 的批内 `prepare/install_tick_consensus_record` 是同 tick 的暂存替换，不作为新 profile 的 V1 摘要来源。新 profile 将这些真实事件纳入该 tick 唯一的 IWS consensus 原件及最终 History 索引，不为每个授权批次伪造旧 `state_root` 或另建事务。catalog 的 `world_head` 仍取实际 WorldJournal 最新事件 ID，module registry/policy 的原 canonical hash 与 catalog snapshot 算法保持不变；授权事件、nonce、撤销与 expiry 的业务规则也不因新 commitment scheme 放宽。涉及最终性的判断必须消费真实 Node/Frozen 授权、实际 Current Runtime binding 与已接受父来源，不能把 IWS commitment 塞入旧 TickConsensusRecord 或以 caller epoch/flags 替代证据。
+
+IWS Cognition 调度只消费同版本私 Current commitment 来源，独立记录其 evaluation commitment scheme；不写成 legacy JSON head digest。实际 continuation expiry、ready/pending 判定、stale prune、capacity/select、wake condition validator、scheduler/continuation/evaluation 原件及 journal 更新均沿真实 Current 发生；条件依赖的 committed-event/receipt/reorg/economy/lease 来源和实际 worker 环境绑定仍须逐项验证，不能用 None、空图或永不 ready 的默认门代替合法行为。normal host、Cognition current/history qualification、恢复、accepted cache 与后续 wake/replay 都必须保留并验证同一 scheme 和真实源绑定。
+
+IWS 条件与 continuation 使用显式的 `iws-wake-condition.v2`、`iws-continuation-proposal.v2`、`iws-agent-continuation.v2`，context/evaluation 分别保存独立 v2 schema 与 `oasis7.iws.normal-current-commitment.v1/sha256` scheme。新条件路径 `world.iws_current_commitment.v1` 的值是 `sha256:` 加小写 hex 摘要；不得将旧 `world.state_root` 条件静默改写成它。新条件 expected CBOR 在解码前限制为 512 字节，再按封闭的整数、固定二元位置或至多 128 字节文本布局调用原 decoder 与 canonical 校验，不能先由通用 Value 的长度声明分配任意容器。旧 v1 schema、validator、domain 与摘要保持独立，不自动迁移。
+
+真实准入同时需要 registered-turn 与 scheduling-event 两类证据。locator 只是查询数据：必须核对已接受 Journal typed index，或同事务真实 Pending Journal 的 index 与实际 Event fact，再读取、校验原件摘要和原 schema。registered-turn 保留原四种 `kind` 与 request/origin-request 的 OR 语义；V2 scheduling-event 必须实际为 `ContinuationScheduled`，并绑定 continuation、wake、proposal digest 与 context-core digest。context core 承诺完整 proposal、原准入 frame 与 scheme，但排除尚未生成的 admission locator；只有原件写入及 Journal append 成功后才能填入真实 locator，不使用零值占位获得资格。较早准入 frame 由其真实事件证明，不能拿本轮 NodeInput 倒验而拒绝合法跨 tick 等待；本轮条件求值另取实际 fresh Current cut。缺少实际准入 producer、输入授权或任一真实来源时保持拒绝，不能把解析成功的 context DTO 升格为准入。
+
+committed-event 与 receipt 条件继续表示全部已提交历史中的存在性，不改成未来固定 ordinal 查询。证据缓存只从真实完整 Cognition source 与独立 ProofLedger 的原 Journal、commit markers、receipt rows 构造；畸形 marker 按原核报错，不跳过。普通 tick 只消费真实新增 Journal 与实际 ledger 改动，保留重复项的存在性、删除后的结果以及全部 Intent 外层原 key 的最大 reorg epoch；不得每 tick 冷扫或从 Agent 名单代替 Intent 集合。GEN 与冷恢复可做一次完整认证构造，接受前完成费用准入，接受后只比较真实 commit 身份并移动缓存。缺 ProofLedger role 的结论只能依附同一实际 head 的完整 Result routing；独立的 None、空图或 disabled 标志都不是该证明。
+
+完整消费者清单包括：Runtime normal 最终尾部、tick consensus 实际生产与验证、Runtime History typed Result/index/恢复、Cognition scheduler/wake evaluation 与其 Current/History 写入验证、Runtime/Cognition candidate qualification、Host accepted cache 安装及其后续 normal/resume 调用。各项未完成前只交付实际已实现的 Current 阶段，不 mint `ExecutedTick`/`CompletedTick` 或扩大旧资格。Threat refresh 仍先于 consensus，Cognition scheduler 仍后于 consensus；每次不同 cut 的承诺明确区分，不能为共享一个摘要而改变原阶段顺序。
+
+WithModule 动作保持原 FIFO 顺序：真实初始准入后，先从 Current 构造完整请求并执行模块，再把已解析动作交给唯一 Rule/Modify 路径。模块拒绝或失败走独立的无 Rule 结果，沿原 Selected envelope 贡献选择性 Accepted、ActionRejected、PostAction、最新事件及工厂后续事件，不伪造默认 Rule 决策。BuildFactoryWithModule 的模块执行与解析后建造预检处于同一个暂存边界；只有原预检成功才在 Rule 前接纳暂存结果。丢弃必须同时撤销事务写入、事实和事件计数器变化，保留真实读取依赖及已消耗的 caller Work；临时 CAS 对象不因存在而获得发布资格。子分支与父事务身份不同，返回父域的来源只能凭实际提交或丢弃产生的封闭证明重新绑定，父事务不得通配认可子 guard。
+
+Runtime normal 驱动固定组合工厂序幕、实际 FIFO 耗尽、原顺序系统尾部与 Cognition service。每次动作只重新借用同一组剩余工作计数，动作阶段与到期阶段顺序借用同一工厂预算，expiry 与 service 顺序借用同一 Cognition 预算。已绑定的 Frozen 输入上下文只用于来源一致性，不能替代 Chain 已应用输入、Node 执行许可或 Host 工作环境绑定。队列耗尽证明只描述该阶段的真实边界，不声称后续模块不会再入队。Cognition 的存储缺失分支必须由实际完整结果路由、已接受 disabled 来源及 Current 缺失共同证明；不能由调用方的空选项、空 ledger 或 config.enabled=false 推导。
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。上述 Current/Cognition 接线承接原执行及持久闭包要求，不以新增 schema 代替完整启用验收。
+
+
+### IWS 普通提交的正式输出承诺
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。实现与集成由 #5867 / #5439 承接；新增消费者不改变既有 CanonicalRecord schema 7/8 的 wire，也不把字段齐全当成执行或接受资格。
+
+普通候选包必须从实际 terminal seal、完整 Frozen/Node 来源及同事务最终输出生成。`governing_manifest_digest` 取真实 terminal Manifest capture，沿原 `canonical_runtime_binding_digest` 的 `oasis7.runtime.manifest.v1` 域转换并按原规则移除 `blake3:` 前缀；它与 Frozen closure 的 `runtime_manifest_digest` 是不同承诺。
+
+`event_root` 仍为原 serde_cbor 编码的完整本次 WorldJournal 增量事件序列的 BLAKE3。来源为本事务全部真实 counted WorldEvent notes 和已验证原件，包含 consensus 后、Cognition 尾部及本次其他阶段实际追加的事件，按实际追加顺序。不得按 numeric ID 或 `time == now` 推断增量，不得把 retention 后的窗口、Event IDs、Tick digest 或 History 根当成该序列。原件和解码图、序列编码及哈希均在同一 Common 下付费；最终 write/fact cut 与实际 seal 保证捕获后没有遗漏的新事件。
+
+`result_root` 保持原 FormalBusinessResultTree/BusinessIndex 的业务结果含义。真实 accepted 父索引、实际 Current 结果变更、原 metadata aliases 和原 first formal position 一起更新，保留不可变 outcome；Runtime/Cognition/ProofLedger 的 Result capsules 是来源证据，不与该业务结果树根互认。初始 GEN、普通增量和 authenticated cold 必须消费相同唯一 kernel，不以重放或重签旧结果填补索引。
+
+`projection_root` 保持原 visibility-aware public 与当前 owner/delegate private audience 树、原 committed formatter、权限头和 terminal-task 分支。普通执行只基于真实已认证投影来源及实际事务变更维护；允许付费持有面向读取的不可变投影数据缓存，但它不能成为执行 World 或接受资格，也不能把完整 World/WorldState hydrate、clone、serialize 或每 tick 全世界冷扫伪装成增量。GEN 和 authenticated cold 的一次认证初始化与普通增量有明确边界；任何 owner/delegate/revoke 或实际投影依赖变化都必须进入本次承诺。旧 audience、leaf/node/root 域与读面授权语义不变。
+
+GEN 与 authenticated cold 的投影缓存初始化必须重新计算完整原语义 State 的 raw SHA，再用该 SHA 生成原 committed public projection 的 `governance_membership.state_root_hash`，保留原始始终为 Some 的治理头，最后重算原 audience 树并与真实已验证 record 的 `projection_root` 比较。这个原承诺链同时绑定未直接展示的 State 字段；不得从 sidecar 自带摘要、ClosedRecord references 或旧缓存治理头取得信任。`retained_history_root` 等定位 sidecar 只提供候选原始数据，缺少上述完整重算或任一来源时不能初始化 accepted cache；不能为通过比较而省略治理头或把旧 raw SHA 填回新头。
+
+四项输出承诺和包原件均保持真实来源、memory pool/Core、transaction/guard 与最终 seal 的绑定。先完成输出和双端真实原件持久化，再形成唯一正式候选；Ready/Complete、Qualified、Hot 原子落盘/Finish 与接受后的 Host/cache move 继续执行各自原门。错误与 unknown 保持真实 phase 和原剩余 work，不发布占位哈希、空树或 caller supplied success。
+
+
+#### 正式业务输出原件的定位
+
+沿用同一正式输出承诺要求，schema7/8 的九个 artifact roles 和原业务结果根算法保持不变。当前 CommitBody 对象的 ClosedRecord 直接 references 必须包含唯一 `oasis7.iws.business-output.v1` 定位原件；定位原件声明实际 CommitBody ID，以及原 FormalBusinessResultTree descriptor 和 BusinessIndexDelta 的内容 ID、实际字节数。定位原件的 references 覆盖这两项，delta 原件的 references 覆盖实际新节点。这里只增加对象图中的明确类型定位，不重新定义业务 descriptor、delta 或结果根编码。
+
+生产端必须向两个真实命名空间写入并读回这些原件和新节点。冷读取从当前 CommitBody 的直接引用定位，核对定位原件的 CommitBody、内容哈希及长度，然后沿原 descriptor、metadata leaf 和 delta 验证核验证正式 record/result_root 与真实前驱；图 references 本身不授予信任。不能尝试任意 CBOR 对象并吞掉预算或取消错误，也不能只保留进程内业务描述而冒持久化完成。
+
+
+#### 正式输出的只读来源稳定性
+
+正式输出采集可能继续登记事务读取。只读 DATA 来源使用同一事务、同一父 fence 和最后一次写入/有序事实/分支收口的 mutation revision 校验；新增读取可推进精确 revision，但不得刷新原来源 guard。任意写入（含同值写入）、有序事实追加、分支收口、abort 或父 fence 变化都使原只读来源失效。执行、写入、分支和最终 seal 继续使用原精确 revision guard，不得使用只读校验取得权限。最终统一采集仍在全部读取结束后固定实际严格 cut，并保留原写入与事实集合不变检查。

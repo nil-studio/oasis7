@@ -22,6 +22,7 @@ pub(crate) mod formal_read_fixtures;
 pub mod formal_read_service;
 pub mod formal_recovery_lineage;
 pub mod formal_result;
+pub mod formal_result_iws_material;
 pub mod game_task;
 pub mod gameplay;
 pub mod membership;

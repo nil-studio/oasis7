@@ -15,9 +15,11 @@ pub(in crate::world) enum EffectiveActionFamilyV1 {
     Crisis,
     ContractAccept,
     FactorySchedule,
+    ModuleLifecycle,
     ContractLifecycle,
     MetaProgress,
     FactoryLifecycle,
+    ProfileGovernance,
     RouteAvailability,
     MaterialTransfer,
     Body,
@@ -42,15 +44,22 @@ impl EffectiveActionFamilyV1 {
             | crate::Action::DeclareWar { .. } => Self::Alliance,
             crate::Action::ResolveCrisis { .. } => Self::Crisis,
             crate::Action::AcceptEconomicContract { .. } => Self::ContractAccept,
-            crate::Action::BuildFactory { .. } | crate::Action::ScheduleRecipe { .. } => {
-                Self::FactorySchedule
-            }
+            crate::Action::BuildFactory { .. }
+            | crate::Action::ScheduleRecipe { .. }
+            | crate::Action::ValidateProduct { .. }
+            | crate::Action::BuildFactoryWithModule { .. }
+            | crate::Action::ScheduleRecipeWithModule { .. }
+            | crate::Action::ValidateProductWithModule { .. } => Self::FactorySchedule,
             crate::Action::OpenEconomicContract { .. }
             | crate::Action::SettleEconomicContract { .. } => Self::ContractLifecycle,
             crate::Action::GrantMetaProgress { .. } => Self::MetaProgress,
-            crate::Action::MaintainFactory { .. } | crate::Action::RecycleFactory { .. } => {
-                Self::FactoryLifecycle
-            }
+            crate::Action::GovernMaterialProfile { .. }
+            | crate::Action::GovernProductProfile { .. }
+            | crate::Action::GovernRecipeProfile { .. }
+            | crate::Action::GovernFactoryProfile { .. } => Self::ProfileGovernance,
+            crate::Action::MaintainFactory { .. }
+            | crate::Action::RecycleFactory { .. }
+            | crate::Action::PauseFactoryProduction { .. } => Self::FactoryLifecycle,
             crate::Action::SetLogisticsRouteAvailability { .. } => Self::RouteAvailability,
             crate::Action::TransferMaterial { .. } => Self::MaterialTransfer,
             crate::Action::EmitBodyAttributes { .. }
@@ -64,6 +73,7 @@ impl EffectiveActionFamilyV1 {
             crate::Action::TransferResource { .. } | crate::Action::EmitResourceTransfer { .. } => {
                 Self::TransferResource
             }
+            action if crate::world::incremental_normal_action_module_lifecycle::rules::is_market_action_v1(action) || crate::world::incremental_normal_action_module_lifecycle::is_deployment_action_v1(action) || crate::world::incremental_normal_action_module_lifecycle::is_instance_action_v1(action) || crate::world::incremental_normal_action_module_lifecycle::is_release_action_v1(action) => Self::ModuleLifecycle,
             _ => return None,
         })
     }
@@ -73,6 +83,10 @@ impl EffectiveActionFamilyV1 {
 /// genuine Current qualifications. It is consumed by the selected Rule lane;
 /// it never acts as an admission or completion receipt.
 pub(in crate::world) struct EffectiveActionWorkBankV1<'a> {
+    module_lifecycle: Option<crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleWorkV1<'a>>,
+    module_lifecycle_sources: Option<&'a crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'a>>,
+    profile_governance:Option<&'a mut crate::world::incremental_normal_action_profile::ProfileGovernanceWorkV1>,
+    profile_sources:Option<&'a crate::world::incremental_normal_action_profile::ProfileGovernanceSourcesV1<'a>>,
     factory_schedule:Option<&'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1>,
     schedule_sources:Option<&'a crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>>,
     contract_lifecycle:Option<&'a mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1>,
@@ -80,7 +94,7 @@ pub(in crate::world) struct EffectiveActionWorkBankV1<'a> {
     alliance:Option<&'a mut crate::world::incremental_normal_action_diplomacy::AllianceWorkV1>,
     alliance_sources:Option<&'a crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1<'a,'a>>,
     logistics_registration:Option<&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1>,
-    normal_extension: Option<&'a mut super::normal_extension_driver::NormalCoreExtensionWorkV1<'a>>,
+    normal_extension:Option<super::normal_extension_driver::NormalCoreExtensionWorkViewV1<'a>>,
     pub(in crate::world) crisis: &'a mut crate::world::incremental_action_crisis::CrisisWorkV1,
     pub(in crate::world) crisis_sources: &'a crate::world::incremental_action_crisis::CrisisSourcesV1<'a>,
     pub(in crate::world) contract_accept: &'a mut crate::world::incremental_action_contract_accept::ContractAcceptWorkV1,
@@ -134,6 +148,10 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         transfer_resource: &'a mut crate::world::incremental_action_data::transfer_resource::TransferResourceWorkV1,
     ) -> Self {
         Self {
+            profile_governance: None,
+            module_lifecycle: None,
+            module_lifecycle_sources: None,
+            profile_sources: None,
             factory_schedule: None,
             schedule_sources: None,
             contract_lifecycle: None,
@@ -165,10 +183,61 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         }
     }
 
+    pub(in crate::world) fn with_module_lifecycle(
+        mut self,
+        work: crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleWorkV1<'a>,
+        sources: &'a crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'a>,
+    ) -> Self {
+        self.module_lifecycle = Some(work);
+        self.module_lifecycle_sources = Some(sources);
+        self
+    }
+
+    pub(in crate::world) fn with_profile_governance(
+        mut self,
+        work: &'a mut crate::world::incremental_normal_action_profile::ProfileGovernanceWorkV1,
+        sources: &'a crate::world::incremental_normal_action_profile::ProfileGovernanceSourcesV1<
+            'a,
+        >,
+    ) -> Self {
+        self.profile_governance = Some(work);
+        self.profile_sources = Some(sources);
+        self
+    }
+    pub(super) fn module_lifecycle_parts_v1(
+        &mut self,
+    ) -> Option<(
+        &mut crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleWorkV1<'a>,
+        &crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'a>,
+        &mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
+        &oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+    )> {
+        Some((
+            self.module_lifecycle.as_mut()?,
+            self.module_lifecycle_sources?,
+            self.factory_schedule.as_deref_mut()?,
+            self.normal_extension.as_ref()?.common_work(),
+        ))
+    }
+
+    pub(super) fn factory_module_parts_v1(
+        &mut self,
+    ) -> Option<(
+        &mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
+        &crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>,
+        &oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+    )> {
+        Some((
+            self.factory_schedule.as_deref_mut()?,
+            self.schedule_sources?,
+            self.normal_extension.as_ref()?.common_work(),
+        ))
+    }
+
     pub(in crate::world) fn with_factory_schedule(
         mut self,
-        work:&'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
-        sources:&'a crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>,
+        work: &'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
+        sources: &'a crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>,
     ) -> Self {
         self.factory_schedule = Some(work);
         self.schedule_sources = Some(sources);
@@ -178,7 +247,7 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
     pub(in crate::world) fn with_contract_lifecycle(
         mut self,
         work: &'a mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1,
-        sources:&'a crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'a,'a>,
+        sources: &'a crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'a,'a>,
     ) -> Self {
         self.contract_lifecycle = Some(work);
         self.lifecycle_sources = Some(sources);
@@ -199,17 +268,26 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         mut self,
         work: &'a mut super::normal_extension_driver::NormalCoreExtensionWorkV1<'a>,
     ) -> Self {
-        self.normal_extension = Some(work);
+        self.normal_extension = Some(work.view());
         self
     }
 
     pub(in crate::world) fn with_logistics_registration(
         mut self,
-        work:&'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
+        work: &'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
     ) -> Self {
         self.logistics_registration = Some(work);
         self
     }
+
+    pub(in crate::world) fn with_normal_extension_view(
+        mut self,
+        work: super::normal_extension_driver::NormalCoreExtensionWorkViewV1<'a>,
+    ) -> Self {
+        self.normal_extension = Some(work);
+        self
+    }
+
     pub(in crate::world) fn select(
         &mut self,
         action: &crate::Action,
@@ -217,28 +295,34 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         use super::NonmovementSelectedWorkV1 as Work;
         Some(match EffectiveActionFamilyV1::for_action(action)? {
             EffectiveActionFamilyV1::Core => Work::Core,
+            EffectiveActionFamilyV1::ModuleLifecycle => Work::ModuleLifecycle(
+                self.module_lifecycle.as_mut()?.reborrow(),
+                self.module_lifecycle_sources?,
+                self.factory_schedule.as_deref_mut()?,
+                self.normal_extension.as_ref()?.common_work(),
+            ),
             EffectiveActionFamilyV1::FactorySchedule => Work::FactorySchedule(
                 self.factory_schedule.as_deref_mut()?,
                 self.schedule_sources?,
-                self.normal_extension.as_deref()?.common,
+                self.normal_extension.as_ref()?.common_work(),
             ),
             EffectiveActionFamilyV1::ContractLifecycle => Work::ContractLifecycle(
                 self.contract_lifecycle.as_deref_mut()?,
                 self.lifecycle_sources?,
-                self.normal_extension.as_deref()?.common,
+                self.normal_extension.as_ref()?.common_work(),
             ),
             EffectiveActionFamilyV1::Alliance => Work::Alliance(
                 self.alliance.as_deref_mut()?,
                 self.alliance_sources?,
-                self.normal_extension.as_deref()?.common,
+                self.normal_extension.as_ref()?.common_work(),
             ),
             EffectiveActionFamilyV1::NormalExtension => {
-                Work::NormalExtension(self.normal_extension.as_deref_mut()?.view())
+                Work::NormalExtension(self.normal_extension.as_mut()?.reborrow())
             }
             EffectiveActionFamilyV1::LogisticsRegistration => Work::LogisticsRegistration(
                 self.logistics_registration.as_deref_mut()?,
                 self.logistics,
-                self.normal_extension.as_deref()?.common,
+                self.normal_extension.as_ref()?.common_work(),
             ),
             EffectiveActionFamilyV1::Crisis => Work::Crisis(
                 &mut *self.crisis,
@@ -259,6 +343,15 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                 crate::world::incremental_action_meta_progress::MetaProgressSourcesV1 {
                     agents: self.meta_sources.agents,
                     native: self.meta_sources.native,
+                },
+            ),
+            EffectiveActionFamilyV1::ProfileGovernance => Work::ProfileGovernance(
+                self.profile_governance.as_deref_mut()?,
+                crate::world::incremental_normal_action_profile::ProfileGovernanceSourcesV1 {
+                    agents: self.profile_sources?.agents,
+                    native: self.profile_sources?.native,
+                    proposals: self.profile_sources?.proposals,
+                    materials: self.profile_sources?.materials,
                 },
             ),
             EffectiveActionFamilyV1::FactoryLifecycle => Work::FactoryLifecycle(
@@ -312,6 +405,39 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             None
         };
         match target {
+            EffectiveActionFamilyV1::ModuleLifecycle => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::Alliance) => {
+                        Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                Some((
+                    Work::ModuleLifecycle(
+                        self.module_lifecycle.as_mut()?.reborrow(),
+                        self.module_lifecycle_sources?,
+                        self.factory_schedule.as_deref_mut()?,
+                        self.normal_extension.as_ref()?.common_work(),
+                    ),
+                    accepted,
+                ))
+            }
             EffectiveActionFamilyV1::FactorySchedule => {
                 let accepted = match source {
                     Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
@@ -339,7 +465,7 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                     Work::FactorySchedule(
                         self.factory_schedule.as_deref_mut()?,
                         self.schedule_sources?,
-                        self.normal_extension.as_deref()?.common,
+                        self.normal_extension.as_ref()?.common_work(),
                     ),
                     accepted,
                 ))
@@ -370,7 +496,7 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                     Work::ContractLifecycle(
                         self.contract_lifecycle.as_deref_mut()?,
                         self.lifecycle_sources?,
-                        self.normal_extension.as_deref()?.common,
+                        self.normal_extension.as_ref()?.common_work(),
                     ),
                     accepted,
                 ))
@@ -405,7 +531,7 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                     Work::Alliance(
                         self.alliance.as_deref_mut()?,
                         self.alliance_sources?,
-                        self.normal_extension.as_deref()?.common,
+                        self.normal_extension.as_ref()?.common_work(),
                     ),
                     accepted,
                 ))
@@ -444,7 +570,7 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                     Work::LogisticsRegistration(
                         self.logistics_registration.as_deref_mut()?,
                         self.logistics,
-                        self.normal_extension.as_deref()?.common,
+                        self.normal_extension.as_ref()?.common_work(),
                     ),
                     accepted,
                 ))
@@ -480,7 +606,7 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                     _ => None,
                 };
                 Some((
-                    Work::NormalExtension(self.normal_extension.as_deref_mut()?.view()),
+                    Work::NormalExtension(self.normal_extension.as_mut()?.reborrow()),
                     accepted,
                 ))
             }
@@ -617,6 +743,46 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                     crate::world::incremental_action_contract_accept::ContractAcceptSourcesV1 {
                         agents: self.contract_sources.agents,
                         diplomacy: self.contract_sources.diplomacy,
+                    },
+                );
+                Some((work, accepted))
+            }
+            EffectiveActionFamilyV1::ProfileGovernance => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::Alliance) => {
+                        Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                let work = Work::ProfileGovernance(
+                    self.profile_governance.as_deref_mut()?,
+                    crate::world::incremental_normal_action_profile::ProfileGovernanceSourcesV1 {
+                        agents: self.profile_sources?.agents,
+                        native: self.profile_sources?.native,
+                        proposals: self.profile_sources?.proposals,
+                        materials: self.profile_sources?.materials,
                     },
                 );
                 Some((work, accepted))

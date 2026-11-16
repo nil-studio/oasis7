@@ -236,6 +236,15 @@ fn prepare_body(
             &mut ctx,
         )?;
     drop(ctx);
+    prepare_body_from_final(candidate, &final_body, memory, work, stop)
+}
+fn prepare_body_from_final(
+    candidate: &FormalCandidateMaterialV1,
+    final_body: &FormalFinalReceiptBodyV1,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<ReservedValue<FormalPrepareReceiptBodyV1>, FormalError> {
     let material = store::bounded_reopen::hash_encoded(
         candidate,
         Some(super::super::types::CANDIDATE_MATERIAL_DOMAIN_V1),
@@ -247,7 +256,7 @@ fn prepare_body(
     let reserved = fee(memory, n)?;
     work.charge(1, 4 * 64, stop)?;
     Ok(reserved.retain(FormalPrepareReceiptBodyV1 {
-        final_receipt: (*final_body).clone(),
+        final_receipt: final_body.clone(),
         candidate_material_digest: (*material).clone(),
     }))
 }
@@ -397,7 +406,7 @@ fn admit(
     stop: &mut dyn FnMut() -> bool,
 ) -> ResultV<()> {
     work.consume_steps(1, stop)?;
-    if endpoint.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || endpoint.parent.is_some() || endpoint.recovery.is_some() || candidate.candidate.record.schema_version!=7 || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some() || context.branch()!=FormalCompletionBranchV1::Normal{return Err(invalid("GEN receipt exact initial source required").into());}
+    if endpoint.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || endpoint.parent.is_some() || endpoint.recovery.is_some() || !oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some() || context.branch()!=FormalCompletionBranchV1::Normal{return Err(invalid("GEN receipt exact initial source required").into());}
     if !same(
         &candidate.candidate.record,
         context.record(),
@@ -438,7 +447,10 @@ fn admit(
         .iws_page_store
         .as_ref()
         .ok_or_else(|| invalid("GEN receipt real page capability required"))?;
-    if !capability.jobs.matches(candidate, &mut || stop())? {
+    if !capability
+        .jobs
+        .matches_bounded(candidate, memory, work, stop)?
+    {
         return Err(invalid("GEN receipt complete exact material required").into());
     }
     let id = store::bounded_record_id::hash_canonical_record_bounded_v1(
@@ -830,7 +842,7 @@ fn retry_state(
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<Option<store::PaidRequestStateV1>, FormalError> {
     work.consume_steps(1, stop)?;
-    if endpoint.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || candidate.candidate.record.schema_version!=7 || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.frozen.is_some() || candidate.frozen_material.is_some() || candidate.branch!=FormalCompletionBranchV1::Normal{return Err(invalid("GEN retry exact initial source required"));}
+    if endpoint.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || !oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.frozen.is_some() || candidate.frozen_material.is_some() || candidate.branch!=FormalCompletionBranchV1::Normal{return Err(invalid("GEN retry exact initial source required"));}
     if !same(
         &candidate.candidate.record,
         context.record(),
@@ -877,3 +889,6 @@ fn retry_state(
 
 #[path = "endpoint_incremental_genesis_receipts_execute.rs"]
 mod execute;
+
+#[path = "endpoint_incremental_normal_ready_receipts.rs"]
+pub(super) mod normal_ready;

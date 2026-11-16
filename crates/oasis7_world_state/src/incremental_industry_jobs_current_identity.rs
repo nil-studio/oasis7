@@ -83,7 +83,7 @@ fn marker_key<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok((marker, marker_bytes, metadata))
 }
 
-fn decode_industry_root<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn decode_industry_root<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: IndustryRecordKindV1,
     value_root: &[u8; 32],
     key: &WorldFieldKeyV1,
@@ -629,4 +629,32 @@ pub fn visit_completion_current_outer_changes_v1<
         work,
         |change, fee| visit(fee.retain(change)),
     )
+}
+
+/// Complete real Current counts through the original fixed five-kind codec.
+pub fn read_current_industry_family_counts_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    tx: &ExecutionTransaction<'_, M>,
+    q: &ReservedValue<IndustryFamilyQualificationV1>,
+    ctx: &mut IndustryTransitionReadContextV1<'_, R, C>,
+    work: &mut IndustryWorkBudgetV1,
+) -> Result<[u64; 5], WorldFieldOverlayErrorV1> {
+    let mut counts = q.record_counts();
+    for (i, kind) in IndustryRecordKindV1::ALL.into_iter().enumerate() {
+        visit_industry_current_outer_changes_v1(kind, tx, q, ctx, work, |row, _fee| {
+            if let IndustryCurrentOuterChangeV1::Record { before, after, .. } = row {
+                counts[i] = match (before.is_some(), after.is_some()) {
+                    (false, true) => counts[i].checked_add(1),
+                    (true, false) => counts[i].checked_sub(1),
+                    _ => Some(counts[i]),
+                }
+                .ok_or_else(invalid)?;
+            }
+            Ok(())
+        })?;
+    }
+    Ok(counts)
 }

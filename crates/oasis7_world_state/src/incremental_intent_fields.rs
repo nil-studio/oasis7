@@ -195,3 +195,6 @@ pub(crate) fn visit_intent_values_v1<'a, E>(
     )?;
     Ok(())
 }
+
+#[path="incremental_intent_projection.rs"] mod projection;
+pub(crate) use projection::{OriginalIntentProjectionScalarV1,assemble_original_intent_projection_v1};

@@ -35,6 +35,11 @@ pub(super) fn prepare<
             operator_agent_id,
             factory_id,
         } => (operator_agent_id.as_str(), factory_id.as_str(), None),
+        crate::Action::PauseFactoryProduction {
+            requester_agent_id,
+            factory_id,
+            ..
+        } => (requester_agent_id.as_str(), factory_id.as_str(), None),
         _ => {
             return Err(BodyMutationError::Invalid(
                 "factory lifecycle effective action",
@@ -98,21 +103,111 @@ pub(super) fn prepare<
         work,
     )?
     .ok_or(BodyMutationError::Invalid("Current factory builder absent"))?;
+    let pause = matches!(action, crate::Action::PauseFactoryProduction { .. });
     if builder.as_str() != operator {
         return Ok(LifecycleDecisionV1::Rejected(
             crate::RejectReason::RuleDenied {
-                notes: vec![format!(
-                    "{} factory denied: operator {} is not builder {}",
-                    if parts.is_some() {
-                        "maintain"
-                    } else {
-                        "recycle"
-                    },
-                    operator,
-                    builder.as_str()
-                )],
+                notes: vec![if pause {
+                    format!(
+                        "pause factory denied: requester {} is not builder {}",
+                        operator,
+                        builder.as_str()
+                    )
+                } else {
+                    format!(
+                        "{} factory denied: operator {} is not builder {}",
+                        if parts.is_some() {
+                            "maintain"
+                        } else {
+                            "recycle"
+                        },
+                        operator,
+                        builder.as_str()
+                    )
+                }],
             },
         ));
+    }
+    if let crate::Action::PauseFactoryProduction { reason, .. } = action {
+        let guard = step.transaction.guard();
+        let snapshot = observe_current_factory_lifecycle_v1(
+            factory,
+            sources.index,
+            sources.factories,
+            sources.industry,
+            roots,
+            step.transaction,
+            read,
+            &mut work.factory,
+            &mut work.industry,
+            &mut work.lifecycle,
+            work.max_scalar_bytes as u64,
+            &guard,
+            live,
+        )
+        .map_err(overlay_error)?;
+        if snapshot.active_jobs() > 0 {
+            let slots = match read::cell(
+                step,
+                factory,
+                FactoryCellV1::Column(FactoryColumnV1::SpecRecipeSlots),
+                read,
+                work,
+                &mut std::io::sink(),
+            )? {
+                FactoryCellReadV1::Value(FactoryValueV1::Unsigned(n)) => u16::try_from(n)
+                    .map_err(|_| BodyMutationError::Invalid("factory recipe slots"))?,
+                _ => return Err(BodyMutationError::Invalid("factory recipe slots shape")),
+            };
+            return Ok(LifecycleDecisionV1::Rejected(
+                crate::RejectReason::FactoryBusy {
+                    factory_id: factory.to_owned(),
+                    active_jobs: snapshot.active_jobs(),
+                    recipe_slots: slots,
+                },
+            ));
+        }
+        let status = read::cell(
+            step,
+            factory,
+            FactoryCellV1::Column(FactoryColumnV1::ProductionStatus),
+            read,
+            work,
+            &mut std::io::sink(),
+        )?;
+        match status {
+            FactoryCellReadV1::Value(FactoryValueV1::Unsigned(0)) => {}
+            FactoryCellReadV1::Value(FactoryValueV1::Unsigned(1..=3)) => {
+                return Ok(LifecycleDecisionV1::Rejected(
+                    crate::RejectReason::RuleDenied {
+                        notes: vec![
+                            "factory production pause requires idle factory status".to_owned(),
+                        ],
+                    },
+                ));
+            }
+            _ => return Err(BodyMutationError::Invalid("factory production status")),
+        }
+        work.spend(reason.len())?;
+        let fee = step
+            .mutation
+            .memory
+            .reserve(reason.len(), MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        read.check()?;
+        parent_read.check()?;
+        let identity = step.transaction.guard();
+        step.transaction.validate_guard(&identity, live)?;
+        return Ok(LifecycleDecisionV1::Effect(LifecycleIntentV1 {
+            operator,
+            factory,
+            effect: LifecycleEffectV1::Paused {
+                reason: reason.clone(),
+                _fee: fee,
+            },
+            identity,
+            time: step.time(),
+        }));
     }
     let before = read::number(
         step,

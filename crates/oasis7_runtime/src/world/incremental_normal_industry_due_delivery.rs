@@ -138,7 +138,7 @@ fn invalid(s: &'static str) -> DeliveryDataErrorV1 {
 fn limited() -> DeliveryDataErrorV1 {
     ValueTreeError::ResourceLimited("ProductValidation delivery index").into()
 }
-pub(in crate::world) struct ProductValidationDeliveryWorkV1 {
+pub struct ProductValidationDeliveryWorkV1 {
     pub index: RuntimeHistoryIndexWorkV1,
     pub decode: WorldEventDecodeWorkV1,
     pub originals_remaining: u64,
@@ -247,3 +247,9 @@ impl Drop for JournalReference {
 #[path = "incremental_normal_industry_due_delivery_driver.rs"]
 mod driver;
 pub(in crate::world) use driver::{DueProductReplayOutcomeV1, RoutedProductReplayV1};
+
+// Shared exact Journal locator/WorldEvent codec readers, not Product predicates.
+pub(in crate::world) use original::read as read_gameplay_world_event_original_v1;
+pub(in crate::world) use source::point as read_gameplay_journal_position_v1;
+
+pub(in crate::world) use source::point_window as read_gameplay_journal_window_position_v1;

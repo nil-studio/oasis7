@@ -27,6 +27,8 @@ fn profile(parent: &TypedRecordProfileV1) -> TypedRecordProfileV1 {
 
 struct FileBlob(Vec<u8>);
 impl Codec for FileBlob {
+fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(<Vec<u8> as Codec>::owned_decode_layout_v1(visit)?);Ok(l)}
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
         p: &TypedRecordProfileV1,
@@ -62,6 +64,8 @@ impl Codec for FileBlob {
     }
 }
 impl Codec for ModuleSourcePackage {
+fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(crate::incremental_pending_action_codec::layout::projected::<Self,_,LE>(|v|&v.manifest_path,visit)?);l.merge(crate::incremental_pending_action_codec::layout::projected::<Self,_,LE>(|v|&v.files,visit)?);Ok(l)}
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
         p: &TypedRecordProfileV1,

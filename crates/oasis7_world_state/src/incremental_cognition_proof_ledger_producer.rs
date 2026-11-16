@@ -5,7 +5,7 @@ use crate::incremental_json_records::{
     JsonPathSegmentV1, JsonPointWriteV1, JsonSubtreeEditV1, JsonWriteWorkV1,
     prepare_json_subtree_change_v1,
 };
-/// True GEN projection of the five independent original side owners.
+/// True GEN projection of the eight independent original side owners.
 pub fn prepare_cognition_proof_ledger_genesis_v1<W, C>(
     envelope: CognitionEnvelopeRefV1<'_>,
     roots: [u8; 32],
@@ -19,18 +19,39 @@ where
     let fee = write
         .memory
         .reserve(
-            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 5 * 512,
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
             MemoryClass::Ordinary,
         )
         .map_err(ValueTreeError::Memory)?;
     let mut fields = std::array::from_fn(|_| None);
     for field in CognitionProofLedgerFieldV1::ALL {
-        match envelope.field(field.name()) {
+        let value = match field {
+            CognitionProofLedgerFieldV1::DelegationReceipts => {
+                match envelope.field("agent_delegation") {
+                    None => None,
+                    Some(delegation) => Some(
+                        delegation
+                            .as_object()
+                            .and_then(|o| o.get("receipts"))
+                            .filter(|v| v.is_object())
+                            .ok_or_else(invalid)?,
+                    ),
+                }
+            }
+            _ => envelope.field(field.name()),
+        };
+        match value {
             Some(value) => {
                 let root = prepare_cognition_proof_ledger_field_v1(field, value, write, work)?;
                 fields[field.index()] = Some((*root).clone());
             }
-            None if field == CognitionProofLedgerFieldV1::RuntimeBinding => {}
+            None if matches!(
+                field,
+                CognitionProofLedgerFieldV1::RuntimeBinding
+                    | CognitionProofLedgerFieldV1::DelegationReceipts
+                    | CognitionProofLedgerFieldV1::ServiceCausalProposals
+                    | CognitionProofLedgerFieldV1::ActionDigests
+            ) => {}
             None => return Err(invalid().into()),
         }
     }
@@ -38,6 +59,7 @@ where
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(fee.retain(CognitionProofLedgerManifestV1 {
+        wire_version: CognitionProofLedgerWireVersionV1::V3,
         roots,
         previous_record: None,
         fields,
@@ -67,6 +89,7 @@ where
         return Err(invalid().into());
     }
     parent.check_pool(write.memory, MemoryClass::Ordinary)?;
+    parent.manifest.require_field_source(field)?;
     let q = parent.fields[field.index()].as_ref().ok_or_else(invalid)?;
     let p = profile(field);
     let mut field_read = WorldFieldReadContextV1 {

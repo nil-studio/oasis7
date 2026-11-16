@@ -8,7 +8,7 @@ use oasis7_formal_protocol::{
     incremental_execution::ExecutionFactKindV1,
     incremental_material::*,
     incremental_state::StateNamespaceV1,
-    incremental_value::{ValueIoBudget, ValueReadContext},
+    incremental_value::{ValueIoBudget, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_world_state::{
@@ -36,6 +36,8 @@ pub struct IwsColdParentWorkV1 {
     pub core: CoreBudget,
     pub facts: FactBudget,
     pub router: oasis7_world_state::incremental_world_result_router::WorldResultRouterWorkV1,
+    pub proof_ledger_read: oasis7_world_state::incremental_json_records::JsonReadWorkV1,
+    pub proof_ledger_readmission: FormalArchiveReadWorkV1,
     pub current: WorldCurrentStateWorkV1,
     pub admission: WorldCurrentStateWorkV1,
     pub runtime_index: RuntimeHistoryIndexWorkV1,
@@ -272,6 +274,46 @@ impl FileFormalEndpoint {
             &mut work.core, &mut work.router, &mut poll,
         ).map_err(|e|invalid(format!("IWS cold closed Result routing: {e:?}")))?;
 
+        let ledger = if let Some(row) = results.proof_ledger() {
+            let mut ledger_read = WorldFieldReadContextV1 {
+                root: roots.state_root(StateNamespaceV1::Allocator),
+                state: &state,
+                values: ValueReadContext {
+                    source: &values,
+                    memory,
+                    class: MemoryClass::Recovery,
+                    io: &mut work.read_recovery,
+                },
+                key_work: &mut work.keys_recovery,
+                semantic_bytes: work.semantic_bytes,
+                record_bytes: work.record_bytes,
+                take_state_error: || {
+                    state.take_read_error().map(|e| {
+                        oasis7_formal_protocol::incremental_value::ValueTreeError::Io(
+                            std::io::Error::other(e),
+                        )
+                    })
+                },
+                cancelled: &mut poll,
+            };
+            Some(oasis7_world_state::incremental_cognition_proof_ledger::recover_cognition_proof_ledger_v1(
+                &FactRequestV1{kind:ExecutionFactKindV1::Result,head,roots:&roots,location:row.occurrence().location()},&results,
+                &mut FactReadContextV1{originals:&mut reader,catalog_pages:&state,memory,class:MemoryClass::Recovery,core_budget:&mut work.core,fact_budget:&mut work.facts,cancelled:||(*stop.borrow_mut())()},
+                &mut ledger_read,&mut work.proof_ledger_read,
+            ).map_err(|e|invalid(format!("IWS cold ProofLedger source: {e:?}")))?)
+        } else {
+            None
+        };
+
+        let retention=if oasis7_formal_protocol::controlled_authority::formal::incremental::has_retention_ledger(head.record().schema_version){
+            let id=oasis7_formal_protocol::incremental_retention::retention_root_id_v1(head.record()).map_err(|e|invalid(format!("IWS cold signed retention role: {e:?}")))?;
+            let bound=oasis7_formal_protocol::incremental_retention::RETENTION_LEDGER_MANIFEST_MAX_BYTES_V1;
+            work.facts.original_bytes_remaining=work.facts.original_bytes_remaining.checked_sub(bound as u64).ok_or_else(||invalid("IWS cold retention Original allowance"))?;
+            let raw=reader.read_original(&id,bound,memory).map_err(|e|invalid(format!("IWS cold retention original: {e:?}")))?;
+            let mut retention_read=WorldFieldReadContextV1{root:roots.state_root(StateNamespaceV1::Artifacts),state:&state,values:ValueReadContext{source:&values,memory,class:MemoryClass::Recovery,io:&mut work.read_recovery},key_work:&mut work.keys_recovery,semantic_bytes:work.semantic_bytes,record_bytes:work.record_bytes,take_state_error:||state.take_read_error().map(|e|ValueTreeError::Io(std::io::Error::other(e))),cancelled:&mut poll};
+            Some(oasis7_world_state::incremental_cognition_retention_ledger::recover_qualified_cognition_retention_ledger_from_accepted_history_v1(head,&roots,&runtime,&raw,&mut retention_read,&mut work.proof_ledger_read).map_err(|e|invalid(format!("IWS cold retention source: {e:?}")))?)
+        }else{None};
+
         let ordinary_state = pages
             .state_session_with_cancelled(
                 work.state_ordinary,
@@ -302,6 +344,10 @@ impl FileFormalEndpoint {
             },
             cancelled: &mut poll,
         };
+        let mut ledger_stop = || (*stop.borrow_mut())();
+        let mut ledger_common = work
+            .proof_ledger_readmission
+            .bounded_context(memory, &mut ledger_stop);
         let mut cache = cold::readmit_recovered_parent(
             head,
             &roots,
@@ -309,6 +355,9 @@ impl FileFormalEndpoint {
             &runtime,
             &cognition,
             &results,
+            ledger.as_ref(),
+            retention.as_ref(),
+            &mut ledger_common,
             &mut read,
             &mut work.admission,
             &mut work.hashes,

@@ -5,6 +5,9 @@ use oasis7_agent_api::world_context::WorldServiceAgentContext;
 use oasis7_agent_api::{RuntimeBindingV1, h_v1};
 use oasis7_wasm_abi::{CapabilityCatalogSnapshot, CapabilityPresenter, CapabilitySubject};
 
+#[path="service_context_sources.rs"]
+pub(crate) mod sources;
+
 #[derive(Clone, Debug)]
 pub(crate) struct ProviderCapabilityContext {
     pub(crate) catalog: CapabilityCatalogSnapshot,
@@ -18,26 +21,7 @@ impl World {
         &self,
         agent_id: &str,
     ) -> Result<Option<WorldServiceAgentContext>, String> {
-        if !self
-            .capability_invocation_contexts()
-            .values()
-            .any(|context| is_provider_context_for_agent(context, agent_id))
-        {
-            if self
-                .has_local_provider_origin(agent_id)
-                .map_err(|error| format!("{error:?}"))?
-            {
-                return Err("canonical local provider invocation is missing or malformed".into());
-            }
-            return Ok(None);
-        }
-        match self.canonical_agent_service_context(agent_id) {
-            Ok(context) => Ok(Some(context)),
-            Err(original) => match self.local_provider_capability_availability(agent_id) {
-                Ok(crate::world::ProviderCapabilityAvailability::ExpiredOnly { .. }) => Ok(None),
-                _ => Err(original),
-            },
-        }
+        match sources::optional_from_sources_v1(&sources::Legacy(self),agent_id){Ok(result)=>result,Err(never)=>match never{}}
     }
 
     /// Read-only authorized projection from the exact service-pinned World.
@@ -46,23 +30,7 @@ impl World {
         &self,
         agent_id: &str,
     ) -> Result<WorldServiceAgentContext, String> {
-        let binding = self
-            .current_cognition_runtime_binding()
-            .map_err(|error| format!("{error:?}"))?;
-        let context = provider_capability_context(self, &binding, agent_id, 0)?;
-        let CapabilitySubject::Agent { owner_binding, .. } = &context.invocation.subject else {
-            return Err("canonical provider subject is not an Agent".into());
-        };
-        let root = self.capability_authorization_root().to_string();
-        Ok(WorldServiceAgentContext {
-            agent_id: agent_id.into(),
-            capability_authorization_root: root.clone(),
-            capability_snapshot_hash: h_v1("oasis7.runtime.manifest.v1", &root).to_string(),
-            authority_context_hash: h_v1("oasis7.runtime.authority-context.v1", &root).to_string(),
-            payer_binding: serde_json::json!({"owner_binding":owner_binding}),
-            capability_catalog: context.catalog,
-            capability_invocation_context: context.invocation,
-        })
+        match sources::canonical_from_sources_v1(&sources::Legacy(self),agent_id){Ok(result)=>result,Err(never)=>match never{}}
     }
 }
 pub(crate) fn provider_capability_context(
@@ -71,59 +39,8 @@ pub(crate) fn provider_capability_context(
     agent_id: &str,
     sequence: u64,
 ) -> Result<ProviderCapabilityContext, String> {
-    // The persisted invocation identifies the governed presenter/session.  A
-    // fresh catalog/context pair is then projected by Runtime for this turn;
-    // Viewer never reconstructs grants, policy roots, or catalog entries.
-    let invocation = world
-        .capability_invocation_contexts()
-        .values()
-        .find(|context| {
-            is_provider_context_for_agent(context, agent_id)
-                && context.audience.world_id == runtime_binding.world_id
-                && context.audience.branch_id == runtime_binding.branch_id
-                && context.audience.finality_epoch == runtime_binding.finality_epoch
-        })
-        .cloned()
-        .ok_or_else(|| {
-            format!(
-                "Runtime capability invocation context is unavailable for provider agent {agent_id}"
-            )
-        })?;
-    let presenter: CapabilityPresenter = invocation.presenter.clone();
-    let response_nonce = format!(
-        "runtime-live:{}:{}:{}",
-        agent_id,
-        world.state().time,
-        sequence
-    );
-    let (catalog, invocation) = world
-        .capability_context_for_agent(agent_id, presenter, response_nonce)
-        .map_err(|error| format!("Runtime capability context unavailable: {error:?}"))?;
-    if catalog.world_id != runtime_binding.world_id
-        || catalog.branch_id != runtime_binding.branch_id
-        || catalog.finality_epoch != runtime_binding.finality_epoch
-        || catalog.logical_tick != runtime_binding.base_tick
-    {
-        return Err(
-            "Runtime capability context is not bound to the current cognition binding".to_string(),
-        );
+    match sources::provider_from_sources_v1(&sources::Legacy(world),runtime_binding,agent_id,sequence){Ok(result)=>result,Err(never)=>match never{}}
     }
-    let _session_id = invocation
-        .presenter
-        .session_id
-        .as_deref()
-        .filter(|session_id| !session_id.trim().is_empty())
-        .ok_or_else(|| {
-            format!(
-                "Runtime provider presenter session identity is unavailable for agent {agent_id}"
-            )
-        })?
-        .to_string();
-    Ok(ProviderCapabilityContext {
-        catalog,
-        invocation,
-    })
-}
 
 fn is_provider_context_for_agent(context: &CapabilityInvocationContext, agent_id: &str) -> bool {
     matches!(

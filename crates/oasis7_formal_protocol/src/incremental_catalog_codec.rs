@@ -20,8 +20,18 @@ pub(super) fn query_key(
     scope: &WorldScopeV1,
     query: CatalogQueryV1,
 ) -> Result<[u8; 32], ExecutionError> {
+    query_key_with_work(scope, query, &mut |_, _| Ok(()))
+}
+pub(super) fn query_key_with_work(
+    scope: &WorldScopeV1,
+    query: CatalogQueryV1,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+) -> Result<[u8; 32], ExecutionError> {
+    work(1, scope.world_id.len() as u64)?;
     scope.validate()?;
-    let mut out = Writer::new();
+    let work = std::cell::RefCell::new(work);
+    let meter = |s, b| (work.borrow_mut())(s, b);
+    let mut out = Writer::with_work(&meter);
     out.scope(scope);
     match query {
         CatalogQueryV1::Height(height) => {
@@ -33,19 +43,24 @@ pub(super) fn query_key(
             out.hash(&commit);
         }
     }
-    Ok(wire::digest(&out.finish(
-        b"oasis7.iws.catalog-key.v1\0",
-        HISTORY_MAX_HEADER_BYTES,
-    )?))
+    let bytes = out.finish(b"oasis7.iws.catalog-key.v1\0", HISTORY_MAX_HEADER_BYTES)?;
+    meter(1, bytes.len() as u64)?;
+    Ok(wire::digest(&bytes))
 }
 impl CatalogCodec {
     pub(super) fn key_digest(leaf: &CatalogLeaf) -> Result<[u8; 32], ExecutionError> {
+        Self::key_digest_with_work(leaf, &mut |_, _| Ok(()))
+    }
+    pub(super) fn key_digest_with_work(
+        leaf: &CatalogLeaf,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
         match leaf {
             CatalogLeaf::Height(entry) => {
-                query_key(&entry.scope, CatalogQueryV1::Height(entry.height))
+                query_key_with_work(&entry.scope, CatalogQueryV1::Height(entry.height), work)
             }
             CatalogLeaf::Commit { scope, commit, .. } => {
-                query_key(scope, CatalogQueryV1::Commit(*commit))
+                query_key_with_work(scope, CatalogQueryV1::Commit(*commit), work)
             }
         }
     }
@@ -141,16 +156,49 @@ impl Codec for CatalogCodec {
     }
 }
 pub(super) fn empty_hashes() -> Result<&'static [String], ExecutionError> {
+    empty_hashes_with_work(&mut |_, _| Ok(()))
+}
+pub(super) fn empty_hashes_with_work(
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+) -> Result<&'static [String], ExecutionError> {
     static EMPTY: OnceLock<Result<Vec<String>, String>> = OnceLock::new();
+    if let Some(value) = EMPTY.get() {
+        work(1, 0)?;
+        return value
+            .as_ref()
+            .map(Vec::as_slice)
+            .map_err(|e| ExecutionError::Tree(e.clone()));
+    }
+    let work = std::cell::RefCell::new(work);
+    let first = std::cell::RefCell::new(None);
+    let meter = |bytes: usize| {
+        if first.borrow().is_some() {
+            return Err("catalog meter stopped".to_owned());
+        }
+        match (work.borrow_mut())(1, bytes as u64) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *first.borrow_mut() = Some(error);
+                Err("catalog meter stopped".to_owned())
+            }
+        }
+    };
+    let built = (|| {
+        let mut out = Writer::new();
+        meter(1).map_err(ExecutionError::Tree)?;
+        out.u8(2);
+        let marker = out.finish(MAGIC, CATALOG_MAX_NODE_BYTES)?;
+        crate::merkle::build_empty_hashes_with_meter::<CatalogCodec>(&marker, Some(&meter))
+            .map_err(ExecutionError::Tree)
+    })();
+    if let Some(error) = first.into_inner() {
+        return Err(error);
+    }
+    let built = built?;
+    let _ = EMPTY.set(Ok(built));
     EMPTY
-        .get_or_init(|| {
-            let mut out = Writer::new();
-            out.u8(2);
-            let marker = out
-                .finish(MAGIC, CATALOG_MAX_NODE_BYTES)
-                .map_err(|e| e.to_string())?;
-            crate::merkle::build_empty_hashes::<CatalogCodec>(&marker)
-        })
+        .get()
+        .ok_or(ExecutionError::Invalid("catalog empty cache"))?
         .as_ref()
         .map(Vec::as_slice)
         .map_err(|e| ExecutionError::Tree(e.clone()))

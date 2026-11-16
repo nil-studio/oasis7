@@ -68,8 +68,47 @@ pub struct CurrentInvocationEnumerationWorkV1 {
 pub struct AcceptedInvocationDirectoryV1 {
     parent_commit: [u8; 32],
     roots: [u8; 32],
-    instances: ReservedValue<Vec<Vec<u8>>>,
-    registry: ReservedValue<Vec<Vec<u8>>>,
+    entries: AcceptedInvocationEntriesV1,
+}
+enum AcceptedInvocationEntriesV1 {
+    Built {
+        instances: ReservedValue<Vec<Vec<u8>>>,
+        registry: ReservedValue<Vec<Vec<u8>>>,
+    },
+    Sealed(
+        std::sync::Arc<
+            crate::world::incremental_directory_bundle::SharedFrozenRuntimeDirectoryBundleV1,
+        >,
+    ),
+}
+impl AcceptedInvocationDirectoryV1 {
+    fn instances(&self) -> &ReservedValue<Vec<Vec<u8>>> {
+        match &self.entries {
+            AcceptedInvocationEntriesV1::Built { instances, .. } => instances,
+            AcceptedInvocationEntriesV1::Sealed(owner) => owner.invocations().instances(),
+        }
+    }
+    fn registry(&self) -> &ReservedValue<Vec<Vec<u8>>> {
+        match &self.entries {
+            AcceptedInvocationEntriesV1::Built { registry, .. } => registry,
+            AcceptedInvocationEntriesV1::Sealed(owner) => owner.invocations().registry(),
+        }
+    }
+    pub(in crate::world) fn prepare_warm_parent_v1(
+        binding: &crate::world::incremental_normal_cache_promotion::WarmSealedDirectoryBindingV1<
+            '_,
+        >,
+    ) -> Result<ReservedValue<Self>, ValueTreeError> {
+        let fee = binding
+            .memory()
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        Ok(fee.retain(Self {
+            parent_commit: binding.body_id(),
+            roots: binding.roots_id(),
+            entries: AcceptedInvocationEntriesV1::Sealed(std::sync::Arc::clone(binding.shared())),
+        }))
+    }
 }
 #[allow(clippy::too_many_arguments)]
 pub fn build_accepted_invocation_directory_v1<
@@ -192,8 +231,10 @@ pub fn build_accepted_invocation_directory_v1<
         let directory = charge.retain(AcceptedInvocationDirectoryV1 {
             parent_commit: fence.parent_commit,
             roots: fence.parent_roots,
-            instances: instance_keys,
-            registry: registry_keys,
+            entries: AcceptedInvocationEntriesV1::Built {
+                instances: instance_keys,
+                registry: registry_keys,
+            },
         });
         let guard = ctx.transaction.guard();
         let _closed = collect_current_module_invocation_ids_v1(
@@ -279,7 +320,7 @@ pub fn collect_current_module_invocation_ids_v1<
         let instance_keys = keys::current_keys_v1(
             ctx.transaction,
             state,
-            Some(&directory.instances),
+            Some(directory.instances()),
             StateNamespaceV1::Business,
             CurrentKeyEnumerationBudgetV1 {
                 memory: ctx.values.memory,
@@ -331,7 +372,7 @@ pub fn collect_current_module_invocation_ids_v1<
         let registry_keys = keys::current_keys_v1(
             ctx.transaction,
             state,
-            Some(&directory.registry),
+            Some(directory.registry()),
             StateNamespaceV1::Artifacts,
             CurrentKeyEnumerationBudgetV1 {
                 memory: ctx.values.memory,
@@ -392,3 +433,199 @@ mod freeze;
 pub(in crate::world) use freeze::{
     FrozenInvocationDirectoryV1, freeze_current_invocation_directory_v1,
 };
+
+#[path = "incremental_module_invocation_artifact_use.rs"]
+mod artifact_use;
+pub(in crate::world) use artifact_use::any_current_active_artifact_v1;
+
+/// Complete Current registry-active keys without instance suppression. This is
+/// selection data for the original gameplay conflict check, not admission.
+pub(in crate::world) fn current_registry_active_keys_v1<M, P, R, E, C>(
+    directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    state: &P,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut CurrentInvocationEnumerationWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<Vec<Vec<u8>>>, CurrentInvocationEnumerationErrorV1>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    current_registry_active_keys_with_work_v1(
+        directory,
+        roots,
+        state,
+        ctx,
+        &mut work.registry_scan,
+        &mut work.pending_entries,
+        work.max_keys,
+        work.max_key_bytes,
+        guard,
+        live,
+    )
+}
+pub(in crate::world) fn current_registry_active_keys_with_work_v1<M, P, R, E, C>(
+    directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    state: &P,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut oasis7_formal_protocol::incremental_state::StateScanBudget,
+    pending: &mut usize,
+    max_entries: usize,
+    max_key_bytes: usize,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<Vec<Vec<u8>>>, CurrentInvocationEnumerationErrorV1>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let result: Result<_, CurrentInvocationEnumerationErrorV1> = (|| {
+        ctx.transaction.validate_guard(guard, live)?;
+        let parent = ctx.transaction.parent_fence();
+        if !directory.uses_budget(ctx.values.memory)
+            || !directory.registry().uses_budget(ctx.values.memory)
+            || directory.parent_commit != parent.parent_commit
+            || directory.roots != parent.parent_roots
+            || roots
+                .digest()
+                .map_err(|_| ValueTreeError::Invalid("registry roots"))?
+                != parent.parent_roots
+            || ctx.values.class != MemoryClass::Ordinary
+            || !ctx.transaction.uses_budget(ctx.values.memory)
+        {
+            return Err(ValueTreeError::Invalid("Current registry directory binding").into());
+        }
+        keys::current_keys_v1(
+            ctx.transaction,
+            state,
+            Some(directory.registry()),
+            StateNamespaceV1::Artifacts,
+            CurrentKeyEnumerationBudgetV1 {
+                memory: ctx.values.memory,
+                scan,
+                max_entries,
+                max_key_bytes,
+                pending_entries: pending,
+            },
+            &mut ctx.cancelled,
+            |key| {
+                WorldFieldKeyV1::from_bytes(key).is_ok_and(|binding| {
+                    binding.kind == WorldFieldRecordKindV1::Entry
+                        && WorldFieldKeyV1::new(
+                            ArtifactConfigFieldV1::RegistryActive.descriptor(),
+                            WorldFieldRecordKindV1::Entry,
+                            binding.semantic_key,
+                        )
+                        .is_ok_and(|expected| expected.as_bytes() == key)
+                })
+            },
+        )
+        .map_err(CurrentInvocationEnumerationErrorV1::Execution)
+    })();
+    if result.is_err() {
+        let _: Result<(), ExecutionError> =
+            ctx.transaction.contribute(|_| Err(ExecutionError::Aborted));
+    }
+    result
+}
+
+impl AcceptedInvocationDirectoryV1 {
+    /// Pure borrowing/binding check for the fixed normal source assembler.
+    /// No enumeration, Current refresh, or action authority is performed here.
+    pub(in crate::world) fn validate_action_source_v1(
+        &self,
+        fence: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<(), ValueTreeError> {
+        if self.parent_commit != fence.parent_commit
+            || self.roots != fence.parent_roots
+            || !self.instances().uses_budget(memory)
+            || !self.registry().uses_budget(memory)
+        {
+            return Err(ValueTreeError::Invalid(
+                "normal invocation directory parent",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Complete Current records (including inactive modules), from the accepted
+/// persistent directory and this transaction's exact pending edits.
+pub(in crate::world) fn current_registry_record_keys_v1<M, P, R, E, C>(
+    config:&ReservedValue<oasis7_world_state::incremental_runtime_artifact_config::ArtifactConfigFamilyQualificationV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    state: &P,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    config_work:&mut oasis7_world_state::incremental_runtime_artifact_config::ArtifactConfigReadWorkV1,
+    scan: &mut oasis7_formal_protocol::incremental_state::StateScanBudget,
+    pending: &mut usize,
+    max_entries: usize,
+    max_key_bytes: usize,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<Vec<Vec<u8>>>, CurrentInvocationEnumerationErrorV1>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let result = (|| {
+        ctx.transaction.validate_guard(guard, live)?;
+        if ctx.values.class != MemoryClass::Ordinary
+            || !config.uses_budget(ctx.values.memory)
+            || !ctx.transaction.uses_budget(ctx.values.memory)
+        {
+            return Err(ValueTreeError::Invalid("Current registry records scope").into());
+        }
+        let parent = config.registry_record_keys_v1(
+            roots,
+            ctx.values.memory,
+            config_work,
+            ctx.key_work,
+            &mut ctx.cancelled,
+        )?;
+        keys::current_keys_v1(
+            ctx.transaction,
+            state,
+            Some(&parent),
+            StateNamespaceV1::Artifacts,
+            CurrentKeyEnumerationBudgetV1 {
+                memory: ctx.values.memory,
+                scan,
+                max_entries,
+                max_key_bytes,
+                pending_entries: pending,
+            },
+            &mut ctx.cancelled,
+            |raw| {
+                WorldFieldKeyV1::from_bytes(raw).is_ok_and(|binding| {
+                    binding.kind == WorldFieldRecordKindV1::Entry
+                        && WorldFieldKeyV1::new(
+                            ArtifactConfigFieldV1::RegistryManifest.descriptor(),
+                            WorldFieldRecordKindV1::Entry,
+                            binding.semantic_key,
+                        )
+                        .is_ok_and(|key| key.as_bytes() == raw)
+                })
+            },
+        )
+        .map_err(CurrentInvocationEnumerationErrorV1::Execution)
+    })();
+    if result.is_err() {
+        let _: Result<(), ExecutionError> =
+            ctx.transaction.contribute(|_| Err(ExecutionError::Aborted));
+    }
+    result
+}

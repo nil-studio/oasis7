@@ -1,7 +1,9 @@
 //! Current claim selection using the original native-record grammar.
 //! This module is a child of native qualification to keep family slots private.
 use super::*;
-use crate::incremental_world_native_gameplay::{AgentClaimsFieldV1, StarterOcClaimsFieldV1};
+use crate::incremental_world_native_gameplay::{
+    AgentClaimsFieldV1, ModuleAdmissionFreezesFieldV1, StarterOcClaimsFieldV1,
+};
 use oasis7_formal_protocol::incremental_execution::{
     ExecutionFence, ExecutionTransaction, PreparedGuard,
 };
@@ -116,6 +118,12 @@ current_claim!(
     AgentClaimsFieldV1,
     crate::AgentClaimState
 );
+current_claim!(
+    recover_current_module_admission_freeze_v1,
+    module_admission_freezes,
+    ModuleAdmissionFreezesFieldV1,
+    crate::state::ModuleAdmissionFreeze
+);
 
 #[path = "incremental_factory_schedule_current.rs"]
 mod factory_schedule;
@@ -123,3 +131,15 @@ pub use factory_schedule::{
     recover_current_schedule_factory_profile_v1, recover_current_schedule_product_profile_v1,
     recover_current_schedule_recipe_profile_v1,
 };
+
+#[path = "incremental_world_native_current_finality.rs"]
+mod finality;
+pub use finality::{
+    CurrentGovernanceFinalityRecordsV1, CurrentGovernanceRegistryV1,
+    current_governance_finality_registry_present_v1, read_current_governance_registry_v1,
+    recover_current_governance_finality_records_v1,
+};
+
+#[path = "incremental_world_native_current_governance_rows.rs"]
+mod governance_rows_current;
+pub use governance_rows_current::{CurrentGovernanceRowsV1, read_current_governance_rows_v1};

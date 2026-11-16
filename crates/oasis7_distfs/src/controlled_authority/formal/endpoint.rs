@@ -298,15 +298,13 @@ impl FileFormalEndpoint {
         }
         result
     }
-    fn reload_parent(
+    fn reload_parent_with_predecessor(
         &mut self,
         provider: &fencing::MonotonicProviderEvidenceV1,
-    ) -> Result<(), FormalError> {
+    ) -> Result<Option<VerifiedFormalCommitV1>, FormalError> {
+        // Preserve the original checkpoint verifier's authenticated predecessor.
         if let Some(entry) = self.store.head_entry()? {
-            let FormalRequestStateV1::Qualified {
-                candidate, proof, ..
-            } = entry
-            else {
+            let FormalRequestStateV1::Qualified { candidate, proof, .. } = entry else {
                 return Err(invalid("formal checkpoint qualified entry"));
             };
             verify_record_material(&proof.decision.record, &candidate.material)?;
@@ -388,12 +386,14 @@ impl FileFormalEndpoint {
             let recovery = (verdict.proof().decision.branch != FormalCompletionBranchV1::Normal)
                 .then_some(self.recovery.as_ref())
                 .flatten();
-            self.parent = Some(restore_formal_commit_from_checkpoint(
+            let (head, predecessor) = restore_formal_commit_and_parent_from_checkpoint(
                 verdict.proof(),
                 original,
                 recovery,
                 &verdict,
-            )?);
+            )?;
+            self.parent = Some(head);
+            return Ok(predecessor);
         } else if self
             .parent
             .as_ref()
@@ -403,7 +403,7 @@ impl FileFormalEndpoint {
         {
             return Err(invalid("formal checkpoint initial verified parent"));
         }
-        Ok(())
+        Ok(None)
     }
     fn load(&mut self, request: &str) -> Result<Option<FormalRequestStateV1>, FormalError> {
         let result = (|| {
@@ -1182,8 +1182,8 @@ pub use incremental::genesis::PaidGenesisAcceptanceV1;
 pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
 pub(in crate::controlled_authority) use incremental::host_source::PaidNormalFrozenReceiptSourceV1;
 pub use incremental::host_source::{
-    HostAcceptedParentReadViewV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
-    PaidAcceptedGenesisHostSourceV1, PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1,
+    HostAcceptedParentReadViewV1, PaidHostQualifiedParentProofV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
+    PaidAcceptedGenesisHostSourceV1, PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1, NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1, PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1,
     join_normal_frozen_endpoints_bounded,
 };
 pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
@@ -1197,4 +1197,4 @@ pub(in crate::controlled_authority) use tests::{
     with_bounded_transaction_fixture, with_cold_transaction_fixture,
     with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
     with_signed_checkpoint_fixture, with_unaccepted_host_endpoint_fixture,
-};
+}; #[path="endpoint_checkpoint_parent.rs"] mod checkpoint_parent; pub use incremental::AuthenticatedColdHostErrorV1;

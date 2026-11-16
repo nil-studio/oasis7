@@ -8,3 +8,9 @@ use oasis7_formal_protocol::incremental_value::ValueTreeError;
 pub fn string_set_output_heap_v1(entries: usize) -> Result<usize, ValueTreeError> {
     crate::incremental_typed_record_codec::btree_output_heap::<String, ()>(entries)
 }
+
+/// Node storage for a JSON object, excluding owned key and value payloads.
+/// Concrete producers separately account for the recursively observed graph.
+pub fn json_object_output_heap_v1(entries: usize) -> Result<usize, ValueTreeError> {
+    crate::incremental_typed_record_codec::btree_output_heap::<String, serde_json::Value>(entries)
+}

@@ -18,6 +18,13 @@ macro_rules! tagged_codec {
      tuples {$($tuple:ident($value:ident) = $ttag:literal),* $(,)?},
      records {$($record:ident {$($field:ident),+} = $rtag:literal),* $(,)?}) => {
         impl Codec for $ty {
+            fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<$crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;
+                let mut l=$crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();
+                $(l.symbol(stringify!($unit));)*
+                $(l.symbol(stringify!($tuple));l.merge($crate::incremental_pending_action_codec::layout::projected::<Self,_,LE>($crate::incremental_typed_record_codec::tagged_codec!(@project $mode,tuple,$tuple,value),visit)?);)*
+                $(l.symbol(stringify!($record));$(l.symbol(stringify!($field));l.merge($crate::incremental_pending_action_codec::layout::projected::<Self,_,LE>($crate::incremental_typed_record_codec::tagged_codec!(@project $mode,record,$record,$field),visit)?);)+)*Ok(l)
+            }
+
             fn accept_changed<M: MerkleNodeReader, R: ValueNodeReader,
                 E: FnMut() -> Option<ValueTreeError>, C: FnMut() -> bool>(
                 profile: &TypedRecordProfileV1,

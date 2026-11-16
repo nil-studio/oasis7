@@ -14,19 +14,30 @@ impl FactSetV1 {
         &self,
         memory: &MemoryBudget,
     ) -> Result<ReservedValue<Vec<u8>>, ExecutionError> {
+        self.canonical_bytes_with_work(memory, &mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        memory: &MemoryBudget,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<ReservedValue<Vec<u8>>, ExecutionError> {
+        work(1, self.scope.world_id.len() as u64)?;
         self.scope.validate()?;
         if self.facts.len() > crate::incremental_execution::EXECUTION_MAX_FACTS {
             return Err(ExecutionError::Invalid("history facts count"));
         }
         let mut workspace =
             memory.reserve(64 * 1024 + self.facts.len() * 128, MemoryClass::Ordinary)?;
-        let mut out = Writer::new();
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        let mut out = Writer::with_work(&meter);
         out.scope(&self.scope);
         out.hash(&self.operation);
         out.u16(self.facts.len() as u16);
         for fact in &self.facts {
             out.u8(fact.kind as u8);
             out.hash(&fact.id);
+            out.check()?;
         }
         let bytes = out.finish(b"oasis7.iws.fact-set.v1\0", FACTS_MAX_BYTES)?;
         let charge = workspace
@@ -122,10 +133,25 @@ impl HeaderPreparation<'_> {
         &self,
         memory: &MemoryBudget,
     ) -> Result<ReservedValue<PreparedHistoryV1>, ExecutionError> {
+        self.prepare_with_work(memory, &mut |_, _| Ok(()))
+    }
+    pub fn prepare_with_work(
+        &self,
+        memory: &MemoryBudget,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<ReservedValue<PreparedHistoryV1>, ExecutionError> {
+        work(1, 0)?;
         let _fixed = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
-        let scope = self.config.scope()?;
+        let scope = self.config.scope_with_work(work)?;
+        pay_roots(work, self.roots)?;
         self.roots.validate()?;
-        self.catalog.validate()?;
+        self.catalog.validate_with_work(work)?;
+        work(
+            1,
+            (scope.world_id.len() * 2
+                + self.roots.world_id.len()
+                + self.catalog.scope.world_id.len()) as u64,
+        )?;
         if !scope.matches(self.roots)
             || self.catalog.scope != scope
             || self.catalog.count != self.roots.height
@@ -146,22 +172,30 @@ impl HeaderPreparation<'_> {
         {
             return Err(ExecutionError::Invalid("header genesis/parent materials"));
         }
-        let parent_commit = self.parent.map(CommitBodyV1::digest).transpose()?;
+        let parent_commit = self.parent.map(|p| p.digest_with_work(work)).transpose()?;
         if parent_commit != self.catalog.last_commit {
             return Err(ExecutionError::ParentConflict);
         }
         if let Some(parent) = self.parent {
-            parent.validate()?;
+            parent.validate_with_work(work)?;
+            work(
+                1,
+                (parent.scope.world_id.len() + scope.world_id.len()) as u64,
+            )?;
             if parent.scope != scope || parent.height.checked_add(1) != Some(self.roots.height) {
                 return Err(ExecutionError::Invalid("parent body height/scope"));
             }
             let previous = self
                 .parent_history
                 .ok_or(ExecutionError::Invalid("parent prefix missing"))?;
+            work(
+                1,
+                (previous.scope.world_id.len() + scope.world_id.len()) as u64,
+            )?;
             previous.validate()?;
             if previous.scope != scope
                 || previous.count != self.roots.height
-                || previous.digest()? != parent.history
+                || previous.digest_with_work(work)? != parent.history
             {
                 return Err(ExecutionError::Invalid("parent history binding"));
             }
@@ -169,14 +203,19 @@ impl HeaderPreparation<'_> {
             return Err(ExecutionError::Invalid("genesis execution environment"));
         }
         let facts = if let Some(record) = self.transition {
-            record.validate()?;
+            record.validate_with_work(work)?;
+            work(
+                1,
+                (record.after.world_id.len() + self.roots.world_id.len() + 12 * 64) as u64,
+            )?;
             if !self.genesis_facts.is_empty()
                 || record.after != *self.roots
                 || record.parent_commit
                     != parent_commit.ok_or(ExecutionError::Invalid("transition parent missing"))?
                 || record.operation != self.operation
                 || record.authority != self.authority
-                || Some(record.before.digest()?) != self.parent.map(|parent| parent.roots)
+                || Some(roots_digest(work, &record.before)?)
+                    != self.parent.map(|parent| parent.roots)
             {
                 return Err(ExecutionError::Invalid("transition/header binding"));
             }
@@ -188,18 +227,32 @@ impl HeaderPreparation<'_> {
             return Err(ExecutionError::Invalid("header fact bound"));
         }
         let mut workspace = memory.reserve(64 * 1024 + facts.len() * 128, MemoryClass::Ordinary)?;
+        work(
+            facts.len() as u64 + 1,
+            (scope.world_id.len() + facts.len() * std::mem::size_of::<ExecutionFactRefV1>()) as u64,
+        )?;
         let fact_set = FactSetV1 {
             scope: scope.clone(),
             operation: self.operation,
             facts: facts.to_vec(),
         };
-        let facts_id = digest(&fact_set.canonical_bytes(memory)?);
+        let facts_bytes = fact_set.canonical_bytes_with_work(memory, work)?;
+        work(1, facts_bytes.len() as u64)?;
+        let facts_id = digest(&facts_bytes);
+        drop(facts_bytes);
         let transition_bytes = self
             .transition
-            .map(|record| record.canonical_bytes(memory, MemoryClass::Ordinary))
+            .map(|record| record.canonical_bytes_with_work(memory, MemoryClass::Ordinary, work))
             .transpose()?;
-        let transition_id = transition_bytes.as_ref().map(|bytes| digest(bytes));
-        let roots = self.roots.digest()?;
+        let transition_id = transition_bytes
+            .as_ref()
+            .map(|bytes| {
+                work(1, bytes.len() as u64)?;
+                Ok::<_, ExecutionError>(digest(bytes))
+            })
+            .transpose()?;
+        let roots = roots_digest(work, self.roots)?;
+        work(1, scope.world_id.len() as u64)?;
         let segment = HistorySegmentV1 {
             scope: scope.clone(),
             height: self.roots.height,
@@ -207,22 +260,26 @@ impl HeaderPreparation<'_> {
             operation: self.operation,
             before_roots: self
                 .transition
-                .map(|record| record.before.digest())
+                .map(|record| roots_digest(work, &record.before))
                 .transpose()?,
             after_roots: roots,
             transition: transition_id,
             facts: facts_id,
         };
+        work(1, scope.world_id.len() as u64)?;
         let prefix = HistoryPrefixV1 {
             scope: scope.clone(),
             count,
             previous: self
                 .parent_history
-                .map(HistoryPrefixV1::digest)
+                .map(|p| p.digest_with_work(work))
                 .transpose()?,
-            segment: segment.digest()?,
+            segment: segment.digest_with_work(work)?,
         };
-        let history = prefix.digest()?;
+        let history = prefix.digest_with_work(work)?;
+        if self.checkpoint {
+            work(1, scope.world_id.len() as u64)?;
+        }
         let checkpoint = self.checkpoint.then(|| CheckpointDescriptorV1 {
             scope: scope.clone(),
             height: self.roots.height,
@@ -232,6 +289,10 @@ impl HeaderPreparation<'_> {
             format_profile: self.config.format_profile,
             execution_environment: self.execution_environment,
         });
+        work(
+            1,
+            (self.catalog.scope.world_id.len() + self.catalog.node_root.len()) as u64,
+        )?;
         let body = CommitBodyV1 {
             scope,
             height: self.roots.height,
@@ -245,11 +306,11 @@ impl HeaderPreparation<'_> {
             facts: facts_id,
             checkpoint: checkpoint
                 .as_ref()
-                .map(CheckpointDescriptorV1::digest)
+                .map(|p| p.digest_with_work(work))
                 .transpose()?,
             execution_environment: self.execution_environment,
         };
-        body.validate()?;
+        body.validate_with_work(work)?;
         let value = PreparedHistoryV1 {
             facts: fact_set,
             segment,
@@ -275,5 +336,163 @@ impl HeaderPreparation<'_> {
             .split(retained)
             .map_err(|_| ExecutionError::Invalid("header retained accounting"))?;
         Ok(charge.retain(value))
+    }
+}
+
+// RootSet has exactly six fixed namespace headers. Count their actual stored
+// roots and scope before using the one original canonical encoder/hash.
+fn pay_roots(
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    roots: &RootSetV1,
+) -> Result<(), ExecutionError> {
+    work(1, roots.world_id.len() as u64)?;
+    for root in &roots.state {
+        work(1, root.node_root.len() as u64)?;
+    }
+    Ok(())
+}
+fn roots_digest(
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    roots: &RootSetV1,
+) -> Result<[u8; 32], ExecutionError> {
+    pay_roots(work, roots)?;
+    let n = b"oasis7.iws.root-set.v1\0".len()
+        + 4
+        + 2
+        + roots.world_id.len()
+        + 48
+        + 6 * crate::incremental_state::STATE_ROOT_BYTES;
+    work(
+        13,
+        (n * 2 + 6 * crate::incremental_state::STATE_ROOT_BYTES) as u64,
+    )?;
+    roots.digest()
+}
+#[cfg(test)]
+mod metered_tests {
+    use super::*;
+    struct Empty;
+    impl MerkleNodeReader for Empty {
+        type Node = Vec<u8>;
+        fn read_node(&self, _: &str, _: usize) -> Result<Option<Vec<u8>>, String> {
+            Ok(None)
+        }
+    }
+    #[test]
+    fn metered_preparation_and_catalog_keep_identical_canonical_candidates() {
+        let memory = MemoryBudget::new(32 << 20, 0).unwrap();
+        let config = GenesisConfigV1 {
+            world_id: "世界-work".into(),
+            format_profile: [1; 32],
+            initial_content: [2; 32],
+            activation_config: [3; 32],
+            execution_environment: [4; 32],
+        };
+        let scope = config.scope().unwrap();
+        let catalog = CatalogRootV1::empty(scope).unwrap();
+        let roots = RootSetV1::empty(config.world_id.clone(), config.digest().unwrap()).unwrap();
+        let facts = [ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Input,
+            id: [8; 32],
+        }];
+        let header = HeaderPreparation {
+            config: &config,
+            catalog: &catalog,
+            roots: &roots,
+            parent: None,
+            parent_history: None,
+            transition: None,
+            genesis_facts: &facts,
+            operation: [5; 32],
+            authority: AuthorityBinding {
+                token: [6; 32],
+                epoch: 0,
+            },
+            execution_environment: config.execution_environment,
+            checkpoint: true,
+        };
+        let original = header.prepare(&memory).unwrap();
+        let (mut steps, mut bytes) = (0, 0);
+        let paid = header
+            .prepare_with_work(&memory, &mut |s, b| {
+                steps += s;
+                bytes += b;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(paid.body, original.body);
+        assert_eq!(paid.facts, original.facts);
+        assert_eq!(paid.prefix, original.prefix);
+        assert_eq!(paid.segment, original.segment);
+        assert_eq!(paid.checkpoint, original.checkpoint);
+        assert!(steps > facts.len() as u64 && bytes > 0);
+        let ordinary = catalog
+            .extend(&original.body, &Empty, &memory, 2 << 20)
+            .unwrap();
+        let metered = catalog
+            .extend_with_work(&paid.body, &Empty, &memory, 2 << 20, &mut |s, b| {
+                steps += s;
+                bytes += b;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(*ordinary, *metered);
+        assert_eq!(
+            ordinary.after.canonical_bytes().unwrap(),
+            metered
+                .after
+                .canonical_bytes_with_work(&mut |_, _| Ok(()))
+                .unwrap()
+        );
+    }
+    #[test]
+    fn first_work_failure_stops_before_header_or_catalog_io() {
+        let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+        let config = GenesisConfigV1 {
+            world_id: "work".into(),
+            format_profile: [1; 32],
+            initial_content: [2; 32],
+            activation_config: [3; 32],
+            execution_environment: [4; 32],
+        };
+        let catalog = CatalogRootV1::empty(config.scope().unwrap()).unwrap();
+        let roots = RootSetV1::empty(config.world_id.clone(), config.digest().unwrap()).unwrap();
+        let header = HeaderPreparation {
+            config: &config,
+            catalog: &catalog,
+            roots: &roots,
+            parent: None,
+            parent_history: None,
+            transition: None,
+            genesis_facts: &[],
+            operation: [5; 32],
+            authority: AuthorityBinding {
+                token: [6; 32],
+                epoch: 0,
+            },
+            execution_environment: config.execution_environment,
+            checkpoint: false,
+        };
+        let mut calls = 0;
+        let result = header.prepare_with_work(&memory, &mut |_, _| {
+            calls += 1;
+            Err(ExecutionError::Invalid("typed work first"))
+        });
+        assert!(matches!(
+            result,
+            Err(ExecutionError::Invalid("typed work first"))
+        ));
+        assert_eq!(calls, 1);
+        assert_eq!(memory.used(), 0);
+        let mut calls = 0;
+        let result = catalog.lookup_with_work(CatalogQueryV1::Height(0), &Empty, &mut |_, _| {
+            calls += 1;
+            Err(ExecutionError::Invalid("typed tree first"))
+        });
+        assert!(matches!(
+            result,
+            Err(ExecutionError::Invalid("typed tree first"))
+        ));
+        assert_eq!(calls, 1);
     }
 }

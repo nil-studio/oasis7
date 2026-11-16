@@ -129,7 +129,32 @@ pub(crate) fn finality_binding_digest_v1(
     finality_status: &str,
     reorg_epoch: u64,
 ) -> String {
-    h_v1(
+    finality_binding_digest_with_work_v1(
+        branch_id,
+        finality_epoch,
+        finality_block_hash,
+        finality_status,
+        reorg_epoch,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .expect("original finality binding is serializable")
+    .as_str()
+    .to_owned()
+}
+pub(crate) fn finality_binding_digest_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    branch_id: &str,
+    finality_epoch: u64,
+    finality_block_hash: Option<&str>,
+    finality_status: &str,
+    reorg_epoch: u64,
+    source: &A,
+) -> Result<
+    oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+    oasis7_wasm_abi::CanonicalCborStreamError,
+> {
+    oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
         "oasis7.runtime.finality-binding.v1",
         &FinalityBindingInput {
             schema_version: 1,
@@ -139,6 +164,7 @@ pub(crate) fn finality_binding_digest_v1(
             finality_status,
             reorg_epoch,
         },
+        source,
     )
 }
 
@@ -216,46 +242,121 @@ pub struct AgentDecisionEnvelopeV1 {
 }
 
 impl AgentDecisionEnvelopeV1 {
-    /// Derive the runtime-owned provider invocation binding from the
-    /// Agent-owned request digest.  The request digest itself remains opaque
-    /// at this boundary; only this downstream binding is runtime-defined.
     pub fn derive_provider_invocation_key(&self) -> String {
-        Self::provider_invocation_key_for_request(&self.request_digest)
+        self.derive_provider_invocation_key_with_work_v1(
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("original cognition identity is serializable")
+        .as_str()
+        .to_owned()
     }
-
-    /// Public opaque request binding shared by capture and response dispatch.
-    pub fn provider_invocation_key_for_request(request_digest: &str) -> String {
-        h_v1("oasis7.cognition.provider-invocation.v1", &request_digest)
-    }
-
-    /// Derive the canonical decision binding for the request and action.
     pub fn derive_decision_digest(&self) -> String {
-        h_v1(
+        self.derive_decision_digest_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+            .expect("original cognition identity is serializable")
+            .as_str()
+            .to_owned()
+    }
+    pub fn derive_finality_binding_digest(&self) -> String {
+        self.derive_finality_binding_digest_with_work_v1(
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("original cognition identity is serializable")
+        .as_str()
+        .to_owned()
+    }
+    pub fn derive_envelope_digest(&self) -> String {
+        self.derive_envelope_digest_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+            .expect("original cognition identity is serializable")
+            .as_str()
+            .to_owned()
+    }
+    pub fn derive_envelope_idempotency_key(&self) -> String {
+        self.derive_envelope_idempotency_key_with_work_v1(
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("original cognition identity is serializable")
+        .as_str()
+        .to_owned()
+    }
+    pub fn provider_invocation_key_for_request(request_digest: &str) -> String {
+        Self::provider_invocation_key_for_request_with_work_v1(
+            request_digest,
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("original provider invocation is serializable")
+        .as_str()
+        .to_owned()
+    }
+    pub fn provider_invocation_key_for_request_with_work_v1<
+        A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+    >(
+        request_digest: &str,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
+            "oasis7.cognition.provider-invocation.v1",
+            &request_digest,
+            source,
+        )
+    }
+    pub fn derive_provider_invocation_key_with_work_v1<
+        A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+    >(
+        &self,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        Self::provider_invocation_key_for_request_with_work_v1(&self.request_digest, source)
+    }
+    pub fn derive_decision_digest_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
             "oasis7.cognition.decision.v1",
             &DecisionDigestInput {
                 request_digest: &self.request_digest,
                 decision_kind: &self.decision_kind,
                 action: &self.action,
             },
+            source,
         )
     }
-
-    /// Derive the trusted finality tuple binding carried by this envelope.
-    pub fn derive_finality_binding_digest(&self) -> String {
-        finality_binding_digest_v1(
+    pub fn derive_finality_binding_digest_with_work_v1<
+        A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+    >(
+        &self,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        finality_binding_digest_with_work_v1(
             &self.branch_id,
             self.finality_epoch,
             self.finality_block_hash.as_deref(),
             &self.finality_status,
             self.reorg_epoch,
+            source,
         )
     }
-
-    /// Derive the complete runtime envelope identity from its canonical
-    /// fields.  `envelope_digest` and `envelope_idempotency_key` are excluded
-    /// from their own inputs by construction.
-    pub fn derive_envelope_digest(&self) -> String {
-        h_v1(
+    pub fn derive_envelope_digest_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        let finality = self.derive_finality_binding_digest_with_work_v1(source)?;
+        oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
             "oasis7.cognition.envelope.v1",
             &EnvelopeDigestInput {
                 request_digest: &self.request_digest,
@@ -271,7 +372,7 @@ impl AgentDecisionEnvelopeV1 {
                 finality_epoch: self.finality_epoch,
                 finality_block_hash: self.finality_block_hash.as_deref(),
                 finality_status: &self.finality_status,
-                finality_binding_digest: &self.derive_finality_binding_digest(),
+                finality_binding_digest: finality.as_str(),
                 base_tick: self.base_tick,
                 base_world_hash: &self.base_world_hash,
                 reorg_epoch: self.reorg_epoch,
@@ -283,18 +384,25 @@ impl AgentDecisionEnvelopeV1 {
                 preconditions: &self.preconditions,
                 origin_intent_ref: &self.origin_intent_ref,
             },
+            source,
         )
     }
-
-    /// Derive the exactly-once idempotency key from the request and envelope
-    /// digests.
-    pub fn derive_envelope_idempotency_key(&self) -> String {
-        h_v1(
+    pub fn derive_envelope_idempotency_key_with_work_v1<
+        A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+    >(
+        &self,
+        source: &A,
+    ) -> Result<
+        oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+        oasis7_wasm_abi::CanonicalCborStreamError,
+    > {
+        oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
             "oasis7.cognition.envelope-idempotency.v1",
             &EnvelopeIdempotencyInput {
                 request_digest: &self.request_digest,
                 envelope_digest: &self.envelope_digest,
             },
+            source,
         )
     }
 }

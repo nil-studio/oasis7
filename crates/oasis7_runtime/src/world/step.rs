@@ -15,12 +15,12 @@ use oasis7_agent_api::world_action::ResourceKind;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default)]
-struct FactoryProductionFollowupContext {
-    active_jobs: u16,
-    current_status: Option<FactoryProductionStatus>,
-    blocked_at: Option<WorldTime>,
-    blocker_kind: Option<String>,
-    blocker_detail: Option<String>,
+pub(in crate::world) struct FactoryProductionFollowupContext {
+    pub(in crate::world) active_jobs: u16,
+    pub(in crate::world) current_status: Option<FactoryProductionStatus>,
+    pub(in crate::world) blocked_at: Option<WorldTime>,
+    pub(in crate::world) blocker_kind: Option<String>,
+    pub(in crate::world) blocker_detail: Option<String>,
 }
 
 impl World {
@@ -308,9 +308,14 @@ impl World {
     }
 
     fn derive_factory_production_followup_event(
-        &self,
-        envelope: &ActionEnvelope,
-        event_body: &WorldEventBody,
+        &self,envelope: &ActionEnvelope,event_body: &WorldEventBody,
+        context: Option<&FactoryProductionFollowupContext>,
+    ) -> Option<DomainEvent> {
+        Self::derive_factory_production_followup_from_context_v1(envelope,event_body,context)
+    }
+
+    pub(in crate::world) fn derive_factory_production_followup_from_context_v1(
+        envelope: &ActionEnvelope,event_body: &WorldEventBody,
         context: Option<&FactoryProductionFollowupContext>,
     ) -> Option<DomainEvent> {
         match (&envelope.action, event_body) {

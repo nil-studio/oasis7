@@ -112,6 +112,25 @@ impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
         mut cancelled: impl FnMut() -> bool,
         produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 2], E>,
     ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        self.seal_with_final_results_and_binding_with_work(
+            guard,
+            live,
+            next_tick,
+            &mut cancelled,
+            produce,
+            &mut |_, _| Ok(()),
+        )
+    }
+    pub fn seal_with_final_results_and_binding_with_work<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 2], E>,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        work(1, 0)?;
         self.validate_guard(guard, live)?;
         let memory = self.memory.clone();
         let charge = memory
@@ -127,7 +146,19 @@ impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
             .map_err(ExecutionError::Memory)?;
         let captured = self.guard();
         let transition =
-            self.seal_with_final_results(guard, live, next_tick, &mut cancelled, produce)?;
+            self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce), work)?;
+        let roots = &transition.record.after;
+        let n = b"oasis7.iws.root-set.v1\0".len()
+            + 4
+            + 2
+            + roots.world_id.len()
+            + 48
+            + 6 * crate::incremental_state::STATE_ROOT_BYTES;
+        work(
+            20,
+            (n * 2 + roots.world_id.len() + 6 * 64 + 6 * crate::incremental_state::STATE_ROOT_BYTES)
+                as u64,
+        )?;
         let after_roots = transition.record.after.digest()?;
         if cancelled() {
             return Err(SealWithFinalFactError::Cancelled);
@@ -151,6 +182,25 @@ impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
         mut cancelled: impl FnMut() -> bool,
         produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
     ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        self.seal_with_proof_ledger_results_and_binding_with_work(
+            guard,
+            live,
+            next_tick,
+            &mut cancelled,
+            produce,
+            &mut |_, _| Ok(()),
+        )
+    }
+    pub fn seal_with_proof_ledger_results_and_binding_with_work<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        work(1, 0)?;
         self.validate_guard(guard, live)?;
         let memory = self.memory.clone();
         let charge = memory
@@ -166,7 +216,19 @@ impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
             .map_err(ExecutionError::Memory)?;
         let captured = self.guard();
         let transition =
-            self.seal_with_proof_ledger_results(guard, live, next_tick, &mut cancelled, produce)?;
+            self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce), work)?;
+        let roots = &transition.record.after;
+        let n = b"oasis7.iws.root-set.v1\0".len()
+            + 4
+            + 2
+            + roots.world_id.len()
+            + 48
+            + 6 * crate::incremental_state::STATE_ROOT_BYTES;
+        work(
+            20,
+            (n * 2 + roots.world_id.len() + 6 * 64 + 6 * crate::incremental_state::STATE_ROOT_BYTES)
+                as u64,
+        )?;
         let after_roots = transition.record.after.digest()?;
         if cancelled() {
             return Err(SealWithFinalFactError::Cancelled);

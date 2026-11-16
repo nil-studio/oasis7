@@ -164,26 +164,18 @@ impl WorldState {
             })?
             .clone();
         let mut resources = BTreeMap::new();
+        let after = super::module_marketplace_transition::settle_module_action_fee_from_records_v1(
+            &mut cell.state.resources,
+            &mut cell.last_active,
+            self.resources.get(&fee_kind).copied().unwrap_or(0),
+            agent_id,
+            fee_kind,
+            fee_amount,
+            now,
+        )?;
         if fee_amount > 0 {
-            cell.state
-                .resources
-                .remove(fee_kind, fee_amount)
-                .map_err(|err| WorldError::ResourceBalanceInvalid {
-                    reason: format!(
-                        "module action fee debit failed: agent={} kind={:?} amount={} err={:?}",
-                        agent_id, fee_kind, fee_amount, err
-                    ),
-                })?;
-            resources.insert(
-                fee_kind,
-                self.resources
-                    .get(&fee_kind)
-                    .copied()
-                    .unwrap_or(0)
-                    .saturating_add(fee_amount),
-            );
+            resources.insert(fee_kind, after);
         }
-        cell.last_active = now;
         Ok((cell, resources))
     }
 
@@ -233,27 +225,17 @@ impl WorldState {
                 wasm_hash,
                 active,
                 ..
-            } => {
-                let resolved = if instance_id.trim().is_empty() {
-                    module_id.clone()
-                } else {
-                    instance_id.trim().to_string()
-                };
-                (
-                    ModuleInstanceState {
-                        instance_id: resolved,
-                        module_id: module_id.clone(),
-                        module_version: module_version.clone(),
-                        wasm_hash: wasm_hash.clone(),
-                        owner_agent_id: agent_id.clone(),
-                        install_target: install_target.clone(),
-                        active: *active,
-                        installed_at: now,
-                    },
-                    install_target.clone(),
-                    self.next_module_instance_id.saturating_add(1),
-                )
-            }
+            } => prepare_installed_module_record_v1(
+                instance_id,
+                module_id,
+                module_version,
+                wasm_hash,
+                agent_id,
+                install_target,
+                *active,
+                now,
+                self.next_module_instance_id,
+            ),
             DomainEvent::ModuleUpgraded {
                 instance_id,
                 module_id,
@@ -274,47 +256,23 @@ impl WorldState {
                 active,
                 ..
             } => {
-                let (operation, actor_label) =
-                    if matches!(event, DomainEvent::ModuleRollbackApplied { .. }) {
-                        ("rollback", "operator")
-                    } else {
-                        ("upgrade", "upgrader")
-                    };
-                let mut instance = self
-                    .module_instances
-                    .get(instance_id)
-                    .ok_or_else(|| WorldError::ResourceBalanceInvalid {
-                        reason: format!("module instance missing for {operation} {instance_id}"),
-                    })?
-                    .clone();
-                if instance.owner_agent_id != *agent_id {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!(
-                            "module instance owner mismatch for {operation}: instance={} owner={} {actor_label}={}",
-                            instance_id, instance.owner_agent_id, agent_id
-                        ),
-                    });
-                }
-                if instance.module_id != *module_id {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!(
-                            "module instance module_id mismatch for {operation}: instance={} state_module_id={} event_module_id={}",
-                            instance_id, instance.module_id, module_id
-                        ),
-                    });
-                }
-                if instance.module_version != *from_module_version {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!(
-                            "module instance from_version mismatch for {operation}: instance={} state_version={} event_from={}",
-                            instance_id, instance.module_version, from_module_version
-                        ),
-                    });
-                }
-                instance.module_version = to_module_version.clone();
-                instance.wasm_hash = wasm_hash.clone();
-                instance.install_target = install_target.clone();
-                instance.active = *active;
+                let operation = if matches!(event, DomainEvent::ModuleRollbackApplied { .. }) {
+                    ModuleInstanceReplacementKindV1::Rollback
+                } else {
+                    ModuleInstanceReplacementKindV1::Upgrade
+                };
+                let instance = prepare_replaced_module_record_v1(
+                    self.module_instances.get(instance_id),
+                    instance_id,
+                    module_id,
+                    from_module_version,
+                    to_module_version,
+                    wasm_hash,
+                    install_target,
+                    *active,
+                    agent_id,
+                    operation,
+                )?;
                 (
                     instance,
                     install_target.clone(),
@@ -392,4 +350,99 @@ impl WorldState {
             admission_freeze,
         })
     }
+}
+
+/// Original installed-row construction shared by Legacy and the selected
+/// Current writer. This returns DATA, not installation or state permission.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_installed_module_record_v1(
+    instance_id: &str,
+    module_id: &str,
+    module_version: &str,
+    wasm_hash: &str,
+    owner: &str,
+    target: &ModuleInstallTarget,
+    active: bool,
+    now: WorldTime,
+    next_instance_id: u64,
+) -> (ModuleInstanceState, ModuleInstallTarget, u64) {
+    let resolved = if instance_id.trim().is_empty() {
+        module_id.to_owned()
+    } else {
+        instance_id.trim().to_owned()
+    };
+    (
+        ModuleInstanceState {
+            instance_id: resolved,
+            module_id: module_id.to_owned(),
+            module_version: module_version.to_owned(),
+            wasm_hash: wasm_hash.to_owned(),
+            owner_agent_id: owner.to_owned(),
+            install_target: target.clone(),
+            active,
+            installed_at: now,
+        },
+        target.clone(),
+        next_instance_id.saturating_add(1),
+    )
+}
+
+#[derive(Clone, Copy)]
+pub enum ModuleInstanceReplacementKindV1 {
+    Upgrade,
+    Rollback,
+}
+/// The original ordered row checks and data replacement. The containing
+/// selected Action, source provenance, fee, freeze and publication stay outer.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_replaced_module_record_v1(
+    before: Option<&ModuleInstanceState>,
+    instance_id: &str,
+    module_id: &str,
+    from_version: &str,
+    to_version: &str,
+    wasm_hash: &str,
+    target: &ModuleInstallTarget,
+    active: bool,
+    actor: &str,
+    kind: ModuleInstanceReplacementKindV1,
+) -> Result<ModuleInstanceState, WorldError> {
+    let (operation, actor_label) = match kind {
+        ModuleInstanceReplacementKindV1::Upgrade => ("upgrade", "upgrader"),
+        ModuleInstanceReplacementKindV1::Rollback => ("rollback", "operator"),
+    };
+    let mut instance = before
+        .ok_or_else(|| WorldError::ResourceBalanceInvalid {
+            reason: format!("module instance missing for {operation} {instance_id}"),
+        })?
+        .clone();
+    if instance.owner_agent_id != actor {
+        return Err(WorldError::ResourceBalanceInvalid {
+            reason: format!(
+                "module instance owner mismatch for {operation}: instance={} owner={} {actor_label}={}",
+                instance_id, instance.owner_agent_id, actor
+            ),
+        });
+    }
+    if instance.module_id != module_id {
+        return Err(WorldError::ResourceBalanceInvalid {
+            reason: format!(
+                "module instance module_id mismatch for {operation}: instance={} state_module_id={} event_module_id={}",
+                instance_id, instance.module_id, module_id
+            ),
+        });
+    }
+    if instance.module_version != from_version {
+        return Err(WorldError::ResourceBalanceInvalid {
+            reason: format!(
+                "module instance from_version mismatch for {operation}: instance={} state_version={} event_from={}",
+                instance_id, instance.module_version, from_version
+            ),
+        });
+    }
+    instance.module_version = to_version.to_owned();
+    instance.wasm_hash = wasm_hash.to_owned();
+    instance.install_target = target.clone();
+    instance.active = active;
+    Ok(instance)
 }

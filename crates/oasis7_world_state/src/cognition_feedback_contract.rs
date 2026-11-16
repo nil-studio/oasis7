@@ -8,6 +8,9 @@ use super::cognition_recovery::{CognitionRecoveryError, cognition_digest_v1};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
+#[path="cognition_feedback_contract_work.rs"]
+pub mod readonly_work;
+use readonly_work::FeedbackReadErrorV1;
 /// Durable Runtime-owned delivery record for provider feedback. The payload is
 /// retained as canonical JSON so adapters can transport the exact envelope,
 /// while the identity and retry state remain under World authority.
@@ -74,37 +77,22 @@ pub struct RuntimeFeedbackProjectionV1 {
 }
 
 impl RuntimeFeedbackProjectionV1 {
-    pub fn validate(&self) -> Result<(), CognitionRecoveryError> {
-        if self.emitted_events.len() > 32
-            || self.emitted_events.iter().any(|event| {
-                let encoded = serde_json::to_vec(event).unwrap_or_default();
-                encoded.len() > 16 * 1024 || contains_sensitive_marker(&encoded)
-            })
-            || self
-                .envelope_digest
-                .as_deref()
-                .is_some_and(|value| !canonical_blake3(value))
-            || self
-                .committed_event_summary
-                .as_deref()
-                .is_some_and(|value| {
-                    value.len() > 512 || contains_sensitive_marker(value.as_bytes())
-                })
-            || self.world_delta_summary.as_deref().is_some_and(|value| {
-                value.len() > 1024 || contains_sensitive_marker(value.as_bytes())
-            })
-        {
-            return Err(CognitionRecoveryError::new("feedback_projection_too_large"));
+    pub fn validate(&self)->Result<(),CognitionRecoveryError>{readonly_work::legacy(self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))}
+    pub fn validate_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(&self,source:&A)->Result<(),FeedbackReadErrorV1>{
+        if self.emitted_events.len()>32{return Err(CognitionRecoveryError::new("feedback_projection_too_large").into())}
+        for event in &self.emitted_events {
+            let encoded=readonly_work::json_bytes(event,source)?;
+            if encoded.bytes.len()>16*1024||contains_sensitive_marker_with_work_v1(&encoded.bytes,source)?{return Err(CognitionRecoveryError::new("feedback_projection_too_large").into())}
         }
-        let encoded = serde_json::to_vec(self)
-            .map_err(|_| CognitionRecoveryError::new("feedback_projection_invalid"))?;
-        if encoded.len() > 16 * 1024 {
-            return Err(CognitionRecoveryError::new("feedback_projection_too_large"));
-        }
-        Ok(())
+        if let Some(digest)=self.envelope_digest.as_deref(){source.charge_work(1+digest.len()as u64,digest.len()as u64)?;if !canonical_blake3(digest){return Err(CognitionRecoveryError::new("feedback_projection_too_large").into())}}
+        for (value,limit)in[(self.committed_event_summary.as_deref(),512),(self.world_delta_summary.as_deref(),1024)]{if let Some(value)=value{if value.len()>limit||contains_sensitive_marker_with_work_v1(value.as_bytes(),source)?{return Err(CognitionRecoveryError::new("feedback_projection_too_large").into())}}}
+        let encoded=match readonly_work::json_bytes(self,source){Ok(v)=>v,Err(FeedbackReadErrorV1::Business(_))=>return Err(CognitionRecoveryError::new("feedback_projection_invalid").into()),Err(e)=>return Err(e)};
+        if encoded.bytes.len()>16*1024{return Err(CognitionRecoveryError::new("feedback_projection_too_large").into())}Ok(())
     }
+
 }
 
+fn contains_sensitive_marker_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(value:&[u8],source:&A)->Result<bool,oasis7_wasm_abi::CanonicalCborStreamError>{source.charge_work(1+16*value.len()as u64,value.len()as u64)?;let _fee=if source.is_metered(){Some(source.reserve(value.len().checked_mul(3).and_then(|n|n.checked_add(512)).ok_or(oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited("feedback marker text"))?)?)}else{None};Ok(contains_sensitive_marker(value))}
 fn contains_sensitive_marker(value: &[u8]) -> bool {
     let value = String::from_utf8_lossy(value).to_ascii_lowercase();
     [
@@ -141,6 +129,10 @@ pub fn validate_runtime_feedback_disposition(
     reject_reason: Option<&str>,
     projection: &RuntimeFeedbackProjectionV1,
 ) -> Result<(), CognitionRecoveryError> {
+    readonly_work::legacy(validate_runtime_feedback_disposition_with_work_v1(status,candidate_action_id,runtime_receipt_id,reject_reason,projection,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+}
+fn validate_runtime_feedback_disposition_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(status:&str,candidate_action_id:Option<u64>,runtime_receipt_id:Option<&str>,reject_reason:Option<&str>,projection:&RuntimeFeedbackProjectionV1,source:&A)->Result<(),FeedbackReadErrorV1>{
+    source.charge_work(1+status.len()as u64+reject_reason.map_or(0,str::len)as u64,status.len()as u64+reject_reason.map_or(0,str::len)as u64)?;
     const REJECTED_REASONS: &[&str] = &[
         "stale_base",
         "expired",
@@ -177,14 +169,14 @@ pub fn validate_runtime_feedback_disposition(
             if !reason.is_some_and(|reason| REJECTED_REASONS.contains(&reason)) {
                 return Err(CognitionRecoveryError::new(
                     "feedback_disposition_reason_invalid",
-                ));
+                ).into());
             }
         }
         "failed" if candidate_action_id.is_none() && no_receipt => {
             if !reason.is_some_and(|reason| FAILED_REASONS.contains(&reason)) {
                 return Err(CognitionRecoveryError::new(
                     "feedback_disposition_reason_invalid",
-                ));
+                ).into());
             }
         }
         "pending" if candidate_action_id.is_none() && no_receipt => {
@@ -193,16 +185,16 @@ pub fn validate_runtime_feedback_disposition(
             {
                 return Err(CognitionRecoveryError::new(
                     "feedback_disposition_reason_invalid",
-                ));
+                ).into());
             }
         }
         _ => {
             return Err(CognitionRecoveryError::new(
                 "feedback_disposition_inconsistent",
-            ));
+            ).into());
         }
     }
-    projection.validate()
+    projection.validate_with_work_v1(source)
 }
 
 /// Add Runtime-owned projection fields to the canonical wire payload. The
@@ -213,7 +205,12 @@ fn feedback_payload_with_projection(
     payload: &JsonValue,
     projection: &RuntimeFeedbackProjectionV1,
 ) -> Result<JsonValue, CognitionRecoveryError> {
-    projection.validate()?;
+    readonly_work::legacy(feedback_payload_with_projection_with_work_v1(payload,projection,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+}
+fn feedback_payload_with_projection_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(payload:&JsonValue,projection:&RuntimeFeedbackProjectionV1,source:&A)->Result<JsonValue,FeedbackReadErrorV1>{
+    projection.validate_with_work_v1(source)?;
+    let _payload_phase=readonly_work::phase(payload,source)?;
+    let _projection_phase=readonly_work::phase(projection,source)?;
     let mut payload = payload.clone();
     let object = payload
         .as_object_mut()
@@ -249,10 +246,9 @@ fn feedback_payload_with_projection(
     if let Some(value) = projection.world_delta_summary.as_deref() {
         insert_if_absent_or_equal(object, "world_delta_summary", json!(value))?;
     }
-    let encoded = serde_json::to_vec(&payload)
-        .map_err(|_| CognitionRecoveryError::new("runtime_feedback_payload_invalid"))?;
-    if encoded.len() > 16 * 1024 {
-        return Err(CognitionRecoveryError::new("feedback_projection_too_large"));
+    let encoded = readonly_work::json_bytes(&payload,source)?;
+    if encoded.bytes.len() > 16 * 1024 {
+        return Err(CognitionRecoveryError::new("feedback_projection_too_large").into());
     }
     Ok(payload)
 }
@@ -261,30 +257,24 @@ impl RuntimeFeedbackOutboxRecordV1 {
     pub const SCHEMA_VERSION: &'static str = "runtime-feedback-outbox.v1";
 
     pub fn validate(&self) -> Result<(), CognitionRecoveryError> {
+        readonly_work::legacy(self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+    }
+    pub fn validate_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(&self,source:&A)->Result<(),FeedbackReadErrorV1>{
         let bounded = |value: &str| !value.trim().is_empty() && value.len() <= 256;
         let valid_state = matches!(self.state.as_str(), "pending" | "in_flight" | "acked");
+        let _record_phase=readonly_work::phase(self,source)?;
         let payload =
             serde_json::from_value::<oasis7_agent_api::FeedbackEnvelopeV1>(self.payload.clone())
                 .map_err(|_| CognitionRecoveryError::new("runtime_feedback_payload_invalid"))?;
         let canonical_base_payload = serde_json::to_value(&payload)
             .map_err(|_| CognitionRecoveryError::new("runtime_feedback_payload_invalid"))?;
         let canonical_payload =
-            feedback_payload_with_projection(&canonical_base_payload, &self.projection)?;
+            feedback_payload_with_projection_with_work_v1(&canonical_base_payload, &self.projection,source)?;
         let envelope_digest =
-            cognition_digest_v1("oasis7.runtime.feedback-envelope.v1", &canonical_payload);
-        let feedback_contract_valid = payload.provenance == "runtime_authoritative"
-            && matches!(
-                payload.status.as_str(),
-                "pending" | "committed" | "rejected" | "failed"
-            )
-            && validate_runtime_feedback_disposition(
-                payload.status.as_str(),
-                payload.candidate_action_id,
-                payload.runtime_receipt_id.as_deref(),
-                payload.reject_reason.as_deref(),
-                &self.projection,
-            )
-            .is_ok();
+            readonly_work::digest("oasis7.runtime.feedback-envelope.v1", &canonical_payload,source)?;
+        let feedback_contract_valid = if payload.provenance=="runtime_authoritative"&&matches!(payload.status.as_str(),"pending"|"committed"|"rejected"|"failed"){
+            match validate_runtime_feedback_disposition_with_work_v1(payload.status.as_str(),payload.candidate_action_id,payload.runtime_receipt_id.as_deref(),payload.reject_reason.as_deref(),&self.projection,source){Ok(())=>true,Err(FeedbackReadErrorV1::Business(_))=>false,Err(e)=>return Err(e)}
+        }else{false};
         if self.schema_version != Self::SCHEMA_VERSION
             || !bounded(&self.feedback_id)
             || self.feedback_seq == 0
@@ -307,7 +297,7 @@ impl RuntimeFeedbackOutboxRecordV1 {
         {
             return Err(CognitionRecoveryError::new(
                 "runtime_feedback_outbox_record_invalid",
-            ));
+            ).into());
         }
         Ok(())
     }

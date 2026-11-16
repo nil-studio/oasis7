@@ -102,6 +102,9 @@ macro_rules! fields {
     }
     impl WorldNativeFieldsQualificationV1 {
         pub fn starter_binding_index(&self)->&ReservedValue<StarterBindingIndexV1>{&self.starter_binding_index}
+        pub(crate) fn projection_record_counts_v1(&self)->[(&'static str,u64);24]{[$(($name,self.$slot.records()),)+]}
+        pub(crate) fn projection_allocation_class_v1(&self)->MemoryClass{self.class}
+
         pub fn validate_binding(&self,roots:&RootSetV1)->Result<(),ValueTreeError>{
             roots.validate().map_err(|_|invalid())?;
             if self.roots!=roots.digest().map_err(|_|invalid())? {return Err(invalid());}
@@ -222,7 +225,15 @@ mod tests;
 
 #[path = "incremental_world_native_current_claims.rs"]
 mod current_claims;
-pub use current_claims::{recover_current_agent_claim_v1, recover_current_starter_oc_claim_v1};
+pub use current_claims::{
+    CurrentGovernanceFinalityRecordsV1, CurrentGovernanceRegistryV1,
+    current_governance_finality_registry_present_v1, read_current_governance_registry_v1,
+    recover_current_governance_finality_records_v1,
+};
+pub use current_claims::{
+    recover_current_agent_claim_v1, recover_current_module_admission_freeze_v1,
+    recover_current_starter_oc_claim_v1,
+};
 
 #[path = "incremental_factory_lifecycle_native_current.rs"]
 mod factory_lifecycle_current;
@@ -249,3 +260,34 @@ pub use current_claims::{
     recover_current_schedule_factory_profile_v1, recover_current_schedule_product_profile_v1,
     recover_current_schedule_recipe_profile_v1,
 };
+
+#[path = "incremental_industrial_delivery_native.rs"]
+mod industrial_delivery;
+pub use industrial_delivery::{
+    CurrentIndustrialClaimRecordV1, CurrentIndustrialClaimSnapshotV1,
+    FrozenIndustrialClaimDirectoryV1, IndustrialClaimDirectoryV1, IndustrialClaimDirectoryWorkV1,
+    IndustrialClaimSnapshotEntryV1, build_industrial_claim_directory_v1,
+    delete_current_industrial_agent_claim_v1, freeze_current_industrial_claim_directory_v1,
+    industrial_claim_namespace_v1, read_current_industrial_agent_claim_v1,
+    read_current_industrial_starter_claim_v1, recover_current_industrial_claim_snapshot_v1,
+    recover_current_industrial_claim_targets_v1, write_current_industrial_agent_claim_v1,
+};
+
+pub use factory_lifecycle_current::{
+    read_current_governed_factory_profile_v1, read_current_governed_product_profile_v1,
+    read_current_governed_recipe_profile_v1, write_current_governed_factory_profile_v1,
+    write_current_governed_product_profile_v1, write_current_governed_recipe_profile_v1,
+};
+
+pub use factory_lifecycle_current::{
+    CurrentModuleReleaseRequestsV1, read_current_module_release_manifest_mapping_v1,
+    read_current_module_release_request_v1, read_current_module_release_requests_v1,
+    write_current_module_release_manifest_mapping_v1, write_current_module_release_request_v1,
+};
+
+pub use factory_lifecycle_current::{
+    insert_current_module_admission_freeze_if_absent_v1,
+    read_current_module_admission_freeze_entry_v1,
+};
+
+pub use current_claims::{CurrentGovernanceRowsV1, read_current_governance_rows_v1};

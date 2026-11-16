@@ -212,6 +212,18 @@ pub(crate) fn put<
     append(profile, root, &row.field_key, row.value_root, ctx, work)
 }
 pub(crate) trait Codec: Sized {
+    fn owned_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1, LE>
+    {
+        visit()?;
+        Ok(
+            crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::absent::<
+                Self,
+            >(),
+        )
+    }
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -480,8 +492,8 @@ pub(crate) fn edit<
 mod collections;
 pub(crate) use collections::CollectionKey;
 
-/// Validate one already admitted changed cell, releasing its DTO before charges.
-pub(crate) fn validate_typed_cell_v1<
+/// Recover one already admitted changed cell with its original decoder fees.
+pub(crate) fn recover_typed_cell_v1<
     T: Codec,
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -493,7 +505,7 @@ pub(crate) fn validate_typed_cell_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     scan: &mut StateScanBudget,
     work: &mut TypedRecordReadWorkV1,
-) -> Result<(), ValueTreeError> {
+) -> Result<RecoveredTypedRecordV1<T>, ValueTreeError> {
     let capacity = work.max_retained_trees;
     if capacity == 0 {
         return Err(ValueTreeError::ResourceLimited("typed retained outputs"));
@@ -524,7 +536,31 @@ pub(crate) fn validate_typed_cell_v1<
     };
     let value = T::decode(cell, &mut decoder)?;
     decoder.ctx.check()?;
-    drop(value);
+    Ok(RecoveredTypedRecordV1 {
+        value,
+        _charges: decoder.charges,
+        _carrier: decoder.carrier,
+    })
+}
+
+/// The original validation path discards the decoded value before its fees.
+/// Recovery and validation share the same codec, first error and admission.
+pub(crate) fn validate_typed_cell_v1<
+    T: Codec,
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    cell: ColumnCellV1,
+    profile: &TypedRecordProfileV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut TypedRecordReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    drop(recover_typed_cell_v1::<T, M, R, E, C>(
+        cell, profile, ctx, scan, work,
+    )?);
     Ok(())
 }
 

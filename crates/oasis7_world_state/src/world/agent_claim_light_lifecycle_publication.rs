@@ -55,80 +55,7 @@ impl PreparedAgentClaimLightLifecycle {
             .cloned()
             .ok_or_else(|| invalid(format!("agent claim not found: target={target_agent_id}")))?;
 
-        match event {
-            DomainEvent::AgentClaimReleaseRequested {
-                requested_at_epoch,
-                ready_at_epoch,
-                ..
-            } => {
-                if claim.claim_owner_id != *claimer_agent_id {
-                    return Err(invalid(format!(
-                        "agent claim release owner mismatch: target={} owner={} claimer={}",
-                        target_agent_id, claim.claim_owner_id, claimer_agent_id
-                    )));
-                }
-                if claim.release_requested_at_epoch.is_some() {
-                    return Err(invalid(format!(
-                        "agent claim release already requested: target={target_agent_id}"
-                    )));
-                }
-                if *ready_at_epoch < *requested_at_epoch {
-                    return Err(invalid(format!(
-                        "agent claim release epoch mismatch: target={} requested={} ready={}",
-                        target_agent_id, requested_at_epoch, ready_at_epoch
-                    )));
-                }
-                claim.release_requested_at_epoch = Some(*requested_at_epoch);
-                claim.release_ready_at_epoch = Some(*ready_at_epoch);
-                activity.last_active = now;
-            }
-            DomainEvent::AgentClaimEnteredGrace {
-                delinquent_since_epoch,
-                grace_deadline_epoch,
-                upkeep_arrears_amount,
-                ..
-            } => {
-                if claim.claim_owner_id != *claimer_agent_id {
-                    return Err(invalid(format!(
-                        "agent claim grace owner mismatch: target={} owner={} claimer={}",
-                        target_agent_id, claim.claim_owner_id, claimer_agent_id
-                    )));
-                }
-                if *upkeep_arrears_amount == 0 {
-                    return Err(invalid(format!(
-                        "agent claim grace arrears must be positive: target={target_agent_id}"
-                    )));
-                }
-                if *grace_deadline_epoch < *delinquent_since_epoch {
-                    return Err(invalid(format!(
-                        "agent claim grace epoch mismatch: target={} delinquent={} deadline={}",
-                        target_agent_id, delinquent_since_epoch, grace_deadline_epoch
-                    )));
-                }
-                claim.delinquent_since_epoch = Some(*delinquent_since_epoch);
-                claim.grace_deadline_epoch = Some(*grace_deadline_epoch);
-            }
-            DomainEvent::AgentClaimIdleWarning {
-                warning_emitted_at_epoch,
-                forced_reclaim_at_epoch,
-                ..
-            } => {
-                if claim.claim_owner_id != *claimer_agent_id {
-                    return Err(invalid(format!(
-                        "agent claim idle warning owner mismatch: target={} owner={} claimer={}",
-                        target_agent_id, claim.claim_owner_id, claimer_agent_id
-                    )));
-                }
-                if *forced_reclaim_at_epoch < *warning_emitted_at_epoch {
-                    return Err(invalid(format!(
-                        "agent claim idle warning epoch mismatch: target={} warning={} forced={}",
-                        target_agent_id, warning_emitted_at_epoch, forced_reclaim_at_epoch
-                    )));
-                }
-                claim.idle_warning_emitted_at_epoch = Some(*warning_emitted_at_epoch);
-            }
-            _ => unreachable!("event kind checked above"),
-        }
+        apply_selected_agent_claim_light_v1(event, &mut claim, &mut activity.last_active, now)?;
 
         Ok(Self {
             event: event.clone(),
@@ -221,4 +148,90 @@ fn invalid(reason: impl Into<String>) -> WorldError {
     WorldError::ResourceBalanceInvalid {
         reason: reason.into(),
     }
+}
+
+/// Fixed selected-record mutation; DATA only, with the original predicates.
+pub fn apply_selected_agent_claim_light_v1(event:&DomainEvent,claim:&mut AgentClaimState,activity_last_active:&mut u64,now:WorldTime)->Result<(),WorldError>{
+    let (claimer_agent_id,target_agent_id)=match event {
+        DomainEvent::AgentClaimReleaseRequested{claimer_agent_id,target_agent_id,..}|
+        DomainEvent::AgentClaimEnteredGrace{claimer_agent_id,target_agent_id,..}|
+        DomainEvent::AgentClaimIdleWarning{claimer_agent_id,target_agent_id,..}=>(claimer_agent_id,target_agent_id),
+        _=>return Err(invalid("light claim preparation requires a supported event")),
+    };
+        match event {
+            DomainEvent::AgentClaimReleaseRequested {
+                requested_at_epoch,
+                ready_at_epoch,
+                ..
+            } => {
+                if claim.claim_owner_id != *claimer_agent_id {
+                    return Err(invalid(format!(
+                        "agent claim release owner mismatch: target={} owner={} claimer={}",
+                        target_agent_id, claim.claim_owner_id, claimer_agent_id
+                    )));
+                }
+                if claim.release_requested_at_epoch.is_some() {
+                    return Err(invalid(format!(
+                        "agent claim release already requested: target={target_agent_id}"
+                    )));
+                }
+                if *ready_at_epoch < *requested_at_epoch {
+                    return Err(invalid(format!(
+                        "agent claim release epoch mismatch: target={} requested={} ready={}",
+                        target_agent_id, requested_at_epoch, ready_at_epoch
+                    )));
+                }
+                claim.release_requested_at_epoch = Some(*requested_at_epoch);
+                claim.release_ready_at_epoch = Some(*ready_at_epoch);
+                *activity_last_active = now;
+            }
+            DomainEvent::AgentClaimEnteredGrace {
+                delinquent_since_epoch,
+                grace_deadline_epoch,
+                upkeep_arrears_amount,
+                ..
+            } => {
+                if claim.claim_owner_id != *claimer_agent_id {
+                    return Err(invalid(format!(
+                        "agent claim grace owner mismatch: target={} owner={} claimer={}",
+                        target_agent_id, claim.claim_owner_id, claimer_agent_id
+                    )));
+                }
+                if *upkeep_arrears_amount == 0 {
+                    return Err(invalid(format!(
+                        "agent claim grace arrears must be positive: target={target_agent_id}"
+                    )));
+                }
+                if *grace_deadline_epoch < *delinquent_since_epoch {
+                    return Err(invalid(format!(
+                        "agent claim grace epoch mismatch: target={} delinquent={} deadline={}",
+                        target_agent_id, delinquent_since_epoch, grace_deadline_epoch
+                    )));
+                }
+                claim.delinquent_since_epoch = Some(*delinquent_since_epoch);
+                claim.grace_deadline_epoch = Some(*grace_deadline_epoch);
+            }
+            DomainEvent::AgentClaimIdleWarning {
+                warning_emitted_at_epoch,
+                forced_reclaim_at_epoch,
+                ..
+            } => {
+                if claim.claim_owner_id != *claimer_agent_id {
+                    return Err(invalid(format!(
+                        "agent claim idle warning owner mismatch: target={} owner={} claimer={}",
+                        target_agent_id, claim.claim_owner_id, claimer_agent_id
+                    )));
+                }
+                if *forced_reclaim_at_epoch < *warning_emitted_at_epoch {
+                    return Err(invalid(format!(
+                        "agent claim idle warning epoch mismatch: target={} warning={} forced={}",
+                        target_agent_id, warning_emitted_at_epoch, forced_reclaim_at_epoch
+                    )));
+                }
+                claim.idle_warning_emitted_at_epoch = Some(*warning_emitted_at_epoch);
+            }
+            _ => unreachable!("event kind checked above"),
+        }
+
+    Ok(())
 }

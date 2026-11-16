@@ -305,6 +305,8 @@ pub mod incremental_world_result_router_accepted;
 pub mod incremental_world_rules_family;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_storage_source;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_storage_source_cold;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_id_sets;
@@ -411,6 +413,8 @@ pub mod incremental_cognition_absence;
 pub mod incremental_cognition_history;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_proof_ledger;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_retention_ledger;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_collection_layout;
 #[cfg(not(target_arch = "wasm32"))]
@@ -540,6 +544,7 @@ pub mod incremental_module_state_recovery;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_state_family;
+pub mod incremental_module_state_projection_delta;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_recovery;
@@ -568,6 +573,8 @@ pub mod incremental_world_rule_continuity;
 pub mod incremental_world_rule_industrial;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rule_receipts;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_requests_current;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_native;
@@ -604,3 +611,24 @@ pub mod incremental_factory_schedule_factory;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_factory_schedule_logistics;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_normal_gameplay_cycles_directory;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_normal_gameplay_cycles_selected;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_iws_tick_consensus;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_normal_cognition_current;
+
+pub mod incremental_agent_instance_projection_delta;
+pub mod incremental_industry_projection_delta;
+pub mod incremental_inventory_projection_delta;
+pub mod incremental_world_rule_projection_delta;
+
+pub mod incremental_cognition_projection_aux;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_projection_aux;

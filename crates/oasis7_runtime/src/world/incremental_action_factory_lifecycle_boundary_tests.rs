@@ -124,3 +124,74 @@ fn queued_factory_matching_retired_receipt_replays_without_touch_or_output_group
     world.submit_action(recycle("owner", "assembler"));
     assert_factory_fifo(world);
 }
+
+fn pause(actor: &str, id: &str) -> crate::Action {
+    crate::Action::PauseFactoryProduction {
+        requester_agent_id: actor.into(),
+        factory_id: id.into(),
+        reason: "operator pause / 原因".into(),
+    }
+}
+#[test]
+fn queued_factory_pause_resets_actual_snapshot_and_rejects_second_pause() {
+    let mut world = world_with_factory();
+    let production = &mut world
+        .state
+        .factories
+        .get_mut("assembler")
+        .unwrap()
+        .production;
+    production.status = oasis7_world_state::FactoryProductionStatus::Idle;
+    production.current_job_id = Some(21);
+    production.current_recipe_id = Some("prior".into());
+    production.current_blocker_kind = Some("power".into());
+    production.current_blocker_detail = Some("prior detail".into());
+    production.current_blocker_action_id = Some(17);
+    production.last_completed_recipe_id = Some("prior".into());
+    production.same_recipe_repeat_count = 9;
+    production.last_completed_canonical_snapshot =
+        Some(oasis7_world_state::FactoryProductionSnapshot {
+            recipe_id: "prior".into(),
+            consume: vec![oasis7_world_state::MaterialStack::new("ore", 3)],
+            produce: vec![oasis7_world_state::MaterialStack::new("part", 1)],
+            byproducts: vec![],
+            consume_ledger: oasis7_world_state::MaterialLedgerId::World,
+            power_required: 2,
+            output_ledger: oasis7_world_state::MaterialLedgerId::factory("salvage"),
+            bottleneck_tags: vec!["power".into()],
+            logistics_route_ids: vec!["route".into()],
+            logistics_path_ids: vec!["path".into()],
+        });
+    world.submit_action(pause("missing", "absent"));
+    world.submit_action(pause("owner", "absent"));
+    world.submit_action(pause("other", "assembler"));
+    world.submit_action(pause("owner", "assembler"));
+    world.submit_action(pause("owner", "assembler"));
+    assert_factory_fifo(world);
+}
+#[test]
+fn queued_factory_pause_busy_priority_and_nonidle_match_legacy() {
+    let mut world = world_with_factory();
+    world
+        .state
+        .factories
+        .get_mut("assembler")
+        .unwrap()
+        .production
+        .status = oasis7_world_state::FactoryProductionStatus::Blocked;
+    world.submit_action(pause("owner", "assembler"));
+    assert_factory_fifo(world);
+    let mut world = world_with_factory();
+    world
+        .state
+        .factories
+        .get_mut("assembler")
+        .unwrap()
+        .production
+        .status = oasis7_world_state::FactoryProductionStatus::Idle;
+    let job = serde_json::from_value(serde_json::json!({"job_id":73,"requester_agent_id":"owner","factory_id":"assembler","recipe_id":"recipe","accepted_batches":1,"consume":[],"produce":[],"byproducts":[],"power_required":0,"duration_ticks":1,"consume_ledger":"world","output_ledger":"world","bottleneck_tags":[],"logistics_route_ids":[],"logistics_path_ids":[],"ready_at":u64::MAX})).unwrap();
+    world.state.pending_recipe_jobs.insert(73, job);
+    world.submit_action(pause("other", "assembler"));
+    world.submit_action(pause("owner", "assembler"));
+    assert_factory_fifo(world);
+}

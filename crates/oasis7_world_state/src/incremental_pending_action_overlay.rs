@@ -55,6 +55,18 @@ fn check<M: MerkleNodeReader>(
     }
     Ok(())
 }
+/// O(1) length of this real Current queue after validating the same
+/// transaction, pool and live guard. This does not scan or expose the index.
+pub fn current_pending_action_len_v1<M: MerkleNodeReader>(
+    current: &ReservedValue<PendingActionCurrentV1>,
+    tx: &ExecutionTransaction<'_, M>,
+    memory: &MemoryBudget,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<usize, WorldFieldOverlayErrorV1> {
+    check(current, tx, memory, guard, live)?;
+    Ok(current.index.borrow().len())
+}
 #[allow(clippy::too_many_arguments)]
 pub fn begin_pending_action_current_v1<M: MerkleNodeReader>(
     qualification: &ReservedValue<PendingActionQualificationV1>,

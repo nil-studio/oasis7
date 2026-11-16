@@ -73,7 +73,7 @@ pub struct ProtocolPowerReserve {
 pub use oasis7_agent_api::world_action::NodeRewardMintRecord;
 
 /// Demand-side system order pool budget for one epoch.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 pub struct SystemOrderPoolBudget {
     pub epoch_index: u64,
     pub total_credit_budget: u64,
@@ -307,3 +307,6 @@ fn decode_hex_array<const N: usize>(raw: &str, label: &str) -> Result<[u8; N], S
         .try_into()
         .map_err(|_| format!("{label} must be {N}-byte hex"))
 }
+
+#[path="reward_asset_projection.rs"] mod projection;
+pub use projection::SystemOrderPoolBudgetProjectionFieldsV1;

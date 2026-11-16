@@ -793,6 +793,7 @@ fn borrow_original<'a>(v: &RuntimeHistoryOriginalRefV1<'a>) -> RuntimeHistoryOri
         RuntimeHistoryOriginalRefV1::Snapshot(v) => RuntimeHistoryOriginalRefV1::Snapshot(v),
         RuntimeHistoryOriginalRefV1::Event(v) => RuntimeHistoryOriginalRefV1::Event(v),
         RuntimeHistoryOriginalRefV1::Tick(v) => RuntimeHistoryOriginalRefV1::Tick(v),
+        RuntimeHistoryOriginalRefV1::IwsTick(v) => RuntimeHistoryOriginalRefV1::IwsTick(v),
         RuntimeHistoryOriginalRefV1::RejectionAudit(v) => {
             RuntimeHistoryOriginalRefV1::RejectionAudit(v)
         }

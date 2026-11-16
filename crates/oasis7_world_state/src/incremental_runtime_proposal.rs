@@ -59,3 +59,5 @@ pub use family::*;
 mod tests;
 
 pub(crate) use family::accept_runtime_proposals_verified_v1;
+
+pub(crate) use family::projection_status_v1;

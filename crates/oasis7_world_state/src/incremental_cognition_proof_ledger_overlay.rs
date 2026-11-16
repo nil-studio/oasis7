@@ -33,13 +33,16 @@ fn common_error(
     }
 }
 pub struct CurrentCognitionProofLedgerV1 {
+    wire_version: CognitionProofLedgerWireVersionV1,
     core: WorkIdentityV1,
     _outer: ReservedValue<()>,
     parent_record: [u8; 32],
     parent_body: [u8; 32],
     parent_roots: [u8; 32],
     guard: PreparedGuard,
-    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 5],
+    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 8],
+    evidence_changes: Vec<ProofLedgerEvidenceChangeV2>,
+    evidence_changes_fee: oasis7_proto::memory_budget::MemoryReservation,
 }
 impl CurrentCognitionProofLedgerV1 {
     pub fn validate_context<M: MerkleNodeReader>(
@@ -50,7 +53,7 @@ impl CurrentCognitionProofLedgerV1 {
     ) -> Result<(), ValueTreeError> {
         common.consume_steps(1).map_err(common_error)?;
         let memory = common.memory();
-        tx.validate_transaction_identity(&self.guard)
+        tx.validate_exact_transaction_identity(&self.guard)
             .map_err(|_| invalid())?;
         tx.validate_guard(&tx.guard(), live)
             .map_err(|_| invalid())?;
@@ -87,6 +90,13 @@ impl CurrentCognitionProofLedgerV1 {
             || !read.values.memory.same_pool(common.memory())
         {
             return Err(invalid());
+        }
+        if field.index() >= self.wire_version.field_count() {
+            return Err(ValueTreeError::Invalid(if field.index() >= 6 {
+                "legacy ProofLedger cognition service field source missing"
+            } else {
+                "legacy ProofLedger delegation receipts source missing"
+            }));
         }
         let Some(q) = self.fields[field.index()].as_ref() else {
             return Ok(None);
@@ -238,6 +248,7 @@ pub fn begin_cognition_proof_ledger_current_v1<M: MerkleNodeReader>(
         }
         common.consume_steps(1).map_err(common_error)?;
         Ok(CurrentCognitionProofLedgerV1 {
+            wire_version: parent.manifest.wire_version,
             core,
             _outer: fee.retain(()),
             parent_record: head.verified_record_id(),
@@ -245,6 +256,8 @@ pub fn begin_cognition_proof_ledger_current_v1<M: MerkleNodeReader>(
             parent_roots: parent.manifest.roots,
             guard: tx.guard(),
             fields,
+            evidence_changes: Vec::new(),
+            evidence_changes_fee: memory.reserve(0, MemoryClass::Ordinary)?,
         })
     })();
     if result.is_err() {
@@ -282,6 +295,44 @@ where
             || read.values.class != MemoryClass::Ordinary
         {
             return Err(invalid().into());
+        }
+        // Reserve the replacement metadata buffer before any real mutation.
+        // Only a successfully qualified write below can publish its note.
+        let mut evidence_buffer = if field.index() < 2 {
+            let count = current
+                .evidence_changes
+                .len()
+                .checked_add(1)
+                .ok_or_else(invalid)?;
+            let bytes = count
+                .checked_mul(std::mem::size_of::<ProofLedgerEvidenceChangeV2>())
+                .ok_or_else(invalid)?;
+            common.charge(1, bytes as u64).map_err(common_error)?;
+            let fee = common
+                .memory()
+                .reserve(bytes, MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let mut rows = Vec::new();
+            rows.try_reserve_exact(count)
+                .map_err(|_| ValueTreeError::ResourceLimited("ProofLedger evidence changes"))?;
+            if rows.capacity() > count {
+                return Err(ValueTreeError::ResourceLimited(
+                    "ProofLedger evidence changes capacity",
+                )
+                .into());
+            }
+            Some((rows, fee))
+        } else {
+            None
+        };
+        let evidence_note = ProofLedgerEvidenceChangeV2::plan(field, path, &edit);
+        if field.index() >= current.wire_version.field_count() {
+            return Err(ValueTreeError::Invalid(if field.index() >= 6 {
+                "legacy ProofLedger cognition service field source missing"
+            } else {
+                "legacy ProofLedger delegation receipts source missing"
+            })
+            .into());
         }
         let old = current.fields[field.index()].as_ref().ok_or_else(invalid)?;
         let p = profile(field);
@@ -358,11 +409,11 @@ where
                 producer,
             )?;
             let next = advance_json_subtree_v1(jp, old, change.after(), &mut field_read, changed)?;
-            if field.index() < 3 {
+            if field.index() < 3 || field == CognitionProofLedgerFieldV1::DelegationReceipts {
                 crate::incremental_json_records::require_json_container_records_v1(
                     jp,
                     &next,
-                    true,
+                    field.index() < 3,
                     &mut field_read.records(),
                     &mut changed.json,
                 )?;
@@ -405,6 +456,15 @@ where
         let next = produced?;
         paid.map_err(|_| ValueTreeError::ResourceLimited("ProofLedger Common producer"))?;
         common.consume_steps(0).map_err(common_error)?;
+        if let Some((mut rows, fee)) = evidence_buffer.take() {
+            let note = evidence_note;
+            rows.append(&mut current.evidence_changes);
+            rows.push(note);
+            let old_rows = std::mem::replace(&mut current.evidence_changes, rows);
+            let old_fee = std::mem::replace(&mut current.evidence_changes_fee, fee);
+            drop(old_rows);
+            drop(old_fee);
+        }
         current.fields[field.index()] = Some(next);
         Ok(())
     })();
@@ -434,12 +494,13 @@ impl FrozenCognitionProofLedgerV1 {
         let _phase = common.memory().reserve(4096, MemoryClass::Ordinary)?;
         after.validate().map_err(|_| invalid())?;
         let fee = common.memory().reserve(
-            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 5 * 512,
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
             MemoryClass::Ordinary,
         )?;
         let fields =
             std::array::from_fn(|i| self.source.fields[i].as_ref().map(|q| q.root().clone()));
         Ok(fee.retain(CognitionProofLedgerManifestV1 {
+            wire_version: self.source.wire_version,
             roots: after.digest().map_err(|_| invalid())?,
             previous_record: Some(self.source.parent_record),
             fields,
@@ -459,3 +520,84 @@ impl FrozenCognitionProofLedgerV1 {
             .map_err(|_| invalid())
     }
 }
+
+#[path = "incremental_cognition_proof_ledger_evidence_changes.rs"]
+mod evidence_changes;
+pub use evidence_changes::*;
+
+/// Fixed private-field metadata captured from an actual Current owner. This is
+/// provisional final-Result DATA; it does not authorize a seal or acceptance.
+pub struct FrozenCognitionProofLedgerManifestSourceV1 {
+    wire_version: CognitionProofLedgerWireVersionV1,
+    fields: [Option<oasis7_formal_protocol::incremental_state::StateRootV1>; 8],
+    parent_record: [u8; 32],
+    core: WorkIdentityV1,
+}
+impl CurrentCognitionProofLedgerV1 {
+    pub fn capture_manifest_source_v1<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+    ) -> Result<ReservedValue<FrozenCognitionProofLedgerManifestSourceV1>, ValueTreeError> {
+        self.validate_context(tx, common, live)?;
+        common.charge(8, 8 * 512).map_err(common_error)?;
+        let fee = common.memory().reserve(
+            std::mem::size_of::<FrozenCognitionProofLedgerManifestSourceV1>() + 8 * 512,
+            MemoryClass::Ordinary,
+        )?;
+        Ok(fee.retain(FrozenCognitionProofLedgerManifestSourceV1 {
+            wire_version: self.wire_version,
+            fields: std::array::from_fn(|i| self.fields[i].as_ref().map(|q| q.root().clone())),
+            parent_record: self.parent_record,
+            core: self.core,
+        }))
+    }
+}
+impl FrozenCognitionProofLedgerManifestSourceV1 {
+    /// Original captured DATA only; no caller RootSet or source constructor.
+    pub fn wire_version_data_v1(&self) -> CognitionProofLedgerWireVersionV1 {
+        self.wire_version
+    }
+    pub fn field_root_data_v1(
+        &self,
+        field: CognitionProofLedgerFieldV1,
+    ) -> Option<&oasis7_formal_protocol::incremental_state::StateRootV1> {
+        self.fields[field.index()].as_ref()
+    }
+    pub fn parent_record_data_v1(&self) -> [u8; 32] {
+        self.parent_record
+    }
+
+    pub fn manifest(
+        &self,
+        after: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<CognitionProofLedgerManifestV1>, ValueTreeError> {
+        common.charge(8, 8 * 512 + 4096).map_err(common_error)?;
+        if self.core != common.work().identity() {
+            return Err(invalid());
+        }
+        let _scratch = common.memory().reserve(4096, MemoryClass::Ordinary)?;
+        let fee = common.memory().reserve(
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
+            MemoryClass::Ordinary,
+        )?;
+        after.validate().map_err(|_| invalid())?;
+        let manifest = fee.retain(CognitionProofLedgerManifestV1 {
+            wire_version: self.wire_version,
+            roots: after.digest().map_err(|_| invalid())?,
+            previous_record: Some(self.parent_record),
+            fields: self.fields.clone(),
+        });
+        manifest.validate()?;
+        Ok(manifest)
+    }
+}
+
+#[path = "incremental_cognition_proof_ledger_receipts.rs"]
+mod receipts;
+pub use receipts::{
+    change_current_cognition_delegation_receipts_presence_v2,
+    change_current_cognition_service_proof_field_presence_v3,
+};

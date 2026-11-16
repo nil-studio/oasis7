@@ -37,6 +37,9 @@ pub struct CommitPreparationRequest<'a> {
 #[path = "incremental_commit_directories.rs"]
 mod directories;
 use directories::CandidateBoundRuntimeDirectoriesV1;
+pub use directories::{
+    AcceptedRuntimeDirectoryCacheV1, PreparedRuntimeDirectoryCacheV1, RuntimeDirectoryCacheErrorV1,
+};
 pub(in crate::world) use directories::{
     prepare_iws_runtime_commit_with_directories_v1,
     prepare_iws_runtime_commit_with_results_and_directories_v1,
@@ -306,6 +309,67 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>, A>(
     let guard = txn.guard();
     let (transition, sealed_directories) =
         seal(txn, &guard, &live_fence()?, request.next_tick, payload)?;
+    assemble_prepared_commit_v1(
+        request,
+        source,
+        memory,
+        live_fence,
+        transition,
+        sealed_directories,
+        fence,
+        workspace,
+        |header| header.prepare(memory).map_err(E::from),
+        |catalog, body, reader, memory, max| {
+            catalog.extend(body, reader, memory, max).map_err(E::from)
+        },
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_prepared_commit_v1<R: MerkleNodeReader, E: From<ExecutionError>>(
+    request: &CommitPreparationRequest<'_>,
+    source: &R,
+    memory: &MemoryBudget,
+    mut live_fence: impl FnMut() -> Result<ExecutionFence, E>,
+    transition: ReservedValue<PreparedTransition>,
+    sealed_directories: Option<
+        ReservedValue<crate::world::incremental_directory_bundle::SealedRuntimeDirectoryBundleV1>,
+    >,
+    fence: ExecutionFence,
+    mut workspace: oasis7_proto::memory_budget::MemoryReservation,
+    prepare_history: impl FnOnce(HeaderPreparation<'_>) -> Result<ReservedValue<PreparedHistoryV1>, E>,
+    extend_catalog: impl FnOnce(
+        &CatalogRootV1,
+        &CommitBodyV1,
+        &R,
+        &MemoryBudget,
+        usize,
+    ) -> Result<ReservedValue<CatalogDeltaV1>, E>,
+) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
+    let (prepared, fee) = assemble_prepared_commit_owned_v1(request,source,memory,live_fence,transition,sealed_directories,fence,workspace,prepare_history,extend_catalog)?;
+    Ok(fee.retain(prepared))
+}
+
+fn assemble_prepared_commit_owned_v1<R: MerkleNodeReader, E: From<ExecutionError>>(
+    request: &CommitPreparationRequest<'_>,
+    source: &R,
+    memory: &MemoryBudget,
+    mut live_fence: impl FnMut() -> Result<ExecutionFence, E>,
+    transition: ReservedValue<PreparedTransition>,
+    sealed_directories: Option<
+        ReservedValue<crate::world::incremental_directory_bundle::SealedRuntimeDirectoryBundleV1>,
+    >,
+    fence: ExecutionFence,
+    mut workspace: oasis7_proto::memory_budget::MemoryReservation,
+    prepare_history: impl FnOnce(HeaderPreparation<'_>) -> Result<ReservedValue<PreparedHistoryV1>, E>,
+    extend_catalog: impl FnOnce(
+        &CatalogRootV1,
+        &CommitBodyV1,
+        &R,
+        &MemoryBudget,
+        usize,
+    ) -> Result<ReservedValue<CatalogDeltaV1>, E>,
+) -> Result<(PreparedRuntimeCommit,oasis7_proto::memory_budget::MemoryReservation), E> {
     let history = HeaderPreparation {
         config: request.parent.config,
         catalog: request.parent.catalog,
@@ -318,9 +382,10 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>, A>(
         authority: request.parent.authority,
         execution_environment: request.execution_environment,
         checkpoint: request.checkpoint,
-    }
-    .prepare(memory)?;
-    let catalog = request.parent.catalog.extend(
+    };
+    let history = prepare_history(history)?;
+    let catalog = extend_catalog(
+        request.parent.catalog,
         &history.body,
         source,
         memory,
@@ -365,5 +430,14 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>, A>(
     let charge = workspace
         .split(std::mem::size_of::<PreparedRuntimeCommit>() + 64)
         .map_err(ExecutionError::Invalid)?;
-    Ok(charge.retain(prepared))
+    Ok((prepared,charge))
 }
+
+#[path = "incremental_commit_normal.rs"]
+mod normal;
+pub(in crate::world) use normal::{
+    NormalCommitPreparationErrorV1, NormalFinalResultProducerV1,
+    PreparedNormalCommitV1, prepare_finished_normal_commit_v1,
+};
+
+pub use normal::NormalCommitHeaderLimitsV1;

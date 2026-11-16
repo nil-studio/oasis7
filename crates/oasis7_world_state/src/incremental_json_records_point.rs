@@ -139,11 +139,23 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     key: &(WorldFieldKeyV1, u64),
     records: &mut InventoryValueReader<'_, '_, R, C>,
 ) -> Result<([u8; 32], StateRootV1), ValueTreeError> {
-    let _scratch = records.values.memory.reserve(8192, records.values.class)?;
-    let id = required(root, &key.0, records)?;
-    let child = child_reference_admitted(profile, &id, key, records)?;
-    Ok((id, child))
+    child_optional(profile, root, key, records)?
+        .ok_or(ValueTreeError::Invalid("JSON point missing cell"))
 }
+fn child_optional<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    root: &StateRootV1,
+    key: &(WorldFieldKeyV1, u64),
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Option<([u8; 32], StateRootV1)>, ValueTreeError> {
+    let _scratch = records.values.memory.reserve(8192, records.values.class)?;
+    let Some(id) = tree::lookup(root, &key.0, records, LABELS)? else {
+        return Ok(None);
+    };
+    let child = child_reference_admitted(profile, &id, key, records)?;
+    Ok(Some((id, child)))
+}
+
 fn child_reference<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     id: &[u8; 32],
@@ -476,15 +488,50 @@ impl<'a> ResolvedPath<'a> {
         records: &mut InventoryValueReader<'_, '_, R, C>,
         work: &mut PathWork<'_>,
     ) -> Result<(), MemberRecordError> {
+        self.walk_optional(profile, path, records, work, false)?
+            .then_some(())
+            .ok_or_else(|| ValueTreeError::Invalid("JSON point missing cell").into())
+    }
+    fn walk_optional<R: ValueNodeReader, C: FnMut() -> bool>(
+        &mut self,
+        profile: JsonRecordProfileV1,
+        path: &[JsonPathSegmentV1<'a>],
+        records: &mut InventoryValueReader<'_, '_, R, C>,
+        work: &mut PathWork<'_>,
+        allow_missing: bool,
+    ) -> Result<bool, MemberRecordError> {
         for segment in path {
             work.node()?;
             work.cell()?;
+            if allow_missing {
+                // A genuine absent member is distinct from selecting an object
+                // name in a scalar/array, or an ordinal in an object.
+                work.cell()?;
+                let label = records.key(
+                    profile.field,
+                    WorldFieldRecordKindV1::Entry,
+                    &((), "json.kind"),
+                )?;
+                let expected: &[u8] = match segment {
+                    JsonPathSegmentV1::Name(_) => b"object",
+                    JsonPathSegmentV1::Index(_) => b"array",
+                };
+                compare(
+                    &self.root,
+                    &label,
+                    MemberPayloadCodecV1::Text,
+                    expected,
+                    records,
+                )?;
+            }
             let key = path_key(profile, *segment, records)?;
-            let (id, next) = child(profile, &self.root, &key, records)?;
+            let Some((id, next)) = child_optional(profile, &self.root, &key, records)? else {
+                return Ok(false);
+            };
             let root = std::mem::replace(&mut self.root, next);
             self.parents.push((root, key.0, id, *segment));
         }
-        Ok(())
+        Ok(true)
     }
 }
 struct Resolved<'a> {
@@ -673,6 +720,52 @@ pub(crate) fn qualify_json_path_records_v1<R: ValueNodeReader, C: FnMut() -> boo
     work: &mut JsonScalarPathReadWorkV1,
 ) -> Result<oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>, MemberRecordError>
 {
+    qualify_json_path_optional_inner(
+        profile,
+        parent,
+        path,
+        records,
+        &mut work.cells_remaining,
+        &mut work.json_nodes_remaining,
+        work.max_depth,
+        false,
+    )?
+    .ok_or_else(|| ValueTreeError::Invalid("JSON point missing cell").into())
+}
+pub(crate) fn qualify_optional_json_path_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    path: &[JsonPathSegmentV1<'_>],
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<
+    Option<oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>>,
+    MemberRecordError,
+> {
+    qualify_json_path_optional_inner(
+        profile,
+        parent,
+        path,
+        records,
+        &mut work.cells_remaining,
+        &mut work.json_nodes_remaining,
+        work.max_depth,
+        true,
+    )
+}
+fn qualify_json_path_optional_inner<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    path: &[JsonPathSegmentV1<'_>],
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    nodes: &mut u64,
+    max_depth: usize,
+    allow_missing: bool,
+) -> Result<
+    Option<oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>>,
+    MemberRecordError,
+> {
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -688,16 +781,18 @@ pub(crate) fn qualify_json_path_records_v1<R: ValueNodeReader, C: FnMut() -> boo
     let mut resolved = ResolvedPath::new(
         parent.root(),
         path.len(),
-        work.max_depth,
+        max_depth,
         records.values.memory,
         records.values.class,
     )?;
     let mut path_work = PathWork {
-        cells: &mut work.cells_remaining,
-        nodes: &mut work.json_nodes_remaining,
-        max_depth: work.max_depth,
+        cells: cells,
+        nodes: nodes,
+        max_depth: max_depth,
     };
-    resolved.walk(profile, path, records, &mut path_work)?;
+    if !resolved.walk_optional(profile, path, records, &mut path_work, allow_missing)? {
+        return Ok(None);
+    }
     path_work.node()?;
     let output = retained.retain(JsonSubtreeQualificationV1 {
         root: resolved.root,
@@ -708,7 +803,7 @@ pub(crate) fn qualify_json_path_records_v1<R: ValueNodeReader, C: FnMut() -> boo
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    Ok(output)
+    Ok(Some(output))
 }
 pub fn prepare_json_subtree_change_v1<
     M: MerkleNodeReader,
@@ -1053,4 +1148,45 @@ fn write_len<W: StatePageWriter, R: ValueNodeReader, C: FnMut() -> bool, CW: FnM
             labels: LABELS,
         },
     )?)
+}
+
+/// Original `Value::as_object().and_then(get)` semantics over a qualified
+/// graph: a legal non-object is no member, while IO/resource/cancel still fail.
+pub(crate) fn qualify_optional_json_object_member_records_v1<
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    key: &str,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<
+    Option<oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>>,
+    MemberRecordError,
+> {
+    if !parent.uses_budget(records.values.memory) {
+        return Err(ValueTreeError::Invalid("JSON optional object parent pool").into());
+    }
+    parent.validate_binding(profile, parent.root())?;
+    work.cells_remaining =
+        work.cells_remaining
+            .checked_sub(5)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "JSON optional object cells",
+            ))?;
+    let frame = read::frame(profile, parent.root(), records, work)?;
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    if frame.kind != read::Kind::Object {
+        return Ok(None);
+    }
+    qualify_optional_json_path_records_v1(
+        profile,
+        parent,
+        &[JsonPathSegmentV1::Name(key)],
+        records,
+        work,
+    )
 }

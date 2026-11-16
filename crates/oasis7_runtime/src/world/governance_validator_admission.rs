@@ -155,60 +155,7 @@ impl World {
         admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
         effective_epoch: u64,
     ) -> Result<Option<GovernanceFinalitySignerRegistry>, WorldError> {
-        let Some(mut registry) = self.state.governance_finality_signer_registry.clone() else {
-            if !self
-                .state
-                .governance_bootstrap_finality_key_rotations
-                .is_empty()
-                || !self.state.governance_finality_key_rotations.is_empty()
-            {
-                return Err(WorldError::GovernancePolicyInvalid {
-                    reason: "rotation source registry missing".into(),
-                });
-            }
-            return Ok(None);
-        };
-        // Administrative progress must not shadow the last effective authority
-        // decision. In particular, a newer application cannot remove a prior
-        // revocation and thereby restore a bootstrap binding from the base.
-        let authority_records =
-            Self::governance_validator_authority_records_at_epoch(admissions, effective_epoch);
-        for record in authority_records.values() {
-            match record.status {
-                GovernanceValidatorAdmissionStatus::Revoked => {
-                    registry.signer_bindings.remove(record.node_id.as_str());
-                    registry.validator_stakes.remove(record.node_id.as_str());
-                }
-                GovernanceValidatorAdmissionStatus::ProbationReady
-                | GovernanceValidatorAdmissionStatus::Active => {
-                    let activation_epoch = record.activation_epoch.unwrap_or(effective_epoch);
-                    if activation_epoch <= effective_epoch {
-                        registry.signer_bindings.insert(
-                            record.node_id.clone(),
-                            record.finality_signer_public_key.clone(),
-                        );
-                        registry
-                            .validator_stakes
-                            .insert(record.node_id.clone(), record.stake);
-                    }
-                }
-                GovernanceValidatorAdmissionStatus::Applied
-                | GovernanceValidatorAdmissionStatus::ApprovedCandidate => {}
-            }
-        }
-        self.project_finality_key_rotations(
-            &mut registry,
-            admissions,
-            &authority_records,
-            effective_epoch,
-        )?;
-        self.project_bootstrap_finality_key_rotations(
-            &mut registry,
-            &authority_records,
-            effective_epoch,
-        )?;
-        self.validate_governance_finality_signer_registry(registry)
-            .map(Some)
+        super::module_admission_finality::ModuleFinalityRecordsV1::from_world(self).resolve_governance_effective_finality_signer_registry_from_admissions_at_epoch(admissions,effective_epoch)
     }
 
     // Source ownership must use the same effective decisions as permission

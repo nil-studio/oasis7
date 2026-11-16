@@ -42,6 +42,54 @@ where
         instance: &str,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<RootModuleTickOutcomeV1, RootModuleExecutionErrorV1<O::Error>> {
+        self.execute_scheduled_tick_inner_v1(instance, None, live_owner)
+    }
+    pub(in crate::world) fn execute_captured_scheduled_gameplay_tick_v1(
+        &mut self,
+        slot: crate::world::incremental_normal_gameplay_cycles::DueGameplayTickSlotV1,
+        core: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<RootModuleTickOutcomeV1, RootModuleExecutionErrorV1<O::Error>> {
+        slot.validate(
+            self.ctx.transaction,
+            self.ctx.values.memory,
+            core,
+            &live_owner(),
+        )
+        .map_err(RootModuleExecutionErrorV1::Body)?;
+        let len = slot.instance_id().len();
+        let metadata_bytes = len.checked_add(128).ok_or(ValueTreeError::ResourceLimited(
+            "captured Tick identity layout",
+        ))?;
+        self.work.input.visits_remaining = self.work.input.visits_remaining.checked_sub(4).ok_or(
+            ValueTreeError::ResourceLimited("captured Tick identity visits"),
+        )?;
+        self.work.input.bytes_remaining = self
+            .work
+            .input
+            .bytes_remaining
+            .checked_sub(metadata_bytes as u64)
+            .ok_or(ValueTreeError::ResourceLimited(
+                "captured Tick identity bytes",
+            ))?;
+        let fee = self
+            .ctx
+            .values
+            .memory
+            .reserve(len, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let instance = fee.retain(slot.instance_id().to_owned());
+        self.execute_scheduled_tick_inner_v1(&instance, Some((slot, core)), live_owner)
+    }
+    fn execute_scheduled_tick_inner_v1(
+        &mut self,
+        instance: &str,
+        mut captured: Option<(
+            crate::world::incremental_normal_gameplay_cycles::DueGameplayTickSlotV1,
+            oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+        )>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<RootModuleTickOutcomeV1, RootModuleExecutionErrorV1<O::Error>> {
         let Self {
             families,
             now,
@@ -178,7 +226,12 @@ where
                         #[cfg(any(test, feature = "test-support"))]
                         input_observation: None,
                     };
-                    actual.execute_tick_invocation_v1(instance, live_owner)
+                    match captured.take() {
+                        Some((slot, core)) => {
+                            actual.execute_captured_gameplay_tick_v1(slot, core, live_owner)
+                        }
+                        None => actual.execute_tick_invocation_v1(instance, live_owner),
+                    }
                 };
                 *original_work = event.original_work;
                 match result {

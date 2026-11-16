@@ -65,6 +65,20 @@ pub(super) fn outer<
     entry: &StateEntryV1,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<(FactoryAuthorityRecordKindV1, [u8; 32], StateRootV1)>, ValueTreeError> {
+    let mut records = InventoryValueReader {
+        values: &mut ctx.values,
+        key_work: &mut *ctx.key_work,
+        semantic_bytes: ctx.semantic_bytes,
+        record_bytes: ctx.record_bytes,
+        cancelled: &mut ctx.cancelled,
+    };
+    let value=outer_from_records_v1(entry,&mut records)?;
+    if value.is_some(){ctx.check()?;}
+    Ok(value)
+}
+/// Original outer grammar only; the caller supplies an actually authenticated
+/// entry. No current body closure or execution permission is created here.
+pub(super) fn outer_from_records_v1<R:ValueNodeReader,C:FnMut()->bool>(entry:&StateEntryV1,records:&mut InventoryValueReader<'_, '_,R,C>)->Result<Option<(FactoryAuthorityRecordKindV1,[u8;32],StateRootV1)>,ValueTreeError>{
     if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
         return Ok(None);
     }
@@ -80,13 +94,6 @@ pub(super) fn outer<
     if key.as_bytes() != entry.key || entry.namespace != kind.namespace() {
         return Err(invalid());
     }
-    let mut records = InventoryValueReader {
-        values: &mut ctx.values,
-        key_work: &mut *ctx.key_work,
-        semantic_bytes: ctx.semantic_bytes,
-        record_bytes: ctx.record_bytes,
-        cancelled: &mut ctx.cancelled,
-    };
     if binding.kind == WorldFieldRecordKindV1::Metadata {
         records.presence(&entry.value, &key, 0)?;
         return Ok(None);
@@ -94,13 +101,13 @@ pub(super) fn outer<
     if binding.kind != WorldFieldRecordKindV1::Entry {
         return Err(invalid());
     }
-    let format = marker(kind, &mut records)?;
+    let format = marker(kind, records)?;
     if key == format.0 {
         read::value(
             FactoryAuthorityCellV1::Record,
             &entry.value,
             &format,
-            &mut records,
+            records,
             0,
             &mut std::io::sink(),
         )?;
@@ -122,10 +129,9 @@ pub(super) fn outer<
         kind,
         &(key, info.semantic_bytes),
         &entry.value,
-        &mut records,
+        records,
     )?;
     let owner = binding.semantic_key.ok_or_else(invalid)?;
-    ctx.check()?;
     Ok(Some((kind, owner, child)))
 }
 /// Raw bootstrap/recovery checks every original key, closed child and required

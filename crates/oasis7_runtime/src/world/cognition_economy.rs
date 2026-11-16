@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 
+#[path = "normal_bootstrap_current_economy_work.rs"]
+pub(in crate::world) mod bounded_work;
+use bounded_work::{CognitionEconomyWorkOpsV1, LegacyEconomyWorkV1};
+
 #[path = "cognition_economy_balances.rs"]
 mod balances;
 #[path = "cognition_economy_provisioning.rs"]
@@ -48,10 +52,11 @@ const COGNITION_PROVISIONING_JOURNAL_DOMAIN: &str =
 const MAX_IDENTITY_BYTES: usize = 256;
 
 fn default_provisioning_head_digest() -> String {
-    economy_digest(
-        COGNITION_PROVISIONING_JOURNAL_DOMAIN,
-        &(0_u64, Vec::<CognitionProvisioningEventV1>::new()),
-    )
+    default_provisioning_head_digest_with_work_v1(&mut LegacyEconomyWorkV1)
+        .expect("fixed empty provisioning journal is serializable")
+}
+fn default_provisioning_head_digest_with_work_v1<O:CognitionEconomyWorkOpsV1>(ops:&mut O)->Result<String,CognitionEconomyError>{
+    ops.digest(COGNITION_PROVISIONING_JOURNAL_DOMAIN,&(0_u64,Vec::<CognitionProvisioningEventV1>::new()))
 }
 
 fn bounded_identity(value: &str) -> bool {
@@ -124,15 +129,30 @@ pub type CognitionReceipt = CognitionReceiptV1;
 
 impl CognitionReceiptV1 {
     pub fn recompute_digest(&self) -> String {
+        self.recompute_digest_with_work_v1(&mut LegacyEconomyWorkV1)
+            .expect("cognition payload must be canonically encodable")
+    }
+    pub(super) fn recompute_digest_with_work_v1<O: CognitionEconomyWorkOpsV1>(
+        &self,
+        ops: &mut O,
+    ) -> Result<String, CognitionEconomyError> {
+        let _phase = ops.before_value(self)?;
         let mut value = serde_json::to_value(self).expect("cognition receipt is serializable");
         value
             .as_object_mut()
             .expect("cognition receipt is an object")
             .remove("receipt_digest");
-        economy_digest(COGNITION_ECONOMY_RECEIPT_DOMAIN, &value)
+        ops.digest(COGNITION_ECONOMY_RECEIPT_DOMAIN, &value)
     }
 
     pub fn validate(&self) -> Result<(), CognitionEconomyError> {
+        self.validate_with_work_v1(&mut LegacyEconomyWorkV1)
+    }
+    pub(super) fn validate_with_work_v1<O: CognitionEconomyWorkOpsV1>(
+        &self,
+        ops: &mut O,
+    ) -> Result<(), CognitionEconomyError> {
+        ops.work(1, 0)?;
         let legacy_operation = self.operation.is_empty();
         if self.schema_version != COGNITION_RECEIPT_SCHEMA_VERSION
             || !bounded_identity(&self.receipt_id)
@@ -227,13 +247,13 @@ impl CognitionReceiptV1 {
                         .reason
                         .as_deref()
                         .is_none_or(|reason| !bounded_identity(reason))))
-            || self.receipt_digest != self.recompute_digest()
+            || self.receipt_digest != self.recompute_digest_with_work_v1(ops)?
         {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_receipt_invalid",
             ));
         }
-        self.quote.validate()
+        self.quote.validate_with_work_v1(&*ops)
     }
 }
 
@@ -285,18 +305,60 @@ pub struct CognitionEconomyEventV1 {
 
 impl CognitionEconomyEventV1 {
     fn recompute_digest(&self) -> String {
+        self.recompute_digest_with_work_v1(&mut LegacyEconomyWorkV1)
+            .expect("cognition payload must be canonically encodable")
+    }
+    pub(super) fn recompute_digest_with_work_v1<O: CognitionEconomyWorkOpsV1>(
+        &self,
+        ops: &mut O,
+    ) -> Result<String, CognitionEconomyError> {
+        let _phase = ops.before_value(self)?;
         let mut value = serde_json::to_value(self).expect("economy event is serializable");
         value
             .as_object_mut()
             .expect("economy event is an object")
             .remove("event_digest");
-        economy_digest(COGNITION_ECONOMY_EVENT_DOMAIN, &value)
+        ops.digest(COGNITION_ECONOMY_EVENT_DOMAIN, &value)
     }
 }
 
-/// The complete durable cognition economy projection.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CognitionEconomyStateV1 {
+// Keep the public DTO and the private decode carrier on one original field
+// inventory. The only carrier difference records whether serde actually used
+// the provisioning-digest default; it never treats an explicit null as absent.
+#[derive(Default)]
+enum ProvisioningDigestDecodeV1{#[default]Missing,Present(String)}
+impl<'de>Deserialize<'de>for ProvisioningDigestDecodeV1{
+    fn deserialize<D:serde::Deserializer<'de>>(d:D)->Result<Self,D::Error>{String::deserialize(d).map(Self::Present)}
+}
+macro_rules! cognition_economy_state_definition_v1{
+    (before{$($(#[$before_attr:meta])*pub $before:ident:$before_type:ty,)*}after{$($(#[$after_attr:meta])*pub $after:ident:$after_type:ty,)*})=>{
+        /// The complete durable cognition economy projection.
+        #[derive(Debug,Clone,PartialEq,Eq,Serialize)]
+        pub struct CognitionEconomyStateV1{
+            $($(#[$before_attr])*pub $before:$before_type,)*
+            pub provision_head_digest:String,
+            $($(#[$after_attr])*pub $after:$after_type,)*
+        }
+        #[derive(Deserialize)]
+        #[serde(rename="CognitionEconomyStateV1")]
+        struct CognitionEconomyDecodeV1{
+            $($(#[$before_attr])*$before:$before_type,)*
+            #[serde(default)]provision_head_digest:ProvisioningDigestDecodeV1,
+            $($(#[$after_attr])*$after:$after_type,)*
+        }
+        impl CognitionEconomyDecodeV1{
+            fn finish_with_work_v1<O:CognitionEconomyWorkOpsV1>(self,ops:&mut O)->Result<CognitionEconomyStateV1,CognitionEconomyError>{
+                let provision_head_digest=match self.provision_head_digest{
+                    ProvisioningDigestDecodeV1::Present(value)=>value,
+                    ProvisioningDigestDecodeV1::Missing=>if ops.is_metered(){default_provisioning_head_digest_with_work_v1(ops)?}else{default_provisioning_head_digest()},
+                };
+                Ok(CognitionEconomyStateV1{$($before:self.$before,)*provision_head_digest,$($after:self.$after,)*})
+            }
+        }
+    }
+}
+cognition_economy_state_definition_v1!{
+before{
     pub schema_version: String,
     #[serde(default)]
     pub balances: BTreeMap<String, BTreeMap<String, CognitionResourceBalanceV1>>,
@@ -319,8 +381,7 @@ pub struct CognitionEconomyStateV1 {
     pub provision_journal: Vec<CognitionProvisioningEventV1>,
     #[serde(default)]
     pub provision_head_seq: u64,
-    #[serde(default = "default_provisioning_head_digest")]
-    pub provision_head_digest: String,
+}after{
     #[serde(default)]
     pub leases: BTreeMap<String, CognitionLeaseV1>,
     #[serde(default)]
@@ -336,12 +397,23 @@ pub struct CognitionEconomyStateV1 {
     #[serde(default)]
     pub head_digest: String,
 }
+}
+impl<'de>Deserialize<'de>for CognitionEconomyStateV1{
+    fn deserialize<D:serde::Deserializer<'de>>(d:D)->Result<Self,D::Error>{
+        CognitionEconomyDecodeV1::deserialize(d)?.finish_with_work_v1(&mut LegacyEconomyWorkV1).map_err(serde::de::Error::custom)
+    }
+}
 
 pub type CognitionEconomyV1 = CognitionEconomyStateV1;
 
 impl Default for CognitionEconomyStateV1 {
-    fn default() -> Self {
-        Self {
+    fn default()->Self{Self::default_with_work_v1(&mut LegacyEconomyWorkV1).expect("fixed empty economy journals are serializable")}
+}
+
+impl CognitionEconomyStateV1{
+    pub(in crate::world) fn default_with_work_v1<O:CognitionEconomyWorkOpsV1>(ops:&mut O)->Result<Self,CognitionEconomyError>{
+        ops.work(1,COGNITION_ECONOMY_SCHEMA_VERSION.len())?;
+        Ok(Self {
             schema_version: COGNITION_ECONOMY_SCHEMA_VERSION.to_string(),
             balances: BTreeMap::new(),
             provisioned_balances: BTreeMap::new(),
@@ -350,18 +422,25 @@ impl Default for CognitionEconomyStateV1 {
             provision_receipts: BTreeMap::new(),
             provision_journal: Vec::new(),
             provision_head_seq: 0,
-            provision_head_digest: default_provisioning_head_digest(),
+            provision_head_digest: default_provisioning_head_digest_with_work_v1(ops)?,
             leases: BTreeMap::new(),
             receipts: BTreeMap::new(),
             idempotency: BTreeMap::new(),
             operations: BTreeMap::new(),
             journal: Vec::new(),
             head_seq: 0,
-            head_digest: economy_digest(
+            head_digest: ops.digest(
                 COGNITION_ECONOMY_JOURNAL_DOMAIN,
                 &(0_u64, Vec::<CognitionEconomyEventV1>::new()),
-            ),
-        }
+            )?,
+        })
+    }
+    /// Same serde field/default rules as Deserialize, with the missing fixed
+    /// digest computed at the original post-field-decode boundary.
+    pub(in crate::world) fn decode_snapshot_value_with_work_v1<O:CognitionEconomyWorkOpsV1>(value:JsonValue,ops:&mut O)->Result<Self,CognitionEconomyError>{
+        let _phase=ops.before_value(&value)?;
+        let wire:CognitionEconomyDecodeV1=serde_json::from_value(value).map_err(|_|CognitionEconomyError::InvalidState("cognition_economy_projection_invalid"))?;
+        wire.finish_with_work_v1(ops)
     }
 }
 
@@ -728,5 +807,45 @@ impl CognitionEconomyStateV1 {
 }
 
 fn operation_key(lease_id: &str, operation: &str) -> String {
-    economy_digest(COGNITION_ECONOMY_OPERATION_DOMAIN, &(lease_id, operation))
+    operation_key_with_work_v1(lease_id, operation, &mut LegacyEconomyWorkV1)
+        .expect("cognition payload must be canonically encodable")
+}
+fn operation_key_with_work_v1<O: CognitionEconomyWorkOpsV1>(
+    lease_id: &str,
+    operation: &str,
+    ops: &mut O,
+) -> Result<String, CognitionEconomyError> {
+    ops.digest(COGNITION_ECONOMY_OPERATION_DOMAIN, &(lease_id, operation))
+}
+
+#[cfg(test)]
+mod fixed_default_work_tests {
+    use super::*;
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{FormalBoundedContextV1,FormalBoundedWorkV1};
+    use oasis7_proto::memory_budget::MemoryBudget;
+    use oasis7_wasm_abi::CanonicalCborWorkV1;
+    fn canonical()->CanonicalCborWorkV1{CanonicalCborWorkV1{visits_remaining:100_000,bytes_remaining:1_000_000,max_depth:64,max_map_keys:128,max_key_bytes:8192}}
+    #[test]
+    fn missing_default_keeps_original_null_empty_and_sequence_rules(){
+        let missing=serde_json::json!({"schema_version":COGNITION_ECONOMY_SCHEMA_VERSION});
+        let parsed:CognitionEconomyStateV1=serde_json::from_value(missing).unwrap();
+        assert_eq!(parsed.provision_head_digest,default_provisioning_head_digest());
+        assert_eq!(parsed.head_digest,"");
+        let explicit:CognitionEconomyStateV1=serde_json::from_value(serde_json::json!({"schema_version":COGNITION_ECONOMY_SCHEMA_VERSION,"provision_head_digest":""})).unwrap();
+        assert_eq!(explicit.provision_head_digest,"");
+        assert!(serde_json::from_value::<CognitionEconomyStateV1>(serde_json::json!({"schema_version":COGNITION_ECONOMY_SCHEMA_VERSION,"provision_head_digest":null})).is_err());
+        let seq:CognitionEconomyStateV1=serde_json::from_value(serde_json::json!([COGNITION_ECONOMY_SCHEMA_VERSION])).unwrap();
+        assert_eq!(seq,parsed);
+    }
+    #[test]
+    fn actual_default_hashes_consume_continuing_codec_but_parse_refusal_does_not(){
+        for (input,hashes)in[(None,true),(Some(serde_json::json!({"schema_version":COGNITION_ECONOMY_SCHEMA_VERSION})),true),(Some(serde_json::json!({"schema_version":COGNITION_ECONOMY_SCHEMA_VERSION,"provision_head_digest":""})),false),(Some(serde_json::json!({"schema_version":COGNITION_ECONOMY_SCHEMA_VERSION,"balances":"invalid"})),false)]{
+            let memory=MemoryBudget::new(16*1024*1024,0).unwrap();
+            let work=FormalBoundedWorkV1::new(10_000_000,16*1024*1024).unwrap();let mut stop=||false;let mut common=FormalBoundedContextV1::new(&memory,&work,&mut stop);let mut codec=canonical();let before=(codec.visits_remaining,codec.bytes_remaining);
+            let mut ops=bounded_work::CurrentEconomyWorkV1::new(&mut common,&mut codec).unwrap();
+            let result=match input{None=>CognitionEconomyStateV1::default_with_work_v1(&mut ops),Some(value)=>CognitionEconomyStateV1::decode_snapshot_value_with_work_v1(value,&mut ops)};
+            let _fees=ops.finish().unwrap();
+            if hashes{assert!(result.is_ok());assert!(codec.visits_remaining<before.0);assert!(codec.bytes_remaining<before.1);}else{assert_eq!((codec.visits_remaining,codec.bytes_remaining),before);}
+        }
+    }
 }

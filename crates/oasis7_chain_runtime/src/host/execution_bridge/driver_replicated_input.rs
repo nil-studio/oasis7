@@ -75,33 +75,11 @@ pub(super) fn decode_committed_actions(
         }
         match decode_consensus_action_payload_envelope(action.payload_cbor.as_slice()) {
             Ok(envelope) => {
+                crate::committed_input_metadata::validate_committed_payload_metadata_v1(&envelope)?;
                 let governance_authorization = match envelope.auth {
                     Some(ConsensusActionAuthEnvelope::GovernanceAction(proof)) => Some(proof),
                     _ => None,
                 };
-                let admission = matches!(
-                    &envelope.body,
-                    ConsensusActionPayloadBody::RuntimeAction {
-                        action: RuntimeAction::SubmitGovernanceValidatorAdmission { .. }
-                            | RuntimeAction::ApproveGovernanceValidatorAdmission { .. }
-                            | RuntimeAction::ActivateGovernanceValidatorAdmission { .. }
-                            | RuntimeAction::RevokeGovernanceValidatorAdmission { .. }
-                            | RuntimeAction::RotateGovernanceValidatorFinalityKeyV1 { .. }
-                            | RuntimeAction::RotateGovernanceBootstrapFinalityKeyV1 { .. }
-                    }
-                );
-                if admission != governance_authorization.is_some() {
-                    return Err(
-                        "committed validator admission governance authorization mismatch".into(),
-                    );
-                }
-                if let Some(proof) = governance_authorization.as_ref() {
-                    proof.validate()?;
-                    if proof.signatures.is_empty() || envelope.gameplay_submission_origin.is_some()
-                    {
-                        return Err("invalid committed governance authorization metadata".into());
-                    }
-                }
                 match envelope.body {
                     ConsensusActionPayloadBody::WorldCleanupV2 { request } => {
                         request.validate()?;

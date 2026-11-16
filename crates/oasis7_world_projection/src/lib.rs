@@ -7,7 +7,7 @@ use oasis7_world_state::{WorldEvent, WorldState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorldServiceProjection {
+pub struct WorldServiceProjection<S=WorldState> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub world_rule_status: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -26,7 +26,7 @@ pub struct WorldServiceProjection {
         Vec<oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feedback_history: Option<WorldServiceFeedbackHistory>,
-    pub state: WorldState,
+    pub state:S,
     pub events: Vec<WorldEvent>,
     pub runtime_binding: Option<RuntimeBindingV1>,
     pub agent_context: Option<WorldServiceAgentContext>,
@@ -49,6 +49,8 @@ pub struct WorldServiceContinuationContext {
 pub use oasis7_agent_api::world_context::WorldServiceAgentContext;
 
 pub mod codec;
+pub mod current_commitment;
+pub mod current_commitment_history;
 pub mod formal_read;
 
 /// Independent Game Client evidence specialized for the authoritative value schema.
@@ -57,3 +59,5 @@ pub type VerifiedWorldView =
 
 #[cfg(test)]
 mod codec_tests;
+
+pub mod original_formatter;

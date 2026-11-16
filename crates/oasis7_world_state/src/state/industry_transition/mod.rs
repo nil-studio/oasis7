@@ -229,27 +229,7 @@ impl PreparedIndustryEvent {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
-        let factory = match event {
-            DomainEvent::RecipeStarted { factory_id, .. }
-            | DomainEvent::FactoryRecycled { factory_id, .. } => Some(factory_id),
-            _ => None,
-        };
-        if factory.is_some_and(|id| {
-            let reserved = crate::world_rules::manufacturing_reserved_slots(state, id) as usize;
-            let jobs = state
-                .pending_recipe_jobs
-                .values()
-                .filter(|j| &j.factory_id == id)
-                .count();
-            reserved > 0
-                && (matches!(event, DomainEvent::FactoryRecycled { .. })
-                    || state
-                        .factories
-                        .get(id)
-                        .is_none_or(|f| jobs + reserved >= f.spec.recipe_slots as usize))
-        }) {
-            return Err(invalid("factory_capacity_reserved_by_agent_order"));
-        }
+        match crate::world_rules::readonly_recipe_factory_capacity_gate_v1(state,event){Ok(result)=>result?,Err(never)=>match never{}}
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
             | DomainEvent::LogisticsRouteAvailabilityChanged { .. } => Ok(Self::LogisticsTopology(

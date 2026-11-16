@@ -273,253 +273,9 @@ where
                 blocker: Some(bounded_literal("manufacturing_production_expired", cap)?),
             }));
         }
-        let guard = &ctx.transaction.guard();
-        let agent_exists = read_current_agent_presence_v1(
-            &order.owner_id,
-            sources.agents,
-            sources.roots,
-            ctx,
-            read,
-            &mut work.pending_entries_remaining,
-            guard,
-            live,
-        )? == CurrentAgentPresenceV1::Existing;
-        if !agent_exists {
-            let error = validate_primary_production_facts_v1(
-                PrimaryProductionFactsV1 {
-                    agent_exists: false,
-                    starter_claim: None,
-                },
-                &order.owner_id,
-            )
-            .err()
-            .ok_or(ValueTreeError::Invalid(
-                "industrial primary missing predicate",
-            ))?;
-            return Ok(fee.retain(CurrentIndustrialBlockerV1 {
-                blocker: Some(bounded_debug(&error, cap)?),
-            }));
-        }
-        let starter = {
-            let mut claims = WorldFieldReadContextV1 {
-                root: sources.roots.state_root(StateNamespaceV1::Authorization),
-                state: read.state,
-                values: ValueReadContext {
-                    source: read.values.source,
-                    memory: read.values.memory,
-                    class: read.values.class,
-                    io: &mut *read.values.io,
-                },
-                key_work: &mut *read.key_work,
-                semantic_bytes: read.semantic_bytes,
-                record_bytes: read.record_bytes,
-                take_state_error: &mut read.take_state_error,
-                cancelled: &mut read.cancelled,
-            };
-            let guard = &ctx.transaction.guard();
-            recover_current_starter_oc_claim_v1(
-                &order.owner_id,
-                sources.native,
-                sources.roots,
-                ctx.transaction,
-                &mut claims,
-                &mut work.scan,
-                &mut work.typed,
-                guard,
-                live,
-            )?
-        };
-        let primary = PrimaryProductionFactsV1 {
-            agent_exists,
-            starter_claim: starter.as_ref().map(|row| row.value().value()),
-        };
-        if let Err(error) = validate_primary_production_facts_v1(primary, &order.owner_id) {
-            return Ok(fee.retain(CurrentIndustrialBlockerV1 {
-                blocker: Some(bounded_debug(&error, cap)?),
-            }));
-        }
-        work.read.cell()?;
-        let retired = world_id_set_contains_overlay_v1(
-            WorldIdSetFieldV1::RetiredFactories,
-            WorldIdSetKeyRefV1::Text(&order.factory_id),
-            ctx,
-        )?;
-        // Preserve business short circuiting: do not read policy/factory after
-        // an earlier retired decision, or unrelated damaged data could win.
-        let policy = if retired {
-            None
-        } else {
-            let mut policy_read = WorldFieldReadContextV1 {
-                root: sources.roots.state_root(StateNamespaceV1::Business),
-                state: read.state,
-                values: ValueReadContext {
-                    source: read.values.source,
-                    memory: read.values.memory,
-                    class: read.values.class,
-                    io: &mut *read.values.io,
-                },
-                key_work: &mut *read.key_work,
-                semantic_bytes: read.semantic_bytes,
-                record_bytes: read.record_bytes,
-                take_state_error: &mut read.take_state_error,
-                cancelled: &mut read.cancelled,
-            };
-            Some(recover_gameplay_policy_overlay_v1(
-                ctx.transaction,
-                live,
-                &mut policy_read,
-                &mut work.scan,
-                &mut work.typed,
-            )?)
-        };
-        let mut blocked = false;
-        if let Some(policy) = policy.as_ref() {
-            for id in &policy.value().value().blocked_agents {
-                work.read.comparison_bytes_remaining = work
-                    .read
-                    .comparison_bytes_remaining
-                    .checked_sub(id.len() as u64)
-                    .ok_or(ValueTreeError::Invalid("industrial policy comparison work"))?;
-                if (ctx.cancelled)() {
-                    return Err(ValueTreeError::Cancelled.into());
-                }
-                blocked |= id == &order.owner_id;
-            }
-        }
-        let factory = if retired || blocked {
-            None
-        } else {
-            let guard = &ctx.transaction.guard();
-            read_current_production_factory_v1(
-                &order.factory_id,
-                sources.factories,
-                ctx,
-                &mut work.read,
-                guard,
-                live,
-            )?
-        };
-        let mut facts = ProductionEligibilityFactsV1 {
-            primary,
-            retired,
-            blocked,
-            factory: factory.as_ref().map(|f| FactoryProductionFactsV1 {
-                builder_agent_id: &f.builder_agent_id,
-                builtin_spec_available: f.builtin_spec_available,
-                spec_matches_builtin: f.spec_matches_builtin,
-                recipe_slots: f.recipe_slots,
-                durability_ppm: f.durability_ppm,
-                input_ledger: &f.input_ledger,
-                site_location_id: f.site_location_id.as_deref(),
-            }),
-            site: None,
-            anchor_active: None,
-            resolved_owner: None,
-        };
-        // Check the prefix before opening later authority or owner records.
-        if retired
-            || blocked
-            || factory.as_ref().is_none_or(|f| {
-                !f.builtin_spec_available
-                    || f.builder_agent_id != order.owner_id
-                    || !f.spec_matches_builtin
-                    || f.recipe_slots < 2
-                    || f.durability_ppm <= 0
-            })
-        {
-            let error = production_eligibility_from_facts_v1(
-                facts,
-                &order.owner_id,
-                &order.factory_id,
-                &order.quote.delivery_location_id,
-            )
-            .err()
-            .ok_or(ValueTreeError::Invalid(
-                "industrial prefix predicate mismatch",
-            ))?;
-            return Ok(fee.retain(CurrentIndustrialBlockerV1 {
-                blocker: Some(bounded_debug(&error, cap)?),
-            }));
-        }
-        let factory = factory.as_ref().ok_or(ValueTreeError::Invalid(
-            "industrial working factory vanished",
-        ))?;
-        let guard = &ctx.transaction.guard();
-        let site = read_current_production_site_v1(
-            &factory.site_id,
-            &order.owner_id,
-            sources.sites,
-            state,
-            ctx,
-            &mut work.scan,
-            &mut work.read,
-            guard,
-            live,
-        )?;
-        facts.site = site.as_ref().map(|s| FactorySiteProductionFactsV1 {
-            active: s.active,
-            chunk_ready: s.chunk_ready,
-            location_id: &s.location_id,
-            owner_agent_id: &s.owner_agent_id,
-            owner_authorized: s.owner_authorized,
-        });
-        if site.is_some() {
-            let guard = &ctx.transaction.guard();
-            facts.anchor_active = read_current_production_anchor_v1(
-                &order.quote.delivery_location_id,
-                sources.anchors,
-                state,
-                ctx,
-                &mut work.scan,
-                &mut work.read,
-                guard,
-                live,
-            )?;
-        }
-        if let Err(error) = production_eligibility_from_facts_v1(
-            facts,
-            &order.owner_id,
-            &order.factory_id,
-            &order.quote.delivery_location_id,
-        ) {
-            return Ok(fee.retain(CurrentIndustrialBlockerV1 {
-                blocker: Some(bounded_debug(&error, cap)?),
-            }));
-        }
-        if factory.input_ledger != order.quote.input_ledger {
-            // Let the original shared kernel own the exact business error.
-            let error = order_production_eligibility_from_facts_v1(facts, order)
-                .err()
-                .ok_or(ValueTreeError::Invalid(
-                    "industrial ledger predicate mismatch",
-                ))?;
-            return Ok(fee.retain(CurrentIndustrialBlockerV1 {
-                blocker: Some(bounded_debug(&error, cap)?),
-            }));
-        }
-        let guard = &ctx.transaction.guard();
-        let owner = resolve_current_industrial_state_owner_v1(
-            sources,
-            &order.owner_id,
-            state,
-            ctx,
-            read,
-            work,
-            guard,
-            live,
-        )?;
-        facts.resolved_owner = owner.as_ref().map(|o| ResolvedProductionOwnerFactsV1 {
-            player_id: &o.player_id,
-            source_id: &o.source_id,
-            public_key: o.public_key.as_deref(),
-        });
-        let blocker = order_production_eligibility_from_facts_v1(facts, order)
-            .err()
-            .map(|e| bounded_debug(&e, cap))
-            .transpose()?;
-        if (ctx.cancelled)() {
-            return Err(ValueTreeError::Cancelled.into());
-        }
+        let observed = delivery_facts::from_order(sources,order_id,order,state,ctx,read,work,live)?;
+        let blocker=order_production_eligibility_from_facts_v1(observed.facts(),order)
+            .err().map(|e|bounded_debug(&e,cap)).transpose()?;
         Ok(fee.retain(CurrentIndustrialBlockerV1 { blocker }))
     })();
     let result = result.and_then(|output| {
@@ -571,7 +327,7 @@ fn bounded_debug(value: &impl std::fmt::Debug, cap: usize) -> Result<String, Val
 /// their lengths, the sole String/i64 BTreeMap retains the same entry graph,
 /// MaterialLedgerId owns at most one String, and AgentClaimCostQuote is scalar.
 /// Keep both the original owner and this additional clone admission alive.
-fn validate_current_order_budgeted_v1<M, R, E, C>(
+pub(in crate::world) fn validate_current_order_budgeted_v1<M, R, E, C>(
     order: &oasis7_world_state::world_rules::AgentIndustrialOrderV1,
     owned: &oasis7_world_state::incremental_runtime_revocation::RevocationRecoveredV1<
         oasis7_world_state::world_rules::AgentIndustrialOrderV1,
@@ -728,3 +484,14 @@ pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternat
 
 // Fixed consumers reuse the original typed Current manifest binding algorithm.
 pub(in crate::world) use incremental_industrial_eligibility_owner::read_current_world_binding_v1;
+
+#[path="incremental_normal_world_rule_delivery_eligibility.rs"] mod delivery_facts;
+pub(in crate::world) use delivery_facts::{read_current_world_rule_order_production_facts_v1,read_current_world_rule_order_refund_source_v1,CurrentOrderProductionFactsV1,read_current_order_production_facts_v1,CurrentOrderRefundSourceV1,read_current_order_refund_source_v1};
+
+#[path="incremental_normal_world_rule_delivery_blocker.rs"] mod lifecycle_blocker;
+pub(in crate::world) use lifecycle_blocker::current_lifecycle_order_delivery_blocker_v1;
+
+#[path="incremental_normal_world_rule_delivery_view.rs"] mod world_rule_view;
+pub(in crate::world) use world_rule_view::{CurrentWorldRuleOrderViewV1,read_current_world_rule_order_view_v1};
+
+pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternative_owner;

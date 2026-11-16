@@ -249,6 +249,8 @@ pub(in crate::world) use warm::{OwnedProjectedOutcomeV1, WarmError};
 
 #[path = "incremental_authorization_root_current_writes.rs"]
 mod writes;
+#[path="incremental_authorization_root_current_admission.rs"]
+mod admission;
 
 #[path = "incremental_authorization_root_current_publish.rs"]
 mod publish;
@@ -325,3 +327,14 @@ impl<'parent> CurrentAuthorizationProjectionV1<'parent> {
 }
 
 pub(in crate::world) use publish::RootPublishedOutcomeV1;
+
+#[path = "incremental_authorization_root_current_bootstrap_snapshot.rs"]
+mod bootstrap_snapshot;
+pub(in crate::world) use bootstrap_snapshot::{PaidCurrentBootstrapAuthSnapshotV1,PaidCurrentBootstrapAuthInventoryV1,BootstrapInventoryErrorV1};
+
+
+#[path="incremental_authorization_root_current_resident.rs"] mod resident;
+pub(in crate::world) use resident::FrozenNormalAuthorizationProjectionV1;
+
+#[path="normal_bootstrap_current_projection.rs"] mod bootstrap_projection;
+pub(in crate::world) use bootstrap_projection::PublishedCurrentBootstrapRootV1;

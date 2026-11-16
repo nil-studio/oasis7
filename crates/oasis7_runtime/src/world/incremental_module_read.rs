@@ -30,6 +30,93 @@ pub struct PreparedModuleInstanceFields {
     fields: [ReservedValue<Vec<u8>>; 8],
 }
 impl PreparedModuleInstanceFields {
+    /// Clone only this actual eight-column source after admitting its exact
+    /// owned text graph. The result is DATA, never an instance permission.
+    pub(in crate::world) fn snapshot_paid_v1(
+        &self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<oasis7_world_state::ModuleInstanceState>, BodyMutationError> {
+        use oasis7_world_state::incremental_module_instance_fields::ModuleInstallTargetRefV1 as T;
+        if self
+            .fields
+            .iter()
+            .any(|field| !field.uses_budget(common.memory()))
+        {
+            return Err(BodyMutationError::Invalid("instance clone source pool"));
+        }
+        fn text(source: &PreparedModuleInstanceFields, field: Field) -> &str {
+            match source.field(field) {
+                Scalar::Text(value) => value,
+                _ => unreachable!("closed instance text"),
+            }
+        }
+        let target = match self.field(Field::Target) {
+            Scalar::Target(value) => value,
+            _ => unreachable!("closed instance target"),
+        };
+        let mut heap = std::mem::size_of::<oasis7_world_state::ModuleInstanceState>();
+        for field in [
+            Field::InstanceId,
+            Field::ModuleId,
+            Field::Version,
+            Field::WasmHash,
+            Field::Owner,
+        ] {
+            heap = heap
+                .checked_add(text(self, field).len())
+                .ok_or(BodyMutationError::Invalid("instance clone layout"))?;
+        }
+        if let T::LocationInfrastructure(value) = target {
+            heap = heap
+                .checked_add(value.len())
+                .ok_or(BodyMutationError::Invalid("instance target clone layout"))?;
+        }
+        common
+            .charge(
+                u64::try_from(
+                    heap.checked_mul(3)
+                        .and_then(|n| n.checked_add(512))
+                        .ok_or(BodyMutationError::Invalid("instance clone work"))?,
+                )
+                .map_err(|_| BodyMutationError::Invalid("instance clone width"))?,
+                u64::try_from(
+                    heap.checked_mul(3)
+                        .ok_or(BodyMutationError::Invalid("instance clone work"))?,
+                )
+                .map_err(|_| BodyMutationError::Invalid("instance clone width"))?,
+            )
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        let fee = common
+            .memory()
+            .reserve(heap, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let install_target = match target {
+            T::SelfAgent => oasis7_agent_api::world_action::ModuleInstallTarget::SelfAgent,
+            T::LocationInfrastructure(value) => {
+                oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
+                    location_id: value.to_owned(),
+                }
+            }
+        };
+        let active = match self.field(Field::Active) {
+            Scalar::Bool(value) => value,
+            _ => unreachable!("closed instance active"),
+        };
+        let installed_at = match self.field(Field::InstalledAt) {
+            Scalar::U64(value) => value,
+            _ => unreachable!("closed instance time"),
+        };
+        Ok(fee.retain(oasis7_world_state::ModuleInstanceState {
+            instance_id: text(self, Field::InstanceId).to_owned(),
+            module_id: text(self, Field::ModuleId).to_owned(),
+            module_version: text(self, Field::Version).to_owned(),
+            wasm_hash: text(self, Field::WasmHash).to_owned(),
+            owner_agent_id: text(self, Field::Owner).to_owned(),
+            install_target,
+            active,
+            installed_at,
+        }))
+    }
     pub fn field(&self, field: Field) -> Scalar<'_> {
         Scalar::from_canonical_bytes(&self.fields[field as usize - 1], field)
             .expect("immutable validated module field")

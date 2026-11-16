@@ -20,8 +20,8 @@ use super::super::{
 use super::World;
 use oasis7_agent_api::world_action::ResourceKind;
 
-const FACTORY_BUILD_DECISION_EMIT_KIND: &str = "economy.factory_build_decision";
-const RECIPE_EXECUTION_PLAN_EMIT_KIND: &str = "economy.recipe_execution_plan";
+pub(in crate::world) const FACTORY_BUILD_DECISION_EMIT_KIND: &str = "economy.factory_build_decision";
+pub(in crate::world) const RECIPE_EXECUTION_PLAN_EMIT_KIND: &str = "economy.recipe_execution_plan";
 pub(in crate::world) const PRODUCT_VALIDATION_EMIT_KIND: &str = "economy.product_validation";
 use super::incremental_factory_depreciation::{FACTORY_DEPRECIATION_REASON, depreciation_v1};
 const SURVIVAL_KEYWORDS: &[&str] = &[
@@ -900,19 +900,7 @@ impl World {
     }
 
     pub(super) fn resolve_product_module_for_stack(&self, product_kind: &str) -> Option<String> {
-        if let Some(module_id) = Self::builtin_product_module_for_kind(product_kind)
-            && self.module_registry.active.contains_key(module_id)
-        {
-            return Some(module_id.to_string());
-        }
-        let suffix = format!(".{product_kind}");
-        self.module_registry
-            .active
-            .keys()
-            .find(|module_id| {
-                module_id.contains(".product.") && module_id.ends_with(suffix.as_str())
-            })
-            .cloned()
+        match readonly_recipe_modules::select_product_module_v1(product_kind,Self::builtin_product_module_for_kind(product_kind),&mut|id|Ok::<_,std::convert::Infallible>(self.module_registry.active.contains_key(id)),&mut|visit|{for id in self.module_registry.active.keys(){if visit(id)?.is_break(){break}}Ok(())},&mut|_,_,_|Ok(())){Ok(result)=>result,Err(error)=>match error{}}
     }
 
     pub(in crate::world) fn builtin_product_module_for_kind(
@@ -1156,3 +1144,6 @@ pub(in crate::world) fn critical_electricity_floor_for_due_v1() -> i64 {
 pub(in crate::world) fn critical_hardware_floor_for_due_v1() -> i64 {
     CRITICAL_HARDWARE_PART_FLOOR
 }
+
+#[path="readonly_recipe_modules.rs"]
+pub(in crate::world) mod readonly_recipe_modules;

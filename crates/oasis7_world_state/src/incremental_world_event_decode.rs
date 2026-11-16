@@ -226,3 +226,5 @@ pub(crate) fn admit_world_event_original_heap_v1(
     }
     Ok(charge)
 }
+
+pub use layout::world_event_json_owned_header_max_v1;

@@ -502,6 +502,7 @@ where
                     let controller_sources = controller::ControllerSourcesV1 {
                         roots: sources.roots,
                         orders: sources.orders,
+                        rules: sources.rules,
                         agents: sources.agents,
                         native: sources.native,
                     };
@@ -511,6 +512,7 @@ where
                         context,
                         &mut business,
                         &mut work.controller,
+                        &mut work.orders,
                         common,
                         live,
                     )?

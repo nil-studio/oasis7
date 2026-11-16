@@ -20,9 +20,9 @@ mod rollback_actions;
 
 const MODULE_DEPLOY_FEE_BYTES_PER_ELECTRICITY: i64 = 2_048;
 const MODULE_COMPILE_FEE_BYTES_PER_ELECTRICITY: i64 = 1_024;
-const MODULE_LIST_FEE_AMOUNT: i64 = 1;
-const MODULE_DELIST_FEE_AMOUNT: i64 = 1;
-const MODULE_DESTROY_FEE_AMOUNT: i64 = 1;
+pub(in crate::world) const MODULE_LIST_FEE_AMOUNT: i64 = 1;
+pub(in crate::world) const MODULE_DELIST_FEE_AMOUNT: i64 = 1;
+pub(in crate::world) const MODULE_DESTROY_FEE_AMOUNT: i64 = 1;
 const MODULE_RELEASE_DEFAULT_REQUIRED_ROLES: &[&str] = &["security", "economy", "runtime"];
-const MODULE_RELEASE_PROFILE_CHANGE_LIMIT: usize = 50;
+pub(in crate::world) const MODULE_RELEASE_PROFILE_CHANGE_LIMIT: usize = 50;
 const MODULE_RELEASE_ATTESTATION_LIMIT: usize = 128;

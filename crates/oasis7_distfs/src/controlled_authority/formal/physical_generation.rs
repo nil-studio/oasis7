@@ -522,3 +522,5 @@ pub(super) fn cache_accesses() -> u64 {
 #[path = "physical_generation_identity.rs"]
 mod identity;
 pub(crate) use identity::current_generation_digest_uncached;
+
+pub(crate) use selected_read::current_generation_digest_bounded_v1;

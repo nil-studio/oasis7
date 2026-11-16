@@ -22,6 +22,7 @@ pub struct RootRulePhaseOutcomeV1 {
     _fees: Vec<MemoryReservation>,
     identity: oasis7_formal_protocol::incremental_execution::PreparedGuard,
     action_id: u64,
+    resolved_action: Option<ReservedValue<crate::Action>>,
 }
 impl RootRulePhaseOutcomeV1 {
     pub(in crate::world) fn override_action_for_selected_v1<M: MerkleNodeReader>(
@@ -34,9 +35,33 @@ impl RootRulePhaseOutcomeV1 {
         if self.action_id != selected.envelope().id {
             return Err(BodyMutationError::Invalid("rule outcome selected action"));
         }
+        Ok(if self.decision.verdict == crate::RuleVerdict::Modify {
+            self.decision
+                .override_action
+                .as_ref()
+                .or(self.resolved_action.as_deref())
+        } else {
+            self.resolved_action.as_deref()
+        })
+    }
+
+    pub(in crate::world) fn rule_override_action_for_selected_v1<M: MerkleNodeReader>(
+        &self,
+        selected: &crate::world::incremental_action_execution::SelectedPendingActionV1,
+        tx: &oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+    ) -> Result<Option<&crate::Action>, BodyMutationError> {
+        self.override_action_for_selected_v1(selected, tx)?;
         Ok((self.decision.verdict == crate::RuleVerdict::Modify)
             .then_some(self.decision.override_action.as_ref())
             .flatten())
+    }
+    pub(in crate::world) fn before_rule_action_v1<'a>(
+        &'a self,
+        selected: &'a crate::world::incremental_action_execution::SelectedPendingActionV1,
+    ) -> &'a crate::Action {
+        self.resolved_action
+            .as_deref()
+            .unwrap_or(&selected.envelope().action)
     }
 
     fn post_action_envelope<'a, M: MerkleNodeReader>(
@@ -50,7 +75,7 @@ impl RootRulePhaseOutcomeV1 {
             action: override_action.unwrap_or(&selected.envelope().action),
             // Final overrides clear these fields in World::step. The Pricing
             // view used during evaluation deliberately retains them instead.
-            retain_metadata: override_action.is_none(),
+            retain_metadata: self.decision.verdict != crate::RuleVerdict::Modify,
         })
     }
 }
@@ -159,6 +184,64 @@ where
         rule: &mut RootRulePhaseWorkV1,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<ReservedValue<RootRulePhaseOutcomeV1>, RootModuleExecutionErrorV1<O::Error>> {
+        if matches!(
+            selected.envelope().action,
+            crate::Action::BuildFactoryWithModule { .. }
+                | crate::Action::ScheduleRecipeWithModule { .. }
+                | crate::Action::ValidateProductWithModule { .. }
+        ) {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+            return Err(RootModuleExecutionErrorV1::Body(
+                BodyMutationError::Invalid("economy module must resolve before Rule"),
+            ));
+        }
+        self.execute_pre_action_rule_phases_inner_v1(selected, None, directory, rule, live_owner)
+    }
+
+    /// The resolved action comes only from the concrete pre-Rule worker result;
+    /// its paid allocation moves into the final Rule outcome without a clone.
+    pub(in crate::world) fn execute_resolved_factory_rule_phases_v1(
+        &mut self,
+        selected: &crate::world::incremental_action_execution::SelectedPendingActionV1,
+        resolved: crate::world::incremental_normal_action_factory_schedule::factory_module::ResolvedFactoryModuleActionV1<'_>,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+        directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+        rule: &mut RootRulePhaseWorkV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<ReservedValue<RootRulePhaseOutcomeV1>, RootModuleExecutionErrorV1<O::Error>> {
+        selected.validate(self.ctx.transaction)?;
+        if selected.envelope().id != resolved.selected().envelope().id {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+            return Err(RootModuleExecutionErrorV1::Body(
+                BodyMutationError::Invalid("resolved factory selected action"),
+            ));
+        }
+        let action = resolved
+            .into_rule_action_v1(self.ctx.transaction, common, self.now, &live_owner())
+            .map_err(RootModuleExecutionErrorV1::Body)?;
+        self.execute_pre_action_rule_phases_inner_v1(
+            selected,
+            Some(action),
+            directory,
+            rule,
+            live_owner,
+        )
+    }
+
+    fn execute_pre_action_rule_phases_inner_v1(
+        &mut self,
+        selected: &crate::world::incremental_action_execution::SelectedPendingActionV1,
+        resolved_action: Option<ReservedValue<crate::Action>>,
+        directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+        rule: &mut RootRulePhaseWorkV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<ReservedValue<RootRulePhaseOutcomeV1>, RootModuleExecutionErrorV1<O::Error>> {
         let result = (|| {
             selected.validate(self.ctx.transaction)?;
             let capacity = rule
@@ -183,88 +266,88 @@ where
                 return Err(ValueTreeError::ResourceLimited("rule fee capacity").into());
             }
             let envelope = selected.envelope();
-            let (decision, rejection) =
-                if matches!(envelope.action, crate::Action::MoveAgent { .. }) {
-                    let general = self.rule_phase(
+            let input_action = resolved_action.as_deref().unwrap_or(&envelope.action);
+            let (decision, rejection) = if matches!(input_action, crate::Action::MoveAgent { .. }) {
+                let general = self.rule_phase(
+                    PreActionEnvelopeV1 {
+                        original: envelope,
+                        action: input_action,
+                        retain_metadata: true,
+                    },
+                    crate::world::module_routing_runtime::MovementRulePhase::General,
+                    directory,
+                    rule,
+                    live_owner,
+                    &mut fees,
+                )?;
+                let priced = PreActionEnvelopeV1 {
+                    original: envelope,
+                    retain_metadata: true,
+                    action: if general.verdict == crate::RuleVerdict::Modify {
+                        general.override_action.as_ref().unwrap_or(input_action)
+                    } else {
+                        input_action
+                    },
+                };
+                fees.push(
+                    self.ctx
+                        .values
+                        .memory
+                        .reserve(4096, MemoryClass::Ordinary)
+                        .map_err(ValueTreeError::Memory)?,
+                );
+                let rejection = general.cost.clone();
+                let pricing = self.rule_phase(
+                    priced,
+                    crate::world::module_routing_runtime::MovementRulePhase::Pricing,
+                    directory,
+                    rule,
+                    live_owner,
+                    &mut fees,
+                )?;
+                fees.push(
+                    self.ctx
+                        .values
+                        .memory
+                        .reserve(
+                            2 * std::mem::size_of::<crate::RuleDecision>(),
+                            MemoryClass::Ordinary,
+                        )
+                        .map_err(ValueTreeError::Memory)?,
+                );
+                let both = vec![general, pricing];
+                admit_merge_work(rule, &fees, both.len())?;
+                fees.push(
+                    self.ctx
+                        .values
+                        .memory
+                        .reserve(
+                            merge_fee(&both)? + 2 * std::mem::size_of::<crate::RuleDecision>(),
+                            MemoryClass::Ordinary,
+                        )
+                        .map_err(ValueTreeError::Memory)?,
+                );
+                (
+                    crate::world::rules::merge_action_rule_decisions_v1(envelope.id, both),
+                    Some(rejection),
+                )
+            } else {
+                (
+                    self.rule_phase(
                         PreActionEnvelopeV1 {
                             original: envelope,
-                            action: &envelope.action,
+                            action: input_action,
                             retain_metadata: true,
                         },
-                        crate::world::module_routing_runtime::MovementRulePhase::General,
+                        crate::world::module_routing_runtime::MovementRulePhase::All,
                         directory,
                         rule,
                         live_owner,
                         &mut fees,
-                    )?;
-                    let priced = PreActionEnvelopeV1 {
-                        original: envelope,
-                        retain_metadata: true,
-                        action: if general.verdict == crate::RuleVerdict::Modify {
-                            general.override_action.as_ref().unwrap_or(&envelope.action)
-                        } else {
-                            &envelope.action
-                        },
-                    };
-                    fees.push(
-                        self.ctx
-                            .values
-                            .memory
-                            .reserve(4096, MemoryClass::Ordinary)
-                            .map_err(ValueTreeError::Memory)?,
-                    );
-                    let rejection = general.cost.clone();
-                    let pricing = self.rule_phase(
-                        priced,
-                        crate::world::module_routing_runtime::MovementRulePhase::Pricing,
-                        directory,
-                        rule,
-                        live_owner,
-                        &mut fees,
-                    )?;
-                    fees.push(
-                        self.ctx
-                            .values
-                            .memory
-                            .reserve(
-                                2 * std::mem::size_of::<crate::RuleDecision>(),
-                                MemoryClass::Ordinary,
-                            )
-                            .map_err(ValueTreeError::Memory)?,
-                    );
-                    let both = vec![general, pricing];
-                    admit_merge_work(rule, &fees, both.len())?;
-                    fees.push(
-                        self.ctx
-                            .values
-                            .memory
-                            .reserve(
-                                merge_fee(&both)? + 2 * std::mem::size_of::<crate::RuleDecision>(),
-                                MemoryClass::Ordinary,
-                            )
-                            .map_err(ValueTreeError::Memory)?,
-                    );
-                    (
-                        crate::world::rules::merge_action_rule_decisions_v1(envelope.id, both),
-                        Some(rejection),
-                    )
-                } else {
-                    (
-                        self.rule_phase(
-                            PreActionEnvelopeV1 {
-                                original: envelope,
-                                action: &envelope.action,
-                                retain_metadata: true,
-                            },
-                            crate::world::module_routing_runtime::MovementRulePhase::All,
-                            directory,
-                            rule,
-                            live_owner,
-                            &mut fees,
-                        )?,
-                        None,
-                    )
-                };
+                    )?,
+                    None,
+                )
+            };
             if (self.ctx.cancelled)() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -278,6 +361,7 @@ where
                 _fees: fees,
                 identity: self.ctx.transaction.guard(),
                 action_id: envelope.id,
+                resolved_action,
             }))
         })();
         if result.is_err() {

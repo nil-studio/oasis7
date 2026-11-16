@@ -6,27 +6,7 @@ pub(super) fn for_request(
     world: &World,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<String, String> {
-    if let WorldServicePayloadV1::GameplayJson(bytes) = &request.signed_payload
-        && let Ok(action) =
-            serde_json::from_slice::<oasis7_proto::viewer::GameplayActionRequest>(bytes)
-        && action.action_id == "claim_first_agent"
-        && action.target_agent_id == "starter-agent-0"
-    {
-        let derived = correlation::derive_correlation(
-            request.correlation.key.world.clone(),
-            &request.signed_payload,
-        )?;
-        if derived != request.correlation {
-            return Err("bootstrap result differs from its authenticated original request".into());
-        }
-        // Public-scope result proofs still require the read signer to equal
-        // the committed original subject, both at service and verifier.
-        return Ok("public".into());
-    }
-    Ok(format!(
-        "agent:{}",
-        outcome_agent_id(world, &request.signed_payload)?
-    ))
+    world.formal_business_scope_for_request_v1(request)
 }
 
 #[cfg(test)]

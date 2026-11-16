@@ -11,10 +11,7 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionError, ExecutionFence},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{
-    incremental_cache_move::RuntimeCacheSlotV1,
-    incremental_module_execution_worker::RootModuleWorkerAllocatorV1,
-};
+use oasis7_runtime::incremental_module_execution_worker::RootModuleWorkerAllocatorV1;
 use oasis7_wasm_abi::ModuleCallRequest;
 use oasis7_wasm_executor::bounded_worker::{
     BoundedWorkerSandboxV1, RegexWorkerErrorV1, WorkerExecutableV1, WorkerExecutionErrorV1,
@@ -27,6 +24,15 @@ use std::{
 
 #[derive(Debug)]
 pub enum IwsHostRuntimeErrorV1 {
+    Frozen(oasis7_distfs::controlled_authority::formal::endpoint::NormalFrozenFailureV1),
+    InputDecode(oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::BoundedCborDataErrorV1),
+    InputRefusal(oasis7_proto::memory_budget::ReservedValue<String>),
+    Value(oasis7_formal_protocol::incremental_value::ValueTreeError),
+    Physical(oasis7_distfs::incremental_page_store::PageStoreError),
+    NormalPersist(normal::NormalCommitPersistErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
+    NormalSource(oasis7_runtime::BodyMutationError),
+    ColdNormal(oasis7_runtime::NormalHostColdBootstrapErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
+    NormalFixed(oasis7_runtime::NormalHostFixedFailureV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     Source(BoundedAcquireErrorV1),
     Formal(FormalError),
     Move(ExecutionError),
@@ -47,11 +53,15 @@ impl std::error::Error for IwsHostRuntimeErrorV1 {}
 struct HostCurrentV1 {
     source: PaidAcceptedGenesisHostSourceV1,
     limits: WorkerLimitsV1,
+    resident: Option<
+        oasis7_proto::memory_budget::ReservedValue<oasis7_runtime::NormalHostResidentSourcesV1>,
+    >,
 }
 /// The slot is private. A public generic Runtime payload cannot enter it.
 #[derive(Default)]
 pub struct IwsHostRuntimeV1 {
-    current: RuntimeCacheSlotV1<HostCurrentV1>,
+    current: slot::HostCurrentSlotV1,
+    continuation: Option<freeze::HostNormalContinuationV1>,
 }
 impl IwsHostRuntimeV1 {
     pub fn is_installed(&self) -> bool {
@@ -89,7 +99,7 @@ impl IwsHostRuntimeV1 {
         cancelled: &AtomicBool,
     ) -> Result<(), IwsHostRuntimeErrorV1> {
         work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-        if !self.current.is_empty() {
+        if !self.current.is_empty() || self.continuation.is_some() {
             return Err(IwsHostRuntimeErrorV1::Move(ExecutionError::ParentConflict));
         }
         let source = endpoint
@@ -109,18 +119,61 @@ impl IwsHostRuntimeV1 {
         work: &FormalArchiveReadWorkV1,
         cancelled: &AtomicBool,
     ) -> Result<(), IwsHostRuntimeErrorV1> {
+        self.install_genesis_source_with_resident_inner(
+            source, limits, None, memory, work, cancelled,
+        )
+    }
+    pub fn install_accepted_genesis_with_resident_bounded(
+        &mut self,
+        source: PaidAcceptedGenesisHostSourceV1,
+        limits: WorkerLimitsV1,
+        resident: oasis7_proto::memory_budget::ReservedValue<
+            oasis7_runtime::NormalHostResidentSourcesV1,
+        >,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &AtomicBool,
+    ) -> Result<(), IwsHostRuntimeErrorV1> {
+        self.install_genesis_source_with_resident_inner(
+            source,
+            limits,
+            Some(resident),
+            memory,
+            work,
+            cancelled,
+        )
+    }
+    fn install_genesis_source_with_resident_inner(
+        &mut self,
+        source: PaidAcceptedGenesisHostSourceV1,
+        limits: WorkerLimitsV1,
+        resident: Option<
+            oasis7_proto::memory_budget::ReservedValue<oasis7_runtime::NormalHostResidentSourcesV1>,
+        >,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &AtomicBool,
+    ) -> Result<(), IwsHostRuntimeErrorV1> {
         work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-        if !self.current.is_empty() {
+        if !self.current.is_empty() || self.continuation.is_some() {
             return Err(IwsHostRuntimeErrorV1::Move(ExecutionError::ParentConflict));
         }
-        let current = HostCurrentV1 { source, limits };
+        if let Some(resident) = resident.as_ref() {
+            let mut stop = || cancelled.load(Ordering::Acquire);
+            let mut common = work.bounded_context(memory, &mut stop);
+            resident
+                .validate_live_binding_v1(source.record_id(), &source.fence(), &mut common)
+                .map_err(|e| IwsHostRuntimeErrorV1::NormalSource(e))?;
+        }
+        let current = HostCurrentV1 {
+            source,
+            limits,
+            resident,
+        };
         admit_worker(&current, memory, work, cancelled)?;
         // All fallible protocol/environment checks precede preparing the slot.
-        let prepared = self
-            .current
-            .prepare_empty_bounded(current, memory, &mut || cancelled.load(Ordering::Acquire))
-            .map_err(IwsHostRuntimeErrorV1::Move)?;
-        drop(prepared.finish());
+        let prepared = self.current.prepare_empty(current, memory, cancelled)?;
+        prepared.finish();
         Ok(())
     }
     /// Re-admit the exact current owner. No raw sandbox, executable path,
@@ -160,6 +213,34 @@ fn with_admitted_worker<T>(
         let mut ctx = work.bounded_context(memory, &mut stop);
         current.source.validate_context(&mut ctx)?;
     }
+    current.source.with_native_worker(
+        memory,
+        work,
+        &mut || cancelled.load(Ordering::Acquire),
+        |lease| {
+            with_admitted_native_lease(
+                lease,
+                current.source.execution_environment(),
+                &current.limits,
+                memory,
+                work,
+                cancelled,
+                run,
+            )
+        },
+    )
+}
+fn with_admitted_native_lease<T>(
+    lease: oasis7_distfs::controlled_authority::formal::endpoint::NativeWorkerLeaseV1<'_>,
+    environment: [u8; 32],
+    limits: &WorkerLimitsV1,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    cancelled: &AtomicBool,
+    run: impl FnOnce(
+        &mut BoundedWorkerSandboxV1<'_, RootModuleWorkerAllocatorV1>,
+    ) -> Result<T, IwsHostRuntimeErrorV1>,
+) -> Result<T, IwsHostRuntimeErrorV1> {
     // Explicit stack/header fee, including the request's empty Arc allocation.
     let bytes = size_of::<ModuleCallRequest>()
         .checked_add(2 * size_of::<usize>())
@@ -175,68 +256,97 @@ fn with_admitted_worker<T>(
         .map_err(|_| FormalError::Invalid("Host native admission memory".into()))?;
     let allocator = RootModuleWorkerAllocatorV1::new(memory);
     work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-    current.source.with_native_worker(
-        memory,
-        work,
-        &mut || cancelled.load(Ordering::Acquire),
-        |lease| {
-            work.charge(1, lease.descriptor_bytes().len() as u64, &mut || {
-                cancelled.load(Ordering::Acquire)
-            })?;
-            if *blake3::hash(lease.descriptor_bytes()).as_bytes()
-                != current.source.execution_environment()
-            {
-                return Err(FormalError::Invalid(
-                    "Host same accepted native descriptor/environment".into(),
-                )
-                .into());
-            }
-            let mut worker = BoundedWorkerSandboxV1 {
-                executable: WorkerExecutableV1::NativeBoundSealedFd {
-                    file: lease.file(),
-                    descriptor: lease.descriptor_bytes(),
-                },
-                allocator: &allocator,
-                limits: WorkerLimitsV1 {
-                    address_space_bytes: current.limits.address_space_bytes,
-                    max_request_bytes: current.limits.max_request_bytes,
-                    max_output_bytes: current.limits.max_output_bytes,
-                    wall_time_ms: current.limits.wall_time_ms,
-                },
-                cancelled,
-            };
-            let request = ModuleCallRequest {
-                module_id: String::new(),
-                wasm_hash: String::new(),
-                trace_id: String::new(),
-                entrypoint: String::new(),
-                input: Vec::new(),
-                wasm_bytes: Default::default(),
-                limits: Default::default(),
-            };
-            work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-            worker
-                .verify_native_protocol_v1(&request)
-                .map_err(IwsHostRuntimeErrorV1::Protocol)?;
-            work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-            // This enters the actual native-bound environment-aware child route.
-            // The handshake alone does not prove descriptor/environment equivalence.
-            let results = worker
-                .match_regex_batch_v1(&[], &mut || cancelled.load(Ordering::Acquire))
-                .map_err(IwsHostRuntimeErrorV1::Environment)?;
-            if !results.values().is_empty() {
-                return Err(
-                    FormalError::Invalid("Host native empty admission result".into()).into(),
-                );
-            }
-            work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
-            run(&mut worker)
+    work.charge(1, lease.descriptor_bytes().len() as u64, &mut || {
+        cancelled.load(Ordering::Acquire)
+    })?;
+    if *blake3::hash(lease.descriptor_bytes()).as_bytes() != environment {
+        return Err(FormalError::Invalid(
+            "Host same accepted native descriptor/environment".into(),
+        )
+        .into());
+    }
+    let mut worker = BoundedWorkerSandboxV1 {
+        executable: WorkerExecutableV1::NativeBoundSealedFd {
+            file: lease.file(),
+            descriptor: lease.descriptor_bytes(),
         },
-    )
+        allocator: &allocator,
+        limits: WorkerLimitsV1 {
+            address_space_bytes: limits.address_space_bytes,
+            max_request_bytes: limits.max_request_bytes,
+            max_output_bytes: limits.max_output_bytes,
+            wall_time_ms: limits.wall_time_ms,
+        },
+        cancelled,
+    };
+    let request = ModuleCallRequest {
+        module_id: String::new(),
+        wasm_hash: String::new(),
+        trace_id: String::new(),
+        entrypoint: String::new(),
+        input: Vec::new(),
+        wasm_bytes: Default::default(),
+        limits: Default::default(),
+    };
+    work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
+    worker
+        .verify_native_protocol_v1(&request)
+        .map_err(IwsHostRuntimeErrorV1::Protocol)?;
+    work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
+    // This enters the actual native-bound environment-aware child route.
+    // The handshake alone does not prove descriptor/environment equivalence.
+    let results = worker
+        .match_regex_batch_v1(&[], &mut || cancelled.load(Ordering::Acquire))
+        .map_err(IwsHostRuntimeErrorV1::Environment)?;
+    if !results.values().is_empty() {
+        return Err(FormalError::Invalid("Host native empty admission result".into()).into());
+    }
+    work.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
+    run(&mut worker)
 }
+
 #[cfg(test)]
 #[path = "iws_host_runtime_tests.rs"]
 mod tests;
 
 #[path = "iws_host_normal.rs"]
 mod normal;
+
+#[path = "iws_host_current_slot.rs"]
+mod slot;
+
+#[path = "iws_host_freeze.rs"]
+mod freeze;
+
+#[path = "iws_host_process_source.rs"]
+mod process;
+pub(crate) use process::prepare_governed_cold_process_from_verified_restore_v1;
+#[cfg(feature = "node-libp2p")]
+pub(crate) use process::{
+    devlocal_genesis_process_input_v1, prepare_devlocal_cold_process_from_verified_restore_v1,
+};
+
+#[path = "iws_host_normal_package.rs"]
+mod normal_package;
+pub(crate) use normal_package::{
+    NormalPackageErrorV1, PaidNormalCandidatePackageV1, PersistedNormalCandidatePackageV1,
+    prepare_normal_candidate_package_bounded_v1,
+};
+
+#[path = "iws_host_normal_commit.rs"]
+mod normal_commit;
+pub(crate) use normal_commit::{
+    NormalCommitFailureV1, NormalCommitRecoveryDispositionV1, NormalCommitStartCauseV1,
+    NormalCommitStartFailureV1, NormalCommitWorkV1, NormalOutputCommitFailureV1,
+    commit_prepared_normal_output_bounded_v1, publish_prepared_normal_runtime_bounded,
+};
+
+#[path = "iws_host_normal_execute.rs"]
+mod normal_execute;
+pub(crate) use normal_execute::{NormalExecutionCommitFailureV1, execute_and_commit_frozen_normal_bounded_v1};
+
+pub use normal::NormalCommitPersistErrorV1;
+
+#[path = "iws_host_cold.rs"]
+mod cold;
+pub use cold::{HostColdIoWorkV1, HostColdStartupErrorV1};

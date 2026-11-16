@@ -293,3 +293,10 @@ pub use dependencies_v3::*;
 #[path = "incremental_cognition_history_candidate_complete_reader_v3.rs"]
 mod candidate_complete_reader_v3;
 pub use candidate_complete_reader_v3::*;
+
+#[path = "incremental_cognition_history_current_responses.rs"]
+mod current_responses;
+pub use current_responses::{
+    CurrentCognitionResponsesWorkV1, PendingCurrentCognitionResponsesV1,
+    WrittenCurrentCognitionResponsesV1,
+};

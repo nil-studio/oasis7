@@ -115,7 +115,7 @@ pub(in crate::world) fn evaluate_schedule_recipe_v1<'source, S: FactoryRecipeFac
                 },
             }));
         }
-        if !recipe_preferred_tags_compatible(&profile.preferred_factory_tags, factory.tags()) {
+        if !oasis7_world_state::world_rules::recipe_preferred_tags_with_work_v1(&profile.preferred_factory_tags, factory.tags(),&mut|steps,bytes,heap|source.recipe_work(steps,bytes,heap))? {
             return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
                 action_id,
                 reason: RejectReason::RuleDenied {

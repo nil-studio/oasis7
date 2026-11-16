@@ -190,19 +190,7 @@ pub fn validate_registry(world: &World) -> Result<(), String> {
 }
 
 pub fn namespace_was_authorized(world: &World, namespace: &GameIdentityNamespaceV1) -> bool {
-    let registry = &world.capability_revocation_state().participants;
-    registry
-        .policy
-        .as_ref()
-        .is_some_and(|p| &p.identity_namespace == namespace)
-        || registry
-            .policy_history
-            .iter()
-            .any(|a| &a.policy.identity_namespace == namespace)
-        || registry
-            .devlocal_policy_history
-            .iter()
-            .any(|a| &a.request.policy.identity_namespace == namespace)
+    world.namespace_was_authorized_readonly_v1(namespace)
 }
 
 /// New effects additionally require enabled registration; receipt reads do not.

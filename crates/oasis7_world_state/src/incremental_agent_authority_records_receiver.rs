@@ -42,7 +42,7 @@ fn changed<R: ValueNodeReader, C: FnMut() -> bool>(
     }
     Err(invalid())
 }
-fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: AgentAuthorityRecordKindV1,
     before: &StateRootV1,
     after: &StateRootV1,
@@ -161,6 +161,8 @@ pub(crate) fn accept_agent_authority_verified_v1<
     if !verified.record.after.state.iter().any(|r| r == ctx.root) {
         return Err(invalid().into());
     }
+    parent.check_intent_epoch_pool(ctx.values.memory)?;
+    let mut intent_epochs=family::intent_epochs::share_tree(&parent.intent_epochs);
     let mut counts = parent.record_counts();
     for write in &verified.record.writes {
         *cells = cells.checked_sub(1).ok_or(ValueTreeError::ResourceLimited(
@@ -210,7 +212,7 @@ pub(crate) fn accept_agent_authority_verified_v1<
             AgentAuthorityRecordKindV1::AgentLocation => 1,
             AgentAuthorityRecordKindV1::LocationAnchor => 2,
         };
-        match (old, new) {
+        match (&old, &new) {
             (None, Some((owner_kind, owner, root))) => {
                 let mut body = WorldFieldReadContextV1 {
                     root: &root,
@@ -228,7 +230,7 @@ pub(crate) fn accept_agent_authority_verified_v1<
                     cancelled: &mut ctx.cancelled,
                 };
                 qualify_agent_authority_body_v1(
-                    owner_kind, owner, &mut body, inner_scan, cells, max,
+                    *owner_kind, *owner, &mut body, inner_scan, cells, max,
                 )?;
                 counts[index] = counts[index].checked_add(1).ok_or_else(invalid)?;
             }
@@ -243,11 +245,16 @@ pub(crate) fn accept_agent_authority_verified_v1<
             }
             (None, None) => return Err(invalid().into()),
         }
+        if kind==AgentAuthorityRecordKindV1::IntentLedger{
+            intent_epochs=family::fold_verified_intent_epoch_change(&intent_epochs,&write.mutation.key,old.as_ref().map(|row|&row.2),new.as_ref().map(|row|&row.2),ctx,cells)?;
+        }
         ctx.check()?;
     }
     let result = family::mint(
         verified.record.after.digest().map_err(|_| invalid())?,
         counts,
+        intent_epochs,
+        parent.intent_ordinary_cover.as_ref().map(std::sync::Arc::clone),
         ctx.values.memory,
         ctx.values.class,
     )?;

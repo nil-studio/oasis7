@@ -29,7 +29,7 @@ fn charge(
     )
 }
 // Locked Rust1.96 BTreeMap layout, B=6. The only map is record.artifact_roots
-// with 14 enum keys: at most two leaves and one internal node. Three leaves
+// with 15 enum keys: at most two leaves and one internal node. Three leaves
 // plus one internal conservatively include a transient split, even for repeated
 // incoming keys. Replacing duplicate values does not grow distinct-key count.
 #[repr(C)]
@@ -134,6 +134,7 @@ fn diagnostic_constant() -> Result<usize, FormalError> {
         "IncrementalRootSet",
         "IncrementalCommitBody",
         "IncrementalHistoryPrefix",
+        "IncrementalRetentionLedger",
         "InitialActivation",
         "Execution",
         "a string",

@@ -12,87 +12,8 @@ fn deny(reason: impl Into<String>) -> crate::WorldError {
 fn hash<T: serde::Serialize>(value: &T) -> Result<String, String> {
     oasis7_wasm_abi::canonical_hash(value).map_err(|e| e.to_string())
 }
-fn signature(record: &TaskTerminalRecordV2) -> Result<(), String> {
-    oasis7_client_api::world_service::private_goal::verify_owner_signature_strict(
-        GAME_TASK_CLEANUP_DOMAIN_V2,
-        &record.original.request,
-        &record.original.subject_public_key,
-        &record.original.signature_hex,
-    )?;
-    let p = &record.original.request;
-    p.validate()?;
-    let c = &record.closed;
-    p.permitted_branches.exact_initial_active.validate()?;
-    if record.original.subject_public_key
-        != p.permitted_branches.exact_initial_active.owner_public_key
-        || c.close_original_digest != hash(&record.original)?
-        || record.committed_at_unix_ms > p.cleanup_until_ms.0
-    {
-        return Err("terminal original or deadline mismatch".into());
-    }
-    match &c.selected_predicate {
-        GameTaskClosePredicateV2::InitialActive => {
-            if c.actual_before_fence != p.permitted_branches.exact_initial_active
-                || record.stop_predecessor_canonical_cbor.is_some()
-            {
-                return Err("terminal initial predicate mismatch".into());
-            }
-        }
-        GameTaskClosePredicateV2::OwnStopSuspended(reference) => {
-            let intent = p
-                .permitted_branches
-                .own_stop_intent
-                .as_ref()
-                .ok_or("OwnStop was not allowed by the signed conditions")?;
-            let bytes = record
-                .stop_predecessor_canonical_cbor
-                .as_ref()
-                .ok_or("terminal own-Stop full witness missing")?;
-            let result: admission::CanonicalIntentResultV1 =
-                serde_cbor::from_slice(bytes).map_err(|_| "invalid terminal Stop witness codec")?;
-            if serde_cbor::to_vec(&result).map_err(|e| e.to_string())? != *bytes {
-                return Err("terminal Stop witness is not exact canonical result bytes".into());
-            }
-            let key = admission::correlation::key_digest(&result.request.correlation.key)?;
-            admission::correlation::validate_result(
-                &key,
-                &serde_json::to_value(&result).map_err(|e| e.to_string())?,
-            )?;
-            let WorldServicePayloadV1::GameExecutorControl(stop) = &result.request.signed_payload
-            else {
-                return Err("terminal witness is not Stop".into());
-            };
-            if stop.request.operation != GameExecutorOperationV1::Stop
-                || stop.request.fence != p.permitted_branches.exact_initial_active
-                || stop.subject_public_key != record.original.subject_public_key
-                || stop.request.client_operation_id != intent.operation_id
-                || hash(&(
-                    GAME_EXECUTOR_CONTROL_DOMAIN,
-                    &stop.subject_public_key,
-                    &stop.request,
-                ))? != intent.intent_digest
-                || result.rejected.is_some()
-                || result.committed_height > record.committed_height
-                || reference.operation_id != stop.request.client_operation_id
-                || reference.original_digest != hash(stop)?
-                || reference.canonical_result_digest != blake3::hash(bytes).to_hex().to_string()
-                || reference.post_fence != c.actual_before_fence
-            {
-                return Err("terminal own-Stop lineage mismatch".into());
-            }
-            let receipt = admission::game_task::executor_receipt(&result.request)?;
-            let mut expected = stop.request.fence.clone();
-            expected.task_revision = receipt.task_revision;
-            expected.executor_epoch = receipt.executor_epoch;
-            expected.executor_binding = receipt.executor_binding;
-            expected.task_status = receipt.task_status;
-            if expected != c.actual_before_fence {
-                return Err("terminal own-Stop derived fence mismatch".into());
-            }
-        }
-    }
-    Ok(())
-}
+fn signature(record: &TaskTerminalRecordV2) -> Result<(), String> {readonly_rules::signature_with_work_v2(record,&readonly_rules::Legacy)}
+
 /// Restore validates full original/witness independently of live current state.
 pub(crate) fn validate_index(world: &World) -> Result<(), String> {
     if let Some(index) = &world.capability_revocation_state.task_terminals_v2 {
@@ -371,3 +292,6 @@ impl World {
 #[cfg(test)]
 #[path = "task_terminal_v2_signature_tests.rs"]
 mod signature_tests;
+
+#[path="task_terminal_v2_readonly_rules.rs"]
+pub(crate) mod readonly_rules;

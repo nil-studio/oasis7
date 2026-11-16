@@ -53,6 +53,8 @@ pub(super) struct PreparedCandidateInstall {
     roots: ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
     cognition: PreparedCompleteCognitionHistoryPromotionV3,
     runtime: PreparedRuntimeHistorySourceV1,
+    ledger: Option<oasis7_world_state::incremental_cognition_proof_ledger::PreparedCognitionProofLedgerPromotionV1>,
+    retention: Option<oasis7_world_state::incremental_cognition_retention_ledger::PreparedCognitionRetentionLedgerPromotionV1>,
     complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
     local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
 }
@@ -62,6 +64,7 @@ pub(super) struct PreparedCandidateInstall {
 )]
 pub(super) enum AcceptedCurrentOwner {
     Candidate(ProvisionalCandidate),
+    AuthenticatedCold(super::cold_install::AuthenticatedColdCandidateV1),
     Cold {
         current: ReservedValue<oasis7_world_state::incremental_world_current_complete::WorldCurrentStateQualificationV1>,
         results: ReservedValue<oasis7_world_state::incremental_world_result_router_accepted::AcceptedWorldResultRoutingV1>,
@@ -73,10 +76,18 @@ pub(super) struct AcceptedCandidateCache {
     pub(super) roots: ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
     pub(super) cognition: ReservedValue<CompleteCognitionHistorySourceV3>,
     pub(super) runtime: ReservedValue<AcceptedRuntimeHistorySourceV1>,
+    pub(super) ledger: Option<
+        ReservedValue<
+            oasis7_world_state::incremental_cognition_proof_ledger::AcceptedCognitionProofLedgerV1,
+        >,
+    >,
+    pub(super) retention: Option<ReservedValue<oasis7_world_state::incremental_cognition_retention_ledger::AcceptedCognitionRetentionLedgerV1>>,
     pub(super) complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
     pub(super) local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
     pub(super) genesis_quorum:
         Option<oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedGenesisCommitV1>,
+    pub(super) normal_quorum:
+        Option<oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedNormalCommitV1>,
     pub(super) formal_parent_fee: Option<ReservedValue<()>>,
     pub(super) recovered_pages: Option<ReservedValue<super::closure::StoreReadWitness>>,
 }
@@ -97,9 +108,47 @@ impl PreparedCandidateInstall {
     pub(super) fn prepare(
         provisional: ProvisionalCandidate,
         indexes: [ReservedValue<RuntimeHistoryIndexQualificationV1>; 4],
+        ledger: Option<ReservedValue<oasis7_world_state::incremental_cognition_proof_ledger::CheckedCognitionProofLedgerV1>>,
+        retention: Option<ReservedValue<oasis7_world_state::incremental_cognition_retention_ledger::CheckedCognitionRetentionLedgerV1>>,
         memory: &MemoryBudget,
         mut cancelled: impl FnMut() -> bool,
     ) -> Result<Self, super::FormalError> {
+        if provisional.source.results().proof_ledger().is_some() != ledger.is_some() {
+            return Err(super::invalid("IWS complete routed ProofLedger selection"));
+        }
+        if let Some(value) = ledger.as_ref() {
+            let occurrence = value.occurrence();
+            let routed = provisional
+                .source
+                .results()
+                .proof_ledger()
+                .ok_or_else(|| super::invalid("IWS selected ProofLedger missing"))?
+                .occurrence();
+            if !value.uses_budget(memory)
+                || occurrence.candidate_record_id() != provisional.core.candidate_record_id()
+                || occurrence.body_id() != routed.body_id()
+                || occurrence.roots_id() != provisional.core.body().roots
+                || occurrence.location() != routed.location()
+            {
+                return Err(super::invalid("IWS ProofLedger exact candidate occurrence"));
+            }
+        }
+        let ledger=ledger.as_ref().map(|value|oasis7_world_state::incremental_cognition_proof_ledger::prepare_cognition_proof_ledger_promotion_v1(value,memory,&mut cancelled).map_err(|e|super::invalid(format!("IWS prepare ProofLedger: {e:?}")))).transpose()?;
+        if provisional.core.retention_ledger_artifact_id().is_some() != retention.is_some() {
+            return Err(super::invalid("IWS signed retention role selection"));
+        }
+        if let Some(value) = retention.as_ref() {
+            if !value.uses_budget(memory) {
+                return Err(super::invalid("IWS retention promotion pool"));
+            }
+            value
+                .validate_core_v1(&provisional.core)
+                .map_err(|e| super::invalid(format!("IWS retention exact candidate: {e:?}")))?;
+        }
+        let retention = retention.as_ref().map(|value|
+            oasis7_world_state::incremental_cognition_retention_ledger::prepare_cognition_retention_ledger_promotion_v1(value,memory,&mut cancelled)
+                .map_err(|e|super::invalid(format!("IWS prepare retention: {e:?}")))
+        ).transpose()?;
         let cognition = prepare_complete_cognition_history_promotion_v3(
             provisional.source.cognition(),
             memory,
@@ -134,6 +183,8 @@ impl PreparedCandidateInstall {
             roots,
             cognition,
             runtime,
+            ledger,
+            retention,
             complete_data: None,
             local_closure: None,
         })
@@ -165,22 +216,46 @@ impl PreparedCandidateInstall {
                 .map_err(|_| super::invalid("IWS install Cognition binding"))?;
         let runtime = finish_prepared_runtime_history_source_promotion_v1(self.runtime, commit)
             .map_err(|_| super::invalid("IWS install Runtime History binding"))?;
+        let ledger=self.ledger.map(|value|oasis7_world_state::incremental_cognition_proof_ledger::finish_prepared_cognition_proof_ledger_promotion_v1(value,commit).map_err(|e|super::invalid(format!("IWS install ProofLedger: {e:?}")))).transpose()?;
+        let retention = self.retention.map(|value|
+            oasis7_world_state::incremental_cognition_retention_ledger::finish_prepared_cognition_retention_ledger_promotion_v1(value,commit)
+                .map_err(|e|super::invalid(format!("IWS install retention: {e:?}")))
+        ).transpose()?;
         Ok(AcceptedCandidateCache {
             commit_record: commit.verified_record_id(),
             current_owner: AcceptedCurrentOwner::Candidate(self.provisional),
             roots: self.roots,
+            ledger,
+            retention,
             cognition,
             runtime,
             complete_data: self.complete_data,
             local_closure: self.local_closure,
             recovered_pages: None,
             genesis_quorum: None,
+            normal_quorum: None,
             formal_parent_fee: None,
         })
     }
 }
 
 impl AcceptedCandidateCache {
+    pub(super) fn accepted_cold_results(&self) -> Option<&ReservedValue<
+    oasis7_world_state::incremental_world_result_router_accepted::AcceptedWorldResultRoutingV1>>{
+        match &self.current_owner {
+            AcceptedCurrentOwner::Cold { results, .. } => Some(results),
+            AcceptedCurrentOwner::AuthenticatedCold(p) => Some(p.source().results()),
+            AcceptedCurrentOwner::Candidate(_) => None,
+        }
+    }
+    pub(super) fn authenticated_cold(
+        &self,
+    ) -> Option<&super::cold_install::AuthenticatedColdCandidateV1> {
+        match &self.current_owner {
+            AcceptedCurrentOwner::AuthenticatedCold(p) => Some(p),
+            _ => None,
+        }
+    }
     pub(super) fn page_witness(&self) -> Option<&ReservedValue<super::closure::StoreReadWitness>> {
         self.complete_data
             .as_ref()
@@ -202,6 +277,7 @@ impl AcceptedCandidateCache {
         match &self.current_owner {
             AcceptedCurrentOwner::Candidate(p) => p.source.current(),
             AcceptedCurrentOwner::Cold { current, .. } => current,
+            AcceptedCurrentOwner::AuthenticatedCold(p) => p.source().current(),
         }
     }
 
@@ -232,7 +308,7 @@ impl AcceptedCandidateCache {
         {
             return Err(ValueTreeError::Invalid("IWS private exact accepted parent"));
         }
-        if let AcceptedCurrentOwner::Cold { results, .. } = &self.current_owner
+        if let Some(results) = self.accepted_cold_results()
             && (!results.uses_budget(memory)
                 || results.allocation_class() != oasis7_proto::memory_budget::MemoryClass::Ordinary
                 || results.record_id() != self.commit_record
@@ -244,6 +320,19 @@ impl AcceptedCandidateCache {
         let body = next
             .parent_body()
             .ok_or(ValueTreeError::Invalid("IWS accepted parent body missing"))?;
+        if let Some(retention) = self.retention.as_ref() {
+            if !retention.uses_budget(memory)
+                || retention.allocation_class()
+                    != oasis7_proto::memory_budget::MemoryClass::Ordinary
+                || retention.head_record_id() != self.commit_record
+                || retention.head_body_id() != self.runtime.occurrence().head_body_id()
+                || retention.manifest().roots != body.roots
+            {
+                return Err(ValueTreeError::Invalid(
+                    "IWS accepted retention exact parent",
+                ));
+            }
+        }
         if body
             .digest()
             .map_err(|_| ValueTreeError::Invalid("IWS parent body digest"))?
@@ -325,5 +414,64 @@ impl PreparedCandidateInstall {
             return Err(super::invalid("GEN receipt complete source binding"));
         }
         Ok(())
+    }
+}
+
+impl PreparedCandidateInstall {
+    pub(super) fn normal_reference<'a>(
+        &'a self,
+        commit: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+        parent: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+        memory: &MemoryBudget,
+    ) -> Result<&'a str, super::FormalError> {
+        let core = &self.provisional.core;
+        if !core.uses_budget(memory)
+            || core.body().height == 0
+            || core.transition().is_none()
+            || core.parent_record_id() != Some(parent.verified_record_id())
+            || core.body().parent_commit.is_none()
+            || self.candidate_record_id() != commit.verified_record_id()
+        {
+            return Err(super::invalid("normal exact complete staged child/parent"));
+        }
+        let data = self
+            .complete_data
+            .as_ref()
+            .ok_or_else(|| super::invalid("normal complete data missing"))?;
+        if !data.uses_budget(memory)
+            || data.candidate_record_id() != commit.verified_record_id()
+            || data.body_id() != self.provisional.source.runtime().occurrence().body_id()
+            || data.roots_id() != self.provisional.source.runtime().occurrence().roots_id()
+        {
+            return Err(super::invalid("normal complete source binding"));
+        }
+        self.local_closure
+            .as_ref()
+            .ok_or_else(|| super::invalid("normal genuine local closure missing"))?
+            .reference_for(commit)
+    }
+}
+
+impl PreparedCandidateInstall {
+    pub(super) fn provisional_parent_record(&self) -> Option<[u8; 32]> {
+        self.provisional.core.parent_record_id()
+    }
+}
+
+impl PreparedCandidateInstall {
+    pub(super) fn normal_candidate_read_sources_v1(
+        &self,
+    ) -> (
+        &ReservedValue<CheckedCommitCore>,
+        &ReservedValue<
+            oasis7_world_state::incremental_world_storage_source::CheckedWorldStorageSourceV1,
+        >,
+        &ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
+    ) {
+        (
+            &self.provisional.core,
+            &self.provisional.source,
+            &self.roots,
+        )
     }
 }

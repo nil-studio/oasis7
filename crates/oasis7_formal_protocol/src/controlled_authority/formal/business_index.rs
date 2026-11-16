@@ -158,6 +158,96 @@ pub trait BusinessIndexNodeReader {
     }
 }
 
+#[path = "business_index_paid.rs"]
+mod paid;
+pub use paid::{
+    validate_business_index_root_bounded_v1,
+    PaidBusinessIndexDeltaV1, PaidBusinessIndexErrorV1, PaidBusinessIndexLeafV1,
+    PaidBusinessIndexNodeReaderV1, PaidDecodedBusinessIndexDeltaV1,
+    build_business_index_v2_bounded_v1, canonical_business_index_root_bounded_v1,
+    decode_business_index_delta_bounded_v1, empty_business_index_root_bounded_v1,
+    get_business_index_leaf_bounded_v1, verify_business_index_delta_bounded_v1,
+};
+
+struct Kernel<'a> {
+    empty: Vec<String>,
+    meter: Option<&'a crate::merkle::WorkMeter<'a>>,
+}
+impl<'a> Kernel<'a> {
+    fn legacy() -> Result<Self, String> {
+        Ok(Self {
+            empty: empty_hashes()?,
+            meter: None,
+        })
+    }
+    fn pay(&self, bytes: usize) -> Result<(), String> {
+        match self.meter {
+            Some(meter) => meter(bytes),
+            None => Ok(()),
+        }
+    }
+    fn validate_root(&self, root: &BusinessIndexRootV1) -> Result<(), String> {
+        self.pay(root.node_root.len() + 64)?;
+        if !valid_digest(&root.node_root)
+            || (root.leaf_count == 0 && root.node_root != self.empty[0])
+            || (root.leaf_count > 0 && root.node_root == self.empty[0])
+        {
+            return Err("business index root descriptor".into());
+        }
+        Ok(())
+    }
+    fn canonical_root(&self, root: &BusinessIndexRootV1) -> Result<String, String> {
+        self.validate_root(root)?;
+        self.pay(ROOT_MAGIC.len() + 4 + 8 + 32 + 64)?;
+        let mut bytes = Vec::with_capacity(ROOT_MAGIC.len() + 4 + 8 + 32);
+        bytes.extend_from_slice(ROOT_MAGIC);
+        bytes.extend_from_slice(&BUSINESS_INDEX_SCHEMA_V1.to_be_bytes());
+        bytes.extend_from_slice(&root.leaf_count.to_be_bytes());
+        bytes.extend_from_slice(&digest_bytes(&root.node_root)?);
+        Ok(blake3_hex(&bytes))
+    }
+    fn serialized_len<T: Serialize>(&self, value: &T) -> Result<usize, String> {
+        if self.meter.is_none() {
+            return serde_cbor::to_vec(value)
+                .map(|v| v.len())
+                .map_err(|e| e.to_string());
+        }
+        struct Count<'a, 'b> {
+            kernel: &'a Kernel<'b>,
+            n: usize,
+        }
+        impl std::io::Write for Count<'_, '_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.kernel
+                    .pay(bytes.len())
+                    .map_err(std::io::Error::other)?;
+                self.n = self
+                    .n
+                    .checked_add(bytes.len())
+                    .ok_or_else(|| std::io::Error::other("business index wire overflow"))?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut out = Count { kernel: self, n: 0 };
+        serde_cbor::to_writer(&mut out, value).map_err(|e| e.to_string())?;
+        Ok(out.n)
+    }
+    fn get(
+        &self,
+        root: &BusinessIndexRootV1,
+        key: &str,
+        reader: &impl BusinessIndexNodeReader,
+    ) -> Result<Option<BusinessIndexLeafV1>, String> {
+        self.validate_root(root)?;
+        self.pay(key.len())?;
+        digest_bytes(key)?;
+        reader.prefetch_path(root, key)?;
+        lookup_with(root.node_root.as_str(), &digest_bytes(key)?, reader, self)
+    }
+}
 impl BusinessIndexRootV1 {
     /// Canonical empty subtree digest at a fixed depth. This is a traversal
     /// sentinel only; a caller must already possess the trusted root descriptor.
@@ -176,25 +266,12 @@ impl BusinessIndexRootV1 {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        let empty_root = empty_hashes()?[0].clone();
-        if !valid_digest(&self.node_root)
-            || (self.leaf_count == 0 && self.node_root != empty_root)
-            || (self.leaf_count > 0 && self.node_root == empty_root)
-        {
-            return Err("business index root descriptor".into());
-        }
-        Ok(())
+        Kernel::legacy()?.validate_root(self)
     }
 
     /// Hash committed by CanonicalRecordV1::result_root.
     pub fn canonical_result_root(&self) -> Result<String, String> {
-        self.validate()?;
-        let mut bytes = Vec::with_capacity(ROOT_MAGIC.len() + 4 + 8 + 32);
-        bytes.extend_from_slice(ROOT_MAGIC);
-        bytes.extend_from_slice(&BUSINESS_INDEX_SCHEMA_V1.to_be_bytes());
-        bytes.extend_from_slice(&self.leaf_count.to_be_bytes());
-        bytes.extend_from_slice(&digest_bytes(&self.node_root)?);
-        Ok(blake3_hex(&bytes))
+        Kernel::legacy()?.canonical_root(self)
     }
 
     pub fn get(
@@ -202,10 +279,7 @@ impl BusinessIndexRootV1 {
         key_digest: &str,
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<Option<BusinessIndexLeafV1>, String> {
-        self.validate()?;
-        digest_bytes(key_digest)?;
-        reader.prefetch_path(self, key_digest)?;
-        lookup(&self.node_root, &digest_bytes(key_digest)?, reader)
+        Kernel::legacy()?.get(self, key_digest, reader)
     }
 
     pub fn prove(
@@ -381,11 +455,19 @@ impl BusinessIndexDeltaV1 {
         updates: Vec<BusinessIndexLeafV1>,
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<Self, String> {
-        base.validate()?;
-        validate_updates(&updates)?;
-        let base_root = base.canonical_result_root()?;
-        let (new, node_writes) = apply_updates(&base, &updates, reader)?;
-        let new_root = new.canonical_result_root()?;
+        Self::build_with(base, updates, reader, &Kernel::legacy()?)
+    }
+    fn build_with(
+        base: BusinessIndexRootV1,
+        updates: Vec<BusinessIndexLeafV1>,
+        reader: &impl BusinessIndexNodeReader,
+        kernel: &Kernel<'_>,
+    ) -> Result<Self, String> {
+        kernel.validate_root(&base)?;
+        validate_updates_with(&updates, kernel)?;
+        let base_root = kernel.canonical_root(&base)?;
+        let (new, node_writes) = apply_updates_with(&base, &updates, reader, kernel)?;
+        let new_root = kernel.canonical_root(&new)?;
         let delta = Self {
             schema_version: BUSINESS_INDEX_SCHEMA_V1,
             base_root,
@@ -395,7 +477,7 @@ impl BusinessIndexDeltaV1 {
             updates,
             node_writes,
         };
-        delta.validate_shape()?;
+        delta.validate_shape_with(kernel)?;
         Ok(delta)
     }
 
@@ -404,18 +486,30 @@ impl BusinessIndexDeltaV1 {
         expected_base_root: &str,
         reader: &impl BusinessIndexNodeReader,
     ) -> Result<BusinessIndexRootV1, String> {
-        self.validate_shape()?;
+        self.verify_with(expected_base_root, reader, &Kernel::legacy()?)
+    }
+    fn verify_with(
+        &self,
+        expected_base_root: &str,
+        reader: &impl BusinessIndexNodeReader,
+        kernel: &Kernel<'_>,
+    ) -> Result<BusinessIndexRootV1, String> {
+        self.validate_shape_with(kernel)?;
         if self.base_root != expected_base_root
-            || self.base.canonical_result_root()? != expected_base_root
+            || kernel.canonical_root(&self.base)? != expected_base_root
         {
             return Err("business index delta baseRoot does not match parent result_root".into());
         }
+        if kernel.meter.is_some() {
+            let wire = kernel.serialized_len(self)?;
+            kernel.pay(wire.saturating_mul(4))?;
+        }
         let rebuilt = match self.schema_version {
             BUSINESS_INDEX_SCHEMA_V1 => {
-                Self::build(self.base.clone(), self.updates.clone(), reader)?
+                Self::build_with(self.base.clone(), self.updates.clone(), reader, kernel)?
             }
             BUSINESS_INDEX_SCHEMA_V2 => {
-                Self::build_v2(self.base.clone(), self.updates.clone(), reader)?
+                v2::build_v2_with(self.base.clone(), self.updates.clone(), reader, kernel)?
             }
             _ => return Err("business index delta unsupported version".into()),
         };
@@ -426,20 +520,24 @@ impl BusinessIndexDeltaV1 {
     }
 
     fn validate_shape(&self) -> Result<(), String> {
+        self.validate_shape_with(&Kernel::legacy()?)
+    }
+    fn validate_shape_with(&self, kernel: &Kernel<'_>) -> Result<(), String> {
         if !matches!(
             self.schema_version,
             BUSINESS_INDEX_SCHEMA_V1 | BUSINESS_INDEX_SCHEMA_V2
         ) || !valid_digest(&self.base_root)
             || !valid_digest(&self.new_root)
-            || self.base.canonical_result_root()? != self.base_root
-            || self.new.canonical_result_root()? != self.new_root
+            || kernel.canonical_root(&self.base)? != self.base_root
+            || kernel.canonical_root(&self.new)? != self.new_root
         {
             return Err("business index delta schema/root bounds".into());
         }
-        validate_updates(&self.updates)?;
+        validate_updates_with(&self.updates, kernel)?;
         let mut previous: Option<&str> = None;
         let mut total_bytes = 0usize;
         for write in &self.node_writes {
+            kernel.pay(write.digest.len() + write.bytes.len())?;
             if !valid_digest(&write.digest)
                 || blake3_hex(&write.bytes) != write.digest
                 || previous.is_some_and(|old| old >= write.digest.as_str())
@@ -452,10 +550,7 @@ impl BusinessIndexDeltaV1 {
                 .ok_or("business index delta byte overflow")?;
         }
         if total_bytes > BUSINESS_INDEX_MAX_DELTA_BYTES
-            || serde_cbor::to_vec(self)
-                .map_err(|error| error.to_string())?
-                .len()
-                > BUSINESS_INDEX_MAX_DELTA_BYTES
+            || kernel.serialized_len(self)? > BUSINESS_INDEX_MAX_DELTA_BYTES
         {
             return Err("business index delta byte bound".into());
         }
@@ -468,13 +563,26 @@ fn apply_updates(
     updates: &[BusinessIndexLeafV1],
     reader: &impl BusinessIndexNodeReader,
 ) -> Result<(BusinessIndexRootV1, Vec<BusinessIndexNodeWriteV1>), String> {
-    let empty = empty_hashes()?;
+    apply_updates_with(base, updates, reader, &Kernel::legacy()?)
+}
+
+fn apply_updates_with(
+    base: &BusinessIndexRootV1,
+    updates: &[BusinessIndexLeafV1],
+    reader: &impl BusinessIndexNodeReader,
+    kernel: &Kernel<'_>,
+) -> Result<(BusinessIndexRootV1, Vec<BusinessIndexNodeWriteV1>), String> {
+    let empty = &kernel.empty;
     let source = BusinessNodeSource(reader);
     let mut updater =
         crate::merkle::Updater::<BusinessNodeCodec, _>::new(&source, &empty, usize::MAX);
+    if let Some(meter) = kernel.meter {
+        updater = updater.with_paid_source_meter(meter);
+    }
     let mut root = base.node_root.clone();
     let mut leaf_count = base.leaf_count;
     for leaf in updates {
+        kernel.pay(leaf.key_digest.len() + leaf.canonical_value.len())?;
         let existing = updater.lookup(&root, &digest_bytes(&leaf.key_digest)?)?;
         match (&existing, leaf.kind) {
             (
@@ -508,7 +616,7 @@ fn apply_updates(
         node_root: root,
         leaf_count,
     };
-    new.validate()?;
+    kernel.validate_root(&new)?;
     let node_writes = updater
         .pending
         .into_iter()
@@ -518,11 +626,24 @@ fn apply_updates(
 }
 
 fn validate_updates(updates: &[BusinessIndexLeafV1]) -> Result<(), String> {
+    validate_updates_with(
+        updates,
+        &Kernel {
+            empty: Vec::new(),
+            meter: None,
+        },
+    )
+}
+fn validate_updates_with(
+    updates: &[BusinessIndexLeafV1],
+    kernel: &Kernel<'_>,
+) -> Result<(), String> {
     if updates.is_empty() || updates.len() > BUSINESS_INDEX_MAX_UPDATES {
         return Err("business index update count".into());
     }
     let mut previous: Option<&str> = None;
     for leaf in updates {
+        kernel.pay(leaf.key_digest.len())?;
         validate_leaf(leaf)?;
         if previous.is_some_and(|old| old >= leaf.key_digest.as_str()) {
             return Err("business index updates must be sorted and unique".into());
@@ -547,13 +668,25 @@ fn lookup(
     key: &[u8; 32],
     reader: &impl BusinessIndexNodeReader,
 ) -> Result<Option<BusinessIndexLeafV1>, String> {
-    let empty = empty_hashes()?;
+    lookup_with(root, key, reader, &Kernel::legacy()?)
+}
+
+fn lookup_with(
+    root: &str,
+    key: &[u8; 32],
+    reader: &impl BusinessIndexNodeReader,
+    kernel: &Kernel<'_>,
+) -> Result<Option<BusinessIndexLeafV1>, String> {
+    let empty = &kernel.empty;
+    kernel.pay(root.len())?;
     let mut current = root.to_owned();
     for (depth, empty_hash) in empty.iter().take(BUSINESS_INDEX_DEPTH).enumerate() {
+        kernel.pay(current.len() + empty_hash.len())?;
         if current == *empty_hash {
             return Ok(None);
         }
-        let node = read_node(reader, &current, depth)?.ok_or("business index node missing")?;
+        let node = read_node_with(reader, &current, depth, kernel)?
+            .ok_or("business index node missing")?;
         let BusinessIndexNodeKindV1::Branch {
             left_hash,
             right_hash,
@@ -571,8 +704,8 @@ fn lookup(
     if current == empty[BUSINESS_INDEX_DEPTH] {
         return Ok(None);
     }
-    let node =
-        read_node(reader, &current, BUSINESS_INDEX_DEPTH)?.ok_or("business index leaf missing")?;
+    let node = read_node_with(reader, &current, BUSINESS_INDEX_DEPTH, kernel)?
+        .ok_or("business index leaf missing")?;
     let BusinessIndexNodeKindV1::Leaf(leaf) = node.kind else {
         return Err("business index branch at leaf depth".into());
     };
@@ -596,6 +729,22 @@ struct BusinessNodeCodec;
 impl crate::merkle::Codec for BusinessNodeCodec {
     type Leaf = BusinessIndexLeafV1;
     const MAX_NODE_BYTES: usize = BUSINESS_INDEX_MAX_LEAF_BYTES + 128;
+    fn leaf_work_bytes(leaf: &Self::Leaf) -> usize {
+        leaf.key_digest
+            .len()
+            .saturating_add(leaf.canonical_value.len())
+            .saturating_add(std::mem::size_of::<BusinessIndexLeafV1>())
+    }
+    fn node_work_bytes(node: &crate::merkle::Node<Self::Leaf>) -> usize {
+        match node {
+            crate::merkle::Node::Branch { left, right, .. } => {
+                NODE_MAGIC.len() + 3 + left.len() + right.len()
+            }
+            crate::merkle::Node::Leaf(leaf) => {
+                Self::leaf_work_bytes(leaf).saturating_add(NODE_MAGIC.len() + 38)
+            }
+        }
+    }
 
     fn key(leaf: &Self::Leaf) -> Result<[u8; 32], String> {
         digest_bytes(&leaf.key_digest)
@@ -631,9 +780,28 @@ fn read_node(
     digest: &str,
     depth: usize,
 ) -> Result<Option<BusinessIndexNodeV1>, String> {
+    read_node_with(
+        reader,
+        digest,
+        depth,
+        &Kernel {
+            empty: Vec::new(),
+            meter: None,
+        },
+    )
+}
+
+fn read_node_with(
+    reader: &impl BusinessIndexNodeReader,
+    digest: &str,
+    depth: usize,
+    kernel: &Kernel<'_>,
+) -> Result<Option<BusinessIndexNodeV1>, String> {
+    kernel.pay(digest.len())?;
     let Some(bytes) = reader.read_node(digest)? else {
         return Ok(None);
     };
+    kernel.pay(bytes.len().saturating_mul(4).saturating_add(128))?;
     if blake3_hex(&bytes) != digest {
         return Err("business index node content hash mismatch".into());
     }
@@ -664,12 +832,26 @@ fn empty_hashes() -> Result<Vec<String>, String> {
 }
 
 fn build_empty_hashes() -> Result<Vec<String>, String> {
+    build_empty_hashes_with(None)
+}
+fn build_empty_hashes_with(
+    meter: Option<&crate::merkle::WorkMeter<'_>>,
+) -> Result<Vec<String>, String> {
+    if let Some(meter) = meter {
+        meter((BUSINESS_INDEX_DEPTH + 1) * (std::mem::size_of::<String>() + 64))?;
+    }
     let mut hashes = vec![String::new(); BUSINESS_INDEX_DEPTH + 1];
     // An unpersisted, unconstructible leaf marker defines the empty subtree.
     let mut empty_leaf = NODE_MAGIC.to_vec();
     empty_leaf.push(2);
+    if let Some(meter) = meter {
+        meter(empty_leaf.len() + 64)?;
+    }
     hashes[BUSINESS_INDEX_DEPTH] = blake3_hex(&empty_leaf);
     for depth in (0..BUSINESS_INDEX_DEPTH).rev() {
+        if let Some(meter) = meter {
+            meter(NODE_MAGIC.len() + 3 + 4 * 64)?;
+        }
         let node = BusinessIndexNodeV1::branch(
             depth,
             hashes[depth + 1].clone(),

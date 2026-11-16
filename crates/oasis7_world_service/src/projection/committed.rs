@@ -7,9 +7,8 @@ pub fn from_formal_committed_world(
 ) -> Result<WorldServiceProjection, String> {
     let mut projection = from_committed_world(world, agent, reader)?;
     let (header, start) = super::super::formal_projection_header::committed_header(world)?;
-    projection.events =
-        super::super::formal_projection_header::current_era_events(world, start, agent);
-    projection.formal_commit_header = Some(header);
+    let events=super::super::formal_projection_header::current_era_events(world,start,agent);
+    oasis7_world_projection::original_formatter::attach_formal_header_data_v1(&mut projection,header,events);
     Ok(projection)
 }
 
@@ -59,12 +58,7 @@ pub fn from_committed_world(
         .journal()
         .events
         .iter()
-        .filter(|event| match &event.body {
-            oasis7_runtime::WorldEventBody::Domain(domain) => {
-                agent.is_some_and(|agent| domain.agent_id() == Some(agent))
-            }
-            _ => false,
-        })
+        .filter(|event| oasis7_world_projection::current_commitment_history::original_projection_event_visible_v1(event,agent))
         .cloned()
         .collect();
     Ok(projection)

@@ -159,6 +159,11 @@ where
         Ok(())
     }
 
+    /// Borrow the actual shared counted ledger. This cannot mint or reset a
+    /// counter, and its readers still validate the exact transaction owner.
+    pub(in crate::world) fn world_event_counter_v1(&self) -> Option<&super::incremental_world_event_counter::WorldEventCounterV1> {
+        self.world_events.as_ref()
+    }
     pub fn time(&self) -> u64 {
         self.now
     }

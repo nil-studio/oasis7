@@ -76,7 +76,7 @@ pub(crate) struct AgentDelegationDecisionV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct Ledger {
+pub(in crate::world) struct Ledger {
     #[serde(default)]
     grants: BTreeMap<String, AgentDelegationGrantV1>,
     #[serde(default)]
@@ -96,13 +96,7 @@ fn denied(reason: &str) -> WorldError {
 }
 
 fn budget_key(grant: &AgentDelegationGrantV1) -> Result<String, WorldError> {
-    serde_json::to_string(&(
-        &grant.grant_id,
-        &grant.source_id,
-        &grant.object_id,
-        &grant.period_id,
-    ))
-    .map_err(WorldError::from)
+    readonly::budget_key_v1(grant,&mut readonly::LegacyWork)
 }
 
 fn action_scope(action: &Action) -> Option<(&'static str, String)> {
@@ -163,24 +157,7 @@ impl World {
     }
 
     fn validate_grant_source(&self, grant: &AgentDelegationGrantV1) -> Result<(), WorldError> {
-        // Membership is not governance authorization. No organization issuer
-        // resolver exists on this native lane; it must fail closed.
-        if grant.organization_id.is_some() {
-            return Err(denied("organization_source_unsupported"));
-        }
-        let owner = self
-            .current_agent_owner(&grant.agent_id)
-            .ok_or_else(|| denied("owner_source_unavailable"))?;
-        if owner.player_id != grant.owner_id
-            || grant.issuer_id != grant.owner_id
-            || grant.source_id != owner.source_id
-        {
-            return Err(denied("owner_source_changed"));
-        }
-        if !self.state.agents.contains_key(&grant.agent_id) {
-            return Err(denied("agent_missing"));
-        }
-        Ok(())
+        readonly::validate_grant_source_v1(&mut readonly::LegacySource(self),grant)
     }
 
     /// Test bootstrap transaction; authenticated production issuance uses authorization below.
@@ -276,29 +253,11 @@ impl World {
         decision: AgentDelegationDecisionV1,
         action: &Action,
     ) -> Result<(), WorldError> {
-        if decision.decision_request_id.trim().is_empty()
-            || action.actor_id() != Some(decision.agent_id.as_str())
-            || decision.action_digest
-                != cognition_digest_v1("oasis7.cognition.action.v1", &serde_json::to_value(action)?)
-        {
-            return Err(denied("decision_identity_mismatch"));
-        }
-        if decision.grant_id.is_some()
-            && decision
-                .quote_id
-                .as_deref()
-                .is_none_or(|v| v.trim().is_empty())
-        {
-            return Err(denied("trusted_quote_required"));
-        }
+        readonly::validate_decision_identity_v1(&decision,action,&mut readonly::LegacyWork,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,&mut |error|WorldError::DistributedValidationFailed{reason:format!("native action digest: {error:?}")})?;
         self.validate_delegation_decision(&decision, action)?;
         let mut ledger = self.delegation_ledger()?;
-        if let Some(old) = ledger.decisions.get(&decision.decision_request_id) {
-            if serde_json::to_value(old)? == serde_json::to_value(&decision)? {
-                return Ok(());
-            }
-            return Err(denied("decision_idempotency_conflict"));
-        }
+        readonly::validate_decision_replay_v1(&ledger,&decision,&mut readonly::LegacyWork)?;
+        if ledger.decisions.contains_key(&decision.decision_request_id){return Ok(())}
         ledger
             .decisions
             .insert(decision.decision_request_id.clone(), decision);
@@ -310,6 +269,9 @@ impl World {
         decision: &AgentDelegationDecisionV1,
         action: &Action,
     ) -> Result<Option<AgentDelegationAuthorizationV1>, WorldError> {
+        if readonly::is_default_recipe_decision_v1(decision,action) {
+            return readonly::validate_default_recipe_decision_v1(&mut readonly::LegacySource(self),&self.delegation_ledger()?,decision,action,self.state.time);
+        }
         if let Some(intent_id) = &decision.context.intent_id {
             let intent = self
                 .state
@@ -606,33 +568,11 @@ impl World {
         mut context: AgentDecisionCausalContextV1,
     ) -> Result<(), WorldError> {
         let ledger = self.delegation_ledger()?;
-        let scoped = action_scope(action);
-        let mut grants: Vec<_> = ledger
-            .grants
-            .values()
-            .filter(|g| {
-                g.agent_id == agent_id
-                    && scoped.as_ref().is_some_and(|(kind, object)| {
-                        &g.object_id == object && g.action_kinds.iter().any(|v| v == *kind)
-                    })
-            })
-            .collect();
-        // Revoked records remain in the ledger for audit and original-result
-        // recovery, but cannot compete with a newly authorized grant. Other
-        // eligibility checks remain in validate_delegation_decision; expiration
-        // or budget exhaustion must not silently select a different allowance.
-        let had_scoped_grants = !grants.is_empty();
-        grants.retain(|grant| !grant.revoked);
-        if had_scoped_grants && grants.is_empty() {
-            return Err(denied("grant_revoked"));
+        if context==AgentDecisionCausalContextV1::default() && matches!(action,Action::ScheduleRecipe{..}) {
+            let decision=readonly::build_default_recipe_decision_v1(&ledger,request_id,agent_id,action,self.state.time,&mut readonly::LegacySource(self),&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,&mut |error|WorldError::DistributedValidationFailed{reason:format!("native action digest: {error:?}")})?;
+            return self.bind_agent_delegation_decision(decision,action);
         }
-        if grants.len() > 1 {
-            return Err(denied("grant_selection_ambiguous"));
-        }
-        let grant = grants.first().copied();
-        if grant.is_none() && ledger.grants.values().any(|g| g.agent_id == agent_id) {
-            return Err(denied("grant_scope_mismatch"));
-        }
+        let grant=readonly::select_causal_grant_v1(&ledger,agent_id,action,&mut readonly::LegacyWork)?;
         let action_digest =
             cognition_digest_v1("oasis7.cognition.action.v1", &serde_json::to_value(action)?);
         self.apply_current_owner_control(&ledger, grant, &mut context)?;
@@ -799,16 +739,7 @@ impl World {
         ledger: &Ledger,
         grant: &AgentDelegationGrantV1,
     ) -> Result<AgentDelegationAuthorizationV1, WorldError> {
-        let spent = *ledger.spent.get(&budget_key(grant)?).unwrap_or(&0);
-        Ok(AgentDelegationAuthorizationV1 {
-            grant: grant.clone(),
-            cost_units: 0,
-            spent_units: spent,
-            remaining_units: grant
-                .limit_units
-                .checked_sub(spent)
-                .ok_or_else(|| denied("budget_corrupt"))?,
-        })
+        readonly::authorization_v1(ledger,grant,&mut readonly::LegacyWork)
     }
 
     pub fn agent_delegation_authorizations(
@@ -816,12 +747,7 @@ impl World {
         agent_id: &str,
     ) -> Result<Vec<AgentDelegationAuthorizationV1>, WorldError> {
         let ledger = self.delegation_ledger()?;
-        ledger
-            .grants
-            .values()
-            .filter(|g| g.agent_id == agent_id)
-            .map(|grant| self.delegation_authorization(&ledger, grant))
-            .collect()
+        readonly::authorizations_v1(&ledger,agent_id,&mut readonly::LegacyWork)
     }
 
     pub(super) fn finish_agent_causal_commit(
@@ -977,3 +903,6 @@ impl World {
         Ok(())
     }
 }
+
+#[path="agent_delegation_readonly.rs"]
+pub(in crate::world) mod readonly;

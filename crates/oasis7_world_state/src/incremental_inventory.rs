@@ -149,7 +149,21 @@ fn row_with_semantic<
     ) -> Result<(), ValueTreeError>,
 ) -> Result<Row, ValueTreeError> {
     ctx.check()?;
-    work.step(&mut ctx.cancelled)?;
+    let result = row_from_records_with_semantic(key, value, &mut ctx.records(), work, visit)?;
+    ctx.check()?;
+    Ok(result)
+}
+fn row_from_records_with_semantic<R: ValueNodeReader, C: FnMut() -> bool>(
+    key: &WorldFieldKeyV1,
+    value: &[u8; 32],
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut InventoryFamilyWorkV1,
+    visit: impl FnOnce(
+        crate::incremental_world_field_key::WorldFieldKeyRefV1<'_>,
+        SemanticKeyRefV1<'_>,
+    ) -> Result<(), ValueTreeError>,
+) -> Result<Row, ValueTreeError> {
+    work.step(&mut *records.cancelled)?;
     let parsed = WorldFieldKeyV1::from_bytes(key.as_bytes()).map_err(ValueTreeError::Invalid)?;
     let field = match parsed.name {
         "resources" => 0,
@@ -157,47 +171,47 @@ fn row_with_semantic<
         "material_ledgers" => 2,
         _ => return Err(invalid()),
     };
-    ctx.values
-        .verify_closure(value, ctx.record_bytes, &mut ctx.cancelled)?;
+    records
+        .values
+        .verify_closure(value, records.record_bytes, &mut *records.cancelled)?;
     if parsed.kind == WorldFieldRecordKindV1::Metadata {
-        ctx.records().presence(value, key, 0)?;
-        ctx.check()?;
+        records.presence(value, key, 0)?;
         return Ok(Row::Meta(field));
     }
     let max = work
         .max_semantic_bytes
-        .min(usize::try_from(ctx.semantic_bytes).unwrap_or(usize::MAX));
-    let _charge = ctx
-        .values
-        .memory
-        .reserve(max.checked_add(128).ok_or_else(invalid)?, ctx.values.class)?;
+        .min(usize::try_from(records.semantic_bytes).unwrap_or(usize::MAX));
+    let _charge = records.values.memory.reserve(
+        max.checked_add(128).ok_or_else(invalid)?,
+        records.values.class,
+    )?;
     let mut semantic = Vec::with_capacity(max);
     let n = if parsed.kind == WorldFieldRecordKindV1::Group {
         read_field_presence_v1(
             value,
             key,
-            &mut ctx.values,
+            &mut records.values,
             PresenceRecordLimitsV1 {
                 semantic_bytes: max as u64,
-                record_bytes: ctx.record_bytes,
+                record_bytes: records.record_bytes,
             },
             &mut semantic,
-            &mut ctx.cancelled,
+            &mut *records.cancelled,
         )?
         .semantic_bytes
     } else if parsed.kind == WorldFieldRecordKindV1::Entry {
         let info = read_member_record_v1(
             value,
             key,
-            &mut ctx.values,
+            &mut records.values,
             MemberRecordLimitsV1 {
                 semantic_bytes: max as u64,
                 payload_bytes: 8,
-                record_bytes: ctx.record_bytes,
+                record_bytes: records.record_bytes,
             },
             &mut semantic,
             &mut std::io::sink(),
-            &mut ctx.cancelled,
+            &mut *records.cancelled,
         )?;
         if info.codec != MemberPayloadCodecV1::I64 || info.payload_bytes != 8 {
             return Err(invalid());
@@ -246,7 +260,7 @@ fn row_with_semantic<
             semantic.truncate(end - 1);
             let canonical =
                 CanonicalSemanticKeyRefV1::new(&semantic).map_err(ValueTreeError::Invalid)?;
-            let (group, _) = ctx.key(
+            let (group, _) = records.key(
                 descriptor("material_ledgers", FieldShape::NestedMap).map_err(|_| invalid())?,
                 WorldFieldRecordKindV1::Group,
                 &canonical,
@@ -257,7 +271,6 @@ fn row_with_semantic<
         }
         _ => return Err(invalid()),
     };
-    ctx.check()?;
     Ok(result)
 }
 fn adjust(
@@ -265,7 +278,7 @@ fn adjust(
     row: Row,
     add: bool,
     counts: &mut [u64; 4],
-    work: &mut InventoryIndexWorkV1,
+    work: &mut impl index::InventoryIndexMeterV1,
     c: &mut impl FnMut() -> bool,
 ) -> Result<Option<[u8; 32]>, ValueTreeError> {
     let slot = match row {
@@ -318,3 +331,6 @@ pub(crate) use receiver::accept_inventory_verified_v1;
 #[path = "incremental_inventory_identity_directory.rs"]
 mod identity_directory;
 pub use identity_directory::*;
+
+#[path = "incremental_inventory_projection_delta_current.rs"]
+pub(crate) mod projection;

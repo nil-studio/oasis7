@@ -1,7 +1,13 @@
 //! Registered-alliance controller binding from the sole original Current resolver.
 //! The complete resident order directory is data, never an ownership predicate.
 use crate::world::incremental_body::BodyMutationError;
-pub(super) use crate::world::incremental_industrial_eligibility::CurrentStateOwnerSourcesV1 as ControllerSourcesV1;
+pub(super) struct ControllerSourcesV1<'a>{
+ pub roots:&'a oasis7_formal_protocol::incremental_execution::RootSetV1,
+ pub orders:&'a ReservedValue<crate::world::incremental_factory_directory_orders::AcceptedFactoryOrderDirectoryV1>,
+ pub rules:&'a ReservedValue<oasis7_world_state::incremental_world_rules_family::WorldRulesQualificationV1>,
+ pub agents:&'a ReservedValue<oasis7_world_state::incremental_agent_subtree::AgentSubtreeStructureQualificationV1>,
+ pub native:&'a ReservedValue<oasis7_world_state::incremental_world_native::WorldNativeFieldsQualificationV1>,
+}
 pub(super) use crate::world::incremental_industrial_eligibility::IndustrialEligibilityWorkV1 as ControllerWorkV1;
 use crate::world::incremental_industrial_eligibility::{
     CurrentStateOwnerSourcesV1, IndustrialEligibilityErrorV1, IndustrialEligibilityWorkV1,
@@ -104,10 +110,11 @@ fn retain(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn resolve_current_controller_v1<M, P, R, V, E, C, PE, PC>(
     agent: &str,
-    sources: &CurrentStateOwnerSourcesV1<'_, '_>,
+    sources: &ControllerSourcesV1<'_>,
     context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     parent_read: &mut WorldFieldReadContextV1<'_, P, V, PE, PC>,
     work: &mut IndustrialEligibilityWorkV1,
+    orders: &mut crate::world::incremental_factory_directory_orders::FactoryOrderDirectoryWorkV1,
     common: &mut FormalBoundedContextV1<'_>,
     live: &ExecutionFence,
 ) -> Result<Option<CurrentControllerBindingV1>, BodyMutationError>
@@ -128,17 +135,21 @@ where
         {
             return Err(bad());
         }
-        let guard = context.transaction.guard();
-        let owner = resolve_current_state_owner_v1(
-            sources,
-            agent,
-            context,
-            parent_read,
-            work,
-            &guard,
-            live,
-        )
-        .map_err(|e| BodyMutationError::Original(Box::new(ControllerReadErrorV1(e))))?;
+
+        let current=io::paid(context,work,orders,common,|ctx,work,_|{
+            let guard=ctx.transaction.guard();
+            Ok(oasis7_world_state::incremental_world_rule_composite_family::bind_current_agent_orders_v1(sources.rules.orders(),sources.roots,parent_read.state,ctx,&mut work.scan,&mut work.typed,&guard,live)?)
+        })?;
+        let directory=io::paid(context,work,orders,common,|ctx,work,orders|{
+            let guard=ctx.transaction.guard();
+            crate::world::incremental_factory_directory_orders::open_current_factory_order_directory_v1(sources.orders,&current,parent_read.state,ctx,&mut work.scan,&mut work.typed,orders,&guard,live)
+        })?;
+        let fresh=CurrentStateOwnerSourcesV1{roots:sources.roots,orders:&directory,agents:sources.agents,native:sources.native};
+        let owner=io::paid(context,work,orders,common,|ctx,work,_|{
+            let guard=ctx.transaction.guard();
+            resolve_current_state_owner_v1(&fresh,agent,ctx,parent_read,work,&guard,live)
+                .map_err(|error|crate::world::incremental_factory_directory_orders::FactoryOrderDirectoryErrorV1::Body(BodyMutationError::Original(Box::new(ControllerReadErrorV1(error)))))
+        })?;
         let Some(owner) = owner.as_ref() else {
             return Ok(None);
         };
@@ -159,3 +170,6 @@ where
     }
     result
 }
+
+#[path="incremental_normal_action_diplomacy_controller_io.rs"]
+mod io;

@@ -69,27 +69,8 @@ pub(super) fn test_module_signer_public_key_hex() -> String {
 impl super::World {
     pub(crate) fn prepare_threat_heatmap(&self) -> std::collections::BTreeMap<String, i64> {
         let mut next = std::collections::BTreeMap::new();
-        for war in self.state.wars.values() {
-            if !war.active {
-                continue;
-            }
-            let war_risk = (war.intensity as i64).saturating_mul(10).max(10);
-            *next
-                .entry(format!("alliance:{}", war.aggressor_alliance_id))
-                .or_insert(0) += war_risk;
-            *next
-                .entry(format!("alliance:{}", war.defender_alliance_id))
-                .or_insert(0) += war_risk;
-            *next.entry("global:war".to_string()).or_insert(0) += war_risk;
-        }
-        for crisis in self.state.crises.values() {
-            if !matches!(crisis.status, crate::CrisisStatus::Active) {
-                continue;
-            }
-            let crisis_risk = (crisis.severity as i64).saturating_mul(12).max(12);
-            *next.entry(format!("crisis:{}", crisis.kind)).or_insert(0) += crisis_risk;
-            *next.entry("global:crisis".to_string()).or_insert(0) += crisis_risk;
-        }
+        for war in self.state.wars.values(){super::incremental_normal_tick_finalize::threat_fold::fold_war_v1(&mut next,war.active,war.intensity,&war.aggressor_alliance_id,&war.defender_alliance_id);}
+        for crisis in self.state.crises.values(){super::incremental_normal_tick_finalize::threat_fold::fold_crisis_v1(&mut next,crisis.status,crisis.severity,&crisis.kind);}
         next
     }
 

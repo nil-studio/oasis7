@@ -45,6 +45,7 @@ use std::cell::RefCell;
 
 #[derive(Debug)]
 pub enum RootModuleExecutionErrorV1<OE> {
+    ArtifactOriginalStorage(OE),
     Value(ValueTreeError),
     Invocation(ModuleInvocationPreparationErrorV1<OE>),
     Fee(RootModuleFeeErrorV1),
@@ -66,6 +67,11 @@ pub enum RootModuleExecutionErrorV1<OE> {
         >,
     ),
     Business(ReservedValue<WorldError>),
+}
+impl<OE> From<BodyMutationError> for RootModuleExecutionErrorV1<OE> {
+    fn from(error: BodyMutationError) -> Self {
+        Self::Body(error)
+    }
 }
 impl<OE> From<ValueTreeError> for RootModuleExecutionErrorV1<OE> {
     fn from(e: ValueTreeError) -> Self {
@@ -802,7 +808,6 @@ pub(in crate::world) use entry::PreparedRuleOverrideEventV1;
 
 pub(in crate::world) use entry::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
 
-#[cfg(test)]
 pub(in crate::world) use entry::NonmovementSelectedErrorV1;
 
 pub(in crate::world) use entry::SelectedAcceptedDispositionV1;
@@ -816,4 +821,19 @@ pub(in crate::world) use entry::{
 // Private result handoff for the fixed normal publisher and genuine fixtures.
 pub(in crate::world) use entry::MatchingBeforePublicationV1;
 
-pub(in crate::world) use entry::PaidDueProductVmFailureV1;
+pub(in crate::world) use entry::{PaidDueProductVmFailureV1, PaidFactoryModuleExecutionV1};
+
+pub(in crate::world) use entry::with_current_root_module_meter_v1;
+
+pub(in crate::world) use entry::with_current_root_history_index_meter_v1;
+
+pub(in crate::world) use entry::{FactoryModuleBeforeRulesOutcomeV1, FailedFactoryModuleActionV1};
+
+pub(in crate::world) use entry::{
+    CompletedFactoryModuleRejectionV1, FactoryModuleInitialAdmissionV1,
+    PreparedFactoryModuleFollowupV1, prepare_factory_module_initial_admission_v1,
+};
+
+pub(in crate::world) use entry::with_current_root_route_meter_v1;
+
+pub(in crate::world) use entry::CompletedSelectedNonmovementV2;

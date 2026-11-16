@@ -39,7 +39,8 @@ pub(crate) fn btree_output_heap<K, V>(n: usize) -> Result<usize, ValueTreeError>
 }
 macro_rules! scalar {
     ($ty:ty,$variant:ident,$payload:ident) => {
-        impl Codec for $ty {
+        impl Codec for $ty {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+
             fn encode<
                 W: ValueNodeWriter + ValueNodeReader + StatePageWriter,
                 C: FnMut() -> bool,
@@ -71,12 +72,14 @@ macro_rules! scalar {
 scalar!(u64, U64, U64);
 scalar!(i64, I64, I64);
 scalar!(bool, Bool, Bool);
-macro_rules! unsigned {($($ty:ty),*)=>{$(impl Codec for $ty {
+macro_rules! unsigned {($($ty:ty),*)=>{$(impl Codec for $ty {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+
 fn encode<W:ValueNodeWriter+ValueNodeReader+StatePageWriter,C:FnMut()->bool>(&self,_profile:&TypedRecordProfileV1,_ctx:&mut MemberRecordWriteContext<'_,W,C>,_work:&mut TypedRecordWriteWorkV1)->Result<Encoded<'_>,MemberRecordError>{Ok(Encoded::Scalar(MemberPayloadRefV1::U64(u64::from(*self))))}
 fn decode<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(cell:ColumnCellV1,d:&mut Decoder<'_, '_,M,R,E,C>)->Result<Self,ValueTreeError>{Self::try_from(u64::decode(cell,d)?).map_err(|_|invalid())}
 })*};}
 unsigned!(u8, u16, u32);
-impl Codec for String {
+impl Codec for String {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;Ok(crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>())}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -113,7 +116,8 @@ impl Codec for String {
         }
     }
 }
-impl<T: Codec> Codec for Option<T> {
+impl<T: Codec> Codec for Option<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.merge(T::owned_decode_layout_v1(visit)?);Ok(l)}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -157,7 +161,8 @@ impl<T: Codec> Codec for Option<T> {
         }
     }
 }
-impl<T: Codec> Codec for Box<T> {
+impl<T: Codec> Codec for Box<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.boxed::<T,LE>(visit)?;Ok(l)}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -200,7 +205,8 @@ impl<T: Codec> Codec for Box<T> {
         Ok(Box::new(value))
     }
 }
-impl<T: Codec> Codec for Vec<T> {
+impl<T: Codec> Codec for Vec<T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.sequence::<T,LE>(visit)?;Ok(l)}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -268,7 +274,8 @@ impl<T: Codec> Codec for Vec<T> {
         Ok(out)
     }
 }
-impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {
+impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.map_pair=std::mem::size_of::<(K,T)>();l.merge(K::key_decode_layout_v1(visit)?);l.merge(T::owned_decode_layout_v1(visit)?);Ok(l)}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -350,7 +357,8 @@ impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {
         Ok(out)
     }
 }
-impl<K: CollectionKey> Codec for BTreeSet<K> {
+impl<K: CollectionKey> Codec for BTreeSet<K> {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.set_element=std::mem::size_of::<K>();l.merge(K::key_decode_layout_v1(visit)?);Ok(l)}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,
@@ -430,7 +438,8 @@ impl<K: CollectionKey> Codec for BTreeSet<K> {
 }
 #[path = "incremental_typed_record_json_change.rs"]
 mod json_change;
-impl Codec for serde_json::Value {
+impl Codec for serde_json::Value {fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();l.sequence_element=std::mem::size_of::<Self>();l.map_pair=std::mem::size_of::<(String,Self)>();l.box_pointee=std::mem::size_of::<Self>();Ok(l)}
+
     fn accept_changed<
         M: MerkleNodeReader,
         R: ValueNodeReader,

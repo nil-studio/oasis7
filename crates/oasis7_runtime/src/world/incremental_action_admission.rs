@@ -59,6 +59,29 @@ impl UnboundActionAdmissionV1<'_> {
         }
         Ok(())
     }
+    /// Historical observation of a real admission. This does not re-admit an
+    /// action after writes; only the fixed pre-Rule module rejection path uses
+    /// it to retain the original step's already-passed common guard.
+    pub(super) fn validate_evidence_identity<M: MerkleNodeReader>(
+        &self,
+        selected: &SelectedPendingActionV1,
+        tx: &ExecutionTransaction<'_, M>,
+        memory: &MemoryBudget,
+        live: &ExecutionFence,
+    ) -> Result<(), ExecutionError> {
+        selected.validate(tx)?;
+        tx.validate_transaction_identity(&self.identity)?;
+        tx.validate_guard(&tx.guard(), live)?;
+        if !std::ptr::eq(self.selected, selected)
+            || !self.memory.same_pool(memory)
+            || !tx.uses_budget(memory)
+        {
+            return Err(ExecutionError::Invalid(
+                "historical selected admission binding",
+            ));
+        }
+        Ok(())
+    }
 }
 /// Fixed Core scope alternatives. A matching token can never become Unbound.
 pub(super) enum CoreActionAdmissionV1<'borrow, 'selected, 'source> {

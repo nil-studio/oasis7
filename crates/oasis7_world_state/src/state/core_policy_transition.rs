@@ -286,7 +286,7 @@ fn normalized_values(values: &[String]) -> Vec<String> {
     normalized
 }
 
-fn validate_material_profile(
+pub fn validate_material_profile(
     proposal_id: ProposalId,
     profile: &MaterialProfileV1,
 ) -> Result<(), WorldError> {

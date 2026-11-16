@@ -15,6 +15,12 @@ use oasis7_world_state::{
 /// authority. A retry requires newly explicit accounts, not an internal reset.
 pub struct IwsCandidateSourceWorkV1 {
     pub router: WorldResultRouterWorkV1,
+    /// Fixed manifest hash/decode/occurrence and five-field promotion copies.
+    /// Caller-owned continuous accounts, separate from subtree traversal.
+    pub proof_ledger_metadata_steps: u64,
+    pub proof_ledger_metadata_bytes: u64,
+    pub proof_ledger_cold: oasis7_world_state::incremental_json_records::JsonReadWorkV1,
+    pub proof_ledger_changed: oasis7_world_state::incremental_json_records::JsonChangeWorkV1,
     pub runtime: RuntimeHistoryCandidateReadWorkV1,
     pub cognition_index: CognitionHistoryIndexWorkV1,
     pub cognition_cbor: CognitionHistoryCborWorkV1,

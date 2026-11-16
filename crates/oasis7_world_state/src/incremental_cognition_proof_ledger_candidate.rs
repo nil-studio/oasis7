@@ -25,12 +25,47 @@ impl From<ValueTreeError> for ProofLedgerCandidateErrorV1 {
 pub struct CheckedCognitionProofLedgerV1 {
     manifest: ReservedValue<CognitionProofLedgerManifestV1>,
     occurrence: ReservedValue<CheckedCandidateFactOccurrenceV1>,
-    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 5],
+    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 8],
+}
+impl CheckedCognitionProofLedgerV1 {
+    pub fn manifest(&self) -> &CognitionProofLedgerManifestV1 {
+        &self.manifest
+    }
+    pub fn occurrence(&self) -> &ReservedValue<CheckedCandidateFactOccurrenceV1> {
+        &self.occurrence
+    }
+    /// Selected checked data only, with exactly the accepted source's codec.
+    pub fn read_field<M, R, E, C>(
+        &self,
+        field: CognitionProofLedgerFieldV1,
+        read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+        scan: &mut StateScanBudget,
+        work: &mut ProofLedgerReadWorkV1,
+    ) -> Result<Option<ProofLedgerRecoveredV1<serde_json::Value>>, ValueTreeError>
+    where
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    {
+        if read.values.class != MemoryClass::Ordinary
+            || !self.manifest.uses_budget(read.values.memory)
+            || !self.occurrence.uses_budget(read.values.memory)
+            || self
+                .fields
+                .iter()
+                .flatten()
+                .any(|q| !q.uses_budget(read.values.memory))
+        {
+            return Err(invalid());
+        }
+        read_qualified_ledger_field(&self.manifest, &self.fields, field, read, scan, work)
+    }
 }
 pub struct PreparedCognitionProofLedgerPromotionV1 {
     manifest: ReservedValue<CognitionProofLedgerManifestV1>,
     occurrence: PreparedFactPromotionV1,
-    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 5],
+    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 8],
     charge: oasis7_proto::memory_budget::MemoryReservation,
 }
 pub fn check_candidate_cognition_proof_ledger_v1<M, R, E, C>(
@@ -73,7 +108,7 @@ where
         .map_err(ValueTreeError::Memory)?;
     let manifest_charge = memory
         .reserve(
-            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 5 * 512,
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
             MemoryClass::Ordinary,
         )
         .map_err(ValueTreeError::Memory)?;
@@ -82,7 +117,7 @@ where
     if occurrence.location() != selected.location()
         || occurrence.body_id() != selected.body_id()
         || occurrence.candidate_record_id() != selected.candidate_record_id()
-        || raw.len() != COGNITION_PROOF_LEDGER_BYTES_V1
+        || !is_cognition_proof_ledger_length_v1(raw.len())
         || occurrence.original_bytes() != raw.len() as u64
         || blake3::hash(raw).as_bytes() != &occurrence.location().original
     {
@@ -114,6 +149,11 @@ where
                     .parent_body()
                     .is_none_or(|b| b.roots != parent.manifest.roots)
             {
+                return Err(invalid().into());
+            }
+            // Version downgrade would erase an authenticated receipts source.
+            // V1 cannot be upgraded merely by inventing absence of the new slot.
+            if manifest.wire_version != parent.manifest.wire_version {
                 return Err(invalid().into());
             }
             for field in CognitionProofLedgerFieldV1::ALL {
@@ -163,12 +203,12 @@ where
                     }
                     (_, None) => None,
                 };
-                if i < 3 {
+                if i < 3 || field == CognitionProofLedgerFieldV1::DelegationReceipts {
                     if let Some(q) = &fields[i] {
                         crate::incremental_json_records::require_json_container_records_v1(
                             jp,
                             q,
-                            true,
+                            i < 3,
                             &mut field_read.records(),
                             cold,
                         )?;
@@ -210,7 +250,7 @@ pub fn prepare_cognition_proof_ledger_promotion_v1(
             .map_err(ProofLedgerCandidateErrorV1::Formal)?;
     let fee = memory
         .reserve(
-            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 5 * 512,
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
             MemoryClass::Ordinary,
         )
         .map_err(ValueTreeError::Memory)?;

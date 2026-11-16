@@ -70,17 +70,6 @@ impl ModuleArtifactIdentity {
             && !self.signature_scheme.trim().is_empty()
             && !self.artifact_signature.trim().is_empty()
     }
-    pub fn signing_payload_v1(
-        wasm_hash: &str,
-        source_hash: &str,
-        build_manifest_hash: &str,
-        signer_node_id: &str,
-    ) -> Vec<u8> {
-        format!(
-            "modsig:ed25519:v1|{wasm_hash}|{source_hash}|{build_manifest_hash}|{signer_node_id}"
-        )
-        .into_bytes()
-    }
     pub fn expected_signature_prefix(&self) -> Option<&'static str> {
         match self.signature_scheme.as_str() {
             Self::SIGNATURE_SCHEME_ED25519 => Some(Self::SIGNATURE_PREFIX_ED25519_V1),
@@ -1191,3 +1180,5 @@ mod tests {
         }
     }
 }
+
+mod module_artifact_identity_payload;

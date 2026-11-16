@@ -11,11 +11,15 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 const FEE: usize = 1024;
+#[path="incremental_module_state_directory.rs"]
+pub(crate) mod directory;
 pub struct ModuleStateFamilyQualificationV1 {
     roots: [u8; 32],
     states: u64,
     logical_bytes: u64,
     class: MemoryClass,
+    directory: std::sync::Arc<directory::ModuleStateKeyDirectoryV1>,
+    _ordinary_directory_fee:Option<oasis7_proto::memory_budget::MemoryReservation>,
 }
 impl ModuleStateFamilyQualificationV1 {
     pub fn states(&self) -> u64 {
@@ -28,7 +32,7 @@ impl ModuleStateFamilyQualificationV1 {
         self.class
     }
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), BodyMutationError> {
-        if self.roots != roots.digest()? {
+        if self.roots != roots.digest()? || self.directory.len() as u64 != self.states {
             return Err(invalid());
         }
         Ok(())
@@ -47,6 +51,9 @@ pub fn validate_module_state_transaction_v1<R: MerkleNodeReader>(
         || proof.reserved_bytes() < FEE
         || proof.class != MemoryClass::Ordinary
         || proof.roots != txn.parent_fence().parent_roots
+        || !proof.directory.uses_budget(memory)
+        || !proof.directory.covered_ordinary(proof._ordinary_directory_fee.as_ref(),memory)
+        || proof.directory.len() as u64 != proof.states
     {
         return Err(invalid());
     }
@@ -89,7 +96,7 @@ impl<R: MerkleNodeReader, V: ValueNodeReader> ModuleStateRecoveryContextV1<'_, R
             )
             .map_err(super::incremental_module_state_recovery::scan_error)?;
         }
-        let counts = self.verify(&mut cancelled)?;
+        let (counts,directory) = self.verify_with_directory(&mut cancelled)?;
         let result = charge
             .split(FEE)
             .map_err(BodyMutationError::Invalid)?
@@ -98,6 +105,8 @@ impl<R: MerkleNodeReader, V: ValueNodeReader> ModuleStateRecoveryContextV1<'_, R
                 states: counts.states,
                 logical_bytes: counts.logical_bytes,
                 class: self.class,
+                directory: directory::retained(directory),
+                _ordinary_directory_fee:None,
             });
         if cancelled() {
             return Err(ValueTreeError::Cancelled.into());
@@ -124,6 +133,7 @@ pub fn readmit_module_state_family_ordinary_v1(
         .reserve(128 << 10, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
     source.validate_binding(roots)?;
+    let ordinary_directory_fee=source.directory.ordinary_coverage(memory)?;
     let result = charge
         .split(FEE)
         .map_err(BodyMutationError::Invalid)?
@@ -132,6 +142,8 @@ pub fn readmit_module_state_family_ordinary_v1(
             states: source.states,
             logical_bytes: source.logical_bytes,
             class: MemoryClass::Ordinary,
+            directory: source.directory.clone(),
+            _ordinary_directory_fee:ordinary_directory_fee,
         });
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
@@ -202,6 +214,7 @@ pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeR
         || parent.reserved_bytes() < FEE
         || parent.class != ctx.class
         || ctx.root != record.after.state_root(StateNamespaceV1::Business)
+        || !parent.directory.covered_ordinary(parent._ordinary_directory_fee.as_ref(),ctx.memory)
     {
         return Err(invalid());
     }
@@ -213,6 +226,7 @@ pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeR
 
     let mut states = i128::from(parent.states);
     let mut bytes = i128::from(parent.logical_bytes);
+    let mut next_directory:Option<directory::ModuleStateKeyDirectoryV1>=None;
     for write in &record.writes {
         if cancelled() {
             return Err(ValueTreeError::Cancelled.into());
@@ -230,8 +244,12 @@ pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeR
                 .ok_or(ValueTreeError::ResourceLimited(
                     "module state changed count",
                 ))?;
-        ModuleStateKeyV1::state_key_from_bytes(&write.mutation.key)
+        let state_key=ModuleStateKeyV1::state_key_from_bytes(&write.mutation.key)
             .map_err(BodyMutationError::Invalid)?;
+        if next_directory.is_none(){next_directory=Some(parent.directory.copy_changed(ctx.memory,ctx.content,&mut cancelled)?);}
+        let directory=next_directory.as_mut().ok_or_else(invalid)?;
+        directory::pay_key(state_key,directory.len(),ctx.content,&mut cancelled)?;
+        directory.change(state_key,write.mutation.before.is_some(),write.mutation.after.is_some(),ctx.memory)?;
         for (id, sign) in [(write.mutation.before, -1i128), (write.mutation.after, 1)] {
             if let Some(id) = id {
                 let mut read = oasis7_formal_protocol::incremental_value::ValueReadContext {
@@ -259,6 +277,8 @@ pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeR
             }
         }
     }
+    if next_directory.as_ref().map_or(parent.directory.len(),|d|d.len()) as u64
+        != u64::try_from(states).map_err(|_|invalid())? {return Err(invalid())}
     let output = charge
         .split(FEE)
         .map_err(BodyMutationError::Invalid)?
@@ -267,6 +287,8 @@ pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeR
             states: u64::try_from(states).map_err(|_| invalid())?,
             logical_bytes: u64::try_from(bytes).map_err(|_| invalid())?,
             class: ctx.class,
+            _ordinary_directory_fee:if next_directory.is_none(){parent.directory.ordinary_coverage(ctx.memory)?}else{None},
+            directory: match next_directory {Some(value)=>directory::retained(value),None=>parent.directory.clone()},
         });
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());

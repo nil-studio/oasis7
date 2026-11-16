@@ -11,18 +11,21 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueReadContext},
 };
 use oasis7_proto::memory_budget::ReservedValue;
-fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+fn child<R:ValueNodeReader,C:FnMut()->bool>(kind:RewardRecordKindV1,before:&StateRootV1,after:&StateRootV1,records:&mut InventoryValueReader<'_, '_,R,C>,cells:&mut u64,max:u64)->Result<(),ValueTreeError>{child_with_work_and_observer(kind,before,after,records,cells,max,|_,_,_|Ok(()),&mut |_|Ok(()))}
+pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: RewardRecordKindV1,
     before: &StateRootV1,
     after: &StateRootV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,
     cells: &mut u64,
     max: u64,
+    mut observe:impl FnMut(Option<&StateEntryV1>,Option<&StateEntryV1>,&mut InventoryValueReader<'_, '_,R,C>)->Result<(),ValueTreeError>,
+    work:&mut dyn FnMut(usize)->Result<(),ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
     if before.namespace != kind.namespace() || after.namespace != kind.namespace() {
         return Err(read::invalid());
     }
-    incremental_record_diff::visit(
+    incremental_record_diff::visit_with_work(
         before,
         after,
         records,
@@ -70,8 +73,9 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
                     }
                 }
             }
-            Ok(())
+            observe(old,new,records)
         },
+        work,
     )?;
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
@@ -79,7 +83,7 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok(())
 }
 #[derive(Default)]
-struct OrderChanges {
+pub(super) struct OrderChanges {
     added: u64,
     removed: u64,
     old_max: Option<u64>,
@@ -88,7 +92,7 @@ struct OrderChanges {
     removed_min: Option<u64>,
 }
 impl OrderChanges {
-    fn observe(&mut self, index: u64, old: bool, new: bool) -> Result<(), ValueTreeError> {
+    pub(super) fn observe(&mut self, index: u64, old: bool, new: bool) -> Result<(), ValueTreeError> {
         if old {
             self.old_max = Some(self.old_max.map_or(index, |n| n.max(index)));
         }
@@ -105,7 +109,7 @@ impl OrderChanges {
         }
         Ok(())
     }
-    fn check(&self, old: u64, new: u64) -> Result<(), ValueTreeError> {
+    pub(super) fn check(&self, old: u64, new: u64) -> Result<(), ValueTreeError> {
         if self.old_max.is_some_and(|i| i >= old)
             || self.new_max.is_some_and(|i| i >= new)
             || self.added_min.is_some_and(|i| i < old)

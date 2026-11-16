@@ -122,6 +122,22 @@ Trace refs: O7-REQ-918d9050-5f73-40ad-b9d4-aba87233bdd1, O7-REQ-18fe18ca-4920-4f
 <a id="es-v1-data-contract"></a>
 ### 6.1 首版类型、身份与版本
 
+#### IWS Current 观察的版本边界
+
+沿用 ES-001 的证据义务，承接 GAME-018 §6.4.1；本次实现范围见 [PR #5439](https://github.com/nil-studio/oasis7/pull/5439)。
+
+IWS 固定执行器不能把 Merkle root、父根或变更集摘要填入 V1 `EmergencyObservationV1.world_root` 并声称等价。V1 原件继续采用现有 `serde_json(WorldState)` / SHA-256 语义；旧观察、证据摘要、签名及验证接受域不迁移、不重签。当前实现尚未完成下述 V2 接线，不能以 V1 文本字段非空检查代替它。
+
+有界 Current 路径使用独立的 Observation/Evidence V2 类型与明确的格式分支。其观察切点承诺包含固定 domain、format=2、真实 verified 父 record/body 标识、父 RootSet 摘要和六个 namespace 的有序净变更；每项为 `(namespace, key bytes, before Option<32 bytes>, after Option<32 bytes>)`。编码与摘要使用该 V2 类型唯一声明的 JSON/SHA-256 域，全部字段参与摘要；不称为 V1 WorldState JSON hash，也不称为已接受 head。
+
+私有 producer 必须联结真实 accepted 父持有者与实际 transaction fence，读取原 `visit_pending_writes`，按实际已访问项付费并响应取消，只输出 before != after 的项。读取顺序与 guard revision 不进入摘要；guard 仅用于捕获前后同事务的新鲜性核验。禁止 caller 提供 roots、变更数组或验证成功回调。V2 的来源、完整分母、观察区间、证据注册与消费必须保持同版本，不能回退至 V1 弱文本检查；最终接受仍需与实际 seal/accept 的对应切点联结。观察承诺本身不授予业务执行或提交资格。
+
+V2 `source_ref` 必须精确等于 `current-observations-v2:` 加 SHA-256 小写十六进制；摘要输入为 JSON 数组 `["oasis7.emergency-evidence.current.v2", format, region_id, region_budget_lineage, observations]`，不包含 `source_ref` 自身。观察数组及其字段按声明顺序编码，不能仅检查前缀。该摘要只绑定证据数据，不能替代逐个原件的物理来源和切点验证。
+
+V2 注册引用使用现有 `world_rules.requests` typed map 的独立保留键 `current-observation-v2:<区域与窗口摘要>`。值沿用原 `WorldRuleReceiptV1` 编码，保留真实 system Observe 的 actor/request/command/提交时点，`result_id` 使用 `current-observation-original-v2:<对象 ID>`，指向完整 V2 观察原件。普通请求仍只使用原 `request_key(actor, request)` 的 64 字符十六进制键；两个键域不会混用。注册必须从真实 Current absence/count 证明执行一次 Count/Put，已有注册只能精确重开、验证原件，不能覆盖。该布局不向 V1 EmergencySupply 的固定 13 字段 profile 增列，也不把 V2 引用写入 V1 `world_root`。有费注册引用是数据持久化证明，原件、完整分母、切点与 seal/accept 的真实绑定仍由 V2 消费者验证。
+
+#### 既有 V1 字段与摘要合同
+
 下列名称和必填语义是目标 `schema_version = 1` 合同；后续 transport binding 可选择既有 typed action/API 入口，但不得改字段含义或放宽边界。摘要沿用世界既有 canonical 序列化/hash，所有必填字段和有序内容都进入摘要；代码落地需验证同源编码 golden vectors。标识与版本不是 Task/Trace ID。
 
 | 对象 | 必填字段与唯一键 | 不变量与 owner |

@@ -234,6 +234,8 @@ enum GenesisDraftSources {
     None,
     #[cfg(not(target_arch = "wasm32"))]
     Complete(super::bounded_genesis_qualified::PreparedGenesisQualifiedUpdate),
+    #[cfg(not(target_arch = "wasm32"))]
+    NormalComplete(super::bounded_normal_qualified::PreparedNormalQualifiedUpdate),
 }
 impl GenesisDraftSources {
     fn uses_budget(&self, memory: &MemoryBudget) -> bool {
@@ -241,6 +243,8 @@ impl GenesisDraftSources {
             Self::None => true,
             #[cfg(not(target_arch = "wasm32"))]
             Self::Complete(s) => s.uses_budget(memory),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::NormalComplete(s) => s.uses_budget(memory),
         }
     }
     fn reserved_bytes(&self) -> usize {
@@ -248,6 +252,8 @@ impl GenesisDraftSources {
             Self::None => 0,
             #[cfg(not(target_arch = "wasm32"))]
             Self::Complete(s) => s.reserved_bytes(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::NormalComplete(s) => s.reserved_bytes(),
         }
     }
     fn payload(&self) -> Result<usize, FormalError> {
@@ -255,6 +261,11 @@ impl GenesisDraftSources {
             Self::None => Ok(0),
             #[cfg(not(target_arch = "wasm32"))]
             Self::Complete(s) => add(
+                add(s.update.index_root().len(), s.history.len())?,
+                add(s.record.len(), s.closure().len())?,
+            ),
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::NormalComplete(s) => add(
                 add(s.update.index_root().len(), s.history.len())?,
                 add(s.record.len(), s.closure().len())?,
             ),
@@ -478,6 +489,19 @@ fn prepare_draft<'a>(
         next.decision_head = None;
         next.data_closure = Some(source.closure().to_owned());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    if let GenesisDraftSources::NormalComplete(source) = &genesis {
+        debit(ctx, genesis.payload()?)?;
+        next.head = FormalHeadRefV1 {
+            position: source.inputs.verified().record().position,
+            record_id: (*source.record).clone(),
+        };
+        next.index = Some(source.update.index_root().to_owned());
+        next.head_node = Some((*source.history).clone());
+        next.pending = None;
+        next.decision_head = None;
+        next.data_closure = Some(source.closure().to_owned());
+    }
     visit_body(&next, &mut |s| {
         ctx.consume_steps(1)?;
         if s.capacity() > s.len() {
@@ -615,7 +639,36 @@ impl PaidNativeCheckpointDraftV1<'_> {
     ) -> Result<super::bounded_genesis_qualified::PreparedGenesisQualifiedUpdate, FormalError> {
         match self._genesis_sources {
             GenesisDraftSources::Complete(source) => Ok(source),
-            GenesisDraftSources::None => Err(invalid("GEN publication requires real typed source")),
+            _ => Err(invalid("GEN publication requires real typed source")),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn prepare_normal_draft_from_sources_v1<'a>(
+    store: &'a Store,
+    source: super::bounded_normal_qualified::PreparedNormalQualifiedUpdate,
+    memory: &MemoryBudget,
+    work: &super::super::FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<PaidNativeCheckpointDraftV1<'a>, FormalError> {
+    source.update.validate_source(store, memory, work, stop)?;
+    source.inputs.validate_context(memory, work, stop)?;
+    prepare_draft(
+        store,
+        &mut work.bounded_context(memory, stop),
+        None,
+        GenesisDraftSources::NormalComplete(source),
+    )
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl PaidNativeCheckpointDraftV1<'_> {
+    pub(super) fn into_normal_sources(
+        self,
+    ) -> Result<super::bounded_normal_qualified::PreparedNormalQualifiedUpdate, FormalError> {
+        match self._genesis_sources {
+            GenesisDraftSources::NormalComplete(source) => Ok(source),
+            _ => Err(invalid("normal publication requires real typed source")),
         }
     }
 }

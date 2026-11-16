@@ -37,6 +37,9 @@ pub use candidate::*;
 #[path = "incremental_cognition_proof_ledger_overlay.rs"]
 mod overlay;
 pub use overlay::*;
+#[path = "incremental_cognition_proof_ledger_readmission.rs"]
+mod readmission;
+pub use readmission::*;
 const LABELS: RecordTreeLabelsV1 = RecordTreeLabelsV1 {
     read: "ProofLedger page",
     pending: "ProofLedger pending",
@@ -68,8 +71,19 @@ fn profile(field: CognitionProofLedgerFieldV1) -> TypedRecordProfileV1 {
                 CognitionProofLedgerFieldV1::RuntimeBinding => {
                     "proof_ledger.runtime_binding.json.v1"
                 }
+                CognitionProofLedgerFieldV1::DelegationReceipts => {
+                    "proof_ledger.delegation.receipts.json.v2"
+                }
+                CognitionProofLedgerFieldV1::ServiceCausalProposals => {
+                    "proof_ledger.service_causal_proposals.json.v3"
+                }
+                CognitionProofLedgerFieldV1::ActionDigests => "proof_ledger.action_digests.json.v3",
             },
-            shape: FieldShape::Map,
+            shape: if field.index() >= 6 {
+                FieldShape::Value
+            } else {
+                FieldShape::Map
+            },
             destination: FieldDestination::State(StateNamespaceV1::Artifacts),
         },
         schema: [0xa1 + field as u8; 32],
@@ -77,7 +91,7 @@ fn profile(field: CognitionProofLedgerFieldV1) -> TypedRecordProfileV1 {
         reference_schema: None,
     }
 }
-/// GEN only: borrows the five actual original side fields, not a Snapshot copy.
+/// GEN only: borrows actual original side fields, not a Snapshot copy.
 /// The returned roots are provisional until their Result is genuinely accepted.
 pub fn prepare_cognition_proof_ledger_field_v1<W, C>(
     field: CognitionProofLedgerFieldV1,
@@ -98,13 +112,16 @@ where
     {
         return Err(invalid().into());
     }
+    if field == CognitionProofLedgerFieldV1::DelegationReceipts && !value.is_object() {
+        return Err(invalid().into());
+    }
     typed::prepare_typed_record_body_v1(value, &profile(field), write, work)
 }
 /// A structural, head-bound independent source. It is not a SafeAlternative permit.
 pub struct AcceptedCognitionProofLedgerV1 {
     manifest: ReservedValue<CognitionProofLedgerManifestV1>,
     occurrence: ReservedValue<VerifiedFactOccurrenceV1>,
-    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 5],
+    fields: [Option<ReservedValue<JsonSubtreeQualificationV1>>; 8],
 }
 impl AcceptedCognitionProofLedgerV1 {
     pub fn manifest(&self) -> &CognitionProofLedgerManifestV1 {
@@ -127,37 +144,7 @@ impl AcceptedCognitionProofLedgerV1 {
         C: FnMut() -> bool,
     {
         self.check_pool(read.values.memory, read.values.class)?;
-        read.check()?;
-        let Some(root) = self.manifest.fields[field.index()].as_ref() else {
-            return Ok(None);
-        };
-        let p = profile(field);
-        self.fields[field.index()]
-            .as_ref()
-            .ok_or_else(invalid)?
-            .validate_binding(
-                JsonRecordProfileV1 {
-                    field: p.field,
-                    schema: p.schema,
-                },
-                root,
-            )?;
-        let mut field_read = WorldFieldReadContextV1 {
-            root,
-            state: read.state,
-            values: oasis7_formal_protocol::incremental_value::ValueReadContext {
-                source: read.values.source,
-                memory: read.values.memory,
-                class: read.values.class,
-                io: &mut *read.values.io,
-            },
-            key_work: &mut *read.key_work,
-            semantic_bytes: read.semantic_bytes,
-            record_bytes: read.record_bytes,
-            take_state_error: &mut read.take_state_error,
-            cancelled: &mut read.cancelled,
-        };
-        typed::recover_typed_record_body_v1(root, &p, &mut field_read, scan, work).map(Some)
+        read_qualified_ledger_field(&self.manifest, &self.fields, field, read, scan, work)
     }
     fn check_pool(
         &self,
@@ -178,7 +165,7 @@ fn qualify_fields<M, R, E, C>(
     manifest: &CognitionProofLedgerManifestV1,
     read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut JsonReadWorkV1,
-) -> Result<[Option<ReservedValue<JsonSubtreeQualificationV1>>; 5], ValueTreeError>
+) -> Result<[Option<ReservedValue<JsonSubtreeQualificationV1>>; 8], ValueTreeError>
 where
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -209,11 +196,11 @@ where
                 cancelled: &mut read.cancelled,
             };
             let q = qualify_json_subtree_v1(jp, root, &mut field_read, work)?;
-            if field.index() < 3 {
+            if field.index() < 3 || field == CognitionProofLedgerFieldV1::DelegationReceipts {
                 crate::incremental_json_records::require_json_container_records_v1(
                     jp,
                     &q,
-                    true,
+                    field.index() < 3,
                     &mut field_read.records(),
                     work,
                 )?;
@@ -226,3 +213,59 @@ where
 #[cfg(test)]
 #[path = "incremental_cognition_proof_ledger_tests.rs"]
 mod tests;
+
+// Both accepted and checked sources delegate this one original typed codec.
+fn read_qualified_ledger_field<M, R, E, C>(
+    manifest: &CognitionProofLedgerManifestV1,
+    fields: &[Option<ReservedValue<JsonSubtreeQualificationV1>>; 8],
+    field: CognitionProofLedgerFieldV1,
+    read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut ProofLedgerReadWorkV1,
+) -> Result<Option<ProofLedgerRecoveredV1<serde_json::Value>>, ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    read.check()?;
+    manifest.require_field_source(field)?;
+    let Some(root) = manifest.fields[field.index()].as_ref() else {
+        return Ok(None);
+    };
+    let p = profile(field);
+    fields[field.index()]
+        .as_ref()
+        .ok_or_else(invalid)?
+        .validate_binding(
+            JsonRecordProfileV1 {
+                field: p.field,
+                schema: p.schema,
+            },
+            root,
+        )?;
+    let mut field_read = WorldFieldReadContextV1 {
+        root,
+        state: read.state,
+        values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+            source: read.values.source,
+            memory: read.values.memory,
+            class: read.values.class,
+            io: &mut *read.values.io,
+        },
+        key_work: &mut *read.key_work,
+        semantic_bytes: read.semantic_bytes,
+        record_bytes: read.record_bytes,
+        take_state_error: &mut read.take_state_error,
+        cancelled: &mut read.cancelled,
+    };
+    typed::recover_typed_record_body_v1(root, &p, &mut field_read, scan, work).map(Some)
+}
+
+#[path = "incremental_cognition_projection_aux_proof.rs"]
+mod projection_aux;
+pub use projection_aux::{
+    CognitionProofLedgerProjectionAuxDataV1, capture_current_proof_ledger_projection_aux_data_v1,
+    capture_qualified_proof_ledger_projection_aux_data_v1,
+};

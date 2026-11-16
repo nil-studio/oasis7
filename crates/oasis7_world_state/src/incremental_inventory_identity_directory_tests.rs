@@ -198,6 +198,53 @@ fn recover(
     )
     .unwrap()
 }
+fn recover_all(
+    directory: &ReservedValue<InventoryIdentityDirectoryV1>,
+    family: &ReservedValue<InventoryFamilyQualificationV1>,
+    roots: &RootSetV1,
+    tx: &mut ExecutionTransaction<'_, Pages>,
+    memory: &MemoryBudget,
+    pages: &Pages,
+    family_work: &mut InventoryFamilyWorkV1,
+    work: &mut InventoryIdentityDirectoryWorkV1,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+) -> ReservedValue<std::collections::BTreeMap<String, Vec<oasis7_wasm_abi::MaterialStack>>> {
+    let mut current_io = io();
+    let mut parent_io = io();
+    let mut current_keys = SemanticKeyBudget {
+        bytes_remaining: 16 << 20,
+    };
+    let mut parent_keys = SemanticKeyBudget {
+        bytes_remaining: 16 << 20,
+    };
+    let guard = tx.guard();
+    let mut current = crate::incremental_field_overlay::WorldFieldOverlayContextV1 {
+        transaction: tx,
+        values: ValueReadContext {
+            source: pages,
+            memory,
+            class: MemoryClass::Ordinary,
+            io: &mut current_io,
+        },
+        key_work: &mut current_keys,
+        semantic_bytes: 4096,
+        record_bytes: 2 << 20,
+        take_state_error: || None,
+        cancelled: || false,
+    };
+    recover_current_inventory_stacks_by_ledger_v1(
+        directory,
+        family,
+        roots,
+        &mut current,
+        &mut read(memory, pages, roots, &mut parent_io, &mut parent_keys),
+        family_work,
+        work,
+        &guard,
+        live,
+    )
+    .unwrap()
+}
 #[test]
 fn qualified_directory_keeps_every_ledger_and_material_and_folds_real_pending_rows() {
     let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
@@ -261,6 +308,28 @@ fn qualified_directory_keeps_every_ledger_and_material_and_folds_real_pending_ro
         );
         assert_eq!(actual.as_ref(), world.material_ledgers.get(ledger));
     }
+    // The module projection preserves all real ledgers (including empty),
+    // filters quantities by the original >0 rule, and omits legacy materials.
+    let all = recover_all(
+        &directory, &family, &roots, &mut tx, &memory, &pages, &mut fw, &mut work, &live,
+    );
+    let expected: std::collections::BTreeMap<_, _> = world
+        .material_ledgers
+        .iter()
+        .map(|(ledger, rows)| {
+            (
+                ledger.to_string(),
+                rows.iter()
+                    .filter(|(_, quantity)| **quantity > 0)
+                    .map(|(kind, quantity)| {
+                        oasis7_wasm_abi::MaterialStack::new(kind.clone(), *quantity)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(&*all, &expected);
+    drop(all);
     // Build actual original member rows for a genuinely new material identity;
     // the resident parent directory remains unchanged and learns it only from
     // the transaction's real after-value, not a supplied identity list.

@@ -214,3 +214,63 @@ fn lifecycle_native_absence_is_real_and_stale_owner_cannot_write() {
     let guard = tx.guard();
     assert!(tx.seal(&guard, &live, 1).is_err());
 }
+
+#[test]
+fn governed_product_profile_actual_current_cas_rejects_stale_expected() {
+ use crate::incremental_world_native_industry::ProductProfilesFieldV1;
+ let memory=MemoryBudget::new(256<<20,32<<20).unwrap();let pages=Pages::with_limit(&memory,32768);
+ let initial:oasis7_wasm_abi::ProductProfileV1=serde_json::from_value(serde_json::json!({"product_id":"profile","role_tag":"part","maintenance_sink":[],"tradable":true,"unlock_stage":""})).unwrap();
+ let source=rows::<ProductProfilesFieldV1>(&memory,&pages,&[("profile".into(),initial.clone())]);
+ let ns=ProductProfilesFieldV1::profile().unwrap().namespace().unwrap();let roots=install(&memory,&pages,ns,&source);
+ let mut quota=io();let mut keys=SemanticKeyBudget{bytes_remaining:32<<20};let mut ctx=context(&memory,&pages,roots.state_root(ns),&mut quota,&mut keys);
+ let q=family::qualify_world_native_field_v1::<ProductProfilesFieldV1>(&roots,&mut ctx,&mut scan(),&mut work()).unwrap();
+ let mut tx=ExecutionTransaction::begin(parent(&roots),[43;32],&pages,&memory,limits()).unwrap();let live=tx.parent_fence();let guard=tx.guard();
+ let observed=selected::<ProductProfilesFieldV1,_,_,_,_,_>(SelectedKey::Receipt("profile"),&q,&roots,&mut tx,&mut ctx,&mut scan(),&mut work().typed,&guard,&live).unwrap();
+ assert_eq!(observed.value(),Some(&initial));let mut next=initial.clone();next.role_tag="updated".into();
+ let mut writer=Writer(&pages);let mut write_io=io();let mut write_keys=SemanticKeyBudget{bytes_remaining:32<<20};
+ let mut write=MemberRecordWriteContext{sink:&mut writer,memory:&memory,io:&mut write_io,key_work:&mut write_keys,limits:MemberRecordLimitsV1{semantic_bytes:1<<20,payload_bytes:2<<20,record_bytes:3<<20},cancelled:||false};
+ profiles::write_current_governed_product_profile_v1(&observed,"profile",&next,&mut tx,&mut ctx,&mut write,&mut 8,&mut tw(),&live).unwrap();
+ let guard=tx.guard();let actual=selected::<ProductProfilesFieldV1,_,_,_,_,_>(SelectedKey::Receipt("profile"),&q,&roots,&mut tx,&mut ctx,&mut scan(),&mut work().typed,&guard,&live).unwrap();assert_eq!(actual.value(),Some(&next));
+ assert!(profiles::write_current_governed_product_profile_v1(&observed,"profile",&initial,&mut tx,&mut ctx,&mut write,&mut 8,&mut tw(),&live).is_err());
+ assert!(tx.validate_guard(&tx.guard(),&live).is_err());
+}
+
+#[test]
+fn governed_recipe_profile_actual_current_cas_rejects_stale_expected() {
+ use crate::incremental_world_native_industry::RecipeProfilesFieldV1;
+ let memory=MemoryBudget::new(256<<20,32<<20).unwrap();let pages=Pages::with_limit(&memory,32768);
+ let initial:oasis7_wasm_abi::RecipeProfileV1=serde_json::from_value(serde_json::json!({"recipe_id":"profile","bottleneck_tags":[],"stage_gate":"","preferred_factory_tags":[]})).unwrap();
+ let source=rows::<RecipeProfilesFieldV1>(&memory,&pages,&[("profile".into(),initial.clone())]);
+ let ns=RecipeProfilesFieldV1::profile().unwrap().namespace().unwrap();let roots=install(&memory,&pages,ns,&source);
+ let mut quota=io();let mut keys=SemanticKeyBudget{bytes_remaining:32<<20};let mut ctx=context(&memory,&pages,roots.state_root(ns),&mut quota,&mut keys);
+ let q=family::qualify_world_native_field_v1::<RecipeProfilesFieldV1>(&roots,&mut ctx,&mut scan(),&mut work()).unwrap();
+ let mut tx=ExecutionTransaction::begin(parent(&roots),[43;32],&pages,&memory,limits()).unwrap();let live=tx.parent_fence();let guard=tx.guard();
+ let observed=selected::<RecipeProfilesFieldV1,_,_,_,_,_>(SelectedKey::Receipt("profile"),&q,&roots,&mut tx,&mut ctx,&mut scan(),&mut work().typed,&guard,&live).unwrap();
+ assert_eq!(observed.value(),Some(&initial));let mut next=initial.clone();next.bottleneck_tags.push("power".into());
+ let mut writer=Writer(&pages);let mut write_io=io();let mut write_keys=SemanticKeyBudget{bytes_remaining:32<<20};
+ let mut write=MemberRecordWriteContext{sink:&mut writer,memory:&memory,io:&mut write_io,key_work:&mut write_keys,limits:MemberRecordLimitsV1{semantic_bytes:1<<20,payload_bytes:2<<20,record_bytes:3<<20},cancelled:||false};
+ profiles::write_current_governed_recipe_profile_v1(&observed,"profile",&next,&mut tx,&mut ctx,&mut write,&mut 8,&mut tw(),&live).unwrap();
+ let guard=tx.guard();let actual=selected::<RecipeProfilesFieldV1,_,_,_,_,_>(SelectedKey::Receipt("profile"),&q,&roots,&mut tx,&mut ctx,&mut scan(),&mut work().typed,&guard,&live).unwrap();assert_eq!(actual.value(),Some(&next));
+ assert!(profiles::write_current_governed_recipe_profile_v1(&observed,"profile",&initial,&mut tx,&mut ctx,&mut write,&mut 8,&mut tw(),&live).is_err());
+ assert!(tx.validate_guard(&tx.guard(),&live).is_err());
+}
+
+#[test]
+fn governed_factory_profile_storage_cas_has_no_business_qualification() {
+ use crate::incremental_world_native_industry::FactoryProfilesFieldV1;
+ let memory=MemoryBudget::new(256<<20,32<<20).unwrap();let pages=Pages::with_limit(&memory,32768);
+ let initial:oasis7_wasm_abi::FactoryProfileV1=serde_json::from_value(serde_json::json!({"factory_id":"profile","tier":1,"recipe_slots":1,"tags":[]})).unwrap();
+ let source=rows::<FactoryProfilesFieldV1>(&memory,&pages,&[("profile".into(),initial.clone())]);
+ let ns=FactoryProfilesFieldV1::profile().unwrap().namespace().unwrap();let roots=install(&memory,&pages,ns,&source);
+ let mut quota=io();let mut keys=SemanticKeyBudget{bytes_remaining:32<<20};let mut ctx=context(&memory,&pages,roots.state_root(ns),&mut quota,&mut keys);
+ let q=family::qualify_world_native_field_v1::<FactoryProfilesFieldV1>(&roots,&mut ctx,&mut scan(),&mut work()).unwrap();
+ let mut tx=ExecutionTransaction::begin(parent(&roots),[43;32],&pages,&memory,limits()).unwrap();let live=tx.parent_fence();let guard=tx.guard();
+ let observed=selected::<FactoryProfilesFieldV1,_,_,_,_,_>(SelectedKey::Receipt("profile"),&q,&roots,&mut tx,&mut ctx,&mut scan(),&mut work().typed,&guard,&live).unwrap();
+ assert_eq!(observed.value(),Some(&initial));let mut next=initial.clone();next.tags.push("part".into());
+ let mut writer=Writer(&pages);let mut write_io=io();let mut write_keys=SemanticKeyBudget{bytes_remaining:32<<20};
+ let mut write=MemberRecordWriteContext{sink:&mut writer,memory:&memory,io:&mut write_io,key_work:&mut write_keys,limits:MemberRecordLimitsV1{semantic_bytes:1<<20,payload_bytes:2<<20,record_bytes:3<<20},cancelled:||false};
+ profiles::write_current_governed_factory_profile_v1(&observed,"profile",&next,&mut tx,&mut ctx,&mut write,&mut 8,&mut tw(),&live).unwrap();
+ let guard=tx.guard();let actual=selected::<FactoryProfilesFieldV1,_,_,_,_,_>(SelectedKey::Receipt("profile"),&q,&roots,&mut tx,&mut ctx,&mut scan(),&mut work().typed,&guard,&live).unwrap();assert_eq!(actual.value(),Some(&next));
+ assert!(profiles::write_current_governed_factory_profile_v1(&observed,"profile",&initial,&mut tx,&mut ctx,&mut write,&mut 8,&mut tw(),&live).is_err());
+ assert!(tx.validate_guard(&tx.guard(),&live).is_err());
+}

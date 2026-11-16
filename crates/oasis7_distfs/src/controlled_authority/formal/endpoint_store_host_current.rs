@@ -28,7 +28,7 @@ impl Store {
             (disk.body().head.record_id.len() + local_reference.len()) as u64,
             stop,
         )?;
-        if disk.body().head.position != 1
+        if disk.body().head.position != commit.record().position
             || disk.body().head.record_id != record.as_str()
             || disk.body().decision_head.is_some()
             || disk.body().pending.is_some()

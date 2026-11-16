@@ -292,6 +292,7 @@ fn signed_normal_parent_executes_actual_due_material_transit_against_world_oracl
     let mut common = FormalBoundedContextV1::new(&memory, &meter, &mut cancelled);
     let parent = bind_normal_tick_parent_v1(
         NormalTickParentRefsV1 {
+            retention: None,
             core,
             storage,
             roots,

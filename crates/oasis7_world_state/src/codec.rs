@@ -2,11 +2,35 @@
 use crate::{Journal, Snapshot, WorldError, WorldEvent, WorldStateProjection};
 use serde::Serialize;
 use std::path::Path;
-#[derive(Serialize)]
 pub struct StateRootProjection<'a, 's> {
     pub state: &'a WorldStateProjection<'s>,
     pub manifest_hash: &'a str,
     pub policy_hash: &'a str,
+}
+/// One original field order for both the legacy view and authenticated
+/// readonly columns. This is serialization DATA, never a state capability.
+pub fn serialize_state_root_projection_v1<T: Serialize + ?Sized, S: serde::Serializer>(
+    state: &T,
+    manifest_hash: &str,
+    policy_hash: &str,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeStruct;
+    let mut out = serializer.serialize_struct("StateRootProjection", 3)?;
+    out.serialize_field("state", state)?;
+    out.serialize_field("manifest_hash", manifest_hash)?;
+    out.serialize_field("policy_hash", policy_hash)?;
+    out.end()
+}
+impl Serialize for StateRootProjection<'_, '_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_state_root_projection_v1(
+            self.state,
+            self.manifest_hash,
+            self.policy_hash,
+            serializer,
+        )
+    }
 }
 pub fn state_root_hash(projection: &StateRootProjection<'_, '_>) -> Result<String, WorldError> {
     crate::util::hash_json(projection)

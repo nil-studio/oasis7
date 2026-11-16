@@ -587,10 +587,16 @@ pub use recovery::*;
 mod family;
 pub use family::*;
 
+#[path = "incremental_runtime_governance_current_epoch.rs"]
+mod current_epoch;
 #[path = "incremental_runtime_governance_delta.rs"]
 mod delta;
 #[path = "incremental_runtime_governance_overlay.rs"]
 mod overlay;
+pub use current_epoch::{
+    read_current_governance_epoch_length_v1, read_current_governance_execution_policy_v1,
+    read_current_governance_record_v1,
+};
 pub use overlay::{
     RuntimeGovernanceColumnChangeV1, RuntimeGovernanceRecordQualificationV1,
     change_runtime_governance_columns_v1, create_runtime_governance_record_v1,
@@ -601,3 +607,6 @@ pub use overlay::{
 #[cfg(test)]
 #[path = "incremental_runtime_governance_tests.rs"]
 mod tests;
+
+#[path = "incremental_runtime_projection_aux_governance_codec.rs"]
+pub(crate) mod projection;

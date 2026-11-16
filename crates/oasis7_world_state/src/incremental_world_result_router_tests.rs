@@ -11,20 +11,16 @@ fn result_label_probe_dispatches_only_the_actual_closed_envelope() {
     let memory = MemoryBudget::new(4 << 20, 0).unwrap();
     let _fixture = memory.reserve(1 << 20, MemoryClass::Ordinary).unwrap();
     for (schema, expected) in [
-        ("snapshot-record.v1", 0),
-        ("tick-consensus-record.v1", 1),
-        ("tick-consensus-rejection-audit.v1", 2),
+        ("snapshot-record.v1", RuntimeHistoryDecodeKindV1::Snapshot),
+        ("tick-consensus-record.v1", RuntimeHistoryDecodeKindV1::Tick),
+        ("tick-consensus-rejection-audit.v1", RuntimeHistoryDecodeKindV1::Audit),
+        ("iws-tick-consensus-record.v1", RuntimeHistoryDecodeKindV1::IwsTick),
     ] {
         let raw=oasis7_wasm_abi::encode_canonical_cbor(&serde_json::json!({"domain":"oasis7.runtime.history.original.v1","schema":schema,"value":{"nested":[null,true,17,"payload"]}})).unwrap();
         let kind = runtime_label(&raw, &mut labels(), &mut || false)
             .unwrap()
             .unwrap();
-        let actual = match kind {
-            RuntimeHistoryDecodeKindV1::Snapshot => 0,
-            RuntimeHistoryDecodeKindV1::Tick => 1,
-            RuntimeHistoryDecodeKindV1::Audit => 2,
-        };
-        assert_eq!(actual, expected);
+        assert_eq!(kind, expected);
         let mut work = labels();
         work.values_remaining = 1;
         assert!(matches!(

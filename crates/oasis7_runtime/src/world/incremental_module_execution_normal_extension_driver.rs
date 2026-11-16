@@ -31,6 +31,9 @@ pub(in crate::world) struct NormalCoreExtensionWorkViewV1<'a> {
     max_body_text_bytes: usize,
 }
 impl NormalCoreExtensionWorkViewV1<'_> {
+    pub(in crate::world) fn common_work(&self) -> &FormalBoundedWorkV1 {
+        self.common
+    }
     pub(in crate::world) fn reborrow(&mut self) -> NormalCoreExtensionWorkViewV1<'_> {
         NormalCoreExtensionWorkViewV1 {
             common: self.common,

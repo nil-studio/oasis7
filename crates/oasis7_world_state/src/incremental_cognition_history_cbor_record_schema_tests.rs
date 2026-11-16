@@ -764,3 +764,48 @@ fn causal_entries_reuse_fixed_metadata_and_provision_hashes_spend_the_same_node_
     assert!(done.get());
     assert_eq!(memory.used(), 0);
 }
+
+#[test]
+fn registration_projection_keeps_exact_kind_and_optional_origin_alias() {
+    use super::CognitionOriginalTextProjectionV1 as Text;
+    let text = |value: &str| Text::Text {
+        bytes: value.len() as u64,
+        utf8_digest: *blake3::hash(value.as_bytes()).as_bytes(),
+    };
+    for (kind, event_kind) in [
+        ("TurnStarted", "DecisionRejected"),
+        ("IndependentEvent", "TurnStarted"),
+    ] {
+        for origin in [
+            json!("origin-界"),
+            Value::Null,
+            json!({"opaque": [1, null]}),
+        ] {
+            let mut value = journal();
+            value["kind"] = kind.into();
+            value["event_kind"] = event_kind.into();
+            value["agent_id"] = "agent-a".into();
+            value["agent_session_id"] = "session-a".into();
+            value["agent_turn_id"] = "turn-a".into();
+            value["decision_request_id"] = "request-a".into();
+            value["request_digest"] = format!("blake3:{}", "1".repeat(64)).into();
+            value["origin_request_digest"] = origin.clone();
+            refresh(CognitionHistoryFieldV1::JournalEvents, &mut value);
+            let schema = strict(CognitionHistoryFieldV1::JournalEvents, &value).unwrap();
+            let projection = schema.journal_lifecycle().unwrap();
+            assert_eq!(projection.registration_kind(), text(kind));
+            assert_eq!(projection.keys()[0], text("agent-a"));
+            assert_eq!(
+                projection.keys()[4],
+                text(value["request_digest"].as_str().unwrap())
+            );
+            match origin.as_str() {
+                Some(origin) => assert_eq!(projection.origin_request_digest(), text(origin)),
+                None => assert!(!matches!(
+                    projection.origin_request_digest(),
+                    Text::Text { .. }
+                )),
+            }
+        }
+    }
+}

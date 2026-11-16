@@ -14,6 +14,108 @@ where
     W: ValueNodeWriter,
     C: FnMut() -> bool,
 {
+    /// Publish the actual marketplace reducer's event without applying its
+    /// domain mutation twice. The concrete source retains all paid state.
+    pub(in crate::world) fn append_prepared_module_lifecycle_event_v1<F, ME>(
+        &mut self,
+        source: &crate::world::incremental_normal_action_module_lifecycle::PreparedNormalModuleLifecycleEventV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+        max_event_bytes: usize,
+        persist: F,
+    ) -> Result<(), BodyMutationError>
+    where
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let cap = PreparedNormalSystemEventV1::from_module_lifecycle(
+                source,
+                self.transaction,
+                self.now,
+                common,
+                live,
+            )?;
+            self.append_prepared_normal_system_event_v1(
+                &cap,
+                materials,
+                common,
+                live,
+                max_event_bytes,
+                persist,
+            )
+        }));
+        let result = match attempt {
+            Ok(result) => result,
+            Err(payload) => {
+                let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                    self.transaction.contribute(|_| {
+                        Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                    });
+                std::panic::resume_unwind(payload)
+            }
+        };
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+
+    /// Publish the committed Bootstrap authorization event without applying its
+    /// domain mutation twice. The concrete source retains all paid state.
+    pub(in crate::world) fn append_committed_bootstrap_authorization_event_v1<F, ME>(
+        &mut self,
+        source: &crate::world::normal_bootstrap_current::CommittedCurrentBootstrapAuthorizationV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+        max_event_bytes: usize,
+        persist: F,
+    ) -> Result<(), BodyMutationError>
+    where
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let cap = PreparedNormalSystemEventV1::from_bootstrap_authorization(
+                source,
+                self.transaction,
+                self.now,
+                common,
+                live,
+            )?;
+            self.append_prepared_normal_system_event_v1(
+                &cap,
+                materials,
+                common,
+                live,
+                max_event_bytes,
+                persist,
+            )
+        }));
+        let result = match attempt {
+            Ok(result) => result,
+            Err(payload) => {
+                let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                    self.transaction.contribute(|_| {
+                        Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                    });
+                std::panic::resume_unwind(payload)
+            }
+        };
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+
     pub(in crate::world) fn append_prepared_normal_system_event_v1<F, ME>(
         &mut self,
         cap: &PreparedNormalSystemEventV1<'_>,
@@ -95,6 +197,9 @@ where
             macro_rules! clamp_steps {($($lane:expr),*)=>{$(($lane)=($lane).min(visits);)*};}
             macro_rules! clamp_bytes {($($lane:expr),*)=>{$(($lane)=($lane).min(bytes);)*};}
             macro_rules! snapshot {($($lane:expr),*)=>{[$($lane),*]};}
+            let original_steps = steps!(snapshot);
+            let original_bytes = bytes!(snapshot);
+            let original_entries = materials.scope_work.pending_entries_remaining;
             steps!(clamp_steps);
             bytes!(clamp_bytes);
             materials.scope_work.pending_entries_remaining = materials
@@ -104,7 +209,7 @@ where
             let before_steps = steps!(snapshot);
             let before_bytes = bytes!(snapshot);
             let before_entries = materials.scope_work.pending_entries_remaining;
-            let result = {
+            let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let placeholder = CanonicalCborWorkV1 {
                     visits_remaining: 0,
                     bytes_remaining: 0,
@@ -124,17 +229,19 @@ where
                     persist_original: persist,
                     max_event_bytes,
                 };
-                let result = World::contribute_iws_normal_system_event_at(
-                    self.now,
-                    cap,
-                    self.transaction,
-                    &mut context,
-                    materials,
-                    live,
-                );
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    World::contribute_iws_normal_system_event_at(
+                        self.now,
+                        cap,
+                        self.transaction,
+                        &mut context,
+                        materials,
+                        live,
+                    )
+                }));
                 *self.original_work = context.original_work;
                 result
-            };
+            }));
             let after_steps = steps!(snapshot);
             let after_bytes = bytes!(snapshot);
             let delta = |before: &[u64], after: &[u64]| {
@@ -143,25 +250,48 @@ where
                     .zip(after)
                     .try_fold(0u64, |n, (b, a)| n.checked_add(b.checked_sub(*a)?))
             };
+            // Restore the parked allowance, retaining every actual debit even
+            // when the reducer fails or unwinds. Clamping is a short loan.
+            macro_rules! restore_steps {($($lane:expr),*)=>{{
+                let mut i = 0; $( $lane = original_steps[i].saturating_sub(before_steps[i].saturating_sub(after_steps[i])); i += 1; )*
+                let _ = i;
+            }};}
+            macro_rules! restore_bytes {($($lane:expr),*)=>{{
+                let mut i = 0; $( $lane = original_bytes[i].saturating_sub(before_bytes[i].saturating_sub(after_bytes[i])); i += 1; )*
+                let _ = i;
+            }};}
+            steps!(restore_steps);
+            bytes!(restore_bytes);
+            let after_entries = materials.scope_work.pending_entries_remaining;
+            materials.scope_work.pending_entries_remaining =
+                original_entries.saturating_sub(before_entries.saturating_sub(after_entries));
             let entries = before_entries
-                .checked_sub(materials.scope_work.pending_entries_remaining)
+                .checked_sub(after_entries)
                 .and_then(|n| u64::try_from(n).ok());
             let spent_steps =
                 delta(&before_steps, &after_steps).and_then(|n| n.checked_add(entries?));
             let Some(steps) = spent_steps else {
-                return result.and(Err(BodyMutationError::Invalid(
+                return Err(BodyMutationError::Invalid(
                     "normal system event step accounting",
-                )));
+                ));
             };
             let Some(bytes) = delta(&before_bytes, &after_bytes) else {
-                return result.and(Err(BodyMutationError::Invalid(
+                return Err(BodyMutationError::Invalid(
                     "normal system event byte accounting",
-                )));
+                ));
             };
             let debit = child
                 .consume(steps, bytes)
                 .map_err(|e| BodyMutationError::Original(Box::new(e)));
             child.finish();
+            let result = match attempt {
+                Ok(Ok(result)) => result,
+                Ok(Err(payload)) | Err(payload) => {
+                    // Debit the same child before propagating the panic.
+                    let _ = debit;
+                    std::panic::resume_unwind(payload)
+                }
+            };
             result?;
             debit?;
             common

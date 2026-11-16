@@ -23,17 +23,20 @@ pub(crate) trait PhaseQualificationV1: Sized {
     type Binding<'a>;
     fn phase_class(&self) -> MemoryClass;
     fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError>;
+    fn readmission_metadata_bytes(&self)->Result<usize,ValueTreeError>{Ok(0)}
     fn from_readmission(permit: ReadmissionPermitV1<'_, Self>) -> Self;
 }
 /// The type parameter and private exact-carrier borrow prevent using a permit
 /// issued for another qualification to construct or reclassify this token.
 pub(crate) struct ReadmissionPermitV1<'a, T> {
     source: &'a ReservedValue<T>,
+    metadata:MemoryReservation,
 }
 impl<T> ReadmissionPermitV1<'_, T> {
     pub(crate) fn source(&self) -> &T {
         self.source
     }
+    pub(crate) fn into_metadata_fee(self)->MemoryReservation{self.metadata}
     pub(crate) fn class(&self) -> MemoryClass {
         MemoryClass::Ordinary
     }
@@ -85,7 +88,8 @@ pub(crate) fn readmit_ordinary_v1<T: PhaseQualificationV1>(
     let _phase = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
     source.validate_phase_binding(binding)?;
     let retained = memory.reserve(T::RETAINED_BYTES, MemoryClass::Ordinary)?;
-    let output = T::from_readmission(ReadmissionPermitV1 { source });
+    let metadata=memory.reserve(source.readmission_metadata_bytes()?,MemoryClass::Ordinary)?;
+    let output = T::from_readmission(ReadmissionPermitV1 { source, metadata });
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }

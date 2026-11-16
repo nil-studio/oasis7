@@ -40,6 +40,7 @@ pub enum WorldResultProfileV1 {
     RuntimeHistoryV1,
     SnapshotV1,
     TickV1,
+    IwsTickV1,
     AuditV1,
     CognitionResponseV1,
 }
@@ -275,6 +276,7 @@ fn runtime_label<C: FnMut() -> bool>(
     Ok(match schema {
         Some("snapshot-record.v1") => Some(RuntimeHistoryDecodeKindV1::Snapshot),
         Some("tick-consensus-record.v1") => Some(RuntimeHistoryDecodeKindV1::Tick),
+        Some("iws-tick-consensus-record.v1") => Some(RuntimeHistoryDecodeKindV1::IwsTick),
         Some("tick-consensus-rejection-audit.v1") => Some(RuntimeHistoryDecodeKindV1::Audit),
         _ => None,
     })
@@ -348,8 +350,7 @@ pub(super) fn classify_world_result_original_v1<C: FnMut() -> bool>(
             return Err(invalid());
         }
         WorldResultProfileV1::CognitionHistoryV3
-    } else if raw
-        .starts_with(crate::incremental_cognition_proof_ledger::COGNITION_PROOF_LEDGER_MAGIC_V1)
+    } else if crate::incremental_cognition_proof_ledger::is_cognition_proof_ledger_original_v1(raw)
     {
         let decoded = crate::incremental_cognition_proof_ledger::CognitionProofLedgerManifestV1::from_canonical_bytes(raw)?;
         if decoded.roots != roots {
@@ -366,6 +367,9 @@ pub(super) fn classify_world_result_original_v1<C: FnMut() -> bool>(
         let profile = match kind {
             RuntimeHistoryDecodeKindV1::Snapshot => WorldResultProfileV1::SnapshotV1,
             RuntimeHistoryDecodeKindV1::Tick => WorldResultProfileV1::TickV1,
+            RuntimeHistoryDecodeKindV1::IwsTick => WorldResultProfileV1::IwsTickV1,
+            // This selector is never a wire schema or a type permission.
+            RuntimeHistoryDecodeKindV1::TickFamily => return Err(invalid()),
             RuntimeHistoryDecodeKindV1::Audit => WorldResultProfileV1::AuditV1,
         };
         decode_runtime_history_original_v1(kind, raw, memory, class, &mut work.runtime, cancelled)?;

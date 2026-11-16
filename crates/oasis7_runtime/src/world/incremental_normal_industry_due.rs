@@ -240,7 +240,7 @@ mod directories;
 pub(in crate::world) use caps::delivery;
 
 #[path = "incremental_normal_industry_due_owner_sources.rs"]
-mod owner_sources;
+pub(in crate::world) mod owner_sources;
 
 #[path = "incremental_normal_industry_due_driver.rs"]
 mod driver;
@@ -252,3 +252,7 @@ pub(in crate::world) mod deferred;
 #[cfg(test)]
 #[path = "incremental_normal_industry_due_tests.rs"]
 mod tests;
+
+pub(in crate::world) use recipe_commit::touch_current_product_requester_v1;
+
+pub(in crate::world) use recipe_commit::{factory_copy_layout,refresh_current_blocked_factory_stage_v1};

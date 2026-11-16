@@ -28,6 +28,13 @@ pub(super) fn readmit_recovered_parent<M, R, E, C>(
     results: &ReservedValue<
         oasis7_world_state::incremental_world_result_router_accepted::AcceptedWorldResultRoutingV1,
     >,
+    ledger: Option<
+        &ReservedValue<
+            oasis7_world_state::incremental_cognition_proof_ledger::AcceptedCognitionProofLedgerV1,
+        >,
+    >,
+    retention:Option<&ReservedValue<oasis7_world_state::incremental_cognition_retention_ledger::AcceptedCognitionRetentionLedgerV1>>,
+    ledger_common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldCurrentStateWorkV1,
     hash_work: &mut CognitionHeadHashWorkV1,
@@ -54,6 +61,17 @@ where
     let _phase = memory
         .reserve(8192, MemoryClass::Ordinary)
         .map_err(|_| invalid("IWS cold binding admission"))?;
+    if results.proof_ledger().is_some() != ledger.is_some() {
+        return Err(invalid("IWS cold complete ProofLedger role selection"));
+    }
+    let ledger=ledger.map(|value|oasis7_world_state::incremental_cognition_proof_ledger::readmit_cognition_proof_ledger_ordinary_v1(value,head,roots,ledger_common).map_err(|e|invalid(format!("IWS cold ProofLedger ordinary admission: {e:?}")))).transpose()?;
+    let retention=retention.map(|source|oasis7_world_state::incremental_cognition_retention_ledger::readmit_cognition_retention_ordinary_from_accepted_history_v1(source,head,roots,runtime,ledger_common).map_err(|e|invalid(format!("IWS cold retention ordinary admission: {e:?}")))).transpose()?;
+    if oasis7_formal_protocol::controlled_authority::formal::incremental::has_retention_ledger(
+        head.record().schema_version,
+    ) != retention.is_some()
+    {
+        return Err(invalid("IWS cold signed retention role presence"));
+    }
     let roots_id = roots.digest().map_err(|_| invalid("IWS cold roots"))?;
     let id = head.verified_record_id();
     if !results.uses_budget(memory)
@@ -137,9 +155,12 @@ where
         local_closure: None,
         recovered_pages: None,
         genesis_quorum: None,
+        normal_quorum: None,
         formal_parent_fee: None,
         roots,
         cognition,
         runtime,
+        ledger,
+        retention,
     })
 }

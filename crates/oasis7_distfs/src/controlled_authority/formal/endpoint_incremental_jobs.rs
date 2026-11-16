@@ -41,7 +41,7 @@ impl EndpointIwsState {
         let _phase = memory
             .reserve(8192, oasis7_proto::memory_budget::MemoryClass::Ordinary)
             .map_err(|_| invalid("IWS material digest admission"))?;
-        let material = material_digest(candidate, hash_bytes, cancelled)?;
+        let material = material_digest(candidate, hash_bytes, cancelled, &mut |_| Ok(()))?;
         *slot = Some(Staged {
             record,
             install,
@@ -56,6 +56,29 @@ impl EndpointIwsState {
         candidate: &FormalCandidateMaterialV1,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<bool, FormalError> {
+        self.matches_with_write_work(candidate, cancelled, &mut |_| Ok(()), None)
+    }
+    /// Actual bounded consumers charge serialization/hash writes to the same
+    /// original Common work, in addition to the existing continuous byte cap.
+    pub(super) fn matches_bounded(
+        &self,
+        candidate: &FormalCandidateMaterialV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &super::super::FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<bool, FormalError> {
+        let stop = RefCell::new(stop);
+        let mut cancelled = || (stop.borrow_mut())();
+        let mut before_write = |n| work.charge(1, n, &mut || (stop.borrow_mut())());
+        self.matches_with_write_work(candidate, &mut cancelled, &mut before_write, Some(memory))
+    }
+    fn matches_with_write_work(
+        &self,
+        candidate: &FormalCandidateMaterialV1,
+        cancelled: &mut impl FnMut() -> bool,
+        before_write: &mut impl FnMut(u64) -> Result<(), FormalError>,
+        memory: Option<&oasis7_proto::memory_budget::MemoryBudget>,
+    ) -> Result<bool, FormalError> {
         let mut slot = self
             .staged
             .try_borrow_mut()
@@ -63,11 +86,15 @@ impl EndpointIwsState {
         let Some(staged) = slot.as_mut() else {
             return Ok(false);
         };
+        if memory.is_some_and(|memory| !staged.memory.same_pool(memory)) {
+            return Err(invalid("IWS material reuse pool"));
+        }
         let _phase = staged
             .memory
             .reserve(8192, oasis7_proto::memory_budget::MemoryClass::Ordinary)
             .map_err(|_| invalid("IWS material reuse admission"))?;
-        Ok(staged.material == material_digest(candidate, &mut staged.hash_bytes, cancelled)?)
+        Ok(staged.material
+            == material_digest(candidate, &mut staged.hash_bytes, cancelled, before_write)?)
     }
     pub(super) fn local_data_reference(
         &self,
@@ -129,25 +156,38 @@ fn material_digest(
     candidate: &FormalCandidateMaterialV1,
     remaining: &mut u64,
     cancelled: &mut impl FnMut() -> bool,
+    before_write: &mut impl FnMut(u64) -> Result<(), FormalError>,
 ) -> Result<[u8; 32], FormalError> {
-    struct Sink<'a, C> {
+    struct Sink<'a, C, B> {
         hash: blake3::Hasher,
         left: &'a mut u64,
         cancelled: &'a mut C,
-        failed: bool,
+        before_write: &'a mut B,
+        first: Option<FormalError>,
     }
-    impl<C: FnMut() -> bool> std::io::Write for Sink<'_, C> {
+    impl<C: FnMut() -> bool, B: FnMut(u64) -> Result<(), FormalError>> std::io::Write
+        for Sink<'_, C, B>
+    {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            if self.failed || (self.cancelled)() {
-                self.failed = true;
+            if self.first.is_some() {
+                return Err(std::io::Error::other("IWS material hash stopped"));
+            }
+            if (self.cancelled)() {
+                self.first = Some(invalid("IWS streamed exact material digest"));
                 return Err(std::io::Error::other("IWS material hash stopped"));
             }
             let n = u64::try_from(bytes.len()).map_err(std::io::Error::other)?;
             let Some(left) = self.left.checked_sub(n) else {
-                self.failed = true;
+                self.first = Some(invalid("IWS streamed exact material digest"));
                 return Err(std::io::Error::other("IWS material hash quota"));
             };
             *self.left = left;
+            // Charge before hashing any of this actual serializer write. A
+            // Common error survives serde's IO adapter as its original type.
+            if let Err(error) = (self.before_write)(n) {
+                self.first = Some(error);
+                return Err(std::io::Error::other("IWS material work stopped"));
+            }
             self.hash.update(bytes);
             Ok(bytes.len())
         }
@@ -159,13 +199,14 @@ fn material_digest(
         hash: blake3::Hasher::new(),
         left: remaining,
         cancelled,
-        failed: false,
+        before_write,
+        first: None,
     };
-    serde_json::to_writer(&mut sink, candidate)
-        .map_err(|_| invalid("IWS streamed exact material digest"))?;
-    if sink.failed {
-        return Err(invalid("IWS material digest poisoned"));
+    let encoded = serde_json::to_writer(&mut sink, candidate);
+    if let Some(first) = sink.first.take() {
+        return Err(first);
     }
+    encoded.map_err(|_| invalid("IWS streamed exact material digest"))?;
     Ok(*sink.hash.finalize().as_bytes())
 }
 
@@ -274,5 +315,135 @@ impl GenesisJobLease<'_> {
             return Err(invalid("GEN receipt exact staged record"));
         }
         staged.install.genesis_receipt_binding(record, memory)
+    }
+}
+
+/// Pins the original complete candidate AND its actual live accepted parent.
+pub(in crate::controlled_authority::formal::endpoint) struct NormalJobLease<'a> {
+    slot: std::cell::Ref<'a, Option<Staged>>,
+    parent: std::cell::Ref<'a, Option<AcceptedCandidateCache>>,
+    parent_record: [u8; 32],
+}
+impl NormalJobLease<'_> {
+    pub(super) fn reference<'a>(
+        &'a self,
+        commit: &VerifiedFormalCommitV1,
+        parent: &VerifiedFormalCommitV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<&'a str, FormalError> {
+        let staged = self
+            .slot
+            .as_ref()
+            .ok_or_else(|| invalid("normal complete stage missing"))?;
+        let accepted = self
+            .parent
+            .as_ref()
+            .ok_or_else(|| invalid("normal actual parent missing"))?;
+        if staged.record != commit.verified_record_id()
+            || accepted.commit_record != self.parent_record
+            || self.parent_record != parent.verified_record_id()
+        {
+            return Err(invalid("normal job exact candidate/parent"));
+        }
+        staged.install.normal_reference(commit, parent, memory)
+    }
+}
+impl EndpointIwsState {
+    pub(super) fn normal_job(
+        &self,
+        parent: &VerifiedFormalCommitV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<NormalJobLease<'_>, FormalError> {
+        let accepted = self
+            .accepted
+            .try_borrow()
+            .map_err(|_| invalid("normal parent slot borrowed"))?;
+        let cache = accepted
+            .as_ref()
+            .ok_or_else(|| invalid("normal requires actual accepted cache"))?;
+        let id = parent.verified_record_id();
+        if cache.commit_record != id
+            || (!cache
+                .genesis_quorum
+                .as_ref()
+                .is_some_and(|q| q.verified().verified_record_id() == id)
+                && !cache
+                    .normal_quorum
+                    .as_ref()
+                    .is_some_and(|q| q.verified().verified_record_id() == id)
+                && !cache.authenticated_cold().is_some_and(|q| {
+                    q.checkpoint().head().verified_record_id() == id
+                        && q.checkpoint().uses_budget(memory)
+                        && q.core().uses_budget(memory)
+                        && q.source().uses_budget(memory)
+                }))
+            || !cache.current().uses_budget(memory)
+        {
+            return Err(invalid("normal genuine accepted quorum parent"));
+        }
+        let slot = self
+            .staged
+            .try_borrow()
+            .map_err(|_| invalid("normal staged slot borrowed"))?;
+        let staged = slot
+            .as_ref()
+            .ok_or_else(|| invalid("normal complete candidate missing"))?;
+        if staged.install.provisional_parent_record() != Some(id) {
+            return Err(invalid("normal staged actual parent record"));
+        }
+        Ok(NormalJobLease {
+            slot,
+            parent: accepted,
+            parent_record: id,
+        })
+    }
+    pub(super) fn accepted_normal(
+        &self,
+        quorum: oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedNormalCommitV1,
+        parent_fee: oasis7_proto::memory_budget::ReservedValue<()>,
+    ) -> Result<(), FormalError> {
+        self.accepted(quorum.verified())?;
+        let mut slot = self
+            .accepted
+            .try_borrow_mut()
+            .map_err(|_| invalid("normal accepted slot borrowed"))?;
+        let cache = slot
+            .as_mut()
+            .ok_or_else(|| invalid("normal accepted cache missing"))?;
+        if cache.commit_record != quorum.verified().verified_record_id() {
+            return Err(invalid("normal accepted exact quorum"));
+        }
+        cache.normal_quorum = Some(quorum);
+        cache.formal_parent_fee = Some(parent_fee);
+        Ok(())
+    }
+}
+
+impl NormalJobLease<'_> {
+    pub(super) fn normal_candidate_read_sources_v1<'a>(
+        &'a self,
+        commit: &VerifiedFormalCommitV1,
+        parent: &VerifiedFormalCommitV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<
+        (
+            &'a oasis7_proto::memory_budget::ReservedValue<
+                oasis7_formal_protocol::incremental_material::CheckedCommitCore,
+            >,
+            &'a oasis7_proto::memory_budget::ReservedValue<
+                oasis7_world_state::incremental_world_storage_source::CheckedWorldStorageSourceV1,
+            >,
+            &'a oasis7_proto::memory_budget::ReservedValue<
+                oasis7_formal_protocol::incremental_execution::RootSetV1,
+            >,
+        ),
+        FormalError,
+    > {
+        self.reference(commit, parent, memory)?;
+        let staged = self
+            .slot
+            .as_ref()
+            .ok_or_else(|| invalid("normal candidate stage missing"))?;
+        Ok(staged.install.normal_candidate_read_sources_v1())
     }
 }

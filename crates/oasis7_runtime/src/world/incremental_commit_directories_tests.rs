@@ -9,6 +9,7 @@ use crate::world::{
     incremental_industrial_eligibility::incremental_industrial_eligibility_factory::IndustrialEligibilityReadWorkV1,
     incremental_industrial_eligibility::*,
 };
+use oasis7_world_state::incremental_world_native::IndustrialClaimDirectoryWorkV1;
 use oasis7_world_state::{
     MaterialLedgerId, incremental_factory_records::*, incremental_industry_jobs::*,
     incremental_inventory::*,
@@ -72,6 +73,45 @@ fn run_commit_directories(mode: usize) {
     world.state.material_ledgers.insert(
         MaterialLedgerId::Agent("other".into()),
         [("unrelated".into(), -7)].into(),
+    );
+    for outer in ["grant-z", "grant-outer", "grant-a"] {
+        world.state.restricted_starter_claim_grants.insert(
+            outer.into(),
+            oasis7_world_state::RestrictedStarterClaimGrantState {
+                beneficiary_account_id: "beneficiary-inner".into(),
+                issuer_id: "fixture-issuer".into(),
+                issuance_reason: "directory-lifecycle".into(),
+                spend_scope: "claim".into(),
+                source_treasury_bucket_id: "fixture-source".into(),
+                issued_amount: 100,
+                issued_at_epoch: 0,
+                expires_at_epoch: 500,
+                status: oasis7_world_state::RestrictedStarterClaimGrantStatus::Issued,
+                status_updated_at_epoch: None,
+                status_reason: None,
+            },
+        );
+    }
+    world.threat_heatmap.extend([
+        ("legacy-zero".into(), 0),
+        ("threat-delete".into(), -9),
+        ("遗留Threat".into(), 7),
+    ]);
+    world.state.crises.insert(
+        "cycle-crisis-outer".into(),
+        oasis7_world_state::CrisisState {
+            crisis_id: "cycle-crisis-inner".into(),
+            kind: "directory-fixture".into(),
+            severity: 3,
+            status: oasis7_world_state::CrisisStatus::Active,
+            opened_at: 0,
+            expires_at: 500,
+            resolver_agent_id: None,
+            strategy: None,
+            success: None,
+            impact: 0,
+            resolved_at: None,
+        },
     );
     world.state.time = now;
     let oracle = world.prepare_factory_depreciation_event_bodies_for_test();
@@ -179,7 +219,7 @@ fn run_commit_directories(mode: usize) {
     // A single conditional reference would unify their invariant source
     // lifetimes and incorrectly require the captured fixture to be static.
     macro_rules! prepare_bundle {
-        ($transaction:expr,$identity_work:expr) => {{
+        ($transaction:expr,$identity_work:expr,$claim_work:expr,$grant_cells:expr,$grant_pending:expr,$gameplay_work:expr,$threat_work:expr,$build_work:expr,$receipt_work:expr) => {{
             let tx = $transaction;
         let counter =
             WorldEventCounterV1::begin(&fixture.runtime, &fixture.head, &tx, &memory).unwrap();
@@ -421,6 +461,25 @@ fn run_commit_directories(mode: usize) {
         let inventory_identity_work=&mut *$identity_work;
         let inventory_directory=build_inventory_identity_directory_v1(native.inventory(),&fixture.roots,&mut material_read,
             &mut genesis::scan(),&mut material_family,inventory_identity_work).unwrap();
+        let claim_work = &mut *$claim_work;
+        material_read.root = fixture.roots.state_root(oasis7_world_state::incremental_world_native::industrial_claim_namespace_v1().unwrap());
+        let claim_directory = oasis7_world_state::incremental_world_native::build_industrial_claim_directory_v1(
+            native.native(), &fixture.roots, &mut material_read, &mut genesis::scan(),
+            &mut typed(), claim_work,
+        ).unwrap();
+        let grant_cells=&mut *$grant_cells;let grant_pending=&mut *$grant_pending;
+        material_read.root=fixture.roots.state_root(oasis7_world_state::incremental_main_token_policy_records::MainTokenPolicyKindV1::Grant.namespace());
+        let grant_directory=oasis7_world_state::incremental_main_token_policy_records::build_restricted_claim_grant_directory_v1(native.main_policy(),&fixture.roots,&mut material_read,&mut genesis::scan(),grant_cells,4096).unwrap();
+        let gameplay_work=&mut *$gameplay_work;
+        material_read.root=fixture.roots.state_root(StateNamespaceV1::Authorization);
+        let gameplay_directory=oasis7_world_state::incremental_normal_gameplay_cycles_directory::build_gameplay_cycle_directory_v1(native.diplomacy(),native.governance(),&fixture.roots,&mut material_read,&mut genesis::scan(),&mut genesis::scan(),gameplay_work).unwrap();
+        let threat_work=&mut *$threat_work;
+        material_read.root=fixture.roots.state_root(StateNamespaceV1::Business);
+        let threat_directory=oasis7_world_state::incremental_runtime_business::build_threat_key_directory_v1(runtime.business(),&fixture.roots,&mut material_read,&mut genesis::scan(),threat_work).unwrap();
+let build_work=&mut *$build_work;let receipt_work=&mut *$receipt_work;
+material_read.root=fixture.roots.state_root(StateNamespaceV1::Business);
+let build_parent=oasis7_world_state::incremental_factory_schedule_index::build_factory_schedule_index_v1(native.factory(),&fixture.roots,&mut material_read,&mut genesis::scan(),&mut fw,build_work,1<<20).unwrap();
+let receipt_parent=oasis7_world_state::incremental_factory_schedule_receipts::build_factory_schedule_receipt_index_v1(native.industry(),&fixture.roots,&mut material_read,&mut genesis::scan(),&mut rw,receipt_work,1<<20).unwrap();
         let reduce_work = FactoryDepreciationReduceWorkV1 {
             max_material_entries: 64,
             comparison_bytes_remaining: 64 << 20,
@@ -593,6 +652,11 @@ fn run_commit_directories(mode: usize) {
                     &mut rc,
                     &mut phase_work,
                     &inventory_directory,native.inventory(),inventory_identity_work,
+                    &claim_directory,native.native(),claim_work,
+                    &grant_directory,native.main_policy(),grant_cells,grant_pending,4096,
+                    &gameplay_directory,native.diplomacy(),native.governance(),gameplay_work,
+                    &threat_directory,runtime.business(),threat_work,
+                    &build_parent,&receipt_parent,build_work,receipt_work,
                     &mut live_owner,
                 )
                 .unwrap();
@@ -602,6 +666,7 @@ fn run_commit_directories(mode: usize) {
         let (outcome, frozen) = result;
 
         assert_eq!(outcome.published_and_routed_events, oracle.len());
+        assert_eq!(frozen.iter_restricted_claim_grants().map(|r|r.outer_id()).collect::<Vec<_>>(),vec!["grant-a","grant-outer","grant-z"]);
         assert_eq!(
             frozen.iter_factory_ids().collect::<Vec<_>>(),
             vec!["a-outer", "assembler", "ghost-outer"]
@@ -633,7 +698,9 @@ fn run_commit_directories(mode: usize) {
         }};
     }
     let apply = |actual_tx: &mut ExecutionTransaction<'_, _>,
-                 inventory_identity_work: &mut InventoryIdentityDirectoryWorkV1|
+                 inventory_identity_work: &mut InventoryIdentityDirectoryWorkV1,
+                 claim_work: &mut IndustrialClaimDirectoryWorkV1,
+                 grant_cells:&mut u64,grant_pending:&mut usize,gameplay_work:&mut oasis7_world_state::incremental_normal_gameplay_cycles_directory::GameplayDirectoryWorkV1,threat_work:&mut oasis7_world_state::incremental_runtime_business::ThreatKeyDirectoryWorkV1,build_work:&mut oasis7_world_state::incremental_factory_schedule_index::FactoryScheduleIndexWorkV1,receipt_work:&mut oasis7_world_state::incremental_factory_schedule_receipts::FactoryScheduleReceiptWorkV1|
      -> Result<
         ReservedValue<FrozenRuntimeDirectoryBundleV1>,
         DirectoryCommitTestError,
@@ -653,9 +720,9 @@ fn run_commit_directories(mode: usize) {
                 },
             )
             .unwrap();
-            prepare_bundle!(&mut foreign, inventory_identity_work)
+            prepare_bundle!(&mut foreign, inventory_identity_work, claim_work,grant_cells,grant_pending,gameplay_work,threat_work,build_work,receipt_work)
         } else {
-            prepare_bundle!(actual_tx, inventory_identity_work)
+            prepare_bundle!(actual_tx, inventory_identity_work, claim_work,grant_cells,grant_pending,gameplay_work,threat_work,build_work,receipt_work)
         }
     };
     let another_pool = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
@@ -673,6 +740,50 @@ fn run_commit_directories(mode: usize) {
         max_identity_bytes: 4096,
         max_output_entries: 10000,
     };
+    let mut claim_work = IndustrialClaimDirectoryWorkV1 {
+        visits_remaining: 1_000_000,
+        comparison_bytes_remaining: 64 << 20,
+        pending_entries_remaining: 100_000,
+        max_identity_bytes: 4096,
+        max_output_entries: 10_000,
+        max_pending_records: 64,
+    };
+    let mut grant_cells = 1_000_000u64;
+    let mut grant_pending = 100_000usize;
+    let mut gameplay_work =
+        oasis7_world_state::incremental_normal_gameplay_cycles_directory::GameplayDirectoryWorkV1 {
+            visits_remaining: 1_000_000,
+            comparison_bytes_remaining: 64 << 20,
+            pending_entries_remaining: 100_000,
+            max_rows: 10_000,
+            max_text_bytes: 4096,
+            max_payload_bytes: 1 << 20,
+        };
+    let mut threat_work =
+        oasis7_world_state::incremental_runtime_business::ThreatKeyDirectoryWorkV1 {
+            visits_remaining: 1_000_000,
+            comparison_bytes_remaining: 64 << 20,
+            pending_entries_remaining: 100_000,
+            max_rows: 10_000,
+            max_key_bytes: 4096,
+        };
+    let mut build_work =
+        oasis7_world_state::incremental_factory_schedule_index::FactoryScheduleIndexWorkV1 {
+            cells_remaining: 1_000_000,
+            comparison_bytes_remaining: 64 << 20,
+            max_builds: 10000,
+            max_factory_id_bytes: 4096,
+            max_pending_changes: 100000,
+        };
+    let mut receipt_work =
+        oasis7_world_state::incremental_factory_schedule_receipts::FactoryScheduleReceiptWorkV1 {
+            cells_remaining: 1_000_000,
+            bytes_remaining: 64 << 20,
+            max_receipts: 10000,
+            max_text_bytes: 4096,
+            max_produce_stacks: 10000,
+            max_pending_changes: 100000,
+        };
     let prepared = if mode == 4 {
         prepare_iws_runtime_commit_with_results_and_directories_v1(
             &request,
@@ -682,6 +793,13 @@ fn run_commit_directories(mode: usize) {
             apply,
             &mut material_rebind,
             &mut inventory_identity_work,
+            &mut claim_work,
+            &mut grant_cells,
+            &mut grant_pending,
+            &mut gameplay_work,
+            &mut threat_work,
+            &mut build_work,
+            &mut receipt_work,
             || false,
             |after| {
                 assert_eq!(after.simulation_tick, now);
@@ -697,6 +815,13 @@ fn run_commit_directories(mode: usize) {
             apply,
             &mut material_rebind,
             &mut inventory_identity_work,
+            &mut claim_work,
+            &mut grant_cells,
+            &mut grant_pending,
+            &mut gameplay_work,
+            &mut threat_work,
+            &mut build_work,
+            &mut receipt_work,
             || mode == 5,
         )
     };
@@ -704,6 +829,51 @@ fn run_commit_directories(mode: usize) {
         0 => {
             let prepared = prepared.unwrap();
             let bound = prepared.require_directories_v1().unwrap();
+            bound
+                .sealed_directories()
+                .restricted_claim_grant_parent()
+                .validate_binding(&prepared.transition().record.after)
+                .unwrap();
+            bound
+                .sealed_directories()
+                .threat_key_parent()
+                .validate_binding(&prepared.transition().record.after, &memory)
+                .unwrap();
+            let mut keys = Vec::new();
+            bound
+                .sealed_directories()
+                .threat_key_parent()
+                .visit::<ValueTreeError>(
+                    &mut threat_work,
+                    || false,
+                    |key, _| {
+                        keys.push(key.to_owned());
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            assert_eq!(keys, vec!["legacy-zero", "threat-delete", "遗留Threat"]);
+            bound
+                .sealed_directories()
+                .gameplay_cycle_parent()
+                .validate_binding(&prepared.transition().record.after, &memory)
+                .unwrap();
+            let mut found_crisis = false;
+            bound
+                .sealed_directories()
+                .gameplay_cycle_parent()
+                .visit(
+                    &mut gameplay_work,
+                    || false,
+                    |row| {
+                        if row.outer_id() == "cycle-crisis-outer" {
+                            found_crisis = true;
+                        }
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            assert!(found_crisis);
             bound.validate_candidate(&prepared, &memory).unwrap();
             bound
                 .sealed_directories()

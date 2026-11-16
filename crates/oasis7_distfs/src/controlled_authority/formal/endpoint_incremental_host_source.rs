@@ -1,4 +1,4 @@
-//! Fresh accepted GEN ownership, not a historical proof or WorldReady grant.
+//! Fresh accepted GEN or normal ownership, not a historical proof or WorldReady grant.
 use super::*;
 use crate::controlled_authority::fencing::{
     BoundedAcquireErrorV1, PaidRemoteLeaseV1, ProtectedSignerCustodyV1,
@@ -23,8 +23,13 @@ pub struct PaidAcceptedGenesisHostSourceV1 {
     environment: [u8; 32],
     page_namespace: (u64, u64),
     native_namespace: (u64, u64),
+    predecessor: Option<[u8; 32]>,
+    predecessor_fence: Option<ExecutionFence>,
 }
 impl PaidAcceptedGenesisHostSourceV1 {
+    pub fn endpoint_role(&self) -> EndpointRole {
+        self.endpoint.role
+    }
     pub fn validate_context(
         &self,
         ctx:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
@@ -34,6 +39,12 @@ impl PaidAcceptedGenesisHostSourceV1 {
             return Err(invalid("Host accepted source pool/Core"));
         }
         Ok(())
+    }
+    pub fn predecessor_record_id(&self) -> Option<[u8; 32]> {
+        self.predecessor
+    }
+    pub fn predecessor_fence(&self) -> Option<ExecutionFence> {
+        self.predecessor_fence
     }
     pub fn fence(&self) -> ExecutionFence {
         self.fence
@@ -85,6 +96,121 @@ impl PaidAcceptedGenesisHostSourceV1 {
             .with_iws_native_worker_v1(self.commit()?, memory, stop, consume)
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AcceptedHostKind {
+    Genesis,
+    Normal,
+    AuthenticatedCold,
+}
+enum LiveQuorum<'a> {
+    AuthenticatedCold(&'a super::cold_install::AuthenticatedColdCandidateV1),
+    Genesis(&'a oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedGenesisCommitV1),
+    Normal(&'a oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedNormalCommitV1),
+}
+impl LiveQuorum<'_> {
+    fn verified(&self) -> &VerifiedFormalCommitV1 {
+        match self {
+            Self::AuthenticatedCold(q) => q.checkpoint().head(),
+            Self::Genesis(q) => q.verified(),
+            Self::Normal(q) => q.verified(),
+        }
+    }
+    fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        match self {
+            Self::AuthenticatedCold(q) => q.checkpoint().uses_budget(memory),
+            Self::Genesis(q) => q.uses_budget(memory),
+            Self::Normal(q) => q.uses_budget(memory),
+        }
+    }
+    fn validate_context(
+        &self,
+        ctx:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<(), FormalError> {
+        match self {
+            Self::AuthenticatedCold(q) => q.checkpoint().validate_context(ctx),
+            Self::Genesis(q) => q.validate_context(ctx),
+            Self::Normal(q) => q.validate_context(ctx),
+        }
+    }
+}
+impl FileFormalEndpoint {
+    pub(super) fn into_authenticated_cold_host_source_with_lease_bounded(
+        self,
+        lease: PaidRemoteLeaseV1,
+        provider: &RemoteMonotonicEndpointProvider,
+        pinned: &TrustedFencingPolicyV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
+        self.into_accepted_host_source_bounded(
+            provider,
+            pinned,
+            memory,
+            work,
+            stop,
+            AcceptedHostKind::AuthenticatedCold,
+            Some(lease),
+        )
+    }
+    pub fn into_accepted_genesis_host_source_bounded(
+        self,
+        provider: &RemoteMonotonicEndpointProvider,
+        pinned: &TrustedFencingPolicyV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
+        self.into_accepted_host_source_bounded(
+            provider,
+            pinned,
+            memory,
+            work,
+            stop,
+            AcceptedHostKind::Genesis,
+            None,
+        )
+    }
+    /// Same complete source/namespace/lease gate, with an actual retained normal
+    /// quorum. No GEN, cold, staged or caller-metadata owner can select this lane.
+    pub fn into_accepted_normal_host_source_bounded(
+        self,
+        provider: &RemoteMonotonicEndpointProvider,
+        pinned: &TrustedFencingPolicyV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
+        self.into_accepted_host_source_bounded(
+            provider,
+            pinned,
+            memory,
+            work,
+            stop,
+            AcceptedHostKind::Normal,
+            None,
+        )
+    }
+    pub(in crate::controlled_authority::formal::endpoint) fn into_accepted_normal_host_source_with_lease_bounded(
+        self,
+        lease: PaidRemoteLeaseV1,
+        provider: &RemoteMonotonicEndpointProvider,
+        pinned: &TrustedFencingPolicyV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
+        self.into_accepted_host_source_bounded(
+            provider,
+            pinned,
+            memory,
+            work,
+            stop,
+            AcceptedHostKind::Normal,
+            Some(lease),
+        )
+    }
+}
 fn charge(
     work: &FormalArchiveReadWorkV1,
     n: usize,
@@ -99,16 +225,19 @@ fn charge(
 impl FileFormalEndpoint {
     /// Only the live, current, complete GEN cache can cross this boundary.
     /// A retained Qualified receipt, cold metadata or a staged job cannot.
-    pub fn into_accepted_genesis_host_source_bounded(
+    fn into_accepted_host_source_bounded(
         self,
         provider: &RemoteMonotonicEndpointProvider,
         pinned: &TrustedFencingPolicyV1,
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
+        kind: AcceptedHostKind,
+        supplied_lease: Option<PaidRemoteLeaseV1>,
     ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
         charge(work, 0, stop)?;
-        if self.poisoned || self.recovery.is_some() {
+        if self.poisoned || (self.recovery.is_some() && kind != AcceptedHostKind::AuthenticatedCold)
+        {
             return Err(invalid("Host fresh GEN endpoint").into());
         }
         let bytes = size_of::<FileFormalEndpoint>()
@@ -130,30 +259,112 @@ impl FileFormalEndpoint {
         let cache = slot
             .as_ref()
             .ok_or_else(|| invalid("Host GEN accepted cache missing"))?;
-        let provisional = match &cache.current_owner {
-            provisional::AcceptedCurrentOwner::Candidate(value) => value,
-            provisional::AcceptedCurrentOwner::Cold { .. } => {
-                return Err(invalid("Host GEN requires live source").into());
+        use oasis7_world_state::incremental_world_storage_source_cold::AuthenticatedWorldStorageParentSourceV1;
+        let (core, storage): (_, &dyn AuthenticatedWorldStorageParentSourceV1) =
+            match (&cache.current_owner, kind) {
+                (
+                    provisional::AcceptedCurrentOwner::Candidate(value),
+                    AcceptedHostKind::Genesis | AcceptedHostKind::Normal,
+                ) => (&value.core, &value.source),
+                (
+                    provisional::AcceptedCurrentOwner::AuthenticatedCold(value),
+                    AcceptedHostKind::AuthenticatedCold,
+                ) => {
+                    let mut ctx = work.bounded_context(memory, stop);
+                    value.validate_context(cache, &mut ctx)?;
+                    (value.core(), value.source())
+                }
+                _ => {
+                    return Err(
+                        invalid("Host requires exact corresponding accepted source kind").into(),
+                    );
+                }
+            };
+        let quorum = match kind {
+            AcceptedHostKind::AuthenticatedCold => LiveQuorum::AuthenticatedCold(
+                cache
+                    .authenticated_cold()
+                    .ok_or_else(|| invalid("Host authenticated cold source missing"))?,
+            ),
+            AcceptedHostKind::Genesis => LiveQuorum::Genesis(
+                cache
+                    .genesis_quorum
+                    .as_ref()
+                    .ok_or_else(|| invalid("Host GEN durable quorum missing"))?,
+            ),
+            AcceptedHostKind::Normal => LiveQuorum::Normal(
+                cache
+                    .normal_quorum
+                    .as_ref()
+                    .ok_or_else(|| invalid("Host normal durable quorum missing"))?,
+            ),
+        };
+        let (predecessor, predecessor_fence) = match kind {
+            // Cold is an independently authenticated startup, not a claimed
+            // successor installation in an existing Host slot.
+            AcceptedHostKind::AuthenticatedCold => (None, None),
+            AcceptedHostKind::Genesis => {
+                if core.body().height != 0
+                    || core.body().parent_commit.is_some()
+                    || core.transition().is_some()
+                    || core.parent_record_id().is_some()
+                    || commit.record().position != 1
+                    || commit.record().kind != FormalRecordKindV1::InitialActivation
+                {
+                    return Err(invalid("Host GEN exact initial source").into());
+                }
+                (None, None)
+            }
+            AcceptedHostKind::Normal => {
+                if core.body().height==0||core.transition().is_none()||!oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_record(commit.record().schema_version)||commit.record().kind!=FormalRecordKindV1::Execution||commit.record().position<=1{return Err(invalid("Host normal exact Execution source").into());}
+                let previous = core
+                    .parent_record_id()
+                    .ok_or_else(|| invalid("Host normal actual predecessor missing"))?;
+                charge(work, commit.record().parent_record_id.len(), stop)?;
+                let mut actual = [0; 32];
+                hex::decode_to_slice(&commit.record().parent_record_id, &mut actual)
+                    .map_err(|_| invalid("Host normal predecessor encoding"))?;
+                if actual != previous {
+                    return Err(invalid("Host normal quorum/Core predecessor mismatch").into());
+                }
+                let body = core
+                    .parent_body()
+                    .ok_or_else(|| invalid("Host normal original parent body missing"))?;
+                let parent_commit = core
+                    .body()
+                    .parent_commit
+                    .ok_or_else(|| invalid("Host normal parent body ID missing"))?;
+                (
+                    Some(previous),
+                    Some(ExecutionFence {
+                        parent_commit,
+                        parent_roots: body.roots,
+                        authority: body.authority,
+                    }),
+                )
             }
         };
-        let core = &provisional.core;
-        let quorum = cache
-            .genesis_quorum
-            .as_ref()
-            .ok_or_else(|| invalid("Host GEN durable quorum missing"))?;
         let data = cache
             .complete_data()
             .ok_or_else(|| invalid("Host GEN complete data missing"))?;
-        let local = cache
-            .local_closure
-            .as_ref()
-            .ok_or_else(|| invalid("Host GEN local closure missing"))?;
+        let local = cache.local_closure.as_ref();
+        if kind != AcceptedHostKind::AuthenticatedCold && local.is_none() {
+            return Err(invalid("Host GEN local closure missing").into());
+        }
+        if kind == AcceptedHostKind::AuthenticatedCold
+            && data
+                .pages()
+                .authenticated_cold_native_binding_v1()
+                .is_none()
+        {
+            return Err(invalid("Host cold actual local namespace witness missing").into());
+        }
         let record = commit.verified_record_id();
         // Every logical carrier was produced from the private original core.
         // These are immutable holders, not caller metadata claims.
         charge(work, 32 * 24 + 8 * 4, stop)?;
         if !core.uses_budget(memory)
-            || !provisional.source.uses_budget(memory)
+            || !storage.uses_budget(memory)
             || !cache.current().uses_budget(memory)
             || !cache.roots.uses_budget(memory)
             || !cache.cognition.uses_budget(memory)
@@ -166,15 +377,11 @@ impl FileFormalEndpoint {
             || !quorum.uses_budget(memory)
             || cache.current().allocation_class() != MemoryClass::Ordinary
             || cache.runtime.allocation_class() != MemoryClass::Ordinary
-            || core.body().height != 0
-            || core.body().parent_commit.is_some()
-            || core.transition().is_some()
-            || core.parent_record_id().is_some()
             || record != cache.commit_record
             || record != core.candidate_record_id()
             || record != quorum.verified().verified_record_id()
             || record != data.candidate_record_id()
-            || record != local.candidate_record_id()
+            || local.is_some_and(|local| record != local.candidate_record_id())
             || record != cache.runtime.occurrence().head_record_id()
             || record != cache.cognition.current().head_record_id()
             || data.body_id() != cache.runtime.occurrence().head_body_id()
@@ -187,8 +394,6 @@ impl FileFormalEndpoint {
             || data.roots_id() != data.pages().roots_id()
             || data.page_namespace_identity() != data.material().page_namespace_identity()
             || data.page_namespace_identity() != data.pages().page_namespace_identity()
-            || commit.record().position != 1
-            || !matches!(commit.record().kind, FormalRecordKindV1::InitialActivation)
         {
             return Err(invalid("Host GEN complete accepted source binding").into());
         }
@@ -229,7 +434,15 @@ impl FileFormalEndpoint {
         if authority != core.body().authority {
             return Err(invalid("Host actual authority/body binding").into());
         }
-        let local_reference = local.reference_for(commit)?;
+        let local_reference = match kind {
+            AcceptedHostKind::AuthenticatedCold => cache
+                .authenticated_cold()
+                .and_then(|p| p.checkpoint().native().local_data_closure_reference())
+                .ok_or_else(|| invalid("Host authenticated cold local reference missing"))?,
+            _ => local
+                .ok_or_else(|| invalid("Host local closure missing"))?
+                .reference_for(commit)?,
+        };
         let instance = match self.role {
             EndpointRole::Primary => &self.authority.definition().primary.instance,
             EndpointRole::Replica => &self.authority.definition().replica.instance,
@@ -279,13 +492,17 @@ impl FileFormalEndpoint {
                 compare(a, b)?;
             }
             drop(compare);
-            let lease = acquire_provider_lease_bounded_v1(
-                provider,
-                instance,
-                &self.store.checkpoint,
-                pinned,
-                &mut ctx,
-            )?;
+            let lease = match supplied_lease {
+                Some(lease) => lease,
+                None => acquire_provider_lease_bounded_v1(
+                    provider,
+                    instance,
+                    &self.store.checkpoint,
+                    pinned,
+                    &mut ctx,
+                )?,
+            };
+            lease.validate_current_binding(instance, &self.store.checkpoint, pinned, &mut ctx)?;
             let a = context_wire::encode_paid(
                 lease.checkpoint(),
                 usize::MAX,
@@ -353,6 +570,8 @@ impl FileFormalEndpoint {
             environment,
             page_namespace,
             native_namespace,
+            predecessor,
+            predecessor_fence,
         })
     }
 }
@@ -363,12 +582,18 @@ mod tests;
 
 #[path = "endpoint_incremental_host_parent.rs"]
 mod parent_view;
-pub use parent_view::HostAcceptedParentReadViewV1;
+pub use parent_view::{HostAcceptedParentReadViewV1, PaidHostQualifiedParentProofV1};
 
 #[path = "endpoint_incremental_normal_frozen.rs"]
 mod normal_frozen;
 pub(in crate::controlled_authority) use normal_frozen::PaidNormalFrozenReceiptSourceV1;
 pub use normal_frozen::{
-    NormalFrozenFailureV1, NormalFrozenPairFailureV1, PaidNormalFrozenEndpointV1,
-    PaidNormalFrozenPairV1, join_normal_frozen_endpoints_bounded,
+    NormalFrozenFailureV1, NormalFrozenPairFailureV1, NormalReadyCandidateReadViewV1,
+    NormalReadyPairFailureV1, NormalReadyPublicationFailureV1, PaidNormalAcceptedPairV1,
+    PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1,
+    join_normal_frozen_endpoints_bounded,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_host_cold.rs"]
+mod cold;

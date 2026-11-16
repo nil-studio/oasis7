@@ -12,6 +12,9 @@ use crate::cognition_recovery::{
 use crate::error::WorldError;
 use serde_json::Value as JsonValue;
 
+#[path="cognition_persistence_readback_feedback.rs"]
+pub(in crate::world) mod feedback;
+
 impl World {
     /// Runtime readback verifier for the opaque receipt projection consumed
     /// by simulator adapters.
@@ -136,36 +139,7 @@ impl World {
         } else {
             self.cognition.clone()
         };
-        let parsed: CognitionProjection = serde_json::from_value(projection)
-            .map_err(|error| cognition_error("invalid_cognition_projection", error))?;
-        let lineage = parsed
-            .receipt_lineage_registry
-            .iter()
-            .find(|lineage| lineage.receipt_id == receipt_id)
-            .ok_or_else(|| cognition_validation("receipt_lineage_missing"))?;
-        lineage
-            .validate()
-            .map_err(|error| cognition_validation(error.code()))?;
-        let marker = parsed
-            .commit_records
-            .iter()
-            .find(|marker| marker.status == "committed" && marker.receipt_id == receipt_id)
-            .ok_or_else(|| cognition_validation("receipt_commit_marker_missing"))?;
-        validate_marker(marker)?;
-        if let Some(response) = parsed
-            .responses
-            .iter()
-            .find(|response| response.envelope_digest == marker.envelope_digest)
-        {
-            validate_response_lineage_binding(response, marker)?;
-        }
-        validate_lineage_binding(&parsed, marker, lineage)?;
-        let derived = RuntimeReceiptLineageV1::from_durable_commit_record(marker)
-            .ok_or_else(|| cognition_validation("receipt_lineage_dense_marker_required"))?;
-        if derived != *lineage {
-            return Err(cognition_validation("receipt_lineage_binding_mismatch"));
-        }
-        Ok(lineage.clone())
+        feedback::legacy(projection,receipt_id)
     }
 
     pub(in crate::world) fn cognition_committed_evidence(

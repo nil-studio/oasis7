@@ -332,6 +332,12 @@ mod bounded_finish;
 use bounded_finish::finish_lease_bounded;
 
 impl<'a> PaidNativeCheckpointBeginV1<'a> {
+    pub(in crate::controlled_authority) fn consume_draft_and_lease<T>(
+        self,
+        run: impl FnOnce(PaidNativeCheckpointDraftV1<'a>, PaidRemoteLeaseV1) -> T,
+    ) -> T {
+        run(self.evidence.draft, self.lease)
+    }
     pub(in crate::controlled_authority) fn consume_draft<T>(
         self,
         run: impl FnOnce(PaidNativeCheckpointDraftV1<'a>) -> T,

@@ -162,3 +162,7 @@ pub(crate) fn profile() -> TypedRecordProfileV1 {
 
 #[path = "incremental_pending_action_codec_float.rs"]
 mod float;
+
+#[path = "incremental_pending_action_codec_layout.rs"]
+pub(crate) mod layout;
+pub use layout::{PendingActionOwnedLayoutV1,pending_action_owned_decode_layout_v1};

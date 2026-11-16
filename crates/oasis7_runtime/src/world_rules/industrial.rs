@@ -5,8 +5,7 @@ use std::collections::BTreeMap;
 
 impl crate::World {
     pub(crate) fn industrial_owner_identity_conflicts(&self, owner: &str, player: &str) -> bool {
-        self.current_agent_identity(owner)
-            .is_some_and(|identity| identity.owner_binding != player)
+        match super::status_readonly::identity_conflicts_v1(&super::status_readonly::Legacy(self),owner,player){Ok(value)=>value,Err(never)=>match never{}}
     }
 
     pub(crate) fn industrial_order_blocker(
@@ -14,27 +13,7 @@ impl crate::World {
         order: &AgentIndustrialOrderV1,
         now: WorldTime,
     ) -> Option<String> {
-        if let Err(error) = order.validate() {
-            return Some(format!("{error:?}"));
-        }
-        if order.quote.world_binding != self.world_rule_binding() {
-            return Some("manufacturing_world_binding_mismatch".into());
-        }
-        if self.industrial_owner_identity_conflicts(&order.owner_id, &order.quote.owner_player_id) {
-            return Some("manufacturing_owner_identity_changed".into());
-        }
-        if order.phase == AgentIndustrialPhaseV1::Producing {
-            if order
-                .production_deadline()
-                .is_some_and(|deadline| now >= deadline)
-            {
-                return Some("manufacturing_production_expired".into());
-            }
-            return order_production_eligibility(self.state(), order)
-                .err()
-                .map(|error| format!("{error:?}"));
-        }
-        order.blocker(self.state(), now)
+        match super::status_readonly::blocker_v1(&super::status_readonly::Legacy(self),order,now){Ok(value)=>value,Err(never)=>match never{}}
     }
 
     /// Add only the World-owned identity conflict to the existing economic

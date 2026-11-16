@@ -47,19 +47,15 @@ pub struct SupplyShipmentV1 {
     pub settled: bool,
 }
 pub fn lineage(auth: &SupplyAuthorizationV1, beneficiary: &str) -> String {
-    // Length-delimited components avoid user-controlled separator collisions.
-    format!(
-        "{}:{}{}:{}{}",
-        auth.crisis_id.len(),
-        auth.crisis_id,
-        auth.material.len(),
-        auth.material,
-        beneficiary
-    )
+    supply_lineage_from_fields_v1(&auth.crisis_id,&auth.material,beneficiary)
 }
-fn valid(_state: &WorldState, _auth: &SupplyAuthorizationV1, _now: u64) -> bool {
-    // The unactivated draft material contract is not an Electricity authority.
-    false
+/// Exact original length-delimited lineage DATA for selected scalar sources.
+pub fn supply_lineage_from_fields_v1(crisis_id:&str,material:&str,beneficiary:&str)->String {
+    format!("{}:{}{}:{}{}",crisis_id.len(),crisis_id,material.len(),material,beneficiary)
+}
+
+fn valid(_state: &WorldState, auth: &SupplyAuthorizationV1, now: u64) -> bool {
+    auth.is_valid_current_material_contract_v1(now)
 }
 
 #[path = "supply_policy.rs"]
@@ -352,26 +348,13 @@ impl PreparedWorldRule {
                     .get(job_id)
                     .ok_or_else(|| invalid("shipment_missing"))?
                     .clone();
-                if shipment.settled
-                    || !state.logistics_settlement_receipts.contains_key(job_id)
-                    || !state.settled_logistics_transit_ids.contains(job_id)
-                {
-                    return Err(invalid("await_logistics_receipt_or_already_settled"));
-                }
+                validate_supply_settlement_ready_v1(&shipment,state.logistics_settlement_receipts.contains_key(job_id),state.settled_logistics_transit_ids.contains(job_id))?;
                 let value = self
                     .rules
                     .supply_lineages
                     .get_mut(&shipment.lineage_id)
                     .ok_or_else(|| invalid("lineage_missing"))?;
-                value.reserved = value
-                    .reserved
-                    .checked_sub(shipment.input_amount)
-                    .filter(|v| *v >= 0)
-                    .ok_or_else(|| invalid("lineage_reservation_mismatch"))?;
-                value.fulfilled = value
-                    .fulfilled
-                    .checked_add(shipment.delivered_amount)
-                    .ok_or_else(|| invalid("lineage_overflow"))?;
+                settle_supply_lineage_v1(value,&shipment)?;
                 self.rules
                     .supply_shipments
                     .get_mut(job_id)
@@ -396,12 +379,7 @@ impl PreparedWorldRule {
                     .filter(|b| b.authorization_id == auth.id && b.allocated)
                 {
                     for (id, reserved) in &mut batch.allocation {
-                        self.rules
-                            .supply_lineages
-                            .get_mut(&lineage(&auth, id))
-                            .expect("allocated lineage")
-                            .reserved -= *reserved;
-                        *reserved = 0;
+                        release_supply_close_lineage_v1(self.rules.supply_lineages.get_mut(&lineage(&auth,id)).expect("allocated lineage"),reserved);
                     }
                 }
                 self.credit(
@@ -415,8 +393,7 @@ impl PreparedWorldRule {
                     .supply_authorizations
                     .get_mut(authorization_id)
                     .expect("validated");
-                value.active = false;
-                value.remaining_escrow = 0;
+                finish_supply_close_v1(value);
                 Ok(authorization_id.clone())
             }
             _ => Err(invalid("unsupported_supply_command")),
@@ -425,6 +402,10 @@ impl PreparedWorldRule {
 }
 
 impl SupplyAuthorizationV1 {
+    /// Sole original validity rule for the deliberately unactivated draft
+    /// material contract. This is not EmergencySupply Electricity authority
+    /// and not a statement about a record's Current/source provenance.
+    pub fn is_valid_current_material_contract_v1(&self, _now:u64)->bool{false}
     pub fn is_valid(&self, state: &WorldState, now: u64) -> bool {
         valid(state, self, now)
     }
@@ -436,6 +417,24 @@ pub use minimum_service::*;
 
 #[path = "supply_observation.rs"]
 mod observation;
+pub use observation::{project_emergency_observation_coverage_with_work_v1,project_emergency_observation_coverage_v1,validate_observation_location_from_records_v1};
 
 #[path = "supply_read.rs"]
 mod read;
+
+/// Sole original settlement readiness predicate. Input observations are data;
+/// they do not authorize a Current write or grant a lifecycle event capability.
+pub fn validate_supply_settlement_ready_v1(shipment:&SupplyShipmentV1,receipt_present:bool,settled_present:bool)->Result<(),WorldError>{
+    if shipment.settled||!receipt_present||!settled_present{return Err(invalid("await_logistics_receipt_or_already_settled"));}Ok(())
+}
+/// Original arithmetic and first-error sequence over one selected lineage.
+pub fn settle_supply_lineage_v1(value:&mut SupplyLineageV1,shipment:&SupplyShipmentV1)->Result<(),WorldError>{
+    value.reserved=value.reserved.checked_sub(shipment.input_amount).filter(|v|*v>=0).ok_or_else(||invalid("lineage_reservation_mismatch"))?;
+    value.fulfilled=value.fulfilled.checked_add(shipment.delivered_amount).ok_or_else(||invalid("lineage_overflow"))?;Ok(())
+}
+/// Keep original ordinary subtraction, including its build-profile overflow
+/// behavior, and the original reservation-before-allocation-zero ordering.
+pub fn release_supply_close_lineage_v1(lineage:&mut SupplyLineageV1,reserved:&mut i64){lineage.reserved-=*reserved;*reserved=0;}
+pub fn finish_supply_close_v1(authorization:&mut SupplyAuthorizationV1){authorization.active=false;authorization.remaining_escrow=0;}
+
+pub use observation::snapshot_key as emergency_observation_snapshot_key_v1;

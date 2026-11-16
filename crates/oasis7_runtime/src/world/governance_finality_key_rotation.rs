@@ -27,7 +27,7 @@ fn invalid(reason: impl Into<String>) -> WorldError {
     }
 }
 
-fn verify_key_proof(
+pub(in crate::world) fn verify_key_proof(
     body: &FinalityKeyRotationBodyV1,
     proof: &FinalityKeyRotationProofV1,
     role: FinalityKeyRotationRoleV1,
@@ -61,75 +61,7 @@ impl World {
         selected: &BTreeMap<String, &GovernanceValidatorAdmissionRecord>,
         epoch: u64,
     ) -> Result<(), WorldError> {
-        self.validate_retained_rotation_namespace(admissions)?;
-        if self.state.governance_finality_key_rotations.len() > MAX_FINALITY_KEY_ROTATION_RECORDS_V1
-        {
-            return Err(invalid("rotation history capacity exceeded"));
-        }
-        let mut groups: BTreeMap<&str, Vec<&FinalityKeyRotationRecordV1>> = BTreeMap::new();
-        for (id, record) in &self.state.governance_finality_key_rotations {
-            record.validate().map_err(invalid)?;
-            let body = record.body().map_err(invalid)?;
-            if id != &body.rotation_id {
-                return Err(invalid("rotation record identity mismatch"));
-            }
-            groups.entry(&body.candidate_id).or_default().push(record);
-        }
-        for (candidate_id, mut records) in groups {
-            let admission = admissions
-                .get(candidate_id)
-                .ok_or_else(|| invalid("rotation original admission missing"))?;
-            records.sort_by_key(|r| r.body().map(|b| b.expected_generation).unwrap_or(u64::MAX));
-            let mut generation = 0_u64;
-            let mut key = admission.finality_signer_public_key.clone();
-            let mut effective_key = key.clone();
-            let mut previous_activation = None;
-            for record in records {
-                let (body, old, new) = record.typed_parts().map_err(invalid)?;
-                if body.node_id != admission.node_id
-                    || body.expected_generation != generation
-                    || body.old_public_key_hex != key
-                    || previous_activation.is_some_and(|height| body.decision_height < height)
-                    || body
-                        .target_epoch
-                        .checked_mul(self.governance_execution_policy().epoch_length_ticks)
-                        != Some(body.activation_height)
-                {
-                    return Err(invalid(
-                        "rotation history key, generation or boundary discontinuity",
-                    ));
-                }
-                verify_key_proof(body, old, FinalityKeyRotationRoleV1::OldKeyAuthorization)?;
-                verify_key_proof(body, new, FinalityKeyRotationRoleV1::NewKeyPossession)?;
-                key = body.new_public_key_hex.clone();
-                generation = generation
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("rotation generation exhausted"))?;
-                previous_activation = Some(body.activation_height);
-                if body.target_epoch <= epoch {
-                    effective_key = key.clone();
-                }
-            }
-            if selected
-                .get(&admission.node_id)
-                .map(|a| a.candidate_id.as_str())
-                == Some(candidate_id)
-                && registry.signer_bindings.contains_key(&admission.node_id)
-                && matches!(
-                    admission.status,
-                    GovernanceValidatorAdmissionStatus::Active
-                        | GovernanceValidatorAdmissionStatus::ProbationReady
-                )
-                && admission
-                    .activation_epoch
-                    .is_some_and(|height| height <= epoch)
-            {
-                registry
-                    .signer_bindings
-                    .insert(admission.node_id.clone(), effective_key);
-            }
-        }
-        Ok(())
+        super::governance::module_admission_finality::ModuleFinalityRecordsV1::from_world(self).project_finality_key_rotations(registry,admissions,selected,epoch)
     }
 
     pub(super) fn capture_finality_key_rotation_parent(

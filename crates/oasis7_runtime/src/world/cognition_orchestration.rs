@@ -962,24 +962,7 @@ impl World {
     ) -> Result<JsonValue, WorldError> {
         let continuations = self.active_cognition_continuations()?;
         let mut state = scheduler_state.clone();
-        for bucket in ["active", "backpressure", "in_flight"] {
-            let Some(values) = state.get_mut(bucket) else {
-                continue;
-            };
-            match values {
-                JsonValue::Array(entries) => {
-                    for entry in entries {
-                        hydrate_wake_digest(entry, &continuations);
-                    }
-                }
-                JsonValue::Object(entries) => {
-                    for entry in entries.values_mut() {
-                        hydrate_wake_digest(entry, &continuations);
-                    }
-                }
-                _ => {}
-            }
-        }
+        hydrate_scheduler_digest_fields_with_work_v1(&mut state, &continuations, &mut |_, _, _| Ok::<_, std::convert::Infallible>(())).expect("legacy hydration has no work failure");
         Ok(state)
     }
 
@@ -1127,30 +1110,40 @@ fn cognition_validation_error(code: &str) -> WorldError {
     }
 }
 
-fn hydrate_wake_digest(entry: &mut JsonValue, continuations: &[AgentContinuation]) {
-    let Some(object) = entry.as_object_mut() else {
-        return;
-    };
-    let missing_digest = object
-        .get("request_digest")
-        .and_then(JsonValue::as_str)
-        .is_none_or(str::is_empty);
-    if !missing_digest {
-        return;
+pub(in crate::world) fn hydrate_wake_digest(entry: &mut JsonValue, continuations: &[AgentContinuation]) {
+    hydrate_wake_digest_with_work_v1(entry, continuations, &mut |_, _, _| Ok::<_, std::convert::Infallible>(())).expect("legacy hydration has no work failure");
+}
+/// The observer can meter original comparisons and the exact inserted text
+/// graph. It cannot choose a continuation or replace any field/predicate.
+pub(in crate::world) fn hydrate_scheduler_digest_fields_with_work_v1<E>(state: &mut JsonValue, continuations: &[AgentContinuation], work: &mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<(),E>{
+    for bucket in ["active", "backpressure", "in_flight"] {
+        work(1,bucket.len(),0)?;
+        let Some(values)=state.get_mut(bucket) else {continue};
+        match values {
+            JsonValue::Array(entries)=>for entry in entries {hydrate_wake_digest_with_work_v1(entry,continuations,work)?;},
+            JsonValue::Object(entries)=>for entry in entries.values_mut(){hydrate_wake_digest_with_work_v1(entry,continuations,work)?;},
+            _=>{}
+        }
     }
-    let Some(continuation_id) = object.get("continuation_id").and_then(JsonValue::as_str) else {
-        return;
-    };
-    let Some(continuation) = continuations
-        .iter()
-        .find(|continuation| continuation.continuation_id == continuation_id)
-    else {
-        return;
-    };
-    object.insert(
-        "request_digest".to_string(),
-        JsonValue::String(continuation.origin_request_digest.clone()),
-    );
+    Ok(())
+}
+fn hydrate_wake_digest_with_work_v1<E>(entry:&mut JsonValue,continuations:&[AgentContinuation],work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<(),E>{
+    work(1,0,0)?;
+    let Some(object)=entry.as_object_mut() else {return Ok(())};
+    work(1,object.get("request_digest").and_then(JsonValue::as_str).map_or(0,str::len),0)?;
+    let missing_digest=object.get("request_digest").and_then(JsonValue::as_str).is_none_or(str::is_empty);
+    if !missing_digest{return Ok(())}
+    let Some(continuation_id)=object.get("continuation_id").and_then(JsonValue::as_str) else {return Ok(())};
+    for continuation in continuations {
+        work(1,continuation.continuation_id.len()+continuation_id.len(),0)?;
+        if continuation.continuation_id==continuation_id {
+            let n=continuation.origin_request_digest.len();
+            work(1,n+"request_digest".len(),11*(std::mem::size_of::<String>()+std::mem::size_of::<JsonValue>())+n+"request_digest".len()+256)?;
+            object.insert("request_digest".to_string(),JsonValue::String(continuation.origin_request_digest.clone()));
+            break;
+        }
+    }
+    Ok(())
 }
 
 fn scheduler_error(code: &str) -> WorldError {

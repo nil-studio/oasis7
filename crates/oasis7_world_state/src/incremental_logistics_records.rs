@@ -142,3 +142,6 @@ pub use current_scan::{
     CurrentLogisticsRouteScanReservationV1, read_current_logistics_route_ids_v1,
     read_current_logistics_route_ids_with_reservation_v1, reserve_current_logistics_route_scan_v1,
 };
+
+#[path = "incremental_industry_projection_delta_logistics_records.rs"]
+pub(crate) mod projection;

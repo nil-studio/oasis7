@@ -7,6 +7,11 @@ pub(in crate::controlled_authority) struct PaidGenesisReceiptSignatureV1<'a> {
     _rpc: ReservedValue<SignedMonotonicOracleRequestV1>,
 }
 impl PaidGenesisReceiptSignatureV1<'_> {
+    /// Return the same actual namespace FD after a fixed normal receipt. The
+    /// signed source/RPC scratch may drop only after its paid receipt was copied.
+    pub(in crate::controlled_authority) fn into_lease(self) -> PaidRemoteLeaseV1 {
+        self.lease
+    }
     pub(in crate::controlled_authority) fn source(&self) -> &PaidGenesisReceiptSourceV1<'_> {
         &self.source
     }

@@ -1,4 +1,5 @@
 //! Genuine FIFO Open -> old Accept -> Settle, independently checked by World.
+use crate::world::incremental_factory_directory_orders::FactoryOrderDirectoryWorkV1;
 use super::*;
 use crate::world::incremental_body::BodyMutationContext;
 #[test]
@@ -206,45 +207,14 @@ fn queued_war_contract_lifecycle_preserves_current_finances_limits_cooldown_and_
         .unwrap();
         (source, accepted, work)
     };
-    let current_orders = {
-        let mut io = genesis::io();
-        let mut keys = genesis::keys();
-        let mut overlay = WorldFieldOverlayContextV1 {
-            transaction: &mut tx,
-            values: ValueReadContext {
-                source: &reader,
-                memory: &memory,
-                class: MemoryClass::Ordinary,
-                io: &mut io,
-            },
-            key_work: &mut keys,
-            semantic_bytes: 4096,
-            record_bytes: 16 << 20,
-            take_state_error: || reader.cas.error(),
-            cancelled: || false,
-        };
-        let guard = overlay.transaction.guard();
-        let mut work = current_orders;
-        crate::world::incremental_factory_directory_orders::open_current_factory_order_directory_v1(
-            &accepted_orders,
-            &orders_source,
-            &reader,
-            &mut overlay,
-            &mut genesis::scan(),
-            &mut alliance_typed_work(),
-            &mut work,
-            &guard,
-            &live,
-        )
-        .unwrap()
-    };
     let sources = crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1 {
         agents: fixture.current.raw().agents(),
         diplomacy: fixture.current.native().diplomacy(),
         continuity: fixture.current.native().rules().continuity(),
         organizations: fixture.current.native().rules().organization(),
         native: fixture.current.native().native(),
-        orders: &current_orders,
+        orders: &accepted_orders,
+        rules: fixture.current.native().rules(),
         roots: &fixture.roots,
     };
     let directory = {
@@ -317,10 +287,26 @@ fn queued_war_contract_lifecycle_preserves_current_finances_limits_cooldown_and_
         cancelled: || false,
     };
     let common=oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1::new(100_000_000,4_000_000_000).unwrap();
-    let shared = || {
-        crate::world::incremental_normal_action_diplomacy::AllianceWorkV1{pending_entries_remaining:1000000,index:oasis7_world_state::incremental_diplomacy::DiplomacyIndexWorkV1{cells_remaining:1000000,comparison_bytes_remaining:1<<30,max_rows:64,max_members:128,max_text_bytes:4096,max_pending_rows:64,pending_entries_remaining:1000000},scope_scan:genesis::scan(),scope_cells:1000000,max_text_bytes:4096,max_pending_node_bytes:16<<20,write_cells:1000000,continuity_read:alliance_typed_work(),continuity_write:oasis7_world_state::incremental_world_rule_composite::WorldRuleCompositeWriteWorkV1{cells_remaining:1000000,max_pending_node_bytes:16<<20,json:oasis7_world_state::incremental_json_records::JsonWriteWorkV1{cells_remaining:1000000,json_nodes_remaining:1000000,max_json_depth:64,max_pending_node_bytes:16<<20}},controller:crate::world::incremental_industrial_eligibility::IndustrialEligibilityWorkV1{read:crate::world::incremental_industrial_eligibility::incremental_industrial_eligibility_factory::IndustrialEligibilityReadWorkV1{cells_remaining:1000000,comparison_bytes_remaining:1<<30,max_text_bytes:4096},typed:alliance_typed_work(),scan:genesis::scan(),revocation:alliance_typed_work(),pending_entries_remaining:1000000}}
+    // Split only the actual remainder of the original order-directory work;
+    // the two simultaneously borrowed test lanes receive no duplicated budget.
+    let mut first_orders = current_orders;
+    let second_orders = FactoryOrderDirectoryWorkV1 {
+        ids: oasis7_world_state::incremental_world_rule_composite_family::AgentOrderDirectoryWorkV1 {
+            max_ids: first_orders.ids.max_ids,
+            max_id_bytes: first_orders.ids.max_id_bytes,
+            comparison_bytes_remaining: first_orders.ids.comparison_bytes_remaining / 2,
+        },
+        pending_entries_remaining: first_orders.pending_entries_remaining / 2,
+        merge_comparison_bytes_remaining: first_orders.merge_comparison_bytes_remaining / 2,
+        max_index_text_bytes: first_orders.max_index_text_bytes,
     };
-    let mut war_work = shared();
+    first_orders.ids.comparison_bytes_remaining -= second_orders.ids.comparison_bytes_remaining;
+    first_orders.pending_entries_remaining -= second_orders.pending_entries_remaining;
+    first_orders.merge_comparison_bytes_remaining -= second_orders.merge_comparison_bytes_remaining;
+    let shared = |orders| {
+        crate::world::incremental_normal_action_diplomacy::AllianceWorkV1{orders,pending_entries_remaining:1000000,index:oasis7_world_state::incremental_diplomacy::DiplomacyIndexWorkV1{cells_remaining:1000000,comparison_bytes_remaining:1<<30,max_rows:64,max_members:128,max_text_bytes:4096,max_pending_rows:64,pending_entries_remaining:1000000},scope_scan:genesis::scan(),scope_cells:1000000,max_text_bytes:4096,max_pending_node_bytes:16<<20,write_cells:1000000,continuity_read:alliance_typed_work(),continuity_write:oasis7_world_state::incremental_world_rule_composite::WorldRuleCompositeWriteWorkV1{cells_remaining:1000000,max_pending_node_bytes:16<<20,json:oasis7_world_state::incremental_json_records::JsonWriteWorkV1{cells_remaining:1000000,json_nodes_remaining:1000000,max_json_depth:64,max_pending_node_bytes:16<<20}},controller:crate::world::incremental_industrial_eligibility::IndustrialEligibilityWorkV1{read:crate::world::incremental_industrial_eligibility::incremental_industrial_eligibility_factory::IndustrialEligibilityReadWorkV1{cells_remaining:1000000,comparison_bytes_remaining:1<<30,max_text_bytes:4096},typed:alliance_typed_work(),scan:genesis::scan(),revocation:alliance_typed_work(),pending_entries_remaining:1000000}}
+    };
+    let mut war_work = shared(first_orders);
 
     let contract_sources =
         crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1 {
@@ -337,7 +323,7 @@ fn queued_war_contract_lifecycle_preserves_current_finances_limits_cooldown_and_
         max_pending_node_bytes: 16 << 20,
     };
     let mut accept_work = scalar();
-    let mut work=crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1{shared:shared(),scalar:scalar(),policy_scan:genesis::scan(),policy:alliance_typed_work(),binding:crate::world::incremental_industrial_eligibility::IndustrialEligibilityWorkV1{read:crate::world::incremental_industrial_eligibility::incremental_industrial_eligibility_factory::IndustrialEligibilityReadWorkV1{cells_remaining:1000000,comparison_bytes_remaining:1<<30,max_text_bytes:4096},typed:alliance_typed_work(),scan:genesis::scan(),revocation:alliance_typed_work(),pending_entries_remaining:1000000}};
+    let mut work=crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1{shared:shared(second_orders),scalar:scalar(),policy_scan:genesis::scan(),policy:alliance_typed_work(),binding:crate::world::incremental_industrial_eligibility::IndustrialEligibilityWorkV1{read:crate::world::incremental_industrial_eligibility::incremental_industrial_eligibility_factory::IndustrialEligibilityReadWorkV1{cells_remaining:1000000,comparison_bytes_remaining:1<<30,max_text_bytes:4096},typed:alliance_typed_work(),scan:genesis::scan(),revocation:alliance_typed_work(),pending_entries_remaining:1000000}};
     let mut audit = transfer_resource_audit_work();
     let mut callbacks = 0;
     {

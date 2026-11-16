@@ -303,3 +303,32 @@ where
 #[path = "incremental_runtime_proposal_create.rs"]
 mod create;
 pub use create::create_runtime_proposal_overlay_v1;
+
+/// DATA-only actual Current proposal status. The qualified parent authenticates
+/// the family; the sole transaction selects the current outer and status row.
+pub fn read_current_runtime_proposal_status_kind_v1<M,P,R,E,C>(
+    id:u64, parent:&ReservedValue<RuntimeProposalsQualificationV1>, roots:&RootSetV1,
+    tx:&mut ExecutionTransaction<'_,M>, read:&mut WorldFieldReadContextV1<'_,P,R,E,C>,
+    work:&mut RuntimeProposalReadWorkV1, guard:&PreparedGuard, live:&ExecutionFence,
+)->Result<Option<u64>,WorldFieldOverlayErrorV1>
+where M:MerkleNodeReader,P:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool {
+ tx.contribute(|tx| {
+  tx.validate_guard(guard,live)?; parent.validate_binding(roots)?;
+  if read.values.class!=MemoryClass::Ordinary || !parent.uses_budget(read.values.memory) || parent.class!=MemoryClass::Ordinary || !tx.uses_budget(read.values.memory) || roots.digest().map_err(|_|invalid())?!=tx.parent_fence().parent_roots {return Err(invalid().into())}
+  let _phase=read.values.memory.reserve(32<<10,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
+  let (key,value)={let mut records=InventoryValueReader{values:&mut read.values,key_work:&mut *read.key_work,semantic_bytes:read.semantic_bytes,record_bytes:read.record_bytes,cancelled:&mut read.cancelled};
+   let metadata=WorldFieldKeyV1::new(runtime_proposal_descriptor_v1(),WorldFieldRecordKindV1::Metadata,None).map_err(ValueTreeError::Invalid)?;
+   let meta=lookup(tx,&metadata,&mut records,&mut read.take_state_error)?.ok_or_else(invalid)?;
+   records.presence(&meta,&metadata,0)?;
+   let(key,_)=records.key(runtime_proposal_descriptor_v1(),WorldFieldRecordKindV1::Entry,&id)?;
+   let value=lookup(tx,&key,&mut records,&mut read.take_state_error)?;(key,value)};
+  let Some(value)=value else{return Ok(None)};
+  let(actual,root)=outer_child(&key,&value,read)?; if actual!=id{return Err(invalid().into())}
+  let mut records=InventoryValueReader{values:&mut read.values,key_work:&mut *read.key_work,semantic_bytes:read.semantic_bytes,record_bytes:read.record_bytes,cancelled:&mut read.cancelled}; header::validate_status(&root,None,&mut records,work)?;
+  let(key,bytes,value)=header::point(&root,&"status.kind",&mut records,work)?;
+  let value=value.ok_or_else(invalid)?;
+  match header::value(&value,&(key,bytes),MemberPayloadCodecV1::U64,&mut records,work,&mut std::io::sink())? {
+   crate::incremental_record_value_read::RecordValueV1::Unsigned(n)=>Ok(Some(n)), _=>Err(invalid().into())
+  }
+ })
+}

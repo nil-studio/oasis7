@@ -18,7 +18,7 @@ pub const REQUIRED_COGNITION_FIELDS: [&str; 12] = [
     "continuations",
     "recovery",
 ];
-pub const OPTIONAL_COGNITION_FIELDS: [&str; 8] = [
+pub const OPTIONAL_COGNITION_FIELDS: [&str; 10] = [
     "runtime_binding",
     "retention_state",
     "continuation_contexts",
@@ -27,6 +27,8 @@ pub const OPTIONAL_COGNITION_FIELDS: [&str; 8] = [
     "agent_delegation_active_decision",
     "continuation_evaluations",
     "reorg_invalidation_epoch",
+    "service_causal_proposals",
+    "action_digests",
 ];
 
 pub const COGNITION_ECONOMY_FIELDS: [&str; 16] = [
@@ -219,6 +221,22 @@ impl CognitionControlFieldV1 {
         Self::EconomyHeadSeq,
         Self::EconomyHeadDigest,
     ];
+    pub(crate) fn projection_envelope_path_v1(self) -> (&'static str, Option<&'static str>) {
+        match self {
+            Self::Schema => ("schema_version", None),
+            Self::JournalSchema => ("cognition_journal", Some("schema_version")),
+            Self::JournalHeadSeq => ("cognition_journal", Some("head_seq")),
+            Self::JournalHeadDigest => ("cognition_journal", Some("head_digest")),
+            Self::ReorgInvalidationEpoch => ("reorg_invalidation_epoch", None),
+            Self::EconomySchema => ("cognition_economy", Some("schema_version")),
+            Self::EconomyProvisionHeadSeq => ("cognition_economy", Some("provision_head_seq")),
+            Self::EconomyProvisionHeadDigest => {
+                ("cognition_economy", Some("provision_head_digest"))
+            }
+            Self::EconomyHeadSeq => ("cognition_economy", Some("head_seq")),
+            Self::EconomyHeadDigest => ("cognition_economy", Some("head_digest")),
+        }
+    }
     pub fn descriptor(self) -> FieldDescriptor {
         let (name, namespace) = match self {
             Self::Schema => ("schema_version", Ns::Artifacts),

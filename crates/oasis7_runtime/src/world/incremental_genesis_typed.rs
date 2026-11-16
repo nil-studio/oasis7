@@ -54,12 +54,17 @@ pub struct RuntimeTypedGenesisWorkV1 {
     pub pending_actions:
         oasis7_world_state::incremental_runtime_pending_action_record::PendingActionWriteWorkV1,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct RuntimeTypedGenesisSummaryV1 {
     pub world_state: WorldStateGenesisSummaryV1,
     pub runtime_fields: u64,
     pub cognition_fields: u64,
     pub writes: u64,
+    process: ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>,
+}
+impl RuntimeTypedGenesisSummaryV1 {
+    pub fn process_source_v1(&self)->&ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>{&self.process}
+    pub fn into_process_source_v1(self)->ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>{self.process}
 }
 pub use oasis7_world_state::incremental_runtime_registry::RUNTIME_TYPED_GENESIS_FIELDS_V1;
 pub const RUNTIME_TYPED_RAW_FIELDS_V1: &[&str] = &[
@@ -444,11 +449,13 @@ impl World {
             return Err(ValueTreeError::Cancelled.into());
         }
         coverage.finish()?;
+        let process=super::incremental_normal_process_source::capture_genesis_process_v1(self,&mut work.records_remaining,&mut ctx.io.read_bytes_remaining,ctx.memory)?;
         Ok(RuntimeTypedGenesisSummaryV1 {
             world_state,
             runtime_fields: u64::from(coverage.runtime.count_ones()),
             cognition_fields: u64::from(coverage.cognition.count_ones()),
             writes: coverage.writes,
+            process,
         })
     }
 }

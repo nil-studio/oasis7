@@ -356,3 +356,14 @@ pub fn promote_checked_cognition_history_index_v3(
 #[path = "incremental_cognition_history_index_prepared_v3.rs"]
 mod prepared_v3;
 pub use prepared_v3::*;
+
+/// Read one original index row from a genuine checked source before promotion.
+/// This does not create an attested/accepted index or bypass candidate closure.
+pub fn read_checked_cognition_history_index_point_v3<M,R,E,C>(
+ parent:&ReservedValue<CheckedCognitionHistoryIndexSourceV3>,selected:&ReservedValue<CheckedCognitionHistoryViewV1>,ordinal:u64,context:&mut crate::incremental_field_read::WorldFieldReadContextV1<'_,M,R,E,C>,work:&mut CognitionHistoryIndexWorkV1
+)->Result<ReservedValue<CognitionHistoryIndexPointV1>,ValueTreeError>
+where M:oasis7_formal_protocol::incremental_state::MerkleNodeReader,R:oasis7_formal_protocol::incremental_value::ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool {
+ context.check()?;
+ if context.values.class!=MemoryClass::Ordinary||!parent.uses_budget(context.values.memory)||!selected.uses_budget(context.values.memory)||parent.candidate_record_id()!=selected.occurrence().candidate_record_id()||parent.body_id()!=selected.occurrence().body_id()||parent.roots_id()!=selected.manifest().roots||parent.root()!=&selected.manifest().index_ref(parent.field()).root||parent.record_count()!=selected.manifest().index_ref(parent.field()).records||ordinal>=parent.record_count(){return Err(invalid_candidate_index())}
+ super::super::index::read_cognition_history_index_point_parts_v1(parent.root(),parent.field(),ordinal,context,work)
+}

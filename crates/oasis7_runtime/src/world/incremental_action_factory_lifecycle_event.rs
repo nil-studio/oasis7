@@ -34,6 +34,10 @@ pub(super) fn sink<
                 operator_agent_id, ..
             },
         ) => operator_agent_id.as_str(),
+        crate::WorldEventBody::Domain(crate::DomainEvent::FactoryProductionPaused {
+            requester_agent_id,
+            ..
+        }) => requester_agent_id.as_str(),
         _ => return Err(BodyMutationError::Invalid("factory sink domain")),
     };
     let _phase = step

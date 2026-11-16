@@ -120,6 +120,19 @@ impl<'borrow, 'ctx> NormalTailWorkV1<'borrow, 'ctx> {
         }
     }
 
+    pub(in crate::world) fn remaining_steps(&self) -> u64 {
+        match &self.meter {
+            NormalTailMeterV1::Common(common) => common.work().remaining_steps(),
+            NormalTailMeterV1::Child { lease, .. } => lease.remaining_steps(),
+        }
+    }
+    pub(in crate::world) fn remaining_read_bytes(&self) -> u64 {
+        match &self.meter {
+            NormalTailMeterV1::Common(common) => common.work().remaining_read_bytes(),
+            NormalTailMeterV1::Child { lease, .. } => lease.remaining_read_bytes(),
+        }
+    }
+
     pub(in crate::world) fn reserve(
         &self,
         bytes: usize,
@@ -130,7 +143,11 @@ impl<'borrow, 'ctx> NormalTailWorkV1<'borrow, 'ctx> {
             .map_err(ValueTreeError::Memory)
     }
 
-    fn debit(&mut self, steps: u64, bytes: u64) -> Result<(), BodyMutationError> {
+    pub(in crate::world) fn debit(
+        &mut self,
+        steps: u64,
+        bytes: u64,
+    ) -> Result<(), BodyMutationError> {
         match &mut self.meter {
             NormalTailMeterV1::Common(common) => common
                 .charge(steps, bytes)
@@ -335,3 +352,9 @@ pub(in crate::world) mod transits;
 pub(in crate::world) use due_economy::{
     DecodedFactoryBuildJobV1, decode_current_factory_build_job_v1,
 };
+
+#[path="incremental_normal_economic_tail.rs"]
+pub(in crate::world) mod economic;
+
+#[path="incremental_normal_event_preview.rs"]
+pub(in crate::world) mod event_preview;

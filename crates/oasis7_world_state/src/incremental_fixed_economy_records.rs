@@ -228,3 +228,11 @@ pub use pages::{
 };
 
 pub(crate) use receiver::accept_fixed_economy_verified_v1;
+
+#[path="incremental_industrial_delivery_supply.rs"] mod industrial_delivery;
+pub use industrial_delivery::open_current_industrial_main_token_supply_v1;
+
+#[path="incremental_fixed_economy_records_projection.rs"] mod projection;
+pub use projection::{CurrentFixedEconomyProjectionDeltaV1,read_current_fixed_economy_projection_delta_v1,is_fixed_economy_projection_field_v1};
+
+pub use projection::{QualifiedFixedEconomyProjectionColumnsV1,read_qualified_fixed_economy_projection_columns_v1};

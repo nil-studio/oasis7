@@ -593,3 +593,247 @@ where
         _slots: slots,
     }))
 }
+
+pub struct CurrentFactoryScheduleReceiptSnapshotV1 {
+    current: ReservedValue<CurrentFactoryScheduleReceiptsV1>,
+    counts: [u64; 5],
+    scope: crate::incremental_factory_schedule_index::snapshot_scope::SnapshotScopeV1,
+    guard: PreparedGuard,
+    memory: MemoryBudget,
+}
+impl std::ops::Deref for CurrentFactoryScheduleReceiptSnapshotV1 {
+    type Target = CurrentFactoryScheduleReceiptsV1;
+    fn deref(&self) -> &Self::Target {
+        &self.current
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub fn snapshot_current_factory_schedule_receipts_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    index: &ReservedValue<FactoryScheduleReceiptIndexV1>,
+    q: &ReservedValue<IndustryFamilyQualificationV1>,
+    roots: &RootSetV1,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    industry_work: &mut IndustryWorkBudgetV1,
+    work: &mut FactoryScheduleReceiptWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<CurrentFactoryScheduleReceiptSnapshotV1>, WorldFieldOverlayErrorV1> {
+    ctx.transaction.contribute(|tx| {
+        let mut ctx = WorldFieldOverlayContextV1 {
+            transaction: tx,
+            values: ValueReadContext {
+                source: ctx.values.source,
+                memory: ctx.values.memory,
+                class: ctx.values.class,
+                io: &mut *ctx.values.io,
+            },
+            key_work: &mut *ctx.key_work,
+            semantic_bytes: ctx.semantic_bytes,
+            record_bytes: ctx.record_bytes,
+            take_state_error: &mut ctx.take_state_error,
+            cancelled: &mut ctx.cancelled,
+        };
+        let current = observe_current_factory_schedule_receipts_v1(
+            index,
+            q,
+            roots,
+            &mut ctx,
+            industry_work,
+            work,
+            guard,
+            live,
+        )?;
+        let memory = ctx.values.memory;
+        let class = MemoryClass::Ordinary;
+        let counts = {
+            let mut read = IndustryTransitionReadContextV1 {
+                values: ValueReadContext {
+                    source: ctx.values.source,
+                    memory,
+                    class,
+                    io: &mut *ctx.values.io,
+                },
+                key_work: &mut *ctx.key_work,
+                semantic_bytes: ctx.semantic_bytes,
+                record_bytes: ctx.record_bytes,
+                max_payload_bytes: work.max_text_bytes.max(8) as u64,
+                cancelled: &mut ctx.cancelled,
+            };
+            read_current_industry_family_counts_v1(ctx.transaction, q, &mut read, industry_work)?
+        };
+        if current.rows.len() as u64 != counts[2] {
+            return Err(invalid().into());
+        }
+        let scope =
+            crate::incremental_factory_schedule_index::snapshot_scope::SnapshotScopeV1::capture(
+                ctx.transaction,
+                &mut work.cells_remaining,
+                &mut work.bytes_remaining,
+                &mut ctx.cancelled,
+            )?;
+
+        let fee = memory
+            .reserve(size_of::<CurrentFactoryScheduleReceiptSnapshotV1>(), class)
+            .map_err(ValueTreeError::Memory)?;
+        let guard = ctx.transaction.guard();
+        ctx.transaction.validate_guard(&guard, live)?;
+        Ok(fee.retain(CurrentFactoryScheduleReceiptSnapshotV1 {
+            current,
+            counts,
+            scope,
+            guard,
+            memory: memory.clone(),
+        }))
+    })
+}
+
+pub struct FrozenFactoryScheduleReceiptsV1 {
+    current: ReservedValue<CurrentFactoryScheduleReceiptSnapshotV1>,
+    guard: PreparedGuard,
+    memory: MemoryBudget,
+}
+impl FrozenFactoryScheduleReceiptsV1 {
+    pub fn validate_guard<M: MerkleNodeReader>(
+        &self,
+        tx: &oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+        memory: &MemoryBudget,
+        live: &ExecutionFence,
+    ) -> Result<(), crate::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+        tx.validate_guard(&self.guard, live)?;
+        if !self.memory.same_pool(memory)
+            || !self.current.uses_budget(memory)
+            || !tx.uses_budget(memory)
+        {
+            return Err(invalid().into());
+        }
+        Ok(())
+    }
+    pub fn validate_sealed(
+        &self,
+        binding: &oasis7_formal_protocol::incremental_execution::SealedExecutionBindingV1,
+        roots: &RootSetV1,
+        memory: &MemoryBudget,
+    ) -> Result<(), crate::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+        if !self.memory.same_pool(memory) || !self.current.uses_budget(memory) {
+            return Err(invalid().into());
+        }
+        binding.validate_source_guard(&self.guard, memory)?;
+        binding.validate_after_roots(roots, memory)?;
+        Ok(())
+    }
+    pub fn rebind_after_seal_v1(
+        &self,
+        binding: &oasis7_formal_protocol::incremental_execution::SealedExecutionBindingV1,
+        roots: &RootSetV1,
+        memory: &MemoryBudget,
+        work: &mut FactoryScheduleReceiptWorkV1,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<
+        ReservedValue<FactoryScheduleReceiptIndexV1>,
+        crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+    > {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let wire = roots
+            .world_id
+            .len()
+            .checked_add(6 * oasis7_formal_protocol::incremental_state::STATE_ROOT_BYTES + 1024)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or_else(invalid)?;
+        work.charge(wire)?;
+        let _phase = memory
+            .reserve(wire, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        self.validate_sealed(binding, roots, memory)?;
+        let slots = memory
+            .reserve(
+                self.current
+                    .rows
+                    .len()
+                    .checked_mul(size_of::<Held>())
+                    .ok_or_else(invalid)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
+        let fee = memory
+            .reserve(
+                size_of::<FactoryScheduleReceiptIndexV1>(),
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
+        let mut rows = Vec::with_capacity(self.current.rows.len());
+        if rows.capacity() != self.current.rows.len() {
+            return Err(invalid().into());
+        }
+        for row in &self.current.rows {
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            work.charge(0)?;
+            if !row.uses_budget(memory) || row.class != MemoryClass::Ordinary {
+                return Err(invalid().into());
+            }
+            rows.push(Arc::clone(row));
+        }
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        Ok(fee.retain(FactoryScheduleReceiptIndexV1 {
+            roots: binding.after_roots_digest(),
+            counts: self.current.counts,
+            class: MemoryClass::Ordinary,
+            rows,
+            _slots: slots,
+        }))
+    }
+}
+/// Only a genuine completed snapshot can be rebound to the terminal cut. The
+/// actual global pending writes must still match; unrelated later reads are fine.
+pub fn freeze_current_factory_schedule_receipts_v1<M: MerkleNodeReader>(
+    current: ReservedValue<CurrentFactoryScheduleReceiptSnapshotV1>,
+    tx: &mut oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+    work: &mut FactoryScheduleReceiptWorkV1,
+    live: &ExecutionFence,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<
+    ReservedValue<FrozenFactoryScheduleReceiptsV1>,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+> {
+    tx.contribute(|tx| {
+        tx.validate_transaction_identity(&current.guard)?;
+        tx.validate_guard(&tx.guard(), live)?;
+        if !current.uses_budget(&current.memory) || !tx.uses_budget(&current.memory) {
+            return Err(invalid().into());
+        }
+        current.scope.validate(
+            tx,
+            &mut work.cells_remaining,
+            &mut work.bytes_remaining,
+            &mut cancelled,
+        )?;
+        let fee = current
+            .memory
+            .reserve(
+                size_of::<FrozenFactoryScheduleReceiptsV1>(),
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let guard = tx.guard();
+        tx.validate_guard(&guard, live)?;
+        let memory = current.memory.clone();
+        Ok(fee.retain(FrozenFactoryScheduleReceiptsV1 {
+            current,
+            guard,
+            memory,
+        }))
+    })
+}

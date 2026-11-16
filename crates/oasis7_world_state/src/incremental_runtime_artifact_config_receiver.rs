@@ -288,6 +288,7 @@ where
         .map_err(ValueTreeError::Memory)?;
     let mut registry_records = parent.registry_records();
     let mut registry_active = parent.registry_active_count();
+    let mut registry_keys = parent.registry_keys.ordinary(ctx.values.memory)?;
     for write in &verified.record.writes {
         work.cell()?;
         let Some((field, key)) = family::field_key(write.namespace, &write.mutation.key)? else {
@@ -369,6 +370,17 @@ where
             (Some(_), None) => {}
             (None, None) => return Err(read::invalid().into()),
         }
+        if field == ArtifactConfigFieldV1::RegistryManifest {
+            registry_keys.change(
+                key.as_bytes(),
+                write.mutation.before.is_some(),
+                write.mutation.after.is_some(),
+                ctx.values.memory,
+                work,
+                ctx.key_work,
+                &mut ctx.cancelled,
+            )?;
+        }
         ctx.check()?;
     }
     let result = family::mint(
@@ -379,6 +391,7 @@ where
             .map_err(|_| read::invalid())?,
         registry_records,
         registry_active,
+        std::sync::Arc::new(registry_keys),
         ctx.values.memory,
         ctx.values.class,
     )?;

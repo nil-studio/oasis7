@@ -150,8 +150,32 @@ pub(super) fn append(
     }
     Ok(())
 }
-pub(super) fn point<M, R, E, C>(
+pub(in crate::world) fn point<M, R, E, C>(
     history: &AcceptedRuntimeHistorySourceV1,
+    ordinal: u64,
+    read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut ProductValidationDeliveryWorkV1,
+    common: &mut FormalBoundedContextV1<'_>,
+) -> Result<
+    oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexRowV1,
+    DeliveryDataErrorV1,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    point_window(
+        &history.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()],
+        ordinal,
+        read,
+        work,
+        common,
+    )
+}
+pub(in crate::world) fn point_window<M, R, E, C>(
+    window: &oasis7_world_state::incremental_runtime_history_manifest::RuntimeHistoryWindowV1,
     ordinal: u64,
     read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut ProductValidationDeliveryWorkV1,
@@ -183,7 +207,7 @@ where
     ];
     let result = {
         let mut local = WorldFieldReadContextV1 {
-            root: &history.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()].root,
+            root: &window.root,
             state: read.state,
             values: oasis7_formal_protocol::incremental_value::ValueReadContext {
                 source: read.values.source,
@@ -199,7 +223,7 @@ where
         };
         read_runtime_history_index_point_v1(
             RuntimeHistoryLaneV1::Journal,
-            &history.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()],
+            window,
             ordinal,
             &mut local,
             &mut work.index,

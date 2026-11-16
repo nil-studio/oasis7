@@ -11,7 +11,10 @@ pub(crate) struct InventoryGroupMetaV1 {
 pub(crate) struct InventoryIndexWorkV1 {
     pub steps_remaining: u64,
 }
-impl InventoryIndexWorkV1 {
+pub(crate) trait InventoryIndexMeterV1 {
+    fn step(&mut self, c: &mut impl FnMut() -> bool) -> Result<(), ValueTreeError>;
+}
+impl InventoryIndexMeterV1 for InventoryIndexWorkV1 {
     fn step(&mut self, c: &mut impl FnMut() -> bool) -> Result<(), ValueTreeError> {
         if c() {
             return Err(ValueTreeError::Cancelled);
@@ -72,7 +75,7 @@ impl InventoryIndexV1 {
         meta: InventoryGroupMetaV1,
         left: Link,
         right: Link,
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Arc<ReservedValue<Node>>, ValueTreeError> {
         w.step(c)?;
@@ -101,7 +104,7 @@ impl InventoryIndexV1 {
         m: InventoryGroupMetaV1,
         l: Link,
         r: Link,
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Arc<ReservedValue<Node>>, ValueTreeError> {
         if height(&l) > height(&r) + 1 {
@@ -133,7 +136,7 @@ impl InventoryIndexV1 {
         n: &Link,
         key: [u8; 32],
         value: Option<InventoryGroupMetaV1>,
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Link, ValueTreeError> {
         w.step(c)?;
@@ -179,7 +182,7 @@ impl InventoryIndexV1 {
     pub fn insert(
         &self,
         m: InventoryGroupMetaV1,
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Self, ValueTreeError> {
         Ok(Self {
@@ -191,7 +194,7 @@ impl InventoryIndexV1 {
     pub fn remove(
         &self,
         p: [u8; 32],
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Self, ValueTreeError> {
         Ok(Self {
@@ -203,7 +206,7 @@ impl InventoryIndexV1 {
     pub fn get(
         &self,
         p: [u8; 32],
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Option<InventoryGroupMetaV1>, ValueTreeError> {
         let mut n = &self.root;
@@ -221,7 +224,7 @@ impl InventoryIndexV1 {
         &self,
         after: Option<[u8; 32]>,
         limit: usize,
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
         mut emit: impl FnMut(InventoryGroupMetaV1) -> Result<(), ValueTreeError>,
     ) -> Result<(), ValueTreeError> {
@@ -230,7 +233,7 @@ impl InventoryIndexV1 {
             n: &Link,
             after: Option<[u8; 32]>,
             left: &mut usize,
-            w: &mut InventoryIndexWorkV1,
+            w: &mut impl InventoryIndexMeterV1,
             c: &mut impl FnMut() -> bool,
             emit: &mut impl FnMut(InventoryGroupMetaV1) -> Result<(), ValueTreeError>,
         ) -> Result<(), ValueTreeError> {
@@ -256,7 +259,7 @@ impl InventoryIndexV1 {
         &self,
         memory: &MemoryBudget,
         class: MemoryClass,
-        w: &mut InventoryIndexWorkV1,
+        w: &mut impl InventoryIndexMeterV1,
         c: &mut impl FnMut() -> bool,
     ) -> Result<Self, ValueTreeError> {
         if !self.uses_budget(memory) || class != MemoryClass::Ordinary {
@@ -268,7 +271,7 @@ impl InventoryIndexV1 {
             src: &InventoryIndexV1,
             dst: &InventoryIndexV1,
             n: &Link,
-            w: &mut InventoryIndexWorkV1,
+            w: &mut impl InventoryIndexMeterV1,
             c: &mut impl FnMut() -> bool,
         ) -> Result<Link, ValueTreeError> {
             let Some(n) = n else { return Ok(None) };
@@ -282,4 +285,9 @@ impl InventoryIndexV1 {
         dst.root = copy(self, &dst, &self.root, w, c)?;
         Ok(dst)
     }
+}
+
+/// Fixed actual node/branch operation copy envelope, not a graph-size cap.
+pub(crate) fn processing_step_bytes_v1() -> usize {
+    std::mem::size_of::<Node>() + 128
 }

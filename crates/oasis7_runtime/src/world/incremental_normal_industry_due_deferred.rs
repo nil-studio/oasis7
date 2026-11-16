@@ -26,18 +26,28 @@ fn charge(common: &mut FormalBoundedContextV1<'_>, bytes: usize) -> Result<(), B
         .map_err(|e| BodyMutationError::Original(Box::new(e)))
 }
 enum EventOwnerV1 {
+    Organization(crate::world::incremental_normal_organization_tail::PreparedNormalOrganizationEventV1),
+    ClaimEpoch(crate::world::incremental_normal_claim_epochs::PreparedNormalClaimEpochEventV1),
+    GameplayCycle(crate::world::incremental_normal_gameplay_cycles::PreparedGameplayCycleEventV1),
+    Transit(crate::world::incremental_normal_tail::transits::PreparedNormalMaterialTransitV1),
     Build(crate::world::incremental_normal_tail::factory_built::PreparedNormalFactoryBuiltV1),
     Complete(PreparedNormalRecipeCompletedV1),
     Failure(PreparedNormalRecipeFailureV1),
     Attempt(PreparedNormalProductAttemptV1),
+    WorldRule(crate::world::incremental_normal_world_rule_lifecycle::PreparedNormalWorldRuleLifecycleEventV1),
 }
 impl EventOwnerV1 {
     fn event(&self) -> &crate::WorldEvent {
         match self {
+            Self::Organization(v) => v.event(),
+            Self::ClaimEpoch(v) => v.event(),
+            Self::GameplayCycle(v) => v.event(),
+            Self::Transit(v) => v.event(),
             Self::Build(v) => v.event(),
             Self::Complete(v) => v.event(),
             Self::Failure(v) => v.event(),
             Self::Attempt(v) => v.event(),
+            Self::WorldRule(v) => v.event(),
         }
     }
     fn era(&self) -> Option<u64> {
@@ -180,6 +190,221 @@ where
     F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
     O: OriginalObjectStreamReader,
 {
+    pub(in crate::world) fn persist_world_rule_lifecycle_v1<ME>(
+        &mut self,
+        source: crate::world::incremental_normal_world_rule_lifecycle::PreparedNormalWorldRuleLifecycleEventV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<PaidDeferredDueEventV1, RootModuleExecutionErrorV1<O::Error>>
+    where
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let result = (|| {
+            charge(common, size_of::<PaidDeferredDueEventV1>())
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+            let phase = common
+                .memory()
+                .reserve(size_of::<PaidDeferredDueEventV1>(), MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let live = live_owner();
+            let _persisted=crate::world::incremental_module_execution_event::contribute_normal_world_rule_lifecycle_event_v1(self.now,&source,common,&live,self.ctx.transaction,self.events,materials).map_err(RootModuleExecutionErrorV1::Body)?;
+            drop(_persisted);
+            let counted = self
+                .events
+                .world_events
+                .latest_source(self.ctx.transaction)
+                .map_err(RootModuleExecutionErrorV1::Body)?
+                .ok_or_else(|| RootModuleExecutionErrorV1::Body(invalid()))?;
+            Ok(PaidDeferredDueEventV1 {
+                owner: EventOwnerV1::WorldRule(source),
+                counted,
+                identity: common.work().identity(),
+                memory: common.memory().clone(),
+                now: self.now,
+                _phase: phase,
+            })
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+    pub(in crate::world) fn persist_due_claim_epoch_v1<ME>(
+        &mut self,
+        source: crate::world::incremental_normal_claim_epochs::PreparedNormalClaimEpochEventV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<PaidDeferredDueEventV1, RootModuleExecutionErrorV1<O::Error>>
+    where
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let result = (|| {
+            charge(common, size_of::<PaidDeferredDueEventV1>())
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+            let phase = common
+                .memory()
+                .reserve(size_of::<PaidDeferredDueEventV1>(), MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let live = live_owner();
+            let _persisted=crate::world::incremental_module_execution_event::contribute_normal_claim_epoch_event_v1(self.now,&source,common,&live,self.ctx.transaction,self.events,materials).map_err(RootModuleExecutionErrorV1::Body)?;
+            drop(_persisted);
+            let counted = self
+                .events
+                .world_events
+                .latest_source(self.ctx.transaction)
+                .map_err(RootModuleExecutionErrorV1::Body)?
+                .ok_or_else(|| RootModuleExecutionErrorV1::Body(invalid()))?;
+            Ok(PaidDeferredDueEventV1 {
+                owner: EventOwnerV1::ClaimEpoch(source),
+                counted,
+                identity: common.work().identity(),
+                memory: common.memory().clone(),
+                now: self.now,
+                _phase: phase,
+            })
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+    pub(in crate::world) fn persist_due_organization_tail_v1<ME>(
+        &mut self,
+        source: crate::world::incremental_normal_organization_tail::PreparedNormalOrganizationEventV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<PaidDeferredDueEventV1, RootModuleExecutionErrorV1<O::Error>>
+    where
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let result = (|| {
+            charge(common, size_of::<PaidDeferredDueEventV1>())
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+            let phase = common
+                .memory()
+                .reserve(size_of::<PaidDeferredDueEventV1>(), MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let live = live_owner();
+            let _persisted=crate::world::incremental_module_execution_event::contribute_normal_organization_tail_event_v1(self.now,&source,common,&live,self.ctx.transaction,self.events,materials).map_err(RootModuleExecutionErrorV1::Body)?;
+            drop(_persisted);
+            let counted = self
+                .events
+                .world_events
+                .latest_source(self.ctx.transaction)
+                .map_err(RootModuleExecutionErrorV1::Body)?
+                .ok_or_else(|| RootModuleExecutionErrorV1::Body(invalid()))?;
+            Ok(PaidDeferredDueEventV1 {
+                owner: EventOwnerV1::Organization(source),
+                counted,
+                identity: common.work().identity(),
+                memory: common.memory().clone(),
+                now: self.now,
+                _phase: phase,
+            })
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+    pub(in crate::world) fn persist_due_gameplay_cycle_v1<ME>(
+        &mut self,
+        source: crate::world::incremental_normal_gameplay_cycles::PreparedGameplayCycleEventV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<PaidDeferredDueEventV1, RootModuleExecutionErrorV1<O::Error>>
+    where
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let result = (|| {
+            charge(common, size_of::<PaidDeferredDueEventV1>())
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+            let phase = common
+                .memory()
+                .reserve(size_of::<PaidDeferredDueEventV1>(), MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let live = live_owner();
+            let _persisted=crate::world::incremental_module_execution_event::contribute_normal_gameplay_cycle_event_v1(self.now,&source,common,&live,self.ctx.transaction,self.events,materials).map_err(RootModuleExecutionErrorV1::Body)?;
+            drop(_persisted);
+            let counted = self
+                .events
+                .world_events
+                .latest_source(self.ctx.transaction)
+                .map_err(RootModuleExecutionErrorV1::Body)?
+                .ok_or_else(|| RootModuleExecutionErrorV1::Body(invalid()))?;
+            Ok(PaidDeferredDueEventV1 {
+                owner: EventOwnerV1::GameplayCycle(source),
+                counted,
+                identity: common.work().identity(),
+                memory: common.memory().clone(),
+                now: self.now,
+                _phase: phase,
+            })
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+    pub(in crate::world) fn persist_due_material_transit_v1<ME>(
+        &mut self,
+        source: crate::world::incremental_normal_tail::transits::PreparedNormalMaterialTransitV1,
+        materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<PaidDeferredDueEventV1, RootModuleExecutionErrorV1<O::Error>>
+    where
+        ME: FnMut() -> Option<ValueTreeError>,
+    {
+        let result = (|| {
+            charge(common, size_of::<PaidDeferredDueEventV1>())
+                .map_err(RootModuleExecutionErrorV1::Body)?;
+            let phase = common
+                .memory()
+                .reserve(size_of::<PaidDeferredDueEventV1>(), MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let live = live_owner();
+            let _persisted=crate::world::incremental_module_execution_event::contribute_normal_material_transit_event_v1(self.now,&source,common,&live,self.ctx.transaction,self.events,materials).map_err(RootModuleExecutionErrorV1::Body)?;
+            drop(_persisted);
+            let counted = self
+                .events
+                .world_events
+                .latest_source(self.ctx.transaction)
+                .map_err(RootModuleExecutionErrorV1::Body)?
+                .ok_or_else(|| RootModuleExecutionErrorV1::Body(invalid()))?;
+            Ok(PaidDeferredDueEventV1 {
+                owner: EventOwnerV1::Transit(source),
+                counted,
+                identity: common.work().identity(),
+                memory: common.memory().clone(),
+                now: self.now,
+                _phase: phase,
+            })
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
     pub(in crate::world) fn persist_due_factory_built_v1<ME>(
         &mut self,
         source: crate::world::incremental_normal_tail::factory_built::PreparedNormalFactoryBuiltV1,

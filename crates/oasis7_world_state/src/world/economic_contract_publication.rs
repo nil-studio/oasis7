@@ -237,21 +237,13 @@ impl PreparedEconomicContractEvent {
                 counterparty_reputation_delta,
             } => {
                 let mut contract = contract(state, contract_id)?;
-                reject_service(&contract)?;
-                match contract.status {
-                    EconomicContractStatus::Open | EconomicContractStatus::Accepted => {}
-                    EconomicContractStatus::Settled | EconomicContractStatus::Expired => {
-                        return Err(invalid(format!(
-                            "economic contract already finalized before expiry: {contract_id}"
-                        )));
-                    }
-                }
-                contract.status = EconomicContractStatus::Expired;
-                contract.settled_at = Some(now);
-                contract.settlement_success = Some(false);
-                contract.transfer_amount = 0;
-                contract.tax_amount = 0;
-                contract.settlement_notes = Some("auto expired by gameplay lifecycle".into());
+                let projected=crate::incremental_normal_gameplay_cycles_selected::selected_economic_expiry_projection_v1(contract_id,contract.fulfillment_kind,contract.status,now)?;
+                contract.status = projected.status;
+                contract.settled_at = projected.settled_at;
+                contract.settlement_success = projected.settlement_success;
+                contract.transfer_amount = projected.transfer_amount;
+                contract.tax_amount = projected.tax_amount;
+                contract.settlement_notes = Some(projected.settlement_notes.into());
                 saturating_reputation(
                     state,
                     &mut reputation,
@@ -533,13 +525,9 @@ fn touch(
     }
 }
 fn reject_service(contract: &EconomicContractState) -> Result<(), WorldError> {
-    if contract.fulfillment_kind == EconomicContractFulfillmentKind::Service {
-        Err(invalid(
-            "service contracts unavailable: collateral/evidence/remedy not implemented",
-        ))
-    } else {
-        Ok(())
-    }
+    crate::incremental_normal_gameplay_cycles_selected::reject_service_fulfillment_v1(
+        contract.fulfillment_kind,
+    )
 }
 fn set_resource(
     state: &WorldState,

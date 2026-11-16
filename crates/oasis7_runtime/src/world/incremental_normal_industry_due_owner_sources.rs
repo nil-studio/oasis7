@@ -88,7 +88,7 @@ where
         ],
     ))
 }
-fn paid<M, R, E, C, T>(
+pub(in crate::world) fn paid<M, R, E, C, T>(
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     work: &mut IndustrialEligibilityWorkV1,
     orders: &mut FactoryOrderDirectoryWorkV1,

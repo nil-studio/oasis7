@@ -28,26 +28,19 @@ impl World {
             logistics_route_ids: vec![],
             logistics_path_ids: vec![],
         };
-        // Binding happens only on the private clone. Reuse real grant and domain
-        // admission without stepping the world or completing unrelated jobs.
-        let mut preview_world = self.clone();
-        let request_id = "builtin-recipe-read-only-preview";
-        preview_world.bind_agent_causal_decision(
-            request_id,
-            agent,
-            &action,
-            AgentDecisionCausalContextV1::default(),
+        let binding = super::agent_delegation::readonly::prepare_recipe_preview_binding_v1(
+            self, agent, &action,
         )?;
-        preview_world.prepare_agent_delegation_commit(request_id, &action)?;
-        let mut authorization = preview_world
-            .bound_agent_delegation_authorization(request_id, &action)?
-            .ok_or_else(|| invalid("native recipe grant required"))?;
-        let body = preview_world.action_to_event(&ActionEnvelope {
-            id: 0,
-            action: action.clone(),
-            governance_authorization: None,
-            committed_recipe_origin: None,
-        })?;
+        let mut authorization = binding.authorization().clone();
+        let body = self.action_to_event_with_native_recipe_preview_v1(
+            &ActionEnvelope {
+                id: 0,
+                action: action.clone(),
+                governance_authorization: None,
+                committed_recipe_origin: None,
+            },
+            Some(&binding),
+        )?;
         authorization.cost_units =
             u64::try_from(plan.power_required).map_err(|_| invalid("invalid canonical power"))?;
         let electricity_before = self
@@ -58,46 +51,19 @@ impl World {
             .state
             .resources
             .get(ResourceKind::Electricity);
-        let (rejection, preview, electricity_after) = match body {
-            WorldEventBody::Domain(DomainEvent::RecipeStarted {
-                consume_ledger,
-                output_ledger,
-                consume,
-                produce,
-                byproducts,
-                power_required,
-                duration_ticks,
-                ..
-            }) => (
-                None,
-                Some(BuiltinRecipeStartPreview {
-                    consume_ledger,
-                    output_ledger,
-                    consume,
-                    produce,
-                    byproducts,
-                    power_required,
-                    duration_ticks,
-                }),
-                electricity_before.checked_sub(power_required),
-            ),
-            WorldEventBody::Domain(DomainEvent::ActionRejected { reason, .. }) => {
-                (Some(reason), None, None)
-            }
-            _ => return Err(invalid("native recipe preview unavailable")),
-        };
-        let output = NativeBuiltinRecipeQuote {
+        readonly::from_event_v1(
             action,
-            quoted_at_tick: self.state.time,
             authorization,
+            body,
             electricity_before,
-            electricity_after,
-            rejection,
-            preview,
-        };
-        output
-            .validate_selection(agent, factory, recipe, batches)
-            .map_err(|_| invalid("native recipe quote inconsistent"))?;
-        Ok(output)
+            self.state.time,
+            agent,
+            factory,
+            recipe,
+            batches,
+            &mut super::agent_delegation::readonly::LegacyWork,
+        )
     }
 }
+#[path = "builtin_recipe_quote_readonly.rs"]
+pub(in crate::world) mod readonly;

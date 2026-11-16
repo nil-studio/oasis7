@@ -43,7 +43,7 @@ impl<C: FnMut() -> bool> Write for Buffer<'_, '_, '_, C> {
         Ok(())
     }
 }
-pub(super) fn read<O: OriginalObjectStreamReader, C: FnMut() -> bool>(
+pub(in crate::world) fn read<O: OriginalObjectStreamReader, C: FnMut() -> bool>(
     id: &[u8; 32],
     exact: Option<u64>,
     originals: &mut O,

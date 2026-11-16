@@ -10,6 +10,18 @@ use oasis7_agent_api::world_action::ModuleSourcePackage;
 
 pub(crate) struct HostModuleSourceCompiler;
 impl ModuleSourceCompiler for HostModuleSourceCompiler {
+    fn compile_to(
+        &self,
+        module_id: &str,
+        package: &ModuleSourcePackage,
+        max_output_bytes: usize,
+        output: &mut dyn std::io::Write,
+        progress: &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
+    ) -> Result<(), WorldError> {
+        with_compiled_module_output(module_id, package, progress, |path, progress| {
+            stream_compiled_output(path, max_output_bytes, output, progress)
+        })
+    }
     fn compile(
         &self,
         module_id: &str,
@@ -56,6 +68,25 @@ pub(crate) fn compile_module_artifact_from_source(
     module_id: &str,
     source_package: &ModuleSourcePackage,
 ) -> Result<Vec<u8>, WorldError> {
+    with_compiled_module_output(module_id, source_package, &mut |_, _| Ok(()), |path, _| {
+        fs::read(path).map_err(|error| WorldError::ModuleChangeInvalid {
+            reason: format!(
+                "compile module source rejected: output missing path={} err={error}",
+                path.display()
+            ),
+        })
+    })
+}
+fn with_compiled_module_output<T>(
+    module_id: &str,
+    source_package: &ModuleSourcePackage,
+    progress: &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
+    read_output: impl FnOnce(
+        &Path,
+        &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
+    ) -> Result<T, WorldError>,
+) -> Result<T, WorldError> {
+    progress(1, 0)?;
     if module_id.trim().is_empty() {
         return Err(WorldError::ModuleChangeInvalid {
             reason: "compile module source rejected: module_id is empty".to_string(),
@@ -83,12 +114,19 @@ pub(crate) fn compile_module_artifact_from_source(
         let manifest_rel = validate_relative_source_path(source_package.manifest_path.as_str())?;
 
         for (file_path, file_bytes) in &source_package.files {
+            progress(1, file_path.len() as u64)?;
             let rel_path = validate_relative_source_path(file_path.as_str())?;
             let full_path = workspace_dir.join(rel_path);
             if let Some(parent) = full_path.parent() {
                 fs::create_dir_all(parent).map_err(WorldError::from)?;
             }
-            fs::write(full_path, file_bytes).map_err(WorldError::from)?;
+            use std::io::Write;
+            progress(1, 0)?;
+            let mut file = fs::File::create(full_path).map_err(WorldError::from)?;
+            for chunk in file_bytes.chunks(8192) {
+                progress(1, chunk.len() as u64)?;
+                file.write_all(chunk).map_err(WorldError::from)?;
+            }
         }
 
         let manifest_abs = workspace_dir.join(manifest_rel.as_path());
@@ -113,6 +151,7 @@ pub(crate) fn compile_module_artifact_from_source(
                 source_package.manifest_path.as_str(),
                 out_path.as_path(),
                 sandbox_tmp_dir.as_path(),
+                progress,
             )?;
         } else {
             compile_via_default_script(
@@ -121,17 +160,11 @@ pub(crate) fn compile_module_artifact_from_source(
                 source_package.manifest_path.as_str(),
                 out_dir.as_path(),
                 sandbox_tmp_dir.as_path(),
+                progress,
             )?;
         }
 
-        let output_bytes =
-            fs::read(out_path.as_path()).map_err(|error| WorldError::ModuleChangeInvalid {
-                reason: format!(
-                    "compile module source rejected: output missing path={} err={error}",
-                    out_path.display()
-                ),
-            })?;
-        Ok(output_bytes)
+        read_output(out_path.as_path(), progress)
     })();
 
     let _ = fs::remove_dir_all(&workspace_dir);
@@ -145,6 +178,7 @@ fn compile_via_custom_command(
     manifest_path: &str,
     out_path: &Path,
     sandbox_tmp_dir: &Path,
+    progress: &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
 ) -> Result<(), WorldError> {
     let mut command = Command::new(compiler_path);
     command
@@ -159,6 +193,7 @@ fn compile_via_custom_command(
         &mut command,
         compile_timeout(),
         format!("compiler={}", compiler_path.display()).as_str(),
+        progress,
     )?;
 
     if status.success() {
@@ -179,6 +214,7 @@ fn compile_via_default_script(
     manifest_path: &str,
     out_dir: &Path,
     sandbox_tmp_dir: &Path,
+    progress: &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
 ) -> Result<(), WorldError> {
     let script_path = repo_root().join("scripts").join("build-wasm-module.sh");
     let manifest_abs = workspace_dir.join(manifest_path);
@@ -200,6 +236,7 @@ fn compile_via_default_script(
         &mut command,
         compile_timeout(),
         format!("script={}", script_path.display()).as_str(),
+        progress,
     )?;
 
     if status.success() {
@@ -289,7 +326,9 @@ fn run_command_with_timeout(
     command: &mut Command,
     timeout: Duration,
     command_label: &str,
+    progress: &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
 ) -> Result<ExitStatus, WorldError> {
+    progress(1, 0)?;
     let mut child = command
         .spawn()
         .map_err(|error| WorldError::ModuleChangeInvalid {
@@ -299,8 +338,15 @@ fn run_command_with_timeout(
             ),
         })?;
 
+    let mut child = CompilerChild(child);
+
     let deadline = Instant::now() + timeout;
     loop {
+        if let Err(error) = progress(1, 0) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
         if let Some(status) = child
             .try_wait()
             .map_err(|error| WorldError::ModuleChangeInvalid {
@@ -466,5 +512,116 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+fn stream_compiled_output(
+    path: &Path,
+    max_bytes: usize,
+    output: &mut dyn std::io::Write,
+    progress: &mut dyn FnMut(u64, u64) -> Result<(), WorldError>,
+) -> Result<(), WorldError> {
+    use std::io::Read;
+    progress(1, 0)?;
+    let mut file = fs::File::open(path).map_err(WorldError::from)?;
+    let mut remaining = max_bytes;
+    let mut buffer = [0u8; 8192];
+    loop {
+        let request = buffer.len().min(remaining.saturating_add(1));
+        progress(1, request as u64)?;
+        let read = match file.read(&mut buffer[..request]) {
+            Ok(n) => n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if read == 0 {
+            return Ok(());
+        }
+        if read > remaining {
+            return Err(WorldError::ModuleChangeInvalid {
+                reason: "compile module source rejected: output exceeds caller limit".into(),
+            });
+        }
+        progress(1, read as u64)?;
+        output
+            .write_all(&buffer[..read])
+            .map_err(WorldError::from)?;
+        remaining -= read;
+    }
+}
+
+/// A rejected or unwinding caller must never leave its compiler running.
+struct CompilerChild(std::process::Child);
+impl std::ops::Deref for CompilerChild {
+    type Target = std::process::Child;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for CompilerChild {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl Drop for CompilerChild {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    struct OutputFixture(PathBuf);
+    impl OutputFixture {
+        fn new(bytes: &[u8]) -> Self {
+            let path = temp_source_workspace("stream-fixture");
+            fs::create_dir_all(&path).unwrap();
+            fs::write(path.join("output.wasm"), bytes).unwrap();
+            Self(path)
+        }
+        fn output(&self) -> PathBuf {
+            self.0.join("output.wasm")
+        }
+    }
+    impl Drop for OutputFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn streaming_output_checks_exact_limit_and_rejects_extra_byte() {
+        let bytes = vec![7; 8193];
+        let fixture = OutputFixture::new(&bytes);
+        let mut actual = Vec::new();
+        let mut calls = 0;
+        stream_compiled_output(&fixture.output(), bytes.len(), &mut actual, &mut |_, _| {
+            calls += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(actual, bytes);
+        assert!(calls >= 5);
+        let mut too_small = Vec::new();
+        assert!(
+            stream_compiled_output(&fixture.output(), 8192, &mut too_small, &mut |_, _| Ok(()))
+                .is_err()
+        );
+        assert!(too_small.len() <= 8192);
+    }
+    #[test]
+    fn streaming_output_preserves_work_failure_before_output() {
+        let fixture = OutputFixture::new(b"wasm");
+        let mut actual = Vec::new();
+        let error = stream_compiled_output(&fixture.output(), 4, &mut actual, &mut |_, _| {
+            Err(WorldError::Unavailable("caller stopped".into()))
+        })
+        .unwrap_err();
+        assert!(matches!(error,WorldError::Unavailable(ref message) if message=="caller stopped"));
+        assert!(actual.is_empty());
     }
 }

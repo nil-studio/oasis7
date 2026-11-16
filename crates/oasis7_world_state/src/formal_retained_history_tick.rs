@@ -127,3 +127,6 @@ impl FormalRetainedHistoryIndexViewV1 {
         Ok(Some(record))
     }
 }
+
+#[path="formal_retained_history_tick_layout.rs"]
+mod owned_layout;

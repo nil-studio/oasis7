@@ -20,7 +20,7 @@ impl<E> From<ValueTreeError> for ProofLedgerSourceErrorV1<E> {
     }
 }
 struct ManifestSink<'a, C> {
-    bytes: [u8; COGNITION_PROOF_LEDGER_BYTES_V1],
+    bytes: [u8; COGNITION_PROOF_LEDGER_MAX_BYTES],
     at: usize,
     stopped: bool,
     cancelled: &'a mut C,
@@ -110,55 +110,60 @@ where
     let manifest_fee = context
         .memory
         .reserve(
-            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 5 * 512,
+            std::mem::size_of::<CognitionProofLedgerManifestV1>() + 8 * 512,
             context.class,
         )
         .map_err(ValueTreeError::Memory)?;
     let occurrence =
         verify_fact_occurrence_v1(request, context).map_err(ProofLedgerSourceErrorV1::Formal)?;
     if occurrence.fact_body_id() != occurrence.head_body_id()
-        || occurrence.original_bytes() != COGNITION_PROOF_LEDGER_BYTES_V1 as u64
+        || !usize::try_from(occurrence.original_bytes())
+            .ok()
+            .is_some_and(is_cognition_proof_ledger_length_v1)
     {
         return Err(invalid().into());
     }
+    let original_bytes = occurrence.original_bytes();
     context.fact_budget.facts_remaining = context
         .fact_budget
         .facts_remaining
         .checked_sub(1)
         .ok_or(ValueTreeError::ResourceLimited("ProofLedger originals"))?;
-    if context.fact_budget.max_fact_bytes < COGNITION_PROOF_LEDGER_BYTES_V1 as u64 {
+    if context.fact_budget.max_fact_bytes < original_bytes {
         return Err(ValueTreeError::ResourceLimited("ProofLedger original bound").into());
     }
     context.fact_budget.original_bytes_remaining = context
         .fact_budget
         .original_bytes_remaining
-        .checked_sub(COGNITION_PROOF_LEDGER_BYTES_V1 as u64)
+        .checked_sub(original_bytes)
         .ok_or(ValueTreeError::ResourceLimited(
             "ProofLedger original bytes",
         ))?;
     let mut sink = ManifestSink {
-        bytes: [0; COGNITION_PROOF_LEDGER_BYTES_V1],
+        bytes: [0; COGNITION_PROOF_LEDGER_MAX_BYTES],
         at: 0,
         stopped: false,
         cancelled: &mut context.cancelled,
     };
     let result = context.originals.stream_original(
         &request.location.original,
-        COGNITION_PROOF_LEDGER_BYTES_V1 as u64,
+        original_bytes,
         context.memory,
         &mut sink,
     );
     if (sink.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    if sink.stopped || sink.at != COGNITION_PROOF_LEDGER_BYTES_V1 {
+    if sink.stopped || sink.at as u64 != original_bytes {
         return Err(invalid().into());
     }
     let n = result.map_err(ProofLedgerSourceErrorV1::Original)?;
-    if n != sink.at as u64 || blake3::hash(&sink.bytes).as_bytes() != &request.location.original {
+    if n != sink.at as u64
+        || blake3::hash(&sink.bytes[..sink.at]).as_bytes() != &request.location.original
+    {
         return Err(invalid().into());
     }
-    let manifest = CognitionProofLedgerManifestV1::from_canonical_bytes(&sink.bytes)?;
+    let manifest = CognitionProofLedgerManifestV1::from_canonical_bytes(&sink.bytes[..sink.at])?;
     if manifest.roots != occurrence.roots_id()
         || occurrence.head_record_id() != request.head.verified_record_id()
     {

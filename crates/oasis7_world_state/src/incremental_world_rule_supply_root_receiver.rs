@@ -13,7 +13,7 @@ fn index(owner: SupplyRootKeyV1<'_>) -> usize {
         SupplyRootKeyV1::Batch(_) => 1,
     }
 }
-fn edge<
+pub(super) fn edge<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -22,7 +22,14 @@ fn edge<
     key: &WorldFieldKeyV1,
     value: Option<[u8; 32]>,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-) -> Result<Option<(SupplyRootKeyV1<'static>, ReservedValue<StateRootV1>)>, ValueTreeError> {
+) -> Result<
+    Option<(
+        SupplyRootKeyV1<'static>,
+        ReservedValue<StateRootV1>,
+        ReservedValue<String>,
+    )>,
+    ValueTreeError,
+> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -38,7 +45,19 @@ fn edge<
         &mut context.cancelled,
     )?;
     let root = context.values.load_root(&value)?;
-    let mut sink = std::io::sink();
+    let semantic_bytes = usize::try_from(info.semantic_bytes).map_err(|_| invalid())?;
+    let id_fee = context.values.memory.reserve(
+        semantic_bytes
+            .checked_add(std::mem::size_of::<String>())
+            .ok_or_else(invalid)?,
+        context.values.class,
+    )?;
+    let mut sink = Vec::new();
+    sink.try_reserve_exact(semantic_bytes)
+        .map_err(|_| invalid())?;
+    if sink.capacity() > semantic_bytes {
+        return Err(invalid());
+    }
     let mut probe = family::outer_key::OuterProbe::new(&mut sink);
     let result = context.values.read_range(
         &root,
@@ -54,6 +73,8 @@ fn edge<
     let Some(owner) = probe.finish()? else {
         return Ok(None);
     };
+    drop(probe);
+    let outer_id = id_fee.retain(String::from_utf8(sink).map_err(|_| invalid())?);
     if info.codec != MemberPayloadCodecV1::RecordRoot
         || info.payload_bytes != RECORD_ROOT_BYTES as u64
     {
@@ -92,9 +113,9 @@ fn edge<
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(Some((owner, retained.retain(child.clone()))))
+    Ok(Some((owner, retained.retain(child.clone()), outer_id)))
 }
-fn child<
+pub(super) fn child<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -262,6 +283,12 @@ pub(crate) fn accept_supply_verified_v1<
     let verified = witness.prepared();
     let _phase = supply_preflight(parent, &verified.record, context)?;
     let mut counts = parent.record_counts();
+    let mut lifecycle = parent.share_lifecycle(
+        context.values.memory,
+        context.values.class,
+        cells,
+        &mut context.cancelled,
+    )?;
     for write in &verified.record.writes {
         *cells = cells.checked_sub(1).ok_or(ValueTreeError::ResourceLimited(
             "supply outer changed cells",
@@ -297,9 +324,16 @@ pub(crate) fn accept_supply_verified_v1<
         }
         let old = edge(&key, write.mutation.before, context)?;
         let new = edge(&key, write.mutation.after, context)?;
+        if let Some((owner, root, id)) = &old {
+            let actual_owner = match owner {
+                SupplyRootKeyV1::Authorization(_) => SupplyRootKeyV1::Authorization(id),
+                SupplyRootKeyV1::Batch(_) => SupplyRootKeyV1::Batch(id),
+            };
+            parent.validate_lifecycle_record(actual_owner, root, cells)?;
+        }
         match (old, new) {
             (None, None) => {}
-            (Some((owner, _)), None) => {
+            (Some((owner, _, _)), None) => {
                 if write.mutation.after.is_some() || write.mutation.before.is_some() {
                     return Err(ValueTreeError::Invalid(
                         "supply whole record deletion lacks relationship proof",
@@ -308,10 +342,10 @@ pub(crate) fn accept_supply_verified_v1<
                 }
                 counts[index(owner)] = counts[index(owner)].checked_sub(1).ok_or_else(invalid)?;
             }
-            (old, Some((owner, new))) => {
+            (old, Some((owner, new, outer_id))) => {
                 if old
                     .as_ref()
-                    .is_some_and(|(old_owner, _)| index(*old_owner) != index(owner))
+                    .is_some_and(|(old_owner, _, _)| index(*old_owner) != index(owner))
                     || old.is_none() && write.mutation.before.is_some()
                 {
                     return Err(invalid().into());
@@ -322,9 +356,55 @@ pub(crate) fn accept_supply_verified_v1<
                 }
                 child(
                     owner,
-                    old.as_ref().map(|(_, root)| &**root),
+                    old.as_ref().map(|(_, root, _)| &**root),
                     &new,
                     context,
+                    scan,
+                    cells,
+                    max_payload,
+                )?;
+                let q_fee = context
+                    .values
+                    .memory
+                    .reserve(512, context.values.class)
+                    .map_err(ValueTreeError::Memory)?;
+                let q = q_fee.retain(SupplyRecordQualificationV1 {
+                    schema: owner.schema(),
+                    owner: binding.semantic_key.ok_or_else(invalid)?,
+                    root: (*new).clone(),
+                    class: context.values.class,
+                });
+                let _copy_fee = context
+                    .values
+                    .memory
+                    .reserve(
+                        outer_id
+                            .len()
+                            .checked_add(std::mem::size_of::<String>())
+                            .ok_or_else(invalid)?,
+                        context.values.class,
+                    )
+                    .map_err(ValueTreeError::Memory)?;
+                let mut inner = WorldFieldReadContextV1 {
+                    root: &new,
+                    state: context.state,
+                    values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                        source: context.values.source,
+                        memory: context.values.memory,
+                        class: context.values.class,
+                        io: &mut *context.values.io,
+                    },
+                    key_work: &mut *context.key_work,
+                    semantic_bytes: context.semantic_bytes,
+                    record_bytes: context.record_bytes,
+                    take_state_error: &mut context.take_state_error,
+                    cancelled: &mut context.cancelled,
+                };
+                lifecycle.insert(
+                    (*outer_id).clone(),
+                    index(owner),
+                    q,
+                    &mut inner,
                     scan,
                     cells,
                     max_payload,
@@ -345,6 +425,7 @@ pub(crate) fn accept_supply_verified_v1<
         present,
         context.values.memory,
         context.values.class,
+        lifecycle,
     )?;
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());

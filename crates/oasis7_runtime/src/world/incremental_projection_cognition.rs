@@ -185,7 +185,12 @@ pub(super) fn visit<S: GenesisFieldVisitor>(
     oasis7_world_state::visit_iws_field!(sink, field, continuations, ordered)?;
     // These contain current-root/receipt projections. Keep them in the
     // independent proof owner instead of introducing a RootSet self-cycle.
-    for key in ["recovery", "runtime_binding"] {
+    for key in [
+        "recovery",
+        "runtime_binding",
+        "service_causal_proposals",
+        "action_digests",
+    ] {
         if let Some(value) = object.get(key) {
             sink.side(
                 descriptor(key, FieldDestination::ProofLedger, FieldShape::Value),
@@ -199,9 +204,9 @@ pub(super) fn visit<S: GenesisFieldVisitor>(
         state_map(sink, "continuation_contexts", Namespace::Effects, value)?;
     }
     if let Some(value) = object.get("retention_state") {
-        // Terminal entries contain commit_record_id and receipt digests.
-        // They belong to the separately protected retention owner, not to
-        // the RootSet whose own commit is only formed afterwards.
+        // Terminal entries contain the original cognition commit ID and
+        // receipt digests. They retain their independent signed ledger owner;
+        // the cognition ID is not the containing IWS CanonicalRecord ID.
         sink.side(
             descriptor(
                 "retention_state",

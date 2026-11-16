@@ -10,6 +10,12 @@ pub(in crate::world) struct FrozenFactoryOrderDirectoryV1 {
     indices: Vec<Arc<CachedOrderIndexV1>>,
 }
 impl FrozenFactoryOrderDirectoryV1 {
+    pub(super) fn ids(&self) -> &[String] {
+        &self.ids
+    }
+    pub(super) fn indices(&self) -> &[Arc<CachedOrderIndexV1>] {
+        &self.indices
+    }
     pub(in crate::world) fn validate_guard<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,

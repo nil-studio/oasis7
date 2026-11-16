@@ -963,3 +963,5 @@ mod general;
 pub use general::accept_runtime_artifact_resources_transition_v1;
 
 pub(crate) use general::accept_runtime_artifact_resources_verified_v1;
+
+pub(crate) use general::project_actual_chain_resource_manifest_v1;

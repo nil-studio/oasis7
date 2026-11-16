@@ -6,10 +6,16 @@ use oasis7_formal_protocol::{
     incremental_state::{StateEntryV1, StateScanContext, StateScanError},
 };
 use std::{cell::RefCell, marker::PhantomData};
+#[path = "incremental_world_native_governance_keys.rs"]
+pub(crate) mod governance_keys;
+#[path = "incremental_world_native_governance_rows.rs"]
+pub(crate) mod governance_rows;
 #[path = "incremental_world_native_family_key.rs"]
-mod key;
+pub(crate) mod key;
 #[path = "incremental_world_native_family_receiver.rs"]
 mod receiver;
+#[path = "incremental_world_native_release_rows.rs"]
+pub(crate) mod release_rows;
 pub(crate) use receiver::{
     WorldNativeVerifiedTransitionV1, accept_world_native_field_verified_v1,
     verify_world_native_transition_v1,
@@ -20,8 +26,23 @@ pub(crate) struct WorldNativeFieldQualificationV1<F> {
     records: u64,
     class: MemoryClass,
     _field: PhantomData<fn() -> F>,
+    governance_rows: Option<governance_rows::GovernanceRowsV1>,
+    _governance_rows_ordinary: Option<oasis7_proto::memory_budget::MemoryReservation>,
+    release_rows: Option<release_rows::ReleaseRowsV1>,
+    _release_rows_ordinary: Option<oasis7_proto::memory_budget::MemoryReservation>,
+    governance_keys: Option<std::sync::Arc<governance_keys::GovernanceKeysV1>>,
+    _governance_keys_ordinary: Option<oasis7_proto::memory_budget::MemoryReservation>,
 }
-impl<F> WorldNativeFieldQualificationV1<F> {
+impl<F: WorldNativeFieldSpecV1> WorldNativeFieldQualificationV1<F> {
+    pub(crate) fn governance_rows(&self) -> Option<&governance_rows::GovernanceRowsV1> {
+        self.governance_rows.as_ref()
+    }
+    pub(crate) fn release_directory(&self) -> Option<&release_rows::ReleaseRowsV1> {
+        self.release_rows.as_ref()
+    }
+    pub(crate) fn governance_directory(&self) -> Option<&governance_keys::GovernanceKeysV1> {
+        self.governance_keys.as_deref()
+    }
     pub(crate) fn allocation_class(&self) -> MemoryClass {
         self.class
     }
@@ -29,6 +50,21 @@ impl<F> WorldNativeFieldQualificationV1<F> {
         self.records
     }
     pub(crate) fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {
+        if governance_keys::tracked::<F>()
+            && self.governance_keys.as_ref().map(|k| k.len() as u64) != Some(self.records)
+        {
+            return Err(invalid());
+        }
+        if F::NAME == "module_release_requests"
+            && self.release_rows.as_ref().map(|r| r.count) != Some(self.records)
+        {
+            return Err(invalid());
+        }
+        if governance_rows::tracked::<F>()
+            && self.governance_rows.as_ref().map(|r| r.count) != Some(self.records)
+        {
+            return Err(invalid());
+        }
         roots.validate().map_err(|_| invalid())?;
         if roots.digest().map_err(|_| invalid())? != self.roots {
             return Err(invalid());
@@ -151,6 +187,24 @@ fn qualify_inner<F: WorldNativeFieldSpecV1>(
     let mut pending = Vec::with_capacity(work.max_pending_records);
     let mut metadata = false;
     let mut count = 0u64;
+    let mut governance_rows = if governance_rows::tracked::<F>() {
+        Some(governance_rows::GovernanceRowsV1::empty(ctx.values.class))
+    } else {
+        None
+    };
+    let mut release_rows = if F::NAME == "module_release_requests" {
+        Some(release_rows::ReleaseRowsV1::empty(ctx.values.class))
+    } else {
+        None
+    };
+    let mut governance_keys = if governance_keys::tracked::<F>() {
+        Some(governance_keys::GovernanceKeysV1::empty(
+            ctx.values.memory,
+            ctx.values.class,
+        )?)
+    } else {
+        None
+    };
     let mut cursor = None;
     loop {
         read::check(ctx)?;
@@ -225,6 +279,32 @@ fn qualify_inner<F: WorldNativeFieldSpecV1>(
                         scan,
                         work,
                     )?;
+                    if let Some(rows) = &mut governance_rows {
+                        rows.replace::<F, _, _, _, _>(
+                            governance_rows::original(&original)?,
+                            Some(entry.value),
+                            Some(&child),
+                            ctx,
+                            scan,
+                            &mut work.typed,
+                            &mut work.records_remaining,
+                        )?;
+                    }
+                    if let Some(rows) = &mut release_rows {
+                        rows.replace(
+                            release_rows::original(&original)?,
+                            Some(entry.value),
+                            Some(&child),
+                            ctx,
+                            scan,
+                            &mut work.typed,
+                            &mut work.records_remaining,
+                        )?;
+                    }
+                    if let Some(keys) = &mut governance_keys {
+                        governance_keys::GovernanceKeysV1::pay(&entry.key, keys.len(), ctx, work)?;
+                        keys.insert(&entry.key, ctx.values.memory, ctx.values.class)?;
+                    }
                 }
                 _ => return Err(invalid()),
             }
@@ -249,6 +329,12 @@ fn qualify_inner<F: WorldNativeFieldSpecV1>(
         records: count,
         class: ctx.values.class,
         _field: PhantomData,
+        governance_rows,
+        _governance_rows_ordinary: None,
+        release_rows,
+        _release_rows_ordinary: None,
+        governance_keys: governance_keys.map(governance_keys::retain),
+        _governance_keys_ordinary: None,
     };
     let proof = retained.retain(value);
     read::check(ctx)?;
@@ -278,6 +364,27 @@ fn readmit_inner<F: WorldNativeFieldSpecV1>(
             records: source.records,
             class: MemoryClass::Ordinary,
             _field: PhantomData,
+            governance_rows: source.governance_rows.clone(),
+            _governance_rows_ordinary: source
+                .governance_rows
+                .as_ref()
+                .map(|r| r.coverage(memory))
+                .transpose()?
+                .flatten(),
+            release_rows: source.release_rows.clone(),
+            _release_rows_ordinary: source
+                .release_rows
+                .as_ref()
+                .map(|r| r.coverage(memory))
+                .transpose()?
+                .flatten(),
+            governance_keys: source.governance_keys.clone(),
+            _governance_keys_ordinary: source
+                .governance_keys
+                .as_ref()
+                .map(|k| k.ordinary_coverage(memory))
+                .transpose()?
+                .flatten(),
         },
     );
     if cancelled() {

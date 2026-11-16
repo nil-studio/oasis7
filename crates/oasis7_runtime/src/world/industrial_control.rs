@@ -3,119 +3,21 @@ use crate::CapabilityAgentIdentity;
 pub use oasis7_world_state::world::industrial_control::*;
 impl World {
     pub(crate) fn world_rule_binding(&self) -> Option<String> {
-        let m = &self.chain_resource_manifest;
-        let genesis = m.genesis_ref.as_deref().filter(|s| !s.is_empty())?;
-        if m.world_id.is_empty() || m.chain_id.is_empty() {
-            return None;
-        }
-        crate::util::hash_json(&(
-            "oasis7-world-rule-world-v1",
-            &m.world_id,
-            &m.chain_id,
-            genesis,
-        ))
-        .ok()
+        match readonly_runtime_owner::world_rule_binding_readonly_v1(self){Ok(value)=>value,Err(error)=>match error{}}
+    }
+    pub(crate) fn namespace_was_authorized_readonly_v1(&self,namespace:&oasis7_agent_api::game::GameIdentityNamespaceV1)->bool{
+        match readonly_runtime_owner::namespace_was_authorized_readonly_v1(self,namespace){Ok(value)=>value,Err(error)=>match error{}}
+    }
+    pub(crate) fn owner_public_key_observation_data_v1(&self,agent:&str)->Result<String,String>{
+        match readonly_runtime_owner::owner_public_key_readonly_v1(self,agent){Ok(value)=>value.map_err(str::to_owned),Err(error)=>match error{}}
     }
     /// Native grants bind the current credential generation as well as the
     /// immutable economic claim source. Reauthentication cannot revive a grant.
     pub fn current_agent_owner(&self, agent: &str) -> Option<ResolvedAgentOwnerV1> {
-        let participant = self
-            .capability_revocation_state
-            .participants
-            .bindings
-            .values()
-            .find(|receipt| receipt.agent_id == agent);
-        if let Some(receipt) = participant {
-            let policy = self
-                .capability_revocation_state
-                .participants
-                .policy
-                .as_ref()?;
-            let identity = self.current_agent_identity(agent)?;
-            if !self.state.agents.contains_key(agent)
-                || self.state.is_manufactured_agent(agent)
-                || receipt.world_id != self.chain_resource_manifest.world_id
-                || self.chain_resource_manifest.genesis_ref.as_ref()
-                    != Some(&receipt.genesis_digest)
-                || !receipt
-                    .identity_namespace
-                    .same_authority(&policy.identity_namespace)
-                || !crate::service_admission::participant::namespace_was_authorized(
-                    self,
-                    &receipt.identity_namespace,
-                )
-                || identity.owner_binding != receipt.owner_binding
-                || identity.generation != receipt.owner_generation.0
-                || self.state.agent_claims.get(agent).is_some_and(|claim| {
-                    claim.claim_owner_id != agent || claim.control_source.is_some()
-                })
-            {
-                return None;
-            }
-            if let Some(starter) = self.state.starter_oc_claims.get(agent)
-                && (starter.agent_id != agent
-                    || starter.player_id != receipt.owner_binding
-                    || starter.public_key.as_ref() != Some(&receipt.owner_public_key))
-            {
-                return None;
-            }
-            return Some(ResolvedAgentOwnerV1 {
-                primary_agent_id: agent.into(),
-                player_id: receipt.owner_binding.clone(),
-                public_key: Some(receipt.owner_public_key.clone()),
-                source_id: format!("participant:{}", receipt.business_digest),
-                generation: identity.generation,
-            });
-        }
-        let mut owner = self.state.resolved_agent_owner(agent)?;
-        if !self.state.is_manufactured_agent(agent) {
-            return Some(owner);
-        }
-        let identity = self.current_agent_identity(agent)?;
-        if owner.player_id != identity.owner_binding {
-            return None;
-        }
-        if self.state.is_manufactured_agent(agent) {
-            owner.source_id = format!("{}:identity:{}", owner.source_id, identity.generation);
-            owner.generation = identity.generation;
-        }
-        Some(owner)
+        match readonly_runtime_owner::current_agent_owner_readonly_v1(self,agent){Ok(value)=>value,Err(error)=>match error{}}
     }
     pub fn current_agent_identity(&self, agent: &str) -> Option<CapabilityAgentIdentity> {
-        if !self.state.is_manufactured_agent(agent) {
-            return self
-                .capability_revocation_state
-                .agent_identities
-                .get(agent)
-                .cloned();
-        }
-        let order = self
-            .state
-            .world_rules
-            .as_ref()?
-            .agent_orders
-            .values()
-            .find(|order| order.target_agent_id == agent && order.delivered_at.is_some())?;
-        if order.quote.world_binding != self.world_rule_binding() {
-            return None;
-        }
-        let owner = self.state.resolved_agent_owner(agent)?;
-        let root = self
-            .capability_revocation_state
-            .agent_identities
-            .get(&owner.primary_agent_id)?;
-        if root.owner_binding != owner.player_id {
-            return None;
-        }
-        let generation = manufactured_identity_generation(
-            &self.capability_revocation_state,
-            agent,
-            owner.generation,
-        )?;
-        Some(CapabilityAgentIdentity {
-            owner_binding: owner.player_id,
-            generation,
-        })
+        match readonly_runtime_owner::current_agent_identity_readonly_v1(self,agent){Ok(value)=>value,Err(error)=>match error{}}
     }
 }
 
@@ -181,3 +83,6 @@ impl World {
         Ok(())
     }
 }
+
+#[path="readonly_runtime_owner.rs"]
+pub(in crate::world) mod readonly_runtime_owner;

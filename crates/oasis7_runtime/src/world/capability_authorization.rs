@@ -143,30 +143,7 @@ impl World {
         grant: CapabilityGrantV2,
     ) -> Result<(), WorldError> {
         self.verify_capability_authorization_root()?;
-        grant
-            .validate()
-            .map_err(|error| deny(format!("grant validation: {error}")))?;
-        if !grant
-            .body_hash_matches()
-            .map_err(|error| deny(format!("grant body hash: {error}")))?
-            || grant
-                .expected_grant_id()
-                .map_err(|error| deny(format!("grant id hash: {error}")))?
-                != grant.grant_id
-        {
-            return Err(deny("grant canonical body hash or id mismatch"));
-        }
-        if grant.expires_at_tick.is_none() {
-            return Err(deny("grant must carry an explicit expiry"));
-        }
-        if grant.status != "verified" {
-            return Err(deny(
-                "only finalized and verified grants may enter durable authorization state",
-            ));
-        }
-        if grant.issued_at_tick > self.state.time {
-            return Err(deny("grant is not issued at the current logical tick"));
-        }
+        validate_registered_grant_input_v1(&grant, self.state.time)?;
         self.verify_issuer(&grant)?;
         self.verify_live_revocation(&grant)?;
         self.verify_parent_chain(&grant)?;
@@ -208,22 +185,10 @@ impl World {
         &self,
         cap_ref: &str,
     ) -> Result<(), WorldError> {
-        if self.capability_grants_v2.contains_key(cap_ref) {
-            return self.validate_registered_v2_capability_for_admission(cap_ref);
-        }
-
-        let grant =
-            self.capabilities
-                .get(cap_ref)
-                .ok_or_else(|| WorldError::ModuleChangeInvalid {
-                    reason: format!("module cap missing {cap_ref}"),
-                })?;
-        if grant.is_expired(self.state.time) {
-            return Err(WorldError::ModuleChangeInvalid {
-                reason: format!("module cap expired {cap_ref}"),
-            });
-        }
-        Ok(())
+        super::incremental_module_capability_admission_rules::admission(
+            &mut super::incremental_module_capability_admission_rules::Legacy(self),
+            cap_ref,
+        )
     }
 
     /// Check the durable v2 grant used by a module manifest during register or
@@ -238,107 +203,77 @@ impl World {
             .capability_grants_v2
             .get(cap_ref)
             .ok_or_else(|| deny("v2 capability is not in the durable registry"))?;
-        let grant: CapabilityGrantV2 = serde_json::from_value(encoded.clone())
+        let grant: CapabilityGrantV2 = serde::Deserialize::deserialize(encoded)
             .map_err(|_| deny("v2 capability grant is malformed"))?;
-        grant
-            .validate()
-            .map_err(|error| deny(format!("v2 capability grant validation: {error}")))?;
-        if grant.grant_id != cap_ref
-            || !grant
-                .body_hash_matches()
-                .map_err(|error| deny(format!("v2 capability body hash: {error}")))?
-            || grant
-                .expected_grant_id()
-                .map_err(|error| deny(format!("v2 capability id hash: {error}")))?
-                != grant.grant_id
-        {
-            return Err(deny("v2 capability canonical body hash or id mismatch"));
-        }
-        if grant.status != "verified" {
-            return Err(deny("v2 capability is not finalized and verified"));
-        }
-        if grant.expires_at_tick.is_none()
-            || grant
-                .expires_at_tick
-                .is_some_and(|expiry| self.state.time > expiry)
-            || grant.issued_at_tick > self.state.time
-        {
-            return Err(deny("v2 capability lifetime is not currently valid"));
-        }
+        validate_module_v2_grant_body_for_admission(&grant, cap_ref, self.state.time)?;
         self.verify_issuer(&grant)?;
         self.verify_live_revocation(&grant)?;
         self.verify_parent_chain(&grant)
     }
 
     pub(super) fn verify_issuer(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
-        let issuer = &grant.issuer;
-        let authority = self
-            .capability_revocation_state
-            .authority_records
-            .get(&issuer.issuer_id)
-            .ok_or_else(|| deny("issuer has no finalized authority record"))?;
-        validate_authority_record(authority)?;
-        let proof = self
-            .capability_revocation_state
-            .authority_finality_proofs
-            .get(&issuer.issuer_id)
-            .ok_or_else(|| deny("issuer has no replayable finality proof"))?;
-        self.verify_capability_authority_finality_proof(authority, proof)?;
-        if issuer.issuer_kind != authority.issuer_kind
-            || issuer.governance_epoch != authority.governance_epoch
-            || issuer.finalized_receipt_id != authority.finalized_receipt_id
-            || issuer.key_id != authority.key_id
-            || issuer.issuer_key_epoch != authority.issuer_key_epoch
-            || issuer.authority_rotation_receipt_id != authority.authority_rotation_receipt_id
-            || grant.audience.world_id != authority.world_id
-            || grant.audience.branch_id != authority.branch_id
-            || grant.audience.finality_epoch != authority.finality_epoch
-        {
-            return Err(deny("grant issuer or governance finality binding mismatch"));
-        }
-        let key_bytes = hex::decode(authority.public_key_hex.trim())
-            .map_err(|_| deny("issuer public key is invalid"))?;
-        let key_bytes: [u8; 32] = key_bytes
-            .try_into()
-            .map_err(|_| deny("issuer public key length is invalid"))?;
-        let key = VerifyingKey::from_bytes(&key_bytes)
-            .map_err(|_| deny("issuer public key is invalid"))?;
-        for encoded in [&issuer.signature, &grant.issuance_signature] {
-            let signature_hex = encoded
-                .strip_prefix("ed25519:")
-                .ok_or_else(|| deny("issuer signature algorithm is not ed25519"))?;
-            let bytes =
-                hex::decode(signature_hex).map_err(|_| deny("issuer signature is invalid hex"))?;
-            let bytes: [u8; 64] = bytes
-                .try_into()
-                .map_err(|_| deny("issuer signature length is invalid"))?;
-            key.verify(
-                grant
-                    .canonical_body_bytes()
-                    .map_err(|error| deny(format!("canonical grant body: {error}")))?
-                    .as_slice(),
-                &Signature::from_bytes(&bytes),
-            )
-            .map_err(|_| deny("issuer signature verification failed"))?;
-        }
-        Ok(())
+        super::incremental_module_capability_admission_rules::issuer(
+            &mut super::incremental_module_capability_admission_rules::Legacy(self),
+            grant,
+        )
     }
 
     pub(super) fn verify_live_revocation(
         &self,
         grant: &CapabilityGrantV2,
     ) -> Result<(), WorldError> {
-        let state = &self.capability_revocation_state;
-        if state.epoch < grant.revocation_epoch {
-            return Err(deny("revocation registry is stale"));
-        }
-        if state.revoked_grant_ids.contains(&grant.grant_id)
-            || state.superseded_by.contains_key(&grant.grant_id)
-        {
-            return Err(deny("grant is revoked or superseded"));
-        }
-        Ok(())
+        super::incremental_module_capability_admission_rules::revocation(
+            &mut super::incremental_module_capability_admission_rules::Legacy(self),
+            grant,
+        )
     }
+}
+
+/// One admission body predicate shared by legacy World and selected Current.
+/// This is deliberately separate from issuer, root and parent verification;
+/// passing this predicate alone grants no module-admission authority.
+pub(super) fn validate_module_v2_grant_body_for_admission(
+    grant: &CapabilityGrantV2,
+    cap_ref: &str,
+    tick: u64,
+) -> Result<(), WorldError> {
+    validate_module_v2_grant_static_body_for_admission(grant, cap_ref)?;
+    validate_module_v2_grant_lifetime_for_admission(grant, tick)
+}
+pub(super) fn validate_module_v2_grant_static_body_for_admission(
+    grant: &CapabilityGrantV2,
+    cap_ref: &str,
+) -> Result<(), WorldError> {
+    grant
+        .validate()
+        .map_err(|error| deny(format!("v2 capability grant validation: {error}")))?;
+    if grant.grant_id != cap_ref
+        || !grant
+            .body_hash_matches()
+            .map_err(|error| deny(format!("v2 capability body hash: {error}")))?
+        || grant
+            .expected_grant_id()
+            .map_err(|error| deny(format!("v2 capability id hash: {error}")))?
+            != grant.grant_id
+    {
+        return Err(deny("v2 capability canonical body hash or id mismatch"));
+    }
+    if grant.status != "verified" {
+        return Err(deny("v2 capability is not finalized and verified"));
+    }
+    Ok(())
+}
+pub(super) fn validate_module_v2_grant_lifetime_for_admission(
+    grant: &CapabilityGrantV2,
+    tick: u64,
+) -> Result<(), WorldError> {
+    if grant.expires_at_tick.is_none()
+        || grant.expires_at_tick.is_some_and(|expiry| tick > expiry)
+        || grant.issued_at_tick > tick
+    {
+        return Err(deny("v2 capability lifetime is not currently valid"));
+    }
+    Ok(())
 }
 
 pub(super) fn validate_authority_record(
@@ -432,6 +367,17 @@ pub(super) fn validate_agent_identity(
 pub(super) fn validate_invocation_context(
     context: &CapabilityInvocationContext,
 ) -> Result<(), WorldError> {
+    match validate_invocation_context_with_work_v1(context, &mut |_, _| {
+        Ok::<_, std::convert::Infallible>(())
+    }) {
+        Ok(v) => v,
+        Err(e) => match e {},
+    }
+}
+pub(super) fn validate_invocation_context_with_work_v1<E>(
+    context: &CapabilityInvocationContext,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+) -> Result<Result<(), WorldError>, E> {
     for (field, value) in [
         ("grant_id", context.grant_id.as_str()),
         ("catalog_snapshot_id", context.catalog_snapshot_id.as_str()),
@@ -439,27 +385,94 @@ pub(super) fn validate_invocation_context(
         ("module_version", context.module_version.as_str()),
         ("response_nonce", context.response_nonce.as_str()),
     ] {
+        work(1, value.len() as u64)?;
         if value.trim().is_empty() {
-            return Err(deny(format!("invocation context {field} is required")));
+            return Ok(Err(deny(format!("invocation context {field} is required"))));
         }
     }
-    context
-        .subject
-        .validate()
-        .map_err(|error| deny(format!("invocation context subject: {error}")))?;
-    context
-        .presenter
-        .validate()
-        .map_err(|error| deny(format!("invocation context presenter: {error}")))?;
-    context
-        .audience
-        .validate()
-        .map_err(|error| deny(format!("invocation context audience: {error}")))?;
-    Ok(())
+    if let Err(e) = context.subject.validate_with_fallible_work_v1(work)? {
+        return Ok(Err(deny(format!("invocation context subject: {e}"))));
+    }
+    if let Err(e) = context.presenter.validate_with_fallible_work_v1(work)? {
+        return Ok(Err(deny(format!("invocation context presenter: {e}"))));
+    }
+    if let Err(e) = context.audience.validate_with_fallible_work_v1(work)? {
+        return Ok(Err(deny(format!("invocation context audience: {e}"))));
+    }
+    Ok(Ok(()))
 }
 
 pub(super) fn deny(reason: impl Into<String>) -> WorldError {
     WorldError::CapabilityAuthorizationDenied {
         reason: reason.into(),
     }
+}
+
+/// Unique input-only prefix of durable grant registration. Current callers
+/// still provide real root/issuer/revocation/parent sources after this prefix.
+pub(super) fn validate_registered_grant_input_v1(
+    grant: &CapabilityGrantV2,
+    time: u64,
+) -> Result<(), WorldError> {
+    match validate_registered_grant_input_with_work_v1(
+        grant,
+        time,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        &mut |_, _| Ok::<_, std::convert::Infallible>(()),
+    ) {
+        Ok(v) => v,
+        Err(e) => match e {},
+    }
+}
+pub(super) fn validate_registered_grant_input_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+    E,
+>(
+    grant: &CapabilityGrantV2,
+    time: u64,
+    source: &A,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+) -> Result<Result<(), WorldError>, E> {
+    let validated = grant.validate_with_fallible_work_v1(work)?;
+    if let Err(e) = validated {
+        return Ok(Err(deny(format!("grant validation: {e}"))));
+    }
+    let body =
+        oasis7_wasm_abi::canonical_hash_with_work_v1(&grant.canonical_body_input_v1(), source);
+    work(0, 0)?;
+    let body = match body {
+        Ok(v) => v,
+        Err(e) => return Ok(Err(deny(format!("grant body hash: {e}")))),
+    };
+    if body.as_str() != grant.canonical_body_hash {
+        return Ok(Err(deny("grant canonical body hash or id mismatch")));
+    }
+    let expected =
+        oasis7_wasm_abi::canonical_hash_with_work_v1(&grant.canonical_body_input_v1(), source);
+    work(0, 0)?;
+    let expected = match expected {
+        Ok(v) => v,
+        Err(e) => return Ok(Err(deny(format!("grant id hash: {e}")))),
+    };
+    if expected.as_str() != grant.grant_id {
+        return Ok(Err(deny("grant canonical body hash or id mismatch")));
+    }
+    Ok(validate_registered_grant_tail_v1(grant, time))
+}
+fn validate_registered_grant_tail_v1(
+    grant: &CapabilityGrantV2,
+    time: u64,
+) -> Result<(), WorldError> {
+    if grant.expires_at_tick.is_none() {
+        return Err(deny("grant must carry an explicit expiry"));
+    }
+    if grant.status != "verified" {
+        return Err(deny(
+            "only finalized and verified grants may enter durable authorization state",
+        ));
+    }
+    if grant.issued_at_tick > time {
+        return Err(deny("grant is not issued at the current logical tick"));
+    }
+    Ok(())
 }

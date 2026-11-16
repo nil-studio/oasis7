@@ -30,6 +30,9 @@ pub type FormalHistoricalBusinessPublicationV1 =
 #[path = "formal_result_scope.rs"]
 mod scope;
 
+#[path = "formal_result_kernel.rs"]
+mod kernel;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 enum TreeLeafV1 {
@@ -232,103 +235,14 @@ impl FormalBusinessResultTreeV1 {
         reader: &impl BusinessIndexNodeReader,
         mut updates: Vec<BusinessIndexLeafV1>,
     ) -> Result<FormalBusinessResultTreeUpdateV1, String> {
-        if let Some(previous) = previous {
-            previous.validate()?;
-            if previous.metadata.world_id != metadata.world_id
-                || previous.metadata.chain_id != metadata.chain_id
-                || previous.metadata.genesis_digest != metadata.genesis_digest
-                || previous.metadata.formal_position >= metadata.formal_position
-            {
-                return Err("formal result tree predecessor identity/position mismatch".into());
-            }
-        } else if !world
-            .capability_revocation_state()
-            .world_service_results
-            .is_empty()
-        {
-            return Err(
-                "fresh formal activation cannot upgrade unindexed legacy intent results".into(),
-            );
-        }
-
-        let base = match previous {
-            Some(tree) => tree.index_root.clone(),
-            None => BusinessIndexRootV1::empty()?,
-        };
-        if let Some(previous) = previous {
-            let old_metadata = base
-                .get(&metadata_key_digest(), reader)?
-                .ok_or("formal result predecessor metadata leaf missing")?;
-            if old_metadata.kind != BusinessIndexLeafKindV1::CommitMetadata
-                || decode_index_leaf(&old_metadata)?
-                    != TreeLeafV1::CommitMetadata(previous.metadata.clone())
-            {
-                return Err("formal result predecessor metadata leaf mismatch".into());
-            }
-        }
-        updates.reserve(new_results.len() + 1);
-        updates.push(index_leaf(
-            metadata_key_digest(),
-            BusinessIndexLeafKindV1::CommitMetadata,
-            &TreeLeafV1::CommitMetadata(metadata.clone()),
-        )?);
-        for result in new_results {
-            result
-                .request
-                .validate()
-                .map_err(|error| error.to_string())?;
-            let key = correlation::key_digest(&result.request.correlation.key)?;
-            let ledger_result: CanonicalIntentResultV1 = if let Some(stored_value) = world
-                .capability_revocation_state()
-                .world_service_results
-                .get(&key)
-            {
-                correlation::validate_result(&key, stored_value)?;
-                serde_json::from_value(stored_value.clone()).map_err(|error| error.to_string())?
-            } else if world.state().retained_history_root.is_some() {
-                world
-                    .read_retained_world_service_result(&key)
-                    .map_err(|error| error.to_string())?
-                    .ok_or("formal result candidate is absent from authenticated World history")?
-            } else {
-                return Err("formal result candidate is absent from the World ledger".into());
-            };
-            if &ledger_result != result {
-                return Err("formal result candidate differs from the World ledger".into());
-            }
-            let index_key = result_index_key(&result.request.correlation.key)?;
-            let prior = base
-                .get(&index_key, reader)?
-                .map(|leaf| decode_index_leaf(&leaf))
-                .transpose()?;
-            let first_position = match prior {
-                Some(TreeLeafV1::Outcome(old_leaf)) => {
-                    let candidate = outcome_leaf(world, result, old_leaf.first_formal_position)?;
-                    if immutable_outcome(&old_leaf)? != immutable_outcome(&candidate)? {
-                        return Err("formal result ledger rewrote an immutable outcome".into());
-                    }
-                    old_leaf.first_formal_position
-                }
-                Some(TreeLeafV1::CommitMetadata(_)) => {
-                    return Err("formal result key collided with metadata key".into());
-                }
-                None => metadata.formal_position,
-            };
-            updates.push(index_leaf(
-                index_key,
-                BusinessIndexLeafKindV1::Outcome,
-                &TreeLeafV1::Outcome(outcome_leaf(world, result, first_position)?),
-            )?);
-        }
-        updates.sort_by(|left, right| left.key_digest.cmp(&right.key_digest));
-        let delta = BusinessIndexDeltaV1::build_v2(base, updates, reader)?;
-        let tree = Self {
-            schema_version: FORMAL_BUSINESS_RESULT_SCHEMA_V1,
+        kernel::extend(
+            &mut kernel::LegacyFacts(world),
             metadata,
-            index_root: delta.new.clone(),
-        };
-        tree.validate()?;
-        Ok(FormalBusinessResultTreeUpdateV1 { tree, delta })
+            previous,
+            new_results,
+            reader,
+            updates,
+        )
     }
 
     pub fn root(&self) -> Result<String, String> {
@@ -376,24 +290,34 @@ impl FormalBusinessResultTreeV1 {
     }
 
     pub fn decode_cbor(bytes: &[u8]) -> Result<Self, String> {
+        Self::decode_cbor_with_root(bytes, |root| root.validate())
+    }
+    fn decode_cbor_with_root(
+        bytes: &[u8],
+        validate_root: impl FnOnce(&BusinessIndexRootV1) -> Result<(), String>,
+    ) -> Result<Self, String> {
         if bytes.len() > MAX_TREE_BYTES {
             return Err("formal result tree byte bound".into());
         }
         let tree: Self = serde_cbor::from_slice(bytes).map_err(|error| error.to_string())?;
-        tree.validate()?;
+        tree.validate_with_root(validate_root)?;
         Ok(tree)
     }
 
     fn validate(&self) -> Result<(), String> {
+        self.validate_with_root(|root| root.validate())
+    }
+    fn validate_with_root(
+        &self,
+        validate_root: impl FnOnce(&BusinessIndexRootV1) -> Result<(), String>,
+    ) -> Result<(), String> {
         if self.schema_version != FORMAL_BUSINESS_RESULT_SCHEMA_V1 {
             return Err("formal result tree version/leaf bound".into());
         }
         self.metadata
             .validate()
             .map_err(|error| error.to_string())?;
-        self.index_root
-            .validate()
-            .map_err(|error| error.to_string())?;
+        validate_root(&self.index_root)?;
         if self.index_root.leaf_count == 0 {
             return Err("formal result tree leaf bound".into());
         }
@@ -464,7 +388,14 @@ impl FormalBusinessResultTreeV1 {
 }
 
 fn immutable_outcome(leaf: &FormalBusinessOutcomeLeafV1) -> Result<String, String> {
-    tree_hash(
+    immutable_outcome_with(&mut kernel::LegacyCanonical, leaf)
+}
+fn immutable_outcome_with(
+    ops: &mut impl kernel::CanonicalOps,
+    leaf: &FormalBusinessOutcomeLeafV1,
+) -> Result<String, String> {
+    tree_hash_with(
+        ops,
         "formal-business-result-immutable-v1",
         &(
             &leaf.correlation,
@@ -493,12 +424,26 @@ fn outcome_leaf(
     result: &CanonicalIntentResultV1,
     first_formal_position: u64,
 ) -> Result<FormalBusinessOutcomeLeafV1, String> {
+    outcome_leaf_with_facts(
+        &mut kernel::LegacyFacts(world),
+        result,
+        first_formal_position,
+    )
+}
+fn outcome_leaf_with_facts(
+    facts: &mut impl kernel::Facts,
+    result: &CanonicalIntentResultV1,
+    first_formal_position: u64,
+) -> Result<FormalBusinessOutcomeLeafV1, String> {
     result
         .request
         .validate()
         .map_err(|error| error.to_string())?;
-    let original_request_digest =
-        tree_hash("formal-business-original-request-v1", &result.request)?;
+    let original_request_digest = tree_hash_with(
+        facts,
+        "formal-business-original-request-v1",
+        &result.request,
+    )?;
     let outcome = match &result.rejected {
         Some(reason) => {
             if !result.receipt.is_null() {
@@ -512,7 +457,7 @@ fn outcome_leaf(
             receipt: result.receipt.clone(),
         },
     };
-    let visibility_scope = scope::for_request(world, &result.request)?;
+    let visibility_scope = facts.scope(&result.request)?;
     let leaf = FormalBusinessOutcomeLeafV1 {
         schema_version: FORMAL_BUSINESS_RESULT_SCHEMA_V1,
         correlation: result.request.correlation.clone(),
@@ -602,22 +547,31 @@ fn metadata_for_boundary(
 }
 
 fn tree_hash<T: Serialize>(domain: &str, value: &T) -> Result<String, String> {
-    let encoded = oasis7_wasm_abi::encode_canonical_cbor(&(
-        "oasis7.formal.business-result.v1",
-        domain,
-        value,
-    ))
-    .map_err(|error| error.to_string())?;
+    tree_hash_with(&mut kernel::LegacyCanonical, domain, value)
+}
+fn tree_hash_with<T: Serialize>(
+    ops: &mut impl kernel::CanonicalOps,
+    domain: &str,
+    value: &T,
+) -> Result<String, String> {
+    let encoded = ops.canonical(&("oasis7.formal.business-result.v1", domain, value))?;
+    ops.hash_work(encoded.len())?;
     Ok(blake3::hash(&encoded).to_hex().to_string())
 }
-
 fn index_leaf(
     key_digest: String,
     kind: BusinessIndexLeafKindV1,
     leaf: &TreeLeafV1,
 ) -> Result<BusinessIndexLeafV1, String> {
-    let canonical_value =
-        oasis7_wasm_abi::encode_canonical_cbor(leaf).map_err(|error| error.to_string())?;
+    index_leaf_with(&mut kernel::LegacyCanonical, key_digest, kind, leaf)
+}
+fn index_leaf_with(
+    ops: &mut impl kernel::CanonicalOps,
+    key_digest: String,
+    kind: BusinessIndexLeafKindV1,
+    leaf: &TreeLeafV1,
+) -> Result<BusinessIndexLeafV1, String> {
+    let canonical_value = ops.canonical(leaf)?;
     Ok(BusinessIndexLeafV1 {
         key_digest,
         kind,
@@ -865,64 +819,7 @@ fn authorize_world_result_reader(
 }
 
 fn outcome_agent_id(world: &World, payload: &WorldServicePayloadV1) -> Result<String, String> {
-    match payload {
-        WorldServicePayloadV1::GameStarterClaim(signed) => Ok(signed.request.agent_id.clone()),
-        WorldServicePayloadV1::GameParticipantRegister { owner, .. } => {
-            let key = oasis7_runtime::service_admission::participant::account_key(&owner.request)?;
-            world
-                .capability_revocation_state()
-                .participants
-                .bindings
-                .get(&key)
-                .map(|r| r.agent_id.clone())
-                .ok_or_else(|| "participant binding unavailable".into())
-        }
-        WorldServicePayloadV1::SafeAlternative(signed) => Ok(signed.request.agent_id.clone()),
-        WorldServicePayloadV1::AgentChat(request) => Ok(request.agent_id.clone()),
-        WorldServicePayloadV1::Cognition(request) => Ok(request.request.request.agent_id.clone()),
-        WorldServicePayloadV1::FeedbackAck(request) => Ok(request.request.agent_id.clone()),
-        WorldServicePayloadV1::Delegation(request) => Ok(request.request.agent_id.clone()),
-        WorldServicePayloadV1::Scheduler(request) => Ok(request.request.agent_id.clone()),
-        WorldServicePayloadV1::GameTaskCreate(request) => Ok(request.request.agent_id.clone()),
-        WorldServicePayloadV1::GameGoalPublish(request) => Ok(request.request.agent_id.clone()),
-        WorldServicePayloadV1::GameExecutorControl(request) => {
-            Ok(request.request.fence.agent_id.clone())
-        }
-        WorldServicePayloadV1::GameplayJson(bytes) => {
-            if let Ok(request) =
-                serde_json::from_slice::<oasis7_proto::viewer::GameplayActionRequest>(bytes)
-            {
-                if request.target_agent_id.trim().is_empty()
-                    || request.target_agent_id != request.target_agent_id.trim()
-                {
-                    return Err("formal result gameplay target Agent identity is invalid".into());
-                }
-                return Ok(request.target_agent_id);
-            }
-            let command: oasis7_proto::viewer::CollectDataCommand =
-                serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-            let oasis7_proto::viewer::CollectDataCommand::Submit { request } = &command else {
-                return Err("formal result cannot publish a non-submit CollectData outcome".into());
-            };
-            let proof = request
-                .auth
-                .as_ref()
-                .ok_or("formal result CollectData request has no verified owner proof")?;
-            let verified =
-                oasis7_proto::player_auth::verify_collect_data_auth_proof(&command, proof)?;
-            let mut claims = world.state().starter_oc_claims.values().filter(|claim| {
-                claim.player_id == verified.player_id
-                    && claim.public_key.as_deref() == Some(verified.public_key.as_str())
-            });
-            let claim = claims
-                .next()
-                .ok_or("formal result CollectData owner Agent claim is unavailable")?;
-            if claims.next().is_some() {
-                return Err("formal result CollectData owner Agent claim is ambiguous".into());
-            }
-            Ok(claim.agent_id.clone())
-        }
-    }
+    world.formal_business_outcome_agent_id_v1(payload)
 }
 
 #[path = "formal_changes.rs"]
@@ -953,3 +850,14 @@ pub fn decode_canonical_result_leaf(
 
 #[cfg(test)]
 use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeV1;
+
+#[path = "formal_result_paid.rs"]
+mod paid;
+pub use paid::{
+    PaidFormalBusinessDescriptorV1, PaidFormalBusinessErrorV1, PaidFormalBusinessResultUpdateV1,
+    build_current_formal_business_result_bounded_v1, decode_formal_business_descriptor_bounded_v1,
+};
+
+pub use paid::{
+    PaidGenesisFormalBusinessResultUpdateV1, build_genesis_formal_business_result_bounded_v1,
+};

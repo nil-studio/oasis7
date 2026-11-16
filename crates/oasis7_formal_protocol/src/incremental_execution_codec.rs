@@ -112,7 +112,28 @@ impl TransitionRecordV1 {
         memory: &MemoryBudget,
         class: MemoryClass,
     ) -> Result<ReservedValue<Vec<u8>>, ExecutionError> {
-        self.validate()?;
+        self.canonical_bytes_with_work(memory, class, &mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<ReservedValue<Vec<u8>>, ExecutionError> {
+        self.validate_with_work(work)?;
+        for roots in [&self.before, &self.after] {
+            let n = b"oasis7.iws.root-set.v1\0".len()
+                + 4
+                + 2
+                + roots.world_id.len()
+                + 48
+                + 6 * crate::incremental_state::STATE_ROOT_BYTES;
+            work(
+                13,
+                (n + 6 * crate::incremental_state::STATE_ROOT_BYTES + roots.world_id.len() + 6 * 64)
+                    as u64,
+            )?;
+        }
         let _scratch = memory.reserve(64 * 1024, class)?;
         let before = self.before.canonical_bytes()?;
         let after = self.after.canonical_bytes()?;
@@ -122,26 +143,26 @@ impl TransitionRecordV1 {
             + 2
             + after.len()
             + 6
-            + self
-                .reads
-                .iter()
-                .map(|read| 4 + read.key.len() + optional_len(&read.before))
-                .sum::<usize>()
-            + self
-                .writes
-                .iter()
-                .map(|write| {
-                    4 + write.mutation.key.len()
+            + self.reads.iter().try_fold(0usize, |n, read| {
+                work(1, read.key.len() as u64)?;
+                Ok::<_, ExecutionError>(n + 4 + read.key.len() + optional_len(&read.before))
+            })?
+            + self.writes.iter().try_fold(0usize, |n, write| {
+                work(1, write.mutation.key.len() as u64)?;
+                Ok::<_, ExecutionError>(
+                    n + 4
+                        + write.mutation.key.len()
                         + optional_len(&write.mutation.before)
-                        + optional_len(&write.mutation.after)
-                })
-                .sum::<usize>()
+                        + optional_len(&write.mutation.after),
+                )
+            })?
             + self.facts.len() * 33;
         let length = MAGIC.len() + 4 + payload_len;
         if length > EXECUTION_MAX_RECORD_BYTES {
             return Err(ExecutionError::Invalid("transition encoded byte bound"));
         }
         let charge = memory.reserve(length, class)?;
+        work(1, (MAGIC.len() + 4 + 104 + 6) as u64)?;
         let mut bytes = Vec::with_capacity(length);
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&(payload_len as u32).to_be_bytes());
@@ -150,22 +171,31 @@ impl TransitionRecordV1 {
         bytes.extend_from_slice(&self.authority.token);
         bytes.extend_from_slice(&self.authority.epoch.to_be_bytes());
         for roots in [&before, &after] {
+            work(1, (2 + roots.len()) as u64)?;
             bytes.extend_from_slice(&(roots.len() as u16).to_be_bytes());
             bytes.extend_from_slice(roots);
         }
         bytes.extend_from_slice(&(self.reads.len() as u16).to_be_bytes());
         for read in &self.reads {
+            work(1, (4 + read.key.len() + optional_len(&read.before)) as u64)?;
             put_key(&mut bytes, read.namespace, &read.key);
             put_optional(&mut bytes, &read.before);
         }
         bytes.extend_from_slice(&(self.writes.len() as u16).to_be_bytes());
         for write in &self.writes {
+            work(
+                1,
+                (4 + write.mutation.key.len()
+                    + optional_len(&write.mutation.before)
+                    + optional_len(&write.mutation.after)) as u64,
+            )?;
             put_key(&mut bytes, write.namespace, &write.mutation.key);
             put_optional(&mut bytes, &write.mutation.before);
             put_optional(&mut bytes, &write.mutation.after);
         }
         bytes.extend_from_slice(&(self.facts.len() as u16).to_be_bytes());
         for fact in &self.facts {
+            work(1, 33)?;
             bytes.push(fact.kind as u8);
             bytes.extend_from_slice(&fact.id);
         }

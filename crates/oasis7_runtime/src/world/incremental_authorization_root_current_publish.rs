@@ -11,7 +11,7 @@ use oasis7_world_state::{
 };
 
 #[allow(clippy::too_many_arguments)]
-fn write_closed_root<M, R, E, C, W, D>(
+pub(super) fn write_closed_root<M, R, E, C, W, D>(
     expected: &[u8; 64],
     after: &[u8; 64],
     qualified: &ReservedValue<RuntimeAuthorizationRootQualificationV1>,

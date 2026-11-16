@@ -262,13 +262,11 @@ impl StateDeltaV1 {
         max_pending_bytes: usize,
         meter: Option<&crate::merkle::WorkMeter<'_>>,
     ) -> Result<Self, String> {
-        before.validate()?;
         if let Some(meter) = meter {
-            for write in &writes {
-                meter(write.key.len() + 128)?;
-            }
+            meter(before.node_root.len())?;
         }
-        validate_writes(&writes)?;
+        before.validate()?;
+        validate_writes_with_meter(&writes, meter)?;
         let owned_empty;
         let empty = if meter.is_some() {
             owned_empty = codec::empty_hashes_metered(meter)?;
@@ -321,14 +319,15 @@ impl StateDeltaV1 {
         after.validate()?;
         let final_nodes = builder.final_writes(&after.node_root)?;
         if let Some(meter) = meter {
-            for (digest, bytes) in &final_nodes {
-                meter(std::mem::size_of::<StateNodeWriteV1>() + digest.len() + bytes.len())?;
-            }
+            meter(final_nodes.len() * std::mem::size_of::<StateNodeWriteV1>())?;
         }
-        let new_nodes = final_nodes
-            .into_iter()
-            .map(|(digest, bytes)| StateNodeWriteV1 { digest, bytes })
-            .collect();
+        let mut new_nodes = Vec::with_capacity(final_nodes.len());
+        for (digest, bytes) in final_nodes {
+            if let Some(meter) = meter {
+                meter(0)?;
+            }
+            new_nodes.push(StateNodeWriteV1 { digest, bytes });
+        }
         Ok(Self {
             before,
             after,
@@ -362,11 +361,20 @@ impl StateDeltaV1 {
 }
 
 fn validate_writes(writes: &[StateWriteV1]) -> Result<(), String> {
+    validate_writes_with_meter(writes, None)
+}
+fn validate_writes_with_meter(
+    writes: &[StateWriteV1],
+    meter: Option<&crate::merkle::WorkMeter<'_>>,
+) -> Result<(), String> {
     if writes.len() > STATE_MAX_WRITES {
         return Err("state write count bound".into());
     }
     let mut previous: Option<&[u8]> = None;
     for write in writes {
+        if let Some(meter) = meter {
+            meter(write.key.len() + 128)?;
+        }
         codec::validate_key(&write.key)?;
         if previous.is_some_and(|previous| previous >= write.key.as_slice()) {
             return Err("state writes must be sorted and unique".into());

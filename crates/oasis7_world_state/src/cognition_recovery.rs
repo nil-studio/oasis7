@@ -121,6 +121,9 @@ pub use oasis7_agent_api::world_cognition::{
     RuntimeCognitionResponseArtifactV1,
 };
 
+pub struct PaidDerivedRuntimeReceiptLineageV1<C>{value:Option<RuntimeReceiptLineageV1>,_fee:Option<C>}
+impl<C>PaidDerivedRuntimeReceiptLineageV1<C>{pub fn value(&self)->Option<&RuntimeReceiptLineageV1>{self.value.as_ref()}}
+fn readonly_lineage_legacy(result:Result<PaidDerivedRuntimeReceiptLineageV1<()>,oasis7_wasm_abi::CanonicalCborStreamError>)->Option<RuntimeReceiptLineageV1>{match result{Ok(value)=>value.value,Err(_)=>unreachable!("legacy lineage work cannot fail")}}
 impl RuntimeReceiptLineageV1 {
     pub const SCHEMA_VERSION: &'static str = "runtime-receipt-lineage.v1";
 
@@ -178,6 +181,10 @@ impl RuntimeReceiptLineageV1 {
     /// projection used by the live runtime boundary; callers do not supply
     /// identity fields independently of the durable commit.
     pub fn from_durable_commit_record(marker: &WorldCommitRecordV1) -> Option<Self> {
+        self::readonly_lineage_legacy(Self::from_durable_commit_record_with_work_v1(marker,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+    }
+    pub fn from_durable_commit_record_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(marker:&WorldCommitRecordV1,source:&A)->Result<PaidDerivedRuntimeReceiptLineageV1<A::Charge>,oasis7_wasm_abi::CanonicalCborStreamError>{
+        let fee=crate::cognition_feedback_contract::readonly_work::phase(marker,source)?;
         if marker.agent_id.trim().is_empty()
             || marker.agent_session_id.trim().is_empty()
             || marker.agent_turn_id.trim().is_empty()
@@ -185,9 +192,9 @@ impl RuntimeReceiptLineageV1 {
             || marker.request_digest.trim().is_empty()
             || marker.feedback_id.trim().is_empty()
         {
-            return None;
+            return Ok(PaidDerivedRuntimeReceiptLineageV1{value:None,_fee:fee});
         }
-        Some(Self::from_commit_record(
+        Ok(PaidDerivedRuntimeReceiptLineageV1{value:Some(Self::from_commit_record(
             marker,
             marker.agent_id.clone(),
             marker.agent_session_id.clone(),
@@ -195,10 +202,14 @@ impl RuntimeReceiptLineageV1 {
             marker.decision_request_id.clone(),
             marker.request_digest.clone(),
             marker.feedback_id.clone(),
-        ))
+        )),_fee:fee})
     }
 
     pub fn validate(&self) -> Result<(), CognitionRecoveryError> {
+        crate::cognition_feedback_contract::readonly_work::legacy(self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
+    }
+    pub fn validate_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(&self,source:&A)->Result<(),crate::cognition_feedback_contract::readonly_work::FeedbackReadErrorV1>{
+        let _phase=crate::cognition_feedback_contract::readonly_work::phase(self,source)?;
         if self.schema_version != Self::SCHEMA_VERSION
             || self.status != "committed"
             || self.receipt_id.trim().is_empty()
@@ -214,7 +225,7 @@ impl RuntimeReceiptLineageV1 {
         {
             return Err(CognitionRecoveryError::new(
                 "runtime_receipt_lineage_invalid",
-            ));
+            ).into());
         }
         Ok(())
     }

@@ -145,29 +145,7 @@ pub(super) fn map_entry<
     ValueTreeError,
 > {
     let profile = profile();
-    let trees_remaining = work.max_retained_trees;
-    let map = {
-        let mut d = ChangeDecoder {
-            ctx,
-            scan,
-            work,
-            profile,
-            trees_remaining,
-            tree_depth: 0,
-        };
-        let map = point_typed_column_v1(&profile, body, name, &mut d, 8192)?;
-        let ColumnCellV1::Root(root) = &map.cell else {
-            return Err(invalid());
-        };
-        let length = point_typed_column_v1(&profile, root, "_length", &mut d, 8192)?;
-        let ColumnCellV1::U64(count) = &length.cell else {
-            return Err(invalid());
-        };
-        if count.checked_add(2) != Some(root.leaf_count) {
-            return Err(invalid());
-        };
-        map
-    };
+    let map = map_root(body, name, ctx, scan, work)?;
     let ColumnCellV1::Root(root) = &map.cell else {
         return Err(invalid());
     };
@@ -258,4 +236,45 @@ where
     let (key, _) = records.key(field, WorldFieldRecordKindV1::Entry, &())?;
     let value = lookup(tx, &key, records, take_state_error)?.ok_or_else(invalid)?;
     Ok(family::child_records(&key, &value, records)?)
+}
+
+/// The sole selected map-container opener; semantic rows retain their original
+/// codec fee and length is authenticated before callers inspect entries.
+pub(super) fn map_root<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    body: &StateRootV1,
+    name: &str,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut RevocationReadWorkV1,
+) -> Result<ReservedValue<crate::incremental_record_columns_read::ColumnRowV1>, ValueTreeError> {
+    let profile = profile();
+    let trees_remaining = work.max_retained_trees;
+    let map = {
+        let mut d = ChangeDecoder {
+            ctx,
+            scan,
+            work,
+            profile,
+            trees_remaining,
+            tree_depth: 0,
+        };
+        let map = point_typed_column_v1(&profile, body, name, &mut d, 8192)?;
+        let ColumnCellV1::Root(root) = &map.cell else {
+            return Err(invalid());
+        };
+        let length = point_typed_column_v1(&profile, root, "_length", &mut d, 8192)?;
+        let ColumnCellV1::U64(count) = &length.cell else {
+            return Err(invalid());
+        };
+        if count.checked_add(2) != Some(root.leaf_count) {
+            return Err(invalid());
+        };
+        map
+    };
+    Ok(map)
 }

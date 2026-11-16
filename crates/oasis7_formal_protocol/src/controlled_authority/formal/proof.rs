@@ -9,7 +9,9 @@ pub use completion::*;
 use serde::{Deserialize, Serialize};
 #[path = "checkpoint_restore.rs"]
 mod checkpoint_restore;
-pub use checkpoint_restore::restore_formal_commit_from_checkpoint;
+pub use checkpoint_restore::{
+    restore_formal_commit_and_parent_from_checkpoint, restore_formal_commit_from_checkpoint,
+};
 #[path = "native_checkpoint.rs"]
 mod native_checkpoint;
 pub use native_checkpoint::*;
@@ -17,6 +19,9 @@ pub use native_checkpoint::*;
 mod read_anchor;
 pub use read_anchor::*;
 
+#[path = "proof_validation_ops.rs"]
+mod validation_ops;
+use validation_ops::{LegacyQuorumOps, QuorumValidationOps};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SignedCanonicalCandidateV1 {
@@ -31,18 +36,26 @@ pub fn canonical_candidate_signing_bytes(
 }
 impl SignedCanonicalCandidateV1 {
     pub fn verify_original(&self, authority: &VerifiedAuthorityV1) -> Result<(), FormalError> {
-        self.record.validate()?;
+        self.verify_original_with(authority, &mut LegacyQuorumOps)
+    }
+    fn verify_original_with<O: QuorumValidationOps>(
+        &self,
+        authority: &VerifiedAuthorityV1,
+        ops: &mut O,
+    ) -> Result<(), FormalError> {
+        ops.validate_record(&self.record)?;
+        ops.before_value(&self.record)?;
         let definition = authority.definition();
         super::incremental::check_record_profile(&self.record, definition)?;
         if self.record.world != definition.world
-            || self.record.original_authority_id != definition.authority_id()?
+            || self.record.original_authority_id != ops.authority_id(definition)?
             || self.record.original_epoch != definition.epoch
             || self.record.activation_ref != authority.activation_ref()
             || self.record.position < definition.valid_from_position
         {
             return Err(invalid("formal candidate original authority binding"));
         }
-        verify(
+        ops.verify(
             CANDIDATE_SIGN_DOMAIN_V1,
             &self.record,
             &self.writer_signature_hex,
@@ -94,11 +107,17 @@ pub struct FormalDecisionProofV1 {
 }
 /// Archive envelope identity; the canonical world head remains record_id.
 pub fn formal_decision_proof_digest(proof: &FormalDecisionProofV1) -> Result<String, FormalError> {
+    formal_decision_proof_digest_with(proof, &mut LegacyQuorumOps)
+}
+fn formal_decision_proof_digest_with<O: QuorumValidationOps>(
+    proof: &FormalDecisionProofV1,
+    ops: &mut O,
+) -> Result<String, FormalError> {
     if proof.schema_version != 1 {
         return Err(invalid("formal proof version"));
     }
-    proof.record.validate()?;
-    hash(DECISION_PROOF_DOMAIN_V1, proof)
+    ops.validate_record(&proof.record)?;
+    ops.hash(DECISION_PROOF_DOMAIN_V1, proof)
 }
 #[derive(Debug, Clone)]
 pub struct VerifiedFormalCommitV1 {
@@ -150,20 +169,24 @@ impl VerifiedCandidateContextV1 {
         &self,
         role: EndpointRole,
     ) -> Result<FormalFinalReceiptBodyV1, FormalError> {
+        self.receipt_body_with(role, &mut LegacyQuorumOps)
+    }
+    fn receipt_body_with<O: QuorumValidationOps>(
+        &self,
+        role: EndpointRole,
+        ops: &mut O,
+    ) -> Result<FormalFinalReceiptBodyV1, FormalError> {
         let binding = match role {
             EndpointRole::Primary => &self.finalizer.definition().primary,
             EndpointRole::Replica => &self.finalizer.definition().replica,
         };
         Ok(FormalFinalReceiptBodyV1 {
             schema_version: 1,
-            record_id: self.record.record_id()?,
+            record_id: ops.record_id(&self.record)?,
             position: self.record.position,
-            finalizing_authority_id: self.finalizer.authority_id()?,
+            finalizing_authority_id: ops.authority_id(self.finalizer.definition())?,
             role,
-            instance_digest: binding
-                .instance
-                .digest()
-                .map_err(|error| invalid(error.to_string()))?,
+            instance_digest: ops.instance_id(&binding.instance)?,
             branch: self.branch,
             recovery_certificate_digest: self.recovery_certificate_digest.clone(),
         })
@@ -177,8 +200,28 @@ pub fn verify_formal_candidate(
     recovery: Option<&VerifiedRecovery>,
     branch: FormalCompletionBranchV1,
 ) -> Result<VerifiedCandidateContextV1, FormalError> {
+    verify_formal_candidate_with(
+        candidate,
+        frozen,
+        authority,
+        parent,
+        recovery,
+        branch,
+        &mut LegacyQuorumOps,
+    )
+}
+fn verify_formal_candidate_with<O: QuorumValidationOps>(
+    candidate: &SignedCanonicalCandidateV1,
+    frozen: Option<&FormalFrozenCertificateV1>,
+    authority: &VerifiedAuthorityV1,
+    parent: Option<&VerifiedFormalCommitV1>,
+    recovery: Option<&VerifiedRecovery>,
+    branch: FormalCompletionBranchV1,
+    ops: &mut O,
+) -> Result<VerifiedCandidateContextV1, FormalError> {
     let record = &candidate.record;
-    record.validate()?;
+    ops.validate_record(record)?;
+    ops.before_value(record)?;
     super::incremental::check_record_profile(record, authority.definition())?;
     let (finalizer, certificate) = match branch {
         FormalCompletionBranchV1::Normal => {
@@ -189,11 +232,7 @@ pub fn verify_formal_candidate(
             {
                 return Err(invalid("formal normal write not authorized"));
             }
-            SignedCanonicalCandidateV1 {
-                record: record.clone(),
-                writer_signature_hex: candidate.writer_signature_hex.clone(),
-            }
-            .verify_original(authority)?;
+            candidate.verify_original_with(authority, ops)?;
             (authority, None)
         }
         FormalCompletionBranchV1::CompletePrepared | FormalCompletionBranchV1::ReplayFrozen => {
@@ -217,15 +256,16 @@ pub fn verify_formal_candidate(
                             ));
                         }
                     } else {
+                        ops.before_value(candidate)?;
                         SignedCanonicalCandidateV1 {
                             record: record.clone(),
                             writer_signature_hex: candidate.writer_signature_hex.clone(),
                         }
-                        .verify_original(authority)?;
+                        .verify_original_with(authority, ops)?;
                     }
                 }
                 (RecoveryTailV1::Frozen { .. }, FormalCompletionBranchV1::ReplayFrozen) => {
-                    verify(
+                    ops.verify(
                         CANDIDATE_SIGN_DOMAIN_V1,
                         record,
                         &candidate.writer_signature_hex,
@@ -275,19 +315,20 @@ pub fn verify_formal_candidate(
             }
         }
         (FormalRecordKindV1::Execution, Some(parent)) => {
+            ops.before_value(parent.record())?;
             if (super::incremental::is_iws_record(parent.record.schema_version)
                 != super::incremental::is_iws_record(record.schema_version))
                 || (parent.record.schema_version >= 5 && record.schema_version < 5)
                 || parent.record.world != record.world
                 || parent.record.position.checked_add(1) != Some(record.position)
-                || parent.head().record_id != record.parent_record_id
+                || ops.record_id(parent.record())? != record.parent_record_id
                 || parent.record.after_state_root != record.before_state_root
                 || parent.record.handoff.is_some()
             {
                 return Err(invalid("formal parent state/position/profile boundary"));
             }
             if branch == FormalCompletionBranchV1::Normal {
-                verify_normal_parent_continuity(authority, parent, record.position)?;
+                ops.parent_continuity(authority, parent, record.position)?;
             }
             if parent.record.artifact_roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment)
                 != record.artifact_roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment) {
@@ -295,11 +336,11 @@ pub fn verify_formal_candidate(
             }
             let frozen =
                 frozen.ok_or_else(|| invalid("formal execution missing original frozen proof"))?;
-            frozen.verify(authority.definition(), authority.activation_ref())?;
-            frozen.matches_record(record)?;
+            ops.frozen_certificate(frozen, authority)?;
+            ops.frozen_matches(frozen, record)?;
             // Recovery retains this ORIGINAL authority/cut; never substitute
             // successor context when checking signed input policy continuity.
-            verify_formal_reservation(&frozen.reservation, authority, parent)?;
+            ops.reservation(&frozen.reservation, authority, parent)?;
             if let Some(recovery) = recovery {
                 if parent.head() != recovery.body.sealed_cut {
                     return Err(invalid("formal recovery proof cut mismatch"));
@@ -335,6 +376,7 @@ pub fn verify_formal_candidate(
         }
         _ => return Err(invalid("formal committed parent proof required")),
     }
+    ops.before_context_clone(record, finalizer)?;
     Ok(VerifiedCandidateContextV1 {
         record: record.clone(),
         finalizer: finalizer.clone(),
@@ -355,9 +397,28 @@ pub(crate) fn verify_normal_parent_continuity_with_id(
     next_position: u64,
     paid_authority_id: Option<&str>,
 ) -> Result<(), FormalError> {
+    verify_normal_parent_continuity_with_ids(
+        authority,
+        parent,
+        next_position,
+        paid_authority_id,
+        None,
+    )
+}
+pub(crate) fn verify_normal_parent_continuity_with_ids(
+    authority: &VerifiedAuthorityV1,
+    parent: &VerifiedFormalCommitV1,
+    next_position: u64,
+    paid_authority_id: Option<&str>,
+    paid_parent_head: Option<&FormalHeadRefV1>,
+) -> Result<(), FormalError> {
     if parent.record().durable_set_transition_digest.is_some()
         && (authority.durable_set_activation_digest.is_none()
-            || authority.recovery_cut.as_ref() != Some(&parent.head())
+            || authority.recovery_cut.as_ref()
+                != Some(&match paid_parent_head {
+                    Some(head) => head.clone(),
+                    None => parent.head(),
+                })
             || authority.definition().predecessor_authority_id.as_deref()
                 != Some(parent.finalizing_authority_id())
             || authority.first_normal_position != Some(next_position))
@@ -387,8 +448,19 @@ pub(crate) fn verify_normal_parent_continuity_with_id(
         && (authority.definition().predecessor_authority_id.as_deref()
             != Some(parent.finalizing_authority_id())
             || authority.first_normal_position != Some(next_position)
-            || (authority.recovery_cut.as_ref() != Some(&parent.head())
-                && authority.recovery_retained_record.as_ref() != Some(&parent.head().record_id)))
+            || (authority.recovery_cut.as_ref()
+                != Some(&match paid_parent_head {
+                    Some(head) => head.clone(),
+                    None => parent.head(),
+                })
+                && authority.recovery_retained_record.as_ref()
+                    != Some(
+                        &match paid_parent_head {
+                            Some(head) => head.clone(),
+                            None => parent.head(),
+                        }
+                        .record_id,
+                    )))
     {
         return Err(invalid("formal normal authority continuity"));
     }
@@ -401,26 +473,38 @@ pub fn verify_formal_decision(
     parent: Option<&VerifiedFormalCommitV1>,
     recovery: Option<&VerifiedRecovery>,
 ) -> Result<VerifiedFormalDecisionV1, FormalError> {
+    verify_formal_decision_with(proof, authority, parent, recovery, &mut LegacyQuorumOps)
+}
+fn verify_formal_decision_with<O: QuorumValidationOps>(
+    proof: &FormalDecisionProofV1,
+    authority: &VerifiedAuthorityV1,
+    parent: Option<&VerifiedFormalCommitV1>,
+    recovery: Option<&VerifiedRecovery>,
+    ops: &mut O,
+) -> Result<VerifiedFormalDecisionV1, FormalError> {
     if proof.schema_version != 1 {
         return Err(invalid("formal proof version"));
     }
+    ops.before_value(proof)?;
     let candidate = SignedCanonicalCandidateV1 {
         record: proof.record.clone(),
         writer_signature_hex: proof.writer_signature_hex.clone(),
     };
-    let context = verify_formal_candidate(
+    let context = verify_formal_candidate_with(
         &candidate,
         proof.frozen.as_ref(),
         authority,
         parent,
         recovery,
         proof.branch,
+        ops,
     )?;
     for (receipt, role) in [
         (&proof.primary, EndpointRole::Primary),
         (&proof.replica, EndpointRole::Replica),
     ] {
-        if receipt.body != context.receipt_body(role)? {
+        ops.before_value(&receipt.body)?;
+        if receipt.body != context.receipt_body_with(role, ops)? {
             return Err(invalid(
                 "formal final receipt record/instance/authorization context",
             ));
@@ -429,7 +513,7 @@ pub fn verify_formal_decision(
             EndpointRole::Primary => &context.finalizer.definition().primary,
             EndpointRole::Replica => &context.finalizer.definition().replica,
         };
-        verify(
+        ops.verify(
             FINAL_RECEIPT_SIGN_DOMAIN_V1,
             &receipt.body,
             &receipt.signature_hex,
@@ -441,10 +525,18 @@ pub fn verify_formal_decision(
         finalizer: context.finalizer,
         branch: context.branch,
         recovery_certificate_digest: context.recovery_certificate_digest,
-        decision_proof_digest: formal_decision_proof_digest(proof)?,
+        decision_proof_digest: formal_decision_proof_digest_with(proof, ops)?,
     })
 }
 
 #[path = "proof_historical_inclusion.rs"]
 mod historical_inclusion;
 pub(crate) use historical_inclusion::verify_historical_qualified_from_inclusion;
+
+#[path = "proof_normal_bounded.rs"]
+mod normal_bounded;
+pub use normal_bounded::{
+    PaidVerifiedNormalCandidateContextV1, PaidVerifiedNormalCommitV1, PaidVerifiedNormalDecisionV1,
+    normal_candidate_context_bounded, normal_final_receipt_body_bounded,
+    verify_normal_decision_bounded, verify_normal_qualified_bounded,
+};

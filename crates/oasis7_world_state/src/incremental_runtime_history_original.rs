@@ -26,6 +26,7 @@ pub enum RuntimeHistoryOriginalRefV1<'a> {
     Snapshot(&'a SnapshotRecord),
     Event(&'a WorldEvent),
     Tick(&'a TickConsensusRecord),
+    IwsTick(&'a crate::incremental_iws_tick_consensus::IwsTickConsensusRecordV1),
     RejectionAudit(&'a TickConsensusRejectionAuditEvent),
 }
 /// No locator or acceptance authority is minted by this streaming callback.
@@ -72,6 +73,18 @@ pub fn with_runtime_history_original_v1<C: FnMut() -> bool, T>(
             &ResultEnvelope {
                 domain: DOMAIN,
                 schema: "tick-consensus-record.v1",
+                value: v,
+            },
+            memory,
+            work,
+            cancelled,
+            max_bytes,
+            consume,
+        ),
+        RuntimeHistoryOriginalRefV1::IwsTick(v) => run(
+            &ResultEnvelope {
+                domain: DOMAIN,
+                schema: "iws-tick-consensus-record.v1",
                 value: v,
             },
             memory,
@@ -180,6 +193,19 @@ pub fn measure_runtime_history_original_v1<C: FnMut() -> bool>(
             },
             Lane::Tick,
             v.certificate.consensus_height,
+            memory,
+            work,
+            cancelled,
+            max_bytes,
+        )?,
+        RuntimeHistoryOriginalRefV1::IwsTick(v) => measured(
+            &ResultEnvelope {
+                domain: DOMAIN,
+                schema: "iws-tick-consensus-record.v1",
+                value: v,
+            },
+            Lane::Tick,
+            v.consensus_height,
             memory,
             work,
             cancelled,

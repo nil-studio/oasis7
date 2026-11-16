@@ -30,6 +30,16 @@ impl<T> RecoveredColumnsV1<T> {
     pub fn value(&self) -> &T {
         &self.value
     }
+    /// Retained output coverage only. The caller still admits a simultaneous
+    /// clone peak and accounts for visiting these actual reservation headers.
+    pub fn output_reserved_bytes_v1(&self) -> Result<usize, ValueTreeError> {
+        self._extra.iter().try_fold(self._charge.bytes(), |n, fee| {
+            n.checked_add(fee.bytes()).ok_or(ValueTreeError::ResourceLimited("record output coverage sum"))
+        })
+    }
+    pub fn output_reservation_count_v1(&self) -> Result<usize, ValueTreeError> {
+        self._extra.len().checked_add(1).ok_or(ValueTreeError::ResourceLimited("record output coverage count"))
+    }
 }
 pub(crate) struct ChargedColumnsV1 {
     cells: BTreeMap<ColumnKeyV1, ColumnCellV1>,

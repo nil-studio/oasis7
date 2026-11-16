@@ -173,6 +173,7 @@ fn assess<
     let controller_sources = controller::ControllerSourcesV1 {
         roots: sources.shared.roots,
         orders: sources.shared.orders,
+        rules: sources.shared.rules,
         agents: sources.shared.agents,
         native: sources.shared.native,
     };
@@ -182,6 +183,7 @@ fn assess<
         context,
         read,
         &mut work.shared.controller,
+        &mut work.shared.orders,
         common,
         live,
     )?;
@@ -202,6 +204,7 @@ fn assess<
         context,
         read,
         &mut work.shared.controller,
+        &mut work.shared.orders,
         common,
         live,
     )?;
@@ -245,6 +248,7 @@ fn assess<
             context,
             read,
             &mut work.shared.controller,
+            &mut work.shared.orders,
             common,
             live,
         )?;
@@ -258,6 +262,7 @@ fn assess<
                     context,
                     read,
                     &mut work.shared.controller,
+                    &mut work.shared.orders,
                     common,
                     live,
                 )?;

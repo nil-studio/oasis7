@@ -17,6 +17,18 @@ fn ordinal(right: &Right) -> u64 {
     }
 }
 impl CollectionKey for OrganizationEstateScopeV1 {
+    fn key_decode_layout_v1<LE>(
+        visit: &mut dyn FnMut() -> Result<(), LE>,
+    ) -> Result<crate::incremental_pending_action_codec::PendingActionOwnedLayoutV1, LE> {
+        visit()?;
+        let mut out = crate::incremental_pending_action_codec::PendingActionOwnedLayoutV1::scalar::<Self>();
+        out.merge(<String as Codec>::owned_decode_layout_v1(visit)?);
+        for symbol in ["object_id", "right", "preserve", "return_trust", "distribute_residual", "finalize_case", "advance_case"] {
+            out.symbol(symbol);
+        }
+        Ok(out)
+    }
+
     type Semantic<'a> = (&'a str, u64);
     fn semantic_key(&self) -> Self::Semantic<'_> {
         (self.object_id.as_str(), ordinal(&self.right))

@@ -31,25 +31,55 @@ pub enum CapabilitySubject {
 
 impl CapabilitySubject {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
         match self {
             Self::Agent {
                 agent_id,
                 owner_binding,
                 ..
             } => {
-                required("subject.agent_id", agent_id)?;
-                required("subject.owner_binding", owner_binding)?;
+                required_with_work_v1("subject.agent_id", agent_id, work)?;
+                required_with_work_v1("subject.owner_binding", owner_binding, work)?;
             }
             Self::Module {
                 module_id,
                 module_version,
                 instance_id,
             } => {
-                required("subject.module_id", module_id)?;
-                required("subject.module_version", module_version)?;
-                required("subject.instance_id", instance_id)?;
+                required_with_work_v1("subject.module_id", module_id, work)?;
+                required_with_work_v1("subject.module_version", module_version, work)?;
+                required_with_work_v1("subject.instance_id", instance_id, work)?;
             }
-            Self::System { system_id, .. } => required("subject.system_id", system_id)?,
+            Self::System { system_id, .. } => {
+                required_with_work_v1("subject.system_id", system_id, work)?
+            }
         }
         Ok(())
     }
@@ -67,7 +97,35 @@ pub struct CapabilityPresenter {
 
 impl CapabilityPresenter {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
-        required("presenter.presenter_id", &self.presenter_id)?;
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
+        required_with_work_v1("presenter.presenter_id", &self.presenter_id, work)?;
         if !matches!(
             self.presenter_kind.as_str(),
             "provider" | "agent_client" | "module" | "viewer"
@@ -77,8 +135,12 @@ impl CapabilityPresenter {
                 value: self.presenter_kind.clone(),
             });
         }
-        optional_required("presenter.session_id", self.session_id.as_deref())?;
-        optional_required("presenter.attestation_ref", self.attestation_ref.as_deref())?;
+        optional_required_with_work_v1("presenter.session_id", self.session_id.as_deref(), work)?;
+        optional_required_with_work_v1(
+            "presenter.attestation_ref",
+            self.attestation_ref.as_deref(),
+            work,
+        )?;
         Ok(())
     }
 }
@@ -95,8 +157,36 @@ pub struct CapabilityAudience {
 
 impl CapabilityAudience {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
-        required("audience.world_id", &self.world_id)?;
-        required("audience.branch_id", &self.branch_id)?;
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
+        required_with_work_v1("audience.world_id", &self.world_id, work)?;
+        required_with_work_v1("audience.branch_id", &self.branch_id, work)?;
         if !matches!(
             self.target_kind.as_str(),
             "world" | "institution" | "module_instance"
@@ -106,7 +196,7 @@ impl CapabilityAudience {
                 value: self.target_kind.clone(),
             });
         }
-        optional_required("audience.target_id", self.target_id.as_deref())?;
+        optional_required_with_work_v1("audience.target_id", self.target_id.as_deref(), work)?;
         Ok(())
     }
 }
@@ -126,7 +216,35 @@ pub struct CapabilityIssuer {
 
 impl CapabilityIssuer {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
-        required("issuer.issuer_id", &self.issuer_id)?;
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
+        required_with_work_v1("issuer.issuer_id", &self.issuer_id, work)?;
         if !matches!(
             self.issuer_kind.as_str(),
             "governance" | "kernel_migration" | "system"
@@ -136,12 +254,17 @@ impl CapabilityIssuer {
                 value: self.issuer_kind.clone(),
             });
         }
-        required("issuer.finalized_receipt_id", &self.finalized_receipt_id)?;
-        required("issuer.key_id", &self.key_id)?;
-        required("issuer.signature", &self.signature)?;
-        optional_required(
+        required_with_work_v1(
+            "issuer.finalized_receipt_id",
+            &self.finalized_receipt_id,
+            work,
+        )?;
+        required_with_work_v1("issuer.key_id", &self.key_id, work)?;
+        required_with_work_v1("issuer.signature", &self.signature, work)?;
+        optional_required_with_work_v1(
             "issuer.authority_rotation_receipt_id",
             self.authority_rotation_receipt_id.as_deref(),
+            work,
         )?;
         Ok(())
     }
@@ -167,6 +290,34 @@ pub struct CapabilityScope {
 
 impl CapabilityScope {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
         for (field, value) in [
             ("scope.module_id", self.module_id.as_str()),
             ("scope.module_version", self.module_version.as_str()),
@@ -175,7 +326,7 @@ impl CapabilityScope {
             ("scope.object_name", self.object_name.as_str()),
             ("scope.operation", self.operation.as_str()),
         ] {
-            required(field, value)?;
+            required_with_work_v1(field, value, work)?;
         }
         if !matches!(
             self.object_kind.as_str(),
@@ -195,15 +346,23 @@ impl CapabilityScope {
                 value: self.operation.clone(),
             });
         }
-        validate_selectors("scope.entity_selector", self.entity_selector.as_deref())?;
-        validate_selectors("scope.resource_selector", self.resource_selector.as_deref())?;
+        validate_selectors_with_work_v1(
+            "scope.entity_selector",
+            self.entity_selector.as_deref(),
+            work,
+        )?;
+        validate_selectors_with_work_v1(
+            "scope.resource_selector",
+            self.resource_selector.as_deref(),
+            work,
+        )?;
         if self.max_payload_bytes == Some(0) {
             return Err(CapabilityAuthorizationValidationError::InvalidBound {
                 field: "scope.max_payload_bytes",
                 value: 0,
             });
         }
-        optional_required("scope.policy_class", self.policy_class.as_deref())?;
+        optional_required_with_work_v1("scope.policy_class", self.policy_class.as_deref(), work)?;
         Ok(())
     }
 
@@ -228,24 +387,38 @@ impl CapabilityScope {
     }
 
     pub fn contains_subset(&self, child: &Self) -> bool {
-        self.validate().is_ok()
-            && child.validate().is_ok()
+        match self.contains_subset_with_fallible_work_v1(child, &mut |_, _| {
+            Ok::<_, std::convert::Infallible>(())
+        }) {
+            Ok(v) => v,
+            Err(e) => match e {},
+        }
+    }
+    pub fn contains_subset_with_fallible_work_v1<E>(
+        &self,
+        child: &Self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        Ok(self.validate_with_fallible_work_v1(work)?.is_ok()
+            && child.validate_with_fallible_work_v1(work)?.is_ok()
             && self.module_id == child.module_id
             && self.module_version == child.module_version
             && self.namespace == child.namespace
             && self.object_kind == child.object_kind
             && self.object_name == child.object_name
             && operation_contains(&self.operation, &child.operation)
-            && selectors_contain(
+            && selectors_contain_with_work_v1(
                 self.entity_selector.as_deref(),
                 child.entity_selector.as_deref(),
-            )
-            && selectors_contain(
+                work,
+            )?
+            && selectors_contain_with_work_v1(
                 self.resource_selector.as_deref(),
                 child.resource_selector.as_deref(),
-            )
+                work,
+            )?
             && bound_contains(self.max_payload_bytes, child.max_payload_bytes)
-            && option_contains(self.policy_class.as_deref(), child.policy_class.as_deref())
+            && option_contains(self.policy_class.as_deref(), child.policy_class.as_deref()))
     }
 
     pub fn is_subset_of(&self, parent: &Self) -> bool {
@@ -285,21 +458,53 @@ pub struct CapabilityGrantV2 {
 
 impl CapabilityGrantV2 {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
         if self.grant_version != CAPABILITY_GRANT_VERSION_V2 {
             return Err(CapabilityAuthorizationValidationError::UnsupportedVersion(
                 self.grant_version,
             ));
         }
-        required("grant.grant_id", &self.grant_id)?;
-        self.subject.validate()?;
-        self.audience.validate()?;
-        self.issuer.validate()?;
-        self.scope.validate()?;
-        required("grant.grant_nonce", &self.grant_nonce)?;
-        required("grant.status", &self.status)?;
-        required("grant.canonical_body_hash", &self.canonical_body_hash)?;
-        required("grant.issuance_signature", &self.issuance_signature)?;
-        optional_required("grant.parent_grant_id", self.parent_grant_id.as_deref())?;
+        required_with_work_v1("grant.grant_id", &self.grant_id, work)?;
+        self.subject.validate_with_work_v1(work)?;
+        self.audience.validate_with_work_v1(work)?;
+        self.issuer.validate_with_work_v1(work)?;
+        self.scope.validate_with_work_v1(work)?;
+        required_with_work_v1("grant.grant_nonce", &self.grant_nonce, work)?;
+        required_with_work_v1("grant.status", &self.status, work)?;
+        required_with_work_v1("grant.canonical_body_hash", &self.canonical_body_hash, work)?;
+        required_with_work_v1("grant.issuance_signature", &self.issuance_signature, work)?;
+        optional_required_with_work_v1(
+            "grant.parent_grant_id",
+            self.parent_grant_id.as_deref(),
+            work,
+        )?;
         if let Some(expires_at_tick) = self.expires_at_tick
             && expires_at_tick < self.issued_at_tick
         {
@@ -311,8 +516,9 @@ impl CapabilityGrantV2 {
         Ok(())
     }
 
-    pub fn canonical_body_bytes(&self) -> Result<Vec<u8>, CapabilityAuthorizationValidationError> {
-        let body = CapabilityGrantV2Body {
+    /// Original body preimage; borrowed DATA, never a grant qualification.
+    pub fn canonical_body_input_v1(&self) -> impl Serialize + '_ {
+        CapabilityGrantV2Body {
             grant_version: self.grant_version,
             subject: &self.subject,
             audience: &self.audience,
@@ -325,7 +531,11 @@ impl CapabilityGrantV2 {
             delegation_depth: self.delegation_depth,
             revocation_epoch: self.revocation_epoch,
             status: &self.status,
-        };
+        }
+    }
+
+    pub fn canonical_body_bytes(&self) -> Result<Vec<u8>, CapabilityAuthorizationValidationError> {
+        let body = self.canonical_body_input_v1();
         encode_canonical_cbor(&body).map_err(|error| {
             CapabilityAuthorizationValidationError::CanonicalEncoding(error.to_string())
         })
@@ -353,7 +563,7 @@ struct CapabilityGrantV2Body<'a> {
     grant_version: u32,
     subject: &'a CapabilitySubject,
     audience: &'a CapabilityAudience,
-    issuer: CapabilityIssuerBody,
+    issuer: CapabilityIssuerBody<'a>,
     scope: &'a CapabilityScope,
     issued_at_tick: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -367,27 +577,27 @@ struct CapabilityGrantV2Body<'a> {
 }
 
 #[derive(Debug, Serialize)]
-struct CapabilityIssuerBody {
-    issuer_id: String,
-    issuer_kind: String,
+struct CapabilityIssuerBody<'a> {
+    issuer_id: &'a str,
+    issuer_kind: &'a str,
     governance_epoch: u64,
-    finalized_receipt_id: String,
-    key_id: String,
+    finalized_receipt_id: &'a str,
+    key_id: &'a str,
     issuer_key_epoch: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    authority_rotation_receipt_id: Option<String>,
+    authority_rotation_receipt_id: Option<&'a str>,
 }
 
-impl From<&CapabilityIssuer> for CapabilityIssuerBody {
-    fn from(value: &CapabilityIssuer) -> Self {
+impl<'a> From<&'a CapabilityIssuer> for CapabilityIssuerBody<'a> {
+    fn from(value: &'a CapabilityIssuer) -> Self {
         Self {
-            issuer_id: value.issuer_id.clone(),
-            issuer_kind: value.issuer_kind.clone(),
+            issuer_id: &value.issuer_id,
+            issuer_kind: &value.issuer_kind,
             governance_epoch: value.governance_epoch,
-            finalized_receipt_id: value.finalized_receipt_id.clone(),
-            key_id: value.key_id.clone(),
+            finalized_receipt_id: &value.finalized_receipt_id,
+            key_id: &value.key_id,
             issuer_key_epoch: value.issuer_key_epoch,
-            authority_rotation_receipt_id: value.authority_rotation_receipt_id.clone(),
+            authority_rotation_receipt_id: value.authority_rotation_receipt_id.as_deref(),
         }
     }
 }
@@ -407,6 +617,34 @@ pub struct CapabilityCatalogEntry {
 
 impl CapabilityCatalogEntry {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
         for (field, value) in [
             ("catalog.entry.module_id", self.module_id.as_str()),
             ("catalog.entry.module_version", self.module_version.as_str()),
@@ -414,7 +652,7 @@ impl CapabilityCatalogEntry {
             ("catalog.entry.command", self.command.as_str()),
             ("catalog.entry.schema_hash", self.schema_hash.as_str()),
         ] {
-            required(field, value)?;
+            required_with_work_v1(field, value, work)?;
         }
         if self.schema_version == 0 || self.max_payload_bytes == 0 {
             return Err(CapabilityAuthorizationValidationError::InvalidBound {
@@ -423,7 +661,7 @@ impl CapabilityCatalogEntry {
             });
         }
         for grant_id in &self.eligible_grant_ids {
-            required("catalog.entry.eligible_grant_ids", grant_id)?;
+            required_with_work_v1("catalog.entry.eligible_grant_ids", grant_id, work)?;
         }
         Ok(())
     }
@@ -450,14 +688,46 @@ pub struct CapabilityCatalogSnapshot {
 
 impl CapabilityCatalogSnapshot {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
-        required("catalog.snapshot_id", &self.snapshot_id)?;
-        required("catalog.world_id", &self.world_id)?;
-        required("catalog.branch_id", &self.branch_id)?;
-        required("catalog.module_registry_hash", &self.module_registry_hash)?;
-        required("catalog.policy_hash", &self.policy_hash)?;
-        self.subject.validate()?;
-        self.presenter.validate()?;
-        self.audience.validate()?;
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
+        required_with_work_v1("catalog.snapshot_id", &self.snapshot_id, work)?;
+        required_with_work_v1("catalog.world_id", &self.world_id, work)?;
+        required_with_work_v1("catalog.branch_id", &self.branch_id, work)?;
+        required_with_work_v1(
+            "catalog.module_registry_hash",
+            &self.module_registry_hash,
+            work,
+        )?;
+        required_with_work_v1("catalog.policy_hash", &self.policy_hash, work)?;
+        self.subject.validate_with_work_v1(work)?;
+        self.presenter.validate_with_work_v1(work)?;
+        self.audience.validate_with_work_v1(work)?;
         if self.audience.world_id != self.world_id
             || self.audience.branch_id != self.branch_id
             || self.audience.finality_epoch != self.finality_epoch
@@ -473,13 +743,13 @@ impl CapabilityCatalogSnapshot {
             });
         }
         for entry in &self.entries {
-            entry.validate()?;
+            entry.validate_with_work_v1(work)?;
         }
         Ok(())
     }
 
-    pub fn canonical_hash(&self) -> Result<String, CapabilityAuthorizationValidationError> {
-        canonical_hash(&CapabilityCatalogSnapshotBody {
+    pub fn canonical_hash_input_v1(&self) -> impl Serialize + '_ {
+        CapabilityCatalogSnapshotBody {
             world_id: &self.world_id,
             world_head: self.world_head,
             branch_id: &self.branch_id,
@@ -493,7 +763,11 @@ impl CapabilityCatalogSnapshot {
             audience: &self.audience,
             entries: &self.entries,
             valid_until_tick: self.valid_until_tick,
-        })
+        }
+    }
+
+    pub fn canonical_hash(&self) -> Result<String, CapabilityAuthorizationValidationError> {
+        canonical_hash(&self.canonical_hash_input_v1())
     }
 
     pub fn find_entry(&self, selected: &CapabilityCatalogEntry) -> bool {
@@ -543,12 +817,44 @@ pub struct AgentCommandResponse {
 
 impl AgentCommandResponse {
     pub fn validate(&self) -> Result<(), CapabilityAuthorizationValidationError> {
-        required("response.response_nonce", &self.response_nonce)?;
-        self.subject.validate()?;
-        self.presenter.validate()?;
-        self.audience.validate()?;
-        required("response.catalog_snapshot_id", &self.catalog_snapshot_id)?;
-        self.selected_entry.validate()?;
+        self.validate_with_work_v1(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_fallible_work_v1<E>(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+    ) -> Result<Result<(), CapabilityAuthorizationValidationError>, E> {
+        let mut first = None;
+        let result = self.validate_with_work_v1(&mut |s, b| match work(s, b) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if first.is_none() {
+                    first = Some(e)
+                }
+                Err(CapabilityAuthorizationValidationError::EmptyField(
+                    "bounded_work",
+                ))
+            }
+        });
+        match first {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
+    }
+    pub fn validate_with_work_v1(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+    ) -> Result<(), CapabilityAuthorizationValidationError> {
+        work(1, 0)?;
+        required_with_work_v1("response.response_nonce", &self.response_nonce, work)?;
+        self.subject.validate_with_work_v1(work)?;
+        self.presenter.validate_with_work_v1(work)?;
+        self.audience.validate_with_work_v1(work)?;
+        required_with_work_v1(
+            "response.catalog_snapshot_id",
+            &self.catalog_snapshot_id,
+            work,
+        )?;
+        self.selected_entry.validate_with_work_v1(work)?;
         if !self.selected_entry.eligible_grant_ids.is_empty() {
             return Err(
                 CapabilityAuthorizationValidationError::ForbiddenAuthorityField(
@@ -556,8 +862,8 @@ impl AgentCommandResponse {
                 ),
             );
         }
-        optional_required("response.provider_id", self.provider_id.as_deref())?;
-        optional_required("response.trace_id", self.trace_id.as_deref())?;
+        optional_required_with_work_v1("response.provider_id", self.provider_id.as_deref(), work)?;
+        optional_required_with_work_v1("response.trace_id", self.trace_id.as_deref(), work)?;
         if self
             .provider_id
             .as_deref()
@@ -666,6 +972,14 @@ fn required(
     field: &'static str,
     value: &str,
 ) -> Result<(), CapabilityAuthorizationValidationError> {
+    required_with_work_v1(field, value, &mut |_, _| Ok(()))
+}
+fn required_with_work_v1(
+    field: &'static str,
+    value: &str,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+) -> Result<(), CapabilityAuthorizationValidationError> {
+    work(1, value.len() as u64)?;
     if value.trim().is_empty() {
         Err(CapabilityAuthorizationValidationError::EmptyField(field))
     } else {
@@ -677,12 +991,26 @@ fn optional_required(
     field: &'static str,
     value: Option<&str>,
 ) -> Result<(), CapabilityAuthorizationValidationError> {
-    value.map_or(Ok(()), |value| required(field, value))
+    optional_required_with_work_v1(field, value, &mut |_, _| Ok(()))
+}
+fn optional_required_with_work_v1(
+    field: &'static str,
+    value: Option<&str>,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
+) -> Result<(), CapabilityAuthorizationValidationError> {
+    value.map_or(Ok(()), |value| required_with_work_v1(field, value, work))
 }
 
 fn validate_selectors(
     field: &'static str,
     selectors: Option<&[String]>,
+) -> Result<(), CapabilityAuthorizationValidationError> {
+    validate_selectors_with_work_v1(field, selectors, &mut |_, _| Ok(()))
+}
+fn validate_selectors_with_work_v1(
+    field: &'static str,
+    selectors: Option<&[String]>,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), CapabilityAuthorizationValidationError>,
 ) -> Result<(), CapabilityAuthorizationValidationError> {
     let Some(selectors) = selectors else {
         return Ok(());
@@ -694,7 +1022,7 @@ fn validate_selectors(
         });
     }
     for selector in selectors {
-        required(field, selector)?;
+        required_with_work_v1(field, selector, work)?;
         if selector == "*" {
             return Err(CapabilityAuthorizationValidationError::InvalidSelector {
                 field,
@@ -703,13 +1031,6 @@ fn validate_selectors(
         }
     }
     Ok(())
-}
-
-fn selectors_contain(parent: Option<&[String]>, child: Option<&[String]>) -> bool {
-    match (parent, child) {
-        (Some(parent), Some(child)) => child.iter().all(|item| parent.contains(item)),
-        _ => false,
-    }
 }
 
 fn bound_contains(parent: Option<u64>, child: Option<u64>) -> bool {
@@ -815,86 +1136,45 @@ fn hex_lower(bytes: &[u8]) -> String {
     output
 }
 
+#[path = "capability_sha256_stream.rs"]
+mod sha256_stream;
 fn sha256_digest(input: &[u8]) -> [u8; 32] {
-    const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2,
-    ];
-    let mut state = [
-        0x6a09e667_u32,
-        0xbb67ae85,
-        0x3c6ef372,
-        0xa54ff53a,
-        0x510e527f,
-        0x9b05688c,
-        0x1f83d9ab,
-        0x5be0cd19,
-    ];
-    let bit_len = (input.len() as u64).wrapping_mul(8);
-    let padded_len = (input.len() + 9).div_ceil(64) * 64;
-    let mut padded = vec![0_u8; padded_len];
-    padded[..input.len()].copy_from_slice(input);
-    padded[input.len()] = 0x80;
-    padded[padded_len - 8..].copy_from_slice(&bit_len.to_be_bytes());
+    let mut state = sha256_stream::Sha256V1::new();
+    state
+        .update(input, &mut |_, _| {
+            Ok::<_, crate::CanonicalCborStreamError>(())
+        })
+        .expect("NOOP SHA work");
+    state
+        .finish(&mut |_, _| Ok::<_, crate::CanonicalCborStreamError>(()))
+        .expect("NOOP SHA work")
+}
+#[path = "capability_canonical_work.rs"]
+mod canonical_work;
+pub use canonical_work::*;
 
-    for chunk in padded.chunks_exact(64) {
-        let mut schedule = [0_u32; 64];
-        for (index, bytes) in chunk.chunks_exact(4).take(16).enumerate() {
-            schedule[index] = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+fn selectors_contain_with_work_v1<E>(
+    parent: Option<&[String]>,
+    child: Option<&[String]>,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    match (parent, child) {
+        (Some(parent), Some(child)) => {
+            for item in child {
+                let mut found = false;
+                for candidate in parent {
+                    work(1, (candidate.len() + item.len()) as u64)?;
+                    if candidate == item {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
         }
-        for index in 16..64 {
-            let s0 = schedule[index - 15].rotate_right(7)
-                ^ schedule[index - 15].rotate_right(18)
-                ^ (schedule[index - 15] >> 3);
-            let s1 = schedule[index - 2].rotate_right(17)
-                ^ schedule[index - 2].rotate_right(19)
-                ^ (schedule[index - 2] >> 10);
-            schedule[index] = schedule[index - 16]
-                .wrapping_add(s0)
-                .wrapping_add(schedule[index - 7])
-                .wrapping_add(s1);
-        }
-        let mut working = state;
-        for index in 0..64 {
-            let s1 = working[4].rotate_right(6)
-                ^ working[4].rotate_right(11)
-                ^ working[4].rotate_right(25);
-            let ch = (working[4] & working[5]) ^ ((!working[4]) & working[6]);
-            let temp1 = working[7]
-                .wrapping_add(s1)
-                .wrapping_add(ch)
-                .wrapping_add(K[index])
-                .wrapping_add(schedule[index]);
-            let s0 = working[0].rotate_right(2)
-                ^ working[0].rotate_right(13)
-                ^ working[0].rotate_right(22);
-            let maj =
-                (working[0] & working[1]) ^ (working[0] & working[2]) ^ (working[1] & working[2]);
-            let temp2 = s0.wrapping_add(maj);
-            working[7] = working[6];
-            working[6] = working[5];
-            working[5] = working[4];
-            working[4] = working[3].wrapping_add(temp1);
-            working[3] = working[2];
-            working[2] = working[1];
-            working[1] = working[0];
-            working[0] = temp1.wrapping_add(temp2);
-        }
-        for (state_word, working_word) in state.iter_mut().zip(working) {
-            *state_word = state_word.wrapping_add(working_word);
-        }
+        _ => Ok(false),
     }
-    let mut digest = [0_u8; 32];
-    for (index, word) in state.iter().enumerate() {
-        digest[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
-    }
-    digest
 }

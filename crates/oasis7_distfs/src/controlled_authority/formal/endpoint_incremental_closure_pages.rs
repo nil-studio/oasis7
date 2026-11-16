@@ -414,6 +414,16 @@ impl StoreReadWitness {
     pub(crate) fn page_namespace_identity(&self) -> (u64, u64) {
         self.pin.identity()
     }
+    pub(crate) fn authenticated_cold_native_binding_v1(
+        &self,
+    ) -> Option<((u64, u64), Option<[u8; 32]>)> {
+        match &self.pin {
+            StoreWitnessLease::Cold(token) => {
+                Some((token.native_identity(), token.native_generation()))
+            }
+            StoreWitnessLease::Live(_) => None,
+        }
+    }
 }
 
 /// The source is minted only by the actual protected cold reader after its

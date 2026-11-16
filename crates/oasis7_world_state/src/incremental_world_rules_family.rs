@@ -21,6 +21,35 @@ use crate::{
 };
 use oasis7_formal_protocol::incremental_execution::RootSetV1;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+#[path = "incremental_world_rule_lifecycle_index.rs"]
+mod lifecycle_index;
+#[path = "incremental_world_rule_lifecycle_current.rs"]
+mod lifecycle_current;
+#[path = "incremental_world_rule_lifecycle_current_top.rs"]
+mod lifecycle_current_top;
+pub use lifecycle_current_top::{CurrentWorldRuleLifecycleDirectoryV1, open_current_world_rule_lifecycle_directory_v1};
+pub use lifecycle_current::{
+    Authorization, Batch, Emergency, EmergencyOverlay, Need,
+    CurrentEmergencyAuthorizationV1, CurrentEmergencyBatchV1,
+    CurrentEmergencyLifecycleDirectoryV1, CurrentEmergencyLifecycleSourceV1, CurrentEmergencyNeedV1,
+    CurrentEmergencyEvidenceV1, CurrentEmergencyMinimumServiceV1, CurrentEmergencyServiceV1,
+    bind_current_emergency_lifecycle_v1, project_current_emergency_lifecycle_v1, read_current_emergency_authorization_v1,
+    read_current_emergency_batch_v1, read_current_emergency_need_v1,
+    read_current_emergency_evidence_v1, read_current_emergency_minimum_service_v1,
+    read_current_emergency_service_v1, validate_current_emergency_minimum_selection_v1,
+    validate_current_emergency_service_selection_v1, replace_current_emergency_service_v1,
+    validate_current_emergency_directory_source_v1,
+    replace_current_emergency_authorization_v1, replace_current_emergency_batch_v1,
+    replace_current_emergency_need_v1,
+    EmergencyBatchReleaseV1, EmergencyNeedReservationChangeV1,
+    commit_current_emergency_close_columns_v1,
+};
+pub use crate::incremental_world_rule_composite_family::EmergencyActiveInputsV1;
+pub use lifecycle_index::{
+    LifecycleEmergencyAuthorizationV1, LifecycleEmergencyBatchV1, LifecycleMinimumServiceV1,
+    LifecycleSupplyAuthorizationV1, LifecycleSupplyBatchV1, LifecycleSupplyShipmentV1,
+    WorldRuleLifecycleIndexV1,
+};
 #[path = "incremental_world_rules_router.rs"]
 mod router;
 pub struct WorldRulesFamilyWorkV1 {
@@ -49,12 +78,13 @@ fn check<
     Ok(())
 }
 macro_rules! branches {
-    ($($slot:ident : $ty:ty),+ $(,)?) => {
+    ($emergency:ident; $($slot:ident : $ty:ty),+ $(,)?) => {
         pub struct WorldRulesQualificationV1 {
             roots: [u8;32], class: MemoryClass,
             organization: ReservedValue<OrganizationFamilyQualificationV1>,
             supply: ReservedValue<SupplyFamilyQualificationV1>,
             remainder: ReservedValue<WorldRuleRemainderQualificationV1>,
+            lifecycle_index: ReservedValue<WorldRuleLifecycleIndexV1>,
             $($slot: ReservedValue<WorldRuleCompositeQualificationV1<$ty>>),+
         }
         impl WorldRulesQualificationV1 {
@@ -63,9 +93,16 @@ macro_rules! branches {
             pub fn child_count(&self) -> usize { 13 }
             /// Borrow the already-qualified accepted child; no re-scan or new authority.
             pub fn continuity(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<crate::world_rules::OrganizationContinuityStateV1>> { &self.continuity }
+            pub fn supply(&self) -> &ReservedValue<SupplyFamilyQualificationV1> { &self.supply }
+            pub fn emergency(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<crate::world_rules::EmergencySupplyStateV1>> { &self.emergency }
+            pub fn requests(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<std::collections::BTreeMap<String,crate::world_rules::WorldRuleReceiptV1>>> { &self.requests }
             pub fn organization(&self) -> &ReservedValue<OrganizationFamilyQualificationV1> { &self.organization }
             pub fn orders(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<std::collections::BTreeMap<String,crate::world_rules::AgentIndustrialOrderV1>>> { &self.orders }
             pub fn industrial(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<oasis7_agent_api::world_action::IndustrialWorkStateV1>> { &self.industrial }
+            pub fn substitution(&self) -> &ReservedValue<WorldRuleCompositeQualificationV1<oasis7_agent_api::world_action::SubstitutionStateV1>> { &self.substitution }
+            /// Fixed lifecycle selector data retained by this exact qualified
+            /// WorldRules root. It grants no permission to mutate a row.
+            pub fn lifecycle_index(&self) -> &ReservedValue<WorldRuleLifecycleIndexV1> { &self.lifecycle_index }
 
             pub fn validate_binding(&self, roots:&RootSetV1) -> Result<(),ValueTreeError> {
                 if self.roots != roots.digest().map_err(|_|invalid())? { return Err(invalid()); }
@@ -89,10 +126,11 @@ macro_rules! branches {
             let supply=qualify_supply_family_v1(roots,ctx,outer_scan,inner_scan,&mut work.legacy_cells_remaining,work.max_record_bytes)?;
             let remainder=qualify_world_rule_remainder_v1(roots,ctx,outer_scan,&mut work.remainder)?;
             $(let $slot=qualify_world_rule_branch_v1::<$ty,_,_,_,_>(roots,ctx,inner_scan,&mut work.composite)?;)+
+            let lifecycle_index=lifecycle_index::qualify_world_rule_lifecycle_index_v1(roots,ctx,outer_scan,inner_scan,work,&supply,&remainder,&$emergency)?;
             let present=remainder.rules_present();
             if organization.rules_present()!=present || supply.rules_present()!=present $(|| $slot.parent_present()!=present)+ { return Err(invalid()); }
             check(ctx)?;
-            let result=retained.retain(WorldRulesQualificationV1 { roots:roots.digest().map_err(|_|invalid())?,class:ctx.values.class,organization,supply,remainder,$($slot),+ });
+            let result=retained.retain(WorldRulesQualificationV1 { roots:roots.digest().map_err(|_|invalid())?,class:ctx.values.class,organization,supply,remainder,lifecycle_index,$($slot),+ });
             check(ctx)?;
             Ok(result)
         }
@@ -131,10 +169,11 @@ macro_rules! branches {
                 let supply=crate::incremental_world_rule_supply_root::accept_supply_verified_v1(&parent.supply,witness,ctx,scan,&mut work.legacy_cells_remaining,work.max_record_bytes)?;
                 let remainder=crate::incremental_world_rule_effects::accept_world_rule_remainder_verified_v1(&parent.remainder,witness,ctx,&mut work.remainder)?;
                 $(let $slot=crate::incremental_world_rule_composite_family::accept_world_rule_branch_verified_v1::<$ty,_,_,_,_>(&parent.$slot,witness,ctx,scan,&mut work.composite)?;)+
+                let lifecycle_index=lifecycle_index::accept_world_rule_lifecycle_index_v1(&parent.lifecycle_index,&parent.supply,&parent.remainder,&parent.emergency,&supply,&remainder,&$emergency,witness,ctx,scan,work)?;
                 let present=remainder.rules_present();
                 if organization.rules_present()!=present || supply.rules_present()!=present $(|| $slot.parent_present()!=present)+ { return Err(invalid().into()); }
                 check(ctx)?;
-                Ok(retained.retain(WorldRulesQualificationV1 { roots:*witness.after_digest(),class:MemoryClass::Ordinary,organization,supply,remainder,$($slot),+ }))
+                Ok(retained.retain(WorldRulesQualificationV1 { roots:*witness.after_digest(),class:MemoryClass::Ordinary,organization,supply,remainder,lifecycle_index,$($slot),+ }))
             })();
             check(ctx)?;
             result
@@ -165,13 +204,14 @@ macro_rules! branches {
             if cancelled() { return Err(ValueTreeError::Cancelled); }
             let remainder=readmit_world_rule_remainder_ordinary_v1(&source.remainder,roots,memory,&mut cancelled)?;
             $(let $slot=readmit_world_rule_branch_ordinary_v1(&source.$slot,roots,memory,&mut cancelled)?;)+
-            let output=retained.retain(WorldRulesQualificationV1 { roots:source.roots,class:MemoryClass::Ordinary,organization,supply,remainder,$($slot),+ });
+            let lifecycle_index=lifecycle_index::readmit_world_rule_lifecycle_index_ordinary_v1(&source.lifecycle_index,memory,&mut cancelled)?;
+            let output=retained.retain(WorldRulesQualificationV1 { roots:source.roots,class:MemoryClass::Ordinary,organization,supply,remainder,lifecycle_index,$($slot),+ });
             if cancelled() { return Err(ValueTreeError::Cancelled); }
             Ok(output)
         }
     }
 }
-branches! {
+branches! { emergency;
     requests:std::collections::BTreeMap<String,crate::world_rules::WorldRuleReceiptV1>,
     orders:std::collections::BTreeMap<String,crate::world_rules::AgentIndustrialOrderV1>,
     continuity:crate::world_rules::OrganizationContinuityStateV1,

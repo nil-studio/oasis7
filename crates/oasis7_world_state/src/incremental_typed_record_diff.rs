@@ -55,6 +55,14 @@ impl<
         id: Option<&str>,
         depth: u16,
     ) -> Result<Option<StatePageLinksV1>, ValueTreeError> {
+        self.page_with_processing(id, depth, &mut |_| Ok(()))
+    }
+    fn page_with_processing(
+        &mut self,
+        id: Option<&str>,
+        depth: u16,
+        processing: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+    ) -> Result<Option<StatePageLinksV1>, ValueTreeError> {
         let Some(id) = id else { return Ok(None) };
         self.check()?;
         self.scan.nodes_remaining = self
@@ -80,6 +88,13 @@ impl<
             .read_bytes_remaining
             .checked_sub(node.as_ref().len() as u64)
             .ok_or(ValueTreeError::ResourceLimited("typed diff bytes"))?;
+        processing(
+            node.as_ref()
+                .len()
+                .checked_mul(16)
+                .and_then(|n| n.checked_add(id.len() + 256))
+                .ok_or_else(invalid)?,
+        )?;
         let page = StateNodeWriteV1 {
             digest: id.to_owned(),
             bytes: node.as_ref().to_vec(),
@@ -110,8 +125,10 @@ fn visit_entries_inner<
         Option<&TypedCellRefV1<'_>>,
         &mut ChangeDecoder<'_, '_, M, R, E, C>,
     ) -> Result<(), ValueTreeError>,
+    processing: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
     d.check()?;
+    processing(256)?;
     before.validate().map_err(|_| invalid())?;
     after.validate().map_err(|_| invalid())?;
     if before.namespace != after.namespace || before.namespace != d.profile.namespace()? {
@@ -142,8 +159,8 @@ fn visit_entries_inner<
         if frame.old == frame.new {
             continue;
         }
-        let old = d.page(frame.old.as_deref(), frame.depth)?;
-        let new = d.page(frame.new.as_deref(), frame.depth)?;
+        let old = d.page_with_processing(frame.old.as_deref(), frame.depth, processing)?;
+        let new = d.page_with_processing(frame.new.as_deref(), frame.depth, processing)?;
         if frame.depth == 256 {
             d.scan.leaves_remaining = d
                 .scan
@@ -247,7 +264,7 @@ pub(crate) fn unchanged(
         _ => false,
     }
 }
-fn row<
+pub(crate) fn row<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -332,7 +349,7 @@ pub(crate) fn root<
         .reserve(512, d.ctx.values.class)?
         .retain(root.clone()))
 }
-fn clone_cell(cell: &ColumnCellV1) -> ColumnCellV1 {
+pub(crate) fn clone_cell(cell: &ColumnCellV1) -> ColumnCellV1 {
     match cell {
         ColumnCellV1::Unit => ColumnCellV1::Unit,
         ColumnCellV1::Bool(v) => ColumnCellV1::Bool(*v),
@@ -447,7 +464,7 @@ pub(crate) fn accept_struct<
     })
 }
 /// Validate direct children without imposing DTO field-name restrictions.
-fn accept_container<
+pub(crate) fn accept_container<
     T: Codec,
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -616,6 +633,27 @@ pub(crate) fn visit_entries<
         &mut ChangeDecoder<'_, '_, M, R, E, C>,
     ) -> Result<(), ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
+    visit_entries_with_processing(before, after, d, visitor, &mut |_| Ok(()))
+}
+
+/// Charges only the original walker's actual processing; callbacks cannot
+/// choose source bytes, branches, keys, depth or any validation predicate.
+pub(crate) fn visit_entries_with_processing<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    before: &StateRootV1,
+    after: &StateRootV1,
+    d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
+    visitor: impl FnMut(
+        Option<&TypedCellRefV1<'_>>,
+        Option<&TypedCellRefV1<'_>>,
+        &mut ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError>,
+    processing: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
     d.check()?;
     if before == after {
         return Ok(());
@@ -628,7 +666,7 @@ pub(crate) fn visit_entries<
         .checked_sub(1)
         .ok_or(ValueTreeError::ResourceLimited("typed diff trees"))?;
     d.tree_depth += 1;
-    let result = visit_entries_inner(before, after, d, visitor);
+    let result = visit_entries_inner(before, after, d, visitor, processing);
     d.tree_depth -= 1;
     result
 }

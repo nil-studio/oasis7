@@ -100,50 +100,11 @@ impl World {
         record: &CapabilityAuthorityRecord,
         certificate: &GovernanceFinalityCertificate,
     ) -> Result<(), WorldError> {
-        if !self
-            .governance_finality_epoch_snapshots
-            .contains_key(&certificate.epoch_id)
-        {
-            return Err(deny(
-                "authority finality requires a historical governance epoch snapshot",
-            ));
-        }
-        let proposal = self
-            .proposals
-            .get(&certificate.proposal_id)
-            .ok_or_else(|| deny("authority finality proposal is not known"))?;
-        let proposal_manifest_hash = match &proposal.status {
-            ProposalStatus::Approved { manifest_hash, .. }
-            | ProposalStatus::Applied { manifest_hash } => manifest_hash,
-            _ => return Err(deny("authority finality proposal is not approved")),
-        };
-        if proposal_manifest_hash != &certificate.manifest_hash {
-            return Err(deny("authority finality proposal manifest hash mismatch"));
-        }
-        self.validate_governance_finality_certificate(
-            certificate.proposal_id,
-            certificate.manifest_hash.as_str(),
-            certificate.epoch_id,
+        super::incremental_module_capability_admission_rules::authority_certificate(
+            &mut super::incremental_module_capability_admission_rules::Legacy(self),
+            record,
             certificate,
         )
-        .map_err(|error| deny(format!("authority finality certificate: {error:?}")))?;
-        if record.finality_epoch != certificate.epoch_id {
-            return Err(deny("authority finality epoch does not match certificate"));
-        }
-        if !certificate.signatures.contains_key(&record.issuer_id) {
-            return Err(deny(
-                "authority issuer identity is not one of the finality signers",
-            ));
-        }
-        let signer_public_key = self
-            .node_identity_public_key(record.issuer_id.as_str())
-            .ok_or_else(|| deny("authority issuer identity is not trusted"))?;
-        if !signer_public_key.eq_ignore_ascii_case(record.public_key_hex.trim()) {
-            return Err(deny(
-                "authority issuer key does not match its finality signer identity",
-            ));
-        }
-        Ok(())
     }
 
     pub(super) fn verify_capability_authority_finality_proof(
@@ -151,82 +112,11 @@ impl World {
         record: &CapabilityAuthorityRecord,
         proof: &CapabilityAuthorityFinalityProof,
     ) -> Result<(), WorldError> {
-        if proof.proof_version != CapabilityAuthorityFinalityProof::PROOF_VERSION_V1 {
-            return Err(deny(
-                "capability authority finality proof version is unsupported",
-            ));
-        }
-        let expected_binding = CapabilityAuthorityFinalityBinding::from_record(record)
-            .map_err(|error| deny(format!("capability authority binding: {error}")))?;
-        if proof.binding != expected_binding {
-            return Err(deny(
-                "capability authority finality proof does not match authority record",
-            ));
-        }
-        self.verify_capability_authority_finality(record, &proof.certificate)?;
-        let certificate_signers: BTreeSet<&String> = proof.certificate.signatures.keys().collect();
-        let proof_signers: BTreeSet<&String> = proof.signatures.keys().collect();
-        if proof_signers != certificate_signers {
-            return Err(deny(
-                "capability authority finality proof signer set does not match certificate",
-            ));
-        }
-        for (node_id, signature_with_prefix) in &proof.signatures {
-            let signature_hex = signature_with_prefix
-                .strip_prefix(CapabilityAuthorityFinalityProof::SIGNATURE_PREFIX_ED25519_V1)
-                .ok_or_else(|| {
-                    deny(format!(
-                        "capability authority proof signature prefix mismatch for {node_id}"
-                    ))
-                })?;
-            let signer_public_key =
-                self.node_identity_public_key(node_id.as_str())
-                    .ok_or_else(|| {
-                        deny(format!(
-                            "capability authority proof signer is not trusted: {node_id}"
-                        ))
-                    })?;
-            let public_key_bytes: [u8; 32] = hex::decode(signer_public_key)
-                .map_err(|_| {
-                    deny(format!(
-                        "capability authority proof signer key is invalid: {node_id}"
-                    ))
-                })?
-                .try_into()
-                .map_err(|_| {
-                    deny(format!(
-                        "capability authority proof signer key length is invalid: {node_id}"
-                    ))
-                })?;
-            let signature_bytes: [u8; 64] = hex::decode(signature_hex)
-                .map_err(|_| {
-                    deny(format!(
-                        "capability authority proof signature is invalid: {node_id}"
-                    ))
-                })?
-                .try_into()
-                .map_err(|_| {
-                    deny(format!(
-                        "capability authority proof signature length is invalid: {node_id}"
-                    ))
-                })?;
-            let verifying_key = VerifyingKey::from_bytes(&public_key_bytes).map_err(|_| {
-                deny(format!(
-                    "capability authority proof signer key is invalid: {node_id}"
-                ))
-            })?;
-            let payload = proof
-                .signing_payload_v1(node_id.as_str())
-                .map_err(|error| deny(format!("capability authority proof payload: {error}")))?;
-            verifying_key
-                .verify(payload.as_slice(), &Signature::from_bytes(&signature_bytes))
-                .map_err(|_| {
-                    deny(format!(
-                        "capability authority proof signature failed: {node_id}"
-                    ))
-                })?;
-        }
-        Ok(())
+        super::incremental_module_capability_admission_rules::proof_check(
+            &mut super::incremental_module_capability_admission_rules::Legacy(self),
+            record,
+            proof,
+        )
     }
 
     pub(super) fn apply_capability_authorization_event(
@@ -1048,16 +938,8 @@ pub(super) fn capability_invocation_context_key_for_values(
     grant_id: &str,
     response_nonce: &str,
 ) -> Result<String, WorldError> {
-    if grant_id.trim().is_empty() || response_nonce.trim().is_empty() {
-        return Err(deny(
-            "invocation context grant id and response nonce are required",
-        ));
-    }
-    canonical_hash(&InvocationContextKey {
-        grant_id,
-        response_nonce,
-    })
-    .map_err(|error| deny(format!("invocation context key: {error}")))
+    let input = capability_invocation_context_key_input_v1(grant_id, response_nonce)?;
+    canonical_hash(&input).map_err(|error| deny(format!("invocation context key: {error}")))
 }
 
 pub(super) fn audience_matches(grant: &CapabilityGrantV2, audience: &CapabilityAudience) -> bool {
@@ -1178,4 +1060,20 @@ fn collect_target_values<'a>(
         }
         _ => {}
     }
+}
+
+/// Unique original key grammar/preimage. DATA only; no context admission.
+pub(in crate::world) fn capability_invocation_context_key_input_v1<'a>(
+    grant_id: &'a str,
+    response_nonce: &'a str,
+) -> Result<impl serde::Serialize + 'a, WorldError> {
+    if grant_id.trim().is_empty() || response_nonce.trim().is_empty() {
+        return Err(deny(
+            "invocation context grant id and response nonce are required",
+        ));
+    }
+    Ok(InvocationContextKey {
+        grant_id,
+        response_nonce,
+    })
 }

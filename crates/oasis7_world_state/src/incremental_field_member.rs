@@ -216,6 +216,24 @@ pub enum MemberRecordError {
     Invalid(&'static str),
     Io(io::Error),
 }
+impl MemberRecordError {
+    /// Preserve bounded key/value causes at point-reader boundaries instead
+    /// of hiding cancellation, memory or allowance exhaustion inside IO.
+    pub fn into_value_error(self) -> ValueTreeError {
+        match self {
+            Self::Value(error) => error,
+            Self::Key(SemanticKeyError::Cancelled) => ValueTreeError::Cancelled,
+            Self::Key(SemanticKeyError::ResourceLimited) => {
+                ValueTreeError::ResourceLimited("semantic key byte allowance")
+            }
+            Self::Key(SemanticKeyError::Memory(error)) => ValueTreeError::Memory(error),
+            Self::Key(SemanticKeyError::Invalid(note)) | Self::Invalid(note) => {
+                ValueTreeError::Invalid(note)
+            }
+            Self::Io(error) => ValueTreeError::Io(error),
+        }
+    }
+}
 impl std::fmt::Display for MemberRecordError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

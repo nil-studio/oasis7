@@ -185,3 +185,9 @@ pub use pages::{
 };
 
 pub(crate) use receiver::accept_reward_verified_v1;
+
+#[path="incremental_reward_budget_records_projection_cells.rs"] mod projection_cells;
+#[path="incremental_reward_budget_records_projection.rs"] mod projection;
+pub use projection::{CurrentRewardProjectionDeltaV1,RewardPoolProjectionPathRefV1,read_current_reward_projection_delta_v1,is_reward_projection_field_v1};
+
+pub use projection::{QualifiedRewardProjectionColumnsV1,read_qualified_reward_projection_columns_v1};

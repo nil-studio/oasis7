@@ -62,6 +62,7 @@ pub struct AcceptedWorldManifestHashV1 {
     class: MemoryClass,
 }
 pub struct CurrentWorldManifestHashV1 {
+    read_guard: PreparedGuard,
     baseline: Arc<ReservedValue<Baseline>>,
     parent: Scope,
     guard: PreparedGuard,
@@ -405,6 +406,7 @@ where
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(charge.retain(CurrentWorldManifestHashV1 {
+        read_guard: ctx.transaction.guard(),
         baseline: value,
         parent: parent_scope,
         guard: ctx.transaction.guard(),
@@ -461,3 +463,112 @@ pub fn readmit_world_manifest_hash_ordinary_v1(
 #[path = "incremental_module_execution_manifest_hash_promotion.rs"]
 mod promotion;
 pub use promotion::*;
+
+impl CurrentWorldManifestHashV1 {
+    pub(in crate::world) fn prepare_normal_candidate_source_v1(
+        &self,
+        terminal: &crate::world::incremental_normal_host_finish::SealedNormalResidentSourceV1,
+        core: &ReservedValue<oasis7_formal_protocol::incremental_material::CheckedCommitCore>,
+        history: &ReservedValue<
+            oasis7_world_state::incremental_runtime_history_source::CheckedRuntimeHistorySourceV1,
+        >,
+        head: &VerifiedFormalCommitV1,
+        roots: &RootSetV1,
+        common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<
+        ReservedValue<AcceptedWorldManifestHashV1>,
+        crate::world::incremental_body::BodyMutationError,
+    > {
+        common.charge(16, 8192).map_err(|e| {
+            crate::world::incremental_body::BodyMutationError::Original(Box::new(e))
+        })?;
+        terminal.validate_manifest_source_v1(self, common)?;
+        let selected = history.occurrence();
+        if !core.uses_budget(common.memory())
+            || !history.uses_budget(common.memory())
+            || !self.baseline.uses_budget(common.memory())
+            || core.candidate_record_id() != head.verified_record_id()
+            || selected.candidate_record_id() != core.candidate_record_id()
+            || selected.body_id() != core.catalog().entry.commit
+            || selected.roots_id() != terminal.after_roots()
+            || core.body().roots != terminal.after_roots()
+            || history.manifest().roots != terminal.after_roots()
+            || roots.digest()? != terminal.after_roots()
+        {
+            return Err(invalid().into());
+        }
+        let fee = common
+            .memory()
+            .reserve(
+                std::mem::size_of::<AcceptedWorldManifestHashV1>(),
+                MemoryClass::Ordinary,
+            )
+            .map_err(ValueTreeError::Memory)?;
+        Ok(fee.retain(AcceptedWorldManifestHashV1 {
+            baseline: Arc::clone(&self.baseline),
+            scope: Scope {
+                record: head.verified_record_id(),
+                body: selected.body_id(),
+                roots: terminal.after_roots(),
+            },
+            class: MemoryClass::Ordinary,
+        }))
+    }
+}
+impl AcceptedWorldManifestHashV1 {
+    pub(in crate::world) fn share_normal_ordinary_v1(
+        &self,
+        common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<Self>, crate::world::incremental_body::BodyMutationError> {
+        common.consume_steps(1).map_err(|e| {
+            crate::world::incremental_body::BodyMutationError::Original(Box::new(e))
+        })?;
+        if self.class != MemoryClass::Ordinary || !self.baseline.uses_budget(common.memory()) {
+            return Err(invalid().into());
+        }
+        let fee = common
+            .memory()
+            .reserve(std::mem::size_of::<Self>(), MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        Ok(fee.retain(Self {
+            baseline: Arc::clone(&self.baseline),
+            scope: self.scope,
+            class: self.class,
+        }))
+    }
+}
+
+impl CurrentWorldManifestHashV1 {
+    /// Read-only DATA consumption tolerates new reads, while the original
+    /// strict guard remains unchanged for terminal/seal consumers.
+    pub(in crate::world) fn validate_current_read_source_v1<M: MerkleNodeReader>(
+        &self,
+        parent: &crate::world::incremental_normal_sources::BoundNormalTickParentV1<'_>,
+        tx: &oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+        common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<(), crate::world::incremental_body::BodyMutationError> {
+        parent.validate_context(common).map_err(|e| {
+            crate::world::incremental_body::BodyMutationError::Original(Box::new(e))
+        })?;
+        common.charge(8, 512).map_err(|e| {
+            crate::world::incremental_body::BodyMutationError::Original(Box::new(e))
+        })?;
+        tx.validate_exact_transaction_identity(&self.read_guard)?;
+        tx.validate_read_source_guard(&self.read_guard, live)?;
+        let refs = parent.refs();
+        if !tx.uses_budget(common.memory())
+            || !self.baseline.uses_budget(common.memory())
+            || !self.baseline.body.uses_budget(common.memory())
+            || self.baseline.body.allocation_class() != MemoryClass::Ordinary
+            || self.parent.record != refs.head.verified_record_id()
+            || self.parent.body != refs.runtime.occurrence().head_body_id()
+            || self.parent.roots != refs.core.body().roots
+            || tx.parent_fence().parent_commit != self.parent.body
+            || tx.parent_fence().parent_roots != self.parent.roots
+        {
+            return Err(invalid().into());
+        }
+        Ok(())
+    }
+}

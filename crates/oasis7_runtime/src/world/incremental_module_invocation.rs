@@ -189,23 +189,124 @@ fn manifest_hash<C: FnMut() -> bool>(
     clippy::too_many_arguments,
     reason = "Independent state, value, schema and original contexts retain their continuous admission budgets."
 )]
-fn prepare_root_module_invocation_route_v1<M, R, E, C, O>(
+/// Actual Current manifest selection without touching artifact/WASM originals.
+/// This is source DATA and grants no execution, authorization or tick permission.
+pub(in crate::world) struct CurrentModuleManifestSelectionV1 {
+    instance_id: String,
+    module_id: String,
+    target: ModuleInstallTarget,
+    manifest: ReservedValue<SelectedModuleManifestV1>,
+    _selection_charge: MemoryReservation,
+    guard: PreparedGuard,
+    parent: [u8; 32],
+    memory: oasis7_proto::memory_budget::MemoryBudget,
+}
+impl CurrentModuleManifestSelectionV1 {
+    pub(in crate::world) fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+    pub(in crate::world) fn module_id(&self) -> &str {
+        &self.module_id
+    }
+    pub(in crate::world) fn install_target(&self) -> &ModuleInstallTarget {
+        &self.target
+    }
+    pub(in crate::world) fn manifest(&self) -> &oasis7_world_state::ModuleManifest {
+        self.manifest.manifest()
+    }
+    pub(in crate::world) fn validate<M: MerkleNodeReader>(
+        &self,
+        tx: &oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        live: &ExecutionFence,
+    ) -> Result<(), ModuleInvocationPreparationErrorV1<std::convert::Infallible>> {
+        tx.validate_guard(&self.guard, live)?;
+        if self.parent != tx.parent_fence().parent_roots
+            || !self.memory.same_pool(memory)
+            || !self.manifest.uses_budget(memory)
+            || !tx.uses_budget(memory)
+        {
+            return Err(invalid().into());
+        }
+        Ok(())
+    }
+}
+pub(in crate::world) fn read_current_root_module_manifest_selection_v1<M, R, E, C>(
+    request: ModuleInvocationPreparationRequestV1<'_>,
+    state: &M,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut ArtifactConfigReadWorkV1,
+    limits: &mut ModuleInvocationPreparationLimitsV1,
+) -> Result<
+    Option<CurrentModuleManifestSelectionV1>,
+    ModuleInvocationPreparationErrorV1<std::convert::Infallible>,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    with_current_module_manifest_selection_v1(
+        InvocationRouteV1::InstanceOrActive,
+        request,
+        state,
+        ctx,
+        scan,
+        work,
+        limits,
+        |selected, _, _| Ok(selected),
+    )
+}
+pub(in crate::world) fn read_current_registry_module_manifest_selection_v1<M, R, E, C>(
+    request: ModuleInvocationPreparationRequestV1<'_>,
+    state: &M,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut ArtifactConfigReadWorkV1,
+    limits: &mut ModuleInvocationPreparationLimitsV1,
+) -> Result<
+    Option<CurrentModuleManifestSelectionV1>,
+    ModuleInvocationPreparationErrorV1<std::convert::Infallible>,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    with_current_module_manifest_selection_v1(
+        InvocationRouteV1::RegistryActive,
+        request,
+        state,
+        ctx,
+        scan,
+        work,
+        limits,
+        |selected, _, _| Ok(selected),
+    )
+}
+
+fn with_current_module_manifest_selection_v1<M, R, E, C, OE, OUT>(
     route: InvocationRouteV1,
     request: ModuleInvocationPreparationRequestV1<'_>,
     state: &M,
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     scan: &mut StateScanBudget,
     work: &mut ArtifactConfigReadWorkV1,
-    originals: &mut O,
-    original_work: &mut RuntimeArtifactOriginalWorkV1,
     limits: &mut ModuleInvocationPreparationLimitsV1,
-) -> Result<Option<PreparedRootModuleInvocationV1>, ModuleInvocationPreparationErrorV1<O::Error>>
+    output: impl FnOnce(
+        CurrentModuleManifestSelectionV1,
+        &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, &mut E, &mut C>,
+        &mut ModuleInvocationPreparationLimitsV1,
+    ) -> Result<OUT, ModuleInvocationPreparationErrorV1<OE>>,
+) -> Result<Option<OUT>, ModuleInvocationPreparationErrorV1<OE>>
 where
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
-    O: OriginalObjectStreamReader,
 {
     let WorldFieldOverlayContextV1 {
         transaction,
@@ -277,18 +378,17 @@ where
                 ) {
                     return Ok(None);
                 }
-                let mut text =
-                    |field| -> Result<String, ModuleInvocationPreparationErrorV1<O::Error>> {
-                        let value = read
-                            .read_instance_field(request.invocation_id, field, tx)?
-                            .ok_or_else(invalid)?;
-                        match Scalar::from_canonical_bytes(&value, field)
-                            .map_err(BodyMutationError::Invalid)?
-                        {
-                            Scalar::Text(v) => Ok(text_copy(v, &mut heap)?),
-                            _ => Err(invalid().into()),
-                        }
-                    };
+                let mut text = |field| -> Result<String, ModuleInvocationPreparationErrorV1<OE>> {
+                    let value = read
+                        .read_instance_field(request.invocation_id, field, tx)?
+                        .ok_or_else(invalid)?;
+                    match Scalar::from_canonical_bytes(&value, field)
+                        .map_err(BodyMutationError::Invalid)?
+                    {
+                        Scalar::Text(v) => Ok(text_copy(v, &mut heap)?),
+                        _ => Err(invalid().into()),
+                    }
+                };
                 let id = text(Field::InstanceId)?;
                 let module = text(Field::ModuleId)?;
                 let version = text(Field::Version)?;
@@ -456,44 +556,132 @@ where
             scan,
             &limits.manifest,
         )?;
-        let manifest_sha256 = manifest_hash(
-            manifest.manifest(),
-            &mut limits.manifest_json_bytes_remaining,
-            &mut overlay.cancelled,
-        )?;
-        let original = match read_runtime_artifact_content_overlay_v1(
-            RuntimeArtifactContentFieldV1::Original,
-            &manifest.manifest().wasm_hash,
-            &mut overlay,
-        )? {
-            RuntimeArtifactContentValueV1::Original(Some(v)) => v,
-            _ => return Err(invalid().into()),
-        };
-        let (wasm, wasm_charge) = original::selected_original(
-            original,
-            originals,
-            memory,
-            original_work,
-            &mut overlay.cancelled,
-        )
-        .map_err(ModuleInvocationPreparationErrorV1::Original)?;
         if (overlay.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
         let guard = overlay.transaction.guard();
-        Ok(Some(PreparedRootModuleInvocationV1 {
+        overlay.transaction.validate_guard(&guard, request.live)?;
+        let selected = CurrentModuleManifestSelectionV1 {
             instance_id,
             module_id,
             target,
             manifest,
-            manifest_sha256,
-            wasm,
-            _wasm_charge: wasm_charge,
             _selection_charge: selection_charge,
             guard,
-            parent: request.parent_roots.digest()?,
-        }))
+            parent: overlay.transaction.parent_fence().parent_roots,
+            memory: memory.clone(),
+        };
+        output(selected, &mut overlay, limits).map(Some)
     })
+}
+
+fn finish_current_module_manifest_selection_v1<M, R, E, C, O>(
+    selected: CurrentModuleManifestSelectionV1,
+    overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    originals: &mut O,
+    original_work: &mut RuntimeArtifactOriginalWorkV1,
+    limits: &mut ModuleInvocationPreparationLimitsV1,
+    live: &ExecutionFence,
+) -> Result<PreparedRootModuleInvocationV1, ModuleInvocationPreparationErrorV1<O::Error>>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    O: OriginalObjectStreamReader,
+{
+    let CurrentModuleManifestSelectionV1 {
+        instance_id,
+        module_id,
+        target,
+        manifest,
+        _selection_charge: selection_charge,
+        parent,
+        ..
+    } = selected;
+    let memory = overlay.values.memory;
+    let manifest_sha256 = manifest_hash(
+        manifest.manifest(),
+        &mut limits.manifest_json_bytes_remaining,
+        &mut overlay.cancelled,
+    )?;
+    let original = match read_runtime_artifact_content_overlay_v1(
+        RuntimeArtifactContentFieldV1::Original,
+        &manifest.manifest().wasm_hash,
+        overlay,
+    )? {
+        RuntimeArtifactContentValueV1::Original(Some(v)) => v,
+        _ => return Err(invalid().into()),
+    };
+    let (wasm, wasm_charge) = original::selected_original(
+        original,
+        originals,
+        memory,
+        original_work,
+        &mut overlay.cancelled,
+    )
+    .map_err(ModuleInvocationPreparationErrorV1::Original)?;
+    if (overlay.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    let guard = overlay.transaction.guard();
+    overlay.transaction.validate_guard(&guard, live)?;
+    Ok(PreparedRootModuleInvocationV1 {
+        instance_id,
+        module_id,
+        target,
+        manifest,
+        manifest_sha256,
+        wasm,
+        _wasm_charge: wasm_charge,
+        _selection_charge: selection_charge,
+        guard,
+        parent,
+    })
+}
+
+fn prepare_root_module_invocation_route_v1<M, R, E, C, O>(
+    route: InvocationRouteV1,
+    request: ModuleInvocationPreparationRequestV1<'_>,
+    state: &M,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut ArtifactConfigReadWorkV1,
+    originals: &mut O,
+    original_work: &mut RuntimeArtifactOriginalWorkV1,
+    limits: &mut ModuleInvocationPreparationLimitsV1,
+) -> Result<Option<PreparedRootModuleInvocationV1>, ModuleInvocationPreparationErrorV1<O::Error>>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    O: OriginalObjectStreamReader,
+{
+    let parent_roots = request.parent_roots;
+    let live = request.live;
+    with_current_module_manifest_selection_v1(
+        route,
+        request,
+        state,
+        ctx,
+        scan,
+        work,
+        limits,
+        |selected, overlay, limits| {
+            let mut prepared = finish_current_module_manifest_selection_v1(
+                selected,
+                overlay,
+                originals,
+                original_work,
+                limits,
+                live,
+            )?;
+            // Preserve the ordinary path's original final parent encoding check.
+            prepared.parent = parent_roots.digest()?;
+            Ok(prepared)
+        },
+    )
 }
 
 #[path = "incremental_module_execution_selected.rs"]
@@ -527,12 +715,12 @@ pub use enumerate::{
 };
 
 pub(in crate::world) use enumerate::{
-    FrozenInvocationDirectoryV1, freeze_current_invocation_directory_v1,
+    FrozenInvocationDirectoryV1, any_current_active_artifact_v1, current_registry_active_keys_v1,
+    freeze_current_invocation_directory_v1,
 };
 
 pub(in crate::world) use target::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
 
-#[cfg(test)]
 pub(in crate::world) use target::NonmovementSelectedErrorV1;
 
 pub(in crate::world) use target::SelectedAcceptedDispositionV1;
@@ -546,4 +734,121 @@ pub(in crate::world) use target::{
 // Private result handoff for the fixed normal publisher and genuine fixtures.
 pub(in crate::world) use target::MatchingBeforePublicationV1;
 
-pub(in crate::world) use target::PaidDueProductVmFailureV1;
+pub(in crate::world) use target::{PaidDueProductVmFailureV1, PaidFactoryModuleExecutionV1};
+
+/// Complete the original artifact/WASM suffix only for one opaque slot from
+/// the fully preselected gameplay Tick route. No caller manifest is accepted.
+pub(in crate::world) fn finish_captured_gameplay_tick_manifest_v1<M, R, E, C, O>(
+    slot: crate::world::incremental_normal_gameplay_cycles::DueGameplayTickSlotV1,
+    core: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    originals: &mut O,
+    original_work: &mut RuntimeArtifactOriginalWorkV1,
+    limits: &mut ModuleInvocationPreparationLimitsV1,
+    live: &ExecutionFence,
+) -> Result<
+    (
+        Option<PreparedCapturedGameplayTickV1>,
+        Option<crate::world::incremental_normal_gameplay_cycles::CapturedGameplayWorldHashV1>,
+    ),
+    ModuleInvocationPreparationErrorV1<O::Error>,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    O: OriginalObjectStreamReader,
+{
+    slot.validate(ctx.transaction, ctx.values.memory, core, live)?;
+    let (selection, hash) = slot.into_selection();
+    let Some(selected) = selection else {
+        return Ok((None, hash));
+    };
+    ctx.transaction
+        .validate_transaction_identity(&selected.guard)?;
+    if selected.parent != ctx.transaction.parent_fence().parent_roots
+        || !selected.memory.same_pool(ctx.values.memory)
+        || !selected.manifest.uses_budget(ctx.values.memory)
+        || ctx.values.class != MemoryClass::Ordinary
+    {
+        return Err(invalid().into());
+    }
+    // The original due route removes the wake but does not open WASM for an
+    // active manifest that has no Tick subscription.
+    if !crate::world::module_tick_runtime::module_has_tick_subscription(selected.manifest()) {
+        return Ok((None, hash));
+    }
+    let prepared = finish_current_module_manifest_selection_v1(
+        selected,
+        ctx,
+        originals,
+        original_work,
+        limits,
+        live,
+    )?;
+    Ok((
+        Some(PreparedCapturedGameplayTickV1 { selected: prepared }),
+        hash,
+    ))
+}
+
+/// Only the genuine due-slot finisher can create this captured-input carrier.
+/// Ordinary selections cannot use its read-only input handoff.
+pub(in crate::world) struct PreparedCapturedGameplayTickV1 {
+    selected: PreparedRootModuleInvocationV1,
+}
+impl std::ops::Deref for PreparedCapturedGameplayTickV1 {
+    type Target = PreparedRootModuleInvocationV1;
+    fn deref(&self) -> &Self::Target {
+        &self.selected
+    }
+}
+impl PreparedCapturedGameplayTickV1 {
+    pub(in crate::world) fn finish_after_input<M, R, E, C>(
+        mut self,
+        ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+        live: &ExecutionFence,
+    ) -> Result<PreparedRootModuleInvocationV1, BodyMutationError>
+    where
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    {
+        ctx.transaction
+            .validate_transaction_identity(&self.selected.guard)?;
+        if self.selected.parent != ctx.transaction.parent_fence().parent_roots
+            || !self.selected.manifest.uses_budget(ctx.values.memory)
+            || ctx.values.class != MemoryClass::Ordinary
+        {
+            return Err(BodyMutationError::Invalid("captured Tick input handoff"));
+        }
+        if (ctx.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let guard = ctx.transaction.guard();
+        ctx.transaction.validate_guard(&guard, live)?;
+        self.selected.guard = guard;
+        Ok(self.selected)
+    }
+}
+
+pub(in crate::world) use target::with_current_root_module_meter_v1;
+
+pub(in crate::world) use target::with_current_root_history_index_meter_v1;
+
+pub(in crate::world) use target::{FactoryModuleBeforeRulesOutcomeV1, FailedFactoryModuleActionV1};
+
+pub(in crate::world) use target::{
+    CompletedFactoryModuleRejectionV1, FactoryModuleInitialAdmissionV1,
+    PreparedFactoryModuleFollowupV1, prepare_factory_module_initial_admission_v1,
+};
+
+pub(in crate::world) use target::with_current_root_route_meter_v1;
+
+pub(in crate::world) use target::CompletedSelectedNonmovementV2;
+
+pub(in crate::world) use enumerate::{
+    current_registry_active_keys_with_work_v1, current_registry_record_keys_v1,
+};

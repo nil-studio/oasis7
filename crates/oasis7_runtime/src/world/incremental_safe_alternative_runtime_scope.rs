@@ -2,12 +2,13 @@
 //! This borrowed result is DATA; only the actual ledger/Current join can mint a
 //! matching owner. No RuntimeBinding or replacement base-world hash is created.
 use serde_json::Value;
-pub(super) struct SafeAlternativeRuntimeScopeV1<'a> {
+pub(in crate::world) struct SafeAlternativeRuntimeScopeV1<'a> {
     pub world: &'a str,
     pub branch: &'a str,
     pub reorg: u64,
+    finality_epoch:u64,
 }
-pub(super) fn runtime_scope_v1<'a>(
+pub(in crate::world) fn runtime_scope_v1<'a>(
     raw: &'a Value,
     manifest_world: &str,
     manifest_hash: &str,
@@ -26,7 +27,7 @@ pub(super) fn runtime_scope_v1<'a>(
         return Err("runtime_world_id_mismatch");
     }
     let status = text("finality_status")?;
-    binding
+    let finality_epoch=binding
         .get("finality_epoch")
         .and_then(Value::as_u64)
         .ok_or("runtime_binding_invalid")?;
@@ -57,5 +58,10 @@ pub(super) fn runtime_scope_v1<'a>(
         world,
         branch,
         reorg,
+        finality_epoch,
     })
+}
+
+impl SafeAlternativeRuntimeScopeV1<'_>{
+    pub(in crate::world) fn finality_epoch(&self)->u64{self.finality_epoch}
 }

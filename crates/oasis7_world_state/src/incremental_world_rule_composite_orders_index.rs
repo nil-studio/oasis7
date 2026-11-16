@@ -9,10 +9,17 @@ use crate::incremental_typed_record_diff::point_typed_column_v1;
 pub struct CurrentAgentOrderIndexV1 {
     phase: crate::world_rules::AgentIndustrialPhaseV1,
     factory: ReservedValue<ColumnRowV1>,
+    owner: ReservedValue<ColumnRowV1>,
     target: ReservedValue<ColumnRowV1>,
     delivered_at: Option<u64>,
 }
 impl CurrentAgentOrderIndexV1 {
+    pub fn owner_id(&self) -> &str {
+        match &self.owner.cell {
+            ColumnCellV1::Text(value) => value,
+            _ => unreachable!("constructor checks original owner column"),
+        }
+    }
     pub fn phase(&self) -> crate::world_rules::AgentIndustrialPhaseV1 {
         self.phase
     }
@@ -144,8 +151,9 @@ where
         >(phase_root, &p, &mut *d.ctx, &mut *d.scan, &mut *d.work)?;
         let phase = *phase.value();
         let factory = point_typed_column_v1(&p, body, "factory_id", &mut d, max)?;
+        let owner = point_typed_column_v1(&p, body, "owner_id", &mut d, max)?;
         let target = point_typed_column_v1(&p, body, "target_agent_id", &mut d, max)?;
-        for row in [&factory, &target] {
+        for row in [&factory, &owner, &target] {
             let ColumnCellV1::Text(value) = &row.cell else {
                 return Err(bad().into());
             };
@@ -163,6 +171,7 @@ where
         Ok(Some(fee.retain(CurrentAgentOrderIndexV1 {
             phase,
             factory,
+            owner,
             target,
             delivered_at,
         })))

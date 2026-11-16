@@ -23,6 +23,7 @@ pub struct DiplomacyFamilyQualificationV1 {
     pub(super) contracts: relations::contracts::ContractCreatorIndexV1,
 }
 impl DiplomacyFamilyQualificationV1 {
+    pub fn allocation_class(&self)->MemoryClass{self.class}
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if self.roots != *roots
             || u64::try_from(self.contracts.len()).ok() != Some(self.counts[3])

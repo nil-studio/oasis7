@@ -12,7 +12,9 @@ use std::{
 mod current;
 #[path = "incremental_inventory_identity_directory_tree.rs"]
 mod tree;
-pub use current::recover_current_inventory_ledger_v1;
+pub use current::{
+    recover_current_inventory_ledger_v1, recover_current_inventory_stacks_by_ledger_v1,
+};
 pub struct InventoryIdentityDirectoryWorkV1 {
     pub visits_remaining: u64,
     pub comparison_bytes_remaining: u64,

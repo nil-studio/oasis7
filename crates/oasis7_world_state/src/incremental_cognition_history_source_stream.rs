@@ -365,3 +365,7 @@ fn validate_head_source_sequence(
         Err(ValueTreeError::Invalid("Cognition head source sequence"))
     }
 }
+
+#[path = "incremental_cognition_history_current_journal.rs"]
+mod current_journal;
+pub use current_journal::*;

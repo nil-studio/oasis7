@@ -1150,3 +1150,14 @@ mod bounded_genesis_qualified;
 
 #[path = "endpoint_store_host_current.rs"]
 mod host_current;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_store_bounded_normal_qualified.rs"]
+mod bounded_normal_qualified;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_store_bounded_qualified_install.rs"]
+mod bounded_qualified_install;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_store_cold_parent.rs"]
+pub(super) mod cold_parent;

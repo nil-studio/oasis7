@@ -105,7 +105,9 @@ pub use closure::{
 #[path = "incremental_agent_authority_records_family.rs"]
 mod family;
 pub use family::{
-    AgentAuthorityFamilyQualificationV1, open_qualified_agent_authority_record_v1,
+    AgentAuthorityFamilyQualificationV1, CurrentIntentReorgAggregateV2,
+    FrozenIntentReorgAggregateV2, SealedIntentReorgAggregateV2,
+    open_current_intent_reorg_aggregate_v2, open_qualified_agent_authority_record_v1,
     qualify_agent_authority_family_v1, readmit_agent_authority_family_ordinary_v1,
 };
 
@@ -137,3 +139,8 @@ pub(crate) use receiver::accept_agent_authority_verified_v1;
 #[path = "incremental_agent_authority_records_selected.rs"]
 mod selected;
 pub use selected::open_agent_authority_body_overlay_v1;
+
+#[path="incremental_agent_authority_records_projection.rs"] mod projection;
+pub use projection::{CurrentAgentAuthorityProjectionDeltaV1,read_current_agent_authority_projection_delta_v1,is_agent_authority_projection_field_v1};
+
+pub use projection::{QualifiedAgentAuthorityProjectionColumnsV1,read_qualified_agent_authority_projection_columns_v1};

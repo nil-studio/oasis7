@@ -99,8 +99,33 @@ where
     if !common.memory().same_pool(context.values.memory) {
         return Err(bad());
     }
+    // Explicit output/codec charges above run before this exclusive IO phase.
+    // The original scalar reader touches exactly these four legacy lanes; no
+    // Common callback executes while its child is active. This also lets the
+    // Cognition service reuse the complete body reader without nesting a
+    // second child around it or copying the caller's work balance.
+    let (_, meter, stop) = common.parts();
+    let lease = meter
+        .begin_child()
+        .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+    let saved = [
+        context.values.io.nodes_remaining,
+        context.values.io.read_bytes_remaining,
+        context.values.io.write_bytes_remaining,
+        context.key_work.bytes_remaining,
+    ];
+    let cap = [
+        saved[0].min(lease.remaining_steps()),
+        saved[1].min(lease.remaining_read_bytes() / 3),
+        saved[2].min(lease.remaining_read_bytes() / 3),
+        saved[3].min(lease.remaining_read_bytes() / 3),
+    ];
+    context.values.io.nodes_remaining = cap[0];
+    context.values.io.read_bytes_remaining = cap[1];
+    context.values.io.write_bytes_remaining = cap[2];
+    context.key_work.bytes_remaining = cap[3];
     let guard = context.transaction.guard();
-    read_agent_subtree_scalar_overlay_v1(
+    let call = read_agent_subtree_scalar_overlay_v1(
         AgentSubtreeQualifiedRequestV1 {
             cell: AgentSubtreeScalarRequestV1 {
                 agent,
@@ -115,7 +140,38 @@ where
         &guard,
         live,
     )
-    .map_err(overlay)
+    .map_err(overlay);
+    let after = [
+        context.values.io.nodes_remaining,
+        context.values.io.read_bytes_remaining,
+        context.values.io.write_bytes_remaining,
+        context.key_work.bytes_remaining,
+    ];
+    let mut used = [0u64; 4];
+    let mut invalid = false;
+    for i in 0..4 {
+        invalid |= after[i] > cap[i];
+        used[i] = cap[i].saturating_sub(after[i]);
+    }
+    context.values.io.nodes_remaining = saved[0] - used[0];
+    context.values.io.read_bytes_remaining = saved[1] - used[1];
+    context.values.io.write_bytes_remaining = saved[2] - used[2];
+    context.key_work.bytes_remaining = saved[3] - used[3];
+    let debit = lease.consume(used[0], used[1] + used[2] + used[3]);
+    lease.finish();
+    match call {
+        Err(error) => Err(error),
+        Ok(value) => {
+            debit.map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+            if invalid {
+                return Err(bad());
+            }
+            if stop() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            Ok(value)
+        }
+    }
 }
 fn number<M, R, E, C>(
     agent: &str,

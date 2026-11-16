@@ -71,8 +71,10 @@ pub fn controller_binding_for(
     state: &WorldState,
     agent_id: &str,
 ) -> Result<OrganizationControllerBindingV1, WorldError> {
-    let owner = state
-        .resolved_agent_owner(agent_id)
+    controller_binding_from_owner_v1(state.resolved_agent_owner(agent_id))
+}
+pub fn controller_binding_from_owner_v1(owner:Option<crate::ResolvedAgentOwnerV1>)->Result<OrganizationControllerBindingV1,WorldError>{
+    let owner = owner
         .ok_or_else(|| invalid("organization_controller_binding_unavailable"))?;
     if owner.primary_agent_id.is_empty()
         || owner.player_id.is_empty()
@@ -116,10 +118,12 @@ pub fn controller_binding_matches(
     registration: &OrganizationRegistrationV1,
     agent_id: &str,
 ) -> bool {
-    registration
-        .controller_bindings
-        .get(agent_id)
-        .zip(state.resolved_agent_owner(agent_id))
+    let binding=registration.controller_bindings.get(agent_id);
+    let owner=state.resolved_agent_owner(agent_id);
+    controller_binding_matches_owner_v1(binding,owner.as_ref())
+}
+pub fn controller_binding_matches_owner_v1(binding:Option<&OrganizationControllerBindingV1>,owner:Option<&crate::ResolvedAgentOwnerV1>)->bool{
+    binding.zip(owner)
         .is_some_and(|(binding, owner)| {
             !binding.root_agent_id.is_empty()
                 && !binding.player_id.is_empty()
@@ -188,7 +192,10 @@ pub fn charter_controller_bindings(
 pub fn economic_contract_terms_hash(
     contract: &crate::EconomicContractState,
 ) -> Result<String, WorldError> {
-    crate::util::hash_json(&(
+    match economic_contract_terms_hash_with_work_v1(contract,&mut |_,_|Ok::<_,std::convert::Infallible>(())){Ok(value)=>Ok(value),Err(crate::util::JsonHashWorkErrorV1::Codec(error))=>Err(error.into()),Err(crate::util::JsonHashWorkErrorV1::Work(never))=>match never{}}
+}
+pub fn economic_contract_terms_hash_with_work_v1<E>(contract:&crate::EconomicContractState,work:&mut dyn FnMut(u64,u64)->Result<(),E>)->Result<String,crate::util::JsonHashWorkErrorV1<E>>{
+    crate::util::hash_json_with_work_v1(&(
         "oasis7.organization-continuity.atomic-exchange-terms.v1",
         &contract.contract_id,
         &contract.creator_agent_id,
@@ -199,7 +206,7 @@ pub fn economic_contract_terms_hash(
         contract.reputation_stake,
         contract.expires_at,
         &contract.description,
-    ))
+    ),work)
 }
 
 pub fn activity_catalog_root(

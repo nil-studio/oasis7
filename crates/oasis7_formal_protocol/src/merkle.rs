@@ -17,6 +17,14 @@ pub(crate) enum Node<L> {
 pub(crate) trait Codec {
     type Leaf: Clone;
     const MAX_NODE_BYTES: usize;
+    /// Work-only lengths for the one actual paid Business source. Defaults
+    /// preserve the existing generic/state allowance contract.
+    fn leaf_work_bytes(_: &Self::Leaf) -> usize {
+        Self::MAX_NODE_BYTES
+    }
+    fn node_work_bytes(_: &Node<Self::Leaf>) -> usize {
+        Self::MAX_NODE_BYTES
+    }
     fn key(leaf: &Self::Leaf) -> Result<[u8; 32], String>;
     fn encode(node: Node<Self::Leaf>) -> Result<Vec<u8>, String>;
     fn decode(bytes: &[u8]) -> Result<Node<Self::Leaf>, String>;
@@ -58,6 +66,7 @@ pub(crate) struct Updater<'a, C: Codec, R> {
     max_pending_bytes: usize,
     codec: PhantomData<C>,
     meter: Option<&'a WorkMeter<'a>>,
+    actual_paid_business_source: bool,
 }
 
 impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
@@ -71,12 +80,28 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             max_pending_bytes,
             codec: PhantomData,
             meter: None,
+            actual_paid_business_source: false,
         }
     }
 
     pub(crate) fn with_meter(mut self, meter: Option<&'a WorkMeter<'a>>) -> Self {
         self.meter = meter;
         self
+    }
+    /// Private fixed Business adapter only. Its reader performs actual IO
+    /// admission on the same Common before returning bytes. This controls
+    /// resource accounting, never hash/depth/key or source qualification.
+    pub(crate) fn with_paid_source_meter(mut self, meter: &'a WorkMeter<'a>) -> Self {
+        self.meter = Some(meter);
+        self.actual_paid_business_source = true;
+        self
+    }
+    fn leaf_work(&self, leaf: &C::Leaf) -> usize {
+        if self.actual_paid_business_source {
+            C::leaf_work_bytes(leaf)
+        } else {
+            C::MAX_NODE_BYTES
+        }
     }
     fn pay(&self, bytes: usize) -> Result<(), String> {
         charge(self.meter, bytes)
@@ -104,6 +129,13 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             Self::decode(bytes, digest, depth, self.meter)
         } else {
             self.pay(digest.len())?;
+            // Conservatively prepay the complete bounded source attempt before
+            // reader IO; actual bytes below pay subsequent hash/parse work.
+            self.pay(if self.actual_paid_business_source {
+                0
+            } else {
+                C::MAX_NODE_BYTES
+            })?;
             let bytes = self
                 .reader
                 .read_node(digest, C::MAX_NODE_BYTES)?
@@ -222,7 +254,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
                     current = if key_bit(key, depth) { right } else { left };
                 }
                 Node::Leaf(leaf) => {
-                    self.pay(C::MAX_NODE_BYTES)?;
+                    self.pay(self.leaf_work(&leaf))?;
                     if C::key(&leaf)? != *key {
                         return Err("Merkle key digest collision".into());
                     }
@@ -239,7 +271,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         depth: usize,
         leaf: &C::Leaf,
     ) -> Result<(String, bool), String> {
-        self.pay(C::MAX_NODE_BYTES)?;
+        self.pay(self.leaf_work(leaf))?;
         let key = C::key(leaf)?;
         let (root, old) = self.replace(root, depth, &key, Some(leaf))?;
         Ok((root, old.is_none()))
@@ -254,7 +286,11 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         key: &[u8; 32],
         leaf: Option<&C::Leaf>,
     ) -> Result<(String, Option<C::Leaf>), String> {
-        self.pay(C::MAX_NODE_BYTES)?;
+        self.pay(if self.actual_paid_business_source {
+            leaf.map_or(0, C::leaf_work_bytes)
+        } else {
+            C::MAX_NODE_BYTES
+        })?;
         if depth > DEPTH || leaf.is_some_and(|leaf| C::key(leaf).ok().as_ref() != Some(key)) {
             return Err("Merkle replacement key/depth".into());
         }
@@ -279,7 +315,11 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             };
             path.push((level, left, right, right_selected));
         }
-        self.pay(C::MAX_NODE_BYTES)?;
+        self.pay(if self.actual_paid_business_source {
+            64
+        } else {
+            C::MAX_NODE_BYTES
+        })?;
         let old = match self.read(&current, DEPTH)? {
             Some(Node::Leaf(old)) if C::key(&old)? == *key => Some(old),
             None => None,
@@ -287,7 +327,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         };
         let mut digest = match leaf {
             Some(leaf) => {
-                self.pay(C::MAX_NODE_BYTES)?;
+                self.pay(self.leaf_work(leaf))?;
                 self.store(Node::Leaf(leaf.clone()))?
             }
             None => self.empty[DEPTH].clone(),
@@ -312,7 +352,11 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
     }
 
     fn store(&mut self, node: Node<C::Leaf>) -> Result<String, String> {
-        self.pay(C::MAX_NODE_BYTES)?;
+        self.pay(if self.actual_paid_business_source {
+            C::node_work_bytes(&node)
+        } else {
+            C::MAX_NODE_BYTES
+        })?;
         let bytes = C::encode(node)?;
         self.pay(bytes.len() + 64)?;
         let digest = blake3::hash(&bytes).to_hex().to_string();
@@ -420,3 +464,51 @@ pub(crate) enum VisitError<E> {
 #[cfg(test)]
 #[path = "merkle_range_tests.rs"]
 mod range_tests;
+#[cfg(test)]
+mod pre_read_work_tests {
+    use super::*;
+    use std::cell::Cell;
+    struct TestCodec;
+    impl Codec for TestCodec {
+        type Leaf = [u8; 32];
+        const MAX_NODE_BYTES: usize = 67;
+        fn key(v: &Self::Leaf) -> Result<[u8; 32], String> {
+            Ok(*v)
+        }
+        fn encode(_: Node<Self::Leaf>) -> Result<Vec<u8>, String> {
+            Err("not reached".into())
+        }
+        fn decode(_: &[u8]) -> Result<Node<Self::Leaf>, String> {
+            Err("not reached".into())
+        }
+    }
+    struct Source(Cell<usize>);
+    impl MerkleNodeReader for Source {
+        type Node = Vec<u8>;
+        fn read_node(&self, _: &str, _: usize) -> Result<Option<Vec<u8>>, String> {
+            self.0.set(self.0.get() + 1);
+            Err("physical read must not happen".into())
+        }
+    }
+    #[test]
+    fn insufficient_attempt_allowance_rejects_before_external_read() {
+        let source = Source(Cell::new(0));
+        let empty = vec!["0".repeat(64); DEPTH + 1];
+        let attempts = Cell::new(0);
+        let meter = |n| {
+            if n == TestCodec::MAX_NODE_BYTES {
+                attempts.set(attempts.get() + 1);
+                Err("pre-read budget".into())
+            } else {
+                Ok(())
+            }
+        };
+        let mut updater = Updater::<TestCodec, _>::new(&source, &empty, 0).with_meter(Some(&meter));
+        assert_eq!(
+            updater.lookup(&"1".repeat(64), &[0; 32]).unwrap_err(),
+            "pre-read budget"
+        );
+        assert_eq!(source.0.get(), 0);
+        assert_eq!(attempts.get(), 1);
+    }
+}

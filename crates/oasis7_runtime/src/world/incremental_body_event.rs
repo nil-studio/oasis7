@@ -290,6 +290,36 @@ impl World {
         materials: &mut CorePolicyMaterialContextV1<'_, R, ME>,
         live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
     ) -> Result<(), BodyMutationError> {
+        if matches!(
+            &cap.event().body,
+            WorldEventBody::Governance(_)
+                | WorldEventBody::ModuleEvent(_)
+                | WorldEventBody::ManifestUpdated(_)
+                | WorldEventBody::CapabilityAuthorization(_)
+        ) {
+            // This exact non-Domain body was minted by the committed proposal
+            // source. Do not route it through the Domain-only agent reducer or
+            // apply the proposal mutation a second time.
+            return txn.contribute(|txn| {
+                cap.validate(txn, context.mutation.memory, now)?;
+                txn.validate_guard(&txn.guard(), live)?;
+                let guard = txn.guard();
+                materials.contribute(txn, context.values, &mut context.mutation, &guard, live)?;
+                super::incremental_module_execution_event::contribute_normal_module_governance_original_only_v1(now, cap, txn, context, live)
+            });
+        }
+        if matches!(&cap.event().body, WorldEventBody::ModuleCallFailed(_)) {
+            // Only a concrete typed failure source can mint this opaque cap.
+            // Preserve the original non-Domain append's Core normalization,
+            // original/fact publication and the caller's counted step owner.
+            return txn.contribute(|txn| {
+                cap.validate(txn, context.mutation.memory, now)?;
+                txn.validate_guard(&txn.guard(), live)?;
+                let guard = txn.guard();
+                materials.contribute(txn, context.values, &mut context.mutation, &guard, live)?;
+                super::incremental_module_execution_event::contribute_normal_system_failure_original_only_v1(now, cap, txn, context, live)
+            });
+        }
         Self::contribute_iws_agent_event_qualified_core(
             now,
             cap.event(),
@@ -424,23 +454,55 @@ impl World {
                 }
             }
             if let Some(cap) = system_event
-                && matches!(domain, DomainEvent::ActionRejected {..}) {
+                && (matches!(domain, DomainEvent::ActionRejected {..}) || domain.agent_id().is_none()) {
                 let guard = txn.guard();
                 materials.contribute(txn, context.values, &mut context.mutation, &guard, live)?;
-                return super::incremental_module_execution_event::contribute_due_rejection_original_v1(
+                return super::incremental_module_execution_event::contribute_normal_system_original_only_v1(
                     now, cap, txn, context, live);
             }
             let agent_id = match domain {
+                // The fixed module reducer has already changed its business
+                // rows. Retain the original Domain actor routing/mailbox while
+                // publishing its event; do not reject it at the agent gate.
+                module_event @ (
+                    DomainEvent::ProductProfileGoverned { .. } | DomainEvent::RecipeProfileGoverned { .. } | DomainEvent::FactoryProfileGoverned { .. } | DomainEvent::ModuleReleaseRequested { .. }
+                    | DomainEvent::ModuleReleaseShadowed { .. }
+                    | DomainEvent::ModuleReleaseAttested { .. }
+                    | DomainEvent::ModuleReleaseRoleApproved { .. }
+                    | DomainEvent::ModuleReleaseRolesBound { .. }
+                    | DomainEvent::ModuleReleaseRejected { .. }
+                    | DomainEvent::ModuleReleaseApplied { .. }
+                    | DomainEvent::ModuleInstalled { .. }
+                    | DomainEvent::ModuleUpgraded { .. } | DomainEvent::ModuleRollbackApplied { .. }
+                    | DomainEvent::ModuleArtifactDeployed { .. }
+                    | DomainEvent::ModuleArtifactListed { .. }
+                    | DomainEvent::ModuleArtifactDelisted { .. }
+                    | DomainEvent::ModuleArtifactDestroyed { .. }
+                    | DomainEvent::ModuleArtifactBidPlaced { .. }
+                    | DomainEvent::ModuleArtifactBidCancelled { .. }
+                    | DomainEvent::ModuleArtifactSaleCompleted { .. }
+                ) if system_event.is_some() => module_event.agent_id().ok_or(
+                    BodyMutationError::Invalid("module event actor source"),
+                )?,
                 DomainEvent::FactoryBuildStarted {
                     builder_agent_id, ..
                 } if factory_schedule.is_some() => builder_agent_id,
-                DomainEvent::RecipeStarted {
-                    requester_agent_id, ..
-                } if factory_schedule.is_some() => requester_agent_id,
+                DomainEvent::RecipeStarted { requester_agent_id, .. }
+                | DomainEvent::ProductValidated { requester_agent_id, .. }
+                    if factory_schedule.is_some() => requester_agent_id,
 
                 DomainEvent::FactoryBuilt {
                     builder_agent_id, ..
                 } if system_event.is_some() => builder_agent_id,
+                DomainEvent::WorldRuleCommitted { actor_id, .. } if system_event.is_some() => actor_id,
+                DomainEvent::EconomicContractExpired { creator_agent_id, .. } if system_event.is_some() => creator_agent_id,
+                DomainEvent::CrisisResolved { resolver_agent_id, .. } if system_event.is_some() => resolver_agent_id,
+                DomainEvent::MetaProgressGranted { target_agent_id, .. } if system_event.is_some() => target_agent_id,
+                DomainEvent::AgentClaimUpkeepSettled { claimer_agent_id, .. }
+                | DomainEvent::AgentClaimEnteredGrace { claimer_agent_id, .. }
+                | DomainEvent::AgentClaimIdleWarning { claimer_agent_id, .. }
+                | DomainEvent::AgentClaimReleased { claimer_agent_id, .. }
+                | DomainEvent::AgentClaimReclaimed { claimer_agent_id, .. } if system_event.is_some() => claimer_agent_id,
 
                 DomainEvent::MaterialTransitCompleted {
                     requester_agent_id, ..
@@ -645,6 +707,25 @@ impl World {
             let id = original.id();
 
             match domain {
+                // Already changed by the concrete module state producer in
+                // this transaction. Only the original/mailbox is appended here.
+                DomainEvent::ProductProfileGoverned { .. } | DomainEvent::RecipeProfileGoverned { .. } | DomainEvent::FactoryProfileGoverned { .. } | DomainEvent::ModuleReleaseRequested { .. }
+                    | DomainEvent::ModuleReleaseShadowed { .. }
+                    | DomainEvent::ModuleReleaseAttested { .. }
+                    | DomainEvent::ModuleReleaseRoleApproved { .. }
+                    | DomainEvent::ModuleReleaseRolesBound { .. }
+                    | DomainEvent::ModuleReleaseRejected { .. }
+                    | DomainEvent::ModuleReleaseApplied { .. }
+                    | DomainEvent::ModuleInstalled { .. }
+                | DomainEvent::ModuleUpgraded { .. } | DomainEvent::ModuleRollbackApplied { .. }
+                | DomainEvent::ModuleArtifactDeployed { .. }
+                | DomainEvent::ModuleArtifactListed { .. }
+                | DomainEvent::ModuleArtifactDelisted { .. }
+                | DomainEvent::ModuleArtifactDestroyed { .. }
+                | DomainEvent::ModuleArtifactBidPlaced { .. }
+                | DomainEvent::ModuleArtifactBidCancelled { .. }
+                | DomainEvent::ModuleArtifactSaleCompleted { .. }
+                    if system_event.is_some() => {}
                 DomainEvent::BodyAttributesUpdated { .. }
                 | DomainEvent::BodyAttributesRejected { .. } => {
                     let key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
@@ -677,7 +758,7 @@ impl World {
                         .reserve(agent_id.len() + 512, MemoryClass::Ordinary)
                         .map_err(ExecutionError::Memory)?;
                     let prepared = PreparedBodyAttributesUpdate::new(
-                        agent_id.clone(),
+                        agent_id.to_owned(),
                         view.clone(),
                         event.time,
                     );
@@ -699,8 +780,18 @@ impl World {
                     )?;
                 }
                 DomainEvent::FactoryBuildStarted { .. } | DomainEvent::RecipeStarted { .. }
+                | DomainEvent::ProductValidated { .. }
                     if factory_schedule.is_some() => {}
                 DomainEvent::FactoryBuilt { .. } if system_event.is_some() => {}
+                DomainEvent::WorldRuleCommitted { .. }
+                | DomainEvent::EconomicContractExpired { .. }
+                | DomainEvent::CrisisResolved { .. }
+                | DomainEvent::MetaProgressGranted { .. }
+                | DomainEvent::AgentClaimUpkeepSettled { activity_contract_version: 1, .. }
+                | DomainEvent::AgentClaimEnteredGrace { .. }
+                | DomainEvent::AgentClaimIdleWarning { .. }
+                | DomainEvent::AgentClaimReleased { .. }
+                | DomainEvent::AgentClaimReclaimed { .. } if system_event.is_some() => {}
                 DomainEvent::RecipeCompleted { .. } if system_event.is_some() => {}
                 DomainEvent::ProductValidationAttemptStarted { .. }
                 | DomainEvent::ProductValidationRecorded { .. }

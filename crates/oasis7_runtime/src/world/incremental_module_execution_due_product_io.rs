@@ -32,18 +32,21 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-const MAX_ROOT_LANES: usize = 128;
+const MAX_ROOT_LANES: usize = 256;
+use crate::world::incremental_factory_phase::io::{
+    FactoryPhaseMeterLaneV1, FactoryPhaseMeterLanesV1,
+};
 
-type StopFn<'a> = &'a mut (dyn FnMut() -> bool + 'a);
-type StateErrorFn<'a> = &'a mut (dyn FnMut() -> Option<ValueTreeError> + 'a);
-type PersistOriginalFn<'a> = &'a mut (
+pub(in crate::world) type StopFn<'a> = &'a mut (dyn FnMut() -> bool + 'a);
+pub(in crate::world) type StateErrorFn<'a> = &'a mut (dyn FnMut() -> Option<ValueTreeError> + 'a);
+pub(in crate::world) type PersistOriginalFn<'a> = &'a mut (
             dyn FnMut(
     &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
 ) -> Result<(), BodyMutationError>
                 + 'a
         );
 
-type ReborrowedRoot<'a, 's, M, R, W, O, C> = RootModuleExecutionContextV1<
+pub(in crate::world) type ReborrowedRoot<'a, 's, M, R, W, O, C> = RootModuleExecutionContextV1<
     'a,
     'a,
     's,
@@ -57,11 +60,7 @@ type ReborrowedRoot<'a, 's, M, R, W, O, C> = RootModuleExecutionContextV1<
     BorrowedOriginals<'a, 'a, O, C>,
 >;
 
-enum LaneMut<'a> {
-    Steps(&'a mut u64),
-    Bytes(&'a mut u64),
-    Entries(&'a mut usize),
-}
+type LaneMut<'a> = FactoryPhaseMeterLaneV1<'a>;
 
 #[derive(Clone, Copy)]
 struct LaneFrameV1 {
@@ -74,6 +73,12 @@ struct LaneFrameV1 {
 impl LaneFrameV1 {
     fn capture<M, R, E, C, W, F, O>(
         root: &mut RootModuleExecutionContextV1<'_, '_, '_, '_, M, R, E, C, W, F, O>,
+        history_index: Option<
+            &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+        >,
+        enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+        tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+        external: Option<&mut dyn FactoryPhaseMeterLanesV1>,
     ) -> Result<Self, ValueTreeError>
     where
         O: OriginalObjectStreamReader,
@@ -84,27 +89,34 @@ impl LaneFrameV1 {
             step_lanes: 0,
             byte_lanes: 0,
         };
-        visit_lanes(root, &mut |lane| {
-            let Some(slot) = frame.values.get_mut(frame.count) else {
-                frame.count = MAX_ROOT_LANES + 1;
-                return;
-            };
-            match lane {
-                LaneMut::Steps(value) => {
-                    *slot = u128::from(*value);
-                    frame.step_lanes += 1;
+        visit_lanes(
+            root,
+            history_index,
+            enumeration,
+            tail,
+            external,
+            &mut |lane| {
+                let Some(slot) = frame.values.get_mut(frame.count) else {
+                    frame.count = MAX_ROOT_LANES + 1;
+                    return;
+                };
+                match lane {
+                    LaneMut::Steps(value) => {
+                        *slot = u128::from(*value);
+                        frame.step_lanes += 1;
+                    }
+                    LaneMut::Bytes(value) => {
+                        *slot = u128::from(*value);
+                        frame.byte_lanes += 1;
+                    }
+                    LaneMut::Entries(value) => {
+                        *slot = *value as u128;
+                        frame.step_lanes += 1;
+                    }
                 }
-                LaneMut::Bytes(value) => {
-                    *slot = u128::from(*value);
-                    frame.byte_lanes += 1;
-                }
-                LaneMut::Entries(value) => {
-                    *slot = *value as u128;
-                    frame.step_lanes += 1;
-                }
-            }
-            frame.count += 1;
-        });
+                frame.count += 1;
+            },
+        );
         if frame.count > MAX_ROOT_LANES {
             return Err(ValueTreeError::ResourceLimited(
                 "Root module Common lane inventory",
@@ -131,10 +143,38 @@ fn visit_io(io: &mut ValueIoBudget, visit: &mut impl for<'a> FnMut(LaneMut<'a>))
 /// boundaries; each traversal holds at most one mutable lane reference.
 fn visit_lanes<M, R, E, C, W, F, O>(
     root: &mut RootModuleExecutionContextV1<'_, '_, '_, '_, M, R, E, C, W, F, O>,
+    history_index: Option<
+        &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    >,
+    enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+    tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    external: Option<&mut dyn FactoryPhaseMeterLanesV1>,
     visit: &mut impl for<'a> FnMut(LaneMut<'a>),
 ) where
     O: OriginalObjectStreamReader,
 {
+    if let Some(index) = history_index {
+        visit(LaneMut::Steps(&mut index.cells_remaining));
+    }
+    if let Some(enumeration) = enumeration {
+        visit_scan(&mut enumeration.instance_scan, visit);
+        visit_scan(&mut enumeration.registry_scan, visit);
+        visit(LaneMut::Entries(&mut enumeration.pending_entries));
+        visit(LaneMut::Bytes(&mut enumeration.comparison_bytes_remaining));
+    }
+    if let Some(tail) = tail {
+        visit(LaneMut::Steps(&mut tail.originals_remaining));
+        visit(LaneMut::Bytes(&mut tail.original_bytes_remaining));
+        visit(LaneMut::Steps(&mut tail.decode.structure.values_remaining));
+        visit(LaneMut::Bytes(&mut tail.decode.structure.bytes_remaining));
+        visit(LaneMut::Steps(&mut tail.decode.canonical.visits_remaining));
+        visit(LaneMut::Bytes(&mut tail.decode.canonical.bytes_remaining));
+    }
+
+    if let Some(external) = external {
+        external.visit_lanes(visit);
+    }
+
     let work = &mut *root.work;
     visit(LaneMut::Steps(&mut work.input.visits_remaining));
     visit(LaneMut::Bytes(&mut work.input.bytes_remaining));
@@ -211,6 +251,12 @@ fn visit_lanes<M, R, E, C, W, F, O>(
 
 fn cap_lanes<M, R, E, C, W, F, O>(
     root: &mut RootModuleExecutionContextV1<'_, '_, '_, '_, M, R, E, C, W, F, O>,
+    history_index: Option<
+        &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    >,
+    enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+    tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    external: Option<&mut dyn FactoryPhaseMeterLanesV1>,
     frame: LaneFrameV1,
     steps: u64,
     bytes: u64,
@@ -220,14 +266,21 @@ where
 {
     let entry_cap = usize::try_from(steps).unwrap_or(usize::MAX);
     let mut index = 0usize;
-    visit_lanes(root, &mut |lane| {
-        index = index.saturating_add(1);
-        match lane {
-            LaneMut::Steps(value) => *value = (*value).min(steps),
-            LaneMut::Bytes(value) => *value = (*value).min(bytes),
-            LaneMut::Entries(value) => *value = (*value).min(entry_cap),
-        }
-    });
+    visit_lanes(
+        root,
+        history_index,
+        enumeration,
+        tail,
+        external,
+        &mut |lane| {
+            index = index.saturating_add(1);
+            match lane {
+                LaneMut::Steps(value) => *value = (*value).min(steps),
+                LaneMut::Bytes(value) => *value = (*value).min(bytes),
+                LaneMut::Entries(value) => *value = (*value).min(entry_cap),
+            }
+        },
+    );
     if index != frame.count {
         return Err(ValueTreeError::Invalid(
             "Root module Common lane inventory changed",
@@ -244,6 +297,12 @@ struct LaneDebitV1 {
 
 fn reconcile_lanes<M, R, E, C, W, F, O>(
     root: &mut RootModuleExecutionContextV1<'_, '_, '_, '_, M, R, E, C, W, F, O>,
+    history_index: Option<
+        &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    >,
+    enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+    tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    external: Option<&mut dyn FactoryPhaseMeterLanesV1>,
     frame: LaneFrameV1,
     step_quota: u64,
     byte_quota: u64,
@@ -258,54 +317,61 @@ where
     let mut used_steps = 0u128;
     let mut used_bytes = 0u128;
     let mut invalid = false;
-    visit_lanes(root, &mut |lane| {
-        let original = frame.values.get(index).copied().unwrap_or(0);
-        index = index.saturating_add(1);
-        let (quota, actual) = match lane {
-            LaneMut::Steps(value) => {
-                let quota = original.min(step_quota_u128);
-                let actual = u128::from(*value);
-                let used = if actual > quota {
-                    invalid = true;
-                    quota
-                } else {
-                    quota - actual
-                };
-                used_steps = used_steps.saturating_add(used);
-                *value = u64::try_from(original - used).unwrap_or(0);
-                (quota, actual)
+    visit_lanes(
+        root,
+        history_index,
+        enumeration,
+        tail,
+        external,
+        &mut |lane| {
+            let original = frame.values.get(index).copied().unwrap_or(0);
+            index = index.saturating_add(1);
+            let (quota, actual) = match lane {
+                LaneMut::Steps(value) => {
+                    let quota = original.min(step_quota_u128);
+                    let actual = u128::from(*value);
+                    let used = if actual > quota {
+                        invalid = true;
+                        quota
+                    } else {
+                        quota - actual
+                    };
+                    used_steps = used_steps.saturating_add(used);
+                    *value = u64::try_from(original - used).unwrap_or(0);
+                    (quota, actual)
+                }
+                LaneMut::Bytes(value) => {
+                    let quota = original.min(byte_quota_u128);
+                    let actual = u128::from(*value);
+                    let used = if actual > quota {
+                        invalid = true;
+                        quota
+                    } else {
+                        quota - actual
+                    };
+                    used_bytes = used_bytes.saturating_add(used);
+                    *value = u64::try_from(original - used).unwrap_or(0);
+                    (quota, actual)
+                }
+                LaneMut::Entries(value) => {
+                    let quota = original.min(entry_quota);
+                    let actual = *value as u128;
+                    let used = if actual > quota {
+                        invalid = true;
+                        quota
+                    } else {
+                        quota - actual
+                    };
+                    used_steps = used_steps.saturating_add(used);
+                    *value = usize::try_from(original - used).unwrap_or(0);
+                    (quota, actual)
+                }
+            };
+            if actual > quota {
+                invalid = true;
             }
-            LaneMut::Bytes(value) => {
-                let quota = original.min(byte_quota_u128);
-                let actual = u128::from(*value);
-                let used = if actual > quota {
-                    invalid = true;
-                    quota
-                } else {
-                    quota - actual
-                };
-                used_bytes = used_bytes.saturating_add(used);
-                *value = u64::try_from(original - used).unwrap_or(0);
-                (quota, actual)
-            }
-            LaneMut::Entries(value) => {
-                let quota = original.min(entry_quota);
-                let actual = *value as u128;
-                let used = if actual > quota {
-                    invalid = true;
-                    quota
-                } else {
-                    quota - actual
-                };
-                used_steps = used_steps.saturating_add(used);
-                *value = usize::try_from(original - used).unwrap_or(0);
-                (quota, actual)
-            }
-        };
-        if actual > quota {
-            invalid = true;
-        }
-    });
+        },
+    );
     if index != frame.count {
         invalid = true;
     }
@@ -381,7 +447,7 @@ impl<C: FnMut() -> bool> CancelMuxV1<'_, C> {
     }
 }
 
-pub(super) struct BorrowedOriginals<'a, 'cancel, O, C> {
+pub(in crate::world) struct BorrowedOriginals<'a, 'cancel, O, C> {
     source: &'a mut O,
     cancellation: &'a RefCell<CancelMuxV1<'cancel, C>>,
 }
@@ -702,7 +768,7 @@ where
             #[cfg(any(test, feature = "test-support"))]
             input_observation: input_observation.as_deref_mut(),
         };
-        let result = run(&mut actual, &mut live);
+        let result = catch_unwind(AssertUnwindSafe(|| run(&mut actual, &mut live)));
         let original_visits_remaining = actual.events.original_work.visits_remaining;
         let original_bytes_remaining = actual.events.original_work.bytes_remaining;
         drop(actual);
@@ -714,6 +780,10 @@ where
     let (result, original_visits_remaining, original_bytes_remaining) = result;
     original_work.visits_remaining = original_visits_remaining;
     original_work.bytes_remaining = original_bytes_remaining;
+    let result = match result {
+        Ok(value) => value,
+        Err(payload) => resume_unwind(payload),
+    };
     let stopped_after = cancellation.borrow_mut().poll_all();
     let result = match result {
         Err(error) => Err(error),
@@ -727,7 +797,7 @@ where
 /// Run an actual invocation under one exclusive Common child. The result type
 /// must own its data; it cannot retain the temporary reborrowed context.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn paid<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, Run>(
+pub(in crate::world) fn paid<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, Run>(
     root: &mut RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>,
     common: &mut FormalBoundedContextV1<'_>,
     live_owner: &mut dyn FnMut() -> ExecutionFence,
@@ -747,6 +817,134 @@ where
     Run: for<'b> FnOnce(
         &mut ReborrowedRoot<'b, 's, M, R, W, O, C>,
         &mut (dyn FnMut() -> ExecutionFence + 'b),
+    ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>,
+{
+    paid_inner(
+        root,
+        common,
+        live_owner,
+        None,
+        None,
+        None,
+        |root, live, _, _, _| run(root, live),
+    )
+}
+
+pub(in crate::world) fn paid_with_history_index<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, Run>(
+    root: &mut RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>,
+    common: &mut FormalBoundedContextV1<'_>,
+    live_owner: &mut dyn FnMut() -> ExecutionFence,
+    history_index: &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    run: Run,
+) -> Result<T, RootModuleExecutionErrorV1<O::Error>>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    F: FnMut(
+        &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
+    ) -> Result<(), BodyMutationError>,
+    O: OriginalObjectStreamReader,
+    T: 'static,
+    Run: for<'b> FnOnce(
+        &mut ReborrowedRoot<'b, 's, M, R, W, O, C>,
+        &mut (dyn FnMut() -> ExecutionFence + 'b),
+        &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>,
+{
+    paid_inner(
+        root,
+        common,
+        live_owner,
+        Some(history_index),
+        None,
+        None,
+        |root, live, index, _, _| {
+            let index = index.ok_or_else(|| root_invalid("missing History index work lane"))?;
+            run(root, live, index)
+        },
+    )
+}
+
+pub(in crate::world) fn paid_with_route<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, Run>(
+    root: &mut RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>,
+    common: &mut FormalBoundedContextV1<'_>,
+    live_owner: &mut dyn FnMut() -> ExecutionFence,
+    enumeration: &mut CurrentInvocationEnumerationWorkV1,
+    tail: &mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1,
+    run: Run,
+) -> Result<T, RootModuleExecutionErrorV1<O::Error>>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    F: FnMut(
+        &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
+    ) -> Result<(), BodyMutationError>,
+    O: OriginalObjectStreamReader,
+    T: 'static,
+    Run: for<'b> FnOnce(
+        &mut ReborrowedRoot<'b, 's, M, R, W, O, C>,
+        &mut (dyn FnMut() -> ExecutionFence + 'b),
+        &mut CurrentInvocationEnumerationWorkV1,
+        &mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1,
+    ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>,
+{
+    paid_inner(
+        root,
+        common,
+        live_owner,
+        None,
+        Some(enumeration),
+        Some(tail),
+        |root, live, _, enumeration, tail| {
+            run(
+                root,
+                live,
+                enumeration.ok_or_else(|| root_invalid("route enumeration holder missing"))?,
+                tail.ok_or_else(|| root_invalid("route tail holder missing"))?,
+            )
+        },
+    )
+}
+
+fn paid_inner_external<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, X, Run>(
+    root: &mut RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>,
+    common: &mut FormalBoundedContextV1<'_>,
+    live_owner: &mut dyn FnMut() -> ExecutionFence,
+    mut history_index: Option<
+        &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    >,
+    mut enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+    mut tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    mut external: Option<&mut X>,
+    run: Run,
+) -> Result<T, RootModuleExecutionErrorV1<O::Error>>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    F: FnMut(
+        &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
+    ) -> Result<(), BodyMutationError>,
+    O: OriginalObjectStreamReader,
+    T: 'static,
+    X: FactoryPhaseMeterLanesV1,
+    Run: for<'b> FnOnce(
+        &mut ReborrowedRoot<'b, 's, M, R, W, O, C>,
+        &mut (dyn FnMut() -> ExecutionFence + 'b),
+        Option<
+            &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+        >,
+        Option<&mut CurrentInvocationEnumerationWorkV1>,
+        Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+        Option<&mut X>,
     ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>,
 {
     let result = (|| {
@@ -788,30 +986,100 @@ where
                 .reserve(std::mem::size_of::<LaneFrameV1>(), MemoryClass::Ordinary)
                 .map_err(ValueTreeError::Memory)?;
             let lease = meter.begin_child().map_err(root_formal_error::<O::Error>)?;
-            let frame = LaneFrameV1::capture(root)?;
+            let frame = LaneFrameV1::capture(
+                root,
+                history_index.as_deref_mut(),
+                enumeration.as_deref_mut(),
+                tail.as_deref_mut(),
+                external
+                    .as_deref_mut()
+                    .map(|v| v as &mut dyn FactoryPhaseMeterLanesV1),
+            )?;
             if frame.step_lanes == 0 || frame.byte_lanes == 0 {
                 return Err(root_invalid("due product Common lane inventory empty"));
             }
             let step_quota = lease.remaining_steps() / frame.step_lanes;
             let byte_quota = lease.remaining_read_bytes() / frame.byte_lanes;
-            cap_lanes(root, frame, step_quota, byte_quota)?;
+            cap_lanes(
+                root,
+                history_index.as_deref_mut(),
+                enumeration.as_deref_mut(),
+                tail.as_deref_mut(),
+                external
+                    .as_deref_mut()
+                    .map(|v| v as &mut dyn FactoryPhaseMeterLanesV1),
+                frame,
+                step_quota,
+                byte_quota,
+            )?;
 
             let execution = catch_unwind(AssertUnwindSafe(|| {
-                run_reborrowed(root, stop, live_owner, run)
+                run_reborrowed(root, stop, live_owner, |root, live| {
+                    run(
+                        root,
+                        live,
+                        history_index.as_deref_mut(),
+                        enumeration.as_deref_mut(),
+                        tail.as_deref_mut(),
+                        external.as_deref_mut(),
+                    )
+                })
             }));
             let (result, lane_debit) = match execution {
                 Err(payload) => {
                     root.worker.cancelled.store(true, Ordering::Relaxed);
-                    drop(lease);
+                    let debit = reconcile_lanes(
+                        root,
+                        history_index.as_deref_mut(),
+                        enumeration.as_deref_mut(),
+                        tail.as_deref_mut(),
+                        external
+                            .as_deref_mut()
+                            .map(|v| v as &mut dyn FactoryPhaseMeterLanesV1),
+                        frame,
+                        step_quota,
+                        byte_quota,
+                    );
+                    match debit {
+                        Ok(d) => {
+                            let _ = lease.consume(d.steps, d.bytes);
+                        }
+                        Err(_) => {
+                            let _ = lease.consume(u64::MAX, u64::MAX);
+                        }
+                    }
+                    lease.finish();
                     abort_preserving_first(root.ctx.transaction);
                     resume_unwind(payload)
                 }
                 Ok(Err(error)) => {
-                    let debit = reconcile_lanes(root, frame, step_quota, byte_quota);
+                    let debit = reconcile_lanes(
+                        root,
+                        history_index.as_deref_mut(),
+                        enumeration.as_deref_mut(),
+                        tail.as_deref_mut(),
+                        external
+                            .as_deref_mut()
+                            .map(|v| v as &mut dyn FactoryPhaseMeterLanesV1),
+                        frame,
+                        step_quota,
+                        byte_quota,
+                    );
                     (Err(error), debit)
                 }
                 Ok(Ok((value, cancelled))) => {
-                    let debit = reconcile_lanes(root, frame, step_quota, byte_quota);
+                    let debit = reconcile_lanes(
+                        root,
+                        history_index.as_deref_mut(),
+                        enumeration.as_deref_mut(),
+                        tail.as_deref_mut(),
+                        external
+                            .as_deref_mut()
+                            .map(|v| v as &mut dyn FactoryPhaseMeterLanesV1),
+                        frame,
+                        step_quota,
+                        byte_quota,
+                    );
                     let result = if cancelled {
                         Err(ValueTreeError::Cancelled.into())
                     } else {
@@ -825,16 +1093,25 @@ where
                 Err(error) => {
                     let _ = lease.consume(u64::MAX, u64::MAX);
                     lease.finish();
-                    return Err(error.into());
+                    return match result {
+                        Err(first) => Err(first),
+                        Ok(_) => Err(error.into()),
+                    };
                 }
             };
             let consumed = lease.consume(debit.steps, debit.bytes);
             lease.finish();
             if let Err(error) = consumed {
-                return Err(root_formal_error(error));
+                return match result {
+                    Err(first) => Err(first),
+                    Ok(_) => Err(root_formal_error(error)),
+                };
             }
             if debit.invalid {
-                return Err(ValueTreeError::Invalid("due product work lane increased").into());
+                return match result {
+                    Err(first) => Err(first),
+                    Ok(_) => Err(ValueTreeError::Invalid("due product work lane increased").into()),
+                };
             }
             result
         };
@@ -855,4 +1132,100 @@ where
         abort_preserving_first(root.ctx.transaction);
     }
     result
+}
+
+pub(in crate::world) fn paid_inner<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, Run>(
+    root: &mut RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>,
+    common: &mut FormalBoundedContextV1<'_>,
+    live_owner: &mut dyn FnMut() -> ExecutionFence,
+    mut history_index: Option<
+        &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+    >,
+    mut enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+    mut tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    run: Run,
+) -> Result<T, RootModuleExecutionErrorV1<O::Error>>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    F: FnMut(
+        &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
+    ) -> Result<(), BodyMutationError>,
+    O: OriginalObjectStreamReader,
+    T: 'static,
+    Run: for<'b> FnOnce(
+        &mut ReborrowedRoot<'b, 's, M, R, W, O, C>,
+        &mut (dyn FnMut() -> ExecutionFence + 'b),
+        Option<
+            &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
+        >,
+        Option<&mut CurrentInvocationEnumerationWorkV1>,
+        Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>,
+{
+    paid_inner_external(
+        root,
+        common,
+        live_owner,
+        history_index,
+        enumeration,
+        tail,
+        None::<&mut NoExternalLanesV1>,
+        |root, live, index, enumeration, tail, _| run(root, live, index, enumeration, tail),
+    )
+}
+struct NoExternalLanesV1;
+impl FactoryPhaseMeterLanesV1 for NoExternalLanesV1 {
+    fn visit_lanes(&mut self, _: &mut dyn for<'a> FnMut(FactoryPhaseMeterLaneV1<'a>)) {}
+}
+
+impl<'a, 't, 's, 'v, M, R, E, C, W, F, O>
+    RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    F: FnMut(
+        &mut dyn crate::world::incremental_body_event::AgentEventOriginalV1,
+    ) -> Result<(), BodyMutationError>,
+    O: OriginalObjectStreamReader,
+{
+    pub(in crate::world) fn with_factory_prologue_external_meter_v1<T, X, Run>(
+        &mut self,
+        common: &mut FormalBoundedContextV1<'_>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+        external: &mut X,
+        run: Run,
+    ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>
+    where
+        T: 'static,
+        X: FactoryPhaseMeterLanesV1,
+        Run: for<'b> FnOnce(
+            &mut ReborrowedRoot<'b, 's, M, R, W, O, C>,
+            &mut (dyn FnMut() -> ExecutionFence + 'b),
+            &mut X,
+        ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>,
+    {
+        paid_inner_external(
+            self,
+            common,
+            live_owner,
+            None,
+            None,
+            None,
+            Some(external),
+            |root, live, _, _, _, external| {
+                run(
+                    root,
+                    live,
+                    external.ok_or_else(|| root_invalid("factory phase external lanes missing"))?,
+                )
+            },
+        )
+    }
 }

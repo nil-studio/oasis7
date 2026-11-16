@@ -1,4 +1,4 @@
-//! Selected MaintainFactory/RecycleFactory execution with genuine Current owners.
+//! Selected MaintainFactory/RecycleFactory/PauseFactoryProduction execution with genuine Current owners.
 //! Common admission/Accepted/Rule fees/PostAction remain with the sole driver.
 use crate::world::{
     World,
@@ -113,6 +113,10 @@ struct LifecycleIntentV1<'a> {
     time: u64,
 }
 enum LifecycleEffectV1 {
+    Paused {
+        reason: String,
+        _fee: MemoryReservation,
+    },
     Maintained {
         ledger: ReservedValue<MaterialLedgerId>,
         consumed: i64,
@@ -157,6 +161,7 @@ impl PreparedFactoryLifecycleEventV1 {
             crate::WorldEventBody::Domain(
                 crate::DomainEvent::FactoryMaintained { .. }
                     | crate::DomainEvent::FactoryRecycled { .. }
+                    | crate::DomainEvent::FactoryProductionPaused { .. }
             )
         ) {
             return Err(BodyMutationError::Invalid(
@@ -336,6 +341,15 @@ where
                 .ok_or(ValueTreeError::ResourceLimited(
                     "factory action identifiers",
                 ))?,
+            crate::Action::PauseFactoryProduction {
+                requester_agent_id,
+                factory_id,
+                reason,
+            } => requester_agent_id
+                .len()
+                .checked_add(factory_id.len())
+                .and_then(|n| n.checked_add(reason.len()))
+                .ok_or(ValueTreeError::ResourceLimited("factory pause identifiers"))?,
             _ => {
                 return Err(BodyMutationError::Invalid(
                     "factory lifecycle effective variant",
@@ -398,6 +412,14 @@ where
             step.read_allocator(crate::world::incremental_allocators::RuntimeAllocatorV1::Event)?;
         let (id, _, _) = World::preview_next_event_id(sequence.next, sequence.era);
         let body = match &intent.effect {
+            LifecycleEffectV1::Paused { reason, .. } => {
+                crate::DomainEvent::FactoryProductionPaused {
+                    action_id: selected.envelope().id,
+                    requester_agent_id: intent.operator.to_owned(),
+                    factory_id: intent.factory.to_owned(),
+                    reason: reason.clone(),
+                }
+            }
             LifecycleEffectV1::Maintained {
                 ledger,
                 consumed,

@@ -39,6 +39,8 @@ mod recipe_current;
 mod record;
 #[path = "incremental_normal_action_factory_schedule_starter.rs"]
 mod starter;
+#[path = "incremental_normal_action_factory_module.rs"]
+pub(in crate::world) mod factory_module;
 
 pub(in crate::world) struct FactoryScheduleSourcesV1<'a>{
     pub roots:&'a RootSetV1,
@@ -144,6 +146,8 @@ impl PreparedFactoryScheduleEventV1 {
                 crate::DomainEvent::FactoryBuildStarted { job_id, .. }
                 | crate::DomainEvent::RecipeStarted { job_id, .. },
             ) if self.event.caused_by == Some(crate::CausedBy::Action(*job_id)) => Ok(()),
+            crate::WorldEventBody::Domain(crate::DomainEvent::ProductValidated { .. })
+                if matches!(self.event.caused_by, Some(crate::CausedBy::Action(_))) => Ok(()),
             _ => Err(invalid()),
         }
     }
@@ -287,7 +291,7 @@ fn evaluation_error(
 fn is_action(action: &crate::Action) -> bool {
     matches!(
         action,
-        crate::Action::BuildFactory { .. } | crate::Action::ScheduleRecipe { .. }
+        crate::Action::BuildFactory { .. } | crate::Action::ScheduleRecipe { .. } | crate::Action::ValidateProduct { .. }
     )
 }
 fn source_binding<M: MerkleNodeReader>(
@@ -528,6 +532,7 @@ where
             match action{
     crate::Action::BuildFactory{builder_agent_id,site_id,spec}=>crate::world::event_processing::factory_schedule_fixed::evaluate_build_factory_v1(&mut source,selected.envelope().id,builder_agent_id,site_id,spec,crate::world::event_processing::factory_schedule_fixed::BuildMaterialCheckV1::Required),
     crate::Action::ScheduleRecipe{requester_agent_id,factory_id,recipe_id,plan,logistics_route_ids,logistics_path_ids}=>crate::world::event_processing::factory_schedule_fixed::evaluate_schedule_recipe_v1(&mut source,selected.envelope().id,requester_agent_id,factory_id,recipe_id,plan,logistics_route_ids,logistics_path_ids),
+    crate::Action::ValidateProduct{requester_agent_id,module_id,stack,decision}=>factory_module::product_result_v1(&mut source,selected.envelope().id,requester_agent_id,module_id,stack,decision),
     _=>Err(current::EvaluationErrorV1::Body(invalid())),
    }
         };
@@ -577,7 +582,8 @@ where
         })?;
         let build = record::build_job_from_event_v1(&body, common)?;
         let recipe = record::recipe_job_from_event_v1(&body, common)?;
-        if build.is_some() == recipe.is_some() {
+        let product = matches!(&body,crate::WorldEventBody::Domain(crate::DomainEvent::ProductValidated { .. }));
+        if build.is_some() == recipe.is_some() && !product {
             return Err(invalid());
         }
         // Retain the real selected path owners and allocation plan before any debit.
@@ -632,7 +638,8 @@ where
             work,
             common,
             live,
-            |step, read, _parent, write, materials, work| {
+            |step, read, parent, write, materials, work| {
+                if product { factory_module::apply_product_v1(&body,sources,step,read,parent,write,work,live)?; }
                 if let Some(job) = &build {
                     commit::apply_build_v1(job, sources, step, read, write, materials, work, live)?;
                 }
@@ -718,3 +725,5 @@ mod due_facts;
 pub(in crate::world) use due_facts::{
     DueTerminalCurrentErrorV1, check_due_ledger_destination_v1, read_due_product_module_v1,
 };
+
+pub(in crate::world) use io::paid_with_module as with_module_lifecycle_read_io_v1;

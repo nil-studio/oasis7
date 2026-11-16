@@ -67,6 +67,8 @@ pub struct AcceptedCognitionHistoryViewV1 {
     class: MemoryClass,
 }
 impl AcceptedCognitionHistoryViewV1 {
+    /// Allocation metadata only; this accessor grants no History read scope.
+    pub fn allocation_class(&self) -> MemoryClass { self.class }
     pub(crate) fn class(&self) -> MemoryClass {
         self.class
     }

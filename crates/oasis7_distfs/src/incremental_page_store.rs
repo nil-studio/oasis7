@@ -398,11 +398,13 @@ impl ValuePageSession<'_> {
             .map_err(|_| PageStoreError::Corrupt("physical session poisoned"))
     }
 }
-impl ValueNodeWriter for ValuePageSession<'_> {
-    fn put_node(
+impl ValuePageSession<'_> {
+    /// Publishes the same paid producer bytes to an independent physical
+    /// namespace without cloning their heap allocation or its reservation.
+    pub fn put_node_borrowed(
         &mut self,
         id: [u8; 32],
-        bytes: ReservedValue<Vec<u8>>,
+        bytes: &ReservedValue<Vec<u8>>,
     ) -> std::result::Result<(), ValueTreeError> {
         if self.caller_cancelled.is_some() {
             self.check_cancelled().map_err(value_error)?;
@@ -414,12 +416,21 @@ impl ValueNodeWriter for ValuePageSession<'_> {
             .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
         let result = self
             .store
-            .put_page(id, &bytes, io, cancelled)
+            .put_page(id, bytes, io, cancelled)
             .map_err(value_error);
         if self.caller_cancelled.is_some() {
             self.check_cancelled().map_err(value_error)?;
         }
         result
+    }
+}
+impl ValueNodeWriter for ValuePageSession<'_> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> std::result::Result<(), ValueTreeError> {
+        self.put_node_borrowed(id, &bytes)
     }
 }
 impl ValueNodeReader for ValuePageSession<'_> {

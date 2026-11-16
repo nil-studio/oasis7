@@ -373,6 +373,11 @@ where
     fn charge(&mut self, n: usize) -> Result<(), Self::Error> {
         self.charge(n)
     }
+    fn recipe_work(&mut self,steps:u64,bytes:usize,heap:usize)->Result<(),Self::Error>{
+        let bytes=u64::try_from(bytes).map_err(|_|ValueTreeError::ResourceLimited("recipe tag work bytes"))?;
+        self.common.charge(steps,bytes).map_err(|error|EvaluationErrorV1::Body(BodyMutationError::Original(Box::new(error))))?;
+        if heap>0{self.fees.hold(heap,self.common)?;}Ok(())
+    }
     fn reserve_recipe_output(
         &mut self,
         requester: &str,

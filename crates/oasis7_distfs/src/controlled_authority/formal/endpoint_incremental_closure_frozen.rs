@@ -13,7 +13,7 @@ fn digest<C: FnMut() -> bool>(
 }
 pub(super) fn verify(
     candidate: &FormalCandidateMaterialV1,
-    context: &oasis7_formal_protocol::controlled_authority::formal::VerifiedCandidateContextV1,
+    context: &MaterialSource<'_>,
     core: &CheckedCommitCore,
     memory: &MemoryBudget,
     left: &mut u64,

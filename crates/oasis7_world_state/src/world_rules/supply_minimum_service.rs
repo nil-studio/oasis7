@@ -158,9 +158,25 @@ pub fn source_owner_is_current(state: &WorldState, source: &MinimumServiceContra
     state
         .resolved_agent_owner(&source.registration.beneficiary_id)
         .is_some_and(|owner| {
-            owner.player_id == source.registration.controller_id
-                && owner.source_id == source.owner_source_id
-                && owner.source_id == source.registration.source_ref
-                && owner.primary_agent_id == source.operator_agent_id
+            minimum_service_owner_fields_match_v1(
+                source,
+                &owner.primary_agent_id,
+                &owner.player_id,
+                &owner.source_id,
+            )
         })
+}
+
+/// Original fixed comparison over an actually resolved owner. This is DATA
+/// only: Current callers must obtain the owner from the genuine source reader.
+pub fn minimum_service_owner_fields_match_v1(
+    source: &MinimumServiceContractV1,
+    primary_agent_id: &str,
+    player_id: &str,
+    source_id: &str,
+) -> bool {
+    player_id == source.registration.controller_id
+        && source_id == source.owner_source_id
+        && source_id == source.registration.source_ref
+        && primary_agent_id == source.operator_agent_id
 }

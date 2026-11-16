@@ -21,13 +21,13 @@ fn add(a: usize, b: usize) -> Result<usize, FormalError> {
 fn charge(ctx: &mut FormalBoundedContextV1<'_>, n: usize) -> Result<(), FormalError> {
     ctx.charge(1, n as u64)
 }
-struct Frame(ReservedValue<Vec<u8>>);
+pub(in crate::controlled_authority::formal::proof) struct Frame(ReservedValue<Vec<u8>>);
 impl AsRef<[u8]> for Frame {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
-fn frame<T: Serialize>(
+pub(in crate::controlled_authority::formal::proof) fn frame<T: Serialize>(
     domain: &str,
     value: &T,
     ctx: &mut FormalBoundedContextV1<'_>,
@@ -60,7 +60,7 @@ fn frame<T: Serialize>(
     }
     Ok(Frame(fee.retain(bytes)))
 }
-fn hash<T: Serialize>(
+pub(in crate::controlled_authority::formal::proof) fn hash<T: Serialize>(
     domain: &str,
     value: &T,
     ctx: &mut FormalBoundedContextV1<'_>,
@@ -104,7 +104,7 @@ fn same<T: Serialize + PartialEq>(
     charge(ctx, add(a_wire.len(), b_wire.len())?)?;
     Ok(a == b)
 }
-fn verify<T: Serialize>(
+pub(in crate::controlled_authority::formal::proof) fn verify<T: Serialize>(
     domain: &str,
     value: &T,
     signature: &str,
@@ -129,7 +129,10 @@ fn verify<T: Serialize>(
         |n| charge(&mut shared.borrow_mut(), n),
     )
 }
-fn copy(text: &str, ctx: &mut FormalBoundedContextV1<'_>) -> Result<String, FormalError> {
+pub(in crate::controlled_authority::formal::proof) fn copy(
+    text: &str,
+    ctx: &mut FormalBoundedContextV1<'_>,
+) -> Result<String, FormalError> {
     charge(ctx, text.len())?;
     let value = text.to_owned();
     if value.capacity() != text.len() {
@@ -138,7 +141,9 @@ fn copy(text: &str, ctx: &mut FormalBoundedContextV1<'_>) -> Result<String, Form
     Ok(value)
 }
 // Locked Rust1.96 BTreeMap B=6 clone bound, same role graph as native Hot.
-fn map_layout(entries: usize) -> Result<usize, FormalError> {
+pub(in crate::controlled_authority::formal::proof) fn map_layout(
+    entries: usize,
+) -> Result<usize, FormalError> {
     if entries > 14 {
         return Err(invalid("GEN proof artifact role count"));
     }
@@ -160,7 +165,9 @@ fn map_layout(entries: usize) -> Result<usize, FormalError> {
     }
     Ok(3 * leaf + 12 * size_of::<NonNull<()>>() + 2 * (a - 1))
 }
-fn check_record_copy(record: &CanonicalRecordV1) -> Result<(), FormalError> {
+pub(in crate::controlled_authority::formal::proof) fn check_record_copy(
+    record: &CanonicalRecordV1,
+) -> Result<(), FormalError> {
     let CanonicalRecordV1 {
         schema_version: _,
         durable_set_transition_digest,
@@ -390,7 +397,7 @@ pub fn verify_genesis_qualified_bounded(
         identity: ctx.work().identity(),
     })
 }
-fn hash_instance(
+pub(in crate::controlled_authority::formal::proof) fn hash_instance(
     value: &fencing::EndpointInstanceBindingV1,
     ctx: &mut FormalBoundedContextV1<'_>,
 ) -> Result<ReservedValue<String>, FormalError> {
@@ -519,7 +526,9 @@ fn check_genesis_context(
     if context.branch() != FormalCompletionBranchV1::Normal
         || context.recovery_certificate_digest().is_some()
         || record.kind != FormalRecordKindV1::InitialActivation
-        || record.schema_version != 7
+        || !crate::controlled_authority::formal::incremental::is_iws_initial_record_schema(
+            record.schema_version,
+        )
         || record.frozen_reservation_id.is_some()
         || authority.definition().profile_version
             != super::super::super::incremental::IWS_AUTHORITY_PROFILE_VERSION

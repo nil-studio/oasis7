@@ -1,6 +1,6 @@
 //! Pure signed intent correlation shared by execution and native clients.
-use crate::world_service::private_goal::verify_owner_signature_strict;
 use crate::world_service::*;
+use crate::world_service::{PaidServiceProtocolRefusalV1, ServiceAuthorityWorkErrorV1};
 use crate::world_service_wire::*;
 use serde::Serialize;
 
@@ -25,62 +25,112 @@ pub fn derive_correlation_with_legacy<
         &WorldServicePayloadProfileV1<C, P, L, CP, ST, R, D, X>,
     ) -> Result<LegacyIdentity, String>,
 ) -> Result<RequestCorrelation, String> {
+    derive_correlation_with_legacy_work_v1(
+        world,
+        payload,
+        LegacyBrowserCallbackV1 { verify: legacy },
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map(work::PaidRequestCorrelationDataV1::into_legacy)
+    .map_err(crate::world_service::legacy_service_work_error_v1)
+}
+
+pub(crate) fn derive_correlation_with_legacy_work_v1<
+    C: Serialize,
+    P: Serialize,
+    L: Serialize,
+    CP: Serialize,
+    ST: Serialize,
+    R: Serialize,
+    D: Serialize,
+    X: Serialize,
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+    V: FixedBrowserVerifierV1<WorldServicePayloadProfileV1<C, P, L, CP, ST, R, D, X>, A>,
+>(
+    world: WorldIdentity,
+    payload: &WorldServicePayloadProfileV1<C, P, L, CP, ST, R, D, X>,
+    legacy: V,
+    source: &A,
+) -> Result<PaidRequestCorrelationDataV1<A::Charge>, ServiceAuthorityWorkErrorV1<A::Charge>> {
+    let mut phase = work::Phase::new(source)?;
+    phase.trace(&world)?;
+    phase.hold(
+        std::mem::size_of::<RequestCorrelation>()
+            + world.world_id.len()
+            + world.genesis_digest.len(),
+    )?;
     if let WorldServicePayloadV1::GameStarterClaim(signed) = payload {
         use oasis7_agent_api::game::GAME_STARTER_CLAIM_DOMAIN;
-        signed.request.validate()?;
-        verify_owner_signature_strict(
+        phase.validation(&signed.request, || signed.request.validate())?;
+        crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
             GAME_STARTER_CLAIM_DOMAIN,
             &signed.request,
             &signed.subject_public_key,
             &signed.signature_hex,
+            source,
         )?;
+        phase.trace(&(
+            &signed.request.world_id,
+            &signed.request.genesis_digest,
+            &world.world_id,
+            &world.genesis_digest,
+        ))?;
         if signed.request.world_id != world.world_id
             || signed.request.genesis_digest != world.genesis_digest
         {
-            return Err("starter world identity mismatch".into());
+            return phase.fail("starter world identity mismatch");
         }
         let correlation = RequestCorrelation {
             key: RequestKey {
                 world,
-                verified_subject: signed.subject_public_key.clone(),
-                operation_domain: GAME_STARTER_CLAIM_DOMAIN.into(),
-                nonce_scope: format!("agent:{}", signed.request.agent_id),
-                request_id_or_nonce: signed.request.client_operation_id.clone(),
+                verified_subject: phase.copy(&signed.subject_public_key)?,
+                operation_domain: phase.copy(GAME_STARTER_CLAIM_DOMAIN)?,
+                nonce_scope: phase.prefixed("agent:", &signed.request.agent_id)?,
+                request_id_or_nonce: phase.copy(&signed.request.client_operation_id)?,
             },
-            payload_digest: request_digest("intent", payload)?,
+            payload_digest: phase.digest("intent", payload)?,
         };
-        correlation.validate().map_err(|e| e.to_string())?;
-        return Ok(correlation);
+        phase.validation(&correlation, || correlation.validate())?;
+        return Ok(phase.finish(correlation));
     }
     if let WorldServicePayloadV1::GameParticipantRegister { owner, admission } = payload {
         use oasis7_agent_api::game::*;
-        owner.request.validate()?;
+        phase.validation(&owner.request, || owner.request.validate())?;
+        phase.trace(&owner.subject_public_key)?;
         if owner.subject_public_key != owner.request.owner_public_key {
-            return Err("participant owner signature mismatch".into());
+            return phase.fail("participant owner signature mismatch");
         }
-        verify_owner_signature_strict(
+        crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
             GAME_PARTICIPANT_REGISTER_DOMAIN,
             &owner.request,
             &owner.subject_public_key,
             &owner.signature_hex,
+            source,
         )?;
-        verify_owner_signature_strict(
+        crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
             GAME_PARTICIPANT_ADMISSION_DOMAIN,
             &admission.request,
             &admission.subject_public_key,
             &admission.signature_hex,
+            source,
         )?;
+        phase.trace(&(
+            &owner.request.world_id,
+            &owner.request.genesis_digest,
+            &world.world_id,
+            &world.genesis_digest,
+        ))?;
         if owner.request.world_id != world.world_id
             || owner.request.genesis_digest != world.genesis_digest
         {
-            return Err("participant world identity mismatch".into());
+            return phase.fail("participant world identity mismatch");
         }
         let correlation = RequestCorrelation {
             key: RequestKey {
                 world,
-                verified_subject: owner.subject_public_key.clone(),
-                operation_domain: GAME_PARTICIPANT_REGISTER_DOMAIN.into(),
-                nonce_scope: request_digest(
+                verified_subject: phase.copy(&owner.subject_public_key)?,
+                operation_domain: phase.copy(GAME_PARTICIPANT_REGISTER_DOMAIN)?,
+                nonce_scope: phase.digest(
                     "participant-account",
                     &(
                         &owner.request.identity_namespace.service_id,
@@ -88,123 +138,160 @@ pub fn derive_correlation_with_legacy<
                         &owner.request.account_id,
                     ),
                 )?,
-                request_id_or_nonce: owner.request.client_operation_id.clone(),
+                request_id_or_nonce: phase.copy(&owner.request.client_operation_id)?,
             },
-            payload_digest: participant_business_digest(&owner.request)?,
+            payload_digest: phase.digest(
+                oasis7_agent_api::game::GAME_PARTICIPANT_REGISTER_DOMAIN,
+                &owner.request,
+            )?,
         };
-        correlation.validate().map_err(|e| e.to_string())?;
-        return Ok(correlation);
+        phase.validation(&correlation, || correlation.validate())?;
+        return Ok(phase.finish(correlation));
     }
     if let WorldServicePayloadV1::SafeAlternative(signed) = payload {
-        signed.request.validate()?;
-        verify_owner_signature_strict(
+        phase.validation(&signed.request, || signed.request.validate())?;
+        crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
             signed.request.signing_domain(),
             &signed.request,
             &signed.subject_public_key,
             &signed.signature_hex,
+            source,
         )?;
+        phase.trace(&(
+            &signed.request.world_id,
+            &signed.request.genesis_digest,
+            &world.world_id,
+            &world.genesis_digest,
+        ))?;
         if signed.request.world_id != world.world_id
             || signed.request.genesis_digest != world.genesis_digest
         {
-            return Err("safe alternative world identity mismatch".into());
+            return phase.fail("safe alternative world identity mismatch");
         }
         let correlation = RequestCorrelation {
             key: RequestKey {
                 world,
-                verified_subject: signed.subject_public_key.clone(),
-                operation_domain: signed.request.signing_domain().into(),
-                nonce_scope: format!("agent:{}", signed.request.agent_id),
-                request_id_or_nonce: signed.request.client_operation_id.clone(),
+                verified_subject: phase.copy(&signed.subject_public_key)?,
+                operation_domain: phase.copy(signed.request.signing_domain())?,
+                nonce_scope: phase.prefixed("agent:", &signed.request.agent_id)?,
+                request_id_or_nonce: phase.copy(&signed.request.client_operation_id)?,
             },
-            payload_digest: request_digest("intent", payload)?,
+            payload_digest: phase.digest("intent", payload)?,
         };
-        correlation.validate().map_err(|e| e.to_string())?;
-        return Ok(correlation);
+        phase.validation(&correlation, || correlation.validate())?;
+        return Ok(phase.finish(correlation));
     }
     if let WorldServicePayloadV1::GameExecutorControl(signed) = payload {
-        signed.request.validate()?;
+        phase.validation(&signed.request, || signed.request.validate())?;
         if let oasis7_agent_api::game::GameExecutorOperationV1::Bind {
             executor_public_key,
             ..
         } = &signed.request.operation
         {
-            strong_key(executor_public_key)?;
+            crate::legacy_task_results::strong_key_with_work_v1(executor_public_key, source)?;
         }
+        phase.trace(&signed.subject_public_key)?;
         if signed.subject_public_key != signed.request.fence.owner_public_key {
-            return Err("executor control requires owner signature".into());
+            return phase.fail("executor control requires owner signature");
         }
-        verify_owner_signature_strict(
+        crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
             oasis7_agent_api::game::GAME_EXECUTOR_CONTROL_DOMAIN,
             &signed.request,
             &signed.subject_public_key,
             &signed.signature_hex,
+            source,
         )?;
         let f = &signed.request.fence;
+        phase.trace(&(
+            &f.world_id,
+            &f.genesis_digest,
+            &world.world_id,
+            &world.genesis_digest,
+        ))?;
         if f.world_id != world.world_id || f.genesis_digest != world.genesis_digest {
-            return Err("executor world identity mismatch".into());
+            return phase.fail("executor world identity mismatch");
         }
         let correlation = RequestCorrelation {
             key: RequestKey {
                 world,
-                verified_subject: signed.subject_public_key.clone(),
-                operation_domain: oasis7_agent_api::game::GAME_EXECUTOR_CONTROL_DOMAIN.into(),
-                nonce_scope: format!("task:{}", f.task_id),
-                request_id_or_nonce: signed.request.client_operation_id.clone(),
+                verified_subject: phase.copy(&signed.subject_public_key)?,
+                operation_domain: phase
+                    .copy(oasis7_agent_api::game::GAME_EXECUTOR_CONTROL_DOMAIN)?,
+                nonce_scope: phase.prefixed("task:", &f.task_id)?,
+                request_id_or_nonce: phase.copy(&signed.request.client_operation_id)?,
             },
-            payload_digest: request_digest("intent", payload)?,
+            payload_digest: phase.digest("intent", payload)?,
         };
-        correlation.validate().map_err(|e| e.to_string())?;
-        return Ok(correlation);
+        phase.validation(&correlation, || correlation.validate())?;
+        return Ok(phase.finish(correlation));
     }
     if let WorldServicePayloadV1::GameGoalPublish(signed) = payload {
-        signed.request.validate()?;
+        phase.validation(&signed.request, || signed.request.validate())?;
+        phase.trace(&signed.subject_public_key)?;
         if signed.subject_public_key != signed.request.owner_public_key {
-            return Err("goal publish signer differs from owner".into());
+            return phase.fail("goal publish signer differs from owner");
         }
-        verify_owner_signature_strict(
+        crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
             oasis7_agent_api::game::GAME_GOAL_PUBLISH_DOMAIN,
             &signed.request,
             &signed.subject_public_key,
             &signed.signature_hex,
+            source,
         )?;
+        phase.trace(&(
+            &signed.request.world_id,
+            &signed.request.genesis_digest,
+            &world.world_id,
+            &world.genesis_digest,
+        ))?;
         if signed.request.world_id != world.world_id
             || signed.request.genesis_digest != world.genesis_digest
         {
-            return Err("goal publish world identity mismatch".into());
+            return phase.fail("goal publish world identity mismatch");
         }
         let correlation = RequestCorrelation {
             key: RequestKey {
                 world,
-                verified_subject: signed.subject_public_key.clone(),
-                operation_domain: oasis7_agent_api::game::GAME_GOAL_PUBLISH_DOMAIN.into(),
-                nonce_scope: format!("task:{}", signed.request.task_id),
-                request_id_or_nonce: signed.request.client_operation_id.clone(),
+                verified_subject: phase.copy(&signed.subject_public_key)?,
+                operation_domain: phase.copy(oasis7_agent_api::game::GAME_GOAL_PUBLISH_DOMAIN)?,
+                nonce_scope: phase.prefixed("task:", &signed.request.task_id)?,
+                request_id_or_nonce: phase.copy(&signed.request.client_operation_id)?,
             },
-            payload_digest: request_digest("intent", payload)?,
+            payload_digest: phase.digest("intent", payload)?,
         };
-        correlation.validate().map_err(|e| e.to_string())?;
-        return Ok(correlation);
+        phase.validation(&correlation, || correlation.validate())?;
+        return Ok(phase.finish(correlation));
     }
     if let WorldServicePayloadV1::GameTaskCreate(signed) = payload {
-        verify_read_request(oasis7_agent_api::game::GAME_TASK_CREATE_DOMAIN, signed)?;
-        signed.request.validate()?;
+        verify_read_request_with_work_v1(
+            oasis7_agent_api::game::GAME_TASK_CREATE_DOMAIN,
+            signed,
+            source,
+        )?;
+        phase.validation(&signed.request, || signed.request.validate())?;
+        phase.trace(&(
+            &signed.request.world_id,
+            &signed.request.genesis_digest,
+            &world.world_id,
+            &world.genesis_digest,
+        ))?;
         if signed.request.world_id != world.world_id
             || signed.request.genesis_digest != world.genesis_digest
         {
-            return Err("Game task world identity mismatch".into());
+            return phase.fail("Game task world identity mismatch");
         }
         let correlation = RequestCorrelation {
             key: RequestKey {
                 world,
-                verified_subject: signed.subject_public_key.clone(),
-                operation_domain: oasis7_agent_api::game::GAME_TASK_CREATE_DOMAIN.into(),
-                nonce_scope: format!("agent:{}", signed.request.agent_id),
-                request_id_or_nonce: signed.request.client_operation_id.clone(),
+                verified_subject: phase.copy(&signed.subject_public_key)?,
+                operation_domain: phase.copy(oasis7_agent_api::game::GAME_TASK_CREATE_DOMAIN)?,
+                nonce_scope: phase.prefixed("agent:", &signed.request.agent_id)?,
+                request_id_or_nonce: phase.copy(&signed.request.client_operation_id)?,
             },
-            payload_digest: request_digest("intent", payload)?,
+            payload_digest: phase.digest("intent", payload)?,
         };
-        correlation.validate().map_err(|e| e.to_string())?;
-        return Ok(correlation);
+        phase.validation(&correlation, || correlation.validate())?;
+        return Ok(phase.finish(correlation));
     }
     let (subject, domain, scope, id) = match payload {
         WorldServicePayloadV1::GameStarterClaim(_)
@@ -216,57 +303,69 @@ pub fn derive_correlation_with_legacy<
             unreachable!("handled above")
         }
         WorldServicePayloadV1::GameplayJson(_) | WorldServicePayloadV1::AgentChat(_) => {
-            legacy(payload)?
+            let paid = legacy.verify(payload, source)?;
+            let identity = paid.identity();
+            (
+                phase.copy(&identity.0)?,
+                identity.1,
+                identity.2,
+                phase.copy(&identity.3)?,
+            )
         }
         WorldServicePayloadV1::Cognition(signed) => {
-            verify_read_request("cognition", signed)?;
+            verify_read_request_with_work_v1("cognition", signed, source)?;
             if let Some(fence) = &signed.request.task_fence {
                 if signed.request.causal_proposal.is_some() {
-                    return Err("task cognition does not publish private reasoning".into());
+                    return phase.fail("task cognition does not publish private reasoning");
                 }
-                fence.validate()?;
-                verify_owner_signature_strict(
+                phase.validation(fence, || fence.validate())?;
+                crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
                     "cognition",
                     &signed.request,
                     &signed.subject_public_key,
                     &signed.signature_hex,
+                    source,
                 )?;
             }
             let request = &signed.request.request;
-            request.validate().map_err(|e| e.to_string())?;
-            signed
+            phase.validation(request, || request.validate())?;
+            phase.hold(4096)?;
+            if let Err(error) = signed
                 .request
                 .response_artifact
-                .validate_for_request(request)
-                .map_err(|e| e.to_string())?;
+                .validate_for_request_with_work_v1(request, source)
+                .map_err(ServiceAuthorityWorkErrorV1::Work)?
+            {
+                return Err(phase.owned_error(error.to_string())?);
+            }
             (
-                signed.subject_public_key.clone(),
+                phase.copy(&signed.subject_public_key)?,
                 "cognition",
                 "agent_request",
-                request.request_digest.clone(),
+                phase.copy(&request.request_digest)?,
             )
         }
         WorldServicePayloadV1::FeedbackAck(signed) => {
-            verify_read_request("feedback_ack", signed)?;
-            signed.request.validate()?;
+            verify_read_request_with_work_v1("feedback_ack", signed, source)?;
+            phase.validation(&signed.request, || signed.request.validate())?;
             (
-                signed.subject_public_key.clone(),
+                phase.copy(&signed.subject_public_key)?,
                 "feedback_ack",
                 "agent_feedback_ack",
-                signed.request.feedback_id.clone(),
+                phase.copy(&signed.request.feedback_id)?,
             )
         }
         WorldServicePayloadV1::Delegation(signed) => {
-            verify_read_request("delegation", signed)?;
+            verify_read_request_with_work_v1("delegation", signed, source)?;
             (
-                signed.subject_public_key.clone(),
+                phase.copy(&signed.subject_public_key)?,
                 "delegation",
                 "owner_delegation",
-                signed.request.nonce.to_string(),
+                phase.decimal(signed.request.nonce)?,
             )
         }
         WorldServicePayloadV1::Scheduler(signed) => {
-            verify_read_request("scheduler", signed)?;
+            verify_read_request_with_work_v1("scheduler", signed, source)?;
             if signed.request.task_prefix_binding_revision > 1
                 || (signed.request.task_prefix_binding_revision != 0
                     && !matches!(
@@ -274,22 +373,29 @@ pub fn derive_correlation_with_legacy<
                         SchedulerOperationV1::TaskProviderPrefix { .. }
                     ))
             {
-                return Err("unsupported scheduler task prefix binding revision".into());
+                return phase.fail("unsupported scheduler task prefix binding revision");
             }
             if let SchedulerOperationV1::TaskProviderPrefix { context }
             | SchedulerOperationV1::TaskProviderFailure { context, .. } =
                 &signed.request.operation
             {
-                context.validate()?;
+                phase.validation(context, || context.validate())?;
                 if matches!(
                     &signed.request.operation,
                     SchedulerOperationV1::TaskProviderPrefix { .. }
                 ) {
-                    context.validate_capture_deadline(
-                        signed.request.captured_base_binding.base_tick,
-                    )?;
+                    phase.validation(context, || {
+                        context.validate_capture_deadline(
+                            signed.request.captured_base_binding.base_tick,
+                        )
+                    })?;
                 }
 
+                if let SchedulerOperationV1::TaskProviderFailure { reason, .. } =
+                    &signed.request.operation
+                {
+                    phase.trace(reason)?;
+                }
                 if let SchedulerOperationV1::TaskProviderFailure { reason, .. } =
                     &signed.request.operation
                     && !matches!(
@@ -300,23 +406,25 @@ pub fn derive_correlation_with_legacy<
                             | "executor_aborted"
                     )
                 {
-                    return Err("task failure requires bounded public code".into());
+                    return phase.fail("task failure requires bounded public code");
                 }
-                verify_owner_signature_strict(
+                crate::world_service::private_goal::verify_owner_signature_strict_with_work_v1(
                     "scheduler",
                     &signed.request,
                     &signed.subject_public_key,
                     &signed.signature_hex,
+                    source,
                 )?;
             }
+            phase.trace(&signed.request.request_id)?;
             if signed.request.request_id.trim().is_empty() {
-                return Err("missing scheduler request identity".into());
+                return phase.fail("missing scheduler request identity");
             }
             (
-                signed.subject_public_key.clone(),
+                phase.copy(&signed.subject_public_key)?,
                 "scheduler",
                 "agent_scheduler",
-                signed.request.request_id.clone(),
+                phase.copy(&signed.request.request_id)?,
             )
         }
     };
@@ -324,27 +432,22 @@ pub fn derive_correlation_with_legacy<
         key: RequestKey {
             world,
             verified_subject: subject,
-            operation_domain: domain.into(),
-            nonce_scope: scope.into(),
+            operation_domain: phase.copy(domain)?,
+            nonce_scope: phase.copy(scope)?,
             request_id_or_nonce: id,
         },
-        payload_digest: request_digest("intent", payload)?,
+        payload_digest: phase.digest("intent", payload)?,
     };
-    correlation.validate().map_err(|e| e.to_string())?;
-    Ok(correlation)
+    phase.validation(&correlation, || correlation.validate())?;
+    Ok(phase.finish(correlation))
 }
 
 fn strong_key(key: &str) -> Result<(), String> {
-    let bytes: [u8; 32] = hex::decode(key)
-        .map_err(|_| "invalid executor key")?
-        .try_into()
-        .map_err(|_| "invalid executor key")?;
-    let key =
-        ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| "invalid executor key")?;
-    if key.is_weak() {
-        return Err("weak executor key".into());
-    }
-    Ok(())
+    crate::legacy_task_results::strong_key_with_work_v1(
+        key,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map_err(crate::world_service::legacy_service_work_error_v1)
 }
 
 /// Native task profile: unsupported legacy browser variants are never accepted.
@@ -441,5 +544,64 @@ mod participant_tests {
             owner.request.account_id = "other".into();
         }
         assert!(derive_correlation(world, &changed).is_err());
+    }
+}
+
+#[path = "world_service_correlation_trace_work.rs"]
+pub(crate) mod trace_work;
+#[path = "world_service_correlation_work.rs"]
+pub(crate) mod work;
+pub use work::PaidRequestCorrelationDataV1;
+
+// The public historical callback can only select Legacy/no-meter execution.
+// The paid concrete path has one fixed verifier and accepts no verdict callback.
+mod browser_sealed {
+    pub trait Sealed {}
+}
+pub(crate) trait FixedBrowserVerifierV1<P, A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>:
+    browser_sealed::Sealed
+{
+    fn verify(
+        self,
+        payload: &P,
+        source: &A,
+    ) -> Result<work::PaidLegacyIdentityDataV1<A::Charge>, ServiceAuthorityWorkErrorV1<A::Charge>>;
+}
+struct LegacyBrowserCallbackV1<F> {
+    verify: F,
+}
+impl<F> browser_sealed::Sealed for LegacyBrowserCallbackV1<F> {}
+impl<P, F: FnOnce(&P) -> Result<LegacyIdentity, String>>
+    FixedBrowserVerifierV1<P, oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1>
+    for LegacyBrowserCallbackV1<F>
+{
+    fn verify(
+        self,
+        payload: &P,
+        _: &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    ) -> Result<work::PaidLegacyIdentityDataV1<()>, ServiceAuthorityWorkErrorV1<()>> {
+        (self.verify)(payload)
+            .map(work::PaidLegacyIdentityDataV1::legacy)
+            .map_err(|message| {
+                ServiceAuthorityWorkErrorV1::Protocol(PaidServiceProtocolRefusalV1 {
+                    message,
+                    fee: None,
+                })
+            })
+    }
+}
+pub(crate) struct ConcreteBrowserVerifierV1;
+impl browser_sealed::Sealed for ConcreteBrowserVerifierV1 {}
+impl<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>
+    FixedBrowserVerifierV1<crate::legacy_world_service::WorldServicePayloadV1, A>
+    for ConcreteBrowserVerifierV1
+{
+    fn verify(
+        self,
+        payload: &crate::legacy_world_service::WorldServicePayloadV1,
+        source: &A,
+    ) -> Result<work::PaidLegacyIdentityDataV1<A::Charge>, ServiceAuthorityWorkErrorV1<A::Charge>>
+    {
+        crate::legacy_world_service::correlation_work::derive_browser(payload, source)
     }
 }

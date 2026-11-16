@@ -1001,3 +1001,7 @@ pub use settlement::{
     apply_prepared_continuity_settlement_v1, prepare_continuity_settlement_pause_v1,
     prepare_continuity_settlement_receipt_v1, read_current_continuity_settlement_row_v1,
 };
+
+#[path = "incremental_world_rule_continuity_system_apply.rs"]
+mod system_apply;
+pub use system_apply::apply_current_organization_continuity_system_v1;

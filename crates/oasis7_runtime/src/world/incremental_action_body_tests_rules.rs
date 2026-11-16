@@ -763,6 +763,7 @@ fn evaluate<'a>(
             }
         };
         match completed {
+            CompletedNonmovementActionV1::ModuleLifecycle(_) => unreachable!("legacy fixture supplies no module lifecycle work"),
             CompletedNonmovementActionV1::FactorySchedule(value) => {
                 // Selected work came from the variant above; preserve the real
                 // result in its dedicated output rather than a legacy slot.
@@ -881,6 +882,7 @@ fn evaluate<'a>(
                 None,
                 None,
             ),
+            CompletedNonmovementActionV1::ProfileGovernance(_) => unreachable!("legacy finite fixture has no ProfileGovernance work/bank input"),
             CompletedNonmovementActionV1::FactoryLifecycle(value) => (
                 outcome,
                 None,

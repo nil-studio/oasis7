@@ -273,3 +273,189 @@ fn independent_three_result_seal_binds_actual_after_roots_and_prechecks_capacity
     assert!(result.is_err());
     assert!(!called.get());
 }
+#[test]
+fn metered_two_and_three_results_keep_exact_original_transition_and_binding() {
+    let memory = MemoryBudget::new(32 << 20, 2 << 20).unwrap();
+    let source = Empty;
+    for profile in [2, 3] {
+        let make = || {
+            let mut tx =
+                ExecutionTransaction::begin(parent(), [31; 32], &source, &memory, limits())
+                    .unwrap();
+            tx.write(StateNamespaceV1::Business, b"meter-a", Some([1; 32]))
+                .unwrap();
+            tx.write(StateNamespaceV1::Scheduler, b"meter-b", Some([2; 32]))
+                .unwrap();
+            tx.append_fact(ExecutionFactRefV1 {
+                kind: ExecutionFactKindV1::Input,
+                id: [3; 32],
+            })
+            .unwrap();
+            tx
+        };
+        let old = make();
+        let live = old.parent_fence();
+        let guard = old.guard();
+        let facts = [
+            ExecutionFactRefV1 {
+                kind: ExecutionFactKindV1::Result,
+                id: [4; 32],
+            },
+            ExecutionFactRefV1 {
+                kind: ExecutionFactKindV1::Result,
+                id: [5; 32],
+            },
+            ExecutionFactRefV1 {
+                kind: ExecutionFactKindV1::Result,
+                id: [6; 32],
+            },
+        ];
+        let old = if profile == 2 {
+            old.seal_with_final_results_and_binding(
+                &guard,
+                &live,
+                1,
+                || false,
+                |_| Ok::<_, ExecutionError>([facts[0], facts[1]]),
+            )
+            .unwrap()
+        } else {
+            old.seal_with_proof_ledger_results_and_binding(
+                &guard,
+                &live,
+                1,
+                || false,
+                |_| Ok::<_, ExecutionError>(facts),
+            )
+            .unwrap()
+        };
+        let paid = make();
+        let guard = paid.guard();
+        let (mut steps, mut bytes) = (0, 0);
+        let mut work = |s, b| {
+            steps += s;
+            bytes += b;
+            Ok(())
+        };
+        let paid = if profile == 2 {
+            paid.seal_with_final_results_and_binding_with_work(
+                &guard,
+                &live,
+                1,
+                || false,
+                |_| Ok::<_, ExecutionError>([facts[0], facts[1]]),
+                &mut work,
+            )
+            .unwrap()
+        } else {
+            paid.seal_with_proof_ledger_results_and_binding_with_work(
+                &guard,
+                &live,
+                1,
+                || false,
+                |_| Ok::<_, ExecutionError>(facts),
+                &mut work,
+            )
+            .unwrap()
+        };
+        assert_eq!(**old.transition(), **paid.transition());
+        assert_eq!(
+            old.binding().after_roots_digest(),
+            paid.binding().after_roots_digest()
+        );
+        assert!(steps > 0 && bytes > 0);
+    }
+}
+#[test]
+fn metered_seal_first_failure_never_calls_final_result_producer() {
+    let memory = MemoryBudget::new(32 << 20, 2 << 20).unwrap();
+    let source = Empty;
+    let tx = ExecutionTransaction::begin(parent(), [32; 32], &source, &memory, limits()).unwrap();
+    let guard = tx.guard();
+    let live = tx.parent_fence();
+    let called = std::cell::Cell::new(false);
+    let mut calls = 0;
+    let result = tx.seal_with_final_results_and_binding_with_work(
+        &guard,
+        &live,
+        1,
+        || false,
+        |_| {
+            called.set(true);
+            Ok::<_, ExecutionError>([
+                ExecutionFactRefV1 {
+                    kind: ExecutionFactKindV1::Result,
+                    id: [4; 32],
+                },
+                ExecutionFactRefV1 {
+                    kind: ExecutionFactKindV1::Result,
+                    id: [5; 32],
+                },
+            ])
+        },
+        &mut |_, _| {
+            calls += 1;
+            Err(ExecutionError::Invalid("seal work first"))
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(SealWithFinalFactError::Execution(ExecutionError::Invalid(
+            "seal work first"
+        )))
+    ));
+    assert_eq!(calls, 1);
+    assert!(!called.get());
+}
+
+#[test]
+fn three_result_profile_rejects_non_results_and_repeated_ids() {
+    let source = Empty;
+    let memory = MemoryBudget::new(64 << 20, 0).unwrap();
+    for mode in 0..3 {
+        let called = std::cell::Cell::new(false);
+        let tx =
+            ExecutionTransaction::begin(parent(), [27; 32], &source, &memory, limits()).unwrap();
+        let guard = tx.guard();
+        let live = tx.parent_fence();
+        let result = tx.seal_with_proof_ledger_results_and_binding(
+            &guard,
+            &live,
+            1,
+            || false,
+            |_| {
+                called.set(true);
+                Ok::<_, ExecutionError>([
+                    ExecutionFactRefV1 {
+                        kind: if mode == 0 {
+                            ExecutionFactKindV1::Event
+                        } else {
+                            ExecutionFactKindV1::Result
+                        },
+                        id: [31; 32],
+                    },
+                    ExecutionFactRefV1 {
+                        kind: if mode == 1 {
+                            ExecutionFactKindV1::Input
+                        } else {
+                            ExecutionFactKindV1::Result
+                        },
+                        id: if mode == 2 { [31; 32] } else { [32; 32] },
+                    },
+                    ExecutionFactRefV1 {
+                        kind: ExecutionFactKindV1::Result,
+                        id: [33; 32],
+                    },
+                ])
+            },
+        );
+        assert!(
+            called.get(),
+            "test must reach actual final Result production"
+        );
+        assert!(
+            matches!(result, Err(SealWithFinalFactError::Execution(_))),
+            "independent Result triple accepted invalid mode {mode}"
+        );
+    }
+}

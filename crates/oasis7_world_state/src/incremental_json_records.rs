@@ -194,3 +194,14 @@ pub(crate) use change::{
 };
 
 pub(crate) use change::require_empty_object_records_v1;
+
+#[path = "incremental_cognition_projection_aux_json.rs"]
+mod cognition_projection_aux;
+pub use cognition_projection_aux::{
+    CognitionAuxJsonPatchV1, CognitionAuxJsonPatchValueV1, CognitionAuxPathStepV1,
+};
+pub(crate) use cognition_projection_aux::{JsonAuxBuildV1, project_json_aux_paths_v1};
+
+pub(crate) use point::{
+    qualify_optional_json_object_member_records_v1, qualify_optional_json_path_records_v1,
+};

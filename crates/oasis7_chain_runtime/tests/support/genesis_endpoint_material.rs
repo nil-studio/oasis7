@@ -1,4 +1,4 @@
-//! Real physical GEN + dual history originals; no accepted GEN constructor.
+//! Real physical GEN + history and side-ledger originals; no accepted GEN constructor.
 use super::*;
 use oasis7_distfs::controlled_authority::formal::endpoint::{
     FormalCandidateMaterialV1, IwsCurrentLimitsV1, IwsEndpointVerificationBudgetsV1,
@@ -16,6 +16,8 @@ pub(super) struct Prepared {
     pub trust: formal::InitialActivationTrustV1,
     pub candidate: FormalCandidateMaterialV1,
     pub current_limits: IwsCurrentLimitsV1,
+    _ledger_original_fee: oasis7_proto::memory_budget::MemoryReservation,
+    _retention_original_fee: oasis7_proto::memory_budget::MemoryReservation,
 }
 #[path = "genesis_native_archive.rs"]
 mod native_archive;
@@ -239,6 +241,96 @@ fn prepare_inputs(
     let runtime_bytes = runtime.canonical_bytes().unwrap();
     let runtime_id = *blake3::hash(&runtime_bytes).as_bytes();
     originals.insert(runtime_id, runtime_bytes.to_vec());
+    // `physical_genesis::prepare` returned the complete final world roots.
+    // Runtime history indexes and this side ledger only add content-addressed
+    // pages; they do not substitute Runtime-local roots for that final frame.
+    let mut proof_work =
+        oasis7_world_state::incremental_cognition_proof_ledger::ProofLedgerWriteWorkV1 {
+            cells_remaining: 1_000_000,
+            max_pending_node_bytes: 8 << 20,
+            json: oasis7_world_state::incremental_json_records::JsonWriteWorkV1 {
+                cells_remaining: 1_000_000,
+                json_nodes_remaining: 1_000_000,
+                max_json_depth: 64,
+                max_pending_node_bytes: 8 << 20,
+            },
+        };
+    let ledger = world
+        .prepare_iws_cognition_proof_ledger_genesis_v1(&roots, &mut write, &mut proof_work)
+        .unwrap()
+        .expect("the actual enabled Cognition GEN emits its own side ledger");
+    let ledger_bytes = ledger.canonical_bytes().unwrap();
+    let ledger_size = ledger_bytes.len();
+    // One continuing caller allowance covers the original closed codec's fixed
+    // root validation/encoding plus raw hash/copies before actual persistence.
+    let ledger_metadata_bytes = u64::try_from(ledger_size).unwrap().checked_mul(16).unwrap();
+    proof_work.cells_remaining = proof_work
+        .cells_remaining
+        .checked_sub(ledger_metadata_bytes)
+        .unwrap();
+    write.io.read_bytes_remaining = write
+        .io
+        .read_bytes_remaining
+        .checked_sub(ledger_metadata_bytes)
+        .unwrap();
+    let ledger_original_fee = memory
+        .reserve(
+            ledger_size
+                .checked_mul(3)
+                .unwrap()
+                .checked_add(4096)
+                .unwrap(),
+            MemoryClass::Ordinary,
+        )
+        .unwrap();
+    assert_eq!(ledger.roots, roots.digest().unwrap());
+    let ledger_id = *blake3::hash(&ledger_bytes).as_bytes();
+    let ledger_original = ledger_bytes.to_vec();
+    assert!(ledger_original.capacity() <= ledger_size);
+    originals.insert(ledger_id, ledger_original);
+    // A single declared fixture allowance covers this independent producer;
+    // the actual World and finished physical roots remain the sole source.
+    let retention_work_bank =
+        oasis7_distfs::controlled_authority::formal::endpoint::FormalArchiveReadWorkV1::new(
+            1_000_000,
+            64 << 20,
+        )
+        .unwrap();
+    let mut retention_stop = || false;
+    let mut retention_common = retention_work_bank.bounded_context(&memory, &mut retention_stop);
+    let read_work = || oasis7_world_state::incremental_json_records::JsonReadWorkV1 {
+        cells_remaining: 1_000_000,
+        json_nodes_remaining: 1_000_000,
+        max_depth: 64,
+        max_payload_bytes: 8 << 20,
+    };
+    let mut retention_read = read_work();
+    let mut retention_changed = oasis7_world_state::incremental_json_records::JsonChangeWorkV1 {
+        json: read_work(),
+        paths_remaining: 1_000_000,
+        max_pending_pairs: 4096,
+    };
+    let mut retention_processing =
+        oasis7_world_state::incremental_runtime_revocation::BusinessDiffProcessingWorkV1 {
+            steps_remaining: 1_000_000,
+            bytes_remaining: 64 << 20,
+        };
+    let retention=world.prepare_iws_cognition_retention_ledger_genesis_v1(&roots,&mut write,&mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1{json:&mut retention_read,producer:&mut proof_work.json,changed:&mut retention_changed,processing:&mut retention_processing},&mut retention_common).unwrap();
+    let retention_wire = retention
+        .canonical_bytes_with_work(&memory, &mut |s, b| {
+            retention_common
+                .charge(s, b)
+                .map_err(|_| oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+        })
+        .unwrap();
+    retention_common
+        .charge(2, retention_wire.len() as u64 * 2)
+        .unwrap();
+    let retention_original_fee = memory
+        .reserve(retention_wire.len() + 128, MemoryClass::Ordinary)
+        .unwrap();
+    let retention_id = *blake3::hash(&retention_wire).as_bytes();
+    originals.insert(retention_id, retention_wire.to_vec());
     drop(write);
     drop(writer);
     let (_, _, cognition_bytes) = cognition::prepare(&roots, &pages, &memory);
@@ -284,6 +376,24 @@ fn prepare_inputs(
     let input = formal::initial_activation_input_bytes(&certificate).unwrap();
     let input_id = *blake3::hash(&input).as_bytes();
     originals.insert(input_id, input);
+    let genesis_facts = [
+        ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Input,
+            id: input_id,
+        },
+        ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Result,
+            id: runtime_id,
+        },
+        ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Result,
+            id: cognition_id,
+        },
+        ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Result,
+            id: ledger_id,
+        },
+    ];
     let history = HeaderPreparation {
         config: &config,
         catalog: &CatalogRootV1::empty(config.scope().unwrap()).unwrap(),
@@ -291,20 +401,7 @@ fn prepare_inputs(
         parent: None,
         parent_history: None,
         transition: None,
-        genesis_facts: &[
-            ExecutionFactRefV1 {
-                kind: ExecutionFactKindV1::Input,
-                id: input_id,
-            },
-            ExecutionFactRefV1 {
-                kind: ExecutionFactKindV1::Result,
-                id: runtime_id,
-            },
-            ExecutionFactRefV1 {
-                kind: ExecutionFactKindV1::Result,
-                id: cognition_id,
-            },
-        ],
+        genesis_facts: &genesis_facts,
         operation: [51; 32],
         authority: formal::incremental::authority_binding(&authority, &memory).unwrap(),
         execution_environment: config.execution_environment,
@@ -316,6 +413,11 @@ fn prepare_inputs(
     record.original_authority_id = authority.authority_id().unwrap();
     record.activation_ref = authority.activation_ref().into();
     record.payload_digest = hex::encode(input_id);
+    record.schema_version = 9;
+    record.artifact_roots.insert(
+        ArtifactRole::IncrementalRetentionLedger,
+        hex::encode(retention_id),
+    );
     record
         .artifact_roots
         .insert(ArtifactRole::Input, hex::encode(input_id));
@@ -417,6 +519,8 @@ fn prepare_inputs(
     };
     material.validate_iws().unwrap();
     Prepared {
+        _ledger_original_fee: ledger_original_fee,
+        _retention_original_fee: retention_original_fee,
         current_limits,
         pages,
         authority,

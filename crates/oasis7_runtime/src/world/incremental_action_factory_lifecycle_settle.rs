@@ -9,6 +9,8 @@ use oasis7_world_state::incremental_world_native::{
 };
 #[path = "incremental_action_factory_lifecycle_settle_material.rs"]
 pub(in crate::world) mod material;
+#[path = "incremental_action_factory_lifecycle_pause.rs"]
+mod pause;
 #[allow(clippy::too_many_arguments)]
 fn receipt<
     M: MerkleNodeReader,
@@ -78,6 +80,11 @@ pub(super) fn event_clone_bytes(
         .and_then(|n| n.checked_add(std::mem::size_of::<crate::WorldEvent>()))
         .ok_or(ValueTreeError::ResourceLimited("factory event text bound"))?;
     match &intent.effect {
+        LifecycleEffectV1::Paused { reason, .. } => {
+            n = n
+                .checked_add(reason.len())
+                .ok_or(ValueTreeError::ResourceLimited("factory pause event text"))?;
+        }
         LifecycleEffectV1::Maintained { ledger, .. } => {
             n = n
                 .checked_add(ledger_bytes(ledger))
@@ -131,6 +138,20 @@ pub(super) fn settle<
         return Err(BodyMutationError::Invalid("factory preparation time"));
     }
     match &intent.effect {
+        LifecycleEffectV1::Paused { .. } => {
+            pause::apply(intent, step, materials, sources, read, work, live)?;
+            update_progress(
+                intent.factory,
+                step,
+                materials,
+                sources,
+                read,
+                work,
+                live,
+                false,
+            )?;
+            Ok(true)
+        }
         LifecycleEffectV1::Maintained {
             ledger,
             consumed,
@@ -329,7 +350,16 @@ pub(super) fn settle<
                 )
                 .map_err(overlay_error)?;
             }
-            update_progress(intent.factory, step, materials, sources, read, work, live)?;
+            update_progress(
+                intent.factory,
+                step,
+                materials,
+                sources,
+                read,
+                work,
+                live,
+                true,
+            )?;
             // Prior writes legitimately changed revision. Reopen the real
             // unchanged receipt rather than refreshing/re-signing an old owner.
             let expected = receipt(
@@ -404,6 +434,7 @@ fn update_progress<
     read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
     work: &mut FactoryLifecycleWorkV1,
     live: &ExecutionFence,
+    deleted: bool,
 ) -> Result<(), BodyMutationError> {
     let policy = recover_gameplay_policy_overlay_v1(
         step.transaction,
@@ -453,8 +484,16 @@ fn update_progress<
         .validate(step.transaction, step.mutation.memory, live)
         .map_err(overlay_error)?;
     let stage = oasis7_world_state::state::industry_transition::industry_stage_for_progress(
-        current.stable_without_factory(),
-        current.stage_completed_jobs_without_factory(),
+        if deleted {
+            current.stable_without_factory()
+        } else {
+            current.has_stable_production_line()
+        },
+        if deleted {
+            current.stage_completed_jobs_without_factory()
+        } else {
+            current.stage_completed_jobs_total()
+        },
         transits,
         enabled,
     );

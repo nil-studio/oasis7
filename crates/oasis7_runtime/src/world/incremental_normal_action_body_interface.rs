@@ -33,7 +33,7 @@ use oasis7_world_state::{
     incremental_value_mutation::ValueMutationContextV1,
     incremental_world_event_decode::WorldEventDecodeWorkV1,
 };
-use read::{CurrentBodyInterfaceV1, read_current_body_interface_v1};
+pub(in crate::world) use read::{CurrentBodyInterfaceV1, read_current_body_interface_v1};
 use std::{cell::RefCell, mem::size_of};
 /// Preserves the original typed World preflight error without pretending that
 /// WorldError implements the storage-error trait used by the transaction API.

@@ -351,6 +351,93 @@ pub(crate) fn consume_candidate_data_closure_v1(
                 || (*stop.borrow_mut())(),
             )
             .map_err(|e| invalid(format!("IWS Result routing: {e:?}")))?;
+        // The complete canonical router, not a caller Option, selects this role.
+        let checked_ledger = if let Some(row) = routed.proof_ledger() {
+            let occurrence = row.occurrence();
+            let expected = usize::try_from(occurrence.original_bytes())
+                .map_err(|_| invalid("IWS ProofLedger original size"))?;
+            // The versioned capsule has at most eight qualified field headers.
+            // Pay hash/codec/occurrence checks and the later promotion copies
+            // before executing either; subtree traversal has separate accounts.
+            // Multiple complete passes and root/header copies are deliberately
+            // overreserved, even for absent or unchanged fields.
+            let metadata = expected.checked_mul(16)
+                .and_then(|n| n.checked_add(8 * (
+                    std::mem::size_of::<oasis7_world_state::incremental_json_records::JsonSubtreeQualificationV1>()
+                    + 4 * oasis7_formal_protocol::incremental_state::STATE_ROOT_BYTES + 1024)))
+                .and_then(|n| n.checked_add(8 * (
+                    std::mem::size_of::<oasis7_formal_protocol::incremental_material::CheckedCandidateFactOccurrenceV1>()
+                    + std::mem::size_of::<oasis7_world_state::incremental_cognition_proof_ledger::CognitionProofLedgerManifestV1>()) + 4096))
+                .and_then(|n| u64::try_from(n).ok())
+                .ok_or_else(|| invalid("IWS ProofLedger metadata work layout"))?;
+            if (*stop.borrow_mut())() {
+                return Err(invalid("IWS ProofLedger metadata cancelled"));
+            }
+            source_work.proof_ledger_metadata_steps = source_work
+                .proof_ledger_metadata_steps
+                .checked_sub(metadata)
+                .ok_or_else(|| invalid("IWS ProofLedger metadata steps"))?;
+            source_work.proof_ledger_metadata_bytes = source_work
+                .proof_ledger_metadata_bytes
+                .checked_sub(metadata)
+                .ok_or_else(|| invalid("IWS ProofLedger metadata bytes"))?;
+            source_work.router.facts.original_bytes_remaining = source_work
+                .router
+                .facts
+                .original_bytes_remaining
+                .checked_sub(occurrence.original_bytes())
+                .ok_or_else(|| invalid("IWS ProofLedger original bytes"))?;
+            let raw = objects
+                .read_original(&occurrence.location().original, expected, memory)
+                .map_err(|e| invalid(format!("IWS ProofLedger original: {e:?}")))?;
+            if !raw.uses_budget(memory) || raw.len() != expected {
+                return Err(invalid("IWS ProofLedger actual original binding"));
+            }
+            Some(oasis7_world_state::incremental_cognition_proof_ledger::check_candidate_cognition_proof_ledger_v1(
+                &oasis7_formal_protocol::incremental_material::CandidateFactRequestV1{kind:oasis7_formal_protocol::incremental_execution::ExecutionFactKindV1::Result,candidate:context,core:&core,originals:&originals,ordinal:occurrence.location().ordinal},
+                &routed,&raw,parent_cache.and_then(|parent|parent.ledger.as_ref()),&mut owner_ctx,
+                &mut source_work.proof_ledger_cold,&mut source_work.proof_ledger_changed,
+            ).map_err(|e|invalid(format!("IWS checked ProofLedger: {e:?}")))?)
+        } else {
+            None
+        };
+        // Retention is selected only by the exact signed artifact role retained
+        // in CheckedCore, independently of the 2/3 Result routing profile.
+        let checked_retention = if let Some(id) = core.retention_ledger_artifact_id() {
+            // Fixed descriptor/qualification metadata and later promotion's
+            // bounded root/header copy use the existing continuous metadata lane.
+            let metadata = 128u64 * 1024;
+            source_work.proof_ledger_metadata_steps = source_work
+                .proof_ledger_metadata_steps
+                .checked_sub(metadata)
+                .ok_or_else(|| invalid("IWS retention metadata steps"))?;
+            source_work.proof_ledger_metadata_bytes = source_work
+                .proof_ledger_metadata_bytes
+                .checked_sub(metadata)
+                .ok_or_else(|| invalid("IWS retention metadata bytes"))?;
+            if (*stop.borrow_mut())() {
+                return Err(invalid("IWS retention metadata cancelled"));
+            }
+            let bound=oasis7_formal_protocol::incremental_retention::RETENTION_LEDGER_MANIFEST_MAX_BYTES_V1;
+            source_work.router.facts.original_bytes_remaining = source_work
+                .router
+                .facts
+                .original_bytes_remaining
+                .checked_sub(bound as u64)
+                .ok_or_else(|| invalid("IWS retention original allowance"))?;
+            let raw = objects
+                .read_original(&id, bound, memory)
+                .map_err(|e| invalid(format!("IWS retention original: {e:?}")))?;
+            if !raw.uses_budget(memory) || raw.len() > bound {
+                return Err(invalid("IWS retention actual original binding"));
+            }
+            Some(oasis7_world_state::incremental_cognition_retention_ledger::check_candidate_cognition_retention_ledger_v1(
+                &core,&raw,parent_cache.and_then(|p|p.retention.as_ref()),&mut owner_ctx,
+                &mut source_work.proof_ledger_cold,&mut source_work.proof_ledger_changed,
+            ).map_err(|e|invalid(format!("IWS checked retention: {e:?}")))?)
+        } else {
+            None
+        };
         let runtime_original = routed.runtime_history().occurrence().location().original;
         let manifest_raw = objects
             .read_original(
@@ -508,6 +595,8 @@ pub(crate) fn consume_candidate_data_closure_v1(
         let prepared = provisional::PreparedCandidateInstall::prepare(
             provisional,
             runtime_checked.indexes,
+            checked_ledger,
+            checked_retention,
             memory,
             || (*stop.borrow_mut())(),
         )?;

@@ -113,7 +113,7 @@ where
                     return Err(ValueTreeError::Invalid("rule override outcome pool/class").into());
                 }
                 let replacement = outcome
-                    .override_action_for_selected_v1(selected, self.ctx.transaction)
+                    .rule_override_action_for_selected_v1(selected, self.ctx.transaction)
                     .map_err(RootModuleExecutionErrorV1::Body)?;
                 let Some(replacement) = replacement else {
                     return Ok(None);
@@ -142,7 +142,7 @@ where
                     id,
                     self.now,
                     selected.envelope().id,
-                    &selected.envelope().action,
+                    outcome.before_rule_action_v1(selected),
                     replacement,
                     self.ctx.values.memory,
                     MemoryClass::Ordinary,

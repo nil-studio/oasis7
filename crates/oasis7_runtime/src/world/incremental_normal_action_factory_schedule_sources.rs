@@ -193,6 +193,7 @@ impl<'a> FactoryBuildFactsV1<'a> for LegacyFactoryBuildFactsV1<'a> {
 
 pub(in crate::world) enum RecipeFactoryV1<'a> {
     Legacy(&'a oasis7_world_state::FactoryState),
+    Projection(ReservedValue<oasis7_world_state::FactoryState>),
     Current(
         ReservedValue<
             oasis7_world_state::incremental_factory_schedule_factory::FactoryScheduleFactoryV1,
@@ -204,36 +205,42 @@ impl RecipeFactoryV1<'_> {
         match self {
             Self::Legacy(v) => &v.builder_agent_id,
             Self::Current(v) => v.builder(),
+            Self::Projection(v) => &v.builder_agent_id,
         }
     }
     pub(in crate::world) fn slots(&self) -> u16 {
         match self {
             Self::Legacy(v) => v.spec.recipe_slots,
             Self::Current(v) => v.slots(),
+            Self::Projection(v) => v.spec.recipe_slots,
         }
     }
     pub(in crate::world) fn tags(&self) -> &[String] {
         match self {
             Self::Legacy(v) => &v.spec.tags,
             Self::Current(v) => v.tags(),
+            Self::Projection(v) => &v.spec.tags,
         }
     }
     pub(in crate::world) fn input(&self) -> &MaterialLedgerId {
         match self {
             Self::Legacy(v) => &v.input_ledger,
             Self::Current(v) => v.input(),
+            Self::Projection(v) => &v.input_ledger,
         }
     }
     pub(in crate::world) fn output(&self) -> &MaterialLedgerId {
         match self {
             Self::Legacy(v) => &v.output_ledger,
             Self::Current(v) => v.output(),
+            Self::Projection(v) => &v.output_ledger,
         }
     }
 }
 pub(in crate::world) trait FactoryRecipeFactsV1<'source>: sealed::Sealed {
     type Error: From<WorldError>;
     fn charge(&mut self, bytes: usize) -> Result<(), Self::Error>;
+    fn recipe_work(&mut self,steps:u64,bytes:usize,heap:usize)->Result<(),Self::Error>;
     fn reserve_recipe_output(
         &mut self,
         requester: &str,
@@ -315,6 +322,7 @@ impl<'a> FactoryRecipeFactsV1<'a> for LegacyFactoryRecipeFactsV1<'a> {
     fn charge(&mut self, _: usize) -> Result<(), Self::Error> {
         Ok(())
     }
+    fn recipe_work(&mut self,_:u64,_:usize,_:usize)->Result<(),Self::Error>{Ok(())}
     fn reserve_recipe_output(
         &mut self,
         _: &str,

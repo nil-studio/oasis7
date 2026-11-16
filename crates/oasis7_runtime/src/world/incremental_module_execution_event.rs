@@ -87,6 +87,9 @@ enum PersistedEventOwnerV1<'event> {
         &'event super::incremental_normal_action_core_extension::CompletedObservationActionV1,
     ),
     ContractAccept(&'event super::incremental_action_contract_accept::CompletedContractAcceptV1),
+    ProfileGovernance(
+        &'event super::incremental_normal_action_profile::CompletedProfileGovernanceV1,
+    ),
     FactoryLifecycle(
         &'event super::incremental_action_factory_lifecycle::CompletedFactoryLifecycleV1,
     ),
@@ -137,6 +140,46 @@ impl<'event> PersistedWorldEventV1<'event> {
             },
         })
     }
+    pub(in crate::world) fn from_module_lifecycle_event<M: MerkleNodeReader>(
+        owner: &'event super::incremental_normal_action_module_lifecycle::PreparedNormalModuleLifecycleEventV1,
+        tx: &ExecutionTransaction<'_, M>,
+        now: u64,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<Self, BodyMutationError> {
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        tx.validate_guard(&tx.guard(), live)?;
+        owner.validate(tx, common.memory(), now, common.work().identity(), live)?;
+        Ok(Self {
+            owner: PersistedEventOwnerV1::Module {
+                event: owner.event(),
+                identity: tx.guard(),
+            },
+        })
+    }
+
+    pub(in crate::world) fn from_module_lifecycle<M: MerkleNodeReader>(
+        owner: &'event super::incremental_normal_action_module_lifecycle::CompletedModuleLifecycleActionV1,
+        tx: &ExecutionTransaction<'_, M>,
+        now: u64,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+        live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    ) -> Result<Self, BodyMutationError> {
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        tx.validate_guard(&tx.guard(), live)?;
+        owner.validate(tx, common.memory(), now, common.work().identity(), live)?;
+        Ok(Self {
+            owner: PersistedEventOwnerV1::Module {
+                event: owner.event(),
+                identity: tx.guard(),
+            },
+        })
+    }
+
     pub(in crate::world) fn from_factory_schedule(
         owner:&'event super::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1,
     ) -> Self {
@@ -227,6 +270,13 @@ impl<'event> PersistedWorldEventV1<'event> {
     ) -> Self {
         Self {
             owner: PersistedEventOwnerV1::ContractAccept(owner),
+        }
+    }
+    pub(super) fn from_profile_governance(
+        owner: &'event super::incremental_normal_action_profile::CompletedProfileGovernanceV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::ProfileGovernance(owner),
         }
     }
     pub(super) fn from_factory_lifecycle(
@@ -328,6 +378,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::Observation(owner) => owner.event(),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.event(),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.event(),
+            PersistedEventOwnerV1::ProfileGovernance(owner) => owner.event(),
             PersistedEventOwnerV1::FactoryDepreciation(owner) => owner.event(),
             PersistedEventOwnerV1::CollectData(owner) => owner.event(),
             PersistedEventOwnerV1::TransferResource(owner) => owner.event(),
@@ -366,6 +417,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::Observation(owner) => owner.validate(tx),
             PersistedEventOwnerV1::ContractAccept(owner) => owner.validate(tx),
             PersistedEventOwnerV1::FactoryLifecycle(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::ProfileGovernance(owner) => owner.validate(tx),
             PersistedEventOwnerV1::FactoryDepreciation(owner) => owner.validate(tx),
             PersistedEventOwnerV1::CollectData(owner) => owner.validate(tx),
             PersistedEventOwnerV1::TransferResource(owner) => owner.validate(tx),
@@ -726,7 +778,7 @@ pub(in crate::world) use due_product_event::{
 
 /// A due product rejection has no actor in its original DomainEvent. Require
 /// the completed private system source and preserve its global journal form.
-pub(super) fn contribute_due_rejection_original_v1<M, V, W, C, F>(
+pub(super) fn contribute_normal_system_original_only_v1<M, V, W, C, F>(
     now: u64,
     source: &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
     tx: &mut ExecutionTransaction<'_, M>,
@@ -743,11 +795,158 @@ where
     tx.contribute(|tx| {
         source.validate(tx, context.mutation.memory, now)?;
         tx.validate_guard(&tx.guard(), live)?;
-        if !matches!(
-            &source.event().body,
-            WorldEventBody::Domain(crate::DomainEvent::ActionRejected { .. })
-        ) {
-            return Err(BodyMutationError::Invalid("due product rejection source"));
+        let WorldEventBody::Domain(domain) = &source.event().body else {
+            return Err(BodyMutationError::Invalid(
+                "normal original-only source kind",
+            ));
+        };
+        if !matches!(domain, crate::DomainEvent::ActionRejected { .. })
+            && domain.agent_id().is_some()
+        {
+            return Err(BodyMutationError::Invalid("normal original-only source"));
+        }
+        persist_event_original_and_fact_v1(
+            now,
+            source.event(),
+            tx,
+            context.values,
+            &mut context.mutation,
+            &mut context.original_work,
+            context.max_event_bytes,
+            &mut context.persist_original,
+        )
+    })
+}
+
+#[path = "incremental_normal_world_rule_lifecycle_event.rs"]
+mod world_rule_lifecycle;
+pub(in crate::world) use world_rule_lifecycle::contribute_normal_world_rule_lifecycle_event_v1;
+
+#[path = "incremental_normal_claim_epoch_event.rs"]
+mod claim_epoch;
+pub(in crate::world) use claim_epoch::contribute_normal_claim_epoch_event_v1;
+
+#[path = "incremental_normal_gameplay_cycle_event.rs"]
+mod gameplay_cycle;
+pub(in crate::world) use gameplay_cycle::contribute_normal_gameplay_cycle_event_v1;
+
+#[path = "incremental_normal_organization_tail_event.rs"]
+mod organization_tail;
+pub(in crate::world) use organization_tail::contribute_normal_organization_tail_event_v1;
+
+#[path = "incremental_normal_gameplay_directive_failure_event.rs"]
+mod gameplay_directive_failure;
+pub(in crate::world) use gameplay_directive_failure::contribute_normal_gameplay_directive_failure_v1;
+
+// A non-Domain failure still requires the actual private system producer cap.
+pub(super) fn contribute_normal_system_failure_original_only_v1<M, V, W, C, F>(
+    now: u64,
+    source: &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    context: &mut super::incremental_body_event::AgentEventContext<'_, V, W, C, F>,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    tx.contribute(|tx| {
+        source.validate(tx, context.mutation.memory, now)?;
+        tx.validate_guard(&tx.guard(), live)?;
+        if !matches!(&source.event().body, WorldEventBody::ModuleCallFailed(_)) {
+            return Err(BodyMutationError::Invalid(
+                "normal failure original-only source kind",
+            ));
+        }
+        persist_event_original_and_fact_v1(
+            now,
+            source.event(),
+            tx,
+            context.values,
+            &mut context.mutation,
+            &mut context.original_work,
+            context.max_event_bytes,
+            &mut context.persist_original,
+        )
+    })
+}
+
+#[path = "incremental_module_execution_profile_event.rs"]
+mod profile_governance;
+pub(super) use profile_governance::contribute_profile_governance_event_v1;
+
+/// Action-correlated factory followup after its concrete Current transition.
+/// The system gate has a distinct private scope; ordinary uncaused sources
+/// cannot publish an action-correlated Domain event.
+pub(in crate::world) fn contribute_factory_module_followup_event_v1<'event, M, V, W, C, F, ME>(
+    now: u64,
+    source: &'event crate::world::incremental_module_invocation::PreparedFactoryModuleFollowupV1,
+    common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    transaction: &mut ExecutionTransaction<'_, M>,
+    events: &mut ModuleOutputEventContextV1<'_, V, W, C, F>,
+    materials: &mut crate::world::incremental_body_event::materials::CorePolicyMaterialContextV1<
+        '_,
+        M,
+        ME,
+    >,
+) -> Result<PersistedWorldEventV1<'event>, BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    ME: FnMut() -> Option<ValueTreeError>,
+{
+    transaction.contribute(|transaction|{
+  let cap=crate::world::incremental_normal_system_event::PreparedNormalSystemEventV1::from_factory_module_followup(source,transaction,now,common,live)?;
+  let guard=transaction.guard();
+  let mut step=crate::world::incremental_step::IwsStepContext::borrow_counted_at(transaction,now,&guard,live,events.values,&mut events.mutation,&mut events.original_work,events.world_events)?;
+  step.append_prepared_normal_system_event_v1(&cap,materials,common,live,events.max_event_bytes,&mut events.persist_original)?;
+  Ok(PersistedWorldEventV1{owner:PersistedEventOwnerV1::Module{event:source.event(),identity:step.transaction.guard()}})
+ })
+}
+
+/// The proposal writer already applied the business transition. Only persist
+/// the exact private source's original, allocator and ordered WorldEvent fact.
+pub(super) fn contribute_normal_module_governance_original_only_v1<M, V, W, C, F>(
+    now: u64,
+    source: &super::incremental_normal_system_event::PreparedNormalSystemEventV1<'_>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    context: &mut super::incremental_body_event::AgentEventContext<'_, V, W, C, F>,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    tx.contribute(|tx| {
+        source.validate(tx, context.mutation.memory, now)?;
+        tx.validate_guard(&tx.guard(), live)?;
+        if source.event().caused_by.is_some()
+            || !matches!(
+                &source.event().body,
+                WorldEventBody::Governance(
+                    crate::GovernanceEvent::Proposed { .. }
+                        | crate::GovernanceEvent::ShadowReport { .. }
+                        | crate::GovernanceEvent::Approved { .. }
+                        | crate::GovernanceEvent::Queued { .. }
+                        | crate::GovernanceEvent::Applied { .. }
+                ) | WorldEventBody::ModuleEvent(_)
+                    | WorldEventBody::ManifestUpdated(_)
+                    | WorldEventBody::CapabilityAuthorization(_)
+            )
+        {
+            return Err(BodyMutationError::Invalid(
+                "normal module governance source kind",
+            ));
         }
         persist_event_original_and_fact_v1(
             now,

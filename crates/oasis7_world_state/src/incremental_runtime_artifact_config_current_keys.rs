@@ -15,12 +15,13 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::io::Write;
-pub fn read_current_registry_active_id_v1<
+fn read_current_registry_id_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 >(
+    field: ArtifactConfigFieldV1,
     family: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
     key_bytes: &[u8],
     ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
@@ -52,7 +53,7 @@ pub fn read_current_registry_active_id_v1<
             .map_err(ValueTreeError::Memory)?;
         let key = WorldFieldKeyV1::from_bytes(key_bytes).map_err(ValueTreeError::Invalid)?;
         let expected = WorldFieldKeyV1::new(
-            ArtifactConfigFieldV1::RegistryActive.descriptor(),
+            field.descriptor(),
             WorldFieldRecordKindV1::Entry,
             key.semantic_key,
         )
@@ -67,23 +68,15 @@ pub fn read_current_registry_active_id_v1<
             record_bytes: ctx.record_bytes,
             cancelled: &mut ctx.cancelled,
         };
-        let metadata = WorldFieldKeyV1::new(
-            ArtifactConfigFieldV1::RegistryActive.descriptor(),
-            WorldFieldRecordKindV1::Metadata,
-            None,
-        )
-        .map_err(ValueTreeError::Invalid)?;
+        let metadata =
+            WorldFieldKeyV1::new(field.descriptor(), WorldFieldRecordKindV1::Metadata, None)
+                .map_err(ValueTreeError::Invalid)?;
         let metadata_root = lookup(tx, &metadata, &mut records, &mut ctx.take_state_error)?
             .ok_or_else(read::invalid)?;
         records.presence(&metadata_root, &metadata, 0)?;
         let id = lookup(tx, &expected, &mut records, &mut ctx.take_state_error)?
             .ok_or_else(read::invalid)?;
-        let _body = family::outer(
-            ArtifactConfigFieldV1::RegistryActive,
-            &expected,
-            &id,
-            &mut records,
-        )?;
+        let _body = family::outer(field, &expected, &id, &mut records)?;
         struct Text {
             bytes: Vec<u8>,
             max: usize,
@@ -132,4 +125,54 @@ pub fn read_current_registry_active_id_v1<
         }
         Ok(fee.retain(String::from_utf8(text.bytes).map_err(|_| read::invalid())?))
     })
+}
+
+/// Decode the actual original outer key; this is DATA, not registry admission.
+pub fn read_current_registry_active_id_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    family: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
+    key_bytes: &[u8],
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    max_text_bytes: usize,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<String>, WorldFieldOverlayErrorV1> {
+    read_current_registry_id_v1(
+        ArtifactConfigFieldV1::RegistryActive,
+        family,
+        key_bytes,
+        ctx,
+        max_text_bytes,
+        guard,
+        live,
+    )
+}
+
+/// Decode the actual original outer key; this is DATA, not registry admission.
+pub fn read_current_registry_record_id_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    family: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
+    key_bytes: &[u8],
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    max_text_bytes: usize,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<ReservedValue<String>, WorldFieldOverlayErrorV1> {
+    read_current_registry_id_v1(
+        ArtifactConfigFieldV1::RegistryManifest,
+        family,
+        key_bytes,
+        ctx,
+        max_text_bytes,
+        guard,
+        live,
+    )
 }

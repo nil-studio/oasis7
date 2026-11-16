@@ -120,3 +120,6 @@ impl FormalRetainedHistoryIndexViewV1 {
         Ok(Some(event))
     }
 }
+
+#[path="formal_retained_history_journal_layout.rs"]
+mod owned_layout;

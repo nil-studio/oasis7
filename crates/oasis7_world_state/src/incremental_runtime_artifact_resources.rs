@@ -136,3 +136,5 @@ pub use change::{
 mod receiver_cold_tests;
 
 pub(crate) use family::accept_runtime_artifact_resources_verified_v1;
+
+pub(crate) use family::project_actual_chain_resource_manifest_v1;

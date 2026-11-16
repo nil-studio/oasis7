@@ -14,17 +14,7 @@ pub mod correlation {
     ) -> Result<CanonicalIntentResultV1, String> {
         let result: CanonicalIntentResultV1 =
             serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
-        result.request.validate().map_err(|e| e.to_string())?;
-        if derive_correlation(
-            result.request.correlation.key.world.clone(),
-            &result.request.signed_payload,
-        )? != result.request.correlation
-            || key_digest(&result.request.correlation.key)? != key
-            || result.committed_height == 0
-        {
-            return Err("invalid canonical intent result identity".into());
-        }
-        oasis7_client_api::legacy_task_results::validate_result(&result)?;
+        oasis7_client_api::legacy_world_service::validate_canonical_result_fields(key, &result)?;
         Ok(result)
     }
     pub fn validate_result(key: &str, value: &serde_json::Value) -> Result<(), String> {

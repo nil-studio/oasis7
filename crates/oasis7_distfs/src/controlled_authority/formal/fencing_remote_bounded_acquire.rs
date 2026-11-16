@@ -23,6 +23,16 @@ pub(in crate::controlled_authority) use bounded_sign::{
 pub enum BoundedAcquireErrorV1 {
     Work(FormalError),
     Provider(FencingError),
+    MaterialValidation(oasis7_formal_protocol::controlled_authority::replicated_protocol::package::BoundedIwsValidationErrorV1),
+}
+impl From<oasis7_formal_protocol::controlled_authority::replicated_protocol::package::BoundedIwsValidationErrorV1> for BoundedAcquireErrorV1 {
+    fn from(error:oasis7_formal_protocol::controlled_authority::replicated_protocol::package::BoundedIwsValidationErrorV1)->Self {
+        use oasis7_formal_protocol::controlled_authority::replicated_protocol::package::BoundedIwsValidationErrorV1;
+        match error {
+            BoundedIwsValidationErrorV1::Resource(error)=>error.into(),
+            error=>Self::MaterialValidation(error),
+        }
+    }
 }
 impl From<FencingError> for BoundedAcquireErrorV1 {
     fn from(e: FencingError) -> Self {
@@ -39,6 +49,7 @@ impl std::fmt::Display for BoundedAcquireErrorV1 {
         match self {
             Self::Work(e) => e.fmt(f),
             Self::Provider(e) => e.fmt(f),
+            Self::MaterialValidation(e) => e.fmt(f),
         }
     }
 }
@@ -633,6 +644,72 @@ impl std::fmt::Debug for PaidRemoteLeaseV1 {
     }
 }
 impl PaidRemoteLeaseV1 {
+    /// Rebind the actual updated reply to its original transport scope. Unlike
+    /// initial Acquire, a continued lease has advanced past request.initial.
+    pub(in crate::controlled_authority) fn validate_current_binding(
+        &self,
+        instance: &EndpointInstanceBindingV1,
+        checkpoint: &EndpointCheckpointBindingV1,
+        pinned: &TrustedFencingPolicyV1,
+        ctx: &mut FormalBoundedContextV1<'_>,
+    ) -> ResultV<()> {
+        step(ctx)?;
+        if !self.uses_budget(ctx.memory()) || self.identity != ctx.work().identity() {
+            return Err(FormalError::Invalid(
+                "bounded continued lease foreign pool or meter".into(),
+            )
+            .into());
+        }
+        debit(
+            ctx,
+            add(
+                instance_payload(instance)?,
+                instance_payload(&self.request.body.instance)?,
+            )?,
+        )?;
+        if &self.request.body.instance != instance
+            || !matches!(
+                self.request.body.command,
+                MonotonicOracleCommandV1::Acquire(_)
+            )
+        {
+            return Err(FencingError::FencingUnproven.into());
+        }
+        debit(
+            ctx,
+            add(
+                pinned.provider_public_key.len(),
+                self.policy.provider_public_key.len(),
+            )?,
+        )?;
+        if pinned.provider_public_key != self.policy.provider_public_key
+            || pinned.authorized_resource_bindings.len()
+                != self.policy.authorized_resource_bindings.len()
+        {
+            return Err(FencingError::FencingUnproven.into());
+        }
+        for (a, b) in pinned
+            .authorized_resource_bindings
+            .iter()
+            .zip(&self.policy.authorized_resource_bindings)
+        {
+            debit(ctx, add(a.len(), b.len())?)?;
+            if a != b {
+                return Err(FencingError::FencingUnproven.into());
+            }
+        }
+        debit(
+            ctx,
+            add(
+                checkpoint_payload(checkpoint)?,
+                checkpoint_payload(self.checkpoint())?,
+            )?,
+        )?;
+        if self.checkpoint() != checkpoint {
+            return Err(FencingError::FencingUnproven.into());
+        }
+        Ok(())
+    }
     pub fn checkpoint(&self) -> &EndpointCheckpointBindingV1 {
         &self.reply.body.checkpoint
     }

@@ -1,6 +1,7 @@
 //! Formal-profile wire contracts and independent verification; no endpoint actor.
 pub mod activation;
 pub mod bounded_context;
+pub mod bounded_cbor_data;
 pub mod crypto;
 pub mod frozen;
 pub mod proof;

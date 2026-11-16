@@ -27,6 +27,40 @@ use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
 
 pub(super) fn receipt_digest_for_marker(marker: &WorldCommitRecordV1) -> String {
+    receipt_digest_for_marker_with_work_v1(
+        marker,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .expect("original receipt identity is serializable")
+    .as_str()
+    .to_owned()
+}
+pub(in crate::world) fn receipt_digest_for_marker_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    marker: &WorldCommitRecordV1,
+    source: &A,
+) -> Result<
+    oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+    oasis7_wasm_abi::CanonicalCborStreamError,
+> {
+    let mut n = 8192usize;
+    for value in [
+        &marker.receipt_id,
+        &marker.envelope_digest,
+        &marker.action_id,
+        &marker.parent_world_hash,
+        &marker.response_artifact_digest,
+    ] {
+        for part in value.as_bytes().chunks(8192) {
+            source.charge_work(1, part.len() as u64)?;
+        }
+        n = n.checked_add(value.len()).ok_or(
+            oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited("receipt preimage layout"),
+        )?;
+    }
+    source.charge_work(32, n as u64)?;
+    let _phase = source.reserve(n)?;
     let mut receipt = json!({
         "receipt_id": marker.receipt_id,
         "envelope_digest": marker.envelope_digest,
@@ -36,7 +70,11 @@ pub(super) fn receipt_digest_for_marker(marker: &WorldCommitRecordV1) -> String 
     if !marker.response_artifact_digest.is_empty() {
         receipt["response_artifact_digest"] = json!(marker.response_artifact_digest);
     }
-    cognition_digest_v1("oasis7.cognition.receipt.v1", &receipt)
+    oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
+        "oasis7.cognition.receipt.v1",
+        &receipt,
+        source,
+    )
 }
 
 pub(super) fn validate_prepare_response_artifact(
@@ -111,7 +149,67 @@ fn response_artifact_with_outer_lineage(
     artifact: &RuntimeCognitionResponseArtifactV1,
     request: &RuntimeCognitionCommitRequestV1,
 ) -> Result<JsonValue, WorldError> {
-    let mut value = serde_json::to_value(artifact).map_err(WorldError::from)?;
+    response_artifact_with_outer_lineage_with_work_v1(
+        artifact,
+        request,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .expect("legacy response lineage work is infallible")
+    .map(|(value, _)| value)
+    .map_err(|(error, _)| WorldError::from(error))
+}
+pub(in crate::world) fn response_artifact_with_outer_lineage_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    artifact: &RuntimeCognitionResponseArtifactV1,
+    request: &RuntimeCognitionCommitRequestV1,
+    source: &A,
+) -> Result<
+    Result<(JsonValue, A::Charge), (serde_json::Error, A::Charge)>,
+    oasis7_wasm_abi::CanonicalCborStreamError,
+> {
+    let mut layout = 65536usize;
+    for text in [
+        &artifact.context_discriminator,
+        &artifact.agent_session_id,
+        &artifact.agent_turn_id,
+        &artifact.decision_request_id,
+        &artifact.request_digest,
+        &artifact.response_digest,
+        &artifact.artifact_digest,
+        &request.agent_id,
+        &request.captured_base_binding.world_id,
+        &request.captured_base_binding.branch_id,
+        &request.captured_base_binding.finality_status,
+        &request.captured_base_binding.base_world_hash,
+        &request.captured_base_binding.runtime_manifest_hash,
+    ]
+    .into_iter()
+    .map(Some)
+    .chain([request.captured_base_binding.finality_block_hash.as_ref()])
+    {
+        source.charge_work(1, 0)?;
+        if let Some(text) = text {
+            for part in text.as_bytes().chunks(8192) {
+                source.charge_work(1, part.len() as u64)?;
+            }
+            layout = layout
+                .checked_add(text.len().checked_mul(2).ok_or(
+                    oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited(
+                        "response lineage layout",
+                    ),
+                )?)
+                .ok_or(oasis7_wasm_abi::CanonicalCborStreamError::ResourceLimited(
+                    "response lineage layout",
+                ))?;
+        }
+    }
+    source.charge_work(128, layout as u64)?;
+    let charge = source.reserve(layout)?;
+    let mut value = match serde_json::to_value(artifact) {
+        Ok(value) => value,
+        Err(error) => return Ok(Err((error, charge))),
+    };
     value["outer_lineage"] = json!({
         "agent_id": request.agent_id,
         "world_id": request.captured_base_binding.world_id,
@@ -124,7 +222,7 @@ fn response_artifact_with_outer_lineage(
         "reorg_epoch": request.captured_base_binding.reorg_epoch,
         "runtime_manifest_hash": request.captured_base_binding.runtime_manifest_hash,
     });
-    Ok(value)
+    Ok(Ok((value, charge)))
 }
 
 impl World {
@@ -322,26 +420,22 @@ impl World {
                         .get(&existing.commit_id)
                         .map(|staged| cognition_digest_v1("oasis7.cognition.action.v1", staged))
                 });
-            if existing.status == "prepared" && stored_action_digest.is_none() {
-                return Err(cognition_validation("cognition_staged_action_missing"));
-            }
-            if stored_action_digest
-                .as_deref()
-                .is_some_and(|stored| stored != action_digest)
-            {
-                return Err(cognition_validation("envelope_idempotency_conflict"));
-            }
-            if existing.status == "aborted" {
-                return Err(cognition_validation(
-                    existing
-                        .abort_reason
-                        .as_deref()
-                        .unwrap_or("cognition_commit_aborted"),
-                ));
-            }
+            validate_existing_retry_action_with_work_v1(
+                existing,
+                stored_action_digest.as_deref(),
+                &action_digest,
+                &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+            )
+            .expect("legacy cognition retry work is infallible")
+            .map_err(cognition_validation)?;
             let response_matches = parsed.responses.iter().any(|response| {
-                response.envelope_digest == existing.envelope_digest
-                    && response.response_artifact.as_ref() == Some(&response_artifact_value)
+                response_artifact_matches_with_work_v1(
+                    response,
+                    &existing.envelope_digest,
+                    &response_artifact_value,
+                    &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+                )
+                .expect("legacy cognition response comparison work is infallible")
             });
             if !response_matches {
                 return Err(cognition_validation("response_artifact_lineage_mismatch"));
@@ -850,80 +944,202 @@ pub(super) fn validate_lineage_binding(
     marker: &WorldCommitRecordV1,
     lineage: &RuntimeReceiptLineageV1,
 ) -> Result<(), WorldError> {
-    if marker.receipt_digest != lineage.receipt_digest
-        || marker.envelope_digest != lineage.envelope_digest
-        || marker.action_id != lineage.action_id
-        || !projection.receipt_registry.iter().any(|receipt| {
-            receipt.receipt_id == marker.receipt_id
-                && receipt.receipt_digest == marker.receipt_digest
-        })
-        || !projection
-            .idempotency_index
-            .get(&marker.envelope_idempotency_key)
-            .is_some_and(|entry| {
-                entry.envelope_digest == marker.envelope_digest
-                    && entry.disposition == "committed"
-                    && entry.receipt_id == marker.receipt_id
-            })
-        || !projection.cognition_journal.events.iter().any(|event| {
-            event.kind == "WorldReceiptLinked"
-                && event.envelope_idempotency_key == marker.envelope_idempotency_key
-                && event
-                    .receipt_id
-                    .as_deref()
-                    .is_none_or(|receipt_id| receipt_id == marker.receipt_id)
-                && event
-                    .agent_id
-                    .as_deref()
-                    .is_none_or(|agent_id| agent_id == lineage.agent_id)
-                && event
-                    .agent_session_id
-                    .as_deref()
-                    .is_none_or(|session_id| session_id == lineage.agent_session_id)
-                && event
-                    .agent_turn_id
-                    .as_deref()
-                    .is_none_or(|turn_id| turn_id == lineage.agent_turn_id)
-                && event
-                    .decision_request_id
-                    .as_deref()
-                    .is_none_or(|request_id| request_id == lineage.decision_request_id)
-                && event
-                    .request_digest
-                    .as_deref()
-                    .is_none_or(|request_digest| request_digest == lineage.request_digest)
-                && event
-                    .feedback_id
-                    .as_deref()
-                    .is_none_or(|feedback_id| feedback_id == lineage.feedback_id)
-        })
-    {
-        return Err(cognition_validation("receipt_lineage_binding_mismatch"));
+    match validate_lineage_binding_with_work_v1(
+        projection,
+        marker,
+        lineage,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    ) {
+        Ok(()) => Ok(()),
+        Err(super::cognition_persistence_readback::feedback::ReceiptReadErrorV1::World(e)) => {
+            Err(e)
+        }
+        Err(super::cognition_persistence_readback::feedback::ReceiptReadErrorV1::Work(_)) => {
+            unreachable!("legacy lineage binding work cannot fail")
+        }
     }
-    if !marker.agent_id.is_empty()
-        && (marker.agent_id != lineage.agent_id
-            || marker.agent_session_id != lineage.agent_session_id
-            || marker.agent_turn_id != lineage.agent_turn_id
-            || marker.decision_request_id != lineage.decision_request_id
-            || marker.request_digest != lineage.request_digest
-            || marker.feedback_id != lineage.feedback_id)
-    {
-        return Err(cognition_validation("receipt_lineage_binding_mismatch"));
+}
+pub(in crate::world) fn validate_lineage_binding_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    projection: &CognitionProjection,
+    marker: &WorldCommitRecordV1,
+    lineage: &RuntimeReceiptLineageV1,
+    source: &A,
+) -> Result<(), super::cognition_persistence_readback::feedback::ReceiptReadErrorV1> {
+    fn eq<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        a: &str,
+        b: &str,
+        source: &A,
+    ) -> Result<bool, oasis7_wasm_abi::CanonicalCborStreamError> {
+        source.charge_work(1, (a.len() + b.len()) as u64)?;
+        Ok(a == b)
     }
-    if !marker.agent_id.is_empty()
-        && !projection.cognition_journal.events.iter().any(|event| {
-            event.kind == "WorldReceiptLinked"
-                && event.envelope_idempotency_key == marker.envelope_idempotency_key
-                && event.receipt_id.as_deref() == Some(marker.receipt_id.as_str())
-                && event.agent_id.as_deref() == Some(marker.agent_id.as_str())
-                && event.agent_session_id.as_deref() == Some(marker.agent_session_id.as_str())
-                && event.agent_turn_id.as_deref() == Some(marker.agent_turn_id.as_str())
-                && event.decision_request_id.as_deref() == Some(marker.decision_request_id.as_str())
-                && event.request_digest.as_deref() == Some(marker.request_digest.as_str())
-                && event.feedback_id.as_deref() == Some(marker.feedback_id.as_str())
-        })
+    fn optional<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        a: Option<&str>,
+        b: &str,
+        permissive: bool,
+        source: &A,
+    ) -> Result<bool, oasis7_wasm_abi::CanonicalCborStreamError> {
+        match a {
+            None => Ok(permissive),
+            Some(a) => eq(a, b, source),
+        }
+    }
+    let first_bad = !eq(&marker.receipt_digest, &lineage.receipt_digest, source)?
+        || !eq(&marker.envelope_digest, &lineage.envelope_digest, source)?
+        || !eq(&marker.action_id, &lineage.action_id, source)?;
+    let fail = || cognition_validation("receipt_lineage_binding_mismatch");
+    if first_bad {
+        return Err(fail().into());
+    }
+    let mut receipt_found = false;
+    for receipt in &projection.receipt_registry {
+        if eq(&receipt.receipt_id, &marker.receipt_id, source)?
+            && eq(&receipt.receipt_digest, &marker.receipt_digest, source)?
+        {
+            receipt_found = true;
+            break;
+        }
+    }
+    if !receipt_found {
+        return Err(fail().into());
+    }
+    source.charge_work(1, marker.envelope_idempotency_key.len() as u64)?;
+    let Some(entry) = projection
+        .idempotency_index
+        .get(&marker.envelope_idempotency_key)
+    else {
+        return Err(fail().into());
+    };
+    if !eq(&entry.envelope_digest, &marker.envelope_digest, source)?
+        || !eq(&entry.disposition, "committed", source)?
+        || !eq(&entry.receipt_id, &marker.receipt_id, source)?
     {
-        return Err(cognition_validation("receipt_lineage_binding_mismatch"));
+        return Err(fail().into());
+    }
+    let mut event_found = false;
+    for event in &projection.cognition_journal.events {
+        if eq(&event.kind, "WorldReceiptLinked", source)?
+            && eq(
+                &event.envelope_idempotency_key,
+                &marker.envelope_idempotency_key,
+                source,
+            )?
+            && optional(
+                event.receipt_id.as_deref(),
+                &marker.receipt_id,
+                true,
+                source,
+            )?
+            && optional(event.agent_id.as_deref(), &lineage.agent_id, true, source)?
+            && optional(
+                event.agent_session_id.as_deref(),
+                &lineage.agent_session_id,
+                true,
+                source,
+            )?
+            && optional(
+                event.agent_turn_id.as_deref(),
+                &lineage.agent_turn_id,
+                true,
+                source,
+            )?
+            && optional(
+                event.decision_request_id.as_deref(),
+                &lineage.decision_request_id,
+                true,
+                source,
+            )?
+            && optional(
+                event.request_digest.as_deref(),
+                &lineage.request_digest,
+                true,
+                source,
+            )?
+            && optional(
+                event.feedback_id.as_deref(),
+                &lineage.feedback_id,
+                true,
+                source,
+            )?
+        {
+            event_found = true;
+            break;
+        }
+    }
+    if !event_found {
+        return Err(fail().into());
+    }
+    if !marker.agent_id.is_empty() {
+        if !eq(&marker.agent_id, &lineage.agent_id, source)?
+            || !eq(&marker.agent_session_id, &lineage.agent_session_id, source)?
+            || !eq(&marker.agent_turn_id, &lineage.agent_turn_id, source)?
+            || !eq(
+                &marker.decision_request_id,
+                &lineage.decision_request_id,
+                source,
+            )?
+            || !eq(&marker.request_digest, &lineage.request_digest, source)?
+            || !eq(&marker.feedback_id, &lineage.feedback_id, source)?
+        {
+            return Err(fail().into());
+        }
+    }
+    if !marker.agent_id.is_empty() {
+        let mut dense_found = false;
+        for event in &projection.cognition_journal.events {
+            if eq(&event.kind, "WorldReceiptLinked", source)?
+                && eq(
+                    &event.envelope_idempotency_key,
+                    &marker.envelope_idempotency_key,
+                    source,
+                )?
+                && optional(
+                    event.receipt_id.as_deref(),
+                    &marker.receipt_id,
+                    false,
+                    source,
+                )?
+                && optional(event.agent_id.as_deref(), &marker.agent_id, false, source)?
+                && optional(
+                    event.agent_session_id.as_deref(),
+                    &marker.agent_session_id,
+                    false,
+                    source,
+                )?
+                && optional(
+                    event.agent_turn_id.as_deref(),
+                    &marker.agent_turn_id,
+                    false,
+                    source,
+                )?
+                && optional(
+                    event.decision_request_id.as_deref(),
+                    &marker.decision_request_id,
+                    false,
+                    source,
+                )?
+                && optional(
+                    event.request_digest.as_deref(),
+                    &marker.request_digest,
+                    false,
+                    source,
+                )?
+                && optional(
+                    event.feedback_id.as_deref(),
+                    &marker.feedback_id,
+                    false,
+                    source,
+                )?
+            {
+                dense_found = true;
+                break;
+            }
+        }
+        if !dense_found {
+            return Err(fail().into());
+        }
     }
     Ok(())
 }
@@ -936,7 +1152,25 @@ pub(super) fn select_commit_record(
         .max_by_key(|record| (record.cognition_journal_seq, record.commit_id.as_str()))
 }
 
-pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldError> {
+pub(in crate::world) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldError> {
+    match validate_marker_with_work_v1(marker, &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1) {
+        Ok(()) => Ok(()),
+        Err(super::cognition_persistence_readback::feedback::ReceiptReadErrorV1::World(e)) => {
+            Err(e)
+        }
+        Err(super::cognition_persistence_readback::feedback::ReceiptReadErrorV1::Work(_)) => {
+            unreachable!("legacy marker work cannot fail")
+        }
+    }
+}
+pub(in crate::world) fn validate_marker_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    marker: &WorldCommitRecordV1,
+    source: &A,
+) -> Result<(), super::cognition_persistence_readback::feedback::ReceiptReadErrorV1> {
+    let _phase =
+        oasis7_world_state::cognition_feedback_contract::readonly_work::phase(marker, source)?;
     let valid_abort_reason = marker.abort_reason.as_deref().is_some_and(|reason| {
         matches!(
             reason,
@@ -975,7 +1209,8 @@ pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldE
     {
         return Err(WorldError::DistributedValidationFailed {
             reason: "invalid_commit_record".to_string(),
-        });
+        }
+        .into());
     }
     if !finality_binding_is_legal(
         &marker.finality_status,
@@ -983,7 +1218,8 @@ pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldE
     ) {
         return Err(WorldError::DistributedValidationFailed {
             reason: "invalid_commit_record_finality".to_string(),
-        });
+        }
+        .into());
     }
     let dense = [
         &marker.agent_id,
@@ -998,22 +1234,27 @@ pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldE
     {
         return Err(WorldError::DistributedValidationFailed {
             reason: "invalid_commit_record_identity".to_string(),
-        });
+        }
+        .into());
     }
     if !marker.agent_id.is_empty() {
-        let expected_commit_id = cognition_digest_v1(
-            "oasis7.cognition.commit-id.v1",
-            &json!({
-                "envelope_digest": marker.envelope_digest,
-                "envelope_idempotency_key": marker.envelope_idempotency_key,
-            }),
-        );
-        let expected_receipt_id = cognition_digest_v1(
-            "oasis7.cognition.receipt-id.v1",
-            &json!({"commit_id": expected_commit_id}),
-        );
+        let expected_commit_id =
+            oasis7_world_state::cognition_feedback_contract::readonly_work::digest(
+                "oasis7.cognition.commit-id.v1",
+                &json!({
+                    "envelope_digest": marker.envelope_digest,
+                    "envelope_idempotency_key": marker.envelope_idempotency_key,
+                }),
+                source,
+            )?;
+        let expected_receipt_id =
+            oasis7_world_state::cognition_feedback_contract::readonly_work::digest(
+                "oasis7.cognition.receipt-id.v1",
+                &json!({"commit_id": expected_commit_id}),
+                source,
+            )?;
         let expected_receipt_digest = if marker.response_artifact_digest.is_empty() {
-            cognition_digest_v1(
+            oasis7_world_state::cognition_feedback_contract::readonly_work::digest(
                 "oasis7.cognition.receipt.v1",
                 &json!({
                     "receipt_id": expected_receipt_id,
@@ -1021,9 +1262,10 @@ pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldE
                     "action_id": marker.action_id,
                     "world_root": marker.parent_world_hash,
                 }),
-            )
+                source,
+            )?
         } else {
-            cognition_digest_v1(
+            oasis7_world_state::cognition_feedback_contract::readonly_work::digest(
                 "oasis7.cognition.receipt.v1",
                 &json!({
                     "receipt_id": expected_receipt_id,
@@ -1032,34 +1274,43 @@ pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldE
                     "world_root": marker.parent_world_hash,
                     "response_artifact_digest": marker.response_artifact_digest,
                 }),
-            )
+                source,
+            )?
         };
-        let expected_staged_event_root = cognition_digest_v1(
-            "oasis7.cognition.staged-event-root.v1",
-            &json!({
-                "world_root": marker.parent_world_hash,
-                "envelope_digest": marker.envelope_digest,
-            }),
-        );
-        let expected_finality_binding = finality_binding_digest_v1(
+        let expected_staged_event_root =
+            oasis7_world_state::cognition_feedback_contract::readonly_work::digest(
+                "oasis7.cognition.staged-event-root.v1",
+                &json!({
+                    "world_root": marker.parent_world_hash,
+                    "envelope_digest": marker.envelope_digest,
+                }),
+                source,
+            )?;
+        let expected_finality_binding = crate::cognition::finality_binding_digest_with_work_v1(
             &marker.branch_id,
             marker.finality_epoch,
             marker.finality_block_hash.as_deref(),
             &marker.finality_status,
             marker.reorg_epoch,
-        );
+            source,
+        )?;
         let expected_feedback_id =
-            cognition_digest_v1("oasis7.cognition.feedback-id.v1", &marker.envelope_digest);
+            oasis7_world_state::cognition_feedback_contract::readonly_work::digest(
+                "oasis7.cognition.feedback-id.v1",
+                &marker.envelope_digest,
+                source,
+            )?;
         if marker.commit_id != expected_commit_id
             || marker.receipt_id != expected_receipt_id
             || marker.receipt_digest != expected_receipt_digest
             || marker.staged_event_root != expected_staged_event_root
-            || marker.finality_binding_digest != expected_finality_binding
+            || marker.finality_binding_digest != expected_finality_binding.as_str()
             || marker.feedback_id != expected_feedback_id
         {
             return Err(WorldError::DistributedValidationFailed {
                 reason: "invalid_commit_record_digest".to_string(),
-            });
+            }
+            .into());
         }
         if !marker.response_artifact_digest.is_empty()
             && (!canonical_cognition_digest(&marker.response_artifact_digest)
@@ -1072,7 +1323,8 @@ pub(super) fn validate_marker(marker: &WorldCommitRecordV1) -> Result<(), WorldE
         {
             return Err(WorldError::DistributedValidationFailed {
                 reason: "invalid_response_artifact_binding".to_string(),
-            });
+            }
+            .into());
         }
     }
     Ok(())
@@ -1185,4 +1437,89 @@ pub(super) fn canonical_cognition_digest(value: &str) -> bool {
         && hex
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+/// Original retry refusal order. Return borrowed reason DATA so a metered
+/// consumer can admit the exact business error graph before allocating it.
+pub(in crate::world) fn validate_existing_retry_action_with_work_v1<
+    'a,
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    marker: &'a WorldCommitRecordV1,
+    stored_action_digest: Option<&str>,
+    action_digest: &str,
+    source: &A,
+) -> Result<Result<(), &'a str>, oasis7_wasm_abi::CanonicalCborStreamError> {
+    source.charge_work(1, marker.status.len() as u64)?;
+    if marker.status == "prepared" && stored_action_digest.is_none() {
+        return Ok(Err("cognition_staged_action_missing"));
+    }
+    if let Some(stored) = stored_action_digest {
+        source.charge_work(1, (stored.len() + action_digest.len()) as u64)?;
+        if stored != action_digest {
+            return Ok(Err("envelope_idempotency_conflict"));
+        }
+    }
+    source.charge_work(1, marker.status.len() as u64)?;
+    if marker.status == "aborted" {
+        return Ok(Err(marker
+            .abort_reason
+            .as_deref()
+            .unwrap_or("cognition_commit_aborted")));
+    }
+    Ok(Ok(()))
+}
+fn response_value_comparison_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+    value: &JsonValue,
+    source: &A,
+) -> Result<(), oasis7_wasm_abi::CanonicalCborStreamError> {
+    source.charge_work(1, 0)?;
+    match value {
+        JsonValue::String(text) => {
+            for part in text.as_bytes().chunks(8192) {
+                source.charge_work(1, part.len() as u64)?;
+            }
+        }
+        JsonValue::Array(values) => {
+            for value in values {
+                response_value_comparison_work_v1(value, source)?;
+            }
+        }
+        JsonValue::Object(values) => {
+            for (key, value) in values {
+                for part in key.as_bytes().chunks(8192) {
+                    source.charge_work(1, part.len() as u64)?;
+                }
+                response_value_comparison_work_v1(value, source)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+/// Same response ANY predicate as the original projection Vec, now with work
+/// over the real retained graph before its original serde_json equality.
+pub(in crate::world) fn response_artifact_matches_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    response: &crate::cognition_recovery::CognitionResponseRecordV1,
+    envelope_digest: &str,
+    artifact: &JsonValue,
+    source: &A,
+) -> Result<bool, oasis7_wasm_abi::CanonicalCborStreamError> {
+    source.charge_work(
+        1,
+        (response.envelope_digest.len() + envelope_digest.len()) as u64,
+    )?;
+    if response.envelope_digest != envelope_digest {
+        return Ok(false);
+    }
+    let Some(actual) = response.response_artifact.as_ref() else {
+        return Ok(false);
+    };
+    if source.is_metered() {
+        response_value_comparison_work_v1(actual, source)?;
+        response_value_comparison_work_v1(artifact, source)?;
+    }
+    Ok(actual == artifact)
 }

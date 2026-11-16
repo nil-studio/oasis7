@@ -27,7 +27,10 @@ pub(super) struct PreparedModuleReleaseTail {
 }
 
 impl ModuleReleaseCompletion {
-    fn events(self, install: &DomainEvent) -> Vec<DomainEvent> {
+    /// The sole completion ordering for both legacy and Current publication.
+    /// Current callers must retain the actual request/install owners and pay
+    /// for this derived event graph before invoking this data-only kernel.
+    pub(super) fn events(self, install: &DomainEvent) -> Vec<DomainEvent> {
         let DomainEvent::ModuleInstalled {
             installer_agent_id,
             instance_id,

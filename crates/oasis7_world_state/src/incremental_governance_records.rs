@@ -163,3 +163,24 @@ pub use pages::{
 };
 
 pub(crate) use receiver::accept_governance_verified_v1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_gameplay_cycles_directory_governance.rs"]
+mod gameplay_directory;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use gameplay_directory::inspect_gameplay_governance_directory_row_v1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_gameplay_cycles_directory_governance_current.rs"]
+mod gameplay_current;
+#[cfg(not(target_arch = "wasm32"))]
+pub use gameplay_current::{
+    CurrentGameplayTalliesV1, CurrentGameplayTallyV1, open_current_gameplay_governance_record_v1,
+    recover_current_gameplay_tallies_v1,
+};
+
+#[path="incremental_governance_records_projection_cells.rs"] mod projection_cells;
+#[path="incremental_governance_records_projection.rs"] mod projection;
+pub use projection::{CurrentGovernanceProjectionDeltaV1,GovernanceProjectionPathRefV1,read_current_governance_projection_delta_v1,is_governance_projection_field_v1};
+
+pub use projection::{QualifiedGovernanceProjectionColumnsV1,read_qualified_governance_projection_columns_v1};

@@ -17,7 +17,7 @@ fn spend(heap: &mut usize, bytes: usize) -> Result<(), ValueTreeError> {
         .ok_or(ValueTreeError::ResourceLimited("selected JSON heap"))?;
     Ok(())
 }
-fn node<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn node<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     root: &StateRootV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,

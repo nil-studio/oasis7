@@ -210,7 +210,7 @@ mod world_initialization;
 mod world_service_api;
 #[path = "host/world_writer_lock.rs"]
 mod world_writer_lock;
-#[cfg(test)]
+pub(crate) use self::cli::VerifiedIwsLocalProcessConfigV1;
 use self::cli::{DEFAULT_NODE_ID, DEFAULT_STATUS_BIND, DEFAULT_WORLD_ID, parse_validator_spec};
 use balances_api::build_chain_balances_payload;
 #[cfg(test)]

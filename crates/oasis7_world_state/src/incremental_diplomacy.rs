@@ -192,3 +192,15 @@ mod current;
 #[path = "incremental_diplomacy_contract_current.rs"]
 mod contract_current;
 pub use contract_current::open_current_diplomacy_contract_record_v1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_gameplay_cycles_directory_diplomacy.rs"]
+mod gameplay_directory;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use gameplay_directory::inspect_gameplay_diplomacy_directory_row_v1;
+
+#[path="incremental_diplomacy_projection_cells.rs"] mod projection_cells;
+#[path="incremental_diplomacy_projection.rs"] mod projection;
+pub use projection::{CurrentDiplomacyProjectionDeltaV1,DiplomacyProjectionPathRefV1,read_current_diplomacy_projection_delta_v1,is_diplomacy_projection_field_v1};
+
+pub use projection::{QualifiedDiplomacyProjectionColumnsV1,read_qualified_diplomacy_projection_columns_v1};

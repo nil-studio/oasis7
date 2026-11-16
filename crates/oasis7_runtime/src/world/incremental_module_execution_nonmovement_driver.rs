@@ -17,6 +17,12 @@ use crate::world::{
 };
 pub(in crate::world) use effective_dispatch::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
 pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
+    ModuleLifecycle(
+        crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleWorkV1<'a>,
+        &'a crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'a>,
+        &'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
+        &'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+    ),
     FactorySchedule(&'a mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,&'a crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>,&'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
     ContractLifecycle(&'a mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1,&'a crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'a,'a>,&'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
     Alliance(&'a mut crate::world::incremental_normal_action_diplomacy::AllianceWorkV1,&'a crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1<'a,'a>,&'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
@@ -29,6 +35,7 @@ pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
     ContractAccept(&'a mut crate::world::incremental_action_contract_accept::ContractAcceptWorkV1, crate::world::incremental_action_contract_accept::ContractAcceptSourcesV1<'a>),
     MetaProgress(&'a mut crate::world::incremental_action_meta_progress::MetaProgressWorkV1,
         crate::world::incremental_action_meta_progress::MetaProgressSourcesV1<'a>),
+    ProfileGovernance(&'a mut crate::world::incremental_normal_action_profile::ProfileGovernanceWorkV1,crate::world::incremental_normal_action_profile::ProfileGovernanceSourcesV1<'a>),
     FactoryLifecycle(&'a mut crate::world::incremental_action_factory_lifecycle::FactoryLifecycleWorkV1,
         crate::world::incremental_action_factory_lifecycle::FactoryLifecycleSourcesV1<'a>),
     MaterialTransfer(&'a mut crate::world::incremental_material_normalization::transfer::MaterialTransferWorkV1,
@@ -46,6 +53,7 @@ pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
     DispatchBank(&'a mut EffectiveActionWorkBankV1<'a>),
 }
 pub(in crate::world) enum CompletedNonmovementActionV1 {
+    ModuleLifecycle(crate::world::incremental_normal_action_module_lifecycle::CompletedModuleLifecycleActionV1),
     FactorySchedule(
         crate::world::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1,
     ),
@@ -59,6 +67,9 @@ pub(in crate::world) enum CompletedNonmovementActionV1 {
     Crisis(crate::world::incremental_action_crisis::CompletedCrisisV1),
     ContractAccept(crate::world::incremental_action_contract_accept::CompletedContractAcceptV1),
     MetaProgress(crate::world::incremental_action_meta_progress::CompletedMetaProgressV1),
+    ProfileGovernance(
+        crate::world::incremental_normal_action_profile::CompletedProfileGovernanceV1,
+    ),
     FactoryLifecycle(
         crate::world::incremental_action_factory_lifecycle::CompletedFactoryLifecycleV1,
     ),
@@ -79,6 +90,7 @@ impl<'a> NonmovementSelectedWorkV1<'a> {
         Some(match self {
             Self::Core => EffectiveActionFamilyV1::Core,
             Self::FactorySchedule(..) => EffectiveActionFamilyV1::FactorySchedule,
+            Self::ModuleLifecycle(..) => EffectiveActionFamilyV1::ModuleLifecycle,
             Self::ContractLifecycle(..) => EffectiveActionFamilyV1::ContractLifecycle,
             Self::Alliance(..) => EffectiveActionFamilyV1::Alliance,
             Self::LogisticsRegistration(..) => EffectiveActionFamilyV1::LogisticsRegistration,
@@ -86,6 +98,7 @@ impl<'a> NonmovementSelectedWorkV1<'a> {
             Self::Crisis(..) => EffectiveActionFamilyV1::Crisis,
             Self::ContractAccept(..) => EffectiveActionFamilyV1::ContractAccept,
             Self::MetaProgress(..) => EffectiveActionFamilyV1::MetaProgress,
+            Self::ProfileGovernance(..) => EffectiveActionFamilyV1::ProfileGovernance,
             Self::FactoryLifecycle(..) => EffectiveActionFamilyV1::FactoryLifecycle,
             Self::RouteAvailability(..) => EffectiveActionFamilyV1::RouteAvailability,
             Self::MaterialTransfer(..) => EffectiveActionFamilyV1::MaterialTransfer,
@@ -96,6 +109,20 @@ impl<'a> NonmovementSelectedWorkV1<'a> {
             Self::TransferResource(..) => EffectiveActionFamilyV1::TransferResource,
             Self::DispatchBank(..) => return None,
         })
+    }
+
+    pub(super) fn factory_module_parts_v1(
+        &mut self,
+    ) -> Option<(
+        &mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,
+        &crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'a>,
+        &oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+    )> {
+        match self {
+            Self::FactorySchedule(work, sources, common) => Some((&mut **work, *sources, *common)),
+            Self::DispatchBank(bank) => bank.factory_module_parts_v1(),
+            _ => None,
+        }
     }
 
     fn resolve_effective(
@@ -232,335 +259,23 @@ where
                     live_owner,
                 )
                 .map_err(NonmovementSelectedErrorV1::Rules)?;
-            let effective = outcome
-                .override_action_for_selected_v1(selected, self.ctx.transaction)
-                .map_err(|error| {
-                    NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
-                        RootModuleExecutionErrorV1::Body(error),
-                    ))
-                })?
-                .unwrap_or(&selected.envelope().action);
-            let (work, accepted_entries) = work
-                .resolve_effective(&selected.envelope().action, effective)
-                .ok_or_else(|| {
-                    NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
-                        RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
-                            "effective action work slot unavailable",
-                        )),
-                    ))
-                })?;
-            let completed = match work {
-                NonmovementSelectedWorkV1::DispatchBank(_) => return Err(
-                    NonmovementSelectedErrorV1::Business(OrdinaryDriverErrorV1::Module(
-                        RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid("unresolved effective action work bank"))
-                    ))),
-                NonmovementSelectedWorkV1::NormalExtension(mut work) => {
-                    CompletedNonmovementActionV1::NormalExtension(self.execute_normal_extension_after_rules_v1(
-                        selected,&admission,&outcome,materials,read,parent_read,&mut work,accepted_entries,audit_work,
-                        directory,enumeration,tail_work,live_owner,
-                    ).map_err(NonmovementSelectedErrorV1::Business)?)
-                }
-                NonmovementSelectedWorkV1::FactorySchedule(work,sources,common)=>{
-                    CompletedNonmovementActionV1::FactorySchedule(self.execute_factory_schedule_after_rules_v1(selected,&admission,&outcome,materials,read,parent_read,work,sources,common,accepted_entries,audit_work,directory,enumeration,tail_work,live_owner).map_err(NonmovementSelectedErrorV1::Business)?)
-                }
-                NonmovementSelectedWorkV1::ContractLifecycle(work,sources,common)=>{
-                    CompletedNonmovementActionV1::ContractLifecycle(self.execute_contract_after_rules_v1(selected,&admission,&outcome,materials,read,parent_read,work,sources,common,accepted_entries,audit_work,directory,enumeration,tail_work,live_owner).map_err(NonmovementSelectedErrorV1::Business)?)
-                }
-                NonmovementSelectedWorkV1::Alliance(work,sources,common)=>{
-                    CompletedNonmovementActionV1::Alliance(self.execute_alliance_after_rules_v1(
-                        selected,&admission,&outcome,materials,read,parent_read,work,sources,common,accepted_entries,audit_work,
-                        directory,enumeration,tail_work,live_owner,
-                    ).map_err(NonmovementSelectedErrorV1::Business)?)
-                }
-                NonmovementSelectedWorkV1::LogisticsRegistration(work,logistics,common)=>{
-                    CompletedNonmovementActionV1::LogisticsRegistration(self.execute_logistics_registration_after_rules_v1(
-                        selected,&admission,&outcome,materials,read,parent_read,work,logistics,common,accepted_entries,audit_work,
-                        directory,enumeration,tail_work,live_owner,
-                    ).map_err(NonmovementSelectedErrorV1::Business)?)
-                }
-                NonmovementSelectedWorkV1::Core => {
-                    CompletedNonmovementActionV1::Core(
-                        self.execute_core_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            Some(parent_read),
-                            accepted_entries,
-                            policy_scan,
-                            policy_work,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(|error| match error {
-                            CoreDriverErrorV1::Module(error) => {
-                                NonmovementSelectedErrorV1::Business(
-                                    OrdinaryDriverErrorV1::Module(error),
-                                )
-                            }
-                            CoreDriverErrorV1::Settlement(
-                                crate::world::incremental_action_execution_core::CoreSettlementErrorV1::Body(error),
-                            ) => NonmovementSelectedErrorV1::Business(
-                                OrdinaryDriverErrorV1::Module(RootModuleExecutionErrorV1::Body(error)),
-                            ),
-                            CoreDriverErrorV1::Settlement(
-                                crate::world::incremental_action_execution_core::CoreSettlementErrorV1::Resources(error),
-                            ) => NonmovementSelectedErrorV1::Business(
-                                OrdinaryDriverErrorV1::Settlement(super::ordinary_settlement::OrdinarySettlementErrorV1::Resources(error)),
-                            ),
-                            CoreDriverErrorV1::SelectedRules(error) => {
-                                NonmovementSelectedErrorV1::Rules(error)
-                            }
-                        })?,
-                    )
-                }
-                NonmovementSelectedWorkV1::Crisis(work, sources) => {
-                    CompletedNonmovementActionV1::Crisis(
-                        self.execute_crisis_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            &sources,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::ContractAccept(work, sources) => {
-                    CompletedNonmovementActionV1::ContractAccept(
-                        self.execute_contract_accept_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            &sources,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::MetaProgress(work, sources) => {
-                    CompletedNonmovementActionV1::MetaProgress(
-                        self.execute_meta_progress_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            &sources,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::FactoryLifecycle(work, sources) => {
-                    CompletedNonmovementActionV1::FactoryLifecycle(
-                        self.execute_factory_lifecycle_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            &sources,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::RouteAvailability(work, logistics) => {
-                    CompletedNonmovementActionV1::RouteAvailability(
-                        self.execute_route_availability_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            logistics,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::MaterialTransfer(work, family) => {
-                    CompletedNonmovementActionV1::MaterialTransfer(
-                        self.execute_material_transfer_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            accepted_entries,
-                            family,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::AuthenticatedCollectData(
-                    data_work,
-                    auth_work,
-                    index,
-                    controls,
-                ) => {
-                    let mut auth_read=oasis7_world_state::incremental_field_read::WorldFieldReadContextV1 {
-                        root:self.families.roots.state_root(oasis7_formal_protocol::incremental_state::StateNamespaceV1::Authorization),
-                        state:admission_read.state,values:ValueReadContext {source:admission_read.values.source,
-                            memory:admission_read.values.memory,class:admission_read.values.class,io:&mut *admission_read.values.io},
-                        key_work:&mut *admission_read.key_work,semantic_bytes:admission_read.semantic_bytes,record_bytes:admission_read.record_bytes,
-                        take_state_error:&mut admission_read.take_state_error,cancelled:&mut admission_read.cancelled};
-                    CompletedNonmovementActionV1::CollectData(
-                        self.execute_authenticated_collect_data_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            &mut auth_read,
-                            auth_work,
-                            index,
-                            controls,
-                            data_work,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-
-                NonmovementSelectedWorkV1::DataAccess(work, controls) => {
-                    CompletedNonmovementActionV1::DataAccess(
-                        self.execute_data_access_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            controls,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::Body(work) => CompletedNonmovementActionV1::Body(
-                    self.execute_body_after_rules_v1(
-                        selected,
-                        &admission,
-                        &outcome,
-                        materials,
-                        read,
-                        parent_read,
-                        work,
-                        accepted_entries,
-                        audit_work,
-                        directory,
-                        enumeration,
-                        tail_work,
-                        live_owner,
-                    )
-                    .map_err(NonmovementSelectedErrorV1::Business)?,
-                ),
-                NonmovementSelectedWorkV1::CollectData(work) => {
-                    CompletedNonmovementActionV1::CollectData(
-                        self.execute_collect_data_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-                NonmovementSelectedWorkV1::TransferResource(work) => {
-                    CompletedNonmovementActionV1::TransferResource(
-                        self.execute_transfer_resource_after_rules_v1(
-                            selected,
-                            &admission,
-                            &outcome,
-                            materials,
-                            read,
-                            parent_read,
-                            work,
-                            accepted_entries,
-                            audit_work,
-                            directory,
-                            enumeration,
-                            tail_work,
-                            live_owner,
-                        )
-                        .map_err(NonmovementSelectedErrorV1::Business)?,
-                    )
-                }
-            };
-            Ok((outcome, completed))
+            self.execute_nonmovement_after_rules_v1(
+                selected,
+                outcome,
+                &admission,
+                admission_read,
+                policy_scan,
+                policy_work,
+                materials,
+                read,
+                parent_read,
+                work,
+                audit_work,
+                directory,
+                enumeration,
+                tail_work,
+                live_owner,
+            )
         })();
         if result.is_err() {
             let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
@@ -851,6 +566,61 @@ where
         O::Error: std::error::Error + Send + Sync + 'static,
     {
         let result = (|| {
+            let Some(selected) =
+                self.take_nonmovement_input_v1(pending, pending_work, parent_read, live_owner)?
+            else {
+                return Ok(None);
+            };
+            self.execute_selected_nonmovement_v1(
+                &selected,
+                qualification,
+                current,
+                admission_read,
+                policy_scan,
+                policy_work,
+                materials,
+                read,
+                parent_read,
+                work,
+                audit_work,
+                directory,
+                rule_work,
+                enumeration,
+                tail_work,
+                live_owner,
+            )
+            .map(Some)
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+    pub(super) fn take_nonmovement_input_v1<P, PE, PC>(
+        &mut self,
+        pending: &mut ReservedValue<
+            oasis7_world_state::incremental_pending_action_overlay::PendingActionCurrentV1,
+        >,
+        pending_work:&mut oasis7_world_state::incremental_pending_action_family::PendingActionFamilyWorkV1,
+        parent_read: &mut oasis7_world_state::incremental_field_read::WorldFieldReadContextV1<
+            '_,
+            P,
+            R,
+            PE,
+            PC,
+        >,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<Option<SelectedPendingActionV1>, NonmovementSelectedErrorV1<O::Error>>
+    where
+        P: MerkleNodeReader,
+        PE: FnMut() -> Option<ValueTreeError>,
+        PC: FnMut() -> bool,
+        O::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let result = (|| {
             let live = live_owner();
             // The same authenticated queue owner verifies the exact original,
             // removes the FIFO head and appends its Input fact in this sole tx.
@@ -898,25 +668,7 @@ where
                     })?;
                 return Ok(None);
             };
-            self.execute_selected_nonmovement_v1(
-                &selected,
-                qualification,
-                current,
-                admission_read,
-                policy_scan,
-                policy_work,
-                materials,
-                read,
-                parent_read,
-                work,
-                audit_work,
-                directory,
-                rule_work,
-                enumeration,
-                tail_work,
-                live_owner,
-            )
-            .map(Some)
+            Ok(Some(selected))
         })();
         if result.is_err() {
             let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
@@ -927,3 +679,6 @@ where
         result
     }
 }
+
+#[path = "incremental_module_execution_nonmovement_after_rules.rs"]
+mod after_rules;

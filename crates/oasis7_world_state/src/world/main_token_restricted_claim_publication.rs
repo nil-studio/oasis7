@@ -344,65 +344,11 @@ impl PreparedMainTokenRestrictedClaimEvent {
                     }
                 ))
             })?;
-        let operation = if revoke_reason.is_some() {
-            "revoke"
-        } else {
-            "expiration"
-        };
-        if grant.status != RestrictedStarterClaimGrantStatus::Issued {
-            return Err(invalid(format!(
-                "restricted grant already terminal before {operation}: beneficiary={beneficiary} status={:?}",
-                grant.status
-            )));
-        }
-        if grant.issuer_id != issuer
-            || grant.issuance_reason != reason
-            || grant.spend_scope != scope
-            || grant.source_treasury_bucket_id != source
-            || grant.issued_amount != issued_amount
-            || grant.issued_at_epoch != issued
-            || grant.expires_at_epoch != configured_expiry
-        {
-            return Err(invalid(format!(
-                "restricted grant {operation} metadata mismatch: beneficiary={beneficiary}"
-            )));
-        }
-        if let Some(reason) = revoke_reason {
-            if reason.trim().is_empty() {
-                return Err(invalid("restricted grant revoke_reason cannot be empty"));
-            }
-        } else if terminal_epoch < configured_expiry {
-            return Err(invalid(format!(
-                "restricted grant expired before configured epoch: beneficiary={beneficiary} configured={configured_expiry} actual={terminal_epoch}"
-            )));
-        }
-        let mut balances = state.main_token_balances.clone();
-        helpers::debit_restricted(&mut balances, beneficiary, amount)?;
-        if let Some(account) = balances.get(beneficiary).cloned() {
-            self.balances.insert(beneficiary.to_string(), account);
-        }
-        let mut treasury = state.main_token_treasury_balances.clone();
-        helpers::credit(&mut treasury, source, amount)?;
-        self.treasury.insert(source.to_string(), treasury[source]);
-        if state.main_token_supply.circulating_supply < amount {
-            return Err(invalid(format!(
-                "restricted grant {operation} circulating insufficient: circulating={} amount={amount}",
-                state.main_token_supply.circulating_supply
-            )));
-        }
-        let mut supply = state.main_token_supply.clone();
-        supply.circulating_supply -= amount;
-        self.supply = Some(supply);
-        grant.status = if revoke_reason.is_some() {
-            RestrictedStarterClaimGrantStatus::Revoked
-        } else {
-            RestrictedStarterClaimGrantStatus::Expired
-        };
-        grant.status_updated_at_epoch = Some(terminal_epoch);
-        grant.status_reason =
-            Some(revoke_reason.map_or_else(|| "expired".to_string(), |v| v.clone()));
-        self.grants.insert(beneficiary.to_string(), grant);
-        Ok(())
+        let (grant,balances,treasury,supply)=prepare_selected_restricted_grant_terminal_v1(
+            grant, &state.main_token_balances,&state.main_token_treasury_balances,&state.main_token_supply,
+            beneficiary,issuer,reason,scope,source,issued_amount,amount,issued,terminal_epoch,configured_expiry,revoke_reason)?;
+        self.balances.extend(balances);self.treasury.extend(treasury);self.supply=Some(supply);
+        self.grants.insert(beneficiary.to_string(),grant);Ok(())
     }
 
     pub fn matches_event(&self, event: &DomainEvent) -> bool {
@@ -567,3 +513,67 @@ fn invalid(reason: impl Into<String>) -> WorldError {
         reason: reason.into(),
     }
 }
+
+/// Original terminal reduction over selected actual records; DATA only.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_selected_restricted_grant_terminal_v1(mut grant:RestrictedStarterClaimGrantState,balances_base:&BTreeMap<String,MainTokenAccountBalance>,treasury_base:&BTreeMap<String,u64>,supply_base:&MainTokenSupplyState,beneficiary:&str,issuer:&str,reason:&str,scope:&str,source:&str,issued_amount:u64,amount:u64,issued:u64,terminal_epoch:u64,configured_expiry:u64,revoke_reason:Option<&String>)->Result<(RestrictedStarterClaimGrantState,BTreeMap<String,MainTokenAccountBalance>,BTreeMap<String,u64>,MainTokenSupplyState),WorldError>{
+let mut balances_out=BTreeMap::new();let mut treasury_out=BTreeMap::new();
+        let operation = if revoke_reason.is_some() {
+            "revoke"
+        } else {
+            "expiration"
+        };
+        if grant.status != RestrictedStarterClaimGrantStatus::Issued {
+            return Err(invalid(format!(
+                "restricted grant already terminal before {operation}: beneficiary={beneficiary} status={:?}",
+                grant.status
+            )));
+        }
+        if grant.issuer_id != issuer
+            || grant.issuance_reason != reason
+            || grant.spend_scope != scope
+            || grant.source_treasury_bucket_id != source
+            || grant.issued_amount != issued_amount
+            || grant.issued_at_epoch != issued
+            || grant.expires_at_epoch != configured_expiry
+        {
+            return Err(invalid(format!(
+                "restricted grant {operation} metadata mismatch: beneficiary={beneficiary}"
+            )));
+        }
+        if let Some(reason) = revoke_reason {
+            if reason.trim().is_empty() {
+                return Err(invalid("restricted grant revoke_reason cannot be empty"));
+            }
+        } else if terminal_epoch < configured_expiry {
+            return Err(invalid(format!(
+                "restricted grant expired before configured epoch: beneficiary={beneficiary} configured={configured_expiry} actual={terminal_epoch}"
+            )));
+        }
+        let mut balances = balances_base.clone();
+        helpers::debit_restricted(&mut balances, beneficiary, amount)?;
+        if let Some(account) = balances.get(beneficiary).cloned() {
+            balances_out.insert(beneficiary.to_string(), account);
+        }
+        let mut treasury = treasury_base.clone();
+        helpers::credit(&mut treasury, source, amount)?;
+        treasury_out.insert(source.to_string(), treasury[source]);
+        if supply_base.circulating_supply < amount {
+            return Err(invalid(format!(
+                "restricted grant {operation} circulating insufficient: circulating={} amount={amount}",
+                supply_base.circulating_supply
+            )));
+        }
+        let mut supply = supply_base.clone();
+        supply.circulating_supply -= amount;
+
+        grant.status = if revoke_reason.is_some() {
+            RestrictedStarterClaimGrantStatus::Revoked
+        } else {
+            RestrictedStarterClaimGrantStatus::Expired
+        };
+        grant.status_updated_at_epoch = Some(terminal_epoch);
+        grant.status_reason =
+            Some(revoke_reason.map_or_else(|| "expired".to_string(), |v| v.clone()));
+        Ok((grant,balances_out,treasury_out,supply))
+    }

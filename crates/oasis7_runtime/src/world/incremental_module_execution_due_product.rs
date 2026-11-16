@@ -79,10 +79,10 @@ where
                 return Err(ValueTreeError::Invalid("due product Common pool").into());
             }
             let failure = RefCell::new(None);
-            let input = DueProductInputV1 {
+            let input = EconomyInputV1::Due(DueProductInputV1 {
                 call,
                 failure: &failure,
-            };
+            });
             let output = match io::paid(self, common, live_owner, |root, live| {
                 root.execute_input_invocation_inner(
                     call.module_id(),
@@ -152,7 +152,7 @@ where
 }
 
 #[path = "incremental_module_execution_due_product_io.rs"]
-mod io;
+pub(super) mod io;
 
 /// Genuine sealed-worker failure; the private execution owner retains its fee.
 /// This borrowed data source grants neither a replay nor a business permit.
@@ -268,3 +268,9 @@ impl PaidDueProductExecutionV1 {
         Ok(Some(source))
     }
 }
+
+pub(in crate::world) use self::io::paid as with_current_root_module_meter_v1;
+
+pub(in crate::world) use self::io::paid_with_history_index as with_current_root_history_index_meter_v1;
+
+pub(in crate::world) use self::io::paid_with_route as with_current_root_route_meter_v1;

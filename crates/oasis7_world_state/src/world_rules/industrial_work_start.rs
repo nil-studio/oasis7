@@ -40,119 +40,10 @@ impl PreparedWorldRule {
         now: WorldTime,
         world: &str,
     ) -> Result<String, WorldError> {
-        let root = self
-            .rules
-            .industrial_work
-            .roots
-            .get(&root_ref.id)
-            .filter(|r| {
-                r.root_ref == *root_ref
-                    && r.owner_id == actor
-                    && root_ref.world_binding == world
-                    && !r.first_sink
-            })
-            .ok_or_else(|| invalid("industrial_start_root_unavailable"))?
-            .clone();
-        let profile = state
-            .recipe_profiles
-            .get(&root.pinned_recipe_id)
-            .ok_or_else(|| invalid("industrial_recipe_profile_missing"))?;
-        if root.pinned_profile_digest != expected_profile_digest
-            || root.pinned_profile_digest != crate::util::hash_json(profile)?
-        {
-            return Err(invalid("industrial_start_profile_stale"));
-        }
-        let factory = state
-            .factories
-            .get(&root.factory_id)
-            .filter(|f| {
-                f.builder_agent_id == actor
-                    && f.durability_ppm > 0
-                    && !state.retired_factory_ids.contains(&root.factory_id)
-                    && f.production.status != crate::FactoryProductionStatus::Paused
-            })
-            .ok_or_else(|| invalid("industrial_start_factory_unavailable"))?;
-        if root.output_ledger != factory.output_ledger {
-            return Err(invalid("industrial_start_output_destination_drifted"));
-        }
-        industrial_ledger_access(state, actor, &factory.input_ledger, now)?;
-        industrial_ledger_access(state, actor, &factory.output_ledger, now)?;
-        if !crate::world::recipe_stage_gate_allowed(
-            state.industry_progress.stage,
-            &profile.stage_gate,
-        ) || !crate::world::recipe_preferred_tags_compatible(
-            &profile.preferred_factory_tags,
-            &factory.spec.tags,
-        ) {
-            return Err(invalid("industrial_start_recipe_ineligible"));
-        }
-        let plan = crate::builtin_recipe_plan(&root.pinned_recipe_id, root.accepted_batches)
-            .ok_or_else(|| invalid("industrial_start_recipe_unsupported"))?;
-        for output in plan.produce.iter().chain(&plan.byproducts) {
-            if state
-                .product_profiles
-                .get(&output.kind)
-                .is_some_and(|product| {
-                    !crate::world::recipe_stage_gate_allowed(
-                        state.industry_progress.stage,
-                        &product.unlock_stage,
-                    )
-                })
-            {
-                return Err(invalid("industrial_start_product_locked"));
-            }
-        }
-        validate_industrial_output_capacity(state, &root, &plan, None)?;
-        let consume = industrial_effective_consume(state, &plan)?;
-        if consume.len() != root.slots.len() {
-            return Err(invalid("industrial_start_inputs_drifted"));
-        }
-        let owner_binding = industrial_owner_binding(state, actor)?;
-        if root.owner_binding_digest != owner_binding {
-            return Err(invalid("industrial_start_root_owner_stale"));
-        }
-        let mut parents = Vec::new();
-        for input in &consume {
-            let slot = root
-                .slots
-                .get(&input.kind)
-                .filter(|slot| {
-                    slot.material == input.kind
-                        && i64::try_from(slot.quantity).ok() == Some(input.amount)
-                        && !slot.consumed
-                        && !slot.parents.is_empty()
-                })
-                .ok_or_else(|| invalid("industrial_start_inputs_incomplete"))?;
-            for parent in &slot.parents {
-                let lot = self
-                    .rules
-                    .industrial_work
-                    .lots
-                    .get(&parent.lot_ref.id)
-                    .filter(|lot| {
-                        lot.lot_ref == parent.lot_ref && lot.source_ledger == factory.input_ledger
-                    })
-                    .ok_or_else(|| invalid("industrial_start_source_not_arrived"))?;
-                let authority = self
-                    .rules
-                    .industrial_work
-                    .imported_lot_authorities
-                    .get(&lot.lot_ref.id)
-                    .ok_or_else(|| invalid("industrial_start_source_authority_missing"))?;
-                if authority.owner_binding_digest != owner_binding
-                    || authority.expires_at < now
-                    || authority.material_profile != slot.material_profile
-                {
-                    return Err(invalid("industrial_start_lot_authority_stale"));
-                }
-            }
-            parents.extend(consume_bound_slot(
-                &mut self.rules.industrial_work,
-                root_ref,
-                &input.kind,
-                world,
-            )?);
-        }
+        let selected=match super::readonly_industrial_start::prepare_inputs(state,&super::readonly_industrial_start::ResidentStartRowsV1,&super::readonly_parent_consumption::LegacyParentWorkV1,&mut self.rules.industrial_work,actor,root_ref,expected_profile_digest,now,world){Ok(result)=>result?,Err(error)=>match error{}};
+        let super::readonly_industrial_start::StartInputDataV1{root,plan,consume,parents}=selected;
+        let profile=state.recipe_profiles.get(&root.pinned_recipe_id).expect("validated recipe profile");
+        let factory=state.factories.get(&root.factory_id).expect("validated factory");
         let DomainEvent::WorldRuleCommitted { action_id, .. } = self.event else {
             return Err(invalid("industrial_start_event_required"));
         };
@@ -302,63 +193,10 @@ where
     I: Iterator<Item = IndustrialOutputReservationRefV1<'a>> + Clone,
 {
     before_allocation(plan)?;
-    let mut output = std::collections::BTreeMap::<String, u64>::new();
-    for stack in plan.produce.iter().chain(&plan.byproducts) {
-        let amount = u64::try_from(stack.amount)
-            .ok()
-            .filter(|q| *q > 0)
-            .ok_or_else(|| invalid("industrial_terminal_quantity_invalid"))?;
-        let entry = output.entry(stack.kind.clone()).or_default();
-        *entry = entry
-            .checked_add(amount)
-            .ok_or_else(|| invalid("industrial_terminal_quantity_overflow"))?;
-    }
-    if output.len() != root.terminal_capacities.len()
-        || output
-            .keys()
-            .any(|kind| !root.terminal_capacities.contains_key(kind))
-    {
-        return Err(E::from(invalid(
-            "industrial_terminal_capacity_scope_mismatch",
-        )));
-    }
-    for (kind, incoming) in output {
-        let capacity = root.terminal_capacities[&kind];
-        if capacity == 0 {
-            return Err(E::from(invalid("industrial_terminal_capacity_invalid")));
-        }
-        let balance = ledger
-            .and_then(|ledger| ledger.get(&kind))
-            .copied()
-            .unwrap_or(0);
-        let mut committed =
-            u64::try_from(balance).map_err(|_| invalid("industrial_terminal_balance_invalid"))?;
-        for job in pending.clone().filter(|job| {
-            job.output_ledger == &root.output_ledger && Some(job.job_id) != exclude_job
-        }) {
-            for stack in job
-                .produce
-                .iter()
-                .chain(job.byproducts)
-                .filter(|stack| stack.kind == kind)
-            {
-                let amount = u64::try_from(stack.amount)
-                    .ok()
-                    .filter(|q| *q > 0)
-                    .ok_or_else(|| invalid("industrial_terminal_quantity_invalid"))?;
-                committed = committed
-                    .checked_add(amount)
-                    .ok_or_else(|| invalid("industrial_terminal_quantity_overflow"))?;
-            }
-        }
-        if committed
-            .checked_add(incoming)
-            .is_none_or(|total| total > capacity)
-        {
-            return Err(E::from(invalid("industrial_terminal_capacity_unavailable")));
-        }
-    }
-    Ok(())
+    let result=super::readonly_output_capacity::capacity(root,plan,exclude_job,ledger,&mut|visit|{
+        for job in pending.clone(){if visit(job)?.is_break(){break;}}Ok::<(),E>(())
+    },&mut|_,_,_|Ok::<(),E>(()));
+    match result {Ok(Ok(()))=>Ok(()),Ok(Err(error))=>Err(E::from(error)),Err(error)=>Err(error)}
 }
 
 /// Ordinary admission bound for the one concrete output-aggregation map. The

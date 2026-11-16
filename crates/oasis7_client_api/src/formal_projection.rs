@@ -4,13 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub const MAX_PROJECTION_SCOPES: usize = 16_384;
 const MAX_PROJECTION_BYTES: usize = 4 * 1024 * 1024;
-fn hash(domain: &str, value: &impl Serialize) -> Result<String, String> {
-    let digest = crate::world_service::request_digest(domain, value)?;
-    digest
-        .strip_prefix("blake3:")
-        .map(str::to_owned)
-        .ok_or_else(|| "formal projection digest encoding".into())
+fn hash(domain:&str,value:&impl Serialize)->Result<String,String>{
+ current_work::legacy_digest_string(current_work::hash_paid(domain,value,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
 }
+
 fn hash_valid(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
@@ -44,7 +41,7 @@ impl ProjectionAudienceV1 {
         audience.validate()?;
         Ok(audience)
     }
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> Result<(), &'static str> {
         if !scope_valid(&self.scope_id)
             || (self.scope_id == "public") != self.reader_public_key.is_none()
             || self
@@ -52,56 +49,16 @@ impl ProjectionAudienceV1 {
                 .as_ref()
                 .is_some_and(|key| !hash_valid(key))
         {
-            return Err("formal projection audience".into());
+            return Err("formal projection audience");
         }
         Ok(())
     }
 }
-/// Explicit recursive UTF-8 key order and JSON scalar encoding. This contract
-/// is independent of serde_json's optional insertion-order map feature.
-fn canonical_json(value: &Value, out: &mut Vec<u8>) -> Result<(), String> {
-    match value {
-        Value::Object(map) => {
-            out.push(b'{');
-            let mut keys = map.keys().collect::<Vec<_>>();
-            keys.sort();
-            for (index, key) in keys.iter().enumerate() {
-                if index > 0 {
-                    out.push(b',');
-                }
-                serde_json::to_writer(&mut *out, key).map_err(|e| e.to_string())?;
-                out.push(b':');
-                canonical_json(&map[*key], out)?;
-            }
-            out.push(b'}');
-        }
-        Value::Array(array) => {
-            out.push(b'[');
-            for (index, item) in array.iter().enumerate() {
-                if index > 0 {
-                    out.push(b',');
-                }
-                canonical_json(item, out)?;
-            }
-            out.push(b']');
-        }
-        scalar => serde_json::to_writer(&mut *out, scalar).map_err(|e| e.to_string())?,
-    }
-    if out.len() > MAX_PROJECTION_BYTES {
-        return Err("formal projection byte bound".into());
-    }
-    Ok(())
+/// Exact shared formatter/UTF-8 canonical JSON kernel; Legacy carries no meter.
+pub fn projection_leaf(audience:&ProjectionAudienceV1,value:&impl Serialize)->Result<String,String>{
+ current_work::legacy_digest_string(projection_leaf_with_work_v1(audience,value,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1))
 }
-pub fn projection_leaf(
-    audience: &ProjectionAudienceV1,
-    value: &impl Serialize,
-) -> Result<String, String> {
-    audience.validate()?;
-    let value = serde_json::to_value(value).map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    canonical_json(&value, &mut bytes)?;
-    hash("formal-projection-leaf-v1", &(audience, bytes))
-}
+
 fn parent(left: &str, right: &str) -> Result<String, String> {
     hash("formal-projection-node-v1", &(left, right))
 }
@@ -166,31 +123,8 @@ pub struct ProjectionCommitmentsV1 {
     levels: Vec<Vec<String>>,
 }
 impl ProjectionCommitmentsV1 {
-    pub fn from_leaves(mut leaves: Vec<(ProjectionAudienceV1, String)>) -> Result<Self, String> {
-        if leaves.is_empty() || leaves.len() > MAX_PROJECTION_SCOPES {
-            return Err("formal projection scope count".into());
-        }
-        leaves.sort_by(|a, b| a.0.cmp(&b.0));
-        if !leaves.iter().any(|l| l.0 == ProjectionAudienceV1::public())
-            || leaves
-                .iter()
-                .any(|l| l.0.validate().is_err() || !hash_valid(&l.1))
-            || leaves.windows(2).any(|l| l[0].0 == l[1].0)
-        {
-            return Err("formal projection duplicate/invalid scope".into());
-        }
-        let (scopes, hashes): (Vec<_>, Vec<_>) = leaves.into_iter().unzip();
-        let mut levels = vec![hashes];
-        while levels.last().expect("leaf level").len() > 1 {
-            let next = levels
-                .last()
-                .expect("level")
-                .chunks(2)
-                .map(|pair| parent(&pair[0], pair.get(1).unwrap_or(&pair[0])))
-                .collect::<Result<Vec<_>, _>>()?;
-            levels.push(next);
-        }
-        Ok(Self { scopes, levels })
+    pub fn from_leaves(leaves:Vec<(ProjectionAudienceV1,String)>)->Result<Self,String>{
+ match projection_tree_with_work_v1(leaves,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1){Ok(value)=>Ok(value.value),Err(e)=>Err(current_work::legacy_error_string(e))}
     }
     pub fn root(&self) -> Result<String, String> {
         bound_root(self.scopes.len(), &self.levels.last().expect("root")[0])
@@ -329,3 +263,6 @@ mod tests {
 #[path = "formal_projection_terminal_v2.rs"]
 mod terminal_v2;
 pub use terminal_v2::ClosedTaskFormalProjectionV2;
+
+#[path="formal_projection_current_work.rs"] mod current_work;
+pub use current_work::*;

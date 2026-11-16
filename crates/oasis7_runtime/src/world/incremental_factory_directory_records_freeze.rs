@@ -9,6 +9,15 @@ pub(in crate::world) struct FrozenFactoryRecipeDirectoryV1 {
     reservations: Vec<RecipeOutputReservationV1>,
 }
 impl FrozenFactoryRecipeDirectoryV1 {
+    pub(super) fn factories(&self) -> &[String] {
+        &self.factories
+    }
+    pub(super) fn recipes(&self) -> &[u64] {
+        &self.recipes
+    }
+    pub(super) fn reservations(&self) -> &[RecipeOutputReservationV1] {
+        &self.reservations
+    }
     pub(in crate::world) fn validate_guard<M: MerkleNodeReader>(
         &self,
         tx: &ExecutionTransaction<'_, M>,

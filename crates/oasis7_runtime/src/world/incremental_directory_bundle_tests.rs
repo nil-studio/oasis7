@@ -8,6 +8,8 @@ use crate::world::{
     incremental_industrial_eligibility::incremental_industrial_eligibility_factory::IndustrialEligibilityReadWorkV1,
     incremental_industrial_eligibility::*,
 };
+use oasis7_world_state::incremental_world_native::IndustrialClaimDirectoryWorkV1;
+use oasis7_world_state::incremental_world_native::industrial_claim_namespace_v1;
 use oasis7_world_state::{
     MaterialLedgerId, incremental_factory_records::*, incremental_industry_jobs::*,
     incremental_inventory::*,
@@ -71,6 +73,45 @@ fn run_freeze(mode: usize) {
     world.state.material_ledgers.insert(
         MaterialLedgerId::Agent("other".into()),
         [("unrelated".into(), -7)].into(),
+    );
+    for outer in ["grant-z", "grant-outer", "grant-a"] {
+        world.state.restricted_starter_claim_grants.insert(
+            outer.into(),
+            oasis7_world_state::RestrictedStarterClaimGrantState {
+                beneficiary_account_id: "beneficiary-inner".into(),
+                issuer_id: "fixture-issuer".into(),
+                issuance_reason: "directory-lifecycle".into(),
+                spend_scope: "claim".into(),
+                source_treasury_bucket_id: "fixture-source".into(),
+                issued_amount: 100,
+                issued_at_epoch: 0,
+                expires_at_epoch: 500,
+                status: oasis7_world_state::RestrictedStarterClaimGrantStatus::Issued,
+                status_updated_at_epoch: None,
+                status_reason: None,
+            },
+        );
+    }
+    world.threat_heatmap.extend([
+        ("legacy-zero".into(), 0),
+        ("threat-delete".into(), -9),
+        ("遗留Threat".into(), 7),
+    ]);
+    world.state.crises.insert(
+        "cycle-crisis-outer".into(),
+        oasis7_world_state::CrisisState {
+            crisis_id: "cycle-crisis-inner".into(),
+            kind: "directory-fixture".into(),
+            severity: 3,
+            status: oasis7_world_state::CrisisStatus::Active,
+            opened_at: 0,
+            expires_at: 500,
+            resolver_agent_id: None,
+            strategy: None,
+            success: None,
+            impact: 0,
+            resolved_at: None,
+        },
     );
     world.state.time = now;
     let oracle = world.prepare_factory_depreciation_event_bodies_for_test();
@@ -384,6 +425,93 @@ fn run_freeze(mode: usize) {
         &mut inventory_identity_work,
     )
     .unwrap();
+    let mut claim_work = IndustrialClaimDirectoryWorkV1 {
+        visits_remaining: 1_000_000,
+        comparison_bytes_remaining: 64 << 20,
+        pending_entries_remaining: 100_000,
+        max_identity_bytes: 4096,
+        max_output_entries: 10_000,
+        max_pending_records: 64,
+    };
+    material_read.root = fixture
+        .roots
+        .state_root(industrial_claim_namespace_v1().unwrap());
+    let claim_directory =
+        oasis7_world_state::incremental_world_native::build_industrial_claim_directory_v1(
+            native.native(),
+            &fixture.roots,
+            &mut material_read,
+            &mut genesis::scan(),
+            &mut typed(),
+            &mut claim_work,
+        )
+        .unwrap();
+    let mut grant_cells = 1_000_000u64;
+    let mut grant_pending = 100_000usize;
+    material_read.root = fixture.roots.state_root(
+        oasis7_world_state::incremental_main_token_policy_records::MainTokenPolicyKindV1::Grant
+            .namespace(),
+    );
+    let grant_directory=oasis7_world_state::incremental_main_token_policy_records::build_restricted_claim_grant_directory_v1(native.main_policy(),&fixture.roots,&mut material_read,&mut genesis::scan(),&mut grant_cells,4096).unwrap();
+    let mut gameplay_work =
+        oasis7_world_state::incremental_normal_gameplay_cycles_directory::GameplayDirectoryWorkV1 {
+            visits_remaining: 1_000_000,
+            comparison_bytes_remaining: 64 << 20,
+            pending_entries_remaining: 100_000,
+            max_rows: 10_000,
+            max_text_bytes: 4096,
+            max_payload_bytes: 1 << 20,
+        };
+    material_read.root = fixture.roots.state_root(StateNamespaceV1::Authorization);
+    let gameplay_directory=oasis7_world_state::incremental_normal_gameplay_cycles_directory::build_gameplay_cycle_directory_v1(native.diplomacy(),native.governance(),&fixture.roots,&mut material_read,&mut genesis::scan(),&mut genesis::scan(),&mut gameplay_work).unwrap();
+    let mut threat_work =
+        oasis7_world_state::incremental_runtime_business::ThreatKeyDirectoryWorkV1 {
+            visits_remaining: 1_000_000,
+            comparison_bytes_remaining: 64 << 20,
+            pending_entries_remaining: 100_000,
+            max_rows: 10_000,
+            max_key_bytes: 4096,
+        };
+    material_read.root = fixture.roots.state_root(StateNamespaceV1::Business);
+    let threat_directory =
+        oasis7_world_state::incremental_runtime_business::build_threat_key_directory_v1(
+            runtime.business(),
+            &fixture.roots,
+            &mut material_read,
+            &mut genesis::scan(),
+            &mut threat_work,
+        )
+        .unwrap();
+    let mut build_work =
+        oasis7_world_state::incremental_factory_schedule_index::FactoryScheduleIndexWorkV1 {
+            cells_remaining: 1_000_000,
+            comparison_bytes_remaining: 64 << 20,
+            max_builds: 10000,
+            max_factory_id_bytes: 4096,
+            max_pending_changes: 100000,
+        };
+    let mut receipt_work =
+        oasis7_world_state::incremental_factory_schedule_receipts::FactoryScheduleReceiptWorkV1 {
+            cells_remaining: 1_000_000,
+            bytes_remaining: 64 << 20,
+            max_receipts: 10000,
+            max_text_bytes: 4096,
+            max_produce_stacks: 10000,
+            max_pending_changes: 100000,
+        };
+    material_read.root = fixture.roots.state_root(StateNamespaceV1::Business);
+    let build_parent =
+        oasis7_world_state::incremental_factory_schedule_index::build_factory_schedule_index_v1(
+            native.factory(),
+            &fixture.roots,
+            &mut material_read,
+            &mut genesis::scan(),
+            &mut fw,
+            &mut build_work,
+            1 << 20,
+        )
+        .unwrap();
+    let receipt_parent=oasis7_world_state::incremental_factory_schedule_receipts::build_factory_schedule_receipt_index_v1(native.industry(),&fixture.roots,&mut material_read,&mut genesis::scan(),&mut rw,&mut receipt_work,1<<20).unwrap();
     let reduce_work = FactoryDepreciationReduceWorkV1 {
         max_material_entries: 64,
         comparison_bytes_remaining: 64 << 20,
@@ -548,6 +676,67 @@ fn run_freeze(mode: usize) {
                 &mut live_owner,
             )
             .unwrap();
+        // The accepted seed remains the original Issued row. Fold a genuine
+        // same-TX typed mutation and require its status in the terminal bundle.
+        if mode == 0 {
+            use oasis7_world_state::incremental_main_token_policy_records::*;
+            let guard = target.ctx.transaction.guard();
+            let selected = read_current_restricted_claim_grant_v1(
+                "grant-outer",
+                native.main_policy(),
+                &fixture.roots,
+                &reader,
+                target.ctx,
+                &mut phase_work.scan,
+                &mut grant_cells,
+                4096,
+                &guard,
+                &live,
+            )
+            .unwrap();
+            let guard = target.ctx.transaction.guard();
+            change_qualified_main_token_policy_cell_v1(
+                MainTokenPolicyCellChangeV1 {
+                    key: MainTokenPolicyKeyV1::Grant("grant-outer"),
+                    cell: MainTokenPolicyCellV1::Column(MainTokenPolicyColumnV1::Status),
+                    qualification: selected.qualification().unwrap(),
+                    expected: MainTokenPolicyValueRefV1::Text("issued"),
+                    after: MainTokenPolicyValueRefV1::Text("expired"),
+                    max_current_payload_bytes: 4096,
+                    max_pending_node_bytes: 16 << 20,
+                },
+                target.ctx,
+                target.members,
+                &guard,
+                &live,
+            )
+            .unwrap();
+        }
+        if mode == 0 {
+            use oasis7_world_state::incremental_runtime_business::*;
+            for (key, before, after) in [
+                ("threat-delete", Some(-9), None),
+                ("new-threat", None, Some(5)),
+                ("legacy-zero", Some(0), Some(-11)),
+            ] {
+                let guard = target.ctx.transaction.guard();
+                assert!(
+                    change_runtime_business_overlay_v1(
+                        RuntimeBusinessChangeV1 {
+                            field: RuntimeBusinessFieldV1::ThreatHeatmap,
+                            key,
+                            expected: before.map(RuntimeBusinessNumberV1::Signed),
+                            after: after.map(RuntimeBusinessNumberV1::Signed)
+                        },
+                        target.ctx,
+                        target.members,
+                        &guard,
+                        &live
+                    )
+                    .unwrap()
+                );
+            }
+        }
         let frozen = target
             .freeze_current_runtime_directories_v1(
                 &caches,
@@ -558,6 +747,25 @@ fn run_freeze(mode: usize) {
                 &inventory_directory,
                 native.inventory(),
                 &mut inventory_identity_work,
+                &claim_directory,
+                native.native(),
+                &mut claim_work,
+                &grant_directory,
+                native.main_policy(),
+                &mut grant_cells,
+                &mut grant_pending,
+                4096,
+                &gameplay_directory,
+                native.diplomacy(),
+                native.governance(),
+                &mut gameplay_work,
+                &threat_directory,
+                runtime.business(),
+                &mut threat_work,
+                &build_parent,
+                &receipt_parent,
+                &mut build_work,
+                &mut receipt_work,
                 &mut live_owner,
             )
             .unwrap();
@@ -578,6 +786,34 @@ fn run_freeze(mode: usize) {
         vec!["order"]
     );
     assert_eq!(frozen.iter_recipe_job_ids().len(), 0);
+    let grant_rows = frozen
+        .iter_restricted_claim_grants()
+        .map(|r| (r.outer_id(), r.status(), r.expires_at_epoch()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        grant_rows,
+        vec![
+            (
+                "grant-a",
+                oasis7_world_state::RestrictedStarterClaimGrantStatus::Issued,
+                500
+            ),
+            (
+                "grant-outer",
+                if mode == 0 {
+                    oasis7_world_state::RestrictedStarterClaimGrantStatus::Expired
+                } else {
+                    oasis7_world_state::RestrictedStarterClaimGrantStatus::Issued
+                },
+                500
+            ),
+            (
+                "grant-z",
+                oasis7_world_state::RestrictedStarterClaimGrantStatus::Issued,
+                500
+            )
+        ]
+    );
     if mode == 1 {
         // True registered clock owner changes the final revision; a caller's
         // fresh guard cannot make the older directory capture terminal.
@@ -664,9 +900,64 @@ fn run_freeze(mode: usize) {
         &memory,
         &mut phase_work.material_scope,
         &mut inventory_identity_work,
+        &mut claim_work,
+        &mut grant_cells,
+        &mut gameplay_work,
+        &mut threat_work,
+        &mut build_work,
+        &mut receipt_work,
         || false,
     )
     .unwrap();
+    rebound
+        .restricted_claim_grant_parent()
+        .validate_binding(&transition.record.after)
+        .unwrap();
+    rebound
+        .threat_key_parent()
+        .validate_binding(&transition.record.after, &memory)
+        .unwrap();
+    let mut threat_keys = Vec::new();
+    rebound
+        .threat_key_parent()
+        .visit::<ValueTreeError>(
+            &mut threat_work,
+            || false,
+            |key, _| {
+                threat_keys.push(key.to_owned());
+                Ok(())
+            },
+        )
+        .unwrap();
+    let expected_keys = if mode == 0 {
+        vec!["legacy-zero", "new-threat", "遗留Threat"]
+    } else {
+        vec!["legacy-zero", "threat-delete", "遗留Threat"]
+    };
+    assert_eq!(threat_keys, expected_keys);
+    rebound
+        .gameplay_cycle_parent()
+        .validate_binding(&transition.record.after, &memory)
+        .unwrap();
+    let mut found_crisis = false;
+    rebound
+        .gameplay_cycle_parent()
+        .visit(
+            &mut gameplay_work,
+            || false,
+            |row| {
+                if row.outer_id() == "cycle-crisis-outer" {
+                    found_crisis = true;
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(found_crisis);
+    rebound
+        .industrial_claim_parent()
+        .validate_binding(&transition.record.after)
+        .unwrap();
     rebound
         .inventory_identity_parent()
         .validate_binding(&transition.record.after)

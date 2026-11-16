@@ -37,7 +37,7 @@ fn mul(a: usize, b: usize) -> Result<usize, FormalError> {
 /// Leaf={parent Option<NonNull>,parent_idx u16,len u16,keys[11],vals[11]}.
 /// Field order is not assumed: five fields allow five (max_alignment-1)
 /// padding gaps including the final tail. Internal repr(C) adds 12 pointers,
-/// with two further alignment gaps. Counts use the closed Role domain's 14
+/// with two further alignment gaps. Counts use the closed Role domain's 15
 /// keys, plus three simultaneous root/split nodes, independently per map.
 fn role_map_nodes() -> Result<usize, FormalError> {
     let pointer = std::mem::size_of::<std::ptr::NonNull<()>>();
@@ -55,7 +55,7 @@ fn role_map_nodes() -> Result<usize, FormalError> {
     )?;
     let leaf = add(leaf, mul(5, alignment - 1)?)?;
     let internal = add(add(leaf, mul(12, pointer)?)?, mul(2, alignment - 1)?)?;
-    mul(4, mul(14 + 3, internal)?)
+    mul(4, mul(15 + 3, internal)?)
 }
 /// Fixed expected/field/variant labels from the COMPLETE reachable DTO graph.
 /// These are diagnostic size accounting, not a parser or a semantic allowlist.
@@ -93,6 +93,7 @@ fn diagnostic_constant() -> Result<usize, FormalError> {
         "IncrementalCommitBody",
         "IncrementalGenesisConfig",
         "IncrementalHistoryPrefix",
+        "IncrementalRetentionLedger",
         "IncrementalRootSet",
         "InitialActivation",
         "Input",

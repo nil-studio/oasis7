@@ -273,7 +273,8 @@ pub fn readmit_runtime_proposals_ordinary_v1(
 mod status;
 pub use status::{
     RuntimeProposalBodyQualificationV1, RuntimeProposalStatusChangeV1,
-    change_runtime_proposal_status_v1, read_runtime_proposal_body_qualification_v1,
+    change_runtime_proposal_status_v1, read_current_runtime_proposal_status_kind_v1,
+    read_runtime_proposal_body_qualification_v1,
 };
 #[path = "incremental_runtime_proposal_delta.rs"]
 mod delta;
@@ -289,3 +290,81 @@ mod header;
 mod stream;
 
 pub(crate) use receiver::accept_runtime_proposals_verified_v1;
+
+#[path = "incremental_runtime_proposal_current.rs"]
+mod current;
+pub use current::{
+    CurrentRuntimeProposalV1, read_current_runtime_proposal_v1, replace_current_runtime_proposal_v1,
+};
+
+/// Read only the original closed status header from an authenticated selected
+/// outer member. The caller lends its actual cell lane; no JSON budget is minted.
+pub(crate) fn projection_status_v1<M, R, E, C>(
+    key: &WorldFieldKeyV1,
+    id: &[u8; 32],
+    read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    cells: &mut u64,
+    max_text_bytes: u64,
+    out: &mut impl std::io::Write,
+) -> Result<(u64, bool), ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let (original, root) = outer_child(key, id, read)?;
+    let mut work = RuntimeProposalReadWorkV1 {
+        cells_remaining: std::mem::take(cells),
+        json: JsonReadWorkV1 {
+            cells_remaining: 0,
+            json_nodes_remaining: 0,
+            max_depth: 0,
+            max_payload_bytes: 0,
+        },
+        max_selected_heap: 0,
+        max_text_bytes,
+    };
+    let result = (|| {
+        let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+            values: &mut read.values,
+            key_work: &mut *read.key_work,
+            semantic_bytes: read.semantic_bytes,
+            record_bytes: read.record_bytes,
+            cancelled: &mut read.cancelled,
+        };
+        let facts = header::validate_status(&root, None, &mut records, &mut work)?;
+        let cell = &facts.cells[0];
+        let kind = match header::value(
+            &cell.2.ok_or_else(invalid)?,
+            &(cell.0.clone(), cell.1),
+            MemberPayloadCodecV1::U64,
+            &mut records,
+            &work,
+            &mut std::io::sink(),
+        )? {
+            crate::incremental_record_value_read::RecordValueV1::Unsigned(n) => n,
+            _ => return Err(invalid()),
+        };
+        let approved = kind == 2 || kind == 4;
+        if approved {
+            let cell = &facts.cells[1];
+            if !matches!(
+                header::value(
+                    &cell.2.ok_or_else(invalid)?,
+                    &(cell.0.clone(), cell.1),
+                    MemberPayloadCodecV1::Text,
+                    &mut records,
+                    &work,
+                    out
+                )?,
+                crate::incremental_record_value_read::RecordValueV1::Text { .. }
+            ) {
+                return Err(invalid());
+            }
+        }
+        Ok((original, approved))
+    })();
+    *cells = work.cells_remaining;
+    result
+}

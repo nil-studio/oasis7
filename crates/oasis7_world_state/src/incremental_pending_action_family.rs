@@ -1,4 +1,7 @@
 //! Independent pending structural/original evidence; no execution authority.
+pub use crate::incremental_pending_action_codec::{
+    PendingActionOwnedLayoutV1, pending_action_owned_decode_layout_v1,
+};
 use crate::{
     incremental_pending_action_index::*,
     incremental_pending_action_original_binding::{

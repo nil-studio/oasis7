@@ -172,7 +172,7 @@ pub(super) fn job_copy_layout(
     Ok(n)
 }
 
-pub(super) fn factory_copy_layout(
+pub(in crate::world) fn factory_copy_layout(
     factory: &FactoryState,
     work: &mut FactoryScheduleWorkV1,
 ) -> Result<usize, BodyMutationError> {
@@ -716,163 +716,10 @@ pub(super) enum RecipeProgressUpdateV1 {
     Completed,
     Blocked,
 }
-#[allow(clippy::too_many_arguments)]
-pub(super) fn apply_recipe_progress_v1<M, P, V, W, D, E, C, CW>(
-    job: &RecipeJobState,
-    job_bound: usize,
-    update: RecipeProgressUpdateV1,
-    factory: Option<&FactoryState>,
-    sources: &FactoryScheduleSourcesV1<'_>,
-    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
-    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
-    write: &mut MemberRecordWriteContext<'_, W, CW>,
-    work: &mut FactoryScheduleWorkV1,
-    live: &ExecutionFence,
-) -> Result<(), BodyMutationError>
-where
-    M: MerkleNodeReader,
-    P: MerkleNodeReader,
-    V: ValueNodeReader,
-    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
-    D: FnMut() -> bool,
-    E: FnMut() -> Option<ValueTreeError>,
-    C: FnMut() -> bool,
-    CW: FnMut() -> bool,
-{
-    use oasis7_world_state::{
-        incremental_factory_lifecycle_index::observe_current_factory_lifecycle_v1,
-        incremental_world_native::{
-            increment_current_recipe_progress_v1, recover_current_factory_industry_progress_v1,
-            recover_gameplay_policy_overlay_v1,
-        },
-        state::industry_transition::{
-            aggregate_stage_completed_jobs_v1, factory_has_canonical_stable_line,
-            industry_stage_for_progress, starter_recipe_completion_milestone_v1,
-        },
-    };
-    let now = step.time();
-    let mut read = WorldFieldReadContextV1 {
-        root: sources
-            .roots
-            .state_root(oasis7_formal_protocol::incremental_state::StateNamespaceV1::Authorization),
-        state: read.state,
-        values: ValueReadContext {
-            source: read.values.source,
-            memory: read.values.memory,
-            class: read.values.class,
-            io: &mut *read.values.io,
-        },
-        key_work: &mut *read.key_work,
-        semantic_bytes: read.semantic_bytes,
-        record_bytes: read.record_bytes,
-        take_state_error: &mut read.take_state_error,
-        cancelled: &mut read.cancelled,
-    };
-    spend(work, job.factory_id.len())?;
-    let policy = recover_gameplay_policy_overlay_v1(
-        step.transaction,
-        live,
-        &mut read,
-        &mut work.lifecycle.native_scan,
-        &mut work.lifecycle.native_read,
-    )
-    .map_err(overlay)?;
-    let governed =
-        policy.value().value().electricity_tax_bps > 0 || policy.value().value().data_tax_bps > 0;
-    let guard = step.transaction.guard();
-    let progress = recover_current_factory_industry_progress_v1(
-        sources.lifecycle.native,
-        sources.roots,
-        step.transaction,
-        &mut read,
-        &mut work.lifecycle.native_scan,
-        &mut work.lifecycle.native_read,
-        &guard,
-        live,
-    )
-    .map_err(overlay)?;
-    let value = progress.value().ok_or_else(invalid)?;
-    let guard = step.transaction.guard();
-    let observation = observe_current_factory_lifecycle_v1(
-        &job.factory_id,
-        sources.lifecycle.index,
-        sources.lifecycle.factories,
-        sources.lifecycle.industry,
-        sources.roots,
-        step.transaction,
-        &mut read,
-        &mut work.lifecycle.factory,
-        &mut work.lifecycle.industry,
-        &mut work.lifecycle.lifecycle,
-        work.lifecycle.max_scalar_bytes as u64,
-        &guard,
-        live,
-    )
-    .map_err(overlay)?;
-    observation
-        .validate(step.transaction, step.mutation.memory, live)
-        .map_err(overlay)?;
-    let jobs = aggregate_stage_completed_jobs_v1(
-        [
-            observation.stage_completed_jobs_without_factory(),
-            factory.map_or(0, |f| f.production.completed_jobs),
-        ]
-        .into_iter(),
-    );
-    let stable = observation.stable_without_factory()
-        || factory.is_some_and(factory_has_canonical_stable_line);
-    let stage =
-        industry_stage_for_progress(stable, jobs, value.completed_material_transits, governed);
-    let layout = job_bound
-        .checked_mul(2)
-        .and_then(|n| n.checked_add(4096))
-        .ok_or_else(invalid)?;
-    spend(work, layout)?;
-    let _phase = step
-        .mutation
-        .memory
-        .reserve(layout, MemoryClass::Ordinary)
-        .map_err(ValueTreeError::Memory)?;
-    match update {
-        RecipeProgressUpdateV1::Completed => {
-            let milestone = if value.starter_industrial_milestone.is_none() {
-                starter_recipe_completion_milestone_v1(job, factory.map(|f| &f.output_ledger), now)
-            } else {
-                None
-            };
-            increment_current_recipe_progress_v1(
-                &progress,
-                milestone.as_ref(),
-                stage,
-                now,
-                step.transaction,
-                &mut read,
-                write,
-                &mut work.lifecycle.native_scan,
-                &mut work.lifecycle.native_read,
-                &mut work.lifecycle.native_write,
-                live,
-            )
-            .map_err(overlay)?;
-        }
-        RecipeProgressUpdateV1::Blocked => {
-            oasis7_world_state::incremental_world_native::change_current_factory_industry_stage_v1(
-                &progress,
-                stage,
-                now,
-                step.transaction,
-                &mut read,
-                write,
-                &mut work.lifecycle.native_scan,
-                &mut work.lifecycle.native_read,
-                &mut work.lifecycle.native_write,
-                live,
-            )
-            .map_err(overlay)?;
-        }
-    }
-    Ok(())
-}
+#[path = "incremental_normal_industry_due_recipe_progress.rs"]
+mod progress;
+pub(super) use progress::apply_recipe_progress_v1;
+pub(in crate::world) use progress::refresh_current_blocked_factory_stage_v1;
 
 /// Consume the genuine terminal producer, apply every RecipeCompleted state
 /// effect, and only then create the source accepted by the counted publisher.
@@ -1110,6 +957,39 @@ where
     PE: FnMut() -> Option<ValueTreeError>,
     PC: FnMut() -> bool,
 {
+    touch_current_product_requester_v1(
+        &job.requester_agent_id,
+        no_active,
+        sources,
+        step,
+        read,
+        parent,
+        work,
+        live,
+    )
+}
+
+pub(in crate::world) fn touch_current_product_requester_v1<M, P, V, W, D, E, C, PE, PC>(
+    requester_agent_id: &str,
+    no_active: bool,
+    sources: &FactoryScheduleSourcesV1<'_>,
+    step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, E, C>,
+    parent: &mut WorldFieldReadContextV1<'_, P, V, PE, PC>,
+    work: &mut FactoryScheduleWorkV1,
+    live: &ExecutionFence,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    D: FnMut() -> bool,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    PE: FnMut() -> Option<ValueTreeError>,
+    PC: FnMut() -> bool,
+{
     use oasis7_world_state::{
         incremental_agent_body::{AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1},
         incremental_agent_subtree::{CurrentAgentPresenceV1, read_current_agent_presence_v1},
@@ -1131,7 +1011,7 @@ where
         };
         let guard = ctx.transaction.guard();
         read_current_agent_presence_v1(
-            &job.requester_agent_id,
+            requester_agent_id,
             sources.lifecycle.agents,
             sources.roots,
             &mut ctx,
@@ -1148,7 +1028,7 @@ where
     }
     if no_active {
         crate::world::incremental_normal_action_factory_schedule::set_completed_recipe_idle_v1(
-            &job.requester_agent_id,
+            requester_agent_id,
             sources.lifecycle.agents,
             step,
             read,
@@ -1158,12 +1038,12 @@ where
     }
     spend(
         work,
-        job.requester_agent_id
+        requester_agent_id
             .len()
             .checked_add(2 * AGENT_BODY_VALUE_BYTES)
             .ok_or_else(invalid)?,
     )?;
-    let key = AgentBodyKeyV1::new(&job.requester_agent_id).map_err(BodyMutationError::Invalid)?;
+    let key = AgentBodyKeyV1::new(requester_agent_id).map_err(BodyMutationError::Invalid)?;
     let body = AgentBodyValueV1::from_canonical_bytes(
         &crate::world::incremental_body_event::read_fixed::<AGENT_BODY_VALUE_BYTES, _, _, _, _>(
             step.transaction,

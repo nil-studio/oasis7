@@ -51,8 +51,49 @@ pub fn recover_runtime_business_v1<
     .visit_entries(
         roots.state_root(StateNamespaceV1::Business),
         |entry| {
+            if with_runtime_threat_member_v1(entry,&mut ctx.values,ctx.semantic_bytes,ctx.record_bytes,&mut key,bound,&mut || (cancel.borrow_mut())(),|original,value|receive_threat(original,value))?.is_some(){
+                seen=seen.checked_add(1).ok_or_else(invalid)?;
+            }
+            if (cancel.borrow_mut())(){return Err(ValueTreeError::Cancelled);}
+            Ok(())
+        },
+        || (cancel.borrow_mut())(),
+    );
+    let error = (ctx.take_state_error)();
+    if (cancel.borrow_mut())() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if let Some(error) = error {
+        return Err(error);
+    }
+    match result {
+        Ok(_) => (),
+        Err(StateScanError::Visitor(e)) => return Err(e),
+        Err(StateScanError::Memory(e)) => return Err(e.into()),
+        Err(StateScanError::ResourceLimited) => {
+            return Err(ValueTreeError::ResourceLimited(
+                "Runtime business recovery scan",
+            ));
+        }
+        Err(StateScanError::Cancelled) => return Err(ValueTreeError::Cancelled),
+        Err(_) => return Err(invalid()),
+    }
+    if seen != proof.heatmap_entries() {
+        return Err(invalid());
+    }
+    Ok(metrics)
+}
+
+/// Unique original Threat member decoder shared by recovery and the resident
+/// key directory. The caller pre-admits the key buffer and retained output.
+pub(crate) fn with_runtime_threat_member_v1<R:ValueNodeReader,C:FnMut()->bool,T>(
+ entry:&oasis7_formal_protocol::incremental_state::StateEntryV1,
+ values:&mut oasis7_formal_protocol::incremental_value::ValueReadContext<'_,R>,
+ semantic_bytes:u64,record_bytes:u64,key:&mut Vec<u8>,bound:usize,cancelled:&mut C,
+ receive:impl FnOnce(&str,i64)->Result<T,ValueTreeError>,
+)->Result<Option<T>,ValueTreeError>{
             if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
-                return Ok(());
+                return Ok(None);
             }
             let parsed =
                 WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
@@ -60,7 +101,7 @@ pub fn recover_runtime_business_v1<
                 || parsed.name != "threat_heatmap"
                 || parsed.kind == WorldFieldRecordKindV1::Metadata
             {
-                return Ok(());
+                return Ok(None);
             }
             let field_key = WorldFieldKeyV1::new(
                 RuntimeBusinessFieldV1::ThreatHeatmap.descriptor(),
@@ -97,18 +138,18 @@ pub fn recover_runtime_business_v1<
             let info = read_member_record_v1(
                 &entry.value,
                 &field_key,
-                &mut ctx.values,
+                values,
                 MemberRecordLimitsV1 {
-                    semantic_bytes: ctx.semantic_bytes,
+                    semantic_bytes: semantic_bytes,
                     payload_bytes: 8,
-                    record_bytes: ctx.record_bytes,
+                    record_bytes: record_bytes,
                 },
                 &mut KeyWriter {
-                    key: &mut key,
+                    key,
                     bound,
                 },
                 &mut &mut payload[..],
-                &mut || (cancel.borrow_mut())(),
+                cancelled,
             )?;
             if info.codec != MemberPayloadCodecV1::I64
                 || info.payload_bytes != 8
@@ -128,36 +169,5 @@ pub fn recover_runtime_business_v1<
                 return Err(invalid());
             }
             let original = std::str::from_utf8(&key[start..]).map_err(|_| invalid())?;
-            receive_threat(original, i64::from_be_bytes(payload))?;
-            seen = seen.checked_add(1).ok_or_else(invalid)?;
-            if (cancel.borrow_mut())() {
-                return Err(ValueTreeError::Cancelled);
-            }
-            Ok(())
-        },
-        || (cancel.borrow_mut())(),
-    );
-    let error = (ctx.take_state_error)();
-    if (cancel.borrow_mut())() {
-        return Err(ValueTreeError::Cancelled);
-    }
-    if let Some(error) = error {
-        return Err(error);
-    }
-    match result {
-        Ok(_) => (),
-        Err(StateScanError::Visitor(e)) => return Err(e),
-        Err(StateScanError::Memory(e)) => return Err(e.into()),
-        Err(StateScanError::ResourceLimited) => {
-            return Err(ValueTreeError::ResourceLimited(
-                "Runtime business recovery scan",
-            ));
-        }
-        Err(StateScanError::Cancelled) => return Err(ValueTreeError::Cancelled),
-        Err(_) => return Err(invalid()),
-    }
-    if seen != proof.heatmap_entries() {
-        return Err(invalid());
-    }
-    Ok(metrics)
+            Ok(Some(receive(original,i64::from_be_bytes(payload))?))
 }

@@ -1,6 +1,8 @@
 //! Exact IEEE-754 storage for the original settlement score fields.
 use super::*;
 impl Codec for f64 {
+fn owned_decode_layout_v1<LE>(visit:&mut dyn FnMut()->Result<(),LE>)->Result<crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1,LE>{visit()?;let mut l=crate::incremental_pending_action_codec::layout::PendingActionOwnedLayoutV1::scalar::<Self>();Ok(l)}
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
         _p: &TypedRecordProfileV1,

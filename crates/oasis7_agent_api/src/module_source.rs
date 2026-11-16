@@ -25,6 +25,22 @@ impl fmt::Display for ModuleSourceCompileError {
 impl std::error::Error for ModuleSourceCompileError {}
 
 pub trait ModuleSourceCompiler: Send + Sync {
+    /// Stream compiler output through the caller's metered sink. Implementors
+    /// must poll the original caller work during IO and process waits. There is
+    /// no fallback to the bare-Vec method, which cannot enforce an output cap.
+    fn compile_to(
+        &self,
+        _module_id: &str,
+        _package: &ModuleSourcePackage,
+        _max_output_bytes: usize,
+        _output: &mut dyn io::Write,
+        _progress: &mut dyn FnMut(u64, u64) -> Result<(), ModuleSourceCompileError>,
+    ) -> Result<(), ModuleSourceCompileError> {
+        Err(ModuleSourceCompileError::Unavailable(
+            "host compiler does not provide metered streaming output".into(),
+        ))
+    }
+
     fn compile(
         &self,
         module_id: &str,

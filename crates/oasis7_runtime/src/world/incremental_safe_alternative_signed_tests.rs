@@ -639,6 +639,11 @@ fn run_signed_case(revoke: bool) {
         )
         .unwrap();
     let mut authorization_work=AuthorizationRootSourceReadWorkV1 {
+        module_authorization: oasis7_world_state::incremental_runtime_module_authorization::ModuleAuthorizationReadWorkV1 {
+            cells_remaining: 1_000_000,
+            comparison_bytes_remaining: 8 << 20,
+            max_payload_bytes: 8 << 20,
+        },
         json:genesis::json(),typed:typed(),scan:genesis::scan(),
         capabilities:oasis7_world_state::incremental_runtime_capability_records::RuntimeCapabilityRecordsWorkV1 {cells_remaining:1_000_000,max_pending_node_bytes:8<<20},
         pending_entries:100_000,max_selected_heap:8<<20,max_text_bytes:65536,

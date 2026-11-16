@@ -5,7 +5,9 @@ use crate::{
 use oasis7_client_api::world_service::*;
 use std::collections::BTreeMap;
 
-fn public_candidate(record: GovernanceValidatorAdmissionRecord) -> PublicMembershipCandidate {
+pub(crate) fn public_candidate(
+    record: GovernanceValidatorAdmissionRecord,
+) -> PublicMembershipCandidate {
     PublicMembershipCandidate {
         candidate_id: record.candidate_id,
         node_id: record.node_id,

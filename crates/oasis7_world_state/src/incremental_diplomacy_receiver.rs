@@ -11,7 +11,8 @@ use oasis7_formal_protocol::{
 fn invalid() -> ValueTreeError {
     closure::invalid()
 }
-pub(super) fn child<
+pub(super) fn child<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(field:DiplomacyFieldV1,before:Option<&StateRootV1>,after:&StateRootV1,ctx:&mut WorldFieldReadContextV1<'_,M,R,E,C>,cells:&mut u64,max:u64)->Result<(),ValueTreeError>{child_with_work_and_observer(field,before,after,ctx,cells,max,|_,_|Ok(()),&mut |_|Ok(()))}
+pub(super) fn child_with_work_and_observer<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -23,7 +24,10 @@ pub(super) fn child<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     cells: &mut u64,
     max: u64,
+    mut observe:impl FnMut(Option<&StateEntryV1>,Option<&StateEntryV1>)->Result<(),ValueTreeError>,
+    work:&mut dyn FnMut(usize)->Result<(),ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
+    work(24*24*64)?;
     let empty = StateRootV1::empty(StateNamespaceV1::Business).map_err(|_| invalid())?;
     let old = before.unwrap_or(&empty);
     let mut local = WorldFieldReadContextV1 {
@@ -65,7 +69,7 @@ pub(super) fn child<
         record_bytes: local.record_bytes,
         cancelled: &mut local.cancelled,
     };
-    incremental_record_diff::visit(
+    incremental_record_diff::visit_with_work(
         old,
         after,
         &mut records,
@@ -132,8 +136,10 @@ pub(super) fn child<
                     }
                 }
             }
-            view.check()
+            view.check()?;
+            observe(old,new)
         },
+        work,
     )?;
     if i128::from(old_length) + delta != i128::from(new_length) {
         return Err(invalid());

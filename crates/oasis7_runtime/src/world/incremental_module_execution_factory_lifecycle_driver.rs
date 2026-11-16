@@ -73,7 +73,9 @@ where
             let data_family = |action: &crate::Action| {
                 matches!(
                     action,
-                    crate::Action::MaintainFactory { .. } | crate::Action::RecycleFactory { .. }
+                    crate::Action::MaintainFactory { .. }
+                        | crate::Action::RecycleFactory { .. }
+                        | crate::Action::PauseFactoryProduction { .. }
                 )
             };
             let live = live_owner();

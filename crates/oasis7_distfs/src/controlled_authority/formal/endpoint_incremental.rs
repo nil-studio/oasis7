@@ -579,3 +579,37 @@ pub(super) mod genesis_receipts;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_host_source.rs"]
 pub(super) mod host_source;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_normal_qualified.rs"]
+pub(super) mod normal_qualified;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_checkpoint.rs"]
+mod cold_checkpoint;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_core.rs"]
+mod cold_core;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_io.rs"]
+mod cold_io;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_page_loans.rs"]
+mod cold_page_loans;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_mailbox_borrowed.rs"]
+mod cold_mailbox_borrowed;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_recovery_paid.rs"]
+mod cold_recovery_paid;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_readmission_paid.rs"]
+mod cold_readmission_paid;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_execution_material.rs"]
+mod cold_execution_material;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_install.rs"]
+mod cold_install;
+#[cfg(not(target_arch = "wasm32"))]
+pub use cold_install::AuthenticatedColdHostErrorV1;

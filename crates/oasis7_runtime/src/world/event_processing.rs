@@ -367,28 +367,13 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn action_to_event(
+    pub(super) fn action_to_event_with_native_recipe_preview_v1(
         &self,
         envelope: &ActionEnvelope,
+        native_preview:Option<&super::agent_delegation::readonly::NativeRecipePreviewBindingV1<'_>>,
     ) -> Result<WorldEventBody, WorldError> {
-        self.validate_governance_action_authorization(envelope)?;
-        let action_id = envelope.id;
-        if let Err(reason) = self.safe_alternative_action_guard(envelope) {
-            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec![reason],
-                },
-            }));
-        }
-        if let Err(error) = self.delegation_action_admission(&envelope.action) {
-            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec![format!("{error:?}")],
-                },
-            }));
-        }
+        if let Some(body)=self.action_to_event_readonly_prefix_v1(envelope,native_preview)?{return Ok(body)}
+        let action_id=envelope.id;
         if let Action::DeclareWar {
             aggressor_alliance_id,
             defender_alliance_id,

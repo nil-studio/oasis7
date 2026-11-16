@@ -21,7 +21,7 @@ pub struct StarterOcClaimState {
 }
 
 /// Persisted alliance relationship.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct AllianceState {
     pub alliance_id: String,
     pub members: Vec<String>,
@@ -43,7 +43,7 @@ pub struct WarParticipantOutcome {
 }
 
 /// Persisted war declaration state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct WarState {
     pub war_id: String,
     pub initiator_agent_id: String,
@@ -97,7 +97,7 @@ pub enum GovernanceIdentityStatus {
 }
 
 /// Persisted governance identity profile (stake + status + warmup).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 pub struct GovernanceIdentityProfileState {
     pub agent_id: String,
     #[serde(default)]
@@ -129,7 +129,7 @@ pub struct GovernanceVoteWeightSnapshotState {
 pub const GOVERNANCE_IDENTITY_DEFAULT_MAX_VOTE_WEIGHT: u32 = 100;
 
 /// Governance proposal lifecycle state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct GovernanceProposalState {
     pub proposal_key: String,
     pub proposer_agent_id: String,
@@ -170,7 +170,7 @@ pub struct GovernanceVoteBallotState {
 }
 
 /// Aggregated governance vote state by proposal key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct GovernanceVoteState {
     pub proposal_key: String,
     #[serde(default)]
@@ -193,7 +193,7 @@ pub enum CrisisStatus {
 }
 
 /// Persisted crisis lifecycle state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CrisisState {
     pub crisis_id: String,
     #[serde(default)]
@@ -246,7 +246,7 @@ pub enum EconomicContractStatus {
 pub use oasis7_agent_api::world_action::EconomicContractFulfillmentKind;
 
 /// Persisted economic contract state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct EconomicContractState {
     pub contract_id: String,
     pub creator_agent_id: String,
@@ -381,3 +381,9 @@ impl Default for GameplayPolicyState {
         }
     }
 }
+
+#[path="gameplay_governance_projection.rs"] mod governance_projection;
+pub use governance_projection::{GovernanceIdentityProjectionFieldsV1,GovernanceProposalProjectionFieldsV1,GovernanceVoteProjectionFieldsV1};
+
+#[path="gameplay_diplomacy_projection.rs"] mod diplomacy_projection;
+pub use diplomacy_projection::{AllianceProjectionFieldsV1,WarProjectionFieldsV1,CrisisProjectionFieldsV1,EconomicContractProjectionFieldsV1};

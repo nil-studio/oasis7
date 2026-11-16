@@ -4,6 +4,13 @@ use super::*;
 
 impl CognitionEconomyStateV1 {
     pub fn validate(&self) -> Result<(), CognitionEconomyError> {
+        self.validate_with_work_v1(&mut LegacyEconomyWorkV1)
+    }
+    pub(in crate::world) fn validate_with_work_v1<O: CognitionEconomyWorkOpsV1>(
+        &self,
+        ops: &mut O,
+    ) -> Result<(), CognitionEconomyError> {
+        ops.work(1, 0)?;
         if self.schema_version != COGNITION_ECONOMY_SCHEMA_VERSION
             || self.head_seq != self.journal.len() as u64
         {
@@ -11,22 +18,24 @@ impl CognitionEconomyStateV1 {
                 "cognition_economy_head_invalid",
             ));
         }
-        let expected_head = economy_digest(
+        let expected_head = ops.digest(
             COGNITION_ECONOMY_JOURNAL_DOMAIN,
             &(self.head_seq, &self.journal),
-        );
+        )?;
         if self.head_digest != expected_head {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_economy_head_digest_mismatch",
             ));
         }
         for (account_id, resources) in &self.balances {
+            ops.work(128, account_id.len())?;
             if !bounded_identity(account_id) {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_balance_identity_invalid",
                 ));
             }
             for resource in resources.keys() {
+                ops.work(128, resource.len())?;
                 if !bounded_identity(resource) {
                     return Err(CognitionEconomyError::InvalidState(
                         "cognition_economy_balance_identity_invalid",
@@ -35,15 +44,21 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (binding_key, resources) in &self.provisioned_balances {
-            if !valid_digest(binding_key) || self.provision_for_binding(binding_key).is_none() {
+            ops.work(128, binding_key.len())?;
+            if !valid_digest(binding_key)
+                || self
+                    .provision_for_binding_with_work_v1(binding_key, ops)?
+                    .is_none()
+            {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_balance_binding_invalid",
                 ));
             }
             let request = self
-                .provision_for_binding(binding_key)
+                .provision_for_binding_with_work_v1(binding_key, ops)?
                 .expect("checked provisioning balance binding");
             for resource in resources.keys() {
+                ops.work(128, resource.len())?;
                 if !bounded_identity(resource) || resource != &request.resource {
                     return Err(CognitionEconomyError::InvalidState(
                         "cognition_provisioning_balance_identity_invalid",
@@ -56,34 +71,40 @@ impl CognitionEconomyStateV1 {
                 "cognition_provisioning_head_invalid",
             ));
         }
-        let expected_provision_head = economy_digest(
+        let expected_provision_head = ops.digest(
             COGNITION_PROVISIONING_JOURNAL_DOMAIN,
             &(self.provision_head_seq, &self.provision_journal),
-        );
+        )?;
         if self.provision_head_digest != expected_provision_head {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_provisioning_head_digest_mismatch",
             ));
         }
         let mut previous_provision_digest = String::new();
+        let _provision_slots =
+            ops.before_slots::<(String, &String)>(self.provisions.len(), 128 + 71)?;
+        let _provision_event_slots =
+            ops.before_slots::<String>(self.provision_journal.len(), 128)?;
         let mut provision_event_ids = BTreeSet::new();
         let mut provision_bindings = BTreeMap::new();
         for (provision_id, record) in &self.provisions {
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(record)?;
             if provision_id != &record.request.provision_id {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_index_invalid",
                 ));
             }
-            record.validate()?;
+            record.validate_with_work_v1(ops)?;
             if provision_bindings
-                .insert(record.request.binding_key(), provision_id)
+                .insert(record.request.binding_key_with_work_v1(ops)?, provision_id)
                 .is_some()
             {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_binding_duplicate",
                 ));
             }
-            let binding_key = record.request.binding_key();
+            let binding_key = record.request.binding_key_with_work_v1(ops)?;
             let versioned_balance = self
                 .provisioned_balances
                 .get(binding_key.as_str())
@@ -92,14 +113,18 @@ impl CognitionEconomyStateV1 {
                 .balances
                 .get(record.request.account_id.as_str())
                 .and_then(|resources| resources.get(record.request.resource.as_str()));
-            let matching_provisions = self
-                .provisions
-                .values()
-                .filter(|candidate| {
-                    candidate.request.account_id == record.request.account_id
-                        && candidate.request.resource == record.request.resource
-                })
-                .count();
+            let mut matching_provisions = 0usize;
+            for candidate in self.provisions.values() {
+                ops.work(
+                    1,
+                    candidate.request.account_id.len() + candidate.request.resource.len(),
+                )?;
+                if candidate.request.account_id == record.request.account_id
+                    && candidate.request.resource == record.request.resource
+                {
+                    matching_provisions += 1;
+                }
+            }
             if versioned_balance.is_some() && legacy_balance.is_some() {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_balance_ambiguous",
@@ -136,12 +161,13 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (lease_id, binding_key) in &self.lease_binding_keys {
+            ops.work(128, lease_id.len() + binding_key.len())?;
             let Some(lease) = self.leases.get(lease_id) else {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_lease_binding_index_invalid",
                 ));
             };
-            let Some(request) = self.provision_for_binding(binding_key) else {
+            let Some(request) = self.provision_for_binding_with_work_v1(binding_key, ops)? else {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_lease_binding_index_invalid",
                 ));
@@ -160,7 +186,9 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (receipt_id, receipt) in &self.provision_receipts {
-            receipt.validate()?;
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(receipt)?;
+            receipt.validate_with_work_v1(ops)?;
             let Some(record) = self.provisions.get(&receipt.request.provision_id) else {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_provisioning_receipt_index_invalid",
@@ -173,7 +201,9 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (index, event) in self.provision_journal.iter().enumerate() {
-            event.validate()?;
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(event)?;
+            event.validate_with_work_v1(ops)?;
             if event.journal_seq != index as u64 + 1
                 || event.parent_event_digest != previous_provision_digest
             {
@@ -200,23 +230,26 @@ impl CognitionEconomyStateV1 {
         }
         if self.provisions.len() != self.provision_journal.len()
             || provision_event_ids.len() != self.provisions.len()
-            || self
-                .provisions
-                .keys()
-                .any(|provision_id| !provision_event_ids.contains(provision_id))
+            || any_with_work_v1(self.provisions.keys(), ops, |provision_id| {
+                !provision_event_ids.contains(*provision_id)
+            })?
         {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_provisioning_journal_cardinality_invalid",
             ));
         }
         let mut previous_digest = String::new();
+        let _event_count_slots =
+            ops.before_slots::<(String, (u8, u8, u8, u8, u8))>(self.journal.len(), 128)?;
         let mut event_counts: BTreeMap<String, (u8, u8, u8, u8, u8)> = BTreeMap::new();
         for (index, event) in self.journal.iter().enumerate() {
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(event)?;
             if event.schema_version != COGNITION_ECONOMY_EVENT_SCHEMA_VERSION
                 || event.journal_seq != index as u64 + 1
                 || event.parent_event_digest != previous_digest
                 || !valid_digest(&event.event_digest)
-                || event.event_digest != event.recompute_digest()
+                || event.event_digest != event.recompute_digest_with_work_v1(ops)?
                 || !bounded_identity(&event.lease_id)
                 || !bounded_identity(&event.operation_key)
                 || !bounded_identity(&event.idempotency_key)
@@ -313,7 +346,7 @@ impl CognitionEconomyStateV1 {
                 match event.event_kind.as_str() {
                     "reserve" => (
                         CognitionLeaseStatusV1::Reserved,
-                        operation_key(&lease.lease_id, "reserve"),
+                        operation_key_with_work_v1(&lease.lease_id, "reserve", ops)?,
                         if event.receipt_id.is_empty() {
                             None
                         } else {
@@ -322,22 +355,22 @@ impl CognitionEconomyStateV1 {
                     ),
                     "settle" => (
                         CognitionLeaseStatusV1::Settled,
-                        operation_key(&lease.lease_id, "settle"),
+                        operation_key_with_work_v1(&lease.lease_id, "settle", ops)?,
                         Some(event.receipt_id.as_str()),
                     ),
                     "release" => (
                         CognitionLeaseStatusV1::Released,
-                        operation_key(&lease.lease_id, "release"),
+                        operation_key_with_work_v1(&lease.lease_id, "release", ops)?,
                         Some(event.receipt_id.as_str()),
                     ),
                     "expire" => (
                         CognitionLeaseStatusV1::Expired,
-                        operation_key(&lease.lease_id, "expire"),
+                        operation_key_with_work_v1(&lease.lease_id, "expire", ops)?,
                         Some(event.receipt_id.as_str()),
                     ),
                     "refund" => (
                         CognitionLeaseStatusV1::Refunded,
-                        operation_key(&lease.lease_id, "refund"),
+                        operation_key_with_work_v1(&lease.lease_id, "refund", ops)?,
                         Some(event.receipt_id.as_str()),
                     ),
                     _ => {
@@ -399,6 +432,8 @@ impl CognitionEconomyStateV1 {
             previous_digest.clone_from(&event.event_digest);
         }
         for (lease_id, lease) in &self.leases {
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(lease)?;
             let (reserve_count, settle_count, release_count, expire_count, refund_count) =
                 event_counts.get(lease_id).copied().unwrap_or_default();
             let valid_cardinality = match lease.status {
@@ -451,7 +486,7 @@ impl CognitionEconomyStateV1 {
                     "cognition_economy_journal_cardinality_invalid",
                 ));
             }
-            lease.validate()?;
+            lease.validate_with_work_v1(&*ops)?;
             let has_lease_balance =
                 if let Some(binding_key) = self.lease_binding_keys.get(&lease.lease_id) {
                     self.provisioned_balances
@@ -476,13 +511,14 @@ impl CognitionEconomyStateV1 {
             };
             if lease_id != &lease.lease_id
                 || record.lease_id != lease.lease_id
-                || record.request_fingerprint != lease_fingerprint(lease)
+                || record.request_fingerprint != lease_fingerprint_with_work_v1(lease, ops)?
             {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_lease_index_invalid",
                 ));
             }
-            let reserve_operation_key = operation_key(&lease.lease_id, "reserve");
+            let reserve_operation_key =
+                operation_key_with_work_v1(&lease.lease_id, "reserve", ops)?;
             let has_reserve_operation = self.operations.contains_key(&reserve_operation_key);
             let has_reserve_receipt = self.receipts.values().any(|receipt| {
                 receipt.lease_id == lease.lease_id
@@ -498,10 +534,10 @@ impl CognitionEconomyStateV1 {
             if lease.status == CognitionLeaseStatusV1::Reserved
                 && (has_reserve_operation || has_reserve_receipt)
             {
-                let expected_reserve_receipt_id = economy_digest(
+                let expected_reserve_receipt_id = ops.digest(
                     COGNITION_ECONOMY_RECEIPT_ID_DOMAIN,
                     &(lease.lease_id.as_str(), reserve_operation_key.as_str()),
-                );
+                )?;
                 if lease.receipt_id.as_deref() != Some(expected_reserve_receipt_id.as_str()) {
                     return Err(CognitionEconomyError::InvalidState(
                         "cognition_economy_lease_receipt_invalid",
@@ -524,6 +560,7 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (idempotency_key, record) in &self.idempotency {
+            ops.work(1, 0)?;
             let Some(lease) = self.leases.get(&record.lease_id) else {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_idempotency_index_invalid",
@@ -532,7 +569,7 @@ impl CognitionEconomyStateV1 {
             if !bounded_identity(idempotency_key)
                 || !valid_digest(&record.request_fingerprint)
                 || idempotency_key != &lease.idempotency_key
-                || record.request_fingerprint != lease_fingerprint(lease)
+                || record.request_fingerprint != lease_fingerprint_with_work_v1(lease, ops)?
             {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_idempotency_index_invalid",
@@ -540,7 +577,9 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (receipt_id, receipt) in &self.receipts {
-            receipt.validate()?;
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(receipt)?;
+            receipt.validate_with_work_v1(ops)?;
             let Some(lease) = self.leases.get(&receipt.lease_id) else {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_receipt_index_invalid",
@@ -549,11 +588,11 @@ impl CognitionEconomyStateV1 {
             let operation_name = receipt_operation_name(receipt).ok_or(
                 CognitionEconomyError::InvalidState("cognition_economy_receipt_status_invalid"),
             )?;
-            let operation = operation_key(&receipt.lease_id, operation_name);
-            let expected_receipt_id = economy_digest(
+            let operation = operation_key_with_work_v1(&receipt.lease_id, operation_name, ops)?;
+            let expected_receipt_id = ops.digest(
                 COGNITION_ECONOMY_RECEIPT_ID_DOMAIN,
                 &(receipt.lease_id.as_str(), operation.as_str()),
-            );
+            )?;
             if receipt_id != &receipt.receipt_id
                 || receipt.receipt_id != expected_receipt_id
                 || !receipt_matches_lease(receipt, lease)
@@ -567,6 +606,8 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (stored_operation_key, operation) in &self.operations {
+            ops.work(1, 0)?;
+            let _record_phase = ops.before_value(operation)?;
             let Some(receipt) = self.receipts.get(&operation.receipt_id) else {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_operation_index_invalid",
@@ -576,14 +617,14 @@ impl CognitionEconomyStateV1 {
                 CognitionEconomyError::InvalidState("cognition_economy_receipt_status_invalid"),
             )?;
             let expected_digest = match operation_name {
-                "settle" => economy_digest(
+                "settle" => ops.digest(
                     COGNITION_ECONOMY_OPERATION_DOMAIN,
                     &(stored_operation_key.as_str(), receipt.consumed_amount),
-                ),
+                )?,
                 "refund" if receipt.operation.is_empty() => {
-                    economy_digest(COGNITION_ECONOMY_OPERATION_DOMAIN, stored_operation_key)
+                    ops.digest(COGNITION_ECONOMY_OPERATION_DOMAIN, stored_operation_key)?
                 }
-                "refund" => economy_digest(
+                "refund" => ops.digest(
                     COGNITION_ECONOMY_OPERATION_DOMAIN,
                     &(
                         stored_operation_key.as_str(),
@@ -591,8 +632,8 @@ impl CognitionEconomyStateV1 {
                         receipt.parent_receipt_id.as_deref(),
                         receipt.reason.as_deref(),
                     ),
-                ),
-                _ => economy_digest(COGNITION_ECONOMY_OPERATION_DOMAIN, stored_operation_key),
+                )?,
+                _ => ops.digest(COGNITION_ECONOMY_OPERATION_DOMAIN, stored_operation_key)?,
             };
             if stored_operation_key != &operation.operation_key
                 || !valid_digest(stored_operation_key)
@@ -600,16 +641,22 @@ impl CognitionEconomyStateV1 {
                 || operation.operation_digest != expected_digest
                 || operation.lease_id != receipt.lease_id
                 || operation.receipt_id != receipt.receipt_id
-                || stored_operation_key != &operation_key(&receipt.lease_id, operation_name)
+                || stored_operation_key
+                    != &operation_key_with_work_v1(&receipt.lease_id, operation_name, ops)?
             {
                 return Err(CognitionEconomyError::InvalidState(
                     "cognition_economy_operation_index_invalid",
                 ));
             }
         }
+        let _reserved_slots = ops.before_slots::<((Option<String>, String, String), u64)>(
+            self.leases.len(),
+            71 + 128 + 128,
+        )?;
         let mut expected_reserved: BTreeMap<(Option<String>, String, String), u64> =
             BTreeMap::new();
         for lease in self.leases.values() {
+            ops.work(1, 0)?;
             if lease.status == CognitionLeaseStatusV1::Reserved {
                 let key = (
                     self.lease_binding_keys.get(&lease.lease_id).cloned(),
@@ -623,7 +670,9 @@ impl CognitionEconomyStateV1 {
             }
         }
         for (account_id, resources) in &self.balances {
+            ops.work(128, account_id.len())?;
             for (resource, balance) in resources {
+                ops.work(128, resource.len())?;
                 if expected_reserved
                     .get(&(None, account_id.clone(), resource.clone()))
                     .copied()
@@ -637,6 +686,7 @@ impl CognitionEconomyStateV1 {
             }
         }
         for ((binding_key, account_id, resource), reserved) in expected_reserved {
+            ops.work(1, 0)?;
             let actual = if let Some(binding_key) = binding_key {
                 self.provisioned_balances
                     .get(&binding_key)
@@ -673,8 +723,12 @@ fn receipt_operation_name(receipt: &CognitionReceiptV1) -> Option<&str> {
     }
 }
 
-fn lease_fingerprint(lease: &CognitionLeaseV1) -> String {
-    CognitionLeaseRequestV1::new(
+fn lease_fingerprint_with_work_v1<O: CognitionEconomyWorkOpsV1>(
+    lease: &CognitionLeaseV1,
+    ops: &mut O,
+) -> Result<String, CognitionEconomyError> {
+    let _copy = ops.before_value(lease)?;
+    let request = CognitionLeaseRequestV1::new_with_work_v1(
         lease.idempotency_key.clone(),
         lease.account_id.clone(),
         lease.agent_id.clone(),
@@ -683,8 +737,10 @@ fn lease_fingerprint(lease: &CognitionLeaseV1) -> String {
         lease.decision_request_id.clone(),
         lease.request_digest.clone(),
         lease.quote.clone(),
-    )
-    .fingerprint_digest()
+        &*ops,
+    )?;
+    let (domain, input) = request.fingerprint_input_v1();
+    ops.digest(domain, &input)
 }
 
 fn receipt_matches_lease(receipt: &CognitionReceiptV1, lease: &CognitionLeaseV1) -> bool {
@@ -770,4 +826,18 @@ fn receipt_matches_lease(receipt: &CognitionReceiptV1, lease: &CognitionLeaseV1)
         }
         _ => false,
     }
+}
+
+fn any_with_work_v1<I: IntoIterator, O: CognitionEconomyWorkOpsV1>(
+    iter: I,
+    ops: &mut O,
+    mut test: impl FnMut(&I::Item) -> bool,
+) -> Result<bool, CognitionEconomyError> {
+    for value in iter {
+        ops.work(1, 0)?;
+        if test(&value) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

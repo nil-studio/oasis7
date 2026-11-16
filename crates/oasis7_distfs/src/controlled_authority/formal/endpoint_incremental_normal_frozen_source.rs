@@ -48,6 +48,8 @@ impl PaidAcceptedGenesisHostSourceV1 {
             environment,
             page_namespace,
             native_namespace,
+            predecessor: _,
+            predecessor_fence: _,
         } = self;
         Ok(NormalFrozenTransactionV1 {
             endpoint,

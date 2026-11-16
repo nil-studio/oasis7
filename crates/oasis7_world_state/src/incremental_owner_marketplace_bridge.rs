@@ -6,7 +6,7 @@ use crate::{
     incremental_record_tree::RecordTreeLabelsV1,
 };
 use oasis7_proto::memory_budget::ReservedValue;
-const LABELS: RecordDiffLabelsV1 = RecordDiffLabelsV1 {
+pub(super) const LABELS: RecordDiffLabelsV1 = RecordDiffLabelsV1 {
     invalid: "marketplace child delta",
     cells: "marketplace changed cells",
     stack: "marketplace diff stack",

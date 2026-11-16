@@ -41,6 +41,9 @@ pub struct WorldCurrentStateQualificationV1 {
 }
 const CARRIER: usize = std::mem::size_of::<WorldCurrentStateQualificationV1>() + 512;
 impl WorldCurrentStateQualificationV1 {
+    /// The digest already checked by the complete Current qualifier. Borrowers
+    /// compare this original binding instead of re-encoding caller roots.
+    pub fn roots_id(&self) -> [u8; 32] { self.roots }
     pub fn allocation_class(&self) -> MemoryClass {
         self.class
     }

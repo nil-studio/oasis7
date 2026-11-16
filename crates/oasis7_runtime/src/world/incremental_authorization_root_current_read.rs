@@ -49,7 +49,9 @@ impl From<oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV
         Self::Overlay(e)
     }
 }
-pub(in crate::world) struct AuthorizationRootSourceReadWorkV1 {
+pub struct AuthorizationRootSourceReadWorkV1 {
+    pub module_authorization:
+        oasis7_world_state::incremental_runtime_module_authorization::ModuleAuthorizationReadWorkV1,
     pub json: JsonReadWorkV1,
     pub typed: RevocationReadWorkV1,
     pub scan: StateScanBudget,
@@ -81,7 +83,7 @@ pub(super) fn metadata(
     Ok(())
 }
 #[allow(clippy::too_many_arguments)]
-pub(super) fn paid<M, R, E, C, P, V, ER, CR, T>(
+pub(in crate::world) fn paid<M, R, E, C, P, V, ER, CR, T>(
     roots: &RootSetV1,
     overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
     read: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
@@ -103,11 +105,100 @@ where
     ER: FnMut() -> Option<ValueTreeError>,
     CR: FnMut() -> bool,
 {
+    paid_inner(
+        roots,
+        overlay,
+        read,
+        work,
+        None,
+        common,
+        |ctx, parent, work, _| operation(ctx, parent, work),
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub(in crate::world) fn paid_with_processing<M, R, E, C, P, V, ER, CR, T>(
+    roots: &RootSetV1,
+    overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
+    work: &mut AuthorizationRootSourceReadWorkV1,
+    processing:&mut oasis7_world_state::incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+    common: &mut FormalBoundedContextV1<'_>,
+    operation: impl FnOnce(
+        &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, &mut E, &mut dyn FnMut() -> bool>,
+        &mut WorldFieldReadContextV1<'_, P, V, &mut ER, &mut dyn FnMut() -> bool>,
+        &mut AuthorizationRootSourceReadWorkV1,
+        &mut oasis7_world_state::incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+    ) -> Result<T, SourceError>,
+) -> Result<T, SourceError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    ER: FnMut() -> Option<ValueTreeError>,
+    CR: FnMut() -> bool,
+{
+    paid_inner(
+        roots,
+        overlay,
+        read,
+        work,
+        Some(processing),
+        common,
+        |ctx, parent, work, processing| {
+            operation(
+                ctx,
+                parent,
+                work,
+                processing.expect("fixed business processing loan"),
+            )
+        },
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn paid_inner<M, R, E, C, P, V, ER, CR, T>(
+    roots: &RootSetV1,
+    overlay: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    read: &mut WorldFieldReadContextV1<'_, P, V, ER, CR>,
+    work: &mut AuthorizationRootSourceReadWorkV1,
+    mut processing: Option<
+        &mut oasis7_world_state::incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+    >,
+    common: &mut FormalBoundedContextV1<'_>,
+    operation: impl FnOnce(
+        &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, &mut E, &mut dyn FnMut() -> bool>,
+        &mut WorldFieldReadContextV1<'_, P, V, &mut ER, &mut dyn FnMut() -> bool>,
+        &mut AuthorizationRootSourceReadWorkV1,
+        Option<
+            &mut oasis7_world_state::incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+        >,
+    ) -> Result<T, SourceError>,
+) -> Result<T, SourceError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    P: MerkleNodeReader,
+    V: ValueNodeReader,
+    ER: FnMut() -> Option<ValueTreeError>,
+    CR: FnMut() -> bool,
+{
     metadata(roots, common)?;
     let (_, meter, stop) = common.parts();
     let lease = meter.begin_child()?;
-    let visits = lease.remaining_steps() / 9;
-    let bytes = lease.remaining_read_bytes() / 5;
+    let processing_before = processing
+        .as_ref()
+        .map(|w| (w.steps_remaining, w.bytes_remaining));
+    let visits = lease.remaining_steps() / (10 + u64::from(processing.is_some()));
+    let bytes = lease.remaining_read_bytes() / (6 + u64::from(processing.is_some()));
+    if let Some(w) = processing.as_deref_mut() {
+        w.steps_remaining = w.steps_remaining.min(visits);
+        w.bytes_remaining = w.bytes_remaining.min(bytes);
+    }
+
     overlay.values.io.nodes_remaining = overlay.values.io.nodes_remaining.min(visits);
     read.values.io.nodes_remaining = read.values.io.nodes_remaining.min(visits);
     work.scan.nodes_remaining = work.scan.nodes_remaining.min(visits);
@@ -117,11 +208,17 @@ where
     work.typed.json.cells_remaining = work.typed.json.cells_remaining.min(visits);
     work.typed.json.json_nodes_remaining = work.typed.json.json_nodes_remaining.min(visits);
     work.capabilities.cells_remaining = work.capabilities.cells_remaining.min(visits);
+    work.module_authorization.cells_remaining =
+        work.module_authorization.cells_remaining.min(visits);
     overlay.values.io.read_bytes_remaining = overlay.values.io.read_bytes_remaining.min(bytes);
     read.values.io.read_bytes_remaining = read.values.io.read_bytes_remaining.min(bytes);
     work.scan.read_bytes_remaining = work.scan.read_bytes_remaining.min(bytes);
     overlay.key_work.bytes_remaining = overlay.key_work.bytes_remaining.min(bytes);
     read.key_work.bytes_remaining = read.key_work.bytes_remaining.min(bytes);
+    work.module_authorization.comparison_bytes_remaining = work
+        .module_authorization
+        .comparison_bytes_remaining
+        .min(bytes);
     let before_steps = [
         overlay.values.io.nodes_remaining,
         read.values.io.nodes_remaining,
@@ -132,6 +229,8 @@ where
         work.typed.json.cells_remaining,
         work.typed.json.json_nodes_remaining,
         work.capabilities.cells_remaining,
+        work.module_authorization.cells_remaining,
+        processing.as_ref().map_or(0, |w| w.steps_remaining),
     ];
     let before_bytes = [
         overlay.values.io.read_bytes_remaining,
@@ -139,6 +238,8 @@ where
         work.scan.read_bytes_remaining,
         overlay.key_work.bytes_remaining,
         read.key_work.bytes_remaining,
+        work.module_authorization.comparison_bytes_remaining,
+        processing.as_ref().map_or(0, |w| w.bytes_remaining),
     ];
     let result = {
         let stop = std::cell::RefCell::new(stop);
@@ -173,7 +274,7 @@ where
             take_state_error: &mut read.take_state_error,
             cancelled: &mut parent_stop as &mut dyn FnMut() -> bool,
         };
-        operation(&mut current, &mut parent, work)
+        operation(&mut current, &mut parent, work, processing.as_deref_mut())
     };
     let after_steps = [
         overlay.values.io.nodes_remaining,
@@ -185,6 +286,8 @@ where
         work.typed.json.cells_remaining,
         work.typed.json.json_nodes_remaining,
         work.capabilities.cells_remaining,
+        work.module_authorization.cells_remaining,
+        processing.as_ref().map_or(0, |w| w.steps_remaining),
     ];
     let after_bytes = [
         overlay.values.io.read_bytes_remaining,
@@ -192,6 +295,8 @@ where
         work.scan.read_bytes_remaining,
         overlay.key_work.bytes_remaining,
         read.key_work.bytes_remaining,
+        work.module_authorization.comparison_bytes_remaining,
+        processing.as_ref().map_or(0, |w| w.bytes_remaining),
     ];
     let debit = |before: &[u64], after: &[u64]| {
         before
@@ -207,6 +312,23 @@ where
     };
     let paid = lease.consume(steps, bytes);
     lease.finish();
+    // Restore solely the original caller's non-admitted scalar portion. The
+    // real Common debit is final, and panic/abandonment never reaches this path.
+    if let (Some((old_steps, old_bytes)), Some(w)) = (processing_before, processing.as_deref_mut())
+    {
+        let used_steps = before_steps[10]
+            .checked_sub(after_steps[10])
+            .ok_or_else(|| invalid("business processing step accounting"))?;
+        let used_bytes = before_bytes[6]
+            .checked_sub(after_bytes[6])
+            .ok_or_else(|| invalid("business processing byte accounting"))?;
+        w.steps_remaining = old_steps
+            .checked_sub(used_steps)
+            .ok_or_else(|| invalid("business processing step restore"))?;
+        w.bytes_remaining = old_bytes
+            .checked_sub(used_bytes)
+            .ok_or_else(|| invalid("business processing byte restore"))?;
+    }
     let value = result?;
     paid?;
     common.consume_steps(0)?;

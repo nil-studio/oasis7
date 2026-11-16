@@ -286,3 +286,77 @@ fn final_fact_producer_error_and_both_cancel_boundaries_return_no_prepared_prefi
         assert_eq!(memory.used(), 0);
     }
 }
+
+#[test]
+fn final_result_profiles_retain_prior_response_results_in_order() {
+    for triple in [false, true] {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut tx =
+            ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits())
+                .unwrap();
+        let prefix = [
+            fact(ExecutionFactKindV1::Input, 1),
+            fact(ExecutionFactKindV1::Result, 11),
+            fact(ExecutionFactKindV1::Event, 12),
+        ];
+        for value in prefix {
+            tx.append_fact(value).unwrap();
+        }
+        let guard = tx.guard();
+        let prepared = if triple {
+            tx.seal_with_proof_ledger_results(
+                &guard,
+                &live,
+                9,
+                || false,
+                |_| {
+                    Ok::<_, &str>([
+                        fact(ExecutionFactKindV1::Result, 7),
+                        fact(ExecutionFactKindV1::Result, 8),
+                        fact(ExecutionFactKindV1::Result, 9),
+                    ])
+                },
+            )
+            .unwrap()
+        } else {
+            tx.seal_with_final_results(
+                &guard,
+                &live,
+                9,
+                || false,
+                |_| {
+                    Ok::<_, &str>([
+                        fact(ExecutionFactKindV1::Result, 7),
+                        fact(ExecutionFactKindV1::Result, 8),
+                    ])
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(&prepared.record.facts[..prefix.len()], &prefix);
+        let final_count = if triple { 3 } else { 2 };
+        assert_eq!(prepared.record.facts.len(), prefix.len() + final_count);
+        assert_eq!(
+            prepared
+                .record
+                .facts
+                .iter()
+                .filter(|f| f.kind == ExecutionFactKindV1::Result)
+                .count(),
+            final_count + 1
+        );
+        TransitionVerifier {
+            parent: &parent,
+            operation: [1; 32],
+            source: &pages,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: limits().max_pending_node_bytes,
+        }
+        .verify(&prepared.record)
+        .unwrap();
+    }
+}

@@ -274,3 +274,221 @@ fn complete_cognition_four_real_presence_transitions_and_false_selectors() {
         assert_eq!(next.allocation_class(), MemoryClass::Ordinary);
     }
 }
+
+#[test]
+fn service_batch_cas_accepts_read_set_growth_but_rejects_changed_expected_rows() {
+    use crate::{
+        incremental_cognition_json::CognitionJsonFieldV1,
+        incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
+        incremental_normal_cognition_current::{
+            read_current_cognition_json_record_v1, replace_current_cognition_service_batch_v1,
+        },
+    };
+    use oasis7_formal_protocol::incremental_execution::{
+        ExecutionError, ExecutionFactKindV1, ExecutionFactRefV1,
+    };
+
+    // These JSON values exercise storage CAS only; they do not assert a
+    // scheduler transition or grant complete Cognition business qualification.
+    let memory = MemoryBudget::new(256 << 20, 0).unwrap();
+    let _fixture = memory.reserve(8 << 20, MemoryClass::Ordinary).unwrap();
+    let pages = Pages::with_limit(&memory, 32768);
+    let genesis = rows(&memory, &pages);
+    let roots = install(&memory, &pages, &genesis);
+    let parent_q = {
+        let mut quota = io();
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 64 << 20,
+        };
+        let mut read = WorldFieldReadContextV1 {
+            root: roots.state_root(StateNamespaceV1::Allocator),
+            state: &pages,
+            values: ValueReadContext {
+                source: &pages,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut quota,
+            },
+            key_work: &mut keys,
+            semantic_bytes: 1 << 20,
+            record_bytes: 16 << 20,
+            take_state_error: || None,
+            cancelled: || false,
+        };
+        qualify_complete_cognition_current_v3(
+            &roots,
+            CognitionCurrentPresenceV3::Enabled,
+            &mut read,
+            &mut work(),
+        )
+        .unwrap()
+    };
+    let parent = ExecutionParent {
+        roots: roots.clone(),
+        commit: [81; 32],
+        authority: AuthorityBinding {
+            token: [82; 32],
+            epoch: 7,
+        },
+    };
+    let live = parent.fence().unwrap();
+    let mut tx = ExecutionTransaction::begin(
+        parent,
+        [83; 32],
+        &pages,
+        &memory,
+        TransactionLimits {
+            max_reads: 256,
+            max_writes: 256,
+            max_facts: 8,
+            max_pending_node_bytes: 8 << 20,
+        },
+    )
+    .unwrap();
+    let mut quota = io();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 64 << 20,
+    };
+    let mut overlay = WorldFieldOverlayContextV1 {
+        transaction: &mut tx,
+        values: ValueReadContext {
+            source: &pages,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut quota,
+        },
+        key_work: &mut keys,
+        semantic_bytes: 1 << 20,
+        record_bytes: 16 << 20,
+        take_state_error: || None,
+        cancelled: || false,
+    };
+    let mut read_work = work().json.json;
+    let guard = overlay.transaction.guard();
+    let scheduler = read_current_cognition_json_record_v1(
+        CognitionJsonFieldV1::SchedulerState,
+        &parent_q,
+        &roots,
+        &mut overlay,
+        &mut read_work,
+        8 << 20,
+        &guard,
+        &live,
+    )
+    .unwrap()
+    .unwrap();
+    let guard = overlay.transaction.guard();
+    let continuations = read_current_cognition_json_record_v1(
+        CognitionJsonFieldV1::Continuations,
+        &parent_q,
+        &roots,
+        &mut overlay,
+        &mut read_work,
+        8 << 20,
+        &guard,
+        &live,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(scheduler.value(), &serde_json::json!({}));
+    assert_eq!(continuations.value(), &serde_json::json!([]));
+    overlay
+        .transaction
+        .append_fact(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Event,
+            id: [84; 32],
+        })
+        .unwrap();
+    for selected in [&scheduler, &continuations] {
+        assert!(matches!(
+            selected.validate(overlay.transaction, &memory, &live),
+            Err(WorldFieldOverlayErrorV1::Execution(
+                ExecutionError::StaleGuard
+            ))
+        ));
+    }
+    let after_scheduler = serde_json::json!({"fixture_generation": 1});
+    let after_continuations = serde_json::json!([{"fixture_id": "c1"}]);
+    let changes = [
+        (&scheduler, &after_scheduler),
+        (&continuations, &after_continuations),
+    ];
+    let mut writer = Writer(&pages);
+    let mut write_quota = io();
+    let mut write_keys = SemanticKeyBudget {
+        bytes_remaining: 64 << 20,
+    };
+    let mut output = MemberRecordWriteContext {
+        sink: &mut writer,
+        memory: &memory,
+        io: &mut write_quota,
+        key_work: &mut write_keys,
+        limits: MemberRecordLimitsV1 {
+            semantic_bytes: 1 << 20,
+            payload_bytes: 8 << 20,
+            record_bytes: 16 << 20,
+        },
+        cancelled: || false,
+    };
+    let mut write_work = JsonWriteWorkV1 {
+        cells_remaining: 100_000,
+        json_nodes_remaining: 100_000,
+        max_json_depth: 64,
+        max_pending_node_bytes: 8 << 20,
+    };
+    let guard = overlay.transaction.guard();
+    replace_current_cognition_service_batch_v1(
+        &changes,
+        &mut overlay,
+        &mut output,
+        &mut write_work,
+        &guard,
+        &live,
+    )
+    .unwrap();
+    for (field, expected) in [
+        (CognitionJsonFieldV1::SchedulerState, &after_scheduler),
+        (CognitionJsonFieldV1::Continuations, &after_continuations),
+    ] {
+        let guard = overlay.transaction.guard();
+        let actual = read_current_cognition_json_record_v1(
+            field,
+            &parent_q,
+            &roots,
+            &mut overlay,
+            &mut read_work,
+            8 << 20,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            actual.value(),
+            expected,
+            "both actual Current rows must change"
+        );
+    }
+    let guard = overlay.transaction.guard();
+    let rejected = replace_current_cognition_service_batch_v1(
+        &changes,
+        &mut overlay,
+        &mut output,
+        &mut write_work,
+        &guard,
+        &live,
+    );
+    assert!(
+        matches!(rejected, Err(WorldFieldOverlayErrorV1::Value(_))),
+        "the live call guard cannot renew the two obsolete expected rows"
+    );
+    assert!(
+        matches!(
+            overlay
+                .transaction
+                .validate_guard(&overlay.transaction.guard(), &live),
+            Err(ExecutionError::Aborted)
+        ),
+        "an actual-row mismatch poisons the transaction"
+    );
+}

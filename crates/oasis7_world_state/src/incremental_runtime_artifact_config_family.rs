@@ -17,11 +17,16 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::ReservedValue;
 use std::{cell::RefCell, io::Cursor};
 
+#[path = "incremental_runtime_artifact_config_registry_directory.rs"]
+mod registry_directory;
+use registry_directory::RegistryRecordKeysV1;
+
 #[derive(Debug)]
 pub struct ArtifactConfigFamilyQualificationV1 {
     roots: [u8; 32],
     registry_records: u64,
     registry_active: u64,
+    pub(super) registry_keys: std::sync::Arc<RegistryRecordKeysV1>,
     class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl ArtifactConfigFamilyQualificationV1 {
@@ -36,7 +41,7 @@ impl ArtifactConfigFamilyQualificationV1 {
         self.class
     }
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
-        if self.roots == *roots {
+        if self.roots == *roots && self.registry_keys.len() == self.registry_records {
             Ok(())
         } else {
             Err(read::invalid())
@@ -47,15 +52,20 @@ pub(super) fn mint(
     roots: [u8; 32],
     registry_records: u64,
     registry_active: u64,
+    registry_keys: std::sync::Arc<RegistryRecordKeysV1>,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     class: oasis7_proto::memory_budget::MemoryClass,
 ) -> Result<ReservedValue<ArtifactConfigFamilyQualificationV1>, ValueTreeError> {
+    if registry_keys.len() != registry_records || !registry_keys.uses_budget(memory) {
+        return Err(read::invalid());
+    }
     Ok(memory
         .reserve(512, class)?
         .retain(ArtifactConfigFamilyQualificationV1 {
             roots,
             registry_records,
             registry_active,
+            registry_keys,
             class,
         }))
 }
@@ -84,6 +94,7 @@ pub fn readmit_artifact_config_family_ordinary_v1(
         source.roots,
         source.registry_records,
         source.registry_active,
+        std::sync::Arc::new(source.registry_keys.ordinary(memory)?),
         memory,
         MemoryClass::Ordinary,
     )?;
@@ -219,6 +230,7 @@ where
     let _scratch = ctx.values.memory.reserve(32 << 10, ctx.values.class)?;
     let mut metadata = [false; 8];
     let mut counts = [0u64; 8];
+    let mut registry_keys = RegistryRecordKeysV1::empty(ctx.values.memory, ctx.values.class)?;
     let cancel = RefCell::new(&mut ctx.cancelled);
     for root in &roots.state {
         let mut local = WorldFieldReadContextV1 {
@@ -309,6 +321,16 @@ where
                         work,
                     )?;
                 }
+                if field == ArtifactConfigFieldV1::RegistryManifest {
+                    registry_keys.insert(
+                        key.as_bytes(),
+                        local.values.memory,
+                        local.values.class,
+                        work,
+                        local.key_work,
+                        &mut local.cancelled,
+                    )?;
+                }
                 Ok(())
             },
             || (cancel.borrow_mut())(),
@@ -352,6 +374,7 @@ where
         roots: digest,
         registry_records: counts[1],
         registry_active: counts[5],
+        registry_keys: std::sync::Arc::new(registry_keys),
         class: ctx.values.class,
     }))
 }
@@ -416,4 +439,72 @@ where
     )?;
     ctx.check()?;
     Ok(Some(result))
+}
+
+impl ArtifactConfigFamilyQualificationV1 {
+    /// Complete authenticated parent registry-record physical keys. This is
+    /// DATA only; Current callers must fold actual pending writes before use.
+    pub fn registry_record_keys_v1(
+        &self,
+        roots: &RootSetV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &mut ArtifactConfigReadWorkV1,
+        key_work: &mut crate::incremental_semantic_key::SemanticKeyBudget,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<ReservedValue<Vec<Vec<u8>>>, ValueTreeError> {
+        self.validate_binding(&roots.digest().map_err(|_| read::invalid())?)?;
+        if !self.registry_keys.uses_budget(memory) {
+            return Err(read::invalid());
+        }
+        let count = usize::try_from(self.registry_records).map_err(|_| read::invalid())?;
+        let mut bytes = std::mem::size_of::<Vec<Vec<u8>>>()
+            .checked_add(
+                count
+                    .checked_mul(std::mem::size_of::<Vec<u8>>())
+                    .ok_or_else(read::invalid)?,
+            )
+            .ok_or_else(read::invalid)?;
+        self.registry_keys
+            .visit(work, key_work, &mut cancelled, &mut |key,
+                                                         _,
+                                                         _|
+             -> Result<
+                (),
+                ValueTreeError,
+            > {
+                bytes = bytes.checked_add(key.len()).ok_or_else(read::invalid)?;
+                Ok(())
+            })?;
+        let fee = memory.reserve(bytes, oasis7_proto::memory_budget::MemoryClass::Ordinary)?;
+        let mut output = Vec::with_capacity(count);
+        if output.capacity() > count {
+            return Err(read::invalid());
+        }
+        self.registry_keys
+            .visit(work, key_work, &mut cancelled, &mut |key,
+                                                         work,
+                                                         key_work|
+             -> Result<
+                (),
+                ValueTreeError,
+            > {
+                work.cell()?;
+                key_work.bytes_remaining = key_work
+                    .bytes_remaining
+                    .checked_sub(key.len() as u64)
+                    .ok_or(ValueTreeError::ResourceLimited(
+                    "artifact registry keys copy",
+                ))?;
+                let value = key.to_vec();
+                if value.capacity() > key.len() {
+                    return Err(read::invalid());
+                }
+                output.push(value);
+                Ok(())
+            })?;
+        if output.len() != count {
+            return Err(read::invalid());
+        }
+        Ok(fee.retain(output))
+    }
 }

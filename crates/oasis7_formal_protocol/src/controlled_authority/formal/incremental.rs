@@ -10,9 +10,26 @@ pub const IWS_ACTIVATION_SCHEMA: u32 = 3;
 pub const IWS_RECORD_SCHEMA: u32 = 7;
 pub const IWS_DURABLE_RECORD_SCHEMA: u32 = 8;
 pub const IWS_FROZEN_SCHEMA: u32 = 4;
+pub const IWS_RETENTION_RECORD_SCHEMA: u32 = 9;
+pub const IWS_RETENTION_DURABLE_RECORD_SCHEMA: u32 = 10;
+pub fn is_iws_initial_record_schema(schema: u32) -> bool {
+    matches!(schema, IWS_RECORD_SCHEMA | IWS_RETENTION_RECORD_SCHEMA)
+}
+pub fn has_retention_ledger(schema: u32) -> bool {
+    matches!(
+        schema,
+        IWS_RETENTION_RECORD_SCHEMA | IWS_RETENTION_DURABLE_RECORD_SCHEMA
+    )
+}
 
 pub fn is_iws_record(schema: u32) -> bool {
-    matches!(schema, IWS_RECORD_SCHEMA | IWS_DURABLE_RECORD_SCHEMA)
+    matches!(
+        schema,
+        IWS_RECORD_SCHEMA
+            | IWS_DURABLE_RECORD_SCHEMA
+            | IWS_RETENTION_RECORD_SCHEMA
+            | IWS_RETENTION_DURABLE_RECORD_SCHEMA
+    )
 }
 pub fn is_iws_role(role: ArtifactRole) -> bool {
     matches!(
@@ -21,6 +38,7 @@ pub fn is_iws_role(role: ArtifactRole) -> bool {
             | ArtifactRole::IncrementalRootSet
             | ArtifactRole::IncrementalCommitBody
             | ArtifactRole::IncrementalHistoryPrefix
+            | ArtifactRole::IncrementalRetentionLedger
     )
 }
 pub(super) fn validate_roots(
@@ -37,6 +55,17 @@ pub(super) fn validate_roots(
 pub(super) fn validate_roots_with_work<E: From<FormalError>>(
     roots: &BTreeMap<ArtifactRole, String>,
     initial: bool,
+    world: &FormalWorldIdentityV1,
+    state: &str,
+    manifest: &str,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), E> {
+    validate_roots_for_profile_with_work(roots, initial, false, world, state, manifest, work)
+}
+pub(super) fn validate_roots_for_profile_with_work<E: From<FormalError>>(
+    roots: &BTreeMap<ArtifactRole, String>,
+    initial: bool,
+    retention: bool,
     world: &FormalWorldIdentityV1,
     state: &str,
     manifest: &str,
@@ -63,7 +92,8 @@ pub(super) fn validate_roots_with_work<E: From<FormalError>>(
     ];
     let required: &[ArtifactRole] = if initial { &INITIAL } else { &RECORD };
     work(0)?;
-    if roots.len() != required.len()
+    if roots.len() != required.len() + usize::from(retention)
+        || roots.contains_key(&ArtifactRole::IncrementalRetentionLedger) != retention
         || {
             let mut missing = false;
             for role in required {

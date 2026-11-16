@@ -16,6 +16,8 @@ pub use industrial_directory::{
     CurrentIndustrialWorkV1, IndustrialWorkDirectoryV1, bind_current_industrial_work_directory_v1,
     current_industrial_disposition_present_v1, read_current_industrial_completion_root_v1,
 };
+#[path = "incremental_world_rule_requests_result.rs"]
+mod requests_result;
 #[path = "incremental_world_rule_continuity_contracts.rs"]
 mod continuity_contracts;
 #[path = "incremental_world_rule_continuity_contracts_current.rs"]
@@ -26,6 +28,11 @@ pub use continuity_contracts_current::{
 
 #[path = "incremental_world_rule_continuity_scope.rs"]
 mod continuity_scope;
+#[path = "incremental_world_rule_lifecycle_emergency.rs"]
+mod lifecycle_emergency;
+pub use lifecycle_emergency::EmergencyLifecycleDirectoryV1;
+pub(crate) use lifecycle_emergency::project_current as project_current_emergency_lifecycle_directory_v1;
+pub use lifecycle_emergency::EmergencyActiveInputsV1;
 use crate::incremental_organization_scope_index::OrganizationScopeIndexV1;
 pub(crate) trait CompositeBranchCodecV1: Codec {
     const BRANCH: WorldRuleCompositeBranchV1;
@@ -60,8 +67,10 @@ pub struct WorldRuleCompositeQualificationV1<T> {
     body: Option<ReservedValue<StateRootV1>>,
     class: MemoryClass,
     pub(crate) continuity_scope: Option<OrganizationScopeIndexV1>,
+    pub(crate) requests_result: Option<requests_result::index::RequestsResultIndexV1>,
     pub(crate) continuity_contracts: Option<continuity_contracts::index::ContinuityContractIndexV1>,
     industrial_directory: Option<IndustrialWorkDirectoryV1>,
+    emergency_lifecycle: Option<EmergencyLifecycleDirectoryV1>,
     _type: PhantomData<fn() -> T>,
 }
 impl<T> WorldRuleCompositeQualificationV1<T> {
@@ -84,11 +93,14 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
     pub fn industrial_work_directory(&self) -> Option<&IndustrialWorkDirectoryV1> {
         self.industrial_directory.as_ref()
     }
+    pub(crate) fn emergency_lifecycle_directory(&self) -> Option<&EmergencyLifecycleDirectoryV1> {
+        self.emergency_lifecycle.as_ref()
+    }
     pub(crate) fn check_budget(
         &self,
         memory: &MemoryBudget,
         class: MemoryClass,
-    ) -> Result<(), ValueTreeError> {
+    ) -> Result<(), ValueTreeError> where T: CompositeBranchCodecV1 {
         if !self.memory.same_pool(memory)
             || self.class != class
             || self.present != self.body.is_some()
@@ -102,10 +114,21 @@ impl<T> WorldRuleCompositeQualificationV1<T> {
         if let Some(index) = &self.continuity_contracts {
             let _binding = index.share(memory, class)?;
         }
+        if let Some(index) = &self.requests_result {
+            let _binding = index.share(memory, class)?;
+        }
         if let Some(index) = &self.continuity_scope {
             index.check_budget(memory, class)?;
         }
         if let Some(index) = &self.industrial_directory {
+            index.check_budget(memory, class)?;
+        }
+        if (T::BRANCH == WorldRuleCompositeBranchV1::EmergencySupply)
+            != self.emergency_lifecycle.is_some()
+        {
+            return Err(invalid());
+        }
+        if let Some(index) = &self.emergency_lifecycle {
             index.check_budget(memory, class)?;
         }
         Ok(())
@@ -225,7 +248,23 @@ pub(crate) fn qualify_world_rule_branch_v1<
         scan,
         work,
     )?;
+    let requests_result = requests_result::update::<T, _, _, _, _>(
+        None,
+        None,
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     let industrial_directory = industrial_directory::update::<T, _, _, _, _>(
+        None,
+        None,
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
+    let emergency_lifecycle = lifecycle_emergency::update::<T, _, _, _, _>(
         None,
         None,
         body.as_deref(),
@@ -241,7 +280,9 @@ pub(crate) fn qualify_world_rule_branch_v1<
         class: ctx.values.class,
         continuity_scope,
         continuity_contracts,
+        requests_result,
         industrial_directory,
+        emergency_lifecycle,
         _type: PhantomData,
     }))
 }
@@ -257,6 +298,8 @@ pub fn readmit_world_rule_branch_ordinary_v1<T: CompositeBranchCodecV1>(
     source.check_budget(memory, MemoryClass::Recovery)?;
     if (T::BRANCH == WorldRuleCompositeBranchV1::IndustrialWork)
         != source.industrial_directory.is_some()
+        || (T::BRANCH == WorldRuleCompositeBranchV1::EmergencySupply)
+            != source.emergency_lifecycle.is_some()
     {
         return Err(invalid());
     }
@@ -302,6 +345,19 @@ pub fn readmit_world_rule_branch_ordinary_v1<T: CompositeBranchCodecV1>(
                 })
             })
             .transpose()?,
+        requests_result: source
+            .requests_result
+            .as_ref()
+            .map(|index| {
+                index.readmit_ordinary(memory, &mut |_, _| {
+                    if cancelled() {
+                        Err(ValueTreeError::Cancelled)
+                    } else {
+                        Ok(())
+                    }
+                })
+            })
+            .transpose()?,
         continuity_scope: source
             .continuity_scope
             .as_ref()
@@ -309,6 +365,11 @@ pub fn readmit_world_rule_branch_ordinary_v1<T: CompositeBranchCodecV1>(
             .transpose()?,
         industrial_directory: source
             .industrial_directory
+            .as_ref()
+            .map(|index| index.readmit_ordinary(memory, &mut cancelled))
+            .transpose()?,
+        emergency_lifecycle: source
+            .emergency_lifecycle
             .as_ref()
             .map(|index| index.readmit_ordinary(memory, &mut cancelled))
             .transpose()?,
@@ -404,6 +465,11 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
     {
         return Err(invalid().into());
     }
+    if (T::BRANCH == WorldRuleCompositeBranchV1::EmergencySupply)
+        != parent.emergency_lifecycle.is_some()
+    {
+        return Err(invalid().into());
+    }
     let record = witness.record();
     let _phase = branch_transition_preflight_v1(parent, record, ctx)?;
     let carrier = ctx
@@ -443,8 +509,24 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         scan,
         work,
     )?;
+    let requests_result = requests_result::update::<T, _, _, _, _>(
+        parent.requests_result.as_ref(),
+        parent.body(),
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
     let industrial_directory = industrial_directory::update::<T, _, _, _, _>(
         parent.industrial_directory.as_ref(),
+        parent.body(),
+        body.as_deref(),
+        ctx,
+        scan,
+        work,
+    )?;
+    let emergency_lifecycle = lifecycle_emergency::update::<T, _, _, _, _>(
+        parent.emergency_lifecycle.as_ref(),
         parent.body(),
         body.as_deref(),
         ctx,
@@ -459,7 +541,9 @@ pub(crate) fn accept_world_rule_branch_verified_v1<
         class: ctx.values.class,
         continuity_scope,
         continuity_contracts,
+        requests_result,
         industrial_directory,
+        emergency_lifecycle,
         _type: PhantomData,
     }))
 }
@@ -474,12 +558,18 @@ mod tests;
 #[path = "incremental_world_rule_composite_orders_current.rs"]
 mod orders_current;
 pub use orders_current::{
+    replace_current_industrial_order_v1,
     AgentOrderDirectoryWorkV1, CurrentAgentOrderIndexV1, CurrentAgentOrdersV1,
     bind_current_agent_orders_v1, collect_changed_agent_order_ids_v1,
     collect_parent_agent_order_ids_v1, read_current_agent_order_index_v1,
     read_current_agent_order_v1, validate_current_agent_orders_v1,
+    mark_current_industrial_order_delivered_v1,
 };
 
 #[path = "incremental_world_rule_continuity_current_scope.rs"]
 mod current_scope;
 pub use current_scope::{CurrentContinuityRiskV1, observe_current_continuity_risk_v1};
+
+#[path = "incremental_world_rule_requests_result_current.rs"]
+mod requests_result_current;
+pub use requests_result_current::{CurrentRequestsResultSourcesV1,observe_current_requests_result_sources_v1};

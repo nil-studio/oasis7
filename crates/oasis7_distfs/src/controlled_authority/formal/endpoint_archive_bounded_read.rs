@@ -123,6 +123,19 @@ pub struct FormalArchiveReadOwnerV1 {
     meter_id: WorkIdentityV1,
 }
 impl FormalArchiveReadOwnerV1 {
+    /// Private DATA-only move for the fixed native checkpoint reader. The
+    /// original Ordinary byte reservation remains attached, and the producer's
+    /// actual Common identity is checked before any field is moved.
+    pub(in crate::controlled_authority::formal::endpoint) fn into_native_bytes_v1(
+        self,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<Vec<u8>>, FormalError> {
+        common.consume_steps(1)?;
+        if self.meter_id != common.work().identity() || !self.uses_budget(common.memory()) {
+            return Err(invalid("native archive bytes foreign context"));
+        }
+        Ok(self.bytes)
+    }
     pub fn as_slice(&self) -> &[u8] {
         self.bytes.as_slice()
     }

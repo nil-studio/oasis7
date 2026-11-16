@@ -482,41 +482,7 @@ impl World {
         candidate: &Value,
         now: u64,
     ) -> Result<(), String> {
-        let c: SafeAlternativeCommandV1 =
-            serde_json::from_value(r["binding"].clone()).map_err(|_| "outcome_unknown")?;
-        let identity = self
-            .current_agent_identity(&c.agent_id)
-            .ok_or("authority_changed")?;
-        let binding = self
-            .current_cognition_runtime_binding()
-            .map_err(|_| "authority_changed")?;
-        let owner = self
-            .current_agent_owner(&c.agent_id)
-            .ok_or("authority_changed")?;
-        if !self.state.module_instances.is_empty() || !self.module_registry.active.is_empty() {
-            return Err("evaluation_unavailable".into());
-        }
-        super::incremental_safe_alternative_scope::validate_scope_state_v1(
-            r,
-            candidate,
-            &c,
-            &super::incremental_safe_alternative_scope::SafeAlternativeScopeStateV1 {
-                identity: &identity,
-                runtime_world: &binding.world_id,
-                runtime_branch: &binding.branch_id,
-                runtime_reorg: binding.reorg_epoch,
-                owner_binding: &owner.player_id,
-                owner_public_key: crate::service_admission::agent_authority::owner_public_key(
-                    self,
-                    &c.agent_id,
-                )
-                .ok()
-                .as_deref(),
-                position: self.state.agents.get(&c.agent_id).map(|a| &a.state.pos),
-                forbidden: &self.state.gameplay_policy.forbidden_location_ids,
-            },
-            now,
-        )
+        readonly::legacy(self,r,candidate,now)
     }
 
     pub(super) fn install_safe_alternative_queue(&mut self, previous: Option<&Value>, r: &Value) {
@@ -625,3 +591,6 @@ impl World {
 #[cfg(test)]
 #[path = "safe_alternative_tests.rs"]
 mod tests;
+
+#[path="safe_alternative_readonly.rs"]
+pub(in crate::world) mod readonly;

@@ -55,8 +55,25 @@ pub fn game_task_result_matches(
 pub fn game_task_result_lookup(
     result: &CanonicalIntentResultV1,
 ) -> Result<Option<GameTaskControlLookupV1>, String> {
+    let Some((agent, owner, generation, key, world, genesis, branch, epoch)) = game_task_result_scope_data_v1(result) else { return Ok(None) };
+    Ok(Some(GameTaskControlLookupV1 {
+        agent_id: agent.to_owned(),
+        owner_binding: owner.to_owned(),
+        owner_generation: generation,
+        owner_public_key_digest: digest_text("owner-public-key", key)?,
+        world_id: world.to_owned(),
+        genesis_digest: genesis.to_owned(),
+        branch_id: branch.to_owned(),
+        reorg_epoch: epoch,
+    }))
+}
+
+/// Borrowed original signed task scope. This is DATA; it performs no receipt,
+/// Current owner or archive admission. Both original owned lookup and paid
+/// consumers use this one variant dispatcher.
+pub fn game_task_result_scope_data_v1(result:&CanonicalIntentResultV1)->Option<(&str,&str,u64,&str,&str,&str,&str,u64)>{
     use crate::service_admission::WorldServicePayloadV1;
-    let (agent, owner, generation, key, world, genesis, branch, epoch) =
+    let fields: (&str,&str,u64,&str,&str,&str,&str,u64) =
         match &result.request.signed_payload {
             WorldServicePayloadV1::GameTaskCreate(s) => {
                 let r = &s.request;
@@ -97,16 +114,8 @@ pub fn game_task_result_lookup(
                     r.reorg_epoch.0,
                 )
             }
-            _ => return Ok(None),
+            _ => return None,
         };
-    Ok(Some(GameTaskControlLookupV1 {
-        agent_id: agent.clone(),
-        owner_binding: owner.clone(),
-        owner_generation: generation,
-        owner_public_key_digest: digest_text("owner-public-key", key)?,
-        world_id: world.clone(),
-        genesis_digest: genesis.clone(),
-        branch_id: branch.clone(),
-        reorg_epoch: epoch,
-    }))
+    Some(fields)
 }
+
