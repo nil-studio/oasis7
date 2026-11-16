@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "d5566c765b1397c9b03c0a8a086c303f5a439d7e4485b371153de44362439029",
+      "producer_recipe_hash": "bf144131f420567d414117608dc9cfc7f09ae782555adf42802347a096f58ec1",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -52,12 +52,12 @@
         {
           "kind": "source-file",
           "path": "Cargo.lock",
-          "sha256": "dea099c977f6b96e59215ae5f5fd945c1a902e111abbbcd7c2642692c4c95bb5"
+          "sha256": "dda285cd037be08055ee9ad60ee26b394e30a257a3e12e347fe091fa01a351a4"
         },
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
+          "sha256": "c321f2ba2be69810a2330ca617f9ede42c34f2f92932d97d06264b8ed3e9908a"
         },
         {
           "kind": "source-file",
@@ -161,14 +161,14 @@
     {
       "module_id": "m5.gameplay.crisis.cycle",
       "hash_tokens": [
-        "linux-x86_64=401b1e9ca5bc131bdbc37986dff6f89f82d735b24676fbb7f16956073590c29d"
+        "linux-x86_64=9ae6d60c727e1318a03cedca29671c8c0482cf663579259a7c776ed73bdae217"
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
+          "sha256": "c321f2ba2be69810a2330ca617f9ede42c34f2f92932d97d06264b8ed3e9908a"
         },
         {
           "kind": "source-file",
@@ -196,21 +196,21 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "8a83a54831a1558dfc6aa08d8ea59cc6208bebf9690cc69897ff918284ab7730",
-      "build_manifest_hash": "fff1c864efd30a99e8c8e76f62ddbb2dbe0524d83f6912d56c300479f1039a8f",
-      "identity_hash": "859b2e13adb1be283c1bc214b7f906956f03ea50a02039e0d639064a00ce4921"
+      "source_hash": "9a3e0f4ba172c92fc3c5ec0d2c4a2865cb7b1f653bd9f8bc90df3c33f3aba321",
+      "build_manifest_hash": "749b024f2d5c1da248531549430240d23a58c1dc3b0dbec2d114ea56f916fe90",
+      "identity_hash": "fa83bcfec60232dde5ba73f5792b8e6d56a399488f0b6e988f7c2bc3135938a7"
     },
     {
       "module_id": "m5.gameplay.economic.overlay",
       "hash_tokens": [
-        "linux-x86_64=af5288205fe105f0ba758978aab77a7e918c97ad423fb2aa5c76041a4f557a98"
+        "linux-x86_64=68b9ca20ee218b106d0ddd6cc075a1638888dd49ee78ab1234e4e56e8714a610"
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
+          "sha256": "c321f2ba2be69810a2330ca617f9ede42c34f2f92932d97d06264b8ed3e9908a"
         },
         {
           "kind": "source-file",
@@ -238,21 +238,21 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "3d1dec7dba648f5f36185875aeb0f92979b2b309570b04c313eaf3845081a35b",
-      "build_manifest_hash": "fff1c864efd30a99e8c8e76f62ddbb2dbe0524d83f6912d56c300479f1039a8f",
-      "identity_hash": "efd81ddd24b7a092d287923e04112dbea32cb59843181e14ae7f764f52a5866b"
+      "source_hash": "b91f6d5ef12b117cf02045ed115ef25d6279d8cf3d45ee282da098ffbcb529f7",
+      "build_manifest_hash": "749b024f2d5c1da248531549430240d23a58c1dc3b0dbec2d114ea56f916fe90",
+      "identity_hash": "403676771b0ce74aee85f19921c0b7a8423344871bbf8e3c770a45fc8c9e2938"
     },
     {
       "module_id": "m5.gameplay.governance.council",
       "hash_tokens": [
-        "linux-x86_64=8af85bc2081edb591f46ad2498562af89d2b4d0100fa8b4b7732921acb111a51"
+        "linux-x86_64=138fde3a04ca88c3b99fdbe099e81410782b9adcd40d73a6158c8ffa88b2505f"
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
+          "sha256": "c321f2ba2be69810a2330ca617f9ede42c34f2f92932d97d06264b8ed3e9908a"
         },
         {
           "kind": "source-file",
@@ -280,21 +280,21 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "aa5caadbec8d80b4d6775915656cbff9e8b621c62224071bbd6376c1a4f6f9c8",
-      "build_manifest_hash": "fff1c864efd30a99e8c8e76f62ddbb2dbe0524d83f6912d56c300479f1039a8f",
-      "identity_hash": "360087076f994602151bb73e6af85170b139f57c8679990bb80a8b61fd2ed7cc"
+      "source_hash": "5c58278124e5e0524119691ed30cafc7198522813ed3ca6e1f299ec83f163eb2",
+      "build_manifest_hash": "749b024f2d5c1da248531549430240d23a58c1dc3b0dbec2d114ea56f916fe90",
+      "identity_hash": "0821a889d5ee6e16db201500694fe35cede5e49ac89806530abffd1fba2f9021"
     },
     {
       "module_id": "m5.gameplay.meta.progression",
       "hash_tokens": [
-        "linux-x86_64=1167c37538477b4df5c39f98061539179834571a215cba877bf32636ed7fd9ba"
+        "linux-x86_64=c3cf0e1d939b386c194479a3b086891943f3c176d105c4358fc20a7195cca06e"
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
+          "sha256": "c321f2ba2be69810a2330ca617f9ede42c34f2f92932d97d06264b8ed3e9908a"
         },
         {
           "kind": "source-file",
@@ -322,21 +322,21 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "de459cf1d0c048333e6234c190d7b7ee93fc6700b186999771127c7915310837",
-      "build_manifest_hash": "fff1c864efd30a99e8c8e76f62ddbb2dbe0524d83f6912d56c300479f1039a8f",
-      "identity_hash": "29253eef8bfb988d839bf51acdaf5843b79fb613f2889d4d9c4f1d77c48c8cfa"
+      "source_hash": "5ffb214e2d3a059d68f1a141ab0762ccb8e7389b410ace3cce457b1b23a1a49a",
+      "build_manifest_hash": "749b024f2d5c1da248531549430240d23a58c1dc3b0dbec2d114ea56f916fe90",
+      "identity_hash": "aacd3833315a7f834b967d2681a5490df8a89784829e1ea8ee4928b3056a35f8"
     },
     {
       "module_id": "m5.gameplay.war.core",
       "hash_tokens": [
-        "linux-x86_64=cb104a9664952eee1d1f39e687080b0afb6b5624fd3ed3c273ed2eaf998ce7cf"
+        "linux-x86_64=1170a165ef25658f4f1f89520f9ceef7b0c179e1c9e408a5efe5610312f45880"
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "e33ffb5a2a3b5505aee660cde5bb354cd40150c57cfa44f5c7f930c1a30f68a5"
+          "sha256": "c321f2ba2be69810a2330ca617f9ede42c34f2f92932d97d06264b8ed3e9908a"
         },
         {
           "kind": "source-file",
@@ -364,9 +364,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "7a2f8ee1414a43bb3b1704e17e62e68d421b0b31f074349d1b1ddffefa06371b",
-      "build_manifest_hash": "fff1c864efd30a99e8c8e76f62ddbb2dbe0524d83f6912d56c300479f1039a8f",
-      "identity_hash": "6f23955797f12d0a9a773922e917384f75601d30591193d4d4540e2315228fc2"
+      "source_hash": "fcd4de51e2757d43228199ffda33f824cc1446db64247bc4a08d62c25f89198f",
+      "build_manifest_hash": "749b024f2d5c1da248531549430240d23a58c1dc3b0dbec2d114ea56f916fe90",
+      "identity_hash": "268603b7c6938117bc7aa538a1db0deded8a10a1638a96d9351fe8c8c2e2299d"
     }
   ]
 }
