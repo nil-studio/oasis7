@@ -617,7 +617,7 @@ mod action_body {
         }
     }
 }
-#[path = "incremental_module_execution_rule_phase_tests.rs"]
+#[path = "incremental_module_execution_rule_phase_fixture_run.rs"]
 mod rule_cases;
 #[path = "incremental_rule_core_test_runner.rs"]
 mod runner;

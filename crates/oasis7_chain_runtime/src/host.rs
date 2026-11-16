@@ -1178,7 +1178,7 @@ pub fn native_bound_worker_main_v1() -> Result<(), &'static str> {
     }
 }
 
-#[cfg(feature = "native-worker-test-support")]
+#[cfg(feature = "test-support")]
 pub fn native_worker_fixture_capture_v1(path: Option<&std::path::Path>) -> Result<Vec<u8>, String> {
     #[cfg(target_os = "linux")]
     {
@@ -1191,7 +1191,7 @@ pub fn native_worker_fixture_capture_v1(path: Option<&std::path::Path>) -> Resul
     }
 }
 
-#[cfg(feature = "native-worker-test-support")]
+#[cfg(feature = "test-support")]
 pub fn native_worker_fixture_main_v1() -> Result<(), &'static str> {
     #[cfg(target_os = "linux")]
     {

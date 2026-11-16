@@ -76,9 +76,12 @@ node-libp2p = ["dep:oasis7_executable_image", "oasis7_node/libp2p", "dep:oasis7_
 wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
-native-worker-test-support = ["node-libp2p"]
+# Explicit fixture APIs and the DistFS fixture library; never enabled by default.
+test-support = ["node-libp2p", "oasis7_distfs/test-support"]
+# Keep existing worker target and binary commands on the same fixture API contract.
+native-worker-test-support = ["test-support"]
 # Heavy Linux GEN/Host integration with the actual libraries and current worker ELF.
-iws-host-native-test-support = ["native-worker-test-support", "wasmtime"]
+iws-host-native-test-support = ["test-support", "native-worker-test-support", "wasmtime"]
 
 [dev-dependencies]
 oasis7_distfs = { path = "../oasis7_distfs", features = ["test-support"] }

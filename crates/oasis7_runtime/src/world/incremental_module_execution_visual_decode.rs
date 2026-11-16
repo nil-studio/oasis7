@@ -47,9 +47,11 @@ fn inventory() -> bool {
         {
             return false;
         }
+        // 240e8ac28 moved only Serialize into the projection module. The
+        // original Deserialize fields, tags, defaults and sanitizer are intact.
         let expected_world_entity: [u8; 32] = [
-            12, 100, 17, 221, 197, 180, 6, 136, 32, 69, 181, 168, 220, 117, 64, 11, 128, 213, 137,
-            9, 86, 47, 45, 103, 190, 101, 1, 113, 156, 192, 177, 40,
+            136, 11, 8, 170, 92, 190, 143, 30, 192, 251, 31, 243, 169, 161, 89, 17, 151, 62,
+            62, 166, 160, 87, 195, 252, 160, 195, 97, 84, 60, 123, 26, 228,
         ];
         if digest(include_bytes!(
             "../../../oasis7_agent_api/src/world_entity.rs"
