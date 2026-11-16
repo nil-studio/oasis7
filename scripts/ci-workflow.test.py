@@ -1754,7 +1754,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
 
     def test_ordinary_cargo_concurrency_is_limited_only_at_the_build_step(self):
-        self.assertEqual(WORKFLOW.count('CARGO_BUILD_JOBS:'), 1)
+        self.assertEqual(WORKFLOW.count('CARGO_BUILD_JOBS:'), 2)
         for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
             job = JOBS[name]
             build = job.split('      - name: Build ordinary test artifacts\n', 1)[1].split('      - ', 1)[0]
