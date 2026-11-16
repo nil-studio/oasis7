@@ -1013,3 +1013,6 @@ mod failover_tests;
 
 #[path = "formal_full_sync_grant_reconcile_tests.rs"]
 mod grant_reconcile_tests;
+
+#[path = "formal_full_sync_provider_budget_tests.rs"]
+mod provider_budget_tests;

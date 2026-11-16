@@ -18,6 +18,9 @@ use std::{
     sync::Arc,
 };
 
+#[path = "formal_live_survivor_next_request_tests.rs"]
+mod next_request_tests;
+
 pub(in super::super) struct SurvivorResources {
     pub primary_child: super::EndpointChild,
     pub replica_child: super::EndpointChild,
@@ -472,6 +475,15 @@ pub(in super::super) fn run(
             "survivor_before_reopen",
         )?;
     }
+    next_request_tests::submit_after_recovery(
+        config,
+        owner,
+        world,
+        request,
+        original_ref
+            .as_ref()
+            .ok_or("survivor original result missing")?,
+    )?;
     Ok(())
 }
 fn reference_to_head(reference: &oasis7_client_api::world_service::CommitRef) -> FormalHeadRefV1 {
