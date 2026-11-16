@@ -28,7 +28,7 @@ manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 
 
 Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。只增加 `rust-repo/default=baseline` 即可允许已授权的每日或手动验收，不能将全局 observe 改回 baseline 而停掉其他语言的 PR 扫描。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
 
-该场景使用固定 CodeQL 2.27.4 Rust bundle 和隔离的 `qualifier-lines-constraint-matching-v6`，保持官方原始 37 项默认查询。核对生产 prepare/run 的最终 variant、v3/v5 中间快照和原层级收据、独立 v6 收据及两个私有库的前后完整身份；实际 37 条解析须在 14 项依赖中选择 `candidate-rust-all` 和真实 v6 `candidate-typeinference`，不能只看 search path 或版本标签。旧 v2/v3/v5 准备及研究 v7 准备不得恢复为生产 v6，研究的 `candidate-target-typeinference` 不进入生产 closure。官方 Action 负责初始化与提取，生产 helper 校验实际闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security；不加入研究七项见证或性能观察器。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
+该场景使用固定 CodeQL 2.27.4 Rust bundle 和独立固定的 `qualifier-lines-constraint-target-qualified-v7`，保持官方原始 37 项默认查询。核对生产 prepare/run 的最终 variant、真实 v6 base_variant、v3/v5 中间快照和原层级收据、独立 v6/target 收据及三棵私有库的前后完整身份；实际 37 条解析须在 14 项依赖中选择 `candidate-rust-all` 和 `candidate-target-typeinference`，同时保留并核验真实 v6 `candidate-typeinference`，不能只看 search path 或版本标签。target 收据重新关联 v6 全树及原收据摘要，官方/v6/target 的普通文件完整权限位也须前后一致。旧 v2/v3/v5/v6 生产准备及研究 preparation 不得改标签恢复为生产 v7；实际 shared 解析回退 v6 或官方根均拒绝。官方 Action 负责初始化与提取，生产 helper 校验实际闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security；不加入研究七项见证或性能观察器。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
 
 首次验收同时检查独立的 `oasis7-codeql-rust-production-*` artifact：工具和修补身份、当前 checkout 的 manifest/锁观察、实际 Cargo 解析、完整查询结果及覆盖诊断。`production-run.json` 的执行成功不代表覆盖通过；coverage 的 REVIEW/UNKNOWN、WASM 或源码归属缺口继续记录。该 artifact 与只包含 `evidence.json` 的上传关联 artifact 分开，后者仍用于唯一 SARIF/platform analysis 关联。只有覆盖及运营验收闭合后才将该批次声明为已验收日频基线。
 
@@ -237,9 +237,9 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选
 
 随后读取 `target-qualified-identity.json`，核对真实 v6 全树、上述原收据摘要、§7.2.4 固定的 2878 字节 target-qualified 补丁及 target 全树。`candidate-target-typeinference` 必须从已验证的 v6 完整复制，只把同一 shared 文件变为 `8f8a…`，保留文件集合和 mode；原 `candidate-typeinference` 仍是 `8b32…`。旧快照的 `mode` 仍为 Git 执行位；新 target 收据另核对官方 shared、v6 和 target 各普通库文件的 `st_mode & 0o7777` 三方一致，不据此推定目录权限或 uid/gid 已检查。研究 prepare/run、恢复、`finally` 与 `private_inputs` 必须同时检查两棵 shared 树，恢复重新验证 v6 后才验证 target。44条实际 closure 只选择既有 `candidate-rust-all` 与新的 target shared 根；所选两包相对官方仍只允许三个 Rust 文件和一个 shared 文件变化。缺身份、改写或伪造基线、旧研究 variant、target 回退 v6/官方根或其他差异均拒绝，即使重新封口也不放行。
 
-旧 v5 超时事实保留在 [#4989](https://github.com/nil-studio/oasis7/issues/4989)，旧版本收据不代签 v7 研究；生产按 §7.2.6 保持 v6，v3 中间层、旧 qualifier 对照与 WASM helper 保持各自固定合同。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+旧 v5 超时事实保留在 [#4989](https://github.com/nil-studio/oasis7/issues/4989)，旧版本收据不代签 v7 研究；生产按 §7.2.6 独立固定 v7 最终身份及真实 v6 基线，v3 中间层、旧 qualifier 对照与 WASM helper 保持各自固定合同。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
 
-开发接线按 [CLI server 生命周期](codeql-integration.design.md#728-候选与生产解析准备的-cli-server-生命周期)复用真实 44+37 解析门：研究 44 条选 v7 target 根，生产 37 条选真实 v6 根；准备、解析、双树复核和封存共用一次本地 600 秒窗口，保持独立 work/cache。本地解析子进程固定 `CODEQL_THREADS=2`、`CODEQL_RAM=3072` 和 `JAVA_TOOL_OPTIONS=-Xmx3072m -XX:ActiveProcessorCount=2`；`resolve` 不接受 `--threads`/`--ram` CLI 参数，环境请求和 JVM 堆设置不能表述为 RSS 硬上限。该门不创建数据库、不编译或求值，不替代原双 fixture 语义回归；它的 600 秒总窗也不是上述 hosted job 的 600 秒收尾预留。
+开发接线按 [CLI server 生命周期](codeql-integration.design.md#728-候选与生产解析准备的-cli-server-生命周期)复用真实 44+37 解析门：研究 44 条和生产 37 条分别选择各自私有的 v7 target 根，并保留各自真实 v6 基线；准备、解析、双树复核和封存共用一次本地 600 秒窗口，保持独立 work/cache。本地解析子进程固定 `CODEQL_THREADS=2`、`CODEQL_RAM=3072` 和 `JAVA_TOOL_OPTIONS=-Xmx3072m -XX:ActiveProcessorCount=2`；`resolve` 不接受 `--threads`/`--ram` CLI 参数，环境请求和 JVM 堆设置不能表述为 RSS 硬上限。该门不创建数据库、不编译或求值，不替代原双 fixture 语义回归；它的 600 秒总窗也不是上述 hosted job 的 600 秒收尾预留。
 
 在仓库根使用以下唯一入口，先将示例路径替换为已固定的 CodeQL 2.27.4 可执行文件和全新输出目录的绝对路径。`OASIS7_CODEQL_BINDING_OUTPUT` 必填，目标目录不得已存在、父目录必须存在，且与仓库及 bundle 根互不包含；不同时启用 standalone production 测试：
 

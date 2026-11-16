@@ -26,10 +26,11 @@ SCHEMA = 'oasis7-codeql-rust-production/v1'
 CAP = 256 * 1024**2
 CLOSEOUT_SECONDS = 90
 MODE = 'rust-default-production'
-PRODUCTION_VARIANT = 'qualifier-lines-constraint-matching-v6'
+PRODUCTION_BASE_VARIANT = 'qualifier-lines-constraint-matching-v6'
+PRODUCTION_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
 LIBRARY_RECEIPTS = ('arity-patch-identity.json', 'lines-model-identity.json',
                     'shared-helper-identity.json', 'trait-visibility-identity.json',
-                    'constraint-matching-identity.json')
+                    'constraint-matching-identity.json', 'target-qualified-identity.json')
 
 
 def read_json(path, limit=16 * 1024**2):
@@ -71,7 +72,7 @@ def identity(args):
                 codeql=str(args.codeql), database=str(args.database), work=str(args.work),
                 output=str(args.output), sarif=str(args.sarif), analysis_deadline=args.analysis_deadline,
                 bundle_version=VERSION, bundle_sha256=capacity.bundle.BUNDLES[VERSION]['sha256'],
-                variant=PRODUCTION_VARIANT, pack=PACK, category=CATEGORY)
+                variant=PRODUCTION_VARIANT, base_variant=PRODUCTION_BASE_VARIANT, pack=PACK, category=CATEGORY)
 
 
 def production_budget(args):
@@ -184,18 +185,21 @@ def query_options(closure, work, prefix):
 
 
 def check_library_variant():
-    if candidate.WORKLOAD_VARIANT != PRODUCTION_VARIANT:
-        raise RuntimeError('production library variant differs from the fixed v6')
+    if candidate.WORKLOAD_VARIANT != PRODUCTION_BASE_VARIANT:
+        raise RuntimeError('production baseline library variant differs from the fixed v6')
+    if candidate.RESEARCH_VARIANT != PRODUCTION_VARIANT:
+        raise RuntimeError('production target library variant differs from the fixed v7')
 
 
 def prepare_libraries(args, official_closure, run):
-    """Build the same v3/v5/v6 identities with this production runner and deadline."""
+    """Retain the real v6 base and build the fixed target with one production deadline."""
     check_library_variant()
     candidate.prepare_candidate(official_closure, args.work, args.output, run.end, run, copy_end=run.end)
     candidate.prepare_shared_helper(official_closure, args.work, args.output, run.end, run, copy_end=run.end)
     candidate.prepare_trait_visibility(official_closure, args.work, args.output, run.end, run)
     candidate.prepare_constraint_matching(official_closure, args.work, args.output, run.end, run)
-    return candidate.workload_closure(official_closure, args.work)
+    candidate.prepare_target_qualified(official_closure, args.work, args.output, run.end, run)
+    return candidate.research_closure(official_closure, args.work)
 
 
 def resolve_queries(args, records, closure, run):
@@ -213,10 +217,13 @@ def resolve_queries(args, records, closure, run):
 
 
 def input_snapshot(args, official_closure, end):
+    shared = candidate.regular_snapshot(args.work / 'candidate-typeinference', end)
     return dict(official={name: candidate.regular_snapshot(Path(pack['root']), end)
                           for name, pack in sorted(official_closure.items())},
                 repaired_library=candidate.regular_snapshot(args.work / 'candidate-rust-all', end),
-                repaired_shared_library=candidate.regular_snapshot(args.work / 'candidate-typeinference', end),
+                repaired_shared_library=shared,
+                target_shared_library=candidate.regular_snapshot(args.work / 'candidate-target-typeinference', end),
+                shared_file_permissions=candidate.target_file_permissions(official_closure, args.work, shared, end),
                 query_pack=candidate.regular_snapshot(args.work / 'default-queries', end),
                 library_receipts={name: capacity.digest_until(args.output / name, end) for name in LIBRARY_RECEIPTS})
 
@@ -319,9 +326,9 @@ def check_prepared(args, end):
     if actual != original_closure:
         raise RuntimeError('production official dependency identity differs')
     closure = read_json(args.output / 'selected-closure.json')
-    if closure != candidate.workload_closure(original_closure, args.work):
+    if closure != candidate.research_closure(original_closure, args.work):
         raise RuntimeError('production repaired dependency selection differs')
-    candidate.verify_workload_identity(original_closure, args.work, args.output, end)
+    candidate.verify_target_qualified_identity(original_closure, args.work, args.output, end)
     if input_snapshot(args, original_closure, end) != read_json(args.output / 'input-identities.json'):
         raise RuntimeError('production query or library bytes changed')
     records = read_json(args.output / 'queries.json')
