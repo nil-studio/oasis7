@@ -1,7 +1,6 @@
 use super::*;
 use oasis7_formal_protocol::{
     incremental_execution::RootSetV1,
-    incremental_state::STATE_MAX_PAGE_BYTES,
     incremental_value::{ValueIoBudget, ValueNodeWriter},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
@@ -9,7 +8,6 @@ use oasis7_world_state::{
     incremental_field_member::MemberRecordLimitsV1,
     incremental_module_state_recovery::ModuleStateContentBudgetV1,
     incremental_semantic_key::SemanticKeyBudget,
-    incremental_world_current_complete::WorldCurrentStateWorkV1,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
 use std::{
@@ -70,32 +68,9 @@ fn work() -> RuntimeGenesisWorkV1 {
         },
     }
 }
-// Each complete-field pass may visit a full 256-bit SMT path plus its leaf.
-// Derive finite scan allowances from the actual roots and the 97 native / 46
-// runtime fields asserted by this GEN fixture; leave every other limit alone.
-fn set_current_fixture_outer_scan_work(roots: &RootSetV1, work: &mut WorldCurrentStateWorkV1) {
-    let leaves = roots
-        .state
-        .iter()
-        .try_fold(0u64, |sum, root| sum.checked_add(root.leaf_count))
-        .unwrap();
-    let native = leaves
-        .checked_mul(257)
-        .and_then(|n| n.checked_mul(97))
-        .unwrap();
-    let runtime = leaves
-        .checked_mul(257)
-        .and_then(|n| n.checked_mul(46))
-        .unwrap();
-    work.native_outer_scan.nodes_remaining = native;
-    work.native_outer_scan.read_bytes_remaining =
-        native.checked_mul(STATE_MAX_PAGE_BYTES as u64).unwrap();
-    work.native_outer_scan.leaves_remaining = leaves.checked_mul(97).unwrap();
-    work.runtime.outer_scan.nodes_remaining = runtime;
-    work.runtime.outer_scan.read_bytes_remaining =
-        runtime.checked_mul(STATE_MAX_PAGE_BYTES as u64).unwrap();
-    work.runtime.outer_scan.leaves_remaining = leaves.checked_mul(46).unwrap();
-}
+#[path = "incremental_current_fixture_work.rs"]
+mod current_fixture_work;
+use current_fixture_work::set_current_fixture_outer_scan_work;
 #[test]
 fn runtime_whole_genesis_streams_all_native_and_runtime_fields_with_original_actions() {
     let memory = MemoryBudget::new(512 << 20, 16 << 20).unwrap();
@@ -193,7 +168,7 @@ fn runtime_whole_genesis_streams_all_native_and_runtime_fields_with_original_act
             },
         )
         .unwrap();
-    assert_eq!(result.typed.world_state.native_fields, 97);
+    assert_eq!(result.typed.world_state.native_fields, 98);
     assert_eq!(result.typed.runtime_fields, 46);
     assert_eq!(result.typed.cognition_fields, 9);
     assert_eq!(

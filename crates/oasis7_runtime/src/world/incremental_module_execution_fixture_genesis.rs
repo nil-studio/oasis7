@@ -16,6 +16,8 @@ use oasis7_world_state::{
     incremental_world_raw_complete::*,
 };
 use std::sync::Arc;
+#[path = "incremental_current_fixture_work.rs"]
+mod current_fixture_work;
 
 pub(super) struct Fixture<'a> {
     pub memory: &'a MemoryBudget,
@@ -182,7 +184,7 @@ pub(super) fn build<'a>(
     let objects = Objects::new(memory);
     let mut rows = Vec::new();
     let mut pending_original_work = canonical();
-    world
+    let summary = world
         .prepare_iws_genesis_v1(
             &mut member(&mut cas, memory, &mut io(), &mut keys(), || false),
             &mut super::runtime_genesis_work(),
@@ -224,6 +226,8 @@ pub(super) fn build<'a>(
             },
         )
         .unwrap();
+    assert_eq!(summary.typed.world_state.native_fields, 98);
+    assert_eq!(summary.typed.runtime_fields, 46);
     // All five actual retained owners are empty in this fresh initialized world.
     let retained = world.borrow_iws_runtime_history_v1();
     assert!(retained.snapshot_catalog.records.is_empty());
@@ -505,6 +509,6 @@ pub(super) fn current_work(roots: &RootSetV1) -> WorldCurrentStateWorkV1 {
     // before encoding, so keep this limit independent from the larger
     // logical state/record limits used by the complete-Q fixture.
     work.runtime.pending.original.canonical.max_key_bytes = 4096;
-    super::super::set_current_fixture_outer_scan_work(roots, &mut work);
+    current_fixture_work::set_current_fixture_outer_scan_work(roots, &mut work);
     work
 }
