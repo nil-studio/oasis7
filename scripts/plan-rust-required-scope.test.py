@@ -3918,6 +3918,53 @@ class Selection(unittest.TestCase):
         with self.assertRaises(selector.TestPolicyError):
             selector.select(config, base, self.commit(), profile='pr-fast')
 
+    def test_net_default_lib_driver_proves_unix_and_default_libp2p_only(self):
+        config = self.fast_config()
+        config['groups'].append('net')
+        config['resources']['net'] = []
+        config['package_groups']['oasis7_net'] = ['net']
+        self.write('crates/oasis7_net/Cargo.toml',
+                   '[package]\nname="oasis7_net"\nversion="0.1.0"\n'
+                   '[features]\ndefault=["self_tests","libp2p"]\n'
+                   'self_tests=[]\nlibp2p=[]\noptional_lane=[]\ntest_tier_full=[]\n')
+        self.write('crates/oasis7_net/src/lib.rs',
+                   '#[cfg(all(feature="libp2p", not(target_arch="wasm32")))] mod transport;\n')
+        self.write('crates/oasis7_net/src/transport.rs',
+                   '#[cfg(all(test, unix))] mod receiver;\n')
+        path = 'crates/oasis7_net/src/transport/receiver.rs'
+        self.write(path, '#![cfg(all(test, unix))]\n#[test] fn original() {}\n')
+        base = self.commit()
+        added = '#![cfg(all(test, unix))]\n#[test] fn original() {}\n#[test] fn recovery() {}\n'
+        self.write(path, added)
+        head = self.commit()
+        with patch.object(selector, 'NATIVE_DEFAULT_TEST_PACKAGES',
+                          selector.NATIVE_DEFAULT_TEST_PACKAGES - {'oasis7_net'}):
+            with self.assertRaises(selector.TestPolicyError):
+                selector.select(config, base, head, profile='pr-fast')
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertIn('net', plan['groups'])
+        for expression in ('windows', 'target_os="windows"', 'feature="optional_lane"',
+                           'feature="test_tier_full"', 'feature="undeclared"'):
+            with self.subTest(expression=expression):
+                self.write(path, added + f'#[cfg({expression})] #[test] fn unsupported() {{}}\n')
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_net_default_lib_driver_does_not_authorize_unexecuted_binary(self):
+        config = self.fast_config()
+        config['groups'].append('net')
+        config['resources']['net'] = []
+        config['package_groups']['oasis7_net'] = ['net']
+        self.write('crates/oasis7_net/Cargo.toml',
+                   '[package]\nname="oasis7_net"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_net/src/lib.rs', '')
+        path = 'crates/oasis7_net/src/bin/unexecuted.rs'
+        self.write(path, 'fn main() {}\n')
+        base = self.commit()
+        self.write(path, 'fn main() {}\n#[cfg(unix)] #[test] fn unexecuted() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
     def native_default_integration_fixture(self, package_settings='', declarations=''):
         config = self.fast_config()
         config['groups'].append('distfs')
