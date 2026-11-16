@@ -210,3 +210,46 @@ fn cancelled_zero_memory_and_foreign_core_never_release_a_bare_commit() {
     drop(paid);
     assert_eq!(memory.used(), 0);
 }
+
+#[test]
+fn partial_work_cancellation_and_exhaustion_release_all_temporary_reservations() {
+    let (proof, candidate, context) = fixture();
+    // Sweep cancellation through allocation, encoding and cryptographic work.
+    for threshold in [2, 8, 32, 128, 512] {
+        let memory = memory();
+        let work = work();
+        let mut calls = 0;
+        let mut stop = || {
+            calls += 1;
+            calls >= threshold
+        };
+        let result = verify_genesis_qualified_bounded(
+            &proof,
+            &candidate,
+            &context,
+            &mut FormalBoundedContextV1::new(&memory, &work, &mut stop),
+        );
+        assert!(result.is_err(), "cancellation threshold {threshold}");
+        assert_eq!(memory.used(), 0, "cancellation threshold {threshold}");
+    }
+    for (steps, bytes) in [
+        (0, 128 << 20),
+        (128, 128 << 20),
+        (10_000_000, 0),
+        (10_000_000, 4096),
+    ] {
+        let memory = memory();
+        let work = FormalBoundedWorkV1::new(steps, bytes).unwrap();
+        let mut stop = || false;
+        assert!(
+            verify_genesis_qualified_bounded(
+                &proof,
+                &candidate,
+                &context,
+                &mut FormalBoundedContextV1::new(&memory, &work, &mut stop),
+            )
+            .is_err()
+        );
+        assert_eq!(memory.used(), 0);
+    }
+}

@@ -465,6 +465,9 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
     /// without allocating or reading the parent tree. Every inspected entry,
     /// including unchanged reads, consumes work. This does not seal the overlay
     /// or replace the caller's live-fence check before publication.
+    /// Visits are key-ordered within the selected namespace. Cancellation or
+    /// callback failure stops immediately, retaining consumed entry allowance;
+    /// prior callback effects are not rolled back. The overlay is unchanged.
     pub fn visit_pending_writes<E: From<ExecutionError>>(
         &self,
         namespace: StateNamespaceV1,

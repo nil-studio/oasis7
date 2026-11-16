@@ -1,4 +1,11 @@
 //! Fixed GEN quorum verifier. No caller-supplied verifier/hash callbacks.
+//!
+//! This protocol-only API consumes an already authenticated initial schema-7/9
+//! IWS candidate context. It preserves the original signature domains and CBOR
+//! representation, charging the supplied continuing work/memory budget before
+//! encoding and cloning. Returned owners retain reservations until drop.
+//! Borrowed access does not prevent callers from explicitly cloning legacy DTOs.
+//! No endpoint persistence, accepted-GEN promotion or runtime activation occurs.
 #[path = "proof_genesis_build.rs"]
 mod build;
 use super::*;
