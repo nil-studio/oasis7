@@ -567,7 +567,7 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
         .expect("legacy signature");
         assert_eq!(
             receiver.admit_serialized(&legacy).unwrap(),
-            ReceiverAdmission::Accepted
+            ReceiverAdmission::LegacyV1
         );
         receiver
             .admit_serialized(&signed(&remote, 7, "live"))
