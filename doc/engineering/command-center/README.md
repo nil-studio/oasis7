@@ -32,7 +32,7 @@
 
 2026-10-27 业务接口实现局部核对：cognition 投影解码 [#5140](https://github.com/nil-studio/oasis7/pull/5140)、Game Client 原操作生命周期 [#5146](https://github.com/nil-studio/oasis7/pull/5146)、网络失败类型合同 [#5147](https://github.com/nil-studio/oasis7/pull/5147) 和 Runtime 委托结果/只读重试 [#5149](https://github.com/nil-studio/oasis7/pull/5149) 已合入。验证和兼容边界见各 PR，不代表部署或新增完整玩法验收。WASM 输入闭包 [#5148](https://github.com/nil-studio/oasis7/pull/5148) 仍在实现与构建验证；个人能力/恢复查询 [#5150](https://github.com/nil-studio/oasis7/pull/5150) 的当前源码检查通过，但真实界面验收因受支持入口和 Owner 身份映射前置未满足而阻塞，仍为草稿。其他主题和部署基线不变。
 
-Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
+Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/nil-studio/oasis7/pull/4907) 与 [实现 #4909](https://github.com/nil-studio/oasis7/pull/4909)）：性能设计已合入；有界显示投影、更新合并及公共 WASM 压缩缓存已由 #4909 合入，尚未部署；后续补齐关键语义优先裁剪、标签限制和加载 attempt 预算/实例隔离。完整大世界、受控网络与冷暖加载预算仍未验收，能力范围和剩余条件见[入口性能要求](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)。不改变受限预览与世界准入结论；其他条目核验时点不变。
 
 文档局部收敛（2026-10-12，仅 #4363）：以 `main@e01e29064517f4bf375767a19a09802335828249` 核对首局、首次绑定/首聊及持久权威合同，本次变更补齐下文第 1、2 项的目标设计与验收映射。新增目标尚待实现及适用验收；未取得新的部署或真人结果，其他条目的核验时点不变。
 
@@ -40,7 +40,7 @@ Viewer 性能局部核对（2026-10-19，仅 [设计 #4907](https://github.com/n
 
 <a id="cc-status-core-crate-extraction"></a>
 
-核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853) 与 [后续 #4879](https://github.com/nil-studio/oasis7/issues/4879)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865)、原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871)、完整 Runtime / World Service 及客户端证明消费迁移 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 均已合入，#4853 已关闭；#4873 合入提交为 `177eeb11c17ed2f2da3670b31b0f1d57eaf1190f`。后续 #4879 已通过 [#4882](https://github.com/nil-studio/oasis7/pull/4882) 合入，提供完整 legacy Scheduler 具体合同与独立客户端 profile，并将宿主归档改为内核事件借用视图和稀疏 runtime-event 附属数据，不再长期保留旧内核模型。固定本地负载下恢复后的宿主存活请求分配约降 54%；这是特定 dev profile 的分配器测量，不能推断线上 RSS 降幅。实际合入、完整测试与测量范围仍以该任务及其实现 PR 为准。不将结构拆分提升为新游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。 当前本地候选继续落实 [Viewer 应用与宿主边界](../../../world-simulator/viewer/viewer-minimal-system.design.md#应用与宿主边界)、Runtime/Service 的 CAS/Formal Protocol 直接消费及客户端合同归位，尚未合入。
+核心 crate 局部增量（2026-10-18，仅 [#4853](https://github.com/nil-studio/oasis7/issues/4853) 与 [后续 #4879](https://github.com/nil-studio/oasis7/issues/4879)）：共享 API 与准入归属整理 [#4865](https://github.com/nil-studio/oasis7/pull/4865)、原生 Simulator 与宿主兼容适配 [#4871](https://github.com/nil-studio/oasis7/pull/4871)、完整 Runtime / World Service 及客户端证明消费迁移 [#4873](https://github.com/nil-studio/oasis7/pull/4873) 均已合入，#4853 已关闭；#4873 合入提交为 `177eeb11c17ed2f2da3670b31b0f1d57eaf1190f`。后续 #4879 已通过 [#4882](https://github.com/nil-studio/oasis7/pull/4882) 合入，提供完整 legacy Scheduler 具体合同与独立客户端 profile，并将宿主归档改为内核事件借用视图和稀疏 runtime-event 附属数据，不再长期保留旧内核模型。固定本地负载下恢复后的宿主存活请求分配约降 54%；这是特定 dev profile 的分配器测量，不能推断线上 RSS 降幅。实际合入、完整测试与测量范围仍以该任务及其实现 PR 为准。不将结构拆分提升为新游戏能力、完整 Runtime WASM 执行或部署验收。其他项目及环境的核验时间不变。 当前本地候选继续落实 [Viewer 应用与宿主边界](../../world-simulator/viewer/viewer-minimal-system.design.md#应用与宿主边界)、Runtime/Service 的 CAS/Formal Protocol 直接消费及客户端合同归位，尚未合入。
 
 局部文档更新（2026-10-12，仅 [#4438](https://github.com/eng-cc/oasis7/issues/4438)）：以 `27db6f894bd106e9a4fee9ee3062cd8fd86e1056` 核对 L4 工具链，补齐[构建/驱动、实际 Hosted 会话及结果合同](../../testing/prd.md#l4-build-driver)与[事实/体验判定边界](../../testing/prd.md#l4-evidence-judgment)，同步旧试玩入口。该 Issue 已以 `not_planned` 关闭，作为历史文档承接来源，不再承担新的 runner/scaffold 修复或验收义务；本次没有新试玩或部署结论，不刷新其他条目的核验时间。
 
@@ -167,6 +167,8 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 <a id="cc-status-changes"></a>
 
 ## 最近做了什么
+
+发现资源预算（2026-11-16，文档范围）：[目标合同](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)固定 development host 显式配置的连接池与共享 60 秒子流累计额度，区分真实连接终止、协议请求终态和未用预留结算。共享额度也影响业务流量；正式 authority 的 lane 隔离与跨重启配额没有因此完成。实现和真实 transport 验收由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 继续承接；本次未核验部署，下面历史记录保留原核验窗口。
 
 下列 8 项均已由 GitHub 的实际合入状态与 merge commit 核对，且出现在固定 main 的最近 30 条提交中。
 时间为北京时间（+08:00）；验证描述引用各 PR 记录，本次没有重新运行，也没有把合入解释为部署。
