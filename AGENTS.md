@@ -11,7 +11,7 @@
 - `third_party/` 只读；Rust 工作参考 `third_party/rust-skills/AGENTS.md`。
 - 默认优先[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)，可独立交付的前置尽早提供给依赖方；强耦合改动可原子跨多个 crate。未拆分的简单修改可直接用 PR，Project 按需使用。
 - 复杂项目先按[项目拆解](doc/engineering/workflow/source-of-truth.md#project-decomposition)组织可用模块增量、关键依赖和整体验收，只细化当前及近期批次；按实际收益拆出独立任务并建立[原生 sub-issue](doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 核对真实消费接口、[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)与领取，在独立会话中推进并及时集成。同一业务的内部步骤连续完成，任务与 PR 不机械一一对应。
-- 每个可独立交付的代码任务预计及实际变更均[最多 30 个代码文件](doc/engineering/workflow/source-of-truth.md#code-task-file-limit)，包含测试、脚本和生成代码，同任务跨 PR 累计；超限先重拆并保留完整验收，再继续实施。
+- 每个可独立交付的代码任务[尽量不超过 30 个代码文件](doc/engineering/workflow/source-of-truth.md#code-task-file-limit)，包含测试、脚本和生成代码，同任务跨 PR 累计观察；超过时复核拆分收益，确需保留完整改动则简述原因，文件数不作为停工或合入门禁。
 - 仓库文档及 Issue、PR、评审和交接文字遵循[语言与写作要求](doc/engineering/workflow/source-of-truth.md#language-and-writing)。
 - 问题根因确认后，先按[设计检查与修复](doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：有缺陷先补受影响文档再修实现；纯实现 bug 直接修复验证，不强制改正确设计。
 - 新增或实质修改的跨层要求按[要求追踪规范](doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)关联唯一声明、适用设计与当前 PR：复用同一要求的 Trace ID，不把它当任务身份或准入条件，不为简单编辑虚构要求或补齐三层。
