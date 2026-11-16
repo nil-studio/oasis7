@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {withRoleRuntime,persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+import {assertNativeStage} from './fixtures/native_stage_diagnostics.mjs';
 import {continuePreparedBaseline} from './fixtures/setup_baseline_settlement.mjs';
 import {readSavedAccountSnapshot,verifySnapshotReuse} from './fixtures/account_restore_bench.mjs';
 
@@ -19,7 +20,7 @@ function setupPlan(basis) {
 
 test('separate real UV owner setup creates canonical task, private goal, delegation and binding once', {timeout:240000},async()=>{
   await withRoleRuntime('native-participant-owner-setup-real-fence',async runtime=>{
-    assert.equal((await runtime.drive('owner-setup-participant')).stage,'participant_bound');
+    await assertNativeStage(runtime,await runtime.drive('owner-setup-participant'),'participant_bound');
     const basis=await runtime.setupBasis();
     assert.equal(basis.security_epoch,'1');
     const plan=setupPlan(basis);

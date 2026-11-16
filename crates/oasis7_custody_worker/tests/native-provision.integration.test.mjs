@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {setTimeout as delay} from 'node:timers/promises';
 import {withRoleRuntime, persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+import {assertNativeStage} from './fixtures/native_stage_diagnostics.mjs';
 test('actual independently activated Fence admits the full native chain without giving Owner its control capability',{timeout:120000},async()=>{
   await withRoleRuntime('native-real-fence',async runtime=>{
     assert.equal((await runtime.drive('native-real-fence-one')).stage,'native_session_ready');
@@ -50,7 +51,7 @@ for (const limit of ['64','128']) {
   test(`expired ManagedLogin result recovery spends only its signed ${limit} budget`, {timeout:120000}, async () => {
     await withRoleRuntime('native-lost-login', async runtime => {
       const blocked=await runtime.drive('native-managed-budget-one');
-      assert.equal(blocked.stage,'native_registered');
+      await assertNativeStage(runtime,blocked,'native_registered');
       // Install the result-loss fault before obtaining the fresh signed approval.
       // A cold workerd restart after approval can consume its five-second source
       // observation window before the login send, testing dispatch expiry instead
@@ -65,7 +66,7 @@ for (const limit of ['64','128']) {
       await delay(5200);
       await runtime.restart('native-chain');
       const after=await runtime.continueManaged(approved.operation_id);
-      assert.equal(after.stage,limit==='128'?'native_session_ready':'approved');
+      await assertNativeStage(runtime,after,limit==='128'?'native_session_ready':'approved',{managedOperationId:approved.operation_id});
       assert.equal(runtime.nativeRequests()['/native-key/complete'],2,'neither budget allows another login send');
       await runtime.suspend();
       const saved=persistedRuntime(runtime.persist,runtime.account);

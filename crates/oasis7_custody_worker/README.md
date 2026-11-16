@@ -178,6 +178,10 @@ The platform verification builds a test-only real NodeRuntime/World HTTP process
 
 Node test files run serially so independent local World/workerd fixtures do not compete for the five-second authority window. Explicit races inside a test still run concurrently, and expiry, revocation and rollback tests retain their original checks. This verification does not establish production load capacity.
 
+Native 准备及过期 ManagedLogin 恢复的关键阶段断言失败时，测试输出 `oasis7.custody-native-stage-diagnostic/v1`：先记录失败观测时刻和固定请求计数，再停止 workerd，并通过既有只读 Account 快照入口投影白名单状态。原严格断言照常失败；诊断读取或输出异常不会替换它。正常路径只记录有限时间点，不增加诊断读取、等待或重发。
+
+诊断分别关联各 Native stage 自己的 origin inspection、选中 ManagedLogin 的原批准和独立预算、以及由该批准出资的 recovery 和内嵌 fresh source；恢复 result 与原登录 result 分列。只输出固定枚举、数量、存在性及时间，ID 仅在内存中关联，不输出原件、nonce、Cookie、签名或异常详情。缺失字段标为 unknown/null，明确空集合才是零；数组最多输出16项并报告省略数量。失败观测时间不等于授权检查时间，读取快照也不重新验证签名或授予权限。纯投影、遮蔽及失败传播合同可运行 `node --test crates/oasis7_custody_worker/tests/native-stage-diagnostics.test.mjs`；真实链路仍由完整 Native/workerd 集成测试验证。
+
 ## 受限生产测试候选准入
 
 本节整理现有构建、配置和验收入口，不宣布 production ready，也不提供可直接执行的发布命令。四份 [`deploy/`](deploy/) 配置只有 staging Worker 名称、角色 binding 和 SQLite migration；`workers_dev=false`、`preview_urls=false`，未登记测试域名路由、账号或运维秘密。当前 `verify.sh --platform` 的 Wrangler 命令仅为 dry-run。正式测试环境须另行确认独立环境身份、同源 HTTPS 路由、四个最小权限发布身份及秘密归属；不能将测试 harness、固定 fixture key 或 loopback HTTP bridge 发布成服务。
