@@ -563,10 +563,10 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         )
     }
 
-    /// Produce the complete profile's two Result facts only after state writes
-    /// are frozen. The producer cannot mutate the consumed transaction. Both
-    /// slots and their workspace are admitted before any producer I/O; no
-    /// transition escapes if either result or the final cancellation fails.
+    /// Produce two distinct Result facts from the same frozen roots. Admit all
+    /// slots before producer I/O; errors return no prepared transition. The
+    /// producer owns validation of each original's content/root binding; this
+    /// interface checks Result kinds, distinct IDs and transition structure.
     pub fn seal_with_final_results<E>(
         self,
         guard: &PreparedGuard,
@@ -585,8 +585,9 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         )
     }
 
-    /// Matching-enabled profile: Runtime, Cognition V3 and the independent
-    /// ProofLedger Result. The legacy two-Result profile remains unchanged.
+    /// Three distinct Result originals for the matching-enabled profile.
+    /// This prepares facts only; it does not execute or authenticate ProofLedger.
+    /// The legacy two-Result profile remains unchanged.
     pub fn seal_with_proof_ledger_results<E>(
         self,
         guard: &PreparedGuard,

@@ -116,6 +116,8 @@ fn final_result_pair_admits_both_before_io_and_rejects_partial_or_wrong_results(
             )),
             _ => assert!(matches!(result, Err(SealWithFinalFactError::Cancelled))),
         }
+        drop(guard);
+        assert_eq!(memory.used(), 0, "pair failure mode {mode}");
     }
 }
 
@@ -358,5 +360,71 @@ fn final_result_profiles_retain_prior_response_results_in_order() {
         }
         .verify(&prepared.record)
         .unwrap();
+    }
+}
+
+#[test]
+fn final_result_triple_rejects_all_duplicate_pairs_and_releases_failed_outputs() {
+    for mode in 0..7 {
+        let pages = Pages::default();
+        let memory = memory();
+        let parent = empty_parent();
+        let live = parent.fence().unwrap();
+        let mut bounds = limits();
+        if mode == 0 {
+            bounds.max_facts = 2;
+        }
+        let tx = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, bounds).unwrap();
+        let guard = tx.guard();
+        let called = Cell::new(false);
+        let cancelled = Cell::new(false);
+        let result = tx.seal_with_proof_ledger_results(
+            &guard,
+            &live,
+            9,
+            || cancelled.get(),
+            |_| {
+                called.set(true);
+                if mode == 5 {
+                    return Err("producer failed");
+                }
+                cancelled.set(mode == 6);
+                let mut facts = [
+                    fact(ExecutionFactKindV1::Result, 1),
+                    fact(ExecutionFactKindV1::Result, 2),
+                    fact(ExecutionFactKindV1::Result, 3),
+                ];
+                match mode {
+                    1 => facts[1].kind = ExecutionFactKindV1::Event,
+                    2 => facts[1].id = facts[0].id,
+                    3 => facts[2].id = facts[0].id,
+                    4 => facts[2].id = facts[1].id,
+                    _ => {}
+                }
+                Ok(facts)
+            },
+        );
+        assert_eq!(called.get(), mode != 0);
+        match mode {
+            0 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(
+                    ExecutionError::ResourceLimited(_)
+                ))
+            )),
+            1..=4 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Execution(ExecutionError::Invalid(
+                    "final Result triple"
+                )))
+            )),
+            5 => assert!(matches!(
+                result,
+                Err(SealWithFinalFactError::Producer("producer failed"))
+            )),
+            _ => assert!(matches!(result, Err(SealWithFinalFactError::Cancelled))),
+        }
+        drop(guard);
+        assert_eq!(memory.used(), 0, "mode {mode}");
     }
 }
