@@ -13,6 +13,8 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时补齐本轮可执行范围，后续未细化不阻塞当前就绪工作；缺少夹具、接线、环境或权限时明确建设与解除动作。新增结果或前提变化按收益调整受影响安排，不自动细拆，也不把剩余父目标持续吸收到当前任务。
 
+按[代码文件上限](../../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)核对本任务预计及实际变更均不超过 30 个代码文件；范围包含必要测试、脚本、配置及生成代码，同任务各 PR 累计。接手前确认估算，实施中更新实际范围，评审及合入前在原 PR 记录本批与累计数；预计或实际超限时先保全成果、调整设计与任务拆分，再继续实现，不以省略必要联动或拆 PR 满足上限。
+
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。追踪可直接引用 PR，不另领要求 ID；是否建立父子 Issue 按任务拆分规则执行。未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
 接手已有代码或文档 Issue 开始实施前，按[日常开发](../../../doc/engineering/workflow/source-of-truth.md#2-日常开发)检查已有认领和暂停，在原 Issue 发布开工 comment 并回读确认；已有执行或状态不明时先核对交接，避免重复认领。采用代码队列时，按[领取与状态维护](../../../doc/engineering/workflow/source-of-truth.md#coding-agent-task-claim)更新实现标签并处理写入失败。续做同一范围及已有 TPM 记录按通用规范复用，不重复留言。

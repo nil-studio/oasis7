@@ -8,6 +8,7 @@ body:
       value: |
         先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
         拆出的开发任务须创建或复用本类 Issue，并在 GitHub 建立真实 parent/sub-issue 关系后领取；正文链接或 checkbox 不代替原生关系。见[子任务跟踪规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。
+        每个可独立交付代码任务预计及实际变更最多 30 个代码文件，同任务跨 PR 累计；计数与超限重拆见[任务规模规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)。父项可汇总更大范围，执行子项分别满足上限。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
   - type: dropdown
     id: issue_type
@@ -28,7 +29,7 @@ body:
     id: sources_scope
     attributes:
       label: "来源与范围"
-      description: "公开来源与固定版本；本次范围、非目标、实际消费者与接口边界。明确影响范围的 profile、入口、版本或预算，或引用能唯一确定它们的来源；未定部分写明补齐动作及影响。子任务核对父 Issue 和原生关系。勿上传凭据或敏感日志。"
+      description: "公开来源与固定版本；本次范围、非目标、实际消费者与接口边界。写明预计变更的代码文件或可核对目录范围及数量（最多 30 个，包含必要测试、脚本、配置和生成代码）；父项引用执行子项的范围与估算。明确 profile、入口、版本或预算，或引用能唯一确定它们的来源；未定部分写明补齐动作及影响。子任务核对父 Issue 和原生关系。勿上传凭据或敏感日志。"
     validations:
       required: true
   - type: textarea
@@ -67,6 +68,6 @@ body:
       placeholder: |
         父目标及最终集成验收 / 整体负责人：
         可用模块增量 / 当前批次 / 后续范围及关键前置：
-        原生子 Issue 与对应结果 / 关系核对 / 实际拆分收益：
+        原生子 Issue 与对应结果 / 预计代码文件范围与数量 / 关系核对 / 实际拆分收益：
         已验证结果 / 待集成或待验收成果 / PR / 下一步：
         共享接口及写入负责人 / 当前验收准备与待承接责任：

@@ -7,6 +7,7 @@
 ## 本次改动与结果
 
 <!-- 按行为、能力或规则说明具体变化及改后结果。文档 PR 写清确定了什么设计或方法、实现处于什么状态；文件清单不能代替说明。 -->
+<!-- 涉及代码时，按[任务规模规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)写明本 PR 对各任务的实际代码文件数、同任务跨 PR 累计数（最多 30 个）及已有批次链接；多任务分别核对，纯文档变更无需填写。 -->
 
 ## 验证结果
 
