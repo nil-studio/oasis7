@@ -136,6 +136,8 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 2026-10-27 局部核对：已有独立 NodeRuntime、QC 执行恢复与[受保护签名工程接口](../../p2p/design.md#des-p2p-bft-protected-signer-v1)。[H 锚定前缀](../../p2p/design.md#des-p2p-formal-bft-read-handoff-v1)的协议验证、逐高度 World 重放、独立账本及导入／重开已随 [#5170](https://github.com/nil-studio/oasis7/pull/5170)交付；固定历史 cut 不产生正式投票、当前可服务或 Node producer 写权。原动作不能借公开 QC／投影证明越权释放。正式 signer/provider 安装、治理集合实际生效、producer 交接、checkpoint 时效及完整消费者／故障域组合仍未验收，状态与余项以 [DCS-004](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004)为准，[#4975](https://github.com/nil-studio/oasis7/issues/4975)保持打开。本次没有新的部署或硬件证据，也不把目标 BFT 升为受控试玩前置。
 来源：[基础设施路线图](../../product/world-infrastructure/prd.md#4-路线图)、[#4363 历史记录](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
 
+2026-11-16 checkpoint 时效局部设计：[独立更新合同](../../p2p/design.md#des-p2p-bft-checkpoint-renewal-v1)明确原 policy/root 的有限授权、独立 issuer 的精确原决定、可信 UTC 区间和单调 minimum。原 checkpoint 到期不妨碍仍有效独立授权下的更新；更新 issuer 不能延长自身根授权。历史 cut、到期后的原安装恢复与当前服务／投票资格分别判定。[#5525](https://github.com/nil-studio/oasis7/issues/5525) 仍保留配置、发行／验证、真实 Node/provider 门禁及保护资源验收义务；本次仅固定文档合同。
+
 ### 6. 外部游戏 Runtime 的 owner 目标控制前置
 
 自主入场局部核对（2026-10-21）：[身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#machine-registration)及已合入的 [#4954](https://github.com/nil-studio/oasis7/pull/4954) 承接机器身份、canonical participant 唯一绑定/迁移、独立 owner/executor、starter、任务目标与原件恢复。本地工具代理按资源隔离配置、状态和预算；实际 Runtime 沙箱与费用须由获准 profile 约束。来源与剩余验收见 [#4946](https://github.com/nil-studio/oasis7/issues/4946)；完整 OpenClaw/Codex 冷入场仍未验收，本次未刷新线上开放范围。

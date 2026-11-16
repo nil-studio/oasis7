@@ -48,6 +48,10 @@ The full-state service serves only the current qualified cut. It binds every man
 
 The source service binds to loopback. To sync across machines, use an authenticated, encrypted tunnel or an HTTPS front end that terminates at the source's loopback service; configure the node with the local tunnel endpoint when using plain HTTP. Do not expose the private full-state routes directly on a public interface. The request body is signed by the node key and the service response is signed by the service key; signatures provide integrity and identity, not content confidentiality.
 
+### 计划中的 wire-3 checkpoint 更新
+
+长期离线后的 wire-3 恢复遵循 [checkpoint 更新合同](../design.md#des-p2p-bft-checkpoint-renewal-v1)。policy 与根授权、明确安全上界、独立 issuer/status、可信 UTC 区间和 minimum 来源都必须由原独立授权提供，不能从运行中的本地进程或现有 controlled-v2 full-sync grant 推导。本次文档不为现有生命周期 profile 授予 BFT 签名权。后续实现必须在重启后保留原 C0/H、原请求、精确 cut、已接受 proof、minimum 和未决安装，并暴露明确的期限、授权、时间或恢复阻断原因。到期后完成已提交 minimum 的原安装仅恢复完整性；当前服务和新签名仍须通过各自当前门禁。[固定 cut 的 BFT 读取手册](formal-bft-fixed-read-cli.runbook.md#long-offline-checkpoint-boundary)说明历史读取边界，不提供已可运行的 renewal 命令。
+
 ## Daily commands
 
 ```bash

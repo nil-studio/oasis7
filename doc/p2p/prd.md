@@ -175,6 +175,8 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-4
 
 当前完整同步已有有界历史页链与只读角色；observer/watch 的 inline 历史限制、full-state page chain 的容量限制及调用方是否自动续页须分别披露。分页 API 本身不证明长期接续、任意规模历史或重开 SLO 已完成。
 
+长期离线的 checkpoint 须有原独立政策明确授权的有效期和旧 key／stake 安全上界；缺失、到期或可信时间不可证时停止自动追随及新签名，保留最后合法历史 cut。更新证明须来自原 C0/H 独立政策明确授权的发行方，绑定同世界、精确前驱／目标和单调 minimum；普通 provider 回执、roll、Acquire 或重新启动不能续期。原 checkpoint 已过期而原独立授权仍有效时可以按该授权恢复，根政策本身到期则不能由更新发行方自延长。固定历史只读和当前服务／投票资格分别判定；版本化输入、授权／撤销、受保护时间及安装恢复见[长期离线 checkpoint 更新合同](design.md#des-p2p-bft-checkpoint-renewal-v1)。
+
 <a id="p2p-target-role-isolation"></a>
 ### 目标角色与权威隔离
 
