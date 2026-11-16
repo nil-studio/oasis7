@@ -289,3 +289,7 @@ impl FormalFrozenCertificateV1 {
         Ok(())
     }
 }
+
+#[path = "frozen_material_stream.rs"]
+mod material_stream;
+pub use material_stream::frozen_material_digest_bounded_v1;
