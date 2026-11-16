@@ -43,6 +43,55 @@ def fixture(profile=OBSERVER):
     return status
 
 
+def bft_fixture():
+    return dict(api_version="oasis7.bft-node-observation/v1", runtime_profile="bft/version=1",
+        incarnation="a"*64, running=True, blocker=None, qualification="unknown",
+        protected_services_readiness="unknown", can_propose=False,
+        observation=dict(observed_at_unix_ms=time.time_ns()//1_000_000,
+            world_id="w",chain_id="c",operator_instance_id="operator",authority_epoch=2,
+            height=10,round=3,active_set_hash="b"*64,pending_set_hash=None,binding_digest="c"*64,
+            checkpoint_revision=12,observed_lease_generation=1,window_start_height=9,
+            committed_window_heights=1,pending_driver_apply=False,
+            last_applied_height=9,last_applied_header_id="d"*64))
+
+
+class BftDiagnosticsTests(unittest.TestCase):
+    def project(self, value, source="http"):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location("bft_adapter", ROOT/"scripts/p2p-profile-readiness.py")
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        return module.project(value,source,time.time_ns()//1_000_000)
+
+    def test_live_facts_never_grant_qualification(self):
+        value=bft_fixture()
+        value["observation"]["private_action"]="DO_NOT_COPY"
+        result=self.project(value)
+        self.assertEqual(result["height"],10)
+        self.assertEqual(result["last_applied_height"],9)
+        self.assertEqual(result["status"],"unknown")
+        self.assertFalse(result["can_propose"])
+        self.assertEqual(result["protected_services_readiness"],"unknown")
+        self.assertNotIn("DO_NOT_COPY",json.dumps(result))
+        self.assertTrue(self.project(value,"file")["replay"])
+
+    def test_invalid_claims_missing_facts_and_stale_observation_fail_closed(self):
+        for field,value in (("can_propose",True),("qualification","ready"),("running",1),
+                            ("protected_services_readiness","ready"),("incarnation","")):
+            status=bft_fixture();status[field]=value
+            result=self.project(status)
+            self.assertEqual(result["status"],"unknown");self.assertFalse(result["can_propose"])
+        status=bft_fixture();status["observation"]["observed_at_unix_ms"]-=61000
+        self.assertEqual(self.project(status)["status"],"stale")
+        status=bft_fixture();status["observation"]["observed_at_unix_ms"]+=61000
+        self.assertEqual(self.project(status)["reason"],"bft_observation_clock_uncertain")
+        status=bft_fixture();status["observation"]["committed_window_heights"]=65
+        self.assertEqual(self.project(status)["reason"],"invalid_bft_window_or_applied")
+        status=bft_fixture();status["observation"]=None
+        self.assertEqual(self.project(status)["reason"],"bft_observation_unavailable")
+        status=bft_fixture();status.update(running=False,blocker="runtime_not_running")
+        self.assertEqual(self.project(status)["status"],"blocked")
+
+
 class ReportTests(unittest.TestCase):
     def report(self, status):
         with tempfile.TemporaryDirectory() as tmp:

@@ -49,6 +49,8 @@ def project(status, source, as_of_unix_ms):
 
     if not isinstance(status, dict):
         return result
+    if status.get("api_version") == "oasis7.bft-node-observation/v1":
+        return project_bft_observation(status, source, as_of_unix_ms, result)
     if "api_version" not in status:
         return finish("unsupported", "legacy_chain_status")
     if source not in ("file", "local_cli", "http"):
@@ -226,6 +228,75 @@ def project(status, source, as_of_unix_ms):
     if not status["formal_readiness"]:
         return finish("blocked", "formal_readiness_false")
     return finish("ready", "qualified_producer_observation")
+
+
+def project_bft_observation(status, source, now, result):
+    """Consume live worker facts, never infer formal qualification from them."""
+    def finish(state, reason):
+        result.update(status=state, reason=reason)
+        return result
+
+    if source not in ("http", "file"):
+        return finish("unsupported", "bft_observation_requires_http_or_replay")
+    if (status.get("runtime_profile") != "bft/version=1"
+            or status.get("qualification") != "unknown"
+            or status.get("protected_services_readiness") != "unknown"
+            or status.get("can_propose") is not False
+            or type(status.get("running")) is not bool
+            or status.get("blocker") not in (None, "runtime_not_running", "runtime_blocked")):
+        return finish("unknown", "invalid_bft_observation")
+    result.update(runtime_profile="bft/version=1", protected_services_readiness="unknown",
+                  membership_readiness="unknown", durable_signing_readiness="unknown",
+                  observation_scope="worker_checkpoint_diagnostics_only", replay=source == "file")
+    incarnation = status.get("incarnation")
+    if not isinstance(incarnation, str) or not re.fullmatch(r"[0-9a-f]{64}", incarnation):
+        return finish("unknown", "invalid_bft_instance")
+    result["incarnation"] = incarnation
+    observation = status.get("observation")
+    if not isinstance(observation, dict):
+        return finish("unknown", "bft_observation_unavailable")
+    for key in ("world_id", "chain_id", "operator_instance_id"):
+        value = text(observation.get(key))
+        if value is None or len(value.encode("utf-8")) > 256:
+            return finish("unknown", "invalid_bft_identity")
+        result[key] = value
+    for key in ("active_set_hash", "binding_digest"):
+        value = observation.get(key)
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+            return finish("unknown", "invalid_bft_digest")
+        result[key] = value
+    for key in ("pending_set_hash", "last_applied_header_id"):
+        value = observation.get(key)
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)):
+            return finish("unknown", "invalid_bft_digest")
+        result[key] = value
+    for key in ("authority_epoch", "height", "round", "checkpoint_revision",
+                "observed_lease_generation", "window_start_height", "committed_window_heights"):
+        value = uint(observation.get(key))
+        if value is None:
+            return finish("unknown", "invalid_bft_counter")
+        result[key] = value
+    applied = observation.get("last_applied_height")
+    if ((applied is not None and uint(applied) is None)
+            or (applied is None) != (observation.get("last_applied_header_id") is None)
+            or type(observation.get("pending_driver_apply")) is not bool
+            or result["committed_window_heights"] > 64
+            or result["height"] < result["window_start_height"]):
+        return finish("unknown", "invalid_bft_window_or_applied")
+    result.update(last_applied_height=applied, pending_driver_apply=observation["pending_driver_apply"],
+                  observed_running=status["running"], producer_blocker=status["blocker"])
+    observed = uint(observation.get("observed_at_unix_ms"))
+    if observed is None or uint(now) is None or observed > now:
+        return finish("unknown", "bft_observation_clock_uncertain")
+    result.update(observed_at_unix_ms=observed, age_ms=now-observed,
+                  source_freshness="fresh" if now-observed <= MAX_AGE_MS else "stale")
+    if now-observed > MAX_AGE_MS:
+        return finish("stale", "bft_observation_expired")
+    if not status["running"] or status["blocker"] is not None:
+        return finish("blocked", status["blocker"] or "runtime_not_running")
+    # An alive worker, signed checkpoint or historical applied receipt is not
+    # current membership/lease/private-closure/protected-backend qualification.
+    return finish("unknown", "bft_qualification_not_observed")
 
 
 def markdown(result):

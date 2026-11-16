@@ -45,7 +45,7 @@ pub use crate::execution_hook::{
     NodeBftBuildContextV3, NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3,
     NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
 };
-pub use crate::node_bft_v3_runtime::NodeBftStatusV3;
+pub use crate::node_bft_v3_runtime::{NodeBftObservationV1, NodeBftStatusV3};
 
 pub use crate::node_bft_v3_runtime::private_exchange::{
     NodeBftPeerExecutionStateV3, NodeBftPeerExecutionViewV3, NodeBftPrivateCandidateExchangeV3,
