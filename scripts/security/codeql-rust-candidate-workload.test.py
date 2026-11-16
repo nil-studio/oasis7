@@ -1566,8 +1566,9 @@ def run_real_binding_pair(test, codeql, output):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / relative, destination)
                 test.assertEqual(binding_repository_file(destination, work_end), before['repository'][relative])
+            production = binding_module('production_binding_test', HERE / 'codeql-rust-production.test.py')
             contract = dict(started=started, end=end, work_end=work_end, total_seconds=600,
-                closeout_seconds=60, counts=[44, 37], variants=[m.RESEARCH_VARIANT, m.WORKLOAD_VARIANT],
+                closeout_seconds=60, counts=[44, 37], variants=[m.RESEARCH_VARIANT, production.m.PRODUCTION_VARIANT],
                 codeql=str(codeql), process_file_limit=None,
                 runtime_evidence_cap_per_consumer=m.runtime.CAP,
                 final_pair_evidence_cap=PAIR_EVIDENCE_CAP,
@@ -1576,7 +1577,6 @@ def run_real_binding_pair(test, codeql, output):
                 java_options='-Xmx3072m -XX:ActiveProcessorCount=2; not a process RSS limit',
                 no_database_compilation_or_evaluation=True)
             m.runtime.save(evidence / 'contract.json', contract, evidence)
-            production = binding_module('production_binding_test', HERE / 'codeql-rust-production.test.py')
             validations = []
             for name, validate in (('target44', validate_real_candidate_bindings),
                                    ('production37', production.validate_real_production_bindings)):
@@ -1656,7 +1656,8 @@ class BindingPairProtocol(unittest.TestCase):
         original_module = binding_module
         def load(name, path):
             if name == 'production_binding_test':
-                return SimpleNamespace(validate_real_production_bindings=production or self.consumer('production37'))
+                return SimpleNamespace(validate_real_production_bindings=production or self.consumer('production37'),
+                    m=SimpleNamespace(PRODUCTION_VARIANT='qualifier-lines-constraint-target-qualified-v7'))
             return original_module(name, path)
         with (patch(__name__ + '.binding_module', side_effect=load),
               patch(__name__ + '._PAIR_ENTRY_STARTED', 1000),
@@ -1677,6 +1678,8 @@ class BindingPairProtocol(unittest.TestCase):
             self.assertEqual((evidence / name / 'raw.log').read_bytes(), (name + '\n').encode())
             self.assertEqual((evidence / 'inputs' / name / 'private/input.ql').read_bytes(), name.encode())
         self.assertEqual(m.read_json(evidence / 'contract.json')['work_end'], 1540)
+        self.assertEqual(m.read_json(evidence / 'contract.json')['variants'],
+                         ['qualifier-lines-constraint-target-qualified-v7'] * 2)
 
     def test_second_consumer_gets_no_fresh_window_after_preparation_exhausts_work_time(self):
         def exhaust(): self.clock[0] = 1540
