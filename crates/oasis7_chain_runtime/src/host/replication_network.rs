@@ -180,9 +180,21 @@ pub(super) fn initialize_default_peer_record_receiver(options: &CliOptions) -> R
     }
     #[cfg(unix)]
     {
-        let root_keypair = node_keypair_config::ensure_node_keypair_in_config(Path::new(
-            options.config_path.as_str(),
-        ))?;
+        let root_keypair = if options.upgrade_peer_record_receiver {
+            let config_path = Path::new(options.config_path.as_str());
+            let config_path = if config_path.is_absolute() {
+                config_path.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .map_err(|error| error.to_string())?
+                    .join(config_path)
+            };
+            node_keypair_config::read_existing_legacy_keypair(&config_path)?
+        } else {
+            node_keypair_config::ensure_node_keypair_in_config(Path::new(
+                options.config_path.as_str(),
+            ))?
+        };
         let paths = super::resolve_runtime_paths(options);
         let mut network_config =
             build_default_peer_record_network_config(options, &root_keypair, &paths)?;

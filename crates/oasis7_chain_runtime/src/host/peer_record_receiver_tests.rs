@@ -416,6 +416,14 @@ fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
         .into_iter(),
     )
     .unwrap();
+    let missing_identity = scratch.join("missing-identity.toml");
+    let mut missing = upgrade.clone();
+    missing.config_path = missing_identity.to_str().unwrap().to_owned();
+    assert!(super::run_chain_runtime(missing).is_err());
+    assert!(
+        !missing_identity.exists(),
+        "upgrade must not provision a replacement identity"
+    );
     assert!(upgrade.upgrade_peer_record_receiver);
     let typed = super::development_runtime::from_options(&upgrade).unwrap();
     assert!(
