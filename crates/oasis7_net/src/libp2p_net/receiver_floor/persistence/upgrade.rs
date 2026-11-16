@@ -4,11 +4,11 @@ use super::*;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct UpgradeIntent {
-    schema_version: u16,
-    binding: ReceiverBindingV2,
-    source_blake3: String,
-    target_blake3: String,
+pub(in crate::libp2p_net::receiver_floor) struct UpgradeIntent {
+    pub(in crate::libp2p_net::receiver_floor) schema_version: u16,
+    pub(in crate::libp2p_net::receiver_floor) binding: ReceiverBindingV2,
+    pub(in crate::libp2p_net::receiver_floor) source_blake3: String,
+    pub(in crate::libp2p_net::receiver_floor) target_blake3: String,
 }
 
 pub(in crate::libp2p_net::receiver_floor) fn upgrade_to_v2_only(
@@ -18,7 +18,7 @@ pub(in crate::libp2p_net::receiver_floor) fn upgrade_to_v2_only(
     upgrade_with_finish_sync(directory, binding, durable_files::sync_directory)
 }
 
-fn upgrade_with_finish_sync(
+pub(in crate::libp2p_net::receiver_floor) fn upgrade_with_finish_sync(
     directory: &Path,
     binding: ReceiverBindingV2,
     finish_sync: impl FnOnce(&Path) -> Result<(), WorldError>,
@@ -130,114 +130,4 @@ fn upgrade_with_finish_sync(
     fs::remove_file(&intent_path)
         .map_err(|error| io_error("finish receiver upgrade", &intent_path, error))?;
     finish_sync(directory)
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    fn write_private(path: &Path, bytes: &[u8]) {
-        fs::write(path, bytes).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
-    }
-
-    #[test]
-    fn upgrade_recovers_each_atomic_boundary_without_resetting_the_ledger() {
-        for phase in [
-            "intent-prefix",
-            "intent",
-            "state-prefix",
-            "state-complete",
-            "renamed",
-        ] {
-            let temp_root = tempfile::tempdir().unwrap();
-            let root = temp_root.path().canonicalize().unwrap();
-            let directory = root.join("receiver");
-            let binding = ReceiverBindingV2 {
-                schema_version: 2,
-                local_peer_id: "receiver".into(),
-                world_id: "world-a".into(),
-                network_id: "network-a".into(),
-                identity_public_key_protobuf_hex: "00".into(),
-            };
-            initialize(
-                &directory,
-                binding.clone(),
-                PeerRecordReceiverMode::DurableCompatible,
-            )
-            .unwrap();
-            let source =
-                read_file(&path(&directory, STATE_FILE_NAME), RECEIVER_STATE_MAX_BYTES).unwrap();
-            let mut ledger: ReceiverLedgerV2 = serde_cbor::from_slice(&source).unwrap();
-            ledger.mode = PeerRecordReceiverMode::V2Only;
-            let target = durable_files::canonical_cbor(&ledger).unwrap();
-            let intent = durable_files::canonical_cbor(&UpgradeIntent {
-                schema_version: 3,
-                binding: binding.clone(),
-                source_blake3: blake3::hash(&source).to_hex().to_string(),
-                target_blake3: blake3::hash(&target).to_hex().to_string(),
-            })
-            .unwrap();
-            if phase == "intent-prefix" {
-                write_private(
-                    &path(&directory, INTENT_TEMP_FILE_NAME),
-                    &intent[..intent.len() / 2],
-                );
-            } else {
-                write_private(&path(&directory, INTENT_FILE_NAME), &intent);
-            }
-            match phase {
-                "state-prefix" => write_private(
-                    &path(&directory, STATE_TEMP_FILE_NAME),
-                    &target[..target.len() / 2],
-                ),
-                "state-complete" => write_private(&path(&directory, STATE_TEMP_FILE_NAME), &target),
-                "renamed" => write_private(&path(&directory, STATE_FILE_NAME), &target),
-                _ => {}
-            }
-            assert!(
-                open(
-                    &directory,
-                    binding.clone(),
-                    PeerRecordReceiverMode::DurableCompatible
-                )
-                .is_err()
-            );
-            assert!(open(&directory, binding.clone(), PeerRecordReceiverMode::V2Only).is_err());
-            assert!(
-                upgrade_with_finish_sync(&directory, binding.clone(), |_| {
-                    Err(protocol_error(
-                        "injected final directory sync failure".into(),
-                    ))
-                })
-                .is_err()
-            );
-            assert!(!path(&directory, INTENT_FILE_NAME).exists());
-            let sync_called = std::cell::Cell::new(false);
-            upgrade_with_finish_sync(&directory, binding.clone(), |directory| {
-                sync_called.set(true);
-                durable_files::sync_directory(directory)
-            })
-            .unwrap();
-            assert!(
-                sync_called.get(),
-                "idempotent recovery must finish directory sync"
-            );
-            assert_eq!(
-                read_file(&path(&directory, STATE_FILE_NAME), RECEIVER_STATE_MAX_BYTES).unwrap(),
-                target
-            );
-            upgrade_to_v2_only(&directory, binding.clone()).unwrap();
-            drop(open(&directory, binding.clone(), PeerRecordReceiverMode::V2Only).unwrap());
-            assert!(
-                open(
-                    &directory,
-                    binding,
-                    PeerRecordReceiverMode::DurableCompatible
-                )
-                .is_err()
-            );
-        }
-    }
 }

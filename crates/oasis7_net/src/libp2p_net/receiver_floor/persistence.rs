@@ -1,4 +1,4 @@
-mod upgrade;
+pub(super) mod upgrade;
 pub(super) use upgrade::upgrade_to_v2_only;
 
 use std::fs::{self, File, OpenOptions};
