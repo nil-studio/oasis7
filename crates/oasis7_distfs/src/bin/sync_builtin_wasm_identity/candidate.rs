@@ -3,6 +3,12 @@ use super::*;
 
 #[path = "candidate_partial.rs"]
 mod partial;
+#[path = "candidate_iws_fixture.rs"]
+mod iws_fixture;
+
+pub(super) fn verify_iws_fixture(args: &[String]) -> Result<(), String> {
+    iws_fixture::run(args)
+}
 
 const ARTIFACTS: &str = "crates/oasis7_runtime/src/world/artifacts";
 const DESCRIPTOR: &str = "builtin_wasm_candidate_baseline.v1.json";
