@@ -1,3 +1,6 @@
 scripts/public-testnet-validator-triad-inventory.v1.json text eol=lf
 doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-registry-2026-09-15.json text eol=lf
 doc/testing/evidence/public-testnet-governed-bootstrap-validator-triad-bootstrap-peers-2026-09-15.txt text eol=lf
+
+# Preserve the fixed target-qualified patch's single-space context lines.
+scripts/security/codeql-rust-target-qualified.patch whitespace=-blank-at-eol
