@@ -1,4 +1,6 @@
 use super::*;
+#[path = "replication_local_recovery.rs"]
+mod local_recovery;
 use oasis7_proto::distributed_checkpoint_lineage::CheckpointLineageEnvelopeV1;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,6 +70,15 @@ pub(super) fn reconcile_engine_with_persisted_replication(
         });
     }
     let latest_persisted_height = replication.latest_persisted_commit_height(world_id)?;
+    if local_recovery::reconcile_recovered_publication(
+        engine,
+        replication,
+        world_id,
+        latest_persisted_height,
+        &mut execution_hook,
+    )? {
+        return Ok(());
+    }
     if latest_persisted_height < engine.committed_height {
         if latest_persisted_height == 0 {
             return Ok(());

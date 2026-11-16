@@ -33,6 +33,10 @@ pub struct BftDriverAppliedReceiptV3 {
 #[serde(deny_unknown_fields)]
 pub struct BftSignerStateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_finality_rotation_proofs:
+        Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finality_rotation_proofs: Option<super::rotation::BftFinalityRotationProofArchiveV3>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,6 +57,10 @@ pub struct BftSignerStateV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerCandidateV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_finality_rotation_proofs:
+        Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finality_rotation_proofs: Option<super::rotation::BftFinalityRotationProofArchiveV3>,
 
@@ -75,6 +83,7 @@ impl BftSignerStateV3 {
             binding,
             0,
             BftSignerCandidateV3 {
+                bootstrap_finality_rotation_proofs: None,
                 finality_rotation_proofs: None,
                 membership_install: None,
                 history: Vec::new(),
@@ -91,6 +100,7 @@ impl BftSignerStateV3 {
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
+            bootstrap_finality_rotation_proofs: candidate.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: candidate.finality_rotation_proofs,
             membership_install: candidate.membership_install,
             schema_version: 3,
@@ -109,6 +119,7 @@ impl BftSignerStateV3 {
     }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
+            bootstrap_finality_rotation_proofs: self.bootstrap_finality_rotation_proofs.clone(),
             finality_rotation_proofs: self.finality_rotation_proofs.clone(),
             membership_install: self.membership_install.clone(),
             history: self.history.clone(),
@@ -189,6 +200,9 @@ pub(crate) struct CheckpointProofInputV3<'a> {
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
+    bootstrap_finality_rotation_proofs:
+        &'a Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     finality_rotation_proofs: &'a Option<super::rotation::BftFinalityRotationProofArchiveV3>,
     #[serde(skip_serializing_if = "Option::is_none")]
     membership_install: &'a Option<super::membership::BftMembershipInstallStateV3>,
@@ -204,6 +218,7 @@ struct StateDigestInput<'a> {
 impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
+            bootstrap_finality_rotation_proofs: &s.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: &s.finality_rotation_proofs,
             membership_install: &s.membership_install,
             schema_version: s.schema_version,
@@ -322,6 +337,11 @@ pub(crate) fn validate_state(
     }
     super::membership::validate_records(binding, state, _provider_public_key)?;
     super::rotation::validate_archive(binding, state)?;
+    super::bootstrap_rotation::validate_archive(binding, state)?;
+    super::rotation::validate_shared_archives(
+        &state.finality_rotation_proofs,
+        &state.bootstrap_finality_rotation_proofs,
+    )?;
     let validator = schedule
         .active_set()
         .validator(&binding.local_validator_id)
@@ -422,6 +442,7 @@ pub(crate) fn validate_candidate_transition(
     }
     super::membership::validate_change(binding, old, candidate, _provider)?;
     super::rotation::validate_change(binding, previous, candidate)?;
+    super::bootstrap_rotation::validate_change(binding, previous, candidate)?;
     let added = candidate.history.len() - old.history.len();
     if added > 1 {
         return Err(invalid("BFT V3 candidate appends more than one QC"));
@@ -517,7 +538,9 @@ pub(crate) fn validate_candidate_transition(
                 }
             }
             _ if (candidate.membership_install != old.membership_install
-                || candidate.finality_rotation_proofs != old.finality_rotation_proofs)
+                || candidate.finality_rotation_proofs != old.finality_rotation_proofs
+                || candidate.bootstrap_finality_rotation_proofs
+                    != old.bootstrap_finality_rotation_proofs)
                 && candidate.journal == old.journal => {}
             _ => {
                 return Err(invalid(

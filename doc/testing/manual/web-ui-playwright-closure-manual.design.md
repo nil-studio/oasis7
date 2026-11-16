@@ -44,7 +44,7 @@
 每条 UI 记录绑定 `caseId`、可见 action、候选/world/window 身份、访问模式和执行 lane、关键输入/输出、反馈阶段、provider kind/model/endpoint route/preflight provenance（如适用）、raw screenshot/state/console/request-error/API/journal refs、每份 artifact 的 byte length/digest、mock 禁用/检测结果、失败 signature 与 exact unmet assertion。秘密只由受控运行时持有，不复制进报告或 artifact。PWT-003/005/006/007 按手册矩阵保持 planned，直到相同候选实际执行并保存可读产物。
 
 <a id="browser-functional-fixture-contract"></a>
-### 可控时序的真实前端功能回归（目标，未实现）
+### 可控时序的真实前端功能回归（fixture-functional）
 
 Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](../prd.md#browser-functional-regression)。当前已有 JS-required、Vitest/jsdom、tooling fixture smoke 与真实 shell 的视觉 fixture；本节补可复用时序控制，未把现有能力描述为缺失。
 
@@ -73,11 +73,15 @@ Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWS
 
 **隔离与拒绝真实服务。** 每 case 使用新的命名私有浏览器 context/session、临时 storage 与合成身份，不导入用户登录态、provider 配置或凭据。静态服务仅绑定 loopback 的系统分配端口；HTTP、WebSocket、worker/service-worker 与跳转都限制到本次明确的本地资源，测试不读取 active LLM 配置。未知 endpoint/请求、生产域名或真实 provider 访问在到达网络前拒绝并使场景失败，不能靠响应超时才发现。跨 case 不共用 localStorage/IndexedDB/cache；重连只发生在本 case 内。复用既有 owned-session lifecycle 清理自有资源，失败/取消后也关闭；不使用全局 close-all。当前共享的测试构建输出先串行构建一次并冻结来源，执行使用独立产物目录；只有确证不共享端口、数据、context、全局模块和可写输出后才并行 case。
 
+runner 的浏览器程序配置只表示一个字面文件路径或 PATH 中的程序名。解析阶段不执行候选，也不经过 shell；按路径或 PATH 顺序确认可执行普通文件后返回绝对路径，后续以独立 argv 启动并处理启动失败。支持带空格、shell 特殊字符及指向可执行文件的符号链接；这些字符不获得命令语义。Unix 上未设置 PATH 时沿 Node 默认 `/usr/bin:/bin`，显式空 PATH 项表示当前目录。该检查不承诺锁定随后启动时的文件身份。
+
+静态文件、bundle、HTML、源码与产物指纹复用同一打开文件描述符完成普通文件检查和内容读取，成功或失败均关闭。HTTP 成功头只在读取成功后发送；无效文件按对应路由失败，不把路径检查与随后重开组合成安全保证。摘要的字节数和 hash 来自同一内容，截图非空判定使用这份已记录的字节数；这不保证其他进程原地写入时得到文件系统快照。沿用当前符号链接与根目录解释，本合同不新增可信外部文件来源。
+
 **产物与结果。** 每次输出新目录，记录候选/tree、bundle 来源与摘要、实际生产模块、fixture schema/替换集合、浏览器版本/平台、viewport、场景 ID/seed、命令、选择理由与开始/结束。每个适用 case 保存 pending/error/final 的实际截图、结构化重放 trace、DOM/只读状态断言、出站与交付消息计数、console/pageerror/network、结束与清理结果；driver 的原生 browser trace 可一并归档，但结构化场景 trace 不冒充 Playwright trace。预期拒绝/断线错误须逐 case 明确 allowlist，其余 console/network 错误失败；脱敏不删除请求关联与失败原因。产物身份遵循既有 locator/bytes/digest 合同，使用合成数据避免记录真实秘密。
 
 case 结果区分 pass、failed、blocked 与有具体不适用原因的 not_applicable；必要 case 缺浏览器/构建/fixture、超时、零执行、缺截图/trace 或报告失败均非零结束，不能记 skipped 后令 suite 通过。总通过仅覆盖实际执行且全部满足的适用 case 和声明的浏览器/viewport。CI 选择仍由现有 planner/Viewer driver 决定；本节不新增隐式 gate，不将普通视觉 fixture 的绿色结果充当该全矩阵结果。
 
-首个实现片只交付真实装配、网络隔离、barrier、BFR-P01–P03 及失败产物；其余 P04–P07 与选测负例沿 #5387 保留，矩阵只执行一部分时报告部分覆盖。域缺陷分别回到 #5167、#4966、#5116 的原责任边界，不在测试机制里重写反馈/权限规则。真实后端/provider、合法签名/权限、canonical receipt/world delta 与发布验证仍按原 PWT/S6/full 接续，fixture-functional 无需先启动完整 launcher/LLM 栈，也不能代替这些验收。
+当前 runner 已覆盖真实装配、网络隔离、barrier、BFR-P01–P07、deferred signer、连接代次与真实 dispose/remount，并接入既有 `viewer_js_required` 选测和证据归档；矩阵只执行一部分时报告部分覆盖。P05 的旧连接/过期授权隔离与 P06 合并覆盖，重复结果由消费端幂等守卫拒绝。域缺陷分别回到 #5167、#4966、#5116 的原责任边界，不在测试机制里重写反馈/权限规则。真实后端/provider、合法签名/权限、canonical receipt/world delta 与发布验证仍按原 PWT/S6/full 接续，fixture-functional 无需先启动完整 launcher/LLM 栈，也不能代替这些验收。
 
 <a id="4-约束与边界"></a>
 ## 4. 约束与边界：风险限制

@@ -198,7 +198,7 @@ pub use world::{
     LOCAL_TEST_PROVIDER_GRANT_TTL_TICKS, LocalTestProviderAuthorityConfig,
     LocalTestProviderAuthorityMode, LocalTestProviderGrantStatus, LocalTestProviderModuleArtifact,
     LocalTestProviderProvisioning, LocalTestProviderSessionMode, NativeBuiltinFactoryQuote,
-    NativeBuiltinRecipeQuote, ProviderBackedBootstrapAuthorityV1,
+    NativeBuiltinRecipeQuote, ProviderBackedBootstrapAuthorityV1, ProviderCapabilityAvailability,
 };
 
 // Durable cognition scheduler, wake and continuation projections

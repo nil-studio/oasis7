@@ -323,7 +323,7 @@ mod control_tests {
     fn fixture() -> (PathBuf, ServiceConfig) {
         let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
             "session-control-{}",
-            Sessions::new().unwrap().epoch
+            Sessions::new().unwrap().epoch()
         ));
         std::fs::create_dir(&root).unwrap();
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();

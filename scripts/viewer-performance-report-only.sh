@@ -5,6 +5,10 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 probe_command="${OASIS7_VIEWER_PERFORMANCE_PROBE_COMMAND:-$repo_root/scripts/viewer-performance-probe.sh}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 artifact_dir="${OASIS7_VIEWER_PERFORMANCE_ARTIFACT_DIR:-$repo_root/output/ci/viewer-performance/$run_id}"
+if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+  probe_command="$repo_root/scripts/viewer-performance-probe.sh"
+  artifact_dir="$(node "$repo_root/crates/oasis7_viewer/scripts/viewer-local-output.mjs" report performance)"
+fi
 summary_json="$artifact_dir/summary.json"
 
 mkdir -p "$artifact_dir"

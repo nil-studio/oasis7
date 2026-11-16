@@ -12,10 +12,13 @@ use oasis7_agent_api::world_action::{
 
 #[derive(Debug, Clone)]
 pub(super) struct FinalityKeyRotationParentV1 {
-    registry: Option<GovernanceFinalitySignerRegistry>,
-    admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
-    rotations: BTreeMap<String, FinalityKeyRotationRecordV1>,
-    epoch: u64,
+    pub(super) registry: Option<GovernanceFinalitySignerRegistry>,
+    pub(super) bootstrap_registry: Option<GovernanceFinalitySignerRegistry>,
+    pub(super) bootstrap_rotations:
+        BTreeMap<String, crate::governance::BootstrapFinalityKeyRotationRecordV1>,
+    pub(super) admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+    pub(super) rotations: BTreeMap<String, FinalityKeyRotationRecordV1>,
+    pub(super) epoch: u64,
 }
 
 fn invalid(reason: impl Into<String>) -> WorldError {
@@ -58,6 +61,7 @@ impl World {
         selected: &BTreeMap<String, &GovernanceValidatorAdmissionRecord>,
         epoch: u64,
     ) -> Result<(), WorldError> {
+        self.validate_retained_rotation_namespace(admissions)?;
         if self.state.governance_finality_key_rotations.len() > MAX_FINALITY_KEY_ROTATION_RECORDS_V1
         {
             return Err(invalid("rotation history capacity exceeded"));
@@ -133,6 +137,11 @@ impl World {
     ) -> Result<FinalityKeyRotationParentV1, WorldError> {
         Ok(FinalityKeyRotationParentV1 {
             registry: self.resolve_governance_effective_finality_signer_registry()?,
+            bootstrap_registry: self.state.governance_finality_signer_registry.clone(),
+            bootstrap_rotations: self
+                .state
+                .governance_bootstrap_finality_key_rotations
+                .clone(),
             admissions: self.state.governance_validator_admissions.clone(),
             rotations: self.state.governance_finality_key_rotations.clone(),
             epoch: self.current_governance_epoch(),
@@ -181,11 +190,15 @@ impl World {
             ));
         }
         let original = &parent.rotation_parent;
+        self.validate_rotation_reservation(original, &body.rotation_id, &body.new_public_key_hex)?;
         let admission = original
             .admissions
             .get(&body.candidate_id)
             .ok_or_else(|| invalid("rotation requires an original admission"))?;
-        let selected = Self::governance_effective_validator_admission_records(&original.admissions);
+        let selected = Self::governance_validator_authority_records_at_epoch(
+            &original.admissions,
+            original.epoch,
+        );
         if admission.node_id != body.node_id
             || selected.get(&body.node_id).map(|a| a.candidate_id.as_str())
                 != Some(body.candidate_id.as_str())

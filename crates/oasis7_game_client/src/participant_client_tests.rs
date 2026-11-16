@@ -232,6 +232,7 @@ fn lost_commit_reply_restarts_with_same_business_original_and_fresh_admission() 
                     IntentOutcome::Unknown
                 };
                 let response = IntentResponse {
+                    terminal_recovery_authority: None,
                     contract_version: 1,
                     formal_profile: None,
                     execution_evidence_scope: None,
@@ -420,6 +421,7 @@ pub(super) fn history_server(
                     LOOKUP_PATH,
                     ws::request_digest(LOOKUP_PATH, &lookup).unwrap(),
                     IntentResponse {
+                        terminal_recovery_authority: None,
                         contract_version: 1,
                         formal_profile: None,
                         execution_evidence_scope: None,

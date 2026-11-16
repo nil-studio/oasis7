@@ -1,5 +1,5 @@
 name: "测试任务"
-description: "局部或全量功能的独立测试需求。"
+description: "独立测试需求，或开发 PR 合入后的剩余复杂测试。"
 title: "[测试] "
 labels: ["type:test"]
 body:
@@ -8,6 +8,7 @@ body:
       value: |
         先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
+        执行者按[测试接收规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#test-task-acceptance)核对已有认领，并沿[测试手册](https://github.com/nil-studio/oasis7/blob/main/testing-manual.md#test-issue-acceptance)接收、验证和交付结论。
   - type: dropdown
     id: issue_type
     attributes:
@@ -34,7 +35,7 @@ body:
     id: type_evidence
     attributes:
       label: "测试计划"
-      description: "对象/版本、环境、覆盖范围、方法、预期结果、权限/预算和退出条件；不是普通实现自测的重复单。"
+      description: "对象/版本、环境、覆盖范围、方法、预期结果、权限/预算和退出条件。代码转入时，确认开发测试已完成且本项所需 PR 均已实际合入，保留合入版本、开发测试证据和原验收标准，写明剩余复杂测试及外部条件；只补缺项，不重复建单。"
     validations:
       required: true
   - type: textarea
@@ -55,6 +56,6 @@ body:
     id: delivery
     attributes:
       label: "交付终点"
-      description: "写明已授权的交付终点、下一责任人或待承接；类型转换不授予合入、部署或付费执行权限。"
+      description: "写明已授权的交付终点、测试责任人及接收状态。代码转入验收保留全部原交付义务；独立测试按约定覆盖、结果和缺陷承接结项，原定修复后复测仍须完成。类型转换不授予合入、部署或付费执行权限。"
     validations:
       required: true

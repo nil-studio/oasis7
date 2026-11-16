@@ -25,17 +25,64 @@ WASM_CANDIDATE_INPUTS = {
 }
 
 
-def document_corpus_input(path):
-    # Fixed inputs consumed by scripts/document_corpus.py. Do not import a
-    # candidate checkout's reader into the isolated trusted-base planner.
+# Exact policy fixtures consumed by Rust validation and actual workerd tests.
+# Neighboring JSON inputs remain unregistered and fail closed.
+WORKERS_POLICY_INPUTS = {
+    'crates/oasis7_dev_test_worker/tests/fixtures/policy.json',
+    'crates/oasis7_dev_test_worker/tests/fixtures/policy-large-input.json',
+    'crates/oasis7_dev_test_worker/tests/fixtures/policy-large-bindings.json',
+}
+
+
+# Exact non-executable GitHub issue forms/chooser metadata. This is not a
+# directory or YAML exclusion; possible embedded/build consumers still apply.
+ISSUE_METADATA_INPUTS = {
+    '.github/ISSUE_TEMPLATE/code-development.yml',
+    '.github/ISSUE_TEMPLATE/config.yml',
+    '.github/ISSUE_TEMPLATE/decision.yml',
+    '.github/ISSUE_TEMPLATE/defect.yml',
+    '.github/ISSUE_TEMPLATE/document.yml',
+    '.github/ISSUE_TEMPLATE/test.yml',
+}
+
+
+def retired_document_metadata_path(path):
+    # This is a bounded deletion migration, not a registration of live inputs.
+    # The caller also proves the old path exists, the new path does not, and
+    # the former document readers are absent from the selected source head.
     return path in {
         'doc/.governance/document-corpus-inventory.json',
         'doc/testing/evidence/inventory.json',
         'doc/.governance/top-level-directory-registry.json',
+        'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json',
+        'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json',
+        'scripts/fixtures/document-corpus-v3/legacy/inventory.json',
+        'scripts/fixtures/document-corpus-v3/legacy/manifest.json',
     } or re.fullmatch(
         r'doc/\.governance/document-corpus/(?:'
         r'(?:objects|semantic/entries|evidence/entries)/[0-9a-f]{2}/[0-9a-f]{64}'
         r'|(?:semantic/bundles|evidence/groups)/[a-z0-9-]{1,96})\.json', path) is not None
+
+
+def document_metadata_readers_retired(root, head, head_files):
+    readers = {
+        'scripts/document_corpus.py', 'scripts/document_evidence_policy.py',
+        'scripts/document-corpus-inventory.py', 'scripts/document-corpus-inventory-check.py',
+        'scripts/doc-evidence-inventory-check.py',
+        '.github/workflows/document-corpus-platform.yml',
+    }
+    if readers.intersection(head_files):
+        return False
+    # The two remaining shell entrypoints used to read the registry and the
+    # frozen corpus fixtures. Inspect their committed bytes, never import or
+    # execute candidate code. A surviving reference keeps deletion unproven.
+    for path in ('scripts/doc-governance-check.sh', 'scripts/unified-world-code-terminology-scan.sh'):
+        if path in head_files:
+            source = git(root, 'show', head + ':' + path).decode('utf-8', 'strict')
+            if re.search(r'document[-_]corpus|document_evidence_policy|'
+                         r'top-level-directory-registry\.json|doc/testing/evidence/inventory\.json', source):
+                return False
+    return True
 
 
 def batch_modes(raw):
@@ -124,6 +171,10 @@ def plan(args):
     changed = changes(root, ids['merge_base'], ids['source_head'])
     if set(changed) & (base_links | head_links):
         raise ValueError('changed symbolic link requires explicit coverage review')
+    retired_deletions = set(changed).intersection(base_files).difference(head_files)
+    retired_deletions = {path for path in retired_deletions if retired_document_metadata_path(path)}
+    if retired_deletions and not document_metadata_readers_retired(root, ids['source_head'], head_files):
+        retired_deletions.clear()
     manifests = {side: [p for p in files if pathlib.PurePosixPath(p).name == 'Cargo.toml' and not p.startswith('third_party/')]
                  for side, files in [('base', base_files), ('head', head_files)]}
     reasons = {u: [] for u, _ in UNITS}
@@ -163,18 +214,43 @@ def plan(args):
             continue
         if path.startswith('scripts/security/') or path == '.github/workflows/codeql.yml':
             all_units('scan configuration: ' + path)
+        elif name == '.gitattributes':
+            all_units('Git checkout attributes: ' + path)
         elif suffix == '.rs' or name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml') or path.startswith('.cargo/'):
             add('rust-repo', path)
         elif suffix in ('.py', '.pyi') or name in ('pyproject.toml', 'requirements.txt', 'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'setup.cfg', 'setup.py'):
             add('python-repo', path)
+        elif path == 'crates/oasis7_viewer/viewer_terminal_shell.css':
+            # Exact Viewer HTML/build/test input; other CSS stays unregistered.
+            # Possible Rust consumers are still added below.
+            add('javascript-repo', path)
         elif suffix in ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.html', '.htm', '.vue', '.svelte', '.hbs', '.ejs') or name in ('package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'tsconfig.json'):
             add('javascript-repo', path)
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):
             add('actions-repo', path)
-        elif document_corpus_input(path):
+        elif path in ('scripts/ci-required-scope.json', 'scripts/cargo-dev-architecture.json'):
+            # Fixed CI policies consumed by the Python planning/architecture
+            # tools and rust.yml's selection or execution. This is not a blanket
+            # JSON registration; possible Rust consumers are still added below.
+            add('actions-repo', path)
             add('python-repo', path)
+        elif path in ISSUE_METADATA_INPUTS:
+            # GitHub renders these as form data, not executable Actions YAML.
+            pass
+        elif path in retired_deletions:
+            # No live document reader remains. Old/new Rust include/build
+            # consumers are still selected below; unknown JSON stays closed.
+            pass
         elif path in WASM_CANDIDATE_INPUTS:
             add('python-repo', path)
+            add('rust-repo', path)
+        elif path in WORKERS_POLICY_INPUTS:
+            add('javascript-repo', path)
+            add('rust-repo', path)
+        elif path == 'crates/oasis7_dev_test_worker/wrangler.toml':
+            # Exact deployment input for the JS ingress and Rust Wasm/DO class.
+            # Other TOML remains unregistered; this does not enable any batch.
+            add('javascript-repo', path)
             add('rust-repo', path)
         elif suffix not in ('.md', '.rst', '.txt', '.adoc', '.sh'):
             raise ValueError('unregistered input: ' + path)

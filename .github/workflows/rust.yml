@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: ["main"]
   schedule:
-    - cron: "17 */4 * * *"
+    - cron: "17,37,57 * * * *"
   workflow_dispatch:
     inputs:
       run_mode:
@@ -37,7 +37,7 @@ on:
         options: [release, dev]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && 'periodic-full-main' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'schedule' && format('periodic-observe-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -133,11 +133,49 @@ jobs:
           path: ${{ runner.temp }}/rust-model-evidence
           retention-days: 14
           if-no-files-found: error
+  periodic-admission:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: rust-periodic-admission-main
+      cancel-in-progress: false
+    outputs:
+      run_full: ${{ steps.admit.outputs.run_full }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Admit one due full run from actual history
+        id: admit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: python3 scripts/ci-full-result.py admit-periodic --output "$RUNNER_TEMP/admission.json" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-periodic-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/admission.json
+          if-no-files-found: error
+          retention-days: 30
+
   select:
-    if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'
+    needs: periodic-admission
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full') &&
+      (github.event_name != 'schedule' ||
+       (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
     runs-on: ubuntu-24.04
     outputs:
-      plan: ${{ steps.select.outputs.plan }}
+      plan: ${{ steps.workflow-plan.outputs.plan }}
       selection_artifact: ${{ steps.selection-artifacts.outputs.selection_artifact }}
       authority_artifact: ${{ steps.selection-artifacts.outputs.authority_artifact }}
       source_sha: ${{ steps.select.outputs.source_sha }}
@@ -231,7 +269,8 @@ jobs:
           if git cat-file -e "${policy_sha}:scripts/ci-python-control-contracts.py" 2>/dev/null; then
             git show "${policy_sha}:scripts/ci-python-control-contracts.py" >"${authority}/ci-python-control-contracts.py"
           fi
-          args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$GITHUB_OUTPUT" --output "$RUNNER_TEMP/selection.json")
+          : > "$RUNNER_TEMP/selection-outputs.txt"
+          args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$RUNNER_TEMP/selection-outputs.txt" --output "$RUNNER_TEMP/selection.json")
           bootstrap_full=false
           if python3 "$authority/plan-rust-required-scope.py" --help | grep -q -- '--profile'; then
             args+=(--profile "$profile" --policy-ref "$policy_sha" --formal-config "$authority/ci-formal-process-suites.json")
@@ -250,7 +289,7 @@ jobs:
             git show "${policy_sha}:scripts/ci-full-result.py" >"${authority}/ci-full-result.py"
           fi
           if [[ "$bootstrap_full" == true ]]; then
-            python3 - "$authority/ci-required-scope.json" "$source_sha" "$policy_sha" "$RUNNER_TEMP/selection.json" "$GITHUB_OUTPUT" <<'PY'
+            python3 - "$authority/ci-required-scope.json" "$source_sha" "$policy_sha" "$RUNNER_TEMP/selection.json" "$RUNNER_TEMP/selection-outputs.txt" <<'PY'
           import json, pathlib, sys
           config, source, policy, output, github_output = sys.argv[1:]
           groups = json.loads(pathlib.Path(config).read_text())['groups']
@@ -265,6 +304,15 @@ jobs:
           else
             python3 "$authority/plan-rust-required-scope.py" "${args[@]}"
           fi
+          # Keep every trusted scheduling output, but carry the complete plan
+          # only in its file. A separate step publishes its scheduling view.
+          python3 - "$RUNNER_TEMP/selection-outputs.txt" "$GITHUB_OUTPUT" <<'PY'
+          from pathlib import Path
+          import sys
+          with Path(sys.argv[2]).open('a') as output:
+              output.writelines(line for line in Path(sys.argv[1]).read_text().splitlines(keepends=True)
+                                if not line.startswith('plan='))
+          PY
           trusted_source=false
           if [[ "$GITHUB_REF" == refs/heads/main && "$WORKFLOW_SHA" == "$GITHUB_SHA" && "$source_sha" == "$GITHUB_SHA" ]]; then
             trusted_source=true
@@ -272,6 +320,38 @@ jobs:
           printf 'source_sha=%s\ntested_sha=%s\npolicy_sha=%s\nrange_base=%s\ntrusted_source=%s\n' "$source_sha" "$tested_sha" "$policy_sha" "$range_base" "$trusted_source" >>"$GITHUB_OUTPUT"
           printf 'Policy: %s\nSource HEAD: %s\nTested commit: %s\n' "$policy_sha" "$source_sha" "$tested_sha" >>"$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/selection.json" >>"$GITHUB_STEP_SUMMARY"
+      - id: workflow-plan
+        name: Publish workflow scheduling projection
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          raw = (Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes()
+          plan = json.loads(raw)
+          if not isinstance(plan, dict):
+              raise ValueError('complete selection must be an object')
+          capability = 'ordinary_main_fast_cache_writer_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
+              raise ValueError('invalid ordinary main-fast cache writer capability')
+          capability = 'custody_compile_proof_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('custody_execution_version')) is not int or plan['custody_execution_version'] != 1
+                  or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
+                  or plan.get('test_policy_changed') is not False):
+              raise ValueError('invalid custody compile proof capability')
+          fields = (
+              'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
+              'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+              'ordinary_main_fast_cache_writer_version',
+              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version',
+              'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
+              'check_inventory_version', 'fast_plan_exceptions',
+          )
+          projected = {key: plan[key] for key in fields if key in plan}
+          projected.update(workflow_projection_version=1, selection_sha256=hashlib.sha256(raw).hexdigest())
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write('plan=' + json.dumps(projected, separators=(',', ':')) + '\n')
+          PY
       - id: formal-select
         name: Resolve formal selection with conservative old-baseline fallback
         run: |
@@ -327,12 +407,13 @@ jobs:
               return value if isinstance(value, str) and re.fullmatch('[0-9a-f]{40}', value) else None
           def token(value):
               return isinstance(value, str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}', value) and not re.search(r'(?i)(password|secret|authorization|bearer|access.token|gh[pousr]_|github_pat_)', value)
-          def safe_json(name, fallback):
+          def safe_json(name, fallback, max_bytes=65536):
               raw = E.get(name, '')
-              if len(raw) > 65536:
+              if len(raw) > max_bytes or len(raw.encode('utf-8')) > max_bytes:
                   raise ValueError('context_size')
               return json.loads(raw) if raw else fallback
-          needs = safe_json('TELEMETRY_NEEDS', {})
+          # needs includes upstream outputs such as the selection plan; only results survive.
+          needs = safe_json('TELEMETRY_NEEDS', {}, max_bytes=1024 * 1024)
           matrix = safe_json('TELEMETRY_MATRIX', {}) or {}
           if not isinstance(needs, dict) or not isinstance(matrix, dict):
               raise ValueError('context_type')
@@ -415,6 +496,53 @@ jobs:
               configuration_digests=configs, manifests=manifests, missing_reasons=sorted(set(missing)))
           print('OASIS7_' + 'ENGINEERING_JOB_V1=' + json.dumps(row, sort_keys=True, separators=(',', ':')))
           PY_OBSERVATION
+
+  pr-governance-preview:
+    needs: [select, pr-fast-preview-plan]
+    if: >-
+      always() && !cancelled() &&
+      github.event_name == 'pull_request' && needs.select.result == 'success' &&
+      needs.pr-fast-preview-plan.result == 'success' &&
+      needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Prepare governance comparison tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          command -v zstd
+          command -v zstdmt
+      - name: Compare complete governance execution without gate authority
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          ACTUAL_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          python3 scripts/ci-governance-preview.py --repo-root "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" --source-sha "$ACTUAL_SOURCE_SHA" --tested-sha "$TESTED_SHA" \
+            --output-dir "$RUNNER_TEMP/governance-preview"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: governance-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/governance-preview/
+          if-no-files-found: warn
+          retention-days: 14
 
   pr-fast-preview-plan:
     if: github.event_name == 'pull_request'
@@ -515,7 +643,7 @@ jobs:
       - name: Stabilize Rust toolchains for ordinary execution
         if: matrix.group != 'baseline'
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         if: matrix.group == 'rust_baseline'
         with:
           tool: cargo-deny@0.19.9
@@ -524,13 +652,13 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install WASM C compiler
         if: matrix.group == 'net'
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- clang llvm
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- clang llvm
           clang --print-targets | grep -w wasm32
           llvm-ar --version
       - name: Execute actual preview group
@@ -546,7 +674,7 @@ jobs:
         run: |
           set -euo pipefail
           selection="$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"
-          export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$selection")"
+          export OASIS7_CI_ARCHITECTURE_PLAN_FILE="$selection"
           plan_args=()
           if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required || "$PREVIEW_GROUP" == distfs ]]; then
             plan_args=(--plan "$selection")
@@ -590,7 +718,7 @@ jobs:
   command-center:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_command_center == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     uses: ./.github/workflows/command-center.yml
@@ -601,7 +729,7 @@ jobs:
   baseline:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -643,7 +771,7 @@ jobs:
   rust-baseline:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -678,19 +806,18 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Execute selected group
         shell: bash
         env:
           CI_VERBOSE: "1"
-          OASIS7_CI_ARCHITECTURE_PLAN: ${{ needs.select.outputs.plan }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
@@ -712,6 +839,11 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push' &&
+        !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline')) ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
       (github.event_name == 'push' || github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -738,7 +870,7 @@ jobs:
       actions: read
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
         fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
@@ -748,28 +880,35 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push') ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps: &ordinary-build-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &ordinary-download-selection-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &ordinary-actions-setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Report ordinary workspace cache capacity
+      - &ordinary-report-ordinary-workspace-cache-capacity
+        name: Report ordinary workspace cache capacity
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope ordinary --report "$RUNNER_TEMP/ordinary-cache-preflight.json"
-      - name: Install pinned Rust toolchains
+      - &ordinary-install-pinned-rust-toolchains
+        name: Install pinned Rust toolchains
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -777,26 +916,31 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Stabilize Rust cache toolchains
+      - &ordinary-stabilize-rust-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Reclaim unused candidate SDK capacity
+      - &ordinary-reclaim-unused-candidate-sdk-capacity
+        name: Reclaim unused candidate SDK capacity
         if: github.job == 'oasis7-test-build-candidate'
         env:
           OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
         run: |
           sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --apply --min-free-bytes 1073741824 --min-free-inodes 10000
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &ordinary-shared-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
           shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - name: Identify ordinary workspace cache
+      - &ordinary-ordinary-cache-identity
+        name: Identify ordinary workspace cache
         id: ordinary-cache-identity
         run: python3 scripts/ci-workspace-cache.py identity --scope ordinary
-      - name: Restore compatible ordinary workspace cache
+      - &ordinary-ordinary-workspace-cache
+        name: Restore compatible ordinary workspace cache
         id: ordinary-workspace-cache
         if: steps.ordinary-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -804,7 +948,8 @@ jobs:
           path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.ordinary-cache-identity.outputs.key }}
           restore-keys: ${{ steps.ordinary-cache-identity.outputs.prefix }}
-      - name: Validate and restore ordinary workspace units
+      - &ordinary-validate-and-restore-ordinary-workspace-units
+        name: Validate and restore ordinary workspace units
         env:
           REQUESTED_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
           MATCHED_KEY: ${{ steps.ordinary-workspace-cache.outputs.cache-matched-key }}
@@ -813,18 +958,28 @@ jobs:
           python3 scripts/ci-workspace-cache.py restore --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/ordinary-cache-restore.json"
-      - name: Install native libraries
+      - &ordinary-install-native-libraries
+        name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - name: Build ordinary test artifacts
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - &ordinary-build-ordinary-test-artifacts
+        name: Build ordinary test artifacts
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          ORDINARY_DELIVERY_VERSION: ${{ fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version || 0 }}
         run: |
+          set -euo pipefail
           python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json"
-          python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+          if [[ "$ORDINARY_DELIVERY_VERSION" == 1 || "$ORDINARY_DELIVERY_VERSION" == 2 ]]; then
+            python3 scripts/ci-test-artifacts.py pack --split-ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/ordinary-archives"
+          else
+            python3 scripts/ci-test-artifacts.py pack --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/native-tests.tar.gz"
+          fi
+      - &ordinary-actions-upload-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 && fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 2)
         with:
           name: native-tests-${{ github.sha }}
           path: ${{ runner.temp }}/native-tests.tar.gz
@@ -832,11 +987,63 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Measure ordinary workspace cache footprint
+      - &ordinary-upload-common-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        with:
+          name: native-tests-common-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/common.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-runtime-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        with:
+          name: native-tests-${{ fromJSON(needs.select.outputs.ordinary_partitions)[1] }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/${{ fromJSON(needs.select.outputs.ordinary_partitions)[1] }}.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-component-libs-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        with:
+          name: native-tests-${{ fromJSON(needs.select.outputs.ordinary_partitions)[2] }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/${{ fromJSON(needs.select.outputs.ordinary_partitions)[2] }}.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-integrations-0-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        with:
+          name: native-tests-${{ fromJSON(needs.select.outputs.ordinary_partitions)[3] }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/${{ fromJSON(needs.select.outputs.ordinary_partitions)[3] }}.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-upload-integrations-1-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        with:
+          name: native-tests-${{ fromJSON(needs.select.outputs.ordinary_partitions)[4] }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives/${{ fromJSON(needs.select.outputs.ordinary_partitions)[4] }}.tar.gz
+          compression-level: 0
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 2
+      - &ordinary-measure-ordinary-workspace-cache-footprint
+        name: Measure ordinary workspace cache footprint
         run: |
           python3 scripts/ci-workspace-cache.py measure --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
             --state "$RUNNER_TEMP/ordinary-cache-state.json" --report "$RUNNER_TEMP/ordinary-cache-measure.json"
-      - name: Stage bounded ordinary workspace units
+      - &ordinary-ordinary-cache-stage
+        name: Stage bounded ordinary workspace units
         id: ordinary-cache-stage
         if: >-
           github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-identity.outputs.key != '' &&
@@ -846,14 +1053,16 @@ jobs:
         run: |
           python3 scripts/ci-workspace-cache.py stage --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
             --state "$RUNNER_TEMP/ordinary-cache-state.json" --report "$RUNNER_TEMP/ordinary-cache-stage.json"
-      - name: Save bounded trusted ordinary workspace cache
+      - &ordinary-ordinary-cache-save
+        name: Save bounded trusted ordinary workspace cache
         id: ordinary-cache-save
         if: github.job == 'oasis7-test-build-trusted' && steps.ordinary-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.ordinary-cache-identity.outputs.key }}
-      - name: Confirm ordinary workspace cache
+      - &ordinary-ordinary-cache-observe
+        name: Confirm ordinary workspace cache
         id: ordinary-cache-observe
         if: >-
           github.job == 'oasis7-test-build-trusted' &&
@@ -863,7 +1072,8 @@ jobs:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
           CACHE_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
         run: python3 scripts/ci-workspace-cache.py observe-save --scope ordinary --key "$CACHE_KEY" --report "$RUNNER_TEMP/ordinary-cache-save.json"
-      - name: Upload ordinary workspace cache diagnostics
+      - &ordinary-upload-ordinary-workspace-cache-diagnostics
+        name: Upload ordinary workspace cache diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -871,7 +1081,8 @@ jobs:
           path: ${{ runner.temp }}/ordinary-cache-*.json
           if-no-files-found: ignore
           retention-days: 2
-      - name: Report candidate build capacity on failure
+      - &ordinary-report-candidate-build-capacity-on-failure
+        name: Report candidate build capacity on failure
         if: failure() && github.job == 'oasis7-test-build-candidate'
         shell: bash
         run: |
@@ -901,11 +1112,43 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push') ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    steps: *ordinary-build-steps
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - *ordinary-download-selection-artifact
+      - *ordinary-actions-setup-python
+      - *ordinary-report-ordinary-workspace-cache-capacity
+      - *ordinary-install-pinned-rust-toolchains
+      - *ordinary-stabilize-rust-cache-toolchains
+      - *ordinary-reclaim-unused-candidate-sdk-capacity
+      - *ordinary-shared-rust-cache
+      - *ordinary-ordinary-cache-identity
+      - *ordinary-ordinary-workspace-cache
+      - *ordinary-validate-and-restore-ordinary-workspace-units
+      - *ordinary-install-native-libraries
+      - *ordinary-build-ordinary-test-artifacts
+      - *ordinary-actions-upload-artifact
+      - *ordinary-upload-common-artifact
+      - *ordinary-upload-runtime-artifact
+      - *ordinary-upload-component-libs-artifact
+      - *ordinary-upload-integrations-0-artifact
+      - *ordinary-upload-integrations-1-artifact
+      - *ordinary-measure-ordinary-workspace-cache-footprint
+      - *ordinary-ordinary-cache-stage
+      - *ordinary-ordinary-cache-save
+      - *ordinary-ordinary-cache-observe
+      - *ordinary-upload-ordinary-workspace-cache-diagnostics
+      - *ordinary-report-candidate-build-capacity-on-failure
 
   oasis7-test-build:
     needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
@@ -953,28 +1196,33 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps: &formal-debug-build-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-debug-download-selection-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-debug-download-authority-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &formal-debug-actions-setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Report formal-debug workspace cache capacity
+      - &formal-debug-report-formal-debug-workspace-cache-capacity
+        name: Report formal-debug workspace cache capacity
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope formal-debug --report "$RUNNER_TEMP/formal-debug-cache-preflight.json"
-      - name: Install pinned Rust toolchains
+      - &formal-debug-install-pinned-rust-toolchains
+        name: Install pinned Rust toolchains
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -982,10 +1230,12 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Stabilize Rust cache toolchains
+      - &formal-debug-stabilize-rust-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Install dependency cache admission
+      - &formal-debug-dependency-cache-tools
+        name: Install dependency cache admission
         id: dependency-cache-tools
         if: >-
           github.job == 'formal-debug-build-trusted' && github.ref == 'refs/heads/main' &&
@@ -993,7 +1243,8 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
         continue-on-error: true
         run: python3 scripts/ci-rust-cache-admission.py install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-debug-shared-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           !(github.job == 'formal-debug-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1006,7 +1257,8 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM OASIS7_FORMAL_BUILD_INPUTS
           cache-on-failure: false
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-debug-admitted-dependency-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           github.job == 'formal-debug-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1028,10 +1280,12 @@ jobs:
             needs.select.outputs.trusted_source == 'true' &&
             (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
           cache-on-failure: false
-      - name: Identify formal-debug workspace cache
+      - &formal-debug-formal-debug-cache-identity
+        name: Identify formal-debug workspace cache
         id: formal-debug-cache-identity
         run: python3 scripts/ci-workspace-cache.py identity --scope formal-debug
-      - name: Restore compatible formal-debug workspace cache
+      - &formal-debug-formal-debug-workspace-cache
+        name: Restore compatible formal-debug workspace cache
         id: formal-debug-workspace-cache
         if: steps.formal-debug-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1039,7 +1293,8 @@ jobs:
           path: ${{ runner.temp }}/formal-debug-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-debug-cache-identity.outputs.key }}
           restore-keys: ${{ steps.formal-debug-cache-identity.outputs.prefix }}
-      - name: Validate and restore formal-debug workspace units
+      - &formal-debug-validate-and-restore-formal-debug-workspace-units
+        name: Validate and restore formal-debug workspace units
         env:
           REQUESTED_KEY: ${{ steps.formal-debug-cache-identity.outputs.key }}
           MATCHED_KEY: ${{ steps.formal-debug-workspace-cache.outputs.cache-matched-key }}
@@ -1048,23 +1303,27 @@ jobs:
           python3 scripts/ci-workspace-cache.py restore --scope formal-debug --cache "$RUNNER_TEMP/formal-debug-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/formal-debug-cache-restore.json"
-      - name: Install native libraries
+      - &formal-debug-install-native-libraries
+        name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - id: component-artifact
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - &formal-debug-component-artifact
+        id: component-artifact
         shell: bash
         run: |
           printf 'artifact=formal-debug-%s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-      - name: Build and archive formal-debug component
+      - &formal-debug-build-and-archive-formal-debug-component
+        name: Build and archive formal-debug component
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         shell: bash
         run: |
           python3 scripts/ci-test-artifacts.py build --scope formal-debug --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-debug-tests" --cache-state "$RUNNER_TEMP/formal-debug-cache-state.json" --build-diagnostics "$RUNNER_TEMP/formal-debug-build-diagnostics"
           tar -C "$RUNNER_TEMP/formal-debug-tests" -I 'gzip -1' -cf "$RUNNER_TEMP/formal-debug-tests.tar.gz" .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - &formal-debug-actions-upload-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.component-artifact.outputs.artifact }}
           path: ${{ runner.temp }}/formal-debug-tests.tar.gz
@@ -1072,7 +1331,8 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Upload formal-debug build diagnostics
+      - &formal-debug-upload-formal-debug-build-diagnostics
+        name: Upload formal-debug build diagnostics
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1081,11 +1341,13 @@ jobs:
           path: ${{ runner.temp }}/formal-debug-build-diagnostics
           if-no-files-found: warn
           retention-days: 2
-      - name: Measure formal-debug workspace cache footprint
+      - &formal-debug-measure-formal-debug-workspace-cache-footprint
+        name: Measure formal-debug workspace cache footprint
         run: |
           python3 scripts/ci-workspace-cache.py measure --scope formal-debug --cache "$RUNNER_TEMP/formal-debug-workspace-cache" \
             --state "$RUNNER_TEMP/formal-debug-cache-state.json" --report "$RUNNER_TEMP/formal-debug-cache-measure.json"
-      - name: Stage bounded formal-debug workspace units
+      - &formal-debug-formal-debug-cache-stage
+        name: Stage bounded formal-debug workspace units
         id: formal-debug-cache-stage
         if: >-
           github.job == 'formal-debug-build-trusted' && steps.formal-debug-cache-identity.outputs.key != '' &&
@@ -1095,14 +1357,16 @@ jobs:
         run: |
           python3 scripts/ci-workspace-cache.py stage --scope formal-debug --cache "$RUNNER_TEMP/formal-debug-workspace-cache" \
             --state "$RUNNER_TEMP/formal-debug-cache-state.json" --report "$RUNNER_TEMP/formal-debug-cache-stage.json"
-      - name: Save bounded trusted formal-debug workspace cache
+      - &formal-debug-formal-debug-cache-save
+        name: Save bounded trusted formal-debug workspace cache
         id: formal-debug-cache-save
         if: github.job == 'formal-debug-build-trusted' && steps.formal-debug-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/formal-debug-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-debug-cache-identity.outputs.key }}
-      - name: Confirm formal-debug workspace cache
+      - &formal-debug-formal-debug-cache-observe
+        name: Confirm formal-debug workspace cache
         id: formal-debug-cache-observe
         if: >-
           github.job == 'formal-debug-build-trusted' &&
@@ -1112,7 +1376,8 @@ jobs:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
           CACHE_KEY: ${{ steps.formal-debug-cache-identity.outputs.key }}
         run: python3 scripts/ci-workspace-cache.py observe-save --scope formal-debug --key "$CACHE_KEY" --report "$RUNNER_TEMP/formal-debug-cache-save.json"
-      - name: Upload formal-debug workspace cache diagnostics
+      - &formal-debug-upload-formal-debug-workspace-cache-diagnostics
+        name: Upload formal-debug workspace cache diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1149,7 +1414,35 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    steps: *formal-debug-build-steps
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - *formal-debug-download-selection-artifact
+      - *formal-debug-download-authority-artifact
+      - *formal-debug-actions-setup-python
+      - *formal-debug-report-formal-debug-workspace-cache-capacity
+      - *formal-debug-install-pinned-rust-toolchains
+      - *formal-debug-stabilize-rust-cache-toolchains
+      - *formal-debug-dependency-cache-tools
+      - *formal-debug-shared-rust-cache
+      - *formal-debug-admitted-dependency-cache
+      - *formal-debug-formal-debug-cache-identity
+      - *formal-debug-formal-debug-workspace-cache
+      - *formal-debug-validate-and-restore-formal-debug-workspace-units
+      - *formal-debug-install-native-libraries
+      - *formal-debug-component-artifact
+      - *formal-debug-build-and-archive-formal-debug-component
+      - *formal-debug-actions-upload-artifact
+      - *formal-debug-upload-formal-debug-build-diagnostics
+      - *formal-debug-measure-formal-debug-workspace-cache-footprint
+      - *formal-debug-formal-debug-cache-stage
+      - *formal-debug-formal-debug-cache-save
+      - *formal-debug-formal-debug-cache-observe
+      - *formal-debug-upload-formal-debug-workspace-cache-diagnostics
+      - *engineering-job-observation
 
   formal-endpoint-build:
     cache-mode: read
@@ -1176,28 +1469,33 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
-    steps: &formal-endpoint-build-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-endpoint-download-selection-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - &formal-endpoint-download-authority-artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      - &formal-endpoint-actions-setup-python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Report formal-endpoint workspace cache capacity
+      - &formal-endpoint-report-formal-endpoint-workspace-cache-capacity
+        name: Report formal-endpoint workspace cache capacity
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope formal-endpoint --report "$RUNNER_TEMP/formal-endpoint-cache-preflight.json"
-      - name: Install pinned Rust toolchains
+      - &formal-endpoint-install-pinned-rust-toolchains
+        name: Install pinned Rust toolchains
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -1205,10 +1503,12 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
-      - name: Stabilize Rust cache toolchains
+      - &formal-endpoint-stabilize-rust-cache-toolchains
+        name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Install dependency cache admission
+      - &formal-endpoint-dependency-cache-tools
+        name: Install dependency cache admission
         id: dependency-cache-tools
         if: >-
           github.job == 'formal-endpoint-build-trusted' && github.ref == 'refs/heads/main' &&
@@ -1216,7 +1516,8 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
         continue-on-error: true
         run: python3 scripts/ci-rust-cache-admission.py install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-endpoint-shared-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           !(github.job == 'formal-endpoint-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1229,7 +1530,8 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM OASIS7_FORMAL_BUILD_INPUTS
           cache-on-failure: false
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - &formal-endpoint-admitted-dependency-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
           github.job == 'formal-endpoint-build-trusted' && github.ref == 'refs/heads/main' &&
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
@@ -1251,10 +1553,12 @@ jobs:
             needs.select.outputs.trusted_source == 'true' &&
             (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
           cache-on-failure: false
-      - name: Identify formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-cache-identity
+        name: Identify formal-endpoint workspace cache
         id: formal-endpoint-cache-identity
         run: python3 scripts/ci-workspace-cache.py identity --scope formal-endpoint
-      - name: Restore compatible formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-workspace-cache
+        name: Restore compatible formal-endpoint workspace cache
         id: formal-endpoint-workspace-cache
         if: steps.formal-endpoint-cache-identity.outputs.key != ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1262,7 +1566,8 @@ jobs:
           path: ${{ runner.temp }}/formal-endpoint-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
           restore-keys: ${{ steps.formal-endpoint-cache-identity.outputs.prefix }}
-      - name: Validate and restore formal-endpoint workspace units
+      - &formal-endpoint-validate-and-restore-formal-endpoint-workspace-units
+        name: Validate and restore formal-endpoint workspace units
         env:
           REQUESTED_KEY: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
           MATCHED_KEY: ${{ steps.formal-endpoint-workspace-cache.outputs.cache-matched-key }}
@@ -1271,23 +1576,27 @@ jobs:
           python3 scripts/ci-workspace-cache.py restore --scope formal-endpoint --cache "$RUNNER_TEMP/formal-endpoint-workspace-cache" \
             --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
             --report "$RUNNER_TEMP/formal-endpoint-cache-restore.json"
-      - name: Install native libraries
+      - &formal-endpoint-install-native-libraries
+        name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - id: component-artifact
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - &formal-endpoint-component-artifact
+        id: component-artifact
         shell: bash
         run: |
           printf 'artifact=formal-endpoint-%s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-      - name: Build and archive formal-endpoint component
+      - &formal-endpoint-build-and-archive-formal-endpoint-component
+        name: Build and archive formal-endpoint component
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         shell: bash
         run: |
           python3 scripts/ci-test-artifacts.py build --scope formal-endpoint --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-endpoint-tests" --cache-state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --build-diagnostics "$RUNNER_TEMP/formal-endpoint-build-diagnostics"
           tar -C "$RUNNER_TEMP/formal-endpoint-tests" -I 'gzip -1' -cf "$RUNNER_TEMP/formal-endpoint-tests.tar.gz" .
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - &formal-endpoint-actions-upload-artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.component-artifact.outputs.artifact }}
           path: ${{ runner.temp }}/formal-endpoint-tests.tar.gz
@@ -1295,7 +1604,8 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 2
-      - name: Upload formal-endpoint build diagnostics
+      - &formal-endpoint-upload-formal-endpoint-build-diagnostics
+        name: Upload formal-endpoint build diagnostics
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1304,11 +1614,13 @@ jobs:
           path: ${{ runner.temp }}/formal-endpoint-build-diagnostics
           if-no-files-found: warn
           retention-days: 2
-      - name: Measure formal-endpoint workspace cache footprint
+      - &formal-endpoint-measure-formal-endpoint-workspace-cache-footprint
+        name: Measure formal-endpoint workspace cache footprint
         run: |
           python3 scripts/ci-workspace-cache.py measure --scope formal-endpoint --cache "$RUNNER_TEMP/formal-endpoint-workspace-cache" \
             --state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --report "$RUNNER_TEMP/formal-endpoint-cache-measure.json"
-      - name: Stage bounded formal-endpoint workspace units
+      - &formal-endpoint-formal-endpoint-cache-stage
+        name: Stage bounded formal-endpoint workspace units
         id: formal-endpoint-cache-stage
         if: >-
           github.job == 'formal-endpoint-build-trusted' && steps.formal-endpoint-cache-identity.outputs.key != '' &&
@@ -1318,14 +1630,16 @@ jobs:
         run: |
           python3 scripts/ci-workspace-cache.py stage --scope formal-endpoint --cache "$RUNNER_TEMP/formal-endpoint-workspace-cache" \
             --state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --report "$RUNNER_TEMP/formal-endpoint-cache-stage.json"
-      - name: Save bounded trusted formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-cache-save
+        name: Save bounded trusted formal-endpoint workspace cache
         id: formal-endpoint-cache-save
         if: github.job == 'formal-endpoint-build-trusted' && steps.formal-endpoint-cache-stage.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/formal-endpoint-workspace-cache/workspace-units.tar.zst
           key: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
-      - name: Confirm formal-endpoint workspace cache
+      - &formal-endpoint-formal-endpoint-cache-observe
+        name: Confirm formal-endpoint workspace cache
         id: formal-endpoint-cache-observe
         if: >-
           github.job == 'formal-endpoint-build-trusted' &&
@@ -1335,7 +1649,8 @@ jobs:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
           CACHE_KEY: ${{ steps.formal-endpoint-cache-identity.outputs.key }}
         run: python3 scripts/ci-workspace-cache.py observe-save --scope formal-endpoint --key "$CACHE_KEY" --report "$RUNNER_TEMP/formal-endpoint-cache-save.json"
-      - name: Upload formal-endpoint workspace cache diagnostics
+      - &formal-endpoint-upload-formal-endpoint-workspace-cache-diagnostics
+        name: Upload formal-endpoint workspace cache diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1372,7 +1687,35 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    steps: *formal-endpoint-build-steps
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - *formal-endpoint-download-selection-artifact
+      - *formal-endpoint-download-authority-artifact
+      - *formal-endpoint-actions-setup-python
+      - *formal-endpoint-report-formal-endpoint-workspace-cache-capacity
+      - *formal-endpoint-install-pinned-rust-toolchains
+      - *formal-endpoint-stabilize-rust-cache-toolchains
+      - *formal-endpoint-dependency-cache-tools
+      - *formal-endpoint-shared-rust-cache
+      - *formal-endpoint-admitted-dependency-cache
+      - *formal-endpoint-formal-endpoint-cache-identity
+      - *formal-endpoint-formal-endpoint-workspace-cache
+      - *formal-endpoint-validate-and-restore-formal-endpoint-workspace-units
+      - *formal-endpoint-install-native-libraries
+      - *formal-endpoint-component-artifact
+      - *formal-endpoint-build-and-archive-formal-endpoint-component
+      - *formal-endpoint-actions-upload-artifact
+      - *formal-endpoint-upload-formal-endpoint-build-diagnostics
+      - *formal-endpoint-measure-formal-endpoint-workspace-cache-footprint
+      - *formal-endpoint-formal-endpoint-cache-stage
+      - *formal-endpoint-formal-endpoint-cache-save
+      - *formal-endpoint-formal-endpoint-cache-observe
+      - *formal-endpoint-upload-formal-endpoint-workspace-cache-diagnostics
+      - *engineering-job-observation
 
   formal-test-build:
     cache-mode: read
@@ -1424,7 +1767,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Require exact successful Formal component artifacts
         env:
           DEBUG_ARTIFACT: ${{ needs.formal-debug-build.outputs.artifact || needs.formal-debug-build-trusted.outputs.artifact }}
@@ -1535,6 +1878,12 @@ jobs:
       needs.select.outputs.trusted_source == 'true' &&
       (fromJSON(needs.select.outputs.plan).execution_profile == 'periodic-full' ||
        fromJSON(needs.select.outputs.plan).execution_profile == 'candidate-full' ||
+       (fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version == 1 &&
+        fromJSON(needs.select.outputs.plan).execution_profile == 'main-fast' &&
+        fromJSON(needs.select.outputs.plan).scope == 'full' && github.event_name == 'push' &&
+        !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
+        needs.oasis7-test-build-trusted.result == 'success') ||
        !fromJSON(needs.select.outputs.plan).fast_plan_version) &&
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
@@ -1611,6 +1960,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned Rust toolchains
+        if: >-
+          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -1619,9 +1973,19 @@ jobs:
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
       - name: Stabilize Rust cache toolchains
+        if: >-
+          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: >-
+          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
         with:
           save-if: false
           shared-key: ci-shared-native-trusted-v4
@@ -1654,17 +2018,41 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline'
+        if: >-
+          (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 && fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 2) &&
+          (fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline')
         with:
           name: native-tests-${{ github.sha }}
           path: ${{ runner.temp }}
       - name: Unpack native executables preserving modes
-        if: fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline'
+        if: >-
+          (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 && fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 2) &&
+          (fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline')
         run: |
           mkdir -p "$RUNNER_TEMP/native-tests"
           tar -C "$RUNNER_TEMP/native-tests" -xzf "$RUNNER_TEMP/native-tests.tar.gz"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2) && matrix.partition != 'controls'
+        with:
+          name: native-tests-common-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2) && matrix.partition != 'controls'
+        with:
+          name: native-tests-${{ matrix.partition }}-${{ github.sha }}
+          path: ${{ runner.temp }}/ordinary-archives
+      - name: Unpack exact ordinary consumption closure
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2) && matrix.partition != 'controls'
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          ORDINARY_PARTITION: ${{ matrix.partition }}
+        run: |
+          python3 scripts/ci-test-artifacts.py unpack-ordinary --plan "$RUNNER_TEMP/selection.json" \
+            --common-archive "$RUNNER_TEMP/ordinary-archives/common.tar.gz" \
+            --partition-archive "$RUNNER_TEMP/ordinary-archives/$ORDINARY_PARTITION.tar.gz" \
+            --ordinary-partition "$ORDINARY_PARTITION" --bundle "$RUNNER_TEMP/native-tests"
       - name: Execute selected group
         shell: bash
         env:
@@ -1675,6 +2063,54 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "oasis7_required" --plan "$RUNNER_TEMP/selection.json" --ordinary-partition "$ORDINARY_PARTITION" --repo-root "$GITHUB_WORKSPACE"
+
+  pr-ordinary-delivery-preview:
+    needs: [select, oasis7-test-build]
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      needs.select.result == 'success' && needs.oasis7-test-build.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 1 &&
+      (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 && fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-tests-${{ github.sha }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Measure diagnostic transport of the unchanged ordinary producer output
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+        run: |
+          python3 scripts/ci-test-artifacts.py measure-ordinary-delivery \
+            --plan "$RUNNER_TEMP/selection.json" --input-archive "$RUNNER_TEMP/native-tests.tar.gz" \
+            --bundle "$RUNNER_TEMP/ordinary-delivery-preview"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: ordinary-delivery-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ordinary-delivery-preview/*.json
+          if-no-files-found: warn
+          retention-days: 14
 
   formal-process-tests:
     needs: [select, formal-test-build, formal-test-build-trusted]
@@ -1710,7 +2146,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: formal-tests-${{ matrix.shard }}-${{ github.sha }}
@@ -1738,7 +2174,7 @@ jobs:
 
   formal-process:
     needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]
-    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
+    if: always() && needs.select.result != 'skipped' && (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -1755,7 +2191,7 @@ jobs:
   consensus:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1797,7 +2233,7 @@ jobs:
   distfs:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1843,6 +2279,7 @@ jobs:
           set -euo pipefail
           plan_args=()
           selection="$RUNNER_TEMP/selection.json"
+          export OASIS7_CI_DISTFS_PLAN_FILE="$selection"
           handoff=$(python3 - "$selection" <<'PY'
           import json, sys
           plan = json.load(open(sys.argv[1]))
@@ -1860,7 +2297,7 @@ jobs:
   node:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_node == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1902,7 +2339,7 @@ jobs:
   net:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1937,7 +2374,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- clang llvm
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- clang llvm
           clang --print-targets | grep -w wasm32
           llvm-ar --version
       - name: Execute selected group
@@ -1951,7 +2388,7 @@ jobs:
   viewer-js-required:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -1973,11 +2410,25 @@ jobs:
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned security smoke browser
         shell: bash
+        timeout-minutes: 11
         run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
           npm install --prefix "$RUNNER_TEMP/viewer-security-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-security-browser/node_modules/.bin/agent-browser"
-          "$browser_bin" install --with-deps
-          printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
+          if "$browser_bin" install --with-deps; then
+            printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
+          else
+            install_status=$?
+            python3 scripts/security/viewer-browser-install-diagnostic.py output/viewer-browser-install/diagnostic.json || echo 'Browser install diagnostic unavailable'
+            exit "$install_status"
+          fi
+      - name: Upload browser installation failure observation
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viewer-browser-install-failure
+          path: output/viewer-browser-install/diagnostic.json
+          if-no-files-found: ignore
       - name: Install pinned Rust toolchain
         shell: bash
         run: |
@@ -2028,7 +2479,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Execute selected group
         shell: bash
         env:
@@ -2036,11 +2487,19 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "viewer_js_required" --repo-root "$GITHUB_WORKSPACE"
+      - name: Upload browser functional regression evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-functional-regression
+          path: output/playwright/browser-functional-regression
+          if-no-files-found: warn
+          retention-days: 7
 
   viewer-performance-report:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2110,9 +2569,12 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install pinned performance browser
+        shell: bash
+        timeout-minutes: 15
         run: |
+          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "0";\n' | sudo -n tee /etc/apt/apt.conf.d/99oasis7-browser-network-timeout >/dev/null
           npm install --prefix "$RUNNER_TEMP/viewer-performance-browser" --no-save --package-lock=false agent-browser@0.37.1
           browser_bin="$RUNNER_TEMP/viewer-performance-browser/node_modules/.bin/agent-browser"
           "$browser_bin" install --with-deps
@@ -2136,7 +2598,7 @@ jobs:
   pixel-world-bridge:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2171,7 +2633,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Execute selected group
         shell: bash
         env:
@@ -2183,7 +2645,7 @@ jobs:
   launcher-web:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2225,7 +2687,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Cache pinned Trunk release archive
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -2242,11 +2704,12 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "launcher_web" --repo-root "$GITHUB_WORKSPACE"
 
-  workspace-support:
-    name: workspace-support (${{ matrix.partition }})
+  workspace-support-legacy:
+    name: workspace-support-legacy (${{ matrix.partition }})
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version != 1 &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2262,6 +2725,193 @@ jobs:
       OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
       OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install pinned Rust toolchains
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Observe support capacity before cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot before-cache
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - name: Observe support capacity after cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-cache
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Execute selected group
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          SUPPORT_PARTITION: ${{ matrix.partition }}
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-native-libraries
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"
+      - name: Observe support capacity on job exit
+        if: always()
+        shell: bash
+        env:
+          OASIS7_SUPPORT_JOB_STATUS: ${{ job.status }}
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot job-exit
+
+  workspace-support-other:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
+      contains(fromJSON(needs.select.outputs.workspace_support_partitions), 'other')
+    runs-on: ubuntu-24.04
+    env:
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install pinned Rust toolchains
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Observe support capacity before cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot before-cache
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - name: Observe support capacity after cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-cache
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Execute selected group
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          SUPPORT_PARTITION: other
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-native-libraries
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"
+      - name: Observe support capacity on job exit
+        if: always()
+        shell: bash
+        env:
+          OASIS7_SUPPORT_JOB_STATUS: ${{ job.status }}
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot job-exit
+
+  custody-native-contracts:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          persist-credentials: false
+      - name: Install pinned Rust for native contracts
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Execute all native custody contracts
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: bash crates/oasis7_custody_worker/scripts/verify.sh --stage native-contracts
+
+  custody-native:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+      attempt: ${{ steps.bundle.outputs.attempt }}
+    env:
+      CUSTODY_COMPONENT: native
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps: &custody-build-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2301,36 +2951,312 @@ jobs:
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-cache
+      - name: Identify pinned Worker build tool
+        id: worker-meta
+        if: env.CUSTODY_COMPONENT != 'native'
+        run: python3 scripts/ci-worker-build.py metadata --github-output "$GITHUB_OUTPUT"
+      - name: Restore exact Worker build tool
+        id: worker-tool-cache
+        if: env.CUSTODY_COMPONENT != 'native'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.worker-meta.outputs.root }}
+          key: worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}
+      - name: Prepare verified Worker build tool
+        if: env.CUSTODY_COMPONENT != 'native'
+        shell: bash
+        timeout-minutes: 11
+        env:
+          TOOL_CACHE_HIT: ${{ steps.worker-tool-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$TOOL_CACHE_HIT" == true ]]; then
+            python3 scripts/ci-worker-build.py check
+          else
+            python3 scripts/ci-worker-build.py ensure
+          fi
       - name: Install native libraries
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - name: Execute selected group
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - name: Build and verify the complete custody component
         shell: bash
         env:
-          CI_VERBOSE: "1"
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
-          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-          SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
-          SUPPORT_PARTITION: ${{ matrix.partition }}
+          CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
+          CUSTODY_COMPILE_PROOF_VERSION: ${{ fromJSON(needs.select.outputs.plan).custody_compile_proof_version }}
         run: |
-          source scripts/ci-tests.sh
-          support_capacity_snapshot after-native-libraries
-          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN" --support-partition "$SUPPORT_PARTITION"
-      - name: Observe support capacity on job exit
+          if [[ "$CUSTODY_COMPILE_PROOF_VERSION" == 1 ]]; then
+            stage="$(python3 scripts/ci-custody-platform.py stage --plan "$RUNNER_TEMP/selection.json" --component "$CUSTODY_COMPONENT")"
+          else
+            stage="$CUSTODY_COMPONENT"
+            [[ "$stage" != native ]] || stage=native-fixtures
+          fi
+          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$stage"
+          if [[ "$stage" == wasm-approval || "$stage" == wasm-contracts ]]; then
+            driver_dir="$GITHUB_WORKSPACE/scripts"
+            ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+            source scripts/ci-tests.sh
+            run_worker_wasm_compile_profiles
+          fi
+      - name: Bind complete component outputs
+        id: bundle
+        shell: bash
+        run: |
+          python3 scripts/ci-custody-platform.py pack --plan "$RUNNER_TEMP/selection.json" --component "$CUSTODY_COMPONENT" --bundle "$RUNNER_TEMP/custody-bundle"
+          echo "artifact=custody-${CUSTODY_COMPONENT}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.bundle.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-bundle
+          # The verified manifest includes generated dotfiles such as .gitignore.
+          include-hidden-files: true
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  custody-wasm-production:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+      attempt: ${{ steps.bundle.outputs.attempt }}
+    env:
+      CUSTODY_COMPONENT: wasm-production
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps: *custody-build-steps
+
+  custody-wasm-approval:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact }}
+      attempt: ${{ steps.bundle.outputs.attempt }}
+    env:
+      CUSTODY_COMPONENT: wasm-approval
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps: *custody-build-steps
+
+  custody-wasm-contracts:
+    needs: select
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
+      fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CUSTODY_COMPONENT: wasm-contracts
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Install pinned Rust toolchains
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+      - name: Stabilize Rust cache toolchains
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - name: Execute complete custody WASM compile proofs
+        shell: bash
+        env:
+          CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
+        run: |
+          stage="$(python3 scripts/ci-custody-platform.py stage --plan "$RUNNER_TEMP/selection.json" --component "$CUSTODY_COMPONENT")"
+          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$stage"
+          if [[ "$stage" == wasm-approval || "$stage" == wasm-contracts ]]; then
+            driver_dir="$GITHUB_WORKSPACE/scripts"
+            ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+            source scripts/ci-tests.sh
+            run_worker_wasm_compile_profiles
+          fi
+
+  custody-node:
+    name: custody-node (${{ matrix.shard }})
+    needs: [select, custody-native, custody-wasm-production, custody-wasm-approval]
+    if: >-
+      always() && !cancelled() && needs.select.result == 'success' &&
+      needs.custody-native.result == 'success' &&
+      needs.custody-wasm-production.result == 'success' &&
+      needs.custody-wasm-approval.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: ${{ fromJSON(needs.select.outputs.plan).custody_node_shards || fromJSON('[0,1,2,3]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install native libraries
+        shell: bash
+        timeout-minutes: 11
+        run: |
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- gdb gcc pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.custody-native.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-inputs/native
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.custody-wasm-production.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-inputs/wasm-production
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.custody-wasm-approval.outputs.artifact }}
+          path: ${{ runner.temp }}/custody-inputs/wasm-approval
+      - name: Verify and restore the exact successful producer outputs
+        env:
+          PRODUCER_ATTEMPTS: '{"native":${{ needs.custody-native.outputs.attempt }},"wasm-production":${{ needs.custody-wasm-production.outputs.attempt }},"wasm-approval":${{ needs.custody-wasm-approval.outputs.attempt }}}'
+        run: python3 scripts/ci-custody-platform.py restore --plan "$RUNNER_TEMP/selection.json" --bundles "$RUNNER_TEMP/custody-inputs" --producer-attempts "$PRODUCER_ATTEMPTS"
+      - name: Install platform test dependencies
+        run: npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
+      - name: Verify standard debugger process contracts
+        if: matrix.shard == 0
+        timeout-minutes: 3
+        env:
+          OASIS7_REQUIRE_GDB_TESTS: '1'
+          OASIS7_GDB_CONTRACT_RESULTS: output/workerd-gdb-contracts
+        run: python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts
+      - name: Verify the TypeScript consumer once
+        if: matrix.shard == 0
+        run: npm run test:types --prefix crates/oasis7_custody_worker
+      - name: Execute complete Node files without local contention
+        env:
+          CUSTODY_SHARD: ${{ matrix.shard }}
+        run: python3 scripts/ci-custody-platform.py run --plan "$RUNNER_TEMP/selection.json" --shard "$CUSTODY_SHARD" --results "output/custody-$CUSTODY_SHARD" --capture-workerd-faults
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
-        shell: bash
+        with:
+          name: custody-node-${{ github.run_id }}-${{ matrix.shard }}
+          path: output/custody-${{ matrix.shard }}
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve workerd evidence for this attempt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: |
+            output/custody-${{ matrix.shard }}/workerd-fault/records.jsonl
+            output/custody-${{ matrix.shard }}/workerd-fault/report.json
+            output/custody-${{ matrix.shard }}/client-abuse.integration.test.mjs.log
+            output/workerd-gdb-contracts/*/records.jsonl
+            output/workerd-gdb-contracts/*/processes.jsonl
+            output/workerd-gdb-contracts/*/node.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  workspace-support:
+    needs: [select, workspace-support-legacy, workspace-support-other, custody-native-contracts, custody-wasm-contracts, custody-native, custody-wasm-production, custody-wasm-approval, custody-node]
+    if: >-
+      always() && needs.select.result != 'skipped' &&
+      (needs.select.result != 'success' || needs.select.outputs.run_workspace_support == 'true' ||
+       fromJSON(needs.select.outputs.plan).scope == 'full')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful support planning
         env:
-          OASIS7_SUPPORT_JOB_STATUS: ${{ job.status }}
+          SELECT_RESULT: ${{ needs.select.result }}
+        run: test "$SELECT_RESULT" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select.outputs.tested_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: fromJSON(needs.select.outputs.plan).custody_execution_version == 1
+        with:
+          pattern: custody-node-${{ github.run_id }}-*
+          path: ${{ runner.temp }}/custody-results
+      - name: Require all selected support stages and complete file inventory
+        env:
+          SUPPORT_NEEDS: ${{ toJSON(needs) }}
         run: |
-          source scripts/ci-tests.sh
-          support_capacity_snapshot job-exit
+          support_needs="$(python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes())
+          needs = json.loads(os.environ['SUPPORT_NEEDS'])
+          if 'custody_compile_proof_version' not in plan:
+              proof = needs.pop('custody-wasm-contracts', None)
+              if not isinstance(proof, dict) or proof.get('result') != 'skipped':
+                  raise ValueError('unselected custody proof must be present and skipped')
+          print(json.dumps(needs, separators=(',', ':')))
+          PY
+          )"
+          python3 scripts/ci-custody-platform.py validate --plan "$RUNNER_TEMP/selection.json" --needs "$support_needs" --results "$RUNNER_TEMP/custody-results" --capture-workerd-faults
 
   scenario-regression:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_scenario_regression == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2365,7 +3291,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Execute selected group
         shell: bash
         env:
@@ -2377,7 +3303,7 @@ jobs:
   operational-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2401,7 +3327,7 @@ jobs:
   packaging-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_packaging_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2425,7 +3351,7 @@ jobs:
   workflow-governance:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_workflow_governance == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     permissions:
@@ -2451,6 +3377,19 @@ jobs:
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}/ci-control-selection
+      - name: Inspect trusted governance capability
+        id: control-mode
+        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py"
+          help=$(python3 -I "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" --help)
+          if grep -Fq -- '--governance' <<< "$help"; then
+            echo 'complete_governance=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'complete_governance=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Install document contract parser
         run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
       - name: Install pinned tools for offline control fixtures
@@ -2469,13 +3408,21 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+          COMPLETE_GOVERNANCE: ${{ steps.control-mode.outputs.complete_governance }}
           RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: |
           set -euo pipefail
           test -s "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py"
+          complete=()
+          if [[ "$COMPLETE_GOVERNANCE" == true ]]; then
+            complete=(--governance)
+          fi
           python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run \
             --repo-root "$GITHUB_WORKSPACE" --policy-sha "$POLICY_SHA" \
-            --plan "$RUNNER_TEMP/ci-control-selection/selection.json"
+            --plan "$RUNNER_TEMP/ci-control-selection/selection.json" "${complete[@]}"
       - name: Verify scoped candidate cache permission
         uses: ./.github/actions/cache-permission-probe
       - name: Restore trusted cache sentinel
@@ -2495,6 +3442,7 @@ jobs:
             echo 'cache_permission_probe=trusted_writer_not_yet_seeded'
           fi
       - name: Execute selected group
+        if: steps.control-mode.outputs.complete_governance != 'true'
         shell: bash
         env:
           CI_VERBOSE: "1"
@@ -2502,6 +3450,7 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "workflow_governance" --repo-root "$GITHUB_WORKSPACE"
       - name: Verify new source archive and cache permission contracts
+        if: steps.control-mode.outputs.complete_governance != 'true'
         run: |
           python3 scripts/package-source-plan.test.py
           python3 scripts/safe-git-archive.test.py
@@ -2510,7 +3459,7 @@ jobs:
   codex-agent-config-validation:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2534,7 +3483,7 @@ jobs:
   compile-metrics:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_compile_metrics == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2562,7 +3511,7 @@ jobs:
   site-quality:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2579,6 +3528,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
           node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Deck browser tests require Node >= 20"); console.log("Using runner Node", process.version);'
           npm --version
           npm install --prefix "$RUNNER_TEMP/site-security-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
@@ -2603,7 +3553,7 @@ jobs:
   doc-checker-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_doc_checker_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2629,7 +3579,7 @@ jobs:
   cargo-tooling-contracts:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_cargo_tooling_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2671,7 +3621,7 @@ jobs:
   windows-rollout:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_windows_rollout == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: windows-2022
@@ -2693,7 +3643,7 @@ jobs:
   macos-package-contract:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -2713,7 +3663,7 @@ jobs:
   fleet-health:
     needs: select
     if: >-
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_fleet_health == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     name: fleet-health (${{ matrix.os }})
@@ -2763,7 +3713,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          command -v lsof || sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- lsof
+          command -v lsof || sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- lsof
       - name: Verify cleanup on native host
         if: runner.os != 'Windows'
         shell: bash
@@ -2791,11 +3741,82 @@ jobs:
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - &validate-complete-selection
+        name: Validate complete selection handoff
+        env:
+          WORKFLOW_PLAN: ${{ needs.select.outputs.plan }}
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          raw = (Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes()
+          plan = json.loads(raw)
+          projected = json.loads(os.environ['WORKFLOW_PLAN'])
+          if not isinstance(plan, dict) or not isinstance(projected, dict):
+              raise ValueError('complete selection and scheduling projection must be objects')
+          capability = 'ordinary_main_fast_cache_writer_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
+              raise ValueError('invalid ordinary main-fast cache writer capability')
+          capability = 'custody_compile_proof_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('custody_execution_version')) is not int or plan['custody_execution_version'] != 1
+                  or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
+                  or plan.get('test_policy_changed') is not False):
+              raise ValueError('invalid custody compile proof capability')
+          if (type(projected.get('workflow_projection_version')) is not int
+                  or projected['workflow_projection_version'] != 1
+                  or projected.get('selection_sha256') != hashlib.sha256(raw).hexdigest()):
+              raise ValueError('complete selection does not match its scheduling digest')
+          fields = (
+              'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
+              'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
+              'ordinary_main_fast_cache_writer_version',
+              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version',
+              'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
+              'check_inventory_version', 'fast_plan_exceptions',
+          )
+          expected = {key: plan[key] for key in fields if key in plan}
+          actual = {key: value for key, value in projected.items()
+                    if key not in ('workflow_projection_version', 'selection_sha256')}
+          if json.dumps(actual, sort_keys=True) != json.dumps(expected, sort_keys=True):
+              raise ValueError('complete selection disagrees with its scheduling projection')
+          identities = {key: os.environ[variable] for key, variable in (
+              ('source_sha', 'SOURCE_SHA'), ('tested_sha', 'TESTED_SHA'), ('policy_sha', 'POLICY_SHA'))}
+          if any(re.fullmatch('[0-9a-f]{40}', value) is None for value in identities.values()):
+              raise ValueError('invalid independently selected identity')
+          if any(key in plan for key in ('fast_plan_version', 'execution_profile', 'bootstrap_full')):
+              actual_identity = {key: plan.get(key) for key in identities}
+          else:
+              # Old planners bind the same selected commits in architecture.
+              architecture = plan.get('architecture')
+              if not isinstance(architecture, dict):
+                  raise ValueError('old complete selection is missing its architecture identity')
+              actual_identity = dict(source_sha=architecture.get('source'),
+                                     tested_sha=architecture.get('tested'), policy_sha=architecture.get('base'))
+          if actual_identity != identities:
+              raise ValueError('complete selection disagrees with independently selected identity')
+          PY
       - name: Validate all expected results
         env:
-          PLAN: ${{ needs.select.outputs.plan }}
           NEEDS: ${{ toJSON(needs) }}
-        run: python3 "$RUNNER_TEMP/ci-authority/ci-required-result.py" --plan "$PLAN" --needs "$NEEDS"
+        run: |
+          python3 - <<'PY'
+          import os, runpy, sys
+          from pathlib import Path
+          temp = Path(os.environ['RUNNER_TEMP'])
+          script = (temp / 'ci-authority/ci-required-result.py').resolve()
+          sys.path[0] = str(script.parent)
+          sys.argv = [str(script), '--plan', (temp / 'selection.json').read_text(encoding='utf-8'),
+                      '--needs', os.environ['NEEDS']]
+          runpy.run_path(str(script), run_name='__main__')
+          PY
       - *engineering-job-observation
 
   full-regression:
@@ -2812,7 +3833,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.select.outputs.tested_sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Resolve product-document gate range
@@ -2838,14 +3859,14 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- \
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- \
             clang \
             llvm \
             pkg-config \
@@ -3002,14 +4023,14 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- \
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- \
             clang \
             llvm \
             pkg-config \
@@ -3099,7 +4120,7 @@ jobs:
   explicit-full-gate:
     name: explicit-full-gate
     if: >-
-      always() &&
+      always() && needs.select.result != 'skipped' &&
       (github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
@@ -3121,6 +4142,11 @@ jobs:
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
           path: ${{ runner.temp }}/ci-authority
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - *validate-complete-selection
       - name: Require complete full inventory and exact source
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -3128,14 +4154,30 @@ jobs:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           RUN_MODE: ${{ inputs.run_mode }}
-          PLAN: ${{ needs.select.outputs.plan }}
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 "$RUNNER_TEMP/ci-authority/ci-required-result.py" --full \
-            --plan "$PLAN" --needs "$NEEDS" --event-name "$EVENT_NAME" --ref "$REF" \
-            --workflow-sha "$WORKFLOW_SHA" --source-sha "$SOURCE_SHA" --run-mode "$RUN_MODE"
-          python3 "$RUNNER_TEMP/ci-authority/ci-full-result.py" produce \
-            --plan "$PLAN" --needs "$NEEDS" --output "$RUNNER_TEMP/full-result.json"
+          python3 - <<'PY'
+          import os, runpy, sys
+          from pathlib import Path
+          temp = Path(os.environ['RUNNER_TEMP'])
+          authority = (temp / 'ci-authority').resolve()
+          sys.path[0] = str(authority)
+          shared = ['--plan', (temp / 'selection.json').read_text(encoding='utf-8'),
+                    '--needs', os.environ['NEEDS']]
+          def trusted_main(name, arguments):
+              script = authority / name
+              sys.argv = [str(script), *arguments]
+              try:
+                  runpy.run_path(str(script), run_name='__main__')
+              except SystemExit as error:
+                  if error.code not in (None, 0):
+                      raise
+          trusted_main('ci-required-result.py', ['--full', *shared,
+              '--event-name', os.environ['EVENT_NAME'], '--ref', os.environ['REF'],
+              '--workflow-sha', os.environ['WORKFLOW_SHA'], '--source-sha', os.environ['SOURCE_SHA'],
+              '--run-mode', os.environ['RUN_MODE']])
+          trusted_main('ci-full-result.py', ['produce', *shared, '--output', str(temp / 'full-result.json')])
+          PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ci-full-result-${{ github.run_id }}-${{ github.run_attempt }}
@@ -3164,7 +4206,7 @@ jobs:
         shell: bash
         timeout-minutes: 11
         run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- \
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- \
             pkg-config \
             libwayland-dev \
             wayland-protocols \

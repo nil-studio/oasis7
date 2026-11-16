@@ -1,0 +1,419 @@
+name: CodeQL Rust WASM Context
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Observe the fixed WASM recovery-fence CodeQL context once
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  context:
+    name: WASM CodeQL context diagnostic
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: oasis7-codeql-scan-slot-1
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Bind the original deadline and run the verified fixed diagnostic
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WASM_EXECUTE: ${{ inputs.execute }}
+          WASM_TRUSTED_REF: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 - <<'PYBOOT'
+          # BEGIN_WASM_CONTEXT_BOOTSTRAP
+          import base64, datetime, email.utils, hashlib, importlib.util, json, math, os
+          from pathlib import Path
+          import re, signal, sys, time, urllib.error, urllib.parse, urllib.request
+
+          REPOSITORY = 'nil-studio/oasis7'
+          SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
+          SOURCE_TREE = 'a5fc43fa10637526fdc6b07ec52369c4aa57e588'
+          HELPERS = ('codeql-rust-wasm-context.py', 'codeql_rust_wasm_witnesses.py',
+                     'codeql_rust_candidate_profile.py',
+                     'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
+                     'codeql-rust-shared-constraint.patch',
+                     'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
+                     'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py')
+          WORKFLOW = '.github/workflows/codeql-rust-wasm-context.yml'
+          JOB_NAME = 'WASM CodeQL context diagnostic'
+          BOOTSTRAP_CAP = 512 * 1024
+
+          class Rejected(Exception):
+              pass
+
+          class ClockRejected(Rejected):
+              def __init__(self, code):
+                  self.code = code  # callers use only the fixed clock categories below
+
+          class EvidenceRejected(Rejected):
+              pass
+
+          class Interrupted(BaseException):
+              pass
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          def stopped(_signum, _frame):
+              raise Interrupted()
+
+          def sha(value):
+              if not isinstance(value, str) or not re.fullmatch('[0-9a-f]{40}', value):
+                  raise Rejected()
+              return value
+
+          def blob_id(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+
+          def save_bootstrap(out, name, value):
+              try:
+                  if name not in ('job-clock.json', 'bootstrap-identity.json', 'bootstrap-http.json', 'bootstrap-terminal.json'):
+                      raise Rejected()
+                  data = (json.dumps(value, indent=2, allow_nan=False) + '\n').encode()
+                  files = list(out.iterdir())
+                  if any(p.is_symlink() or not p.is_file() for p in files):
+                      raise Rejected()
+                  old = (out / name).stat().st_size if (out / name).exists() else 0
+                  if sum(p.stat().st_size for p in files) - old + len(data) > BOOTSTRAP_CAP:
+                      raise Rejected()
+                  (out / name).write_bytes(data)
+              except Exception:
+                  raise EvidenceRejected() from None
+
+          class API:
+              """Only fixed repository endpoints; redirects never inherit the GitHub token."""
+              def __init__(self, environment, opener=None):
+                  self.environment = environment
+                  self.tool_sha = sha(environment['GITHUB_SHA'])
+                  if environment['GITHUB_REPOSITORY'] != REPOSITORY:
+                      raise Rejected()
+                  for key in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'):
+                      if not re.fullmatch('[1-9][0-9]{0,19}', environment[key]):
+                          raise Rejected()
+                  self.token = environment['GH_TOKEN']
+                  if not self.token:
+                      raise Rejected()
+                  self.opener = opener or urllib.request.build_opener(NoRedirect())
+                  self.end = time.monotonic() + 20
+                  self.deadline_wall = None
+                  self.tree = None
+                  self.blobs = set()
+                  self.receipts = []
+                  self.clock_admission = None
+
+              def remaining(self):
+                  result = self.end - time.monotonic()
+                  if self.deadline_wall is not None:
+                      result = min(result, self.deadline_wall - time.time())
+                  if not math.isfinite(result) or result <= 0:
+                      raise Rejected()
+                  return result
+
+              def _read(self, url, label, maximum, authenticated=True, redirect=False):
+                  if label not in ('clock', 'tool-commit', 'tool-tree', 'tool-blob', 'source-tree', 'source-archive'):
+                      raise Rejected()
+                  parsed = urllib.parse.urlsplit(url)
+                  if (parsed.scheme != 'https' or parsed.username or parsed.password or parsed.fragment
+                          or parsed.port not in (None, 443)
+                          or parsed.hostname != ('api.github.com' if authenticated else 'codeload.github.com')):
+                      raise Rejected()
+                  record = {'phase': label, 'bytes': 0, 'sha256': None, 'http_status': None,
+                            'error_class': None, 'body_observation': 'RECEIVED_PREFIX_ONLY'}
+                  digest = hashlib.sha256()
+                  started = time.monotonic()
+                  response = None
+                  try:
+                      headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'oasis7-wasm-metadata'}
+                      if authenticated:
+                          headers['Authorization'] = 'Bearer ' + self.token
+                      request = urllib.request.Request(url, headers=headers)
+                      try:
+                          response = self.opener.open(request, timeout=min(20, self.remaining()))
+                      except urllib.error.HTTPError as exc:
+                          response = exc  # close rejected and redirect responses too
+                          record['http_status'] = exc.code
+                          if redirect and exc.code == 302:
+                              location = exc.headers.get('Location', '')
+                              target = urllib.parse.urlsplit(location)
+                              allowed = (f'/{REPOSITORY}/legacy.tar.gz/{SOURCE}', f'/{REPOSITORY}/tar.gz/{SOURCE}')
+                              if (target.scheme != 'https' or target.hostname != 'codeload.github.com'
+                                      or target.username or target.password or target.port not in (None, 443)
+                                      or target.fragment or target.path not in allowed or len(location) > 8192):
+                                  raise Rejected()
+                              return None, location
+                          raise
+                      if response.status != 200:
+                          raise Rejected()
+                      record['http_status'] = 200
+                      parts = []
+                      while True:
+                          self.remaining()
+                          data = response.read(min(65536, maximum + 1 - record['bytes']))
+                          if not data:
+                              record['body_observation'] = 'EOF_OBSERVED'
+                              break
+                          record['bytes'] += len(data); digest.update(data)
+                          if record['bytes'] > maximum:
+                              raise Rejected()
+                          parts.append(data)
+                      return b''.join(parts), response.headers.get('Date')
+                  except BaseException as exc:
+                      record['error_class'] = type(exc).__name__
+                      raise
+                  finally:
+                      if response is not None:
+                          response.close()
+                      record['sha256'] = digest.hexdigest()
+                      record['elapsed_seconds'] = time.monotonic() - started
+                      self.receipts.append(record)
+
+              def get(self, kind, oid=None):
+                  prefix = f'https://api.github.com/repos/{REPOSITORY}'
+                  if kind == 'clock':
+                      url = prefix + f"/actions/runs/{self.environment['GITHUB_RUN_ID']}/attempts/{self.environment['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
+                  elif kind == 'tool-commit':
+                      url = prefix + '/git/commits/' + self.tool_sha
+                  elif kind == 'tool-tree' and oid == self.tree:
+                      url = prefix + '/git/trees/' + sha(oid) + '?recursive=1'
+                  elif kind == 'tool-blob' and oid in self.blobs:
+                      url = prefix + '/git/blobs/' + sha(oid)
+                  elif kind == 'source-tree' and oid == SOURCE_TREE:
+                      url = prefix + '/git/trees/' + SOURCE_TREE + '?recursive=1'
+                  else:
+                      raise Rejected()
+                  raw, date = self._read(url, kind, 8 * 1024**2)
+                  return json.loads(raw), date
+
+              def archive(self):
+                  prefix = f'https://api.github.com/repos/{REPOSITORY}/tarball/{SOURCE}'
+                  data, location = self._read(prefix, 'source-archive', 128 * 1024**2, redirect=True)
+                  if data is None:
+                      data, _ = self._read(location, 'source-archive', 128 * 1024**2, authenticated=False)
+                  return data
+
+          def bind_clock(api):
+              admission_end = api.end  # the initial twenty seconds, never reset by another read
+              admission = api.clock_admission = {'status': 'READING', 'error_code': None,
+                  'read_attempts': 0, 'retry_count': 0, 'observations': []}
+              observation = None
+              observed_job_id = None
+
+              def remaining():
+                  seconds = admission_end - time.monotonic()
+                  if not math.isfinite(seconds) or seconds <= 0:
+                      raise ClockRejected('CLOCK_DEADLINE')
+                  return seconds
+
+              def timestamp(value, header=False):
+                  code = 'CLOCK_DATE_INVALID' if header else 'CLOCK_START_INVALID'
+                  try:
+                      if not isinstance(value, str) or not 0 < len(value) <= 128:
+                          raise ValueError()
+                      parsed = (email.utils.parsedate_to_datetime(value) if header else
+                                datetime.datetime.fromisoformat(value.replace('Z', '+00:00')))
+                      if parsed.tzinfo is None or not math.isfinite(parsed.timestamp()):
+                          raise ValueError()
+                      return parsed.astimezone(datetime.timezone.utc)
+                  except (TypeError, ValueError, OverflowError):
+                      raise ClockRejected(code) from None
+
+              try:
+                  while True:
+                      remaining()
+                      admission['read_attempts'] += 1
+                      admission['retry_count'] = admission['read_attempts'] - 1
+                      observation = {'attempt': admission['read_attempts'], 'disposition': 'READING',
+                          'job_count': None, 'job_id': None, 'run_id': None, 'run_attempt': None,
+                          'head_sha': None, 'job_name_matches': None, 'job_status': None,
+                          'started_at': None, 'github_date': None, 'job_age_upper_seconds': None,
+                          'error_code': None}
+                      admission['observations'].append(observation)
+                      request_start = time.monotonic()
+                      value, server_date = api.get('clock')
+                      remaining()  # a response arriving after the original deadline cannot admit work
+                      if not isinstance(value, dict) or not isinstance(value.get('jobs'), list):
+                          raise ClockRejected('CLOCK_RESPONSE_INVALID')
+                      jobs = value['jobs']; observation['job_count'] = len(jobs)
+                      if len(jobs) != 1:
+                          raise ClockRejected('CLOCK_JOB_COUNT')
+                      job = jobs[0]
+                      if not isinstance(job, dict):
+                          raise ClockRejected('CLOCK_RESPONSE_INVALID')
+                      for source, target in (('id', 'job_id'), ('run_id', 'run_id'), ('run_attempt', 'run_attempt')):
+                          item = job.get(source)
+                          if type(item) is int and 0 < item < 10**20:
+                              observation[target] = item
+                      head = job.get('head_sha')
+                      if isinstance(head, str) and re.fullmatch('[0-9a-f]{40}', head):
+                          observation['head_sha'] = head
+                      observation['job_name_matches'] = job.get('name') == JOB_NAME
+                      status = job.get('status')
+                      if status in ('queued', 'in_progress', 'completed', 'waiting', 'pending', 'requested'):
+                          observation['job_status'] = status
+                      if (not observation['job_name_matches'] or observation['job_id'] is None
+                              or observation['run_id'] != int(api.environment['GITHUB_RUN_ID'])
+                              or observation['run_attempt'] != int(api.environment['GITHUB_RUN_ATTEMPT'])
+                              or observation['head_sha'] != api.tool_sha):
+                          raise ClockRejected('CLOCK_IDENTITY')
+                      if observed_job_id is not None and observation['job_id'] != observed_job_id:
+                          raise ClockRejected('CLOCK_IDENTITY')
+                      observed_job_id = observation['job_id']
+                      if status not in ('queued', 'in_progress'):
+                          raise ClockRejected('CLOCK_STATE')
+                      server = timestamp(server_date, header=True)
+                      observation['github_date'] = server.isoformat()
+                      if 'started_at' not in job:
+                          raise ClockRejected('CLOCK_START_INVALID')
+                      started = None if job['started_at'] is None else timestamp(job['started_at'])
+                      if started is not None:
+                          observation['started_at'] = started.isoformat()
+                          if started > server:
+                              raise ClockRejected('CLOCK_FUTURE_START')
+                          mono, wall = time.monotonic(), time.time()
+                          age = server.timestamp() - started.timestamp() + mono - request_start + 1
+                          if math.isfinite(age):
+                              observation['job_age_upper_seconds'] = age
+                          if not math.isfinite(age) or not 0 <= age < 120:
+                              raise ClockRejected('CLOCK_STALE_START')
+                          if status == 'in_progress':
+                              remaining()
+                              if not math.isfinite(wall):
+                                  raise ClockRejected('CLOCK_LOCAL_TIME')
+                              result = {'schema': 1, 'job_id': observation['job_id'], 'started_at': started.isoformat(),
+                                  'github_date': server.isoformat(), 'job_age_upper_seconds': age,
+                                  'run_id': api.environment['GITHUB_RUN_ID'], 'run_attempt': api.environment['GITHUB_RUN_ATTEMPT'],
+                                  'tool_sha': api.tool_sha, 'maximum_job_seconds': 1800,
+                                  'deadline_monotonic': mono + 1800 - age, 'deadline_wall': wall + 1800 - age,
+                                  'prepare_end_monotonic': mono + 780 - age, 'prepare_end_wall': wall + 780 - age}
+                              observation['disposition'] = admission['status'] = 'BOUND'
+                              api.end, api.deadline_wall = result['prepare_end_monotonic'], result['prepare_end_wall']
+                              return result
+                      observation['disposition'] = 'DEFERRED'
+                      time.sleep(min(1., remaining()))
+              except BaseException as exc:
+                  code = (exc.code if isinstance(exc, ClockRejected) else
+                          'CLOCK_INTERRUPTED' if isinstance(exc, Interrupted) else
+                          'CLOCK_DEADLINE' if time.monotonic() >= admission_end else
+                          'CLOCK_RESPONSE_INVALID' if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError)) else
+                          'CLOCK_READ_FAILED')
+                  admission.update(status='REJECTED', error_code=code)
+                  if observation is not None:
+                      observation.update(disposition='REJECTED', error_code=code)
+                  raise
+
+          def freeze_helpers(api, directory):
+              commit, _ = api.get('tool-commit')
+              if commit['sha'] != api.tool_sha:
+                  raise Rejected()
+              api.tree = sha(commit['tree']['sha'])
+              tree, _ = api.get('tool-tree', api.tree)
+              if tree.get('truncated') is not False or tree['sha'] != api.tree or len(tree['tree']) > 30000:
+                  raise Rejected()
+              wanted = {f'scripts/security/{name}': name for name in HELPERS}
+              wanted[WORKFLOW] = 'workflow.yml'
+              selected = [x for x in tree['tree'] if x['path'] in wanted]
+              if len(selected) != len(wanted) or len({x['path'] for x in selected}) != len(wanted):
+                  raise Rejected()
+              directory.mkdir(mode=0o700)
+              result = {}
+              for item in selected:
+                  api.remaining()
+                  if item['type'] != 'blob' or item['mode'] not in ('100644', '100755'):
+                      raise Rejected()
+                  oid = sha(item['sha']); api.blobs.add(oid)
+                  blob, _ = api.get('tool-blob', oid)
+                  if blob['sha'] != oid or blob['encoding'] != 'base64' or not 0 < blob['size'] <= 4 * 1024**2:
+                      raise Rejected()
+                  data = base64.b64decode(''.join(blob['content'].split()), validate=True)
+                  if len(data) != blob['size'] or blob_id(data) != oid:
+                      raise Rejected()
+                  name = wanted[item['path']]
+                  (directory / name).write_bytes(data)
+                  result[name] = {'path': item['path'], 'git_blob': oid,
+                                  'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+              return {'tool_sha': api.tool_sha, 'tool_tree': api.tree, 'files': result}
+
+          def bootstrap(environment, opener=None, handoff=None):
+              session = out = api = None
+              terminal = {'status': 'BOOTSTRAP_INCOMPLETE', 'error_class': None, 'error_code': None,
+                          'full_rust_coverage': 'HOLD', 'production_capacity': 'UNKNOWN'}
+              try:
+                  if (environment['GITHUB_EVENT_NAME'] != 'workflow_dispatch'
+                          or environment['WASM_EXECUTE'] != 'true'
+                          or environment['GITHUB_REF'] != environment['WASM_TRUSTED_REF']):
+                      raise Rejected()
+                  root = Path(environment['RUNNER_TEMP'])
+                  if root.resolve() != root or not root.is_dir():
+                      raise Rejected()
+                  session = root / 'rust-wasm-context'; session.mkdir(mode=0o700)
+                  out = session / 'evidence'; out.mkdir(mode=0o700)
+                  api = API(environment, opener)
+                  clock = bind_clock(api)
+                  terminal['clock_admission'] = api.clock_admission
+                  save_bootstrap(out, 'job-clock.json', clock)
+                  if handoff is None:
+                      signal.setitimer(signal.ITIMER_REAL, api.remaining())
+                  identity = freeze_helpers(api, session / 'tools')
+                  save_bootstrap(out, 'bootstrap-identity.json', identity)
+                  save_bootstrap(out, 'bootstrap-http.json', api.receipts)
+                  api.remaining()
+                  terminal['status'] = 'BOOTSTRAP_VERIFIED'
+                  save_bootstrap(out, 'bootstrap-terminal.json', terminal)
+                  sys.dont_write_bytecode = True
+                  if handoff is not None:
+                      return handoff(session, clock, identity, api, environment)
+                  sys.path.insert(0, str(session / 'tools'))
+                  spec = importlib.util.spec_from_file_location('wasm_context_diagnostic', session / 'tools' / HELPERS[0])
+                  module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+                  return module.diagnose(session, clock, identity, api, environment)
+              except BaseException as exc:
+                  terminal['status'] = 'BOOTSTRAP_INCOMPLETE'
+                  terminal['error_class'] = type(exc).__name__
+                  terminal['error_code'] = ('BOOTSTRAP_EVIDENCE_WRITE' if isinstance(exc, EvidenceRejected) else
+                                            'BOOTSTRAP_INTERRUPTED' if isinstance(exc, Interrupted) else
+                                            'BOOTSTRAP_REJECTED' if isinstance(exc, Rejected) else 'BOOTSTRAP_ERROR')
+                  if api is not None and api.clock_admission is not None:
+                      terminal['clock_admission'] = api.clock_admission
+                      if api.clock_admission['status'] == 'REJECTED':
+                          terminal['error_code'] = api.clock_admission['error_code']
+                  try:
+                      if out is not None:
+                          if api is not None:
+                              save_bootstrap(out, 'bootstrap-http.json', api.receipts)
+                          save_bootstrap(out, 'bootstrap-terminal.json', terminal)
+                  except BaseException:
+                      terminal['evidence_write_failed'] = True
+                  print(json.dumps(terminal, sort_keys=True))
+                  return 1
+              finally:
+                  if handoff is None:
+                      signal.setitimer(signal.ITIMER_REAL, 0)
+
+          if __name__ == '__main__':
+              for sig in (signal.SIGALRM, signal.SIGTERM, signal.SIGINT):
+                  signal.signal(sig, stopped)
+              signal.setitimer(signal.ITIMER_REAL, 20)
+              sys.exit(bootstrap(dict(os.environ)))
+          # END_WASM_CONTEXT_BOOTSTRAP
+          PYBOOT
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        timeout-minutes: 2
+        with:
+          name: wasm-context-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-wasm-context/evidence
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

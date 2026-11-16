@@ -301,6 +301,7 @@ fn completion_fixture() -> (
     let result = AgentServiceIoResult {
         token: job.token,
         response: Ok(AgentServiceIoResponse::Intent(IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: None,
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,

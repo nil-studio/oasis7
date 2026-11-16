@@ -190,7 +190,13 @@ impl MetadataServer {
                                     }
                                 },
                                 module_command: None,
-                                provider_error: None,
+                                provider_error: (preflight_reset
+                                    && accounting_root.join("provider-known-failure").exists())
+                                .then(|| oasis7_agent_api::ProviderErrorEnvelope {
+                                    code: "qa_known_nonretryable".into(),
+                                    message: "actual isolated provider failure".into(),
+                                    retryable: false,
+                                }),
                                 diagnostics: Default::default(),
                                 trace_payload: Default::default(),
                                 memory_write_intents: if !final_budget

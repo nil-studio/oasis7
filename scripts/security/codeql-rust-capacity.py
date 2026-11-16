@@ -5,6 +5,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,7 @@ import zipfile
 import codeql_rust_diagnostic_runtime as runtime
 import codeql_rust_capacity_evidence as evidence
 import codeql_rust_cargo_guard as cargo_guard
+import codeql_rust_action_deadline as action_deadline
 
 BASE_SOURCE='d2bf383d8c377b36de83aae4a06d9ec17612e205'
 EXCLUSION_SOURCE='c036927d33b917a036a731f071209e16f6deb033'
@@ -145,7 +147,100 @@ def suite_entries(value,root):
     return result
 
 
-def semantic_queries(root):
+IMAGE_V1='image-v1'
+IMAGE_V2='image-v2'
+IMAGE_V2_EXPECTED={
+    'format-original':1,'format-replacement':1,'original-flow':1,'replacement-flow':1,
+    'contains-line-callee':1,'replacement-line-callee':1,'same-line-comparison-v2':1,
+    'whole-line-rhs-flow-v2':1,'output-line-lhs-taint-v2':1,'wrong-function-flow':0,
+    'wrong-expected-lhs-taint-v2':0,'wrong-output-rhs-taint-v2':0,
+    'output-bool-taint-v2':0,'expected-bool-taint-v2':0,
+}
+
+
+def image_v2_query(root):
+    return model.metrics_query(root,'''// Contract: image-v2. Historical image-v1 remains unchanged.
+import codeql.rust.dataflow.TaintTracking
+string image() { result = "'''+model.EXPECT+'''" }
+string labels() { result = '''+json.dumps(list(IMAGE_V2_EXPECTED))+''' }
+predicate parameterOf(Function f, DataFlow::Node n, int index, string name) {
+ n.asParameter() = f.getParam(index) and
+ f.getParam(index).getPat().(IdentPat).getName().getText() = name
+}
+predicate containsLine(Function f) {
+ lineAt(f.getName(),image(),2) and f.getName().getText() = "contains_line"
+}
+predicate comparisonOf(Function f, EqualsOperation eq) {
+ containsLine(f) and lineAt(eq,image(),4) and
+ exists(DataFlow::Node booleanResult | booleanResult.asExpr() = eq) and
+ exists(ForExpr loop, MethodCallExpr call |
+  lineAt(loop,image(),3) and loop.getParentNode*() = f.getBody() and
+  eq.getParentNode*() = loop.getLoopBody() and
+  loop.getPat().(IdentPat).getName().getText() = "line" and
+  call = loop.getIterable() and call.getIdentifier().getText() = "lines" and
+  call.getReceiver().(VariableAccess).getVariable().getPat() = f.getParam(0).getPat() and
+  eq.getLhs().(VariableAccess).getVariable().getPat() = loop.getPat() and
+  eq.getRhs().(VariableAccess).getVariable().getPat() = f.getParam(1).getPat() and
+  eq.getLhs().(PathExpr).getPath().toString() = "line" and
+  eq.getRhs().(PathExpr).getPath().toString() = "expected")
+}
+predicate imageFlow(int sourceLine, int macroLine) {
+ exists(Function f,DataFlow::Node a,DataFlow::Node b |
+  lineAt(f.getName(),image(),sourceLine) and
+  (sourceLine = 12 and parameterOf(f,a,1,"original_digest") or
+   sourceLine = 22 and parameterOf(f,a,1,"replacement_digest")) and
+  inExpansion(b.asExpr(),image(),macroLine) and DataFlow::localFlow(a,b))
+}
+predicate sourceOf(Function f, DataFlow::Node n, string name) {
+ containsLine(f) and
+ (name = "output" and parameterOf(f,n,0,name) or
+  name = "expected" and parameterOf(f,n,1,name))
+}
+predicate sinkOf(EqualsOperation eq, DataFlow::Node n, string name) {
+ name = "lhs" and n.asExpr() = eq.getLhs()
+ or name = "rhs" and n.asExpr() = eq.getRhs()
+ or name = "bool" and n.asExpr() = eq
+}
+module ImageConfig implements DataFlow::ConfigSig {
+ predicate isSource(DataFlow::Node n) { sourceOf(_,n,_) }
+ predicate isSink(DataFlow::Node n) {
+  exists(Function f, EqualsOperation eq | comparisonOf(f,eq) and sinkOf(eq,n,_))
+ }
+}
+module ImageTaint = TaintTracking::Global<ImageConfig>;
+predicate pairedTaint(string sourceName, string sinkName) {
+ exists(Function f, EqualsOperation eq, DataFlow::Node a, DataFlow::Node b |
+  comparisonOf(f,eq) and sourceOf(f,a,sourceName) and sinkOf(eq,b,sinkName) and
+  ImageTaint::flow(a,b))
+}
+predicate rhsFlow(Function f, EqualsOperation eq) {
+ exists(DataFlow::Node a,DataFlow::Node b |
+  comparisonOf(f,eq) and sourceOf(f,a,"expected") and sinkOf(eq,b,"rhs") and
+  DataFlow::localFlow(a,b))
+}
+predicate witness(string label) {
+ label = "format-original" and exists(MacroCall m,AstNode n | macroAt(m,image(),13) and m.getMacroCallExpansion()=n.getParentNode*())
+ or label = "format-replacement" and exists(MacroCall m,AstNode n | macroAt(m,image(),23) and m.getMacroCallExpansion()=n.getParentNode*())
+ or label = "original-flow" and imageFlow(12,13)
+ or label = "replacement-flow" and imageFlow(22,23)
+ or label = "contains-line-callee" and exists(Call c,Function f | containsLine(f) and lineAt(c,image(),14) and c.getTargetName()="contains_line" and c.getStaticTarget()=f)
+ or label = "replacement-line-callee" and exists(Call c,Function f | containsLine(f) and lineAt(c,image(),24) and c.getTargetName()="contains_line" and c.getStaticTarget()=f)
+ or label = "same-line-comparison-v2" and comparisonOf(_,_)
+ or label = "whole-line-rhs-flow-v2" and rhsFlow(_,_)
+ or label = "output-line-lhs-taint-v2" and
+  exists(Function f,EqualsOperation eq,DataFlow::Node a,DataFlow::Node b |
+   rhsFlow(f,eq) and sourceOf(f,a,"output") and sinkOf(eq,b,"lhs") and ImageTaint::flow(a,b))
+ or label = "wrong-function-flow" and imageFlow(12,23)
+ or label = "wrong-expected-lhs-taint-v2" and pairedTaint("expected","lhs")
+ or label = "wrong-output-rhs-taint-v2" and pairedTaint("output","rhs")
+ or label = "output-bool-taint-v2" and pairedTaint("output","bool")
+ or label = "expected-bool-taint-v2" and pairedTaint("expected","bool")
+}
+''')
+
+
+def semantic_queries(root, *, image_version=IMAGE_V1):
+    if image_version not in (IMAGE_V1,IMAGE_V2):raise ValueError('unknown Image contract version')
     result=model.queries(root)
     result['PeerLegacy']=result['PeerCandidate'].replace('"candidate"','"legacy"')
     result['CallsLegacy']=result['CallsCandidate'].replace('"candidate"','"legacy"')
@@ -168,19 +263,28 @@ predicate witness(string label) {
  or label = "wrong-function-flow" and imageFlow(12,23)
 }
 ''')
-    result['Image']=image
+    result['Image']=image if image_version==IMAGE_V1 else image_v2_query(root)
     return result
 
 
-def expected(name):
+def expected(name, *, image_version=IMAGE_V1):
+    if image_version not in (IMAGE_V1,IMAGE_V2):raise ValueError('unknown Image contract version')
     if name in ('PeerCandidate','PeerLegacy'):return model.EXPECTED['Peer']
     if name=='Driver':return model.EXPECTED['Driver']
+    if name=='Image' and image_version==IMAGE_V2:return dict(IMAGE_V2_EXPECTED)
     if name=='Image':return {k:(0 if k=='wrong-function-flow' else 1) for k in ('format-original','format-replacement','original-flow','replacement-flow','contains-line-callee','replacement-line-callee','whole-line-flow','output-line-flow','wrong-function-flow')}
     return None
 
 
-def validate(name,rows,source,libp2p):
-    wanted=expected(name)
+def semantic_contract(root, *, image_version=IMAGE_V1):
+    texts=semantic_queries(root,image_version=image_version)
+    return dict(image_contract_version=image_version,
+                query_sha256={n:hashlib.sha256(t.encode()).hexdigest() for n,t in texts.items()},
+                metric_oracles={n:expected(n,image_version=image_version) for n in texts if expected(n,image_version=image_version) is not None})
+
+
+def validate(name,rows,source,libp2p, *, image_version=IMAGE_V1):
+    wanted=expected(name,image_version=image_version)
     if wanted is not None:
         if any(len(row)!=2 or row[1] not in ('0','1') for row in rows):raise RuntimeError('invalid semantic rows')
         values={row[0]:int(row[1]) for row in rows}
@@ -464,18 +568,50 @@ def capture_failure_evidence(args,source,out,end,env,terminal):
     terminal['status']='CAPTURED'
 
 
+def finalized_database_identity(value,source,database):
+    metadata=database/'codeql-database.yml'
+    if (value.get('sourceLocationPrefix')!=str(source) or value.get('languages')!=['rust']
+            or value.get('datasetFolder')!=str(database/'db-rust')
+            or metadata.is_symlink() or not metadata.is_file() or metadata.stat().st_size>1024**2
+            or '\nfinalised: true\n' not in metadata.read_text()):
+        raise RuntimeError('finalized database identity differs')
+    return runtime.digest(metadata)
+
+
+def extraction_checkpoint(source,database,out,frozen,codeql,run):
+    run([codeql,'resolve','database',database,'--format=json'],'extraction-database-identity',20)
+    value=json.loads((out/'extraction-database-identity.log').read_text())
+    metadata_sha=finalized_database_identity(value,source,database)
+    results=database/'results'
+    if results.is_symlink() or any(p.is_symlink() or p.suffix=='.bqrs' for p in results.rglob('*')):
+        raise RuntimeError('extraction-only checkpoint contains query results or unsafe paths')
+    selected=[model.DRIVER,model.BASE+'/common/src/protocol.rs',model.EXPECT,
+              model.BASE+'/candidate/src/adapter.rs',model.BASE+'/legacy/src/adapter.rs']
+    before={name:item['sha256'] for name,item in frozen.items() if 'sha256' in item}
+    save(out/'archived-source.json',archive_identity(database,selected,before),out)
+    return metadata_sha
+
+
 def analysis_budget(mode,remaining,source_sha=None):
-    if mode not in ('capacity','official-default-research'):
+    if mode not in ('capacity','official-default-research','qualifier-research','candidate-workload-research'):
         raise ValueError('unknown assessment mode')
     research=mode=='official-default-research'
+    qualifier_research=mode=='qualifier-research'
+    workload_research=mode=='candidate-workload-research'
+    if qualifier_research and source_sha!=CAPACITY_SOURCE:
+        raise ValueError('qualifier research requires the fixed current source')
+    if workload_research and (source_sha!=CAPACITY_SOURCE or not math.isfinite(remaining) or remaining>5400):
+        raise ValueError('invalid candidate workload source or fixed job remainder')
     current_capacity=not research and source_sha==CAPACITY_SOURCE
-    budget=21600 if research else (5400 if current_capacity else 3600)
+    budget=21600 if research else (9000 if qualifier_research else (5400 if current_capacity else 3600))
     minutes=int((remaining-600)//60)
-    if not research:minutes=min(75 if current_capacity else 45,minutes)
+    if not research:minutes=min(25 if qualifier_research else (75 if current_capacity else 45),minutes)
     return {'job_budget_seconds':budget,'elapsed_since_job_start':budget-remaining,
             'remaining_at_allocation':remaining,'analysis_allocated_minutes':minutes,
             'post_analysis_reserve_seconds':600,'helper_terminal_and_upload_reserve_seconds':120,
-            'scope':'official-default research; not production capacity' if research else
+            'scope':'shared extraction/layout/compilation/44-query candidate research window; not production capacity' if workload_research else
+                'full extraction for public-callee research; not production capacity' if qualifier_research else
+                'official-default research; not production capacity' if research else
                 f'internal analysis allocation; not a measurement of the complete {budget//60} minute assessment'}
 
 
@@ -485,7 +621,7 @@ def main():
     parser.add_argument('phase',choices=('prepare','capture','finish'))
     parser.add_argument('--codeql',type=Path)
     parser.add_argument('--source-sha',choices=(BASE_SOURCE,EXCLUSION_SOURCE,JSON_FIXTURE_SOURCE,DECOMPOSITION_SOURCE,PROFILE_SOURCE,CALLEE_SOURCE,PREVIOUS_CAPACITY_SOURCE,CAPACITY_SOURCE),default=EXCLUSION_SOURCE)
-    parser.add_argument('--mode',choices=('capacity','official-default-research'),default='capacity')
+    parser.add_argument('--mode',choices=('capacity','official-default-research','qualifier-research','candidate-workload-research'),default='capacity')
     for name in ('source','database','output','work','sarif'):parser.add_argument('--'+name,type=Path,required=True)
     parser.add_argument('--deadline',type=float,required=True)
     parser.add_argument('--checkout-outcome',default='unknown')
@@ -497,6 +633,11 @@ def main():
     args=parser.parse_args()
     SOURCE=args.source_sha;out=args.output;work=args.work;source=args.source.resolve()
     research=args.mode=='official-default-research'
+    qualifier_research=args.mode=='qualifier-research'
+    workload_research=args.mode=='candidate-workload-research'
+    extraction_research=qualifier_research or workload_research
+    if qualifier_research and SOURCE!=CAPACITY_SOURCE:parser.error('qualifier research requires the fixed current source')
+    if workload_research and SOURCE!=CAPACITY_SOURCE:parser.error('candidate workload requires the fixed current source')
     # Historical profile also uses capacity mode; its source and bundle stay frozen.
     selected_bundle='2.27.4' if not research and SOURCE==CAPACITY_SOURCE else '2.27.3'
     if args.phase!='capture' and args.codeql is None:parser.error('--codeql is required for prepare/finish')
@@ -511,7 +652,11 @@ def main():
         'action_cleanup':'UNKNOWN_RUNNER_OWNED','verification_admitted':False,'primary_failure':None,'secondary_errors':[],
         'mode':args.mode,'expected_bundle_version':selected_bundle,
         'official_analysis_outcome':args.analyze_outcome,'production_capacity':'UNKNOWN'}
-    if research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
+    if research or extraction_research:terminal.update(assessment_status='RESEARCH_INCOMPLETE',public_semantics='NOT_REQUESTED')
+    if extraction_research:terminal.update(default_result_verification='NOT_REQUESTED',extraction_checkpoint='NOT_REACHED')
+    if workload_research:
+        terminal.update(assessment_status='CANDIDATE_RESEARCH_INCOMPLETE',official_extraction_outcome=args.analyze_outcome)
+        terminal.pop('official_analysis_outcome')
     for stage in ('checkout','layout','tools','init','prepare','analyze'):
         outcome=getattr(args,stage+'_outcome')
         if outcome in ('failure','cancelled'):
@@ -548,7 +693,7 @@ def main():
             terminal['native_preparation']='INCOMPLETE'
             # Reuse only native preparation, never the standalone Cargo check.
             # Its end-90 reserve becomes the capacity end-120 reserve.
-            native.prepare_native(source,out,end-30,env)
+            native.prepare_native(source,out,end-30,env,maximum_seconds=360 if qualifier_research else 180)
             terminal['native_preparation']='PASS'
             run(['rustc','-vV'],'project-toolchain',20)
             run([args.codeql,'version','--format=json'],'version',20)
@@ -580,17 +725,21 @@ def main():
             if not research:
                 query_dir=work/'queries';query_dir.mkdir(exist_ok=False)
                 (query_dir/'qlpack.yml').write_text('name: oasis7/rust-capacity\nversion: 0.0.0\ndependencies:\n  codeql/rust-all: '+closure['codeql/rust-all']['version']+'\n')
-                texts=semantic_queries(source)
+                image_version=IMAGE_V2 if workload_research else IMAGE_V1
+                texts=semantic_queries(source,image_version=image_version)
                 for name,text in texts.items():(query_dir/(name+'.ql')).write_text(text)
                 save(out/'semantic-query-inputs.json',{name:runtime.digest(query_dir/(name+'.ql')) for name in texts},out)
+                save(out/'semantic-query-contract.json',semantic_contract(source,image_version=image_version),out)
+                terminal['image_contract_version']=image_version
                 packs=os.pathsep.join(item['root'] for item in closure.values())
-                for name in texts:
-                    run([args.codeql,'resolve','library-path','--query='+str(query_dir/(name+'.ql')),'--format=json','--additional-packs='+packs],'library-'+name,20)
-                    bundle.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query_dir,name,closure,pack_name='oasis7/rust-capacity')
-                # Exact CLI type/import validation before the expensive production analysis.
-                run([args.codeql,'query','compile','--check-only','--keep-going','--additional-packs='+packs,
-                     '--threads='+str(resource_values['CODEQL_THREADS']),'--ram='+str(resource_values['CODEQL_RAM']),
-                     *[query_dir/(name+'.ql') for name in texts]],'semantic-typecheck',120)
+                if not workload_research:
+                    for name in texts:
+                        run([args.codeql,'resolve','library-path','--query='+str(query_dir/(name+'.ql')),'--format=json','--additional-packs='+packs],'library-'+name,20)
+                        bundle.verify_library_path(json.loads((out/('library-'+name+'.log')).read_text()),query_dir,name,closure,pack_name='oasis7/rust-capacity')
+                    # Exact CLI type/import validation before the expensive production analysis.
+                    run([args.codeql,'query','compile','--check-only','--keep-going','--additional-packs='+packs,
+                         '--threads='+str(resource_values['CODEQL_THREADS']),'--ram='+str(resource_values['CODEQL_RAM']),
+                         *[query_dir/(name+'.ql') for name in texts]],'semantic-typecheck',120)
             action_config=Path(os.environ['CODEQL_ACTION_TEMP'])/'config'
             config=json.loads(action_config.read_text())
             save(out/'action-config.json',{'sha256':runtime.digest(action_config),'settings':{key:config.get(key) for key in ('languages','buildMode','dbLocation','repositoryRoot','overlayDatabaseMode','trapCaches','dependencyCachingEnabled','computedConfig','useOverlayDatabaseCaching')}},out)
@@ -601,6 +750,13 @@ def main():
             with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CARGO_HOME='+str(guard_home)+'\n')
             remaining=args.deadline-time.time()
             budget=analysis_budget(args.mode,remaining,SOURCE);minutes=budget['analysis_allocated_minutes']
+            if workload_research:
+                # Freeze before private layout and extraction. Later phases only consume this window.
+                allocated_at=time.time()
+                budget.update(analysis_allocated_at=allocated_at,
+                    analysis_deadline=min(args.deadline-600,allocated_at+minutes*60))
+                with open(os.environ['GITHUB_ENV'],'a') as output:
+                    output.write('CAPACITY_ANALYSIS_DEADLINE='+str(budget['analysis_deadline'])+'\n')
             save(out/'capacity-budget.json',dict(budget,fixed_job_deadline=args.deadline,mode=args.mode),out)
             if minutes<1:raise RuntimeError('NOT_REACHED no analysis+semantic+receipt capacity')
             with open(os.environ['GITHUB_OUTPUT'],'a') as output:output.write('analysis_minutes='+str(minutes)+'\n')
@@ -620,6 +776,17 @@ def main():
             frozen=json.loads((out/'source-before.json').read_text())
             if snapshot(source)!=frozen:raise RuntimeError('business source changed')
             terminal['verification_admitted']=True
+            if extraction_research:
+                if workload_research:
+                    terminal['absolute_action_deadline']=action_deadline.admit(out,source,args.deadline)
+                metadata_sha=extraction_checkpoint(source,args.database,out,frozen,args.codeql,run)
+                terminal.update(status='EXTRACTION_READY',assessment_status='RESEARCH_READY',
+                    extraction_checkpoint='PASS',archived_source='PASS',database_metadata_sha256=metadata_sha,
+                    assessment_scope='full extraction checkpoint for public-callee research; no default suite, complete public semantics or production capacity acceptance')
+                if workload_research:
+                    terminal.update(status='CANDIDATE_EXTRACTION_READY',assessment_status='CANDIDATE_RESEARCH_READY',
+                        assessment_scope='official extraction checkpoint only; candidate workload runs separately')
+                return
             suite=json.loads((out/'default-suite.json').read_text());manifest=[]
             actual_suite=args.database/'temp/config-queries.qls'
             runtime.evidence_write(out/'action-config-queries.qls',actual_suite.read_bytes(),out)
@@ -673,7 +840,7 @@ def main():
         else:terminal['secondary_errors'].append(failure)
         for key in ('default_result_verification','public_semantics'):
             if terminal[key]=='RUNNING':terminal[key]='INCOMPLETE'
-        if research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
+        if research or extraction_research:terminal.update(status='RESEARCH_INCOMPLETE',assessment_status='RESEARCH_INCOMPLETE')
         terminal['failure_scope']='ASSESSMENT_OR_INSTRUMENTATION; not a production-capacity conclusion'
         raise
     finally:
@@ -684,14 +851,16 @@ def main():
             else:integrity=after_identity(source,args.codeql.parent,out,end=end-120)
             terminal['after_identity']=integrity
             if 'CHANGED' in integrity.values():
-                terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'FAILED'
-                terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'ASSESSMENT_INCOMPLETE'
+                terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'FAILED'
+                terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'ASSESSMENT_INCOMPLETE'
                 if primary is None:raise RuntimeError('post-assessment identity changed')
         except BaseException as exc:
-            terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'FAILED'
-            terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode')=='official-default-research' else 'ASSESSMENT_INCOMPLETE'
+            terminal['status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'FAILED'
+            terminal['assessment_status']='RESEARCH_INCOMPLETE' if terminal.get('mode') in ('official-default-research','qualifier-research') else 'ASSESSMENT_INCOMPLETE'
             terminal['identity_error']=repr(exc)[:1024]
             if primary is None:primary=exc
+        if terminal.get('mode')=='candidate-workload-research' and terminal['status'] in ('FAILED','RESEARCH_INCOMPLETE'):
+            terminal.update(status='CANDIDATE_RESEARCH_INCOMPLETE',assessment_status='CANDIDATE_RESEARCH_INCOMPLETE')
         try:runtime.save(out/('capacity-'+args.phase+'-terminal.json'),terminal,out,terminal=True)
         except BaseException:
             if primary is None:raise

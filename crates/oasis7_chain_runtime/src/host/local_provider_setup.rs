@@ -43,26 +43,7 @@ pub(super) fn ensure_local_test_provider_authority(
         .as_deref()
         .ok_or_else(|| "local test finality marker is missing".to_string())?;
 
-    let wasm_bytes = fs::read(wasm_path).map_err(|error| {
-        format!(
-            "read local test WASM artifact {} failed: {error}",
-            wasm_path.display()
-        )
-    })?;
-    let metadata_bytes = fs::read(metadata_path).map_err(|error| {
-        format!(
-            "read local test build metadata {} failed: {error}",
-            metadata_path.display()
-        )
-    })?;
-    let metadata =
-        serde_json::from_slice::<LocalTestProviderBuildMetadata>(metadata_bytes.as_slice())
-            .map_err(|error| {
-                format!(
-                    "decode local test build metadata {} failed: {error}",
-                    metadata_path.display()
-                )
-            })?;
+    let artifact = load_module_artifact(wasm_path, metadata_path)?;
     let mut config = LocalTestProviderAuthorityConfig::hosted_public_join(
         options.local_test_provider_agent_id.clone(),
         options.local_test_provider_owner_binding.clone(),
@@ -73,11 +54,6 @@ pub(super) fn ensure_local_test_provider_authority(
         config.presenter.session_id =
             Some(format!("loopback:{}", options.local_test_provider_agent_id));
     }
-    let artifact = LocalTestProviderModuleArtifact {
-        wasm_bytes,
-        source_hash: metadata.source_hash,
-        build_manifest_hash: metadata.build_manifest_hash,
-    };
 
     let snapshot_path = world_dir.join("snapshot.json");
     let journal_path = world_dir.join("journal.json");
@@ -311,6 +287,69 @@ fn temporary_authority_path(path: &Path) -> PathBuf {
         .unwrap_or("provider-authority.json");
     path.with_file_name(format!(".{file_name}.tmp-{}", std::process::id()))
 }
+
+/// Shared bounded artifact loading; Runtime remains the module admission authority.
+pub(super) fn load_module_artifact(
+    wasm_path: &Path,
+    metadata_path: &Path,
+) -> Result<LocalTestProviderModuleArtifact, String> {
+    load_module_artifact_bound(wasm_path, metadata_path).map(|(artifact, _)| artifact)
+}
+
+/// The digest covers the same metadata bytes used for decoding.
+pub(super) fn load_module_artifact_bound(
+    wasm_path: &Path,
+    metadata_path: &Path,
+) -> Result<(LocalTestProviderModuleArtifact, String), String> {
+    use std::io::Read;
+    fn bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            // Opening a FIFO must not wait for a writer before admission can
+            // inspect its descriptor. Never follow a final-component symlink.
+            options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+        }
+        let file = options
+            .open(path)
+            .map_err(|_| "local provider artifact unavailable")?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| "local provider artifact metadata unavailable")?;
+        if !metadata.is_file() {
+            return Err("local provider artifact must be a regular file".into());
+        }
+        if metadata.len() == 0 || metadata.len() > limit {
+            return Err("local provider artifact exceeds capacity or is empty".into());
+        }
+        let mut bytes = Vec::new();
+        file.take(limit + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "local provider artifact read failed")?;
+        if bytes.is_empty() || bytes.len() as u64 > limit {
+            return Err("local provider artifact exceeds capacity or is empty".into());
+        }
+        Ok(bytes)
+    }
+    let wasm_bytes = bounded(wasm_path, 16 * 1024 * 1024)?;
+    let metadata_bytes = bounded(metadata_path, 64 * 1024)?;
+    let metadata: LocalTestProviderBuildMetadata = serde_json::from_slice(&metadata_bytes)
+        .map_err(|_| "local provider build metadata invalid")?;
+    Ok((
+        LocalTestProviderModuleArtifact {
+            wasm_bytes,
+            source_hash: metadata.source_hash,
+            build_manifest_hash: metadata.build_manifest_hash,
+        },
+        oasis7_runtime::blake3_hex(&metadata_bytes),
+    ))
+}
+
+#[cfg(all(test, unix))]
+#[path = "local_provider_artifact_file_tests.rs"]
+mod artifact_file_tests;
 
 #[cfg(test)]
 mod tests {

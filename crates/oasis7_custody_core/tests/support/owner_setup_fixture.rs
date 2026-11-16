@@ -264,6 +264,7 @@ pub(super) fn participant_bound() -> (
         ws::SUBMIT_PATH,
         ws::request_digest(ws::SUBMIT_PATH, &request).unwrap(),
         ws::IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: None,
             contract_version: 1,

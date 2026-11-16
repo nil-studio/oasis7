@@ -47,14 +47,7 @@ fn runtime_network_replication_gap_sync_reports_error_after_retries_exhausted() 
         dyn oasis7_proto::distributed_net::DistributedNetwork<WorldError> + Send + Sync,
     > = network_impl.clone();
 
-    let config_a = NodeConfig::new("node-a", world_id, NodeRole::Sequencer)
-        .expect("config a")
-        .with_tick_interval(Duration::from_millis(10))
-        .expect("tick a")
-        .with_pos_config(pos_config.clone())
-        .expect("pos config a")
-        .with_auto_attest_all_validators(true)
-        .with_replication(signed_replication_config(dir_a.clone(), 89));
+    let replication_config_a = signed_replication_config(dir_a.clone(), 89);
     let config_b = NodeConfig::new("node-b", world_id, NodeRole::Observer)
         .expect("config b")
         .with_tick_interval(Duration::from_millis(10))
@@ -63,48 +56,44 @@ fn runtime_network_replication_gap_sync_reports_error_after_retries_exhausted() 
         .expect("pos config b")
         .with_replication(signed_replication_config(dir_b.clone(), 90));
 
-    let mut runtime_a = with_noop_execution_hook(NodeRuntime::new(config_a))
-        .with_replication_network(NodeReplicationNetworkHandle::new(Arc::clone(&network)));
-    runtime_a.start().expect("start a");
-    let reached = wait_until(Instant::now() + Duration::from_secs(2), || {
-        runtime_a.snapshot().consensus.committed_height >= 3
-    });
-    let snapshot_a = runtime_a.snapshot();
-    assert!(
-        reached,
-        "sequencer did not reach target height in time: committed_height={} network_committed_height={} last_error={:?}",
-        snapshot_a.consensus.committed_height,
-        snapshot_a.consensus.network_committed_height,
-        snapshot_a.last_error
-    );
-    let target_height = snapshot_a.consensus.committed_height;
-    runtime_a.stop().expect("stop a");
-
-    let request = signed_fetch_commit_request_for_test(world_id, target_height, 89);
-    let payload = serde_json::to_vec(&request).expect("encode commit request");
-    let response_payload = network
-        .request(
-            super::replication::REPLICATION_FETCH_COMMIT_PROTOCOL,
-            payload.as_slice(),
-        )
-        .expect("fetch commit");
-    let response: super::replication::FetchCommitResponse =
-        serde_json::from_slice(&response_payload).expect("decode commit response");
-    assert!(response.found, "missing high commit");
-    let high_message = response.message.expect("high commit payload");
-
+    // Prepare the signed gap fixture directly. This test exercises observer
+    // retry exhaustion, not how many wall-clock slots a sequencer can commit
+    // while the other node tests compete for CPU and storage.
+    let mut replication_a =
+        ReplicationRuntime::new(&replication_config_a, "node-a").expect("replication a");
+    for height in 1..=3 {
+        let decision = PosDecision {
+            height,
+            slot: height,
+            epoch: 0,
+            proposer_id: "node-a".to_string(),
+            status: PosConsensusStatus::Committed,
+            block_hash: format!("block-{height}"),
+            action_root: empty_action_root(),
+            committed_actions: Vec::new(),
+            approved_stake: 100,
+            rejected_stake: 0,
+            required_stake: 67,
+            total_stake: 100,
+        };
+        replication_a
+            .build_local_commit_message(
+                "node-a",
+                world_id,
+                1_000 + i64::try_from(height).expect("height fits i64"),
+                &decision,
+                None,
+                None,
+            )
+            .expect("build local commit")
+            .expect("signed commit");
+    }
+    let high_message = replication_a
+        .load_commit_message_by_height(world_id, 3)
+        .expect("load high commit")
+        .expect("high commit");
     let topic = super::network_bridge::default_replication_topic(world_id);
-    network_impl.clear_topic(topic.as_str());
-    network_impl
-        .clear_topic(super::network_bridge::default_consensus_proposal_topic(world_id).as_str());
-    network_impl
-        .clear_topic(super::network_bridge::default_consensus_attestation_topic(world_id).as_str());
-    network_impl
-        .clear_topic(super::network_bridge::default_consensus_commit_topic(world_id).as_str());
     let high_payload = serde_json::to_vec(&high_message).expect("encode high message");
-    network
-        .publish(topic.as_str(), high_payload.as_slice())
-        .expect("publish high message");
 
     let mut runtime_b = NodeRuntime::new(config_b)
         .with_replication_network(NodeReplicationNetworkHandle::new(Arc::clone(&network)));
@@ -119,6 +108,11 @@ fn runtime_network_replication_gap_sync_reports_error_after_retries_exhausted() 
             }),
         )
         .expect("register commit retry-failure handler");
+    // Install the failure before delivering the gap so the observer cannot
+    // begin recovery before the first failing fetch handler is in place.
+    network
+        .publish(topic.as_str(), high_payload.as_slice())
+        .expect("publish high message");
     let errored = wait_until(Instant::now() + Duration::from_secs(3), || {
         runtime_b
             .snapshot()
@@ -128,6 +122,7 @@ fn runtime_network_replication_gap_sync_reports_error_after_retries_exhausted() 
                 reason.contains("gap sync height")
                     && reason.contains("failed after 3 attempts")
                     && reason.contains("attempt 3/3 failed")
+                    && reason.contains("forced-gap-sync-retry-failure")
             })
             .unwrap_or(false)
     });

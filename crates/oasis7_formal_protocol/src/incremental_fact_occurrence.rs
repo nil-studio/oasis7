@@ -135,6 +135,54 @@ pub fn bind_checked_current_fact_v1(
         binding: current_binding(request.kind, value),
     }))
 }
+/// Prepaid output admission only; this is not an accepted fact or commit.
+pub struct PreparedFactPromotionV1 {
+    binding: FactBinding,
+    charge: oasis7_proto::memory_budget::MemoryReservation,
+}
+/// Must run before formal acceptance while Ordinary admission can still fail.
+pub fn prepare_candidate_fact_promotion_v1(
+    checked: &ReservedValue<CheckedCandidateFactOccurrenceV1>,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<PreparedFactPromotionV1, Error> {
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    if !checked.uses_budget(memory)
+        || checked.binding.class != MemoryClass::Ordinary
+        || checked.reserved_bytes() < std::mem::size_of::<CheckedCandidateFactOccurrenceV1>()
+    {
+        return Err(CoreError::Invalid("candidate fact pool/charge"));
+    }
+    let charge = memory
+        .reserve(
+            std::mem::size_of::<VerifiedFactOccurrenceV1>(),
+            MemoryClass::Ordinary,
+        )
+        .map_err(|_| CoreError::ResourceLimited("fact promotion admission"))?;
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    Ok(PreparedFactPromotionV1 {
+        binding: checked.binding,
+        charge,
+    })
+}
+/// Fixed-field refinement after genuine formal acceptance. No admission, IO,
+/// cancellation, dynamic encoding or digest computation occurs here.
+pub fn finish_prepared_fact_promotion_v1(
+    prepared: PreparedFactPromotionV1,
+    accepted: &VerifiedFormalCommitV1,
+) -> Result<ReservedValue<VerifiedFactOccurrenceV1>, Error> {
+    let record = accepted.verified_record_id();
+    if record != prepared.binding.record {
+        return Err(CoreError::Invalid("candidate fact accepted head"));
+    }
+    Ok(prepared.charge.retain(VerifiedFactOccurrenceV1 {
+        binding: prepared.binding,
+    }))
+}
 pub fn promote_candidate_fact_v1(
     checked: &ReservedValue<CheckedCandidateFactOccurrenceV1>,
     accepted: &VerifiedFormalCommitV1,

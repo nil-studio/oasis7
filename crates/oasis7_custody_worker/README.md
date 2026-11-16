@@ -2,7 +2,7 @@
 
 本目录记录已合入的 Cloudflare 托管子组件、配置和实际启用限制。其历史设计见[固定版本](https://github.com/nil-studio/oasis7/blob/3bd96334c7ce3ad09111ed25d586afd1e20bab64/doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust)；旧扩张建设要求已退役，本文不再安排其后续交付。
 
-[Issue #5076](https://github.com/nil-studio/oasis7/issues/5076) 当前实施范围是[外部 Agent 开发测试账号工具](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)。工具按需要复用已有组件，采用自己的账号／授权接口；本目录的多角色布局不成为工具的部署前置。下文仅说明这些既有组件本身的真实接口、权限、数据和运行边界，不能据此声称账号工具已可用。
+[Issue #5076](https://github.com/nil-studio/oasis7/issues/5076) 当前实施范围是[外部 Agent 开发测试账号工具](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)。工具按需要复用已有组件，采用自己的账号／授权接口；本目录的多角色布局不成为工具的部署前置。新版 Workers 适配承接于[设计部署边界](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-workers)及 #5775～#5777，当前共享纯合同不代表九方法 Worker 执行链已接通。下文仅说明这些既有组件本身的真实接口、权限、数据和运行边界，不能据此声称账号工具已可用。
 
 <a id="cargo-dependency-boundaries"></a>
 ## Packages and isolation
@@ -177,6 +177,20 @@ Canonical submit and lookup responses occupy separate immutable fact slots. Arch
 The platform verification builds a test-only real NodeRuntime/World HTTP process in addition to the native SQLite authority and workerd roles. World policy is installed through the existing fixture governance signatures, and actual execution produces the canonical receipt. Fixed test keys are not operational credentials. Local tests cover response loss, signature corruption, independent Fence freezing, budget exhaustion and restart without resending; 实际部署与外部 Agent 使用另按当前任务验收。
 
 Node test files run serially so independent local World/workerd fixtures do not compete for the five-second authority window. Explicit races inside a test still run concurrently, and expiry, revocation and rollback tests retain their original checks. This verification does not establish production load capacity.
+
+Native 准备及过期 ManagedLogin 恢复的关键阶段断言失败时，测试输出 `oasis7.custody-native-stage-diagnostic/v1`：先记录失败观测时刻和固定请求计数，再停止 workerd，并通过既有只读 Account 快照入口投影白名单状态。原严格断言照常失败；诊断读取或输出异常不会替换它。正常路径只记录有限时间点，不增加诊断读取、等待或重发。
+
+诊断分别关联各 Native stage 自己的 origin inspection、选中 ManagedLogin 的原批准和独立预算、以及由该批准出资的 recovery 和内嵌 fresh source；恢复 result 与原登录 result 分列。只输出固定枚举、数量、存在性及时间，ID 仅在内存中关联，不输出原件、nonce、Cookie、签名或异常详情。缺失字段标为 unknown/null，明确空集合才是零；数组最多输出16项并报告省略数量。失败观测时间不等于授权检查时间，读取快照也不重新验证签名或授予权限。纯投影、遮蔽及失败传播合同可运行 `node --test crates/oasis7_custody_worker/tests/native-stage-diagnostics.test.mjs`；真实链路仍由完整 Native/workerd 集成测试验证。
+
+### workerd 原生故障现场
+
+[#5900](https://github.com/nil-studio/oasis7/issues/5900) 的采证入口是 `ci-custody-platform.py run/validate --capture-workerd-faults`，只作用于原 `client-abuse.integration.test.mjs`，本地默认关闭。显式模式需要 Linux x86_64、标准 GDB 及固定 workerd `1.20261019.1` 的实际 ELF 摘要；升级引擎时须复核身份与已知故障偏移。CI 在同一 hosted 环境先运行真实进程合同，覆盖二进制 stdin、FD 3、argv、可恢复信号、原退出状态、交错子进程和 SIGKILL 清理。
+
+GDB 启动原 Node 命令并跟踪其 fork/exec；Miniflare 继续直接管理真实 workerd PID、管道和销毁。原请求、断言、测试超时和分配采样均保留。调试器会改变执行时序，因此采证运行不等于未经调试的性能样本，也不能凭未复现签署根因修复。Linux 的调试权限不可用时明确失败，不调整宿主权限或退回无观测成功。
+
+`workerd-fault/records.jsonl` 只记录实际映像摘要、进程/线程身份、观测单调时间、信号、`si_code`、适用的 `si_addr`、PC/R13/RBP/RSP 及相关地址映射元数据；不读取目标原始内存、请求、环境变量或函数参数。最多 256 条记录、读取/消费文件上限 1 MiB；截断、读取失败、collector 错误与缺失终态均拒绝成功。已知故障位置、非零退出或第二个实际 workerd 实例不会被最终 Node exit0 覆盖。本用例只允许一个实例；唯一实例的信号 9 终态仅标为来源未知、与 dispose 相容，不宣称来源已确认。原 Node 失败优先保留。
+
+最终 support 消费者重新校验原始记录及 source/tested/policy/run/producer-attempt。额外诊断 artifact 名包含 `run_id/run_attempt/shard`，保留 7 天且不覆盖先前尝试；既有完整 Node 结果 artifact 的传输协议保持兼容。无需真实调试权限的解析合同运行 `python3 scripts/ci-custody-workerd-capture.test.py`。实际 GDB 合同有独立入口 `OASIS7_REQUIRE_GDB_TESTS=1 python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast`，未显式启用或缺少调试权限时失败；普通治理只执行纯解析合同，不用跳过的测试作为通过见证。
 
 ## 受限生产测试候选准入
 

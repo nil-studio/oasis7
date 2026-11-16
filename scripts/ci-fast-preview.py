@@ -2,6 +2,7 @@
 """Measure a candidate fast policy on current code, without authorizing a PR gate."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -43,6 +44,16 @@ SAMPLES = {
             ('lib', 'oasis7_game_client'), ('test', 'identity_cli'), ('test', 'dev_test_catalog_cli'),
             ('test', 'legacy_profile'), ('test', 'dev_test_service_cli'))),
         packages=['oasis7_game_client'], default_features=True, features=[], consumer_groups=frozenset()),
+    'executable-image': dict(
+        paths=('crates/oasis7_executable_image/src/digest.rs',),
+        targets=frozenset((('oasis7_executable_image', 'lib', 'oasis7_executable_image'),)),
+        packages=['oasis7_executable_image'], default_features=False, features=[],
+        consumer_groups=frozenset()),
+    'world-state-unit-tests': dict(
+        paths=('crates/oasis7_world_state/src/incremental_runtime_artifact_config_fault_tests.rs',),
+        targets=frozenset((('oasis7_world_state', 'lib', 'oasis7_world_state'),)),
+        packages=['oasis7_world_state'], default_features=False, features=['test_tier_required'],
+        consumer_groups=frozenset()),
 }
 
 
@@ -203,6 +214,24 @@ def validate_plan(plan, source, *, sample='runtime-world'):
                 or plan.get('ordinary_support_deferred') != ['oasis7_agent_harness', 'oasis7_model_provider']
                 or any(plan.get(key) != [] for key in ('workspace_support_profiles', 'formal_suites', 'formal_shards'))):
             raise ValueError('private Unix preview must retain its complete support handoff and lint contract')
+    if sample == 'world-state-unit-tests':
+        refs = plan.get('ordinary_unit_test_proof_refs')
+        omitted = plan.get('ordinary_unit_test_excluded_targets')
+        omitted_identities = {(target.get('package'), target.get('target_kind'), target.get('target_name'))
+                              for target in omitted if isinstance(target, dict)
+                              and all(isinstance(target.get(key), str) for key in
+                                      ('package', 'target_kind', 'target_name'))} if isinstance(omitted, list) else set()
+        if (type(plan.get('ordinary_unit_test_contract_version')) is not int
+                or plan['ordinary_unit_test_contract_version'] != 1
+                or plan.get('ordinary_unit_test_sources') != {expected['paths'][0]: 'oasis7_world_state'}
+                or not isinstance(refs, list) or len(refs) != 2
+                or any(not isinstance(ref, str) or len(ref) != 40 for ref in refs)
+                or set(refs) != {source, architecture.get('base')}
+                or plan.get('ordinary_unit_test_excluded_groups') != ['distfs', 'net', 'node']
+                or not isinstance(omitted, list) or len(omitted) != 3
+                or omitted_identities != EXPECTED_TARGETS - expected['targets']
+                or plan.get('oasis7_required_packages') != ['oasis7_world_state']):
+            raise ValueError('private WorldState preview requires its complete source isolation proof')
 
 
 def write_outputs(path, values):
@@ -213,6 +242,42 @@ def write_outputs(path, values):
                 if '\n' in value or '\r' in value:
                     raise ValueError('invalid preview output value')
                 output.write(key + '=' + value + '\n')
+
+
+def product_preview_triggers(repo, base, comparisons, changed):
+    triggers = changed.intersection(POLICY_INPUTS)
+    if 'scripts/ci-tests.sh' not in triggers:
+        return triggers
+    # Only the immutable event policy can enable this bounded exception. The
+    # candidate cannot enroll its own driver by editing ci-required-scope.json.
+    try:
+        config = json.loads(git(repo, 'show', base + ':scripts/ci-required-scope.json'))
+        spec = importlib.util.spec_from_file_location(
+            'preview_registration_selector', Path(__file__).with_name('plan-rust-required-scope.py'))
+        selector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        if selector.additive_governance_registration(config, comparisons, changed, repo=repo):
+            # A security test or document may also be an existing Rust fixture.
+            # Reuse the required selector's Git-only ownership/embedded-input
+            # scan for every compared tree; missing or uncertain graphs retain
+            # the product benchmark. No candidate executable is invoked.
+            cache = selector.GitSourceCache(repo=repo)
+            for revision in dict.fromkeys(ref for pair in comparisons for ref in pair):
+                manifests, _, embedded = selector.cargo_graph(
+                    revision, config.get('generated_inputs', ()), source_cache=cache, repo=repo)
+                if embedded.get('__unresolved_embed__') or embedded.get('__uncertain_module_sources__'):
+                    return triggers
+                for path in changed:
+                    if (embedded.get(path)
+                            or any(directory and path.startswith(directory + '/')
+                                   for directory, _ in manifests.values())
+                            or any(readers and (not directory or path.startswith(directory + '/'))
+                                   for directory, readers in embedded.get('__library_readers__', {}).items())):
+                        return triggers
+            triggers.remove('scripts/ci-tests.sh')
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, AttributeError):
+        pass  # Unreadable/old policy retains the existing product preview.
+    return triggers
 
 
 def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source_ref=None, sample='runtime-world'):
@@ -229,7 +294,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
         'actual_pr_base_sha': base, 'actual_pr_source_sha': pr_source,
         'actual_target_sha': target, 'source_base_sha': source_base,
         'comparisons': [{'base': before, 'head': after} for before, after in comparisons],
-        'trigger_paths': sorted(changed.intersection(POLICY_INPUTS)),
+        'trigger_paths': sorted(product_preview_triggers(repo, base, comparisons, changed)),
     }
     print('preview_inputs=' + json.dumps(inputs, ensure_ascii=False))
     if not inputs['trigger_paths']:
@@ -302,7 +367,7 @@ def restore_baseline(repo, metadata, *, sample=None, plan=None, group=None, part
 
 def plan_matrix(repo, base_ref, head_ref, output_dir, github_output=None, *, source_ref=None):
     # Publish one complete matrix only after every independent fixed sample has
-    # passed. A failed second plan must never leave enabled=true or a partial DAG.
+    # passed. Any failed plan must never leave enabled=true or a partial DAG.
     # Each worker owns its output path and temporary Git index. The checkout,
     # real index and refs remain read-only, and each planner has its own process.
     def plan_sample(sample):

@@ -28,11 +28,11 @@ Rust/JS 代码开发通过 GitHub Issue 交给 Coding Agent，dot 不直接启�
 
 复杂目标按[可验证的代码任务](../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)区分父项和具体实施结果，使用 [parallel-development](../skills/parallel-development/SKILL.md) 的安排方法。拆出的开发任务须创建或复用代码 Issue，按[原生 sub-issue 规则](../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)建立并回读父子关系；父项保留整体依赖、集成负责人和最终验收，子项分别维护领取、状态、PR 与验收结果。任务内部步骤和用例可用清单。用户可直接打开独立开发会话领取就绪子 Issue，需要集中协调时才采用 TPM；整体负责人维护依赖和集成，dot 的交接不直接启动外部开发会话。
 
-具体子 Issue 的内容、依赖和授权满足[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)的交接要求后才为其添加 `implementation:ready`；父项设计完整或已有 ready/active 不代替子项就绪与领取。依赖未满足保留阻塞；用户暂停使用 `implementation:paused`，父项有效暂停同样约束受影响子项。不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和原生关系，启动状态以真实 Coding Agent 会话为准。未拆分任务按自身条件交接，简单修改仍可直接 PR。
+具体子 Issue 的内容、依赖和授权满足[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)的交接要求后，才为其添加 `implementation:ready`；同时参考[尽量不超过 30 个代码文件](../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)的建议复核范围，超过时说明拆分或保留完整改动的取舍，不单凭数量取消 ready。父项设计完整或已有 ready/active 不代替子项就绪与领取。依赖未满足保留阻塞；用户暂停使用 `implementation:paused`，父项有效暂停同样约束受影响子项。不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和原生关系，启动状态以真实 Coding Agent 会话为准。未拆分任务按自身条件交接，简单修改仍可直接 PR。
 
-Coding Agent 承担实现、自测、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联实际执行项并保留父项关联，避免阶段交付提前关闭仍待部署或真实验收的父项。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；确认需要代码修复时把反馈补回对应执行项，供原 Coding Agent 会话继续，跨任务问题由整体负责人协调。dot 不把普通 CI 通过当作环境已部署或体验已验收。
+Coding Agent 承担实现、单元测试及不依赖外部条件的集成测试、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联实际执行项并保留父项关联，避免阶段交付提前关闭仍待部署或真实验收的父项。仅在本项所需开发 PR 均实际合入且仍有复杂测试时，按[测试分工与转换规则](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)沿用原 Issue 转测试；无剩余复杂测试且全部原义务满足时直接结项。dot 自行接收或在授权范围安排测试执行者，按[测试接收规则](../../doc/engineering/workflow/source-of-truth.md#test-task-acceptance)确认认领，沿[测试手册](../../testing-manual.md#test-issue-acceptance)推进。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；跨任务问题由整体负责人协调。dot 不把普通 CI 通过当作环境已部署或体验已验收。
 
-合入后确认需代码修复时，用普通文字明确说明需要修复，附准确 source/build、环境、复现和证据，供 Coding Agent 继续处理；纯部署进度不当作新代码任务。原 Issue 的实质反馈按[轻量交付摘要](REPORTING.md#issue-delivery-summary)说明结果、验证与版本、仍未满足、下一步及依据。验收全部满足后记录确切受测版本、结果与未覆盖范围，再按已有权限关闭 Issue。不要求专用命令语法，也不把旧构建结果沿用到新候选。
+测试确认需代码修复时，按测试接收规则判断原项返修或关联问题承接，用普通文字附准确 source/build、环境、复现和证据，供原 Coding Agent 会话继续处理；纯部署进度不当作新代码任务。原 Issue 的实质反馈按[轻量交付摘要](REPORTING.md#issue-delivery-summary)说明结果、验证与版本、仍未满足、下一步及依据。按代码转入验收或独立测试的原退出条件核对全部义务后，再按已有权限关闭 Issue。不要求专用命令语法，也不把旧构建结果沿用到新候选。
 
 已授权的文档及其他可直接处理工作，仍按独立分支/worktree 入口执行，不编辑 main。仅通过 GitHub 连接修改文本时，不假称已运行本地测试。专业协作按复杂度和风险选择；其他外部执行遵守 [AUTONOMY.md](AUTONOMY.md)，不把自身检查标为独立评审。交接只传必要上下文和来源，私有环境、凭据及用户对话不复制到公开 Issue。
 
@@ -47,7 +47,7 @@ Coding Agent 承担实现、自测、适用评审和 PR/CI 跟进。PR 用 `Refs
 4. **核实写入并去重恢复。** 同一仓库、同源问题和来源证据只写一次；复查或跨轮发现仅补有意义的新证据、状态或范围变化，没有变化不重复评论。创建/评论结果未知时，先回读 Issue/PR 及其时间线核对已有结果，再决定是否重试；查不清就保留未知，不盲目重发。复用现有任务上下文或已授权私有运行状态，不另建公共台账。
 5. **交付真实承接并继续有界跟进。** 向用户给出可验证的 Issue/PR 链接、承接范围和下一步；写入受权限、工具、数据公开范围或用户决定阻塞时，明确哪一步未完成或结果未知，并给待提交内容和所需决定，不能虚称“已追踪”。在原任务授权、预算和执行能力内补充有意义的进展，直到明确 owner 已承接、验证完成或需人决定；未找到 owner 时如实标为“已建单，尚无人承接”，说明待决定的承接人或下一步，不能与写入失败混淆。owner 承接不等于问题已修复，也不免除用户另行要求的验收。到授权/预算边界时报告剩余义务和恢复条件，不无限执行或自行启用调度。
 
-专项任务沿用此方法，并保留其更具体的内容要求、授权与执行者分工。时间表任务仍由 subagent 完成分析和获准的 Issue 写入，主 Agent 核对结果并汇报，不以本条改成主会话代跑。
+新发现按[范围变化的处置](../../doc/engineering/workflow/source-of-truth.md#task-scope-change)判断与当前任务的关系；落实问题承接不等于在当前 PR 扩大实现。专项任务沿用此方法，并保留其更具体的内容要求、授权与执行者分工。时间表任务仍由 subagent 完成分析和获准的 Issue 写入，主 Agent 核对结果并汇报，不以本条改成主会话代跑。
 
 ## 时间表触发的工作
 

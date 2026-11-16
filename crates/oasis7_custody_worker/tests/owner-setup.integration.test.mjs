@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {withRoleRuntime,persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+import {assertNativeStage} from './fixtures/native_stage_diagnostics.mjs';
 import {continuePreparedBaseline} from './fixtures/setup_baseline_settlement.mjs';
 import {readSavedAccountSnapshot,verifySnapshotReuse} from './fixtures/account_restore_bench.mjs';
 
@@ -19,7 +20,7 @@ function setupPlan(basis) {
 
 test('separate real UV owner setup creates canonical task, private goal, delegation and binding once', {timeout:240000},async()=>{
   await withRoleRuntime('native-participant-owner-setup-real-fence',async runtime=>{
-    assert.equal((await runtime.drive('owner-setup-participant')).stage,'participant_bound');
+    await assertNativeStage(runtime,await runtime.drive('owner-setup-participant'),'participant_bound');
     const basis=await runtime.setupBasis();
     assert.equal(basis.security_epoch,'1');
     const plan=setupPlan(basis);
@@ -97,6 +98,8 @@ test(rollback?'reconcile final SQL failure rolls back both old and new results a
     const stopped=await runtime.continueSetup(plan.setup_id);
     assert.equal(stopped.status,200,await stopped.clone().text());
     assert.equal((await stopped.json()).stage,'ready_for_setup');
+    assert.equal(runtime.setupArchiveExpiries(),targetStage==='final_observation'?0:1,
+      'submit recovery must finish the local archive-expiry hook; final observation loses record_result directly');
     const basis=await runtime.reconcileBasis(plan.setup_id,targetStage);
     const reconcile={api_version:1,reconcile_id:'owner-reconcile-one',setup_id:basis.setup_id,
       provision_id:basis.provision_id,stage:basis.stage,setup_plan_digest:basis.setup_plan_digest,
@@ -139,7 +142,7 @@ test(rollback?'reconcile final SQL failure rolls back both old and new results a
     const created=saved.setups[0].stages.find(stage=>stage.stage===targetStage);
     assert.deepEqual(created.result_provenance,{kind:'reconcile',reconcile_id:'owner-reconcile-one',attempt_id:'read-one'});
     assert.deepEqual(created.archived_sources,targetStage==='final_observation'?[]:['submit'],'recovery never overwrites the original stage history');
-  });
+  },{settleSubmits:true,retainHistory:true});
 });
 
 }

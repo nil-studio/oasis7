@@ -312,7 +312,7 @@ Trace ID: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78
 
 系统设计状态：已覆盖；[测试层分配](design.md#browser-functional-layer)与[受控浏览器合同](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)承接 BROWSER-AC-1–5，验证方法见[手册入口](../../testing-manual.md#browser-functional-regression-validation)。
 
-实现状态：部分实现。2026-11-03 静态核查 `d4cdabe4c9011ebc66b6376b1dce96f0d8b2cc39`：已有 Vitest/jsdom 的 `viewer_prompt_control_protocol.test.jsx`、真实 Viewer shell 的 `player-visual-feedback-browser-smoke.mjs` 及 tooling fixture smoke；它们不是本条全时序矩阵已执行的证据。统一 fixture-functional runner、可控传输/时钟、隔离与完整产物/CI 接线仍待 [#5387](https://github.com/nil-studio/oasis7/issues/5387) 实现。本次仅交付设计，没有运行浏览器或补齐生产缺陷。
+实现状态：fixture-functional 片已实现，尚未整体验收。统一 runner `crates/oasis7_viewer/scripts/browser-functional-regression.mjs` 执行 BFR-P01–P07 的真实组件/受控传输、deferred signer、连接代次与真实 dispose/remount，并复用现有 `viewer_js_required` 选测接线和 7 天证据归档；开发阶段已在 Chromium desktop+narrow 实际执行矩阵（具体 source/build、命令、执行数与产物见实施 PR）。真实认证服务、Runtime/provider、canonical receipt/world delta、跨浏览器、正式 S6/PWT 与实玩仍独立适用。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: `scripts/ci-tests.sh`、agent-browser 闭环工具、Playwright 实跑脚本、`oasis7_web_launcher` GUI Agent 接口、长跑脚本、结果汇总工具、`scripts/prepare-playability-l4-review.sh`。

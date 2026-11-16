@@ -8,6 +8,8 @@ use serde::{Deserialize, Deserializer};
 use std::fmt;
 use std::marker::PhantomData;
 
+// The 100-field legacy sequence is frozen. Rotation histories are map-only
+// append-only extensions; visit_seq rejects their trailing payloads.
 const FIELDS: &[&str] = &[
     "world_rules",
     "time",
@@ -316,6 +318,8 @@ enum Field {
     RewardSignatureGovernancePolicy,
     #[serde(rename = "governance_finality_key_rotations")]
     GovernanceFinalityKeyRotations,
+    #[serde(rename = "governance_bootstrap_finality_key_rotations")]
+    GovernanceBootstrapFinalityKeyRotations,
     #[serde(other)]
     Other,
 }
@@ -424,7 +428,8 @@ impl Field {
             Field::GovernanceAuthorizationNonces => 98,
             Field::RewardSignatureGovernancePolicy => 99,
             Field::GovernanceFinalityKeyRotations => 100,
-            Field::Other => FIELDS.len() + 1,
+            Field::GovernanceBootstrapFinalityKeyRotations => 101,
+            Field::Other => FIELDS.len() + 2,
         }
     }
 
@@ -539,6 +544,9 @@ impl Field {
             Field::GovernanceAuthorizationNonces => "governance_authorization_nonces",
             Field::RewardSignatureGovernancePolicy => "reward_signature_governance_policy",
             Field::GovernanceFinalityKeyRotations => "governance_finality_key_rotations",
+            Field::GovernanceBootstrapFinalityKeyRotations => {
+                "governance_bootstrap_finality_key_rotations"
+            }
             Field::Other => "<unknown>",
         }
     }
@@ -649,6 +657,7 @@ struct WorldStateBuilder {
     governance_finality_signer_registry: Option<Option<GovernanceFinalitySignerRegistry>>,
     governance_validator_admissions: Option<BTreeMap<String, GovernanceValidatorAdmissionRecord>>,
     governance_finality_key_rotations: Option<RotationHistory>,
+    governance_bootstrap_finality_key_rotations: Option<BootstrapRotationHistory>,
     governance_main_token_controller_registry:
         Option<Option<GovernanceMainTokenControllerRegistry>>,
     governance_authorization_nonces: Option<BTreeMap<String, u64>>,
@@ -910,6 +919,10 @@ fn finish_state<E: de::Error>(builder: WorldStateBuilder) -> Result<WorldState, 
             .governance_finality_key_rotations
             .unwrap_or_default()
             .0,
+        governance_bootstrap_finality_key_rotations: builder
+            .governance_bootstrap_finality_key_rotations
+            .unwrap_or_default()
+            .0,
         governance_main_token_controller_registry,
         governance_authorization_nonces,
         reward_signature_governance_policy,
@@ -952,7 +965,7 @@ impl<'de> Visitor<'de> for WorldStateVisitor {
         A: MapAccess<'de>,
     {
         let mut builder = WorldStateBuilder::default();
-        let mut seen = [false; 101];
+        let mut seen = [false; 102];
         while let Some(field) = map.next_key::<Field>()? {
             let index = field.index();
             if matches!(field, Field::Other) {
@@ -1004,5 +1017,15 @@ struct RotationHistory(BTreeMap<String, crate::governance::FinalityKeyRotationRe
 impl<'de> serde::Deserialize<'de> for RotationHistory {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         crate::governance::deserialize_finality_key_rotations(d).map(Self)
+    }
+}
+
+#[derive(Default)]
+struct BootstrapRotationHistory(
+    BTreeMap<String, crate::governance::BootstrapFinalityKeyRotationRecordV1>,
+);
+impl<'de> serde::Deserialize<'de> for BootstrapRotationHistory {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        crate::governance::deserialize_bootstrap_finality_key_rotations(d).map(Self)
     }
 }

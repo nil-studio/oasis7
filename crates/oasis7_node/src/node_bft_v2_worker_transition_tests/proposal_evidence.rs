@@ -5,7 +5,7 @@ use oasis7_proto::distributed_bft::v2::{BftMessageV2, BftProposalHeaderV2, BftPr
 fn worker_retains_conflicting_signed_proposal_evidence_across_restart() {
     let root = PrivateRoot::new();
     let identities = identities();
-    let addresses = reserve_udp_addresses(identities.len());
+    let addresses = [SocketAddr::from(([127, 0, 0, 1], 0))];
     let set =
         BftValidatorSetV2::new(scope(), validators(&[11, 12, 13, 14])).expect("valid genesis set");
     let schedule = BftHeightProposerScheduleV2::genesis(
@@ -29,8 +29,14 @@ fn worker_retains_conflicting_signed_proposal_evidence_across_restart() {
         .position(|identity| identity.id != proposer_id)
         .expect("an active non-proposer can observe the proposal");
     let target_identity = &identities[target_index];
-    let mut node = make_node(target_identity, target_index, &addresses, root.path());
+    let mut node = make_node(target_identity, 0, &addresses, root.path());
     node.start().expect("start real protected Node V2 worker");
+    // Keep the first socket occupied through restart so replay cannot rely on
+    // reclaiming a port that another parallel test may already have acquired.
+    let occupied_endpoint = Arc::clone(node.gossip_endpoint.as_ref().expect("bound endpoint"));
+    let target_address = occupied_endpoint
+        .local_addr_for_test()
+        .expect("read actual worker address");
 
     let hook = TransitionTestHook {
         ledger: Arc::clone(&target_identity.driver),
@@ -84,7 +90,7 @@ fn worker_retains_conflicting_signed_proposal_evidence_across_restart() {
         };
         let bytes = serde_json::to_vec(&envelope).expect("encode signed proposal");
         sender
-            .send_to(&bytes, addresses[target_index])
+            .send_to(&bytes, target_address)
             .expect("send signed proposal to real worker");
     }
 
@@ -124,14 +130,22 @@ fn worker_retains_conflicting_signed_proposal_evidence_across_restart() {
         } if first.as_ref() == &proposals[0].header && second.as_ref() == &proposals[1].header
     )));
 
-    let mut reopened = make_node(target_identity, target_index, &addresses, root.path());
+    let mut reopened = make_node(target_identity, 0, &addresses, root.path());
     reopened
         .start()
         .expect("reopen Node by replaying provider journal");
+    let reopened_address = reopened
+        .gossip_endpoint
+        .as_ref()
+        .expect("reopened endpoint")
+        .local_addr_for_test()
+        .expect("read actual reopened worker address");
+    assert_ne!(reopened_address, target_address);
     let reopened_status = reopened.bft_v2_status().expect("reopened BFT V2 status");
     assert_eq!(
         reopened_status.proposal_equivocation_evidence,
         vec![(proposals[0].header.clone(), proposals[1].header.clone())]
     );
     reopened.stop().expect("stop reopened worker");
+    drop(occupied_endpoint);
 }

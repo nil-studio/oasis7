@@ -28,3 +28,19 @@ export function validateRetentionFocusAnchor(previous,prepared,stable=null) {
  for(const expected of [previous,stable])if(expected&&(expected.scope!==anchor.scope||expected.instance!==anchor.instance||expected.origin!==anchor.origin))throw Error('scope/instance/page changed before native input');
  return anchor;
 }
+
+// Submit preparation is distinct from actor selection: restore starts from ten records.
+export async function focusRetentionFilter(expectedCut,expectedEntities,expectedValue) {
+ const end=performance.now()+10000;let last;
+ while(performance.now()<end){
+  const s=window.__AW_TEST__.getState(),r=window.__OASIS7_WORLD_VIEW_RETENTION__?.(expectedCut,false),form=document.querySelector('.pixel-world-exploration form'),b=form?.querySelector('button[type="submit"]'),input=form?.querySelector('input');
+  if(s.authReady!==false||s.authPlayerId!==null||s.authPublicKey!==null||s.authBoundAgentId!==null||s.authRegistrationStatus!=='guest')throw Error('observer identity changed before filter input');
+  const current=r&&!r.loading&&!r.stale&&!r.hasError&&r.published.queryGenerationMatches===true&&r.published.sourceCutMatches===true&&r.published.completeness==='complete';
+  if(current&&r.published.entities!==expectedEntities)throw Error('complete source cardinality changed before filter input');
+  last={attached:!!b?.isConnected,disabled:b?.disabled??null,loading:r?.loading??null,generation:r?.localGeneration??null,valueMatches:input?.value===expectedValue};
+  if(current&&b?.isConnected&&!b.disabled&&input?.value===expectedValue){b.focus({preventScroll:true});if(document.activeElement!==b)throw Error('filter focus failed');return{focused:true,...last,scope:r.scopeSequence,instance:r.instanceSequence,origin:performance.timeOrigin,time:performance.now()};}
+  await new Promise(done=>setTimeout(done,25));
+ }
+ throw Error('filter submit not ready: '+JSON.stringify(last));
+}
+export const retentionFilterScript=(cut,count,value)=>`(${focusRetentionFilter.toString()})(${JSON.stringify(cut)},${count},${JSON.stringify(value)})`;

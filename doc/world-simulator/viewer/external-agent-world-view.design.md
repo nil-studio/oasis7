@@ -107,6 +107,11 @@ SourceAuthority 私有保存各地点上述字段的摘要，摘要集合进入 
 
 平移/缩放立即改本地camera，稳定后合并有界只读query；取消仅节流，正确性由generation保证。失败保留仍获准的旧范围并标最近已知，不给空世界。搜索区分当前Targets过滤和授权空间搜索，结果只提供稳定ID/来源/定位线索，不自动提交。
 
+<a id="view-explicit-search-intent"></a>
+**后台读取期间的显式搜索。** 正常挂载且仍具备当前scope的WorldView搜索表单不因后台query loading禁用。一次真实提交立即给出本地等待／读取反馈，接受只表示本地意图，不是网络结果。controller保持single-flight，至多保留一个最新显式查询意图（包括清空搜索）；新意图替换旧意图，旧调用明确结束为未完成结果，不累积then链或并行transport。已有读取立即invalidate其发布代，晚页／错误不得覆盖新意图；等原读取结束后只派发最新槽。槽以原30秒上限有界结束，不重发原输入。
+
+显式意图等待或读取时，后台snapshot/poll/相机/pin触发只合并dirty，不invalidate或抢占显式结果；结果结束后恢复原调度。总览当前查询及对当前partial中已呈现对象的待检查选择不改变查询，保留已经派发的当前显式查询并等待同绑定结果；待检查选择只取消尚未派发的替换槽；其他新显式搜索、导航／选择、scope/world/connection/authority失效或卸载取消旧槽，所有调用promise均结束；旧finally不得清除新槽或发布成功。搜索仍沿既有授权查询、分页／字节／实体限额，不新增grant/pin能力，不冻poll或放宽生产权限。scope失效不能借旧输入恢复读取。完整／partial／错误仍按原读模型呈现，不因本地接受升级事实。此条不将搜索完成套用选择ACK预算，也不改变P5/P6或原性能测量口径。
+
 选择/跟随绑定world/entity/selection generation。显式跟随只消费当前可信位置；手动浏览退出跟随，失效暂停，恢复数据不自动抢回camera。重叠候选列表、聚合下钻、返回总览/主目标都只改读状态；目标无位置则返回合法文本，不用fallback坐标。
 
 <a id="overview-query-fit"></a>
@@ -339,7 +344,7 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 
 ### 9.2 初始验收预算
 
-以下是待测目标，不是当前性能报告。A：桌面8 GiB内存、集成GPU、100 Mbps/40 ms RTT；B：同设备10 Mbps/150 ms。实际CPU/GPU/OS/浏览器、电源、刷新率、viewport/DPR必须记录，缺身份不可比较。
+以下是待测目标，不是当前性能报告。原A为桌面8 GiB内存、集成GPU、100 Mbps/40 ms RTT，原B为同设备10 Mbps/150 ms。2026-11-12用户决定取消指定设备及两档网络正式A/B验收；该矩阵未执行，不再作为本轮完成门槛，也不记作通过。保留原预算数值供历史追溯；当前启动验收改为明确实际本机身份的20个独立空browser-profile冷样本和30个同profile热样本，报告观测端点P50/P95/max，不与原A/B作达标比较。OS页缓存未隔离、WASM编译缓存未知；真实交互Atlas图像上界与物理首帧、核心Goal UI未知分别列出。实际CPU/GPU/OS/浏览器、电源、刷新率、viewport/DPR必须记录，缺身份不可比较。
 
 | 指标 | 初始目标 | 边界 |
 | --- | --- | --- |
@@ -353,6 +358,8 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 
 <a id="view-retention-observation"></a>
 客户端保留观测只读当前实例/本地代际：分别统计已发布view与changes、仍活跃分页的entities/relations/aggregates/events Maps和cursor集合，不能假称已有LRU。统计只返回计数、逻辑JSON UTF-8字节和采集成本，不返回ID、文本、scope凭据或DTO副本；旧代际异步查询不计作当前scope数据；清除统计引用不代表已取消异步闭包或释放其Maps，transport完成前的旧inflight残余内存记unknown，不据active=false宣称实际缓存清空。逻辑编码字节不是实际堆分配，重复引用的逻辑编码与对象去重计数分列。JS heap、WASM线性内存、renderer/GPU和owned进程RSS各自采集或unknown，不求和冒充精确总量。长期工具流式写有界数字收据，不积累全DTO/大trace；预热后初末同负载同阶段比较，不在末端GC、清缓存或reload制造下降。30分钟/M3/16GiB结果仍不代签正式A/B或P5/P6。 可用本地实例/范围序号、当前query匹配和已知source_cut比对布尔校验观测阶段，序号不是权威epoch；便宜stamp不遍历DTO或触发新query。heap/DOM读取前后应括在相同阶段：同scope/cut正常轮询跨读则原值保留并标unknown，不重新抽样挑低值，初末窗口有该项不得只取已知子集求中位数；实例/范围/页面、身份或实际负载丢失则停止。逻辑编码/对象/保留容量只作趋势，已知内存分量超过既有10%须保存raw后非零，缺项不能签整体预算。
+
+进程分量的长期观测复用正式自建浏览器 factory，不从共享浏览器推断 PID 或启动第二个 Viewer 实例。每次 RSS 读取验证私有 profile、唯一页面及原生进程树前后 PID/父 PID/出生时间；整个窗口另锚定同一页面对象、根进程出生身份与 mounted WASM lease。子进程可自然更替，必须保存原始集合；初末窗口集合不同则聚合 RSS 增长未知，只能另报全窗口共同身份的进程分量。RSS 与 JS heap、WASM 容量重叠，不相加为总堆或缓存。采集进程、CDP 和逻辑统计的耗时全部计入并记录，不扣除观测成本。首末原始各六个 home 样本任一跨轮询未知时，相关分量保持未知，不筛选较低值。当前与 retired inflight 计数仅说明标量生命周期覆盖，不能据计数归零证明 GC 或完整缓存释放。
 
 实测失败先报告/修复或缩小支持范围；改预算须同fixture证据和owner决定，不临时放宽。方法见[专项性能验证](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-performance)。这些不是新通用CI gate，文档PR不需GPU/付费模型。
 
@@ -429,3 +436,18 @@ ADR-VIEW-3：几何、时效、请求代际、世界切点分开；partial不是
 ADR-VIEW-4：保留renderer/Shell，按预算做局部索引/聚合/reconcile，不先重写引擎/shader。
 
 待实施锁定：平台依赖/发行身份、API Context/fence真实接线、空间索引来源及实测质量。这些是交付缺口，不可跳过；独立跨域评审和运行证据在实际PR记录，不由本文自报完成。
+
+
+### 已挂载 WASM 容量观测（5771）
+
+仅 test_api 运行时观测可读取成功 wasm-bindgen 初始化所返回 Memory 的 byteLength；不得初始化第二个实例或暴露 Memory 对象。本地挂载标识绑定当前 bridge，挂载失败、fatal 和卸载使其失效，旧 bridge 清理不得清除新挂载标识。客户端 scope／source-cut 配对仍使用既有采样前后标记；容量本身不证明授权或来源连续性。
+
+线性内存容量是可寻址字节数，不是分配器已用堆、JS heap、GPU 内存、进程 RSS 或总缓存。受控单元测试可以用 Memory.grow 验证容量变化，真实观测不得调用 grow 或强制 GC。当前客户端 view／changes／分页 Map 与旧 inflight 闭包是不同保留 root；当前代际逻辑编码计数不覆盖旧闭包，也不证明保留堆大小。HeapProfiler 归因使用前须独立核对所有权与隐私边界。
+
+### 未完成读取的保留生命周期（5790）
+
+客户端只读统计可分别报告当前代际与已失效但尚未完成的 query 数、四类分页 Map 的条目数、cursor Set 大小及 first／last 页面引用槽数量。登记仅持有本地代际数字与计数，不额外保留页面、Map 或闭包；引用槽数不是去重对象数。invalidate、cancel 和 reset 不得将旧 await 闭包误报为已释放，须待原 async query 的 finally 删除标量登记。旧回复仍按原代际／scope 校验拒绝发布。
+
+transport 单独报告 pending entry 数，在成功、错误、clear、发送失败及超时删除后更新，不输出请求 key、scope 或连接标识，不触发读取或新请求。上述计数证明指定 root 的生命周期覆盖，不证明 GC 已回收、分配器字节、完整 retained heap 或应用总缓存 64MiB；不进行全堆扫描或强制 GC，不改变权限、请求预算与业务行为。
+
+现有 test_api 统计入口可通过 core／controller 读取页面 worldView transport 的纯数字 pending 总数；它可能包含 retired query，不是某个客户端、当前 cut 或当前授权事实的数量。缺失或非法计数保留 `null`，不能补成零。controller 已 dispose 或本地 scope 不匹配时仍返回 `null`，不读取 transport；Host 仅沿原 test_api gate 和本实例清理规则暴露同一统计函数。不返回 transport 对象、请求标识、连接、scope 或 Promise 闭包，读数也不新建请求。该接线仅补齐已知 root 的数值覆盖，不改变前述缓存归因边界。

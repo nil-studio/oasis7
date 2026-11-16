@@ -116,6 +116,7 @@ fields! {
     governance_finality_signer_registry => value, Value, FieldDestination::State(Namespace::Authorization);
     governance_validator_admissions => map, Map, FieldDestination::State(Namespace::Authorization);
     governance_finality_key_rotations => map, Map, FieldDestination::State(Namespace::Authorization);
+    governance_bootstrap_finality_key_rotations => map, Map, FieldDestination::State(Namespace::Authorization);
     governance_main_token_controller_registry => value, Value, FieldDestination::State(Namespace::Authorization);
     governance_authorization_nonces => map, Map, FieldDestination::State(Namespace::Authorization);
     reward_signature_governance_policy => value, Value, FieldDestination::State(Namespace::Authorization);

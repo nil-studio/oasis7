@@ -13,7 +13,7 @@
 2. 读根 `README.md`，先确认当前公开状态、技术预览边界与公开说明准备态。
 3. 读 `site/index.html`，确认公开站点当前入口、预览验证路径与下载区口径。
 4. 读 `doc/core/prd.md`，获取项目全局设计总览（模块地图、关键链路、关键分册）。
-5. 若从产品视角阅读，先进入 `doc/product/README.md`，从固定四大产品模块选择唯一入口。
+5. 若从产品视角阅读，先进入[产品总入口](product/README.md)，从固定四大产品模块选择唯一入口。
 6. 进入目标工程模块 `doc/<module>/prd.md`，确认问题定义、方案、验收标准与技术边界。
 7. 若目标模块已补齐 `design.md`，继续读模块设计总览，确认模块总体设计、分层和主链路。
 8. 继续读 PR、实际 CI 与评审记录（Issue 按需），确认任务拆解、PRD-ID 映射、依赖与状态。
@@ -36,7 +36,7 @@
 
 ## 产品模块入口
 
-产品层只从 `doc/product/README.md` 进入，并固定为四个产品模块。产品文档按以下规则持续收敛：
+产品层从[产品总入口](product/README.md)进入，由 `producer_system_designer` 维护，保留既有四个逻辑产品模块。产品文档按以下规则持续收敛：
 
 - `doc/product/` 是四个模块的产品组合层目录；其他目录保留专业规则、实现与验证合同。既有散落内容只在出现当前重复权威、失效引用或实际语义缺口时有界处理，不把旧迁移批次恢复为默认工作。
 - 新建或改写四模块相关的产品承诺、产品设计、跨域组合和端到端验收内容时，必须归入对应的 `doc/product/<产品模块>/`。
@@ -46,20 +46,23 @@
 - 产品正文不得与其他目录重复或混写；下方矩阵仅作为工程与治理模块导航，不是产品文档的替代入口。
 
 ## 工程模块入口矩阵
-| 模块 | PRD 主文档 | 设计主文档 | 设计关注点 |
-| --- | --- | --- | --- |
-| core | `doc/core/prd.md` | `doc/core/design.md` | 项目全局总览与跨模块治理基线 |
-| engineering | `doc/engineering/prd.md` | `doc/engineering/design.md` | 工程规范、质量门禁、文件治理 |
-| game | `doc/game/prd.md` | `doc/game/design.md` | 玩法循环、规则层、发行可玩性 |
-| headless-runtime | `doc/headless-runtime/prd.md` | `doc/headless-runtime/design.md` | 无界面运行链路与生产稳定性 |
-| p2p | `doc/p2p/prd.md` | `doc/p2p/design.md` | 网络、共识、分布式存储 |
-| playability_test_result | `doc/playability_test_result/prd.md` | `doc/playability_test_result/design.md` | 可玩性测试数据与收口闭环 |
-| readme | `doc/readme/prd.md` | `doc/readme/design.md` | 对外口径与文档入口一致性 |
-| scripts | `doc/scripts/prd.md` | `doc/scripts/design.md` | 自动化脚本能力与维护规范 |
-| site | `doc/site/prd.md` | `doc/site/design.md` | 站点体验、内容发布、SEO |
-| testing | `doc/testing/prd.md` | `doc/testing/design.md` | 分层测试体系与发布门禁 |
-| world-runtime | `doc/world-runtime/prd.md` | `doc/world-runtime/design.md` | 运行时内核、WASM、治理与审计 |
-| world-simulator | `doc/world-simulator/prd.md` | `doc/world-simulator/design.md` | 世界模拟、Viewer、LLM 与场景系统 |
+
+以下是专业、治理与证据目录的人工导航；职责和维护角色用于找到实际处理出口，不另建机器登记表。
+
+| 目录入口 | PRD 主文档 | 设计主文档 | 维护角色 | 职责 |
+| --- | --- | --- | --- | --- |
+| [core](core/README.md) | [prd.md](core/prd.md) | [design.md](core/design.md) | `producer_system_designer` | 项目全局总览与跨模块治理基线 |
+| [engineering](engineering/README.md) | [prd.md](engineering/prd.md) | [design.md](engineering/design.md) | `repository_health_engineer` | 工程规范、质量门禁、文件治理 |
+| [game](game/README.md) | [prd.md](game/prd.md) | [design.md](game/design.md) | `gameplay_designer` | 玩法循环、规则层、发行可玩性 |
+| [headless-runtime](headless-runtime/README.md) | [prd.md](headless-runtime/prd.md) | [design.md](headless-runtime/design.md) | `runtime_engineer` | 无界面运行链路与生产稳定性 |
+| [p2p](p2p/README.md) | [prd.md](p2p/prd.md) | [design.md](p2p/design.md) | `blockchain_ops_engineer` | 网络、共识、分布式存储 |
+| [playability_test_result](playability_test_result/README.md) | [prd.md](playability_test_result/prd.md) | [design.md](playability_test_result/design.md) | `qa_engineer` | 可玩性结果卡与收口证据 |
+| [readme](readme/README.md) | [prd.md](readme/prd.md) | [design.md](readme/design.md) | `liveops_community` | 对外口径、材料与渠道运行文档 |
+| [scripts](scripts/README.md) | [prd.md](scripts/prd.md) | [design.md](scripts/design.md) | `repository_health_engineer` | 自动化脚本能力与维护规范 |
+| [site](site/README.md) | [prd.md](site/prd.md) | [design.md](site/design.md) | `liveops_community` | 站点体验、内容发布、SEO |
+| [testing](testing/README.md) | [prd.md](testing/prd.md) | [design.md](testing/design.md) | `qa_engineer` | 分层测试体系与发布门禁 |
+| [world-runtime](world-runtime/README.md) | [prd.md](world-runtime/prd.md) | [design.md](world-runtime/design.md) | `runtime_engineer` | 运行时内核、WASM、治理与审计 |
+| [world-simulator](world-simulator/README.md) | [prd.md](world-simulator/prd.md) | [design.md](world-simulator/design.md) | `runtime_engineer` | 世界模拟、Viewer、LLM 与场景系统 |
 
 ## 目录结构说明
 - `doc/<module>/prd.md`：模块设计主文档（唯一 PRD 入口）。
@@ -70,20 +73,19 @@
 - `doc/<module>/README.md`：模块目录索引（按主题子目录导航）。
 - PR、实际 CI 与评审记录（Issue 按需）：维护执行过程与验证事实。旧 `task_uid` 仅按历史记录追溯，不依赖退役 `.pm` 映射作为当前入口。
 - `doc/devlog/README.md`：历史归档摘要入口；原始 `doc/devlog/2026-*.md` daily 文件已删除，日级细节从 Git history、相关模块 PR、实际 CI 与评审记录（Issue 按需）追溯，不再作为运行态真值。
-- `doc/.governance/*-allowlist.txt`：文档组织门禁基线（根目录与模块根目录平铺文件冻结清单）。
 - `doc/**/archive/` 不作为默认文档结构；历史专题仅在模块目录内保留并在索引中标注。少量 manifest-backed evidence asset archive（例如退役视觉证据图片）只作追溯证据，不作为当前 release / viewer / gameplay 首读入口。
 
 ## 顶层目录分类与例外
 
-`doc/.governance/top-level-directory-registry.json` 是所有一级物理目录的机器可读登记；本页保留按读者目标维护的人工导航，而不是生成完整目录转储。`product` 只含四个逻辑产品模块，不是工程模块矩阵的第五类。
+一级目录直接从实际 `doc/` 目录和本页 Markdown 导航读取，每个目录的真实 `README.md` 是入口。职责、维护角色和例外理由保留在这些现有说明中，不再维护独立 registry 或完整路径 allowlist；文件增删不需要同步第二份路径清单。`product` 承载既有四个逻辑产品模块，物理目录数量不决定产品模块数量。
 
-- 历史摘要例外：`doc/devlog/README.md`；不作为运行态任务或证据真值。
-- 短周期视觉评审例外：`doc/ui_review_result/README.md`；只在存在可评分样本的轮次使用，长期结论回写到 `world-simulator`、`playability_test_result` 或 Git、PR 与实际 CI 记录。
-- 所有其他一级专业/治理/测试目录及其 owner、入口与存在理由见 registry；新增、删除或重分类目录时必须同步更新 registry、本页和 landing page。
+- 历史摘要例外：[devlog 历史入口](devlog/README.md)，由 `repository_health_engineer` 维护旧引用与历史定向，不作为运行态任务或证据真值。
+- 短周期视觉评审例外：[UI 评审样本池](ui_review_result/README.md)，由 `viewer_engineer` 维护，只在需要可评分样本的轮次使用；长期结论回写专业模块或 Git、PR 与实际 CI 记录。
+- 新增、删除或重分类一级目录时，维护该目录 README 的职责/例外说明及本页的准确链接；门禁核对真实入口和导航，例外是否仍有必要由相应维护角色按其原说明复核。
 
 ## 共享规则
 - 新功能或行为变更先明确要求与验收，并更新实际受影响的产品或专业主责条款；实现、测试和相关文档在同一交付范围内维护，事实记录使用 PR、实际 CI 与评审记录（Issue 按需）。
 - 新增或实质修改的跨层要求使用同一全局 Trace ID 关联声明、设计和任务，保留已有 PRD-ID 与局部锚点；Task 可以直接是 PR，简单编辑不为凑齐层级新建要求或任务。追踪约定从 `doc/engineering/doc-governance/README.md` 进入。
 - 设计内容应优先收敛到对应产品模块或专业模块中可长期维护的模块级 `design.md` / 权威专题；避免为短期小功能新建带日期的设计碎片。既有碎片宜按语义合并、修复引用并在安全时删除；只有承担可独立长期治理职责的专题，才保留窄范围的专题设计文档，而不以临时任务范围建档。
-- `doc/` 根目录只保留当前总入口；历史路径、已删除入口与迁移过程从 Git history 和 PR、实际 CI 与评审记录（Issue 按需）追溯，不在活跃导航重复列举。
+- `doc/` 根目录以当前总入口为主要阅读面；长期专题优先归入相应目录，历史路径、已删除入口与迁移过程从 Git history 和 PR、实际 CI 与评审记录（Issue 按需）追溯，不在活跃导航重复列举。
 - 模块根入口、专题落位、README 职责与 legacy redirect 的共享治理规则统一从 `doc/engineering/doc-governance/README.md` 进入，再按问题下钻到规范正文或对应专题。

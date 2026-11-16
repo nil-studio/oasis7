@@ -1,4 +1,7 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "support/incremental_cognition_fixture.rs"]
+mod incremental_cognition_fixture;
+use incremental_cognition_fixture::{physical, source, state_error};
 use oasis7_distfs::incremental_page_store::*;
 use oasis7_formal_protocol::{incremental_state::*, incremental_value::*};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
@@ -29,39 +32,7 @@ mod family_faults;
 #[allow(dead_code)]
 #[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
-fn physical() -> PageIoBudget {
-    PageIoBudget {
-        reads_remaining: 2_500_000,
-        read_bytes_remaining: 256 << 20,
-        writes_remaining: 100_000,
-        write_bytes_remaining: 256 << 20,
-    }
-}
-fn source(all_optional: bool) -> serde_json::Value {
-    let mut value = serde_json::json!({"schema_version":"cognition-persistence.v1", "cognition_journal":{"schema_version":"cognition-journal.v1","head_seq":u64::MAX,"head_digest":"原digest","events":[]}, "responses":[],"commit_records":[],"receipt_registry":[],"receipt_lineage_registry":[],"feedback_outbox":{"":true},"idempotency_index":{},"staged_actions":{},"scheduler_state":{},"continuations":[null,""],"recovery":null,"continuation_contexts":{},"reorg_invalidation_epoch":0});
-    if all_optional {
-        value["cognition_economy"] =
-            serde_json::to_value(oasis7_runtime::CognitionEconomyStateV1::default()).unwrap();
-        value["cognition_economy"]["balances"] =
-            serde_json::json!({"":{}, "账户":{"unit":{"available":u64::MAX,"reserved":0}}});
-        value["cognition_economy"]["provisioned_balances"] = serde_json::json!({"原binding":{}});
-        value["cognition_economy"]["provision_head_seq"] = serde_json::json!(42);
-        value["cognition_economy"]["head_seq"] = serde_json::json!(u64::MAX);
-        value["cognition_economy"]["head_digest"] = serde_json::json!("原economic-digest");
-        value["cognition_economy"]["provision_head_digest"] = serde_json::json!("");
-        value["agent_delegation"] = serde_json::json!({"grants":{"outer-id":{"grant_id":"embedded-id"}},"spent":{"":u64::MAX},"decisions":{},"receipts":{},"controls":{}});
-        value["continuation_evaluations"] = serde_json::json!({"n":{"tick":u64::MAX}});
-    }
-    value
-}
-fn state_error(error: PageStoreError) -> ValueTreeError {
-    match error {
-        PageStoreError::Memory(error) => ValueTreeError::Memory(error),
-        PageStoreError::ResourceLimited(error) => ValueTreeError::ResourceLimited(error),
-        PageStoreError::Cancelled => ValueTreeError::Cancelled,
-        error => ValueTreeError::Io(std::io::Error::other(error)),
-    }
-}
+
 #[test]
 fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old_pool() {
     run_cognition(false, false, false);
@@ -1121,10 +1092,10 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
 }
 
 #[test]
-fn cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json() {
+fn cognition_fixed_delta_receiver_skips_unchanged_json_across_value_chunks() {
     let small = cognition_scaling::run(64);
-    let medium = cognition_scaling::run(1 << 20);
-    let large = cognition_scaling::run(32 << 20);
-    small.assert_fixed(&medium);
-    small.assert_fixed(&large);
+    let chunked = cognition_scaling::run(
+        2 * oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES + 17,
+    );
+    small.assert_fixed(&chunked);
 }

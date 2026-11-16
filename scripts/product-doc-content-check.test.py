@@ -276,7 +276,7 @@ def scenario_full_corpus_includes_unchanged_legacy_and_sorts_diagnostics() -> No
         late.write_text("broken late legacy\n", encoding="utf-8")
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
+        assert result.returncode == 0, output
         assert str(early.relative_to(root)) in output, output
         assert "doc/product/world-rules-core-gameplay/legacy.prd.md" in output, output
         assert str(late.relative_to(root)) in output, output
@@ -307,7 +307,7 @@ def scenario_full_corpus_accepts_retired_topics_and_reports_lifecycle_errors() -
         )
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
+        assert result.returncode == 0, output
         assert "retired.prd.md" in output and "missing-metadata" in output, output
     finally:
         shutil.rmtree(root)
@@ -347,7 +347,7 @@ def scenario_full_corpus_requires_exact_lifecycle_enum() -> None:
         shutil.rmtree(root)
 
 
-def scenario_full_corpus_requires_real_review_date() -> None:
+def scenario_full_corpus_reports_invalid_review_date() -> None:
     for value in ("TBD", "2026-9-10", "2026-02-30"):
         root, _base, _head = make_repo()
         try:
@@ -358,7 +358,7 @@ def scenario_full_corpus_requires_real_review_date() -> None:
             )
             result = invoke_full_corpus(root)
             output = result.stdout + result.stderr
-            assert result.returncode == 1, output
+            assert result.returncode == 0, output
             assert f"invalid-review-date: {TOPIC}" in output, output
         finally:
             shutil.rmtree(root)
@@ -372,8 +372,8 @@ def scenario_full_corpus_requires_real_review_date() -> None:
         )
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
-        assert "root-metadata-contract: doc/product/world-rules-core-gameplay/prd.md" in output, output
+        assert result.returncode == 0, output
+        assert "root-metadata-content: doc/product/world-rules-core-gameplay/prd.md" in output, output
         assert "Last reviewed is invalid" in output, output
     finally:
         shutil.rmtree(root)
@@ -453,7 +453,7 @@ def scenario_full_corpus_ignores_unrelated_symlinks() -> None:
         shutil.rmtree(root)
 
 
-def scenario_full_corpus_requires_lifecycle_closure() -> None:
+def scenario_full_corpus_reports_lifecycle_template_gaps() -> None:
     for marker, code in (
         ("- 接收 authority：[`gameplay authority`](../../game/prd.md#authority)\n", "lifecycle-missing-receiving-authority"),
         ("- 剩余语义：保留历史验收含义与仍需可达的引用。\n", "lifecycle-missing-remaining-semantics"),
@@ -469,13 +469,13 @@ def scenario_full_corpus_requires_lifecycle_closure() -> None:
             )
             result = invoke_full_corpus(root)
             output = result.stdout + result.stderr
-            assert result.returncode == 1, output
+            assert result.returncode == 0, output
             assert f"{code}: doc/product/world-rules-core-gameplay/retired.prd.md" in output, output
         finally:
             shutil.rmtree(root)
 
 
-def scenario_full_corpus_rejects_lifecycle_closure_placeholders_and_unlinked_fields() -> None:
+def scenario_full_corpus_classifies_lifecycle_details() -> None:
     cases = tuple(
         (
             LIFECYCLE_CLOSURE.replace(
@@ -511,13 +511,13 @@ def scenario_full_corpus_rejects_lifecycle_closure_placeholders_and_unlinked_fie
             )
             result = invoke_full_corpus(root)
             output = result.stdout + result.stderr
-            assert result.returncode == 1, output
+            assert result.returncode == (1 if code == "lifecycle-invalid-stable-reference-link" else 0), output
             assert f"{code}: doc/product/world-rules-core-gameplay/retired.prd.md" in output, output
         finally:
             shutil.rmtree(root)
 
 
-def scenario_full_corpus_requires_design_decision_or_exemption() -> None:
+def scenario_full_corpus_reports_undeclared_design_decision() -> None:
     root, _base, _head = make_repo()
     try:
         (root / DESIGN).unlink()
@@ -529,7 +529,7 @@ def scenario_full_corpus_requires_design_decision_or_exemption() -> None:
         )
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
+        assert result.returncode == 0, output
         assert f"missing-design-or-exemption: {TOPIC}" in output, output
     finally:
         shutil.rmtree(root)
@@ -573,7 +573,7 @@ def scenario_full_corpus_rejects_empty_or_placeholder_exemption_reason() -> None
             shutil.rmtree(root)
 
 
-def scenario_simple_exemption_requires_trace_rows_for_unlinked_declarations() -> None:
+def scenario_simple_exemption_reports_missing_trace_rows() -> None:
     root, _base, _head = make_repo()
     try:
         (root / DESIGN).unlink()
@@ -589,7 +589,7 @@ def scenario_simple_exemption_requires_trace_rows_for_unlinked_declarations() ->
         (root / TOPIC).write_text(simple_topic_text() + extra_declarations, encoding="utf-8")
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
+        assert result.returncode == 0, output
         assert f"paired-trace-missing-relation: {TOPIC}" in output, output
         assert "REQ-UNLINKED-001" in output, output
         assert "AC-UNLINKED-001" in output, output
@@ -597,7 +597,7 @@ def scenario_simple_exemption_requires_trace_rows_for_unlinked_declarations() ->
         shutil.rmtree(root)
 
 
-def scenario_paired_design_requires_trace_rows_for_unlinked_declarations() -> None:
+def scenario_paired_design_reports_missing_trace_rows() -> None:
     root, _base, _head = make_repo()
     try:
         (root / "doc/product/world-rules-core-gameplay/legacy.prd.md").unlink()
@@ -632,7 +632,7 @@ def scenario_paired_design_requires_trace_rows_for_unlinked_declarations() -> No
         )
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
+        assert result.returncode == 0, output
         assert f"paired-trace-missing-relation: {TOPIC}" in output, output
         for identifier in (
             "REQ-PAIRED-UNLINKED-001",
@@ -646,7 +646,7 @@ def scenario_paired_design_requires_trace_rows_for_unlinked_declarations() -> No
 
 
 def scenario_active_simple_topic_trace_requires_row_contract() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-missing-column",
         lambda root: (root / TOPIC).write_text(
             simple_topic_text().replace("| 验证证据 |", "| 说明 |"),
@@ -727,7 +727,7 @@ def mapping_design_text(*, inconsistent: bool = False, incomplete: bool = False)
     )
 
 
-def scenario_full_corpus_requires_complete_prd_consistent_design_mapping() -> None:
+def scenario_full_corpus_classifies_missing_and_conflicting_design_mapping() -> None:
     for inconsistent, incomplete, code in (
         (False, True, "design-prd-mapping-incomplete"),
         (True, False, "design-prd-mapping-inconsistent"),
@@ -742,7 +742,7 @@ def scenario_full_corpus_requires_complete_prd_consistent_design_mapping() -> No
             )
             result = invoke_full_corpus(root)
             output = result.stdout + result.stderr
-            assert result.returncode == 1, output
+            assert result.returncode == (1 if inconsistent else 0), output
             assert f"{code}: {DESIGN}" in output, output
         finally:
             shutil.rmtree(root)
@@ -782,7 +782,7 @@ def scenario_full_corpus_requires_prd_trace_fragments() -> None:
 
 
 def scenario_paired_trace_missing_column() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-missing-column",
         lambda root: (root / TOPIC).write_text(
             TOPIC_TEXT.replace("| 验证证据 |", "| 说明 |"), encoding="utf-8"
@@ -791,7 +791,7 @@ def scenario_paired_trace_missing_column() -> None:
 
 
 def scenario_paired_trace_missing_relation() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-missing-relation",
         lambda root: (root / TOPIC).write_text(
             TOPIC_TEXT.replace(
@@ -803,7 +803,7 @@ def scenario_paired_trace_missing_relation() -> None:
 
 
 def scenario_paired_trace_empty_evidence() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-empty-evidence",
         lambda root: (root / TOPIC).write_text(
             TOPIC_TEXT.replace(
@@ -815,7 +815,7 @@ def scenario_paired_trace_empty_evidence() -> None:
 
 
 def scenario_paired_trace_requires_strict_test_tier_tokens() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-invalid-test-tier",
         lambda root: (root / TOPIC).write_text(
             TOPIC_TEXT.replace("test_tier_required", "required").replace(
@@ -827,7 +827,7 @@ def scenario_paired_trace_requires_strict_test_tier_tokens() -> None:
 
 
 def scenario_paired_trace_requires_authority_fragment() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-authority-not-link",
         lambda root: (root / TOPIC).write_text(
             TOPIC_TEXT.replace(
@@ -850,7 +850,7 @@ def scenario_non_heading_relations_require_trace() -> None:
         "| [REQ-BULLET-RELATED-001](sample.prd.md#req-bullet-related-001) | "
         "[AC-BULLET-RELATED-001](sample.prd.md#ac-bullet-related-001) |\n"
     )
-    scenario(
+    scenario_advisory(
         "paired-trace-missing-relation",
         lambda root: (
             (root / TOPIC).write_text(TOPIC_TEXT + declarations, encoding="utf-8"),
@@ -892,6 +892,96 @@ def scenario_active_topic_rejects_missing_design_file() -> None:
         assert f"missing-paired-design-link: {TOPIC}" in output, output
     finally:
         shutil.rmtree(root)
+
+
+def scenario_explicit_pairing_accepts_nonmatching_filenames() -> None:
+    root, base, head = make_repo()
+    try:
+        shared = DESIGN.replace('sample.design.md', 'shared-flow.design.md')
+        (root / DESIGN).rename(root / shared)
+        (root / TOPIC).write_text(TOPIC_TEXT.replace('sample.design.md', 'shared-flow.design.md'))
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        # A declaration still has to identify a real product design.
+        (root / TOPIC).write_text(TOPIC_TEXT.replace('sample.design.md', 'missing-flow.design.md'))
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 1 and 'missing-paired-design-link' in result.stdout, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(root)
+
+
+def scenario_undeclared_pairing_and_lifecycle_cards_are_advisory() -> None:
+    root, base, head = make_repo()
+    try:
+        concept = root / DESIGN.replace('sample.design.md', 'concept.design.md')
+        concept.write_text('# A small product concept\nNo implementation or coverage claim.\n')
+        (root / TOPIC).write_text(lifecycle_topic_text('retired').replace(LIFECYCLE_CLOSURE, ''))
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 0 and '::warning::' in result.stdout, result.stdout + result.stderr
+        (root / TOPIC).write_text(lifecycle_topic_text('retired').replace('../../game/prd.md#authority', '../../game/prd.md#missing'))
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 1 and 'invalid-fragment' in result.stdout, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(root)
+
+
+def scenario_incomplete_mapping_cannot_hide_declared_mismatch() -> None:
+    root, base, head = make_repo()
+    try:
+        (root / TOPIC).write_text(mapping_topic_text())
+        # The other required row is omitted, but this explicit association is
+        # still false. A named second mapping section cannot conceal it.
+        text = DESIGN_TEXT.replace('sample.prd.md#ac-sample-001', 'sample.prd.md#ac-sample-002').replace('`AC-SAMPLE-001`', '`AC-SAMPLE-002`')
+        text += '\n## PRD REQ/AC fragment mapping\nNo duplicated table is needed.\n'
+        (root / DESIGN).write_text(text)
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 1 and 'design-prd-mapping-inconsistent' in result.stdout, result.stdout + result.stderr
+        # A grouped summary lists sets of covered requirements and acceptance
+        # cases; it does not declare their Cartesian product as exact pairs.
+        grouped = '| [REQ-SAMPLE-001](sample.prd.md#req-sample-001) / [REQ-SAMPLE-002](sample.prd.md#req-sample-002) | [AC-SAMPLE-001](sample.prd.md#ac-sample-001) / [AC-SAMPLE-002](sample.prd.md#ac-sample-002) |\n'
+        (root / DESIGN).write_text(mapping_design_text() + '\n## Overview\n| Requirements | Cases |\n| --- | --- |\n' + grouped)
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+        # A previously unassociated acceptance may acquire its explicit
+        # relation here; absent body duplication is not a contradiction.
+        (root / TOPIC).write_text(mapping_topic_text() + '\n<a id="ac-extra-003"></a>\n### AC-EXTRA-003\nAdditional acceptance.\n')
+        (root / DESIGN).write_text(mapping_design_text() + '\n| [REQ-SAMPLE-001](sample.prd.md#req-sample-001) | [AC-EXTRA-003](sample.prd.md#ac-extra-003) |\n')
+        result = invoke(root, base, head, worktree=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(root)
+
+
+def scenario_source_symlinks_fail_in_all_input_views() -> None:
+    root, base, head = make_repo()
+    outside = Path(tempfile.mkdtemp(prefix='product-outside-source-'))
+    try:
+        target = outside / 'plain.md'
+        target.write_text('# A plain design\nNo completion claim.\n')
+        linked = root / DESIGN.replace('sample.design.md', 'outside.design.md')
+        linked.symlink_to(target)
+        for worktree in (True, False):
+            if not worktree:
+                run_git(root, 'add', '.')
+                run_git(root, 'commit', '-qm', 'commit symlink source')
+                head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+            result = invoke(root, base, head, worktree=worktree)
+            assert result.returncode != 0 and 'symlink-not-allowed' in result.stdout, result.stdout + result.stderr
+        linked.unlink()
+        directory = root / 'doc/product/aliased'
+        directory.symlink_to(outside, target_is_directory=True)
+        result = invoke_full_corpus(root, '--warn-only')
+        assert result.returncode != 0 and 'symlink-not-allowed' in result.stdout, result.stdout + result.stderr
+        # A symlink at the corpus root cannot turn the full scan into an
+        # apparently empty successful inventory either.
+        directory.unlink()
+        shutil.rmtree(root / 'doc/product')
+        (root / 'doc/product').symlink_to(outside, target_is_directory=True)
+        result = invoke_full_corpus(root, '--warn-only')
+        assert result.returncode != 0 and 'symlink-not-allowed' in result.stdout, result.stdout + result.stderr
+    finally:
+        shutil.rmtree(root)
+        shutil.rmtree(outside)
 
 
 def scenario_full_corpus_rejects_changed_range_arguments() -> None:
@@ -948,7 +1038,7 @@ def scenario_full_corpus_validates_module_root_fragments() -> None:
 
 
 def scenario_active_topic_requires_trace_table() -> None:
-    scenario(
+    scenario_advisory(
         "paired-trace-missing-table",
         lambda root: (root / TOPIC).write_text(
             TOPIC_TEXT.replace(TRACE_BLOCK, ""), encoding="utf-8"
@@ -969,14 +1059,14 @@ def scenario_design_mapping_includes_bullet_declarations() -> None:
         (root / TOPIC).write_text(TOPIC_TEXT + bullet, encoding="utf-8")
         result = invoke_full_corpus(root)
         output = result.stdout + result.stderr
-        assert result.returncode == 1, output
+        assert result.returncode == 0, output
         assert "design-prd-mapping-incomplete" in output, output
         assert "REQ-BULLET-001" in output and "AC-BULLET-001" in output, output
     finally:
         shutil.rmtree(root)
 
 
-def scenario(expected: str | None, mutate) -> None:
+def scenario(expected: str | None, mutate, *, advisory: bool = False) -> None:
     root, base, _head = make_repo()
     try:
         mutate(root)
@@ -988,11 +1078,18 @@ def scenario(expected: str | None, mutate) -> None:
         if expected is None:
             assert result.returncode == 0, output
             assert "product-doc-content: OK" in output or "checked 0" in output, output
+        elif advisory:
+            assert result.returncode == 0, output
+            assert f"::warning::product-doc-content: {expected}:" in output, output
         else:
             assert result.returncode != 0, output
             assert expected in output, output
     finally:
         shutil.rmtree(root)
+
+
+def scenario_advisory(expected: str, mutate) -> None:
+    scenario(expected, mutate, advisory=True)
 
 
 def scenario_checked(mutate) -> None:
@@ -1113,19 +1210,19 @@ def scenario_worktree_local_overlay_wins() -> None:
         ).strip()
 
         (root / DESIGN).write_text(
-            DESIGN_TEXT.replace("- Owner role：`producer_system_designer`\n", ""),
+            DESIGN_TEXT.replace("sample.prd.md#req-sample-001", "sample.prd.md#missing"),
             encoding="utf-8",
         )
         result = invoke(root, base, source, worktree=True)
         output = result.stdout + result.stderr
         assert result.returncode != 0, output
-        assert "missing-metadata" in output and "Owner role" in output, output
+        assert "invalid-fragment" in output and "#missing" in output, output
 
         run_git(root, "add", DESIGN)
         result = invoke(root, base, source, worktree=True)
         output = result.stdout + result.stderr
         assert result.returncode != 0, output
-        assert "missing-metadata" in output and "Owner role" in output, output
+        assert "invalid-fragment" in output and "#missing" in output, output
     finally:
         shutil.rmtree(root)
 
@@ -1392,12 +1489,13 @@ def scenario_incremental_design_decision(selection: str, worktree: bool, declare
             head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         result = invoke(root, base, head, worktree=worktree)
         output = result.stdout + result.stderr
-        assert result.returncode == (0 if declared else 1), (selection, worktree, declared, output)
+        assert result.returncode == 0, (selection, worktree, declared, output)
         if declared:
             count = 1 if selection == "modified" else 2
             assert f"OK (checked {count} changed/new documents)" in output, output
         else:
             assert f"missing-design-decision: {path}" in output, output
+            assert "::warning::" in output, output
             assert "missing-design-or-exemption" not in output, output
     finally:
         shutil.rmtree(root)
@@ -1452,7 +1550,7 @@ def scenario_untouched_design_decision_stays_advisory(comment_only: bool) -> Non
             assert result.returncode == 0, output
             assert "OK (checked 1 changed/new documents)" in output, output
             assert "missing-design-decision" not in output, output
-        for extra, status in (((), 1), (("--warn-only",), 0)):
+        for extra, status in (((), 0), (("--warn-only",), 0)):
             result = invoke_full_corpus(root, *extra)
             output = result.stdout + result.stderr
             assert result.returncode == status, output
@@ -1464,6 +1562,10 @@ def scenario_untouched_design_decision_stays_advisory(comment_only: bool) -> Non
 
 
 def main() -> None:
+    scenario_explicit_pairing_accepts_nonmatching_filenames()
+    scenario_undeclared_pairing_and_lifecycle_cards_are_advisory()
+    scenario_incomplete_mapping_cannot_hide_declared_mismatch()
+    scenario_source_symlinks_fail_in_all_input_views()
     for selection in ("added", "modified", "renamed"):
         for worktree in (False, True):
             for declared in (False, True):
@@ -1479,22 +1581,22 @@ def main() -> None:
     scenario_full_corpus_accepts_retired_topics_and_reports_lifecycle_errors()
     scenario_full_corpus_accepts_empty_retired_remainder()
     scenario_full_corpus_requires_exact_lifecycle_enum()
-    scenario_full_corpus_requires_real_review_date()
+    scenario_full_corpus_reports_invalid_review_date()
     scenario_full_corpus_counts_module_root()
     scenario_full_corpus_rejects_product_symlinks()
     scenario_full_corpus_ignores_unrelated_symlinks()
-    scenario_full_corpus_requires_lifecycle_closure()
-    scenario_full_corpus_rejects_lifecycle_closure_placeholders_and_unlinked_fields()
-    scenario_full_corpus_requires_design_decision_or_exemption()
+    scenario_full_corpus_reports_lifecycle_template_gaps()
+    scenario_full_corpus_classifies_lifecycle_details()
+    scenario_full_corpus_reports_undeclared_design_decision()
     scenario_full_corpus_accepts_simple_topic_exemption()
     scenario_full_corpus_rejects_empty_or_placeholder_exemption_reason()
-    scenario_simple_exemption_requires_trace_rows_for_unlinked_declarations()
-    scenario_paired_design_requires_trace_rows_for_unlinked_declarations()
+    scenario_simple_exemption_reports_missing_trace_rows()
+    scenario_paired_design_reports_missing_trace_rows()
     scenario_active_simple_topic_trace_requires_row_contract()
     scenario_aggregate_criterion_requires_body_definition()
     scenario_aggregate_criterion_accepts_body_definition()
     scenario_simple_topic_needs_no_remote_task_binding()
-    scenario_full_corpus_requires_complete_prd_consistent_design_mapping()
+    scenario_full_corpus_classifies_missing_and_conflicting_design_mapping()
     scenario_full_corpus_requires_paired_design_link()
     scenario_full_corpus_requires_prd_trace_fragments()
     scenario_full_corpus_validates_module_root()
@@ -1503,14 +1605,14 @@ def main() -> None:
     scenario_design_mapping_includes_bullet_declarations()
     scenario_full_corpus_rejects_changed_range_arguments()
     scenario(None, lambda _root: None)
-    scenario("missing-anchor", legacy_declarations_missing_anchors)
-    scenario("paired-trace-missing-relation", legacy_declarations_with_anchors)
+    scenario_advisory("missing-anchor", legacy_declarations_missing_anchors)
+    scenario_advisory("paired-trace-missing-relation", legacy_declarations_with_anchors)
     scenario("invalid-fragment", inline_code_anchor_is_not_fragment)
-    scenario("missing-metadata", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- Owner role：`producer_system_designer`\n", ""), encoding="utf-8"))
-    scenario("missing-metadata", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- Last reviewed：2026-09-10\n", ""), encoding="utf-8"))
-    scenario("missing-metadata", lambda root: (root / DESIGN).write_text(DESIGN_TEXT.replace("- Last reviewed：2026-09-10\n", ""), encoding="utf-8"))
-    scenario("missing-normal-path", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("正常路径", "体验").replace("路径", "方向").replace("流程", "方向").replace("循环", "方向").replace("链路", "方向"), encoding="utf-8"))
-    scenario("missing-evidence-boundary", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("证据", "范围证明"), encoding="utf-8"))
+    scenario_advisory("missing-metadata", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- Owner role：`producer_system_designer`\n", ""), encoding="utf-8"))
+    scenario_advisory("missing-metadata", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- Last reviewed：2026-09-10\n", ""), encoding="utf-8"))
+    scenario_advisory("missing-metadata", lambda root: (root / DESIGN).write_text(DESIGN_TEXT.replace("- Last reviewed：2026-09-10\n", ""), encoding="utf-8"))
+    scenario_advisory("missing-normal-path", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("正常路径", "体验").replace("路径", "方向").replace("流程", "方向").replace("循环", "方向").replace("链路", "方向"), encoding="utf-8"))
+    scenario_advisory("missing-evidence-boundary", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("证据", "范围证明"), encoding="utf-8"))
     scenario("authority-not-link", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("[`gameplay authority`](../../game/prd.md#authority)", "`doc/game` authority", 1), encoding="utf-8"))
     scenario("authority-external-link", lambda root: (root / TOPIC).write_text(
         TOPIC_TEXT.replace("[`gameplay authority`](../../game/prd.md#authority)", "[gameplay authority](https://example.invalid/authority#authority)", 1),
@@ -1518,7 +1620,7 @@ def main() -> None:
     ))
     scenario("authority-link", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("../../game/prd.md#authority", "../../game/missing.md#authority", 1), encoding="utf-8"))
     scenario("invalid-fragment", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("../../game/prd.md#authority", "../../game/prd.md#missing", 1), encoding="utf-8"))
-    scenario("missing-metadata", lambda root: (root / TOPIC).write_text(
+    scenario_advisory("missing-metadata", lambda root: (root / TOPIC).write_text(
         TOPIC_TEXT.replace("- Owner role：`producer_system_designer`\n", "```md\n- Owner role：`producer_system_designer`\n```\n"),
         encoding="utf-8",
     ))
@@ -1529,7 +1631,7 @@ def main() -> None:
     scenario("unresolved-id-reference", list_continuation_unresolved_id)
     scenario("anchor-without-declaration", list_continuation_orphan_anchor)
     scenario(None, true_indented_code_example)
-    scenario("req-missing-acceptance", indented_requirement_heading_without_acceptance)
+    scenario_advisory("req-missing-acceptance", indented_requirement_heading_without_acceptance)
     scenario("anchor-without-declaration", standalone_requirement_and_acceptance_anchors)
     scenario("duplicate-anchor", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("<a id=\"ac-sample-001\"></a>", "<a id=\"req-sample-001\"></a>\n<a id=\"ac-sample-001\"></a>"), encoding="utf-8"))
     scenario("unresolved-cross-file-id", lambda root: (root / DESIGN).write_text(DESIGN_TEXT.replace("sample.prd.md#req-sample-001", "sample.prd.md#req-missing"), encoding="utf-8"))
@@ -1543,8 +1645,8 @@ def main() -> None:
     scenario_non_heading_relations_require_trace()
     scenario_active_topic_rejects_inactive_design()
     scenario_active_topic_rejects_missing_design_file()
-    scenario("req-missing-acceptance", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- 验收：AC-SAMPLE-001\n", ""), encoding="utf-8"))
-    scenario("ac-missing-requirement", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- 覆盖要求：REQ-SAMPLE-001\n", ""), encoding="utf-8"))
+    scenario_advisory("req-missing-acceptance", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- 验收：AC-SAMPLE-001\n", ""), encoding="utf-8"))
+    scenario_advisory("ac-missing-requirement", lambda root: (root / TOPIC).write_text(TOPIC_TEXT.replace("- 覆盖要求：REQ-SAMPLE-001\n", ""), encoding="utf-8"))
     scenario("unresolved-id-reference", lambda root: (root / TOPIC).write_text(
         TOPIC_TEXT + "\n| REQ-SAMPLE-001 | AC-TYPO |\n", encoding="utf-8"
     ))
@@ -1563,7 +1665,7 @@ def main() -> None:
         "list-indent",
     ):
         scenario(
-            "missing-paired-prd-link",
+            "invalid-paired-prd-link",
             lambda root, pseudo_form=pseudo_form: pseudo_paired_design_link(root, pseudo_form),
         )
     scenario(None, even_escaped_paired_design_link)
@@ -1576,7 +1678,7 @@ def main() -> None:
     scenario_checked(lambda root: (root / TOPIC).write_text(
         TOPIC_TEXT.replace("玩家需要知道当前目标", "  玩家需要知道当前目标"), encoding="utf-8"
     ))
-    scenario("missing-anchor", lambda root: (root / TOPIC).write_text(
+    scenario_advisory("missing-anchor", lambda root: (root / TOPIC).write_text(
         TOPIC_TEXT + "\n本文仅说明 REQ-SAMPLE-* / AC-SAMPLE-* 这一组旧编号。\n- AC-LEGACY-001：保留既有验收编号。\n",
         encoding="utf-8",
     ))
@@ -1668,14 +1770,14 @@ def main() -> None:
         source = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
         run_git(root, "merge", "--no-ff", "-m", "synthetic merge", "target")
         (root / TOPIC).write_text(
-            TOPIC_TEXT.replace("- Owner role：`producer_system_designer`\n", ""),
+            TOPIC_TEXT.replace("../../game/prd.md#authority", "../../game/prd.md#missing", 1),
             encoding="utf-8",
         )
         run_git(root, "add", TOPIC)
         result = invoke(root, target, source, worktree=True)
         output = result.stdout + result.stderr
         assert result.returncode != 0, output
-        assert "missing-metadata" in output and "Owner role" in output, output
+        assert "invalid-fragment" in output and "#missing" in output, output
     finally:
         shutil.rmtree(root)
 

@@ -9,8 +9,17 @@ export const enterKeyEvents = () => [
 
 export async function createOwnedCdpInput(run, evaluate) {
   const session = await createOwnedCdpSession(run, evaluate);
+  const enter = async () => { for (const params of enterKeyEvents()) await session.page('Input.dispatchKeyEvent', params); };
   return {
-    async enter() { for (const params of enterKeyEvents()) await session.page('Input.dispatchKeyEvent', params); },
+    enter,
+    async prepareAndEnter(expression) {
+      if (typeof expression !== 'string' || !expression) throw Error('native input preparation expression missing');
+      const prepared = await session.page('Runtime.evaluate', {expression, awaitPromise:true, returnByValue:true});
+      if (prepared.exceptionDetails || prepared.result?.value !== true) throw Error('native input preparation failed or unconfirmed');
+      // Same owned connection, with no intervening CLI process or sample change.
+      // Browser events may still replace the node; failed input is never retried.
+      await enter();
+    },
     async frameBoundary() {
       const r = await session.page('Runtime.evaluate', {expression:'new Promise(resolve=>requestAnimationFrame(frame=>resolve({frame,now:performance.now(),wall:Date.now()})))',awaitPromise:true,returnByValue:true});
       return r.result.value;

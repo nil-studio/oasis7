@@ -140,11 +140,11 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
         .unwrap();
     let ordered = session.snapshot_ordered(Duration::from_secs(3), true);
     let eligibility = shared.lock().unwrap().test_agent_service_pump_status();
-    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut completion = application_completion::CompletionWatch::new();
     let mut summary = serde_json::Value::Null;
     let mut completed = false;
-    while Instant::now() < deadline {
-        session.snapshot(Duration::from_millis(25));
+    loop {
+        session.drain_for(Duration::from_millis(25));
         if crash && root.join("world-resume-view-started").exists() {
             let bytes = fs::read(root.join(STORE)).unwrap();
             let original = retained_original(&bytes);
@@ -170,10 +170,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
                     && summary["memory_store"]
                         .to_string()
                         .contains(resumed["request_digest"].as_str().unwrap());
-                if completed {
-                    break;
-                }
             }
+        }
+        if completion.finished(&summary, completed) {
+            break;
         }
     }
     let stage = fs::read(root.join(STORE))
@@ -207,7 +207,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     );
     assert!(
         completed,
-        "original Resume process recovery must hydrate specific successor and commit resumed Act memory"
+        "original Resume process recovery must hydrate specific successor and commit resumed Act memory: {}",
+        application_completion::hosted_failure_diagnostic(&summary)
     );
     println!("PRE2_HOSTED_RESUME_PROCESS_RECOVERY_PASSED");
 }
@@ -376,10 +377,9 @@ pub(super) fn recover_parent(
         .iter()
         .filter(|value| *value == &key)
         .count();
-    let recovered = command
-        .env("PRE2_APP_ADMISSION", "hosted-wait-resume-recover")
-        .output()
-        .unwrap();
+    command.env("PRE2_APP_ADMISSION", "hosted-wait-resume-recover");
+    let recovered =
+        application_completion::run_child_phase(command, root, "resume-recovery");
     secure_artifact(fixture, root, &recovered, "recover");
     let trace = fixture.lookup_digests.lock().unwrap();
     let submits = trace

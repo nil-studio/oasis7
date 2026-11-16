@@ -171,7 +171,11 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-4
 
 后继 checkpoint 只能由原 C0 的合法认证链和完整材料闭包推导；需受保护的持久最低水位或独立认证的外部更新证据支持冷恢复。单机可回滚 pointer、普通 provider 签名和更高 height 均不能成为新信任根。安装与 GC 须保证中断不降水位，只有新 checkpoint 可独立重开、canonical replay/root 验证及冗余 archive 可重建后，才回收可重建的热历史。协议及验收见[容量与接续设计](design.md#des-p2p-full-sync-checkpoint-capacity-v1)。
 
+版本化[整次操作合同](design.md#des-p2p-full-sync-operation-budget-v1)分别固定材料量、实际编码消息量、验证工作和资源占用，给出不可延长的 attempt 期限及保留原请求累计账的有限接续。单请求 timeout、材料去重预算与历史分页均不能代替这些保证；配置与状态须明确支持版本、计量来源和 unknown／unsupported 边界。
+
 当前完整同步已有有界历史页链与只读角色；observer/watch 的 inline 历史限制、full-state page chain 的容量限制及调用方是否自动续页须分别披露。分页 API 本身不证明长期接续、任意规模历史或重开 SLO 已完成。
+
+长期离线的 checkpoint 须有原独立政策明确授权的有效期和旧 key／stake 安全上界；缺失、到期或可信时间不可证时停止自动追随及新签名，保留最后合法历史 cut。更新证明须来自原 C0/H 独立政策明确授权的发行方，绑定同世界、精确前驱／目标和单调 minimum；普通 provider 回执、roll、Acquire 或重新启动不能续期。原 checkpoint 已过期而原独立授权仍有效时可以按该授权恢复，根政策本身到期则不能由更新发行方自延长。固定历史只读和当前服务／投票资格分别判定；版本化输入、授权／撤销、受保护时间及安装恢复见[长期离线 checkpoint 更新合同](design.md#des-p2p-bft-checkpoint-renewal-v1)。
 
 <a id="p2p-target-role-isolation"></a>
 ### 目标角色与权威隔离

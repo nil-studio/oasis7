@@ -96,7 +96,12 @@ test('client phases preserve returned errors and classify before core errors are
   assert.match(source('test_session_client_store.rs'),/core_at\("account.challenge", &e, time.get\(\)\);\s*rejected\(\)/);
 });
 test('original integration roles explicitly enable the sink without selecting another artifact',()=>{
-  const fixture=readFileSync(new URL('./test-session.integration.test.mjs',import.meta.url),'utf8');
+  const fixture=readFileSync(new URL('./fixtures/test-session-support.mjs',import.meta.url),'utf8');
+  for(const [suffix,group] of [['','lifecycle'],['-activation','activation'],['-alarm','alarm'],['-paid','paid'],['-results','results'],['-tools','tools']]) {
+    const entry=readFileSync(new URL(`./test-session${suffix}.integration.test.mjs`,import.meta.url),'utf8');
+    assert.match(entry,/import \{createTestSessionSuite\} from '\.\/fixtures\/test-session-support\.mjs';/);
+    assert.ok(entry.includes(`createTestSessionSuite().${group}();`),`${group} uses the shared diagnostic fixture`);
+  }
   assert.match(fixture,/worker.bindings=\{\.\.\.worker.bindings,CUSTODY_REJECTION_DIAGNOSTIC:'true',CUSTODY_TEST_SESSION_ENABLED:'true'/);
   // The existing optional harness conditions remain optional, not forced by diagnostics.
   assert.match(fixture,/worker.name==='owner' && ownerDiagnosticActive && \(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true'\|\|setupDiagnostic\)/);

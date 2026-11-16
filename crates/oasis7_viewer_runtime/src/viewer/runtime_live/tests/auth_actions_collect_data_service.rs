@@ -382,6 +382,7 @@ fn runtime_collect_data_service_submit_keeps_own_pending_result_and_canonical_ac
                 admission_error: None,
                 feedback_origin,
                 outcome: Ok(SubmitObservation::Response(Box::new(IntentResponse {
+                    terminal_recovery_authority: None,
                     formal_profile: None,
                     execution_evidence_scope: None,
                     contract_version: 1,
@@ -477,6 +478,7 @@ fn runtime_collect_data_service_submit_keeps_own_pending_result_and_canonical_ac
                     admission_error: None,
                     feedback_origin,
                     outcome: Ok(SubmitObservation::Response(Box::new(IntentResponse {
+                        terminal_recovery_authority: None,
                         formal_profile: None,
                         execution_evidence_scope: None,
                         contract_version: 1,

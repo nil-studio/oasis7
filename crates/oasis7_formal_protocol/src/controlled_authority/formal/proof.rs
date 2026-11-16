@@ -1,3 +1,6 @@
+pub const CANDIDATE_SIGN_DOMAIN_V1: &str = "oasis7.formal.candidate.sign.v1";
+pub const FINAL_RECEIPT_SIGN_DOMAIN_V1: &str = "oasis7.formal.final_receipt.sign.v1";
+pub const DECISION_PROOF_DOMAIN_V1: &str = "oasis7.formal.decision_proof_envelope.v1";
 #[path = "proof_completion.rs"]
 mod completion;
 use super::{crypto::*, *};
@@ -24,7 +27,7 @@ pub fn canonical_candidate_signing_bytes(
     record: &CanonicalRecordV1,
 ) -> Result<Vec<u8>, FormalError> {
     record.validate()?;
-    bytes("oasis7.formal.candidate.sign.v1", record)
+    bytes(CANDIDATE_SIGN_DOMAIN_V1, record)
 }
 impl SignedCanonicalCandidateV1 {
     pub fn verify_original(&self, authority: &VerifiedAuthorityV1) -> Result<(), FormalError> {
@@ -40,7 +43,7 @@ impl SignedCanonicalCandidateV1 {
             return Err(invalid("formal candidate original authority binding"));
         }
         verify(
-            "oasis7.formal.candidate.sign.v1",
+            CANDIDATE_SIGN_DOMAIN_V1,
             &self.record,
             &self.writer_signature_hex,
             &definition.writer_public_key,
@@ -74,7 +77,7 @@ pub struct FormalFinalReceiptV1 {
 pub fn formal_final_receipt_signing_bytes(
     body: &FormalFinalReceiptBodyV1,
 ) -> Result<Vec<u8>, FormalError> {
-    bytes("oasis7.formal.final_receipt.sign.v1", body)
+    bytes(FINAL_RECEIPT_SIGN_DOMAIN_V1, body)
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -95,14 +98,19 @@ pub fn formal_decision_proof_digest(proof: &FormalDecisionProofV1) -> Result<Str
         return Err(invalid("formal proof version"));
     }
     proof.record.validate()?;
-    hash("oasis7.formal.decision_proof_envelope.v1", proof)
+    hash(DECISION_PROOF_DOMAIN_V1, proof)
 }
 #[derive(Debug, Clone)]
 pub struct VerifiedFormalCommitV1 {
+    verified_record_id: [u8; 32],
     record: CanonicalRecordV1,
     finalizing_authority_id: String,
 }
 impl VerifiedFormalCommitV1 {
+    /// Cached exact ID established only by genuine verified constructors.
+    pub fn verified_record_id(&self) -> [u8; 32] {
+        self.verified_record_id
+    }
     pub fn record(&self) -> &CanonicalRecordV1 {
         &self.record
     }
@@ -218,7 +226,7 @@ pub fn verify_formal_candidate(
                 }
                 (RecoveryTailV1::Frozen { .. }, FormalCompletionBranchV1::ReplayFrozen) => {
                     verify(
-                        "oasis7.formal.candidate.sign.v1",
+                        CANDIDATE_SIGN_DOMAIN_V1,
                         record,
                         &candidate.writer_signature_hex,
                         &recovery.successor.definition().writer_public_key,
@@ -406,7 +414,7 @@ pub fn verify_formal_decision(
             EndpointRole::Replica => &context.finalizer.definition().replica,
         };
         verify(
-            "oasis7.formal.final_receipt.sign.v1",
+            FINAL_RECEIPT_SIGN_DOMAIN_V1,
             &receipt.body,
             &receipt.signature_hex,
             &binding.instance.endpoint_public_key,

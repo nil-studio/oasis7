@@ -54,8 +54,7 @@ mod development_runtime;
 mod devlocal_participant_cli;
 #[path = "host/distfs_probe_runtime.rs"]
 mod distfs_probe_runtime;
-#[path = "host/executable_image/mod.rs"]
-mod executable_image;
+use oasis7_executable_image as executable_image;
 #[cfg(not(test))]
 #[allow(dead_code)]
 #[path = "host/execution_bridge/mod.rs"]
@@ -163,6 +162,8 @@ mod p2p_status;
 mod peer_record_cli;
 #[path = "host/preview_world_init.rs"]
 mod preview_world_init;
+#[path = "host/preview_world_history.rs"]
+mod preview_world_history;
 #[path = "host/publication_lifecycle.rs"]
 mod publication_lifecycle;
 #[path = "host/publication_proof.rs"]
@@ -203,6 +204,8 @@ mod wasm_status;
 #[cfg(unix)]
 #[path = "host/world_initialization.rs"]
 mod world_initialization;
+#[path = "host/cognition_authority_diagnostic.rs"]
+mod cognition_authority_diagnostic;
 #[path = "host/world_service_api.rs"]
 mod world_service_api;
 #[path = "host/world_writer_lock.rs"]

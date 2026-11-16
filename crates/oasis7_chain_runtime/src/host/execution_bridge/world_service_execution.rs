@@ -198,6 +198,14 @@ pub(super) fn apply_intents(
                 }
             }
             WorldServicePayloadV1::Cognition(signed) => {
+                crate::cognition_authority_diagnostic::observe(
+                    "execution",
+                    &signed.request.request.request_digest,
+                    &signed.request.request.captured_base_binding,
+                    &candidate,
+                    Some(&correlation),
+                    None,
+                );
                 match candidate.commit_authenticated_cognition_disposition_staged(
                     signed,
                     &staged

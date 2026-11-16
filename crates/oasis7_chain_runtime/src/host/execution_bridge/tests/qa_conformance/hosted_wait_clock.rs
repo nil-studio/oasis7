@@ -21,8 +21,14 @@ pub(super) fn start(fixture: &Fixture, root: std::path::PathBuf) -> Clock {
     let stop = Arc::new(AtomicBool::new(false));
     let stopping = stop.clone();
     let driver = fixture.driver.clone();
+    let recovery_delay = hosted_wait_recovery_delay::enabled();
     let worker = thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = if recovery_delay {
+            application_completion::child_deadline()
+        } else {
+            Instant::now() + Duration::from_secs(20)
+        };
+        let mut delay = hosted_wait_recovery_delay::Delay::default();
         while !stopping.load(Ordering::SeqCst) && Instant::now() < deadline {
             if let Ok(bytes) = fs::read(root.join("hosted-wait-origin.json")) {
                 let origin: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -61,6 +67,13 @@ pub(super) fn start(fixture: &Fixture, root: std::path::PathBuf) -> Clock {
                         .unwrap()
                         .into_iter()
                         .find(|wake| wake.continuation_id == continuation.continuation_id);
+                    if recovery_delay && !delay.ready(&root, &origin, selected.is_some()) {
+                        // The original Wait stays pending without blocking an RPC
+                        // or holding the driver while the observer's clock advances.
+                        drop(guard);
+                        thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
                     if let Some(wake) = selected {
                         fs::write(root.join("hosted-wait-selected.json"), serde_json::to_vec(&serde_json::json!({
                             "continuation_id":continuation.continuation_id,"wake_id":wake.wake_id,

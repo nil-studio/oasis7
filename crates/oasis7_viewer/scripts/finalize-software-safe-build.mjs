@@ -6,6 +6,7 @@ import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { writeViewerCompatAliases } from "./viewer-compat-aliases.mjs";
+import { viewerBuildPaths } from "./viewer-local-output.mjs";
 
 const scriptsDir = fileURLToPath(new URL(".", import.meta.url));
 const viewerRoot = resolve(scriptsDir, "..");
@@ -13,12 +14,13 @@ const workspaceRoot = resolve(viewerRoot, "..", "..");
 const profile = process.argv[2] || "release";
 if (!["release", "visual-test"].includes(profile)) throw new Error("unknown viewer build profile");
 const visualTest = profile === "visual-test";
-const tempOutDir = resolve(viewerRoot, visualTest ? ".software-safe-test-build" : ".software-safe-build");
+const buildPaths = viewerBuildPaths(profile);
+const tempOutDir = buildPaths.bundleDir;
 const softwareSafeSrcDir = resolve(viewerRoot, "software_safe_src");
-const viewerDistDir = resolve(viewerRoot, visualTest ? ".viewer-test-dist" : "dist");
+const viewerDistDir = buildPaths.distDir;
 const canonicalHtmlPath = resolve(viewerRoot, "viewer.html");
 const builtBundlePath = resolve(tempOutDir, "viewer.js");
-const finalCanonicalBundlePath = visualTest ? null : resolve(viewerRoot, "viewer.js");
+const finalCanonicalBundlePath = visualTest || buildPaths.local ? null : resolve(viewerRoot, "viewer.js");
 const finalDistBundlePath = resolve(viewerDistDir, "viewer.js");
 const staleRootCompatHtmlPath = resolve(viewerRoot, "software_safe.html");
 const staleRootCompatBundlePath = resolve(viewerRoot, "software_safe.js");
@@ -148,6 +150,7 @@ async function buildPixelWorldRuntimeVariant({ featureName, backendDirName }) {
     "RUSTC_WRAPPER",
     "cargo",
     "build",
+    ...(buildPaths.local ? ["--locked"] : []),
     "-p",
     "pixel_world_bridge",
     "--target",
@@ -187,19 +190,19 @@ if (emittedFiles.length !== 1 || emittedFiles[0] !== "viewer.js") {
   throw new Error(`unexpected viewer canonical bundle outputs: ${emittedFiles.join(", ") || "(none)"}`);
 }
 const canonicalBundle = await canonicalBundleContents();
-if (!visualTest) await writeFile(finalCanonicalBundlePath, canonicalBundle, "utf8");
+if (finalCanonicalBundlePath) await writeFile(finalCanonicalBundlePath, canonicalBundle, "utf8");
 await mkdir(viewerDistDir, { recursive: true });
 await copyFile(canonicalHtmlPath, resolve(viewerDistDir, "viewer.html"));
 await writeFile(finalDistBundlePath, canonicalBundle, "utf8");
 await writeViewerCompatAliases(viewerRoot, viewerDistDir);
 // The Task protocol is a separate, credential-free WASM module. Generate it
 // serially with the rendering bridge; both use the repository Cargo target.
-await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", "-p", "oasis7_browser_game_client", "--target", "wasm32-unknown-unknown", "--release"]);
+await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", ...(buildPaths.local ? ["--locked"] : []), "-p", "oasis7_browser_game_client", "--target", "wasm32-unknown-unknown", "--release"]);
 const gameProtocolDir = resolve(viewerDistDir, "browser-game-client");
 await mkdir(gameProtocolDir, { recursive: true });
 await runChecked(await resolveWasmBindgenCommand(), ["--target", "web", "--out-dir", gameProtocolDir, "--out-name", "oasis7_browser_game_client", resolve(workspaceRoot, "target", "wasm32-unknown-unknown", "release", "oasis7_browser_game_client.wasm")]);
-if (visualTest) await Promise.all(["viewer_terminal_shell.css", "favicon.ico", "viewer_first_agent_claim_evidence.html"].map(name => copyFile(resolve(viewerRoot, name), resolve(viewerDistDir, name))));
-if (!visualTest) await Promise.all([
+if (visualTest || buildPaths.local) await Promise.all(["viewer_terminal_shell.css", "favicon.ico", "viewer_first_agent_claim_evidence.html"].map(name => copyFile(resolve(viewerRoot, name), resolve(viewerDistDir, name))));
+if (!visualTest && !buildPaths.local) await Promise.all([
   rm(staleRootCompatHtmlPath, { force: true }),
   rm(staleRootCompatBundlePath, { force: true }),
   rm(staleRootCompatClaimEvidencePath, { force: true }),
@@ -216,6 +219,7 @@ const projectionReports = await verifyPixelWorldProjection({
   wasmPath: resolve(pixelWorldRuntimeDir, "webgl2", "pixel_world_bridge_bindgen_bg.wasm"),
 });
 console.log(`pixel world projection ABI verified: ${JSON.stringify(projectionReports)}`);
-await rm(tempOutDir, { recursive: true, force: true });
+// Local browser checks consume these exact bundles after the real WASM build.
+if (!buildPaths.local) await rm(tempOutDir, { recursive: true, force: true });
 
-console.log(`software_safe build finalized: ${finalCanonicalBundlePath}`);
+console.log(`software_safe build finalized: ${finalCanonicalBundlePath || finalDistBundlePath}`);

@@ -103,6 +103,7 @@ fn overload_cooldown_survives_recreated_queries_without_replaying_submit_or_bloc
                     LOOKUP_PATH,
                     digest,
                     IntentResponse::<Value> {
+                        terminal_recovery_authority: None,
                         formal_profile: None,
                         execution_evidence_scope: None,
                         contract_version: 1,

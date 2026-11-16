@@ -29,6 +29,8 @@ fn admission_ingress_requires_governance_proof_for_every_operation() {
         "ApproveGovernanceValidatorAdmission",
         "ActivateGovernanceValidatorAdmission",
         "RevokeGovernanceValidatorAdmission",
+        "RotateGovernanceValidatorFinalityKeyV1",
+        "RotateGovernanceBootstrapFinalityKeyV1",
     ] {
         assert!(check(kind, None).is_err(), "{kind}");
         let raw = serde_cbor::to_vec(&serde_json::json!({

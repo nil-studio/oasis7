@@ -18,6 +18,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
 
@@ -97,13 +98,45 @@ def checked(command, *, root, env=None):
     return result.stdout
 
 
-def git_source(root, revision, path):
+def git_source(root, revision, path, *, governance=False):
     if not re.fullmatch(r'[0-9a-f]{40}', revision):
         raise ValueError('policy must be a fixed commit identity')
-    if (not isinstance(path, str) or not path.startswith('scripts/')
+    if (not isinstance(path, str) or not path.startswith(('scripts/', 'crates/') if governance else 'scripts/')
             or '..' in path.split('/') or '\\' in path or Path(path).is_absolute()):
         raise ValueError('invalid trusted Python contract path')
     return checked(['git', 'show', f'{revision}:{path}'], root=root)
+
+
+def governance_tests(config):
+    """An explicit file inventory, never a candidate-supplied skip receipt."""
+    paths = config.get('workflow_governance_python_tests')
+    if (not isinstance(paths, list) or not paths or len(paths) > 256
+            or any(not isinstance(path, str) or not path.startswith(('scripts/', 'crates/'))
+                   or not path.endswith('.test.py')
+                   or any(part in ('', '.', '..') for part in path.split('/'))
+                   or any(character in path for character in ('\\', '*', '?', '[', ']'))
+                   or any(ord(character) < 32 for character in path) for path in paths)
+            or len(paths) != len(set(paths))):
+        raise ValueError('invalid complete governance Python inventory')
+    return paths
+
+
+def run_governance_remaining(root):
+    # Keep the final call outside an if/|| context: Bash would otherwise disable
+    # errexit inside its functions and mask an earlier failing contract.
+    subprocess.run(['bash', '--noprofile', '--norc', '-e', '-u', '-o', 'pipefail', '-c',
+                    'driver_dir="$1/scripts"\nrepo_root="$1"\nci_python="$2"\ntier=required\n'
+                    'source "$driver_dir/ci-tests.sh"\ncd "$repo_root"\n'
+                    'run_workflow_governance_remaining_contract_tests\n',
+                    'governance-remaining', str(root), sys.executable], cwd=root, check=True)
+
+
+def local_governance(root):
+    """Preserve each canonical CLI's local platform/optional-tool semantics."""
+    paths = governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text()))
+    for path in paths:
+        subprocess.run([sys.executable, str(root / path)], cwd=root, check=True)
+    run_governance_remaining(root)
 
 
 def contract_selection(config, plan):
@@ -146,10 +179,29 @@ def procedural_cases(tree):
         return [], {}, {}
     named = sorted({node.id for node in ast.walk(main) if isinstance(node, ast.Name)
                     and node.id in functions and node.id.startswith(('test_', 'scenario_'))})
-    inline, occurrences = {}, {}
+    inline, occurrences, calls = {}, {}, []
+    # Some legacy CLIs iterate a literal tuple of named local scenarios. Only
+    # that proven local binding may use the name "scenario" without a matching
+    # function definition; an imported or unresolved helper remains rejected.
+    literals = {target.id: node.value for node in main.body if isinstance(node, ast.Assign)
+                for target in node.targets if isinstance(target, ast.Name)}
+    bound_scenarios = set()
+    for node in ast.walk(main):
+        if not isinstance(node, ast.For) or not isinstance(node.target, ast.Name) or node.target.id != 'scenario':
+            continue
+        values = literals.get(node.iter.id) if isinstance(node.iter, ast.Name) else node.iter
+        if (isinstance(values, (ast.Tuple, ast.List)) and values.elts
+                and all(isinstance(value, ast.Name) and value.id in named for value in values.elts)):
+            bound_scenarios.update(id(child) for statement in node.body for child in ast.walk(statement)
+                                   if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                                   and child.func.id == 'scenario')
 
     def is_scenario(node):
-        return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'scenario'
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'scenario'
+                and 'scenario' not in functions and id(node) not in bound_scenarios):
+            raise ValueError('procedural scenario has no local asserted implementation')
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id in functions and (node.func.id == 'scenario' or node.func.id in named))
 
     def visit(node, context=()):
         if isinstance(node, ast.For) and any(is_scenario(child) for child in ast.walk(node)):
@@ -163,17 +215,26 @@ def procedural_cases(tree):
                 visit(child, context)
             return
         if is_scenario(node):
-            if 'scenario' not in functions:
-                raise ValueError('procedural scenario has no local asserted implementation')
-            identity = ast.dump(node, include_attributes=False) + json.dumps(context)
-            digest = hashlib.sha256(identity.encode()).hexdigest()
-            index = occurrences.get(digest, 0)
-            occurrences[digest] = index + 1
-            inline[f'scenario:{digest}:{index}'] = (node.lineno, node.end_lineno)
+            calls.append((node, context))
         for child in ast.iter_child_nodes(node):
             visit(child, context)
 
     visit(main)
+    # A named scenario may be called at several sites or inside a finite
+    # parameter loop. Preserve the established single-call identity; witness
+    # each repeated invocation separately instead of accepting duplicates.
+    repeated = {name for name in named if sum(node.func.id == name for node, _ in calls) > 1}
+    for node, context in calls:
+        name = node.func.id
+        if name != 'scenario' and name not in repeated:
+            continue
+        identity = ast.dump(node, include_attributes=False) + json.dumps(context)
+        digest = hashlib.sha256(identity.encode()).hexdigest()
+        index = occurrences.get(digest, 0)
+        occurrences[digest] = index + 1
+        prefix = 'scenario' if name == 'scenario' else f'scenario-call:{name}'
+        inline[f'{prefix}:{digest}:{index}'] = (node.lineno, node.end_lineno, name)
+    named = [name for name in named if name not in repeated]
     return ['main', *named, *sorted(inline)], {name: name for name in named}, inline
 
 
@@ -291,6 +352,7 @@ def run_worker(request_path, witness_path):
     # assertions. Implementations and data continue to come from the candidate.
     importlib.machinery.SourceFileLoader.get_code = trusted_test_code
     sys.path.insert(0, str(root / 'scripts'))
+    sys.path.insert(0, str((root / path).parent))
     sys.dont_write_bytecode = True
     module = types.ModuleType('__main__')
     module.__file__ = filename
@@ -324,11 +386,20 @@ def run_worker(request_path, witness_path):
 
         def wrap(function, fixed_case=None):
             def scenario(*args, **kwargs):
+                caller = sys._getframe(1)
+                if active and caller.f_code.co_name != 'main':
+                    # A scenario's helper assertions belong to the enclosing
+                    # case. Keep caught nested failures visible to the parent.
+                    try:
+                        return function(*args, **kwargs)
+                    except BaseException:
+                        failures.append(active[-1])
+                        raise
                 case = fixed_case
                 if case is None:
-                    caller = sys._getframe(1)
-                    matches = [key for key, (start, end) in inline.items()
-                               if caller.f_code.co_filename == filename and start <= caller.f_lineno <= end]
+                    matches = [key for key, (start, end, name) in inline.items()
+                               if name == function.__name__ and caller.f_code.co_filename == filename
+                               and start <= caller.f_lineno <= end]
                     position = (caller.f_code.co_filename, caller.f_lineno)
                     index = occurrences.get(position, 0)
                     if not matches or index >= len(matches):
@@ -355,11 +426,16 @@ def run_worker(request_path, witness_path):
 
         for name in named:
             module.__dict__[name] = wrap(module.__dict__[name], name)
-        if inline:
+        for name in {value[2] for value in inline.values()}:
+            module.__dict__[name] = wrap(module.__dict__[name])
+        if 'scenario' not in {value[2] for value in inline.values()} and callable(getattr(module, 'scenario', None)):
             module.scenario = wrap(module.scenario)
 
         def trace(frame, event, arg):
-            if event == 'line' and frame.f_lineno in assertion_lines.get(frame.f_code.co_filename, ()):
+            lines = assertion_lines.get(frame.f_code.co_filename)
+            if lines is None:
+                return None
+            if event == 'line' and frame.f_lineno in lines:
                 reached.add((frame.f_code.co_filename, frame.f_lineno))
                 for case in active:
                     counts[case] += 1
@@ -377,6 +453,7 @@ def run_worker(request_path, witness_path):
 
 
 def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=False, origin='trusted-baseline'):
+    started = time.monotonic()
     source = (snapshot / path).read_text()
     kind, inventory = test_inventory(source)
     selected = inventory if identifiers is None else identifiers
@@ -408,15 +485,37 @@ def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=Fal
                              + json.dumps(evidence, sort_keys=True))
     counts = (f'cases={len(selected)}' if kind == 'unittest' else
               f'entrypoints=1 scenarios={len(selected) - 1} assertions={report["assertions"]}')
-    print(f'python_control_contract={path} {counts} source={origin}', flush=True)
+    print(f'python_control_contract={path} {counts} source={origin} '
+          f'elapsed_seconds={time.monotonic() - started:.3f}', flush=True)
     return len(selected)
+
+
+def local_contract(root, path):
+    """Witness every current-source case of an audited procedural CLI."""
+    allowed = {'scripts/product-doc-governance-check.test.py',
+               'scripts/product-doc-content-check.test.py',
+               'scripts/system-design-traceability-check.test.py'}
+    if path not in allowed or not (root / path).is_file() or (root / path).resolve() != root / path:
+        raise ValueError('local contract requires a regular audited procedural test path')
+    count = run_contract(root, root, path, origin='local-source')
+    print(json.dumps(dict(expected_count=count, count_ok=True, passed=True,
+                          execution_kind='tool-contract', source='local-source', path=path)), flush=True)
 
 
 def migration_paths(root, policy_sha, plan, config):
     """An explicit full policy migration is proved from Git, never a plan flag."""
     if plan.get('scope') not in ('full', 'explicit-full'):
         return []
-    if set(plan.get('groups', [])) != set(config['groups']):
+    expected = set(config['groups'])
+    capability = 'formal_full_profiles_only_version'
+    if capability in config:
+        if (type(config[capability]) is not int or config[capability] != 1
+                or type(plan.get(capability)) is not int or plan[capability] != 1):
+            raise ValueError('invalid trusted Formal full-profile capability')
+        if (plan['scope'] == 'full'
+                and plan.get('execution_profile') in ('pr-fast', 'main-fast')):
+            expected.remove('formal_process')
+    if set(plan.get('groups', [])) != expected:
         raise ValueError('full Python control migration omitted a required group')
     boundaries = ['scripts/ci-required-scope.json', 'scripts/ci-python-control-contracts.py']
     changed = set()
@@ -435,7 +534,7 @@ def migration_paths(root, policy_sha, plan, config):
     return sorted(changed)
 
 
-def run_contracts(root, policy_sha, plan):
+def run_contracts(root, policy_sha, plan, *, governance=False):
     config = json.loads(git_source(root, policy_sha, 'scripts/ci-required-scope.json'))
     selected = contract_selection(config, plan)
     if (any(not isinstance(plan.get(field), str) or not re.fullmatch(r'[0-9a-f]{40}', plan[field])
@@ -448,27 +547,34 @@ def run_contracts(root, policy_sha, plan):
     all_tests = {test for spec in config['python_control_contracts'].values() for test in spec['tests']}
     if not set(FIXED_TESTS) <= all_tests:
         raise ValueError('fixed safety assertions are missing from the hashed contract inventory')
+    governed = set()
+    if governance:
+        baseline_governed = set(governance_tests(config))
+        governed = set(governance_tests(json.loads((root / 'scripts/ci-required-scope.json').read_text())))
+        if not baseline_governed <= governed:
+            raise ValueError('candidate retired complete governance test files')
+        all_tests.update(baseline_governed)
     with tempfile.TemporaryDirectory(prefix='ci-python-baseline-') as directory:
         snapshot = Path(directory)
         for path in sorted(all_tests):
             destination = snapshot / path
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(git_source(root, policy_sha, path))
+            destination.write_text(git_source(root, policy_sha, path, governance=governance))
         candidate_snapshot = snapshot / 'candidate'
-        for path in all_tests:
+        for path in all_tests | governed:
             destination = candidate_snapshot / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             if (root / path).is_file():
                 if (root / path).resolve() != root / path:
                     raise ValueError('candidate Python test is not a regular contained file: ' + path)
                 destination.write_text((root / path).read_text())
-        cases = 0
+        baseline_tasks, candidate_tasks, retain = {}, {}, set()
         for path, identifiers in FIXED_TESTS.items():
-            cases += run_contract(root, snapshot, path, identifiers)
+            baseline_tasks[path] = identifiers
             required = identifiers or test_inventory((snapshot / path).read_text())[1]
             if not set(required) <= set(test_inventory((root / path).read_text())[1]):
                 raise ValueError('candidate retired fixed safety tests: ' + path)
-            cases += run_contract(root, candidate_snapshot, path, required, origin='candidate')
+            candidate_tasks[path] = required
         if migration:
             print('python_control_policy_migration=' + json.dumps(dict(
                 changed_paths=migration, retained='fixed baseline safety tests and real Rust fixture',
@@ -479,16 +585,26 @@ def run_contracts(root, policy_sha, plan):
             if path == PLANNER_TEST:
                 continue
             if not migration:
-                if path not in FIXED_TESTS or FIXED_TESTS[path] is not None:
-                    cases += run_contract(root, snapshot, path, retain_candidate=True)
-                else:
-                    old = set(test_inventory((snapshot / path).read_text())[1])
-                    if not old <= set(test_inventory((root / path).read_text())[1]):
-                        raise ValueError('candidate retired baseline Python test identities: ' + path)
-            # Re-running candidate tests under the same completion protocol
-            # rejects a newly added skip and proves new regression cases.
-            cases += run_contract(root, candidate_snapshot, path, origin='candidate')
+                # A complete suite subsumes its fixed subset without losing the
+                # original requirement to preserve every baseline identity.
+                baseline_tasks[path] = None
+                retain.add(path)
+            candidate_tasks[path] = None
+        if governance:
+            # One owner executes the complete candidate suite, including fixed
+            # safety, selected non-governance contracts, and newly added cases.
+            candidate_tasks = {path: None for path in sorted(governed | set(selected) | set(FIXED_TESTS))}
+        cases = 0
+        for path, identifiers in baseline_tasks.items():
+            cases += run_contract(root, snapshot, path, identifiers, retain_candidate=path in retain)
+        for path, identifiers in candidate_tasks.items():
+            cases += run_contract(root, candidate_snapshot, path, identifiers, origin='candidate')
         run_rust_fixture(root, config)
+    if governance:
+        run_governance_remaining(root)
+    print('python_control_schedule=' + json.dumps(dict(
+        baseline_files=len(baseline_tasks), candidate_files=len(candidate_tasks),
+        complete_governance=governance, witnessed_checks=cases), sort_keys=True), flush=True)
     return cases
 
 
@@ -652,22 +768,33 @@ fn free_function() -> usize {
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('run', '_worker', 'fixture'))
+    parser.add_argument('action', choices=('run', '_worker', 'fixture', 'local-governance', 'local-contract'))
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
     parser.add_argument('--policy-sha')
     parser.add_argument('--plan', type=Path)
     parser.add_argument('--request', type=Path)
     parser.add_argument('--witness', type=Path)
+    parser.add_argument('--path', help='audited procedural test path for local-contract')
+    parser.add_argument('--governance', action='store_true',
+                        help='Own complete candidate governance and remaining contracts in this invocation')
     args = parser.parse_args()
     if args.action == '_worker':
         run_worker(args.request, args.witness)
     elif args.action == 'fixture':
         config = json.loads((args.repo_root / 'scripts/ci-required-scope.json').read_text())
         run_rust_fixture(args.repo_root.resolve(), config)
+    elif args.action == 'local-governance':
+        try:
+            local_governance(args.repo_root.resolve())
+        except subprocess.CalledProcessError as error:
+            raise SystemExit(error.returncode if error.returncode > 0 else 128 - error.returncode) from error
+    elif args.action == 'local-contract':
+        local_contract(args.repo_root.resolve(), args.path)
     else:
         if not args.policy_sha or not args.plan:
             parser.error('run requires --policy-sha and --plan')
-        cases = run_contracts(args.repo_root.resolve(), args.policy_sha, json.loads(args.plan.read_text()))
+        cases = run_contracts(args.repo_root.resolve(), args.policy_sha, json.loads(args.plan.read_text()),
+                              governance=args.governance)
         print(f'Python control contracts passed ({cases} witnessed checks plus real offline Rust fixture).')
 
 

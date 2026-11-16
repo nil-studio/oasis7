@@ -77,27 +77,57 @@ impl RuntimeLlmSidecar {
         if settled_agents.is_empty() {
             return Ok(());
         }
-        for agent_id in settled_agents {
-            self.provider_cognition_leases.remove(agent_id.as_str());
-            let pending_receipt_recovery = self
-                .pending_actions
-                .values()
-                .any(|pending| pending.agent_id == agent_id && pending.cognition.is_some());
-            if pending_receipt_recovery {
-                // A crash can leave a committed action in the reconstructed
-                // pending map after Runtime settlement has succeeded. Keep
-                // its request/response and memory intents until the receipt
-                // recovery pass recreates feedback and consumes those intents.
-                continue;
+        let before = (
+            self.provider_cognition_leases.clone(),
+            self.provider_active_turns.clone(),
+            self.provider_contexts.clone(),
+            self.provider_retry_contexts.clone(),
+            self.provider_recovery_pending.clone(),
+            self.provider_wait_until.clone(),
+            self.pending_actions.clone(),
+            self.provider_raw_outcomes.clone(),
+        );
+        let result = (|| {
+            for agent_id in settled_agents {
+                self.provider_cognition_leases.remove(agent_id.as_str());
+                let pending_receipt_recovery = self
+                    .pending_actions
+                    .values()
+                    .any(|pending| pending.agent_id == agent_id && pending.cognition.is_some());
+                if pending_receipt_recovery {
+                    // A crash can leave a committed action in the reconstructed
+                    // pending map after Runtime settlement has succeeded. Keep
+                    // its request/response and memory intents until the receipt
+                    // recovery pass recreates feedback and consumes those intents.
+                    continue;
+                }
+                if let Some(context) = self.provider_recovery_context(&agent_id) {
+                    self.retire_terminal_raw_outcomes(&context.request_context)?;
+                }
+                self.provider_active_turns.remove(agent_id.as_str());
+                self.provider_contexts.remove(agent_id.as_str());
+                self.provider_retry_contexts.remove(agent_id.as_str());
+                self.provider_recovery_pending.remove(agent_id.as_str());
+                self.provider_wait_until.remove(agent_id.as_str());
+                self.pending_actions
+                    .retain(|_, pending| pending.agent_id != agent_id);
             }
-            self.provider_active_turns.remove(agent_id.as_str());
-            self.provider_contexts.remove(agent_id.as_str());
-            self.provider_retry_contexts.remove(agent_id.as_str());
-            self.provider_recovery_pending.remove(agent_id.as_str());
-            self.provider_wait_until.remove(agent_id.as_str());
-            self.pending_actions
-                .retain(|_, pending| pending.agent_id != agent_id);
+            self.persist_provider_lineage()
+        })();
+        if result.is_err() {
+            // Runtime settlement is canonical and remains committed. Restore
+            // only the exact local owners and escrow needed for its retry.
+            (
+                self.provider_cognition_leases,
+                self.provider_active_turns,
+                self.provider_contexts,
+                self.provider_retry_contexts,
+                self.provider_recovery_pending,
+                self.provider_wait_until,
+                self.pending_actions,
+                self.provider_raw_outcomes,
+            ) = before;
         }
-        self.persist_provider_lineage()
+        result
     }
 }

@@ -476,6 +476,7 @@ ErrorV1 = {code, message, request_trace_id, operation_id?, retryable,
 
 `OperationFeedbackV1` 是 §5.4 的目标投影，非现有线上 DTO。cognition 原件必须有可核对的原 fence/context 关联；available 必有且只消费匹配的 record，其他 availability 不带伪造 record。目标 schema 对此能力显式协商；不支持的客户端保持反馈未接通，不把字段缺失当 not_applicable。旧客户端的原结果查询不因此获得新权限。原 `AuthorizedFeedbackRecord` 的 delivery_state 表达 Runtime outbox 的状态，不作为外部 Runtime 输入已消费的证据。
 
+<a id="api-operation-recovery"></a>
 ### 6.3 操作状态、回查和恢复协议
 
 | OperationView 状态 | 可依赖事实 | 后续行为 |

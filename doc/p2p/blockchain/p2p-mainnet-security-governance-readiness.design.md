@@ -84,6 +84,19 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-792f38f5-82d4-4
 
 成功 publication 原子安装治理 nonce、轮换记录/generation 与确定性治理效果；保留原 Admission 和原签名事件，失败不产生部分状态。未来记录在生效前不能覆盖旧 active 记录；同一 parent 下的并发/重复/冲突请求按 rotation ID、controller nonce 和 generation 保持原决定，不覆盖或清空历史以重试。指定 epoch 的 registry 预演与正式候选执行必须复用同一轮换选择规则，历史 replay 按原 parent 与当时规则验证。Snapshot/Journal 的兼容准入、协议切换、受保护安装与验收沿用[wire 3 换钥条款](../design.md#des-p2p-bft-finality-key-rotation-v1)；本机测试不代替不可导出 custody 或真实故障域证明。
 
+<a id="readiness-bootstrap-finality-key-rotation"></a>
+#### Bootstrap 来源的正常 finality 换钥
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。本条补充没有原 Admission 的 bootstrap validator 正常换钥目标；实现与验收仍待完成。它不改变上述 admitted V1 的编码或解释，也不涵盖旧 key 丢失、紧急恢复或已撤销节点的重新准入。
+
+Bootstrap 来源必须是 qualified parent 原状态中保留的 `governance_finality_signer_registry`，不是 effective registry、NodeConfig、本机文件或调用方声明。新的独立 typed body 绑定该原 registry 的规范编码摘要、node ID 与原始 finality key，并与 world/chain/genesis、完整 controller 授权上下文、原 parent、当前旧 key、新 key、连续 generation、rotation ID 和精确 h/h+2 边界一起签名。来源摘要为 SHA-256，输入按 u64be 长度前缀依次封装独立域 `oasis7.governance.bootstrap-finality-source.v1` 与原 registry 的 typed canonical CBOR；编码和摘要由共享类型唯一实现，不能复用未限定的 JSON 文本哈希。已有 bootstrap 轮换历史要求恢复相同的原 registry 字节；任何原 registry 变更均拒绝该历史的投影与新轮换，不能以新摘要从 generation 0 重新开始。不得填造 candidate ID 或 Admission，亦不得修改原 bootstrap registry 来重置来源或 generation。
+
+从同一 frozen parent 解析来源、撤销与轮换历史。只有当前 effective registry 和实际 active set 都仍授权该 bootstrap 来源的旧 key 时才允许轮换；批准、未来 activation、服务身份或单个 possession proof 不授予权限。撤销继续阻断 bootstrap 权限；后来合法生效的真实 Admission 建立自己的来源，即使其 key 恰好等于 bootstrap key，旧 bootstrap 轮换也不能覆盖它；来源所有权由有效 authority record 判定，不能只比较 key。generation 从该 bootstrap 来源的原 key 开始连续递增，未生效轮换不能被后续请求跳过，同一 node 的来源冲突须拒绝。admitted V1 继续按 `(node, candidate_id)` 计代际，bootstrap 按固定来源计代际，不重解释已签 V1 的 generation。所有来源统一拒绝将任意 raw bootstrap key、Admission 原 key 或两类完整轮换历史中的 old/new key 作为新 key，并共享历史容量上限；不能借切换来源重复使用退役 key、删历史或绕过容量。
+
+授权仍为父 controller 完整动作阈值签名、当前旧 finality key 授权和新 key possession 的合取；bootstrap proof 使用区别于 admitted V1 的 old/new 域，controller 签包含两份 proof 的完整原动作。publication 原子提交 nonce、原 typed Action 和 bootstrap 轮换记录，按 epoch 统一投影；来源记录、service identity、主账户、stake、operator 与 manifest 不变。预演、正式执行、历史重放与 Snapshot 恢复必须消费同一来源选择和代际规则，不能只修本机 signer。
+
+实际 provider 的 typed proof CAS、原请求幂等和归档预算，以及 Node 共识 worker 串行化、checkpoint、h+1 确认、h+2 新 key 安装与旧 handle fencing 均须接通该来源。原 V1 body/proof 不得被重解释为 bootstrap 请求；新动作或非空新状态不受旧 reader 理解时必须拒绝 serving/voting，空新状态保留旧编码。验收须从无 Admission 的真实 bootstrap World 开始，成功提交并以新 key 形成必要 quorum，核对 h/h+1 旧 key、h+2 新 key、冷恢复后继续提交及原身份账户不变；错来源/parent/代际/proof、跨来源 key 重用、撤销、同 key Admission 接管后冒用 bootstrap、无关 raw registry 变更后试图重置来源、并发冲突和缺安装材料均不得产生部分权限效果。其他 quorum 的 fixture 签名与模拟 witness 不能代签独立故障域或不可导出 custody 验收。
+
 #### 当前受控 profile-v2 实现范围（#4975）
 
 四类 validator admission 使用 `ConsensusActionAuthEnvelope::GovernanceAction`，签名协议为 `GovernanceAuthorizationV1`。固定 CBOR tuple 的域为 `oasis7.governance.authorization.v1`，覆盖版本、world/chain/genesis、精确 parent canonical position/record ID/Snapshot root、完整 controller registry 摘要、controller、nonce、有效 canonical position 范围和完整原始 typed Action；签名表不进入自身签名载荷。signer 和 threshold 只从已验证 parent Snapshot 中的 registry 取得，重复 signer wire key、非规范十六进制与超限 proof 被拒绝。受控位置来自 qualified parent 的 `position + 1`，不使用执行 height 或 local tick。
@@ -129,6 +142,10 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接[专业成员应
 完成确认由真实使用该视图的组件产生，绑定 source CommitRef、activation height、实际 set digest、协议 epoch、runtime instance 与安装代际；从 config／World projection 复制字段不能构造确认。持久确认之后才发布 `runtime-applied`。重复同一安装幂等；同 activation height 的不同 digest 是冲突，不能最后写入者覆盖。crash/restart 从已提交转换与原安装意图恢复，若无法证明已切换则先停签，再验证／重装同一视图；不能只读取旧配置恢复投票。
 
 撤销／轮换后，旧 signer 对 `h+2` 及以后新消息不再有效，但此前合法历史按历史集合验证。equivocation 报告本身只是证据，不触发本机单方面删 stake／改 quorum。受控单权威 profile 的 epoch、writer fencing 与接管继续由[受控 epoch 接管](../design.md#des-p2p-controlled-epoch-takeover-v1)拥有，本安装接口不得作为单权威到 BFT 的隐式升级。当前没有 safe runtime install API；上述状态是目标语义，不是现有 CLI 新增枚举。
+
+长期离线的 checkpoint 期限、独立更新 issuer、有限根授权／撤销窗口和受保护时间门禁，统一由[P2P checkpoint 更新合同](../design.md#des-p2p-bft-checkpoint-renewal-v1)规定。原 activation、治理或私有读取 issuer 的既有权力不自动包含 checkpoint-renewal purpose；只有原 C0/H 独立授权明确 pin 的 policy 才能授予该用途，并须在原授权内明确绝对安全上界及真实旧 key／stake 约束。当前未固定这些部署输入时停止自动更新／新签名，不能从普通 provider receipt 或已退出 validator 的自证建立新信任。
+
+该更新不改写 `h+2`，不替代组件安装确认、不授予新 key／stake 权力，也不把历史可读等同当前服务。已提交 minimum 的原安装可以在期限失效后完成本地完整性恢复；重新声明当前或生成新 proposal/vote 前仍需当前有效的独立授权、可信时间和真实安装门禁。对应版本化配置、发行／验证接口、真实保护资源与部署验收仍是实现义务，文档不表示已可运行。
 
 <a id="readiness-full-sync-read-authorization"></a>
 ### 私有 full-state 读取授权与撤销目标

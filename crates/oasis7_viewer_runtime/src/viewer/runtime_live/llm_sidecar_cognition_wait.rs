@@ -64,6 +64,7 @@ fn compensate_provider_wait_admission(
             .as_ref()
             .map(|view| view.state.time)
             .unwrap_or(request.runtime_binding.base_tick);
+        let disposition_lease = sidecar.provider_cognition_lease(&request.agent_subject);
         let result = sidecar
             .provider_scheduler_operation(
                 request,
@@ -77,7 +78,6 @@ fn compensate_provider_wait_admission(
             .and_then(|_| {
                 if let Some(lease) = sidecar.provider_cognition_lease(&request.agent_subject) {
                     sidecar.settle_provider_lease_at_authority(world, request, &lease)?;
-                    sidecar.clear_provider_cognition_lease(&request.agent_subject);
                 }
                 if let Some(runner) = sidecar
                     .runner
@@ -93,12 +93,11 @@ fn compensate_provider_wait_admission(
                             format!("canonical Wait harness compensation failed: {error}")
                         })?;
                 }
-                sidecar.provider_continuation_proposals.remove(proposal_id);
-                sidecar
-                    .provider_continuation_recovery_pending
-                    .remove(&request.agent_subject);
-                sidecar.provider_active_turns.remove(&request.agent_subject);
-                sidecar.persist_provider_lineage()
+                sidecar.checkpoint_compensated_service_wait(
+                    request,
+                    proposal_id,
+                    disposition_lease.as_ref(),
+                )
             });
         if let Err(error) = result {
             sidecar
@@ -300,6 +299,13 @@ fn compensate_provider_wait_admission(
             sidecar.clear_provider_cognition_lease(request.agent_subject.as_str());
         }
     }
+    let mut retired_raw = Vec::new();
+    if compensation_errors.is_empty() {
+        match sidecar.retire_wait_raw_outcomes(request, lease_backup.as_ref()) {
+            Ok(originals) => retired_raw = originals,
+            Err(error) => compensation_errors.push(error),
+        }
+    }
     if compensation_errors.is_empty() {
         sidecar.provider_continuation_proposals.remove(proposal_id);
         sidecar
@@ -325,6 +331,7 @@ fn compensate_provider_wait_admission(
         }
     }
     if !compensation_errors.is_empty() {
+        sidecar.restore_raw_outcomes(retired_raw);
         if let Some(proposal) = proposal_backup {
             sidecar
                 .provider_continuation_proposals
@@ -608,10 +615,8 @@ pub(in crate::viewer::runtime_live::control_plane::llm_sidecar) fn admit_provide
                 handle.as_ref().map(|handle| &handle.chain_id)
             ))
         } else {
-            #[cfg(test)]
+            // The production fault source is already fixed to None.
             let release_fault = provider_wait_fault() == ProviderWaitFault::Release;
-            #[cfg(not(test))]
-            let release_fault = false;
             let release_turn_id = if release_fault {
                 format!("{}-fault", request.agent_turn_id)
             } else {
@@ -644,7 +649,15 @@ pub(in crate::viewer::runtime_live::control_plane::llm_sidecar) fn admit_provide
                 release_turn_id.as_str(),
                 request.decision_request_id.as_str(),
                 request.request_digest.to_string().as_str(),
-                |sidecar| sidecar.persist_provider_lineage(),
+                |sidecar| {
+                    let retired = sidecar
+                        .retire_wait_raw_outcomes(request, cognition.cognition_lease.as_ref())?;
+                    if let Err(error) = sidecar.persist_provider_lineage() {
+                        sidecar.restore_raw_outcomes(retired);
+                        return Err(error);
+                    }
+                    Ok(())
+                },
             ) {
                 Ok(()) => None,
                 Err(error) => {
@@ -681,22 +694,82 @@ pub(in crate::viewer::runtime_live::control_plane::llm_sidecar) fn admit_provide
         ));
     }
     if !runner_present {
-        sidecar
+        let retired =
+            sidecar.retire_wait_raw_outcomes(request, cognition.cognition_lease.as_ref())?;
+        let active = sidecar
             .provider_active_turns
             .remove(request.agent_subject.as_str());
-        sidecar
+        let context = sidecar
             .provider_contexts
             .remove(request.agent_subject.as_str());
-        sidecar
+        let wait_until = sidecar
             .provider_wait_until
             .remove(request.agent_subject.as_str());
-        sidecar.persist_provider_lineage_best_effort();
+        if let Err(error) = sidecar.persist_provider_lineage() {
+            sidecar.restore_raw_outcomes(retired);
+            if let Some(active) = active {
+                sidecar
+                    .provider_active_turns
+                    .insert(request.agent_subject.clone(), active);
+            }
+            if let Some(context) = context {
+                sidecar
+                    .provider_contexts
+                    .insert(request.agent_subject.clone(), context);
+            }
+            if let Some(wait_until) = wait_until {
+                sidecar
+                    .provider_wait_until
+                    .insert(request.agent_subject.clone(), wait_until);
+            }
+            return Err(error);
+        }
     }
     Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl RuntimeLlmSidecar {
+    /// Canonical rejection/settlement has already happened. Roll back only the
+    /// local disposition indices if their checkpoint cannot be published.
+    pub(in crate::viewer::runtime_live) fn checkpoint_compensated_service_wait(
+        &mut self,
+        request: &crate::simulator::ContinuousAgentRequestContextV1,
+        proposal_id: &str,
+        lease: Option<&crate::runtime::CognitionLeaseV1>,
+    ) -> Result<(), String> {
+        let retired = self.retire_wait_raw_outcomes(request, lease)?;
+        let local_lease = self
+            .provider_cognition_leases
+            .remove(&request.agent_subject);
+        let proposal = self.provider_continuation_proposals.remove(proposal_id);
+        let recovery = self
+            .provider_continuation_recovery_pending
+            .remove(&request.agent_subject);
+        let active = self.provider_active_turns.remove(&request.agent_subject);
+        if let Err(error) = self.persist_provider_lineage() {
+            self.restore_raw_outcomes(retired);
+            if let Some(lease) = local_lease {
+                self.provider_cognition_leases
+                    .insert(request.agent_subject.clone(), lease);
+            }
+            if let Some(proposal) = proposal {
+                self.provider_continuation_proposals
+                    .insert(proposal_id.to_string(), proposal);
+            }
+            if let Some(recovery) = recovery {
+                self.provider_continuation_recovery_pending
+                    .insert(request.agent_subject.clone(), recovery);
+            }
+            if let Some(active) = active {
+                self.provider_active_turns
+                    .insert(request.agent_subject.clone(), active);
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(in crate::viewer::runtime_live) fn provider_wait_recovery_agent(&self) -> Option<String> {
         self.provider_continuation_recovery_pending

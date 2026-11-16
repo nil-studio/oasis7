@@ -68,6 +68,23 @@ impl FileFormalArchiveSourceV1 {
     }
 }
 impl FormalArchiveSourceV1 for FileFormalArchiveSourceV1 {
+    fn read_object_bounded(
+        &self,
+        id: &str,
+        max: usize,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<Option<FormalArchiveReadOwnerV1>, FormalError> {
+        super::archive_bounded_read::read_local_archive_bounded_v1(
+            &self.directory,
+            id,
+            max,
+            memory,
+            work,
+            cancelled,
+        )
+    }
     fn read_range(
         &self,
         id: &str,

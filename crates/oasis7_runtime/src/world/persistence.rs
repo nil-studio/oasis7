@@ -844,7 +844,7 @@ impl World {
                 })?;
         }
 
-        let mut world = Self::new_with_state(snapshot.state);
+        let mut world = Self::new_with_state_for_restore(snapshot.state);
         if let Some(release) = release {
             world.release_security_policy = release;
         }
@@ -1038,6 +1038,14 @@ impl World {
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
             }
             world.enforce_journal_event_limit();
+        }
+        if !world.state.governance_finality_key_rotations.is_empty()
+            || !world
+                .state
+                .governance_bootstrap_finality_key_rotations
+                .is_empty()
+        {
+            world.resolve_governance_effective_finality_signer_registry()?;
         }
         world.verify_tick_consensus_chain()?;
         Ok(world)

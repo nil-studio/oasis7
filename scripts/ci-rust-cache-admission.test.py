@@ -58,6 +58,52 @@ class AdmissionTests(unittest.TestCase):
         return ['--posix', '-cf', 'cache.tgz', '--exclude', 'cache.tgz', '-P', '-C',
                 str(self.workspace), '--files-from', 'manifest.txt', '-z']
 
+    def test_report_family_preserves_only_registered_public_labels(self):
+        for family in admission.FAMILIES:
+            with self.subTest(family=family):
+                environment = self.environment | {'OASIS7_DEPENDENCY_CACHE_FAMILY': family}
+                self.assertEqual(admission.empty_report(environment)['family'], family)
+        for family in (None, '', 'unknown', 'SHARED-NATIVE', 'shared-native ',
+                       'fixture-only-secret\n::error::untrusted-family'):
+            with self.subTest(family=family):
+                environment = self.environment | {'OASIS7_DEPENDENCY_CACHE_FAMILY': family}
+                self.assertIsNone(admission.empty_report(environment)['family'])
+
+    def test_unknown_family_is_not_echoed_at_any_denied_checkpoint(self):
+        sentinel = 'fixture-only-secret\n::error::untrusted-family'
+        environment = self.environment | {'OASIS7_DEPENDENCY_CACHE_FAMILY': sentinel,
+                                         'GITHUB_STEP_SUMMARY': str(self.root / 'summary.md')}
+        cases = (
+            ('writer', lambda: admission.check_archive(self.archive, environment, self.api),
+             'unknown dependency cache writer family'),
+            ('archive', lambda: admission.check_archive(self.root / 'missing', environment, self.api),
+             'cache archive or event could not be read'),
+        )
+        for name, check, reason in cases:
+            with self.subTest(checkpoint=name), patch('sys.stdout', new_callable=io.StringIO) as output:
+                report = check()
+                admission.emit_report(report, environment)
+                self.assertFalse(report['allowed'])
+                self.assertEqual(report['reason'], reason)
+                self.assertIsNone(json.loads(output.getvalue().splitlines()[0])['family'])
+                self.assertNotIn('fixture-only-secret', output.getvalue())
+        with patch('sys.stdout', new_callable=io.StringIO) as output, \
+                patch.object(admission.subprocess, 'run') as tar:
+            result = admission.run_tar(['-cf', 'cache.tgz'], environment, self.archive_dir, api=self.api)
+        self.assertEqual(result, admission.DENIED)
+        self.assertIsNone(json.loads(output.getvalue().splitlines()[0])['family'])
+        self.assertNotIn('fixture-only-secret', output.getvalue())
+        tar.assert_not_called()
+        with patch.dict(os.environ, environment, clear=True), \
+                patch('sys.stdout', new_callable=io.StringIO) as output:
+            result = admission.main(['check', '--archive', str(self.root / 'missing')])
+        self.assertEqual(result, admission.DENIED)
+        self.assertIsNone(json.loads(output.getvalue().splitlines()[0])['family'])
+        self.assertNotIn('fixture-only-secret', output.getvalue())
+        self.assertNotIn('fixture-only-secret', (self.root / 'summary.md').read_text())
+        self.api.request.assert_not_called()
+        self.api.list_caches.assert_not_called()
+
     def test_final_compressed_bytes_count_every_family_and_ref(self):
         self.api.list_caches.return_value = [self.entry()]
         result = admission.check_archive(self.archive, self.environment, self.api)

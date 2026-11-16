@@ -223,18 +223,26 @@ impl CasBudget {
         }
     }
 
+    /// Retained-tree traversal is bounded per traversal, not per sync
+    /// operation. A failed provider must not turn its temporary traversal
+    /// allowance into a permanent charge for the next provider.
+    pub(super) fn begin_traversal(&mut self) {
+        self.visited_paths = 0;
+    }
+
     pub(super) fn add(&mut self, digest: &str, size: u64) -> Result<(), String> {
-        if self.objects.insert(digest.to_owned()) {
-            self.bytes = self
-                .bytes
-                .checked_add(size)
-                .ok_or("full-sync CAS byte overflow")?;
-            if self.objects.len() > MAX_RETAINED_TREE_NODES || self.bytes > self.max_bytes {
-                return Err(
-                    "full-sync retained/record CAS exceeds configured protocol bound".into(),
-                );
-            }
+        if self.objects.contains(digest) {
+            return Ok(());
         }
+        let bytes = self
+            .bytes
+            .checked_add(size)
+            .ok_or("full-sync CAS byte overflow")?;
+        if self.objects.len() + 1 > MAX_RETAINED_TREE_NODES || bytes > self.max_bytes {
+            return Err("full-sync retained/record CAS exceeds configured protocol bound".into());
+        }
+        self.objects.insert(digest.to_owned());
+        self.bytes = bytes;
         Ok(())
     }
 }

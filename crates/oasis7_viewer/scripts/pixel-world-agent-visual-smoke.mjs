@@ -42,13 +42,13 @@ async function state() { return JSON.parse(await evaluate(`JSON.stringify(${read
 async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
 }
-async function settleTarget(selector) {
-  await evaluate(`(async()=>{let last='',stable=0;for(let n=0;n<40;n++){const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();const key=[r.x,r.y,r.width,r.height].join(',');stable=key===last?stable+1:0;last=key;if(stable>=4)return true;await new Promise(done=>setTimeout(done,50));}throw Error('Agent target camera did not settle');})()`);
+async function settlePrimaryTarget() {
+  await evaluate(`(async()=>{let last='',stable=0;for(let n=0;n<40;n++){const r=document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]").getBoundingClientRect();const key=[r.x,r.y,r.width,r.height].join(',');stable=key===last?stable+1:0;last=key;if(stable>=4)return true;await new Promise(done=>setTimeout(done,50));}throw Error('Agent target camera did not settle');})()`);
 }
-async function keyboardSelect(selector) {
-  await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus({preventScroll:true})`);
+async function keyboardSelectOther() {
+  await evaluate(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]").focus({preventScroll:true})`);
   await run(['press','Enter']);
-  await waitFor(`document.querySelector(${JSON.stringify(selector)})?.dataset.selected==='true'`);
+  await waitFor(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]")?.dataset.selected==='true'`);
 }
 async function installAgentFixture() {
     await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('selected_blocker')();const auth=window.__AW_TEST__.getState();const a=s.model.agents['agent-0'];s.model.agents['agent-1']={...a,id:'agent-1',name:'独立观察目标一号长中文名称',pos:{...a.pos,x_cm:a.pos.x_cm+2000000}};for(const id of ['agent-0','agent-1']){s.model.agent_player_bindings[id]=auth.authPlayerId;s.model.agent_player_public_key_bindings[id]=auth.authPublicKey;}s.time=13;window.__OASIS7_AGENT_TEST_SNAPSHOT__=s;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
@@ -59,7 +59,12 @@ async function verifyAgentPixels(path, targetId='agent-0') {
   // focus ring can cross a 32px sprite; it is not part of the atlas color oracle.
   await evaluate(`document.querySelector('#pixel-world-embedded-runtime-canvas').focus({preventScroll:true});true`);
   await run(['screenshot','--full',path]);
-  const anchorScript=`JSON.stringify((()=>{const r=document.querySelector(${JSON.stringify('button[data-agent-id="'+targetId+'"][data-renderer-target]')}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`;
+  const anchorPrograms = {
+    'agent-0': `JSON.stringify((()=>{const r=document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`,
+    'agent-1': `JSON.stringify((()=>{const r=document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`,
+  };
+  if (!Object.hasOwn(anchorPrograms, targetId)) throw Error('unknown Agent pixel target');
+  const anchorScript = anchorPrograms[targetId];
   let anchor=JSON.parse(await evaluate(anchorScript));
   const program=String.raw`import sys,json,math
 from PIL import Image
@@ -145,16 +150,15 @@ try {
     if(scope==='all') await installAgentFixture();
     const target='button[data-agent-id="agent-0"][data-renderer-target]';
     // Native browser mouse and Enter dispatch go through the real rendered target.
-    const other='button[data-agent-id="agent-1"][data-renderer-target]';
-    await evaluate(`document.querySelector(${JSON.stringify(other)}).focus({preventScroll:true})`);
+    await evaluate(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]").focus({preventScroll:true})`);
     await run(['press','Enter']);
-    await waitFor(`document.querySelector(${JSON.stringify(target)})?.dataset.selected==='false'`);
-    await settleTarget(target);
-    await run(['click',target]); await waitFor(`document.querySelector(${JSON.stringify(target)})?.dataset.selected==='true'`);
-    await evaluate(`document.querySelector(${JSON.stringify(other)}).focus({preventScroll:true})`); await run(['press','Enter']);
-    await waitFor(`document.querySelector(${JSON.stringify(target)})?.dataset.selected==='false'`);
-    await evaluate(`document.querySelector(${JSON.stringify(target)}).focus({preventScroll:true})`); await run(['press','Enter']);
-    await waitFor(`document.querySelector(${JSON.stringify(target)})?.getAttribute('aria-pressed')==='true'`);
+    await waitFor(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]")?.dataset.selected==='false'`);
+    await settlePrimaryTarget();
+    await run(['click',target]); await waitFor(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]")?.dataset.selected==='true'`);
+    await evaluate(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]").focus({preventScroll:true})`); await run(['press','Enter']);
+    await waitFor(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]")?.dataset.selected==='false'`);
+    await evaluate(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]").focus({preventScroll:true})`); await run(['press','Enter']);
+    await waitFor(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]")?.getAttribute('aria-pressed')==='true'`);
     await run(['screenshot','--full',resolve(out,`${name}.png`)]);
     const after=await state();
     const resizeOrigin=await evaluate('performance.timeOrigin');
@@ -164,11 +168,11 @@ try {
     const resizeReadyPng=resolve(out,`${name}-resize-ready.png`);await run(['screenshot','--full',resizeReadyPng]);
     await verifyAgentPixels(resizeReadyPng);
     if(border) await verifyAgentPixels(resizeReadyPng,'agent-1');
-    await keyboardSelect(other);await settleTarget(target);
+    await keyboardSelectOther();await settlePrimaryTarget();
     const clickReadyPng=resolve(out,`${name}-resize-click-ready.png`);await run(['screenshot','--full',clickReadyPng]);
     await verifyAgentPixels(clickReadyPng);
     await run(['click',target]);
-    await waitFor(`document.querySelector(${JSON.stringify(target)})?.dataset.selected==='true'`);
+    await waitFor(`document.querySelector("button[data-agent-id=\\"agent-0\\"][data-renderer-target]")?.dataset.selected==='true'`);
     const resizedPng=resolve(out,`${name}-resized.png`);await run(['screenshot','--full',resizedPng]);
     const resizedPixels=await verifyAgentPixels(resizedPng);
     const resized=await state();
@@ -177,8 +181,8 @@ try {
     assert(await evaluate('performance.timeOrigin')===resizeOrigin,'viewport restoration navigated instead of resizing');
     await evaluate(`(()=>{const s=JSON.parse(JSON.stringify(window.__OASIS7_AGENT_TEST_SNAPSHOT__));s.time=14;s.model.agents['agent-1'].pos={...s.model.agents['agent-0'].pos};window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.world_tick===14`);
-    await evaluate(`document.querySelector(${JSON.stringify(other)}).focus({preventScroll:true})`); await run(['press','Enter']);
-    await waitFor(`document.querySelector(${JSON.stringify(other)})?.dataset.selected==='true'`);
+    await evaluate(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]").focus({preventScroll:true})`); await run(['press','Enter']);
+    await waitFor(`document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]")?.dataset.selected==='true'`);
     await waitFor(`(${read}).dto?.selection?.id==='agent-1'`);
     const dense=await state();
     await run(['screenshot','--full',resolve(out,`${name}-dense.png`)]);
@@ -188,7 +192,7 @@ try {
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1'&&a.position_source==='missing')`);
     const missing=await state();
     await evaluate(`(()=>{const s=JSON.parse(JSON.stringify(window.__OASIS7_AGENT_TEST_SNAPSHOT__));s.time=16;delete s.model.agents['agent-1'];window.__AW_TEST__.injectSnapshot(s);return true;})()`);
-    await waitFor(`!document.querySelector(${JSON.stringify(other)})&& !(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
+    await waitFor(`!document.querySelector("button[data-agent-id=\\"agent-1\\"][data-renderer-target]")&& !(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
     const removed=await state();
     await evaluate(`window.__AW_TEST__.injectSnapshot(window.__OASIS7_AGENT_TEST_SNAPSHOT__);true`);
     await waitFor(`(${read}).ready&&(${read}).dto?.agents?.some(a=>a.id==='agent-1'&&a.pos)`);

@@ -8,6 +8,7 @@ use crate::viewer::runtime_live::{
 };
 use oasis7_client_api::world_service::*;
 
+const KNOWN_FAILURE_REASON: &str = "executor_failed_after_dispatch:known_provider_failure";
 const ORPHAN_REASON: &str = "executor_lost_after_dispatch:model_outcome_unknown";
 
 pub(super) fn same_provider_context(
@@ -26,6 +27,7 @@ pub(in crate::viewer::runtime_live) struct OrphanPhase {
     pub(in crate::viewer::runtime_live) submit: bool,
     commit: Option<CommitRef>,
     original_id: Option<String>,
+    terminal_authority: Option<Box<TerminalRecoveryAuthorityV1>>,
 }
 impl OrphanPhase {
     pub(in crate::viewer::runtime_live) fn identity(&self) -> Result<String, String> {
@@ -41,7 +43,17 @@ impl RuntimeLlmSidecar {
         // Process-local workers cannot survive this restore. Preserve the
         // exact marker and lease until canonical orphan reconciliation ends.
         for (agent, active) in self.provider_active_turns.clone() {
-            let retained = self
+            let retained = self.provider_raw_outcomes.iter().any(|outcome| {
+                outcome.agent_id == agent
+                    && outcome
+                        .prepared_request_context
+                        .as_ref()
+                        .is_none_or(|request| request == &active.request_context)
+                    && outcome
+                        .prepared_context
+                        .as_ref()
+                        .is_none_or(|context| context == &active.turn_context)
+            }) || self
                 .provider_held_decisions
                 .get(&agent)
                 .and_then(|d| d.cognition.as_ref())
@@ -79,17 +91,16 @@ impl RuntimeLlmSidecar {
     }
 
     pub(in crate::viewer::runtime_live) fn begin_hosted_orphan_recovery(&mut self) {
-        if let Some((agent, _)) = self
-            .provider_recovery_pending
-            .iter()
-            .find(|(_, p)| p.reason.starts_with(ORPHAN_REASON))
-        {
+        if let Some((agent, _)) = self.provider_recovery_pending.iter().find(|(_, p)| {
+            p.reason.starts_with(ORPHAN_REASON) || p.reason.starts_with(KNOWN_FAILURE_REASON)
+        }) {
             self.hosted_service_phase = Some(HostedServicePhase::Orphan(OrphanPhase {
                 agent: agent.clone(),
                 stage: "view".into(),
                 submit: false,
                 commit: None,
                 original_id: None,
+                terminal_authority: None,
             }));
         }
     }
@@ -130,11 +141,6 @@ impl RuntimeLlmSidecar {
             .runtime_binding
             .as_ref()
             .ok_or("orphan canonical binding missing")?;
-        let authority = view
-            .agent_context
-            .as_ref()
-            .filter(|a| a.agent_id == agent)
-            .ok_or("orphan current Agent authority missing")?;
         let invocation = request
             .base_decision_request
             .capability_invocation_context
@@ -148,12 +154,25 @@ impl RuntimeLlmSidecar {
             || saved.finality_block_hash != binding.finality_block_hash
             || saved.finality_status != binding.finality_status
             || saved.runtime_manifest_hash != binding.runtime_manifest_hash
-            || invocation.subject != authority.capability_invocation_context.subject
-            || invocation.grant_id != authority.capability_invocation_context.grant_id
         {
-            return Err(
-                "orphan current authority or Runtime binding changed; model_outcome_unknown".into(),
-            );
+            return Err("orphan current Runtime binding changed; model_outcome_unknown".into());
+        }
+        if let Some(authority) = &view.agent_context {
+            if authority.agent_id != agent
+                || invocation.subject != authority.capability_invocation_context.subject
+                || invocation.grant_id != authority.capability_invocation_context.grant_id
+            {
+                return Err("orphan current Agent authority changed".into());
+            }
+        } else {
+            let Some(HostedServicePhase::Orphan(phase)) = &self.hosted_service_phase else {
+                return Err("orphan current Agent authority missing".into());
+            };
+            let proof = phase
+                .terminal_authority
+                .as_ref()
+                .ok_or("orphan terminal authority missing")?;
+            self.validate_orphan_terminal_identity(agent, proof)?;
         }
         let lease = self
             .provider_cognition_leases
@@ -198,6 +217,112 @@ impl RuntimeLlmSidecar {
             return Err("orphan canonical lease accounting changed".into());
         }
         Ok(canonical.clone())
+    }
+
+    fn validate_orphan_terminal_identity(
+        &self,
+        agent: &str,
+        proof: &TerminalRecoveryAuthorityV1,
+    ) -> Result<(), String> {
+        let context = self.orphan_context(agent)?;
+        let request = &context.request_context;
+        let view = self
+            .provider_service_projection
+            .as_ref()
+            .ok_or("orphan current View missing")?;
+        let binding = view
+            .runtime_binding
+            .as_ref()
+            .ok_or("orphan current Runtime missing")?;
+        let original_id = self.original_orphan_dispatch(agent)?;
+        let pending = self
+            .provider_scheduler_pending
+            .get(&original_id)
+            .ok_or("orphan original missing")?;
+        proof
+            .current_runtime_binding
+            .validate()
+            .map_err(|e| format!("{e:?}"))?;
+        proof
+            .validate(&pending.correlation)
+            .map_err(|e| e.to_string())?;
+        let crate::world_service::wire::WorldServicePayloadV1::Scheduler(signed) = &pending.payload
+        else {
+            return Err("terminal recovery requires original signed Prefix".into());
+        };
+        let crate::world_service::wire::SchedulerOperationV1::ProviderPrefix {
+            request: original,
+            ..
+        } = &signed.request.operation
+        else {
+            return Err("terminal recovery supports only original ProviderPrefix".into());
+        };
+        let invocation = request
+            .base_decision_request
+            .capability_invocation_context
+            .as_ref()
+            .ok_or("orphan invocation missing")?;
+        let subject = oasis7_wasm_abi::CapabilitySubject::Agent {
+            agent_id: agent.into(),
+            owner_binding: proof.owner_binding.clone(),
+            generation: proof.identity_generation,
+        };
+        let lease = self
+            .provider_cognition_leases
+            .get(agent)
+            .ok_or("orphan original lease missing")?;
+        lineage_generation_recovery::validate_provider_lease_identity(agent, request, lease)?;
+        let expected_lease = TerminalLeaseIdentityV1 {
+            lease_id: lease.lease_id.clone(),
+            idempotency_key: lease.idempotency_key.clone(),
+            account_id: lease.account_id.clone(),
+            quote_digest: lease.quote.quote_digest.clone(),
+            reserved_amount: lease.reserved_amount,
+            reserved_at_tick: lease.reserved_at_tick,
+        };
+        let current = &proof.current_runtime_binding;
+        if original != &crate::runtime_host::feedback::request_context_to_api(request)
+            || proof.agent_id != agent
+            || invocation.subject != subject
+            || proof.grant_id != invocation.grant_id
+            || proof.agent_session_id != request.agent_session_id
+            || proof.agent_turn_id != request.agent_turn_id
+            || proof.decision_request_id != request.decision_request_id
+            || proof.request_digest != request.request_digest.to_string()
+            || proof.retry_seq != request.retry_seq
+            || proof.transport_attempt != request.transport_attempt
+            || proof.writer_public_key != signed.subject_public_key
+            || proof.delegation_generation != signed.request.delegation_generation
+            || proof.lease != expected_lease
+            || proof.prefix_deadline_unix_ms.is_some()
+            || current.world_id != binding.world_id
+            || current.branch_id != binding.branch_id
+            || current.reorg_epoch != binding.reorg_epoch
+            || current.finality_epoch != binding.finality_epoch
+            || current.finality_block_hash != binding.finality_block_hash
+            || current.finality_status != binding.finality_status
+            || current.runtime_manifest_hash != binding.runtime_manifest_hash
+            || proof.current_task_fence
+                != view
+                    .game_task_control
+                    .as_ref()
+                    .map(oasis7_agent_api::game::GameTaskFenceV1::from_control)
+        {
+            return Err(
+                "orphan terminal assertion differs from original or current authority".into(),
+            );
+        }
+        if let Some(owner) = &view.canonical_agent_owner
+            && (owner.agent_id != agent
+                || owner.player_id != proof.owner_binding
+                || owner.canonical_authority.agent_identity_generation != proof.identity_generation
+                || owner.world_id != binding.world_id
+                || owner.reorg_epoch != binding.reorg_epoch
+                || owner.canonical_authority.branch_id != binding.branch_id)
+        {
+            return Err("orphan current owner or identity generation changed".into());
+        }
+        Ok(())
     }
 
     fn original_orphan_dispatch(&self, agent: &str) -> Result<String, String> {
@@ -275,7 +400,9 @@ impl RuntimeLlmSidecar {
                 deadline_unix_ms: None,
             }));
         }
-        self.validate_orphan_authority(&phase.agent)?;
+        if phase.stage != "dispatch" {
+            self.validate_orphan_authority(&phase.agent)?;
+        }
         let context = self.orphan_context(&phase.agent)?;
         let request = &context.request_context;
         let pending = match phase.stage.as_str() {
@@ -319,6 +446,25 @@ impl RuntimeLlmSidecar {
             }
             _ => return Err("unknown orphan recovery phase".into()),
         };
+        if phase.stage == "dispatch"
+            && self
+                .provider_service_projection
+                .as_ref()
+                .is_some_and(|view| view.agent_context.is_none())
+        {
+            let minimum = phase
+                .commit
+                .clone()
+                .ok_or("orphan authenticated View watermark missing")?;
+            return Ok(AgentServiceIoOperation::TerminalLookup {
+                request: LookupIntentRequest {
+                    contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+                    key: pending.correlation.key.clone(),
+                },
+                original: pending.payload,
+                minimum,
+            });
+        }
         Ok(original_intent_io(
             &pending.correlation,
             &pending.payload,
@@ -405,22 +551,66 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                 return Err("orphan readback precedes canonical commit".into());
             }
             self.apply_hosted_verified_view(*view)?;
-            self.llm_sidecar.validate_orphan_authority(&phase.agent)?;
+            if phase.stage != "view" {
+                self.llm_sidecar.validate_orphan_authority(&phase.agent)?;
+            }
             match phase.stage.as_str() {
                 "view" => {
                     phase.original_id =
                         Some(self.llm_sidecar.original_orphan_dispatch(&phase.agent)?);
+                    phase.commit = Some(
+                        self.verified_world_view
+                            .as_ref()
+                            .ok_or("orphan verified View missing")?
+                            .version()
+                            .commit
+                            .clone(),
+                    );
                     phase.stage = "dispatch".into();
                 }
                 "failure_view" => phase.stage = "settle".into(),
                 "settled_view" => {
-                    self.llm_sidecar.retire_canonical_orphan(
-                        &phase.agent,
-                        phase
-                            .original_id
-                            .as_deref()
-                            .ok_or("orphan original ID missing")?,
-                    )?;
+                    let known_failure = self
+                        .llm_sidecar
+                        .provider_recovery_pending
+                        .get(&phase.agent)
+                        .is_some_and(|pending| pending.reason.starts_with(KNOWN_FAILURE_REASON));
+                    if known_failure {
+                        // The authenticated settled view above still precedes any
+                        // actor release. First capture its exact failed feedback;
+                        // a later loop under the publication ACK consumes it.
+                        let lease = self.llm_sidecar.validate_orphan_authority(&phase.agent)?;
+                        if lease.status != crate::runtime::CognitionLeaseStatusV1::Settled
+                            || lease.settled_amount != 1
+                            || lease.net_amount != 1
+                            || lease.released_amount != 0
+                            || lease.refunded_amount != 0
+                            || lease.compensated_amount != 0
+                        {
+                            return Err(
+                                "known provider failure lacks canonical settled readback".into()
+                            );
+                        }
+                        self.llm_sidecar
+                            .fail_provider_turn_with_feedback_after_publication(&phase.agent)?;
+                        if self
+                            .llm_sidecar
+                            .provider_active_turns
+                            .contains_key(&phase.agent)
+                        {
+                            self.llm_sidecar.hosted_service_phase =
+                                Some(HostedServicePhase::Orphan(phase));
+                            return Ok(AgentServiceProgress::Advanced);
+                        }
+                    } else {
+                        self.llm_sidecar.retire_canonical_orphan(
+                            &phase.agent,
+                            phase
+                                .original_id
+                                .as_deref()
+                                .ok_or("orphan original ID missing")?,
+                        )?;
+                    }
                     self.llm_sidecar.hosted_service_phase = None;
                     self.llm_sidecar.hosted_service_config_binding = None;
                     return Ok(AgentServiceProgress::Advanced);
@@ -443,6 +633,60 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         response
             .validate(&pending.correlation)
             .map_err(|e| e.to_string())?;
+        if phase.stage == "dispatch"
+            && (matches!(&response.outcome, IntentOutcome::Committed { .. })
+                || (matches!(&response.outcome, IntentOutcome::HistoryUnavailable)
+                    && response
+                        .terminal_recovery_authority
+                        .as_ref()
+                        .is_some_and(|proof| proof.schema_version == 2)))
+        {
+            if let Some(proof) = &response.terminal_recovery_authority {
+                let minimum = phase
+                    .commit
+                    .as_ref()
+                    .ok_or("orphan View watermark missing")?;
+                if !proof
+                    .read_commit
+                    .satisfies_minimum(minimum)
+                    .map_err(|e| e.to_string())?
+                {
+                    return Err("orphan terminal proof precedes current View".into());
+                }
+                let current_binding = self
+                    .llm_sidecar
+                    .provider_service_projection
+                    .as_ref()
+                    .and_then(|view| view.runtime_binding.as_ref())
+                    .ok_or("orphan current binding missing")?;
+                if (proof.read_commit == *minimum
+                    && proof.current_runtime_binding != *current_binding)
+                    || proof.current_runtime_binding.base_tick < current_binding.base_tick
+                {
+                    return Err("orphan terminal proof Runtime precedes authenticated View".into());
+                }
+                self.llm_sidecar
+                    .validate_orphan_terminal_identity(&phase.agent, proof)?;
+                phase.terminal_authority = Some(proof.clone());
+            }
+            // Install only after all comparisons; absence retains the full live path.
+            self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase.clone()));
+            self.llm_sidecar.validate_orphan_authority(&phase.agent)?;
+        }
+        if phase.stage == "dispatch"
+            && let Some(proof) = response
+                .terminal_recovery_authority
+                .as_ref()
+                .filter(|proof| proof.schema_version == 2)
+        {
+            // Current Journal authority closes only this original dispatch. It
+            // does not manufacture an old Committed receipt or historical cut.
+            phase.stage = "failure".into();
+            phase.commit = Some(proof.read_commit.clone());
+            phase.submit = false;
+            self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase));
+            return Ok(AgentServiceProgress::Advanced);
+        }
         match response.outcome {
             IntentOutcome::Committed { commit, receipt } => {
                 let context = self.llm_sidecar.orphan_context(&phase.agent)?;
@@ -542,7 +786,8 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     .provider_recovery_pending
                     .get_mut(&phase.agent)
                     .ok_or("orphan recovery missing")?
-                    .reason = format!("{ORPHAN_REASON};canonical_rejected:{id}");
+                    .reason
+                    .push_str(&format!(";canonical_rejected:{id}"));
                 self.llm_sidecar.persist_provider_lineage()?;
                 return Err(
                     "orphan original canonical operation rejected; immutable original retained"
@@ -585,7 +830,25 @@ impl RuntimeLlmSidecar {
             submit: false,
             commit: None,
             original_id,
+            terminal_authority: None,
         }
+    }
+    pub(in crate::viewer::runtime_live) fn test_orphan_lookup_at(
+        &self,
+        agent: &str,
+        original_id: String,
+        minimum: CommitRef,
+    ) -> OrphanPhase {
+        let mut phase = self.test_orphan_phase(agent, "dispatch", Some(original_id));
+        phase.commit = Some(minimum);
+        phase
+    }
+    pub(in crate::viewer::runtime_live) fn test_validate_orphan_terminal_identity(
+        &self,
+        agent: &str,
+        proof: &TerminalRecoveryAuthorityV1,
+    ) -> Result<(), String> {
+        self.validate_orphan_terminal_identity(agent, proof)
     }
     pub(in crate::viewer::runtime_live) fn test_original_orphan_dispatch(
         &self,

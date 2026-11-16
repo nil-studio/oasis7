@@ -35,6 +35,8 @@ mod checkpoint_probe_receipt;
 mod commit_retention;
 #[path = "replication/latest_head_index.rs"]
 mod latest_head_index;
+#[path = "replication/local_commit_recovery.rs"]
+mod local_commit_recovery;
 #[path = "replication_checkpoint.rs"]
 mod replication_checkpoint;
 #[path = "replication_fetch.rs"]
@@ -483,7 +485,8 @@ struct FetchBlobRequestSigningPayload<'a> {
 
 impl ReplicationRuntime {
     pub(crate) fn new(config: &NodeReplicationConfig, node_id: &str) -> Result<Self, NodeError> {
-        let runtime = Self::from_config(config, node_id)?;
+        let mut runtime = Self::from_config(config, node_id)?;
+        runtime.recover_local_commit(node_id)?;
         reconcile_latest_commit_head_indexes(config.root_dir.as_path())?;
         runtime.reconcile_checkpoint_lineage_retention()?;
         Ok(runtime)
@@ -527,6 +530,7 @@ impl ReplicationRuntime {
         if !matches!(decision.status, PosConsensusStatus::Committed) {
             return Ok(None);
         }
+        self.recover_local_commit(node_id)?;
         if decision.height <= self.writer_state.last_replicated_height {
             return Ok(None);
         }
@@ -602,14 +606,6 @@ impl ReplicationRuntime {
         )
         .map_err(distfs_error_to_node_error)?;
 
-        apply_replication_record(&self.store, &mut self.guard, &record, &payload_bytes)
-            .map_err(distfs_error_to_node_error)?;
-
-        self.writer_state.writer_epoch = record.writer_epoch;
-        self.writer_state.last_sequence = record.sequence;
-        self.writer_state.last_replicated_height = decision.height;
-        self.persist_state(node_id)?;
-
         let mut message = GossipReplicationMessage {
             version: REPLICATION_VERSION,
             world_id: world_id.to_string(),
@@ -627,7 +623,9 @@ impl ReplicationRuntime {
             let signature_hex = sign_replication_message(&message, signer)?;
             message.signature_hex = Some(signature_hex);
         }
-        self.persist_commit_message(decision.height, &message)?;
+        // The signed original precedes every multi-file publication boundary.
+        self.stage_local_commit_original(node_id, &message)?;
+        self.restore_local_commit_original(node_id, &message, false)?;
 
         Ok(Some(message))
     }

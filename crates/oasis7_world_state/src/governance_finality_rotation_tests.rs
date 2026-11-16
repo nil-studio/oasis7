@@ -5,7 +5,7 @@ use oasis7_agent_api::world_action::GovernanceAuthorizationV1;
 fn h(n: u8) -> String {
     format!("{n:02x}").repeat(32)
 }
-fn record(id: &str) -> FinalityKeyRotationRecordV1 {
+pub(crate) fn record(id: &str) -> FinalityKeyRotationRecordV1 {
     let context = GovernanceAuthorizationV1 {
         schema_version: 1,
         world_id: "rotation-vector".into(),
@@ -158,6 +158,7 @@ fn empty_history_preserves_bytes_and_atomic_projection_matches_installed_record(
         controller_registry: base.state.governance_main_token_controller_registry.clone(),
         admissions: base.state.governance_validator_admissions.clone(),
         rotations: BTreeMap::from([("rotation-one".into(), original.clone())]),
+        bootstrap_rotations: BTreeMap::new(),
         authorization_nonces: base.state.governance_authorization_nonces.clone(),
         identity_bindings: base.state.node_identity_bindings.clone(),
         account_bindings: base.state.node_main_token_account_bindings.clone(),

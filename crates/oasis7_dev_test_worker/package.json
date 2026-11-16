@@ -1,0 +1,8 @@
+{
+  "name":"oasis7-dev-test-worker",
+  "private":true,
+  "type":"module",
+  "scripts":{"test":"node --test --test-concurrency=1 tests/*.test.mjs","build":"./scripts/build.sh"},
+  "devDependencies":{"miniflare":"5.20261019.2-beta","wrangler":"4.152.0"},
+  "overrides":{"undici":"7.30.1"}
+}

@@ -10,6 +10,9 @@ impl FormalFullSyncSession {
         let provider_count = 1 + self.config.alternate_endpoints.len();
         let starting_provider = self.active_provider_index;
         let mut failures = Vec::with_capacity(provider_count);
+        // The target cut and charged material bytes belong to this whole
+        // `sync_latest()` call, not to an individual provider attempt.
+        let mut attempt = FullSyncAttemptV1::new(self.config.max_total_sync_bytes);
         for offset in 0..provider_count {
             let provider_index = (starting_provider + offset) % provider_count;
             if offset > 0
@@ -23,7 +26,7 @@ impl FormalFullSyncSession {
                     "HistoryUnavailable: cannot replay the fixed external history for provider {provider_index}: {error}"
                 ));
             }
-            match self.sync_latest_inner() {
+            match self.sync_latest_inner(&mut attempt) {
                 Ok(restored) => return Ok(restored),
                 Err(error) => {
                     failures.push(format!("provider[{provider_index}]: {error}"));

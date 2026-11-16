@@ -76,7 +76,20 @@ pub(super) fn decode_provider_lineage_checkpoint(
         .ok_or_else(|| {
             "provider lineage checkpoint decode failed: missing schema_version".to_string()
         })?;
+    if matches!(schema_version, 1 | 2) && value.get("provider_raw_outcomes").is_some() {
+        return Err("legacy provider lineage schema cannot carry raw actor escrow".into());
+    }
     let migrated = match u16::try_from(schema_version).unwrap_or(u16::MAX) {
+        RAW_PROVIDER_LINEAGE_SCHEMA_VERSION => {
+            if !value
+                .get("provider_raw_outcomes")
+                .and_then(Value::as_array)
+                .is_some_and(|raw| !raw.is_empty() && raw.len() <= 128)
+            {
+                return Err("raw provider lineage schema requires bounded nonempty escrow".into());
+            }
+            false
+        }
         PROVIDER_LINEAGE_SCHEMA_VERSION => false,
         LEGACY_PROVIDER_LINEAGE_SCHEMA_VERSION => {
             lineage_recovery::migrate_legacy_budget_contracts(&mut value)?;
@@ -91,6 +104,10 @@ pub(super) fn decode_provider_lineage_checkpoint(
     };
     let checkpoint: PersistedProviderLineageV1 = serde_json::from_value(value)
         .map_err(|error| format!("provider lineage checkpoint decode failed: {error}"))?;
+    RuntimeLlmSidecar::validate_raw_escrow(
+        &checkpoint.provider_raw_outcomes,
+        &checkpoint.provider_active_turns,
+    )?;
     for (agent_id, pending) in &checkpoint.provider_service_pending {
         let derived = crate::world_service::derive_correlation(
             pending.correlation.key.world.clone(),

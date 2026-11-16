@@ -1,0 +1,8 @@
+name: oasis7/actions-cache-mode
+version: 0.0.1
+library: false
+# Actions shares the JavaScript dbscheme; init needs an unambiguous language.
+extractor: actions
+dependencies:
+  codeql/actions-all: 0.7.1
+  codeql/actions-queries: 0.6.39

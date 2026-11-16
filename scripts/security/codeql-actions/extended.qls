@@ -1,0 +1,6 @@
+- import: codeql-suites/actions-security-extended.qls
+  from: codeql/actions-queries
+  version: 0.6.39
+- query: queries/CachePoisoningViaPoisonableStep.ql
+- exclude:
+    query path: Security/CWE-349/CachePoisoningViaPoisonableStep.ql

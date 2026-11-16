@@ -1,136 +1,27 @@
 //! Immutable read-only sessions; references never authenticate a caller.
 use serde::{Deserialize, Serialize};
 pub type PrivateUnlocks = BTreeMap<String, zeroize::Zeroizing<Vec<u8>>>;
+pub use oasis7_custody_core::dev_test::{Binding, Grant};
 use std::collections::BTreeMap;
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Binding {
-    pub account_ref: String,
-    pub environment: String,
-    pub world: String,
-    pub genesis_digest: String,
-    pub agent_id: String,
-    pub resource: String,
-    pub executor_config_digest: String,
-    pub authorization_version: u64,
-}
-#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Grant {
-    pub grant_ref: String,
-    pub grant_id: String,
-    pub caller_id: String,
-    pub binding: Binding,
-    pub expires_at_unix: u64,
-    pub enabled: bool,
-    pub methods: Vec<String>,
-    #[serde(default)]
-    pub move_targets: Vec<[i64; 3]>,
-}
-struct Session {
-    grant_ref: String,
-    grant_id: String,
-    caller_id: String,
-    binding: Binding,
-    expires: u64,
-    methods: Vec<String>,
-    move_targets: Vec<[i64; 3]>,
-}
-pub struct Sessions {
-    epoch: String,
-    next: u64,
-    sessions: BTreeMap<String, Session>,
-}
+pub struct Sessions(oasis7_custody_core::dev_test::Sessions);
 impl Sessions {
     pub fn new() -> Result<Self, String> {
         let mut entropy = [0; 32];
         getrandom::fill(&mut entropy).map_err(|_| "session_entropy_unavailable")?;
-        Ok(Self {
-            epoch: hex::encode(entropy),
-            next: 0,
-            sessions: BTreeMap::new(),
-        })
+        Ok(Self(oasis7_custody_core::dev_test::Sessions::with_epoch(
+            hex::encode(entropy),
+        )?))
     }
-    pub fn open(
-        &mut self,
-        caller: &str,
-        grant: &Grant,
-        expires: u64,
-        now: u64,
-    ) -> Result<String, String> {
-        if caller != grant.caller_id
-            || !grant.enabled
-            || expires <= now
-            || expires > grant.expires_at_unix
-            || grant.methods.is_empty()
-            || grant.methods.iter().any(|m| {
-                ![
-                    "describe",
-                    "task",
-                    "capabilities",
-                    "context",
-                    "move",
-                    "lookup",
-                ]
-                .contains(&m.as_str())
-            })
-        {
-            return Err("session_scope_denied".into());
-        }
-        self.next = self
-            .next
-            .checked_add(1)
-            .ok_or("session_capacity_exhausted")?;
-        let reference = format!("{}-{}", self.epoch, self.next);
-        self.sessions.insert(
-            reference.clone(),
-            Session {
-                grant_ref: grant.grant_ref.clone(),
-                grant_id: grant.grant_id.clone(),
-                caller_id: caller.into(),
-                binding: grant.binding.clone(),
-                expires,
-                methods: grant.methods.clone(),
-                move_targets: grant.move_targets.clone(),
-            },
-        );
-        Ok(reference)
+}
+impl std::ops::Deref for Sessions {
+    type Target = oasis7_custody_core::dev_test::Sessions;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
-    pub fn authorize(
-        &self,
-        reference: &str,
-        caller: &str,
-        current: &Grant,
-        method: &str,
-        now: u64,
-    ) -> Result<&Binding, String> {
-        let session = self.sessions.get(reference).ok_or("session_unavailable")?;
-        if caller != session.caller_id
-            || caller != current.caller_id
-            || session.grant_ref != current.grant_ref
-            || session.grant_id != current.grant_id
-            || session.binding != current.binding
-            || session.move_targets != current.move_targets
-            || !current.enabled
-            || now >= session.expires
-            || now >= current.expires_at_unix
-            || !session.methods.iter().any(|m| m == method)
-            || !current.methods.iter().any(|m| m == method)
-        {
-            return Err("session_scope_denied".into());
-        }
-        Ok(&session.binding)
-    }
-    pub fn close(&mut self, reference: &str, caller: &str) -> Result<(), String> {
-        if self
-            .sessions
-            .get(reference)
-            .is_none_or(|s| s.caller_id != caller)
-        {
-            return Err("session_unavailable".into());
-        }
-        self.sessions.remove(reference);
-        Ok(())
+}
+impl std::ops::DerefMut for Sessions {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 #[derive(Deserialize, Serialize)]
@@ -151,16 +42,7 @@ pub struct ServiceConfig {
     pub grants: Vec<Grant>,
     pub resources: BTreeMap<String, Resource>,
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ToolRequest {
-    pub credential: String,
-    pub method: String,
-    pub grant_ref: Option<String>,
-    pub session_ref: Option<String>,
-    pub expires_at_unix: Option<u64>,
-    pub operation: Option<crate::dev_test_operations::Call>,
-}
+pub use oasis7_custody_core::dev_test::ToolRequest;
 fn verify_resource_bytes(binding: &Binding, bytes: &[u8]) -> Result<(), String> {
     if blake3::hash(bytes).to_hex().as_str() != binding.executor_config_digest {
         return Err("resource_configuration_changed_new_session_required".into());
@@ -317,14 +199,11 @@ pub fn handle(
             return Err("invalid_tool_arguments".into());
         }
         let reference = request.session_ref.as_deref().ok_or("session_required")?;
-        let session = sessions
-            .sessions
-            .get(reference)
-            .ok_or("session_unavailable")?;
+        let (grant_ref, _) = sessions.policy_reference(reference)?;
         let grant = config
             .grants
             .iter()
-            .find(|g| g.grant_ref == session.grant_ref && g.caller_id == caller.caller_id)
+            .find(|g| g.grant_ref == grant_ref && g.caller_id == caller.caller_id)
             .ok_or("grant_unavailable")?;
         sessions.authorize(reference, &caller.caller_id, grant, &request.method, now)?;
         grant
@@ -345,13 +224,7 @@ pub fn handle(
             .expires_at_unix,
     );
     if let Some(reference) = request.session_ref.as_deref() {
-        authorization_expiry = authorization_expiry.min(
-            sessions
-                .sessions
-                .get(reference)
-                .ok_or("session_unavailable")?
-                .expires,
-        );
+        authorization_expiry = authorization_expiry.min(sessions.policy_reference(reference)?.1);
     }
     let wall_now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

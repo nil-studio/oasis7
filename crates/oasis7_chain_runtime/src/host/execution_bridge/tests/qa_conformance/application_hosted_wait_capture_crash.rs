@@ -99,6 +99,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     let readout_started = Instant::now();
     let deadline = readout_started + Duration::from_secs(12);
     let mut summary = serde_json::Value::Null;
+    let mut public_observations = wait_capture_diagnostics::Observations::default();
     let mut completed = false;
     let readout_stop = Arc::new(AtomicBool::new(false));
     let stop = readout_stop.clone();
@@ -137,12 +138,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
                 .unwrap();
             next_snapshot = Instant::now() + Duration::from_millis(250);
         }
-        snapshot_frames += usize::from(
-            session.snapshot(
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .min(Duration::from_millis(25)),
-            ),
+        snapshot_frames += session.drain_for(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(25)),
         );
         if crash && root.join("wait-capture-unpublished").exists() {
             let bytes = fs::read(root.join("wait-capture-checkpoint-backup.json")).unwrap();
@@ -186,22 +185,38 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
                 last_phase_state = phase_state;
             }
             summary = actual;
+            let mut resumed_marker_read = false;
+            let mut exact_resumed_memory = None;
             if let Ok(bytes) = fs::read(root.join("hosted-resumed-model.json")) {
                 let resumed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                resumed_marker_read = true;
                 completed = summary["terminal_states"]["agent-a"]["status"] == "committed"
                     && summary["publication_pending"] == false
                     && summary["publication_capture_failed"] == false
                     && summary["pending_intent_count"] == 0
                     && summary["pending_action_count"] == 0
-                    && summary["memory_store"]
-                        .to_string()
-                        .contains(resumed["request_digest"].as_str().unwrap());
-                if completed {
-                    break;
-                }
+                    && {
+                        // Preserve the original short-circuit and exact memory predicate.
+                        let matches = summary["memory_store"]
+                            .to_string()
+                            .contains(resumed["request_digest"].as_str().unwrap());
+                        exact_resumed_memory = Some(matches);
+                        matches
+                    };
+            }
+            public_observations.record(
+                captured_at.duration_since(readout_started).as_millis() as u64,
+                readout_started.elapsed().as_millis() as u64,
+                &summary,
+                resumed_marker_read,
+                exact_resumed_memory,
+            );
+            if completed {
+                break;
             }
         }
     }
+    let observation_elapsed_ms = readout_started.elapsed().as_millis() as u64;
     readout_stop.store(true, Ordering::SeqCst);
     // Completion is fixed before shutdown. A later cleanup/readback must not
     // turn a missed pre-deadline predicate into a successful acceptance.
@@ -232,6 +247,17 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     .unwrap();
     let joined = session.close();
     let readout_finished = finished_rx.recv_timeout(Duration::from_secs(2)).is_ok();
+    if !completed || !readout_finished || !drained || joined.is_err() {
+        eprintln!(
+            "hosted_wait_capture_observation_failure={}",
+            public_observations.report(
+                observation_elapsed_ms,
+                readout_finished,
+                drained,
+                joined.is_ok()
+            )
+        );
+    }
     assert!(
         readout_finished,
         "actual live readout worker must finish within cleanup budget"

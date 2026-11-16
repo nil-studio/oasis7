@@ -5,6 +5,7 @@ it('installs only a gated read and removes its own instance on cleanup',async()=
  useTestRustRenderState();await renderPixelWorldHost(sampleSnapshot(),'?test_api=1&connect=0&locale=en');
  expect(typeof window.__OASIS7_WORLD_VIEW_RETENTION__).toBe('function');
  const stats=window.__OASIS7_WORLD_VIEW_RETENTION__();expect(stats.published).toHaveProperty('logicalJsonBytes');
+ expect(stats.transport.pendingRequests).toBe(0);
  expect(JSON.stringify(stats)).not.toContain('agent-0');expect(window.__OASIS7_WORLD_VIEW_RETENTION__(null,false).measured).toBe(false);
  cleanupMountedHost();expect(window.__OASIS7_WORLD_VIEW_RETENTION__).toBeUndefined();
 });

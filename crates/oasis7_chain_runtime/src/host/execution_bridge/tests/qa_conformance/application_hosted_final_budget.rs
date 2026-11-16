@@ -313,7 +313,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
     let mut completed = false;
     let mut summary = serde_json::Value::Null;
     while window.keep_waiting(&root, started) {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
         if let Ok(guard) = shared.try_lock() {
             summary = guard.test_canonical_provider_diagnostic_summary();
             completed = summary["terminal_states"]["agent-a"]["status"] == "completed"

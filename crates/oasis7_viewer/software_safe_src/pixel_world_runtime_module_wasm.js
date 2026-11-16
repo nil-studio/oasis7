@@ -8,6 +8,9 @@ const LOCATION_TEST_READBACK_CONTRACT = "oasis7_location_frame_evidence_v1";
 
 let runtimeInitPromise = null;
 let activeModule = null;
+let activeLinearMemory = null;
+let mountedMemoryLease = null;
+let memoryLeaseSequence = 0;
 const DOWNLOAD_BUDGET_MS = 30000;
 const PREPARE_BUDGET_MS = 10000;
 
@@ -250,9 +253,10 @@ function ensurePixelWorldBridgeModule() {
     // state. Abandoned initialization cannot overwrite a later attempt.
     const candidate = createPixelWorldModule();
     const attempt = loadPixelWorldWasmInput({ initialize: bytes => candidate.default({ module_or_path: bytes }) })
-      .then(() => {
+      .then(exports => {
         if (runtimeInitPromise !== attempt) return;
         activeModule = candidate;
+        activeLinearMemory = exports?.memory instanceof WebAssembly.Memory ? exports.memory : null;
         publishResourceStage("ready");
       });
     runtimeInitPromise = attempt;
@@ -280,6 +284,7 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
   finally { resourceStageListeners.delete(progress); }
 
   let mountedCanvas = null;
+  let memoryLease = null;
   let animationFrameId = null;
   let removeCanvasListeners = () => {};
   let dragState = null;
@@ -300,6 +305,7 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
       onEvent?.(event);
     },
     (fatal) => {
+      if (mountedMemoryLease === memoryLease) mountedMemoryLease = null;
       onFatal?.(fatal);
     },
   );
@@ -498,9 +504,12 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
 
   return {
     mount(canvas, renderState) {
+      mountedMemoryLease = null;
       mountedCanvas = canvas;
       const result = runtime.mount(canvas, renderState);
       if (result?.status === "ready") {
+        memoryLease = {sequence:++memoryLeaseSequence};
+        mountedMemoryLease = memoryLease;
         attachCanvasListeners(canvas);
         attachLifecycleHooks(canvas);
         syncRuntime();
@@ -519,10 +528,12 @@ export async function createPixelWorldBridge({ onEvent, onFatal } = {}) {
       return result;
     },
     unmount() {
+      if (mountedMemoryLease === memoryLease) mountedMemoryLease = null;
       stopAnimationLoop();
       removeLifecycleListeners();
       cleanupCanvasListeners();
       const result = runtime.unmount();
+      if (mountedMemoryLease === memoryLease) mountedMemoryLease = null;
       mountedCanvas = null;
       return result;
     },
@@ -566,3 +577,11 @@ export {
   loadPixelWorldWasmInput as loadPixelWorldWasmInputForTest,
   resolvePixelWorldWasmUrl as resolvePixelWorldWasmUrlForTest,
 };
+
+// Linear capacity only: not used allocator heap, retained client roots or GPU memory.
+export function readPixelWorldLinearMemoryCapacity() {
+  if (!pixelWorldTestApiEnabled()) return {status:"disabled"};
+  if (!mountedMemoryLease) return {status:"unmounted"};
+  if (!activeLinearMemory) return {status:"unavailable",reason:"active_memory_export_missing"};
+  return {status:"observed",instanceSequence:mountedMemoryLease.sequence,linearCapacityBytes:activeLinearMemory.buffer.byteLength,semantics:"wasm_linear_capacity_not_used_heap"};
+}

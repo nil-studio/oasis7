@@ -555,6 +555,9 @@ fn binding_changed_stale_lease_checkpoint_retry_reconciles_terminal_release() {
 
 #[test]
 fn stale_replan_exhaustion_cleans_restored_lease_before_terminal_return() {
+    let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
+        .lock()
+        .expect("provider env lock");
     let mut world = bound_provider_lease_test_world(&["agent-a"]);
     let context =
         valid_test_provider_context(&world, "agent-a", "turn-stale-max", "request-stale-max");
@@ -741,6 +744,10 @@ fn committed_marker_recovery_settles_provider_lease_before_clearing_mirror() {
             provider_original_material_refs: None,
             provider_response_context_lease: None,
         };
+    #[cfg(not(target_arch = "wasm32"))]
+    first
+        .provider_raw_outcomes
+        .push(queued_tests::wait_raw_fixture(1, &cognition));
     first.provider_held_decisions.insert(
         "agent-a".to_string(),
         async_support::RuntimeLlmDecision {
@@ -777,6 +784,7 @@ fn committed_marker_recovery_settles_provider_lease_before_clearing_mirror() {
         .values()
         .find(|pending| pending.agent_id == "agent-a")
         .expect("commit-marker recovery must rebuild the pre-track action");
+    assert_eq!(restored.provider_raw_outcomes.len(), 1);
     assert_eq!(
         recovered_pending
             .cognition
@@ -842,6 +850,8 @@ fn committed_marker_recovery_settles_provider_lease_before_clearing_mirror() {
             .is_some_and(serde_json::Map::is_empty),
         "settled recovery must durably clear the sidecar lease mirror"
     );
+    #[cfg(not(target_arch = "wasm32"))]
+    queued_tests::assert_committed_raw_release(&mut restored, &mut world, &path);
     let _ = std::fs::remove_file(path);
 }
 

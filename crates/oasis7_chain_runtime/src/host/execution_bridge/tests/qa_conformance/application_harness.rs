@@ -219,6 +219,7 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     let ordinary_wait = final_budget
         || resume_rejected
         || admission_mode == "hosted-wait"
+        || admission_mode == "hosted-known-failure"
         || resume_crash
         || fs_handoff
         || fs_wait
@@ -359,6 +360,13 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         fs::write(
             app_dir.join("provider-hosted-wait"),
             b"ordinary Wait then resumed Act",
+        )
+        .unwrap();
+    }
+    if admission_mode == "hosted-known-failure" {
+        fs::write(
+            app_dir.join("provider-known-failure"),
+            b"one nonretryable provider error",
         )
         .unwrap();
     }
@@ -509,6 +517,16 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         hosted,
         metadata_probe,
     );
+    if admission_mode == "hosted-known-failure" {
+        application_hosted_known_failure::report(
+            &fixture,
+            &app_dir,
+            &output,
+            metadata.as_ref().unwrap(),
+        );
+        fs::remove_dir_all(app_dir).unwrap();
+        return;
+    }
     if admission_mode.starts_with("memory-ack-") {
         assert_eq!(
             metadata
@@ -751,6 +769,10 @@ fn run_application_child_and_report(
         "wait-admit-rejected" | "wait-rejection-write-failure" | "wait-rejection-crash"
     ) {
         application_completion::run_child_phase(command, app_dir, "wait-rejection-initial")
+    } else if admission_mode == "wait-admit-crash" {
+        application_completion::run_child_phase(command, app_dir, "wait-admit-crash")
+    } else if admission_mode == "hosted-wait-resume-crash" {
+        application_completion::run_child_phase(command, app_dir, "resume-crash")
     } else if matches!(
         admission_mode,
         "fresh-admission"

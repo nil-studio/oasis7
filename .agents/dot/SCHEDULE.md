@@ -4,7 +4,7 @@
 
 用户选择单执行者本地 Python TODO 时，执行与恢复以 [LOCAL_TODO.md](LOCAL_TODO.md) 为准：父任务持久保存快照，dot 有限串行处理；下文运行器原子认领、统一 subagent 分工与自动等待重试只适用于原运行器模式。业务授权、暂停、未知结果和验收要求两种模式均须遵守。当前统一 Issue、Sites、CI 及旧每日 Issue 保持暂停，文档或脚本提交不恢复任务。
 
-本表是例行任务的唯一时间定义；执行方法见 [HEARTBEAT.md](HEARTBEAT.md)。表内“纳入巡检”表示配置意图，不表示外部触发器或 subagent 已启用。本次 PR 尚未启用实际巡检。
+本表是例行任务的唯一时间定义；执行方法见 [HEARTBEAT.md](HEARTBEAT.md)。表内“纳入巡检”表示配置意图，不表示外部触发器或 subagent 已启用。实际采用与启用状态以运行器配置和执行记录为准。
 
 ## 时间与触发
 
@@ -25,14 +25,14 @@
 
 | 稳定 ID | 纳入巡检 | 周期 / 到期时间 | 执行者 | 事项与输出 |
 | --- | --- | --- | --- | --- |
-| `issue-triage` | 是，待核实切换 | 每 20 分钟，每小时 `:00 / :20 / :40` | subagent | 按[增量 Issue 整理](tasks/issue-triage.md)处理五类 Issue 的变化、分类、完成核验及归并，保留未完成义务 |
+| `issue-triage` | 是 | 每 20 分钟，每小时 `:00 / :20 / :40` | subagent | 按[增量 Issue 整理](tasks/issue-triage.md)处理五类 Issue 的变化、分类、完成核验及归并，保留未完成义务 |
 
 本项替代每日 `daily-issue-triage` 和周期 `defect-triage`，不再另设 06:00 Issue 整理或固定滚动三日全量扫描。实例键为 `eng-cc/oasis7/issue-triage/YYYY-MM-DDTHH:mm+08:00`；读取仓库为 `nil-studio/oasis7`，保留既有命名空间。周期漏槽按下述规则合并，读取水位与周期槽分别记录。
 
 <a id="issue-triage-migration"></a>
 ### 迁移与实际启用
 
-本 PR 只修改流程，不注册、停用或修改线上任务。新规则被明确采用且具备执行授权后，运行器按以下顺序切换：
+流程文件的保存或合入不自动注册、停用或修改线上任务。需要切换旧任务，且新规则已明确采用、执行授权具备时，运行器按以下顺序交接：
 
 1. 核对两个旧任务的真实 ID、采用版本、在途执行、未完成分页、依赖待办、证据指纹和未知写入；保存切换点及可恢复交接记录。已存在但未运行的历史实例不能标为成功。
 2. 阻止两个旧任务的新派工，协调已认领执行与未知结果；保留其原身份、版本、重试次数及回执，不能通过改名重新派一份。
@@ -46,7 +46,7 @@ Issue 与 Sites 周期项各自保留一个 pending/waiting_executor 承接项�
 
 | 稳定 ID | 纳入巡检 | 周期 / 到期时间 | 执行者 | 事项与输出 |
 | --- | --- | --- | --- | --- |
-| `sites-content-review` | 是，待核实接入 | 每 20 分钟，每小时 `:00 / :20 / :40` | subagent | 按 [Sites 内容 review](tasks/sites-content-review.md) 核对公开来源、项目状态、交付摘要与任务运行情况；有新增或过期内容时，在已有授权和可用入口内更新，无变化不重复写 |
+| `sites-content-review` | 是 | 每 20 分钟，每小时 `:00 / :20 / :40` | subagent | 按 [Sites 内容 review](tasks/sites-content-review.md) 核对公开来源、项目状态、交付摘要与任务运行情况；有新增或过期内容时，在已有授权和可用入口内更新，无变化不重复写 |
 
 本项使用 `Asia/Shanghai`，按自己的真实 `activated_at` 起算，首个计划槽不得早于激活时间，不追补启用前时段。周期实例键为 `eng-cc/oasis7/sites-content-review/YYYY-MM-DDTHH:mm+08:00`，时间是计划槽而非实际开始时刻；保留运行器既有仓库命名空间，实际来源仍核对 `nil-studio/oasis7`，不因改名重建历史实例。
 

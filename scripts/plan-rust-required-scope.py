@@ -2,12 +2,14 @@
 """Select ordinary CI groups from Git data. No network, task state or candidate code execution."""
 import argparse
 from bisect import bisect_right
+from contextvars import ContextVar
 import fnmatch
 import hashlib
 import json
 import posixpath
 import re
 import subprocess
+import unicodedata
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -18,8 +20,11 @@ from types import MappingProxyType
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
+LOCAL_INPUTS_VERSION = 1
+_LOCAL_INPUT_TREES = ContextVar('local_input_trees', default=frozenset())
 FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
+ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION = 1
 ORDINARY_PARTITION_VERSION = 1
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
 DISTFS_CLIPPY_CONTRACT_VERSION = 1
@@ -32,18 +37,23 @@ DISTFS_CLIPPY_TARGETS = frozenset((
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 PYTHON_CONTROL_CONTRACT_VERSION = 1
+ADDITIVE_GOVERNANCE_REGISTRATION_VERSION = 1
+CUSTODY_EXECUTION_VERSION = 1
+CUSTODY_COMPILE_PROOF_VERSION = 1
+CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
     'oasis7_client_storage', 'oasis7_signer_protocol',
-    'oasis7_custody_core', 'oasis7_custody_worker',
+    'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
     'oasis7_local_signer', 'oasis7_launcher_ui', 'oasis7_proto',
     'oasis7_wasm_abi', 'oasis7_wasm_build', 'oasis7_wasm_router',
     'oasis7_wasm_sdk', 'oasis7_wasm_store', 'pixel_world_bridge',
     'oasis7_wasm_executor', 'oasis7_secure_envelope', 'oasis7_context',
     'oasis7_client_launcher', 'wasm_build_suite', 'wasm_module_observe',
 )
-# The distfs group runs these lib harnesses with Cargo defaults on Ubuntu.
+# The distfs group runs these lib harnesses and the registered industry
+# integration target with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
 # Keep synchronized with run_oasis7_distfs_tests and rust.yml's distfs runner.
 NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
@@ -51,8 +61,8 @@ NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
-           'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py',
-           'scripts/ci_process_runner.py')
+           'scripts/check-local.py',
+           'scripts/plan-rust-required-scope*', 'scripts/ci_process_runner.py')
 
 
 class UnknownInputsError(ValueError):
@@ -68,8 +78,9 @@ class TestPolicyError(ValueError):
     """An ignored test needs a trusted real execution path, not just a new tag."""
 
 
-def git(*args):
-    return subprocess.check_output(['git', *args], stderr=subprocess.DEVNULL)
+def git(*args, repo=None):
+    return subprocess.check_output(['git', *(['-C', str(repo)] if repo is not None else []), *args],
+                                   stderr=subprocess.DEVNULL)
 
 
 def changed_paths(base, head):
@@ -88,6 +99,112 @@ def changed_paths(base, head):
     return list(dict.fromkeys(result))
 
 
+def additive_governance_registration(config, comparisons, paths, *, repo=None):
+    """Prove one additive diagnostic registration using immutable Git inputs.
+
+    This is deliberately not a shell parser or a general ci-tests.sh exception.
+    The trusted policy must opt in, every old literal invocation must survive in
+    order, and the complete script outside the one fixed function is identical.
+    The caller must retain Cargo ownership/embedded-consumer and other full
+    fallbacks; this proof never removes a selected Rust consumer.
+    """
+    driver = 'scripts/ci-tests.sh'
+    version = config.get('additive_governance_registration_version')
+    if (driver not in paths or type(version) is not int
+            or version != ADDITIVE_GOVERNANCE_REGISTRATION_VERSION):
+        return None
+    marker = 'run_workflow_governance_operational_contract_tests() {\n'
+    command = re.compile(r'  run python3 \./(scripts/security/'
+                         r'(?:[A-Za-z0-9_-]+\.test|test_[A-Za-z0-9_]+)\.py)\n')
+
+    def read_git(*args):
+        return subprocess.check_output(['git', *(['-C', str(repo)] if repo is not None else []),
+                                        *args], stderr=subprocess.DEVNULL)
+
+    def regular_blob(ref, path):
+        record = read_git('ls-tree', '-z', ref, '--', path).split(b'\0')
+        if len(record) != 2 or record[1] != b'':
+            raise ValueError('registration requires one tracked regular file')
+        metadata, name = record[0].split(b'\t', 1)
+        mode, kind, oid = metadata.decode('ascii').split()
+        if name.decode('utf-8') != path or kind != 'blob' or mode not in ('100644', '100755'):
+            raise ValueError('registration requires a tracked regular file')
+        return mode, oid
+
+    def driver_parts(ref):
+        mode, oid = regular_blob(ref, driver)
+        if int(read_git('cat-file', '-s', oid)) > 256 * 1024:
+            raise ValueError('unbounded diagnostic registration script')
+        text = read_git('cat-file', 'blob', oid).decode('utf-8')
+        if text.count(marker) != 1:
+            raise ValueError('ambiguous diagnostic registration function')
+        before, rest = text.split(marker)
+        if before and not before.endswith('\n'):
+            raise ValueError('registration function must start on its own line')
+        body, after = rest.split('\n}\n', 1)
+        lines = (body + '\n').splitlines(keepends=True)
+        if (not lines or any(command.fullmatch(line) is None for line in lines)
+                or len(lines) != len(set(lines))):
+            raise ValueError('registration body must contain unique literal test invocations')
+        return mode, before, lines, after
+
+    def mapped_groups(path):
+        scoped = config.get('scoped_control_paths', {}).get(path)
+        # Keep mixtures with other drivers/planners full even when that Python
+        # control has its own contract. Only already-scoped diagnostic workflows
+        # may accompany this one shell registration exception.
+        if (any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
+                and (scoped is None or not path.startswith('.github/'))):
+            return None
+        selected = set(scoped or ())
+        matched = scoped is not None
+        for rule in config['rules']:
+            if (any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
+                    and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule.get('exclude', []))):
+                if rule.get('full', False):
+                    return None
+                matched = True
+                selected.update(rule.get('groups', ()))
+        selected.update(python_control_inputs(config).get(path, {}))
+        if any(fnmatch.fnmatchcase(path, pattern)
+               for patterns in config.get('workspace_support_profile_paths', {}).values()
+               for pattern in patterns):
+            return None
+        if not matched or selected - {'baseline', 'workflow_governance'}:
+            return None
+        return selected
+
+    try:
+        if any(mapped_groups(path) is None for path in paths if path != driver):
+            return None
+        additions = set()
+        if not comparisons:
+            return None
+        for before, after in comparisons:
+            old_mode, old_prefix, old, old_suffix = driver_parts(before)
+            new_mode, new_prefix, new, new_suffix = driver_parts(after)
+            if (old_mode, old_prefix, old_suffix) != (new_mode, new_prefix, new_suffix):
+                return None
+            # A subsequence preserves every existing registration and its order.
+            pending = iter(old)
+            expected = next(pending, None)
+            for line in new:
+                if line == expected:
+                    expected = next(pending, None)
+            if expected is not None:
+                return None
+            for line in new:
+                if line not in old:
+                    target = command.fullmatch(line).group(1)
+                    regular_blob(after, target)
+                    if mapped_groups(target) != {'workflow_governance'}:
+                        return None
+                    additions.add(target)
+        return sorted(additions) or None
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
+        return None
+
+
 def independent_target_input(path, directory, manifest):
     """These Cargo target roots do not form part of the package library."""
     relative = posixpath.relpath(path, directory or '.')
@@ -98,7 +215,66 @@ def independent_target_input(path, directory, manifest):
     return not library.startswith(roots)
 
 
-def known_test_target_root(path, directory, manifest):
+def integration_test_targets(sources, directory, manifest):
+    """Resolve executable identities, separately from possible Cargo consumers.
+
+    Explicit names/paths override only the matching automatic targets. Unknown
+    or ambiguous declarations cannot witness execution; all_cargo_target_roots
+    independently retains their possible consumers.
+    """
+    package, declarations = manifest.get('package', {}), manifest.get('test', [])
+    edition = package.get('edition', '2015')
+    if edition not in ('2015', '2018', '2021', '2024') or not isinstance(declarations, list):
+        return {}
+    automatic = package.get('autotests', edition != '2015' or not any(
+        kind in manifest for kind in ('lib', 'bin', 'test', 'example', 'bench')))
+    if type(automatic) is not bool:
+        return {}
+    inferred = {}
+    prefix = directory + '/' if directory else ''
+    for path in sources:
+        if not path.startswith(prefix):
+            continue
+        match = re.fullmatch(r'tests/([^/.][^/]*)(?:\.rs|/main\.rs)', path[len(prefix):])
+        if match:
+            inferred.setdefault(match[1], []).append(path)
+    resolved, explicit_paths = {}, set()
+    for declaration in declarations:
+        if not isinstance(declaration, dict):
+            return {}
+        name = declaration.get('name')
+        required = declaration.get('required-features', [])
+        if (not isinstance(name, str) or not name or name in resolved
+                or any(type(declaration.get(key, True)) is not bool for key in ('test', 'harness'))
+                or not isinstance(required, list) or any(not isinstance(value, str) for value in required)):
+            return {}
+        if 'path' in declaration:
+            path = declaration['path']
+            if not isinstance(path, str) or not path or posixpath.isabs(path) or '\\' in path:
+                return {}
+            root = posixpath.normpath(posixpath.join(directory, path))
+        else:
+            candidates = inferred.get(name, [])
+            if len(candidates) != 1:
+                return {}
+            root = candidates[0]
+        if root not in sources:
+            return {}
+        resolved[name] = root, declaration
+        explicit_paths.add(root)
+    if automatic:
+        for name, candidates in inferred.items():
+            if name in resolved:
+                continue
+            candidates = [path for path in candidates if path not in explicit_paths]
+            if len(candidates) > 1:
+                return {}
+            if candidates:
+                resolved[name] = candidates[0], {}
+    return resolved
+
+
+def known_test_target_root(path, directory, manifest, integration_targets):
     """Only standalone Cargo roots can prove that no external mod cfg applies."""
     relative = posixpath.relpath(path, directory or '.')
     package, library = manifest.get('package', {}), manifest.get('lib', {})
@@ -106,7 +282,10 @@ def known_test_target_root(path, directory, manifest):
             and library.get('harness', True)
             and relative == posixpath.normpath(library.get('path', 'src/lib.rs'))):
         return True
-    for kind in ('bin', 'test'):
+    if any(path == root and declaration.get('test', True) and declaration.get('harness', True)
+           and not declaration.get('required-features') for root, declaration in integration_targets.values()):
+        return True
+    for kind in ('bin',):
         targets = manifest.get(kind, [])
         if any(target.get('path') and relative == posixpath.normpath(target['path'])
                and target.get('test', True) and target.get('harness', True)
@@ -115,8 +294,7 @@ def known_test_target_root(path, directory, manifest):
         # Explicit declarations can override automatic target test settings.
         if targets or not package.get('auto' + kind + 's', True):
             continue
-        pattern = (r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))'
-                   if kind == 'bin' else r'tests/[^/.][^/]*(?:\.rs|/main\.rs)')
+        pattern = r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))'
         if re.fullmatch(pattern, relative):
             return True
     return False
@@ -167,6 +345,51 @@ def build_script_roots(sources, directories, manifests):
     return roots
 
 
+def all_cargo_target_roots(sources, directories, manifests):
+    """Possible Cargo roots, including targets outside the selected test driver.
+
+    Disabled harnesses and required features cannot make an alternate consumer
+    disappear. Explicit custom/non-Rust paths remain roots even when unreadable.
+    """
+    roots = {}
+    for package, manifest in manifests.items():
+        directory = directories[package]
+
+        def register(relative, kind, name, explicit=False):
+            path = posixpath.normpath(posixpath.join(directory, relative))
+            if explicit or path in sources:
+                roots.setdefault(path, set()).add((package, kind, name))
+
+        metadata = manifest.get('package', {})
+        library = manifest.get('lib', {})
+        if 'lib' in manifest or metadata.get('autolib', True):
+            register(library.get('path', 'src/lib.rs'), 'lib',
+                     library.get('name', package.replace('-', '_')), 'path' in library)
+        for kind, folder, auto in (('bin', 'src/bin', 'autobins'), ('test', 'tests', 'autotests'),
+                                   ('example', 'examples', 'autoexamples'), ('bench', 'benches', 'autobenches')):
+            for item in manifest.get(kind, []):
+                name = item['name']
+                if 'path' in item:
+                    register(item['path'], kind, name, True)
+                else:
+                    for candidate in (folder + '/' + name + '.rs', folder + '/' + name + '/main.rs'):
+                        register(candidate, kind, name)
+                    if kind == 'bin':
+                        register('src/main.rs', kind, name)
+            if metadata.get(auto, True):
+                prefix = directory + '/' if directory else ''
+                for path in sources:
+                    if not path.startswith(prefix):
+                        continue
+                    relative = path[len(prefix):]
+                    match = re.fullmatch(re.escape(folder) + r'/([^/.][^/]*)(?:\.rs|/main\.rs)', relative)
+                    if match:
+                        register(relative, kind, match[1])
+                if kind == 'bin':
+                    register('src/main.rs', kind, package)
+    return roots
+
+
 def default_feature_closure(manifest, *, initial=None):
     features = manifest.get('features', {})
     enabled, pending = set(), (list(initial) if initial is not None else
@@ -192,7 +415,7 @@ def rust_literal_path(value):
     return plain.group(1) if plain else raw.group(2) if raw else None
 
 
-def rust_source_inputs(source, return_tokens=False, with_module_paths=False):
+def rust_source_inputs(source, return_tokens=False, with_module_paths=False, with_module_safety=False):
     """Read literal tokens and real include calls without expanding candidate macros.
 
     Rust fixture strings are a single token, not another source file. Unknown
@@ -301,16 +524,19 @@ def rust_source_inputs(source, return_tokens=False, with_module_paths=False):
     # Decode only forms whose Rust path value is exact. Escapes and other
     # expressions remain conservative instead of using Python/JSON semantics.
     plain_literal = re.compile(r'"([^"\\\r\n]*)"')
-    literals = []
+    literals, literal_tokens = [], []
     calls = []
     for index, (kind, value, start) in enumerate(tokens):
         if kind == 'string':
+            previous = len(literals)
             literal = re.fullmatch(r'(?:b|c)?"([^"\\\r\n]*)"', value)
             raw = raw_string.match(value)
             if literal:
                 literals.append(literal.group(1))
             elif raw:
                 literals.append(value[raw.end():-(len(raw.group(1)) + 1)])
+            if with_module_safety and len(literals) != previous:
+                literal_tokens.append((index, literals[-1]))
         name = value.removeprefix('r#')
         if (kind != 'identifier' or name not in ('include', 'include_str', 'include_bytes')
                 or index + 1 >= len(tokens) or tokens[index + 1][1] != '!'):
@@ -368,6 +594,53 @@ def rust_source_inputs(source, return_tokens=False, with_module_paths=False):
                                                   or rust_literal_path(values[2]) is None)
                            or values[0] == 'cfg_attr' and 'path' in values or inline_path):
                 uncertain_module_paths = True
+        if with_module_safety:
+            # A static test mount cannot hide another mount generated by a
+            # macro (including mod $name or a forwarded item). This inventory
+            # only gates the new private-test contract, not legacy selection.
+            macro_ranges = [(start, end) for start, end in closing.items()
+                            if (start and tokens[start - 1][1] == '!')
+                            or (start > 1 and tokens[start - 2][1] == '!'
+                                and tokens[start - 1][0] == 'identifier')]
+            opaque_modules = any(
+                index + 2 >= len(tokens) or tokens[index + 1][0] != 'identifier'
+                or tokens[index + 2][1] not in (';', '{')
+                or any(start < index < end for start, end in macro_ranges)
+                for index, (kind, token, _) in enumerate(tokens)
+                if kind == 'identifier' and token == 'mod')
+            include_names = {'include', 'include_str', 'include_bytes'}
+            for index, (kind, token, _) in enumerate(tokens):
+                # Macro aliases/re-exports and forwarded builtin names retain
+                # their file-reading semantics without a literal include! call.
+                if token == 'use':
+                    end = index + 1
+                    while end < len(tokens) and tokens[end][1] != ';':
+                        end += 1
+                    opaque_modules |= any(value.removeprefix('r#') in include_names
+                                          for kind, value, _ in tokens[index + 1:end] if kind == 'identifier')
+                opaque_modules |= (kind == 'identifier' and token.removeprefix('r#') in include_names
+                                   and (index + 1 >= len(tokens) or tokens[index + 1][1] != '!')
+                                   and any(start < index < end for start, end in macro_ranges))
+                opaque_modules |= (token == '$' and index + 2 < len(tokens)
+                                   and tokens[index + 1][0] == 'identifier' and tokens[index + 2][1] == '!')
+                opaque_modules |= kind == 'identifier' and token == 'macro'
+                # Rust normalizes identifiers, but paths retain their bytes.
+                # Do not infer a second module's directory from non-NFC text.
+                opaque_modules |= (kind == 'identifier' and not token.isascii()
+                                   and unicodedata.normalize('NFC', token) != token)
+            data_literals = []
+            for index, literal in literal_tokens:
+                # These exact token positions are executable source mounts,
+                # not byte readers. The same string elsewhere remains data.
+                path_attribute = (index >= 4 and index + 1 < len(tokens)
+                                  and [value for _, value, _ in tokens[index - 4:index]] == ['#', '[', 'path', '=']
+                                  and tokens[index + 1][1] == ']')
+                source_include = (index >= 3 and index + 1 < len(tokens)
+                                  and [value for _, value, _ in tokens[index - 3:index]] == ['include', '!', '(']
+                                  and tokens[index + 1][1] in (',', ')'))
+                if not path_attribute and not source_include:
+                    data_literals.append(literal)
+            return literals, calls, uncertain_module_paths, opaque_modules, tuple(data_literals)
         return literals, calls, uncertain_module_paths
     return literals, calls
 
@@ -380,15 +653,20 @@ class GitSourceCache:
     content is a cache key, and no state survives a select() invocation.
     """
 
-    def __init__(self):
+    def __init__(self, *, repo=None, private_test_contract=False):
+        self.repo = repo
+        self.private_test_contract = private_test_contract
         self.blobs = {}
         self.rust_inputs = {}
+        self.opaque_modules = {}
+        self.private_data_literals = {}
 
     def load(self, oids):
         missing = list(dict.fromkeys(oid for oid in oids if oid not in self.blobs))
         if not missing:
             return
-        data = subprocess.check_output(['git', 'cat-file', '--batch'],
+        data = subprocess.check_output(['git', *(['-C', str(self.repo)] if self.repo is not None else []),
+                                        'cat-file', '--batch'],
                                        input=b''.join(oid + b'\n' for oid in missing))
         fetched, offset = {}, 0
         for oid in missing:
@@ -409,33 +687,40 @@ class GitSourceCache:
 
     def inputs(self, oid):
         if oid not in self.rust_inputs:
-            literals, calls, uncertain = rust_source_inputs(
-                self.blobs[oid].decode('utf-8', 'replace'), with_module_paths=True)
+            details = rust_source_inputs(self.blobs[oid].decode('utf-8', 'replace'),
+                                         with_module_paths=True, with_module_safety=self.private_test_contract)
+            literals, calls, uncertain = details[:3]
+            opaque, data_literals = details[3:] if self.private_test_contract else (False, ())
             self.rust_inputs[oid] = (tuple(literals),
                                     tuple(MappingProxyType(call) for call in calls), uncertain)
+            self.opaque_modules[oid] = opaque
+            self.private_data_literals[oid] = data_literals
         return self.rust_inputs[oid]
 
 
-def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
+def cargo_graph(ref, generated_inputs=(), *, source_cache=None, repo=None):
     """Resolve workspace path edges including dev/build/target and renamed dependencies.
 
     Optional dependencies are included conservatively, so no feature combination is lost.
     Unsupported/ambiguous workspace relationships widen selection rather than reject work.
     """
-    records = git('ls-tree', '-r', '-z', ref).split(b'\0')
+    records = git('ls-tree', '-r', '-z', ref, repo=repo).split(b'\0')
     entries = []
     blob_modes = {}
     tracked_paths = set()
+    symlink_paths = set()
     for record in records:
         if not record:
             continue
         identity, path = record.split(b'\t', 1)
         mode, kind, oid = identity.split()
         tracked_paths.add(path.decode('utf-8', 'surrogateescape'))
+        if mode == b'120000':
+            symlink_paths.add(path.decode('utf-8', 'surrogateescape'))
         if kind == b'blob' and (path.endswith(b'Cargo.toml') or path.endswith(b'.rs')):
             entries.append((oid, path.decode('utf-8', 'surrogateescape')))
             blob_modes[path.decode('utf-8', 'surrogateescape')] = mode
-    source_cache = source_cache if source_cache is not None else GitSourceCache()
+    source_cache = source_cache if source_cache is not None else GitSourceCache(repo=repo)
     source_cache.load(oid for oid, _ in entries)
     blob_oids = {path: oid for oid, path in entries}
     blobs = {path: source_cache.blobs[oid] for oid, path in entries}
@@ -456,6 +741,12 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
         package = manifest.get('package')
         if not package:
             continue
+        if package.get('edition') == {'workspace': True}:
+            # Resolve against this Git tree, never the mutable checkout or a
+            # guessed modern edition. A missing inheritance value widens scope.
+            package['edition'] = workspace.get('package', {}).get('edition')
+            if package['edition'] not in ('2015', '2018', '2021', '2024'):
+                raise ValueError('unknown inherited package edition')
         name = package['name']
         if name in manifests:
             raise ValueError('duplicate package name')
@@ -465,7 +756,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
     # Trust only reviewed, self-contained producers whose repository inputs are
     # covered by CONTROL. Check the actual build entry and bytes at every ref;
     # a stale file left behind after switching generators is not authoritative.
-    generated_outputs = {}
+    generated_outputs, trusted_producers = {}, set()
     for entry in generated_inputs:
         if entry['package'] not in manifests:
             continue
@@ -483,6 +774,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
                 or hashlib.sha256(contents).hexdigest() != entry['producer_sha256']):
             continue
         generated_outputs[entry['package']] = set(entry['outputs'])
+        trusted_producers.add(producer)
     by_directory = {directory: name for name, (directory, _) in manifests.items()}
     reverse = {name: set() for name in manifests}
     host_execution_targets = {name for name, (_, manifest) in manifests.items()
@@ -569,7 +861,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
     # Embedded inputs retain whether their reader is a library or a leaf target.
     embedded = {}
     library_embeds = {}
-    data_readers, unresolved_data_readers = {}, set()
+    data_readers, private_data_readers, unresolved_data_readers = {}, {}, set()
     included_sources, unresolved_source_owners, uncertain_includes = set(), set(), set()
 
     for path in paths:
@@ -595,6 +887,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
                 embedded.setdefault(candidate, set()).update(owners)
                 library_embeds.setdefault(candidate, set()).update(library_owners)
                 data_readers.setdefault(candidate, set()).add(path)
+                private_data_readers.setdefault(candidate, set()).add(path)
             elif call['kind'] == 'manifest':
                 for owner in owners:
                     directory = manifests[owner][0]
@@ -603,6 +896,7 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
                     if owner in library_owners:
                         library_embeds.setdefault(candidate, set()).add(owner)
                     data_readers.setdefault(candidate, set()).add(path)
+                    private_data_readers.setdefault(candidate, set()).add(path)
             else:
                 for owner in owners:
                     # Each reader has its own OUT_DIR; one registration cannot
@@ -629,6 +923,17 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
                         if owner in library_owners:
                             library_embeds.setdefault(candidate, set()).add(owner)
                         data_readers.setdefault(candidate, set()).add(path)
+        # The private-test contract distinguishes actual source mounts from
+        # data, while retaining short relative filenames the legacy broad
+        # dependency scanner does not classify. Never change its old inventory.
+        for token in source_cache.private_data_literals[blob_oids[path]]:
+            if not token.endswith('.rs') or '\\' in token or len(token) > 512:
+                continue
+            for owner in owners:
+                for root in ('', manifests[owner][0], posixpath.dirname(path)):
+                    candidate = posixpath.normpath(posixpath.join(root, token.lstrip('/')))
+                    if candidate in tracked_paths:
+                        private_data_readers.setdefault(candidate, set()).add(path)
     embedded['__leaf_inputs__'] = leaf_inputs
     embedded['__library_directories__'] = library_directories
     embedded['__library_readers__'] = library_readers
@@ -639,12 +944,18 @@ def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
     embedded['__host_execution_inputs__'] = ({package for package in manifests
         if reverse_consumers({package}, reverse) & host_execution_targets} if host_execution_targets else set())
     embedded['__rust_data_readers__'] = data_readers
+    embedded['__private_test_data_readers__'] = private_data_readers
     embedded['__unresolved_rust_data_readers__'] = unresolved_data_readers
     # Reuse the exact Git blobs for bounded module-context proofs in fast mode.
     embedded['__rust_sources__'] = {path: content for path, content in blobs.items() if path.endswith('.rs')}
     embedded['__rust_include_targets__'] = included_sources
     embedded['__unresolved_rust_include_owners__'] = unresolved_source_owners
     embedded['__uncertain_module_sources__'] = {path for path, details in source_inputs.items() if details[2]} | uncertain_includes
+    embedded['__opaque_test_module_sources__'] = {
+        path for path in source_inputs if source_cache.opaque_modules[blob_oids[path]]}
+    embedded['__trusted_generated_producers__'] = trusted_producers
+    embedded['__symlink_sources__'] = symlink_paths
+    embedded['__private_test_input_inventory__'] = source_cache.private_test_contract
     return manifests, reverse, embedded
 
 
@@ -725,6 +1036,22 @@ def validate_config(config):
                 or len(outputs) != len(set(outputs))):
             raise ValueError('invalid generated input identity')
         packages.add(package)
+    if 'formal_full_profiles_only_version' in config:
+        if (type(config['formal_full_profiles_only_version']) is not int
+                or config['formal_full_profiles_only_version'] != 1
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION
+                or 'formal_process' not in groups):
+            raise ValueError('invalid Formal full-profile capability or inventory')
+    if 'formal_deferred_ordinary_cases' in config:
+        deferred = config['formal_deferred_ordinary_cases']
+        if (config.get('formal_full_profiles_only_version') != 1 or not isinstance(deferred, dict)
+                or set(deferred) - {'runtime-tests'}):
+            raise ValueError('invalid deferred ordinary Formal inventory')
+        for names in deferred.values():
+            if (not isinstance(names, list) or not names
+                    or any(not isinstance(name, str) or not re.fullmatch(r'\w+(?:::\w+)*', name)
+                           for name in names) or len(names) != len(set(names))):
+                raise ValueError('invalid deferred ordinary Formal case')
     if 'fast_scope_version' in config:
         if config['fast_scope_version'] != FAST_PLAN_VERSION:
             raise ValueError('unknown fast scope version')
@@ -764,11 +1091,39 @@ def validate_config(config):
                 or config['workspace_support_partition_version'] != 1
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid workspace support partition capability')
+    if 'custody_execution_version' in config:
+        if (type(config['custody_execution_version']) is not int
+                or config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
+                or type(config.get('workspace_support_partition_version')) is not int
+                or config['workspace_support_partition_version'] != 1):
+            raise ValueError('invalid custody execution capability')
+    if 'custody_compile_proof_version' in config:
+        if (type(config['custody_compile_proof_version']) is not int
+                or config['custody_compile_proof_version'] != CUSTODY_COMPILE_PROOF_VERSION
+                or type(config.get('custody_execution_version')) is not int
+                or config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
+                or type(config.get('workspace_support_partition_version')) is not int
+                or config['workspace_support_partition_version'] != 1):
+            raise ValueError('invalid custody compile proof capability')
     if 'ordinary_artifact_partition_version' in config:
         if (type(config['ordinary_artifact_partition_version']) is not int
-                or config['ordinary_artifact_partition_version'] != 1
+                or config['ordinary_artifact_partition_version'] not in (1, 2)
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary artifact partition capability')
+    if 'ordinary_harness_costs' in config:
+        if config.get('ordinary_artifact_partition_version') not in (1, 2):
+            raise ValueError('ordinary harness costs require artifact partitions')
+        validate_ordinary_harness_costs(config['ordinary_harness_costs'])
+    if 'ordinary_artifact_delivery_version' in config:
+        if (type(config['ordinary_artifact_delivery_version']) is not int
+                or config['ordinary_artifact_delivery_version'] not in (1, 2)
+                or type(config.get('ordinary_artifact_partition_version')) is not int
+                or config['ordinary_artifact_partition_version'] not in (1, 2)):
+            raise ValueError('invalid ordinary artifact delivery capability')
+    if 'ordinary_main_fast_cache_writer_version' in config:
+        version = config['ordinary_main_fast_cache_writer_version']
+        if type(version) is not int or version != ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION:
+            raise ValueError('invalid ordinary main-fast cache writer capability')
     if 'ordinary_partition_version' in config:
         if (type(config['ordinary_partition_version']) is not int
                 or config['ordinary_partition_version'] != ORDINARY_PARTITION_VERSION
@@ -782,8 +1137,83 @@ def validate_config(config):
                 or config.get('architecture_build_policy_version') != ARCHITECTURE_BUILD_POLICY_VERSION):
             raise ValueError('invalid DistFS Clippy capability')
     validate_fast_test_inventory(config)
+    if 'ordinary_scale_contract' in config:
+        contract = config['ordinary_scale_contract']
+        if (not isinstance(contract, dict) or set(contract) != {'version', 'targets', 'isolated_sources', 'anchors'}
+                or type(contract['version']) is not int or contract['version'] != 1
+                or not isinstance(contract['targets'], list) or not contract['targets']):
+            raise ValueError('invalid ordinary scale contract')
+        # Reuse the existing exact target schema; this inventory only adds tests.
+        targets = {f'scale-{index}': target for index, target in enumerate(contract['targets'])}
+        validate_fast_test_inventory(dict(fast_scope_version=FAST_PLAN_VERSION,
+            fast_test_inventory_version=FAST_TEST_INVENTORY_VERSION,
+            oasis7_required_packages=config['oasis7_required_packages'], ordinary_fast_targets=targets,
+            ordinary_fast_rules=[dict(paths=['crates/oasis7/tests/scale.rs'], targets=list(targets), reason='scale')]))
+        if any(target['target_kind'] != 'test' or target['default_features'] is not True
+               or target['features'] != ['test_tier_full'] for target in targets.values()):
+            raise ValueError('scale contract requires complete default full integrations')
+        for field in ('isolated_sources', 'anchors'):
+            values = contract[field]
+            if (not isinstance(values, dict) or any(not isinstance(path, str)
+                    or not path.startswith('crates/') or not path.endswith('.rs')
+                    or posixpath.normpath(path) != path or '..' in path.split('/')
+                    or any(c in path for c in ('\\', '*', '?', '[', ']'))
+                    or not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest)
+                    for path, digest in values.items())):
+                raise ValueError('invalid scale isolation boundary')
+        if bool(contract['isolated_sources']) != bool(contract['anchors']):
+            raise ValueError('scale isolation requires audited module anchors')
     validate_fast_support_contracts(config)
+    unit_fields = {'ordinary_unit_test_contract_version', 'ordinary_unit_test_targets'}
+    if unit_fields.intersection(config):
+        targets = config.get('ordinary_unit_test_targets')
+        if (not unit_fields.issubset(config)
+                or type(config['ordinary_unit_test_contract_version']) is not int
+                or config['ordinary_unit_test_contract_version'] != 1
+                or config.get('fast_execution_version') != FAST_EXECUTION_VERSION
+                or not isinstance(targets, list) or not targets
+                or any(not isinstance(key, str) or key not in config['ordinary_fast_targets']
+                       or config['ordinary_fast_targets'][key]['target_kind'] != 'lib'
+                       or not any(key in rule['targets'] for rule in config['ordinary_fast_component_rules'])
+                       for key in targets)
+                or len(targets) != len(set(targets))):
+            raise ValueError('invalid private unit-test source contract')
     return config
+
+
+def validate_ordinary_harness_costs(profile):
+    """Validate hints, never execution authority; mirrored by the artifact consumer."""
+    if (not isinstance(profile, dict)
+            or set(profile) != {'version', 'fallback_ms', 'evidence', 'harnesses'}
+            or type(profile['version']) is not int or profile['version'] != 1
+            or type(profile['fallback_ms']) is not int or not 0 < profile['fallback_ms'] <= 3600000):
+        raise ValueError('invalid ordinary harness cost profile')
+    evidence = profile['evidence']
+    if (not isinstance(evidence, dict)
+            or set(evidence) != {'run_id', 'run_attempt', 'source_sha', 'tested_sha', 'policy_sha'}
+            or any(type(evidence[key]) is not int or evidence[key] < 1 for key in ('run_id', 'run_attempt'))
+            or any(not isinstance(evidence[key], str) or not re.fullmatch('[0-9a-f]{40}', evidence[key])
+                   for key in ('source_sha', 'tested_sha', 'policy_sha'))):
+        raise ValueError('invalid ordinary harness cost evidence')
+    rows, seen = profile['harnesses'], set()
+    if not isinstance(rows, list) or not rows or len(rows) > 4096:
+        raise ValueError('invalid ordinary harness cost inventory')
+    for row in rows:
+        if (not isinstance(row, dict)
+                or set(row) != {'package', 'target_kind', 'target_name', 'variant', 'mode', 'selector', 'elapsed_ms'}
+                or any(not isinstance(row[key], str) or not re.fullmatch('[A-Za-z0-9_-]+', row[key])
+                       for key in ('package', 'target_name', 'variant'))
+                or row['target_kind'] not in ('lib', 'bin', 'test')
+                or row['mode'] not in ('batch', 'filter', 'exact')
+                or not isinstance(row['selector'], str)
+                or (row['selector'] != '' if row['mode'] == 'batch' else
+                    not re.fullmatch(r'\w+(?:::\w+)*(?:::)?', row['selector']))
+                or type(row['elapsed_ms']) is not int or not 0 < row['elapsed_ms'] <= 3600000):
+            raise ValueError('invalid ordinary harness cost item')
+        identity = tuple(row[key] for key in ('package', 'target_kind', 'target_name', 'variant', 'mode', 'selector'))
+        if identity in seen:
+            raise ValueError('duplicate ordinary harness cost identity')
+        seen.add(identity)
 
 
 def exact_python_script(path):
@@ -1317,6 +1747,10 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
 
 
 def resolve_commit(ref):
+    # Only the validated, invocation-scoped local snapshot may use tree identity.
+    # Every normal caller and the policy/base still require real commits.
+    if ref in _LOCAL_INPUT_TREES.get():
+        return ref
     return git('rev-parse', '--verify', ref + '^{commit}').decode().strip()
 
 
@@ -1359,7 +1793,7 @@ WORKER_SIGNER_FEATURE = 'execution-signer-harness'
 WORKER_SIGNER_GUARD_MESSAGE = 'execution-signer-harness requires executor and is not a deployment profile'
 
 
-def worker_local_feature_closure(manifest, initial):
+def local_feature_closure(manifest, initial, *, include_dev=False):
     """Reuse the existing local fixed point, without injecting defaults.
 
     Dependency forwarding cannot be guessed into a local cfg proof. A known
@@ -1368,47 +1802,53 @@ def worker_local_feature_closure(manifest, initial):
     """
     features = manifest.get('features', {})
     if not isinstance(features, dict) or any(name not in features for name in initial):
-        raise TestPolicyError('Worker compile profile feature is not declared')
+        raise TestPolicyError('Cargo profile feature is not declared')
     try:
         enabled = default_feature_closure(manifest, initial=initial)
     except (ValueError, TypeError):
-        raise TestPolicyError('invalid Worker local feature closure') from None
+        raise TestPolicyError('invalid Cargo local feature closure') from None
     dependencies = {}
     tables = [manifest]
     targets = manifest.get('target', {})
     if not isinstance(targets, dict):
-        raise TestPolicyError('unknown Worker target dependency closure')
+        raise TestPolicyError('unknown Cargo target dependency closure')
     tables.extend(targets.values())
     for table in tables:
         if not isinstance(table, dict):
-            raise TestPolicyError('unknown Worker dependency closure')
-        # Build/dev edges do not supply production package feature references.
-        entries = table.get('dependencies', {})
-        if not isinstance(entries, dict):
-            raise TestPolicyError('unknown Worker dependency closure')
-        for name, declaration in entries.items():
-            if not isinstance(declaration, (str, dict)):
-                raise TestPolicyError('unknown Worker dependency declaration')
-            optional = isinstance(declaration, dict) and declaration.get('optional', False)
-            if type(optional) is not bool:
-                raise TestPolicyError('unknown Worker dependency optionality')
-            dependencies.setdefault(name, set()).add(optional)
+            raise TestPolicyError('unknown Cargo dependency closure')
+        # Build edges do not supply local cfg features. Test targets can also
+        # forward features to dev dependencies; production Worker profiles cannot.
+        for kind in (('dependencies', 'dev-dependencies') if include_dev else ('dependencies',)):
+            entries = table.get(kind, {})
+            if not isinstance(entries, dict):
+                raise TestPolicyError('unknown Cargo dependency closure')
+            for name, declaration in entries.items():
+                if not isinstance(declaration, (str, dict)):
+                    raise TestPolicyError('unknown Cargo dependency declaration')
+                optional = isinstance(declaration, dict) and declaration.get('optional', False)
+                if type(optional) is not bool:
+                    raise TestPolicyError('unknown Cargo dependency optionality')
+                dependencies.setdefault(name, set()).add(optional)
     for name in enabled:
         for edge in features[name]:
             if edge in features:
                 continue
             if edge.startswith('dep:'):
                 if dependencies.get(edge[4:]) != {True}:
-                    raise TestPolicyError('unmodeled Worker namespaced dependency feature')
+                    raise TestPolicyError('unmodeled Cargo namespaced dependency feature')
                 continue  # dep: enables the dependency, not a local feature.
             if '/' in edge:
                 dependency, foreign = edge.split('/', 1)
                 if (not foreign or '/' in foreign or dependency.endswith('?')
                         or dependencies.get(dependency) != {False}):
-                    raise TestPolicyError('unmodeled Worker optional dependency feature forwarding')
+                    raise TestPolicyError('unmodeled Cargo optional dependency feature forwarding')
                 continue  # Known non-optional foreign feature: no local cfg edge.
-            raise TestPolicyError('unmodeled Worker implicit local feature')
+            raise TestPolicyError('unmodeled Cargo implicit local feature')
     return enabled
+
+
+def worker_local_feature_closure(manifest, initial):
+    return local_feature_closure(manifest, initial)
 
 
 def worker_signer_profile_enabled(manifest):
@@ -1484,7 +1924,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
                         narrow_unavailable=None, selected_targets=None, required_source_paths=(),
                         portable_paths=None, worker_wasm_compile=False, native_root_deltas=None,
-                        pixel_platform_driver=False):
+                        pixel_platform_driver=False, unit_test_targets=(), unit_test_sources=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -1840,8 +2280,17 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     directories = source_inputs.get('directories', {})
     production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
     host_roots = build_script_roots(sources, directories, source_inputs.get('manifests', {}))
+    integration_targets = {package: integration_test_targets(sources, directories[package], manifest)
+                           for package, manifest in source_inputs.get('manifests', {}).items()}
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
     ordinary_structure_cache = {}
+    unit_cargo_roots = {}
+
+    def selected_attribute(attribute, native, features):
+        # A selection predicate must be true under this one actual tuple. The
+        # ordinary attribute helper is only a classifier for other attributes.
+        return (enabled_gate(attribute, native, features) if attribute[0] in ('cfg', 'cfg_attr')
+                else ordinary_attribute(attribute, native))
 
     def source_owners(path):
         return {name for name, directory in directories.items()
@@ -1853,13 +2302,13 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             parsed_sources[key] = attributes(sources[path].decode('utf-8', 'replace'), native)
         return parsed_sources[key]
 
-    def parents(path, native, selected_features=None):
+    def parents(path, native, selected_features=None, selected_root=None):
         """Find every literal mod/include reference without expanding macros.
 
         Only same-package, unambiguous static references can prove ordinary
         execution. The file's own inner attributes are checked by its caller.
         """
-        key = path, native, selected_features
+        key = path, native, selected_features, selected_root
         if key in parent_cache:
             return parent_cache[key]
         owners = source_owners(path)
@@ -1875,8 +2324,14 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:12]
             directory = posixpath.dirname(parent)
-            module_directory = (directory if parent in ordinary_roots or parent in production_roots or parent in host_roots
-                                or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
+            # A file can be a standalone Cargo root and also an imported mod.
+            # Only the root of this selected route gets crate-root semantics;
+            # another target's root must retain its ordinary module directory.
+            root_context = (parent == selected_root if selected_root is not None else
+                            parent in ordinary_roots or parent in production_roots or parent in host_roots
+                            or parent in unit_cargo_roots
+                            or posixpath.basename(parent) in ('lib.rs', 'main.rs'))
+            module_directory = (directory if root_context or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
                                 or parent in source_inputs.get('includes', ())
                                 else parent.removesuffix('.rs'))
             for index, owner in items.items():
@@ -1924,6 +2379,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         targets.extend(target for target in (prefix + '.rs', prefix + '/mod.rs') if target in sources)
                         resolved &= len(targets) == 1
                         known &= len(targets) == 1
+                        # `mod r#mod;` can load an ordinary file named mod.rs;
+                        # it is not the directory-style name/mod.rs branch.
+                        if selected_root is not None and name == 'mod' and path == prefix + '.rs':
+                            known = False
                         opaque |= len(targets) != 1 and not inherited_path
                     if inherited_path:
                         targets.append(path)
@@ -1948,8 +2407,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         opaque = True
                 if path in targets and not (parent == path and not known and not opaque):
                     references.append((parent, kind, known and all(
-                        ordinary_attribute(attribute, native)
-                        or (selected_features is not None and enabled_gate(attribute, native, selected_features))
+                        (selected_attribute(attribute, native, selected_features) if selected_features is not None
+                         else ordinary_attribute(attribute, native))
                         for attribute in attributes_here), attributes_here))
                     provenance.append((parent, known, opaque, resolved, tuple(
                         attribute for attribute in attributes_here if attribute[0] in ('cfg', 'cfg_attr'))))
@@ -1976,7 +2435,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         enabled = bool(path in ordinary_roots or references) and not mixed
         enabled &= all(known and resolved and not opaque
                        and ordinary_source_structure(parent, native, visiting | {path})
-                       for parent, known, opaque, resolved, _ in reference_cache[(path, native, None)])
+                       for parent, known, opaque, resolved, _ in reference_cache[(path, native, None, None)])
         ordinary_structure_cache[key] = enabled
         return enabled
 
@@ -1991,7 +2450,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if path not in sources:
             return result
         parents(path, native)  # Fill the same exact-reference provenance cache.
-        for parent, known, opaque, resolved, gates in reference_cache[(path, native, None)]:
+        for parent, known, opaque, resolved, gates in reference_cache[(path, native, None, None)]:
             if parent in visiting and not resolved:
                 continue
             for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}, roots):
@@ -2033,6 +2492,18 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             result.update(inherited_gates(parent, native, visiting | {path}))
         return result
 
+    def selected_target_features(target):
+        manifest = source_inputs.get('manifests', {}).get(target['package'])
+        if not isinstance(manifest, dict):
+            return None
+        initial = list(target['features'])
+        if target['default_features'] and 'default' in manifest.get('features', {}):
+            initial.append('default')
+        try:
+            return frozenset(local_feature_closure(manifest, initial, include_dev=True))
+        except TestPolicyError:
+            return None
+
     def selected_target_root(target):
         package = target['package']
         manifest = source_inputs.get('manifests', {}).get(package)
@@ -2042,52 +2513,125 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         name = target['target_name']
         if target['target_kind'] == 'lib':
             declaration = manifest.get('lib', {})
-            if declaration.get('name', package.replace('-', '_')) != name:
+            if (declaration.get('name', package.replace('-', '_')) != name
+                    or ('lib' not in manifest and not manifest.get('package', {}).get('autolib', True))):
                 return None
             path = declaration.get('path', 'src/lib.rs')
+            root = posixpath.normpath(posixpath.join(directory, path))
         else:
-            declarations = manifest.get('test', [])
-            matches = [item for item in declarations if item.get('name') == name]
-            if len(matches) > 1 or declarations and not matches:
+            match = integration_targets.get(package, {}).get(name)
+            if match is None:
                 return None
-            declaration = matches[0] if matches else {}
-            if not matches and not manifest.get('package', {}).get('autotests', True):
-                return None
-            path = declaration.get('path', 'tests/' + name + '.rs')
-        root = posixpath.normpath(posixpath.join(directory, path))
-        if (root not in sources or root not in ordinary_roots
+            root, declaration = match
+        features = selected_target_features(target)
+        if (root not in sources or features is None
                 or not declaration.get('test', True) or not declaration.get('harness', True)
-                or not set(declaration.get('required-features', ())).issubset(target['features'])):
+                or not set(declaration.get('required-features', ())).issubset(features)):
             return None
         return root
 
     selected_context_cache = {}
 
-    def selected_source_context(path, target, visiting=frozenset()):
+    def selected_source_context(path, target, visiting=frozenset(), *, directory_context=False):
         """One proven route to the selected target is sufficient for shared tests.
 
         This proof is used only after every affected input has matched trusted
         fast rules. It does not change the legacy all-parent ownership proof.
         """
         root = selected_target_root(target)
-        features = frozenset(target['features'])
-        key = path, root, features
+        features = selected_target_features(target)
+        key = path, root, features, directory_context
         if key in selected_context_cache:
             return selected_context_cache[key]
-        if (root is None or path in visiting or path not in sources
+        if (root is None or features is None or path in visiting or path not in sources
                 or source_inputs.get('uncertain_modules')
                 or source_owners(path) & set(source_inputs.get('unresolved_includes', ()))):
             return False
         annotations = parsed(path, True)[6]
         inner = [attribute for attribute, owner in annotations if owner == ('module', '', 0)]
-        if any(not (ordinary_attribute(attribute, True) or enabled_gate(attribute, True, features))
-               for attribute in inner):
+        if any(not selected_attribute(attribute, True, features) for attribute in inner):
             return False
-        result = path == root or any(
-            known and selected_source_context(parent, target, visiting | {path})
-            for parent, _, known, _ in parents(path, True, features))
+        if path == root:
+            selected_context_cache[key] = True
+            return True
+        result = False
+        sibling_directory = (posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
+                             or path in source_inputs.get('includes', ()))
+        for parent, kind, known, annotations in parents(path, True, features, root):
+            literal_path = any(attribute[:2] == ('path', '=') and len(attribute) == 3
+                               and rust_literal_path(attribute[2]) is not None for attribute in annotations)
+            # Proving this file's body needs no inference about its children.
+            # An implicit child also needs the directory assumption to agree
+            # with this mount: #[path]/include use siblings, plain .rs mods use
+            # their stem. Unknown/mixed contexts cannot borrow another route.
+            directory_matches = (not directory_context
+                or (kind == 'include' and sibling_directory)
+                or (kind == 'mod' and (posixpath.basename(path) == 'mod.rs'
+                                      or literal_path == sibling_directory)))
+            if (known and directory_matches and selected_source_context(
+                    parent, target, visiting | {path}, directory_context=kind == 'mod' and not literal_path)):
+                result = True
+                break
         selected_context_cache[key] = result
         return result
+
+    def private_unit_test_source(path, target, cargo_roots):
+        """Witness the registered private-source contract, never arbitrary I/O.
+
+        All static mounts close to one complete library harness. Known data
+        readers, opaque modules and unreviewed local host generators veto the
+        optimization, even when a second convenient test route exists.
+        """
+        root = selected_target_root(target)
+        owner = target['package']
+        if (source_inputs.get('private_test_input_inventory') is not True
+                or not {'private_test_data_readers', 'opaque_test_modules', 'trusted_generated_producers', 'symlink_sources'}.issubset(source_inputs)
+                or root is None or path == root or source_owners(path) != {owner}
+                or not selected_source_context(path, target)
+                or not ordinary_source_structure(path, True)
+                or source_inputs.get('opaque_test_modules')
+                or source_inputs.get('symlink_sources')
+                or source_inputs.get('private_test_data_readers', {}).get(path)
+                or source_inputs.get('unresolved_data_readers')
+                or source_inputs.get('host_execution_inputs')
+                or not host_roots.issubset(source_inputs.get('trusted_generated_producers', ()))
+                or (set(cargo_roots) | host_roots) - sources.keys()):
+            return False
+        expected = {(owner, 'lib', target['target_name'])}
+        test_gate = ('cfg', '(', 'test', ')')
+        features = selected_target_features(target)
+
+        def routes(current, visiting=frozenset()):
+            if (current in visiting or current not in sources
+                    or source_owners(current) != {owner}
+                    or current in host_roots):
+                return None
+            if current in cargo_roots and (current != root or cargo_roots[current] != expected):
+                return None
+            annotations = parsed(current, True)[6]
+            inner = tuple(attribute for attribute, context in annotations
+                          if context == ('module', '', 0) and attribute[0] in ('cfg', 'cfg_attr'))
+            if current == root:
+                # A Cargo root imported by another source has another context.
+                return [inner] if not parents(current, True) else None
+            references = parents(current, True)
+            if not references or len({kind for _, kind, _, _ in references}) != 1:
+                return None
+            result = []
+            for parent, known, opaque, resolved, gates in reference_cache[(current, True, None, None)]:
+                if not known or opaque or not resolved:
+                    return None
+                previous = routes(parent, visiting | {current})
+                if not previous:
+                    return None
+                result.extend(chain + gates + inner for chain in previous)
+            return result
+
+        chains = routes(path)
+        if not chains or any(test_gate not in chain for chain in chains):
+            return False
+        values = [[gate_value(gate, True, features) for gate in chain] for chain in chains]
+        return all(None not in route for route in values) and any(all(route) for route in values)
 
     def native_only_source(path, *, native_root_delta=False):
         """Prove every production mount is absent from a non-test WASM build.
@@ -2184,7 +2728,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         owners = feature_owners.get(path, set())
         if path in ordinary_roots or owners and owners.issubset(feature_packages):
             return True
-        # A package-level default driver covers only its executed lib tree,
+        # A package-level default driver covers only its executed target trees,
         # not arbitrary bins/targets. Prove the literal module path to a known
         # root under native predicates before granting target knowledge.
         return bool(owners and owners.issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES)
@@ -2287,7 +2831,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if not compile_route(ordinary_roots, True) or not compile_route(production_roots, False):
             return False
         parents(path, True)  # Populate literal provenance, independently of cfg truth.
-        provenance = reference_cache[(path, True, None)]
+        provenance = reference_cache[(path, True, None, None)]
         if any(not known or opaque or not resolved for _, known, opaque, resolved, _ in provenance):
             return False
         references = sorted({parent for parent, _, _, _, gates in provenance
@@ -2362,6 +2906,15 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 witnessed |= all(values)
         return witnessed
 
+    if unit_test_sources is not None and unit_test_targets:
+        cargo_roots = all_cargo_target_roots(sources, directories, source_inputs.get('manifests', {}))
+        unit_cargo_roots = cargo_roots
+        for path in rust_paths:
+            owners = [target['package'] for target in unit_test_targets
+                      if private_unit_test_source(path, target, cargo_roots)]
+            if len(owners) == 1:
+                unit_test_sources[path] = owners[0]
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
@@ -2394,7 +2947,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if narrow_unavailable is not None and path in (narrow_features_by_path or {}):
             gates = {attribute for attribute, _ in after_attrs if attribute[0] in ('cfg', 'cfg_attr')}
             gates.update(inherited_gates(path, True))
-            if any(not enabled_gate(attribute, True, narrow_features_by_path[path]) for attribute in gates):
+            feature_sets = ([selected_target_features(target) for target in selected_targets
+                             if selected_source_context(path, target)] if selected_targets
+                            else [narrow_features_by_path[path]])
+            if not any(features is not None and all(enabled_gate(attribute, True, features) for attribute in gates)
+                       for features in feature_sets):
                 narrow_unavailable.add(path)
         if selected_targets and path in (narrow_features_by_path or {}):
             # A legacy root is not evidence that the chosen small target runs a
@@ -2486,18 +3043,220 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 
 
 ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
+TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1', 'native-2', 'native-3']
+
+
+SCALE_EXPRESSION_MACROS = frozenset(('format', 'vec', 'assert', 'assert_eq', 'assert_ne', 'matches', 'panic'))
+
+
+def scale_source_boundary(source):
+    """Fingerprint audited topology, preserving macro inputs and opaque bodies.
+
+    Only ordinary named function bodies at file/impl scope may vary. Nested
+    items, attributes, unsafe/linkage and const evaluation remain byte-token
+    pinned. This is deliberately narrower than a general Rust source parser.
+    """
+    tokens, closing = rust_source_inputs(source, return_tokens=True)
+    values = [value.removeprefix('r#') if kind == 'identifier' else value for kind, value, _ in tokens]
+    forbidden = {'fn', 'impl', 'trait', 'mod', 'struct', 'enum', 'union', 'use', 'extern',
+                 'unsafe', 'static', 'const', 'macro_rules', 'macro', '#', '$'}
+    macros = []
+    for index, value in enumerate(values[:-1]):
+        if value == '!' and values[index + 1] in ('(', '[', '{'):
+            if not index or values[index - 1] not in SCALE_EXPRESSION_MACROS:
+                return None
+            start = index - 1
+            while start >= 3 and values[start - 2:start] == [':', ':']:
+                start -= 3
+            macros.append((start, closing[index + 1], values[start:closing[index + 1] + 1]))
+    erased = {}
+
+    def scan(start, end):
+        cursor, item_start = start, start
+        while cursor < end:
+            value = values[cursor]
+            if value == 'fn' and cursor + 1 < end and tokens[cursor + 1][0] == 'identifier':
+                body = cursor + 2
+                while body < end and values[body] not in ('{', ';'):
+                    body = closing[body] + 1 if values[body] in ('(', '[') else body + 1
+                if body < end and values[body] == '{':
+                    stop = closing[body]
+                    header = values[item_start:body]
+                    content = values[body + 1:stop]
+                    if (not {'const', 'unsafe', 'extern', 'where'}.intersection(header)
+                            and not forbidden.intersection(content)):
+                        erased[body] = (stop, ['body', [call for left, right, call in macros
+                                                      if body < left < right < stop]])
+                    cursor, item_start = stop + 1, stop + 1
+                    continue
+            if value == '{':
+                stop = closing[cursor]
+                if values[item_start:cursor] and values[item_start] == 'impl':
+                    scan(cursor + 1, stop)
+                cursor, item_start = stop + 1, stop + 1
+                continue
+            if value in ('(', '['):
+                cursor = closing[cursor] + 1
+                continue
+            if value == ';':
+                item_start = cursor + 1
+            cursor += 1
+
+    scan(0, len(tokens))
+    skeleton, cursor = [], 0
+    while cursor < len(values):
+        if cursor in erased:
+            stop, marker = erased[cursor]
+            skeleton.append(marker)
+            cursor = stop + 1
+        else:
+            skeleton.append(values[cursor])
+            cursor += 1
+    return hashlib.sha256(json.dumps(skeleton, separators=(',', ':')).encode()).hexdigest()
+
+
+def scale_isolation_proven(contract, paths, comparisons, source_inputs):
+    if not paths or not set(paths) <= set(contract['isolated_sources']):
+        return False
+    try:
+        for ref in {ref for pair in comparisons for ref in pair}:
+            inputs = source_inputs.get(resolve_commit(ref), {})
+            sources = inputs.get('sources', {})
+            if inputs.get('uncertain_modules') or not sources:
+                return False
+            reader_fields = {'includes', 'data_readers', 'unresolved_data_readers', 'unresolved_includes'}
+            isolated = set(contract['isolated_sources'])
+            if (not reader_fields.issubset(inputs) or isolated.intersection(inputs['includes'])
+                    or any(inputs['data_readers'].get(path) for path in isolated)
+                    or inputs['unresolved_data_readers'] or inputs['unresolved_includes']):
+                return False  # A source body can also be another target's input data.
+            if any(path not in sources or hashlib.sha256(sources[path]).hexdigest() != digest
+                   for path, digest in contract['anchors'].items()):
+                return False
+            if any(path not in sources or scale_source_boundary(sources[path].decode()) != digest
+                   for path, digest in contract['isolated_sources'].items()):
+                return False
+            # A same-crate shadow/import can turn an expression macro into an
+            # item generator. The audited module anchors pin parent imports;
+            # reject additional macro definitions/imports throughout that crate.
+            directories = {path.split('/src/')[0] + '/' for path in contract['isolated_sources']}
+            for path, source in sources.items():
+                if not any(path.startswith(directory) for directory in directories):
+                    continue
+                if not any(word in source for word in (b'macro_rules', b'macro_use', b'use')):
+                    continue
+                tokens, _ = rust_source_inputs(source.decode(), return_tokens=True)
+                values = [value.removeprefix('r#') if kind == 'identifier' else value for kind, value, _ in tokens]
+                in_use = False
+                for index, value in enumerate(values):
+                    if value == 'use':
+                        in_use = True
+                    elif value == ';':
+                        in_use = False
+                    if (value == 'macro_use' or in_use and value in SCALE_EXPRESSION_MACROS
+                            or values[index:index + 2] == ['macro_rules', '!']
+                            and index + 2 < len(values) and values[index + 2] in SCALE_EXPRESSION_MACROS):
+                        return False
+        return True
+    except (ValueError, UnicodeError, KeyError, TypeError):
+        return False
+
+
+def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons, source_inputs):
+    contract = config.get('ordinary_scale_contract')
+    if (contract is None or 'oasis7_required' not in plan['groups']
+            or 'ordinary_fast_targets' in plan):
+        return  # Existing exact fast targets did not run these integrations.
+    targets = [target for target in contract['targets'] if target['package'] in plan['oasis7_required_packages']]
+    if not targets:
+        return
+    owners = {target['package'] for target in targets}
+    relevant = [path for path in paths if owners.intersection(path_affected.get(path, ()))]
+    isolated = (plan['scope'] == 'targeted' and not plan['test_policy_changed']
+                and scale_isolation_proven(contract, relevant, comparisons, source_inputs))
+    if isolated:
+        plan['reasons'].append('audited isolated function-body changes retain required cross-chunk contracts; scale matrices stay in full')
+        return
+    plan.update(risk_test_inventory_version=1, ordinary_risk_targets=targets)
+    plan['reasons'].append('affected package-wide tests retain full scale contracts with exact targets and minimum cases')
 
 
 def complete_ordinary_partitions(config, plan):
-    if (config.get('ordinary_artifact_partition_version') == 1
+    if (config.get('ordinary_artifact_partition_version') in (1, 2)
             and 'oasis7_required' in plan['groups']
-            and plan.get('ordinary_execution') != 'inline'
-            and plan['scope'] in ('full', 'explicit-full')):
-        plan.update(ordinary_artifact_partition_version=1,
-                    ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
+            and plan.get('ordinary_execution') != 'inline'):
+        if (config.get('ordinary_artifact_partition_version') == 2
+                and (plan['scope'] == 'targeted' or (
+                    plan['scope'] == 'full' and config.get('ordinary_artifact_delivery_version') == 2))
+                and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                and plan.get('test_policy_changed') is False
+                and 'ordinary_fast_targets' not in plan and 'ordinary_full_fast_targets' not in plan
+                and 'oasis7_chain_runtime' in plan.get('oasis7_required_packages', ())):
+            # The original producer and every target/feature remain unchanged.
+            # Only the complete runtime case inventory gets multiple owners.
+            plan.update(ordinary_artifact_partition_version=2,
+                        ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
+            if 'ordinary_harness_costs' in config:
+                plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
+        elif plan['scope'] in ('full', 'explicit-full'):
+            plan.update(ordinary_artifact_partition_version=1,
+                        ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
+    if (config.get('ordinary_artifact_delivery_version') in (1, 2)
+            and plan.get('ordinary_artifact_partition_version') == 1):
+        plan['ordinary_artifact_delivery_version'] = 1
+    elif (config.get('ordinary_artifact_delivery_version') == 2
+            and plan.get('ordinary_artifact_partition_version') == 2):
+        plan['ordinary_artifact_delivery_version'] = 2
+    if (type(config.get('ordinary_main_fast_cache_writer_version')) is int
+            and config['ordinary_main_fast_cache_writer_version'] == ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION
+            and plan.get('execution_profile') == 'main-fast' and plan['scope'] == 'full'
+            and 'oasis7_required' in plan['groups']
+            and plan.get('ordinary_artifact_partition_version') in (1, 2)
+            and 'fast_execution_version' not in plan and plan.get('ordinary_execution') != 'inline'):
+        # This opts the complete producer into cache admission, never into a
+        # different build or test selection. Event/source trust stays in the DAG.
+        plan['ordinary_main_fast_cache_writer_version'] = ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))
+        if (config.get('custody_execution_version') == CUSTODY_EXECUTION_VERSION
+                and 'oasis7_custody_worker' in plan['workspace_support_profiles']
+                and plan.get('test_policy_changed') is False):
+            # Policy edits keep the legacy support driver's expanded-feature
+            # --all-targets tail; the split build contract does not replace it.
+            plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
+                        custody_node_shards=list(CUSTODY_NODE_SHARDS))
+            if config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION:
+                if custody_source_supports_compile_proof(plan):
+                    plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
+                else:
+                    plan['reasons'].append('tested source retains complete legacy custody approval proofs')
+
+
+def custody_source_supports_compile_proof(plan):
+    # A trusted workflow can validate a historical source whose helper and
+    # verifier predate this optional protocol. Source declarations can only
+    # withhold trusted authority, never grant it. The same rule applies to fast
+    # plans: CI-only edits need not set the Rust test-policy change flag.
+    tested, policy = plan['tested_sha'], plan['policy_sha']
+    if tested == policy:
+        return True
+    try:
+        source_config = json.loads(git('show', f'{tested}:scripts/ci-required-scope.json'))
+    except (subprocess.CalledProcessError, ValueError, UnicodeError) as error:
+        raise ValueError('cannot read tested custody protocol configuration') from error
+    if not isinstance(source_config, dict):
+        raise ValueError('invalid tested custody protocol configuration')
+    field = 'custody_compile_proof_version'
+    if field not in source_config:
+        return False
+    if (type(source_config[field]) is not int or source_config[field] != CUSTODY_COMPILE_PROOF_VERSION
+            or type(source_config.get('custody_execution_version')) is not int
+            or source_config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
+            or type(source_config.get('workspace_support_partition_version')) is not int
+            or source_config['workspace_support_partition_version'] != 1):
+        raise ValueError('invalid tested custody compile proof capability')
+    return True
 
 
 def support_partitions(profiles):
@@ -2536,6 +3295,9 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
                                                for key in sorted(config['ordinary_fast_targets'])]
     plan.update(python_control_plan(config))
+    if config.get('formal_full_profiles_only_version') == 1:
+        plan['formal_full_profiles_only_version'] = 1
+        plan['formal_deferred_ordinary_cases'] = {}
     complete_ordinary_partitions(config, plan)
     return plan
 
@@ -2700,6 +3462,48 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         else:
             exceptions.append('necessary Formal risk suites: ' + ', '.join(sorted(suites)))
 
+    # Narrow only the entire change, never subtract one good input from the
+    # obligations of a mixed production/risk/explicit change. The broad Cargo
+    # affected set remains evidence; every compared tree must witness one owner.
+    unit_groups = {'baseline', 'rust_baseline', 'oasis7_required'}
+    if (config.get('ordinary_unit_test_contract_version') == 1
+            and native_fast is not None and execution_capable and not exceptions and not additions
+            and paths and set(paths).issubset(native_fast[1] - portable_paths)
+            and not any(path_rules.values())
+            and chosen <= unit_groups | {'consensus', 'distfs', 'net', 'node'}
+            and not any(fnmatch.fnmatchcase(path, pattern) for path in paths
+                        for patterns in config.get('workspace_support_profile_paths', {}).values()
+                        for pattern in patterns)):
+        targets = [config['ordinary_fast_targets'][key] for key in config['ordinary_unit_test_targets']
+                   if config['ordinary_fast_targets'][key] in native_fast[0]]
+        refs = {resolve_commit(ref) for pair in comparisons or [(base, source)] for ref in pair}
+        refs.update(resolve_commit(ref) for ref in (base, source, tested or source))
+        proofs = []
+        for ref in sorted(refs):
+            evidence = {}
+            changed_test_policy(
+                ref, ref, paths, feature_owners or {}, set(config['oasis7_required_packages']),
+                (feature_manifests or {}).get(ref, {}), (test_target_roots or {}).get(ref, set()),
+                (source_inputs or {}).get(ref, {}), unit_test_targets=targets, unit_test_sources=evidence)
+            proofs.append(evidence)
+        if (proofs and all(set(proof) == set(paths) and proof == proofs[0] for proof in proofs)
+                and len(set(proofs[0].values())) == 1):
+            owner = next(iter(proofs[0].values()))
+            selected = [target for target in targets if target['package'] == owner]
+            if len(selected) == 1 and set(plan['architecture']['packages']) == {owner}:
+                plan.update(ordinary_unit_test_contract_version=1,
+                            ordinary_unit_test_sources=proofs[0],
+                            ordinary_unit_test_proof_refs=sorted(refs),
+                            ordinary_unit_test_excluded_groups=sorted(chosen - unit_groups),
+                            ordinary_unit_test_excluded_targets=[
+                                {key: target[key] for key in ('package', 'target_kind', 'target_name')}
+                                for target in plan['ordinary_fast_targets'] if target != selected[0]],
+                            ordinary_fast_targets=selected)
+                chosen = set(unit_groups)
+                selected_core, wasm = {owner}, set()
+                plan['reasons'].append('trusted private unit-test source contract: complete ' + owner
+                                       + ' library and strict Clippy; all compared trees exclude other consumers')
+
     center_paths = [path for path in paths if
                     'command_center' in path_rules.get(path, ()) or any(
                         'command_center' in config['package_groups'].get(package, ())
@@ -2802,13 +3606,124 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                     distfs_clippy_group='rust_baseline')
         plan['reasons'].append('complete DistFS/CAS/Formal strict Clippy stays required in rust_baseline; '
                                'all original DistFS group test targets remain serial')
+    add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons or [(base, source)], source_inputs or {})
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     complete_ordinary_partitions(config, plan)
+    if config.get('formal_full_profiles_only_version') == 1:
+        # Apply the deferral after ordinary coverage, Clippy and architecture
+        # decisions. Removing a Formal risk must not narrow those other checks.
+        chosen.discard('formal_process')
+        plan.update(formal_full_profiles_only_version=1,
+                    formal_deferred_ordinary_cases=config.get('formal_deferred_ordinary_cases', {}),
+                    groups=sorted(chosen),
+                    resources=sorted({resource for group in chosen for resource in config['resources'][group]}),
+                    formal_suites=[], formal_shards=[],
+                    fast_plan_exceptions=[reason for reason in exceptions
+                                          if not reason.startswith('necessary Formal risk suites: ')])
+        plan['reasons'].append('heavy Formal process tests run only in complete profiles: '
+                               'periodic-full and candidate-full')
     return plan
 
 
+def validate_local_inputs(base, source_head, test_head, local_inputs):
+    """Validate captured trees before selection's conservative error fallback.
+
+    The caller owns the temporary object store and captures file bytes. This
+    adapter reads those immutable objects without writing an index or commit.
+    Changes are provenance, never a caller-controlled replacement for Git diff.
+    """
+    fields = {'schema_version', 'source_sha', 'index_tree', 'worktree_tree', 'changes'}
+    if (not isinstance(local_inputs, dict) or set(local_inputs) != fields
+            or type(local_inputs['schema_version']) is not int
+            or local_inputs['schema_version'] != LOCAL_INPUTS_VERSION):
+        raise ValueError('invalid local input snapshot schema')
+    for field in ('source_sha', 'index_tree', 'worktree_tree'):
+        if (not isinstance(local_inputs[field], str)
+                or re.fullmatch(r'[0-9a-f]{40}', local_inputs[field]) is None):
+            raise ValueError('invalid local input snapshot identity: ' + field)
+    try:
+        source = resolve_commit(source_head)
+        if source != local_inputs['source_sha'] or source != resolve_commit('HEAD'):
+            raise ValueError('local input source must match the current real HEAD')
+        if test_head is not None and resolve_commit(test_head) != source:
+            raise ValueError('local input snapshots do not accept a tested merge')
+        # The base is always a commit, even if a caller reuses a tree's OID.
+        base = resolve_commit(base)
+        for field in ('index_tree', 'worktree_tree'):
+            if git('cat-file', '-t', local_inputs[field]).strip() != b'tree':
+                raise ValueError('local input snapshot is not a tree: ' + field)
+        comparisons = [(base, source), (source, local_inputs['index_tree']),
+                       (local_inputs['index_tree'], local_inputs['worktree_tree'])]
+        compared_paths = [changed_paths(before, after) for before, after in comparisons]
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('cannot read immutable local input snapshot') from error
+
+    def valid_path(path):
+        return (isinstance(path, str) and bool(path) and not posixpath.isabs(path)
+                and '\0' not in path and posixpath.normpath(path) == path
+                and not any(part in ('.', '..', '.git') for part in path.split('/')))
+
+    changes = local_inputs['changes']
+    origins = {'committed', 'staged', 'unstaged', 'untracked', 'referenced'}
+    by_origin = {origin: set() for origin in origins}
+    recorded_paths = []
+    if not isinstance(changes, list):
+        raise ValueError('local input changes must be an array')
+    for change in changes:
+        if (not isinstance(change, dict)
+                or not {'origin', 'status', 'path'} <= set(change)
+                or set(change) - {'origin', 'status', 'path', 'old_path'}
+                or not isinstance(change['origin'], str) or change['origin'] not in origins
+                or not isinstance(change['status'], str)
+                or re.fullmatch(r'[AMDT]|[RC](?:[0-9]{1,3})?|\?\??', change['status']) is None
+                or not valid_path(change['path'])
+                or ('old_path' in change and not valid_path(change['old_path']))
+                or (change['status'].startswith(('R', 'C')) and 'old_path' not in change)):
+            raise ValueError('invalid local input change record')
+        endpoints = [change['path'], *([change['old_path']] if 'old_path' in change else [])]
+        by_origin[change['origin']].update(endpoints)
+        recorded_paths.extend(endpoints)
+    for paths, allowed in zip(compared_paths, ({'committed'}, {'staged'},
+                                              {'unstaged', 'untracked', 'referenced'})):
+        missing = set(paths) - set().union(*(by_origin[origin] for origin in allowed))
+        if missing:
+            raise ValueError('local input provenance omits Git diff paths: ' + json.dumps(sorted(missing)))
+    return dict(local_inputs, comparisons=comparisons,
+                compared_paths=list(dict.fromkeys(path for paths in compared_paths for path in paths)),
+                paths=list(dict.fromkeys([*(path for paths in compared_paths for path in paths),
+                                         *recorded_paths])))
+
+
 def select(config, base, source_head, test_head=None, additions=(), profile=None,
-           formal_inventory=None, policy_ref=None):
+           formal_inventory=None, policy_ref=None, local_inputs=None):
+    if local_inputs is None:
+        return _select(config, base, source_head, test_head, additions, profile,
+                       formal_inventory, policy_ref)
+    snapshot = validate_local_inputs(base, source_head, test_head, local_inputs)
+    if policy_ref is not None:
+        try:
+            policy_ref = resolve_commit(policy_ref)
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise ValueError('local input policy must be a real commit') from error
+    token = _LOCAL_INPUT_TREES.set(frozenset((snapshot['index_tree'], snapshot['worktree_tree'])))
+    try:
+        plan = _select(config, snapshot['comparisons'][0][0], snapshot['worktree_tree'], None, additions, profile,
+                       formal_inventory, policy_ref, snapshot)
+    finally:
+        _LOCAL_INPUT_TREES.reset(token)
+    # The driver still executes the current worktree of this real source commit;
+    # tree identities are separate evidence, never fictitious source commits.
+    source = snapshot['source_sha']
+    plan['architecture'].update(source=source, tested=source)
+    if profile is not None:
+        plan.update(source_sha=source, tested_sha=source)
+    plan['local_inputs'] = {key: value for key, value in snapshot.items() if key != 'paths'}
+    plan['reasons'].append('immutable local input union: committed, staged, unstaged, untracked and referenced paths')
+    return plan
+
+
+def _select(config, base, source_head, test_head=None, additions=(), profile=None,
+            formal_inventory=None, policy_ref=None, snapshot=None):
     validate_config(config)
     python_inputs = python_control_inputs(config)
     groups = set(config['groups'])
@@ -2827,12 +3742,13 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
     feature_manifests = {}
     test_target_roots = {}
     source_inputs = {}
-    policy_comparisons = [(base, source_head)]
+    policy_comparisons = snapshot['comparisons'] if snapshot is not None else [(base, source_head)]
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
         # exclude target history already present in the actual first parent.
-        graph_refs = [base, source_head, test_head or source_head]
-        paths = changed_paths(base, source_head)
+        graph_refs = ([base, snapshot['source_sha'], snapshot['index_tree'], snapshot['worktree_tree']]
+                      if snapshot is not None else [base, source_head, test_head or source_head])
+        paths = snapshot['paths'] if snapshot is not None else changed_paths(base, source_head)
         try:
             if test_head and test_head != source_head:
                 source_oid = git('rev-parse', source_head + '^{commit}').decode().strip()
@@ -2855,7 +3771,15 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             full = True
             reasons.append('uncertain tested merge inputs: ' + str(error))
         graphs = []
-        source_cache = GitSourceCache()
+        private_rules = [rule for rule in config.get('ordinary_fast_component_rules', ())
+                         if set(rule['targets']).intersection(config.get('ordinary_unit_test_targets', ()))]
+        private_scan = (profile in ('pr-fast', 'main-fast') and not full and not additions
+                        and config.get('ordinary_unit_test_contract_version') == 1 and bool(paths)
+                        and all(path.endswith('.rs') and any(
+                            any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])
+                            and not any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['exclude'])
+                            for rule in private_rules) for path in paths))
+        source_cache = GitSourceCache(private_test_contract=private_scan)
         for ref in dict.fromkeys(graph_refs):
             try:
                 graph = cargo_graph(ref, config.get('generated_inputs', []), source_cache=source_cache)
@@ -2869,10 +3793,19 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                     feature_manifests[resolve_commit(ref)] = {
                         package: manifest.get('features', {})
                         for package, (_, manifest) in graph[0].items()}
+                    integration_targets = {package: integration_test_targets(sources, directory, manifest)
+                                           for package, (directory, manifest) in graph[0].items()}
                     test_target_roots[resolve_commit(ref)] = {
                         path for path in sources for package, (directory, manifest) in graph[0].items()
-                        if known_test_target_root(path, directory, manifest)
+                        if known_test_target_root(path, directory, manifest, integration_targets[package])
                         and (package in config.get('oasis7_required_packages', ())
+                             or (package == 'oasis7_distfs'
+                                 and 'distfs' in config['package_groups'].get(package, ()) and any(
+                                 name == 'incremental_industry_jobs' and path == root
+                                 and posixpath.relpath(path, directory or '.') == 'tests/incremental_industry_jobs.rs'
+                                 and declaration.get('test', True) and declaration.get('harness', True)
+                                 and not declaration.get('required-features')
+                                 for name, (root, declaration) in integration_targets[package].items()))
                              or (set(config['package_groups'].get(package, ()))
                                  & ({'consensus', 'distfs', 'node', 'net'}
                                     | ({'pixel_world_bridge'} if package == 'pixel_world_bridge' else set()))
@@ -2886,13 +3819,19 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         'default_features': {package: default_feature_closure(manifest)
                                              for package, (_, manifest) in graph[0].items()
                                              if package in config.get('oasis7_required_packages', ())
+                                             or package in NATIVE_DEFAULT_TEST_PACKAGES
                                              or package == 'pixel_world_bridge'},
                         'includes': graph[2].get('__rust_include_targets__', ()),
                         'unresolved_includes': graph[2].get('__unresolved_rust_include_owners__', ()),
                         'uncertain_modules': graph[2].get('__uncertain_module_sources__', ()),
                         'data_readers': graph[2].get('__rust_data_readers__', {}),
+                        'private_test_data_readers': graph[2].get('__private_test_data_readers__', {}),
                         'unresolved_data_readers': graph[2].get('__unresolved_rust_data_readers__', ()),
                         'host_execution_inputs': graph[2].get('__host_execution_inputs__', ()),
+                        'opaque_test_modules': graph[2].get('__opaque_test_module_sources__', ()),
+                        'trusted_generated_producers': graph[2].get('__trusted_generated_producers__', ()),
+                        'symlink_sources': graph[2].get('__symlink_sources__', ()),
+                        'private_test_input_inventory': graph[2].get('__private_test_input_inventory__', False),
                     }
             except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
                 # Keep usable graphs to establish ownership even when another
@@ -2900,6 +3839,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                 full = True
                 reasons.append('uncertain Git/dependency inputs: ' + str(error))
         reported_embeds = False
+        governance_registrations = additive_governance_registration(config, policy_comparisons, paths)
         for path in paths:
             path_affected[path] = set()
             path_rules[path] = set()
@@ -2911,6 +3851,11 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                 path_rules[path].update(scoped_groups)
                 support_rule |= 'workspace_support' in scoped_groups
                 reasons.append('scoped CI control changed: ' + path)
+            elif path == 'scripts/ci-tests.sh' and governance_registrations:
+                chosen.add('workflow_governance')
+                path_rules[path].add('workflow_governance')
+                reasons.append('proved additive diagnostic test registration: '
+                               + ', '.join(governance_registrations))
             elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
@@ -2983,6 +3928,9 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
         if affected:
             chosen.add('rust_baseline')
             reasons.append('changed packages and reverse consumers: ' + ', '.join(sorted(affected)))
+        if governance_registrations and (affected or chosen - {'baseline', 'workflow_governance'}):
+            full = True
+            reasons.append('diagnostic registration mixed with product or other validation inputs')
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
         full = True
         reasons.append('uncertain Git/dependency inputs: ' + str(error))
@@ -3042,6 +3990,7 @@ def main():
     parser.add_argument('--test-ref', help='actual tested merge/tree commit')
     parser.add_argument('--profile', choices=EXECUTION_PROFILES)
     parser.add_argument('--policy-ref', help='fixed trusted workflow/policy commit')
+    parser.add_argument('--local-inputs', help='versioned immutable local snapshot JSON; changed-files profiles only')
     parser.add_argument('--formal-config', default=str(Path(__file__).with_name('ci-formal-process-suites.json')))
     parser.add_argument('--config', default=str(Path(__file__).with_name('ci-required-scope.json')))
     parser.add_argument('--add-group', action='append', default=[])
@@ -3050,9 +3999,14 @@ def main():
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     try:
+        local_inputs = json.loads(Path(args.local_inputs).read_text()) if args.local_inputs else None
+        if args.local_inputs and local_inputs is None:
+            raise ValueError('invalid local input snapshot schema')
         formal_inventory = (json.loads(Path(args.formal_config).read_text())
                             if args.profile and Path(args.formal_config).is_file() else None)
         if args.profile in ('periodic-full', 'candidate-full'):
+            if local_inputs is not None:
+                raise ValueError('full inventory does not accept local input snapshots')
             if args.add_group:
                 raise ValueError('full inventory does not accept additional group requests')
             plan = full_plan(config, args.profile, args.head_ref, args.test_ref,
@@ -3061,8 +4015,8 @@ def main():
             if not args.base_ref:
                 raise ValueError('--base-ref is required for changed-files planning')
             plan = select(config, args.base_ref, args.head_ref, args.test_ref, args.add_group,
-                          args.profile, formal_inventory, args.policy_ref)
-    except (UnknownInputsError, TestPolicyError, ValueError) as error:
+                          args.profile, formal_inventory, args.policy_ref, local_inputs)
+    except (UnknownInputsError, TestPolicyError, ValueError, OSError) as error:
         parser.exit(2, f"CI scope planning failed: {error}\n")
     encoded = json.dumps(plan, ensure_ascii=True, separators=(',', ':'))
     if args.output:

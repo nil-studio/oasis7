@@ -323,7 +323,10 @@ def trusted_forward_headers(incoming, client_address):
 
 def forwarder(smoke, address):
     class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def setup(self):
+            self.requests_remaining = 32
             super().setup()
             self.connection.settimeout(15)
 
@@ -339,10 +342,32 @@ def forwarder(smoke, address):
         def forward(self):
             connection = None
             try:
-                length = int(self.headers.get("Content-Length", "0"))
+                lengths = self.headers.get_all("Content-Length", [])
+                if self.headers.get_all("Transfer-Encoding") or len(lengths) > 1:
+                    raise ValueError("ambiguous request framing")
+                raw_length = lengths[0] if lengths else "0"
+                if not raw_length.isascii() or not raw_length.isdecimal():
+                    raise ValueError("invalid content length")
+                length = int(raw_length)
+                self.requests_remaining -= 1
+                remaining = min(15, smoke.remaining())
+                if remaining <= 0:
+                    raise ValueError("fixture deadline exhausted")
+                self.connection.settimeout(remaining)
                 if not 0 <= length <= 2 * 1024 * 1024:
                     raise ValueError("bounded request required")
-                body = self.rfile.read(length)
+                deadline = time.monotonic() + remaining
+                chunks = []; received = 0
+                while received < length:
+                    remaining = min(deadline - time.monotonic(), smoke.remaining())
+                    if remaining <= 0:
+                        raise ValueError("request body deadline exhausted")
+                    self.connection.settimeout(remaining)
+                    chunk = self.rfile.read1(min(65536, length - received))
+                    if not chunk:
+                        raise ValueError("incomplete request body")
+                    chunks.append(chunk); received += len(chunk)
+                body = b"".join(chunks)
                 connection = http.client.HTTPConnection(*address, timeout=min(15, smoke.remaining()))
                 headers = trusted_forward_headers(self.headers, self.client_address[0])
                 headers["Host"] = self.headers.get("Host", "localhost")
@@ -379,7 +404,9 @@ def forwarder(smoke, address):
                     if key.lower() not in ("connection", "transfer-encoding", "content-length"):
                         self.send_header(key, value)
                 self.send_header("Content-Length", str(len(payload)))
-                self.send_header("Connection", "close")
+                if self.close_connection or self.requests_remaining <= 0:
+                    self.close_connection = True
+                    self.send_header("Connection", "close")
                 self.end_headers()
                 self.wfile.write(payload)
             except (OSError, ValueError, RuntimeError, http.client.HTTPException):

@@ -464,14 +464,22 @@ impl Client {
         {
             return Err("original action exists; query its result".into());
         }
+        let _timing = crate::fresh_submit_timing::Scope::operator_enabled();
+        crate::fresh_submit_timing::event("capture_begin");
         let captured = self.captured_until(operation, deadline)?;
+        crate::fresh_submit_timing::event("capture_return");
         Self::check_tool_deadline(Some(deadline))?;
+        crate::fresh_submit_timing::event("sign_begin");
         let signed = self.sign("cognition", cognition_intent(&captured, action)?)?;
+        crate::fresh_submit_timing::event("sign_return");
+        crate::fresh_submit_timing::event("client_cache_begin");
         let request = self.cache_intent(
             ClientStateKind::Action,
             operation,
             WorldServicePayloadV1::Cognition(signed),
         )?;
+        crate::fresh_submit_timing::event("client_cache_return");
+        crate::fresh_submit_timing::arm();
         self.submit_new_and_poll_until(&request, deadline)
     }
     pub fn task_fence(&self) -> Result<GameTaskFenceV1, String> {
@@ -528,15 +536,12 @@ impl Client {
             getrandom::fill(&mut *nonce).map_err(|_| "device randomness unavailable")?;
             let proof = self.sign(
                 TASK_CONTEXT_PREPARE_PATH,
-                TaskContextPrepareV1 {
-                    schema_revision: TaskContextAuthorityModeV1::schema_revision(
-                        self.authority_mode,
-                    ),
-                    authority_mode: self.authority_mode,
-                    fence: self.task_fence()?,
-                    client_operation_id: operation.to_owned(),
-                    client_nonce: hex::encode(nonce.as_slice()),
-                },
+                oasis7_client_api::world_service::executor_codec::prepare_request(
+                    self.task_fence()?,
+                    operation.to_owned(),
+                    hex::encode(nonce.as_slice()),
+                    self.authority_mode,
+                ),
             )?;
             self.state.put_client_state(
                 ClientStateKind::Prepare,
@@ -651,7 +656,10 @@ impl Client {
             None => self.prepare_original(&original)?,
         };
         Self::check_tool_deadline(deadline)?;
-        let signed = self.sign("scheduler", public_prefix(&prepared)?)?;
+        let signed = self.sign(
+            "scheduler",
+            oasis7_client_api::world_service::executor_codec::prefix_request(&prepared)?,
+        )?;
         self.cache_intent(
             ClientStateKind::Prefix,
             operation,
@@ -665,10 +673,10 @@ impl Client {
         let prefix = self
             .cached_intent(ClientStateKind::Prefix, operation)?
             .ok_or("context has not been prepared")?;
-        let WorldServicePayloadV1::Scheduler(signed) = prefix.signed_payload else {
+        let WorldServicePayloadV1::Scheduler(signed) = &prefix.signed_payload else {
             return Err("invalid cached context prefix".into());
         };
-        let SchedulerOperationV1::TaskProviderPrefix { context } = signed.request.operation else {
+        let SchedulerOperationV1::TaskProviderPrefix { context } = &signed.request.operation else {
             return Err("invalid cached context prefix".into());
         };
         if context.authority_mode != self.authority_mode {
@@ -676,11 +684,9 @@ impl Client {
         }
         self.sign(
             TASK_CONTEXT_READ_PATH,
-            TaskContextGetV1 {
-                schema_revision: 1,
-                context,
-                prepare_operation_id: operation.to_owned(),
-            },
+            oasis7_client_api::world_service::executor_codec::context_get_request(
+                &prefix, operation,
+            )?,
         )
     }
     pub fn captured(&self, operation: &str) -> Result<CapturedTaskContextV1, String> {

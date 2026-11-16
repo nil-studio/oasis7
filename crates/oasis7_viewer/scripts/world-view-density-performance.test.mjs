@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -103,4 +104,116 @@ test('an armed input miss is retained with focus and attachment evidence without
     },
   }), error => error === primary && error.nativeInputDiagnostic === diagnostic);
   assert.deepEqual(commands, [['press', 'Enter']]);
+});
+
+for (const selectionSource of ['core', 'renderer']) test(`${selectionSource} diagnostic observes DOM data without interpreting it as code`, async () => {
+  const expectedId = `quote'"\\\n</script><script>globalThis.compromised=true</script>\u2028\u2029`;
+  for (const attached of [false, true]) for (const active of [false, true]) {
+    const primary = Error('stop before input'), commands = [];
+    const input = { status: 'armed', expectedId };
+    const context = vm.createContext({
+      document: {
+        activeElement: active ? { tagName: 'BUTTON', dataset: { agentId: expectedId } } : null,
+        querySelectorAll: selector => {
+          assert.equal(selector, 'button[data-agent-id][data-renderer-target]');
+          return [{ dataset: { agentId: 'other' } }, ...(attached ? [{ dataset: { agentId: expectedId } }] : [])];
+        },
+      },
+      window: { __VIEWER_PERF_INPUT__: input },
+    });
+    let evaluations = 0;
+    await assert.rejects(collectNativeSelectionSamples({ selectionSource, count: 1,
+      run: async args => commands.push(args),
+      evaluate: async code => {
+        evaluations++;
+        if (evaluations === 1) throw primary;
+        return vm.runInContext(code, context);
+      },
+    }), error => error === primary);
+    assert.equal(evaluations, 2);
+    assert.deepEqual(commands, []);
+    assert.deepEqual(primary.nativeInputDiagnostic, {
+      input, active: active ? { tag: 'BUTTON', id: expectedId } : { id: null },
+      expectedTargetAttached: attached, transport: selectionSource === 'renderer' ? 'owned_cdp' : 'cli',
+    });
+    assert.equal(context.compromised, undefined);
+  }
+});
+
+test('diagnostic failure and malformed JSON preserve the original error object', async () => {
+  for (const failure of ['evaluate', 'json']) {
+    const primary = Error('original collection failure'); let evaluations = 0;
+    await assert.rejects(collectNativeSelectionSamples({ count: 1, evaluate: async () => {
+      if (++evaluations === 1) throw primary;
+      if (failure === 'evaluate') throw Error('diagnostic unavailable');
+      return '{malformed';
+    } }), error => error === primary);
+    assert.equal(evaluations, 2);
+    assert.match(primary.nativeInputDiagnosticError, failure === 'evaluate' ? /diagnostic unavailable/ : /SyntaxError/);
+  }
+});
+
+test('primitive collection failures are rethrown without attempting a diagnostic', async () => {
+  for (const primary of [null, undefined, false, 0, 'failure']) {
+    let evaluations = 0;
+    try {
+      await collectNativeSelectionSamples({ count: 1, evaluate: async () => { evaluations++; throw primary; } });
+      assert.fail('collection failure must be rethrown');
+    } catch (error) { assert.equal(error, primary); }
+    assert.equal(evaluations, 1);
+  }
+});
+
+const densityRunner = readFileSync(new URL('./pixel-world-world-view-density-visual.mjs', import.meta.url), 'utf8');
+function densityFunction(name) {
+  const start = densityRunner.indexOf(`async function ${name}(`);
+  const end = densityRunner.indexOf('\nasync function ', start + 1);
+  assert.ok(start >= 0 && end > start);
+  return densityRunner.slice(start, end);
+}
+for (const name of ['overview', 'searchEmpty']) test(`${name} retains disclosure conditions and native command ordering`, async () => {
+  for (const open of [false, true, null]) {
+    const commands = [], focuses = [], queries = [];
+    const context = vm.createContext({
+      document: { querySelector: selector => {
+        queries.push(selector);
+        if (selector === '.pixel-world-exploration-disclosure') return open === null ? null : { open };
+        assert.equal(selector, name === 'overview' ? '[data-query-overview]' : '.pixel-world-exploration form input');
+        return { focus: options => { focuses.push(JSON.parse(JSON.stringify(options))); commands.push(['focus', selector]); } };
+      } },
+      run: async args => commands.push(JSON.parse(JSON.stringify(args))),
+    });
+    context.evaluate = async code => vm.runInContext(code, context);
+    const result = vm.runInContext(densityFunction(name) + `\n${name}()`, context);
+    if (name === 'overview' && open === null) {
+      await assert.rejects(result, /negotiated exploration UI missing/);
+      assert.deepEqual(commands, []);
+    } else {
+      await result;
+      const expected = open ? [] : [['click', '.pixel-world-exploration-disclosure > summary']];
+      if (name === 'searchEmpty') expected.push(['fill', '.pixel-world-exploration form input', '']);
+      expected.push(['focus', name === 'overview' ? '[data-query-overview]' : '.pixel-world-exploration form input'], ['press', 'Enter']);
+      if (name === 'overview') expected.push(['click', '.pixel-world-exploration-disclosure > summary']);
+      assert.deepEqual(commands, expected);
+      assert.deepEqual(focuses, [{ preventScroll: true }]);
+    }
+    assert.equal(queries[0], '.pixel-world-exploration-disclosure');
+  }
+});
+
+test('a prepared dense version never certifies a newer awaiting-frame input',()=>{
+ const prepared={expectedId:'A',timeOrigin:1,readStarted:90,readCompleted:91,focusedAt:92,display:{...display,version:7}};
+ const input={...sample,timeOrigin:1,densityPreparation:prepared,displayAtInput:{status:'awaiting_frame',version:8}};
+ const r=summarizeDensityFeedback([input],trace);
+ assert.equal(r.densityTransitions[0].status,'version_advanced_awaiting');assert.equal(r.densityTransitions[0].density,'unknown');
+ assert.equal(r.counts.pendingOrUnknown,1);assert.equal(r.allInputsConfirmedDensity,false);assert.equal(r.dense.samples,0);
+});
+test('diagnostics distinguish observed partial density and unpaired preparation without changing the gate',()=>{
+ const prepared={expectedId:'A',timeOrigin:1,readStarted:90,readCompleted:91,focusedAt:92,display:{...display,version:7}};
+ const partial=summarizeDensityFeedback([{...sample,timeOrigin:1,densityPreparation:prepared,displayAtInput:{...display,version:8,markers:800,bodies:800,inView:800}}],trace);
+ assert.equal(partial.densityTransitions[0].status,'observed_at_input');assert.equal(partial.densityTransitions[0].density,'observed_below_or_mismatched');assert.equal(partial.allInputsConfirmedDensity,false);
+ for(const change of [{timeOrigin:2},{expectedId:'other'},{focusedAt:101},{display:{...display,version:7,bodies:800}}]){
+  const r=summarizeDensityFeedback([{...sample,timeOrigin:1,densityPreparation:{...prepared,...change},displayAtInput:{status:'awaiting_frame',version:8}}],trace);
+  assert.equal(r.densityTransitions[0].status,'unpaired_preparation');assert.equal(r.allInputsConfirmedDensity,false);
+ }
 });

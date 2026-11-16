@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Source, inventory, provenance and recovery contracts for full CI consumers."""
 import copy
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import importlib.util
 import io
 import json
@@ -10,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 import urllib.error
@@ -125,6 +128,7 @@ class Qualification(unittest.TestCase):
 class DefinitionDigest(unittest.TestCase):
     RUNNER = 'scripts/ci-python-control-contracts.py'
     CONTRACT = 'scripts/ci-required-result.test.py'
+    PROOF = 'crates/oasis7_custody_worker/scripts/verify.sh'
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -168,6 +172,23 @@ class DefinitionDigest(unittest.TestCase):
     def test_registered_baseline_assertion_change_invalidates_previous_definition(self):
         self.assert_rejects_previous_definition(self.CONTRACT)
 
+    def test_complete_governance_assertions_are_hashed_at_the_fixed_revision(self):
+        path = 'crates/fixture/scripts/governance.test.py'
+        destination = self.root / path
+        destination.parent.mkdir(parents=True)
+        destination.write_text('# complete governance fixture\n')
+        self.config['workflow_governance_python_tests'] = [self.CONTRACT, path]
+        self.write_config()
+        self.assert_rejects_previous_definition(path)
+
+    def test_complete_governance_inventory_cannot_escape_or_duplicate_files(self):
+        for paths in ([], [self.CONTRACT, self.CONTRACT], ['scripts/../outside.test.py'],
+                      ['/outside.test.py'], ['scripts/*.test.py']):
+            self.config['workflow_governance_python_tests'] = paths
+            self.write_config()
+            with self.subTest(paths=paths), self.assertRaises(ValueError):
+                module.definition_digest(self.root, self.commit())
+
     def test_digest_reads_contracts_at_fixed_revision_not_worktree(self):
         revision = self.commit()
         previous = module.definition_digest(self.root, revision)
@@ -180,6 +201,43 @@ class DefinitionDigest(unittest.TestCase):
         previous = module.definition_digest(self.root, self.commit())
         (self.root / 'scripts/ordinary-helper.py').write_text('VALUE=7\n')
         self.assertEqual(module.definition_digest(self.root, self.commit()), previous)
+
+    def test_registered_worker_tool_definition_invalidates_previous_receipt(self):
+        path = 'scripts/ci-worker-build.py'
+        (self.root / path).write_text('# pinned tool preparation\n')
+        self.config['python_control_contracts'][path] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        self.assert_rejects_previous_definition(path)
+
+    def test_registered_worker_tool_definition_must_exist_at_fixed_revision(self):
+        self.config['python_control_contracts']['scripts/ci-worker-build.py'] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+
+    def test_workerd_capture_implementation_and_real_contract_fixtures_bind_the_definition(self):
+        paths = ('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
+                 'scripts/ci-custody-workerd-gdb-contracts.py', self.CONTRACT)
+        for path in paths:
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('# initial debugger contract\n')
+        self.config['python_control_contracts'][paths[0]] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        for path in paths:
+            with self.subTest(path=path):
+                (self.root / path).write_text('# original contract for ' + path + '\n')
+                self.assert_rejects_previous_definition(path)
+
+    def test_registered_workerd_capture_fails_when_driver_or_fixture_is_absent(self):
+        self.config['python_control_contracts']['scripts/ci-custody-workerd-capture.py'] = dict(
+            group='workflow_governance', tests=[self.CONTRACT])
+        self.write_config()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
 
     def test_invalid_trusted_contract_paths_fail_before_reading_unowned_data(self):
         for path in ('../outside.test.py', '/tmp/outside.test.py', 'scripts/*.test.py',
@@ -194,6 +252,83 @@ class DefinitionDigest(unittest.TestCase):
         self.write_config()
         self.assertEqual(len(module.definition_digest(self.root, self.commit())), 64)
 
+    def test_custody_capability_binds_its_actual_execution_helper(self):
+        path = 'scripts/ci-custody-platform.py'
+        self.config['custody_execution_version'] = 1
+        self.write_config()
+        (self.root / path).write_text('# original custody producer/consumer\n')
+        self.assert_rejects_previous_definition(path)
+
+    def test_old_policy_does_not_require_new_custody_helper(self):
+        revision = self.commit()
+        previous = module.definition_digest(self.root, revision)
+        (self.root / 'scripts/ci-custody-platform.py').write_text('# not enabled by old policy\n')
+        self.assertEqual(previous, module.definition_digest(self.root, self.commit()))
+
+    def test_custody_capability_fails_when_helper_missing_or_version_is_not_exact(self):
+        self.config['custody_execution_version'] = 1
+        self.write_config()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+        for version in (None, False, True, 0, 2, '1'):
+            self.config['custody_execution_version'] = version
+            self.write_config()
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                module.definition_digest(self.root, self.commit())
+
+    def prepare_separate_custody_proof(self):
+        self.config.update(custody_execution_version=1, custody_compile_proof_version=1,
+                           workspace_support_partition_version=1)
+        self.write_config()
+        (self.root / 'scripts/ci-custody-platform.py').write_text('# custody execution helper\n')
+        proof = self.root / self.PROOF
+        proof.parent.mkdir(parents=True)
+        proof.write_text('# complete role proof commands\n')
+        return proof
+
+    def test_separate_custody_proof_script_change_invalidates_previous_full_receipt(self):
+        self.prepare_separate_custody_proof()
+        self.assert_rejects_previous_definition(self.PROOF)
+
+    def test_separate_custody_proof_definition_reads_fixed_revision_not_worktree(self):
+        proof = self.prepare_separate_custody_proof()
+        revision = self.commit()
+        expected = module.definition_digest(self.root, revision)
+        proof.write_text('# uncommitted candidate proof\n')
+        self.config['custody_compile_proof_version'] = True
+        self.write_config()
+        self.assertEqual(module.definition_digest(self.root, revision), expected)
+
+    def test_legacy_custody_definition_does_not_require_or_hash_separate_proof_script(self):
+        proof = self.prepare_separate_custody_proof()
+        del self.config['custody_compile_proof_version']
+        self.write_config()
+        proof.unlink()
+        expected = module.definition_digest(self.root, self.commit())
+        proof.write_text('# not an input to this historical definition\n')
+        self.assertEqual(module.definition_digest(self.root, self.commit()), expected)
+
+    def test_separate_custody_proof_requires_script_and_strict_parent_capabilities(self):
+        proof = self.prepare_separate_custody_proof()
+        proof.unlink()
+        with self.assertRaises(subprocess.CalledProcessError):
+            module.definition_digest(self.root, self.commit())
+        proof.write_text('# real selected proof\n')
+        valid = copy.deepcopy(self.config)
+        for key in ('custody_compile_proof_version', 'custody_execution_version',
+                    'workspace_support_partition_version'):
+            for value in (None, True, False, 0, 2, '1', 'missing'):
+                self.config = copy.deepcopy(valid)
+                if value == 'missing':
+                    if key == 'custody_compile_proof_version':
+                        continue
+                    del self.config[key]
+                else:
+                    self.config[key] = value
+                self.write_config()
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    module.definition_digest(self.root, self.commit())
+
 
 class Response(io.BytesIO):
     def __init__(self, data, link=""):
@@ -205,26 +340,44 @@ class History:
     """Fixed Actions facts; the real selector and receipt validator decide."""
     repository = "nil-studio/oasis7"
 
-    def __init__(self, runs, artifacts=None, payloads=None, jobs=None):
+    def __init__(self, runs, artifacts=None, payloads=None, jobs=None, attempts=None):
         self.runs = runs
         self.artifacts = artifacts or {}
         self.payloads = payloads or {}
         self.jobs = jobs or {}
+        self.attempts = attempts or {}
         self.downloads = []
+        self.queries = []
 
     def get(self, path):
         if path == "actions/workflows/rust.yml":
             return {"id": 7}
+        parts = path.split("/")
+        if len(parts) == 5 and parts[:2] == ["actions", "runs"] and parts[3] == "attempts":
+            return self.attempts[(int(parts[2]), int(parts[4]))]
         if path.startswith("actions/runs/"):
             return next(run for run in self.runs if str(run["id"]) == path.rsplit("/", 1)[1])
         raise AssertionError("unexpected API object: " + path)
 
     def pages(self, path, key):
+        self.queries.append(path)
         parsed = urllib.parse.urlsplit(path)
         parts = parsed.path.split("/")
         if parts[:2] == ["actions", "workflows"] and parts[-1] == "runs":
-            event = urllib.parse.parse_qs(parsed.query)["event"][0]
-            return [run for run in self.runs if run["event"] == event]
+            query = urllib.parse.parse_qs(parsed.query)
+            result = [run for run in self.runs if run["event"] == query["event"][0]]
+            for parameter, field in (("status", "status"), ("head_sha", "head_sha"), ("branch", "head_branch")):
+                if parameter in query:
+                    result = [run for run in result if run[field] == query[parameter][0]]
+            if "created" in query:
+                window = query["created"][0]
+                if ".." in window:
+                    begin, end = map(module.timestamp, window.split(".."))
+                    result = [run for run in result if begin <= module.timestamp(run["created_at"]) <= end]
+                else:
+                    result = [run for run in result if module.timestamp(run["created_at"]) >=
+                              module.timestamp(window.removeprefix(">="))]
+            return result
         if parts[:2] == ["actions", "runs"] and parts[-1] == "artifacts":
             return self.artifacts.get(int(parts[2]), [])
         if parts[:2] == ["actions", "runs"] and parts[-1] == "jobs":
@@ -388,17 +541,27 @@ class Attempts(unittest.TestCase):
         self.assertEqual(self.api.downloads, [])
 
     def test_selection_reuse_requires_successful_producer_and_no_current_select(self):
-        run = dict(self.green, id=99, run_attempt=3, event="workflow_dispatch", head_sha=B)
+        run = dict(self.green, id=99, run_attempt=3, event="workflow_dispatch", head_sha=B,
+                   run_started_at="2026-10-30T11:00:00Z", updated_at="2026-10-30T11:30:00Z")
         selection = {"id": 9902, "name": "ci-selection-99-2", "expired": False}
-        producer = dict(name="select", run_attempt=2, status="completed", conclusion="success")
+        producer = dict(name="select", run_id=99, head_sha=B, run_attempt=2, status="completed", conclusion="success",
+                        started_at="2026-10-30T10:00:01Z", completed_at="2026-10-30T10:00:05Z",
+                        steps=[dict(name="Select", number=1, status="completed", conclusion="success",
+                                    started_at="2026-10-30T10:00:01Z", completed_at="2026-10-30T10:00:05Z")])
         api = History([run], payloads={9902: dict(scope="explicit-full", execution_profile="candidate-full",
                                                 source_sha=A, tested_sha=A, policy_sha=B)},
+                      attempts={(99, 2): dict(run, run_attempt=2, run_started_at="2026-10-30T10:00:00Z",
+                                             updated_at="2026-10-30T10:30:00Z")},
                       jobs={(99, 2): [producer], (99, 3): [
                           dict(name="candidate-full-regression", run_attempt=3, status="completed", conclusion="failure")
                       ]})
         self.assertEqual(module.selected_source_for_attempt(api, run, [selection]), A)
+        rerun = dict(producer, run_attempt=3, started_at="2026-10-30T11:00:01Z",
+                     completed_at="2026-10-30T11:00:05Z",
+                     steps=[dict(producer["steps"][0], started_at="2026-10-30T11:00:01Z",
+                                 completed_at="2026-10-30T11:00:05Z")])
         for conclusion in ("success", "failure", "cancelled"):
-            api.jobs[(99, 3)] = [dict(producer, run_attempt=3, conclusion=conclusion)]
+            api.jobs[(99, 3)] = [dict(rerun, conclusion=conclusion)]
             with self.subTest(current_select=conclusion), self.assertRaisesRegex(ValueError, "select was rerun"):
                 module.selected_source_for_attempt(api, run, [selection])
         api.jobs[(99, 3)] = []
@@ -409,7 +572,7 @@ class Attempts(unittest.TestCase):
             with self.subTest(producer_jobs=producers), self.assertRaisesRegex(ValueError, "producing select"):
                 module.selected_source_for_attempt(api, run, [selection])
         api.jobs[(99, 2)] = [producer]
-        api.jobs[(99, 3)] = [dict(producer, run_attempt=3)]
+        api.jobs[(99, 3)] = [rerun]
         current = dict(selection, id=9903, name="ci-selection-99-3")
         api.payloads[9903] = dict(api.payloads[9902], source_sha="c" * 40, tested_sha="c" * 40)
         self.assertEqual(module.selected_source_for_attempt(api, run, [selection, current]), "c" * 40)
@@ -430,7 +593,1269 @@ class Attempts(unittest.TestCase):
                     self.verify()
 
 
+class InheritedAttempts(unittest.TestCase):
+    """Selective reruns may relabel old successful jobs with new IDs/attempts."""
+
+    def setUp(self):
+        receipt, run, _ = fixture()
+        self.original = dict(run, run_attempt=1, conclusion="failure",
+                             created_at="2026-10-30T07:08:59Z", run_started_at="2026-10-30T07:08:59Z")
+        self.run = dict(self.original, run_attempt=2, conclusion="success",
+                        run_started_at="2026-10-30T09:27:41Z", updated_at="2026-10-30T09:56:49Z")
+        self.producers = [dict(id=10 + index, run_id=42, head_sha=A, name=name, run_attempt=1,
+                               status="completed", conclusion="success", runner_id=10,
+                               runner_name="runner", runner_group_id=0,
+                               started_at=start, completed_at=end,
+                               steps=[dict(number=1, name="Run", status="completed", conclusion="success",
+                                           started_at=start, completed_at=end)])
+                          for index, (name, start, end) in enumerate((
+                              ("periodic-admission", "2026-10-30T07:09:01Z", "2026-10-30T07:09:31Z"),
+                              ("select", "2026-10-30T07:09:32Z", "2026-10-30T07:09:54Z")))]
+        self.aliases = [dict(copy.deepcopy(job), id=job["id"] + 100, run_attempt=2,
+                             created_at="2026-10-30T09:27:43Z", runner_group_id=None)
+                        for job in self.producers]
+        context = dict(receipt["context"], run_attempt=1, source_sha=A)
+        decision = module.periodic_decision([], context, module.timestamp("2026-10-30T07:09:15Z"))
+        self.api = History([self.run], attempts={(42, 1): self.original},
+                           artifacts={42: [dict(id=100, name="ci-periodic-admission-42-1", expired=False),
+                                           dict(id=101, name="ci-selection-42-1", expired=False),
+                                           dict(id=102, name="ci-full-result-42-2", expired=False)]},
+                           payloads={100: decision, 101: receipt["plan"], 102: receipt},
+                           jobs={(42, 1): self.producers,
+                                 (42, 2): self.aliases + [dict(name="explicit-full-gate", run_attempt=2,
+                                                              status="completed", conclusion="success")]})
+
+    def classify(self):
+        return module.classify_periodic_attempt(self.api, self.run, 7)
+
+    def selected(self):
+        return module.selected_source_for_attempt(self.api, self.run, self.api.artifacts[42], 7)
+
+    def test_aliases_keep_original_admission_selection_and_cadence(self):
+        classified = self.classify()
+        self.assertEqual(classified["kind"], "full")
+        self.assertTrue(classified["successful"])
+        self.assertEqual(classified["decision"]["context"]["run_attempt"], 1)
+        self.assertEqual(classified["full_started_at"], "2026-10-30T07:09:32Z")
+        self.assertEqual(self.selected(), A)
+        decision = module.periodic_decision([classified], dict(self.api.payloads[100]["context"], run_id=90),
+                                            module.timestamp("2026-10-30T11:09:32Z"))
+        self.assertTrue(decision["run_full"])
+        self.assertEqual(decision["start_gap_seconds"], 4 * 3600)
+        self.api.artifacts[42].pop()
+        self.assertFalse(self.classify()["successful"])
+        with self.assertRaisesRegex(ValueError, "current attempt"):
+            module.find_verified(self.api, A, CONFIG, "definition", run_id=42)
+
+    def test_omitted_inherited_jobs_keep_actual_select_start(self):
+        self.api.jobs[(42, 2)] = self.api.jobs[(42, 2)][2:]
+        self.assertEqual(self.selected(), A)
+        self.assertEqual(self.classify()["full_started_at"], "2026-10-30T07:09:32Z")
+
+    def test_manual_candidate_alias_keeps_source_distinct_from_workflow(self):
+        self.run["event"] = self.original["event"] = "workflow_dispatch"
+        self.api.payloads[101].update(source_sha=B, tested_sha=B, execution_profile="candidate-full")
+        self.assertEqual(self.selected(), B)
+
+    def test_changed_failed_incomplete_or_ambiguous_alias_cannot_reuse_old_evidence(self):
+        for index in (0, 1):
+            for mutation in ({"status": "in_progress", "conclusion": None}, {"conclusion": "failure"},
+                             {"conclusion": "cancelled"}, {"started_at": "2026-10-30T09:28:00Z"},
+                             {"completed_at": None}, {"steps": []}, {"head_sha": B}, {"run_id": 99},
+                             {"run_attempt": 1}, {"steps": [dict(number=1, name="Different")]},
+                             {"completed_at": "2026-10-30T09:28:00Z"}):
+                with self.subTest(job=index, mutation=mutation):
+                    self.setUp()
+                    self.aliases[index].update(mutation)
+                    with self.assertRaises(ValueError):
+                        self.selected()
+            self.setUp()
+            self.api.jobs[(42, 2)].append(copy.deepcopy(self.aliases[index]))
+            with self.subTest(duplicate=index), self.assertRaises(ValueError):
+                self.selected()
+
+    def test_attempt_identity_and_missing_producer_timing_fail_closed(self):
+        for mutation in ({"id": 99}, {"run_attempt": 2}, {"head_sha": B}, {"workflow_id": 8},
+                         {"path": "other.yml"}, {"event": "workflow_dispatch"}, {"head_branch": "other"},
+                         {"run_started_at": None}, {"run_started_at": "2026-10-30T09:30:00Z"}):
+            with self.subTest(mutation=mutation):
+                self.setUp()
+                self.original.update(mutation)
+                with self.assertRaises(ValueError):
+                    self.selected()
+        self.setUp()
+        del self.producers[0]["completed_at"]
+        with self.assertRaises(ValueError):
+            self.classify()
+
+    def third_attempt(self):
+        second = copy.deepcopy(self.run)
+        # The attempt endpoint's created_at is not the original run creation time.
+        second["created_at"] = "2026-10-30T09:27:43Z"
+        self.api.attempts[(42, 2)] = second
+        self.run.update(run_attempt=3, run_started_at="2026-10-30T10:30:00Z")
+        self.api.jobs[(42, 3)] = [dict(copy.deepcopy(job), id=job["id"] + 100, run_attempt=3)
+                                 for job in self.aliases]
+
+    def test_every_intermediate_attempt_is_checked(self):
+        self.third_attempt()
+        self.assertEqual(self.selected(), A)
+        self.assertEqual(self.classify()["full_started_at"], "2026-10-30T07:09:32Z")
+        for index in (0, 1):
+            with self.subTest(intermediate_job=index):
+                self.setUp()
+                self.third_attempt()
+                self.aliases[index].update(conclusion="failure", started_at="2026-10-30T09:28:00Z")
+                with self.assertRaises(ValueError):
+                    self.selected()
+
+    def test_later_producer_uses_actual_attempt_start_not_endpoint_creation(self):
+        for index, job in enumerate(self.aliases):
+            start = "2026-10-30T09:27:42Z" if index == 0 else "2026-10-30T09:27:51Z"
+            end = "2026-10-30T09:27:50Z" if index == 0 else "2026-10-30T09:28:00Z"
+            job.update(started_at=start, completed_at=end,
+                       steps=[dict(job["steps"][0], started_at=start, completed_at=end)])
+        self.api.artifacts[42].extend([dict(id=200, name="ci-periodic-admission-42-2", expired=False),
+                                      dict(id=201, name="ci-selection-42-2", expired=False)])
+        self.api.payloads[200] = module.periodic_decision(
+            [], dict(self.api.payloads[100]["context"], run_attempt=2),
+            module.timestamp("2026-10-30T09:27:42.500000Z"))
+        self.api.payloads[201] = copy.deepcopy(self.api.payloads[101])
+        self.third_attempt()
+        self.assertEqual(self.selected(), A)
+        classified = self.classify()
+        self.assertEqual(classified["decision"]["context"]["run_attempt"], 2)
+        self.assertEqual(classified["full_started_at"], "2026-10-30T09:27:51Z")
+        self.api.payloads[200]["observed_at"] = "2026-10-30T09:27:40Z"
+        with self.assertRaisesRegex(ValueError, "admission predates"):
+            self.classify()
+
+    def test_newer_artifact_cannot_be_skipped_or_forged_from_an_alias(self):
+        for name, artifact_id in (("periodic-admission", 100), ("selection", 101)):
+            for kind in ("alias", "expired", "duplicate"):
+                with self.subTest(name=name, kind=kind):
+                    self.setUp()
+                    self.third_attempt()
+                    current = dict(id=200, name=f"ci-{name}-42-2", expired=kind == "expired")
+                    self.api.artifacts[42].append(current)
+                    self.api.payloads[200] = copy.deepcopy(self.api.payloads[artifact_id])
+                    if kind == "duplicate":
+                        self.api.artifacts[42].append(dict(current, id=201))
+                    with self.assertRaises(ValueError):
+                        self.selected()
+
+    def test_inherited_noop_cannot_become_a_new_observation(self):
+        decision = self.api.payloads[100]
+        decision.update(run_full=False, reason="not_due", start_gap_seconds=555,
+                        previous_full=dict(id=40, run_attempt=1, head_sha=A, status="completed",
+                                           full_started_at="2026-10-30T07:00:00Z"))
+        with self.assertRaises(ValueError):
+            self.classify()
+
+    def test_actual_select_rerun_without_new_selection_keeps_full_failure_or_activity(self):
+        for status, conclusion in (("completed", "failure"), ("completed", "cancelled"),
+                                   ("completed", "success"), ("in_progress", None)):
+            with self.subTest(status=status, conclusion=conclusion):
+                self.setUp()
+                self.run.update(status=status, conclusion="failure" if status == "completed" else None)
+                for index, job in enumerate(self.aliases):
+                    start = "2026-10-30T09:27:42Z" if index == 0 else "2026-10-30T09:27:51Z"
+                    end = "2026-10-30T09:27:50Z" if index == 0 else "2026-10-30T09:28:00Z"
+                    job.update(started_at=start, completed_at=end,
+                               steps=[dict(job["steps"][0], started_at=start, completed_at=end)])
+                self.aliases[1].update(status=status, conclusion=conclusion)
+                if status == "in_progress":
+                    self.aliases[1]["completed_at"] = None
+                self.api.jobs[(42, 2)][2].update(conclusion="failure")
+                self.api.artifacts[42][-1] = dict(id=200, name="ci-periodic-admission-42-2", expired=False)
+                self.api.payloads[200] = module.periodic_decision(
+                    [], dict(self.api.payloads[100]["context"], run_attempt=2),
+                    module.timestamp("2026-10-30T09:27:45Z"))
+                classified = self.classify()
+                self.assertEqual(classified["kind"], "full")
+                self.assertFalse(classified["successful"])
+                self.assertEqual(classified["full_started_at"], "2026-10-30T09:27:51Z")
+                later = module.periodic_decision([classified], dict(self.api.payloads[200]["context"], run_id=90),
+                                                 module.timestamp("2026-10-30T13:27:51Z"))
+                self.assertEqual(later["run_full"], status == "completed")
+                self.assertEqual(later["reason"], "due" if status == "completed" else "full_active")
+                with self.assertRaisesRegex(ValueError, "select was rerun"):
+                    self.selected()
+
+
+class PeriodicAdmission(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
+        receipt, run, _ = fixture()
+        self.green = dict(run, id=40, run_attempt=1, created_at="2026-10-30T08:00:00Z",
+                          run_started_at="2026-10-30T08:00:00Z", updated_at="2026-10-30T10:00:00Z")
+        receipt["context"].update(run_id=40, run_attempt=1)
+        self.api = History([self.green],
+                           artifacts={40: [{"id": 4001, "name": "ci-full-result-40-1", "expired": False}]},
+                           payloads={4001: receipt}, jobs={(40, 1): [
+                               self.job("select", "success", started_at=self.green["created_at"]),
+                               self.job("explicit-full-gate", "success"),
+                           ]})
+
+    def job(self, name, conclusion, **extra):
+        return dict(name=name, status="completed", conclusion=conclusion, run_attempt=1, **extra)
+
+    def context(self, run):
+        return dict(repository=self.api.repository, event_name="schedule", ref="refs/heads/main",
+                    workflow_sha=run["head_sha"], source_sha=run["head_sha"],
+                    workflow_ref=f"{self.api.repository}/{module.WORKFLOW}@refs/heads/main",
+                    run_id=run["id"], run_attempt=run["run_attempt"])
+
+    def add_run(self, run_id, when=None, **extra):
+        when = when or self.now
+        run = dict(self.green, id=run_id, created_at=when.isoformat(), run_started_at=when.isoformat(),
+                   updated_at=(when + timedelta(seconds=5)).isoformat())
+        run.update(extra)
+        self.api.runs.append(run)
+        return run
+
+    def full(self, run):
+        return module.classify_periodic_attempt(self.api, run, 7)
+
+    def add_observation(self, run_id=41, when=None, previous=None):
+        when = when or self.now - timedelta(minutes=20)
+        run = self.add_run(run_id, when)
+        history = [self.full(self.green)] if previous is None else previous
+        decision = module.periodic_decision(history, self.context(run), when)
+        self.api.jobs[(run_id, 1)] = [self.job("periodic-admission", "success"),
+                                    self.job("select", "skipped"), self.job("explicit-full-gate", "skipped")]
+        self.api.artifacts[run_id] = [{"id": run_id * 100, "name": f"ci-periodic-admission-{run_id}-1", "expired": False}]
+        self.api.payloads[run_id * 100] = decision
+        return run, decision
+
+    def admit(self, now=None, run_id=90):
+        now = now or self.now
+        run = self.add_run(run_id, now, status="in_progress", conclusion=None)
+        return module.admit_periodic(self.api, self.context(run), now)
+
+    def test_first_start_and_exact_four_hour_due_keep_unchanged_source(self):
+        self.assertTrue(self.admit()["run_full"])
+        self.api.runs.remove(next(run for run in self.api.runs if run["id"] == 90))
+        before = self.admit(self.now - timedelta(seconds=1), 91)
+        self.assertFalse(before["run_full"])
+        self.assertEqual(before["reason"], "not_due")
+        self.api = History([])
+        first = self.admit(run_id=92)
+        self.assertTrue(first["run_full"])
+        self.assertIsNone(first["previous_full"])
+
+    def test_many_missed_intervals_admit_one_current_full_without_replaying_slots(self):
+        decision = self.admit(self.now + timedelta(hours=12))
+        self.assertTrue(decision["run_full"])
+        self.assertEqual(decision["missed_intervals"], 3)
+        self.assertEqual(decision["active_full_run_ids"], [])
+
+    def test_failed_full_keeps_start_anchor_and_is_not_retried_on_each_tick(self):
+        self.green.update(conclusion="failure")
+        self.api.jobs[(40, 1)][1]["conclusion"] = "failure"
+        self.assertFalse(self.admit(self.now - timedelta(minutes=20))["run_full"])
+        self.api.runs = [self.green]
+        decision = self.admit()
+        self.assertTrue(decision["run_full"])
+        self.assertEqual(decision["previous_full"]["conclusion"], "failure")
+
+    def test_active_full_older_than_history_window_blocks_overlap(self):
+        old = self.now - timedelta(days=3)
+        self.green.update(created_at=old.isoformat(), run_started_at=old.isoformat(),
+                          status="in_progress", conclusion=None)
+        self.api.jobs[(40, 1)][0]["started_at"] = old.isoformat()
+        decision = self.admit()
+        self.assertFalse(decision["run_full"])
+        self.assertEqual(decision["reason"], "full_active")
+        self.assertEqual(decision["active_full_run_ids"], [40])
+
+    def test_published_admission_reserves_slot_before_select_starts(self):
+        first = self.admit()
+        self.api.jobs[(90, 1)] = [self.job("periodic-admission", "success")]
+        self.api.artifacts[90] = [{"id": 9000, "name": "ci-periodic-admission-90-1", "expired": False}]
+        self.api.payloads[9000] = first
+        second = self.admit(self.now + timedelta(minutes=20), 91)
+        self.assertFalse(second["run_full"])
+        self.assertEqual(second["active_full_run_ids"], [90])
+        self.assertEqual(second["previous_full"]["reserved_at"], self.now.isoformat())
+        self.assertIsNone(second["previous_full"]["full_started_at"])
+
+    def test_queued_observation_without_mutex_does_not_deadlock_admission(self):
+        queued = self.add_run(41, self.now - timedelta(seconds=1), status="queued", conclusion=None)
+        self.api.jobs[(41, 1)] = [dict(name="periodic-admission", status="queued", conclusion=None,
+                                      run_attempt=1, started_at=None)]
+        self.assertEqual(self.full(queued)["kind"], "pending_observation")
+        self.assertTrue(self.admit()["run_full"])
+
+    def test_unpublished_running_or_successful_admission_cannot_release_a_slot(self):
+        for status, conclusion in (("in_progress", None), ("completed", "success")):
+            with self.subTest(status=status):
+                self.api.runs = [self.green]
+                self.add_run(41, self.now - timedelta(minutes=20), status="in_progress", conclusion=None)
+                self.api.jobs[(41, 1)] = [dict(name="periodic-admission", status=status, conclusion=conclusion,
+                                              run_attempt=1, started_at="2026-10-30T11:40:00Z")]
+                with self.assertRaisesRegex(ValueError, "admission evidence"):
+                    self.admit()
+
+    def test_failed_upload_remains_control_failure_but_next_due_tick_can_compensate(self):
+        failed = self.add_run(41, self.now - timedelta(minutes=20), conclusion="failure")
+        self.api.jobs[(41, 1)] = [self.job("periodic-admission", "failure"),
+                                self.job("select", "skipped"), self.job("explicit-full-gate", "skipped")]
+        self.assertEqual(self.full(failed)["kind"], "control_failure")
+        decision = self.admit()
+        self.assertTrue(decision["run_full"])
+        self.assertEqual(decision["control_failure_run_ids"], [41])
+        self.api.runs = [self.green, failed]
+        with self.assertRaisesRegex(ValueError, "newer full attempt"):
+            module.find_verified(self.api, A, CONFIG, "definition")
+
+    def test_noop_requires_actual_skips_and_no_full_execution_artifacts(self):
+        for kind in ("select_ran", "gate_ran", "other_ran", "missing_select", "missing_gate",
+                     "duplicate_select", "old_select", "selection", "full-result", "unknown_run"):
+            with self.subTest(kind=kind):
+                run, _ = self.add_observation()
+                jobs = self.api.jobs[(41, 1)]
+                if kind in {"select_ran", "gate_ran"}:
+                    jobs[1 if kind == "select_ran" else 2]["conclusion"] = "success"
+                elif kind == "other_ran":
+                    jobs.append(self.job("full-regression", "success"))
+                elif kind in {"missing_select", "missing_gate"}:
+                    del jobs[1 if kind == "missing_select" else 2]
+                elif kind == "duplicate_select":
+                    jobs.append(dict(jobs[1]))
+                elif kind == "old_select":
+                    jobs[1]["run_attempt"] = 0
+                elif kind in {"selection", "full-result"}:
+                    self.api.artifacts[41].append({"id": 4199, "name": f"ci-{kind}-41-1", "expired": False})
+                else:
+                    run["conclusion"] = "unknown"
+                with self.assertRaises(ValueError):
+                    self.full(run)
+                self.api.runs.remove(run)
+
+    def test_noop_rejects_missing_expired_duplicate_or_cross_attempt_decisions(self):
+        for kind in ("missing", "expired", "duplicate", "old_attempt", "job_failure", "job_missing", "duplicate_job"):
+            with self.subTest(kind=kind):
+                run, _ = self.add_observation()
+                artifacts = self.api.artifacts[41]
+                if kind == "missing":
+                    artifacts.clear()
+                elif kind == "expired":
+                    artifacts[0]["expired"] = True
+                elif kind == "duplicate":
+                    artifacts.append(dict(artifacts[0], id=4199))
+                elif kind == "old_attempt":
+                    self.api.attempts[(41, 1)] = dict(run)
+                    run["run_attempt"] = 2
+                    self.api.jobs[(41, 2)] = [dict(job, run_attempt=2) for job in self.api.jobs[(41, 1)]]
+                elif kind == "job_failure":
+                    self.api.jobs[(41, 1)][0]["conclusion"] = "failure"
+                elif kind == "job_missing":
+                    del self.api.jobs[(41, 1)][0]
+                else:
+                    self.api.jobs[(41, 1)].append(dict(self.api.jobs[(41, 1)][0]))
+                if kind == "job_failure":
+                    self.assertEqual(self.full(run)["kind"], "control_failure")
+                else:
+                    with self.assertRaises(ValueError):
+                        self.full(run)
+                self.api.runs.remove(run)
+
+    def test_decision_binds_actual_context_schema_and_cadence(self):
+        mutations = [("schema", "unknown"), ("run_full", "false"), ("cadence_seconds", 1200),
+                     ("reason", "due"), ("observed_at", "2026-10-29T00:00:00Z"),
+                     ("start_gap_seconds", -1), ("missed_intervals", 3), ("previous_full", None),
+                     ("active_full_run_ids", [41]), ("control_failure_run_ids", [True])]
+        for key, value in mutations:
+            with self.subTest(field=key):
+                run, receipt = self.add_observation()
+                receipt[key] = value
+                with self.assertRaises(ValueError):
+                    self.full(run)
+                self.api.runs.remove(run)
+        for key, value in (("run_id", 99), ("run_attempt", 2), ("source_sha", B), ("workflow_sha", B),
+                           ("ref", "refs/heads/candidate"), ("event_name", "workflow_dispatch"),
+                           ("workflow_ref", "nil-studio/oasis7/other.yml@refs/heads/main"),
+                           ("repository", "other/repo")):
+            with self.subTest(context=key):
+                run, receipt = self.add_observation()
+                receipt["context"][key] = value
+                with self.assertRaises(ValueError):
+                    self.full(run)
+                self.api.runs.remove(run)
+
+    def test_only_proven_noop_can_be_ignored_by_release_qualification(self):
+        run, _ = self.add_observation()
+        receipt = module.find_verified(self.api, A, CONFIG, "definition")
+        self.assertEqual(receipt["context"]["run_id"], 40)
+        self.assertEqual(module.selected_source_for_attempt(self.api, run, self.api.artifacts[41], 7), "")
+        with self.assertRaisesRegex(ValueError, "current attempt"):
+            module.find_verified(self.api, A, CONFIG, "definition", run_id=41)
+        query = next(urllib.parse.parse_qs(urllib.parse.urlsplit(path).query) for path in self.api.queries
+                     if "workflow_runs" not in path and "head_sha=" in path)
+        self.assertEqual(query["head_sha"], [A])
+        self.api.artifacts[41].clear()
+        with self.assertRaisesRegex(ValueError, "admission evidence"):
+            module.find_verified(self.api, A, CONFIG, "definition")
+
+    def test_observation_green_cannot_clear_full_failure_or_refresh_full_start(self):
+        failed = self.add_run(41, self.now - timedelta(hours=3), conclusion="failure",
+                              updated_at="2026-10-30T11:00:00Z")
+        self.api.jobs[(41, 1)] = [self.job("select", "success", started_at=failed["created_at"]),
+                                self.job("explicit-full-gate", "failure")]
+        observation, _ = self.add_observation(42, previous=[self.full(failed)])
+        with self.assertRaisesRegex(ValueError, "scheduled full did not succeed") as caught:
+            module.periodic_health(self.api, self.now)
+        report = json.loads(str(caught.exception).split("; schedule facts: ", 1)[1])
+        self.assertEqual(report["latest_start"]["run_id"], 41)
+        self.assertEqual(report["latest_terminal"]["run_id"], 41)
+        self.assertEqual(report["last_successful_run"]["run_id"], 40)
+        self.assertEqual(report["latest_observation"]["run_id"], observation["id"])
+
+    def test_admission_failure_is_visible_and_noop_does_not_restore_health(self):
+        failed = self.add_run(41, self.now - timedelta(minutes=40), conclusion="failure")
+        self.api.jobs[(41, 1)] = [self.job("periodic-admission", "failure"),
+                                self.job("select", "skipped"), self.job("explicit-full-gate", "skipped")]
+        self.add_observation(42)
+        with self.assertRaisesRegex(ValueError, "periodic admission failed") as caught:
+            module.periodic_health(self.api, self.now)
+        report = json.loads(str(caught.exception).split("; schedule facts: ", 1)[1])
+        self.assertEqual(report["control_failure_run_ids"], [failed["id"]])
+        self.assertEqual(report["last_successful_sha"], A)
+
+    def test_success_needs_actual_gate_and_current_full_artifact(self):
+        self.api.artifacts[40].clear()
+        with self.assertRaisesRegex(ValueError, "did not succeed"):
+            module.periodic_health(self.api, self.now)
+
+    def test_reserved_slot_does_not_claim_a_full_has_started(self):
+        receipt = self.admit()
+        self.api.jobs[(90, 1)] = [self.job("periodic-admission", "success")]
+        self.api.artifacts[90] = [{"id": 9000, "name": "ci-periodic-admission-90-1", "expired": False}]
+        self.api.payloads[9000] = receipt
+        report = module.periodic_health(self.api, self.now + timedelta(minutes=20))
+        self.assertEqual(report["latest_start"]["run_id"], 40)
+        self.assertEqual(report["start_age_seconds"], 4 * 3600 + 20 * 60)
+        self.assertEqual(report["reserved_full_run_ids"], [90])
+
+    def test_partial_rerun_cannot_reuse_old_noop_proof_or_clear_an_old_failure(self):
+        run, _ = self.add_observation()
+        run.update(run_attempt=2, conclusion="failure", run_started_at="2026-10-30T11:50:00Z",
+                   updated_at="2026-10-30T11:55:00Z")
+        self.api.jobs[(41, 2)] = [dict(self.job("full-regression", "failure", started_at="2026-10-30T11:50:00Z"),
+                                     run_attempt=2)]
+        classified = self.full(run)
+        self.assertEqual(classified["kind"], "full")
+        self.assertEqual(classified["full_started_at"], "2026-10-30T11:50:00Z")
+        with self.assertRaisesRegex(ValueError, "newer full attempt"):
+            module.find_verified(self.api, A, CONFIG, "definition")
+
+    def test_cancelled_admission_can_be_compensated_without_hiding_cancellation(self):
+        run = self.add_run(41, self.now - timedelta(minutes=20), conclusion="cancelled")
+        self.api.jobs[(41, 1)] = [self.job("periodic-admission", "skipped"),
+                                self.job("select", "skipped"), self.job("explicit-full-gate", "skipped")]
+        self.assertEqual(self.full(run)["kind"], "control_failure")
+        self.assertTrue(self.admit()["run_full"])
+
+    def test_failed_noop_after_successful_admission_allows_later_due_ticks(self):
+        for conclusion in ("cancelled", "failure"):
+            with self.subTest(conclusion=conclusion):
+                self.setUp()
+                run, _ = self.add_observation()
+                run["conclusion"] = conclusion
+                classified = self.full(run)
+                self.assertEqual(classified["kind"], "control_failure")
+                self.assertFalse(classified["successful"])
+                self.assertIsNone(classified["full_started_at"])
+                self.assertIsNone(classified["reserved_at"])
+                for index, seconds in enumerate((-1, 0, 1200)):
+                    self.api.runs = [self.green, run]
+                    decision = self.admit(self.now + timedelta(seconds=seconds), 90 + index)
+                    self.assertEqual(decision["run_full"], seconds >= 0)
+                    self.assertEqual(decision["previous_full"]["id"], self.green["id"])
+                    self.assertEqual(decision["control_failure_run_ids"], [run["id"]])
+                self.api.runs = [self.green, run]
+                with self.assertRaisesRegex(ValueError, "periodic admission failed") as caught:
+                    module.periodic_health(self.api, self.now)
+                report = json.loads(str(caught.exception).split("; schedule facts: ", 1)[1])
+                self.assertEqual(report["control_failure_run_ids"], [run["id"]])
+                self.assertEqual(report["last_successful_run"]["run_id"], self.green["id"])
+                self.assertEqual(module.selected_source_for_attempt(self.api, run, self.api.artifacts[41], 7), A)
+                with self.assertRaisesRegex(ValueError, "newer full attempt"):
+                    module.find_verified(self.api, A, CONFIG, "definition")
+
+    def test_cancelled_noop_recovery_cannot_ignore_incomplete_or_conflicting_evidence(self):
+        for kind in ("active", "unknown_conclusion", "select_cancelled", "other_ran", "selection", "full-result",
+                     "missing_decision", "wrong_attempt", "wrong_source"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                run, receipt = self.add_observation()
+                run["conclusion"] = "cancelled"
+                if kind == "active":
+                    run["status"] = "in_progress"
+                elif kind == "unknown_conclusion":
+                    run["conclusion"] = "timed_out"
+                elif kind == "select_cancelled":
+                    self.api.jobs[(41, 1)][1]["conclusion"] = "cancelled"
+                elif kind == "other_ran":
+                    self.api.jobs[(41, 1)].append(self.job("full-regression", "success"))
+                elif kind in {"selection", "full-result"}:
+                    self.api.artifacts[41].append({"id": 4199, "name": f"ci-{kind}-41-1", "expired": False})
+                elif kind == "missing_decision":
+                    self.api.artifacts[41].clear()
+                elif kind == "wrong_attempt":
+                    receipt["context"]["run_attempt"] = 2
+                else:
+                    receipt["context"]["source_sha"] = B
+                with self.assertRaises(ValueError):
+                    self.admit()
+
+    def test_later_complete_full_restores_health_after_control_failure(self):
+        failed = self.add_run(41, self.now - timedelta(hours=2), conclusion="failure")
+        self.api.jobs[(41, 1)] = [self.job("periodic-admission", "failure"),
+                                self.job("select", "skipped"), self.job("explicit-full-gate", "skipped")]
+        recovered = self.add_run(42, self.now - timedelta(hours=1), updated_at="2026-10-30T11:59:00Z")
+        self.api.jobs[(42, 1)] = [self.job("select", "success", started_at=recovered["created_at"]),
+                                self.job("explicit-full-gate", "success")]
+        self.api.artifacts[42] = [{"id": 4200, "name": "ci-full-result-42-1", "expired": False}]
+        self.assertEqual(module.periodic_health(self.api, self.now)["last_successful_run"]["run_id"], 42)
+
+    def test_actual_start_order_wins_over_completion_order(self):
+        self.green["updated_at"] = "2026-10-30T11:30:00Z"
+        newer = self.add_run(41, self.now - timedelta(hours=2), updated_at="2026-10-30T11:00:00Z")
+        self.api.jobs[(41, 1)] = [self.job("select", "success", started_at=newer["created_at"]),
+                                self.job("explicit-full-gate", "failure")]
+        decision = self.admit()
+        self.assertFalse(decision["run_full"])
+        self.assertEqual(decision["previous_full"]["id"], 41)
+
+    def test_old_created_completed_rerun_failure_is_not_hidden_by_recent_green(self):
+        old = self.add_run(41, self.now - timedelta(days=3), run_attempt=2, conclusion="failure",
+                           run_started_at="2026-10-30T11:00:00Z", updated_at="2026-10-30T11:30:00Z")
+        self.api.jobs[(41, 2)] = [dict(self.job("select", "success", started_at="2026-10-30T11:00:00Z"), run_attempt=2),
+                                 dict(self.job("explicit-full-gate", "failure"), run_attempt=2)]
+        with self.assertRaisesRegex(ValueError, "did not succeed") as caught:
+            module.periodic_health(self.api, self.now)
+        report = json.loads(str(caught.exception).split("; schedule facts: ", 1)[1])
+        self.assertEqual(report["latest_terminal"]["run_id"], old["id"])
+        self.assertEqual(report["last_successful_run"]["run_id"], 40)
+        decision = self.admit()
+        self.assertFalse(decision["run_full"])
+        self.assertEqual(decision["previous_full"]["id"], old["id"])
+        self.assertEqual(decision["previous_full"]["run_attempt"], 2)
+
+    def test_old_created_successful_rerun_updates_current_start_and_success(self):
+        self.green["conclusion"] = "failure"
+        old = self.add_run(41, self.now - timedelta(days=31), head_sha=B, run_attempt=2, conclusion="success",
+                           run_started_at="2026-10-29T11:00:00Z", updated_at="2026-10-30T11:30:00Z")
+        self.api.jobs[(41, 2)] = [dict(self.job("select", "success", started_at="2026-10-29T11:00:00Z"), run_attempt=2),
+                                 dict(self.job("explicit-full-gate", "success"), run_attempt=2)]
+        self.api.artifacts[41] = [{"id": 4102, "name": "ci-full-result-41-2", "expired": False}]
+        # The rerun can start within GitHub's 30-day eligibility and finish in
+        # the two-day observation window even though creation is 31 days old.
+        history, _, _ = module.periodic_history(self.api, self.now)
+        self.assertTrue(next(item for item in history if item["run"]["id"] == old["id"])["successful"])
+        old["created_at"] = (self.now - timedelta(days=3)).isoformat()
+        old["run_started_at"] = "2026-10-30T11:00:00Z"
+        self.api.jobs[(41, 2)][0]["started_at"] = old["run_started_at"]
+        report = module.periodic_health(self.api, self.now)
+        self.assertEqual(report["last_successful_sha"], B)
+        self.assertEqual(report["latest_start"]["run_id"], 41)
+
+    def test_history_page_overlap_requires_immutable_identity_and_attempt(self):
+        original = self.api.pages
+        for mutation in ({}, {"run_attempt": 2}, {"head_sha": B}, {"created_at": "2026-10-30T07:00:00Z"}):
+            def overlapping(path, key):
+                result = original(path, key)
+                if "created=" in path and ".." in path:
+                    result = [dict(self.green, **mutation)]
+                return result
+            with self.subTest(mutation=mutation), mock.patch.object(self.api, "pages", side_effect=overlapping):
+                if mutation:
+                    with self.assertRaisesRegex(ValueError, "attempt changed"):
+                        module.periodic_history(self.api, self.now)
+                else:
+                    history, _, _ = module.periodic_history(self.api, self.now)
+                    self.assertEqual([item["run"]["id"] for item in history], [40])
+
+    def test_old_workflow_that_finishes_within_35_days_is_kept_in_two_day_window(self):
+        self.api.runs = []
+        created = self.now - timedelta(days=36)
+        started = self.now - timedelta(days=2)
+        finished = self.now - timedelta(days=1, hours=1)
+        old = self.add_run(41, created, conclusion="failure", run_started_at=created.isoformat(),
+                           updated_at=finished.isoformat())
+        self.api.jobs[(41, 1)] = [self.job("select", "success", started_at=started.isoformat()),
+                                self.job("explicit-full-gate", "failure")]
+        # Total workflow age at completion is 34d23h; the terminal result is
+        # recent even though neither a two-day nor a 32-day created query sees it.
+        history, _, _ = module.periodic_history(self.api, self.now)
+        self.assertEqual([item["run"]["id"] for item in history], [old["id"]])
+        decision = self.admit()
+        self.assertTrue(decision["run_full"])
+        self.assertEqual(decision["previous_full"]["id"], old["id"])
+
+    def test_two_days_of_noops_and_full_37_day_metadata_fit_the_request_budget(self):
+        old = self.now - timedelta(days=3)
+        self.green.update(created_at=old.isoformat(), run_started_at=old.isoformat(),
+                          updated_at=(self.now - timedelta(seconds=1)).isoformat())
+        self.api.jobs[(40, 1)][0]["started_at"] = old.isoformat()
+        active = self.full(self.green)
+        active["run"] = dict(self.green, status="in_progress", conclusion=None)
+        for index in range(144):
+            self.add_observation(100 + index, self.now - timedelta(minutes=20 * (index + 1)), previous=[active])
+        for index in range(144, 37 * 72):
+            self.add_run(1000 + index, self.now - timedelta(minutes=20 * (index + 1)))
+        class MeteredHistory(History):
+            def __init__(self, history):
+                super().__init__(history.runs, history.artifacts, history.payloads, history.jobs)
+                self.requests, self.lock = 0, threading.Lock()
+            def charge(self, amount):
+                with self.lock:
+                    self.requests += amount
+                    if self.requests > module.MAX_API_REQUESTS:
+                        raise ValueError("API verification budget exhausted; history is unknown")
+            def get(self, path):
+                self.charge(1)
+                return super().get(path)
+            def pages(self, path, key):
+                result = super().pages(path, key)
+                self.charge(max(1, (len(result) + 99) // 100))
+                return result
+            def artifact(self, artifact_id, filename="full-result.json"):
+                self.charge(2)  # API redirect plus token-free storage download.
+                return super().artifact(artifact_id, filename)
+        self.api = MeteredHistory(self.api)
+        self.assertTrue(self.admit()["run_full"])
+        self.assertGreater(self.api.requests, 400)
+        self.assertLess(self.api.requests, module.MAX_API_REQUESTS)
+
+    def test_untrusted_workflow_or_current_context_fails_before_writing_a_decision(self):
+        run = self.add_run(90, status="in_progress", conclusion=None)
+        for field, value in (("path", ".github/workflows/other.yml"), ("workflow_id", 8),
+                             ("head_branch", "candidate"), ("event", "workflow_dispatch")):
+            original = run[field]
+            run[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                module.admit_periodic(self.api, self.context(run), self.now)
+            run[field] = original
+        context = dict(self.context(run), source_sha=B)
+        with self.assertRaises(ValueError):
+            module.admit_periodic(self.api, context, self.now)
+
+    def test_cli_writes_decision_before_exposing_boolean_and_never_outputs_on_api_failure(self):
+        run = self.add_run(90, status="in_progress", conclusion=None)
+        context = self.context(run)
+        environment = {"GITHUB_" + key.upper(): str(value) for key, value in context.items()}
+        environment["GITHUB_SHA"] = environment.pop("GITHUB_SOURCE_SHA")
+        environment["GH_TOKEN"] = "test-only"
+        with tempfile.TemporaryDirectory() as directory:
+            output, github_output = Path(directory) / "admission.json", Path(directory) / "outputs"
+            argv = ["ci-full-result.py", "admit-periodic", "--output", str(output), "--github-output", str(github_output)]
+            with mock.patch.dict(os.environ, environment), mock.patch.object(sys, "argv", argv), \
+                 mock.patch.object(module, "GitHub", return_value=self.api), mock.patch("builtins.print"), \
+                 mock.patch.object(module, "datetime", wraps=datetime) as clock:
+                clock.now.return_value = self.now
+                module.main()
+                self.assertEqual(github_output.read_text(), "run_full=true\n")
+                self.assertTrue(json.loads(output.read_text())["run_full"])
+                output.unlink()
+                github_output.unlink()
+                with mock.patch.object(self.api, "pages", side_effect=OSError("history unavailable")):
+                    with self.assertRaisesRegex(OSError, "history unavailable"):
+                        module.main()
+                self.assertFalse(output.exists())
+                self.assertFalse(github_output.exists())
+
+
+class ReadRetries(unittest.TestCase):
+    def error(self, api, code, path="actions/workflows/rust.yml"):
+        return urllib.error.HTTPError(api.root + path, code, "fixture HTTP failure", {}, io.BytesIO(b"failure"))
+
+    def test_transient_get_recovers_and_counts_every_attempt(self):
+        for code in (502, 503, 504):
+            for failures in (1, 2):
+                with self.subTest(code=code, failures=failures):
+                    api = module.GitHub("nil-studio/oasis7", "test-only")
+                    deadline = api.deadline
+                    errors = [self.error(api, code) for _ in range(failures)]
+                    with mock.patch.object(api.opener, "open", side_effect=errors + [Response({"id": 7})]) as opened, \
+                         mock.patch.object(module.time, "sleep") as slept:
+                        self.assertEqual(api.get("actions/workflows/rust.yml"), {"id": 7})
+                    self.assertEqual(api.requests, failures + 1)
+                    self.assertEqual(opened.call_count, failures + 1)
+                    self.assertEqual(slept.call_args_list, [mock.call(0.5), mock.call(1.0)][:failures])
+                    self.assertEqual(api.deadline, deadline)
+                    self.assertTrue(all(error.fp.closed for error in errors))
+                    for call in opened.call_args_list:
+                        self.assertEqual(call.args[0].get_method(), "GET")
+                        self.assertEqual(call.args[0].full_url, api.root + "actions/workflows/rust.yml")
+
+    def test_persistent_transient_failure_stops_after_three_attempts(self):
+        for code in (502, 503, 504):
+            with self.subTest(code=code):
+                api = module.GitHub("nil-studio/oasis7", "test-only")
+                errors = [self.error(api, code) for _ in range(3)]
+                with mock.patch.object(api.opener, "open", side_effect=errors + [Response({"id": 7})]) as opened, \
+                     mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        api.get("actions/workflows/rust.yml")
+                self.assertIs(caught.exception, errors[-1])
+                self.assertEqual(api.requests, 3)
+                self.assertEqual(opened.call_count, 3)
+                self.assertEqual(slept.call_args_list, [mock.call(0.5), mock.call(1.0)])
+
+    def test_other_http_transport_and_assertion_errors_are_not_retried(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        failures = [self.error(api, code) for code in (301, 302, 307, 400, 401, 403, 404, 408, 429, 500, 501)]
+        failures += [urllib.error.URLError("unknown transport failure"), TimeoutError("read timed out"),
+                     OSError("unknown read failure"), AssertionError("contract failed")]
+        for failure in failures:
+            with self.subTest(failure=str(failure)):
+                before = api.requests
+                with mock.patch.object(api.opener, "open", side_effect=failure) as opened, \
+                     mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(type(failure)) as caught:
+                        api.get("actions/workflows/rust.yml")
+                self.assertIs(caught.exception, failure)
+                self.assertEqual(api.requests, before + 1)
+                opened.assert_called_once()
+                slept.assert_not_called()
+
+    def test_malformed_or_incomplete_success_responses_are_not_retried(self):
+        for response, collection in ((io.BytesIO(b"{"), False),
+                                      (io.BytesIO(b'{"id":7,"id":8}'), False),
+                                      (Response({"total_count": 1}), True),
+                                      (Response({"total_count": 2, "jobs": [{"id": 1}]}), True)):
+            with self.subTest(collection=collection):
+                api = module.GitHub("nil-studio/oasis7", "test-only")
+                with mock.patch.object(api.opener, "open", return_value=response) as opened, \
+                     mock.patch.object(module.time, "sleep") as slept:
+                    with self.assertRaises(ValueError):
+                        api.pages("jobs", "jobs") if collection else api.get("workflow")
+                self.assertEqual(api.requests, 1)
+                opened.assert_called_once()
+                slept.assert_not_called()
+
+    def test_retry_cannot_reset_exhausted_request_budget(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        api.requests = module.MAX_API_REQUESTS - 1
+        with mock.patch.object(api.opener, "open", side_effect=self.error(api, 503)) as opened, \
+             mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                api.get("actions/workflows/rust.yml")
+        self.assertEqual(api.requests, module.MAX_API_REQUESTS)
+        opened.assert_called_once()
+        slept.assert_not_called()
+
+    def test_retry_backoff_must_fit_remaining_shared_deadline(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        now = [api.deadline - 5]
+        def failed(*args, **kwargs):
+            now[0] = api.deadline - 0.25
+            raise self.error(api, 502)
+        with mock.patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+             mock.patch.object(api.opener, "open", side_effect=failed) as opened, \
+             mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                api.get("actions/workflows/rust.yml")
+        opened.assert_called_once()
+        self.assertEqual(api.requests, 1)
+        slept.assert_not_called()
+
+    def test_retry_timeout_uses_original_deadline_after_backoff(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        now = [api.deadline - 2]
+        deadline = api.deadline
+        def delay(seconds):
+            now[0] += seconds
+        with mock.patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+             mock.patch.object(api.opener, "open", side_effect=[self.error(api, 504), Response({"id": 7})]) as opened, \
+             mock.patch.object(module.time, "sleep", side_effect=delay):
+            self.assertEqual(api.get("actions/workflows/rust.yml"), {"id": 7})
+        self.assertEqual([call.kwargs["timeout"] for call in opened.call_args_list], [2, 1.5])
+        self.assertEqual(api.deadline, deadline)
+        self.assertEqual(api.requests, 2)
+
+    def test_retry_rechecks_deadline_after_wait_before_opening(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        now = [api.deadline - 2]
+        def delayed_wakeup(seconds):
+            now[0] = api.deadline
+        with mock.patch.object(module.time, "monotonic", side_effect=lambda: now[0]), \
+             mock.patch.object(api.opener, "open", side_effect=self.error(api, 502)) as opened, \
+             mock.patch.object(module.time, "sleep", side_effect=delayed_wakeup) as slept:
+            with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                api.get("actions/workflows/rust.yml")
+        opened.assert_called_once()
+        slept.assert_called_once_with(0.5)
+        self.assertEqual(api.requests, 1)
+
+    def test_parallel_retries_share_budget_without_holding_its_lock_during_io(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        api.requests = module.MAX_API_REQUESTS - 6
+        barrier, lock, attempts = threading.Barrier(4), threading.Lock(), {}
+        def failed(request, **kwargs):
+            with lock:
+                attempts[request.full_url] = attempts.get(request.full_url, 0) + 1
+                first = attempts[request.full_url] == 1
+            if first:
+                barrier.wait(timeout=5)
+            raise self.error(api, 503)
+        def read(index):
+            try:
+                api.get(f"actions/runs/{index}")
+                return True
+            except (ValueError, urllib.error.HTTPError):
+                return False
+        with mock.patch.object(api.opener, "open", side_effect=failed) as opened, \
+             mock.patch.object(module.time, "sleep"), module.ThreadPoolExecutor(max_workers=4) as reader:
+            self.assertEqual(list(reader.map(read, range(4))), [False] * 4)
+        self.assertEqual(api.requests, module.MAX_API_REQUESTS)
+        self.assertEqual(opened.call_count, 6)
+        self.assertEqual(len(attempts), 4)
+        self.assertLessEqual(max(attempts.values()), 3)
+
+    def test_later_page_can_recover_without_restarting_complete_earlier_pages(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        responses = [Response({"total_count": 2, "jobs": [{"id": 1}]},
+                              f'<{api.root}page2>; rel="next"'),
+                     self.error(api, 503, "page2"), Response({"total_count": 2, "jobs": [{"id": 2}]})]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+             mock.patch.object(module.time, "sleep"):
+            self.assertEqual(api.pages("page1", "jobs"), [{"id": 1}, {"id": 2}])
+        self.assertEqual([call.args[0].full_url for call in opened.call_args_list],
+                         [api.root + path for path in ("page1", "page2", "page2")])
+        self.assertEqual(api.requests, 3)
+
+    def test_failed_later_page_never_qualifies_a_green_prefix(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        _, green, _ = fixture()
+        responses = [Response({"id": 7}),
+                     Response({"total_count": 2, "workflow_runs": [green]}, f'<{api.root}page2>; rel="next"'),
+                     *[self.error(api, 502, "page2") for _ in range(3)]]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+             mock.patch.object(module.time, "sleep"), mock.patch.object(api, "artifact") as download:
+            with self.assertRaises(urllib.error.HTTPError):
+                module.find_verified(api, A, CONFIG, "definition")
+        download.assert_not_called()
+        self.assertEqual(opened.call_count, 5)
+        self.assertEqual(api.requests, 5)
+        self.assertEqual([call.args[0].full_url for call in opened.call_args_list[-3:]], [api.root + "page2"] * 3)
+
+    def test_retry_failure_cannot_publish_admission_files_or_success_output(self):
+        receipt, _, _ = fixture()
+        environment = {"GITHUB_" + key.upper(): str(value) for key, value in receipt["context"].items()}
+        environment.update(GITHUB_SHA=A, GH_TOKEN="test-only")
+        for exhausted in (False, True):
+            with self.subTest(exhausted=exhausted), tempfile.TemporaryDirectory() as directory:
+                api = module.GitHub("nil-studio/oasis7", "test-only")
+                if exhausted:
+                    api.requests = module.MAX_API_REQUESTS - 1
+                output, github_output = Path(directory) / "admission.json", Path(directory) / "outputs"
+                argv = ["ci-full-result.py", "admit-periodic", "--output", str(output), "--github-output", str(github_output)]
+                with mock.patch.dict(os.environ, environment), mock.patch.object(sys, "argv", argv), \
+                     mock.patch.object(module, "GitHub", return_value=api), \
+                     mock.patch.object(api.opener, "open", side_effect=[self.error(api, 502) for _ in range(3)]), \
+                     mock.patch.object(module.time, "sleep"), mock.patch("builtins.print") as printed:
+                    with self.assertRaises(ValueError if exhausted else urllib.error.HTTPError):
+                        module.main()
+                self.assertFalse(output.exists())
+                self.assertFalse(github_output.exists())
+                printed.assert_not_called()
+                self.assertEqual(api.requests, module.MAX_API_REQUESTS if exhausted else 3)
+
+    def test_artifact_storage_transient_failure_is_not_retried(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        location = "https://artifacts.example.invalid/receipt.zip?signature=fixture"
+        redirect = urllib.error.HTTPError(api.root, 302, "Found", {"Location": location}, None)
+        storage_error = urllib.error.HTTPError(location, 503, "fixture storage failure", {}, None)
+        with mock.patch.object(api.opener, "open", side_effect=redirect) as authenticated, \
+             mock.patch.object(module.urllib.request, "urlopen", side_effect=storage_error) as storage, \
+             mock.patch.object(module.time, "sleep") as slept:
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                api.artifact(9)
+        self.assertIs(caught.exception, storage_error)
+        authenticated.assert_called_once()
+        storage.assert_called_once()
+        slept.assert_not_called()
+        self.assertEqual(api.requests, 2)
+
+    def test_real_http_get_recovers_from_transient_status_and_keeps_identity(self):
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed.append((self.command, self.path, self.headers.get("Authorization")))
+                status = (502, 504, 200)[min(len(observed) - 1, 2)]
+                body = b'{"id":7}' if status == 200 else b"temporary failure"
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        try:
+            api = module.GitHub("nil-studio/oasis7", "test-only")
+            api.root = f"http://127.0.0.1:{server.server_port}/"
+            api.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), module.NoRedirect)
+            self.assertEqual(api.get("actions/workflows/rust.yml"), {"id": 7})
+            self.assertEqual(api.requests, 3)
+            self.assertEqual(observed, [("GET", "/actions/workflows/rust.yml", "Bearer test-only")] * 3)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+        self.assertFalse(thread.is_alive())
+
+
+class CollectionRecovery(unittest.TestCase):
+    def client(self):
+        return module.GitHub("nil-studio/oasis7", "fixture-api-secret", recover_collections=True)
+
+    def facts(self, stderr):
+        return [json.loads(line.split("collection read failed: ", 1)[1])
+                for line in stderr.getvalue().splitlines()]
+
+    def test_incomplete_default_collection_reports_only_bounded_context(self):
+        api = module.GitHub("nil-studio/oasis7", "fixture-api-secret")
+        stderr = io.StringIO()
+        path = "actions/runs/42/attempts/2/jobs?private-query=fixture-secret"
+        with mock.patch.object(api.opener, "open", return_value=Response({
+                "total_count": 2, "jobs": [{"id": 1, "name": "private-response-body"}]})) as opened, \
+             redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "API collection incomplete"):
+                api.pages(path, "jobs")
+        opened.assert_called_once()
+        self.assertEqual(self.facts(stderr), [{
+            "endpoint": "attempt_jobs", "collection": "jobs", "page": 1, "attempt": 1,
+            "expected_count": 2, "reported_count": 2, "actual_count": 1, "has_next": False,
+            "failure": "incomplete_count",
+        }])
+        for secret in ("fixture-api-secret", "private-query", "fixture-secret", "private-response-body", "https://"):
+            self.assertNotIn(secret, stderr.getvalue())
+
+    def test_count_recovery_restarts_every_page_without_retaining_a_green_prefix(self):
+        for changed_count in (False, True):
+            with self.subTest(changed_count=changed_count):
+                api = self.client()
+                path = "actions/workflows/7/runs?event=schedule&per_page=100"
+                next_url = api.root + path + "&page=2"
+                responses = [
+                    Response({"total_count": 3, "workflow_runs": [{"id": 1, "conclusion": "success"}]},
+                             f'<{next_url}>; rel="next"'),
+                    Response({"total_count": 4 if changed_count else 3, "workflow_runs": [{"id": 2}]}),
+                    Response({"total_count": 2, "workflow_runs": [{"id": 8, "conclusion": "failure"}]},
+                             f'<{next_url}>; rel="next"'),
+                    Response({"total_count": 2, "workflow_runs": [{"id": 9, "conclusion": "cancelled"}]}),
+                ]
+                stderr = io.StringIO()
+                with mock.patch.object(api.opener, "open", side_effect=responses) as opened, redirect_stderr(stderr):
+                    result = api.pages(path, "workflow_runs")
+                self.assertEqual(result, [{"id": 8, "conclusion": "failure"}, {"id": 9, "conclusion": "cancelled"}])
+                self.assertEqual([call.args[0].full_url for call in opened.call_args_list],
+                                 [api.root + path, next_url, api.root + path, next_url])
+                self.assertEqual(api.requests, 4)
+                facts = self.facts(stderr)
+                self.assertEqual(len(facts), 1)
+                self.assertEqual(facts[0]["failure"], "changed_count" if changed_count else "incomplete_count")
+                self.assertEqual((facts[0]["page"], facts[0]["actual_count"]), (2, 2))
+
+    def test_persistent_count_mismatch_stops_after_three_complete_attempts(self):
+        api = self.client()
+        stderr = io.StringIO()
+        responses = [Response({"total_count": 2, "artifacts": [{"id": 1}]}) for _ in range(3)]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "API collection incomplete"):
+                api.pages("actions/runs/42/artifacts?per_page=100", "artifacts")
+        self.assertEqual(opened.call_count, 3)
+        self.assertEqual(api.requests, 3)
+        self.assertEqual([fact["attempt"] for fact in self.facts(stderr)], [1, 2, 3])
+
+    def test_invalid_fields_identities_and_links_do_not_enter_count_recovery(self):
+        cases = [
+            ({"total_count": True, "jobs": []}, ""),
+            ({"total_count": -1, "jobs": []}, ""),
+            ({"total_count": 2}, ""),
+            ({"total_count": 3, "jobs": [{"id": 1}, {"id": 1}]}, ""),
+            ({"total_count": 2, "jobs": [{"id": "1"}]}, ""),
+            ({"total_count": 2, "jobs": [{"id": 1}]}, '<https://private.example.invalid/?secret=x>; rel="next"'),
+        ]
+        for data, link in cases:
+            with self.subTest(data=data):
+                api = self.client()
+                stderr = io.StringIO()
+                with mock.patch.object(api.opener, "open", return_value=Response(data, link)) as opened, \
+                     redirect_stderr(stderr):
+                    with self.assertRaises(ValueError):
+                        api.pages("actions/runs/42/attempts/2/jobs", "jobs")
+                opened.assert_called_once()
+                self.assertEqual(len(self.facts(stderr)), 1)
+                self.assertNotIn("private.example", stderr.getvalue())
+                self.assertNotIn("secret=x", stderr.getvalue())
+
+    def test_cycle_or_duplicate_identity_wins_over_a_concurrent_count_change(self):
+        for invalid in ("cycle", "duplicate"):
+            with self.subTest(invalid=invalid):
+                api = self.client()
+                path = "actions/workflows/7/runs?per_page=100"
+                next_url = api.root + path + "&page=2"
+                responses = [Response({"total_count": 2, "workflow_runs": [{"id": 1}]},
+                                      f'<{next_url}>; rel="next"'),
+                             Response({"total_count": 3, "workflow_runs": [{"id": 1 if invalid == "duplicate" else 2}]},
+                                      f'<{api.root + path}>; rel="next"' if invalid == "cycle" else "")]
+                with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+                     redirect_stderr(io.StringIO()):
+                    with self.assertRaisesRegex(ValueError, "cycle" if invalid == "cycle" else "duplicate"):
+                        api.pages(path, "workflow_runs")
+                self.assertEqual(opened.call_count, 2)
+
+    def test_count_recovery_and_http_retries_share_the_original_budget(self):
+        api = self.client()
+        deadline = api.deadline
+        transient = urllib.error.HTTPError(api.root, 503, "fixture temporary error", {}, io.BytesIO(b"private-body"))
+        responses = [Response({"total_count": 1, "jobs": []}), transient,
+                     Response({"total_count": 1, "jobs": [{"id": 7}]})]
+        with mock.patch.object(api.opener, "open", side_effect=responses) as opened, \
+             mock.patch.object(module.time, "sleep") as slept, redirect_stderr(io.StringIO()):
+            self.assertEqual(api.pages("actions/runs/42/attempts/2/jobs", "jobs"), [{"id": 7}])
+        self.assertEqual((api.requests, opened.call_count, api.deadline), (3, 3, deadline))
+        slept.assert_called_once_with(0.5)
+
+    def test_count_recovery_cannot_restore_exhausted_requests_or_time(self):
+        for limit in ("requests", "deadline"):
+            with self.subTest(limit=limit):
+                api = self.client()
+                clock = [api.deadline - 1]
+                if limit == "requests":
+                    api.requests = module.MAX_API_REQUESTS - 1
+                def read(*args, **kwargs):
+                    return Response({"total_count": 1, "jobs": []})
+                def record(*args, **kwargs):
+                    if limit == "deadline":
+                        clock[0] = api.deadline
+                with mock.patch.object(api.opener, "open", side_effect=read) as opened, \
+                     mock.patch.object(module.time, "monotonic", side_effect=lambda: clock[0]), \
+                     mock.patch("builtins.print", side_effect=record):
+                    with self.assertRaisesRegex(ValueError, "budget exhausted; history is unknown"):
+                        api.pages("actions/runs/42/attempts/2/jobs", "jobs")
+                opened.assert_called_once()
+                self.assertEqual(api.requests, module.MAX_API_REQUESTS if limit == "requests" else 1)
+
+    def test_parallel_collection_recovery_shares_one_request_limit(self):
+        api = self.client()
+        api.requests = module.MAX_API_REQUESTS - 6
+        barrier, lock, seen = threading.Barrier(4), threading.Lock(), set()
+        def incomplete(request, **kwargs):
+            with lock:
+                first = request.full_url not in seen
+                seen.add(request.full_url)
+            if first:
+                barrier.wait(timeout=5)
+            return Response({"total_count": 1, "jobs": []})
+        def read(index):
+            try:
+                return api.pages(f"actions/runs/{index + 1}/attempts/1/jobs", "jobs")
+            except ValueError:
+                return None
+        with mock.patch.object(api.opener, "open", side_effect=incomplete) as opened, \
+             redirect_stderr(io.StringIO()), module.ThreadPoolExecutor(max_workers=4) as reader:
+            self.assertEqual(list(reader.map(read, range(4))), [None] * 4)
+        self.assertEqual((api.requests, opened.call_count), (module.MAX_API_REQUESTS, 6))
+
+    def periodic_fixture(self):
+        scenario = PeriodicAdmission()
+        scenario.setUp()
+        failed = scenario.add_run(41, scenario.now - timedelta(minutes=20), conclusion="failure")
+        scenario.api.jobs[(41, 1)] = [scenario.job("periodic-admission", "failure"),
+                                      scenario.job("select", "skipped"), scenario.job("explicit-full-gate", "skipped")]
+        current = scenario.add_run(90, scenario.now, status="in_progress", conclusion=None)
+        # Production pagination verifies numeric identities before classification.
+        for (run_id, attempt), jobs in scenario.api.jobs.items():
+            for index, job in enumerate(jobs):
+                job["id"] = run_id * 100 + index
+        return scenario, current
+
+    def run_periodic_command(self, command, directory, *, persistent=False):
+        scenario, current = self.periodic_fixture()
+        if command == "health":
+            scenario.api.runs.remove(current)
+        context = scenario.context(current)
+        environment = {"GITHUB_" + key.upper(): str(value) for key, value in context.items()}
+        environment.update(GITHUB_SHA=A, GH_TOKEN="fixture-api-secret")
+        output, github_output = Path(directory) / "admission.json", Path(directory) / "outputs"
+        argv = ["ci-full-result.py", command]
+        if command == "admit-periodic":
+            argv += ["--output", str(output), "--github-output", str(github_output)]
+        created, requests = [], []
+        client_type = module.GitHub
+        def factory(*args, **kwargs):
+            api = client_type(*args, **kwargs)
+            def opened(request, **options):
+                path = request.full_url.removeprefix(api.root)
+                requests.append(path)
+                if path == "actions/workflows/rust.yml" or path == "actions/runs/90":
+                    return Response(scenario.api.get(path))
+                key = "workflow_runs" if path.startswith("actions/workflows/") else path.split("?", 1)[0].rsplit("/", 1)[1]
+                entries = scenario.api.pages(path, key)
+                previous = sum(item == path for item in requests)
+                count = len(entries) + int(key == "workflow_runs" and "created=" in path and
+                                           (persistent or previous == 1 and sum("created=" in item for item in requests) == 1))
+                return Response({"total_count": count, key: entries})
+            api.opener.open = mock.Mock(side_effect=opened)
+            created.append(api)
+            return api
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, environment), mock.patch.object(sys, "argv", argv), \
+             mock.patch.object(module, "GitHub", side_effect=factory), \
+             mock.patch.object(module, "datetime", wraps=datetime) as date, \
+             redirect_stdout(stdout), redirect_stderr(stderr):
+            date.now.return_value = scenario.now
+            error = None
+            try:
+                module.main()
+            except ValueError as exc:
+                error = exc
+        return output, github_output, stdout, stderr, created[0], requests, error
+
+    def test_periodic_cli_recovers_before_publishing_and_keeps_prior_control_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, github_output, stdout, stderr, api, requests, error = self.run_periodic_command("admit-periodic", directory)
+            self.assertIsNone(error)
+            receipt = json.loads(output.read_text())
+            self.assertTrue(receipt["run_full"])
+            self.assertEqual(receipt["previous_full"]["id"], 40)
+            self.assertEqual(receipt["control_failure_run_ids"], [41])
+            self.assertEqual(receipt["start_gap_seconds"], 4 * 3600)
+            self.assertEqual(github_output.read_text(), "run_full=true\n")
+            self.assertEqual(json.loads(stdout.getvalue()), receipt)
+            self.assertEqual(len(self.facts(stderr)), 1)
+            self.assertEqual(api.requests, len(requests))
+
+    def test_periodic_cli_exhaustion_never_writes_a_partial_admission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, github_output, stdout, stderr, api, requests, error = self.run_periodic_command(
+                "admit-periodic", directory, persistent=True)
+            self.assertIsInstance(error, ValueError)
+            self.assertIn("API collection incomplete", str(error))
+            self.assertFalse(output.exists())
+            self.assertFalse(github_output.exists())
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(len(self.facts(stderr)), 3)
+            self.assertEqual(api.requests, 5)  # current run + workflow + three complete collection attempts
+
+    def test_health_cli_can_recover_reads_without_clearing_a_previous_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, _, stdout, stderr, _, _, error = self.run_periodic_command("health", directory)
+            self.assertIsInstance(error, ValueError)
+            self.assertIn("periodic admission failed", str(error))
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(len(self.facts(stderr)), 1)
+
+    def test_verify_cli_keeps_its_single_collection_attempt(self):
+        _, green, _ = fixture()
+        clients = []
+        client_type = module.GitHub
+        def factory(*args, **kwargs):
+            api = client_type(*args, **kwargs)
+            api.opener.open = mock.Mock(side_effect=[Response({"id": 7}),
+                Response({"total_count": 2, "workflow_runs": [green]})])
+            clients.append(api)
+            return api
+        environment = dict(GITHUB_REPOSITORY="nil-studio/oasis7", GH_TOKEN="fixture-api-secret", GITHUB_WORKFLOW_SHA=A)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, environment), \
+             mock.patch.object(sys, "argv", ["ci-full-result.py", "verify", "--source", A]), \
+             mock.patch.object(module, "GitHub", side_effect=factory), \
+             mock.patch.object(module, "validate_publication_source"), \
+             mock.patch.object(module, "require_default_ancestor"), \
+             mock.patch.object(module, "definition_digest", return_value="definition"), \
+             redirect_stdout(stdout), redirect_stderr(stderr):
+            with self.assertRaisesRegex(ValueError, "API collection incomplete"):
+                module.main()
+        self.assertEqual(clients[0].requests, 2)
+        self.assertEqual(clients[0].opener.open.call_count, 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual([fact["attempt"] for fact in self.facts(stderr)], [1])
+
+    def test_real_http_collection_recovers_only_after_a_complete_response(self):
+        observed = []
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed.append((self.path, self.headers.get("Authorization")))
+                body = json.dumps({"total_count": 1, "jobs": [] if len(observed) == 1 else [{"id": 7}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *args):
+                pass
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        try:
+            api = self.client()
+            api.root = f"http://127.0.0.1:{server.server_port}/"
+            api.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), module.NoRedirect)
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                self.assertEqual(api.pages("actions/runs/42/attempts/2/jobs", "jobs"), [{"id": 7}])
+            self.assertEqual(api.requests, 2)
+            self.assertEqual(observed, [("/actions/runs/42/attempts/2/jobs", "Bearer fixture-api-secret")] * 2)
+            self.assertEqual(len(self.facts(stderr)), 1)
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+        self.assertFalse(thread.is_alive())
+
+
 class Collections(unittest.TestCase):
+    def test_read_budget_bounds_requests_and_total_wall_time(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        with mock.patch.object(api.opener, "open") as opened:
+            api.requests = module.MAX_API_REQUESTS
+            with self.assertRaisesRegex(ValueError, "budget exhausted"):
+                api.request("actions/workflows/rust.yml")
+            opened.assert_not_called()
+            api.requests = 0
+            with mock.patch.object(module.time, "monotonic", return_value=api.deadline + 1):
+                with self.assertRaisesRegex(ValueError, "budget exhausted"):
+                    api.request("actions/workflows/rust.yml")
+            opened.assert_not_called()
+
+    def test_parallel_readers_share_one_request_budget(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        api.requests = module.MAX_API_REQUESTS - 3
+        def read():
+            try:
+                api.request_timeout()
+                return True
+            except ValueError:
+                return False
+        with module.ThreadPoolExecutor(max_workers=4) as reader:
+            results = list(reader.map(lambda _: read(), range(20)))
+        self.assertEqual(sum(results), 3)
+        self.assertEqual(api.requests, module.MAX_API_REQUESTS)
+
+    def test_response_that_crosses_total_deadline_cannot_be_used(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        with mock.patch.object(api, "request", return_value=Response({"id": 7})), \
+             mock.patch.object(module.time, "monotonic", return_value=api.deadline + 1):
+            with self.assertRaisesRegex(ValueError, "budget exhausted"):
+                api.get("actions/workflows/rust.yml")
+
+    def test_total_count_changes_cannot_publish_a_partial_history(self):
+        api = module.GitHub("nil-studio/oasis7", "test-only")
+        pages = [Response({"total_count": 2, "workflow_runs": [{"id": 1}]},
+                          '<https://api.github.com/repos/nil-studio/oasis7/page2>; rel="next"'),
+                 Response({"total_count": 3, "workflow_runs": [{"id": 2}]})]
+        with mock.patch.object(api, "request", side_effect=pages):
+            with self.assertRaisesRegex(ValueError, "total_count"):
+                api.pages("page1", "workflow_runs")
+
     def test_all_pages_are_read(self):
         api = module.GitHub("nil-studio/oasis7", "test-only")
         pages = [
@@ -487,9 +1912,14 @@ class Collections(unittest.TestCase):
             bundle.writestr("full-result.json", '{"schema":"fixture"}')
         redirect = urllib.error.HTTPError(api.root + "actions/artifacts/9/zip", 302, "Found",
                                           {"Location": location}, None)
-        with mock.patch.object(api.opener, "open", side_effect=redirect) as authenticated, \
-             mock.patch.object(urllib.request, "urlopen", return_value=io.BytesIO(archive.getvalue())) as storage:
+        transient = urllib.error.HTTPError(api.root, 503, "Service Unavailable", {}, io.BytesIO(b"temporary failure"))
+        with mock.patch.object(api.opener, "open", side_effect=[transient, redirect]) as authenticated, \
+             mock.patch.object(urllib.request, "urlopen", return_value=io.BytesIO(archive.getvalue())) as storage, \
+             mock.patch.object(module.time, "sleep") as slept:
             self.assertEqual(api.artifact(9), {"schema": "fixture"})
+        self.assertEqual(authenticated.call_count, 2)
+        self.assertEqual(api.requests, 3)
+        slept.assert_called_once_with(0.5)
         api_request = authenticated.call_args.args[0]
         self.assertEqual(api_request.get_header("Authorization"), "Bearer fixture-api-secret")
         storage_request = storage.call_args.args[0]
@@ -644,11 +2074,12 @@ class HealthAndConsumers(unittest.TestCase):
 
     def test_health_cli_limits_history_and_does_not_qualify_a_release(self):
         now = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
-        run = dict(id=42, event="schedule", head_branch="main", head_sha=A,
+        _, run, jobs = fixture()
+        run.update(
                    created_at="2026-10-30T11:00:00Z", updated_at="2026-10-30T11:30:00Z",
                    status="completed", conclusion="success")
-        api = mock.Mock()
-        api.pages.return_value = [run]
+        api = History([run], artifacts={42: [{"id": 4202, "name": "ci-full-result-42-2", "expired": False}]},
+                      jobs={(42, 2): jobs})
         with mock.patch.object(sys, "argv", ["ci-full-result.py", "health"]), \
              mock.patch.dict(os.environ, GITHUB_REPOSITORY="nil-studio/oasis7", GH_TOKEN="test-only"), \
              mock.patch.object(module, "GitHub", return_value=api), \
@@ -656,13 +2087,13 @@ class HealthAndConsumers(unittest.TestCase):
              mock.patch.object(module, "find_verified") as qualifier, mock.patch("builtins.print") as printed:
             clock.now.return_value = now
             module.main()
-        query = urllib.parse.parse_qs(urllib.parse.urlsplit(api.pages.call_args.args[0]).query)
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(api.queries[0]).query)
         self.assertEqual(query["created"], [">=2026-10-28T12:00:00Z"])
         self.assertEqual(query["event"], ["schedule"])
         self.assertEqual(query["branch"], ["main"])
         self.assertEqual(json.loads(printed.call_args.args[0])["last_successful_sha"], A)
         qualifier.assert_not_called()
-        api.artifact.assert_not_called()
+        self.assertEqual(api.downloads, [])
 
     def test_retained_rollback_keeps_recovery_and_normal_promotion_checks_retained_source(self):
         sys.path.insert(0, str(ROOT / "scripts"))

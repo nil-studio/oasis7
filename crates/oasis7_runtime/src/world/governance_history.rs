@@ -201,7 +201,8 @@ impl World {
                         | GovernanceEvent::ValidatorAdmissionApproved { .. }
                         | GovernanceEvent::ValidatorAdmissionActivated { .. }
                         | GovernanceEvent::ValidatorAdmissionRevoked { .. }
-                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }
+                        | GovernanceEvent::ValidatorFinalityKeyRotated { .. }
+                        | GovernanceEvent::BootstrapFinalityKeyRotated { .. }
                         | GovernanceEvent::RestrictedStarterClaimAdminRegistryUpdated { .. }
                 )
             {
@@ -216,6 +217,8 @@ impl World {
             != next.state.governance_validator_admissions
             || projection.state.governance_finality_key_rotations
                 != next.state.governance_finality_key_rotations
+            || projection.state.governance_bootstrap_finality_key_rotations
+                != next.state.governance_bootstrap_finality_key_rotations
             || projection.state.governance_authorization_nonces
                 != next.state.governance_authorization_nonces
             || projection.state.governance_main_token_controller_registry

@@ -174,3 +174,34 @@ it("preserves the existing Context rejection code after a verified prefix termin
  const prepared = await f.client.prepareContext("prefix-terminal"); f.setLookup("rejected");
  await expect(f.client.captureContext("prefix-terminal", prepared)).rejects.toMatchObject({ code: "context_rejected" });
 });
+
+describe("semantic fence equality", () => {
+ const reordered = (v) => Array.isArray(v) ? v.map(reordered) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().reverse().map((k) => [k, reordered(v[k])])) : v;
+ it("accepts reordered nested canonical fences", async () => {
+  const f = fixture(); await f.client.bindFence(fence);
+  f.setFence(reordered(fence));
+  expect((await f.client.freshFence()).fence).toEqual(fence);
+  expect(f.signed.at(-1).request).toBeDefined();
+ });
+ it("retires the original prefix when codec extraction and canonical fence key order differ", async () => {
+  const f = fixture(); await f.client.bindFence(fence);
+  const prepared = await f.client.prepareContext("order-recovery"); await f.client.captureContext("order-recovery", prepared);
+  const build = f.codec.build;
+  f.codec.build = (kind, value) => kind === "field" ? JSON.stringify(reordered(JSON.parse(build(kind, value)))) : build(kind, value);
+  f.setTick(2);
+  await expect(f.client.retireExpiredContexts()).resolves.toEqual({ retired: 1 });
+  expect(f.entries.filter((entry) => entry.original.kind === "outcome")).toHaveLength(1);
+ });
+ for (const [name, change] of [
+  ["revision", (v) => ({ ...v, task_revision: "2" })],
+  ["type", (v) => ({ ...v, owner_generation: 1 })],
+  ["large integer", (v) => ({ ...v, owner_generation: "9007199254740994" })],
+  ["array order", (v) => ({ ...v, test_sequence: [2, 1] })],
+ ]) it(`rejects ${name} differences before new effects`, async () => {
+  const base = { ...fence, owner_generation: "9007199254740993", test_sequence: [1, 2] };
+  const f = fixture(); f.setFence(base); await f.client.bindFence(base);
+  f.setFence(reordered(change(base)));
+  await expect(f.client.freshFence()).rejects.toMatchObject({ code: "task_fence_changed" });
+  expect(f.calls.some((call) => call.body.operation?.kind === "submit")).toBe(false);
+ });
+});

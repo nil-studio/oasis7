@@ -250,7 +250,7 @@ Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 
 `dev-test-serve --profile <private-config.json>` 启动串行 Unix socket 服务；`dev-test-call --socket <approved-socket>` 从可信宿主 stdin 接受 JSON。模型隔离及实际外部 Agent 接入由 #5532/#5533 承接，本入口不证明该隔离。
 
-配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。本能力入口不提供账号管理操作。
+配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。本能力入口不提供账号管理操作。 `dev-test-serve` 在每次准入前重新通过受信文件读取器检查配置；撤销、到期和降低累计上限作用于后续调用，读取期间发生的变更也必须在准入前复核。服务启动时固定 socket、usage_directory 和 grant_id，运行中改变这些绑定、配置失效或变为不可信时拒绝准入，不沿用旧授权、不创建空账本；恢复有效原绑定后可继续使用原累计用量。更换授权或存储绑定须由可信运营者停止旧服务后显式准备。
 
 请求仅接受 profile、audience=`oasis7-dev-test-tools`、credential、method=`capabilities`。错误版本、用途、过期、撤销与未知方法拒绝，未知字段拒绝。返回 accounts_available=false、writes_available=false。并发固定1；超时断开请求。只有成功能力调用消耗累计上限，拒绝流量不扣。用量按 grant_id 与 caller_id 在 usage_directory 中保存，跨入口共用锁及原子提交，先持久化再回复；重连、重启或更换 socket 均不清零。重启前由可信运营者确认旧进程终止并删除遗留 socket，保留整个用量目录。只有显式新授权可使用新 grant_id；目录不能换成空目录来恢复旧授权。正式账号会话由 #5535 承接。
 
@@ -301,6 +301,8 @@ Refs #5076、#5536。Trace refs: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5。�
 SDK的新增until入口在阶段切换、重试间和每个认证／业务HTTP发送前检查同一绝对服务时限及授权截止期；每个GET／POST的timeout取剩余时间上限。同步scope嵌套取更早期限，正常退出和panic恢复；新worker须显式进入scope，guard不能跨线程移动。旧API无scope时行为保留。已发请求的取消不能推定为原生操作取消，服务保留unknown及唯一执行名额到实际返回。
 
 Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验证身份前不能分配Move。Move及其Lookup继承同一目标与identity，恢复时核对原Prepare、Prefix、完整fence及Cognition的Action／上下文。缺原件或证明返回unknown；已知内容冲突拒绝，不回显无法重新证实的旧applied。原生MVCC的stale_base拒绝是该原件终态，不能更新base重签同RID；另起测试轮次须明确保留原拒绝与无效果证据并独立授权输入。
+
+本地操作者可显式设置 `OASIS7_COGNITION_AUTHORITY_DIAGNOSTIC=1`，在 stderr 观察同一 context 原承诺经域分离 `context_digest` 关联的 delivery、admission 与 execution 三个边界；后两段另以已验证 correlation 的完整 key 与 payload 承诺散列成 `action_digest` 区分同 context 内不同动作。记录仅含逻辑 tick；`base_hash_equal=null` 明确表示未测，不为诊断重算世界 hash，不输出目标、原承诺、原 RID 或任何权威 hash；默认关闭且不改变签名、准入、MVCC 或重试。启用后散列与固定容量异步队列仍有观测开销，不能用观测耗时反推无观测时序，不作延时补偿。native Unix 单独 writer 通过复制的 stderr fd 写入（不持全局 stderr 锁，非 Unix 丢弃诊断），业务仅 try_send、队列满即丢，不等待 sink，退出不 join writer；缺日志不代表对应阶段未发生。delivery/admission 使用各自持久 pin，execution 使用实际候选 World；同进程 `producer_pid` 与共享单调 `elapsed_us` 标记生产证据时刻，异步输出顺序不作因果依据。新 admission 在调用 pin 前后取 `pin_begin_us/pin_end_us`，授权成功后才输出；完整 driver 发布成功返回前另记无 context 的 `publication_success/current_tick`。发布时刻严格早于 pin bracket 才支持“此前已发布”，重叠或同微秒仍未知。`publication_success` 不含 world/action 关联，仅在已独立证明同进程生命周期、单 world、相同 branch/authority 时作背景证据；不能据 PID 重用、重启、微秒重叠或缺日志推断顺序或归因，也不代表某个 Action 已提交完成。此观测不能证明尚未发布的 driver 状态与 read pin 同步，也不把 commit height 当 tick。历史原件缺这些边界证据时不得据耗时推断 stale_base 的确切发生点。
 
 仅首次获准Move且无原Action缓存时，内部首发路径在持久原件后直接执行一次Submit，再查询同原结果；不会在新captured base和首次Submit之间先翻页恢复历史。已有Action缓存、journal重放及崩溃后恢复全部只查询原件；缺缓存保持unknown，不重新签名或发送。此内部状态不能由工具参数选择，旧公开SDK API保留原恢复顺序；优化不保证跨网络／排队的MVCC窗口必然成功。
 
@@ -408,3 +410,39 @@ stdio unknown 保留、凭据注入不可从模型覆盖、停用及到期拒绝
 DA-01～06 的外部模型实玩、真实世界效果、普通重启或故障后原件恢复；这些仍须
 在固定运行组合下独立记录。实际模型运行须有当前授权和有限预算，
 本入口不得自行启动模型或扩大付费权限。
+
+### 远程只读 MCP 入口（#5533，候选）
+
+在同一可信服务宿主运行 `oasis7_dev_test_remote <private-service-config> <https-origin> <127.0.0.1:port> <max-connections>`。配置沿用共同服务的私有配置；本适配经 `call_service` 转发到唯一 Unix socket，初始化、工具发现和能力调用共享累计用量，不直接调用业务 dispatch。MCP 候选版本固定 2025-11-25，只提供 `dev_test_accounts_capabilities`，账号与写入仍不可用。
+
+TLS 由可信反向代理终止：固定部署 origin，覆盖上游 Host 为该 origin 的 authority，转发 Authorization、Origin、MCP-Protocol-Version；限制路由为 `/mcp`，禁止直接暴露内部 loopback 端口。代理和服务进程均属于可信边界；不能把共享宿主上的任意进程当作隔离的模型。POST 使用 application/json，Accept 包含 application/json 和 text/event-stream；不提供 SSE，GET 返回405。秘密不得进入模型输入或访问日志。适配拒绝重复头、Transfer-Encoding、超限请求及错误 Host/Origin，串行处理，有限连接数后退出。
+
+当前仅本地真实 UDS+HTTP 进程诊断覆盖认证拒绝、错误 Origin、能力调用和共享累计上限；不代表 TLS 部署或真实远程 Agent 验收。实际 Dot connector 版本、秘密保管、获准 HTTPS origin 和 DA 验收尚未核实；禁止据此关闭 #5533 或声明远程支持。候选协议依据 https://modelcontextprotocol.io/specification/2025-11-25/basic/transports 与 server/tools，实际消费者接入后仍需固定实测组合。
+
+### 远程账号业务接线（#5539）
+
+专用入口 `oasis7_dev_test_remote_tools PRIVATE_SESSION_POLICY HTTPS_ORIGIN LOOPBACK_ADDRESS MAX_CONNECTIONS`
+继承#5533的固定可信TLS反向代理边界。内部HTTP仅loopback，不能直接暴露；代理须覆盖Host，
+固定origin与/mcp路由并原样转发可信连接器的Authorization。模型只获得工具schema，
+不获得秘密、私有配置、目标URL选择权或管理入口。服务每连接重新读取共同私有配置，
+核对当前凭据／到期／撤销，合法业务调用原样转到唯一私有会话服务；业务服务再次鉴权并统一累计准入。
+initialize/ping/discovery/initialized仅认证，不读账号、不单设业务额度；只有合法tools/call进入业务准入。
+
+闭合工具为dev_test_accounts_call及共同九方法；参数受共同ToolRequest/operation DTO核对。
+完整目标、约束与source以及原RID/body透明传递；开始转发后的transport错误为unknown，
+保留原操作及当前授权下lookup下一步，不自动重发。原会话到期／重启行为及账本规则由共同后端拥有。
+远程正式说明见skills/oasis7-play/references/dev-test-remote.md；共用流程精确承接#5538固定8b5d94c的正式参考，
+不把本地入口代码作为远程业务前置。
+
+局部验证命令：
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib dev_test_remote_business --locked
+env -u RUSTC_WRAPPER cargo build -p oasis7_game_client --bin oasis7_dev_test_remote_tools --locked
+python3 crates/oasis7_game_client/tests/fixtures/dev_test_remote_business_tls.py target/debug/oasis7_dev_test_remote_tools
+```
+
+TLS夹具使用本机临时证书、真实HTTPS代理和远程binary、同UID私有合成UDS后端，
+不访问真实世界。覆盖九方法／完整目标透明传递、原RID、未认证／来源／秘密参数拒绝、
+当前撤销以及后端收包后丢回复unknown，不能代签真实Dot、外部部署、模型或世界写入。
+用户选择继续代码和本地验证，真实远程认证／部署／模型仍blocked，不自行启动或扩大权限。

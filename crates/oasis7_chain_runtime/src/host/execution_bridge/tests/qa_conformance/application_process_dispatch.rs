@@ -59,6 +59,10 @@ fn run_inner() {
         max_response_bytes: 1_048_576,
     })
     .unwrap();
+    if env("PRE2_APP_ADMISSION") == "hosted-known-failure" {
+        application_hosted_known_failure::verify(&client);
+        return;
+    }
     if matches!(
         env("PRE2_APP_ADMISSION").as_str(),
         "fresh-metadata" | "fresh-paused" | "fresh-bad-store"

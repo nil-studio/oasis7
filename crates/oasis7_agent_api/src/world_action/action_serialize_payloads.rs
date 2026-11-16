@@ -818,3 +818,12 @@ pub(super) struct RotateGovernanceValidatorFinalityKeyV1Payload<'a> {
     pub(super) old_key_proof: &'a FinalityKeyRotationProofV1,
     pub(super) new_key_proof: &'a FinalityKeyRotationProofV1,
 }
+
+#[derive(Serialize)]
+#[serde(rename = "RotateGovernanceBootstrapFinalityKeyV1")]
+pub(super) struct RotateGovernanceBootstrapFinalityKeyV1Payload<'a> {
+    pub(super) controller_account_id: &'a String,
+    pub(super) body: &'a BootstrapFinalityKeyRotationBodyV1,
+    pub(super) old_key_proof: &'a BootstrapFinalityKeyRotationProofV1,
+    pub(super) new_key_proof: &'a BootstrapFinalityKeyRotationProofV1,
+}

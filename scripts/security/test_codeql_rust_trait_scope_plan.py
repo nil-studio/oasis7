@@ -5,6 +5,7 @@ import hashlib
 import itertools
 from pathlib import Path
 import random
+import re
 import json
 import tempfile
 import time
@@ -199,7 +200,8 @@ class ScopePlan(unittest.TestCase):
     def test_workflow_selection_keeps_manual_gate_and_existing_budget(self):
         root = P.parents[2]
         text = (root / ".github/workflows/rust.yml").read_text()
-        job = text.split("  codeql-rust-model-diagnostic:\n", 1)[1].split("\n  select:", 1)[0]
+        job = re.search(r'^  codeql-rust-model-diagnostic:\n(.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)',
+                        text, re.M | re.S)[1]
         self.assertIn("trait-scope-plan", text.split("permissions:", 1)[0])
         self.assertIn("MODEL_PROBE: ${{ inputs.model_probe }}", job)
         self.assertIn('if [ "$MODEL_PROBE" = trait-scope-plan ]; then test "$BUNDLE_VERSION" = 2.27.3; fi', job)

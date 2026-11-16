@@ -15,4 +15,4 @@ Use a template only for the test, review, release or incident scope that calls f
 
 ## Lifecycle
 
-The exact existing template/example set is retained as one reviewed semantic bundle in the v3 corpus records; resolve its current bundle record and complete member set with `python3 scripts/document-corpus-inventory.py locate --kind semantic --path <member-path>`. A zero text-reference count is not sufficient for deletion because schemas may be copied by operator or external workflows. Retirement requires a reviewed successor, semantic absorption, repaired callers, domain-owner approval, and QA/repository-health verification.
+A zero text-reference count is not sufficient for deletion because schemas may be copied by operator or external workflows. Retirement requires a reviewed successor, semantic absorption, repaired callers, domain-owner approval, and QA/repository-health verification.

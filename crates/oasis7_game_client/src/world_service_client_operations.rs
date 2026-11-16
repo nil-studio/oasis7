@@ -167,6 +167,7 @@ impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
                 };
                 return Ok(IntentResponse {
                     formal_profile: Some(FormalReadProfileV1::controlled()),
+                    terminal_recovery_authority: None,
                     execution_evidence_scope: None,
                     contract_version: WORLD_SERVICE_CONTRACT_VERSION,
                     correlation,
@@ -179,7 +180,9 @@ impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
         // callers can distinguish an unavailable lookup from that bounded
         // history continuation case.
         Ok(IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: Some(FormalReadProfileV1::controlled()),
+
             execution_evidence_scope: None,
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,
             correlation,
@@ -202,7 +205,8 @@ impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
         let correlation = request.correlation.clone();
         match self.call::<_, IntentResponse<Value>>(SUBMIT_PATH, &request) {
             Ok(response) => {
-                if response.formal_profile.as_ref() != Some(&FormalReadProfileV1::controlled())
+                if response.terminal_recovery_authority.is_some()
+                    || response.formal_profile.as_ref() != Some(&FormalReadProfileV1::controlled())
                     || response.execution_evidence_scope.is_some()
                     || response.validate(&correlation).is_err()
                     || !matches!(

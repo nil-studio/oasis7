@@ -51,6 +51,11 @@ pub(super) enum AgentServiceIoOperation {
         request: LookupIntentRequest,
         original: WorldServicePayloadV1,
     },
+    TerminalLookup {
+        request: LookupIntentRequest,
+        original: WorldServicePayloadV1,
+        minimum: CommitRef,
+    },
     View(ReadWorldViewRequest),
     Feedback {
         client: crate::simulator::ProviderLoopbackHttpClient,
@@ -129,6 +134,13 @@ impl AgentServiceIoJob {
                     }
                     AgentServiceIoOperation::Lookup { request, original } => client
                         .lookup(request, original)
+                        .map(AgentServiceIoResponse::Intent),
+                    AgentServiceIoOperation::TerminalLookup {
+                        request,
+                        original,
+                        minimum,
+                    } => client
+                        .lookup_terminal_original(request, original, &minimum)
                         .map(AgentServiceIoResponse::Intent),
                     AgentServiceIoOperation::View(request) => client
                         .read_view(request)

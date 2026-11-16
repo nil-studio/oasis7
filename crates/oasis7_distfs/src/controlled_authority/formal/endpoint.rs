@@ -1124,3 +1124,7 @@ pub(crate) use committed_material::verify_committed_historical_material;
 
 #[path = "endpoint_native_environment.rs"]
 mod native_environment;
+
+#[path = "endpoint_archive_bounded_read.rs"]
+mod archive_bounded_read;
+pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};

@@ -157,7 +157,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     if !crash && std::env::var_os("PRE2_WAIT_COLD_PAUSE_RUNNER").is_some() {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            session.snapshot(Duration::from_millis(25));
+            session.drain_for(Duration::from_millis(25));
             let value: serde_json::Value = serde_json::from_slice(
                 &fs::read(root.join(STORE)).unwrap(),
             ).unwrap();
@@ -194,10 +194,13 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     let eligibility = shared.lock().unwrap().test_agent_service_pump_status();
     let observation_started = Instant::now();
     let mut completion = application_completion::CompletionWatch::new();
+    if !crash {
+        hosted_wait_recovery_delay::observer_ready(&root);
+    }
     let mut summary = serde_json::Value::Null;
     let mut completed = false;
     loop {
-        session.snapshot(Duration::from_millis(25));
+        session.drain_for(Duration::from_millis(25));
         if crash && root.join("world-wait-admit-view-started").exists() {
             let bytes = fs::read(root.join(STORE)).unwrap();
             let original = retained_original(&bytes);
@@ -245,6 +248,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
             break;
         }
     }
+    let observation_elapsed = observation_started.elapsed();
     let stage = fs::read(root.join(STORE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
@@ -266,7 +270,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
         "hosted_wait_admit_recreated_process warmed={warmed} ordered={ordered} eligible={} native_runner_present={} retained_stage={stage:?} completed={completed} observation_elapsed_ms={} drained={drained} worker={joined:?} factory_calls=0 direct_poll_calls=0",
         eligibility["eligible"],
         summary["native_runner_present"],
-        observation_started.elapsed().as_millis()
+        observation_elapsed.as_millis()
     );
     assert!(
         warmed && ordered && eligibility["eligible"] == true,
@@ -463,12 +467,12 @@ pub(super) fn recover_parent(
         .iter()
         .filter(|value| *value == &key)
         .count();
-    let recovered = command
+    command
         .env("PRE2_APP_ADMISSION", "wait-admit-recover")
         // Existing fixture-only trace: reveal the real apply error, never relax it.
-        .env("PRE2_RESUME_REJECTION_RECOVERY_TRACE", "1")
-        .output()
-        .unwrap();
+        .env("PRE2_RESUME_REJECTION_RECOVERY_TRACE", "1");
+    let recovered =
+        application_completion::run_child_phase(command, root, "wait-admit-recovery");
     secure_artifact(fixture, root, &recovered, "recover");
     let trace = fixture.lookup_digests.lock().unwrap();
     let submits = trace
@@ -503,7 +507,8 @@ pub(super) fn recover_parent(
 }
 
 /// Causal probe only: every successful View stays below its original transport
-/// timeout while the actual two-process recovery crosses the old observer12s.
+/// timeout. The original settled Wait cannot wake until its recovery observer
+/// has run beyond the old 12-second window; cleanup never supplies that elapsed time.
 #[test]
 fn real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle() {
     let root = temp_dir("qa-wait-admit-crash-delayed-completion");
@@ -511,6 +516,7 @@ fn real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle(
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command.args(["--exact","execution_bridge_real_tests::real_execution_bridge::tests::qa_conformance::application_hosted_wait_crash::real_tcp_hosted_wait_admit_process_crash_recovers_original_identity","--nocapture"]);
     command.env("PRE2_CONFORMANCE_VIEW_DELAY_MS", "1000");
+    hosted_wait_recovery_delay::enable(&mut command);
     let started = Instant::now();
     let output = application_completion::run_child(&mut command, &root);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -534,6 +540,15 @@ fn real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle(
         stdout.contains("hosted_wait_admit_actual_missing_harness_witness=false"),
         "missing runtime witness is a separate failure class"
     );
+    assert!(stdout.contains("hosted_wait_recovery_delay_started "));
+    let held_ms = stdout
+        .lines()
+        .find(|line| line.starts_with("hosted_wait_recovery_delay_released "))
+        .and_then(|line| line.split_whitespace().find_map(|field| {
+            field.strip_prefix("elapsed_ms=")?.parse::<u128>().ok()
+        }))
+        .expect("actual original Wait clock released after recovery observation started");
+    assert!(held_ms >= 13_000, "real wake must remain pending across the old observer budget");
     let recovery_elapsed_ms = stdout
         .lines()
         .find(|line| line.starts_with("hosted_wait_admit_recreated_process "))

@@ -267,6 +267,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
                         .unwrap();
                     committed = Some(
                         serde_json::to_value(IntentResponse {
+                            terminal_recovery_authority: None,
                             formal_profile: None,
                             execution_evidence_scope: None,
                             contract_version: 1,
@@ -279,6 +280,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
                         .unwrap(),
                     );
                     serde_json::to_value(IntentResponse::<Value> {
+                        terminal_recovery_authority: None,
                         formal_profile: None,
                         execution_evidence_scope: None,
                         contract_version: 1,

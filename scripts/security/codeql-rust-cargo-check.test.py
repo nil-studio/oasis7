@@ -47,18 +47,49 @@ class SingleCheck(unittest.TestCase):
         self.assertLess(clock[0],280)
 
     def test_native_preparation_respects_shorter_parent_deadline(self):
-        clock=[100.0]; calls=[]
-        def run(argv,cwd,output,end,timeout,root,env,**kwargs):
-            calls.append((argv,end,timeout))
-            if "update" in argv:clock[0]+=14
-            elif "install" in argv:clock[0]+=40
-            else:clock[0]+=1
-        with patch.object(m.time,"monotonic",side_effect=lambda:clock[0]), patch.object(m.runtime,"run",side_effect=run):
-            m.prepare_native(self.source,self.out,270,{})
-        self.assertTrue(all(end==180 for _,end,_ in calls))
-        self.assertEqual(calls[1][2],46)
-        self.assertEqual(int(calls[1][0][5]),41)
-        self.assertLess(clock[0],180)
+        for maximum in (180,360):
+            with self.subTest(maximum=maximum):
+                clock=[100.0]; calls=[]
+                def run(argv,cwd,output,end,timeout,root,env,**kwargs):
+                    calls.append((argv,end,timeout))
+                    budget=json.loads((self.out/'native-budget.json').read_text())
+                    self.assertEqual(budget['maximum_seconds'],maximum)
+                    self.assertEqual(budget['preparation_deadline_monotonic'],180)
+                    if "update" in argv:clock[0]+=14
+                    elif "install" in argv:clock[0]+=40
+                    else:clock[0]+=1
+                with patch.object(m.time,"monotonic",side_effect=lambda:clock[0]), patch.object(m.runtime,"run",side_effect=run):
+                    m.prepare_native(self.source,self.out,270,{},maximum_seconds=maximum)
+                self.assertTrue(all(end==180 for _,end,_ in calls))
+                self.assertEqual(calls[1][2],46)
+                self.assertEqual(int(calls[1][0][5]),41)
+                self.assertLess(clock[0],180)
+
+    def test_native_timeout_keeps_budget_and_actual_command_receipt(self):
+        sudo=self.root/'sudo'
+        sudo.write_text('#!'+sys.executable+'\nimport sys\nprint("fixture native command")\n'
+                        'sys.exit(124 if "install" in sys.argv else 0)\n')
+        sudo.chmod(0o755)
+        env=dict(os.environ,PATH=str(self.root)+os.pathsep+os.environ['PATH'])
+        with self.assertRaises(m.runtime.PhaseError) as failure:
+            m.prepare_native(self.source,self.out,time.monotonic()+1000,env,maximum_seconds=360)
+        self.assertEqual(failure.exception.result['exit'],124)
+        budget=json.loads((self.out/'native-budget.json').read_text())
+        self.assertEqual(budget['maximum_seconds'],360)
+        self.assertEqual([row['phase'] for row in budget['allocations']],['native-update','native-install'])
+        result=json.loads((self.out/'native-install.stdout.result.json').read_text())
+        self.assertEqual(result['exit'],124)
+        self.assertGreater(int(result['argv'][5]),180)
+        self.assertEqual(result['argv'][5],str(budget['allocations'][1]['privileged_timeout_seconds']))
+        self.assertEqual(result['cleanup_errors'],[])
+        self.assertFalse((self.out/'native-packages.stdout').exists())
+
+    def test_native_budget_rejects_unreviewed_windows_before_commands(self):
+        with patch.object(m.runtime,'run') as run:
+            for value in (0,181,361,9000,None,True,'360',360.0):
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError,'native preparation budget'):
+                    m.prepare_native(self.source,self.out,1000,{},maximum_seconds=value)
+            run.assert_not_called()
 
     def test_native_preparation_stops_at_missing_pkgconfig_module(self):
         calls=[]

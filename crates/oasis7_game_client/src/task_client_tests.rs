@@ -73,6 +73,7 @@ fn lost_task_submit_is_unknown_and_only_explicit_lookup_recovers_same_signed_req
             LOOKUP_PATH,
             digest,
             IntentResponse::<Value> {
+                terminal_recovery_authority: None,
                 formal_profile: None,
                 execution_evidence_scope: None,
                 contract_version: 1,

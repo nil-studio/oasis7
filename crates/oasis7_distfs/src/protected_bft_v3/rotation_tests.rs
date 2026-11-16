@@ -23,16 +23,16 @@ use std::{
     thread,
     time::Duration,
 };
-fn key(n: u8) -> SigningKey {
+pub(in crate::protected_bft_v3) fn key(n: u8) -> SigningKey {
     SigningKey::from_bytes(&[n; 32])
 }
-fn public(n: u8) -> String {
+pub(in crate::protected_bft_v3) fn public(n: u8) -> String {
     hex::encode(key(n).verifying_key().to_bytes())
 }
-fn hash(n: u8) -> String {
+pub(in crate::protected_bft_v3) fn hash(n: u8) -> String {
     hex::encode([n; 32])
 }
-fn binding() -> BftSignerBindingV3 {
+pub(in crate::protected_bft_v3) fn binding() -> BftSignerBindingV3 {
     let (certificate, authority, initial_proof, initial_commit) = fixtures::initial_with_profile(2);
     let trust = InitialActivationTrustV1 {
         issuer_public_key: fixtures::public(9),
@@ -115,7 +115,7 @@ fn binding() -> BftSignerBindingV3 {
     )
     .unwrap()
 }
-fn body(binding: &BftSignerBindingV3) -> FinalityKeyRotationBodyV1 {
+pub(in crate::protected_bft_v3) fn body(binding: &BftSignerBindingV3) -> FinalityKeyRotationBodyV1 {
     let schedule = binding.initial_schedule();
     FinalityKeyRotationBodyV1 {
         schema_version: 1,
@@ -256,7 +256,7 @@ impl BftSignerBackendV3 for Backend {
         Ok(s.clone())
     }
 }
-fn native(
+pub(in crate::protected_bft_v3) fn native(
     binding: &BftSignerBindingV3,
     snapshot: &Arc<Mutex<BftSignerBackendSnapshotV3>>,
     disabled: Option<Arc<AtomicUsize>>,

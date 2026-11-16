@@ -274,20 +274,37 @@ pub(super) fn current(
     observed: &Observations,
     require_business: bool,
 ) -> std::result::Result<NativeStageCurrent, JsValue> {
-    build_current(state, env, observed, require_business)
-        .map_err(|_| JsValue::from_str("native authority unavailable"))
+    build_current(env, observed, require_business, || {
+        let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
+        store.snapshot().map_err(|_| denied())
+    })
+    .map_err(|_| JsValue::from_str("native authority unavailable"))
 }
-fn build_current(
-    state: &JsValue,
+/// A request-local reader may reuse historical bytes, never current authority.
+pub(super) fn current_from_store(
+    store: &OwnerProvisionApprovalStore,
     env: &Env,
     observed: &Observations,
     require_business: bool,
-) -> Result<NativeStageCurrent> {
+) -> std::result::Result<NativeStageCurrent, JsValue> {
+    build_current(env, observed, require_business, || {
+        store.revalidated_snapshot().map_err(|_| denied())
+    })
+    .map_err(|_| JsValue::from_str("native authority unavailable"))
+}
+fn build_current<F>(
+    env: &Env,
+    observed: &Observations,
+    require_business: bool,
+    snapshot: F,
+) -> Result<NativeStageCurrent>
+where
+    F: FnOnce() -> Result<ProvisionApprovalSnapshot>,
+{
     if require_business && observed.inspection_only {
         return Err(denied());
     }
-    let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
-    let saved = store.snapshot().map_err(|_| denied())?;
+    let saved = snapshot()?;
     let draft = saved.state.draft();
     let target = saved.state.provision().security_epoch();
     if target.0 > 1

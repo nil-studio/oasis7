@@ -4,6 +4,10 @@ use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 #[path = "application_stream_cleanup.rs"]
 mod stream_cleanup;
+#[path = "application_stream_read.rs"]
+mod stream_read;
+#[path = "application_stream_drain_tests.rs"]
+mod drain_tests;
 pub(super) use stream_cleanup::drain_until_eof;
 
 #[test]
@@ -39,7 +43,7 @@ struct OrderedResponseProgress {
 }
 pub(super) struct Session {
     reader: BufReader<TcpStream>,
-    partial_line: String,
+    partial_line: Vec<u8>,
     ordered_response: OrderedResponseProgress,
     diagnostic: bool,
     created: Instant,
@@ -71,7 +75,7 @@ impl Session {
         });
         Self {
             reader: BufReader::new(socket),
-            partial_line: String::new(),
+            partial_line: Vec::new(),
             ordered_response: OrderedResponseProgress::default(),
             diagnostic: !small,
             created: Instant::now(),
@@ -109,107 +113,20 @@ impl Session {
         self.snapshot_ordered(budget, false)
     }
     pub(super) fn snapshot_ordered(&mut self, budget: Duration, require_hello: bool) -> bool {
-        let deadline = Instant::now() + budget;
-        let read_started = Instant::now();
-        if !self.ordered_response.started {
-            self.ordered_response.started = true;
-            self.ordered_response.hello_seen = !require_hello;
-        }
-        if self.ordered_response.complete {
-            return true;
-        }
-        while Instant::now() < deadline {
-            self.reader
-                .get_mut()
-                .set_read_timeout(Some(
-                    deadline
-                        .saturating_duration_since(Instant::now())
-                        .min(Duration::from_millis(50))
-                        .max(Duration::from_millis(1)),
-                ))
-                .unwrap();
-            match self.reader.read_line(&mut self.partial_line) {
-                Ok(0) => return false,
-                Ok(_) => {
-                    if !self.partial_line.ends_with('\n') {
-                        continue;
-                    }
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&self.partial_line)
-                    {
-                        if self.diagnostic {
-                            println!(
-                                "stream_observer_frame connection={} type={} bytes={} elapsed_us={} read_elapsed_us={}",
-                                self.connection,
-                                value["type"],
-                                self.partial_line.len(),
-                                self.created.elapsed().as_micros(),
-                                read_started.elapsed().as_micros()
-                            );
-                        }
-                        if value["type"] == "hello_ack" {
-                            self.ordered_response.hello_seen = true;
-                        }
-                        if self.ordered_response.hello_seen
-                            && value["type"] == "snapshot"
-                            && value["snapshot"]["runtime_snapshot"].is_object()
-                        {
-                            println!("actual_stream_snapshot_bytes={}", self.partial_line.len());
-                            self.ordered_response.snapshot_seen = true;
-                        }
-                        if self.ordered_response.snapshot_seen
-                            && value["type"] == "authoritative_recovery_ack"
-                        {
-                            self.ordered_response.complete = true;
-                            self.partial_line.clear();
-                            return true;
-                        }
-                    } else if self.diagnostic {
-                        println!(
-                            "stream_observer_invalid_frame connection={} bytes={} elapsed_us={}",
-                            self.connection,
-                            self.partial_line.len(),
-                            self.created.elapsed().as_micros()
-                        );
-                    }
-                    self.partial_line.clear();
-                }
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                    ) =>
-                {
-                    if self.diagnostic {
-                        println!(
-                            "stream_observer_timeout connection={} partial_bytes={} partial_type={} elapsed_us={} read_elapsed_us={}",
-                            self.connection,
-                            self.partial_line.len(),
-                            if self.partial_line.is_empty() {
-                                "empty"
-                            } else {
-                                "incomplete_frame"
-                            },
-                            self.created.elapsed().as_micros(),
-                            read_started.elapsed().as_micros()
-                        );
-                    }
-                }
-                Err(_) => return false,
-            }
-        }
-        false
+        self.read_window(budget, require_hello, true).0
+    }
+    /// Consume new frames even after the original ordered response completed.
+    /// No request is sent and no ordering or partial-frame state is reset.
+    pub(super) fn drain_for(&mut self, budget: Duration) -> usize {
+        self.read_window(budget, false, false).1
     }
     fn control_state(&mut self, request_id: u64, paused: bool) -> bool {
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
-            self.reader
-                .get_mut()
-                .set_read_timeout(Some(Duration::from_millis(50)))
-                .unwrap();
-            match self.reader.read_line(&mut self.partial_line) {
-                Ok(0) => return false,
-                Ok(_) if self.partial_line.ends_with('\n') => {
-                    let matched = serde_json::from_str::<serde_json::Value>(&self.partial_line)
+            match self.read_frame_until(deadline) {
+                Ok(false) => return false,
+                Ok(true) => {
+                    let matched = serde_json::from_slice::<serde_json::Value>(&self.partial_line)
                         .ok()
                         .is_some_and(|value| {
                             value["type"] == "live_control_state"
@@ -221,7 +138,6 @@ impl Session {
                         return true;
                     }
                 }
-                Ok(_) => {}
                 Err(error)
                     if matches!(
                         error.kind(),
@@ -289,7 +205,7 @@ fn real_tcp_session_close_drains_responses_queued_before_eof() {
     });
     let session = Session {
         reader: BufReader::new(socket),
-        partial_line: String::new(),
+        partial_line: Vec::new(),
         ordered_response: OrderedResponseProgress::default(),
         diagnostic: false,
         created: Instant::now(),
@@ -1161,7 +1077,7 @@ fn real_tcp_ordered_response_progress_survives_split_read_windows() {
     });
     let mut session = Session {
         reader: BufReader::new(socket),
-        partial_line: String::new(),
+        partial_line: Vec::new(),
         ordered_response: OrderedResponseProgress::default(),
         diagnostic: true,
         created: Instant::now(),

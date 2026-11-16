@@ -3,6 +3,7 @@
 //! independently provisioned fencing and anti-rollback guarantees.
 mod backend;
 mod binding;
+mod bootstrap_rotation;
 mod client;
 mod crypto;
 mod install;
@@ -39,3 +40,7 @@ pub use install::{
 pub use membership::BftMembershipInstallStateV3;
 
 pub use rotation::{BftFinalityRotationProofArchiveV3, BftFinalityRotationProofRecordV3};
+
+pub use bootstrap_rotation::{
+    BftBootstrapFinalityRotationProofArchiveV3, BftBootstrapFinalityRotationProofRecordV3,
+};

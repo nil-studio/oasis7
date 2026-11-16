@@ -108,6 +108,7 @@ fn unresolved_or_rejected_original_prefix_cannot_create_retirement_outcome() {
             .cache_intent(ClientStateKind::Prefix, "ctx", payload)
             .unwrap();
         let response = IntentResponse::<Value> {
+            terminal_recovery_authority: None,
             contract_version: 1,
             formal_profile: None,
             execution_evidence_scope: None,

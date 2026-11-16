@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::world_service::{
     CHANGES_PATH, DESCRIBE_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
-    SignedServiceResponse, VIEW_PATH,
+    SignedServiceResponse, TERMINAL_LOOKUP_PATH, VIEW_PATH,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

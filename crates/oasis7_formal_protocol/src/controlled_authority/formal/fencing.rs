@@ -69,7 +69,21 @@ pub(crate) fn sign<T: Serialize>(
     value: &T,
     key: &SigningKey,
 ) -> Result<String, FencingError> {
-    Ok(hex::encode(key.sign(&bytes(domain, value)?).to_bytes()))
+    sign_with_preimage(key, || bytes(domain, value), |_| Ok(()))
+}
+/// Build the original framing at its evaluation point, with caller-paid IO.
+pub fn sign_with_preimage<B, E>(
+    key: &SigningKey,
+    build: impl FnOnce() -> Result<B, E>,
+    mut work: impl FnMut(usize) -> Result<(), E>,
+) -> Result<String, E>
+where
+    B: AsRef<[u8]>,
+{
+    let preimage = build()?;
+    let preimage = preimage.as_ref();
+    work(preimage.len())?;
+    Ok(hex::encode(key.sign(preimage).to_bytes()))
 }
 /// Sign a fencing protocol preimage with the adapter's explicitly held key.
 pub fn sign_fencing_body<T: Serialize>(
@@ -85,19 +99,39 @@ pub fn verify<T: Serialize>(
     signature: &str,
     key: &str,
 ) -> Result<(), FencingError> {
-    canonical_hash(key)?;
+    verify_with_preimage(signature, key, || bytes(domain, value), |_| Ok(()))
+}
+/// The legacy key/signature/error order is shared by bounded adapters.
+pub fn verify_with_preimage<B, E>(
+    signature: &str,
+    key: &str,
+    build: impl FnOnce() -> Result<B, E>,
+    mut work: impl FnMut(usize) -> Result<(), E>,
+) -> Result<(), E>
+where
+    B: AsRef<[u8]>,
+    E: From<FencingError>,
+{
+    work(key.len())?;
+    canonical_hash(key).map_err(E::from)?;
+    work(key.len())?;
     let key: [u8; 32] = hex::decode(key)
-        .map_err(|e| invalid(e.to_string()))?
+        .map_err(|e| E::from(invalid(e.to_string())))?
         .try_into()
-        .map_err(|_| invalid("fencing key size"))?;
+        .map_err(|_| E::from(invalid("fencing key size")))?;
+    work(signature.len())?;
     let signature: [u8; 64] = hex::decode(signature)
-        .map_err(|e| invalid(e.to_string()))?
+        .map_err(|e| E::from(invalid(e.to_string())))?
         .try_into()
-        .map_err(|_| invalid("fencing signature size"))?;
-    VerifyingKey::from_bytes(&key)
-        .map_err(|e| invalid(e.to_string()))?
-        .verify_strict(&bytes(domain, value)?, &Signature::from_bytes(&signature))
-        .map_err(|e| invalid(e.to_string()))
+        .map_err(|_| E::from(invalid("fencing signature size")))?;
+    work(key.len())?;
+    let verifier = VerifyingKey::from_bytes(&key).map_err(|e| E::from(invalid(e.to_string())))?;
+    let preimage = build()?;
+    let preimage = preimage.as_ref();
+    work(preimage.len())?;
+    verifier
+        .verify_strict(preimage, &Signature::from_bytes(&signature))
+        .map_err(|e| E::from(invalid(e.to_string())))
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -576,3 +610,7 @@ pub fn epoch_seal_signing_bytes(body: &EpochSealBodyV1) -> Result<Vec<u8>, Fenci
     body.validate()?;
     bytes(SEAL_DOMAIN, body)
 }
+
+#[cfg(test)]
+#[path = "fencing_crypto_work_tests.rs"]
+mod crypto_work_tests;

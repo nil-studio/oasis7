@@ -19,6 +19,29 @@ SPEC.loader.exec_module(monitor)
 
 
 class MonitorTests(unittest.TestCase):
+    def test_heartbeat_cgroup_fields_are_bounded_and_preserve_missing_counters(self):
+        current = dict(cgroup=dict(memory_current_bytes=200, memory_max_bytes="max",
+                                   memory_peak_since_creation_bytes=900, unrelated="not logged"))
+        events = dict(start=dict(low=0, high=1, max=2, oom=3, oom_kill=4, oom_group_kill=5,
+                                 unrelated="not logged"),
+                      end=dict(low=0, high=2, max=4, oom=3, oom_kill=4, oom_group_kill=5),
+                      delta=dict(low=0, high=1, max=2, oom=0, oom_kill=0, oom_group_kill=0))
+        observed = monitor.cgroup_heartbeat(current, events)
+        self.assertEqual(observed, dict(memory_current_bytes=200, memory_max_bytes="max",
+            memory_peak_since_creation_bytes=900,
+            events={phase: {key: snapshot[key] for key in
+                    ("low", "high", "max", "oom", "oom_kill", "oom_group_kill")}
+                    for phase, snapshot in events.items()}))
+        self.assertNotIn("unrelated", json.dumps(observed))
+        for value in current["cgroup"]:
+            current["cgroup"][value] = None
+        missing = monitor.cgroup_heartbeat(current, dict(start=None, end={"oom_kill": 1}, delta=None))
+        self.assertIsNone(missing["memory_current_bytes"])
+        self.assertIsNone(missing["events"]["start"])
+        self.assertIsNone(missing["events"]["delta"])
+        self.assertEqual(missing["events"]["end"]["oom_kill"], 1)
+        self.assertIsNone(missing["events"]["end"]["oom"])
+
     def test_units_missing_fields_and_counter_resets(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -242,6 +265,11 @@ class ProcessMonitorTests(unittest.TestCase):
                     self.assertEqual(heartbeats[-1]["complete"], True)
                     self.assertIn("host", heartbeats[-1])
                     self.assertIn("swap_pages", heartbeats[-1])
+                    self.assertEqual(heartbeats[-1]["cgroup"], monitor.cgroup_heartbeat(
+                        {"cgroup": {"memory_current_bytes": report["cgroup"]["sampled"]["memory_current_bytes"]["end"],
+                                    "memory_max_bytes": report["cgroup"]["memory_max_bytes"]["end"],
+                                    "memory_peak_since_creation_bytes": report["cgroup"]["memory_peak_since_creation_bytes"]["end"]}},
+                        report["cgroup"]["events"]))
                     self.assertNotIn("success", report["process_tree"])
                 finally:
                     for process in (observer, child):

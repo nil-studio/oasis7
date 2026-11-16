@@ -12,7 +12,40 @@ git -C "$REPO" config user.name test
 printf 'tracked\n' >"$REPO/file"
 git -C "$REPO" add .
 git -C "$REPO" commit -qm initial
+git -C "$REPO" branch -M main
+git clone -q --bare "$REPO" "$TMP/origin.git"
+git -C "$REPO" remote add origin "$TMP/origin.git"
+git -C "$REPO" fetch -q origin
+initial_head="$(git -C "$REPO" rev-parse HEAD)"
+git clone -q "$TMP/origin.git" "$TMP/updater"
+git -C "$TMP/updater" config user.email test@example.com
+git -C "$TMP/updater" config user.name test
+printf 'remote update\n' >"$TMP/updater/file"
+git -C "$TMP/updater" commit -qam update
+git -C "$TMP/updater" push -q origin main
+latest_head="$(git -C "$TMP/updater" rev-parse HEAD)"
 "$REPO/scripts/new-task-worktree.sh" docs isolated --path "$TMP/new" --init-docs --json >"$TMP/result"
+test "$(git -C "$TMP/new" rev-parse HEAD)" = "$latest_head"
+test "$(git -C "$REPO" rev-parse HEAD)" = "$initial_head"
+"$REPO/scripts/new-task-worktree.sh" docs pinned --base "$initial_head" --path "$TMP/pinned" --json >/dev/null
+test "$(git -C "$TMP/pinned" rev-parse HEAD)" = "$initial_head"
+git -C "$REPO" remote set-url origin "$TMP/unavailable.git"
+if "$REPO/scripts/new-task-worktree.sh" docs offline --path "$TMP/offline" --json >"$TMP/offline-result" 2>/dev/null; then
+  echo 'failed fetch unexpectedly accepted' >&2; exit 1
+fi
+test ! -e "$TMP/offline"
+if git -C "$REPO" show-ref --verify --quiet refs/heads/codex/docs-offline; then exit 1; fi
+python3 - "$TMP/offline-result" <<'CHECK'
+import json,sys
+result=json.load(open(sys.argv[1]))
+assert result['failed_step']=='refresh_base' and not result['worktree_created']
+CHECK
+git -C "$REPO" branch codex/docs-attached "$initial_head"
+"$REPO/scripts/new-task-worktree.sh" docs attached --path "$TMP/attached" --json >/dev/null
+test "$(git -C "$TMP/attached" rev-parse HEAD)" = "$initial_head"
+"$REPO/scripts/new-task-worktree.sh" docs isolated --path "$TMP/new" --resume-setup --json >/dev/null
+test "$(git -C "$TMP/new" rev-parse HEAD)" = "$latest_head"
+git -C "$REPO" remote set-url origin "$TMP/origin.git"
 python3 - "$TMP/result" "$TMP/new" <<'CHECK'
 import json,os,sys
 p=json.load(open(sys.argv[1]))

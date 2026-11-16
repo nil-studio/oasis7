@@ -51,6 +51,52 @@ Public and delegated Views keep sanitized intent summaries and omit raw owner go
 
 The provider-local prompt is only a disposable projection of an owner-authenticated committed goal. A delegate View cannot recover raw owner goal text. This bounded path does not establish autonomous provider continuity, a working real-provider route, lawful retained-world ownership bootstrap, control-grant revocation policy, independent deployment fault domains or complete production history. If canonical identity/owner claim is absent, admission and owner metadata fail closed; Hosted login alone is insufficient. Fixture registration/claim/identity tests are engineering evidence, not formal opening approval.
 
+<a id="expired-grant-terminal-recovery"></a>
+### 已准入请求跨 grant 到期的终态对账
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；承接既有 [PRD §4.2 recovery](agent-cognition-lifecycle.prd.md#42-recovery-rules)，不新增 command grant、预算或新派发权限。以下是待实现和定向验收的恢复合同，不是原世界已恢复的证据。
+
+command grant 到期必须阻止新的 Reserve/Prefix/model dispatch、模块命令和普通 fresh Agent context；已在到期前 canonical 准入的原请求仍须能够查询其原结果并收敛已有费用义务。恢复不得修改 grant 的 expiry/id/body、owner/identity generation、世界/manifest、原 request/base binding、nonce 或 allowance；unknown model outcome 仍是 unknown，不得改为已知 provider failure、假 response 或 Wait。
+
+三个边界分别处理：
+
+1. **启动 authority bootstrap。** 仅对 durable 中完整相同的 authority、grant、invocation context 和 provision receipt 允许历史精确重放；校验 Agent 存在、当前 owner/generation、历史签名及 issuer/parent/audience/manifest、当前撤销状态和完整 provisioning identity。到期本身不触发 reinstall、续期、重新 provision 或额度重置。缺记录、重复/冲突 grant、撤销或身份变化均拒绝；首次安装仍要求当前 live grant。Node 与 Viewer 的 bootstrap/restore 消费者共用该 Runtime 判定，不能通过省略 bootstrap 输入跳过校验。
+2. **fresh Agent view。** Runtime 使用结构化的 `Live / ExpiredOnly / Invalid` 判定；`ExpiredOnly` 必须先验证全部历史证明及当前 owner/generation/revocation，仅允许时间窗口失效这一原因。不得按错误字符串或 `no live grant` 猜测到期。合法历史 grant 按不可变 id/body 独立验证；多个不同的已过期 id 不构成 exact Lookup 歧义，也不选择任一 id 为 fresh grant。Lookup 只验证原 signed Prefix 精确绑定的 id；多个当前 live 匹配、同 id 异 body 或原事件/lease 匹配冲突仍拒绝。此分支可返回 `agent_context=None`，但不伪造空 catalog 或可派发 invocation；读服务的认证、scope、world 和当前任务授权不变。malformed/revoked/missing/ambiguous/跨 manifest 等仍失败，且不能借终态能力获得新的 fresh context。
+3. **原请求 terminal recovery。** 不以 fresh context 为终态权限。复用原 signed ProviderPrefix 的 exact correlation Lookup、原 canonical lease、当前 Agent signer/delegation 与任务 fence，以及现有 signed `ProviderFailure`、`SettleLease` API。首次 View 缺 fresh context 时仅可准备无效果的原 Lookup；只有以下终态专用证明验证成功，才能继续 Failure/Settle。每次 canonical 执行仍重查当前 signer、撤销、generation 和 task fence。
+
+#### 原 Lookup 的窄终态证明
+
+在已有 `IntentResponse` 外层增加可选、显式 versioned 的 `terminal_recovery_authority`，与 immutable committed receipt 分离；无此证明的旧 live 路径保持原编码与完整旧校验。证明由 Runtime/服务从已完成原有完整验证的当前 pin，以及适用的原历史 pin 或当前 authenticated Journal 生成，不接受 Viewer 自报字段或未认证 sidecar。它只用于有 canonical 原 ProviderPrefix 与对应 lease 的终态对账，role 固定为 `terminal_only`，不携带 live command catalog，不授权新 dispatch、response replay 为 effect、续期、退款或额外费用。
+
+证明绑定原 world/genesis/branch/finality/manifest、agent/owner/identity generation、session/turn/request/digest/retry/transport、grant id、lease id 及原 lease 不可变 admission identity、原 Prefix correlation/full-result digest/commit、实际 admission tick、原 signed Prefix 的 writer public key/delegation generation、当前 signer/delegation 与 task fence，以及本次 read commit。一个 exact Lookup 至多一份证明，沿用现有 response 字节上限；重复候选、无法唯一对应或超界即失败。不能从 W3 的 `native_delegation_authorizations` 推出 scheduler signer 权限；后者必须由 Runtime 的 `agent_authority::validate_agent_signer` 及 canonical signer delegation 验证。
+
+**admission tick 的唯一来源**是：在已认证的原历史 pin，或已通过原有完整 Rust pin/World restore 的当前 Journal 中，找到唯一 `WorldServiceIntentRecorded`，其 key、完整 record/full result 与当前 canonical result 及该原 signed Prefix 完全相等，取此外层 `WorldEvent.time`。历史模式的 state/journal 必须与原 commit 和记录 commitment 相符；当前模式的完整 Journal 必须由同一当前 head proof 的 journal CAS 引用及 snapshot journal commitment/boundary 绑定。当前模式只证明原准入事件仍在当前已认证历史中，不证明旧高度的完整 state/proof 可读取。`request.base_tick`、cognition journal 的 ContextCaptured/RequestDispatched logical tick、block height、wall clock 均不能替代。实际原案例的 Reserved/base tick 为 224，Prefix committed height 为 227，原 exact WorldServiceIntentRecorded 的 time 为 224；三者分别保留，不按数值相同推导可信性。
+
+Runtime 按证据模式从原历史 pin，或从当前 pin 中未改变的原签名 grant/source 验证原 grant 的 body/hash/id、issuer signature/source、parent chain、subject/audience/module 与 `issued_at <= admission_tick <= expires_at`，并核该实际 Prefix/lease 的完整请求关联。在当前 pin 另核 Agent 仍存在、owner/generation、当前 issuer/revocation、manifest/finality、原 writer 的 delegation 与当前任务 fence仍有效；grant 到期不能掩盖其他非法原因。历史材料缺失、事件重复、签名或 source 不明、闭合 receipt 不一致，一律 `HistoryUnavailable` 或明确拒绝；不得用新 grant、当前 union、重建上下文或猜 tick 补证。
+
+外层服务签名覆盖证明的所有字段及 Lookup request digest。消费者验证 DTO version、固定 role、完整 identity、原 full-result/receipt/lease、实际 admission tick、当前 read commit 与本次恢复前一个已认证当前 View 的同 lineage 和最低 commit 水位（既有 Lookup key 不变，不能把该水位误写成已有 Lookup request 字段），并拒绝跨 actor/跨世界/篡改/缺 proof/过期 read commit；当前 proof 不授权重放一次新业务动作。无证明仅允许当前 live context 的完整旧验证，不能成为 expired fallback。新 DTO 使用严格已知字段解码；旧服务不提供证明时本恢复能力明确 unavailable，不尝试降级解释。
+
+#### 当前 authenticated Journal 的 terminal-only 证据
+
+旧 `HistoricalPin` 证明维持 schema 1 的 JSON 和签名字节：原 `prefix_commit` 必须存在且等于原 Committed outcome。新增 schema 2 仅用于 `CurrentAuthenticatedJournal`；该模式不提供或伪造旧 `prefix_commit`，保留原 committed height、原 full-result digest、唯一 Prefix event id/time、原 dispatched receipt，并绑定当前 `read_commit`。两模式互斥；未知 version、缺证据、两模式混用或字段不完整均拒绝。新可选字段在 schema 1 中省略；旧 reader 必须因新 version/字段或缺旧 commit 拒绝，不能默默当旧历史证明。
+
+普通 `/v1/world/lookup` 的历史语义不变：旧 retained closure 不可用仍返回 `HistoryUnavailable`。专用 `/v1/world/lookup-terminal` 复用 exact 原 AuthenticatedLookup request/correlation，但使用独立 response signature/query-digest domain；仅显式 DevLocal 且原 Prefix 的 terminal recovery 消费者可接受 schema 2。它不把当前 commit 作为旧 Committed receipt，也不授予 fresh context。通用 Lookup、Submit、formal lane 或其它原 operation 均不得接受此证据作为效果权限。专用旧服务/未知 endpoint 不可用即失败，不降级或重发原模型。
+
+服务必须在同一当前 pin 验证原 Prefix full record，以及唯一对应原 Reserve canonical full record/receipt 和各自唯一 exact Journal event；Reserve receipt 的 lease/request/session/turn/digest、account、quote、reserved amount/time 与当前原 lease 及原 Prefix 关联完全相等，且原 Reserve/Prefix 的真实 admission time 均在原 grant 合法时窗内。证明签名绑定 Reserve correlation、full-result/receipt digest、原 committed height 及 event id/time。不能只凭当前 lease、调用者传入的 quote 或原 captured tick 补证。当前 owner/generation/revocation/delegation/task fence、world/manifest/finality 和 SDK read-minimum 仍逐项校验；重复、缺失、错 record、超时窗或不明材料均 fail closed。
+
+SDK 必须分别验证两种 evidence 的 shape、完整服务签名/query digest、原 Prefix receipt/full-result digest 与本次已认证 View 最低水位。Viewer 仅在原 dispatch 的专用 terminal 分支安装 schema 2 authority，沿原 unknown orphan Failure/Settle 和 publication ACK 流继续；普通 `HistoryUnavailable` 无新 proof 时保持 blocker。原 unknown reason 不变，canonical Failure 继续固定 `cognition_failed`，不伪造已知 ProviderError、模型 response 或旧历史 commit。
+
+本切片只开放显式 DevLocal preview 的 ordinary signed-service assertion；不把该签名等同于 formal BFT applied authority。formal profile 的原 signed leaf/page、不可变 runtime/manifest hash 与 committed receipt 字节均不改；在 terminal proof 尚未接入该 profile 的既有承诺/验证层前必须拒绝这个新模式，不得把附加 JSON 当作 formal proof。API、service、SDK/客户端、Viewer 的版本与签名消费者须同步适配并验证；不存在仅 candidate 注册即可自授权的新 CI 入口。
+
+#### 消费者与定向验收
+
+本切片的 proof 仅覆盖原 canonical ProviderPrefix。若 Reserve 已成功而 Prefix 尚未成功即到期，必须保留原 lease 并明确缺少 dispatch 证明；不得伪造 Prefix，也不能按已派发失败收取一个单位。Reserve-only 的无模型调用证明及既有费用释放/终态处置需按原经济合同独立闭合，不在本 Prefix-only 能力内声称已恢复。新 capability grant 不得自动接管这个原 lease。
+
+实现须覆盖 Runtime bootstrap 精确历史 replay 与 live admission 分离、结构化 capability availability、Node 启动/Viewer restore、ordinary Agent projection、Lookup 的历史 pin 与当前授权 proof、API/SDK 严格解码与签名/read-commit 校验，以及 Hosted orphan 的 proof-before-Failure/Settle 和既有 publication ACK/cleanup。原 raw escrow/known failure 与 unknown orphan 分支继续分开；未持有模型原响应的重启不重发模型，已保存原响应也不得降为 unknown。
+
+定向回归使用真实 Reserved/Prefix 后推进至 grant 到期并重启：原 grant/body/owner/world/WASM/allowance 不变，paused、零模型 POST，原 unknown request 只有一次 canonical Failure/Settle、费用 1、无退款/补偿/充值，最终精确 lineage 清理且 publication 已确认。另独立证明新 Reserve/Prefix/model/command 仍被拒绝；fresh expiry 不生成 catalog。负例覆盖原 grant 在真实 admission tick 已过期、改 base_tick、错/重复历史事件、history unavailable、不同 actor/session/turn/request/digest/lease/grant、改 owner/generation/manifest/finality、revoked issuer/grant/delegate、过时 read commit、任务 fence失效、proof 缺失/篡改/未知字段/version、旧 reader/服务无 proof，以及精确 bootstrap replay 不重复 provision。只有同候选实际回归和原世界对账可声明恢复通过。
+
+
 ## 2. Logical records
 
 ### 2.1 需求承接与分配表

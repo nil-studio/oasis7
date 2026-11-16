@@ -43,7 +43,7 @@
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| 测试分级标签 | `test_tier_required` / `test_tier_full` | 用 `#[cfg(feature = ...)]` 标记用例 | `unlabeled -> labeled -> validated` | 标签描述默认职责；风险命中可将 full 用例定向加入 PR，full 保留全部适用覆盖 | 测试维护者审核分级 |
+| 测试分级标签 | `test_tier_required` / `test_tier_full` | 用 `#[cfg(feature = ...)]` 标记用例 | `unlabeled -> labeled -> validated` | 标签描述默认职责；除重型 Formal 外，风险命中可将 full 用例定向加入 PR，full 保留全部适用覆盖 | 测试维护者审核分级 |
 | 命令级基线分流 | `commit` / `required` / `full` | 普通 commit 不验证；显式命令可执行 `commit`，PR/CI 执行 `required`，重型回归执行 `full` | `queued -> running -> passed/failed` | commit 与验证解耦，case 标签用于门禁分层 | 开发者/CI 可触发 |
 | required 执行路径 | `scripts/ci-tests.sh required` | 执行适用静态门禁、受影响目标与 required feature，并追加命中风险的必要用例 | `queued -> running -> passed/failed` | 目标按包、target 与用例共同缩小编译和执行范围；当前入口以实现为准 | 开发者按需触发，CI 自动触发 |
 | full 执行路径 | `scripts/ci-tests.sh full` | 在 required 基础上执行扩展回归 | `queued -> running -> passed/failed` | 覆盖优先于耗时 | 发布前必须通过 |
@@ -53,7 +53,7 @@
   - AC-3: 文档明确“`commit` 命令级轻量基线 + `required/full` case 级筛选”策略。
   - AC-4: 回归验证与任务日志完整可追溯。
   - AC-5: 迁到周期层的用例仍有相同断言和适用环境的实际调用；快速层保留受影响行为测试，零匹配或只编译不能代替执行成功。
-  - AC-6: full 标签的用例命中关键风险时仍进入 PR；新增、改名、漏标或无耗时历史的测试不会从必要集合静默消失。
+  - AC-6: 除主责规则明确安排到完整层的重型 Formal 外，full 标签的用例命中关键风险时仍进入 PR；新增、改名、漏标或无耗时历史的测试不会从所属层的必要集合静默消失。
 - Non-Goals:
   - 本专题不另建 changed-files 选择器；复用 CI 分级执行设计拥有的影响分析。
   - 不做 smoke case 自动学习/自动生成。
@@ -65,8 +65,8 @@
 跨类型准入规则由 [PR 快速检查原则](ci-tiered-execution.prd.md#ci-pr-fast-selection)拥有；本节只定义 case 标签与实际选择的关系。
 
 - `test_tier_required` 描述通常由受影响 PR 验证的基础行为，不表示每个 PR 都执行，也不证明该用例或整个 package 已满足快速预算。
-- `test_tier_full` 描述扩展组合或重型场景的默认完整回归职责，不表示只能周期运行。命中对应风险的 PR 必须启用实际所需 feature/target 并执行完整 case；若 feature 牵出过多无关用例，优化目标和调用，不改变必要断言。
-- 新增功能或修复的回归测试默认进入本次受影响 PR 的必要集合。仅新增扩展覆盖时，可以按主责规则归入周期层，在同一 PR 说明检测目的、快速层承接、风险触发及周期入口。没有标签、未进入旧清单或暂无耗时数据均不构成跳过理由；沿用所属模块既有必要集合，无法可靠选择时扩大验证。
+- `test_tier_full` 描述扩展组合或重型场景的默认完整回归职责，不表示只能周期运行。除主责规则明确后移的重型 Formal 外，命中对应风险的 PR 必须启用实际所需 feature/target 并执行完整 case；若 feature 牵出过多无关用例，优化目标和调用，不改变必要断言。重型 Formal 统一进入定期及显式候选 full，普通单元/库/合同检查继续按影响运行。
+- 新增功能或修复的普通回归测试默认进入本次受影响 PR 的必要集合；新增或修改的重型 Formal 用例由完整层承接。仅新增其他扩展覆盖时，可以按主责规则归入周期层，在同一 PR 说明检测目的、快速层承接、风险触发及周期入口。没有标签、未进入旧清单或暂无耗时数据均不构成跳过理由；沿用所属模块既有必要集合，无法可靠选择时扩大验证。
 - 迁移同步标签、真实 driver、构建目标与结果核验；在旧等待解除前证明新入口实际执行并保留原语义。维护者按现有评审检查，不新增审批表、专用账本或自动 case 学习。
 
 当前 planner 比较可信基线与候选源码中影响测试选择的属性；required/full 迁移在实际支持的 package 上启用 required、full 及适用扩展 features。feature 必须由执行 package 声明并有对应 driver，条件表达式须能证明在实际测试组合中为真；新增 ignore、无法证明的条件门控和仅靠其他 binary 同名函数认领的映射均失败。普通生产平台 cfg 改动保守扩大覆盖，不作为测试退役处理。自动检查不证明任意 Rust 程序的语义等价；普通 case 的合法删除/改名仍由既有评审核对行为去留与替代，Formal 则另以可信最低 case 库存检查预期缺失。

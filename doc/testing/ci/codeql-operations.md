@@ -28,6 +28,10 @@ manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 
 
 Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。只增加 `rust-repo/default=baseline` 即可允许已授权的每日或手动验收，不能将全局 observe 改回 baseline 而停掉其他语言的 PR 扫描。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
 
+该场景使用固定 CodeQL 2.27.4 Rust bundle 和独立固定的 `qualifier-lines-constraint-target-qualified-v7`，保持官方原始 37 项默认查询。核对生产 prepare/run 的最终 variant、真实 v6 base_variant、v3/v5 中间快照和原层级收据、独立 v6/target 收据及三棵私有库的前后完整身份；实际 37 条解析须在 14 项依赖中选择 `candidate-rust-all` 和 `candidate-target-typeinference`，同时保留并核验真实 v6 `candidate-typeinference`，不能只看 search path 或版本标签。target 收据重新关联 v6 全树及原收据摘要，官方/v6/target 的普通文件完整权限位也须前后一致。旧 v2/v3/v5/v6 生产准备及研究 preparation 不得改标签恢复为生产 v7；实际 shared 解析回退 v6 或官方根均拒绝。官方 Action 负责初始化与提取，生产 helper 校验实际闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security；不加入研究七项见证或性能观察器。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
+
+首次验收同时检查独立的 `oasis7-codeql-rust-production-*` artifact：工具和修补身份、当前 checkout 的 manifest/锁观察、实际 Cargo 解析、完整查询结果及覆盖诊断。`production-run.json` 的执行成功不代表覆盖通过；coverage 的 REVIEW/UNKNOWN、WASM 或源码归属缺口继续记录。该 artifact 与只包含 `evidence.json` 的上传关联 artifact 分开，后者仍用于唯一 SARIF/platform analysis 关联。只有覆盖及运营验收闭合后才将该批次声明为已验收日频基线。
+
 ## 可信计划与权限
 
 PR workflow 从事件 base commit 取 `scripts/security/codeql-plan.py` 与 `codeql-policy.json`，在临时目录用 isolated Python 执行，避免导入候选 planner。可信 base 缺少任一文件时，workflow 保守提出四语言 bootstrap 候选，再受可信批次配置限制；不能改用候选策略缩小范围。计划同时记录 source head 与实际 analysis checkout，二者不能混用；workflow 验证实际 checkout 等于事件分析 SHA，并按该 checkout 分析和上传。
@@ -61,6 +65,14 @@ python3 scripts/security/codeql-health.py --fixture "$FIXTURE_PATH" \
 
 `--sha` 须为完整小写 Git OID，`--ref` 用完整 refs 名称。fixture 只证明报告逻辑，不能代替 hosted proof。健康 CLI 返回 JSON；退出码零只表示报告生成，须检查 `status`、`errors` 和每个单元字段。live jobs 当前只关联 branch ref 的精确 SHA；PR merge ref 的 execution 可能保持 unknown。
 
+### Rust default 平台只读补采
+
+本地身份无法读取 code-scanning API 时，可从可信 `main` 手动运行 `CodeQL Platform Observation`，填写已完成生产扫描的 `producer_run_id`、最新 `producer_run_attempt` 和完整 `producer_sha`。该入口固定读取本仓 main 的 Rust/default，checkout 采证 workflow 自身的 main SHA；只有 contents/actions/checks/security-events read 权限，不启动扫描、不上传 SARIF。producer 仍在运行、attempt 已变化、身份或分页不完整时失败并保留 unknown，不退回旧 attempt。
+
+采证 job 最多 7 分钟，其中 API 共用 240 秒。读取复用 `codeql_upload_association.py` 与 `codeql-health.py`，从可信 artifact 的官方 SARIF ID 精确查询 analyses，保留平台 `error` / `warning` / `results_count` 与 open alerts 观察；失败也尝试上传独立 `oasis7-codeql-platform-observation-<collector_run>-<collector_attempt>` artifact 中的 `platform-observation.json`。退出零仅表示目标上传有唯一、无错误的平台关联且所请求读取完成，仍须查看 warnings、findings 范围与覆盖证据。
+
+报告的 `analysis_results_count` 属于已关联 analysis；`observed_open_findings` 是读取时 most_recent_instance 恰好匹配目标 SHA/ref/category 的现存 open alerts，不能称为该 attempt 的新增告警。最多读取 10 页、每页 100 条；超限或 API 失败丢弃不完整 findings 并报告 unknown。即使未观察到匹配告警，也不声明零告警，因为此入口不枚举完整 alert instances。完整启用验收仍需单独审查生产覆盖与后续持续运行。
+
 ## 状态解释与排障
 
 | 观察 | 解释与下一步 |
@@ -90,6 +102,44 @@ archive 下载上限 1 MiB、超时 30 秒，并校验平台 `sha256` digest；Z
 `previous_analysis_id` 与 `previous_analysis_age_hours` 只是精确 ref/SHA/category 下最近可见 analysis 的历史参考，不保证属于当前 attempt，也不能证明 latest upload 成功或覆盖新鲜。新 attempt 排队、取消、超时或上传失败时，保留该 attempt 的真实状态；旧 analysis 即使仍新鲜也不使报告 healthy。缺少有效上传关联证据时须保留 unknown 并交验收 owner 核查；artifact fixture 通过或 health 报告生成不能据此宣布 hosted 验收通过。
 
 CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI 声明及生效保护决定。必需安全检查未成功时不得合入，不通过本地解释改写远端结果。
+
+<a id="native-configuration-lifecycle"></a>
+## 原生配置提示与生命周期
+
+原生 `configurations not found` 表示原生比较尚未匹配到目标分支既有配置的相应分析。PR 固定 default，extended 只参加默认分支维护；按影响范围未选中 default 单元时也不会补传结果。分别核对事件、可信计划和实际分析，再解释覆盖提示与同时展示的告警；不能仅凭检查标题判断失败原因。
+
+PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代表合入后的 main 已重新扫描。Actions job、SARIF 接收、原生告警状态及原生覆盖提示分别记录，不能用其中一项成功替代其他项。
+
+| 配置情况 | 核对依据与处置 |
+| --- | --- |
+| 活跃，但当前 PR 未运行 | 核对 profile、影响范围和事件适用性；保留原生配置，另核对该配置的维护扫描。main extended 与 PR default 的差异可以是预期行为。 |
+| 暂停、HOLD 或待验收 | 核对已有暂停及恢复条件；保留原生配置、失败记录与覆盖缺口。局部研究成功或批次变量缺键均不表示退役。 |
+| 已确认永久退役或完成迁移 | 核对精确配置身份、停止使用的决定、替代覆盖与历史告警影响，在已有授权覆盖删除时才清理该配置，并读回结果。 |
+| 身份或用途不明 | 记录 unknown 和缺失信息，保留配置；本次未看到分析不能证明配置已退役。 |
+
+原生配置身份结合 tool、category、workflow、适用 ref 及平台可见的 analysis key/environment 核对，不能只凭显示名或告警数量操作。删除批次变量键仅停止后续规划，不删除原生历史配置，也不代表该范围已验收。配置清理入口见 [GitHub Tool status](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/use-the-tools-status-page-for-code-scanning)。
+
+`codeql-health.py` 继续按八个 unit/profile 诊断执行、上传与新鲜度，不读取批次变量来决定 HOLD、退役或缩小 healthy 的范围。活跃和 HOLD 配置完成梳理后的结果可以是全部保留；如需让 PR 提供完整对应分析，应另行评估真实扫描范围与耗时，不能重标 category、借用旧 SHA 或上传空 SARIF 消除提示。
+
+误报按精确告警 ID 核对源码版本、实际输入和权限边界，在平台选择对应 dismissal 原因并记录证据，随后读回告警状态。历史探针注明实际受测版本，结合当前源码核对其适用性；判断条件改变时重审。处置某个 ID 不构成同类后续告警的自动豁免；操作参考 [GitHub 告警处置说明](https://docs.github.com/en/code-security/how-tos/manage-security-alerts/manage-code-scanning-alerts/triage-alerts-in-pull-requests)。
+
+Actions 的预期候选代码执行与错误识别的可信 policy checkout 分别记录：前者在核对实际 runner、token/secrets、缓存写权限及仓内产物消费者后，可按精确 ID 使用 `won't fix`，后者有固定可信来源证据时使用 `false positive`。保留官方 checkout 查询，不以只读缓存、job 名或路径给同类告警统一豁免。已 dismissed 的同一 fingerprint 不保证在边界变化后自动重开；事件/来源选择、权限、runner、缓存模式、可复用调用关系或产物消费者变化时，评审须重新核对相应处置，必要时重开。记录应区分扫描自然关闭和人工 dismissal，不把减少的告警数称为修复漏洞数。
+
+## Actions 缓存只读误报兼容
+
+`scripts/security/codeql-actions` 在 default / extended 中只替换官方 `actions/cache-poisoning/poisonable-step`。仅当前 job 明确配置原始标量 `read` / `none`，或 job 未覆盖且 workflow 明确配置该值时消除该查询结果。表达式、重复 cache-mode、合并键、别名值及未知模式保持官方告警；显式可写 job 不继承 workflow 的只读结论。其他缓存规则、checkout 规则与源码范围保持原配置。
+
+工作流同时直接表达真实信任边界：Command Center callee 自身声明只读缓存；四个受 main 来源与事件约束的 workspace/full writer 首次 checkout 使用 `github.sha`，候选 job 保留计划的 `tested_sha`。共享构建步骤按 job 复用，不能把只读候选上下文的结论应用到 writer；完整回归保留 npm、wasm-bindgen、Trunk 和 sentinel 的合法写入。该调整不为查询新增可信 job/output 名单。
+
+兼容基线为 CodeQL CLI `2.27.4`、`actions-all 0.7.1`、`actions-queries 0.6.39`，上游源码 `1be292a1e54696ca543b4ad0f9b4537b9687caa7`。本地 bundle 的解析可能忽略 suite 版本约束，因此不以依赖声明或空 lock 作为实际版本证明。每个 Actions job 在 init 后校验实际 CLI、编译依赖、上游源码摘要及 init 最终查询集，再运行临时目录中的真实提取/查询反例；失败时后续 analyze/upload 跳过。两套查询总数为 18 / 24（各含一条提取诊断），目标 ID 均只出现一次。
+
+本地复跑（`CODEQL_BIN` 指向相同官方 bundle 的可执行文件）：
+
+```bash
+python3 scripts/security/codeql-actions/model.test.py --codeql "$CODEQL_BIN"
+```
+
+测试只提取临时生成的 workflow 文本，不执行其中步骤，也不把测试 SARIF 上传。升级 Action / CLI / 查询包时，应先评审上游变化；已支持相同语义时移除此兼容层，否则更新版本和摘要并复跑两个 suite 的集合对等、实际 init 选择及模型正反例。不可通过跳过兼容检查或忽略整个规则恢复绿灯。因模型修正而消失的原生告警按误报修正记录，不表述为修复了相同数量的可利用漏洞。
 
 ## Tauri 上下文生成覆盖例外
 
@@ -156,6 +206,113 @@ CFG 原始图诊断可显式使用 `--scope-identities`，仅为 `DomainEvent`�
 在已授权的单次 `mode=capacity` 运行中，可显式设置 `compare_qualifier_patch=true`。默认关闭，`official-default-research` 不接受该开关。官方容量结果和 artifact 先封存并上传；研究随后复用同一数据库，对固定公共 `CallsCandidate`/`CallsLegacy` 查询运行官方库与私有行为补丁。原官方失败不会被候选成功覆盖，研究结果不解除覆盖 HOLD。
 
 研究最多 15 分钟，并必须在原 job 截止前 450 秒停止；余量不足 60 秒记 `NOT_REACHED`。研究使用单独编译缓存、BQRS 和 artifact，但同一数据库的 evaluator 缓存共享，不能将两侧耗时差解释为提速。核对实际闭包、补丁前后摘要、结果目标所属的真实 libp2p 路径，以及研究前后源码、官方库和官方 evidence 不变。最终报告分别列官方分析/见证、补丁对照、完整 job 与最终余量；不上传数据库或自动发表上游补丁。
+
+### 独立真实调用对照研究
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；承接[独立真实调用对照研究合同](codeql-integration.design.md#722-独立真实调用对照研究)的运行与结果解释边界。
+
+需要单独验证 #5658 的真实调用补丁时，使用同一 workflow 的 `execute=true, mode=qualifier-research, compare_qualifier_patch=false`。该模式不等待容量七表完成：仍对完整固定 `7c2f99a…` 源码使用官方 2.27.4 提取，Action 设置 `skip-queries: true`，完成后核验 finalized 数据库、源码归档、锁/guard、资源、官方闭包及尚无查询结果，封存并上传提取 checkpoint。
+
+随后以两个隔离 pack 顺序运行官方、私有补丁的原 `CallsCandidate`/`CallsLegacy` 查询。官方两项完成后先解码并保存，再运行候选；两侧采用独立编译/common cache、BQRS 路径和研究 artifact，同一数据库 evaluator 缓存仍共享。失败保留已有有界原始结果与收据，不追加解码或重跑。最终重新核验源码、官方库、数据库 metadata 和已封存 checkpoint；身份失败不得报告完整对照。
+
+整个研究 job 最多 150 分钟，提取最多 25 分钟；比较最多 120 分钟，每侧批次最多 60 分钟，均受同一个实际 job 截止约束。比较在总截止前至少 450 秒停止，内部另留 60 秒审计；不把阶段上限相加来延长 job。一次运行后停止，并分别报告提取、四个观察、对照和完整 job 成本。它不运行或验收默认 37 项和完整七表，相关状态为 `NOT_REQUESTED`，生产容量仍为 `UNKNOWN`、Rust 覆盖仍为 `HOLD`。研究成功不自动启用 Rust，也不解除其他回归或运营验收。原容量与附加 15 分钟比较入口保持不变。
+
+该模式的原生依赖准备最多 360 秒，prepare 步骤最多 11 分钟，均计入同一 150 分钟；其他模式仍为 180 秒原生准备。先读 `native-budget.json` 与 `native-update.stdout.result.json`、`native-install.stdout.result.json` 区分子阶段耗尽和总 job 超时：特权 `timeout` 的退出 124、安装尚未完成或探针未执行都不能计为依赖就绪。包/模块探针仍保留，失败停止 metadata 与提取。若源码提取和对照被 skipped，四个调用观察应写未运行；不能由失败采证步骤成功推断语义通过，也不能自动追加重跑。
+
+### 候选库完整工作负载研究
+
+Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；执行边界见[候选完整工作负载合同](codeql-integration.design.md#724-候选库完整工作负载研究)。
+
+需要验证候选库的完整查询时，选择 `execute=true, mode=candidate-workload-research, compare_qualifier_patch=false`。沿用完整固定 `7c2f99a…` 业务源、官方 2.27.4、原生准备及真实 Action 资源。官方 Action 只提取；独立 checkpoint 通过后，私有源码布局和固定行为候选以同一批次执行原 37 默认查询及七项公共见证。入口不选定生产库或启用 Rust。
+
+先核对分析窗口在提取前已固定：整个 job 90 分钟，提取、私有复制/解析/编译和 44 项求值共用至多 75 分钟的绝对截止，动态保留 600 秒结果验证与收尾；所有阶段仍保留总截止前 120 秒的证据边界。不能在 checkpoint 后重新分配时间，CLI 查询 timeout 不能替代外层墙钟。最终完整 job 时长及至少 270 秒余量须在 artifact 上传与 post 后独立读回。
+
+同时读取官方 checkpoint 中的 `action-deadline-terminal.json` 与 owned-process 收据：真实官方 main 必须只运行一次，启动/退出/收尾均绑定同一分析截止，启动已过期时不得运行提取。监督器通过该 step 的显式 `NODE_OPTIONS` preload 接入，不通过 `GITHUB_ENV` 写该变量；stdout/stderr 保持 runner 处理，post 正常收尾。相对 step timeout 或预估启动余量不能代替绝对监督收据，监督/取消/采证失败均不得准入候选求值。
+
+预算文件的大小检查、内容读取和摘要绑定必须一致：Node preload 以 nofollow/nonblock 打开 regular file，在同一文件描述符上最多读取 256 KiB + 1，并拒绝超限；supervisor 对同一有界读取的字节执行预算解析和摘要计算。路径替换不能改为读取另一对象，检查后的文件增长不能突破实际读取上限。这是 admission 的局部加固，不改变绝对截止、官方 post 或 Rust 启用状态。
+
+从独立候选 artifact 检查研究最终 `qualifier-lines-constraint-target-qualified-v7` 与原 `image-v2` 合同、私有包装差异、37项原QL/七表文本身份及完整标签预期、44条实际 closure 和源/库/query pack 的前后身份。依次核对原 qualifier 补丁、`arity-patch-identity.json` 和 `lines-model-identity.json`：真实 v3 中间 `rust-all` 恰有 TypeInference/core.model 两文件变化。`trait-visibility-identity.json` 和 `shared-helper-identity.json` 保留 v5 版本，分别按 §7.2.4 核验 Rust 两处注解及 shared 原 helper 的完整中间快照、固定摘要与来源。
+
+再核对作为基线的 `constraint-matching-identity.json`：两份 v5 收据摘要必须匹配，shared 基线由当次官方快照重新验证，同一 TypeInference 文件从 `4a65…` 变为 `8b32…`，真实 v6 全树留在 `candidate-typeinference`。区分官方原 patch 与仓库规范应用 patch 的摘要；规范化只改变 diff 表示，实际应用结果必须符合设计中的固定完整文件摘要。共享 helper 的 `WORKLOAD_VARIANT` 及原准备、验证、closure 接口仍属于 v6，不能改成研究最终版本。
+
+随后读取 `target-qualified-identity.json`，核对真实 v6 全树、上述原收据摘要、§7.2.4 固定的 2878 字节 target-qualified 补丁及 target 全树。`candidate-target-typeinference` 必须从已验证的 v6 完整复制，只把同一 shared 文件变为 `8f8a…`，保留文件集合和 mode；原 `candidate-typeinference` 仍是 `8b32…`。旧快照的 `mode` 仍为 Git 执行位；新 target 收据另核对官方 shared、v6 和 target 各普通库文件的 `st_mode & 0o7777` 三方一致，不据此推定目录权限或 uid/gid 已检查。研究 prepare/run、恢复、`finally` 与 `private_inputs` 必须同时检查两棵 shared 树，恢复重新验证 v6 后才验证 target。44条实际 closure 只选择既有 `candidate-rust-all` 与新的 target shared 根；所选两包相对官方仍只允许三个 Rust 文件和一个 shared 文件变化。缺身份、改写或伪造基线、旧研究 variant、target 回退 v6/官方根或其他差异均拒绝，即使重新封口也不放行。
+
+旧 v5 超时事实保留在 [#4989](https://github.com/nil-studio/oasis7/issues/4989)，旧版本收据不代签 v7 研究；生产按 §7.2.6 独立固定 v7 最终身份及真实 v6 基线，v3 中间层、旧 qualifier 对照与 WASM helper 保持各自固定合同。原发布包的嵌入依赖及 `.qlx` 不能进入私有源码布局，命令还须显式禁用预编译回退。`suite-helpers` 是固定 query 角色包，不能按普通 library 强行放行。
+
+开发接线按 [CLI server 生命周期](codeql-integration.design.md#728-候选与生产解析准备的-cli-server-生命周期)复用真实 44+37 解析门：研究 44 条和生产 37 条分别选择各自私有的 v7 target 根，并保留各自真实 v6 基线；准备、解析、双树复核和封存共用一次本地 600 秒窗口，保持独立 work/cache。本地解析子进程固定 `CODEQL_THREADS=2`、`CODEQL_RAM=3072` 和 `JAVA_TOOL_OPTIONS=-Xmx3072m -XX:ActiveProcessorCount=2`；`resolve` 不接受 `--threads`/`--ram` CLI 参数，环境请求和 JVM 堆设置不能表述为 RSS 硬上限。该门不创建数据库、不编译或求值，不替代原双 fixture 语义回归；它的 600 秒总窗也不是上述 hosted job 的 600 秒收尾预留。
+
+在仓库根使用以下唯一入口，先将示例路径替换为已固定的 CodeQL 2.27.4 可执行文件和全新输出目录的绝对路径。`OASIS7_CODEQL_BINDING_OUTPUT` 必填，目标目录不得已存在、父目录必须存在，且与仓库及 bundle 根互不包含；不同时启用 standalone production 测试：
+
+```sh
+env -u OASIS7_CODEQL_PRODUCTION_CLI \
+  OASIS7_CODEQL_CANDIDATE_CLI=/absolute/pinned/codeql \
+  OASIS7_CODEQL_BINDING_OUTPUT=/absolute/new-binding-output \
+  PYTHONDONTWRITEBYTECODE=1 \
+  python3 scripts/security/codeql-rust-candidate-workload.test.py \
+  RealCodeQL.test_actual_patches_and_all_44_shared_library_bindings
+```
+
+测试名称保留 `44`，实际一次顺序执行 44→37。测试模块在项目 helper 导入前固定唯一 600 秒起点，前 540 秒执行准备与解析，末 60 秒复核身份、清理和封存。每个消费者沿用 runtime 的 64 MiB 证据限额（普通写入 63 MiB、终态预留 1 MiB）；合并 pair 的 64 MiB 是最终封存上限，不代表执行过程瞬时占用的硬上限。完整原件与收据保存在输出目录的 `evidence/`，`work/` 及其 cache 在同一总截止内清理；只有外层退出码 0、有效 `ADMISSION.json` 和完整 hashes 读回一致共同成立，才能将该次解析门记为完成。
+
+Image v2 实际表应包含两处 format/精确 callee、digest 到各自 format、同一函数/循环/比较式的结构见证、expected→RHS localFlow、原 output→LHS Global taint，以及错函数、交叉操作数和 whole-bool 零负例。读取实际 QL、版本、标签和配对结果，不只看表的 PASS；派生 taint 不能称为字符串值相等。小 fixture、双 receiver 和同名非 stdlib 控制的通过范围另列，不能代替完整原仓库。历史 v1 的零值和 hosted failure 保留，不把本次修正后的判据追写为旧运行成功。
+
+默认37项逐项核对完整 info/decode，七表逐项读取实际结果与各自冻结版本的 oracle 判定；v7 研究候选必须重新完整计算37+7，不能复用旧37结果。计划结构、实际解析与原官方/target 小 fixture 的语义结果均不证明全仓耗时、内存或递归收敛改善。SARIF 只对37项在 runner 本地解释和校验，上传目录只含其摘要与验证收据；不上传 SARIF、数据库或源码 archive。失败保留已有有界原件和真实首失败阶段，64 MiB 私有证据超限或部分采证保持不完整，不追加查询或重跑。研究终态、执行/语义、身份、资源与最终余量分列；`production_capacity=UNKNOWN`、`full_rust_coverage=HOLD` 与原生产验收状态不变。
+
+该批次的 `candidate-evaluator-v1` 使用固定 2.27.4 的 level 3 minified evaluator 日志并禁用 tuple counting。候选专用 capture 将 owned FIFO 的原流无损保存为 gzip sealed memfd，固定 zlib level 1、windowBits 31、memLevel 8；encoded payload 最多 47 MiB，codec/传输有界缓冲保守预留 1 MiB，仍合计占原 48 MiB 临时预留。64 MiB 总限同时包含临时内存、持久化证据和终态预留；观测的 8 MiB 子限继续分为 4 MiB 数值 framing/解析/关联状态和最多 4 MiB 持久化观测证据。原流、编码内容及解压副本均不上传或另存普通文件。默认 raw Capture、WASM 与共享 runtime 保持原行为。
+
+分别读取原流观察长度/SHA256、header/footer、transport EOF，以及 encoded 存储长度/SHA256、gzip finish 和 seals；两种字节数不可混用，封存成功不能代替原流完整。编码写入或 finish 将超 47 MiB 时，capture 保留 `MEMORY_LIMIT` 和 `INCOMPLETE`，停止新增存储，继续排空原流、计数、哈希和白名单数值投影。原 batch 及结果/oracle 可在原预算内收尾，官方 summary 跳过；总体研究仍不完整。不能把不完整编码推成可重放的完整前缀或补造 gzip 尾部。写入、codec、证据空间、进程身份和清理异常仍按原规则中止，旧 raw 容量失败保留原终态。
+
+新 capture 以 `version=gzip-capture-v1` 标识：`observed_bytes` 是完整观察的原流长度，`encoding_input_bytes` 是成功交给编码存储路径的原输入前缀长度，`encoded_bytes` 是实际 memfd 长度；不再将 raw `retained_bytes` 用于编码长度。数值收据的 `capacity_basis=gzip-encoded-bytes` 明确既有 `raw_memory_limit_seen` 和 post-limit 计数对应编码容量。重放收据 `gzip-replay-v1` 分别记录 encoded、decoded、written 的身份与最终消费 EOF；中间官方输出投影 `PROJECTED` 尚不能证明整个 observation 完整。
+
+先核对 batch 原退出、已有结果和身份，再检查完整 gzip 的有界解压、proc-pipe 重放及官方 predicates 摘要的独立状态。原流重放的长度/SHA256 必须匹配 capture，gzip 必须完整结束且无额外编码内容。writer 仅在现有 runtime 的 `Popen` 返回后由 `Summary.poll` 首次启动；官方进程组关闭且 writer 退出后，父 readfd 必须真实 EOF 且无残余，CLI 提前 exit 0 或 writer 写完均不能替代此检查。唯一摘要共用至多 20 秒的绝对截止，含解压、pipe、worker 和进程组清理，并受原证据截止约束；余量不足不启动。固定 CLI 的小日志已证明此输入路径兼容，尚不证明 311 MB 完整流能在原空间和 20 秒内闭合，完整候选必须实际验证。
+
+在同一 `candidate-observation/observation-terminal.json` 中，`capture.feed_cost` 按 `BEFORE_LIMIT`、`CAP_CROSSING`、`AFTER_LIMIT` 列出回调次数、输入字节和 wall/thread CPU。gzip 路径根据本次调用前后实际 encoded 越界状态分桶，不按原流长度推测；首次造成越界的整次调用计 `CAP_CROSSING`，后续计 `AFTER_LIMIT`，恰好填满仍计 `BEFORE_LIMIT`。仅在 finish 发生的越界读独立编码完成状态，不虚构 feed 或调整旧桶。`batch_parent_cpu` 单列原 `runtime.run` 区间的父进程全部线程 CPU，不含查询子进程。各时钟独立记录已测小计、未测次数和完整总量；未观察或测量不完整时总量为 `null`，不能读成零成本。父进程与回调计量范围重叠，不能相加或相减归因；计量包含观测扰动，不能据此改判旧运行、原查询失败或研究验收。
+
+进度时刻是 stdout/stderr 接收时刻，不能视为内部精确编译/求值阶段。summary 首写前严格验证版本/schema，任意名称、路径、RA、源码位置和异常只保留受限 hash/类别；缺 footer、未知形状、截断和容量耗尽必须保留不完整及实际字节覆盖。literal 毫秒、已知迭代小计与未知 `-1` 分列，不重复归因共享工作；部分记录不是整个批次完整排名，采样资源不是硬峰值或独占 CPU。采集完整、日志完整、查询完成和 oracle 通过各自判定，观测错误不覆盖原首失败；开启观测带来的额外成本也不能用于证明 Image 或 lines 是唯一根因。
+
+记录身份使用本次官方摘要 stdout 的 SHA256 与 header 后的原记录序号。`raHash` 可以复用，不是事件 ID；同 RA、同策略或不同名称的合法记录均保留各自计时，复用计数不改变完整性。不按 RA 去重、跨记录求和或向多个查询重复分配成本。
+
+### 合法 WASM 单角色 metadata 诊断
+
+在默认分支手动选择 `CodeQL Rust WASM Metadata` 并显式设 `execute=true`。本入口固定完整 7c2f99a 源码、Cargo 1.99.0 的完整提交、recovery-fence 和 wasm32-unknown-unknown，不提供任意命令/版本/源码输入，不运行 CodeQL、Cargo check/build 或部署。实现和验收边界见[metadata 诊断合同](codeql-integration.design.md#725-合法-wasm-单角色-metadata-诊断)。
+
+先核对真实 job start 绑定的 1200 秒时钟：准备至多使用前 780 秒；剩余至少 420 秒才进入 300 秒 D1/D2 窗口，其中最后 60 秒用于清理、after/guard 审计和封存，另留 120 秒给上传/post。源码获取、工具安装和联网依赖预取都计入；clock 失败、精确版本不符或准备超时不得用新截止、另一 nightly 或在线 D2 回退。宿主 proxy 保持原位置，HOME/CODEX_HOME 不改，任务 Cargo/Rustup/cache 与业务源码和 evidence 分离。
+
+先读 bootstrap/工具与源码身份、阶段收据及终态，再核对 D1 的父根和 D2 的完整 53 成员集合、custody 实际角色、六个固定本地 package、依赖种类和 target 表达式。元数据图与非图自由文本分开处理；stderr、安装/网络输出及异常采用首次写入前投影，不是原始日志。合法图若记 ROLE_CONTEXT_MISMATCH，按其实际 features、成员差异和固定失败项解释，终态仍为 INCOMPLETE；缺失或被拒绝的输出不构成阴性语义结果。sealed 清单须覆盖所有普通证据文件，包括 guard 的隐藏控制文件，合计不超过 64 MiB。
+
+`ROOT_WORKSPACE_ROLE_METADATA_OBSERVED` 仅表示本次 Cargo 上下文观察完整；实际 upload/post 和整 job 成本需平台终态另行回读。metadata 不证明目标标准库已安装、WASM 编译、宏展开、每个编译单元 features 或 CodeQL 语义；Rust HOLD 和生产容量 UNKNOWN 保留。每次只运行一次 D1/D2，不自动重跑；父目标按后续真实结果决定下一项建模观察。
+
+核对 guard 版本投影 adapter 的首次绑定回执：counter/failed 初值为 0、原/新 wrapper 与 helper SHA 均齐全；原 guard 未修改，真实 Cargo 的当次输出先投影再进入 audit。NOT_RETURNED 表示原版本调用未交付可验证完整输出，bytes/hash 保持未知；不能用已缓存版本或事后删日志补成通过。
+
+### 合法 WASM 单角色 CodeQL 语义诊断
+
+在取得本次真实补证运行授权后，从默认分支手动选择 `CodeQL Rust WASM Context` 并显式设置 `execute=true`。源码固定为完整 7c2f99a，工具固定官方 Rust-only CodeQL 2.27.4 和 Rust 1.99.0（含 rust-src、wasm32-unknown-unknown 标准库）；没有任意源码、角色、查询或版本输入。它使用原共享 slot 1，不修改生产批次或 observe 配置。入口合同见[WASM CodeQL 语义诊断](codeql-integration.design.md#727-合法-wasm-单角色-codeql-语义诊断)。
+
+先核对实际 job 起点绑定的 1800 秒预算、前 780 秒准备及一次最多 900 秒提取/小查询窗口；其中最后 60 秒做采证封存，另留 120 秒用于 artifact/post。下载、依赖 fetch、版本与完整源身份都计时，未剩足 1020 秒不得新开观察窗口。失败只收已有证据，不重试、不换工具链、不借旧 D1/D2 的 PASS 代签本轮。
+
+bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的唯一 job 仍为 `queued` 或 running 的 `started_at` 明确为 null 时才有界重读；不重跑工作流或重新分配预算。先读 `bootstrap-terminal.json` 的固定错误类别和白名单时钟投影，再对照 `bootstrap-http.json` 的逐次 HTTP 状态、字节数、摘要及读取次数。缺失/非法时间、未来或陈旧开始时间、身份错和重复 job 仍硬拒绝；缺 `job-clock.json` 时不得称预算已绑定或后续提取已执行。历史证据仅记录 `Rejected` 时，其具体拒绝子因保持未知，不能追认为 API 发布延迟。
+
+`wasm-context-<run>-<attempt>-<tool-sha>` artifact 只包含 evidence 目录。依次核对 `terminal.json`、`job-clock.json`、`source-before/after.json`、`official-library-closure.json`、`library-closure.json`、`query-library.json`、`metadata-graph.json`、`actual-index.json` 和 `guard-verdict.json`：工具根必须在业务根外，完整根 workspace 保留 53 成员，实际索引必须与六包下 `.rs` 集合精确相等，guard 必须有预检之后的根 metadata 和精确 recovery-fence WASM `cargo check --lib` 调用。请求配置文件只表示请求，不构成实际上下文通过。
+
+本入口的 `library_variant` 固定为 `wasm-shared-helper-v1`。核对 `shared-helper-identity.json` 的固定补丁、上游提交及 shared 0.0.42 全部文件前后身份：只允许 §7.2.4 的 shared TypeInference 两个 helper hunk，stock rust-all 与其他官方库不变。实际 resolver 的 13 库集合必须只把 shared 根替换为本次私有副本；官方 shared 回退、额外修改、缺收据或未完成准备均拒绝。补丁与 helper 一同冻结，准备和应用使用原准备窗口；`helpers-after.json` 在成功或失败时重验官方 bundle、query pack 与私有 shared。该研究身份不代签 §7.2.6 的生产库接入与验收，也不代签 §7.2.4 的完整候选合同；旧官方库运行的超时或未知结果保持原终态。
+
+固定 CLI 的依赖接线回归为 `python3 scripts/security/codeql-rust-wasm-context.test.py RealSharedResolverTests`，显式设置 `OASIS7_CODEQL_WASM_SHARED_CLI` 为 2.27.4 可执行文件后，在一次 120 秒总界内实际应用固定补丁并解析私有及官方 shared 两种 closure，确认官方回退被拒绝、九项 QL 摘要及官方 bundle 前后不变。该回归使用独立缓存，不提取数据库、编译或求值；默认跳过，结果不代签 WASM 语义或性能。
+
+`witness-observation.json` 的九行计数分别观察四个真实宏展开、两个普通项负例、两组静态调用正反例及数据库内 custody crate 的 WASM/角色 cfg。任何正例缺失、错误目标或非法角色出现、缺行、重复、未知 schema 都保持 INCOMPLETE；单有文件、metadata、编译成功或零负例不能通过。查询结果仍需结合 source/query/BQRS 摘要、完整封存清单及实际平台终态核对。私有 DB、原生日志、TRAP、源码归档和缓存留在 runner 临时工作目录，绝不打包或上传。
+
+查询失败时先读 `witness-query.result.json` 的原退出码、`failure_kind`、清理和完整流摘要，再读 `query_progress` 的冻结查询身份、四类编译/求值事件计数及首末接收时间。未知行、非法编码和无换行尾部只保留计数与流身份；无事件不证明该阶段未发生，接收时间也不等于内部阶段耗时。投影错误不能覆盖原 timeout 或非零退出，亦不能用成功的进度事件替代九行结果验收。该投影随唯一原查询采集，预算、查询次数和上传边界保持原合同。
+
+进度通道使用 `--loglevel=ERROR --verbosity=progress`，仅 `witness-query` 移除 `--log-to-stderr`，避免详细日志路由吞掉普通进度。固定 CLI 的可选小回归为 `python3 scripts/security/codeql-rust-wasm-context.test.py RealProgressTests`：显式提供 `OASIS7_CODEQL_WASM_PROGRESS_CLI`（2.27.4 可执行文件）与 `OASIS7_CODEQL_WASM_PROGRESS_RUST_BIN`（1.99.0 的 cargo/rustc 目录）后，在一次 120 秒总界内建立单文件临时 Rust DB、执行一次玩具查询并验证四事件与一行 BQRS；默认跳过。仅 schema 收据可由 `OASIS7_CODEQL_WASM_PROGRESS_EVIDENCE` 指向独立目录保留，临时 DB/原生日志/缓存会清理。该回归只验证固定 CLI 输出合同，不代签真实 WASM 九项见证或原运行预算。
+
+只有本轮 metadata、真实提取、cfg、宏/调用、guard、前后身份与封存全部成立，才记 `WASM_CONTEXT_SEMANTICS_OBSERVED`。该状态限于固定旧源码上的小见证，不代表当前 main、完整 WASM 支持范围、全数据流、生产容量或运营启用；`full_rust_coverage=HOLD` 和 `production_capacity=UNKNOWN` 保留。本地 `query compile --check-only` 只验收公开 QL API，真实提取/查询未执行时如实记 NOT_RUN。
+
+### 短原生准备诊断
+
+安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
+
+从 `native-diagnostic-<run>-<attempt>-<sha>` artifact 先读 `native-terminal.json`、`native-budget.json` 和各命令 `.result.json`，再按 stdout/stderr 中的 JSONL 投影接收时间及原流 offset 关联 URI Start/Done/Failure/Redirect。文件是白名单投影，不是原字节日志；未知、截断和被丢弃内容的摘要不能当作下载结果。601 配置记录只含允许的有效参数，`sources.json` 保存受限源/镜像观察，`archives.jsonl` 保存固定缓存目录的只读元数据采样。只有 Done 才是协议报告的下载完成，Get 或 partial 大小变化均不能独立证明包安装完成。
+
+`NATIVE_READY` 仅表示本次四步原生准备通过；失败、不可读采样、未观察参数和 root 子树清理范围分别记录。用时间与失败事件缩小原因，不能仅凭一次通过/失败归因镜像或地区，也不能自动重跑长研究、启用批次或推定 Rust 覆盖完成。合同见[短原生准备诊断](codeql-integration.design.md#723-短原生准备诊断)。
 
 ## Hosted 验收与回退
 

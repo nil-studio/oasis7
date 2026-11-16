@@ -126,6 +126,7 @@ fn check(
     change(&mut view.view);
     let terminal = terminal_original_rejection(&outcome);
     let payload = IntentResponse {
+        terminal_recovery_authority: None,
         formal_profile: None,
         execution_evidence_scope: None,
         contract_version: 1,

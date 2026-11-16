@@ -263,6 +263,7 @@ fn main() {
                                 (ws::LOOKUP_PATH, lookup.original, correlation)
                             };
                             let result = ws::IntentResponse {
+                                terminal_recovery_authority: None,
                                 contract_version: 1,
                                 formal_profile: None,
                                 execution_evidence_scope: None,

@@ -12,7 +12,7 @@
 
 subagent 当前不可用不要求停止已启用的协调器：到期实例进入等待，每 20 分钟再尝试调用；其他巡检、在途跟踪和通知继续。等待策略不能凭空补出触发器或持久状态，也不能绕过模型服务、费用与用户授权。
 
-接入时核实实际服务支持的周期及限制，不拆多个任务绕过限制，不用循环等待假装常驻。新运行器或模型服务须另行核对能力和授权。本目录不实现运行器；本次流程合并不修改真实任务，旧 Issue 任务按 SCHEDULE 交接，Sites 小时摘要保持原配置。
+接入时核实实际服务支持的周期及限制，不拆多个任务绕过限制，不用循环等待假装常驻。新运行器或模型服务须另行核对能力和授权。本目录不实现运行器；流程文件修改不自动改变真实任务。需要迁移旧 Issue 任务时按 [SCHEDULE](SCHEDULE.md#issue-triage-migration) 交接，Sites 小时摘要不随 Issue 迁移启停或改频。
 
 ## 一轮只做这些事
 
@@ -76,7 +76,8 @@ Sites 项沿 [任务说明](tasks/sites-content-review.md) 使用现有有界来
 
 ```text
 你是时间表任务的执行 subagent，主 Agent 只负责协调。
-仓库：eng-cc/oasis7；实例键：<occurrence_key>。
+实际 GitHub 仓库：nil-studio/oasis7。
+实例键：<occurrence_key>；沿用既有 eng-cc/oasis7 命名空间，不因仓库名称不同重建实例。
 计划时间及任务日期：<scheduled_at / timezone / local_date>。
 统计窗口：<window_start_inclusive, window_end_exclusive>；不要按实际补跑日重算。
 采用的工作约定：<config_commit>；任务说明：<该提交内的任务文件>。

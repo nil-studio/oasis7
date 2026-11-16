@@ -21,6 +21,7 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
     await evaluate(`(()=>{
       const expected=${JSON.stringify(target.id)};
       window.__VIEWER_PERF_INPUT__={expectedId:expected,status:'armed'};
+      window.__VIEWER_PERF_DENSITY_PREPARATION__=null;
       const listener=e=>{
         const button=e.target.closest?.('button[data-agent-id][data-renderer-target]');
         if(e.key!=='Enter'||button?.dataset.agentId!==expected)return;
@@ -28,7 +29,7 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
         if(button.dataset.selected==='true'){window.__VIEWER_PERF_INPUT__={status:'invalid_already_selected',expectedId:expected};return;}
         const start=e.timeStamp;
         const row=window.__VIEWER_PERF_INPUT__={expectedId:expected,eventType:e.type,isTrusted:e.isTrusted,startTime:start,timeOrigin:performance.timeOrigin,status:'pending'};
-        if(${JSON.stringify(selectionSource)}==='renderer'){const observationStarted=performance.now();const m=window.__QA_READ_METRICS__?.();row.displayAtInput=m?{status:m.status,cut:m.source_cut,version:m.render_version,profile:m.display_profile,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inView:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels}:null;row.displayObservationMs=performance.now()-observationStarted;}
+        if(${JSON.stringify(selectionSource)}==='renderer'){row.densityPreparation=window.__VIEWER_PERF_DENSITY_PREPARATION__??null;const observationStarted=performance.now();const m=window.__QA_READ_METRICS__?.();row.displayAtInput=m?{status:m.status,cut:m.source_cut,version:m.render_version,profile:m.display_profile,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inView:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels}:null;row.displayObservationMs=performance.now()-observationStarted;}
         const clickListener=event=>{if(event.target.closest?.('button[data-agent-id][data-renderer-target]')?.dataset.agentId===expected){row.clickTime=event.timeStamp;row.clickTrusted=event.isTrusted;document.removeEventListener('click',clickListener,true);}};document.addEventListener('click',clickListener,true);
         const deadline=performance.now()+5000;
         const check=()=>{
@@ -47,13 +48,14 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
         }; requestAnimationFrame(check);
       }; document.addEventListener('keydown',listener,true);return true;
     })()`);
+    let preparation;
     if (selectionSource === 'renderer') {
       nativeInput ||= await createOwnedCdpInput(run, evaluate);
-      // A paginated read can detach this exact target between CLI commands.
-      // Wait before sending input; do not swap identities or fabricate latency.
-      await evaluate(`(async()=>{const deadline=performance.now()+10000;while(performance.now()<deadline){const b=document.querySelector(${JSON.stringify(selector)}),m=window.__QA_READ_METRICS__?.();if(b&&m?.status==='observed'&&m.display_profile==='world_view_v1'&&m.projected_marker_count===1000&&m.agent_body_sprites===1000&&m.in_view_agent_body_sprites===1000&&m.laid_out_in_view_labels===200){const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;if(r.width>0&&r.height>0&&x>20&&x<innerWidth-20&&y>20&&y<innerHeight-20){b.focus({preventScroll:true});return true}}await new Promise(resolve=>setTimeout(resolve,25));}throw Error('same native target did not become ready before input');})()`);
+      // Prepare the same target on the already owned CDP session immediately
+      // before native input, avoiding the CLI focus-to-input scheduling gap.
+      preparation = `(async()=>{const intent=window.__VIEWER_PERF_INPUT__;if(intent?.status!=='armed'||typeof intent.expectedId!=='string'||!intent.expectedId)throw Error('native preparation intent missing');const expected=intent.expectedId,deadline=performance.now()+10000;while(performance.now()<deadline){if(window.__VIEWER_PERF_INPUT__!==intent||intent.status!=='armed')throw Error('native preparation intent changed');const b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(node=>node.dataset.agentId===expected),readStarted=performance.now(),m=window.__QA_READ_METRICS__?.(),readCompleted=performance.now();if(b&&m?.status==='observed'&&m.display_profile==='world_view_v1'&&m.projected_marker_count===1000&&m.agent_body_sprites===1000&&m.in_view_agent_body_sprites===1000&&m.laid_out_in_view_labels===200){const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;if(r.width>0&&r.height>0&&x>20&&x<innerWidth-20&&y>20&&y<innerHeight-20){b.focus({preventScroll:true});if(document.activeElement===b){window.__VIEWER_PERF_DENSITY_PREPARATION__=Object.freeze({expectedId:expected,timeOrigin:performance.timeOrigin,readStarted,readCompleted,focusedAt:performance.now(),display:Object.freeze({status:m.status,cut:m.source_cut,version:m.render_version,profile:m.display_profile,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inView:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels})});return true}}}await new Promise(resolve=>setTimeout(resolve,25));}throw Error('same native target did not become ready before input');})()`;
     } else await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus({preventScroll:true});true`);
-    if (nativeInput) await nativeInput.enter();
+    if (nativeInput) await nativeInput.prepareAndEnter(preparation);
     else await run(['press', 'Enter']);
     const sample = await evaluate(`(async()=>{const deadline=performance.now()+6000;while(performance.now()<deadline){const r=window.__VIEWER_PERF_INPUT__;if(r?.status==='complete'||r?.status==='timeout'||r?.status==='invalid_already_selected')return JSON.stringify(r);await new Promise(resolve=>setTimeout(resolve,10));}throw Error('native selection feedback timed out');})()`);
     if (sample.status !== 'complete' || !sample.isTrusted || sample.selectedKind !== 'agent' || sample.selectedId !== target.id || !Number.isFinite(sample.durationMs) || sample.durationMs < 0) {
@@ -66,7 +68,10 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
     const canAttach = error !== null && (typeof error === 'object' || typeof error === 'function');
     try {
       if (!canAttach) throw Error('non-object original error; diagnostic cannot be attached');
-      error.nativeInputDiagnostic = await evaluate(`JSON.stringify((()=>{const r=window.__VIEWER_PERF_INPUT__,b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(b=>b.dataset.agentId===r?.expectedId);return{input:r,active:{tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.agentId??null},expectedTargetAttached:!!b,transport:${JSON.stringify(selectionSource)}==='renderer'?'owned_cdp':'cli'}})())`);
+      const diagnosticProgram = selectionSource === 'renderer'
+        ? `JSON.stringify((()=>{const r=window.__VIEWER_PERF_INPUT__,b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(b=>b.dataset.agentId===r?.expectedId);return{input:r,active:{tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.agentId??null},expectedTargetAttached:!!b,transport:"renderer"==='renderer'?'owned_cdp':'cli'}})())`
+        : `JSON.stringify((()=>{const r=window.__VIEWER_PERF_INPUT__,b=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].find(b=>b.dataset.agentId===r?.expectedId);return{input:r,active:{tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.agentId??null},expectedTargetAttached:!!b,transport:"core"==='renderer'?'owned_cdp':'cli'}})())`;
+      error.nativeInputDiagnostic = await evaluate(diagnosticProgram);
       if (typeof error.nativeInputDiagnostic === 'string') error.nativeInputDiagnostic = JSON.parse(error.nativeInputDiagnostic);
     } catch (diagnosticError) { if (canAttach) error.nativeInputDiagnosticError = String(diagnosticError); }
     throw error;
