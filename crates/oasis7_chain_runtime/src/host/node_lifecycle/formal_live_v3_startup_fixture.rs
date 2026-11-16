@@ -38,7 +38,7 @@ impl StartupV3Fixture {
             let mut exact_replays = 0;
             // Each fresh runtime performs observation + lease acquisition on
             // the pre-material check, then observes again before release.
-            for _ in 0..6 {
+            for rpc_index in 0..6 {
                 let (mut stream, q) = read_query(&listener);
                 assert_eq!(q.provider_public_key, public(90));
                 let start = Instant::now();
@@ -73,8 +73,16 @@ impl StartupV3Fixture {
                         &before.observation,
                     )
                     .unwrap();
-                    let observation =
-                        v3_observation_for_test(&f.verified_v3, state.anchor(), 77, protected_time);
+                    // Every issuer witness query has a fresh nonce, including
+                    // the second owner lifetime. The signed provider request
+                    // nonce is unchanged on exact replay, which returns the
+                    // original receipt without appending history.
+                    let observation = v3_observation_for_test(
+                        &f.verified_v3,
+                        state.anchor(),
+                        77 + rpc_index,
+                        protected_time,
+                    );
                     let prepared = state
                         .prepare_lease(signed.clone(), &observation, &key(LEASE_SIGNER_KEY))
                         .unwrap();
