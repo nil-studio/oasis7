@@ -1,3 +1,5 @@
+pub const AUTHORITY_ID_DOMAIN_V1: &str = "oasis7.formal.authority.v1";
+pub const CANONICAL_RECORD_ID_DOMAIN_V1: &str = "oasis7.formal.canonical_record.v1";
 use super::{crypto::*, *};
 use crate::controlled_authority::replicated_protocol::{ArtifactRole, ClosedRecord, EndpointRole};
 use serde::{Deserialize, Serialize};
@@ -159,7 +161,7 @@ impl AuthorityDefinitionV1 {
     }
     pub fn authority_id(&self) -> Result<String, FormalError> {
         self.validate()?;
-        hash("oasis7.formal.authority.v1", self)
+        hash(AUTHORITY_ID_DOMAIN_V1, self)
     }
     pub fn verify_policy(&self, policy: &RecoveryPolicyV1) -> Result<(), FormalError> {
         self.validate()?;
@@ -212,7 +214,7 @@ impl ProfileHandoffV1 {
 impl CanonicalRecordV1 {
     pub fn record_id(&self) -> Result<String, FormalError> {
         self.validate()?;
-        hash("oasis7.formal.canonical_record.v1", self)
+        hash(CANONICAL_RECORD_ID_DOMAIN_V1, self)
     }
     pub fn validate(&self) -> Result<(), FormalError> {
         self.validate_with_work(&mut |_| Ok::<(), FormalError>(()))
