@@ -30,7 +30,7 @@ test('real Rust Wasm auth, metadata and pre-network durable budget survive resta
   assert.equal(nativeCalls,0);
  }finally{await mf.dispose();rmSync(persist,{recursive:true,force:true});}
 });
-test('real Rust auth-hop deadline retains charged admission and never sends control POST',{timeout:60000},async()=>{
+for(const advance of [0,4000])test(advance ? 'real Rust auth-hop deadline retains charged admission and never sends control POST' : 'real Rust auth-hop clock negative control reaches control POST without expiry',{timeout:60000},async()=>{
  const persist=mkdtempSync(resolve(tmpdir(),'oasis7-worker-deadline-'));let posts=0,gets=0,capabilityGets=0;const hops=[];
  const config=JSON.parse(policy);config.timeout_ms=10000;config.max_calls=1;
  // Only this Miniflare instance loads the clock shim. Rust/Wasm, durable SQL,
@@ -44,7 +44,7 @@ test('real Rust auth-hop deadline retains charged admission and never sends cont
  globalThis.fetch=async (...args)=>{
   const response=await realFetch(...args);
   const input=args[0];const url=typeof input==='string'?input:input.url;
-  if(['/api/public/hosted-account/v2/session','/api/public/hosted-account/v2/capabilities'].includes(new URL(url).pathname))clock=Date.now()+4000;
+  if(['/api/public/hosted-account/v2/session','/api/public/hosted-account/v2/capabilities'].includes(new URL(url).pathname))clock=Date.now()+${advance};
   return response;
  };
  ${entry}`;
@@ -66,10 +66,12 @@ test('real Rust auth-hop deadline retains charged admission and never sends cont
    '/api/public/hosted-account/v2/capabilities',
   ],diagnostic);
   assert.equal(capabilityGets,1,diagnostic);
-  assert.ok(['native_outcome_unknown','native_deadline_unknown'].includes(open.result.structuredContent.code),diagnostic);
-  assert.equal(posts,0,'deadline across authentication cannot create control POST');
+  if(advance)assert.ok(['native_outcome_unknown','native_deadline_unknown'].includes(open.result.structuredContent.code),diagnostic);
+  // The no-expiry control must reach the mocked POST (its unsigned reply is
+  // deliberately unavailable), proving the deadline case is not false-green.
+  assert.equal(posts,advance?0:1,diagnostic);
   const again=await(await mcp(mf,'tools/call',{name:'dev_test_accounts_call',arguments:{method:'open',grant_ref:'grant',expires_at_unix:4102444700}})).json();
   assert.equal(again.result.structuredContent.code,'call_limit_exhausted');
-  assert.equal(posts,0);
+  assert.equal(posts,advance?0:1,'exhausted retry must not send a new POST');
  }finally{await mf.dispose();rmSync(persist,{recursive:true,force:true});}
 });
