@@ -24,6 +24,26 @@ attempts = load("attempt_fixtures_http", "p2p-real-env-observability-attempt.tes
 adapter = load("profile_adapter_http", "p2p-profile-readiness.py")
 
 class ProfileHttpTests(unittest.TestCase):
+    def test_bft_diagnostics_flow_through_actual_collector_without_qualification(self):
+        self.status = fixtures.bft_fixture()
+        self.status["observation"]["private_action"] = "DO_NOT_COPY"
+        report = self.run_outer()
+        profile = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile["height"], 10)
+        self.assertEqual(profile["runtime_profile"], "bft/version=1")
+        self.assertEqual(profile["status"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertEqual(profile["observed_at_unix_ms"], self.status["observation"]["observed_at_unix_ms"])
+        self.assertNotIn("DO_NOT_COPY", json.dumps(report))
+        child = load("bft_http_reader", "p2p-triad-http-profile.py")
+        observed = self.status["observation"]["observed_at_unix_ms"]
+        expired = child.refresh_report(report, observed+60_001)["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(expired["status"], "stale")
+        self.assertEqual(expired["source_freshness"], "stale")
+        self.assertNotIn("running", expired)
+        future = child.refresh_report(report, observed-1)["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(future["source_freshness"], "unknown")
+
     def test_formal_http_uses_same_identity_and_producer_age_as_file(self):
         status = fixtures.fixture()
         now = time.time_ns() // 1_000_000

@@ -400,7 +400,30 @@ fn node_case() {
     node.submit_consensus_action_payload(9001, first_payload.clone())
         .unwrap();
     let first = wait_batch(&node, 9001);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let observation = loop {
+        if let Some(observation) = node.bft_v3_status().unwrap().observation
+            && observation.last_applied_height == Some(first.height)
+        {
+            break observation;
+        }
+        assert!(Instant::now() < deadline, "worker did not publish applied observation");
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(observation.last_applied_header_id.as_deref(), Some(first.block_hash.as_str()));
+    assert_eq!(observation.binding_digest, binding.digest().unwrap());
+    assert_eq!(observation.world_id, binding.scope.world_id);
+    assert_eq!(observation.chain_id, binding.scope.chain_id);
+    assert_eq!(observation.window_start_height, binding.initial_schedule().height());
+    assert!(!observation.pending_driver_apply);
+    let encoded = serde_json::to_string(&observation).unwrap();
+    assert!(!encoded.contains("node-wire3-first-agent"));
+    assert!(!encoded.contains("payload_cbor"));
     node.stop().unwrap();
+    let stopped = node.bft_v3_status().unwrap();
+    assert!(!stopped.running);
+    // Querying historical diagnostics must never refresh the producer timestamp.
+    assert_eq!(stopped.observation.unwrap().observed_at_unix_ms, node.bft_v3_status().unwrap().observation.unwrap().observed_at_unix_ms);
     drop(node);
     server.join().unwrap().unwrap();
     assert!(first.height >= binding.initial_schedule().height());
