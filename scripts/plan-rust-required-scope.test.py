@@ -549,6 +549,30 @@ class Selection(unittest.TestCase):
                 self.assertIn('net', plan['groups'])
                 self.assertEqual(plan['scope'], 'targeted')
 
+    def test_quic_patch_inputs_select_network_consumers_without_self_authority(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = copy.deepcopy(config)
+        old['rules'] = [rule for rule in old['rules']
+                             if rule.get('reason') != 'quic_patch_consumers']
+        for path in ('vendor-libp2p-quic-0.14.0/src/connection/connecting.rs',
+                     'vendor-libp2p-quic-0.14.0/src/transport.rs',
+                     'vendor-libp2p-quic-0.14.0/tests/smoke.rs',
+                     'vendor-libp2p-quic-0.14.0/LICENSE',
+                     'vendor-libp2p-quic-0.14.0/.gitignore'):
+            with self.subTest(path=path):
+                base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'QUIC patch input')
+                head = self.commit()
+                plan = selector.select(config, base, head)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(old, base, head)
+        base = self.git('rev-parse', 'HEAD')
+        self.write('vendor-libp2p-quic-0.15.0/src/transport.rs', 'unregistered version')
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(config, base, self.commit())
+
     def test_rendezvous_patch_inputs_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
