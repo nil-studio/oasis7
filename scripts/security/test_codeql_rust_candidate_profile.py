@@ -1264,6 +1264,24 @@ class SummaryTests(unittest.TestCase):
                 self.assertEqual(report['state_limits']['active_bytes'], 4*1024**2)
                 self.assertIsNone(report['first_state_limit'])
 
+    def test_dense_pipeline_record_uses_reclaimed_index_space_without_skipping_validation(self):
+        # A public schema-valid record, not the unavailable private rejected
+        # row. Its 1,648,752-byte parse estimate exceeded the former work share.
+        value = self.member(pipelineRuns=[{'raReference': SYNTHETIC_CANARY} for _ in range(1100)])
+        data = json.dumps(value, separators=(',', ':')).encode()+b'\n'
+        report = self.accounting_stream(data)
+        self.assertEqual(report['status'], 'PROJECTED')
+        self.assertEqual(report['accepted_records'], 1)
+        self.assertEqual(report['rankings']['known_iteration_subtotal'][0]['known_iteration_subtotal'], 10)
+        self.assertEqual(report['negative_iteration_markers'], 1)
+        self.assertEqual(report['state_limits']['active_bytes'], 4*1024**2)
+        self.assertIsNone(report['first_state_limit'])
+        value['pipelineRuns'][-1]['counts'] = [True]
+        report = self.accounting_stream(json.dumps(value, separators=(',', ':')).encode()+b'\n')
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['accepted_records'], 0)
+        self.assertEqual(report['invalid_records'], 1)
+
     def test_literal_and_escaped_punctuation_keep_the_same_projection(self):
         value = self.row(predicateName=':'*4000)
         literal = json.dumps(value, separators=(',', ':')).encode()
@@ -1310,7 +1328,8 @@ class SummaryTests(unittest.TestCase):
 
     def test_late_wide_source_accounts_for_decoder_upgrade_before_json(self):
         observer = profile.Summary([QUERY])
-        data = b' '*180000+json.dumps(self.row(position='🙂'), ensure_ascii=False).encode()+b'\n'
+        padding = profile.SUMMARY_WORK_CAP//9+1
+        data = b' '*padding+json.dumps(self.row(position='🙂'), ensure_ascii=False).encode()+b'\n'
         with patch.object(profile, 'parse_json') as parse:
             with self.assertRaisesRegex(profile.ObservationError, '^SUMMARY_STATE_LIMIT$'):
                 for offset in range(0, len(data), 65536): observer.feed('stdout', data[offset:offset+65536])
@@ -1450,6 +1469,27 @@ class SummaryTests(unittest.TestCase):
             with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
                 index.first(digests[2],3)  # free capacity cannot extend the per-row probe bound
 
+    def test_summary_ra_full_capacity_keeps_unsigned_slots_and_wide_first_ordinals(self):
+        index = profile.SummaryRA()
+        self.assertEqual(len(index.slots)+len(index.entries), 1900544)
+        self.assertEqual(len(index.slots)+len(index.entries)+profile.SUMMARY_FIXED_RESERVE
+                         +profile.SUMMARY_CHUNK_CAP+profile.SUMMARY_WORK_CAP, 4*1024**2)
+        # Distinct complete digests select every slot from 16384 through 65535.
+        # Entry indexes cross the signed-16-bit boundary; record ordinals cross
+        # the unsigned-16-bit boundary and must retain their original values.
+        def digest(number):
+            return (16384+number).to_bytes(4, 'little')+number.to_bytes(28, 'little')
+        for number in range(49152):
+            self.assertEqual(index.first(digest(number), 50000+number), (50000+number, False))
+        self.assertEqual(len(index), 49152)
+        for number in (0, 15536, 32767, 32768, 49151):
+            self.assertEqual(index.first(digest(number), 100000), (50000+number, True))
+        with self.assertRaises(profile.SummaryStateLimit) as caught:
+            index.first(b'\0'*32, 100000)
+        self.assertEqual(caught.exception.kind, 'RA_CAPACITY')
+        self.assertEqual(len(index), 49152)
+        self.assertEqual(index.first(digest(49151), 100000), (99151, True))
+
     def test_parse_state_preflight_and_both_stream_pendings_share_the_same_budget(self):
         observer = profile.Summary([QUERY])
         data = b'{"values":['+b'0,'*24000+b'0]}\n'
@@ -1462,7 +1502,11 @@ class SummaryTests(unittest.TestCase):
         observer = profile.Summary([QUERY])
         chunk = b'x'*(64*1024)
         for _ in range(8): observer.feed('stdout',chunk)
-        for _ in range(4): observer.feed('stderr',chunk)
+        remaining = profile.SUMMARY_WORK_CAP//2-8*len(chunk)
+        while remaining:
+            part = chunk[:min(remaining, len(chunk))]
+            observer.feed('stderr',part)
+            remaining -= len(part)
         with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
             observer.feed('stderr',b'x')
         observer.feed('stdout',b'',final=True); observer.feed('stderr',b'',final=True)
