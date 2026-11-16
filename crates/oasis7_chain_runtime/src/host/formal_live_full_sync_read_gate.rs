@@ -157,9 +157,9 @@ struct InstalledHistory {
 }
 
 /// An explicit, pinned verifier for the provider's V3 full-sync read path.
-/// Production configuration currently has no source/clock adapter and fails
-/// closed before listener startup; tests inject signed evidence through the
-/// same route-facing gate.
+/// Ordinary production configuration supplies an explicitly pinned remote
+/// evidence source, or fails closed before listener startup. Signed responses
+/// remain untrusted until this gate verifies history, protected time and lease.
 pub(crate) struct FullSyncV3ReadGate {
     trust: InitialActivationTrustV1,
     v2_policy: VerifiedFullSyncIssuerPolicyV2,
