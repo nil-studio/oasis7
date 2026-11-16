@@ -862,3 +862,150 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
 
 #[path = "incremental_final_fact_tests.rs"]
 mod final_fact_tests;
+
+#[test]
+fn pending_write_inspection_is_net_delta_bounded_and_never_reads_parent() {
+    let pages = Pages::default();
+    let memory = memory();
+    let mut txn =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    let ns = StateNamespaceV1::Business;
+    txn.write(ns, b"changed", Some([1; 32])).unwrap();
+    txn.write(ns, b"changed", Some([2; 32])).unwrap();
+    txn.write(ns, b"reverted", Some([3; 32])).unwrap();
+    txn.write(ns, b"reverted", None).unwrap();
+    txn.read(ns, b"read-only").unwrap();
+    let reads = pages.reads.get();
+    let used = memory.used();
+    let mut work = 3;
+    let mut changes = 0;
+    txn.visit_pending_writes::<ExecutionError>(
+        ns,
+        &mut work,
+        || Ok(()),
+        |key, before, after| {
+            assert_eq!(key, b"changed");
+            assert_eq!(before, None);
+            assert_eq!(after, Some([2; 32]));
+            changes += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (work, changes, pages.reads.get(), memory.used()),
+        (0, 1, reads, used)
+    );
+    assert!(matches!(
+        txn.visit_pending_writes::<ExecutionError>(ns, &mut 2, || Ok(()), |_, _, _| Ok(())),
+        Err(ExecutionError::ResourceLimited(_))
+    ));
+    let cancelled = Cell::new(false);
+    assert!(
+        txn.visit_pending_writes::<ExecutionError>(
+            ns,
+            &mut 3,
+            || {
+                if cancelled.get() {
+                    Err(ExecutionError::Invalid("cancelled"))
+                } else {
+                    Ok(())
+                }
+            },
+            |_, _, _| {
+                cancelled.set(true);
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    let _: Result<(), ExecutionError> =
+        txn.contribute(|_| Err(ExecutionError::Invalid("owner failed")));
+    assert!(matches!(
+        txn.visit_pending_writes::<ExecutionError>(
+            ns,
+            &mut 3,
+            || Ok(()),
+            |_, _, _| panic!("aborted overlay visited")
+        ),
+        Err(ExecutionError::Aborted)
+    ));
+}
+
+#[test]
+fn pending_write_inspection_scopes_namespace_and_preserves_guard_on_callback_error() {
+    let pages = Pages::default();
+    let memory = memory();
+    let mut txn =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    txn.write(StateNamespaceV1::Business, b"b", Some([2; 32]))
+        .unwrap();
+    txn.write(StateNamespaceV1::Business, b"a", Some([1; 32]))
+        .unwrap();
+    txn.write(StateNamespaceV1::Scheduler, b"wake", Some([3; 32]))
+        .unwrap();
+    let guard = txn.guard();
+    let live = txn.parent_fence();
+    let mut allowance = 3;
+    let mut seen = Vec::new();
+    let result = txn.visit_pending_writes::<ExecutionError>(
+        StateNamespaceV1::Business,
+        &mut allowance,
+        || Ok(()),
+        |key, _, _| {
+            seen.push(key.to_vec());
+            Err(ExecutionError::Invalid("visitor failure"))
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(ExecutionError::Invalid("visitor failure"))
+    ));
+    assert_eq!(seen, vec![b"a".to_vec()]);
+    assert_eq!(allowance, 2);
+    txn.validate_guard(&guard, &live).unwrap();
+    seen.clear();
+    txn.visit_pending_writes::<ExecutionError>(
+        StateNamespaceV1::Business,
+        &mut allowance,
+        || Ok(()),
+        |key, _, _| {
+            seen.push(key.to_vec());
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(seen, vec![b"a".to_vec(), b"b".to_vec()]);
+    assert_eq!(allowance, 0);
+    let mut allowance = 1;
+    assert!(
+        txn.visit_pending_writes::<ExecutionError>(
+            StateNamespaceV1::Scheduler,
+            &mut allowance,
+            || Err(ExecutionError::Invalid("cancelled before visit")),
+            |_, _, _| panic!("cancelled visit"),
+        )
+        .is_err()
+    );
+    assert_eq!(allowance, 1);
+    let cancelled = Cell::new(false);
+    let mut allowance = 1;
+    assert!(
+        txn.visit_pending_writes::<ExecutionError>(
+            StateNamespaceV1::Scheduler,
+            &mut allowance,
+            || if cancelled.get() {
+                Err(ExecutionError::Invalid("last callback cancelled"))
+            } else {
+                Ok(())
+            },
+            |_, _, _| {
+                cancelled.set(true);
+                Ok(())
+            },
+        )
+        .is_err()
+    );
+    assert_eq!(allowance, 0);
+    txn.validate_guard(&guard, &live).unwrap();
+}
