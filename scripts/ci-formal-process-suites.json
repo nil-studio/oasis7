@@ -171,6 +171,11 @@
         "binary": "runtime-tests",
         "name": "node_lifecycle::formal_full_sync::tests::cli_process_tests::formal_full_state_sync_cli_dead_seed_joins_alternate_and_restarts_from_fixed_c0",
         "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
+        "name": "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_cli_tests::wire3_shipping_node_process_output_failure_preserves_original_namespace",
+        "ignored": true
       }
     ]
   },
@@ -193,7 +198,8 @@
       "healthy_durable_set_owner_",
       "formal_world_initialization_cli_",
       "formal_full_state_sync_cli",
-      "governance_history_"
+      "governance_history_",
+      "wire3_shipping_node_process_output_failure_preserves_original_namespace"
     ],
     "distfs-tests": [
       "formal_endpoint_child_process_dual_qualification_sigkill_reopen_original",

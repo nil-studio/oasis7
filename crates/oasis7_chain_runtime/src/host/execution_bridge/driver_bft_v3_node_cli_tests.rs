@@ -7,16 +7,27 @@ use std::os::unix::fs::PermissionsExt;
 fn wire3_formal_read_shipping_node_cli_commits_private_input_via_native_provider() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(cli_case)
+        .spawn(|| cli_case(false))
         .unwrap()
         .join()
         .unwrap();
 }
+#[test]
+#[ignore = "requires OASIS7_CHAIN_RUNTIME_BIN; provider backend is an in-memory test double"]
+fn wire3_shipping_node_process_output_failure_preserves_original_namespace() {
+    thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| cli_case(true))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 fn private_file(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
-fn cli_case() {
+fn cli_case(process_output_failure: bool) {
     let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
     let root = Scratch::new();
     let store = cas(root.path());
@@ -190,19 +201,26 @@ fn cli_case() {
     private_file(&config, &serde_json::to_vec(&config_value).unwrap());
     // No external fixture reader is passed to this production command. It
     // must restore the original Node H closure from its retained CAS receipt.
-    crate::identity_receipt::dispatch(
-        [
-            "bft-header",
-            "node",
-            "--config",
-            config.to_str().unwrap(),
-            "--actions",
-            input_path.to_str().unwrap(),
-        ]
-        .into_iter(),
-    )
-    .unwrap()
-    .unwrap();
+    if process_output_failure {
+        let (status, stderr) = process::run(&config, Some(&input_path), root.path(), true);
+        assert!(!status.success());
+        assert!(stderr.contains("public header Node report delivery failed"));
+        assert!(stderr.contains("do not resubmit"));
+    } else {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "node",
+                "--config",
+                config.to_str().unwrap(),
+                "--actions",
+                input_path.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+        .unwrap();
+    }
     server.join().unwrap().unwrap();
     let protected = snapshot.lock().unwrap().clone();
     assert!(protected.state.pending_driver_apply.is_none());
@@ -248,6 +266,22 @@ fn cli_case() {
     assert!(!public_json.contains(r#""payload_cbor":"#));
     assert!(!public_json.contains("shipping-wire3-node-cli-agent"));
     assert!(!public_json.contains("shipping-wire3-original-reservation-agent"));
+    if process_output_failure {
+        // A fresh shipping process restores the same retained H namespace without
+        // resubmitting either action or contacting a new provider. The original
+        // server is already stopped. Binding preparation does not mint authority.
+        let before = serde_cbor::to_vec(&snapshot.lock().unwrap().state).unwrap();
+        let (status, stderr) = process::run(&config, None, root.path(), false);
+        assert!(status.success(), "cold binding process failed: {stderr}");
+        let cold: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.path().join("process.stdout")).unwrap()).unwrap();
+        assert_eq!(cold["binding_digest"], report.binding_digest);
+        assert_eq!(
+            serde_cbor::to_vec(&snapshot.lock().unwrap().state).unwrap(),
+            before
+        );
+        assert_eq!(protected.state.history.len(), 2);
+    }
     let public_bytes = serde_cbor::to_vec(&protected.state).unwrap();
     assert!(!public_bytes.windows(input.len()).any(|part| part == input));
     let mut ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
@@ -282,3 +316,6 @@ fn cli_case() {
         certificate.execution_commitment.state_root
     );
 }
+
+#[path = "driver_bft_v3_node_cli_process.rs"]
+mod process;
