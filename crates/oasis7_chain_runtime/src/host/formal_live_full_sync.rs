@@ -13,7 +13,7 @@ use oasis7_client_api::world_service_full_sync::{
     FormalFullSyncArtifactRoleV1 as WireRole, FormalFullSyncArtifactRootV1, FormalFullSyncCutV1,
     FormalFullSyncManifestRequestV1, FormalFullSyncManifestV1, FormalFullSyncObjectChunkV1,
     FormalFullSyncObjectDescriptorV1, FormalFullSyncObjectRequestV1, FormalNodeReadGrantV1,
-    MAX_FULL_SYNC_RECORD_BYTES,
+    MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES, MAX_FULL_SYNC_RECORD_BYTES,
 };
 use oasis7_distfs::controlled_authority::{
     formal::{business_index::BusinessIndexNodeKindV1, verify_record_material},
@@ -171,8 +171,13 @@ pub(super) fn handle_object(service: &FormalLiveService, body: &[u8]) -> HttpRep
                 "formal full-sync offset exceeds object".into(),
             ));
         }
+        let encoded_limit = FormalFullSyncObjectChunkV1::bounded_payload_bytes(
+            &signed.request.cut,
+            &signed.request.content_hash,
+        )
+        .map_err(FormalReadError::RequestRejected)?;
         let end = start
-            .saturating_add(signed.request.max_bytes as usize)
+            .saturating_add((signed.request.max_bytes as usize).min(encoded_limit))
             .min(bytes.len());
         let payload = FormalFullSyncObjectChunkV1 {
             schema_version: 1,
@@ -826,7 +831,7 @@ fn finish_full_sync_response<T: serde::Serialize>(
 ) -> HttpReply {
     let Some(gate) = service.full_sync_read_gate.as_ref() else {
         return match reauthorize_for_response(service, grant, requested, subject_public_key) {
-            Ok(()) => signed_reply_with_digest(200, path, digest, payload, &service.signer),
+            Ok(()) => bounded_full_sync_reply(service, path, digest, payload),
             Err(error) => rejected(path, digest, &error, service),
         };
     };
@@ -845,18 +850,39 @@ fn finish_full_sync_response<T: serde::Serialize>(
             )
         })?;
         qualify_cached_entry(service, requested, &current.anchor, &entry.qualified_head)?;
-        Ok(signed_reply_with_digest(
-            200,
+        Ok(bounded_full_sync_reply(
+            service,
             path,
             digest.clone(),
             payload,
-            &service.signer,
         ))
     });
     match reply {
         Ok(reply) => reply,
         Err(error) => rejected(path, digest, &error, service),
     }
+}
+
+// Check the actual complete encoding as well as the precomputed worst-case
+// chunk bound, while still inside the authorization response boundary.
+fn bounded_full_sync_reply<T: serde::Serialize>(
+    service: &FormalLiveService,
+    path: &str,
+    digest: Result<String, String>,
+    payload: &T,
+) -> HttpReply {
+    let reply = signed_reply_with_digest(200, path, digest.clone(), payload, &service.signer);
+    if path == FORMAL_FULL_SYNC_OBJECT_PATH
+        && reply.body.len() > MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES
+    {
+        return rejected(
+            path,
+            digest,
+            &FormalReadError::Internal("full-sync object encoded response exceeds bound".into()),
+            service,
+        );
+    }
+    reply
 }
 
 fn rejected(
