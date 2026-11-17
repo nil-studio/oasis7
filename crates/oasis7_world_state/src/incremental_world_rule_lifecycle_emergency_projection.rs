@@ -56,9 +56,10 @@ where
         compare.checked_add(move_bytes).ok_or_else(limited)?,
     )
 }
-pub(super) fn outer_key<M, R, E, C>(
+pub(super) fn selector_key<M, R, E, C>(
     p: &TypedRecordProfileV1,
-    cell: &TypedCellRefV1<'_>,
+    before: Option<&TypedCellRefV1<'_>>,
+    after: Option<&TypedCellRefV1<'_>>,
     d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
 ) -> Result<Option<ReservedValue<ColumnKeyV1>>, ValueTreeError>
 where
@@ -67,7 +68,52 @@ where
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 {
-    let parsed = key(p, cell, d)?;
+    let cell = after.or(before).ok_or_else(invalid)?;
+    let metadata = match cell {
+        TypedCellRefV1::Entry(entry) => WorldFieldKeyV1::from_bytes(&entry.key)
+            .is_ok_and(|parsed| parsed.kind == WorldFieldRecordKindV1::Metadata),
+        TypedCellRefV1::Body(_) => false,
+    };
+    if !metadata {
+        // Preserve the original Entry-only decoder and its error ordering.
+        return key(p, cell, d).map(Some);
+    }
+    // Bootstrap visits the complete container, including its Metadata leaf.
+    // Authenticate every actual edge with the original presence codec before
+    // omitting it from selector data; a key alone does not prove presence.
+    d.check()?;
+    let expected = WorldFieldKeyV1::new(p.field, WorldFieldRecordKindV1::Metadata, None)
+        .map_err(ValueTreeError::Invalid)?;
+    for edge in [before, after].into_iter().flatten() {
+        let TypedCellRefV1::Entry(entry) = edge else {
+            return Err(invalid());
+        };
+        let binding = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
+        if binding.semantic_key.is_some()
+            || entry.key != expected.as_bytes()
+            || entry.namespace != p.namespace()?
+        {
+            return Err(invalid());
+        }
+        d.ctx.records().presence(&entry.value, &expected, 0)?;
+    }
+    Ok(None)
+}
+pub(super) fn outer_key<M, R, E, C>(
+    p: &TypedRecordProfileV1,
+    before: Option<&TypedCellRefV1<'_>>,
+    after: Option<&TypedCellRefV1<'_>>,
+    d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
+) -> Result<Option<ReservedValue<ColumnKeyV1>>, ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let Some(parsed) = selector_key(p, before, after, d)? else {
+        return Ok(None);
+    };
     match &*parsed {
         ColumnKeyV1::Text(name) if name == "_length" => Ok(None),
         ColumnKeyV1::Pair(kind, value) if matches!(&**kind,ColumnKeyV1::Text(name) if name=="entry") =>
@@ -108,8 +154,7 @@ where
     let old = map_root(before, "authorizations", d)?;
     let new = map_root(after, "authorizations", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let Some(parsed_outer) = outer_key(&p, cell, d)? else {
+        let Some(parsed_outer) = outer_key(&p, before, after, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
@@ -162,8 +207,7 @@ where
     let old = map_root(before, "batches", d)?;
     let new = map_root(after, "batches", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let Some(parsed_outer) = outer_key(&p, cell, d)? else {
+        let Some(parsed_outer) = outer_key(&p, before, after, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
@@ -206,8 +250,7 @@ where
     let old = map_root(before, "observations", d)?;
     let new = map_root(after, "observations", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let Some(parsed_outer) = outer_key(&p, cell, d)? else {
+        let Some(parsed_outer) = outer_key(&p, before, after, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
@@ -246,8 +289,7 @@ where
     let old = map_root(before, "minimum_services", d)?;
     let new = map_root(after, "minimum_services", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let Some(parsed_outer) = outer_key(&p, cell, d)? else {
+        let Some(parsed_outer) = outer_key(&p, before, after, d)? else {
             return d.check();
         };
         let outer = outer_text(&parsed_outer)?;
@@ -403,3 +445,7 @@ where
     ctx.check()?;
     Ok(directory)
 }
+
+#[cfg(test)]
+#[path = "incremental_world_rule_lifecycle_emergency_projection_tests.rs"]
+mod tests;

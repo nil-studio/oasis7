@@ -370,8 +370,7 @@ where
     let old = map_root(before, "evidence", d)?;
     let new = map_root(after, "evidence", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let Some(key) = outer_key(&p, cell, d)? else {
+        let Some(key) = outer_key(&p, before, after, d)? else {
             return d.check();
         };
         let id = outer_text(&key)?;
@@ -455,8 +454,7 @@ where
     let old = map_root(before, "services", d)?;
     let new = map_root(after, "services", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let Some(key) = outer_key(&p, cell, d)? else {
+        let Some(key) = outer_key(&p, before, after, d)? else {
             return d.check();
         };
         let id = outer_text(&key)?;
@@ -541,8 +539,9 @@ where
     let old = map_root(before, "overflowed_windows", d)?;
     let new = map_root(after, "overflowed_windows", d)?;
     visit_entries(&old, &new, d, |before, after, d| {
-        let cell = after.or(before).ok_or_else(invalid)?;
-        let key = key(&p, cell, d)?;
+        let Some(key) = super::projection::selector_key(&p, before, after, d)? else {
+            return d.check();
+        };
         if matches!(&*key,ColumnKeyV1::Text(s) if s=="_length") {
             return d.check();
         }
