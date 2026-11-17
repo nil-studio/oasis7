@@ -39,9 +39,11 @@ pub(crate) struct ProvisionalProjectedGenesisBusinessV1 {
     descriptor_wire: ReservedValue<Vec<u8>>,
     delta_wire: ReservedValue<Vec<u8>>,
     retention_wire: ReservedValue<Vec<u8>>,
+    roots_wire: ReservedValue<Vec<u8>>,
     descriptor_ref: OriginalArtifactRefV1,
     delta_ref: OriginalArtifactRefV1,
     retention_ref: OriginalArtifactRefV1,
+    roots_ref: OriginalArtifactRefV1,
     allocation: MemoryReservation,
 }
 
@@ -70,6 +72,10 @@ impl ProvisionalProjectedGenesisBusinessV1 {
         (self.retention_ref, &self.retention_wire)
     }
 
+    pub(crate) fn roots_original(&self) -> (OriginalArtifactRefV1, &ReservedValue<Vec<u8>>) {
+        (self.roots_ref, &self.roots_wire)
+    }
+
     pub(crate) fn validate_context(&self, common: &mut FormalBoundedContextV1<'_>) -> Result<()> {
         self.projected
             .projected()
@@ -84,6 +90,7 @@ impl ProvisionalProjectedGenesisBusinessV1 {
             || !self.descriptor_wire.uses_budget(common.memory())
             || !self.delta_wire.uses_budget(common.memory())
             || !self.retention_wire.uses_budget(common.memory())
+            || !self.roots_wire.uses_budget(common.memory())
             || !self
                 .projected
                 .retention_manifest()
@@ -333,9 +340,11 @@ pub(crate) fn persist_projected_genesis_business_v1(
         descriptor_wire,
         delta_wire,
         retention_wire,
+        roots_wire,
         descriptor_ref,
         delta_ref,
         retention_ref,
+        roots_ref,
     ) = {
         let business = projected
             .prepare_business_output_bounded_v1(&NoPriorNodes, common, &mut work.canonical)
@@ -397,6 +406,29 @@ pub(crate) fn persist_projected_genesis_business_v1(
         let retention_wire = retention_wire
             .map_err(|error| Error::Body(BodyMutationError::Original(Box::new(error))))?;
         let retention_ref = write_original(&objects, &retention_wire, None, work, common, stop)?;
+        let roots_wire = {
+            // This SAME source already computed final_roots().digest(), so the
+            // shared empty-state table is initialized by the genuine GEN path.
+            // The warm fixed codec has <=759 output bytes, six serial <=128B
+            // state-root buffers and <=32B hex temporaries. Its digest scans,
+            // comparisons and copies fit 8KiB of work beside 4KiB admission.
+            common.charge(64, 3 * 4096).map_err(context_error)?;
+            let mut encoding = memory
+                .reserve(4096, MemoryClass::Ordinary)
+                .map_err(PageStoreError::Memory)?;
+            let bytes = actual_source
+                .final_roots()
+                .canonical_bytes()
+                .map_err(|error| Error::Body(BodyMutationError::Original(Box::new(error))))?;
+            if bytes.len() > 1024 || bytes.capacity() > 1024 {
+                return Err(PageStoreError::Corrupt("GEN RootSet encoding bound").into());
+            }
+            let charge = encoding
+                .split(bytes.capacity())
+                .map_err(|_| PageStoreError::Corrupt("GEN RootSet wire accounting"))?;
+            charge.retain(bytes)
+        };
+        let roots_ref = write_original(&objects, &roots_wire, Some(roots), work, common, stop)?;
         // Consume the same update at the original final source-check boundary.
         // This ends its borrow of projected without releasing either graph.
         let (owned_descriptor, owned_delta) = business
@@ -408,9 +440,11 @@ pub(crate) fn persist_projected_genesis_business_v1(
             descriptor,
             delta,
             retention_wire,
+            roots_wire,
             descriptor_ref,
             delta_ref,
             retention_ref,
+            roots_ref,
         )
     };
     cancelled(stop)?;
@@ -422,9 +456,11 @@ pub(crate) fn persist_projected_genesis_business_v1(
         descriptor_wire,
         delta_wire,
         retention_wire,
+        roots_wire,
         descriptor_ref,
         delta_ref,
         retention_ref,
+        roots_ref,
         allocation,
     })
 }
