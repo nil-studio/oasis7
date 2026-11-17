@@ -16,7 +16,7 @@ mod worker_ownership_tests;
 /// Stop may detach a bounded network poll; it must not permit a new incarnation
 /// to enter while the old poll can still access the same persistent state.
 fn spawn_owned_worker<T, F>(
-    ownership: Arc<File>,
+    ownership: Arc<ProcessOwnership>,
     work: F,
 ) -> std::io::Result<std::thread::JoinHandle<T>>
 where
@@ -56,10 +56,11 @@ impl Drop for WorkerStop {
 pub(super) fn supervise(
     config: &NodeConfig,
     intent: &mut ActionRecord,
-    ownership: File,
+    ownership: ProcessOwnership,
     full_sync_config: &super::super::formal_full_sync::FormalFullSyncConfigV1,
 ) -> Result<(), String> {
     let data = &config.identity.data_dir;
+    ownership.require_directory(data)?;
     let socket_dir = control_dir(data)?;
     io::private_dir(&socket_dir)?;
     let socket_path = control_path(data)?;
