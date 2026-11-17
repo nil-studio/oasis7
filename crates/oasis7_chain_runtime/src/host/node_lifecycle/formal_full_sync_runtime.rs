@@ -40,11 +40,14 @@ struct WorkerStop {
 }
 impl WorkerStop {
     fn stop(&self) {
+        // Publish cancellation before waiting for an in-flight status write.
+        // The worker can then observe stop while holding this gate; acquiring
+        // it below still waits for that write before terminal stop is saved.
+        self.flag.store(true, Ordering::SeqCst);
         let _guard = self
             .status_gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.flag.store(true, Ordering::SeqCst);
     }
 }
 impl Drop for WorkerStop {

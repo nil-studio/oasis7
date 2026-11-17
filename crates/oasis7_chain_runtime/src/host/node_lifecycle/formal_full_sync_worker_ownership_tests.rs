@@ -127,3 +127,32 @@ fn full_sync_owner_rejects_replaced_directory() {
     drop(lock(&moved).unwrap());
     fs::remove_dir_all(moved).unwrap();
 }
+
+#[test]
+fn stop_is_visible_before_status_gate_is_released() {
+    let flag = Arc::new(AtomicBool::new(false));
+    let gate = Arc::new(Mutex::new(()));
+    let held = gate.lock().unwrap();
+    let stop = WorkerStop {
+        flag: Arc::clone(&flag),
+        status_gate: Arc::clone(&gate),
+    };
+    let (done_tx, done_rx) = mpsc::channel();
+    let stopper = std::thread::spawn(move || {
+        stop.stop();
+        done_tx.send(()).unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !flag.load(Ordering::SeqCst) && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    let visible_while_locked = flag.load(Ordering::SeqCst);
+    let returned_while_locked = done_rx.try_recv().is_ok();
+    // Release even on a failed assertion, so the regression never strands a
+    // thread behind the gate it intentionally holds.
+    drop(held);
+    done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    stopper.join().unwrap();
+    assert!(visible_while_locked, "stop was hidden by the status gate");
+    assert!(!returned_while_locked, "stop returned before the status write");
+}
