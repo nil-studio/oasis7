@@ -7,7 +7,7 @@ use crate::{
     },
     incremental_typed_record_diff::point_typed_column_v1,
     incremental_typed_record_diff::{TypedCellRefV1, key, root, visit_entries},
-    world_rules::{OrganizationContinuityCaseV1, OrganizationContinuityPhaseV1},
+    world_rules::OrganizationContinuityPhaseV1,
 };
 pub(super) fn spend(
     scan: &mut StateScanBudget,
@@ -161,19 +161,32 @@ pub(super) fn update<
             };
             if let Some(new) = new {
                 let body = root(&p, new, d)?;
-                let value = recover_typed_record_body_v1::<OrganizationContinuityCaseV1, _, _, _, _>(
-                    &body, &p, d.ctx, d.scan, d.work,
-                )?;
-                let value = value.value();
+                // The caller has already accepted the complete changed body.
+                // Resident flags need only these original selected columns;
+                // keep the original closed phase codec for its small subtree.
+                let cap = d.work.max_tree_heap;
+                let phase_column = point_typed_column_v1(&p, &body, "phase", d, cap)?;
+                let ColumnCellV1::Root(phase_root) = &phase_column.cell else {
+                    return Err(invalid());
+                };
+                let phase =
+                    recover_typed_record_body_v1::<OrganizationContinuityPhaseV1, _, _, _, _>(
+                        phase_root, &p, d.ctx, d.scan, d.work,
+                    )?;
+                let organization_column =
+                    point_typed_column_v1(&p, &body, "organization_id", d, cap)?;
+                let ColumnCellV1::Text(organization) = &organization_column.cell else {
+                    return Err(invalid());
+                };
                 let active = !matches!(
-                    value.phase,
+                    phase.value(),
                     OrganizationContinuityPhaseV1::Resolved
                         | OrganizationContinuityPhaseV1::Cancelled
                 );
                 builder.put(
                     OrganizationScopeKindV1::Continuity,
                     id,
-                    &value.organization_id,
+                    organization,
                     OrganizationScopeFlagsV1 {
                         active_case: active,
                         risk_frozen: active,
